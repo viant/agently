@@ -1,0 +1,2 @@
+The tool ${Tool} returned an error: ${Error}. Original args: ${Args}
+Provide the corrected args as a JSON object only.

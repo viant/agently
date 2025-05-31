@@ -1,0 +1,9 @@
+id: gemini-pro
+options:
+  description: Gemini Pro model from Google
+  provider: googleai
+  apiKeyURL: secrets/googleai
+  credentialsURL: secrets/gcp-credentials
+  model: gemini-pro
+  temperature: 0.8
+  maxTokens: 2048

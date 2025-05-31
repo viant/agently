@@ -1,0 +1,15 @@
+agent:
+  id: "agent-123"
+  name: "Database tester Agent"
+  icon: "https://example.com/icon.png"
+  modelRef: o1
+  temperature: 0.7
+  description: "An example agent for demonstration purposes."
+  knowledge:
+    - description: "Database testing documentation"
+      locations: 
+        - "knowledge/db/mysql"
+        - "knowledge/db/postgres"
+    - description: "Testing best practices"
+      locations:
+        - "knowledge/testing/best-practices"

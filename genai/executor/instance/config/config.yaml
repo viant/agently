@@ -1,0 +1,16 @@
+default:
+  model: o4-mini
+  agent: chat
+models:
+  items:
+    - id: o4-mini
+      description: OpenAI mini model
+      options:
+        provider: openai
+        model: o4-mini
+agents:
+  items:
+    - id: chat
+      name: Chat
+      modelRef: o4-mini
+      description: Default conversational agent

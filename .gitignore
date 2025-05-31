@@ -1,0 +1,15 @@
+.idea/
+.db/
+tmp/
+.junie/
+repo/
+deprecated/local/
+.tmp/
+.gocache/
+.gotmp/
+local_test.go
+.env
+node_modules/
+dist/
+package-lock.json
+deprecated/

@@ -1,0 +1,151 @@
+package agent
+
+import (
+	"bytes"
+	"sync"
+	"text/template"
+
+	"github.com/viant/agently/genai/llm"
+	"github.com/viant/velty"
+)
+
+type (
+
+	// Identity represents actor identity
+
+	Source struct {
+		URL string `yaml:"url,omitempty" json:"url,omitempty"`
+	}
+
+	// Agent represents an agent
+	Agent struct {
+		Identity    `yaml:",inline" json:",inline"`
+		Source      *Source `yaml:"source,omitempty" json:"source,omitempty"`           // Source of the agent
+		Model       string  `yaml:"modelRef,omitempty" json:"model,omitempty"`          // Language model configuration
+		Temperature float64 `yaml:"temperature,omitempty" json:"temperature,omitempty"` // Temperature
+		Description string  `yaml:"description,omitempty" json:"description,omitempty"` // Description of the agent
+		Prompt      string  `yaml:"prompt,omitempty" json:"prompt,omitempty"`           // Prompt template
+
+		Tool []*llm.Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
+
+		// Agent's knowledge base (optional)
+		Knowledge []*Knowledge `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
+
+		// cached compiled go template for prompt (if Prompt is static)
+		parsedTemplate *template.Template `yaml:"-" json:"-"`
+		once           sync.Once          `yaml:"-" json:"-"`
+		parseErr       error              `yaml:"-" json:"-"`
+	}
+)
+
+func (a *Agent) Validate() error {
+	return nil
+}
+
+// GeneratePrompt generates a prompt from the agent's template using provided query and enrichment data
+func (a *Agent) GeneratePrompt(query string, enrichment string) (string, error) {
+	if a.Prompt == "" {
+		// Use default template if not specified
+		return a.generateDefaultPrompt(query, enrichment), nil
+	}
+
+	// Try to use velty template engine first
+	promptText, err := a.generateVeltyPrompt(query, enrichment)
+	if err == nil {
+		return promptText, nil
+	}
+
+	// Fall back to text/template if velty fails
+	return a.generateGoTemplatePrompt(query, enrichment)
+}
+
+// generateVeltyPrompt uses velty engine to process the template
+func (a *Agent) generateVeltyPrompt(query string, enrichment string) (string, error) {
+	planner := velty.New()
+
+	if err := planner.DefineVariable("Find", a); err != nil {
+		return "", err
+	}
+	if err := planner.DefineVariable("Query", query); err != nil {
+		return "", err
+	}
+	if err := planner.DefineVariable("Enrichment", enrichment); err != nil {
+		return "", err
+	}
+
+	exec, newState, err := planner.Compile([]byte(a.Prompt))
+	if err != nil {
+		return "", err
+	}
+
+	state := newState()
+	if err := state.SetValue("Find", a); err != nil {
+		return "", err
+	}
+	if err := state.SetValue("Query", query); err != nil {
+		return "", err
+	}
+	if err := state.SetValue("Enrichment", enrichment); err != nil {
+		return "", err
+	}
+
+	if err := exec.Exec(state); err != nil {
+		return "", err
+	}
+
+	return string(state.Buffer.Bytes()), nil
+}
+
+// generateGoTemplatePrompt uses Go's text/template to process the template
+func (a *Agent) generateGoTemplatePrompt(query string, enrichment string) (string, error) {
+	// lazily compile template once
+	a.once.Do(func() {
+		a.parsedTemplate, a.parseErr = template.New("prompt").Parse(a.Prompt)
+	})
+	if a.parseErr != nil {
+		return "", a.parseErr
+	}
+
+	data := map[string]interface{}{
+		"Find":       a,
+		"Query":      query,
+		"Enrichment": enrichment,
+	}
+
+	var buf bytes.Buffer
+	if err := a.parsedTemplate.Execute(&buf, data); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
+// generateDefaultPrompt creates a simple default prompt if no template is provided
+func (a *Agent) generateDefaultPrompt(query string, enrichment string) string {
+	var buf bytes.Buffer
+
+	buf.WriteString("You are ")
+	if a.Name != "" {
+		buf.WriteString(a.Name)
+	} else {
+		buf.WriteString("an AI assistant")
+	}
+
+	if a.Description != "" {
+		buf.WriteString(", ")
+		buf.WriteString(a.Description)
+	}
+
+	buf.WriteString("\n\n")
+
+	if enrichment != "" {
+		buf.WriteString("Document details:\n")
+		buf.WriteString(enrichment)
+		buf.WriteString("\n\n")
+	}
+
+	buf.WriteString("Here is user query: ")
+	buf.WriteString(query)
+
+	return buf.String()
+}
