@@ -2,9 +2,17 @@ package provider
 
 // Config is a struct that represents a model with an ID and options.
 type Config struct {
-	ID          string  `yaml:"id" json:"id"`
-	Description string  `yaml:"description" json:"description"`
-	Options     Options `yaml:"options"`
+	ID           string  `yaml:"id" json:"id"`
+	Description  string  `yaml:"description" json:"description"`
+	Intelligence float64 `yaml:"intelligence" json:"intelligence"`
+	Speed        float64 `yaml:"speed" json:"speed"`
+	Options      Options `yaml:"options"`
+}
+
+type TokenCost struct {
+	Input  float64 `yaml:"inputTokenPrice" json:"inputTokenPrice"`
+	Output float64 `yaml:"outputTokenPrice" json:"outputTokenPrice"`
+	Unit   int
 }
 
 // Configs is a slice of Config pointers.

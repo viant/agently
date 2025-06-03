@@ -12,7 +12,7 @@ type Elicitation struct {
 }
 
 func (e *Elicitation) IsEmpty() bool {
-	return e.Prompt == "" && len(e.MissingFields) == 0
+	return e == nil || e.Prompt == "" && len(e.MissingFields) == 0
 }
 
 // MissingField describes one piece of information that needs user input.

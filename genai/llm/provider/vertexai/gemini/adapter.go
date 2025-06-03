@@ -3,14 +3,16 @@ package gemini
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"mime"
+	"path"
+	"strings"
+
 	"github.com/viant/afs"
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/http"
 	"github.com/viant/afs/url"
 	"github.com/viant/agently/genai/llm"
-	"mime"
-	"path"
-	"strings"
 )
 
 // ToRequest converts an llm.ChatRequest to a Gemini Request
@@ -24,6 +26,8 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 
 	// Set options if provided
 	if request.Options != nil {
+		// Propagate streaming flag if requested
+		req.Stream = request.Options.Stream
 		// Set generation config
 		req.GenerationConfig = &GenerationConfig{}
 
@@ -133,6 +137,43 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		content := Content{
 			Role:  role,
 			Parts: []Part{},
+		}
+
+		// Handle assistant tool calls and tool results before regular content
+		if len(msg.ToolCalls) > 0 {
+			for _, tc := range msg.ToolCalls {
+				argsJSON, _ := json.Marshal(tc.Arguments)
+				content.Parts = append(content.Parts, Part{
+					FunctionCall: &FunctionCall{
+						Name:      tc.Name,
+						Arguments: string(argsJSON),
+					},
+				})
+			}
+			req.Contents = append(req.Contents, content)
+			continue
+		}
+		if msg.Role == llm.RoleTool && msg.ToolCallId != "" {
+			if len(msg.Items) > 0 {
+				for _, item := range msg.Items {
+					text := item.Data
+					content.Parts = append(content.Parts, Part{
+						FunctionResponse: &FunctionResponse{
+							Name:     msg.Name,
+							Response: text,
+						},
+					})
+				}
+			} else if msg.Content != "" {
+				content.Parts = append(content.Parts, Part{
+					FunctionResponse: &FunctionResponse{
+						Name:     msg.Name,
+						Response: msg.Content,
+					},
+				})
+			}
+			req.Contents = append(req.Contents, content)
+			continue
 		}
 
 		// Handle content based on priority: Items > ContentItems > Result

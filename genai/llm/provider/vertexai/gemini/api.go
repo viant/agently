@@ -1,13 +1,16 @@
 package gemini
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/genai/llm"
 	"io"
 	"net/http"
+	"strings"
+
+	"github.com/viant/agently/genai/llm"
 )
 
 // Generate generates a response using the Gemini API
@@ -74,4 +77,64 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
 	}
 	return llmsResp, nil
+}
+
+// Stream sends a chat request to the Gemini API with streaming enabled and returns a channel of partial responses.
+func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-chan llm.StreamEvent, error) {
+	if c.APIKey == "" {
+		return nil, fmt.Errorf("API key is required")
+	}
+	if c.Model == "" {
+		return nil, fmt.Errorf("model is required")
+	}
+	// Convert llm.GenerateRequest to wire request and enable streaming
+	req, err := ToRequest(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	req.Stream = true
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	apiURL := fmt.Sprintf("%s/%s:generateContent?key=%s", c.BaseURL, c.Model, c.APIKey)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+
+	events := make(chan llm.StreamEvent)
+	go func() {
+		defer resp.Body.Close()
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "[DONE]" {
+				break
+			}
+			var chunk Response
+			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+				events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream response: %w", err)}
+				break
+			}
+			events <- llm.StreamEvent{Response: ToLLMSResponse(&chunk)}
+		}
+		if err := scanner.Err(); err != nil {
+			events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
+		}
+		close(events)
+	}()
+	return events, nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/model"
+	fluxorpolicy "github.com/viant/fluxor/policy"
 	"time"
 )
 
@@ -50,6 +51,18 @@ func RegisterWorkflow(rt *fluxor.Runtime, wf *model.Workflow, registry *tool.Reg
 			args = map[string]interface{}{}
 		}
 
+		// Propagate tool.Policy into fluxor policy when absent so that
+		// workflow execution honours ask/auto/deny settings consistently.
+		if fluxorpolicy.FromContext(ctx) == nil {
+			if tpol := tool.FromContext(ctx); tpol != nil {
+				ctx = fluxorpolicy.WithPolicy(ctx, &fluxorpolicy.Policy{
+					Mode:      tpol.Mode,
+					AllowList: tpol.AllowList,
+					BlockList: tpol.BlockList,
+				})
+			}
+		}
+
 		_, wait, err := rt.StartProcess(ctx, wf, args)
 		if err != nil {
 			return "", err
@@ -71,5 +84,5 @@ func RegisterWorkflow(rt *fluxor.Runtime, wf *model.Workflow, registry *tool.Reg
 // versions that exposed the helper under this exact name inside a different
 // package path.  New code should call RegisterWorkflow.
 func RegisterWorkflowAsTool(rt *fluxor.Runtime, wf *model.Workflow, registry *tool.Registry) {
-    RegisterWorkflow(rt, wf, registry)
+	RegisterWorkflow(rt, wf, registry)
 }

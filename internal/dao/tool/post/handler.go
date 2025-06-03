@@ -4,17 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/viant/agently/pkg/dependency/checksum"
 	"github.com/viant/xdatly/handler"
 	"github.com/viant/xdatly/handler/response"
 	"github.com/viant/xdatly/types/core"
 	"net/http"
 	"reflect"
 )
-
-func init() {
-	core.RegisterType(PackageName, "Handler", reflect.TypeOf(Handler{}), checksum.GeneratedTime)
-}
 
 type Handler struct{}
 

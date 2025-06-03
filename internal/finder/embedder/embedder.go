@@ -34,7 +34,7 @@ func New(options ...Option) *Finder {
 	return d
 }
 
-// Embedder returns a ready-to-use embeddings.Embedder by ID, creating and
+// Find returns a ready-to-use embeddings.Embedder by ID, creating and
 // caching it on first request.
 func (d *Finder) Find(ctx context.Context, id string) (embeddings.Embedder, error) {
 	d.mux.RLock()

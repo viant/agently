@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/viant/agently/genai/llm"
 	authAws "github.com/viant/scy/auth/aws"
 )
@@ -68,6 +69,59 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
 	}
 	return llmsResp, nil
+}
+
+// Stream sends a chat request to the Claude API on AWS Bedrock with streaming enabled
+// and returns a channel of partial responses.
+func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-chan llm.StreamEvent, error) {
+	if c.Model == "" {
+		return nil, fmt.Errorf("model is required")
+	}
+	req, err := ToRequest(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	req.AnthropicVersion = c.AnthropicVersion
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	input := &bedrockruntime.InvokeModelWithResponseStreamInput{
+		ModelId:     aws.String(c.Model),
+		Body:        data,
+		ContentType: aws.String("application/json"),
+	}
+	output, err := c.BedrockClient.InvokeModelWithResponseStream(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("failed to invoke Bedrock stream model: %w", err)
+	}
+
+	events := make(chan llm.StreamEvent)
+	go func() {
+		es := output.GetStream()
+		defer es.Close()
+		for ev := range es.Events() {
+			switch chunk := ev.(type) {
+			case *types.ResponseStreamMemberChunk:
+				var apiResp Response
+				if err := json.Unmarshal(chunk.Value.Bytes, &apiResp); err != nil {
+					events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream chunk: %w", err)}
+					return
+				}
+				apiResp.Model = c.Model
+				events <- llm.StreamEvent{Response: ToLLMSResponse(&apiResp)}
+			default:
+				// ignore unknown events
+			}
+		}
+		if err := es.Err(); err != nil {
+			events <- llm.StreamEvent{Err: err}
+		}
+		close(events)
+	}()
+	return events, nil
 }
 
 func (c *Client) loadAwsConfig(ctx context.Context) (*aws.Config, error) {

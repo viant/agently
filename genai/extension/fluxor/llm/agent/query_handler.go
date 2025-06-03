@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -41,15 +42,14 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 		return err
 	}
 
-	// 2. Record user message and build conversation context string.
+	// 2. Build conversation context string (excluding the current user message), then record the new user message.
 	convID := s.conversationID(qi)
-	if err := s.addMessage(ctx, convID, "user", qi.Query); err != nil {
-		log.Printf("warn: cannot record message: %v", err)
-	}
-
 	convContext, err := s.conversationContext(ctx, convID, qi)
 	if err != nil {
 		return err
+	}
+	if err := s.addMessage(ctx, convID, "user", qi.Query); err != nil {
+		log.Printf("warn: cannot record message: %v", err)
 	}
 
 	// 3. Decide whether to run the full plan/exec/finish workflow.
@@ -154,29 +154,44 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	enrichment := s.buildEnrichment(convCtx, s.formatDocumentsForEnrichment(docs, qi.IncludeFile))
 
 	// 2. System prompt from agent template.
-	sysPrompt, err := qi.Agent.GeneratePrompt(qi.Query, enrichment)
+	sysPrompt, err := s.buildSystemPrompt(ctx, qi, enrichment)
 	if err != nil {
-		return fmt.Errorf("prompt generation failed: %w", err)
+		return err
 	}
-	if strings.TrimSpace(sysPrompt) != "" {
-		enrichment = sysPrompt + "\n\n" + enrichment
+	wf, initial, err := s.loadWorkflow(qi, enrichment, sysPrompt)
+	if err != nil {
+		return err
 	}
-
-	wf, initial := s.buildWorkflow(qi, enrichment, sysPrompt)
-
 	// inject policy mode
 	if p := tool.FromContext(ctx); p != nil {
 		initial[keyToolPolicy] = p.Mode
 	}
-
 	// 3. Run workflow
 	_, wait, err := s.runtime.StartProcess(ctx, wf, initial)
 	if err != nil {
 		return fmt.Errorf("workflow start error: %w", err)
 	}
+
 	result, err := wait(ctx, s.workflowTimeout)
 	if err != nil {
 		return fmt.Errorf("workflow execution error: %w", err)
+	}
+	if len(result.Errors) > 0 {
+		// Instead of bubbling a hard error, surface a partial response so that
+		// the user understands what went wrong and can decide how to proceed.
+		errsJSON, _ := json.Marshal(result.Errors)
+		var resSummary string
+		if resRaw, ok := result.Output[keyResults]; ok {
+			if b, err := json.Marshal(resRaw); err == nil {
+				resSummary = string(b)
+			}
+		}
+
+		qo.Content = fmt.Sprintf("I encountered an internal issue while composing the answer (details: %s).\n\nHere are the raw tool results I managed to obtain:\n%s", string(errsJSON), resSummary)
+		qo.DocumentsSize = s.calculateDocumentsSize(docs)
+		s.recordAssistant(ctx, convID, qo.Content)
+		qo.Usage = usage.FromContext(ctx)
+		return nil
 	}
 
 	// 4. Extract output – same logic but isolated.
@@ -185,17 +200,40 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 			qo.Elicitation = elic
 			qo.Content = elic.Prompt
 			qo.DocumentsSize = s.calculateDocumentsSize(docs)
-			if err := s.addMessage(ctx, convID, "assistant", qo.Content); err != nil {
-				log.Printf("warn: cannot record assistant message: %v", err)
-			}
-				qo.Usage = usage.FromContext(ctx)
+			s.recordAssistant(ctx, convID, qo.Content)
+			qo.Usage = usage.FromContext(ctx)
 			return nil
 		}
 	}
 
 	ansRaw, ok := result.Output[keyAnswer]
 	if !ok {
-		return fmt.Errorf("workflow missing 'answer'; available keys=%v", mapKeys(result.Output))
+		// No explicit answer – check if workflow surfaced a tool error or at least
+		// an error field inside individual results and propagate it so that the
+		// user sees *something* instead of “[no response]”.
+
+		// 1) Dedicated toolError field (added by exec service on fatal errors)
+		if terr, ok2 := result.Output[keyToolError]; ok2 {
+			qo.Content = fmt.Sprintf("tool error: %v", terr)
+		} else {
+			// 2) Scan step results for the first non-empty error string
+			if resVal, ok3 := result.Output[keyResults]; ok3 {
+				if items, ok4 := resVal.([]interface{}); ok4 {
+					for _, it := range items {
+						if m, ok5 := it.(map[string]interface{}); ok5 {
+							if errStr, ok6 := m["error"].(string); ok6 && strings.TrimSpace(errStr) != "" {
+								qo.Content = fmt.Sprintf("error: %s", errStr)
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
+		qo.Usage = usage.FromContext(ctx)
+		qo.DocumentsSize = s.calculateDocumentsSize(docs)
+		return nil
 	}
 	ansStr, ok := ansRaw.(string)
 	if !ok {
@@ -204,76 +242,100 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 
 	qo.Content = ansStr
 	qo.DocumentsSize = s.calculateDocumentsSize(docs)
-if err := s.addMessage(ctx, convID, "assistant", qo.Content); err != nil {
-		log.Printf("warn: cannot record assistant message: %v", err)
+	s.recordAssistant(ctx, convID, qo.Content)
+
+	qo.Usage = usage.FromContext(ctx)
+
+	// Fallback: if LLM returned an empty answer, try to surface the first
+	// step-level error so that the user sees *something* explanatory.
+	if strings.TrimSpace(qo.Content) == "" {
+		if errMsg := firstStepError(result.Output); errMsg != "" {
+			qo.Content = errMsg
+		}
 	}
 
-qo.Usage = usage.FromContext(ctx)
 	return nil
+}
+
+// firstStepError scans workflow output map for results and returns the first
+// non-empty error string if found.
+func firstStepError(out map[string]interface{}) string {
+	resRaw, ok := out["results"]
+	if !ok {
+		return ""
+	}
+	items, ok := resRaw.([]interface{})
+	if !ok {
+		return ""
+	}
+	for _, it := range items {
+		if m, ok2 := it.(map[string]interface{}); ok2 {
+			if e, ok3 := m["error"].(string); ok3 && strings.TrimSpace(e) != "" {
+				return e
+			}
+		}
+	}
+	return ""
+}
+
+// buildSystemPrompt constructs the system prompt for both workflows and direct answers.
+func (s *Service) buildSystemPrompt(ctx context.Context, qi *QueryInput, enrichment string) (string, error) {
+	sysPrompt, err := qi.Agent.GeneratePrompt(qi.Query, enrichment)
+	if err != nil {
+		return "", fmt.Errorf("prompt generation failed: %w", err)
+	}
+	return sysPrompt, nil
+}
+
+// recordAssistant writes the assistant's message into history, ignoring errors.
+func (s *Service) recordAssistant(ctx context.Context, convID, content string) {
+	if err := s.addMessage(ctx, convID, "assistant", content); err != nil {
+		log.Printf("warn: cannot record assistant message: %v", err)
+	}
 }
 
 // buildEnrichment merges conversation context and knowledge enrichment.
 func (s *Service) buildEnrichment(conv, docs string) string {
-	switch {
-	case conv != "" && docs != "":
-		return "Conversation:\n" + conv + "\nDocuments:\n" + docs
-	case conv != "":
-		return "Conversation:\n" + conv
-	default:
-		return docs
+	parts := []string{}
+	if conv != "" {
+		parts = append(parts, "Conversation:\n"+conv)
 	}
+	if docs != "" {
+		parts = append(parts, "Documents:\n"+docs)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
-func (s *Service) buildWorkflow(qi *QueryInput, enrichment, systemPrompt string) (*model.Workflow, map[string]interface{}) {
-	wf := model.NewWorkflow("stage")
+//go:embed orchestration/workflow.yaml
+var orchestrationWorkflow []byte
 
-	// plan task
-	wf.NewTask("plan").WithAction("llm/core", "plan", map[string]interface{}{
-		keyQuery:   keyQueryPlaceholder,
-		keyContext: keyContextPlaceholder,
-		keyModel:   keyModelPlaceholder,
-		keyTools:   keyToolsPlaceholder,
-	}).WithPost(keyPlan, keyPlanPlaceholder)
-
-	// exec task
-	exec := wf.NewTask("exec").WithAction("llm/exec", "run_plan", map[string]interface{}{
-		keyPlan:  keyPlanPlaceholder,
-		keyModel: keyModelPlaceholder,
-		keyTools: keyToolsPlaceholder,
-		keyQuery: keyQueryPlaceholder,
-	})
-	exec.WithPost(keyResults+"[]", keyResultsPlaceholder)
-	exec.WithPost(keyElicitation, keyElicitationPlaceholder)
-
-	// finish task
-	wf.NewTask("finish").WithAction("llm/core", "finalize", map[string]interface{}{
-		keyQuery:   keyQueryPlaceholder,
-		keyContext: keyContextPlaceholder,
-		keyResults: keyResultsPlaceholder,
-		keyModel:   keyModelPlaceholder,
-	}).WithPost(keyAnswer, keyAnswerPlaceholder)
+func (s *Service) loadWorkflow(qi *QueryInput, enrichment, systemPrompt string) (*model.Workflow, map[string]interface{}, error) {
 
 	// tool names for LLM planning context
 	defs := s.registry.Definitions()
-	names := make([]string, 0, len(defs))
+	toolsDesc := make([]string, 0, len(defs))
 	for _, d := range defs {
-		names = append(names, d.Name)
+		toolsDesc = append(toolsDesc, d.Name)
 	}
+	wf, err := s.runtime.DecodeYAMLWorkflow(orchestrationWorkflow)
 
 	initial := map[string]interface{}{
 		keyQuery:        qi.Query,
 		keyContext:      enrichment,
 		keyModel:        qi.Agent.Model,
-		keyTools:        names,
+		keyTools:        toolsDesc,
 		keySystemPrompt: systemPrompt,
 	}
 
-	return wf, initial
+	return wf, initial, err
 }
 
 // directAnswer produces an answer without tools / knowledge.
 func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOutput, convID, convCtx string) error {
-	sysPrompt, _ := qi.Agent.GeneratePrompt(qi.Query, convCtx)
+	sysPrompt, err := s.buildSystemPrompt(ctx, qi, convCtx)
+	if err != nil {
+		return err
+	}
 
 	exec, err := s.llm.Method("generate")
 	if err != nil {
@@ -292,9 +354,7 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 	}
 
 	qo.Content = genOut.Content
-if err := s.addMessage(ctx, convID, "assistant", qo.Content); err != nil {
-		log.Printf("warn: cannot record assistant message: %v", err)
-	}
+	s.recordAssistant(ctx, convID, qo.Content)
 
 	qo.Usage = usage.FromContext(ctx)
 	return nil
@@ -303,28 +363,23 @@ if err := s.addMessage(ctx, convID, "assistant", qo.Content); err != nil {
 // coerceElicitation converts various representations found in workflow output
 // into *plan.Elicitation.
 func coerceElicitation(v interface{}) (*plan.Elicitation, error) {
-	switch actual := v.(type) {
-	case *plan.Elicitation:
-		return actual, nil
-	case string:
-		var e plan.Elicitation
-		if err := json.Unmarshal([]byte(actual), &e); err != nil {
-			return nil, err
-		}
-		return &e, nil
-	case []byte:
-		var e plan.Elicitation
-		if err := json.Unmarshal(actual, &e); err != nil {
-			return nil, err
-		}
-		return &e, nil
-	case map[string]interface{}:
-		data, _ := json.Marshal(actual)
+	unmarshal := func(data []byte) (*plan.Elicitation, error) {
 		var e plan.Elicitation
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}
 		return &e, nil
+	}
+	switch actual := v.(type) {
+	case *plan.Elicitation:
+		return actual, nil
+	case string:
+		return unmarshal([]byte(actual))
+	case []byte:
+		return unmarshal(actual)
+	case map[string]interface{}:
+		data, _ := json.Marshal(actual)
+		return unmarshal(data)
 	default:
 		return nil, fmt.Errorf("unsupported elicitation type %T", v)
 	}

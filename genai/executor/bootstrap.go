@@ -2,19 +2,27 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	clientmcp "github.com/viant/agently/adapter/mcp"
-	mcpmap "github.com/viant/agently/genai/adapter/mcp"
-	convdao "github.com/viant/agently/internal/dao/conversation"
-	"gopkg.in/yaml.v3"
-	"strings"
+	"time"
 
 	"github.com/viant/afs"
+	clientmcp "github.com/viant/agently/adapter/mcp"
+	tooladapter "github.com/viant/agently/adapter/tool"
+	mcpmap "github.com/viant/agently/genai/adapter/mcp"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
+	convdao "github.com/viant/agently/internal/dao/conversation"
+	elog "github.com/viant/agently/internal/log"
 	"github.com/viant/datly/view"
 	"github.com/viant/fluxor"
+	"github.com/viant/fluxor/model/graph"
+	"github.com/viant/fluxor/runtime/execution"
+	"github.com/viant/fluxor/service/action/system/exec"
+	texecutor "github.com/viant/fluxor/service/executor"
 	"github.com/viant/mcp"
+	"gopkg.in/yaml.v3"
+	"strings"
 )
 
 // init prepares the Service for handling requests.
@@ -30,6 +38,11 @@ func (e *Service) init(ctx context.Context) error {
 		return err
 	}
 	e.initWorkflowService()
+
+	if anExecutor := e.workflow.Service.Actions().Lookup(exec.Name); anExecutor != nil {
+		tooladapter.RegisterActionAsTool(e.workflow.Service, e.tools, exec.Name, "")
+	}
+
 	return e.workflow.Runtime.Start(ctx)
 }
 
@@ -39,11 +52,10 @@ func (e *Service) initDefaults() {
 	if e.config == nil {
 		e.config = &Config{}
 	}
-	if e.mcpClient == nil {
-		e.mcpClient = clientmcp.NewClient()
-	}
 	if e.modelFinder == nil {
-		e.modelFinder = e.config.DefaultModelFinder()
+		finder := e.config.DefaultModelFinder()
+		e.modelFinder = finder
+		e.modelMatcher = finder.Matcher()
 		if agent := e.config.Agent; agent != nil && len(agent.Items) > 0 && e.config.Default.Model == "" {
 			e.config.Default.Model = agent.Items[0].Model // use first agent's model as default
 		}
@@ -57,6 +69,11 @@ func (e *Service) initDefaults() {
 	if e.tools == nil {
 		e.tools = tool.NewRegistry()
 	}
+
+	if e.mcpClient == nil {
+		e.mcpClient = clientmcp.NewClient(clientmcp.WithLLMCore(e.llmCore))
+	}
+
 }
 
 // initHistory initialises a conversation history store. When a DAO connector
@@ -161,6 +178,45 @@ func (e *Service) initWorkflowService() {
 		fluxor.WithRootTaskNodeName("stage"),
 		fluxor.WithExtensionTypes(e.workflow.ExtensionTypes...),
 	)
+
+	// Debug helper: emit evaluation result of every 'when' expression used by
+	// goto/if constructs so that CLI users can spot unexpected truthy values
+	// (e.g. len(refinedPlan) > 0 when refinedPlan is empty).
+	options = append(options, fluxor.WithWhenListeners(
+		func(s *execution.Session, expr string, ok bool) {
+			elog.Publish(elog.Event{
+				Time:      time.Now(),
+				EventType: elog.TaskWhen,
+				Payload: map[string]interface{}{
+					"expr":   expr,
+					"result": ok,
+					"state":  s.State,
+				},
+			})
+		},
+	))
+
+	if e.fluxorLogWriter != nil {
+		listener := func(task *graph.Task, exec *execution.Execution) {
+			if task == nil {
+				return
+			}
+			entry := map[string]interface{}{
+				"task":   task,
+				"input":  exec.Input,
+				"output": exec.Output,
+				"error":  exec.Error,
+			}
+			if data, err := json.Marshal(entry); err == nil {
+				_, _ = e.fluxorLogWriter.Write(append(data, '\n'))
+			}
+		}
+		options = append(options,
+			//fluxor.WithStateListeners(func(s *execution.Session, key string, oldVal, newVal interface{}) {}),
+			fluxor.WithExecutorOptions(texecutor.WithListener(listener)))
+
+	}
+	options = append(options, fluxor.WithExecutorOptions(texecutor.WithApprovalSkipPrefixes("llm/")))
 
 	e.workflow.Service = fluxor.New(options...)
 	e.workflow.Runtime = e.workflow.Service.Runtime()

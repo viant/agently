@@ -2,14 +2,29 @@ package claude
 
 // Request represents the request structure for Claude API on AWS Bedrock
 type Request struct {
-	AnthropicVersion string    `json:"anthropic_version"`
-	Messages         []Message `json:"messages"`
-	MaxTokens        int       `json:"max_tokens,omitempty"`
-	Temperature      float64   `json:"temperature,omitempty"`
-	TopP             float64   `json:"top_p,omitempty"`
-	TopK             int       `json:"top_k,omitempty"`
-	StopSequences    []string  `json:"stop_sequences,omitempty"`
-	System           string    `json:"system,omitempty"`
+	AnthropicVersion string      `json:"anthropic_version"`
+	Messages         []Message   `json:"messages"`
+	ToolConfig       *ToolConfig `json:"toolConfig,omitempty"` // tool definitions
+
+	MaxTokens     int      `json:"max_tokens,omitempty"`
+	Temperature   float64  `json:"temperature,omitempty"`
+	TopP          float64  `json:"top_p,omitempty"`
+	TopK          int      `json:"top_k,omitempty"`
+	StopSequences []string `json:"stop_sequences,omitempty"`
+	System        string   `json:"system,omitempty"`
+}
+
+// ToolConfig wraps the list of tools you expose to the model.
+type ToolConfig struct {
+	Tools []ToolDefinition `json:"tools"`
+}
+
+// ToolDefinition mirrors the JSON schema Bedrock expects.
+type ToolDefinition struct {
+	Name         string                 `json:"name"`                   // snake_case
+	Description  string                 `json:"description,omitempty"`  // shown to the model
+	InputSchema  map[string]interface{} `json:"inputSchema"`            // JSON Schema Draft-07
+	OutputSchema map[string]interface{} `json:"outputSchema,omitempty"` // JSON Schema Draft-07
 }
 
 // Message represents a message in the Claude API request
@@ -23,6 +38,28 @@ type ContentBlock struct {
 	Type   string  `json:"type"`
 	Text   string  `json:"text,omitempty"`
 	Source *Source `json:"source,omitempty"`
+	// Tool request coming FROM the model
+	ToolUse *ToolUseBlock `json:"toolUse,omitempty"`
+
+	// Result you send back TO the model
+	ToolResult *ToolResultBlock `json:"toolResult,omitempty"`
+}
+
+type ToolUseBlock struct {
+	ToolUseId string                 `json:"toolUseId"` // <— the correlation handle
+	Name      string                 `json:"name"`      // must match a ToolDefinition.Name
+	Input     map[string]interface{} `json:"input"`     // validated by InputSchema
+}
+
+type ToolResultBlock struct {
+	ToolUseId string                   `json:"toolUseId"`         // echo back unchanged
+	Content   []ToolResultContentBlock `json:"content,omitempty"` // result payload
+	Status    string                   `json:"status,omitempty"`  // "success" | "error" (Claude-only)
+}
+
+type ToolResultContentBlock struct {
+	Text *string     `json:"text,omitempty"`
+	JSON interface{} `json:"json,omitempty"` // any JSON-serialisable value
 }
 
 // Source represents a source for image content

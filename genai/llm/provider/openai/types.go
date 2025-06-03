@@ -1,16 +1,22 @@
 package openai
 
+import (
+	"github.com/viant/agently/genai/llm"
+)
+
 // Request represents the request structure for OpenAI API
 type Request struct {
-	Model       string      `json:"model"`
-	Messages    []Message   `json:"messages"`
-	Temperature *float64    `json:"temperature,omitempty"`
-	MaxTokens   int         `json:"max_completion_tokens,omitempty"`
-	TopP        float64     `json:"top_p,omitempty"`
-	N           int         `json:"n,omitempty"`
-	Stream      bool        `json:"stream,omitempty"`
-	Tools       []Tool      `json:"tools,omitempty"`
-	ToolChoice  interface{} `json:"tool_choice,omitempty"`
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	Temperature *float64  `json:"temperature,omitempty"`
+	MaxTokens   int       `json:"max_completion_tokens,omitempty"`
+	TopP        float64   `json:"top_p,omitempty"`
+	N           int       `json:"n,omitempty"`
+	Stream      bool      `json:"stream,omitempty"`
+	// Reasoning enables configuration of internal chain-of-thought reasoning features.
+	Reasoning  *llm.Reasoning `json:"reasoning,omitempty"`
+	Tools      []Tool         `json:"tools,omitempty"`
+	ToolChoice interface{}    `json:"tool_choice,omitempty"`
 }
 
 // ContentItem represents a single content item in a message for the OpenAI API
@@ -33,6 +39,7 @@ type Message struct {
 	Name         string        `json:"name,omitempty"`
 	FunctionCall *FunctionCall `json:"function_call,omitempty"`
 	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
+	ToolCallId   string        `json:"tool_call_id,omitempty"`
 }
 
 // FunctionCall represents a function call in the OpenAI API

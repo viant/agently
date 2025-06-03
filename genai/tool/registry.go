@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/viant/agently/genai/llm"
+	"io"
 	"strings"
 )
 
@@ -16,6 +17,8 @@ type Handler func(ctx context.Context, args map[string]interface{}) (string, err
 type Registry struct {
 	definitions map[string]llm.ToolDefinition
 	handlers    map[string]Handler
+
+	debugWriter io.Writer `json:"-"`
 }
 
 func (r *Registry) MustHaveTools(toolNames []string) ([]llm.Tool, error) {
@@ -74,17 +77,38 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	}
 	handler, ok := r.handlers[name]
 	if !ok {
+		if r.debugWriter != nil {
+			fmt.Fprintf(r.debugWriter, "[tool] %s not found\n", name)
+		}
 		if idx := strings.Index(name, "."); idx > 0 {
 			name = name[idx+1:]
 			handler, ok = r.handlers[name]
 			if ok {
-				return handler(ctx, args)
+				if r.debugWriter != nil {
+					fmt.Fprintf(r.debugWriter, "[tool] call %s args=%v\n", name, args)
+				}
+				res, err := handler(ctx, args)
+				if r.debugWriter != nil {
+					if err != nil {
+						fmt.Fprintf(r.debugWriter, "[tool] error %s: %v\n", name, err)
+					} else {
+						fmt.Fprintf(r.debugWriter, "[tool] result %s: %s\n", name, res)
+					}
+				}
+				return res, err
 			}
+
 		}
 
 		return "", fmt.Errorf("tool %q not registered", name)
 	}
 	return handler(ctx, args)
+}
+
+// SetDebugLogger attaches a writer that will receive every tool call made via
+// this registry (name, args, result, error). Passing nil disables logging.
+func (r *Registry) SetDebugLogger(w io.Writer) {
+	r.debugWriter = w
 }
 
 // Register registers a tool definition and handler in the default global registry.

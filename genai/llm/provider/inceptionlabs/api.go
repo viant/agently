@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/llm/provider/openai"
 	"io"
 	"net/http"
 )
@@ -17,7 +18,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	}
 
 	// Convert llms.ChatRequest to Request
-	req := ToRequest(request)
+	req := openai.ToRequest(request)
 
 	// Set model from client if not specified in options
 	if req.Model == "" {
@@ -61,13 +62,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	}
 
 	// Unmarshal the response
-	var apiResp Response
+	var apiResp openai.Response
 	if err := json.Unmarshal(respBytes, &apiResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	// Convert Response to llms.ChatResponse
-	llmsResp := ToLLMSResponse(&apiResp)
+	llmsResp := openai.ToLLMSResponse(&apiResp)
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(req.Model, llmsResp.Usage)
 	}

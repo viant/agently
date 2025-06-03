@@ -3,30 +3,32 @@ package llm
 // Tool represents a tool that can be used by an LLM.
 // It follows the OpenAPI specification for defining tools.
 type Tool struct {
-	Ref string `json:"ref,omitempty"` // Reference to the tool definition
+	Ref string `json:"ref,omitempty" yaml:"ref"` // Reference to the tool definition
 	// Type is the type of the tool. Currently, only "function" is supported.
-	Type string `json:"type"`
+	Type string `json:"type" yaml:"type"`
 
 	// Function is the function definition for this tool.
 	// This follows the OpenAPI schema specification.
-	Definition ToolDefinition `json:"definition"`
+	Definition ToolDefinition `json:"definition" yaml:"definition"`
 }
 
 // ToolDefinition represents a function that can be called by an LLM.
 // It follows the OpenAPI specification for defining functions.
 type ToolDefinition struct {
 	// Name is the name of the function to be called.
-	Name string `json:"name"`
+	Name string `json:"name" yaml:"name"`
 
 	// Description is a description of what the function does.
-	Description string `json:"description,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 
 	// Parameters is a JSON Schema object that defines the input parameters the function accepts.
 	// This follows the OpenAPI schema specification.
-	Parameters map[string]interface{} `json:"parameters,omitempty"`
+	Parameters map[string]interface{} `json:"parameters,omitempty" yaml:"parameters,omitempty"`
 
 	// Required is a list of required parameters.
-	Required []string `json:"required,omitempty"`
+	Required []string `json:"required,omitempty" yaml:"required"`
+
+	OutputSchema map[string]interface{} `json:"output_schema,omitempty" yaml:"output_schema,omitempty"` // Output schema for the function
 }
 
 // NewFunctionTool creates a new Tool representing a callable function.

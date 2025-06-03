@@ -21,6 +21,29 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		req.TopP = request.Options.TopP
 	}
 
+	if request.Options != nil && len(request.Options.Tools) > 0 {
+		var cfg ToolConfig
+		for _, tool := range request.Options.Tools {
+			inputSchema := map[string]interface{}{
+				"type":       "object",
+				"properties": tool.Definition.Parameters,
+			}
+			if len(tool.Definition.Required) > 0 {
+				inputSchema["required"] = tool.Definition.Required
+			}
+			def := ToolDefinition{
+				Name:        tool.Definition.Name,
+				Description: tool.Definition.Description,
+				InputSchema: inputSchema,
+			}
+			if len(tool.Definition.OutputSchema) > 0 {
+				def.OutputSchema = tool.Definition.OutputSchema
+			}
+			cfg.Tools = append(cfg.Tools, def)
+		}
+		req.ToolConfig = &cfg
+	}
+
 	// Find system message
 	for _, msg := range request.Messages {
 		if msg.Role == llm.RoleSystem {
@@ -31,8 +54,39 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 
 	// Convert messages
 	for _, msg := range request.Messages {
+
 		// Skip system messages as they're handled separately
 		if msg.Role == llm.RoleSystem {
+			continue
+		}
+
+		if len(msg.ToolCalls) > 0 {
+			var useBlocks []ContentBlock
+			for _, tc := range msg.ToolCalls {
+				useBlocks = append(useBlocks, ContentBlock{
+					ToolUse: &ToolUseBlock{
+						ToolUseId: tc.ID,
+						Name:      tc.Name,
+						Input:     tc.Arguments,
+					},
+				})
+			}
+			req.Messages = append(req.Messages, Message{Role: string(msg.Role), Content: useBlocks})
+			continue
+		}
+
+		if msg.Role == llm.RoleTool && msg.ToolCallId != "" {
+			var resultBlocks []ToolResultContentBlock
+			if len(msg.Items) > 0 {
+				for _, item := range msg.Items {
+					text := item.Data
+					resultBlocks = append(resultBlocks, ToolResultContentBlock{Text: &text})
+				}
+			} else if msg.Content != "" {
+				text := msg.Content
+				resultBlocks = append(resultBlocks, ToolResultContentBlock{Text: &text})
+			}
+			req.Messages = append(req.Messages, Message{Role: string(msg.Role), Content: []ContentBlock{{ToolResult: &ToolResultBlock{ToolUseId: msg.ToolCallId, Content: resultBlocks}}}})
 			continue
 		}
 

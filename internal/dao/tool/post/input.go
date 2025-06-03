@@ -2,17 +2,12 @@ package post
 
 import (
 	"embed"
-	"github.com/viant/agently/pkg/dependency/checksum"
 	"github.com/viant/xdatly/types/core"
 	"reflect"
 )
 
 //go:embed tool/*.sql
 var ToolPostFS embed.FS
-
-func init() {
-	core.RegisterType(PackageName, "Input", reflect.TypeOf(Input{}), checksum.GeneratedTime)
-}
 
 type Input struct {
 	ToolCall []*ToolCall `parameter:",kind=body,in=data"`

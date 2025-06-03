@@ -144,8 +144,5 @@ func (a *Agent) generateDefaultPrompt(query string, enrichment string) string {
 		buf.WriteString("\n\n")
 	}
 
-	buf.WriteString("Here is user query: ")
-	buf.WriteString(query)
-
 	return buf.String()
 }

@@ -1,17 +1,12 @@
 package post
 
 import (
-	"github.com/viant/agently/pkg/dependency/checksum"
 	"github.com/viant/xdatly/types/core"
 	"reflect"
 	"time"
 )
 
 var PackageName = "tool/post"
-
-func init() {
-	core.RegisterType(PackageName, "ToolCall", reflect.TypeOf(ToolCall{}), checksum.GeneratedTime)
-}
 
 type ToolCalls struct {
 	ToolCall []*ToolCall

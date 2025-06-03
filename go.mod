@@ -5,27 +5,26 @@ go 1.23.8
 require (
 	github.com/aws/aws-sdk-go-v2 v1.30.3
 	github.com/aws/aws-sdk-go-v2/config v1.27.12
-	github.com/jessevdk/go-flags v1.5.0
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.8.1
 	github.com/google/uuid v1.6.0
-	github.com/spf13/cobra v1.8.0
+	github.com/jessevdk/go-flags v1.5.0
 	github.com/stretchr/testify v1.10.0
 	github.com/tmc/langchaingo v0.1.14-0.20250213044659-d3e43b632176
 	github.com/viant/afs v1.26.2
 	github.com/viant/afsc v1.9.1
-	github.com/viant/datly v0.20.2
+	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
 	github.com/viant/embedius v0.0.0-20250503233925-d6900657ff75
-	github.com/viant/fluxor v0.1.0
+	github.com/viant/fluxor v0.1.3
 	github.com/viant/jsonrpc v0.6.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.2.9
-	github.com/viant/mcp-protocol v0.3.4
+	github.com/viant/mcp v0.2.10-0.20250528234107-be075b26c3fd
+	github.com/viant/mcp-protocol v0.3.8
 	github.com/viant/scy v0.24.0
+	github.com/viant/structology v0.7.1
 	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85
 	github.com/viant/x v0.3.0
 	github.com/viant/xdatly/handler v0.0.0-20250418144853-029d9a05ae20
 	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20
-	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
 	github.com/yuin/goldmark v1.7.8
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -73,6 +72,7 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-sql-driver/mysql v1.7.1 // indirect
+	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
@@ -81,7 +81,6 @@ require (
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.4 // indirect
-	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
@@ -101,7 +100,6 @@ require (
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.3 // indirect
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/viant/aerospike v0.2.11-0.20241108195857-ed524b97800d // indirect
 	github.com/viant/bigquery v0.4.1 // indirect
 	github.com/viant/bindly v0.1.0 // indirect
@@ -119,13 +117,13 @@ require (
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlparser v0.8.1 // indirect
 	github.com/viant/sqlx v0.16.6 // indirect
-	github.com/viant/structology v0.7.1 // indirect
 	github.com/viant/structql v0.5.2 // indirect
 	github.com/viant/tagly v0.2.1-0.20240521205717-55de744e893c // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
 	github.com/viant/vec v0.2.4-0.20250304201558-76d42a0819d7 // indirect
 	github.com/viant/xdatly v0.5.4-0.20250418144853-029d9a05ae20 // indirect
 	github.com/viant/xdatly/extension v0.0.0-20231013204918-ecf3c2edf259 // indirect
+	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.1 // indirect
 	github.com/viant/xreflect v0.7.3 // indirect
@@ -174,16 +172,3 @@ require (
 	modernc.org/token v1.0.0 // indirect
 )
 
-replace github.com/viant/fluxor => ../../../github.com/viant/fluxor
-
-replace github.com/viant/mcp => ../../../github.com/viant/mcp
-
-replace github.com/viant/linager => ../../../github.com/viant/linager
-
-replace github.com/viant/embedius => ../../../github.com/viant/embedius
-
-replace github.com/viant/mcp-protocol => ../../../github.com/viant/mcp-protocol
-
-replace github.com/viant/jsonrpc => ../../../github.com/viant/jsonrpc
-
-replace github.com/viant/datly => ../datly

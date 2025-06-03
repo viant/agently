@@ -3,15 +3,12 @@ package exec
 import (
 	"context"
 	_ "embed"
-	"errors"
+	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/genai/extension/fluxor/llm/core"
+	"github.com/google/uuid"
 	"github.com/viant/agently/genai/tool"
-	"time"
+	approval "github.com/viant/fluxor/service/approval"
 )
-
-//go:embed prompt/refine_tool_call.vm
-var toolCallRefineTemplate string
 
 type CallToolInput struct {
 	Name           string                 `yaml:"name,omitempty" json:"name,omitempty"`   // Specific tool/function name (if applicable)
@@ -38,6 +35,15 @@ func (s *Service) CallTool(ctx context.Context, input *CallToolInput, output *Ca
 	var executor func(ctx context.Context, name string, args map[string]interface{}) (string, error)
 	executor = s.registry.Execute
 
+	// ------------------------------------------------------------------
+	// Back-compat / sensible defaults for common tools
+	// ------------------------------------------------------------------
+	// Older LLM prompts – and some user-generated follow-up plans – often
+	// omit optional parameters that the JSON schema marks as *required*.
+	// Rather than failing the entire workflow for a missing timeout or
+	// abort flag, fall back to conservative defaults so that the tool
+	// still executes and the user receives a meaningful answer.
+
 	// --- policy evaluation -------------------------------------------------
 	if pol := tool.FromContext(ctx); pol != nil {
 		if !pol.IsAllowed(input.Name) {
@@ -47,67 +53,29 @@ func (s *Service) CallTool(ctx context.Context, input *CallToolInput, output *Ca
 		case tool.ModeDeny:
 			return fmt.Errorf("tool %s execution denied by policy", input.Name)
 		case tool.ModeAsk:
-			if pol.Ask == nil {
-				return errors.New("policy mode=ask but Ask callback is nil")
+			// delegate to Fluxor approval service for interactive confirmation
+			if s.approvalService == nil {
+				return fmt.Errorf("policy mode=ask but ApprovalService is not available")
 			}
-			approved := pol.Ask(ctx, input.Name, input.Args, pol)
-			if !approved {
-				return fmt.Errorf("tool %s execution rejected by user", input.Name)
+			raw, err := json.Marshal(input.Args)
+			if err != nil {
+				return fmt.Errorf("failed to marshal args for approval: %w", err)
 			}
-			// pol may have been modified (e.g. switched to auto)
+			req := &approval.Request{Action: input.Name, Args: raw, ID: uuid.New().String()}
+			if err := s.approvalService.RequestApproval(ctx, req); err != nil {
+				return fmt.Errorf("failed to request approval for tool %s: %w", input.Name, err)
+			}
+			dec, err := approval.WaitForDecision(ctx, s.approvalService, req.ID, 0)
+			if err != nil {
+				return fmt.Errorf("failed to await approval decision for tool %s: %w", input.Name, err)
+			}
+			if !dec.Approved {
+				return fmt.Errorf("tool %s execution rejected by user: %s", input.Name, dec.Reason)
+			}
 		}
 	}
 
-	// Determine retry count: use step-specific retries if set, else default to s.MaxRetries
-	retries := max(3, input.Retries)
-
-	var toolResult string
-	var err error
-	// Retry loop
-	for attempt := 1; attempt <= retries; attempt++ {
-		if attempt-1 == retries {
-			return fmt.Errorf("tool %s execution error after %d attempts: %w", input.Name, retries, err)
-		}
-		planningModel := input.Model
-		if planningModel == "" {
-			planningModel = s.defaultModel
-		}
-		toolResult, err = executor(ctx, input.Name, input.Args)
-		if err != nil {
-			// Attempt parameter adjustment via LLM if available
-			if s.llm != nil && planningModel != "" {
-
-				promptTemplate := input.PromptTemplate
-				if promptTemplate == "" {
-					promptTemplate = toolCallRefineTemplate
-				}
-				refinedOutput := core.GenerateOutput{}
-				if gErr := s.llm.Generate(ctx, &core.GenerateInput{
-					Model:    planningModel,
-					Template: promptTemplate,
-					Bind: map[string]interface{}{
-						"Tool":  input.Name,
-						"Args":  input.Args,
-						"Error": err.Error(),
-					},
-				}, &refinedOutput); gErr == nil {
-					var args map[string]interface{}
-					if jErr := core.EnsureJSONResponse(ctx, refinedOutput.Content, &args); jErr == nil {
-						input.Args = args
-						continue
-					}
-				}
-				// Simple exponential back-off: 100ms, 200ms, 400ms …
-				time.Sleep(time.Duration(100*(1<<uint(attempt-1))) * time.Millisecond)
-				continue
-			}
-		}
-		if toolResult == "" && attempt < retries {
-			continue
-		}
-		break
-	}
+	toolResult, err := executor(ctx, input.Name, input.Args)
 	output.Result = toolResult
 	return err
-
 }

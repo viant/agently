@@ -4,6 +4,7 @@ import (
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor/model/types"
+	"github.com/viant/fluxor/service/approval"
 	"reflect"
 	"strings"
 )
@@ -11,9 +12,10 @@ import (
 const name = "llm/exec"
 
 type Service struct {
-	registry     *tool.Registry
-	llm          *core.Service
-	defaultModel string
+	registry        *tool.Registry
+	llm             *core.Service
+	defaultModel    string
+	approvalService approval.Service
 	// MaxRetries is the default number of attempts per tool call if not overridden in PlanStep.Retries.
 	maxRetries int
 	maxSteps   int
@@ -53,6 +55,13 @@ func (s *Service) Method(name string) (types.Executable, error) {
 }
 
 // New creates a new extractor service
-func New(llm *core.Service, registry *tool.Registry, defaultModel string) *Service {
-	return &Service{llm: llm, registry: registry, defaultModel: defaultModel, maxRetries: 3, maxSteps: 1000}
+func New(llm *core.Service, registry *tool.Registry, defaultModel string, approvalService approval.Service) *Service {
+	return &Service{
+		llm:             llm,
+		registry:        registry,
+		defaultModel:    defaultModel,
+		approvalService: approvalService,
+		maxRetries:      3,
+		maxSteps:        1000,
+	}
 }

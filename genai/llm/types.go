@@ -1,5 +1,11 @@
 package llm
 
+import (
+	"encoding/base64"
+	"encoding/json"
+	"github.com/google/uuid"
+)
+
 // ContentType defines the supported asset types.
 type ContentType string
 
@@ -85,6 +91,7 @@ type Message struct {
 
 	// Legacy fields for backward compatibility
 	Content      string        `json:"content,omitempty"`
+	ToolCallId   string        `json:"tool_call_id,omitempty"`
 	ContentItems []ContentItem `json:"content_items,omitempty"`
 	FunctionCall *FunctionCall `json:"function_call,omitempty"`
 }
@@ -164,80 +171,43 @@ type Usage struct {
 }
 
 // NewUserMessage creates a new message with the "user" role.
+// NewUserMessage creates a new message with the "user" role.
 func NewUserMessage(content string) Message {
-	textItem := ContentItem{
-		Type:   ContentTypeText,
-		Source: SourceRaw,
-		Data:   content,
-		Text:   content, // For backward compatibility
-	}
-
-	return Message{
-		Role:    RoleUser,
-		Items:   []ContentItem{textItem},
-		Content: content, // For backward compatibility
-	}
+	return newTextMessage(RoleUser, content)
 }
 
 // NewSystemMessage creates a new message with the "system" role.
+// NewSystemMessage creates a new message with the "system" role.
 func NewSystemMessage(content string) Message {
-	textItem := ContentItem{
-		Type:   ContentTypeText,
-		Source: SourceRaw,
-		Data:   content,
-		Text:   content, // For backward compatibility
-	}
-
-	return Message{
-		Role:    RoleSystem,
-		Items:   []ContentItem{textItem},
-		Content: content, // For backward compatibility
-	}
+	return newTextMessage(RoleSystem, content)
 }
 
 // NewAssistantMessage creates a new message with the "assistant" role.
+// NewAssistantMessage creates a new message with the "assistant" role.
 func NewAssistantMessage(content string) Message {
-	textItem := ContentItem{
-		Type:   ContentTypeText,
-		Source: SourceRaw,
-		Data:   content,
-		Text:   content, // For backward compatibility
-	}
-
-	return Message{
-		Role:    RoleAssistant,
-		Items:   []ContentItem{textItem},
-		Content: content, // For backward compatibility
-	}
+	return newTextMessage(RoleAssistant, content)
 }
 
 // NewToolMessage creates a new message with the "tool" role.
+// NewToolMessage creates a new message with the "tool" role.
 func NewToolMessage(name, content string) Message {
-	textItem := ContentItem{
-		Type:   ContentTypeText,
-		Source: SourceRaw,
-		Data:   content,
-		Text:   content, // For backward compatibility
-	}
+	msg := newTextMessage(RoleTool, content)
+	msg.Name = name
+	return msg
+}
 
-	return Message{
-		Role:    RoleTool,
-		Name:    name,
-		Items:   []ContentItem{textItem},
-		Content: content, // For backward compatibility
-	}
+// NewToolResultMessage creates a tool role message with the given tool call's ID and result content.
+func NewToolResultMessage(call ToolCall, content string) Message {
+	msg := newTextMessage(RoleTool, content)
+	msg.Name = call.Name
+	msg.ToolCallId = call.ID
+	return msg
 }
 
 // NewUserMessageWithImage creates a new message with the "user" role that includes both text and an image.
+// NewUserMessageWithImage creates a new message with the "user" role that includes both text and an image.
 func NewUserMessageWithImage(text, imageURL string, detail string) Message {
-	// Create items using the preferred approach
-	textItem := ContentItem{
-		Type:   ContentTypeText,
-		Source: SourceRaw,
-		Data:   text,
-		Text:   text, // For backward compatibility
-	}
-
+	textItem := NewTextContent(text)
 	imageItem := ContentItem{
 		Type:   ContentTypeImage,
 		Source: SourceURL,
@@ -246,13 +216,10 @@ func NewUserMessageWithImage(text, imageURL string, detail string) Message {
 			"detail": detail,
 		},
 	}
-
-	// Create a message with the items
-	msg := Message{
+	return Message{
 		Role:  RoleUser,
 		Items: []ContentItem{textItem, imageItem},
 	}
-	return msg
 }
 
 // NewContentItem creates a new content item with the specified type.
@@ -283,5 +250,73 @@ func NewImageContent(imageURL string, detail string) ContentItem {
 		Metadata: map[string]interface{}{
 			"detail": detail,
 		},
+	}
+}
+
+// NewBinaryContent creates a new binary content item from raw data.
+func NewBinaryContent(data []byte, mimeType string) ContentItem {
+	encoded := base64.StdEncoding.EncodeToString(data)
+	return ContentItem{
+		Type:     ContentTypeBinary,
+		Source:   SourceBase64,
+		Data:     encoded,
+		MimeType: mimeType,
+	}
+}
+
+// NewUserMessageWithBinary creates a new user message that includes binary data and optional text prompt.
+func NewUserMessageWithBinary(data []byte, mimeType, prompt string) Message {
+	items := []ContentItem{NewBinaryContent(data, mimeType)}
+	if prompt != "" {
+		items = append(items, NewTextContent(prompt))
+	}
+	return Message{Role: RoleUser, Items: items}
+}
+
+// newTextMessage creates a text-only message for the given role.
+func newTextMessage(role MessageRole, content string) Message {
+	textItem := NewTextContent(content)
+	return Message{
+		Role:    role,
+		Items:   []ContentItem{textItem},
+		Content: content, // For backward compatibility
+	}
+}
+
+// NewFunctionCall creates a FunctionCall with the given name and arguments.
+func NewFunctionCall(name string, args map[string]interface{}) FunctionCall {
+	data, _ := json.Marshal(args)
+	return FunctionCall{
+		Name:      name,
+		Arguments: string(data),
+	}
+}
+
+// NewToolCall creates a ToolCall with the given function name and arguments.
+// An ID is generated automatically and legacy fields are populated for backward compatibility.
+func NewToolCall(id string, name string, args map[string]interface{}) ToolCall {
+	if id == "" {
+		id = uuid.NewString()
+	}
+	// Copy args to avoid modification of the input map
+	copied := make(map[string]interface{}, len(args))
+	for key, val := range args {
+		copied[key] = val
+	}
+	fc := NewFunctionCall(name, copied)
+	return ToolCall{
+		ID:        id,
+		Name:      name,
+		Arguments: copied,
+		Type:      "function",
+		Function:  fc,
+	}
+}
+
+// NewAssistantMessageWithToolCalls creates an assistant message that includes tool calls.
+func NewAssistantMessageWithToolCalls(toolCalls ...ToolCall) Message {
+	return Message{
+		Role:      RoleAssistant,
+		ToolCalls: toolCalls,
 	}
 }

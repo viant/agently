@@ -38,6 +38,15 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 		if request.Options.N > 0 {
 			req.N = request.Options.N
 		}
+		// Enable streaming if requested
+		req.Stream = request.Options.Stream
+		// Propagate reasoning summary if requested on supported models
+		if r := request.Options.Reasoning; r != nil && r.Summary == "auto" {
+			switch req.Model {
+			case "o3", "o4-mini", "codex-mini-latest":
+				req.Reasoning = r
+			}
+		}
 
 		// Convert tools if provided
 		if len(request.Options.Tools) > 0 {
@@ -172,6 +181,7 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 			}
 		}
 
+		message.ToolCallId = msg.ToolCallId
 		// Convert tool calls if present
 		if len(msg.ToolCalls) > 0 {
 			message.ToolCalls = make([]ToolCall, len(msg.ToolCalls))
@@ -314,6 +324,8 @@ func ToLLMSResponse(resp *Response) *llm.GenerateResponse {
 				}
 			}
 		}
+		// Preserve tool call result ID if present
+		message.ToolCallId = choice.Message.ToolCallId
 
 		llmsChoice.Message = message
 		llmsResp.Choices[i] = llmsChoice

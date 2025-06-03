@@ -2,6 +2,7 @@
 .db/
 tmp/
 .junie/
+.cache/
 repo/
 deprecated/local/
 .tmp/
@@ -13,3 +14,5 @@ node_modules/
 dist/
 package-lock.json
 deprecated/
+agently/agently
+*.log

@@ -4,7 +4,7 @@ package plan
 type Plan struct {
 	ID          string       `yaml:"id,omitempty" json:"id,omitempty"`                   // Unique identifier for the plan
 	Intention   string       `yaml:"intention,omitempty" json:"intention,omitempty"`     // Optional summary of the user’s goal
-	Steps       []*Step      `yaml:"steps" json:"steps"`                                 // Ordered list of steps to execute
+	Steps       Steps        `yaml:"steps" json:"steps"`                                 // Ordered list of steps to execute
 	Elicitation *Elicitation `yaml:"elicitation,omitempty" json:"elicitation,omitempty"` // Optional elicitation details if user input is needed
 }
 

@@ -1,70 +1,240 @@
 package agently
 
 import (
-    "context"
-    "bufio"
-    "github.com/viant/agently/genai/executor"
-    "github.com/viant/agently/genai/executor/instance"
-    "log"
-    "sync"
-    "github.com/viant/agently/genai/tool"
-    "fmt"
-    "os"
-    "strings"
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/viant/fluxor/runtime/execution"
+	"io"
+	"log"
+	"os"
+	"strings"
+	"sync"
+
+	"github.com/viant/agently/genai/executor"
+	"github.com/viant/agently/genai/executor/instance"
+	"github.com/viant/agently/genai/tool"
+	"github.com/viant/fluxor/model/graph"
+	fluxpol "github.com/viant/fluxor/policy"
+	"github.com/viant/fluxor/service/approval"
+	fluxexec "github.com/viant/fluxor/service/executor"
+
+	elog "github.com/viant/agently/internal/log"
+	"time"
 )
 
+// prefixWriter adds a static prefix at the beginning of every Write call.
+type prefixWriter struct {
+	w      io.Writer
+	prefix []byte
+}
+
+func newPrefixWriter(w io.Writer, prefix string) io.Writer {
+	return &prefixWriter{w: w, prefix: []byte(prefix)}
+}
+
+func (p *prefixWriter) Write(b []byte) (int, error) {
+	if p.w == nil {
+		return 0, nil
+	}
+	if len(p.prefix) > 0 {
+		if _, err := p.w.Write(p.prefix); err != nil {
+			return 0, err
+		}
+	}
+	return p.w.Write(b)
+}
+
 var (
-    cfgMu   sync.RWMutex
-    cfgPath string
+	cfgMu   sync.RWMutex
+	cfgPath string
+
+	execOptsMu sync.Mutex
+	execOpts   []executor.Option
 )
 
 // executorSingleton initialises global executor only once to speed up CLI.
 func executorSingleton() *executor.Service {
-    // Ensure singleton is initialised once.
-    cfgMu.RLock()
-    path := cfgPath
-    cfgMu.RUnlock()
+	// Ensure singleton is initialised once.
+	cfgMu.RLock()
+	path := cfgPath
+	cfgMu.RUnlock()
 
-    if instance.Get() == nil {
-        if err := instance.Init(context.Background(), path); err != nil {
-            log.Fatalf("executor init error: %v", err)
-        }
-    }
-    return instance.Get()
+	if instance.Get() == nil {
+		execOptsMu.Lock()
+		opts := append([]executor.Option(nil), execOpts...)
+		execOptsMu.Unlock()
+
+		if err := instance.Init(context.Background(), path, opts...); err != nil {
+			log.Fatalf("executor init error: %v", err)
+		}
+	}
+	return instance.Get()
 }
 
 // called from CLI after flag parsing
 func setConfigPath(p string) {
-    cfgMu.Lock(); cfgPath = p; cfgMu.Unlock()
+	cfgMu.Lock()
+	cfgPath = p
+	cfgMu.Unlock()
+}
+
+// registerExecOption appends an option that will be passed to executor.New on
+// first initialisation.
+func registerExecOption(o executor.Option) {
+	execOptsMu.Lock()
+	execOpts = append(execOpts, o)
+	execOptsMu.Unlock()
 }
 
 // Helper ---------------------------------------------------------------
 
 func buildPolicy(mode string) *tool.Policy {
-    switch strings.ToLower(mode) {
-    case tool.ModeDeny:
-        return &tool.Policy{Mode: tool.ModeDeny}
-    case tool.ModeAsk:
-        return &tool.Policy{Mode: tool.ModeAsk, Ask: stdinAsk}
-    default:
-        return &tool.Policy{Mode: tool.ModeAuto}
-    }
+	switch strings.ToLower(mode) {
+	case tool.ModeDeny:
+		return &tool.Policy{Mode: tool.ModeDeny}
+	case tool.ModeAsk:
+		return &tool.Policy{Mode: tool.ModeAsk, Ask: stdinAsk}
+	default:
+		return &tool.Policy{Mode: tool.ModeAuto}
+	}
 }
 
 // stdinAsk is used when Policy.Mode==ask to prompt user.
 func stdinAsk(_ context.Context, name string, args map[string]interface{}, p *tool.Policy) bool {
-    reader := bufio.NewReader(os.Stdin)
-    fmt.Printf("Execute tool %s with args %v? [y/n/all] ", name, args)
-    line, _ := reader.ReadString('\n')
-    line = strings.ToLower(strings.TrimSpace(line))
-    switch line {
-    case "y", "yes":
-        return true
-    case "all":
-        p.Mode = tool.ModeAuto
-        return true
-    default:
-        return false
-    }
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("Execute tool %s with args %v? [y/n/all] ", name, args)
+	line, _ := reader.ReadString('\n')
+	line = strings.ToLower(strings.TrimSpace(line))
+	switch line {
+	case "y", "yes":
+		return true
+	case "all":
+		p.Mode = tool.ModeAuto
+		return true
+	default:
+		return false
+	}
 }
 
+// ---------------------------------------------------------------------------
+// Fluxor approval interactive helper
+// ---------------------------------------------------------------------------
+
+// startApprovalLoop launches a goroutine that consumes approval requests from
+// the executor's Fluxor approval queue and prompts the user for a decision via
+// stdin. It returns a stop function that can be awaited to ensure the goroutine
+// exits after ctx is cancelled.
+func startApprovalLoop(ctx context.Context, execSvc *executor.Service, pol *tool.Policy) (stop func()) {
+	if pol == nil || strings.ToLower(pol.Mode) != tool.ModeAsk {
+		return func() {}
+	}
+
+	appr := execSvc.ApprovalService()
+	if appr == nil {
+		return func() {}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			msg, err := appr.Queue().Consume(ctx)
+			if err != nil {
+				continue // try again unless context closed
+			}
+
+			evt := msg.T()
+			if evt == nil || evt.Topic != "request.new" {
+				_ = msg.Ack()
+				continue
+			}
+
+			req, ok := evt.Data.(*approval.Request)
+			if !ok {
+				_ = msg.Ack()
+				continue
+			}
+
+			approved, reason := promptApproval(req)
+
+			_, _ = appr.Decide(ctx, req.ID, approved, reason)
+			_ = msg.Ack()
+		}
+	}()
+
+	return func() { <-done }
+}
+
+// promptApproval asks the user to approve or reject the supplied request. It
+// returns (approved, reason).
+func promptApproval(req *approval.Request) (bool, string) {
+	fmt.Printf("Approve action %s with args %s? [y/n] ", req.Action, string(req.Args))
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	line = strings.ToLower(strings.TrimSpace(line))
+	switch line {
+	case "y", "yes":
+		return true, ""
+	default:
+		fmt.Print("reason: ")
+		reason, _ := reader.ReadString('\n')
+		reason = strings.TrimSpace(reason)
+		return false, reason
+	}
+}
+
+// withFluxorPolicy embeds a copy of the tool.Policy data into the context
+// using the fluxor policy key so that the workflow engine can access the same
+// mode/allow/block settings.
+func withFluxorPolicy(ctx context.Context, pol *tool.Policy) context.Context {
+	if pol == nil {
+		return ctx
+	}
+	fp := &fluxpol.Policy{
+		Mode:      pol.Mode,
+		AllowList: pol.AllowList,
+		BlockList: pol.BlockList,
+	}
+	return fluxpol.WithPolicy(ctx, fp)
+}
+
+// newJSONTaskListener returns a Fluxor executor listener that dumps each task
+// with input/output as compact JSON to the supplied writer (one line per task).
+func newJSONTaskListener(writers ...io.Writer) fluxexec.Listener {
+	return func(task *graph.Task, exec *execution.Execution) {
+		if task == nil {
+			return
+		}
+		// Emit task input/output events
+		elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskInput, Payload: map[string]interface{}{"task": task, "input": exec.Input}})
+		elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskOutput, Payload: map[string]interface{}{"task": task, "output": exec.Output}})
+		if exec.Error != "" {
+			elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskOutput, Payload: map[string]interface{}{"task": task, "error": exec.Error}})
+		}
+		rec := map[string]interface{}{
+			"task":   task,
+			"input":  exec.Input,
+			"output": exec.Output,
+			"error":  exec.Error,
+		}
+		data, err := json.Marshal(rec)
+		if err != nil {
+			return
+		}
+		data = append(data, '\n')
+		for _, w := range writers {
+			if w == nil {
+				continue
+			}
+			_, _ = w.Write(data)
+		}
+	}
+}

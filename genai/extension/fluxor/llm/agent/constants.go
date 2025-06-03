@@ -18,15 +18,6 @@ const (
 	keyResults     = "results"
 	keyElicitation = "elicitation"
 	keyAnswer      = "answer"
-
-    // Placeholders "${key}" used in workflow templates.
-    keyQueryPlaceholder        = "${" + keyQuery + "}"
-    keyContextPlaceholder      = "${" + keyContext + "}"
-    keyModelPlaceholder        = "${" + keyModel + "}"
-    keyToolsPlaceholder        = "${" + keyTools + "}"
-    keySystemPromptPlaceholder = "${" + keySystemPrompt + "}"
-    keyPlanPlaceholder         = "${" + keyPlan + "}"
-    keyResultsPlaceholder      = "${" + keyResults + "}"
-    keyElicitationPlaceholder  = "${" + keyElicitation + "}"
-    keyAnswerPlaceholder       = "${" + keyAnswer + "}"
+	keyToolError   = "toolError"
+	keyRefinedPlan = "refinedPlan"
 )

@@ -7,6 +7,7 @@ import (
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/service/meta"
+	"io"
 )
 
 type Option func(config *Service)
@@ -14,6 +15,35 @@ type Option func(config *Service)
 func WithConfig(config *Config) Option {
 	return func(s *Service) {
 		s.config = config
+	}
+}
+
+// WithLLMLogger redirects all LLM prompt/response traffic captured by the core
+// LLM service to the supplied writer. Passing nil disables logging.
+func WithLLMLogger(w io.Writer) Option {
+	return func(s *Service) {
+		s.llmLogger = w
+	}
+}
+
+// WithFluxorActivityLogger writes every executed Fluxor task (as seen by the
+// executor listener) to the supplied writer in JSON. Passing nil disables
+// logging.
+func WithFluxorActivityLogger(w io.Writer) Option {
+	return func(s *Service) {
+		s.fluxorLogWriter = w
+	}
+}
+
+// WithToolDebugLogger enables debug logging for every tool call executed via
+// the executor's tool registry. Each invocation is written to the supplied
+// writer. Passing nil disables logging.
+func WithToolDebugLogger(w io.Writer) Option {
+	return func(s *Service) {
+		if s.tools == nil {
+			s.tools = tool.NewRegistry()
+		}
+		s.tools.SetDebugLogger(w)
 	}
 }
 

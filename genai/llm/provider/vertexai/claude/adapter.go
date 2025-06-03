@@ -46,6 +46,49 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 			claudeReq.System = msg.Content
 			continue
 		}
+		// Handle assistant tool calls as toolUse blocks
+		if len(msg.ToolCalls) > 0 {
+			var blocks []ContentBlock
+			for _, tc := range msg.ToolCalls {
+				blocks = append(blocks, ContentBlock{
+					ToolUse: &ToolUseBlock{
+						ToolUseId: tc.ID,
+						Name:      tc.Name,
+						Input:     tc.Arguments,
+					},
+				})
+			}
+			claudeMessages = append(claudeMessages, Message{
+				Role:    string(msg.Role),
+				Content: blocks,
+			})
+			continue
+		}
+		// Handle tool result messages as toolResult blocks
+		if msg.Role == llm.RoleTool && msg.ToolCallId != "" {
+			var blocks []ContentBlock
+			var resultBlocks []ToolResultContentBlock
+			if len(msg.Items) > 0 {
+				for _, item := range msg.Items {
+					text := item.Data
+					resultBlocks = append(resultBlocks, ToolResultContentBlock{Text: &text})
+				}
+			} else if msg.Content != "" {
+				text := msg.Content
+				resultBlocks = append(resultBlocks, ToolResultContentBlock{Text: &text})
+			}
+			blocks = append(blocks, ContentBlock{
+				ToolResult: &ToolResultBlock{
+					ToolUseId: msg.ToolCallId,
+					Content:   resultBlocks,
+				},
+			})
+			claudeMessages = append(claudeMessages, Message{
+				Role:    string(msg.Role),
+				Content: blocks,
+			})
+			continue
+		}
 
 		claudeMessage := Message{
 			Role:    string(msg.Role),

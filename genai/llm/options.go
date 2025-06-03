@@ -51,11 +51,18 @@ type Options struct {
 	ResponseMIMEType string `json:"response_mime_type,omitempty"`
 
 	Thinking *Thinking `json:"thinking,omitempty"`
-
-	Stream bool `json:"stream,omitempty"`
+	// Reasoning configures the model's reasoning behavior, e.g. summarization of chain-of-thought.
+	Reasoning *Reasoning `json:"reasoning,omitempty"`
+	Stream    bool       `json:"stream,omitempty"`
 }
 
 type Thinking struct {
 	Type         string `json:"type"`
 	BudgetTokens int    `json:"budget_tokens,omitempty"`
+}
+
+// Reasoning specifies options for the model's internal reasoning process.
+// Summary may be set to "auto" to request an automatic summary of chain-of-thought.
+type Reasoning struct {
+	Summary string `json:"summary,omitempty"`
 }

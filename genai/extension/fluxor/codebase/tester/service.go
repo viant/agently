@@ -5,7 +5,7 @@ import (
 	"github.com/viant/agently/genai/extension/fluxor/codebase/inspector"
 	"github.com/viant/fluxor/extension"
 	"github.com/viant/fluxor/model/types"
-	"github.com/viant/fluxor/service/action/system/executor"
+	"github.com/viant/fluxor/service/action/system/exec"
 	"path"
 	"path/filepath"
 	"reflect"
@@ -14,7 +14,7 @@ import (
 )
 
 type Service struct {
-	exec      *executor.Service
+	exec      *exec.Service
 	inspector *inspector.Service
 	actions   *extension.Actions
 	mux       sync.RWMutex
@@ -122,7 +122,7 @@ func (s *Service) testProject(ctx context.Context, testable *Testable, output *O
 
 }
 
-func (s *Service) ensureExecutor() *executor.Service {
+func (s *Service) ensureExecutor() *exec.Service {
 	s.mux.RLock()
 	ret := s.exec
 	s.mux.RUnlock()
@@ -130,7 +130,7 @@ func (s *Service) ensureExecutor() *executor.Service {
 		return ret
 	}
 	s.mux.Lock()
-	ret = extension.LookupService[*executor.Service](s.actions)
+	ret = extension.LookupService[*exec.Service](s.actions)
 	s.exec = ret
 	s.mux.Unlock()
 	return ret
@@ -158,8 +158,8 @@ func (s *Service) testPackage(ctx context.Context, testable *Testable, pkg strin
 	var commands = []string{
 		"cd " + testable.Project.RootPath,
 		"go test -v " + pkg}
-	execOutput := &executor.Output{}
-	err := enExecutor.Execute(ctx, &executor.Input{
+	execOutput := &exec.Output{}
+	err := enExecutor.Execute(ctx, &exec.Input{
 		Commands: commands,
 	}, execOutput)
 	if err != nil {

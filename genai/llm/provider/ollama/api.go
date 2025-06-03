@@ -94,6 +94,62 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	return llmsResp, nil
 }
 
+// Stream sends a chat request to the Ollama API with streaming enabled and returns a channel of partial responses.
+func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-chan llm.StreamEvent, error) {
+	if c.Model == "" {
+		return nil, fmt.Errorf("model is required")
+	}
+	req, err := ToRequest(ctx, request, c.Model)
+	if err != nil {
+		return nil, err
+	}
+	req.Stream = true
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/generate", c.BaseURL), bytes.NewBuffer(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+
+	events := make(chan llm.StreamEvent)
+	go func() {
+		defer resp.Body.Close()
+		reader := bufio.NewReader(resp.Body)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if len(line) > 0 {
+				var chunk Response
+				if err := json.Unmarshal(line, &chunk); err != nil {
+					events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream chunk: %w", err)}
+					break
+				}
+				events <- llm.StreamEvent{Response: ToLLMSResponse(&chunk)}
+				if chunk.Done {
+					break
+				}
+			}
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
+				break
+			}
+		}
+		close(events)
+	}()
+	return events, nil
+}
+
 // sendPullRequest sends a pull request to the Ollama API and returns the response
 func (c *Client) sendPullRequest(ctx context.Context, request *PullRequest) (*PullResponse, error) {
 	// Marshal the request to JSON

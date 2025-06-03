@@ -19,17 +19,20 @@ import (
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/extension"
 	"github.com/viant/fluxor/model/types"
+	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/fluxor/service/event"
 	"github.com/viant/fluxor/service/meta"
 	"github.com/viant/x"
+	"io"
 	"sync/atomic"
 )
 
 type Service struct {
 	workflow       workflow
 	config         *Config
-	mcpClient      *clientmcp.Implementer
+	mcpClient      *clientmcp.Client
 	modelFinder    llm.Finder
+	modelMatcher   llm.Matcher
 	embedderFinder embedder.Finder
 	agentFinder    agent.Finder
 	tools          *tool.Registry
@@ -40,6 +43,9 @@ type Service struct {
 	convManager    *conversation.Manager
 	metaService    *meta.Service
 	started        int32
+
+	llmLogger       io.Writer `json:"-"`
+	fluxorLogWriter io.Writer `json:"-"`
 }
 
 type workflow struct {
@@ -84,9 +90,14 @@ func (e *Service) registerServices() *extension.Actions {
 	actions := e.workflow.Service.Actions()
 	e.llmCore = core.New(e.modelFinder, e.tools, defaultModel)
 
-	actions.Register(exec.New(e.llmCore, e.tools, defaultModel))
+	if e.llmLogger != nil {
+		e.llmCore.SetLogger(e.llmLogger)
+	}
+
+	actions.Register(exec.New(e.llmCore, e.tools, defaultModel, e.ApprovalService()))
 	actions.Register(enricher)
 	actions.Register(e.llmCore)
+	// capture actions for streaming and callbacks
 	actions.Register(tester.New(actions))
 	actions.Register(extractor.New())
 	actions.Register(inspector.New())
@@ -116,9 +127,25 @@ func (e *Service) EventService() *event.Service {
 	return e.workflow.Service.EventService()
 }
 
+// ApprovalService exposes the Fluxor approval service used by the wrapped
+// workflow engine. It returns nil if the service has not been initialised yet
+// (which should never happen after init() succeeds).
+func (e *Service) ApprovalService() approval.Service {
+	if e == nil || e.workflow.Service == nil {
+		return nil
+	}
+	return e.workflow.Service.ApprovalService()
+}
+
 // Conversation returns the shared conversation manager initialised by the service.
 func (e *Service) Conversation() *conversation.Manager {
 	return e.convManager
+}
+
+// LLMCore returns the underlying llm/core service instance (mainly for
+// introspection or test hooks).
+func (e *Service) LLMCore() *core.Service {
+	return e.llmCore
 }
 
 // New creates a new executor service

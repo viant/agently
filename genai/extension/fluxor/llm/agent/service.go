@@ -17,16 +17,35 @@ import (
 // Option customises Service instances.
 type Option func(*Service)
 
+// WithWorkflowTimeout sets the maximum duration the Query handler will wait
+// for an orchestration workflow to complete before giving up and returning a
+// partial result.  Passing 0 or a negative duration leaves the current value
+// unchanged.
+func WithWorkflowTimeout(d time.Duration) Option {
+	return func(s *Service) {
+		if d > 0 {
+			s.workflowTimeout = d
+		}
+	}
+}
+
 // WithSummaryPrompt overrides the default conversation summarisation prompt.
 func WithSummaryPrompt(prompt string) Option {
-    return func(s *Service) { s.summaryPrompt = prompt }
+	return func(s *Service) { s.summaryPrompt = prompt }
 }
 
 const (
-    name                   = "llm/agent"
-    defaultSummaryThreshold = 20
-    defaultLastN           = 10
-    defaultWorkflowTimeout = time.Minute
+	name                    = "llm/agent"
+	defaultSummaryThreshold = 20
+	defaultLastN            = 10
+	// Default maximum duration to wait for a single plan-exec-finalize
+	// workflow to finish.  Complex tool chains (e.g. multiple LLM calls
+	// or long-running shell executions) often exceed one minute, which
+	// caused the CLI to print "[no response]" while the process was still
+	// running in background.  Raising this to five minutes provides more
+	// head-room; callers that need tighter control can override the value
+	// via WithWorkflowTimeout option.
+	defaultWorkflowTimeout = 5 * time.Minute
 )
 
 // Service provides functionality for working with agents
@@ -58,30 +77,30 @@ func (s *Service) SetRuntime(rt *fluxor.Runtime) {
 
 // New creates a new agent service instance with the given tool registry and fluxor runtime
 func New(
-    llm *core.Service,
-    agentFinder agent.Finder,
-    augmenter *augmenter.Service,
-    registry *tool.Registry,
-    runtime *fluxor.Runtime,
-    history memory.History,
-    opts ...Option,
+	llm *core.Service,
+	agentFinder agent.Finder,
+	augmenter *augmenter.Service,
+	registry *tool.Registry,
+	runtime *fluxor.Runtime,
+	history memory.History,
+	opts ...Option,
 ) *Service {
-    srv := &Service{
-        llm:              llm,
-        agentFinder:      agentFinder,
-        augmenter:        augmenter,
-        history:          history,
-        registry:         registry,
-        runtime:          runtime,
-        summaryThreshold: defaultSummaryThreshold,
-        lastN:            defaultLastN,
-        workflowTimeout:  defaultWorkflowTimeout,
-    }
+	srv := &Service{
+		llm:              llm,
+		agentFinder:      agentFinder,
+		augmenter:        augmenter,
+		history:          history,
+		registry:         registry,
+		runtime:          runtime,
+		summaryThreshold: defaultSummaryThreshold,
+		lastN:            defaultLastN,
+		workflowTimeout:  defaultWorkflowTimeout,
+	}
 
-    for _, o := range opts {
-        o(srv)
-    }
-    return srv
+	for _, o := range opts {
+		o(srv)
+	}
+	return srv
 }
 
 // Name returns the service name

@@ -3,8 +3,8 @@ package core
 import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/fluxor/extension"
 	"github.com/viant/fluxor/model/types"
+	"io"
 	"reflect"
 	"strings"
 )
@@ -14,8 +14,10 @@ const Name = "llm/core"
 type Service struct {
 	registry     *tool.Registry
 	llmFinder    llm.Finder
-	actions      *extension.Actions
+	modelMatcher llm.Matcher
 	defaultModel string
+
+	logWriter io.Writer
 }
 
 // Name returns the service Name
@@ -41,12 +43,18 @@ func (s *Service) Methods() types.Signatures {
 			Input:  reflect.TypeOf(&RankInput{}),
 			Output: reflect.TypeOf(&RankOutput{}),
 		},
+
 		{
-			Name:   "finalize",
-			Input:  reflect.TypeOf(&FinalizeInput{}),
-			Output: reflect.TypeOf(&FinalizeOutput{}),
+			Name:   "stream",
+			Input:  reflect.TypeOf(&GenerateInput{}),
+			Output: reflect.TypeOf(&StreamOutput{}),
 		},
 	}
+}
+
+// SetLogger sets the writer used to log LLM requests and responses.
+func (s *Service) SetLogger(w io.Writer) {
+	s.logWriter = w
 }
 
 // Method returns the specified method
@@ -58,8 +66,8 @@ func (s *Service) Method(name string) (types.Executable, error) {
 		return s.plan, nil
 	case "rank":
 		return s.rank, nil
-	case "finalize":
-		return s.finalize, nil
+	case "stream":
+		return s.stream, nil
 	default:
 		return nil, types.NewMethodNotFoundError(name)
 	}

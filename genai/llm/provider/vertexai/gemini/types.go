@@ -3,6 +3,7 @@ package gemini
 // Request represents the request structure for Gemini API
 type Request struct {
 	Contents          []Content          `json:"contents"`
+	Stream            bool               `json:"stream,omitempty"`
 	CachedContent     string             `json:"cachedContent,omitempty"`
 	SystemInstruction *SystemInstruction `json:"systemInstruction,omitempty"`
 	GenerationConfig  *GenerationConfig  `json:"generationConfig,omitempty"`

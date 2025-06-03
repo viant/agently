@@ -16,3 +16,19 @@ type Step struct {
 	// Retries specifies how many times to retry this tool on error or empty result
 	Retries int `yaml:"retries,omitempty" json:"retries,omitempty"`
 }
+
+type Steps []Step
+
+func (s Steps) Len() int {
+	return len(s)
+}
+
+func (s Steps) ToolStepCount() int {
+	count := 0
+	for _, step := range s {
+		if step.Type == "tool" {
+			count++
+		}
+	}
+	return count
+}

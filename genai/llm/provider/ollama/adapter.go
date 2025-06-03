@@ -13,8 +13,9 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest, model string) 
 		Format: "json",
 	}
 
-	// Set options if provided
+	// Set options and streaming flag if provided
 	if request.Options != nil {
+		req.Stream = request.Options.Stream
 		req.Options = &Options{
 			Temperature:   request.Options.Temperature,
 			TopP:          request.Options.TopP,

@@ -6,26 +6,30 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
 
-	"github.com/tmc/langchaingo/llms"
 	"github.com/viant/agently/genai/llm"
-	"github.com/viant/fluxor/model/types"
+	fluxortypes "github.com/viant/fluxor/model/types"
 	"github.com/viant/velty"
+
+	elog "github.com/viant/agently/internal/log"
 )
 
 type GenerateInput struct {
 	Model        string
+	Preferences  *llm.ModelPreferences // optional model preferences
 	SystemPrompt string
 	Prompt       string
 	Attachment   []*Attachment
-	Message      []llms.MessageContent
+	Message      []llm.Message
 	Tools        []llm.Tool
-    // Options allows callers to specify advanced llm.Options (temperature,
-    // top-p, etc.).  If nil a minimal options struct will be created that only
-    // carries Tools.
-    Options      *llm.Options
-	Template     string
-	Bind         map[string]interface{}
+
+	// Options allows callers to specify advanced llm.Options (temperature,
+	// top-p, etc.).  If nil a minimal options struct will be created that only
+	// carries Tools.
+	Options  *llm.Options
+	Template string
+	Bind     map[string]interface{}
 }
 
 // GenerateOutput represents output from extraction
@@ -36,26 +40,16 @@ type GenerateOutput struct {
 
 func (i *GenerateInput) Init(ctx context.Context) {
 	if len(i.Message) == 0 {
-		i.Message = []llms.MessageContent{}
+		i.Message = []llm.Message{}
 		if i.SystemPrompt != "" {
-			i.Message = append(i.Message, llms.TextParts(llms.ChatMessageTypeSystem, i.SystemPrompt))
+			i.Message = append(i.Message, llm.NewSystemMessage(i.SystemPrompt))
 		}
 		if i.Prompt != "" {
-			i.Message = append(i.Message, llms.TextParts(llms.ChatMessageTypeHuman, i.Prompt))
+			i.Message = append(i.Message, llm.NewUserMessage(i.Prompt))
 		}
-
 		for _, attachment := range i.Attachment {
-			parts := []llms.ContentPart{
-				llms.BinaryPart(attachment.MIMEType(), attachment.Data),
-			}
-			if attachment.Prompt != "" {
-				parts = append(parts, llms.TextPart(attachment.Prompt))
-			}
-
-			i.Message = append(i.Message, llms.MessageContent{
-				Role:  llms.ChatMessageTypeHuman,
-				Parts: parts,
-			})
+			i.Message = append(i.Message,
+				llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Prompt))
 		}
 	}
 }
@@ -74,11 +68,11 @@ func (i *GenerateInput) Validate(ctx context.Context) error {
 func (s *Service) generate(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*GenerateInput)
 	if !ok {
-		return types.NewInvalidInputError(in)
+		return fluxortypes.NewInvalidInputError(in)
 	}
 	output, ok := out.(*GenerateOutput)
 	if !ok {
-		return types.NewInvalidOutputError(out)
+		return fluxortypes.NewInvalidOutputError(out)
 	}
 
 	return s.Generate(ctx, input, output)
@@ -92,6 +86,19 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		}
 		input.Prompt = expanded
 	}
+
+	// Pick model when missing -------------------------------------------
+	if input.Model == "" {
+		if input.Preferences != nil {
+			if model := s.modelMatcher.Best(input.Preferences); model != "" {
+				input.Model = model
+			}
+		}
+		if input.Model == "" {
+			input.Model = s.defaultModel
+		}
+	}
+
 	input.Init(ctx)
 	if err := input.Validate(ctx); err != nil {
 		return err
@@ -102,67 +109,7 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		return fmt.Errorf("failed to find model: %w", err)
 	}
 
-	// Convert langchaingo messages to llm.Message
-	messages := make([]llm.Message, 0, len(input.Message))
-	for _, msg := range input.Message {
-		items := make([]llm.ContentItem, 0)
-		// Since we can't directly access the langchaingo types, we'll use a type switch
-		// to determine the content type and extract the data
-		for i := range msg.Parts {
-			// Create a content item based on the part type
-			var item llm.ContentItem
-
-			// Determine the content type and extract the data
-			// This is a best-effort approach without knowing the exact structure
-			switch {
-			case strings.Contains(fmt.Sprintf("%T", msg.Parts[i]), "Text"):
-				item = llm.ContentItem{
-					Type:   llm.ContentTypeText,
-					Source: llm.SourceRaw,
-					Data:   fmt.Sprintf("%v", msg.Parts[i]),
-				}
-			case strings.Contains(fmt.Sprintf("%T", msg.Parts[i]), "Image"):
-				item = llm.ContentItem{
-					Type:   llm.ContentTypeImage,
-					Source: llm.SourceURL,
-					Data:   fmt.Sprintf("%v", msg.Parts[i]),
-				}
-			case strings.Contains(fmt.Sprintf("%T", msg.Parts[i]), "Binary"):
-				item = llm.ContentItem{
-					Type:   llm.ContentTypeBinary,
-					Source: llm.SourceRaw,
-					Data:   fmt.Sprintf("%v", msg.Parts[i]),
-				}
-			default:
-				// Skip unknown content types
-				continue
-			}
-
-			items = append(items, item)
-		}
-
-		// Determine the role based on the msg.Role string representation
-		var role llm.MessageRole
-		roleStr := fmt.Sprintf("%v", msg.Role)
-		switch {
-		case strings.Contains(roleStr, "Human"):
-			role = llm.RoleUser
-		case strings.Contains(roleStr, "AI"):
-			role = llm.RoleAssistant
-		case strings.Contains(roleStr, "System"):
-			role = llm.RoleSystem
-		case strings.Contains(roleStr, "Tool"):
-			role = llm.RoleTool
-		default:
-			// Default to user role for unknown types
-			role = llm.RoleUser
-		}
-
-		messages = append(messages, llm.Message{
-			Role:  role,
-			Items: items,
-		})
-	}
+	messages := input.Message
 
 	// Build options – start with caller-supplied structure when present so we
 	// preserve Temperature, TopP, etc.
@@ -210,10 +157,27 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		}
 	}
 	output.Content = strings.TrimSpace(builder.String())
+
+	// --------------------------------------------------------------
+	// Optional logging
+	// --------------------------------------------------------------
+	elog.Publish(elog.Event{Time: time.Now(), EventType: elog.LLMInput, Payload: request})
+	elog.Publish(elog.Event{Time: time.Now(), EventType: elog.LLMOutput, Payload: response})
+
+	if s.logWriter != nil {
+		req, _ := json.Marshal(request)
+		s.logWriter.Write(append(req, '\n'))
+		resp, _ := json.Marshal(response)
+		s.logWriter.Write(append(resp, '\n'))
+	}
 	return nil
 }
 
+// EnsureJSONResponse extracts and unmarshals valid JSON content from a given string into the target interface.
+// It trims potential code block markers and identifies the JSON object or array to parse.
+// Returns an error if no valid JSON is found or if unmarshalling fails.
 func EnsureJSONResponse(ctx context.Context, text string, target interface{}) error {
+	// Strip code block markers
 	if strings.HasPrefix(text, "```") {
 		if idx := strings.Index(text, "\n"); idx != -1 {
 			text = text[idx+1:]
@@ -224,8 +188,26 @@ func EnsureJSONResponse(ctx context.Context, text string, target interface{}) er
 		text = strings.TrimSpace(text)
 	}
 
+	// Extract likely JSON content
+	objectStart := strings.Index(text, "{")
+	objectEnd := strings.LastIndex(text, "}")
+	arrayStart := strings.Index(text, "[")
+	arrayEnd := strings.LastIndex(text, "]")
+
+	switch {
+	case objectStart != -1 && objectEnd != -1 && (arrayStart == -1 || objectStart < arrayStart):
+		text = text[objectStart : objectEnd+1]
+	case arrayStart != -1 && arrayEnd != -1:
+		text = text[arrayStart : arrayEnd+1]
+	default:
+		return fmt.Errorf("no valid JSON object or array found")
+	}
+
+	text = strings.TrimSpace(text)
+
+	// Attempt to parse JSON
 	if err := json.Unmarshal([]byte(text), target); err != nil {
-		return fmt.Errorf("failed to unmarshal LLM text into %T: %w", target, err)
+		return fmt.Errorf("failed to unmarshal LLM text into %T: %w\nRaw text: %s", target, err, text)
 	}
 	return nil
 }

@@ -2,67 +2,59 @@ package exec
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	plan2 "github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/extension/fluxor/llm/core"
+	"github.com/google/uuid"
+	plan "github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/tool"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
-//go:embed prompt/refine_plan.vm
-var refinePromptTemplate string
-
+// RunPlanInput defines input for executing a plan of steps.
 // RunPlanInput defines input for executing a plan of steps.
 type RunPlanInput struct {
-	Plan           plan2.Plan `json:"plan,omitempty"`
-	Model          string     `json:"model,omitempty"`
-	Prompt         string     `json:"prompt,omitempty"` // optional prompt for final step
-	Tools          []string   `json:"tools,omitempty"`
-	Context        string     `json:"context,omitempty"`
-	PromptTemplate string     `json:"promptTemplate,omitempty"` // optional custom prompt for Plan generation
+	Plan       plan.Plan        `json:"plan,omitempty"`
+	Model      string           `json:"model,omitempty"`
+	Tools      []string         `json:"tools,omitempty"`
+	Results    []plan.Result    `json:"results,omitempty"`
+	Transcript []memory.Message `json:"transcript,omitempty"` // transcript of the conversation with the LLM`
+
+	Context string `json:"context,omitempty"`
 }
 
 // RunPlanOutput defines output for executing a plan of steps.
 type RunPlanOutput struct {
-	Results     []plan2.Result     `json:"results"`
-	Elicitation *plan2.Elicitation `json:"elicitation,omitempty"`
+	Results     []plan.Result     `json:"results"`
+	Transcript  []memory.Message  `json:"transcript,omitempty"` // transcript of the conversation with the LLM`
+	Elicitation *plan.Elicitation `json:"elicitation,omitempty"`
 }
 
 // executePlan iterates over plan steps, calling tools for 'tool' steps.
 func (s *Service) runPlan(ctx context.Context, in, out interface{}) error {
 	input := in.(*RunPlanInput)
 	output := out.(*RunPlanOutput)
+	output.Results = input.Results
 	return s.RunPlan(ctx, input, output)
 }
 
 func (s *Service) RunPlan(ctx context.Context, input *RunPlanInput, output *RunPlanOutput) error {
 	// Prepare structured results for each plan step
-	var results []plan2.Result
+
+	var results []plan.Result
 	maxSteps := min(1000, s.maxSteps)
 	planSteps := input.Plan.Steps
 	totalSteps := 0
 
-	// If planner indicated elicitation at plan level, propagate immediately.
-	if elicitation := input.Plan.Elicitation; elicitation != nil && !elicitation.IsEmpty() {
-		output.Elicitation = input.Plan.Elicitation
+	// If planner indicated non-empty elicitation at plan level, propagate immediately.
+	if e := input.Plan.Elicitation; e != nil && len(input.Plan.Steps) == 0 && !e.IsEmpty() {
+		output.Elicitation = e
+		fmt.Printf("Elicitation: %v\n", e)
 		return nil
 	}
-
-	promptTemplate := input.PromptTemplate
-	if promptTemplate == "" {
-		promptTemplate = refinePromptTemplate
-	}
-	tools, err := s.registry.MustHaveTools(input.Tools)
-	if err != nil {
-		return fmt.Errorf("failed to match tools: %w", err)
-	}
-
-	var toolError string
-	var errorCount int
 
 outer:
 	for i := 0; i < len(planSteps); i++ {
@@ -81,19 +73,39 @@ outer:
 				Model: input.Model,
 			}
 			callToolOutput := &CallToolOutput{}
-			if err := s.CallTool(ctx, callToolInput, callToolOutput); err != nil {
-				toolError = fmt.Sprintf("failed to call tool %s: %v", step.Name, err)
-				errorCount++
-				break outer
+			err := s.CallTool(ctx, callToolInput, callToolOutput)
+			result := plan.Result{Name: step.Name, Args: step.Args, Result: callToolOutput.Result, ID: uuid.New().String()}
+			if err != nil {
+				result.Error = err.Error()
+				// missing param -> elicitation handled below
 			}
-			results = append(results, plan2.Result{Name: step.Name, Args: step.Args, Result: callToolOutput.Result})
+
+			// If missing params error recorded via err, build elicitation
+			if err != nil {
+				if def, ok := s.registry.GetDefinition(step.Name); ok {
+					_, problems := tool.ValidateArgs(def, step.Args)
+					if len(problems) > 0 {
+						missing := make([]plan.MissingField, len(problems))
+						for i, p := range problems {
+							missing[i] = plan.MissingField{Name: p.Name}
+						}
+						output.Elicitation = &plan.Elicitation{
+							Prompt:        fmt.Sprintf("Tool %q requires additional parameters.", step.Name),
+							MissingFields: missing,
+						}
+						break outer
+					}
+				}
+			}
+			results = append(results, result)
 
 		case "clarify_intent":
-			output.Results = results
+			// Record current results then exit with elicitation.
+			output.Results = append(output.Results, results...)
 			if len(step.MissingFields) > 0 {
-				output.Elicitation = &plan2.Elicitation{Prompt: step.FollowupPrompt, MissingFields: step.MissingFields}
+				output.Elicitation = &plan.Elicitation{Prompt: step.FollowupPrompt, MissingFields: step.MissingFields}
 			} else {
-				output.Elicitation = &plan2.Elicitation{Prompt: step.FollowupPrompt}
+				output.Elicitation = &plan.Elicitation{Prompt: step.FollowupPrompt}
 			}
 			break outer
 		case "abort":
@@ -102,40 +114,8 @@ outer:
 		}
 	}
 
-	if errorCount > 10 {
-		return fmt.Errorf("too many errors (%d) during plan execution, aborting", errorCount)
-	}
-	if len(results) > 0 {
-		genInput := &core.GenerateInput{
-			Template: promptTemplate,
-			Model:    input.Model,
-			Prompt:   input.Prompt,
-			Bind: map[string]interface{}{
-
-				"ExistingPlan": planSteps,
-				"Results":      results, //TODO sumarize if needed it it's too large
-				"Prompt":       input.Prompt,
-				"Find":         input.Model,
-				"Query":        input.Prompt,
-				"Tools":        input.Tools,
-				"Context":      input.Context,
-				"ToolError":    toolError,
-			},
-			Tools: tools,
-		}
-		genOutput := &core.GenerateOutput{}
-		if err := s.llm.Generate(ctx, genInput, genOutput); err != nil {
-			return err
-		}
-		var refinedPlan plan2.Plan
-		if err := core.EnsureJSONResponse(ctx, genOutput.Content, &refinedPlan); err == nil {
-			if refinedPlan.IsRefined() {
-				planSteps = refinedPlan.Steps
-				goto outer
-			}
-		}
-	}
-	output.Results = results
+	// Ensure all accumulated results are surfaced.
+	output.Results = append(output.Results, results...)
 	return nil
 }
 
@@ -148,7 +128,7 @@ var placeholderRegex = regexp.MustCompile(`^\$step\[(\d+)\]\.output(?:\.(.+))?$`
 // resolveArgsPlaceholders walks through the args map and substitutes any value
 // of the form $step[N].output.<field>  or  $step[N].output with the referenced
 // result from prior steps.
-func resolveArgsPlaceholders(args map[string]interface{}, prior []plan2.Result) map[string]interface{} {
+func resolveArgsPlaceholders(args map[string]interface{}, prior []plan.Result) map[string]interface{} {
 	if len(args) == 0 {
 		return args
 	}
@@ -173,7 +153,7 @@ func resolveArgsPlaceholders(args map[string]interface{}, prior []plan2.Result) 
 
 // resolvePlaceholder attempts to resolve a single placeholder against prior
 // results. It returns the resolved value and a boolean indicating success.
-func resolvePlaceholder(raw string, prior []plan2.Result) (interface{}, bool) {
+func resolvePlaceholder(raw string, prior []plan.Result) (interface{}, bool) {
 	m := placeholderRegex.FindStringSubmatch(strings.TrimSpace(raw))
 	if len(m) == 0 {
 		return nil, false
@@ -206,4 +186,43 @@ func resolvePlaceholder(raw string, prior []plan2.Result) (interface{}, bool) {
 		}
 	}
 	return curr, true
+}
+
+// extractShellError inspects the JSON returned by system/executor and returns
+// a short error string when any command reports non-zero status or stderr.
+func extractShellError(raw string) string {
+	var doc struct {
+		Commands []struct {
+			Stderr string `json:"stderr"`
+			Status int    `json:"status"`
+		} `json:"commands"`
+		Stderr string `json:"stderr"`
+		Status int    `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		// Fallback: try to extract "stderr":"..." via regex when the JSON
+		// is not strictly valid (common when shell embeds unescaped newlines)
+		re := regexp.MustCompile(`"stderr"\s*:\s*"([^"]+)"`)
+		if m := re.FindStringSubmatch(raw); len(m) == 2 {
+			return strings.TrimSpace(m[1])
+		}
+		return ""
+	}
+	// Overall status/stderr
+	if doc.Status != 0 || strings.TrimSpace(doc.Stderr) != "" {
+		if strings.TrimSpace(doc.Stderr) != "" {
+			return strings.TrimSpace(doc.Stderr)
+		}
+		return fmt.Sprintf("command exited with status %d", doc.Status)
+	}
+	// Check individual commands (important for pipelines)
+	for _, c := range doc.Commands {
+		if c.Status != 0 || strings.TrimSpace(c.Stderr) != "" {
+			if strings.TrimSpace(c.Stderr) != "" {
+				return strings.TrimSpace(c.Stderr)
+			}
+			return fmt.Sprintf("command exited with status %d", c.Status)
+		}
+	}
+	return ""
 }

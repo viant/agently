@@ -21,6 +21,28 @@ type ContentBlock struct {
 	Type   string  `json:"type"`
 	Text   string  `json:"text,omitempty"`
 	Source *Source `json:"source,omitempty"`
+	// Tool request coming FROM the model
+	ToolUse *ToolUseBlock `json:"toolUse,omitempty"`
+
+	// Result you send back TO the model
+	ToolResult *ToolResultBlock `json:"toolResult,omitempty"`
+}
+
+type ToolUseBlock struct {
+	ToolUseId string                 `json:"toolUseId"` // <— the correlation handle
+	Name      string                 `json:"name"`      // must match a ToolDefinition.Name
+	Input     map[string]interface{} `json:"input"`     // validated by InputSchema
+}
+
+type ToolResultBlock struct {
+	ToolUseId string                   `json:"toolUseId"`         // echo back unchanged
+	Content   []ToolResultContentBlock `json:"content,omitempty"` // result payload
+	Status    string                   `json:"status,omitempty"`  // "success" | "error" (Claude-only)
+}
+
+type ToolResultContentBlock struct {
+	Text *string     `json:"text,omitempty"`
+	JSON interface{} `json:"json,omitempty"` // any JSON-serialisable value
 }
 
 // Source represents a source for image content

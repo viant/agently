@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -103,6 +104,55 @@ func (c *Client) sendRequest(ctx context.Context, apiURL string, data []byte) (*
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	return resp, nil
+}
+
+// Stream sends a chat request to the Claude API with streaming enabled and returns a channel of partial responses.
+func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-chan llm.StreamEvent, error) {
+	if c.ProjectID == "" {
+		return nil, fmt.Errorf("project ID is required")
+	}
+	if c.Model == "" {
+		return nil, fmt.Errorf("model is required")
+	}
+	// Prepare request
+	req, err := ToRequest(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	// Marshal request
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	// Send HTTP request
+	apiURL := c.GetEndpointURL()
+	resp, err := c.sendRequest(ctx, apiURL, data)
+	if err != nil {
+		return nil, err
+	}
+	// Stream response body
+	events := make(chan llm.StreamEvent)
+	go func() {
+		defer resp.Body.Close()
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			part := scanner.Text()
+			if part == "" {
+				continue
+			}
+			var chunk Response
+			if err := json.Unmarshal([]byte(part), &chunk); err != nil {
+				events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream part: %w", err)}
+				break
+			}
+			events <- llm.StreamEvent{Response: ToLLMSResponse(&chunk)}
+		}
+		if err := scanner.Err(); err != nil {
+			events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
+		}
+		close(events)
+	}()
+	return events, nil
 }
 
 // handleStreamingResponse processes a streaming response from the Claude API
