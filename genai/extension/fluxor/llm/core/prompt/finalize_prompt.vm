@@ -1,2 +1,0 @@
-Given the user query '${Query}' #if(${Results}) following structured tool results: ${Results} ,#end #if(${Context})additional context : ${Context}#end
-Compose a concise, helpful answer for the user, integrating relevant facts from the results.  If no useful information is found, politely say so.  Do NOT mention internal reasoning, tool names or JSON structures.  Respond as plain text only.
