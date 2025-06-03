@@ -79,56 +79,9 @@ func (s *Service) generate(ctx context.Context, in, out interface{}) error {
 }
 
 func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) error {
-	if input.Prompt == "" && input.Template != "" {
-		expanded, err := s.expandTemplate(ctx, input)
-		if err != nil {
-			return fmt.Errorf("failed to expand template: %w", err)
-		}
-		input.Prompt = expanded
-	}
-
-	// Pick model when missing -------------------------------------------
-	if input.Model == "" {
-		if input.Preferences != nil {
-			if model := s.modelMatcher.Best(input.Preferences); model != "" {
-				input.Model = model
-			}
-		}
-		if input.Model == "" {
-			input.Model = s.defaultModel
-		}
-	}
-
-	input.Init(ctx)
-	if err := input.Validate(ctx); err != nil {
-		return err
-	}
-
-	model, err := s.llmFinder.Find(ctx, input.Model)
+	request, model, err := s.prepareGenerateRequest(ctx, input)
 	if err != nil {
-		return fmt.Errorf("failed to find model: %w", err)
-	}
-
-	messages := input.Message
-
-	// Build options – start with caller-supplied structure when present so we
-	// preserve Temperature, TopP, etc.
-	var opts *llm.Options
-	if input.Options != nil {
-		clone := *input.Options // shallow copy is enough (maps are reference but we don't mutate)
-		opts = &clone
-	} else {
-		opts = &llm.Options{}
-	}
-
-	// Ensure tools list is kept
-	if len(opts.Tools) == 0 && len(input.Tools) > 0 {
-		opts.Tools = input.Tools
-	}
-
-	request := &llm.GenerateRequest{
-		Messages: messages,
-		Options:  opts,
+		return err
 	}
 
 	response, err := model.Generate(ctx, request)
@@ -210,6 +163,59 @@ func EnsureJSONResponse(ctx context.Context, text string, target interface{}) er
 		return fmt.Errorf("failed to unmarshal LLM text into %T: %w\nRaw text: %s", target, err, text)
 	}
 	return nil
+}
+
+// prepareGenerateRequest prepares a GenerateRequest and resolves the model based
+// on preferences or defaults. It expands templates, validates input, and clones options.
+func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInput) (*llm.GenerateRequest, llm.Model, error) {
+	if input.Prompt == "" && input.Template != "" {
+		expanded, err := s.expandTemplate(ctx, input)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to expand template: %w", err)
+		}
+		input.Prompt = expanded
+	}
+
+	if input.Model == "" {
+		if input.Preferences != nil {
+			if m := s.modelMatcher.Best(input.Preferences); m != "" {
+				input.Model = m
+			}
+		}
+		if input.Model == "" {
+			input.Model = s.defaultModel
+		}
+	}
+
+	input.Init(ctx)
+	if err := input.Validate(ctx); err != nil {
+		return nil, nil, err
+	}
+
+	model, err := s.llmFinder.Find(ctx, input.Model)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to find model: %w", err)
+	}
+
+	messages := input.Message
+	var opts *llm.Options
+	if input.Options != nil {
+		clone := *input.Options
+		opts = &clone
+	} else {
+		opts = &llm.Options{}
+	}
+
+	if len(opts.Tools) == 0 && len(input.Tools) > 0 {
+		opts.Tools = input.Tools
+	}
+
+	request := &llm.GenerateRequest{
+		Messages: messages,
+		Options:  opts,
+	}
+
+	return request, model, nil
 }
 
 func (s *Service) expandTemplate(ctx context.Context, input *GenerateInput) (string, error) {

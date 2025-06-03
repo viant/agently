@@ -43,94 +43,17 @@ func (s *Service) stream(ctx context.Context, in, out interface{}) error {
 	}
 	input.Options.Stream = true
 
-	// Expand prompt template if needed
-	if input.Prompt == "" && input.Template != "" {
-		expanded, err := s.expandTemplate(ctx, input)
-		if err != nil {
-			return fmt.Errorf("failed to expand template: %w", err)
-		}
-		input.Prompt = expanded
-	}
-
-	// Pick default model if missing
-	if input.Model == "" {
-		if input.Preferences != nil {
-			if model := s.modelMatcher.Best(input.Preferences); model != "" {
-				input.Model = model
-			}
-		}
-		if input.Model == "" {
-			input.Model = s.defaultModel
-		}
-	}
-
-	input.Init(ctx)
-	if err := input.Validate(ctx); err != nil {
+	req, model, err := s.prepareGenerateRequest(ctx, input)
+	if err != nil {
 		return err
 	}
-
-	model, err := s.llmFinder.Find(ctx, input.Model)
-	if err != nil {
-		return fmt.Errorf("failed to find model: %w", err)
-	}
-
-	// Build messages (reuse logic from generate)
-	messages := make([]llm.Message, 0, len(input.Message))
-	for _, msg := range input.Message {
-		items := make([]llm.ContentItem, 0)
-		for i := range msg.Content {
-			var item llm.ContentItem
-			switch {
-			case strings.Contains(fmt.Sprintf("%T", msg.Content[i]), "Text"):
-				item = llm.ContentItem{Type: llm.ContentTypeText, Source: llm.SourceRaw, Data: fmt.Sprintf("%v", msg.Content[i])}
-			case strings.Contains(fmt.Sprintf("%T", msg.Content[i]), "Image"):
-				item = llm.ContentItem{Type: llm.ContentTypeImage, Source: llm.SourceURL, Data: fmt.Sprintf("%v", msg.Content[i])}
-			case strings.Contains(fmt.Sprintf("%T", msg.Content[i]), "Binary"):
-				item = llm.ContentItem{Type: llm.ContentTypeBinary, Source: llm.SourceRaw, Data: fmt.Sprintf("%v", msg.Content[i])}
-			default:
-				continue
-			}
-			items = append(items, item)
-		}
-
-		var role llm.MessageRole
-		roleStr := fmt.Sprintf("%v", msg.Role)
-		switch {
-		case strings.Contains(roleStr, "Human"):
-			role = llm.RoleUser
-		case strings.Contains(roleStr, "AI"):
-			role = llm.RoleAssistant
-		case strings.Contains(roleStr, "System"):
-			role = llm.RoleSystem
-		case strings.Contains(roleStr, "Tool"):
-			role = llm.RoleTool
-		default:
-			role = llm.RoleUser
-		}
-
-		messages = append(messages, llm.Message{Role: role, Items: items})
-	}
-
-	// Prepare options clone
-	var opts *llm.Options
-	if input.Options != nil {
-		clone := *input.Options
-		opts = &clone
-	} else {
-		opts = &llm.Options{}
-	}
-	if len(opts.Tools) == 0 && len(input.Tools) > 0 {
-		opts.Tools = input.Tools
-	}
-
-	request := &llm.GenerateRequest{Messages: messages, Options: opts}
 
 	streamer, ok := model.(llm.StreamingModel)
 	if !ok {
 		return fmt.Errorf("model %T does not support streaming", model)
 	}
 	// Start streaming
-	streamCh, err := streamer.Stream(ctx, request)
+	streamCh, err := streamer.Stream(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to start stream: %w", err)
 	}

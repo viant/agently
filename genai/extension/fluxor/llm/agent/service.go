@@ -38,14 +38,7 @@ const (
 	name                    = "llm/agent"
 	defaultSummaryThreshold = 20
 	defaultLastN            = 10
-	// Default maximum duration to wait for a single plan-exec-finalize
-	// workflow to finish.  Complex tool chains (e.g. multiple LLM calls
-	// or long-running shell executions) often exceed one minute, which
-	// caused the CLI to print "[no response]" while the process was still
-	// running in background.  Raising this to five minutes provides more
-	// head-room; callers that need tighter control can override the value
-	// via WithWorkflowTimeout option.
-	defaultWorkflowTimeout = 5 * time.Minute
+	defaultWorkflowTimeout  = 15 * time.Minute
 )
 
 // Service provides functionality for working with agents
