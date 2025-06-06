@@ -9,6 +9,7 @@ import (
 	plan "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
+	"github.com/viant/mcp-protocol/schema"
 	"regexp"
 	"strconv"
 	"strings"
@@ -85,13 +86,12 @@ outer:
 				if def, ok := s.registry.GetDefinition(step.Name); ok {
 					_, problems := tool.ValidateArgs(def, step.Args)
 					if len(problems) > 0 {
-						missing := make([]plan.MissingField, len(problems))
-						for i, p := range problems {
-							missing[i] = plan.MissingField{Name: p.Name}
-						}
+						reqSchema := buildSchemaFromProblems(problems)
 						output.Elicitation = &plan.Elicitation{
-							Prompt:        fmt.Sprintf("Tool %q requires additional parameters.", step.Name),
-							MissingFields: missing,
+							ElicitRequestParams: schema.ElicitRequestParams{
+								Message:         fmt.Sprintf("Tool %q requires additional parameters.", step.Name),
+								RequestedSchema: reqSchema,
+							},
 						}
 						break outer
 					}
@@ -99,13 +99,19 @@ outer:
 			}
 			results = append(results, result)
 
-		case "clarify_intent":
+		case "clarify_intent": // backwards compatibility – treat same as "elicitation"
+			fallthrough
+		case "elicitation":
 			// Record current results then exit with elicitation.
 			output.Results = append(output.Results, results...)
-			if len(step.MissingFields) > 0 {
-				output.Elicitation = &plan.Elicitation{Prompt: step.FollowupPrompt, MissingFields: step.MissingFields}
-			} else {
-				output.Elicitation = &plan.Elicitation{Prompt: step.FollowupPrompt}
+			if step.Elicitation != nil {
+				// The step already carries the full elicitation payload – forward as-is.
+				output.Elicitation = step.Elicitation
+			} else if step.Type == "clarify_intent" {
+				// Fallback: Legacy models may send question/missing fields in args
+				output.Elicitation = &plan.Elicitation{
+					ElicitRequestParams: schema.ElicitRequestParams{Message: step.Content},
+				}
 			}
 			break outer
 		case "abort":
@@ -225,4 +231,40 @@ func extractShellError(raw string) string {
 		}
 	}
 	return ""
+}
+
+// -----------------------------------------------------------------------------
+// Elicitation helpers
+// -----------------------------------------------------------------------------
+
+// buildSchemaFromProblems converts a set of validation problems returned by
+// tool.ValidateArgs into the restricted JSON schema payload expected by the
+// elicitation protocol.
+func buildSchemaFromProblems(problems []tool.Problem) schema.ElicitRequestParamsRequestedSchema {
+	props := make(map[string]interface{}, len(problems))
+	required := make([]string, 0, len(problems))
+	for _, p := range problems {
+		props[p.Name] = map[string]interface{}{"type": "string"}
+		required = append(required, p.Name)
+	}
+	return schema.ElicitRequestParamsRequestedSchema{
+		Type:       "object",
+		Properties: props,
+		Required:   required,
+	}
+}
+
+// min returns the smaller positive non-zero value of a and b.
+// If either value is zero or negative, the other is returned unmodified.
+func min(a, b int) int {
+	if a <= 0 {
+		return b
+	}
+	if b <= 0 {
+		return a
+	}
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -45,13 +45,20 @@ Tool Invocation:
 ```
 Clarification / Elicitation:
 ```json
-{ "type": "clarify_intent", "question": "Please provide <parameter> for <tool-name>.", "missingFields": [ "<param-1>", "<param-2>" ] }
+{
+  "type": "elicitation",
+  "message": "Please provide <parameter> for <tool-name>.",
+  "requestedSchema": {
+    "type": "object",
+    "properties": {
+      "<param-1>": { "type": "string" },
+      "<param-2>": { "type": "string" }
+    },
+    "required": [ "<param-1>", "<param-2>" ]
+  }
+}
 ```
-General elicitation (if no matching tool or goal unclear):
-```json
-{ "type": "clarify_intent", "question": "What are you trying to accomplish?" }
-```
-
+we show
 
 ════════════════════════════════════════
 ⚙️ Response Strategy

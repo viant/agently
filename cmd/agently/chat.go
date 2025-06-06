@@ -3,13 +3,16 @@ package agently
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor"
 	fluxexec "github.com/viant/fluxor/service/executor"
+
 
 	elog "github.com/viant/agently/internal/log"
 
@@ -147,31 +150,95 @@ func (c *ChatCmd) Execute(_ []string) error {
 
 	convID := c.ConvID
 
-	askOnce := func(query string) error {
-		ctx := tool.WithPolicy(ctxBase, pol)
-		ctx = withFluxorPolicy(ctx, pol)
-		if c.Timeout > 0 {
-			var cancel2 context.CancelFunc
-			ctx, cancel2 = context.WithTimeout(ctx, time.Duration(c.Timeout)*time.Second)
-			defer cancel2()
-		}
-		in := &agent.QueryInput{ConversationID: convID, Location: c.Location, Query: query}
-		out, err := svc.Conversation().Accept(ctx, in)
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				fmt.Println("[no response] - timeout")
+	// askOnce sends `query` to the agent and prints the assistant response. If
+	// the response includes an elicitation request the user is prompted for the
+	// required payload and the conversation continues automatically with the
+	// collected data until no further elicitation is required.
+	askOnce := func(initialQuery string) error {
+		currentQuery := initialQuery
+		for {
+			ctx := tool.WithPolicy(ctxBase, pol)
+			ctx = withFluxorPolicy(ctx, pol)
+			if c.Timeout > 0 {
+				var cancel2 context.CancelFunc
+				ctx, cancel2 = context.WithTimeout(ctx, time.Duration(c.Timeout)*time.Second)
+				defer cancel2()
+			}
+
+			in := &agent.QueryInput{ConversationID: convID, Location: c.Location, Query: currentQuery}
+			out, err := svc.Conversation().Accept(ctx, in)
+			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					fmt.Println("[no response] - timeout")
+					return nil
+				}
+				fmt.Printf("error: %v\n", err)
 				return nil
 			}
-			fmt.Printf("error: %v\n", err)
-			return nil
+
+			convID = in.ConversationID
+
+			// ------------------------------------------------------------------
+			// Detect elicitation requests either via structured field or when
+			// the assistant returned the full object as a JSON string.
+			// ------------------------------------------------------------------
+			elic := out.Elicitation
+			if elic == nil {
+				var maybe map[string]interface{}
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out.Content)), &maybe); err == nil {
+					if typ, _ := maybe["type"].(string); typ == "elicitation" || typ == "clarify_intent" {
+						msg, _ := maybe["message"].(string)
+						// Build flat schema JSON string if requestedSchema present
+						var schemaJSON string
+						if rs, ok := maybe["requestedSchema"]; ok {
+							if b, _ := json.Marshal(rs); len(b) > 0 {
+								schemaJSON = string(b)
+							}
+						}
+						elic = &plan.Elicitation{
+							ElicitRequestParams: schema.ElicitRequestParams{Message: msg},
+							Schema:              schemaJSON,
+						}
+					}
+				}
+			}
+
+			// ------------------------------------------------------------------
+			// Print assistant response only when it is not an elicitation JSON.
+			// When elicitation follows, the Awaiter will handle user-facing prompts.
+			// ------------------------------------------------------------------
+			if elic == nil {
+				if strings.TrimSpace(out.Content) == "" {
+					fmt.Println("[no response] - no content")
+				} else {
+					fmt.Println(out.Content)
+				}
+			}
+
+			if elic != nil && !elic.IsEmpty() {
+				// Remove raw JSON echo from subsequent turns.
+				out.Content = elic.Message
+				res, err := newStdinAwaiter().AwaitElicitation(ctxBase, elic)
+				if err != nil {
+					fmt.Printf("elicitation error: %v\n", err)
+					return nil
+				}
+				if res.Action == plan.ElicitResultActionDecline {
+					return nil // user declined – stop
+				}
+				if res.Action == plan.ElicitResultActionAccept {
+					if len(res.Payload) == 0 {
+						return nil // nothing to send
+					}
+					if data, err := json.Marshal(res.Payload); err == nil {
+						currentQuery = string(data)
+						continue // resubmit payload
+					}
+				}
+			}
+
+			return nil // no further elicitation
 		}
-		if strings.TrimSpace(out.Content) == "" {
-			fmt.Println("[no response] - no content")
-		} else {
-			fmt.Println(out.Content)
-		}
-		convID = in.ConversationID
-		return nil
 	}
 
 	// Single-turn when -q was provided.

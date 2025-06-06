@@ -2,6 +2,7 @@ package executor
 
 import (
 	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/io/elicitation"
 	modelprovider "github.com/viant/agently/genai/llm/provider"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
@@ -12,6 +13,20 @@ import (
 )
 
 type Option func(config *Service)
+
+// WithElicitationAwaiter registers an interactive Awaiter responsible for
+// resolving schema-driven user prompts ("elicitation"). When set, the awaiter
+// is attached to the internally managed MCP client so that interactive CLI
+// sessions can synchronously obtain the required payload.
+//
+// The last non-nil value wins when the option is applied multiple times.
+func WithElicitationAwaiter(a elicitation.Awaiter) Option {
+	return func(s *Service) {
+		if a != nil {
+			s.MCPElicitationAwaiter = a
+		}
+	}
+}
 
 func WithConfig(config *Config) Option {
 	return func(s *Service) {

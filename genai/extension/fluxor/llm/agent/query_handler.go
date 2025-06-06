@@ -198,7 +198,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	if elVal, ok := result.Output[keyElicitation]; ok && elVal != nil {
 		if elic, err := coerceElicitation(elVal); err == nil && elic != nil {
 			qo.Elicitation = elic
-			qo.Content = elic.Prompt
+			qo.Content = elic.Message
 			qo.DocumentsSize = s.calculateDocumentsSize(docs)
 			s.recordAssistant(ctx, convID, qo.Content)
 			qo.Usage = usage.FromContext(ctx)

@@ -13,6 +13,7 @@ import (
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/extension/fluxor/llm/exec"
 	"github.com/viant/agently/genai/extension/fluxor/output/extractor"
+	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
@@ -38,6 +39,12 @@ type Service struct {
 
 	history memory.History
 	llmCore *core.Service
+
+	// MCPElicitationAwaiter receives interactive user prompts when the runtime
+	// encounters a schema-based elicitation request. When non-nil it is injected
+	// into the internally managed MCP client so that the network round-trip can
+	// be bypassed during CLI sessions or unit-tests.
+	MCPElicitationAwaiter elicitation.Awaiter `json:"-"`
 
 	augmenter    *augmenter.Service
 	agentService *llmagent.Service

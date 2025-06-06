@@ -6,13 +6,14 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	elicitationSchema "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
+	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
-	"os/exec"
-	"runtime"
 )
 
 // Client adapts MCP operations to local execution.
@@ -20,6 +21,8 @@ type Client struct {
 	core       *core.Service
 	openURLFn  func(string) error
 	implements map[string]bool
+	awaiter    elicitation.Awaiter
+	llmCore    *core.Service
 }
 
 func (c *Client) Init(ctx context.Context, capabilities *schema.ClientCapabilities) {
@@ -36,58 +39,6 @@ func (c *Client) Init(ctx context.Context, capabilities *schema.ClientCapabiliti
 		c.implements[schema.MethodSamplingCreateMessage] = true
 	}
 }
-
-type Option func(*Client)
-
-// -----------------------------------------------------------------------------
-// Options
-// -----------------------------------------------------------------------------
-
-// WithLLMCore injects the llm/core service used to fulfil CreateMessage.
-func WithLLMCore(svc *core.Service) Option {
-	return func(c *Client) { c.core = svc }
-}
-
-// WithURLOpener overrides the function used to open browser.
-func WithURLOpener(fn func(string) error) Option {
-	return func(c *Client) { c.openURLFn = fn }
-}
-
-// -----------------------------------------------------------------------------
-// Constructors & helpers
-// -----------------------------------------------------------------------------
-
-// NewClient returns a ready client.
-func NewClient(opts ...Option) *Client {
-	c := &Client{
-		openURLFn:  defaultOpenURL,
-		implements: make(map[string]bool),
-	}
-	for _, o := range opts {
-		o(c)
-	}
-	return c
-}
-
-// defaultOpenURL tries best-effort to open the supplied URL in user browser.
-func defaultOpenURL(url string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
-	default: // linux, freebsd
-		cmd = exec.Command("xdg-open", url)
-	}
-	return cmd.Start()
-}
-
-// -----------------------------------------------------------------------------
-// Interface compliance helpers
-// -----------------------------------------------------------------------------
-
-func (c *Client) OnNotification(ctx context.Context, n *jsonrpc.Notification) {}
 
 // Implements tells dispatcher which methods we support.
 func (c *Client) Implements(method string) bool {
@@ -119,9 +70,43 @@ func (c *Client) CreateUserInteraction(ctx context.Context, p *schema.CreateUser
 	return &schema.CreateUserInteractionResult{}, nil
 }
 
-func (c *Client) Elicit(ctx context.Context, p *schema.ElicitRequestParams) (*schema.ElicitResult, *jsonrpc.Error) {
-	// MVP: auto-decline; advanced UI can be added later.
-	return &schema.ElicitResult{Action: schema.ElicitResultActionDecline}, nil
+func (c *Client) Elicit(ctx context.Context, params *schema.ElicitRequestParams) (*schema.ElicitResult, *jsonrpc.Error) {
+	// When an Awaiter is configured we bypass the network round-trip entirely
+	// and resolve the prompt locally. We must translate between the MCP
+	// protocol types and the lightweight types declared in the local
+	// agently/schema package.
+	if c.awaiter != nil {
+		// ------------------------------------------------------------------
+		// Build JSON-schema string from the restricted MCP subset so that the
+		// generic Awaiter can operate on a single schema document.
+		// ------------------------------------------------------------------
+		var schemaJSON string
+		{
+			doc := map[string]interface{}{
+				"type":       params.RequestedSchema.Type,
+				"properties": params.RequestedSchema.Properties,
+			}
+			if len(params.RequestedSchema.Required) > 0 {
+				doc["required"] = params.RequestedSchema.Required
+			}
+			if b, _ := json.Marshal(doc); len(b) > 0 {
+				schemaJSON = string(b)
+			}
+		}
+
+		localReq := &elicitationSchema.Elicitation{Schema: schemaJSON}
+		res, err := c.awaiter.AwaitElicitation(ctx, localReq)
+		if err != nil {
+			return nil, jsonrpc.NewInternalError(err.Error(), nil)
+		}
+
+		// Map back to MCP result ------------------------------------
+		return &schema.ElicitResult{
+			Action:  schema.ElicitResultAction(res.Action),
+			Content: res.Payload,
+		}, nil
+	}
+	return nil, jsonrpc.NewInternalError("elicitation awaiter wes not configured ", nil)
 }
 
 func (c *Client) CreateMessage(ctx context.Context, p *schema.CreateMessageRequestParams) (*schema.CreateMessageResult, *jsonrpc.Error) {
@@ -166,10 +151,6 @@ func (c *Client) CreateMessage(ctx context.Context, p *schema.CreateMessageReque
 	return result, nil
 }
 
-// -----------------------------------------------------------------------------
-// Utility
-// -----------------------------------------------------------------------------
-
 func (c *Client) asErr(e error) *jsonrpc.Error {
 	if e == nil {
 		return nil
@@ -178,3 +159,15 @@ func (c *Client) asErr(e error) *jsonrpc.Error {
 }
 
 // Option type remains in option.go
+
+// NewClient returns a ready client.
+func NewClient(opts ...Option) *Client {
+	c := &Client{
+		openURLFn:  defaultOpenURL,
+		implements: make(map[string]bool),
+	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
+}

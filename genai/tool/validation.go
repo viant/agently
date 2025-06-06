@@ -14,6 +14,10 @@ type FieldError struct {
 	Reason string // free-text explanation
 }
 
+// Problem is kept as an alias for backwards compatibility with older callers
+// that referred to validation issues as *Problem*s.
+type Problem = FieldError
+
 // ValidateArgs checks the provided args against the JSON-schema stored in the
 // given tool definition. Currently it focuses on detecting missing *required*
 // fields; type checking can be added later.

@@ -1,31 +1,84 @@
 package plan
 
-// Elicitation captures information that the planner still needs from the user
-// before it can continue executing the plan.
+// This file defines a light-weight representation of an “elicitation” prompt
+// that is independent from the full MCP protocol types.  It is used by the
+// CLI, unit-tests and higher-level services when interactive, schema-driven
+// user input is required.
+
+import (
+	"strings"
+
+	mcpproto "github.com/viant/mcp-protocol/schema"
+)
+
+// Elicitation describes a request to obtain a user-supplied payload that
+// conforms to the supplied JSON Schema document (Schema field).  The struct
+// embeds mcp-protocol’s ElicitRequestParams so that callers that already work
+// with the full protocol can freely convert between the two without manual
+// copying.
+//
+// Only a subset of the original fields is actually used by Agently today.  The
+// additional Schema string is a convenience copy of RequestedSchema encoded as
+// a single JSON document so that generic front-ends (CLI/stdio) do not have to
+// reconstruct it from the sub-fields.
 type Elicitation struct {
-	// Prompt is a human-friendly question to ask the user.
-	Prompt string `json:"prompt"`
+	mcpproto.ElicitRequestParams `json:",inline"`
 
-	// MissingFields lists the exact parameters (and their context) that are
-	// required.  UI can use this to build structured forms.
-	MissingFields []MissingField `json:"missingFields,omitempty"`
+	// Schema is a complete JSON Schema (draft-07) document that the user must
+	// satisfy.  When empty, the caller should fall back to RequestedSchema
+	// from the embedded type.
+	Schema string `json:"schema,omitempty"`
 }
 
+// IsEmpty reports whether the elicitation is effectively empty (i.e. there is
+// nothing to ask the user).  The heuristic is intentionally simple so that it
+// does not require full JSON-Schema parsing.
 func (e *Elicitation) IsEmpty() bool {
-	return e == nil || e.Prompt == "" && len(e.MissingFields) == 0
+	if e == nil {
+		return true
+	}
+	if strings.TrimSpace(e.Schema) != "" {
+		return false
+	}
+	if strings.TrimSpace(e.Message) != "" {
+		return false
+	}
+	// Fall back to inspecting embedded RequestedSchema.
+	if rs := e.RequestedSchema; rs.Type != "" {
+		if strings.TrimSpace(rs.Type) != "" {
+			return false
+		}
+		if len(rs.Properties) > 0 {
+			return false
+		}
+	}
+	return true
 }
 
-// MissingField describes one piece of information that needs user input.
-type MissingField struct {
-	// Name of the parameter, e.g. "city".
-	Name string `json:"name"`
+// ---------------------------------------------------------------------------
+// Result helpers used by Awaiters and callers
+// ---------------------------------------------------------------------------
 
-	// Tool is an optional name of the tool/function that requires the value.
-	Tool string `json:"tool,omitempty"`
+// ElicitResultAction defines the action selected by the user after the
+// elicitation process finished.
+type ElicitResultAction string
 
-	// ArgPath is the dotted path within the tool args where this value belongs.
-	ArgPath string `json:"argPath,omitempty"`
+const (
+	// ElicitResultActionAccept indicates that the user supplied a payload that
+	// satisfies the schema and accepted the request.
+	ElicitResultActionAccept ElicitResultAction = "accept"
 
-	// Options gives a set of suggested values (when the LLM can enumerate).
-	Options []string `json:"options,omitempty"`
+	// ElicitResultActionDecline signals that the user declined to provide a
+	// payload.
+	ElicitResultActionDecline ElicitResultAction = "decline"
+)
+
+// ElicitResult represents the outcome of the elicitation prompt.
+type ElicitResult struct {
+	// Action is either "accept" or "decline".
+	Action ElicitResultAction `json:"action"`
+
+	// Payload is the user supplied map that conforms to the supplied schema
+	// when Action == "accept". It is nil if the action is "decline".
+	Payload map[string]any `json:"payload,omitempty"`
 }
