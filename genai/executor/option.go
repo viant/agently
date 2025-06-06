@@ -6,6 +6,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor"
+	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
 	"github.com/viant/fluxor/service/meta"
 	"io"
 )
@@ -60,14 +61,14 @@ func WithMetaService(metaService *meta.Service) Option {
 // WithWorkflowOptions sets fluxor options
 func WithWorkflowOptions(option ...fluxor.Option) Option {
 	return func(s *Service) {
-		s.workflow.Options = append(s.workflow.Options, option...)
+		s.fluxorOptions = append(s.fluxorOptions, option...)
 	}
 }
 
 func WithModelConfig(providers ...*modelprovider.Config) Option {
 	return func(s *Service) {
 		if s.config.Model == nil {
-			s.config.Model = &Group[*modelprovider.Config]{}
+			s.config.Model = &mcpcfg.Group[*modelprovider.Config]{}
 		}
 		s.config.Model.Items = append(s.config.Model.Items, providers...)
 	}
@@ -78,7 +79,7 @@ func WithModelConfig(providers ...*modelprovider.Config) Option {
 func WithAgents(agents ...*agent.Agent) Option {
 	return func(s *Service) {
 		if s.config.Agent == nil {
-			s.config.Agent = &Group[*agent.Agent]{}
+			s.config.Agent = &mcpcfg.Group[*agent.Agent]{}
 		}
 		s.config.Agent.Items = append(s.config.Agent.Items, agents...)
 	}

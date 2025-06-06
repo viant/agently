@@ -18,17 +18,16 @@ import (
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/extension"
-	"github.com/viant/fluxor/model/types"
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/fluxor/service/event"
 	"github.com/viant/fluxor/service/meta"
-	"github.com/viant/x"
 	"io"
 	"sync/atomic"
+
+	mcp "github.com/viant/fluxor-mcp/mcp"
 )
 
 type Service struct {
-	workflow       workflow
 	config         *Config
 	mcpClient      *clientmcp.Client
 	modelFinder    llm.Finder
@@ -36,24 +35,21 @@ type Service struct {
 	embedderFinder embedder.Finder
 	agentFinder    agent.Finder
 	tools          *tool.Registry
-	history        memory.History
-	llmCore        *core.Service
-	augmenter      *augmenter.Service
-	agentService   *llmagent.Service
-	convManager    *conversation.Manager
-	metaService    *meta.Service
-	started        int32
+
+	history memory.History
+	llmCore *core.Service
+
+	augmenter    *augmenter.Service
+	agentService *llmagent.Service
+	convManager  *conversation.Manager
+	metaService  *meta.Service
+	started      int32
 
 	llmLogger       io.Writer `json:"-"`
 	fluxorLogWriter io.Writer `json:"-"`
-}
 
-type workflow struct {
-	Options        []fluxor.Option
-	Extensions     []types.Service
-	Runtime        *fluxor.Runtime
-	Service        *fluxor.Service
-	ExtensionTypes []*x.Type
+	fluxorOptions []fluxor.Option
+	orchestration *mcp.Service // shared fluxor-mcp service instance
 }
 
 // AgentService returns the registered llmagent service
@@ -65,7 +61,9 @@ func (e *Service) Start(ctx context.Context) {
 	if !atomic.CompareAndSwapInt32(&e.started, 0, 1) {
 		return
 	}
-	_ = e.workflow.Service.Runtime().Start(ctx)
+	if e.orchestration != nil {
+		_ = e.orchestration.Start(ctx)
+	}
 }
 
 func (e *Service) IsStarted() bool {
@@ -76,18 +74,22 @@ func (e *Service) Shutdown(ctx context.Context) {
 	if !atomic.CompareAndSwapInt32(&e.started, 1, 2) {
 		return
 	}
-	_ = e.workflow.Service.Runtime().Shutdown(ctx)
+	if e.orchestration != nil {
+		_ = e.orchestration.Shutdown(ctx)
+	}
 }
 
 func (e *Service) Runtime() *fluxor.Runtime {
-	return e.workflow.Runtime
+	if e.orchestration != nil {
+		return e.orchestration.WorkflowRuntime()
+	}
+	return nil
 }
 
-func (e *Service) registerServices() *extension.Actions {
+func (e *Service) registerServices(actions *extension.Actions) {
 	// Register orchestration actions: plan, execute and finalize
 	defaultModel := e.config.Default.Model
 	enricher := augmenter.New(e.embedderFinder)
-	actions := e.workflow.Service.Actions()
 	e.llmCore = core.New(e.modelFinder, e.tools, defaultModel)
 
 	if e.llmLogger != nil {
@@ -102,7 +104,11 @@ func (e *Service) registerServices() *extension.Actions {
 	actions.Register(extractor.New())
 	actions.Register(inspector.New())
 
-	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, e.workflow.Runtime, e.history)
+	var runtime *fluxor.Runtime
+	if e.orchestration != nil {
+		runtime = e.orchestration.WorkflowRuntime()
+	}
+	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
 
@@ -116,25 +122,30 @@ func (e *Service) registerServices() *extension.Actions {
 	}
 	e.convManager = conversation.New(e.history, convHandler)
 
-	return actions
+	// Actions is modified in-place; no return value needed.
 }
 
 func (e *Service) NewContext(ctx context.Context) context.Context {
-	return e.workflow.Service.NewContext(ctx)
+	if e.orchestration != nil {
+		return e.orchestration.WorkflowService().NewContext(ctx)
+	}
+	return ctx
 }
 
 func (e *Service) EventService() *event.Service {
-	return e.workflow.Service.EventService()
+	if e.orchestration != nil {
+		return e.orchestration.WorkflowService().EventService()
+	}
+	return nil
 }
 
-// ApprovalService exposes the Fluxor approval service used by the wrapped
-// workflow engine. It returns nil if the service has not been initialised yet
-// (which should never happen after init() succeeds).
+// ApprovalService exposes the Fluxor approval service from the orchestration
+// engine. It returns nil when orchestration is not yet initialised.
 func (e *Service) ApprovalService() approval.Service {
-	if e == nil || e.workflow.Service == nil {
+	if e == nil || e.orchestration == nil {
 		return nil
 	}
-	return e.workflow.Service.ApprovalService()
+	return e.orchestration.WorkflowService().ApprovalService()
 }
 
 // Conversation returns the shared conversation manager initialised by the service.

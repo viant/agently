@@ -16,13 +16,9 @@ import (
 
 	"github.com/viant/agently/internal/loader/fs"
 	"github.com/viant/datly/view"
+	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
 	"github.com/viant/mcp"
 )
-
-type Group[T any] struct {
-	URL   string `yaml:"url" json:"url" short:"u" long:"url" description:"url"`
-	Items []T    `yaml:"items" json:"items" short:"i" long:"items" description:"items"`
-}
 
 type Default struct {
 	Model string
@@ -30,13 +26,13 @@ type Default struct {
 }
 
 type Config struct {
-	BaseURL      string                           `yaml:"baseUrl" json:"baseUrl" `
-	Agent        *Group[*agent.Agent]             `yaml:"agents" json:"agents"`
-	Model        *Group[*llmprovider.Config]      `yaml:"models" json:"models"`
-	Embedder     *Group[*embedderprovider.Config] `yaml:"embedders" json:"embedders" `
-	MCP          *Group[*mcp.ClientOptions]       `yaml:"mcp" json:"mcp"`
-	DAOConnector *view.DBConfig                   `yaml:"daoConfig" json:"daoConfig" `
-	Default      Default                          `yaml:"default" json:"default"`
+	BaseURL      string                                  `yaml:"baseUrl" json:"baseUrl" `
+	Agent        *mcpcfg.Group[*agent.Agent]             `yaml:"agents" json:"agents"`
+	Model        *mcpcfg.Group[*llmprovider.Config]      `yaml:"models" json:"models"`
+	Embedder     *mcpcfg.Group[*embedderprovider.Config] `yaml:"embedders" json:"embedders" `
+	MCP          *mcpcfg.Group[*mcp.ClientOptions]       `yaml:"mcp" json:"mcp"`
+	DAOConnector *view.DBConfig                          `yaml:"daoConfig" json:"daoConfig" `
+	Default      Default                                 `yaml:"default" json:"default"`
 
 	ToolRetries int
 	//

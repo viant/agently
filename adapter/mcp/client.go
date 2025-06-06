@@ -17,8 +17,24 @@ import (
 
 // Client adapts MCP operations to local execution.
 type Client struct {
-	core      *core.Service
-	openURLFn func(string) error
+	core       *core.Service
+	openURLFn  func(string) error
+	implements map[string]bool
+}
+
+func (c *Client) Init(ctx context.Context, capabilities *schema.ClientCapabilities) {
+	if capabilities.Elicitation != nil {
+		c.implements[schema.MethodElicitationCreate] = true
+	}
+	if capabilities.Roots != nil {
+		c.implements[schema.MethodRootsList] = true
+	}
+	if capabilities.UserInteraction != nil {
+		c.implements[schema.MethodInteractionCreate] = true
+	}
+	if capabilities.Sampling != nil {
+		c.implements[schema.MethodSamplingCreateMessage] = true
+	}
 }
 
 type Option func(*Client)
@@ -44,7 +60,8 @@ func WithURLOpener(fn func(string) error) Option {
 // NewClient returns a ready client.
 func NewClient(opts ...Option) *Client {
 	c := &Client{
-		openURLFn: defaultOpenURL,
+		openURLFn:  defaultOpenURL,
+		implements: make(map[string]bool),
 	}
 	for _, o := range opts {
 		o(c)

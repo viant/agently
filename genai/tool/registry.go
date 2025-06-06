@@ -5,135 +5,226 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/viant/agently/genai/llm"
+	mcpservice "github.com/viant/fluxor-mcp/mcp"
+	mcpschema "github.com/viant/mcp-protocol/schema"
 	"io"
-	"strings"
 )
 
-// Handler is a function that executes a tool call with given arguments.
-// It returns the tool's result as a string.
+// ---------------------------------------------------------------------------
+// Global MCP service pointer – set once by the executor during bootstrap so
+// that Registry calls can transparently proxy to the shared tool registry
+// managed by github.com/viant/fluxor-mcp/mcp.Service.
+// ---------------------------------------------------------------------------
+
+var globalMcpSvc *mcpservice.Service
+
+// SetMCPService stores the orchestrating MCP service so that subsequent calls
+// to registry helpers can delegate tool look-ups and executions. It is safe to
+// invoke the function more than once – the last non-nil pointer wins.
+func SetMCPService(svc *mcpservice.Service) {
+	if svc != nil {
+		globalMcpSvc = svc
+	}
+}
+
+// Handler executes a tool call and returns its textual result.
 type Handler func(ctx context.Context, args map[string]interface{}) (string, error)
 
-// Registry holds tool definitions and handlers.
+// Registry provides a backward-compatibility wrapper that replicates the old
+// in-process tool registry API while internally delegating to the unified tool
+// catalogue owned by fluxor-mcp.  Any tools that are *manually* registered via
+// Register() are kept in an overlay map so that legacy adapters continue to
+// work.
 type Registry struct {
-	definitions map[string]llm.ToolDefinition
-	handlers    map[string]Handler
+	// Manually added entries – preferred over MCP definitions when duplicate
+	// names exist (behaviour consistent with the old implementation where the
+	// last call to Register won).
+	customDefs     map[string]llm.ToolDefinition
+	customHandlers map[string]Handler
 
 	debugWriter io.Writer `json:"-"`
 }
 
-func (r *Registry) MustHaveTools(toolNames []string) ([]llm.Tool, error) {
-	if r == nil {
-		r = registry
+// --------------------------------------------------------------
+// Constructors & helpers
+// --------------------------------------------------------------
+
+// NewRegistry returns an empty overlay registry. Callers *must* ensure that
+// SetMCPService() has been invoked before they actually use the registry,
+// otherwise look-ups will fail with "tool not found".
+func NewRegistry() *Registry {
+	return &Registry{
+		customDefs:     make(map[string]llm.ToolDefinition),
+		customHandlers: make(map[string]Handler),
 	}
-	var tools []llm.Tool
-	for _, toolName := range toolNames {
-		def, ok := r.GetDefinition(toolName)
+}
+
+// ------------------------------------------------------------------
+// Tool metadata helpers
+// ------------------------------------------------------------------
+
+// Definitions combines MCP-provided tools with manually registered overlay
+// definitions and returns the merged slice.
+func (r *Registry) Definitions() []llm.ToolDefinition {
+	var defs []llm.ToolDefinition
+
+	// 1. MCP catalogue
+	if svc := globalMcpSvc; svc != nil {
+		entries := svc.ToolDescriptors()
+		for _, d := range entries {
+			def := llm.ToolDefinition{
+				Name:        d.Name,
+				Description: d.Description,
+				Parameters: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				},
+			}
+			if _, schema, ok := svc.ToolMetadata(d.Name); ok {
+				if in, ok2 := schema.(mcpschema.ToolInputSchema); ok2 {
+					// Convert schema.Properties (map[string]map[string]interface{})
+					// to the generic map[string]interface{} expected by LLM code.
+					props := make(map[string]interface{}, len(in.Properties))
+					for k, v := range in.Properties {
+						props[k] = v
+					}
+					def.Parameters["properties"] = props
+					if len(in.Required) > 0 {
+						def.Parameters["required"] = in.Required
+					}
+				}
+			}
+			defs = append(defs, def)
+		}
+	}
+
+	// 2. Custom overlay (may replace entries with same name)
+	for _, d := range r.customDefs {
+		defs = append(defs, d)
+	}
+
+	return defs
+}
+
+// GetDefinition retrieves a tool definition either from the overlay or the MCP
+// catalogue. The second return value indicates presence.
+func (r *Registry) GetDefinition(name string) (llm.ToolDefinition, bool) {
+	// Overlay takes precedence.
+	if def, ok := r.customDefs[name]; ok {
+		return def, true
+	}
+
+	if svc := globalMcpSvc; svc != nil {
+		desc, schemaRaw, ok := svc.ToolMetadata(name)
 		if !ok {
-			return nil, fmt.Errorf("tool %q not found in r", toolName)
+			return llm.ToolDefinition{}, false
+		}
+
+		def := llm.ToolDefinition{
+			Name:        name,
+			Description: desc,
+			Parameters: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		}
+
+		if schema, ok2 := schemaRaw.(mcpschema.ToolInputSchema); ok2 {
+			props := make(map[string]interface{}, len(schema.Properties))
+			for k, v := range schema.Properties {
+				props[k] = v
+			}
+			def.Parameters["properties"] = props
+			if len(schema.Required) > 0 {
+				def.Parameters["required"] = schema.Required
+			}
+		}
+		return def, true
+	}
+	return llm.ToolDefinition{}, false
+}
+
+// MustHaveTools converts a list of tool names into the LLM toolkit slice that
+// Generation prompts expect. It returns an error when one of the requested
+// names does not resolve.
+func (r *Registry) MustHaveTools(toolNames []string) ([]llm.Tool, error) {
+	var tools []llm.Tool
+	for _, name := range toolNames {
+		def, ok := r.GetDefinition(name)
+		if !ok {
+			return nil, fmt.Errorf("tool %q not found", name)
 		}
 		tools = append(tools, llm.Tool{Type: "function", Definition: def})
 	}
 	return tools, nil
 }
 
-// Definitions returns all registered tool definitions in this registry.
-func (r *Registry) Definitions() []llm.ToolDefinition {
-	defs := make([]llm.ToolDefinition, 0, len(r.definitions))
-	for _, def := range r.definitions {
-		defs = append(defs, def)
-	}
-	return defs
-}
+// ------------------------------------------------------------------
+// Execution helpers
+// ------------------------------------------------------------------
 
-// NewRegistry creates a new empty tool registry.
-func NewRegistry() *Registry {
-	return &Registry{
-		definitions: make(map[string]llm.ToolDefinition),
-		handlers:    make(map[string]Handler),
-	}
-}
-
-// registry is the global singleton registry for backward compatibility.
-var registry = NewRegistry()
-
-// Register registers a tool definition and handler in this registry.
-func (r *Registry) Register(def llm.ToolDefinition, handler Handler) {
-	r.definitions[def.Name] = def
-	r.handlers[def.Name] = handler
-}
-
-// GetDefinition retrieves a tool definition by name from this registry.
-// Returns definition and true if found.
-func (r *Registry) GetDefinition(name string) (llm.ToolDefinition, bool) {
-	def, ok := r.definitions[name]
-	return def, ok
-}
-
-// Execute invokes a registered tool handler by name with given args.
-// Returns an error if the tool is not registered or handler execution fails.
+// Execute tries custom handler overlay first, then falls back to MCP internal
+// invocation helper.
 func (r *Registry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
-	if r == nil {
-		r = registry
-	}
-	handler, ok := r.handlers[name]
-	if !ok {
+	if h, ok := r.customHandlers[name]; ok {
 		if r.debugWriter != nil {
-			fmt.Fprintf(r.debugWriter, "[tool] %s not found\n", name)
+			fmt.Fprintf(r.debugWriter, "[tool] call %s args=%v (custom)\n", name, args)
 		}
-		if idx := strings.Index(name, "."); idx > 0 {
-			name = name[idx+1:]
-			handler, ok = r.handlers[name]
-			if ok {
-				if r.debugWriter != nil {
-					fmt.Fprintf(r.debugWriter, "[tool] call %s args=%v\n", name, args)
-				}
-				res, err := handler(ctx, args)
-				if r.debugWriter != nil {
-					if err != nil {
-						fmt.Fprintf(r.debugWriter, "[tool] error %s: %v\n", name, err)
-					} else {
-						fmt.Fprintf(r.debugWriter, "[tool] result %s: %s\n", name, res)
-					}
-				}
-				return res, err
-			}
-
-		}
-
-		return "", fmt.Errorf("tool %q not registered", name)
+		return h(ctx, args)
 	}
-	return handler(ctx, args)
+
+	if svc := globalMcpSvc; svc != nil {
+		if r.debugWriter != nil {
+			fmt.Fprintf(r.debugWriter, "[tool] call %s args=%v (mcp)\n", name, args)
+		}
+		res, err := svc.ExecuteTool(ctx, name, args)
+		if err != nil && r.debugWriter != nil {
+			fmt.Fprintf(r.debugWriter, "[tool] error %s: %v\n", name, err)
+		}
+		return res, err
+	}
+
+	return "", fmt.Errorf("tool %q not registered and no MCP service configured", name)
 }
 
-// SetDebugLogger attaches a writer that will receive every tool call made via
-// this registry (name, args, result, error). Passing nil disables logging.
-func (r *Registry) SetDebugLogger(w io.Writer) {
-	r.debugWriter = w
+// ------------------------------------------------------------------
+// Overlay registration – kept for backward compatibility (used by tests and
+// some adapters). These do NOT modify the MCP catalogue.
+// ------------------------------------------------------------------
+
+// Register adds a custom tool definition and handler to the overlay registry.
+func (r *Registry) Register(def llm.ToolDefinition, handler Handler) {
+	r.customDefs[def.Name] = def
+	r.customHandlers[def.Name] = handler
 }
 
-// Register registers a tool definition and handler in the default global registry.
-func Register(def llm.ToolDefinition, handler Handler) {
-	registry.Register(def, handler)
-}
+// SetDebugLogger attaches a logger receiving every tool invocation.
+func (r *Registry) SetDebugLogger(w io.Writer) { r.debugWriter = w }
 
-// Definitions returns all registered tool definitions from the default registry.
-func Definitions() []llm.ToolDefinition {
-	return registry.Definitions()
-}
+// ------------------------------------------------------------------
+// Default singleton for convenience (mirrors old behaviour).
+// ------------------------------------------------------------------
 
-// GetDefinition retrieves a tool definition by name from the default registry.
-// Returns definition and true if found.
-func GetDefinition(name string) (llm.ToolDefinition, bool) {
-	return registry.GetDefinition(name)
-}
+var singleton = NewRegistry()
 
-// Execute invokes a registered tool handler by name from the default registry.
-// Returns an error if the tool is not registered or handler fails.
+// Register adds a custom tool definition/handler to the default registry.
+func Register(def llm.ToolDefinition, handler Handler) { singleton.Register(def, handler) }
+
+// Definitions returns the merged set from the default registry.
+func Definitions() []llm.ToolDefinition { return singleton.Definitions() }
+
+// GetDefinition fetches a single tool definition from the default registry.
+func GetDefinition(name string) (llm.ToolDefinition, bool) { return singleton.GetDefinition(name) }
+
+// Execute forwards the call to the default registry.
 func Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
-	return registry.Execute(ctx, name, args)
+	return singleton.Execute(ctx, name, args)
 }
 
-// UnmarshalArguments helps parse JSON-encoded arguments into a map.
+// MustHaveTools is a convenience wrapper around the default registry.
+func MustHaveTools(toolNames []string) ([]llm.Tool, error) { return singleton.MustHaveTools(toolNames) }
+
+// UnmarshalArguments parses a JSON-encoded map.
 func UnmarshalArguments(raw json.RawMessage) (map[string]interface{}, error) {
 	var args map[string]interface{}
 	if err := json.Unmarshal(raw, &args); err != nil {
