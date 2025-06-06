@@ -10,6 +10,5 @@ import (
 )
 
 func main() {
-	os.Args = []string{"", "chat", "--reset-logs"}
 	agently.RunWithCommands(os.Args[1:])
 }
