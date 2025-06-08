@@ -310,24 +310,49 @@ func (s *Service) buildEnrichment(conv, docs string) string {
 var orchestrationWorkflow []byte
 
 func (s *Service) loadWorkflow(qi *QueryInput, enrichment, systemPrompt string) (*model.Workflow, map[string]interface{}, error) {
-
-	// tool names for LLM planning context
-	defs := s.registry.Definitions()
-	toolsDesc := make([]string, 0, len(defs))
-	for _, d := range defs {
-		toolsDesc = append(toolsDesc, d.Name)
+	toolNames, err := s.ensureTools(qi)
+	if err != nil {
+		return nil, nil, err
 	}
 	wf, err := s.runtime.DecodeYAMLWorkflow(orchestrationWorkflow)
-
 	initial := map[string]interface{}{
 		keyQuery:        qi.Query,
 		keyContext:      enrichment,
 		keyModel:        qi.Agent.Model,
-		keyTools:        toolsDesc,
+		keyTools:        toolNames,
 		keySystemPrompt: systemPrompt,
 	}
 
 	return wf, initial, err
+}
+
+func (s *Service) ensureTools(qi *QueryInput) ([]string, error) {
+	var toolPatterns []string
+	for _, aTool := range qi.Agent.Tool {
+		pattern := aTool.Pattern
+		if pattern == "" {
+			pattern = aTool.Ref
+		}
+		if pattern == "" {
+			pattern = aTool.Definition.Name
+		}
+		if pattern == "" {
+			continue
+		}
+		toolPatterns = append(toolPatterns, pattern)
+	}
+	tools, err := s.registry.MustHaveTools(toolPatterns)
+	if err != nil {
+		return nil, err
+	}
+	var toolNames []string
+	for _, aTool := range tools {
+		if aTool.Definition.Name == "" {
+			continue
+		}
+		toolNames = append(toolNames, aTool.Definition.Name)
+	}
+	return toolNames, err
 }
 
 // directAnswer produces an answer without tools / knowledge.

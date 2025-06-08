@@ -25,7 +25,7 @@ import (
 	"io"
 	"sync/atomic"
 
-	mcp "github.com/viant/fluxor-mcp/mcp"
+	"github.com/viant/fluxor-mcp/mcp"
 )
 
 type Service struct {
@@ -35,7 +35,7 @@ type Service struct {
 	modelMatcher   llm.Matcher
 	embedderFinder embedder.Finder
 	agentFinder    agent.Finder
-	tools          *tool.Registry
+	tools          tool.Registry
 
 	history memory.History
 	llmCore *core.Service

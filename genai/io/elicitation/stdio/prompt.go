@@ -128,7 +128,7 @@ func Prompt(ctx context.Context, w io.Writer, r io.Reader, p *plan.Elicitation) 
 			if i > 0 {
 				b.WriteString(", ")
 			}
-			b.WriteString(e.Error())
+			b.WriteString(e.String())
 		}
 		return nil, fmt.Errorf("collected payload does not satisfy schema: %s", b.String())
 	}

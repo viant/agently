@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	clientmcp "github.com/viant/agently/adapter/mcp"
+	"github.com/viant/agently/adapter/tool"
 	"github.com/viant/agently/genai/memory"
-	"github.com/viant/agently/genai/tool"
 	convdao "github.com/viant/agently/internal/dao/conversation"
 
 	"github.com/viant/datly/view"
@@ -82,7 +82,7 @@ func (e *Service) init(ctx context.Context) error {
 	}
 
 	// Build orchestration (fluxor-mcp) service instance
-	orch, err := mcpsvc.New(ctx,
+	orchestration, err := mcpsvc.New(ctx,
 		mcpsvc.WithConfig(mcpConfig),
 		mcpsvc.WithWorkflowOptions(wfOptions...),
 		mcpsvc.WithClient(e.mcpClient),
@@ -90,18 +90,15 @@ func (e *Service) init(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init orchestration: %w", err)
 	}
-	e.orchestration = orch
-
-	// Make MCP tools available via new proxy registry helpers.
-	tool.SetMCPService(orch)
+	e.orchestration = orchestration
 	if e.tools == nil {
-		e.tools = tool.NewRegistry()
+		e.tools = tool.New(e.orchestration)
 	}
 
 	// ------------------------------------------------------------------
 	// Step 4: register Agently-specific extension services on the shared runtime
 	// ------------------------------------------------------------------
-	actions := orch.WorkflowService().Actions()
+	actions := orchestration.WorkflowService().Actions()
 	e.registerServices(actions)
 
 	return nil
@@ -126,9 +123,6 @@ func (e *Service) initDefaults() {
 	}
 	if e.agentFinder == nil {
 		e.agentFinder = e.config.DefaultAgentFinder()
-	}
-	if e.tools == nil {
-		e.tools = tool.NewRegistry()
 	}
 
 	if e.mcpClient == nil {

@@ -15,8 +15,6 @@ const (
 	LLMOutput  EventType = "LLM_OUTPUT"
 	TaskInput  EventType = "TASK_INPUT"
 	TaskOutput EventType = "TASK_OUTPUT"
-	ToolInput  EventType = "TOOL_INPUT"
-	ToolOutput EventType = "TOOL_OUTPUT"
 	TaskWhen   EventType = "TASK_WHEN"
 )
 

@@ -1,6 +1,7 @@
 package executor
 
 import (
+	atool "github.com/viant/agently/adapter/tool"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/io/elicitation"
 	modelprovider "github.com/viant/agently/genai/llm/provider"
@@ -51,15 +52,15 @@ func WithFluxorActivityLogger(w io.Writer) Option {
 	}
 }
 
-// WithToolDebugLogger enables debug logging for every tool call executed via
-// the executor's tool registry. Each invocation is written to the supplied
+// WithToolDebugLogger enables debug logging for every atool call executed via
+// the executor's atool registry. Each invocation is written to the supplied
 // writer. Passing nil disables logging.
 func WithToolDebugLogger(w io.Writer) Option {
 	return func(s *Service) {
-		if s.tools == nil {
-			s.tools = tool.NewRegistry()
+		if s.tools == nil && s.orchestration != nil {
+			s.tools = atool.New(s.orchestration)
+			s.tools.SetDebugLogger(w)
 		}
-		s.tools.SetDebugLogger(w)
 	}
 }
 
@@ -100,8 +101,8 @@ func WithAgents(agents ...*agent.Agent) Option {
 	}
 }
 
-// WithTools sets a custom tool registry.
-func WithTools(tools *tool.Registry) Option {
+// WithTools sets a custom atool registry.
+func WithTools(tools tool.Registry) Option {
 	return func(s *Service) {
 		s.tools = tools
 	}
@@ -114,7 +115,7 @@ func WithHistory(store memory.History) Option {
 	}
 }
 
-// WithToolRetries sets the default retry count for tool execution steps.
+// WithToolRetries sets the default retry count for atool execution steps.
 func WithToolRetries(maxRetries int) Option {
 	return func(s *Service) {
 		s.config.ToolRetries = maxRetries

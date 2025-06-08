@@ -25,7 +25,7 @@ type Problem = FieldError
 // It returns:
 //  1. a shallow copy of args with any default values from the schema filled in;
 //  2. a slice describing the remaining problems (empty slice ⇒ valid).
-func ValidateArgs(def llm.ToolDefinition, args map[string]interface{}) (map[string]interface{}, []FieldError) {
+func ValidateArgs(def *llm.ToolDefinition, args map[string]interface{}) (map[string]interface{}, []FieldError) {
 	// Always operate on a copy so that callers can mutate safely.
 	fixed := map[string]interface{}{}
 	for k, v := range args {
@@ -71,7 +71,6 @@ func ValidateArgs(def llm.ToolDefinition, args map[string]interface{}) (map[stri
 
 		problems = append(problems, FieldError{Name: field, Reason: "required but missing"})
 	}
-
 	return fixed, problems
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor"
 	fluxexec "github.com/viant/fluxor/service/executor"
-
+	"github.com/viant/mcp-protocol/schema"
 
 	elog "github.com/viant/agently/internal/log"
 
@@ -81,7 +81,6 @@ func (c *ChatCmd) Execute(_ []string) error {
 		elog.FileSink(log,
 			elog.LLMInput, elog.LLMOutput,
 			elog.TaskInput, elog.TaskOutput,
-			elog.ToolInput, elog.ToolOutput,
 			elog.TaskWhen,
 		)
 		registerExecOption(executor.WithWorkflowOptions(

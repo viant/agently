@@ -1,9 +1,12 @@
 package llm
 
+import mcpschema "github.com/viant/mcp-protocol/schema"
+
 // Tool represents a tool that can be used by an LLM.
 // It follows the OpenAPI specification for defining tools.
 type Tool struct {
-	Ref string `json:"ref,omitempty" yaml:"ref"` // Reference to the tool definition
+	Ref     string `json:"ref,omitempty" yaml:"ref"`
+	Pattern string `json:"pattern,omitempty" yaml:"pattern"`
 	// Type is the type of the tool. Currently, only "function" is supported.
 	Type string `json:"type" yaml:"type"`
 
@@ -77,4 +80,28 @@ func NewFunctionToolChoice(name string) ToolChoice {
 			Name: name,
 		},
 	}
+}
+
+// ToolDefinitionFromMcpTool convert mcp tool into llm tool
+func ToolDefinitionFromMcpTool(tool *mcpschema.Tool) *ToolDefinition {
+	description := ""
+	if tool.Description != nil {
+		description = *tool.Description
+	}
+	def := ToolDefinition{
+		Name:        tool.Name,
+		Description: description,
+		Parameters: map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+		OutputSchema: map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+	}
+	def.Parameters["properties"] = tool.InputSchema.Properties
+	def.Required = tool.InputSchema.Required
+	def.OutputSchema["properties"] = tool.OutputSchema.Properties
+	return &def
 }

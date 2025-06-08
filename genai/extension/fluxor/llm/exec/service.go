@@ -12,7 +12,7 @@ import (
 const name = "llm/exec"
 
 type Service struct {
-	registry        *tool.Registry
+	registry        tool.Registry
 	llm             *core.Service
 	defaultModel    string
 	approvalService approval.Service
@@ -55,7 +55,7 @@ func (s *Service) Method(name string) (types.Executable, error) {
 }
 
 // New creates a new extractor service
-func New(llm *core.Service, registry *tool.Registry, defaultModel string, approvalService approval.Service) *Service {
+func New(llm *core.Service, registry tool.Registry, defaultModel string, approvalService approval.Service) *Service {
 	return &Service{
 		llm:             llm,
 		registry:        registry,

@@ -57,7 +57,6 @@ func (r *RunCmd) Execute(_ []string) error {
 		elog.FileSink(log,
 			elog.LLMInput, elog.LLMOutput,
 			elog.TaskInput, elog.TaskOutput,
-			elog.ToolInput, elog.ToolOutput,
 		)
 		registerExecOption(executor.WithWorkflowOptions(
 			fluxor.WithExecutorOptions(

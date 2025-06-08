@@ -10,7 +10,6 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/genai/tool"
 	"github.com/viant/embedius/matching/option"
 	"github.com/viant/fluxor/service/meta"
 	"github.com/viant/fluxor/service/meta/yml"
@@ -28,8 +27,9 @@ const (
 
 // Service provides agent data access operations
 type Service struct {
-	metaService      *meta.Service
-	agents           shared.Map[string, *agent.Agent] //[ url ] -> [ agent]
+	metaService *meta.Service
+	agents      shared.Map[string, *agent.Agent] //[ url ] -> [ agent]
+
 	defaultExtension string
 }
 
@@ -193,12 +193,7 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 						return fmt.Errorf("inline tool definitions not supported; must use scalar tool name reference")
 					}
 					name := itemNode.Value
-					def, found := tool.GetDefinition(name)
-					if !found {
-						return fmt.Errorf("unknown tool %q", name)
-					}
-					t := llm.NewFunctionTool(def)
-					agent.Tool = append(agent.Tool, &t)
+					agent.Tool = append(agent.Tool, &llm.Tool{Pattern: name, Type: "function"})
 				}
 			}
 		}

@@ -12,7 +12,8 @@ import (
 const Name = "llm/core"
 
 type Service struct {
-	registry     *tool.Registry
+	registry tool.Registry
+
 	llmFinder    llm.Finder
 	modelMatcher llm.Matcher
 	defaultModel string
@@ -74,6 +75,6 @@ func (s *Service) Method(name string) (types.Executable, error) {
 }
 
 // New creates a new extractor service
-func New(finder llm.Finder, registry *tool.Registry, defaultModel string) *Service {
+func New(finder llm.Finder, registry tool.Registry, defaultModel string) *Service {
 	return &Service{llmFinder: finder, registry: registry, defaultModel: defaultModel}
 }
