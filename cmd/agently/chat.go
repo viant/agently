@@ -142,9 +142,12 @@ func (c *ChatCmd) Execute(_ []string) error {
 	ctxBase, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pol := buildPolicy(c.Policy)
-	// Start background approval listener (no-op for auto/deny modes)
-	stopApprove := startApprovalLoop(ctxBase, svc, pol)
+	// Build policy once – shared between fluxor and tool execution.
+	fluxPol := buildFluxorPolicy(c.Policy)
+	toolPol := &tool.Policy{Mode: fluxPol.Mode, Ask: stdinAsk}
+
+	// Start background approval listener (ask-mode only) – uses fluxor policy.
+	stopApprove := startApprovalLoop(ctxBase, svc, fluxPol)
 	defer stopApprove()
 
 	convID := c.ConvID
@@ -156,8 +159,8 @@ func (c *ChatCmd) Execute(_ []string) error {
 	askOnce := func(initialQuery string) error {
 		currentQuery := initialQuery
 		for {
-			ctx := tool.WithPolicy(ctxBase, pol)
-			ctx = withFluxorPolicy(ctx, pol)
+			ctx := tool.WithPolicy(ctxBase, toolPol)
+			ctx = withFluxorPolicy(ctx, fluxPol)
 			if c.Timeout > 0 {
 				var cancel2 context.CancelFunc
 				ctx, cancel2 = context.WithTimeout(ctx, time.Duration(c.Timeout)*time.Second)

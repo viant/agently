@@ -5,23 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/fluxor/runtime/execution"
 	"io"
 	"log"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/executor/instance"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor/model/graph"
 	fluxpol "github.com/viant/fluxor/policy"
+	"github.com/viant/fluxor/runtime/execution"
 	"github.com/viant/fluxor/service/approval"
 	fluxexec "github.com/viant/fluxor/service/executor"
 
 	elog "github.com/viant/agently/internal/log"
-	"time"
 )
 
 // prefixWriter adds a static prefix at the beginning of every Write call.
@@ -101,6 +101,19 @@ func buildPolicy(mode string) *tool.Policy {
 	}
 }
 
+// buildFluxorPolicy mirrors buildPolicy but returns a *fluxpol.Policy used by
+// the workflow engine approval layer.
+func buildFluxorPolicy(mode string) *fluxpol.Policy {
+	switch strings.ToLower(mode) {
+	case fluxpol.ModeDeny:
+		return &fluxpol.Policy{Mode: fluxpol.ModeDeny}
+	case fluxpol.ModeAsk:
+		return &fluxpol.Policy{Mode: fluxpol.ModeAsk}
+	default:
+		return &fluxpol.Policy{Mode: fluxpol.ModeAuto}
+	}
+}
+
 // stdinAsk is used when Policy.Mode==ask to prompt user.
 func stdinAsk(_ context.Context, name string, args map[string]interface{}, p *tool.Policy) bool {
 	reader := bufio.NewReader(os.Stdin)
@@ -126,15 +139,26 @@ func stdinAsk(_ context.Context, name string, args map[string]interface{}, p *to
 // the executor's Fluxor approval queue and prompts the user for a decision via
 // stdin. It returns a stop function that can be awaited to ensure the goroutine
 // exits after ctx is cancelled.
-func startApprovalLoop(ctx context.Context, execSvc *executor.Service, pol *tool.Policy) (stop func()) {
-	if pol == nil || strings.ToLower(pol.Mode) != tool.ModeAsk {
+func startApprovalLoop(ctx context.Context, execSvc *executor.Service, pol *fluxpol.Policy) (stop func()) {
+	if pol == nil || strings.ToLower(pol.Mode) != fluxpol.ModeAsk {
 		return func() {}
 	}
 
-	appr := execSvc.ApprovalService()
-	if appr == nil {
-		return func() {}
+	// Wait until ApprovalService is initialised (executor boots asynchronously)
+	var appr approval.Service
+	for appr == nil {
+		select {
+		case <-ctx.Done():
+			return func() {}
+		default:
+		}
+		appr = execSvc.ApprovalService()
+		if appr == nil {
+			time.Sleep(20 * time.Millisecond)
+		}
 	}
+
+	decided := make(map[string]bool)
 
 	done := make(chan struct{})
 	go func() {
@@ -148,11 +172,16 @@ func startApprovalLoop(ctx context.Context, execSvc *executor.Service, pol *tool
 
 			msg, err := appr.Queue().Consume(ctx)
 			if err != nil {
-				continue // try again unless context closed
+				continue // retry unless ctx cancelled
 			}
 
 			evt := msg.T()
-			if evt == nil || evt.Topic != "request.new" {
+			if evt == nil {
+				_ = msg.Ack()
+				continue
+			}
+
+			if evt.Topic != approval.TopicRequestCreated && evt.Topic != approval.LegacyTopicRequestNew {
 				_ = msg.Ack()
 				continue
 			}
@@ -163,9 +192,17 @@ func startApprovalLoop(ctx context.Context, execSvc *executor.Service, pol *tool
 				continue
 			}
 
+			if decided[req.ID] {
+				_ = msg.Ack()
+				continue
+			}
+
 			approved, reason := promptApproval(req)
 
-			_, _ = appr.Decide(ctx, req.ID, approved, reason)
+			if _, err := appr.Decide(ctx, req.ID, approved, reason); err == nil {
+				decided[req.ID] = true
+			}
+
 			_ = msg.Ack()
 		}
 	}()
@@ -194,16 +231,11 @@ func promptApproval(req *approval.Request) (bool, string) {
 // withFluxorPolicy embeds a copy of the tool.Policy data into the context
 // using the fluxor policy key so that the workflow engine can access the same
 // mode/allow/block settings.
-func withFluxorPolicy(ctx context.Context, pol *tool.Policy) context.Context {
+func withFluxorPolicy(ctx context.Context, pol *fluxpol.Policy) context.Context {
 	if pol == nil {
 		return ctx
 	}
-	fp := &fluxpol.Policy{
-		Mode:      pol.Mode,
-		AllowList: pol.AllowList,
-		BlockList: pol.BlockList,
-	}
-	return fluxpol.WithPolicy(ctx, fp)
+	return fluxpol.WithPolicy(ctx, pol)
 }
 
 // newJSONTaskListener returns a Fluxor executor listener that dumps each task

@@ -3,11 +3,9 @@ package exec
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
+
 	"github.com/viant/agently/genai/tool"
-	approval "github.com/viant/fluxor/service/approval"
 )
 
 type CallToolInput struct {
@@ -45,33 +43,18 @@ func (s *Service) CallTool(ctx context.Context, input *CallToolInput, output *Ca
 	// still executes and the user receives a meaningful answer.
 
 	// --- policy evaluation -------------------------------------------------
+	// Tool approval is handled uniformly by the outer workflow via the Fluxor
+	// executor.  Requesting an additional approval here would duplicate the
+	// prompt.  We therefore enforce deny/allow lists but skip the explicit
+	// Ask branch – the decision will be captured once when the actual tool
+	// action (e.g. system/exec.execute) runs.
+
 	if pol := tool.FromContext(ctx); pol != nil {
 		if !pol.IsAllowed(input.Name) {
 			return fmt.Errorf("tool %s is not allowed by policy", input.Name)
 		}
-		switch pol.Mode {
-		case tool.ModeDeny:
+		if pol.Mode == tool.ModeDeny {
 			return fmt.Errorf("tool %s execution denied by policy", input.Name)
-		case tool.ModeAsk:
-			// delegate to Fluxor approval service for interactive confirmation
-			if s.approvalService == nil {
-				return fmt.Errorf("policy mode=ask but ApprovalService is not available")
-			}
-			raw, err := json.Marshal(input.Args)
-			if err != nil {
-				return fmt.Errorf("failed to marshal args for approval: %w", err)
-			}
-			req := &approval.Request{Action: input.Name, Args: raw, ID: uuid.New().String()}
-			if err := s.approvalService.RequestApproval(ctx, req); err != nil {
-				return fmt.Errorf("failed to request approval for tool %s: %w", input.Name, err)
-			}
-			dec, err := approval.WaitForDecision(ctx, s.approvalService, req.ID, 0)
-			if err != nil {
-				return fmt.Errorf("failed to await approval decision for tool %s: %w", input.Name, err)
-			}
-			if !dec.Approved {
-				return fmt.Errorf("tool %s execution rejected by user: %s", input.Name, dec.Reason)
-			}
 		}
 	}
 

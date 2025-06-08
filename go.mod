@@ -14,7 +14,7 @@ require (
 	github.com/viant/afsc v1.9.1
 	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
 	github.com/viant/embedius v0.0.0-20250503233925-d6900657ff75
-	github.com/viant/fluxor v0.1.7
+	github.com/viant/fluxor v0.1.9
 	github.com/viant/fluxor-mcp v0.1.3-0.20250608205459-901efa4ab614
 	github.com/viant/jsonrpc v0.6.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99

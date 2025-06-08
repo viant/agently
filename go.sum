@@ -1132,8 +1132,10 @@ github.com/viant/embedius v0.0.0-20250503233925-d6900657ff75 h1:X52IDcSuK/Vz/l+p
 github.com/viant/embedius v0.0.0-20250503233925-d6900657ff75/go.mod h1:ASRLUphJUHBswA+ElHx2iympCzc9isY+3os5TXOuEAw=
 github.com/viant/firebase v0.1.1 h1:a4IiehQ2GWoH4qTnUD7JnJ5lTc87nfxX8ClUwBO7AKU=
 github.com/viant/firebase v0.1.1/go.mod h1:Q2DK7L/pdGS5xNQRgMJ9B/x9VhIeXAfXCeh3cKpSIkM=
-github.com/viant/fluxor v0.1.7 h1:bTirVDqd2zHyD4S6YBA/R/Ow/S5vCK/qUHvEwssWfAo=
-github.com/viant/fluxor v0.1.7/go.mod h1:GombipUhTKSCPf+xgdrpg/P2GacUqKSq8zPzRkx33FM=
+github.com/viant/fluxor v0.1.8 h1:6cpoMO5d3sQumnbTmOnD6X1txJ8dg2TZg1wNxIXYtOw=
+github.com/viant/fluxor v0.1.8/go.mod h1:GombipUhTKSCPf+xgdrpg/P2GacUqKSq8zPzRkx33FM=
+github.com/viant/fluxor v0.1.9 h1:yLlXCgACBAH6ffKQc09ZDwr7hnFI3uubr5USCfIPM6c=
+github.com/viant/fluxor v0.1.9/go.mod h1:GombipUhTKSCPf+xgdrpg/P2GacUqKSq8zPzRkx33FM=
 github.com/viant/fluxor-mcp v0.1.3-0.20250608205459-901efa4ab614 h1:41pe69+vGs7fpmbjhz2wtd9hW7tA0xfe1xH3SigLPB4=
 github.com/viant/fluxor-mcp v0.1.3-0.20250608205459-901efa4ab614/go.mod h1:GknZFnaaS+u62/gjeVmBWy1mvlrsRDgs1tQRXmGbCn4=
 github.com/viant/gds v0.4.5 h1:QEPOdVyFGZCLbCcstjRTzS2vEktxHbN2cm5NZ3Z6yiA=

@@ -119,12 +119,13 @@ func (r *RunCmd) Execute(_ []string) error {
 	baseCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pol := buildPolicy(r.Policy)
-	stopApprove := startApprovalLoop(baseCtx, svc, pol)
+	fluxPol := buildFluxorPolicy(r.Policy)
+	toolPol := &tool.Policy{Mode: fluxPol.Mode, Ask: stdinAsk}
+	stopApprove := startApprovalLoop(baseCtx, svc, fluxPol)
 	defer stopApprove()
 
-	ctx := tool.WithPolicy(baseCtx, pol)
-	ctx = withFluxorPolicy(ctx, pol)
+	ctx := tool.WithPolicy(baseCtx, toolPol)
+	ctx = withFluxorPolicy(ctx, fluxPol)
 
 	out, err := svc.Conversation().Accept(ctx, &q)
 	if err != nil {
