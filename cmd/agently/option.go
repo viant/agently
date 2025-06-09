@@ -3,11 +3,13 @@ package agently
 // Options is the root command that groups sub-commands.  The struct tags are
 // interpreted by github.com/jessevdk/go-flags.
 type Options struct {
-	Config string    `short:"f" long:"config" description:"executor config YAML/JSON path"`
-	Chat   *ChatCmd  `command:"chat"  description:"Chat with an agent (single turn or continuation)"`
-	List   *ListCmd  `command:"list"  description:"List existing conversations"`
-	Run    *RunCmd   `command:"run"   description:"Run agentic workflow from JSON input"`
-	Serve  *ServeCmd `command:"serve" description:"Start HTTP server"`
+	Config    string        `short:"f" long:"config" description:"executor config YAML/JSON path"`
+	Chat      *ChatCmd      `command:"chat"  description:"Chat with an agent (single turn or continuation)"`
+	List      *ListCmd      `command:"list"  description:"List existing conversations"`
+	ListTools *ListToolsCmd `command:"list-tools" description:"List available tools"`
+	Exec      *ExecCmd      `command:"exec" description:"Execute a tool"`
+	Run       *RunCmd       `command:"run"   description:"Run agentic workflow from JSON input"`
+	Serve     *ServeCmd     `command:"serve" description:"Start HTTP server"`
 }
 
 // Init instantiates the sub-command referenced by the first argument so that
@@ -18,6 +20,10 @@ func (o *Options) Init(firstArg string) {
 		o.Chat = &ChatCmd{}
 	case "list":
 		o.List = &ListCmd{}
+	case "list-tools":
+		o.ListTools = &ListToolsCmd{}
+	case "exec":
+		o.Exec = &ExecCmd{}
 	case "run":
 		o.Run = &RunCmd{}
 	case "serve":

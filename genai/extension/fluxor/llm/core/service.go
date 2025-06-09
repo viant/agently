@@ -21,6 +21,16 @@ type Service struct {
 	logWriter io.Writer
 }
 
+// ToolDefinitions returns every tool definition registered in the tool
+// registry.  The slice may be empty when no registry is configured (unit tests
+// or mis-configuration).
+func (s *Service) ToolDefinitions() []llm.ToolDefinition {
+	if s == nil || s.registry == nil {
+		return nil
+	}
+	return s.registry.Definitions()
+}
+
 // Name returns the service Name
 func (s *Service) Name() string {
 	return Name

@@ -15,11 +15,11 @@ require (
 	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
 	github.com/viant/embedius v0.0.0-20250503233925-d6900657ff75
 	github.com/viant/fluxor v0.1.9
-	github.com/viant/fluxor-mcp v0.1.3-0.20250608205459-901efa4ab614
+	github.com/viant/fluxor-mcp v0.1.3-0.20250609020255-7096edab4f43
 	github.com/viant/jsonrpc v0.6.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.3.0
-	github.com/viant/mcp-protocol v0.3.11
+	github.com/viant/mcp-protocol v0.3.12
 	github.com/viant/scy v0.24.0
 	github.com/viant/structology v0.7.1 // indirect
 	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85

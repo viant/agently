@@ -2,12 +2,11 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	clientmcp "github.com/viant/agently/adapter/mcp"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/embedder"
-	"github.com/viant/agently/genai/extension/fluxor/codebase/inspector"
-	"github.com/viant/agently/genai/extension/fluxor/codebase/tester"
 	llmagent "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
@@ -24,6 +23,7 @@ import (
 	"github.com/viant/fluxor/service/meta"
 	"io"
 	"sync/atomic"
+	"time"
 
 	"github.com/viant/fluxor-mcp/mcp"
 )
@@ -57,6 +57,32 @@ type Service struct {
 
 	fluxorOptions []fluxor.Option
 	orchestration *mcp.Service // shared fluxor-mcp service instance
+}
+
+func (e *Service) Orchestration() *mcp.Service {
+	return e.orchestration
+}
+
+// ExecuteTool invokes a registered tool through the configured tool registry.
+// It provides a lightweight way to run an individual tool without crafting a
+// full workflow.  When `timeout` is positive a child context with that
+// deadline is used.
+func (e *Service) ExecuteTool(ctx context.Context, name string, args map[string]interface{}, timeout time.Duration) (interface{}, error) {
+	if e == nil {
+		return "", fmt.Errorf("executor: nil receiver")
+	}
+	if e.tools == nil {
+		return "", fmt.Errorf("executor: tool registry not initialised")
+	}
+
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	res, err := e.tools.Execute(ctx, name, args)
+	return res, err
 }
 
 // AgentService returns the registered llmagent service
@@ -107,9 +133,8 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	actions.Register(enricher)
 	actions.Register(e.llmCore)
 	// capture actions for streaming and callbacks
-	actions.Register(tester.New(actions))
 	actions.Register(extractor.New())
-	actions.Register(inspector.New())
+	//actions.Register(inspector.New())
 
 	var runtime *fluxor.Runtime
 	if e.orchestration != nil {

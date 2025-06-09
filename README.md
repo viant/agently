@@ -44,6 +44,12 @@ agently chat -l <agent-location> -c <conversation-id>
 # List existing conversations
 agently list
 
+# List available tools (names & descriptions)
+agently list-tools
+
+# Show full JSON definition for a tool
+agently list-tools -n system/exec.execute --json
+
 # Run an agentic workflow from JSON input
 agently run -i <input-file>
 
@@ -60,6 +66,27 @@ agently serve
 - `-p, --policy`: Tool policy: auto|ask|deny (default: auto)
 - `-t, --timeout`: Timeout in seconds for the agent response (0=none)
 - `--log`: Unified log (LLM, TOOL, TASK) (default: agently.log)
+
+#### list-tools
+
+- `-n, --name` – Tool name (`service/method`) to display full schema
+- `--json` – Print tool definitions in JSON (applies to single or all tools)
+
+#### exec
+
+- `-n, --name` – Tool name to execute
+- `-i, --input` – Inline JSON arguments (object)
+- `-f, --file` – Path to JSON file with arguments (use `-` for STDIN)
+- `--timeout` – Seconds to wait for completion (default 120)
+- `--json` – Print result as JSON
+
+Example (properly quoted for Bash/Zsh):
+
+```bash
+./agently exec -n system/exec.execute \
+  -i '{"commands":["echo '\''hello'\''"]}'
+```
+
 
 ## Development
 
