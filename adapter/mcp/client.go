@@ -57,24 +57,28 @@ func (c *Client) Implements(method string) bool {
 // Operations
 // -----------------------------------------------------------------------------
 
-func (c *Client) ListRoots(ctx context.Context, p *schema.ListRootsRequestParams) (*schema.ListRootsResult, *jsonrpc.Error) {
+func (c *Client) ListRoots(ctx context.Context, p *jsonrpc.TypedRequest[*schema.ListRootsRequest]) (*schema.ListRootsResult, *jsonrpc.Error) {
 	// For local execution we have no workspace roots; return empty.
 	return &schema.ListRootsResult{Roots: []schema.Root{}}, nil
 }
 
-func (c *Client) CreateUserInteraction(ctx context.Context, p *schema.CreateUserInteractionRequestParams) (*schema.CreateUserInteractionResult, *jsonrpc.Error) {
-	if p == nil || p.Interaction.Url == "" {
+func (c *Client) CreateUserInteraction(ctx context.Context, request *jsonrpc.TypedRequest[*schema.CreateUserInteractionRequest]) (*schema.CreateUserInteractionResult, *jsonrpc.Error) {
+	if request == nil || request.Request == nil || request.Request.Params.Interaction.Url == "" {
 		return nil, jsonrpc.NewInvalidParamsError("uri is required", nil)
 	}
+	p := request.Request.Params
 	_ = c.openURLFn(p.Interaction.Url) // ignore error – non-critical
 	return &schema.CreateUserInteractionResult{}, nil
 }
 
-func (c *Client) Elicit(ctx context.Context, params *schema.ElicitRequestParams) (*schema.ElicitResult, *jsonrpc.Error) {
+func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*schema.ElicitRequest]) (*schema.ElicitResult, *jsonrpc.Error) {
 	// When an Awaiter is configured we bypass the network round-trip entirely
 	// and resolve the prompt locally. We must translate between the MCP
 	// protocol types and the lightweight types declared in the local
 	// agently/schema package.
+
+	params := request.Request.Params
+
 	if c.awaiter != nil {
 		// ------------------------------------------------------------------
 		// Build JSON-schema string from the restricted MCP subset so that the
@@ -109,14 +113,14 @@ func (c *Client) Elicit(ctx context.Context, params *schema.ElicitRequestParams)
 	return nil, jsonrpc.NewInternalError("elicitation awaiter wes not configured ", nil)
 }
 
-func (c *Client) CreateMessage(ctx context.Context, p *schema.CreateMessageRequestParams) (*schema.CreateMessageResult, *jsonrpc.Error) {
+func (c *Client) CreateMessage(ctx context.Context, reqeust *jsonrpc.TypedRequest[*schema.CreateMessageRequest]) (*schema.CreateMessageResult, *jsonrpc.Error) {
 	if c.core == nil {
 		return nil, jsonrpc.NewInternalError("llm core not configured", nil)
 	}
-	if p == nil {
+	if reqeust.Request == nil {
 		return nil, jsonrpc.NewInvalidParamsError("params is nil", nil)
 	}
-
+	p := &reqeust.Request.Params
 	// Use last message as prompt, earlier messages ignored in MVP.
 	var prompt string
 	if len(p.Messages) > 0 {
@@ -156,6 +160,10 @@ func (c *Client) asErr(e error) *jsonrpc.Error {
 		return nil
 	}
 	return jsonrpc.NewInternalError(e.Error(), nil)
+}
+
+func (c *Client) Notify(ctx context.Context, notification *jsonrpc.Notification) error {
+	return nil
 }
 
 func (c *Client) OnNotification(ctx context.Context, notification *jsonrpc.Notification) {
