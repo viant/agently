@@ -176,11 +176,3 @@ require (
 	modernc.org/token v1.0.0 // indirect
 )
 
-replace (
-	github.com/viant/fluxor => ../fluxor
-	github.com/viant/fluxor-mcp => ../fluxor-mcp
-	github.com/viant/jsonrpc => ../jsonrpc
-
-	github.com/viant/mcp => ../mcp
-
-)
