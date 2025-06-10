@@ -1132,10 +1132,6 @@ github.com/viant/embedius v0.0.0-20250503233925-d6900657ff75 h1:X52IDcSuK/Vz/l+p
 github.com/viant/embedius v0.0.0-20250503233925-d6900657ff75/go.mod h1:ASRLUphJUHBswA+ElHx2iympCzc9isY+3os5TXOuEAw=
 github.com/viant/firebase v0.1.1 h1:a4IiehQ2GWoH4qTnUD7JnJ5lTc87nfxX8ClUwBO7AKU=
 github.com/viant/firebase v0.1.1/go.mod h1:Q2DK7L/pdGS5xNQRgMJ9B/x9VhIeXAfXCeh3cKpSIkM=
-github.com/viant/fluxor v0.1.9 h1:yLlXCgACBAH6ffKQc09ZDwr7hnFI3uubr5USCfIPM6c=
-github.com/viant/fluxor v0.1.9/go.mod h1:GombipUhTKSCPf+xgdrpg/P2GacUqKSq8zPzRkx33FM=
-github.com/viant/fluxor-mcp v0.1.3-0.20250609020255-7096edab4f43 h1:DCAKF1wDoSvRZ3wBiOFZoWzl2zFmcIiAJAI89j2eHBw=
-github.com/viant/fluxor-mcp v0.1.3-0.20250609020255-7096edab4f43/go.mod h1:ycf0O0STuQFKw3f7zTsOX5+MO0+nnI4PkjrcK3o2Po4=
 github.com/viant/gds v0.4.5 h1:QEPOdVyFGZCLbCcstjRTzS2vEktxHbN2cm5NZ3Z6yiA=
 github.com/viant/gds v0.4.5/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.1-0.20230405233616-cc90deee60c4 h1:Lz5up/Q1N8A5pchUUIzWufTLmLnQ6OCUgol5XHJLg4E=
@@ -1148,14 +1144,10 @@ github.com/viant/govalidator v0.3.1 h1:V7f/KgfzbP8fVDc+Kj+jyPvfXxMr2N1x7srOlDV6l
 github.com/viant/govalidator v0.3.1/go.mod h1:D35Dwx0R8rR1knRxhlseoYvOkiqo24kpMg1/o977i9Y=
 github.com/viant/igo v0.2.0 h1:ygWmTCinnGPaeV7omJLiyneOpzYZ5kiw7oYz7mUJZVQ=
 github.com/viant/igo v0.2.0/go.mod h1:7V6AWsLhKWeGzXNTNH3AZiIEKa0m33DrQbdWtapsI74=
-github.com/viant/jsonrpc v0.6.0 h1:8xmFNedTAvaHmwLZ1n4KexrzLNMunW9ZdousO5+IYd8=
-github.com/viant/jsonrpc v0.6.0/go.mod h1:LW2l5/H4KkGCsx2ktPX59iUlycw85ZlBcRuK/WYWBX8=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 h1:OWMFweaKPIdh1tkbxgb0vJ6YPHoUlZR4yWf9CTntHB4=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99/go.mod h1:7ovJ5fzlXnVcadUr9RjJVwVl2l3wbNvm5i4tSOj+VbE=
-github.com/viant/mcp v0.3.0 h1:15m4BjOclFFjJDANrQ6hvvm5t8WiX8oSiX3HAIWgM9Y=
-github.com/viant/mcp v0.3.0/go.mod h1:xMx7EhUDaXKRYXGLQcYM47fwuvDQn+Y1ScIKGBRhKnk=
-github.com/viant/mcp-protocol v0.3.12 h1:EKuPxbp+ssfj5Aa7Wp7Z59Rv6xOWhToXghhaHjR+tx4=
-github.com/viant/mcp-protocol v0.3.12/go.mod h1:5kguSQyEi+M0BL314slaoGNif6magWD8oeItaJdr0+s=
+github.com/viant/mcp-protocol v0.4.1 h1:cDxgUbicQ8knT1IgmX3itvP0xFSCj8Nup8Q57Lqgxz0=
+github.com/viant/mcp-protocol v0.4.1/go.mod h1:53h1kLJgckSF4qxAr6UQ2IY/gFzoJNLCUn4CeXWgGm8=
 github.com/viant/parsly v0.3.3 h1:7ytgfLOG4Ils+wviGacWxRD0gAUvVEH/iGsSE+UI8YM=
 github.com/viant/parsly v0.3.3/go.mod h1:85fneXJbErKMGhSQto3A5ElTQCwl3t74U9cSV0waBHw=
 github.com/viant/pgo v0.11.0 h1:PNuYVhwTfyrAHGBO6lxaMFuHP4NkjKV8ULecz3OWk8c=

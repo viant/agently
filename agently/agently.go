@@ -10,6 +10,5 @@ import (
 )
 
 func main() {
-	os.Args = []string{"", "list-tools", "-n", "printer-print"}
 	agently.RunWithCommands(os.Args[1:])
 }

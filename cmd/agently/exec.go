@@ -64,7 +64,7 @@ func (c *ExecCmd) Execute(_ []string) error {
 	ctx := context.Background()
 	timeout := time.Duration(c.TimeoutSec) * time.Second
 	if timeout <= 0 {
-		timeout = 120 * time.Second
+		timeout = 15 * time.Minute
 	}
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithTimeout(ctx, timeout)

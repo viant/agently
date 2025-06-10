@@ -85,7 +85,7 @@ func (e *Service) init(ctx context.Context) error {
 	orchestration, err := mcpsvc.New(ctx,
 		mcpsvc.WithConfig(mcpConfig),
 		mcpsvc.WithWorkflowOptions(wfOptions...),
-		mcpsvc.WithClient(e.mcpClient),
+		mcpsvc.WithClientHandler(e.clientHandler),
 	)
 	if err != nil {
 		return fmt.Errorf("init orchestration: %w", err)
@@ -125,13 +125,13 @@ func (e *Service) initDefaults() {
 		e.agentFinder = e.config.DefaultAgentFinder()
 	}
 
-	if e.mcpClient == nil {
+	if e.clientHandler == nil {
 		var opts []clientmcp.Option
 		opts = append(opts, clientmcp.WithLLMCore(e.llmCore))
 		if e.MCPElicitationAwaiter != nil {
 			opts = append(opts, clientmcp.WithAwaiter(e.MCPElicitationAwaiter))
 		}
-		e.mcpClient = clientmcp.NewClient(opts...)
+		e.clientHandler = clientmcp.NewClient(opts...)
 	}
 
 }

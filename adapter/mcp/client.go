@@ -158,6 +158,15 @@ func (c *Client) asErr(e error) *jsonrpc.Error {
 	return jsonrpc.NewInternalError(e.Error(), nil)
 }
 
+func (c *Client) OnNotification(ctx context.Context, notification *jsonrpc.Notification) {
+
+}
+
+func (c *Client) ProtocolVersion() string {
+	//schema.LatestProtocolVersion
+	return "2025-03-27"
+}
+
 // Option type remains in option.go
 
 // NewClient returns a ready client.

@@ -10,6 +10,7 @@ type Options struct {
 	Exec      *ExecCmd      `command:"exec" description:"Execute a tool"`
 	Run       *RunCmd       `command:"run"   description:"Run agentic workflow from JSON input"`
 	Serve     *ServeCmd     `command:"serve" description:"Start HTTP server"`
+	MCP       *McpCmd       `command:"mcp" description:"Manage MCP servers"`
 }
 
 // Init instantiates the sub-command referenced by the first argument so that
@@ -28,5 +29,7 @@ func (o *Options) Init(firstArg string) {
 		o.Run = &RunCmd{}
 	case "serve":
 		o.Serve = &ServeCmd{}
+	case "mcp":
+		o.MCP = &McpCmd{}
 	}
 }

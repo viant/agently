@@ -30,7 +30,7 @@ import (
 
 type Service struct {
 	config         *Config
-	mcpClient      *clientmcp.Client
+	clientHandler  *clientmcp.Client
 	modelFinder    llm.Finder
 	modelMatcher   llm.Matcher
 	embedderFinder embedder.Finder

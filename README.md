@@ -44,6 +44,13 @@ agently chat -l <agent-location> -c <conversation-id>
 # List existing conversations
 agently list
 
+# Manage MCP servers
+agently mcp list                         # view configured servers
+agently mcp add   -n local -t stdio \
+  --command "my-mcp" --arg "--flag"
+agently mcp add   -n cloud -t sse   --url https://mcp.example.com/sse
+agently mcp remove -n local
+
 # List available tools (names & descriptions)
 agently list-tools
 
@@ -66,6 +73,20 @@ agently serve
 - `-p, --policy`: Tool policy: auto|ask|deny (default: auto)
 - `-t, --timeout`: Timeout in seconds for the agent response (0=none)
 - `--log`: Unified log (LLM, TOOL, TASK) (default: agently.log)
+
+#### mcp list / add / remove
+
+- `mcp list` — lists configured servers. `--json` to output full objects.
+
+- `mcp add` flags:
+  - `-n, --name`  – unique identifier
+  - `-t, --type`  – transport: `stdio`, `sse`, or `streaming`
+  - `--command`   – stdio command (when `-t stdio`)
+  - `--arg`       – repeatable extra arguments for stdio (when `-t stdio`)
+  - `--url`       – HTTP endpoint (when `-t sse|streaming`)
+
+- `mcp remove` flags:
+  - `-n, --name`  – identifier to delete
 
 #### list-tools
 
