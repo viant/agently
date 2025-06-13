@@ -8,6 +8,7 @@ import (
 	embedderfinder "github.com/viant/agently/internal/finder/embedder"
 	agentloader "github.com/viant/agently/internal/loader/agent"
 	embedderlloader "github.com/viant/agently/internal/loader/embedder"
+	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/fluxor/service/meta"
 
 	llmprovider "github.com/viant/agently/genai/llm/provider"
@@ -43,7 +44,13 @@ func (c *Config) Meta() *meta.Service {
 	if c.metaService != nil {
 		return c.metaService
 	}
-	c.metaService = meta.New(afs.New(), c.BaseURL)
+	baseURL := c.BaseURL
+	if baseURL == "" {
+		// Default to the centralised workspace root when caller did not
+		// specify a BaseURL explicitly.
+		baseURL = workspace.Root()
+	}
+	c.metaService = meta.New(afs.New(), baseURL)
 	return c.metaService
 }
 

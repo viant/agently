@@ -9,3 +9,4 @@ dist/
 package-lock.json
 *.log
 agently/agently
+AGENTS.md

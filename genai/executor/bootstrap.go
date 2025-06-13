@@ -128,8 +128,8 @@ func (e *Service) initDefaults() {
 	if e.clientHandler == nil {
 		var opts []clientmcp.Option
 		opts = append(opts, clientmcp.WithLLMCore(e.llmCore))
-		if e.MCPElicitationAwaiter != nil {
-			opts = append(opts, clientmcp.WithAwaiter(e.MCPElicitationAwaiter))
+		if e.mcpElicitationAwaiter != nil {
+			opts = append(opts, clientmcp.WithAwaiter(e.mcpElicitationAwaiter))
 		}
 		e.clientHandler = clientmcp.NewClient(opts...)
 	}

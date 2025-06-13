@@ -24,7 +24,7 @@ type Option func(config *Service)
 func WithElicitationAwaiter(a elicitation.Awaiter) Option {
 	return func(s *Service) {
 		if a != nil {
-			s.MCPElicitationAwaiter = a
+			s.mcpElicitationAwaiter = a
 		}
 	}
 }
