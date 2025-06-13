@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/viant/agently/service"
 	"github.com/viant/fluxor-mcp/mcp/tool"
 	"io"
 	"os"
@@ -26,7 +27,8 @@ func (c *ExecCmd) Execute(_ []string) error {
 		return fmt.Errorf("-i/--input and -f/--file are mutually exclusive")
 	}
 
-	svc := executorSingleton()
+	execSvc := executorSingleton()
+	svc := service.New(execSvc, service.Options{})
 	time.Sleep(100 * time.Millisecond)
 	// ------------------------------------------------------------------
 	// Build arguments map
@@ -71,7 +73,11 @@ func (c *ExecCmd) Execute(_ []string) error {
 	defer cancel()
 
 	canonical := tool.Canonical(c.Name)
-	out, err := svc.ExecuteTool(ctx, canonical, args, timeout)
+	resp, err := svc.ExecuteTool(ctx, service.ToolRequest{
+		Name:    canonical,
+		Args:    args,
+		Timeout: timeout,
+	})
 	if err != nil {
 		return err
 	}
@@ -80,10 +86,10 @@ func (c *ExecCmd) Execute(_ []string) error {
 	// Print result
 	// ------------------------------------------------------------------
 	if c.JSON {
-		bytes, _ := json.MarshalIndent(out, "", "  ")
+		bytes, _ := json.MarshalIndent(resp.Result, "", "  ")
 		fmt.Println(string(bytes))
 	} else {
-		switch v := out.(type) {
+		switch v := resp.Result.(type) {
 		case string:
 			fmt.Println(v)
 		case []byte:

@@ -123,6 +123,13 @@ Example (properly quoted for Bash/Zsh):
 - `genai/memory`: Conversation memory or history
 - `genai/tool`: Tools or utilities for agents
 
+## Further documentation
+
+For an in-depth walkthrough of how Agently processes a request – from the CLI
+invocation through agent resolution, planning, LLM call and response – see
+`docs/agent_flow.md`.  The document also explains the `$AGENTLY_ROOT` workspace
+mechanism introduced in the 2025-06 release.
+
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.

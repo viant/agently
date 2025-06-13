@@ -6,20 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/executor"
-	"github.com/viant/agently/genai/extension/fluxor/llm/agent"
-	"github.com/viant/agently/genai/tool"
-	"github.com/viant/fluxor"
-	fluxexec "github.com/viant/fluxor/service/executor"
-	"github.com/viant/mcp-protocol/schema"
-
-	elog "github.com/viant/agently/internal/log"
-
 	"io"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/executor"
+	"github.com/viant/agently/genai/tool"
+	"github.com/viant/agently/service"
+	"github.com/viant/fluxor"
+	fluxexec "github.com/viant/fluxor/service/executor"
+
+	elog "github.com/viant/agently/internal/log"
 )
 
 // ChatCmd handles interactive/chat queries.
@@ -34,6 +33,32 @@ type ChatCmd struct {
 	ToolLog   string `long:"tool-log" description:"file to append debug logs for each tool call"`
 	TaskLog   string `long:"task-log" description:"file to append per-task Fluxor executor log"`
 	Log       string `long:"log" description:"unified log (LLM, TOOL, TASK)" default:"agently.log"`
+}
+
+// cliInteractionHandler satisfies service.InteractionHandler by prompting the
+// user on STDIN when the assistant requests additional information.
+type cliInteractionHandler struct{}
+
+func (cliInteractionHandler) Accept(ctx context.Context, el *plan.Elicitation) ([]byte, bool, error) {
+	res, err := newStdinAwaiter().AwaitElicitation(ctx, el)
+	if err != nil {
+		return nil, false, err
+	}
+	switch res.Action {
+	case plan.ElicitResultActionDecline:
+		return nil, false, nil
+	case plan.ElicitResultActionAccept:
+		if len(res.Payload) == 0 {
+			return nil, false, nil
+		}
+		data, err := json.Marshal(res.Payload)
+		if err != nil {
+			return nil, false, err
+		}
+		return data, true, nil
+	default:
+		return nil, false, nil
+	}
 }
 
 func (c *ChatCmd) Execute(_ []string) error {
@@ -137,122 +162,57 @@ func (c *ChatCmd) Execute(_ []string) error {
 		}
 	}
 
-	svc := executorSingleton()
+	// Build executor and service --------------------------------------------
+	svcExec := executorSingleton()
 
 	ctxBase, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Build policy once – shared between fluxor and tool execution.
 	fluxPol := buildFluxorPolicy(c.Policy)
 	toolPol := &tool.Policy{Mode: fluxPol.Mode, Ask: stdinAsk}
 
-	// Start background approval listener (ask-mode only) – uses fluxor policy.
-	stopApprove := startApprovalLoop(ctxBase, svc, fluxPol)
+	stopApprove := startApprovalLoop(ctxBase, svcExec, fluxPol)
 	defer stopApprove()
+
+	serviceOpts := service.Options{Interaction: cliInteractionHandler{}}
+	svc := service.New(svcExec, serviceOpts)
 
 	convID := c.ConvID
 
-	// askOnce sends `query` to the agent and prints the assistant response. If
-	// the response includes an elicitation request the user is prompted for the
-	// required payload and the conversation continues automatically with the
-	// collected data until no further elicitation is required.
-	askOnce := func(initialQuery string) error {
-		currentQuery := initialQuery
-		for {
-			ctx := tool.WithPolicy(ctxBase, toolPol)
-			ctx = withFluxorPolicy(ctx, fluxPol)
-			if c.Timeout > 0 {
-				var cancel2 context.CancelFunc
-				ctx, cancel2 = context.WithTimeout(ctx, time.Duration(c.Timeout)*time.Second)
-				defer cancel2()
-			}
-
-			in := &agent.QueryInput{ConversationID: convID, Location: c.Location, Query: currentQuery}
-			out, err := svc.Conversation().Accept(ctx, in)
-			if err != nil {
-				if errors.Is(err, context.DeadlineExceeded) {
-					fmt.Println("[no response] - timeout")
-					return nil
-				}
-				fmt.Printf("error: %v\n", err)
+	callChat := func(userQuery string) error {
+		ctx := tool.WithPolicy(ctxBase, toolPol)
+		ctx = withFluxorPolicy(ctx, fluxPol)
+		resp, err := svc.Chat(ctx, service.ChatRequest{
+			ConversationID: convID,
+			AgentPath:      c.Location,
+			Query:          userQuery,
+			Timeout:        time.Duration(c.Timeout) * time.Second,
+		})
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				fmt.Println("[no response] - timeout")
 				return nil
 			}
-
-			convID = in.ConversationID
-
-			// ------------------------------------------------------------------
-			// Detect elicitation requests either via structured field or when
-			// the assistant returned the full object as a JSON string.
-			// ------------------------------------------------------------------
-			elic := out.Elicitation
-			if elic == nil {
-				var maybe map[string]interface{}
-				if err := json.Unmarshal([]byte(strings.TrimSpace(out.Content)), &maybe); err == nil {
-					if typ, _ := maybe["type"].(string); typ == "elicitation" || typ == "clarify_intent" {
-						msg, _ := maybe["message"].(string)
-						// Build flat schema JSON string if requestedSchema present
-						var schemaJSON string
-						if rs, ok := maybe["requestedSchema"]; ok {
-							if b, _ := json.Marshal(rs); len(b) > 0 {
-								schemaJSON = string(b)
-							}
-						}
-						elic = &plan.Elicitation{
-							ElicitRequestParams: schema.ElicitRequestParams{Message: msg},
-							Schema:              schemaJSON,
-						}
-					}
-				}
-			}
-
-			// ------------------------------------------------------------------
-			// Print assistant response only when it is not an elicitation JSON.
-			// When elicitation follows, the Awaiter will handle user-facing prompts.
-			// ------------------------------------------------------------------
-			if elic == nil {
-				if strings.TrimSpace(out.Content) == "" {
-					fmt.Println("[no response] - no content")
-				} else {
-					fmt.Println(out.Content)
-				}
-			}
-
-			if elic != nil && !elic.IsEmpty() {
-				// Remove raw JSON echo from subsequent turns.
-				out.Content = elic.Message
-				res, err := newStdinAwaiter().AwaitElicitation(ctxBase, elic)
-				if err != nil {
-					fmt.Printf("elicitation error: %v\n", err)
-					return nil
-				}
-				if res.Action == plan.ElicitResultActionDecline {
-					return nil // user declined – stop
-				}
-				if res.Action == plan.ElicitResultActionAccept {
-					if len(res.Payload) == 0 {
-						return nil // nothing to send
-					}
-					if data, err := json.Marshal(res.Payload); err == nil {
-						currentQuery = string(data)
-						continue // resubmit payload
-					}
-				}
-			}
-
-			return nil // no further elicitation
+			return err
 		}
+		convID = resp.ConversationID
+		if strings.TrimSpace(resp.Content) == "" {
+			fmt.Println("[no response] - no content")
+		} else {
+			fmt.Println(resp.Content)
+		}
+		return nil
 	}
 
-	// Single-turn when -q was provided.
+	// Single-turn when -q provided.
 	if c.Query != "" {
-		if err := askOnce(c.Query); err != nil {
+		if err := callChat(c.Query); err != nil {
 			return err
 		}
 		fmt.Printf("[conversation-id] %s\n", convID)
 		return nil
 	}
 
-	// Interactive loop.
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print("> ")
@@ -262,7 +222,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 			fmt.Printf("[conversation-id] %s\n", convID)
 			break
 		}
-		if err := askOnce(line); err != nil {
+		if err := callChat(line); err != nil {
 			return err
 		}
 	}

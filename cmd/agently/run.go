@@ -8,8 +8,9 @@ import (
 	"os"
 
 	"github.com/viant/agently/genai/executor"
-	"github.com/viant/agently/genai/extension/fluxor/llm/agent"
+	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/tool"
+	"github.com/viant/agently/service"
 	"github.com/viant/fluxor"
 	fluxexec "github.com/viant/fluxor/service/executor"
 
@@ -38,7 +39,7 @@ func (r *RunCmd) Execute(_ []string) error {
 		reader = f
 	}
 
-	var q agent.QueryInput
+	var q agentpkg.QueryInput
 	if err := json.NewDecoder(reader).Decode(&q); err != nil {
 		return fmt.Errorf("decode input: %w", err)
 	}
@@ -127,11 +128,19 @@ func (r *RunCmd) Execute(_ []string) error {
 	ctx := tool.WithPolicy(baseCtx, toolPol)
 	ctx = withFluxorPolicy(ctx, fluxPol)
 
-	out, err := svc.Conversation().Accept(ctx, &q)
+	// Build service wrapper (no interaction handler since run is one-shot)
+	agentlySvc := service.New(svc, service.Options{})
+
+	resp, err := agentlySvc.Run(ctx, service.RunRequest{
+		Input:   &q,
+		Timeout: 0,
+		Policy:  toolPol,
+	})
 	if err != nil {
 		return err
 	}
-	bytes, _ := json.MarshalIndent(out, "", "  ")
+
+	bytes, _ := json.MarshalIndent(resp, "", "  ")
 	fmt.Println(string(bytes))
 	return nil
 }

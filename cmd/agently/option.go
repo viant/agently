@@ -9,6 +9,7 @@ type Options struct {
 	ListTools *ListToolsCmd `command:"list-tools" description:"List available tools"`
 	Exec      *ExecCmd      `command:"exec" description:"Execute a tool"`
 	Run       *RunCmd       `command:"run"   description:"Run agentic workflow from JSON input"`
+	Workflow  *WorkflowCmd  `command:"workflow" description:"Execute a Fluxor workflow graph"`
 	Serve     *ServeCmd     `command:"serve" description:"Start HTTP server"`
 	MCP       *McpCmd       `command:"mcp" description:"Manage MCP servers"`
 }
@@ -27,6 +28,8 @@ func (o *Options) Init(firstArg string) {
 		o.Exec = &ExecCmd{}
 	case "run":
 		o.Run = &RunCmd{}
+	case "workflow":
+		o.Workflow = &WorkflowCmd{}
 	case "serve":
 		o.Serve = &ServeCmd{}
 	case "mcp":
