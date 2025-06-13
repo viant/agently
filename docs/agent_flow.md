@@ -63,6 +63,7 @@ of the hooks (workspace, loaders, memory, LLM provider, tools, …).
 │    • Conversation memory updated       │
 │    • Manager returns QueryOutput       │
 └─────────────────────────────────────────┘
+```
 
 ## Workspace lookup details
 
