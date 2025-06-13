@@ -25,11 +25,13 @@ require (
 	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85
 	github.com/viant/x v0.3.0
 	github.com/viant/xdatly/handler v0.0.0-20250418144853-029d9a05ae20
-	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20
+	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20 // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect -- replaced with internal stub, see below
 	github.com/yuin/goldmark v1.7.8
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require github.com/mattn/go-sqlite3 v1.14.17
 
 require (
 	cloud.google.com/go v0.114.0 // indirect

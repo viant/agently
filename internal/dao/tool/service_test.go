@@ -2,22 +2,71 @@ package tool
 
 import (
 	"context"
+	"database/sql"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/internal/dao/conversation"
+	"io/ioutil"
 	"os"
-	"path"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/datly/view"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestService(t *testing.T) {
 	ctx := context.Background()
 
-	goPath := os.Getenv("GOPATH")
-	dbLocation := path.Join(goPath, "src/github.com/viant/agently/.db/agently.db")
+	// Create a temporary directory for the SQLite database
+	tempDir, err := ioutil.TempDir("", "agently-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir) // Clean up after the test
+
+	// Create the database file path in the temporary directory
+	dbLocation := filepath.Join(tempDir, "agently.db")
+
+	// Read the schema.ddl file
+	// Find the schema file relative to the current file
+	_, filename, _, _ := runtime.Caller(0)
+	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filename))))) // Go up 5 levels from this file
+	schemaPath := filepath.Join(repoRoot, "internal", "script", "schema.ddl")
+	schemaBytes, err := ioutil.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("Failed to read schema file: %v", err)
+	}
+	schemaSQL := string(schemaBytes)
+
+	// Create and initialize the database
+	db, err := sql.Open("sqlite3", dbLocation)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Execute each SQL statement in the schema
+	for _, statement := range strings.Split(schemaSQL, ";") {
+		statement = strings.TrimSpace(statement)
+		if statement == "" {
+			continue
+		}
+		_, err = db.Exec(statement)
+		if err != nil {
+			t.Fatalf("Failed to execute SQL: %v\nStatement: %s", err, statement)
+		}
+	}
+
+	// Create a test conversation directly in the database with a UUID
+	convID := "test_conv"
+	_, err = db.Exec("INSERT INTO conversation (id, summary, agent_name) VALUES (?, ?, ?)", convID, "Test Conversation", "TestAgent")
+	if err != nil {
+		t.Fatalf("Failed to insert test conversation: %v", err)
+	}
 
 	connector := view.NewConnector("agently", "sqlite", dbLocation)
 
@@ -34,7 +83,7 @@ func TestService(t *testing.T) {
 
 	var toolName = "test_tool"
 
-	err = convSrv.AddMessage(context.Background(), "test_conv", memory.Message{
+	err = convSrv.AddMessage(ctx, convID, memory.Message{
 		Role:     "abc",
 		Content:  "test content",
 		ToolName: &toolName,
@@ -44,7 +93,7 @@ func TestService(t *testing.T) {
 	}
 	var args = `{"arg1": "value1", "arg2": "value2"}`
 	err = srv.Add(ctx, &tool.Call{
-		ConversationID: "test_conv",
+		ConversationID: convID,
 		ToolName:       toolName,
 		Arguments:      &args,
 	})
@@ -53,7 +102,7 @@ func TestService(t *testing.T) {
 		return
 	}
 	// Retrieve list (should not error even if empty)
-	calls, err := srv.List(ctx, "test_conv")
+	calls, err := srv.List(ctx, convID)
 	assert.NoError(t, err)
 	assert.NotNil(t, calls)
 }
