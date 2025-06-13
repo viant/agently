@@ -9,12 +9,16 @@ import (
 	"github.com/viant/agently/genai/memory"
 	convdao "github.com/viant/agently/internal/dao/conversation"
 
+	"github.com/viant/afs"
+	mcprepo "github.com/viant/agently/internal/repository/mcp"
 	"github.com/viant/datly/view"
 	"github.com/viant/fluxor"
 	mcpsvc "github.com/viant/fluxor-mcp/mcp"
 	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
 	"github.com/viant/fluxor/model/graph"
 	"github.com/viant/fluxor/runtime/execution"
+	"github.com/viant/mcp"
+	"gopkg.in/yaml.v3"
 
 	texecutor "github.com/viant/fluxor/service/executor"
 	"strings"
@@ -132,6 +136,36 @@ func (e *Service) initDefaults() {
 			opts = append(opts, clientmcp.WithAwaiter(e.mcpElicitationAwaiter))
 		}
 		e.clientHandler = clientmcp.NewClient(opts...)
+	}
+
+	// Merge MCP repo entries -----------------------------
+	if e.config.MCP == nil {
+		e.config.MCP = &mcpcfg.Group[*mcp.ClientOptions]{}
+	}
+
+	repo := mcprepo.New(afs.New())
+	if names, err := repo.List(context.Background()); err == nil {
+		for _, n := range names {
+			opt, err := repo.Load(context.Background(), n)
+			if err != nil || opt == nil {
+				continue
+			}
+			dup := false
+			for _, ex := range e.config.MCP.Items {
+				if ex != nil && ex.Name == opt.Name {
+					dup = true
+					break
+				}
+			}
+			if dup {
+				continue
+			}
+			var clone mcp.ClientOptions
+			if b, err := yaml.Marshal(opt); err == nil {
+				_ = yaml.Unmarshal(b, &clone)
+				e.config.MCP.Items = append(e.config.MCP.Items, &clone)
+			}
+		}
 	}
 
 }
