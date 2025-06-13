@@ -39,25 +39,25 @@ type ChatCmd struct {
 // user on STDIN when the assistant requests additional information.
 type cliInteractionHandler struct{}
 
-func (cliInteractionHandler) Accept(ctx context.Context, el *plan.Elicitation) ([]byte, bool, error) {
+func (cliInteractionHandler) Accept(ctx context.Context, el *plan.Elicitation) (service.AcceptResult, error) {
 	res, err := newStdinAwaiter().AwaitElicitation(ctx, el)
 	if err != nil {
-		return nil, false, err
+		return service.AcceptResult{}, err
 	}
 	switch res.Action {
 	case plan.ElicitResultActionDecline:
-		return nil, false, nil
+		return service.AcceptResult{Action: service.ActionDecline}, nil
 	case plan.ElicitResultActionAccept:
 		if len(res.Payload) == 0 {
-			return nil, false, nil
+			return service.AcceptResult{Action: service.ActionDecline}, nil
 		}
 		data, err := json.Marshal(res.Payload)
 		if err != nil {
-			return nil, false, err
+			return service.AcceptResult{}, err
 		}
-		return data, true, nil
+		return service.AcceptResult{Action: service.ActionAccept, Payload: data}, nil
 	default:
-		return nil, false, nil
+		return service.AcceptResult{Action: service.ActionDecline}, nil
 	}
 }
 

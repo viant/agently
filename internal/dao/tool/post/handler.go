@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"github.com/viant/xdatly/handler"
 	"github.com/viant/xdatly/handler/response"
-	"github.com/viant/xdatly/types/core"
 	"net/http"
-	"reflect"
 )
 
 type Handler struct{}

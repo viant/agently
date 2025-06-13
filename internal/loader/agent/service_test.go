@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/afs"
 	_ "github.com/viant/afs/embed"
+	"github.com/viant/agently/genai/agent"
 	"github.com/viant/fluxor/service/meta"
 	"testing"
 )
@@ -45,7 +46,7 @@ func TestService_Load(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			service := New(WithMetaService(meta.New(afs.New(), "embed:///testdata", &testFS)))
-			agent, err := service.Load(ctx, tc.url)
+			anAgent, err := service.Load(ctx, tc.url)
 
 			if tc.expectedErr {
 				assert.NotNil(t, err)
@@ -53,8 +54,8 @@ func TestService_Load(t *testing.T) {
 			}
 			expected := &agent.Agent{}
 			err = json.Unmarshal([]byte(tc.expectedJSON), expected)
-			if !assert.EqualValues(t, expected, agent) {
-				actualJSON, err := json.Marshal(agent)
+			if !assert.EqualValues(t, expected, anAgent) {
+				actualJSON, err := json.Marshal(anAgent)
 				fmt.Println(string(actualJSON), err)
 			}
 		})

@@ -2,8 +2,6 @@ package post
 
 import (
 	"embed"
-	"github.com/viant/xdatly/types/core"
-	"reflect"
 )
 
 //go:embed tool/*.sql
