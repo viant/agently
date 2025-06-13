@@ -3,15 +3,18 @@ package agently
 // Options is the root command that groups sub-commands.  The struct tags are
 // interpreted by github.com/jessevdk/go-flags.
 type Options struct {
-	Config    string        `short:"f" long:"config" description:"executor config YAML/JSON path"`
-	Chat      *ChatCmd      `command:"chat"  description:"Chat with an agent (single turn or continuation)"`
-	List      *ListCmd      `command:"list"  description:"List existing conversations"`
-	ListTools *ListToolsCmd `command:"list-tools" description:"List available tools"`
-	Exec      *ExecCmd      `command:"exec" description:"Execute a tool"`
-	Run       *RunCmd       `command:"run"   description:"Run agentic workflow from JSON input"`
-	Workflow  *WorkflowCmd  `command:"workflow" description:"Execute a Fluxor workflow graph"`
-	Serve     *ServeCmd     `command:"serve" description:"Start HTTP server"`
-	MCP       *McpCmd       `command:"mcp" description:"Manage MCP servers"`
+	Config      string          `short:"f" long:"config" description:"executor config YAML/JSON path"`
+	Chat        *ChatCmd        `command:"chat"  description:"Chat with an agent (single turn or continuation)"`
+	List        *ListCmd        `command:"list"  description:"List existing conversations"`
+	ListTools   *ListToolsCmd   `command:"list-tools" description:"List available tools"`
+	Exec        *ExecCmd        `command:"exec" description:"Execute a tool"`
+	Run         *RunCmd         `command:"run"   description:"Run agentic workflow from JSON input"`
+	Workflow    *WorkflowCmd    `command:"workflow" description:"Execute a Fluxor workflow graph"`
+	ModelSwitch *ModelSwitchCmd `command:"model-switch" description:"Switch agent default model"`
+	ModelReset  *ModelResetCmd  `command:"model-reset" description:"Clear agent model override"`
+	Workspace   *WorkspaceCmd   `command:"ws" description:"Workspace CRUD operations"`
+	Serve       *ServeCmd       `command:"serve" description:"Start HTTP server"`
+	MCP         *McpCmd         `command:"mcp" description:"Manage MCP servers"`
 }
 
 // Init instantiates the sub-command referenced by the first argument so that
@@ -30,6 +33,12 @@ func (o *Options) Init(firstArg string) {
 		o.Run = &RunCmd{}
 	case "workflow":
 		o.Workflow = &WorkflowCmd{}
+	case "model-switch":
+		o.ModelSwitch = &ModelSwitchCmd{}
+	case "model-reset":
+		o.ModelReset = &ModelResetCmd{}
+	case "ws":
+		o.Workspace = &WorkspaceCmd{}
 	case "serve":
 		o.Serve = &ServeCmd{}
 	case "mcp":

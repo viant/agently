@@ -21,9 +21,10 @@ var (
 // Predefined kinds.  Callers may still supply arbitrary sub-folder names when
 // they need custom separation.
 const (
-	KindAgent = "agents"
-	KindModel = "models"
-	KindMCP   = "mcp"
+	KindAgent    = "agents"
+	KindModel    = "models"
+	KindMCP      = "mcp"
+	KindWorkflow = "workflows"
 )
 
 // Root returns the absolute path to the Agently root directory.
@@ -57,55 +58,6 @@ func Root() string {
 func Path(kind string) string {
 	return filepath.Join(Root(), kind)
 }
-
-// Save writes data to $AGENTLY_ROOT/<kind>/<name>. It creates parent
-// directories when missing.
-func Save(kind, name string, data []byte, perm os.FileMode) error {
-	fullPath := filepath.Join(Path(kind), name)
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0o750); err != nil {
-		return err
-	}
-	if perm == 0 {
-		perm = 0o660
-	}
-	return os.WriteFile(fullPath, data, perm)
-}
-
-// Delete removes $AGENTLY_ROOT/<kind>/<name>.
-func Delete(kind, name string) error {
-	return os.Remove(filepath.Join(Path(kind), name))
-}
-
-// List lists file basenames stored under $AGENTLY_ROOT/<kind>.
-func List(kind string) ([]string, error) {
-	dir := Path(kind)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		out = append(out, e.Name())
-	}
-	return out, nil
-}
-
-// Helper wrappers for common kinds ------------------------------------------------
-
-func SaveAgent(name string, data []byte) error { return Save(KindAgent, name, data, 0) }
-func DeleteAgent(name string) error            { return Delete(KindAgent, name) }
-func ListAgents() ([]string, error)            { return List(KindAgent) }
-
-func SaveModel(name string, data []byte) error { return Save(KindModel, name, data, 0) }
-func DeleteModel(name string) error            { return Delete(KindModel, name) }
-func ListModels() ([]string, error)            { return List(KindModel) }
-
-func SaveMCP(name string, data []byte) error { return Save(KindMCP, name, data, 0) }
-func DeleteMCP(name string) error            { return Delete(KindMCP, name) }
-func ListMCP() ([]string, error)             { return List(KindMCP) }
 
 // abs converts p into an absolute, clean path. If an error occurs it returns p
 // unchanged – the caller tolerates relative paths.

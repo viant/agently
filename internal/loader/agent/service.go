@@ -184,7 +184,6 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 					agent.Knowledge = append(agent.Knowledge, knowledge)
 				}
 			}
-		case "tool":
 		case "orchestrationflow":
 			if valueNode.Kind == yaml.ScalarNode {
 				agent.OrchestrationFlow = valueNode.Value
