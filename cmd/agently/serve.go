@@ -3,13 +3,14 @@ package agently
 import (
 	"context"
 	"log"
+	"net/http"
 
-	httpchat "github.com/viant/agently/adapter/http"
+	"github.com/viant/agently/adapter/http/router"
+	"github.com/viant/agently/service"
 )
 
-// ServeCmd starts the lightweight HTTP chat server that exposes /v1/api
-// endpoints.  The underlying logic relies on the shared service layer via the
-// conversation manager already initialised in the executor singleton.
+// ServeCmd starts the embedded HTTP server.
+// Usage: agently serve --addr :8080
 type ServeCmd struct {
 	Addr string `short:"a" long:"addr" description:"listen address" default:":8080"`
 }
@@ -20,7 +21,10 @@ func (s *ServeCmd) Execute(_ []string) error {
 		exec.Start(context.Background())
 	}
 
-	mgr := exec.Conversation()
-	log.Printf("HTTP chat server listening on %s", s.Addr)
-	return httpchat.ListenAndServe(s.Addr, mgr)
+	svc := service.New(exec, service.Options{})
+
+	handler := router.New(exec, svc)
+
+	log.Printf("Agently HTTP server listening on %s", s.Addr)
+	return http.ListenAndServe(s.Addr, handler)
 }
