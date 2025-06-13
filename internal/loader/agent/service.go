@@ -185,6 +185,11 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 				}
 			}
 		case "tool":
+		case "orchestrationflow":
+			if valueNode.Kind == yaml.ScalarNode {
+				agent.OrchestrationFlow = valueNode.Value
+			}
+		case "tool":
 			// Parse tool references by name
 			if valueNode.Kind == yaml.SequenceNode {
 				for _, itemNode := range valueNode.Content {

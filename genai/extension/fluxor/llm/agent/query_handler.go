@@ -314,7 +314,13 @@ func (s *Service) loadWorkflow(qi *QueryInput, enrichment, systemPrompt string) 
 	if err != nil {
 		return nil, nil, err
 	}
-	wf, err := s.runtime.DecodeYAMLWorkflow(orchestrationWorkflow)
+
+	var wf *model.Workflow
+	if flow := qi.Agent.OrchestrationFlow; strings.TrimSpace(flow) != "" {
+		wf, err = s.runtime.LoadWorkflow(context.Background(), flow)
+	} else {
+		wf, err = s.runtime.DecodeYAMLWorkflow(orchestrationWorkflow)
+	}
 	initial := map[string]interface{}{
 		keyQuery:        qi.Query,
 		keyContext:      enrichment,

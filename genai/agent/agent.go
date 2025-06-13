@@ -31,6 +31,9 @@ type (
 		// Agent's knowledge base (optional)
 		Knowledge []*Knowledge `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
 
+		// OrchestrationFlow optional path/URL to override default workflow graph.
+		OrchestrationFlow string `yaml:"orchestrationFlow,omitempty" json:"orchestrationFlow,omitempty"`
+
 		// cached compiled go template for prompt (if Prompt is static)
 		parsedTemplate *template.Template `yaml:"-" json:"-"`
 		once           sync.Once          `yaml:"-" json:"-"`
