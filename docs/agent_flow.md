@@ -66,23 +66,20 @@ of the hooks (workspace, loaders, memory, LLM provider, tools, …).
 ```
 
 ## Workspace lookup details
-
-When a **relative** path is supplied (like `sales.yaml`) the loader prepends
-the *baseURL* defined in the executor’s meta-service.  If `Config.BaseURL` is
-omitted Agently falls back to the **centralised workspace** root:
+Workspace is the single place all editable artefacts live.  Layout:
 
 ```
-$AGENTLY_ROOT  (env)   default: ~/.agently
-└── agents/
-    └── sales.yaml
-└── models/
-    └── gpt4o.yaml
-└── mcp/
-    └── local.yaml
+~/.agently/
+  agents/      # agent YAML
+  models/      # llm provider configs
+  workflows/   # fluxor graphs
+  mcp/         # MCP servers
 ```
 
-Thus agents/models dropped into the workspace are auto-discoverable without
-changing application code.
+On start-up the executor automatically merges files in these folders with any
+inline definitions found in the main config file, preferring the latter on
+name collisions.  Front-ends interact with the workspace through the generic
+`ws` CLI group or REST endpoints.
 
 ## Modifying the workspace programmatically
 

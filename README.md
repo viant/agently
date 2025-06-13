@@ -62,6 +62,58 @@ agently run -i <input-file>
 
 # Start HTTP server
 agently serve
+
+# Workspace management (new)
+
+Agently stores all editable resources under **`$AGENTLY_ROOT`** (defaults to
+`~/.agently`).  Each kind has its own sub-folder:
+
+```
+~/.agently/
+  agents/      # *.yaml agent definitions
+  models/      # LLM or embedder configs
+  workflows/   # Fluxor workflow graphs
+  mcp/         # MCP client definitions
+```
+
+Use the generic `ws` command group to list, add or remove any resource kind:
+
+```bash
+# List agents
+agently ws list   -k agent
+
+# Add a model from file
+agently ws add    -k model   -n gpt4o -f gpt4o.yaml
+
+# Get raw YAML for workflow
+agently ws get    -k workflow -n plan_exec_finish
+
+# Delete MCP server definition
+agently ws remove -k mcp -n local
+```
+
+### Model convenience helpers
+
+```bash
+# Switch default model for an agent
+agently model-switch -a chat -m gpt4o
+
+# Reset agent to inherit executor default
+agently model-reset  -a chat
+```
+
+### MCP helpers (now stored in workspace)
+
+```bash
+# Add/update server definition (stored as ~/.agently/mcp/local.yaml)
+agently mcp add    -n local -t stdio --command my-mcp
+
+# List names or full JSON objects (with --json)
+agently mcp list   [--json]
+
+# Remove definition
+agently mcp remove -n local
+```
 ```
 
 ### Options

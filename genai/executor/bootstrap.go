@@ -6,8 +6,12 @@ import (
 	"fmt"
 	clientmcp "github.com/viant/agently/adapter/mcp"
 	"github.com/viant/agently/adapter/tool"
+	"github.com/viant/agently/genai/agent"
+	llmprovider "github.com/viant/agently/genai/llm/provider"
 	"github.com/viant/agently/genai/memory"
 	convdao "github.com/viant/agently/internal/dao/conversation"
+	agentrepo "github.com/viant/agently/internal/repository/agent"
+	modelrepo "github.com/viant/agently/internal/repository/model"
 
 	"github.com/viant/afs"
 	mcprepo "github.com/viant/agently/internal/repository/mcp"
@@ -114,6 +118,10 @@ func (e *Service) initDefaults() {
 	if e.config == nil {
 		e.config = &Config{}
 	}
+	e.initModel()
+	e.initAgent()
+	e.initMcp()
+
 	if e.modelFinder == nil {
 		finder := e.config.DefaultModelFinder()
 		e.modelFinder = finder
@@ -129,6 +137,40 @@ func (e *Service) initDefaults() {
 		e.agentFinder = e.config.DefaultAgentFinder()
 	}
 
+}
+
+func (e *Service) initModel() {
+	// merge model repo first so DefaultModelFinder sees them
+	if e.config.Model == nil {
+		e.config.Model = &mcpcfg.Group[*llmprovider.Config]{}
+	}
+	repo := modelrepo.New(afs.New())
+	if names, err := repo.List(context.Background()); err == nil {
+		for _, n := range names {
+			cfg, err := repo.Load(context.Background(), n)
+			if err != nil || cfg == nil {
+				continue
+			}
+			dup := false
+			for _, ex := range e.config.Model.Items {
+				if ex != nil && ex.ID == cfg.ID {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				e.config.Model.Items = append(e.config.Model.Items, cfg)
+			}
+		}
+	}
+}
+
+func (e *Service) initMcp() {
+	// Merge MCP repo entries -----------------------------
+	if e.config.MCP == nil {
+		e.config.MCP = &mcpcfg.Group[*mcp.ClientOptions]{}
+	}
+
 	if e.clientHandler == nil {
 		var opts []clientmcp.Option
 		opts = append(opts, clientmcp.WithLLMCore(e.llmCore))
@@ -137,12 +179,6 @@ func (e *Service) initDefaults() {
 		}
 		e.clientHandler = clientmcp.NewClient(opts...)
 	}
-
-	// Merge MCP repo entries -----------------------------
-	if e.config.MCP == nil {
-		e.config.MCP = &mcpcfg.Group[*mcp.ClientOptions]{}
-	}
-
 	repo := mcprepo.New(afs.New())
 	if names, err := repo.List(context.Background()); err == nil {
 		for _, n := range names {
@@ -168,6 +204,32 @@ func (e *Service) initDefaults() {
 		}
 	}
 
+}
+
+func (e *Service) initAgent() {
+	// Merge agent repo into config.Agent.Group if not duplicates by ID
+	if e.config.Agent == nil {
+		e.config.Agent = &mcpcfg.Group[*agent.Agent]{}
+	}
+	arepo := agentrepo.New(afs.New())
+	if names, err := arepo.List(context.Background()); err == nil {
+		for _, n := range names {
+			a, err := arepo.Load(context.Background(), n)
+			if err != nil || a == nil {
+				continue
+			}
+			dup := false
+			for _, ex := range e.config.Agent.Items {
+				if ex != nil && ex.ID == a.ID {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				e.config.Agent.Items = append(e.config.Agent.Items, a)
+			}
+		}
+	}
 }
 
 // initHistory initialises a conversation history store. When a DAO connector
