@@ -14,7 +14,7 @@ func TestNewFunctionCall(t *testing.T) {
 		args map[string]interface{}
 	}{
 		{desc: "no args", name: "fn", args: map[string]interface{}{}},
-		{desc: "with args", name: "fn", args: map[string]interface{}{"foo": "bar", "num": 42}},
+		{desc: "with args", name: "fn", args: map[string]interface{}{"foo": "bar", "num": 42.0}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.desc, func(t *testing.T) {

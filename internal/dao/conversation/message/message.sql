@@ -1,2 +1,9 @@
-( SELECT m.* FROM message m
-    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")} )
+SELECT 
+    id,
+    conversation_id,
+    role,
+    content,
+    tool_name,
+    created_at
+FROM message
+WHERE conversation_id = $ConvId

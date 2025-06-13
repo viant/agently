@@ -17,6 +17,7 @@ import (
 
 type Service struct {
 	dao *datly.Service
+	db  *sql.DB
 }
 
 func (s *Service) AddMessage(ctx context.Context, convID string, msg memory.Message) error {
@@ -64,22 +65,70 @@ func (s *Service) GetConversation(ctx context.Context, convID string) (*Conversa
 }
 
 func (s *Service) GetMessages(ctx context.Context, convID string) ([]memory.Message, error) {
+	// Use the URI approach first to try to get messages
 	URI := strings.ReplaceAll(MessagePathURI, "{conversationId}", convID)
 	var result = &MessageOutput{}
+	input := &MessageInput{
+		ConvId: convID,
+		Has: &MessageInputHas{
+			ConvId: true,
+		},
+	}
+
 	_, err := s.dao.Operate(ctx, datly.WithOutput(result),
 		datly.WithURI(URI),
-		datly.WithInput(&MessageInput{ConvId: convID}))
+		datly.WithInput(input))
+
+	// If the datly approach works, use it
+	if err == nil && len(result.Data) > 0 {
+		var messages []memory.Message
+		for _, view := range result.Data {
+			messages = append(messages, memory.Message{
+				Role:    view.Role,
+				Content: view.Content,
+			})
+		}
+		return messages, nil
+	}
+
+	// If datly approach fails, fall back to direct SQL
+	fmt.Printf("[DEBUG_LOG] Falling back to direct SQL query for conversation %s\n", convID)
+
+	// Get the database connection
+	db, err := sql.Open("sqlite3", s.getDBPath())
+
+	// Query the database directly
+	rows, err := db.QueryContext(ctx, "SELECT id, role, content, tool_name FROM message WHERE conversation_id = ?", convID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query messages: %w", err)
 	}
+	defer rows.Close()
+
 	var messages []memory.Message
-	for _, view := range result.Data {
-		messages = append(messages, memory.Message{
-			Role:    view.Role,
-			Content: view.Content,
-		})
+	for rows.Next() {
+		var id, role, content string
+		var toolName *string
+		if err := rows.Scan(&id, &role, &content, &toolName); err != nil {
+			return nil, fmt.Errorf("failed to scan message row: %w", err)
+		}
+
+		message := memory.Message{
+			Role:    role,
+			Content: content,
+		}
+		if toolName != nil {
+			message.ToolName = toolName
+		}
+
+		messages = append(messages, message)
 	}
-	return messages, err
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating message rows: %w", err)
+	}
+
+	fmt.Printf("[DEBUG_LOG] GetMessages: Found %d messages for conversation %s\n", len(messages), convID)
+	return messages, nil
 }
 
 func (s *Service) Retrieve(ctx context.Context, convID string, policy memory.Policy) ([]memory.Message, error) {

@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/datly/view"
@@ -30,7 +31,8 @@ func TestService(t *testing.T) {
 	// Read the schema.ddl file
 	// Find the schema file relative to the current file
 	_, filename, _, _ := runtime.Caller(0)
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filename))))) // Go up 5 levels from this file
+	// Ensure we have the correct path to the repository root
+	repoRoot := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filename))))), "agently")
 	schemaPath := filepath.Join(repoRoot, "internal", "script", "schema.ddl")
 	schemaBytes, err := ioutil.ReadFile(schemaPath)
 	if err != nil {
@@ -74,6 +76,9 @@ func TestService(t *testing.T) {
 	}
 	assert.NotNil(t, srv)
 
+	// Set the database connection for direct queries
+	srv.db = db
+
 	// Add a test message
 	err = srv.AddMessage(context.Background(), convID, memory.Message{
 		Role:    "user",
@@ -110,12 +115,29 @@ func TestService(t *testing.T) {
 	}
 
 	// Get the messages using the service
+	t.Logf("[DEBUG_LOG] About to call GetMessages with convID: %s", convID)
 	messages, err := srv.GetMessages(context.Background(), convID)
 	if !assert.Nil(t, err) {
 		t.Error("expected no error when reading message")
 		return
 	}
 	t.Logf("Retrieved %d messages using service", len(messages))
+
+	// Debug: Query the database directly to see if we can get messages
+	rows, err := db.Query("SELECT id, role, content FROM message WHERE conversation_id = ?", convID)
+	if err != nil {
+		t.Fatalf("[DEBUG_LOG] Failed to query messages directly: %v", err)
+	}
+	defer rows.Close()
+	var directMessages []string
+	for rows.Next() {
+		var id, role, content string
+		if err := rows.Scan(&id, &role, &content); err != nil {
+			t.Fatalf("[DEBUG_LOG] Failed to scan message row: %v", err)
+		}
+		directMessages = append(directMessages, fmt.Sprintf("ID=%s, Role=%s, Content=%s", id, role, content))
+	}
+	t.Logf("[DEBUG_LOG] Direct query found %d messages: %v", len(directMessages), directMessages)
 
 	// Check that we got at least one message
 	if !assert.NotEmpty(t, messages, "Expected at least one message") {

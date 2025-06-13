@@ -13,8 +13,9 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/mattn/go-sqlite3"
+	"gi
 	"github.com/stretchr/testify/assert"
-	"github.com/viant/datly/view"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -34,7 +35,8 @@ func TestService(t *testing.T) {
 	// Read the schema.ddl file
 	// Find the schema file relative to the current file
 	_, filename, _, _ := runtime.Caller(0)
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filename))))) // Go up 5 levels from this file
+	// Ensure we have the correct path to the repository root
+	repoRoot := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filename))))), "agently")
 	schemaPath := filepath.Join(repoRoot, "internal", "script", "schema.ddl")
 	schemaBytes, err := ioutil.ReadFile(schemaPath)
 	if err != nil {
