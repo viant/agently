@@ -26,6 +26,23 @@ type Manager struct {
 	idGen   func() string
 }
 
+// History returns underlying memory.History implementation.
+func (m *Manager) History() memory.History { return m.history }
+
+// Messages returns the full message history for the supplied conversation ID.
+// It is a thin proxy to the underlying memory.History implementation so that
+// HTTP adapters (REST, WebSocket, …) can expose the history without knowing
+// concrete history details.
+func (m *Manager) Messages(ctx context.Context, convID string) ([]memory.Message, error) {
+	if m == nil {
+		return nil, errors.New("conversation manager is nil")
+	}
+	if convID == "" {
+		return nil, errors.New("conversation id is empty")
+	}
+	return m.history.GetMessages(ctx, convID)
+}
+
 // List returns all known conversation IDs.
 func (m *Manager) List(ctx context.Context) ([]string, error) {
 	if m == nil {

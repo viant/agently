@@ -8,6 +8,7 @@ import (
 	mcprepo "github.com/viant/agently/internal/repository/mcp"
 	modelrepo "github.com/viant/agently/internal/repository/model"
 	workflowrepo "github.com/viant/agently/internal/repository/workflow"
+	"github.com/viant/agently/internal/workspace"
 	"sync"
 )
 
@@ -51,6 +52,8 @@ func (s *Service) ResetModel(ctx context.Context, agentName string) error {
 func (s *Service) initRepos() {
 	s.once.Do(func() {
 		fs := afs.New()
+		// auto-bootstrap workspace with default resources when empty
+		workspace.EnsureDefault(fs)
 		s.mRepo = modelrepo.New(fs)
 		s.aRepo = agentrepo.New(fs)
 		s.wRepo = workflowrepo.New(fs)

@@ -5,8 +5,13 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
+	"github.com/viant/afs/file"
+	"github.com/viant/afs/url"
+	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/internal/workspace"
 	"log"
-	"sort"
+	"path"
 	"strings"
 
 	"github.com/viant/agently/genai/agent/plan"
@@ -48,10 +53,11 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	if err := s.addMessage(ctx, convID, "user", qi.Query); err != nil {
+	messageID, err := s.addMessage(ctx, convID, "user", qi.Query, qi.MessageID)
+	if err != nil {
 		log.Printf("warn: cannot record message: %v", err)
 	}
-
+	ctx = context.WithValue(ctx, memory.MessageIDKey, messageID)
 	// 3. Decide whether to run the full plan/exec/finish workflow.
 	if s.requiresWorkflow(qi) {
 		return s.runWorkflow(ctx, qi, qo, convID, convContext)
@@ -93,11 +99,20 @@ func (s *Service) conversationID(qi *QueryInput) string {
 	return qi.Location
 }
 
-func (s *Service) addMessage(ctx context.Context, convID, role, content string) error {
+// addMessage appends a new message to the conversation history. When
+// idOverride is non-empty it is used as the message ID; otherwise a fresh UUID
+// is generated. The final ID is always returned so that callers can propagate
+// it via context for downstream services.
+func (s *Service) addMessage(ctx context.Context, convID, role, content, idOverride string) (string, error) {
 	if strings.TrimSpace(content) == "" {
-		return nil
+		return "", nil
 	}
-	return s.history.AddMessage(ctx, convID, memory.Message{Role: role, Content: content})
+	id := idOverride
+	if strings.TrimSpace(id) == "" {
+		id = uuid.New().String()
+	}
+	err := s.history.AddMessage(ctx, convID, memory.Message{ID: id, Role: role, Content: content})
+	return id, err
 }
 
 // conversationContext summarises the conversation according to configured
@@ -158,7 +173,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	if err != nil {
 		return err
 	}
-	wf, initial, err := s.loadWorkflow(qi, enrichment, sysPrompt)
+	wf, initial, err := s.loadWorkflow(ctx, qi, enrichment, sysPrompt)
 	if err != nil {
 		return err
 	}
@@ -195,6 +210,19 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	}
 
 	// 4. Extract output – same logic but isolated.
+
+	// Always attempt to capture the plan/refinedPlan (if present) so that UI or callers
+	// can render the current execution strategy irrespective of the final outcome.
+	if planVal, ok := result.Output[keyRefinedPlan]; ok && planVal != nil {
+		if p, err := coercePlan(planVal); err == nil {
+			qo.Plan = p
+		}
+	} else if planVal, ok := result.Output[keyPlan]; ok && planVal != nil {
+		if p, err := coercePlan(planVal); err == nil {
+			qo.Plan = p
+		}
+	}
+
 	if elVal, ok := result.Output[keyElicitation]; ok && elVal != nil {
 		if elic, err := coerceElicitation(elVal); err == nil && elic != nil {
 			qo.Elicitation = elic
@@ -288,8 +316,9 @@ func (s *Service) buildSystemPrompt(ctx context.Context, qi *QueryInput, enrichm
 }
 
 // recordAssistant writes the assistant's message into history, ignoring errors.
+
 func (s *Service) recordAssistant(ctx context.Context, convID, content string) {
-	if err := s.addMessage(ctx, convID, "assistant", content); err != nil {
+	if _, err := s.addMessage(ctx, convID, "assistant", content, ""); err != nil {
 		log.Printf("warn: cannot record assistant message: %v", err)
 	}
 }
@@ -309,15 +338,16 @@ func (s *Service) buildEnrichment(conv, docs string) string {
 //go:embed orchestration/workflow.yaml
 var orchestrationWorkflow []byte
 
-func (s *Service) loadWorkflow(qi *QueryInput, enrichment, systemPrompt string) (*model.Workflow, map[string]interface{}, error) {
+func (s *Service) loadWorkflow(ctx context.Context, qi *QueryInput, enrichment, systemPrompt string) (*model.Workflow, map[string]interface{}, error) {
 	toolNames, err := s.ensureTools(qi)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	var wf *model.Workflow
-	if flow := qi.Agent.OrchestrationFlow; strings.TrimSpace(flow) != "" {
-		wf, err = s.runtime.LoadWorkflow(context.Background(), flow)
+	if URI := qi.Agent.OrchestrationFlow; strings.TrimSpace(URI) != "" {
+		URI = s.ensureLocation(ctx, qi.Agent.Source, URI)
+		wf, err = s.runtime.LoadWorkflow(ctx, URI)
 	} else {
 		wf, err = s.runtime.DecodeYAMLWorkflow(orchestrationWorkflow)
 	}
@@ -330,6 +360,26 @@ func (s *Service) loadWorkflow(qi *QueryInput, enrichment, systemPrompt string) 
 	}
 
 	return wf, initial, err
+}
+
+func (s *Service) ensureLocation(ctx context.Context, parent *agent.Source, URI string) string {
+	if parent == nil || parent.URL == "" || !url.IsRelative(URI) {
+		return URI
+	}
+	if ok, _ := s.fs.Exists(ctx, URI); ok {
+		return URI
+	}
+
+	parentURI, _ := url.Split(parent.URL, file.Scheme)
+	if url.IsRelative(parent.URL) {
+		parentURI, _ = path.Split(parent.URL)
+	}
+	URI = url.Join(parentURI, URI)
+	if ok, _ := s.fs.Exists(ctx, URI); ok {
+		return URI
+	}
+	URI = url.Join(workspace.Root(), URI)
+	return URI
 }
 
 func (s *Service) ensureTools(qi *QueryInput) ([]string, error) {
@@ -411,17 +461,46 @@ func coerceElicitation(v interface{}) (*plan.Elicitation, error) {
 	case map[string]interface{}:
 		data, _ := json.Marshal(actual)
 		return unmarshal(data)
+	// map[interface{}]interface{} handled above
+	case map[interface{}]interface{}:
+		conv := make(map[string]interface{}, len(actual))
+		for k, v := range actual {
+			if strKey, ok := k.(string); ok {
+				conv[strKey] = v
+			}
+		}
+		data, _ := json.Marshal(conv)
+		return unmarshal(data)
 	default:
 		return nil, fmt.Errorf("unsupported elicitation type %T", v)
 	}
 }
 
-// mapKeys returns sorted keys of a map for log/error purposes.
-func mapKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+// coercePlan converts various representations found in workflow output
+// into *plan.Plan.
+func coercePlan(v interface{}) (*plan.Plan, error) {
+	unmarshal := func(data []byte) (*plan.Plan, error) {
+		var p plan.Plan
+		if err := json.Unmarshal(data, &p); err != nil {
+			return nil, err
+		}
+		return &p, nil
 	}
-	sort.Strings(keys)
-	return keys
+
+	switch actual := v.(type) {
+	case *plan.Plan:
+		return actual, nil
+	case plan.Plan:
+		return &actual, nil
+	case string:
+		return unmarshal([]byte(actual))
+	case []byte:
+		return unmarshal(actual)
+	case map[string]interface{}:
+		data, _ := json.Marshal(actual)
+		return unmarshal(data)
+	default:
+		// unsupported type
+		return nil, fmt.Errorf("unexpected plan type %T", v)
+	}
 }

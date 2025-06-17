@@ -23,6 +23,7 @@ type ChatResponse struct {
 	ConversationID string
 	Content        string
 	Elicitation    *plan.Elicitation
+	Plan           *plan.Plan
 }
 
 // Chat executes an interactive turn, optionally looping on elicitation when
@@ -90,5 +91,5 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 	}
 
 DONE:
-	return &ChatResponse{ConversationID: convID, Content: out.Content, Elicitation: out.Elicitation}, nil
+	return &ChatResponse{ConversationID: convID, Content: out.Content, Elicitation: out.Elicitation, Plan: out.Plan}, nil
 }

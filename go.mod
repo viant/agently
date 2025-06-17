@@ -1,6 +1,8 @@
 module github.com/viant/agently
 
-go 1.23.8
+go 1.24.1
+
+toolchain go1.24.4
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.30.3
@@ -14,8 +16,9 @@ require (
 	github.com/viant/afsc v1.9.1
 	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
 	github.com/viant/embedius v0.0.0-20250503233925-d6900657ff75
-	github.com/viant/fluxor v0.1.12
-	github.com/viant/fluxor-mcp v0.1.7
+	github.com/viant/fluxor v0.1.14
+	github.com/viant/fluxor-mcp v0.1.8-0.20250617113512-1fce9a73ea5c
+	github.com/viant/forge v0.2.6-0.20250617150242-f172ba9a27b2
 	github.com/viant/jsonrpc v0.7.2
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.4.3
@@ -120,7 +123,7 @@ require (
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlparser v0.8.1 // indirect
-	github.com/viant/sqlx v0.16.6 // indirect
+	github.com/viant/sqlx v0.17.4 // indirect
 	github.com/viant/structql v0.5.2 // indirect
 	github.com/viant/tagly v0.2.1-0.20240521205717-55de744e893c // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect

@@ -1,17 +1,20 @@
 package agent
 
 import (
-    "github.com/tmc/langchaingo/schema"
-    "github.com/viant/agently/genai/agent"
-    "github.com/viant/agently/genai/agent/plan"
-    "github.com/viant/agently/genai/usage"
+	"github.com/tmc/langchaingo/schema"
+	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/usage"
 )
 
 // QueryInput represents the input for querying an agent's knowledge
 type QueryInput struct {
 	// ConversationID is an optional identifier for the conversation session.
 	// If provided, conversation history will be tracked and reused.
-	ConversationID  string       `json:"conversationId,omitempty"`
+	ConversationID string `json:"conversationId,omitempty"`
+	// Optional client-supplied identifier for the user message. When empty the
+	// service will generate a UUID.
+	MessageID       string       `json:"messageId,omitempty"`
 	Location        string       `json:"location"`        // Path to the agent configuration
 	Agent           *agent.Agent `json:"agent"`           // Agent to use (alternative to Location)
 	Query           string       `json:"query"`           // The query to submit
@@ -28,5 +31,6 @@ type QueryOutput struct {
 	Documents     []schema.Document `json:"documents"`             // List of relevant documents
 	DocumentsSize int               `json:"documentsSize"`         // Total size of retrieved documents
 	Elicitation   *plan.Elicitation `json:"elicitation,omitempty"` // structured missing input request
+	Plan          *plan.Plan        `json:"plan,omitempty"`        // current execution plan (optional)
 	Usage         *usage.Aggregator `json:"usage,omitempty"`
 }

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/viant/afs"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor/model/types"
@@ -19,6 +20,7 @@ type Service struct {
 	defaultModel string
 
 	logWriter io.Writer
+	fs        afs.Service
 }
 
 // ToolDefinitions returns every tool definition registered in the tool
@@ -86,5 +88,5 @@ func (s *Service) Method(name string) (types.Executable, error) {
 
 // New creates a new extractor service
 func New(finder llm.Finder, registry tool.Registry, defaultModel string) *Service {
-	return &Service{llmFinder: finder, registry: registry, defaultModel: defaultModel}
+	return &Service{llmFinder: finder, registry: registry, defaultModel: defaultModel, fs: afs.New()}
 }

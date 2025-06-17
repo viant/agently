@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/internal/shared"
+	"github.com/viant/agently/internal/workspace"
 	"path/filepath"
 	"strings"
 
@@ -77,6 +78,12 @@ func (s *Service) Lookup(ctx context.Context, name string) (*agent.Agent, error)
 
 // Load loads an agent from the specified URL
 func (s *Service) Load(ctx context.Context, URL string) (*agent.Agent, error) {
+	// When caller supplies a bare agent name (no path, no extension) – assume
+	// standard workspace layout: <root>/agents/<name>.yaml.
+	if !strings.Contains(URL, "/") && filepath.Ext(URL) == "" {
+		URL = filepath.Join(workspace.KindAgent, URL)
+	}
+
 	ext := filepath.Ext(URL)
 	if ext == "" {
 		URL += s.defaultExtension
@@ -189,15 +196,43 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 				agent.OrchestrationFlow = valueNode.Value
 			}
 		case "tool":
-			// Parse tool references by name
-			if valueNode.Kind == yaml.SequenceNode {
-				for _, itemNode := range valueNode.Content {
-					// Only support scalar tool name references for now
-					if itemNode.Kind != yaml.ScalarNode {
-						return fmt.Errorf("inline tool definitions not supported; must use scalar tool name reference")
+			// Accept either
+			//   tool:
+			//     - my/tool # scalar → pattern/name reference
+			//     - pattern: my/tool # mapping → inline definition (pattern & optional type)
+			//     - ref: some/ref    # mapping – legacy/alternative key
+			if valueNode.Kind != yaml.SequenceNode {
+				return fmt.Errorf("tool must be a sequence")
+			}
+
+			for _, itemNode := range valueNode.Content {
+				switch itemNode.Kind {
+				case yaml.ScalarNode:
+					name := strings.TrimSpace(itemNode.Value)
+					if name == "" {
+						continue
 					}
-					name := itemNode.Value
 					agent.Tool = append(agent.Tool, &llm.Tool{Pattern: name, Type: "function"})
+
+				case yaml.MappingNode:
+					var t llm.Tool
+					if err := itemNode.Decode(&t); err != nil {
+						return fmt.Errorf("invalid tool definition: %w", err)
+					}
+					// Normalise & defaults ------------------------------------------------
+					if t.Pattern == "" {
+						t.Pattern = t.Ref // fallback to ref when pattern omitted
+					}
+					if t.Type == "" {
+						t.Type = "function"
+					}
+					if t.Pattern == "" {
+						return fmt.Errorf("tool entry missing pattern/ref")
+					}
+					agent.Tool = append(agent.Tool, &llm.Tool{Pattern: t.Pattern, Ref: t.Ref, Type: t.Type, Definition: t.Definition})
+
+				default:
+					return fmt.Errorf("unsupported YAML node for tool entry: kind=%d", itemNode.Kind)
 				}
 			}
 		}

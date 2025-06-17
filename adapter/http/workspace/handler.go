@@ -3,13 +3,14 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/agently/service"
+	"gopkg.in/yaml.v3"
 )
 
 // Handler exposes CRUD operations for any workspace repository kind
@@ -29,6 +30,29 @@ func NewHandler(svc *service.Service) http.Handler {
 
 type handler struct {
 	svc *service.Service
+}
+
+type apiResponse struct {
+	Status  string      `json:"status"`
+	Message string      `json:"message,omitempty"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
+func encode(w http.ResponseWriter, statusCode int, data interface{}, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		if statusCode == 0 {
+			statusCode = http.StatusInternalServerError
+		}
+		w.WriteHeader(statusCode)
+		_ = json.NewEncoder(w).Encode(apiResponse{Status: "ERROR", Message: err.Error()})
+		return
+	}
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(apiResponse{Status: "OK", Data: data})
 }
 
 // ServeHTTP implements http.Handler.
@@ -54,18 +78,40 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// List
+	// List all resources of kind
 	if len(parts) == 1 {
 		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
+			encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
 			return
 		}
-		items, err := repo.List(ctx)
+		names, err := repo.List(ctx)
 		if err != nil {
-			writeErr(w, err)
+			encode(w, http.StatusInternalServerError, nil, err)
 			return
 		}
-		_ = jsonEncode(w, items)
+
+		var items []interface{}
+		for _, n := range names {
+			raw, err := repo.GetRaw(ctx, n)
+			if err != nil {
+				continue // skip bad entries
+			}
+			var obj map[string]interface{}
+			if err := yaml.Unmarshal(raw, &obj); err != nil {
+				continue
+			}
+			// Ensure id/name present for UI tables when missing.
+			if _, ok := obj["name"]; !ok {
+				if id, ok := obj["id"]; ok {
+					obj["name"] = id
+				} else {
+					obj["name"] = n
+				}
+			}
+			items = append(items, obj)
+		}
+
+		encode(w, http.StatusOK, items, nil)
 		return
 	}
 
@@ -74,33 +120,36 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		data, err := repo.GetRaw(ctx, name)
+		raw, err := repo.GetRaw(ctx, name)
 		if err != nil {
-			writeErr(w, err)
+			encode(w, http.StatusInternalServerError, nil, err)
 			return
 		}
-		w.Header().Set("Content-Type", "application/x-yaml")
-		_, _ = w.Write(data)
+		var obj interface{}
+		if err := yaml.Unmarshal(raw, &obj); err != nil {
+			encode(w, http.StatusInternalServerError, nil, err)
+			return
+		}
+		encode(w, http.StatusOK, obj, nil)
 	case http.MethodPut:
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(err.Error()))
+			encode(w, http.StatusBadRequest, nil, err)
 			return
 		}
 		if err := repo.Add(ctx, name, body); err != nil {
-			writeErr(w, err)
+			encode(w, http.StatusInternalServerError, nil, err)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		encode(w, http.StatusOK, "OK", nil)
 	case http.MethodDelete:
 		if err := repo.Delete(ctx, name); err != nil {
-			writeErr(w, err)
+			encode(w, http.StatusInternalServerError, nil, err)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		encode(w, http.StatusOK, "OK", nil)
 	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
 	}
 }
 
@@ -128,16 +177,4 @@ type rawRepository interface {
 	Delete(ctx context.Context, name string) error
 }
 
-func jsonEncode(w http.ResponseWriter, v any) error {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.Printf("json encode error: %v", err)
-		return err
-	}
-	return nil
-}
-
-func writeErr(w http.ResponseWriter, err error) {
-	w.WriteHeader(http.StatusInternalServerError)
-	_, _ = w.Write([]byte(err.Error()))
-}
+// Deprecated helpers jsonEncode/writeErr removed – unified encode() used instead.

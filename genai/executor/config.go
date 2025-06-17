@@ -38,6 +38,7 @@ type Config struct {
 	ToolRetries int
 	//
 	metaService *meta.Service
+	Services    []string `yaml:"services" json:"services"`
 }
 
 func (c *Config) Meta() *meta.Service {
@@ -77,7 +78,18 @@ func (c *Config) DefaultEmbedderFinder() *embedderfinder.Finder {
 }
 
 func (c *Config) DefaultAgentFinder(options ...agentloader.Option) *agentfinder.Finder {
-	return agentfinder.New(agentfinder.WithInitial(c.Agent.Items...),
+	// Always resolve relative agent paths against the workspace root (or
+	// Config.BaseURL when explicitly set) so that callers can simply refer to
+	// "chat" instead of providing an absolute path.
+
+	// Append meta service option to ensure agent loader uses the same baseURL
+	// strategy as other component loaders.  Intentionally append (not prepend)
+	// so that explicit caller-supplied WithMetaService overrides ours when
+	// needed.
+	options = append(options, agentloader.WithMetaService(c.Meta()))
+
+	return agentfinder.New(
+		agentfinder.WithInitial(c.Agent.Items...),
 		agentfinder.WithLoader(agentloader.New(options...)),
 	)
 }

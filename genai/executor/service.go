@@ -37,8 +37,9 @@ type Service struct {
 	agentFinder    agent.Finder
 	tools          tool.Registry
 
-	history memory.History
-	llmCore *core.Service
+	history    memory.History
+	traceStore *memory.TraceStore
+	llmCore    *core.Service
 
 	// mcpElicitationAwaiter receives interactive user prompts when the runtime
 	// encounters a schema-based elicitation request. When non-nil it is injected
@@ -134,7 +135,6 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	actions.Register(e.llmCore)
 	// capture actions for streaming and callbacks
 	actions.Register(extractor.New())
-	//actions.Register(inspector.New())
 
 	var runtime *fluxor.Runtime
 	if e.orchestration != nil {
@@ -153,7 +153,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		return exec(ctx, in, out)
 	}
 	e.convManager = conversation.New(e.history, convHandler)
-
+	e.traceStore = memory.NewTraceStore()
 	// Actions is modified in-place; no return value needed.
 }
 

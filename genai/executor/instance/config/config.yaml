@@ -15,4 +15,6 @@ agents:
       modelRef: o4-mini
       description: Default conversational agent
       tool:
-        - ref: system/executor
+        - pattern: system/exec
+services:
+  - system/exec

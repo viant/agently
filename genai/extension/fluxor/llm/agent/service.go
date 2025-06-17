@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/viant/afs"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
@@ -57,6 +58,7 @@ type Service struct {
 	summaryThreshold int
 	lastN            int
 	workflowTimeout  time.Duration
+	fs               afs.Service
 
 	// template for conversation summarization; if empty a default English
 	// prompt is used. It can reference ${conversation} placeholder.
@@ -88,6 +90,7 @@ func New(
 		summaryThreshold: defaultSummaryThreshold,
 		lastN:            defaultLastN,
 		workflowTimeout:  defaultWorkflowTimeout,
+		fs:               afs.New(),
 	}
 
 	for _, o := range opts {

@@ -12,6 +12,7 @@ import (
 	convdao "github.com/viant/agently/internal/dao/conversation"
 	agentrepo "github.com/viant/agently/internal/repository/agent"
 	modelrepo "github.com/viant/agently/internal/repository/model"
+	"log"
 
 	"github.com/viant/afs"
 	mcprepo "github.com/viant/agently/internal/repository/mcp"
@@ -51,7 +52,7 @@ func (e *Service) init(ctx context.Context) error {
 
 	// Translate executor Config → fluxor-mcp Config (reuse MCP section directly)
 	mcpConfig := &mcpcfg.Config{
-		Builtins: []string{"system/exec"}, // load all auto-discovered built-ins by default
+		Builtins: e.config.Services,
 		MCP:      e.config.MCP,
 	}
 
@@ -93,10 +94,17 @@ func (e *Service) init(ctx context.Context) error {
 	orchestration, err := mcpsvc.New(ctx,
 		mcpsvc.WithConfig(mcpConfig),
 		mcpsvc.WithWorkflowOptions(wfOptions...),
+
 		mcpsvc.WithClientHandler(e.clientHandler),
 	)
 	if err != nil {
-		return fmt.Errorf("init orchestration: %w", err)
+		log.Printf("orchestration init warning: %v", err)
+		// Fallback to a minimal Fluxor service without external MCP integration.
+		fallbackSvc := fluxor.New(wfOptions...)
+		orchestration = &mcpsvc.Service{}
+		// Manually wire minimal workflow fields so downstream code still works.
+		orchestration.Workflow.Runtime = fallbackSvc.Runtime()
+		orchestration.Workflow.Service = fallbackSvc
 	}
 	e.orchestration = orchestration
 	if e.tools == nil {
@@ -180,10 +188,17 @@ func (e *Service) initMcp() {
 		e.clientHandler = clientmcp.NewClient(opts...)
 	}
 	repo := mcprepo.New(afs.New())
-	if names, err := repo.List(context.Background()); err == nil {
+	if names, err := repo.List(context.Background()); err != nil {
+		// Print error and continue without failing executor initialisation.
+		log.Printf("mcp: listing servers failed: %v", err)
+	} else {
 		for _, n := range names {
 			opt, err := repo.Load(context.Background(), n)
-			if err != nil || opt == nil {
+			if err != nil {
+				log.Printf("mcp: load %s failed: %v", n, err)
+				continue
+			}
+			if opt == nil {
 				continue
 			}
 			dup := false
@@ -271,7 +286,3 @@ func (e *Service) loadDAOConfig(ctx context.Context) (*view.DBConfig, error) {
 	}
 	return nil, nil
 }
-
-// initWorkflowService builds a fluxor Service instance and registers all core
-// and extension actions.
-// (legacy initWorkflowService removed – runtime is now built by fluxor-mcp)

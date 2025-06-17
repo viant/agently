@@ -17,12 +17,11 @@ var planPromptTemplate string
 
 // PlanInput defines input for Plan generation or finalization.
 type PlanInput struct {
-	Query          string   `json:"query"`
-	Context        string   `json:"context,omitempty"`
-	Model          string   `json:"model,omitempty"`
-	Tools          []string `json:"tools,omitempty"`          // available tools for selection
-	PromptTemplate string   `json:"promptTemplate,omitempty"` // optional custom prompt for Plan generation
-
+	Query     string   `json:"query"`
+	Context   string   `json:"context,omitempty"`
+	Model     string   `json:"model,omitempty"`
+	Tools     []string `json:"tools,omitempty"`     // available tools for selection
+	PromptURI string   `json:"promptURI,omitempty"` // optional custom prompt for Plan generation
 	//Loopback parameters
 	Results       []plan.Result    `json:"results,omitempty"`    // structured step results for finalization
 	Transcript    []memory.Message `json:"transcript,omitempty"` // transcript of the conversation with the LLM`
@@ -57,7 +56,15 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 	if err != nil {
 		return err
 	}
-	promptTemplate := input.PromptTemplate
+
+	promptTemplate := ""
+	if input.PromptURI != "" {
+		data, err := s.fs.DownloadWithURL(ctx, input.PromptURI)
+		if err != nil {
+			return err
+		}
+		promptTemplate = string(data)
+	}
 	if promptTemplate == "" {
 		promptTemplate = planPromptTemplate
 	}

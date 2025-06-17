@@ -2,33 +2,50 @@ package conversation
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
+
 	"github.com/google/uuid"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/viant/agently/genai/memory"
 	post2 "github.com/viant/agently/internal/dao/conversation/post"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
 	"github.com/viant/datly/repository/contract"
 	"github.com/viant/datly/view"
-	"net/http"
-	"strings"
 )
 
 type Service struct {
-	dao *datly.Service
-	db  *sql.DB
+	dao   *datly.Service
+	db    *sql.DB
+	dbDSN string // underlying SQLite datasource path for direct SQL fallback
+}
+
+// getDBPath returns the DataSourceName used by the underlying repository.
+// When the repository connector is not an SQLite file it returns an empty
+// string so that the optional direct-SQL fallback is skipped.
+func (s *Service) getDBPath() string {
+	if s == nil || s.db == nil {
+		return ""
+	}
+	return s.dbDSN
 }
 
 func (s *Service) AddMessage(ctx context.Context, convID string, msg memory.Message) error {
 
+	if msg.ID == "" {
+		msg.ID = uuid.New().String()
+	}
 	input := post2.Input{
 		Conversations: []*post2.Conversation{
 			{
 				Id: convID,
 				Message: []*post2.Message{
 					{
-						Id:       uuid.New().String(),
+						Id:       msg.ID,
 						Role:     msg.Role,
 						Content:  msg.Content,
 						ToolName: msg.ToolName,
@@ -84,6 +101,7 @@ func (s *Service) GetMessages(ctx context.Context, convID string) ([]memory.Mess
 		var messages []memory.Message
 		for _, view := range result.Data {
 			messages = append(messages, memory.Message{
+				ID:      view.Id,
 				Role:    view.Role,
 				Content: view.Content,
 			})

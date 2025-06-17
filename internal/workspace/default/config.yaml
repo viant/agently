@@ -1,0 +1,9 @@
+default:
+  model: o3
+  agent: chat
+models:
+    url: models
+agents:
+    url: agents
+services:
+  - system/exec

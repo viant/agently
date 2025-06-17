@@ -3,6 +3,9 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"sync"
+
+	"github.com/viant/afs"
 )
 
 const (
@@ -16,6 +19,7 @@ const (
 var (
 	// cachedRoot holds the resolved, absolute path to the workspace root.
 	cachedRoot string
+	initOnce   sync.Once
 )
 
 // Predefined kinds.  Callers may still supply arbitrary sub-folder names when
@@ -40,6 +44,8 @@ func Root() string {
 
 	if env := os.Getenv(envKey); env != "" {
 		cachedRoot = abs(env)
+		_ = os.MkdirAll(cachedRoot, 0755) // ensure root exists
+		ensureDefaults()                  // populate baseline resources for custom root
 		return cachedRoot
 	}
 
@@ -51,12 +57,27 @@ func Root() string {
 	}
 
 	cachedRoot = abs(filepath.Join(home, defaultRootDir))
+	_ = os.MkdirAll(cachedRoot, 0755) // ensure root exists
+
+	// lazily create default resources once the root directory is ready
+	ensureDefaults()
 	return cachedRoot
 }
 
 // Path returns a sub-path under the root for the given kind (e.g. "agents").
 func Path(kind string) string {
-	return filepath.Join(Root(), kind)
+	dir := filepath.Join(Root(), kind)
+	_ = os.MkdirAll(dir, 0755) // ensure directory exists
+	return dir
+}
+
+// ensureDefaults writes baseline config/model/agent/workflow files to a fresh
+// workspace when they are missing.
+func ensureDefaults() {
+	initOnce.Do(func() {
+		afsSvc := afs.New()
+		EnsureDefault(afsSvc)
+	})
 }
 
 // abs converts p into an absolute, clean path. If an error occurs it returns p

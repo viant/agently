@@ -1,0 +1,5 @@
+id: o4-mini
+description: OpenAI mini model
+options:
+  provider: openai
+  model: o4-mini
