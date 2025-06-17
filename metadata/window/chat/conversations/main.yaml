@@ -1,0 +1,22 @@
+namespace: ChatConversations
+
+view:
+  content:
+    containers:
+      - id: convTable
+        title: Conversations
+        dataSourceRef: conversations
+        table: $import('table/conversations.yaml')
+      - id: conversationSection
+        chat:
+          dataSourceRef: messages
+          tools: ["search", "code"]
+          on:
+            - event: onSubmit
+              handler: chat.submitMessage
+            - event: onUpload
+              handler: chat.upload
+
+dataSource:
+  conversations: $import('datasource/conversations.yaml')
+  messages: $import('datasource/messages.yaml')

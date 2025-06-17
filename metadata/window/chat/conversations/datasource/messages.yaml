@@ -1,0 +1,16 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/api/conversations/{convID}/messages
+  method: GET
+
+parameters:
+  - name: convID
+    kind: path
+    in: dataSource
+    location: conversations.id
+
+selectors:
+  data: data
+
+uniqueKey:
+  - field: CreatedAt

@@ -1,0 +1,12 @@
+namespace: WorkflowsList
+
+view:
+  content:
+    containers:
+      - id: workflowsTable
+        title: Workflows
+        dataSourceRef: workflows
+        table: $import('table/workflows.yaml')
+
+dataSource:
+  workflows: $import('datasource/workflows.yaml')

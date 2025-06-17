@@ -1,0 +1,5 @@
+columns:
+  - id: name
+    name: Workflow Name
+  - id: description
+    name: Description

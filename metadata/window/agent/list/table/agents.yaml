@@ -1,0 +1,5 @@
+columns:
+  - id: name
+    name: Agent Name
+  - id: description
+    name: Description

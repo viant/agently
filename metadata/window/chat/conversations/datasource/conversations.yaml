@@ -1,0 +1,14 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/api/conversations
+  method: GET
+
+selectors:
+  data: data
+
+# data already objects; no mapping
+
+uniqueKey:
+  - field: id
+
+selectionMode: single

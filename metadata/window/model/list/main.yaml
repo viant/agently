@@ -1,0 +1,12 @@
+namespace: ModelsList
+
+view:
+  content:
+    containers:
+      - id: modelsTable
+        title: Models
+        dataSourceRef: models
+        table: $import('table/models.yaml')
+
+dataSource:
+  models: $import('datasource/models.yaml')

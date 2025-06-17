@@ -1,0 +1,49 @@
+- id: chat
+  label: Chat
+  icon: chat
+  childNodes:
+    - id: conversations
+      label: Conversations
+      icon: chat
+      windowKey: chat/conversations
+      windowTitle: Conversations
+
+- id: agents
+  label: Agents
+  icon: people
+  childNodes:
+    - id: list
+      label: Catalogue
+      icon: list
+      windowKey: agent/list
+      windowTitle: Agent Catalogue
+
+- id: workflows
+  label: Workflows
+  icon: flow-linear
+  childNodes:
+    - id: list
+      label: Catalogue
+      icon: list
+      windowKey: workflow/list
+      windowTitle: Workflow Catalogue
+
+- id: models
+  label: Models
+  icon: predictive-analysis
+  childNodes:
+    - id: list
+      label: Catalogue
+      icon: database
+      windowKey: model/list
+      windowTitle: Models Catalogue
+
+- id: mcp
+  label: MCP
+  icon: cog
+  childNodes:
+    - id: list
+      label: Servers
+      icon: database
+      windowKey: mcp/list
+      windowTitle: MCP Servers

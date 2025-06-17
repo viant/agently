@@ -1,0 +1,12 @@
+namespace: AgentsList
+
+view:
+  content:
+    containers:
+      - id: agentsTable
+        title: Agents
+        dataSourceRef: agents
+        table: $import('table/agents.yaml')
+
+dataSource:
+  agents: $import('datasource/agents.yaml')
