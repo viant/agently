@@ -133,7 +133,15 @@ func Prompt(ctx context.Context, w io.Writer, r io.Reader, p *plan.Elicitation) 
 	// ------------------------------------------------------------------
 	// 3. Final validation against the full schema -----------------------
 	// ------------------------------------------------------------------
-	schemaLoader := gojsonschema.NewStringLoader(p.Schema)
+	// Use the resolved schemaSrc that has been parsed above instead of relying
+	// on p.Schema which might be empty when the caller provided the schema only
+	// via the RequestedSchema fields. This ensures that validation works in
+	// both cases (explicit Schema string, or inline RequestedSchema).
+	//
+	// gojsonschema provides a bytes-based loader so we avoid an unnecessary
+	// string conversion while guaranteeing that the loader always receives the
+	// correct schema document we already parsed successfully.
+	schemaLoader := gojsonschema.NewBytesLoader(schemaSrc)
 	docBytes, _ := json.Marshal(payload)
 	docLoader := gojsonschema.NewBytesLoader(docBytes)
 

@@ -269,6 +269,14 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	}
 
 	qo.Content = ansStr
+	// When orchestration produced a plain JSON elicitation block instead of
+	// using the dedicated output field we still want interactive prompting.
+	if qo.Elicitation == nil {
+		if elic, ok := detectInlineElicitation(qo.Content); ok {
+			qo.Elicitation = elic
+			qo.Content = elic.Message
+		}
+	}
 	qo.DocumentsSize = s.calculateDocumentsSize(docs)
 	s.recordAssistant(ctx, convID, qo.Content)
 
@@ -435,10 +443,64 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 	}
 
 	qo.Content = genOut.Content
+
+	// ------------------------------------------------------------
+	// Check if the LLM response is an inline elicitation payload
+	// (i.e. JSON object with "type":"elicitation"). When detected,
+	// populate qo.Elicitation so that downstream services can invoke
+	// the interactive Awaiter instead of printing raw JSON.
+	// ------------------------------------------------------------
+	if elic, ok := detectInlineElicitation(genOut.Content); ok {
+		qo.Elicitation = elic
+		// Use the human-readable message for the transcript instead of
+		// the raw JSON block.
+		qo.Content = elic.Message
+	}
 	s.recordAssistant(ctx, convID, qo.Content)
 
 	qo.Usage = usage.FromContext(ctx)
 	return nil
+}
+
+// detectInlineElicitation tries to interpret text as a JSON document of the
+// form {"type":"elicitation", ...}. It tolerates Markdown code fences.
+func detectInlineElicitation(text string) (*plan.Elicitation, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" || !strings.Contains(text, "\"type\"") {
+		return nil, false
+	}
+
+	// Remove possible ```json code fences
+	if strings.HasPrefix(text, "```") {
+		if idx := strings.Index(text, "\n"); idx != -1 {
+			text = text[idx+1:]
+		}
+		if end := strings.LastIndex(text, "```"); end != -1 {
+			text = text[:end]
+		}
+		text = strings.TrimSpace(text)
+	}
+
+	if !strings.HasPrefix(text, "{") {
+		return nil, false
+	}
+
+	// Probe for the type field first so we avoid unmarshalling unrelated data
+	var probe struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(text), &probe); err != nil {
+		return nil, false
+	}
+	if strings.ToLower(probe.Type) != "elicitation" {
+		return nil, false
+	}
+
+	var elic plan.Elicitation
+	if err := json.Unmarshal([]byte(text), &elic); err != nil {
+		return nil, false
+	}
+	return &elic, true
 }
 
 // coerceElicitation converts various representations found in workflow output
