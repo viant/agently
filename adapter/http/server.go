@@ -34,7 +34,7 @@ type Server struct {
 // ServerOption customises HTTP server behaviour.
 type ServerOption func(*Server)
 
-// WithTraceStore attaches an in-memory ToolTrace store so that GET
+// WithTraceStore attaches an in-memory ExecutionTrace store so that GET
 // /v1/api/conversations/{id}/tool-trace can return audit information.
 func WithTraceStore(ts *memory.TraceStore) ServerOption {
 	return func(s *Server) { s.traceStore = ts }
@@ -177,12 +177,12 @@ func (s *Server) dispatchConversationSubroutes(w http.ResponseWriter, r *http.Re
 	}
 }
 
-// handleGetToolTrace responds with the full list of ToolTrace entries for the
+// handleGetToolTrace responds with the full list of ExecutionTrace entries for the
 // given conversation ID.
 func (s *Server) handleGetToolTrace(w http.ResponseWriter, r *http.Request, convID string) {
 	if s.traceStore == nil {
 		// Trace store not hooked up – return empty slice for compatibility.
-		encode(w, http.StatusOK, []memory.ToolTrace{}, nil)
+		encode(w, http.StatusOK, []memory.ExecutionTrace{}, nil)
 		return
 	}
 	traces, err := s.traceStore.List(r.Context(), convID)
