@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/viant/agently/service"
+	"gopkg.in/yaml.v3"
 )
 
 // doRequest is a helper that builds an HTTP request, executes it against the
@@ -38,9 +39,12 @@ func TestHandler_CRUD(t *testing.T) {
 	// 1. List on empty workspace – expect []
 	rec := doRequest(handler, http.MethodGet, "/v1/workspace/agents", nil)
 	assert.EqualValues(t, http.StatusOK, rec.Code)
-	var list []string
-	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
-	assert.EqualValues(t, 0, len(list))
+	var respWrapper struct {
+		Status string        `json:"status"`
+		Data   []interface{} `json:"data"`
+	}
+	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respWrapper))
+	assert.EqualValues(t, 0, len(respWrapper.Data))
 
 	// 2. PUT new YAML resource
 	yaml := []byte("name: foo\n")
@@ -50,14 +54,34 @@ func TestHandler_CRUD(t *testing.T) {
 	// 3. GET resource – expect same bytes
 	rec = doRequest(handler, http.MethodGet, "/v1/workspace/models/foo", nil)
 	assert.EqualValues(t, http.StatusOK, rec.Code)
-	assert.EqualValues(t, yaml, rec.Body.Bytes())
+	// Expect wrapper with raw YAML content inside data field.
+	var getResp struct {
+		Status string         `json:"status"`
+		Data   map[string]any `json:"data"`
+	}
+	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	// Re-marshal to YAML to compare.
+	actualYAML, _ := yaml.Marshal(getResp.Data)
+	assert.EqualValues(t, yaml, actualYAML)
 
 	// 4. List now returns ["foo"]
 	rec = doRequest(handler, http.MethodGet, "/v1/workspace/models", nil)
 	assert.EqualValues(t, http.StatusOK, rec.Code)
-	list = nil
-	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
-	assert.EqualValues(t, []string{"foo"}, list)
+	respWrapper = struct {
+		Status string        `json:"status"`
+		Data   []interface{} `json:"data"`
+	}{}
+	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respWrapper))
+	// Extract names from items.
+	var names []string
+	for _, item := range respWrapper.Data {
+		if m, ok := item.(map[string]any); ok {
+			if name, ok := m["name"].(string); ok {
+				names = append(names, name)
+			}
+		}
+	}
+	assert.EqualValues(t, []string{"foo"}, names)
 
 	// 5. DELETE resource
 	rec = doRequest(handler, http.MethodDelete, "/v1/workspace/models/foo", nil)
@@ -66,7 +90,10 @@ func TestHandler_CRUD(t *testing.T) {
 	// 6. List empty again
 	rec = doRequest(handler, http.MethodGet, "/v1/workspace/models", nil)
 	assert.EqualValues(t, http.StatusOK, rec.Code)
-	list = nil
-	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
-	assert.EqualValues(t, 0, len(list))
+	respWrapper = struct {
+		Status string        `json:"status"`
+		Data   []interface{} `json:"data"`
+	}{}
+	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respWrapper))
+	assert.EqualValues(t, 0, len(respWrapper.Data))
 }

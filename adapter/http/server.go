@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/viant/agently/adapter/http/ui"
@@ -21,8 +22,9 @@ import (
 // Server wraps a conversation manager and exposes minimal REST endpoints:
 //
 //	POST /v1/conversations                 -> {"id": "..."}
-//	POST /v1/conversations/{id}/messages   -> user message, returns agent reply
-//	GET  /v1/conversations/{id}/messages   -> full history (not yet implemented)
+//	POST /v1/conversations/{id}/messages         -> accept user message, returns {"id": "..."} (202 Accepted)
+//	GET  /v1/conversations/{id}/messages         -> full history
+//	GET  /v1/conversations/{id}/messages/{msgID} -> single message by ID
 //
 // The server is designed to be simple and lightweight, suitable for quick
 type Server struct {
@@ -121,15 +123,29 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleConversationMessages handles POST /v1/conversations/{id}/messages
-func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Request, convID string) {
-	switch r.Method {
-	case http.MethodPost:
-		s.handlePostMessage(w, r, convID)
-	case http.MethodGet:
-		s.handleGetMessages(w, r, convID)
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
+func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Request, convID string, extraParts []string) {
+	// When extraParts is empty we are dealing with collection operations
+	if len(extraParts) == 0 {
+		switch r.Method {
+		case http.MethodPost:
+			s.handlePostMessage(w, r, convID)
+		case http.MethodGet:
+			s.handleGetMessages(w, r, convID)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+		return
 	}
+
+	// If we have exactly one additional part treat it as message ID for retrieval.
+	if len(extraParts) == 1 && r.Method == http.MethodGet {
+		msgID := extraParts[0]
+		s.handleGetSingleMessage(w, r, convID, msgID)
+		return
+	}
+
+	// Everything else is not supported.
+	w.WriteHeader(http.StatusNotFound)
 }
 
 // handleGetMessages supports GET /v1/api/conversations/{id}/messages to return full history.
@@ -140,6 +156,27 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		return
 	}
 	encode(w, http.StatusOK, msgs, nil)
+}
+
+// handleGetSingleMessage supports GET /v1/api/conversations/{id}/messages/{msgID}
+func (s *Server) handleGetSingleMessage(w http.ResponseWriter, r *http.Request, convID, msgID string) {
+	if msgID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	msgs, err := s.mgr.Messages(r.Context(), convID)
+	if err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+	for _, m := range msgs {
+		if m.ID == msgID {
+			encode(w, http.StatusOK, m, nil)
+			return
+		}
+	}
+	// Not found.
+	w.WriteHeader(http.StatusNotFound)
 }
 
 // dispatchConversationSubroutes routes /v1/api/conversations/{id}/... paths to
@@ -165,7 +202,8 @@ func (s *Server) dispatchConversationSubroutes(w http.ResponseWriter, r *http.Re
 
 	switch parts[1] {
 	case "messages":
-		s.handleConversationMessages(w, r, convID)
+		// Pass remaining parts (after "messages") to specialised handler
+		s.handleConversationMessages(w, r, convID, parts[2:])
 	case "tool-trace":
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -215,26 +253,37 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 		return
 	}
 
+	// Ensure we have a message ID so that the client can poll later.
+	msgID := strings.TrimSpace(req.ID)
+	if msgID == "" {
+		msgID = uuid.NewString()
+	}
+
 	input := &agentpkg.QueryInput{
 		ConversationID: convID,
 		Query:          req.Content,
 		Location:       defaultLocation(req.AgentLocation),
-		MessageID:      req.ID,
+		MessageID:      msgID,
 	}
 
-	// Manager/QueryHandler will persist history; no need to duplicate here
+	// Kick off processing in the background so that we can respond immediately.
+	originalCtx := r.Context()
+	policy := tool.FromContext(originalCtx)
+	go func() {
+		// Detach from request context to avoid immediate cancellation.
+		ctx := context.Background()
+		if policy != nil {
+			ctx = tool.WithPolicy(ctx, policy)
+		}
+		if _, err := s.mgr.Accept(ctx, input); err != nil {
+			log.Printf("async accept error: %v", err)
+		}
+	}()
 
-	ctx := tool.WithPolicy(r.Context(), &tool.Policy{Mode: tool.ModeAuto})
-
-	_, err := s.mgr.Accept(ctx, input)
-	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err)
-		return
-	}
-	// History already updated by downstream services
-	// build updated history slice
-	msgs, _ := s.mgr.Messages(r.Context(), convID)
-	encode(w, http.StatusOK, msgs, nil)
+	// Inform the caller that the message has been accepted and is being processed.
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(apiResponse{Status: "ACCEPTED", Data: map[string]string{"id": msgID}})
 }
 
 // ListenAndServe Simple helper to start the server (blocks).

@@ -50,6 +50,7 @@ type Service struct {
 	agentFinder agent.Finder
 	augmenter   *augmenter.Service
 	history     memory.History
+	traceStore  *memory.TraceStore
 	registry    tool.Registry
 	// Runtime is the shared fluxor workflow runtime for orchestration
 	runtime *fluxor.Runtime
@@ -78,6 +79,7 @@ func New(
 	registry tool.Registry,
 	runtime *fluxor.Runtime,
 	history memory.History,
+	traceStore *memory.TraceStore,
 	opts ...Option,
 ) *Service {
 	srv := &Service{
@@ -85,6 +87,7 @@ func New(
 		agentFinder:      agentFinder,
 		augmenter:        augmenter,
 		history:          history,
+		traceStore:       traceStore,
 		registry:         registry,
 		runtime:          runtime,
 		summaryThreshold: defaultSummaryThreshold,
@@ -92,7 +95,6 @@ func New(
 		workflowTimeout:  defaultWorkflowTimeout,
 		fs:               afs.New(),
 	}
-
 	for _, o := range opts {
 		o(srv)
 	}

@@ -140,7 +140,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	if e.orchestration != nil {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
-	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history)
+	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history, e.traceStore)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
 
@@ -153,7 +153,6 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		return exec(ctx, in, out)
 	}
 	e.convManager = conversation.New(e.history, convHandler)
-	e.traceStore = memory.NewTraceStore()
 	// Actions is modified in-place; no return value needed.
 }
 
