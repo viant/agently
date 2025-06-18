@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	plan "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
@@ -13,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // RunPlanInput defines input for executing a plan of steps.
@@ -74,11 +74,42 @@ outer:
 				Model: input.Model,
 			}
 			callToolOutput := &CallToolOutput{}
+			startAt := time.Now()
 			err := s.CallTool(ctx, callToolInput, callToolOutput)
-			result := plan.Result{Name: step.Name, Args: step.Args, Result: callToolOutput.Result, ID: uuid.New().String()}
+			endAt := time.Now()
+			result := plan.Result{Name: step.Name, Args: step.Args, Result: callToolOutput.Result, ID: step.ID}
 			if err != nil {
 				result.Error = err.Error()
 				// missing param -> elicitation handled below
+			}
+
+			// ------------------------------------------------------------------
+			// Record execution trace (best effort – ignore errors)
+			// ------------------------------------------------------------------
+			if s.traceStore != nil {
+				messageID := ""
+				if messageIDVal := ctx.Value(memory.MessageIDKey); messageIDVal != nil {
+					messageID, _ = messageIDVal.(string)
+				}
+
+				if convVal := ctx.Value(memory.ConversationIDKey); convVal != nil {
+					if convID, ok := convVal.(string); ok && convID != "" {
+						trace := &memory.ExecutionTrace{
+							ParentMsgID: messageID,
+							Name:        step.Name,
+							Request:     step.Args,
+							Success:     err == nil,
+							Result:      callToolOutput.Result,
+							Error:       result.Error,
+							StartedAt:   startAt,
+							EndedAt:     endAt,
+							PlanID:      input.Plan.ID,
+							StepIndex:   i,
+							Step:        &step,
+						}
+						_, _ = s.traceStore.Add(ctx, convID, trace)
+					}
+				}
 			}
 
 			// If missing params error recorded via err, build elicitation
@@ -194,45 +225,6 @@ func resolvePlaceholder(raw string, prior []plan.Result) (interface{}, bool) {
 	return curr, true
 }
 
-// extractShellError inspects the JSON returned by system/executor and returns
-// a short error string when any command reports non-zero status or stderr.
-func extractShellError(raw string) string {
-	var doc struct {
-		Commands []struct {
-			Stderr string `json:"stderr"`
-			Status int    `json:"status"`
-		} `json:"commands"`
-		Stderr string `json:"stderr"`
-		Status int    `json:"status"`
-	}
-	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
-		// Fallback: try to extract "stderr":"..." via regex when the JSON
-		// is not strictly valid (common when shell embeds unescaped newlines)
-		re := regexp.MustCompile(`"stderr"\s*:\s*"([^"]+)"`)
-		if m := re.FindStringSubmatch(raw); len(m) == 2 {
-			return strings.TrimSpace(m[1])
-		}
-		return ""
-	}
-	// Overall status/stderr
-	if doc.Status != 0 || strings.TrimSpace(doc.Stderr) != "" {
-		if strings.TrimSpace(doc.Stderr) != "" {
-			return strings.TrimSpace(doc.Stderr)
-		}
-		return fmt.Sprintf("command exited with status %d", doc.Status)
-	}
-	// Check individual commands (important for pipelines)
-	for _, c := range doc.Commands {
-		if c.Status != 0 || strings.TrimSpace(c.Stderr) != "" {
-			if strings.TrimSpace(c.Stderr) != "" {
-				return strings.TrimSpace(c.Stderr)
-			}
-			return fmt.Sprintf("command exited with status %d", c.Status)
-		}
-	}
-	return ""
-}
-
 // -----------------------------------------------------------------------------
 // Elicitation helpers
 // -----------------------------------------------------------------------------
@@ -252,19 +244,4 @@ func buildSchemaFromProblems(problems []tool.Problem) schema.ElicitRequestParams
 		Properties: props,
 		Required:   required,
 	}
-}
-
-// min returns the smaller positive non-zero value of a and b.
-// If either value is zero or negative, the other is returned unmodified.
-func min(a, b int) int {
-	if a <= 0 {
-		return b
-	}
-	if b <= 0 {
-		return a
-	}
-	if a < b {
-		return a
-	}
-	return b
 }

@@ -1,5 +1,5 @@
 .*/
-tmp/
+ag/
 repo/
 deprecated/
 local_test.go

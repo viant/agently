@@ -28,18 +28,18 @@ import (
 //
 // The server is designed to be simple and lightweight, suitable for quick
 type Server struct {
-	mgr        *conversation.Manager
-	traceStore *memory.TraceStore
-	titles     sync.Map // convID -> title
+	mgr            *conversation.Manager
+	executionStore *memory.ExecutionStore
+	titles         sync.Map // convID -> title
 }
 
 // ServerOption customises HTTP server behaviour.
 type ServerOption func(*Server)
 
-// WithTraceStore attaches an in-memory ExecutionTrace store so that GET
+// WithExecutionStore attaches an in-memory ExecutionTrace store so that GET
 // /v1/api/conversations/{id}/tool-trace can return audit information.
-func WithTraceStore(ts *memory.TraceStore) ServerOption {
-	return func(s *Server) { s.traceStore = ts }
+func WithExecutionStore(ts *memory.ExecutionStore) ServerOption {
+	return func(s *Server) { s.executionStore = ts }
 }
 
 // NewServer returns an http.Handler with routes bound.
@@ -52,11 +52,35 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	}
 	mux := http.NewServeMux()
 
-	// Chat endpoints
-	mux.HandleFunc("/v1/api/conversations", s.handleConversations)            // list or create
-	mux.HandleFunc("/v1/api/conversations/", s.dispatchConversationSubroutes) // id specific
+	// ------------------------------------------------------------------
+	// Chat API (Go 1.22+ pattern based routing)
+	// ------------------------------------------------------------------
 
+	// Conversations collection
+	mux.HandleFunc("POST /v1/api/conversations", s.handleConversations) // create new conversation
+	mux.HandleFunc("GET /v1/api/conversations", s.handleConversations)  // list conversations
+
+	// Conversation messages collection & item
+	mux.HandleFunc("POST /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
+		s.handlePostMessage(w, r, r.PathValue("id"))
+	})
+
+	mux.HandleFunc("GET /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
+		s.handleGetMessages(w, r, r.PathValue("id"))
+	})
+
+	mux.HandleFunc("GET /v1/api/conversations/{id}/messages/{msgId}", func(w http.ResponseWriter, r *http.Request) {
+		s.handleGetSingleMessage(w, r, r.PathValue("id"), r.PathValue("msgId"))
+	})
+
+	// Execution trace
+	mux.HandleFunc("GET /v1/api/conversations/{id}/execution", func(w http.ResponseWriter, r *http.Request) {
+		s.handleGetExecution(w, r, r.PathValue("id"))
+	})
+
+	// ------------------------------------------------------------------
 	// Forge UI metadata endpoints
+	// ------------------------------------------------------------------
 	// Serve UI metadata from embedded YAML definitions.
 	uiRoot := "embed://localhost/"
 	uiHandler := ui.NewEmbeddedHandler(uiRoot, &metadata.FS)
@@ -67,9 +91,22 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 
 // apiResponse is the unified wrapper returned by all Agently HTTP endpoints.
 type apiResponse struct {
-	Status  string      `json:"status"`
-	Message string      `json:"message,omitempty"`
-	Data    interface{} `json:"data,omitempty"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+	Data    any    `json:"data,omitempty"`
+}
+
+// ------------------------------
+// Typed payload structs (avoid map)
+// ------------------------------
+
+type conversationInfo struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+type acceptedMessage struct {
+	ID string `json:"id"`
 }
 
 // encode writes JSON response with the unified structure.
@@ -97,26 +134,26 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		id := uuid.NewString()
 		title := fmt.Sprintf("Conversation %s", time.Now().Format("2006-01-02 15:04:05"))
 		s.titles.Store(id, title)
-		encode(w, http.StatusOK, map[string]string{"id": id, "title": title}, nil)
+		encode(w, http.StatusOK, conversationInfo{ID: id, Title: title}, nil)
 	case http.MethodGet:
 		ids, err := s.mgr.List(r.Context())
 		if err != nil {
 			encode(w, http.StatusInternalServerError, nil, err)
 			return
 		}
-		out := make([]map[string]string, len(ids))
+		conversations := make([]conversationInfo, len(ids))
 		for i, id := range ids {
 			title, _ := s.titles.Load(id)
 			var t string
 			if titleStr, ok := title.(string); ok {
 				t = titleStr
 			}
-			if t == "" {
+			if strings.TrimSpace(t) == "" {
 				t = id
 			}
-			out[i] = map[string]string{"id": id, "title": t}
+			conversations[i] = conversationInfo{ID: id, Title: t}
 		}
-		encode(w, http.StatusOK, out, nil)
+		encode(w, http.StatusOK, conversations, nil)
 	default:
 		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
 	}
@@ -204,26 +241,50 @@ func (s *Server) dispatchConversationSubroutes(w http.ResponseWriter, r *http.Re
 	case "messages":
 		// Pass remaining parts (after "messages") to specialised handler
 		s.handleConversationMessages(w, r, convID, parts[2:])
-	case "tool-trace":
+	case "execution":
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		s.handleGetToolTrace(w, r, convID)
+		s.handleGetExecution(w, r, convID)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
-// handleGetToolTrace responds with the full list of ExecutionTrace entries for the
+// handleGetExecution responds with the full list of ExecutionTrace entries for the
 // given conversation ID.
-func (s *Server) handleGetToolTrace(w http.ResponseWriter, r *http.Request, convID string) {
-	if s.traceStore == nil {
+func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, convID string) {
+	if s.executionStore == nil {
 		// Trace store not hooked up – return empty slice for compatibility.
 		encode(w, http.StatusOK, []memory.ExecutionTrace{}, nil)
 		return
 	}
-	traces, err := s.traceStore.List(r.Context(), convID)
+	// If the client supplied a parentId query parameter, filter the trace list
+	// so that callers can retrieve only the tool invocations associated with
+	// a specific assistant message.
+	query := r.URL.Query()
+
+	if format := query.Get("format"); format == "outcome" {
+		if outcomes, err := s.executionStore.ListOutcome(r.Context(), convID); err == nil {
+			encode(w, http.StatusOK, outcomes, nil)
+			return
+		}
+	}
+
+	if messageID := query.Get("parentId"); messageID != "" {
+		traces, err := s.executionStore.ListByParent(r.Context(), convID, messageID)
+		if err != nil {
+			encode(w, http.StatusInternalServerError, nil, err)
+			return
+		}
+		encode(w, http.StatusOK, traces, nil)
+		return
+		// When conversion fails, fall back to returning full list – the caller
+		// can still filter client-side.
+	}
+
+	traces, err := s.executionStore.List(r.Context(), convID)
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
@@ -234,8 +295,8 @@ func (s *Server) handleGetToolTrace(w http.ResponseWriter, r *http.Request, conv
 type postMessageRequest struct {
 	Content string `json:"content"`
 	// Optionally let client point to agent config location
-	AgentLocation string `json:"agentLocation,omitempty"`
-	ID            string `json:"id,omitempty"`
+	Agent string   `json:"agent,omitempty"`
+	Tools []string `json:"tools,omitempty"`
 }
 
 // defaultLocation returns supplied if not empty otherwise "chat".
@@ -253,16 +314,12 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 		return
 	}
 
-	// Ensure we have a message ID so that the client can poll later.
-	msgID := strings.TrimSpace(req.ID)
-	if msgID == "" {
-		msgID = uuid.NewString()
-	}
+	msgID := uuid.NewString()
 
 	input := &agentpkg.QueryInput{
 		ConversationID: convID,
 		Query:          req.Content,
-		Location:       defaultLocation(req.AgentLocation),
+		Location:       defaultLocation(req.Agent),
 		MessageID:      msgID,
 	}
 
@@ -283,7 +340,7 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 	// Inform the caller that the message has been accepted and is being processed.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(apiResponse{Status: "ACCEPTED", Data: map[string]string{"id": msgID}})
+	_ = json.NewEncoder(w).Encode(apiResponse{Status: "ACCEPTED", Data: acceptedMessage{ID: msgID}})
 }
 
 // ListenAndServe Simple helper to start the server (blocks).

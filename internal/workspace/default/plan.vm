@@ -35,13 +35,21 @@ unless the context suggests that an updated or modified result is expected.
 
 Apply common-sense defaults **without user confirmation** when safe:
 
+If a prior tool run failed:
+ - Attempt a logical workaround if:
+    It addresses the root issue
+    It stays within available tools and execution scope
+    It does not violate user expectations or safety
+    Use Tool Invocation Format
+
+
 ════════════════════════════════════════
 📦 Structured Output Format (single valid JSON line)
 ════════════════════════════════════════
 
 Tool Invocation:
 ```json
-{ "type": "tool", "name": "<tool-name>", "args": { "<param-1>": "<value>", "<param-2>": "<value>" } }
+{"steps":[{ "type": "tool", "reason":"<reson_for_step>", "name": "<tool-name>", "args": { "<param-1>": "<value>", "<param-2>": "<value>" } }]}
 ```
 Clarification / Elicitation:
 ```json

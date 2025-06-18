@@ -17,7 +17,7 @@ func New(exec *execsvc.Service, svc *service.Service) http.Handler {
 	mux := http.NewServeMux()
 
 	// Chat & workspace endpoints (existing)
-	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation()))
+	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation(), chat.WithExecutionStore(exec.ExecutionStore())))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
 
 	return chat.WithCORS(mux)

@@ -153,11 +153,9 @@ func EnsureJSONResponse(ctx context.Context, text string, target interface{}) er
 	case arrayStart != -1 && arrayEnd != -1:
 		text = text[arrayStart : arrayEnd+1]
 	default:
-		return fmt.Errorf("no valid JSON object or array found")
+		//regular response
+		return nil
 	}
-
-	text = strings.TrimSpace(text)
-
 	// Attempt to parse JSON
 	if err := json.Unmarshal([]byte(text), target); err != nil {
 		return fmt.Errorf("failed to unmarshal LLM text into %T: %w\nRaw text: %s", target, err, text)

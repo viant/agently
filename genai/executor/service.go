@@ -37,9 +37,9 @@ type Service struct {
 	agentFinder    agent.Finder
 	tools          tool.Registry
 
-	history    memory.History
-	traceStore *memory.TraceStore
-	llmCore    *core.Service
+	history        memory.History
+	executionStore *memory.ExecutionStore
+	llmCore        *core.Service
 
 	// mcpElicitationAwaiter receives interactive user prompts when the runtime
 	// encounters a schema-based elicitation request. When non-nil it is injected
@@ -130,7 +130,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		e.llmCore.SetLogger(e.llmLogger)
 	}
 
-	actions.Register(exec.New(e.llmCore, e.tools, defaultModel, e.ApprovalService()))
+	actions.Register(exec.New(e.llmCore, e.tools, defaultModel, e.ApprovalService(), e.executionStore))
 	actions.Register(enricher)
 	actions.Register(e.llmCore)
 	// capture actions for streaming and callbacks
@@ -140,7 +140,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	if e.orchestration != nil {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
-	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history, e.traceStore)
+	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history, e.executionStore)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
 
@@ -182,6 +182,11 @@ func (e *Service) ApprovalService() approval.Service {
 // Conversation returns the shared conversation manager initialised by the service.
 func (e *Service) Conversation() *conversation.Manager {
 	return e.convManager
+}
+
+// ExecutionStore returns the shared executoin store
+func (e *Service) ExecutionStore() *memory.ExecutionStore {
+	return e.executionStore
 }
 
 // LLMCore returns the underlying llm/core service instance (mainly for

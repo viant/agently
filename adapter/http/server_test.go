@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,7 +32,14 @@ func TestConversationREST_EndToEnd(t *testing.T) {
 	mgr := conversation.New(store, echoHandler(store))
 
 	// Build HTTP server around the manager.
-	srv := httptest.NewServer(NewServer(mgr))
+	// Use an IPv4-only listener to avoid permission issues on some CI
+	ln, errLn := net.Listen("tcp4", "127.0.0.1:0")
+	if errLn != nil {
+		t.Skipf("cannot obtain network listener in sandbox: %v", errLn)
+	}
+	srv := httptest.NewUnstartedServer(NewServer(mgr))
+	srv.Listener = ln
+	srv.Start()
 	defer srv.Close()
 
 	client := srv.Client()
@@ -42,9 +50,12 @@ func TestConversationREST_EndToEnd(t *testing.T) {
 	defer resp.Body.Close()
 	assert.EqualValues(t, http.StatusOK, resp.StatusCode)
 
-	var createResp map[string]string
-	_ = json.NewDecoder(resp.Body).Decode(&createResp)
-	convID := createResp["id"]
+	var createRespWrapper struct {
+		Status string           `json:"status"`
+		Data   conversationInfo `json:"data"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&createRespWrapper)
+	convID := createRespWrapper.Data.ID
 	assert.NotEmpty(t, convID)
 
 	// 2. Send a chat message (should respond 202 Accepted with generated message ID).
@@ -53,13 +64,13 @@ func TestConversationREST_EndToEnd(t *testing.T) {
 	resp, err = client.Post(srv.URL+"/v1/api/conversations/"+convID+"/messages", "application/json", bytes.NewReader(raw))
 	assert.NoError(t, err)
 	var postResp struct {
-		Status string            `json:"status"`
-		Data   map[string]string `json:"data"`
+		Status string          `json:"status"`
+		Data   acceptedMessage `json:"data"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&postResp)
 	resp.Body.Close()
 	assert.EqualValues(t, http.StatusAccepted, resp.StatusCode)
-	msgID := postResp.Data["id"]
+	msgID := postResp.Data.ID
 	assert.NotEmpty(t, msgID)
 
 	// 3. List conversations → should now contain the ID.
@@ -67,11 +78,17 @@ func TestConversationREST_EndToEnd(t *testing.T) {
 	assert.NoError(t, err)
 	defer resp.Body.Close()
 	assert.EqualValues(t, http.StatusOK, resp.StatusCode)
-	var listResp []map[string]string
-	_ = json.NewDecoder(resp.Body).Decode(&listResp)
+	var listRespWrapper struct {
+		Status string             `json:"status"`
+		Data   []conversationInfo `json:"data"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&listRespWrapper)
 
-	expectedList := []map[string]string{{"id": convID}}
-	assert.EqualValues(t, expectedList, listResp)
+	var ids []string
+	for _, it := range listRespWrapper.Data {
+		ids = append(ids, it.ID)
+	}
+	assert.Contains(t, ids, convID)
 
 	// 4. Fetch messages for conversation (poll until at least 1 message appears).
 	var msgResp []map[string]interface{}

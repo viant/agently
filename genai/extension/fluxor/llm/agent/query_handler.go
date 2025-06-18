@@ -145,13 +145,13 @@ func (s *Service) requiresWorkflow(qi *QueryInput) bool {
 }
 
 // runWorkflow executes the plan-exec-finish orchestration branch.
-func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutput, convID, convCtx string) error {
+func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutput, convID, query string) error {
 	// 1. Retrieve documents for enrichment.
 	//    When the current user query is empty, fall back to previous
 	//    conversation context so that vector search still has a hint.
 	var searchInput = *qi // shallow copy
 	if strings.TrimSpace(searchInput.Query) == "" {
-		searchInput.Query = convCtx
+		searchInput.Query = query
 	}
 
 	docs, err := s.retrieveRelevantDocuments(ctx, &searchInput)
@@ -163,10 +163,10 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	// If agent has no tools AND no documents were found, running the workflow
 	// would only waste tokens – fall back to direct answer.
 	if len(qi.Agent.Tool) == 0 && len(docs) == 0 {
-		return s.directAnswer(ctx, qi, qo, convID, convCtx)
+		return s.directAnswer(ctx, qi, qo, convID, query)
 	}
 
-	enrichment := s.buildEnrichment(convCtx, s.formatDocumentsForEnrichment(docs, qi.IncludeFile))
+	enrichment := s.buildEnrichment(query, s.formatDocumentsForEnrichment(docs, qi.IncludeFile))
 
 	// 2. System prompt from agent template.
 	sysPrompt, err := s.buildSystemPrompt(ctx, qi, enrichment)
@@ -181,8 +181,10 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	if p := tool.FromContext(ctx); p != nil {
 		initial[keyToolPolicy] = p.Mode
 	}
-	// 3. Run workflow
-	_, wait, err := s.runtime.StartProcess(ctx, wf, initial)
+	// 3. Run workflow – carry conversation ID on context so that downstream
+	// services (exec/run_plan) can record execution traces.
+	ctxWithConv := context.WithValue(ctx, memory.ConversationIDKey, convID)
+	_, wait, err := s.runtime.StartProcess(ctxWithConv, wf, initial)
 	if err != nil {
 		return fmt.Errorf("workflow start error: %w", err)
 	}

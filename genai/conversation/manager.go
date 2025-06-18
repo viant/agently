@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/memory"
+	
 )
 
 // QueryHandler is a thin adapter used by the Manager to delegate the actual
@@ -121,6 +122,14 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 
 	var output agentpkg.QueryOutput
 	if err := m.handler(ctx, input, &output); err != nil {
+		// Persist error as a synthetic system message so that callers
+		// polling the history can surface the failure.
+		_ = m.history.AddMessage(ctx, input.ConversationID, memory.Message{
+			ID:        uuid.NewString(),
+			Role:      "system",
+			Content:   "Error: " + err.Error(),
+			CreatedAt: time.Now(),
+		})
 		return nil, err
 	}
 	return &output, nil

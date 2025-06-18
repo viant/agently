@@ -39,9 +39,9 @@ Apply common-sense defaults **without user confirmation** when safe:
 📦 Structured Output Format (single valid JSON line)
 ════════════════════════════════════════
 
-Tool Invocation:
+Tool Invocation Plan:
 ```json
-{ "type": "tool", "name": "<tool-name>", "args": { "<param-1>": "<value>", "<param-2>": "<value>" } }
+{"steps":[{ "type": "tool", "name": "<tool-name>", "args": { "<param-1>": "<value>", "<param-2>": "<value>" } }]}
 ```
 Clarification / Elicitation:
 ```json

@@ -9,6 +9,14 @@ type messageID string
 
 var MessageIDKey = messageID("messageID")
 
+// ConversationIDKey is used to propagate the current conversation identifier
+// via context so that downstream services (e.g. tool-execution tracing) can
+// associate side-effects with the correct conversation without changing every
+// function signature.
+type conversationID string
+
+var ConversationIDKey = conversationID("conversationID")
+
 // Message represents a conversation message for memory storage.
 type Message struct {
 	ID       string  `json:"id"`

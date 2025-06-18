@@ -1,7 +1,10 @@
 package plan
 
+import "github.com/google/uuid"
+
 // Step represents a single atomic action in a Plan.
 type Step struct {
+	ID      string                 `json:"id,omitempty" yaml:"id,omitempty"`
 	Type    string                 `yaml:"type" json:"type"`                         // "tool", "elicitation", "abort" etc.
 	Name    string                 `yaml:"name,omitempty" json:"name,omitempty"`     // Tool/function name (if applicable)
 	Args    map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`     // Tool arguments matching tool schema
@@ -29,4 +32,12 @@ func (s Steps) ToolStepCount() int {
 		}
 	}
 	return count
+}
+
+func (s Steps) EnsureID() {
+	for i, _ := range s {
+		if s[i].ID == "" {
+			s[i].ID = uuid.New().String()
+		}
+	}
 }

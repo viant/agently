@@ -47,8 +47,8 @@ func TestHandler_CRUD(t *testing.T) {
 	assert.EqualValues(t, 0, len(respWrapper.Data))
 
 	// 2. PUT new YAML resource
-	yaml := []byte("name: foo\n")
-	rec = doRequest(handler, http.MethodPut, "/v1/workspace/models/foo", yaml)
+	fileBytes := []byte("name: foo\n")
+	rec = doRequest(handler, http.MethodPut, "/v1/workspace/models/foo", fileBytes)
 	assert.EqualValues(t, http.StatusOK, rec.Code)
 
 	// 3. GET resource – expect same bytes
@@ -62,7 +62,7 @@ func TestHandler_CRUD(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
 	// Re-marshal to YAML to compare.
 	actualYAML, _ := yaml.Marshal(getResp.Data)
-	assert.EqualValues(t, yaml, actualYAML)
+	assert.EqualValues(t, fileBytes, actualYAML)
 
 	// 4. List now returns ["foo"]
 	rec = doRequest(handler, http.MethodGet, "/v1/workspace/models", nil)

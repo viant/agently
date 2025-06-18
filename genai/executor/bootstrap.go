@@ -42,7 +42,7 @@ func (e *Service) init(ctx context.Context) error {
 	// ------------------------------------------------------------------
 	// Step 2: auxiliary stores (history, …)
 	// ------------------------------------------------------------------
-	e.traceStore = memory.NewTraceStore()
+	e.executionStore = memory.NewExecutionStore()
 	if err := e.initHistory(ctx); err != nil {
 		return err
 	}
