@@ -2,7 +2,6 @@ package openai
 
 import (
 	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/genai/llm/optconv"
 )
 
 var modelTemperature = map[string]float64{
@@ -22,8 +21,6 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 			req.Model = request.Options.Model
 		}
 
-		// Copy temperature using generic converter (handles o4-* etc.)
-		req.Temperature = optconv.TemperaturePtr(request.Options)
 		// Set max tokens if provided
 		if request.Options.MaxTokens > 0 {
 			req.MaxTokens = request.Options.MaxTokens
