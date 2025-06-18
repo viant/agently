@@ -7,6 +7,8 @@ import (
 var modelTemperature = map[string]float64{
 	"o4-mini": 1.0,
 	"o1-mini": 1.0,
+	"o3-mini": 1.0,
+	"o3":      1.0,
 }
 
 // ToRequest converts an llm.ChatRequest to a Request
