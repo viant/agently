@@ -96,7 +96,16 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 				}
 
 				if convID == "" {
-					// Could not map request to conversation – skip UI surfacing.
+					// As a fallback pick the latest active conversation so that the
+					// user still receives the approval prompt even if we cannot
+					// attribute it perfectly.
+					if cid, _, err := mgr.History().LatestMessage(ctx); err == nil && cid != "" {
+						convID = cid
+					}
+				}
+
+				if convID == "" {
+					// Ultimately still unknown – drop the prompt.
 					_ = msg.Ack()
 					continue
 				}
@@ -119,7 +128,7 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 						Args:   parseArgs(req.Args),
 						Reason: "",
 					},
-					CallbackURL: "/approval/" + req.ID,
+					CallbackURL: "/v1/api/approval/" + req.ID,
 				}
 
 				if err := mgr.History().AddMessage(ctx, convID, m); err != nil {
