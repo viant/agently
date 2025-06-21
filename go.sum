@@ -1132,12 +1132,8 @@ github.com/viant/embedius v0.0.0-20250503233925-d6900657ff75 h1:X52IDcSuK/Vz/l+p
 github.com/viant/embedius v0.0.0-20250503233925-d6900657ff75/go.mod h1:ASRLUphJUHBswA+ElHx2iympCzc9isY+3os5TXOuEAw=
 github.com/viant/firebase v0.1.1 h1:a4IiehQ2GWoH4qTnUD7JnJ5lTc87nfxX8ClUwBO7AKU=
 github.com/viant/firebase v0.1.1/go.mod h1:Q2DK7L/pdGS5xNQRgMJ9B/x9VhIeXAfXCeh3cKpSIkM=
-github.com/viant/fluxor v0.1.14 h1:5S+DZNwQq1zAN+ZRQ8Vbzxp0oG0325j2sJWIUc7E/E8=
-github.com/viant/fluxor v0.1.14/go.mod h1:GombipUhTKSCPf+xgdrpg/P2GacUqKSq8zPzRkx33FM=
 github.com/viant/fluxor-mcp v0.1.8-0.20250617113512-1fce9a73ea5c h1:dyyxU/V/Ig4qlGWgpaczOFQeQRd/vNi3mtDtCKkWi4c=
 github.com/viant/fluxor-mcp v0.1.8-0.20250617113512-1fce9a73ea5c/go.mod h1:+C02tkB/m3cj1OKSTr2xCbhj+FFmUlo/AkXxR7YhUbA=
-github.com/viant/forge v0.2.6-0.20250617150242-f172ba9a27b2 h1:wJBYsUxrCc3NEDhWcubKCDu9fMZcZMUIZ4XF/S2vP64=
-github.com/viant/forge v0.2.6-0.20250617150242-f172ba9a27b2/go.mod h1:gENWiT3cJeZOtvR8NGVfRNxIg6hVn3DK0jCzvTaO/B8=
 github.com/viant/gds v0.4.5 h1:QEPOdVyFGZCLbCcstjRTzS2vEktxHbN2cm5NZ3Z6yiA=
 github.com/viant/gds v0.4.5/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.1-0.20230405233616-cc90deee60c4 h1:Lz5up/Q1N8A5pchUUIzWufTLmLnQ6OCUgol5XHJLg4E=

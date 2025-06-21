@@ -6,7 +6,7 @@ view:
       - id: convTable
         title: Conversations
         dataSourceRef: conversations
-        table: $import('table/conversations.yaml')
+        table: $import('table/history.yaml')
       - id: conversationSection
         chat:
           dataSourceRef: messages
@@ -18,5 +18,5 @@ view:
               handler: chat.upload
 
 dataSource:
-  conversations: $import('datasource/conversations.yaml')
+  conversations: $import('datasource/history.yaml')
   messages: $import('datasource/messages.yaml')

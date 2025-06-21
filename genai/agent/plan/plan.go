@@ -1,6 +1,9 @@
 package plan
 
-import "github.com/google/uuid"
+import (
+	"encoding/json"
+	"github.com/google/uuid"
+)
 
 // Plan represents an ordered strategy composed of one or more steps.
 type Plan struct {
@@ -11,16 +14,16 @@ type Plan struct {
 }
 
 type Outcome struct {
-	ID    string `yaml:"id,omitempty" json:"id,omitempty"`
-	Steps []*StepOutcome
+	ID    string         `yaml:"id,omitempty" json:"id,omitempty"`
+	Steps []*StepOutcome `yaml:"steps" json:"steps"`
 }
 
 type StepOutcome struct {
 	ID       string                 `yaml:"id,omitempty" json:"id,omitempty"`
 	Tool     string                 `yaml:"tool,omitempty" json:"tool,omitempty"`
 	Reason   string                 `yaml:"reason,omitempty" json:"reason,omitempty"`
-	Request  any                    `yaml:"request,omitempty" json:"request,omitempty"`
-	Response any                    `yaml:"response,omitempty" json:"response,omitempty"`
+	Request  json.RawMessage        `yaml:"request,omitempty" json:"request,omitempty"`
+	Response json.RawMessage        `yaml:"response,omitempty" json:"response,omitempty"`
 	Elicited map[string]interface{} `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
 	// Success mirrors tool call outcome
 	Success   bool   `yaml:"success,omitempty" json:"success,omitempty"`

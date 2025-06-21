@@ -22,6 +22,7 @@ import (
 	"github.com/viant/agently/genai/usage"
 	"github.com/viant/fluxor/model"
 	"github.com/viant/fluxor/model/types"
+	"time"
 )
 
 // --------------- Public entry -------------------------------------------------
@@ -42,6 +43,12 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	// 0. start token usage aggregation
 	ctx, agg := usage.WithAggregator(ctx)
 
+	// 0.b Apply per-call tool policy if ToolsAllowed present
+	if len(qi.ToolsAllowed) > 0 {
+		pol := &tool.Policy{Mode: tool.ModeAuto, AllowList: qi.ToolsAllowed}
+		ctx = tool.WithPolicy(ctx, pol)
+	}
+
 	// 1. Ensure we have an agent instance on the input.
 	if err := s.ensureAgent(ctx, qi, qo); err != nil {
 		return err
@@ -53,7 +60,7 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	messageID, err := s.addMessage(ctx, convID, "user", qi.Query, qi.MessageID)
+	messageID, err := s.addMessage(ctx, convID, "user", qi.Query, qi.MessageID, "")
 	if err != nil {
 		log.Printf("warn: cannot record message: %v", err)
 	}
@@ -89,6 +96,11 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput, qo *QueryOutp
 		return fmt.Errorf("agent is required")
 	}
 	qo.Agent = qi.Agent
+
+	// Apply model override when supplied
+	if qi.ModelOverride != "" {
+		qi.Agent.Model = qi.ModelOverride
+	}
 	return nil
 }
 
@@ -103,16 +115,16 @@ func (s *Service) conversationID(qi *QueryInput) string {
 // idOverride is non-empty it is used as the message ID; otherwise a fresh UUID
 // is generated. The final ID is always returned so that callers can propagate
 // it via context for downstream services.
-func (s *Service) addMessage(ctx context.Context, convID, role, content, idOverride string) (string, error) {
+func (s *Service) addMessage(ctx context.Context, convID, role, content, id string, parentId string) (string, error) {
 	if strings.TrimSpace(content) == "" {
 		return "", nil
 	}
-	id := idOverride
-	if strings.TrimSpace(id) == "" {
+	if id == "" {
 		id = uuid.New().String()
 	}
-	err := s.history.AddMessage(ctx, convID, memory.Message{ID: id, Role: role, Content: content})
-	return id, err
+	msg := memory.Message{ID: id, ParentID: parentId, Role: role, Content: content}
+	err := s.history.AddMessage(ctx, convID, msg)
+	return msg.ID, err
 }
 
 // conversationContext summarises the conversation according to configured
@@ -183,8 +195,8 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	}
 	// 3. Run workflow – carry conversation ID on context so that downstream
 	// services (exec/run_plan) can record execution traces.
-	ctxWithConv := context.WithValue(ctx, memory.ConversationIDKey, convID)
-	_, wait, err := s.runtime.StartProcess(ctxWithConv, wf, initial)
+	ctx = context.WithValue(ctx, memory.ConversationIDKey, convID)
+	_, wait, err := s.runtime.StartProcess(ctx, wf, initial)
 	if err != nil {
 		return fmt.Errorf("workflow start error: %w", err)
 	}
@@ -230,7 +242,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 			qo.Elicitation = elic
 			qo.Content = elic.Message
 			qo.DocumentsSize = s.calculateDocumentsSize(docs)
-			s.recordAssistant(ctx, convID, qo.Content)
+			s.recordAssistantElicitation(ctx, convID, elic)
 			qo.Usage = usage.FromContext(ctx)
 			return nil
 		}
@@ -328,8 +340,31 @@ func (s *Service) buildSystemPrompt(ctx context.Context, qi *QueryInput, enrichm
 // recordAssistant writes the assistant's message into history, ignoring errors.
 
 func (s *Service) recordAssistant(ctx context.Context, convID, content string) {
-	if _, err := s.addMessage(ctx, convID, "assistant", content, ""); err != nil {
+	parentID := memory.MessageIDFromContext(ctx)
+	if _, err := s.addMessage(ctx, convID, "assistant", content, uuid.New().String(), parentID); err != nil {
 		log.Printf("warn: cannot record assistant message: %v", err)
+	}
+}
+
+// recordAssistantElicitation stores an assistant message that carries a
+// structured schema-based elicitation. The message is flagged with the
+// Elicitation field so that REST callers (and consequently the Forge UI)
+// receive the full schema and can render an interactive form.
+func (s *Service) recordAssistantElicitation(ctx context.Context, convID string, elic *plan.Elicitation) {
+	if elic == nil {
+		return
+	}
+	parentID := memory.MessageIDFromContext(ctx)
+	msg := memory.Message{
+		ID:          uuid.New().String(),
+		ParentID:    parentID,
+		Role:        "assistant",
+		Content:     elic.Message,
+		Elicitation: elic,
+		CreatedAt:   time.Now(),
+	}
+	if err := s.history.AddMessage(ctx, convID, msg); err != nil {
+		log.Printf("warn: cannot record elicitation message: %v", err)
 	}
 }
 

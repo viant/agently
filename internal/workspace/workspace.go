@@ -39,13 +39,23 @@ const (
 // The result is cached for the lifetime of the process.
 func Root() string {
 	if cachedRoot != "" {
+		// If a different AGENTLY_ROOT is now set, update the cache so subsequent
+		// calls (e.g. in tests) see the correct location.
+		if env := os.Getenv(envKey); env != "" && abs(env) != cachedRoot {
+			cachedRoot = abs(env)
+			_ = os.MkdirAll(cachedRoot, 0755)
+			return cachedRoot
+		}
 		return cachedRoot
 	}
 
 	if env := os.Getenv(envKey); env != "" {
 		cachedRoot = abs(env)
 		_ = os.MkdirAll(cachedRoot, 0755) // ensure root exists
-		ensureDefaults()                  // populate baseline resources for custom root
+		// Do not auto-populate built-in defaults when a custom workspace root
+		// is explicitly supplied via $AGENTLY_ROOT. This gives callers full
+		// control over the workspace content (e.g. unit tests expecting an
+		// empty repository).
 		return cachedRoot
 	}
 

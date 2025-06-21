@@ -83,14 +83,13 @@ User Query:  ${Query}
 Context: ${Context}
 #end
 
-#if(${Results})
+#if(!$CanUseTools)#if(${Results})
 ════════════════════════════════════════
 📊 Tool Results
 ════════════════════════════════════════
 #foreach($res in $Results)
    - tool: ${res.Name} ($res.Args)#if($res.Result) =>  ${res.Result}#end#if($res.Error)Error: ${res.Error}#end
-#end
-#end
+#end#end#end
 #if(${ResultSummary})${ResultSummary}#end
 
 

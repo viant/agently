@@ -52,7 +52,7 @@ func encode(w http.ResponseWriter, statusCode int, data interface{}, err error) 
 		statusCode = http.StatusOK
 	}
 	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(apiResponse{Status: "OK", Data: data})
+	_ = json.NewEncoder(w).Encode(apiResponse{Status: "ok", Data: data})
 }
 
 // ServeHTTP implements http.Handler.
@@ -141,13 +141,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			encode(w, http.StatusInternalServerError, nil, err)
 			return
 		}
-		encode(w, http.StatusOK, "OK", nil)
+		encode(w, http.StatusOK, "ok", nil)
 	case http.MethodDelete:
 		if err := repo.Delete(ctx, name); err != nil {
 			encode(w, http.StatusInternalServerError, nil, err)
 			return
 		}
-		encode(w, http.StatusOK, "OK", nil)
+		encode(w, http.StatusOK, "ok", nil)
 	default:
 		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
 	}

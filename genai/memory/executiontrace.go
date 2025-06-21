@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -23,13 +24,13 @@ type ExecutionTrace struct {
 	Name string `json:"name" yaml:"name"`
 
 	// Marshalled JSON argument object supplied to the tool.
-	Request any `json:"request" yaml:"request"`
+	Request json.RawMessage `json:"request" yaml:"request"`
 
 	// Whether the call succeeded.
 	Success bool `json:"success" yaml:"success"`
 
 	// Result (when Success==true) or nil.
-	Result any `json:"result,omitempty" yaml:"result,omitempty"`
+	Result json.RawMessage `json:"result,omitempty" yaml:"result,omitempty"`
 
 	// Error message when Success==false.
 	Error string `json:"error,omitempty" yaml:"error,omitempty"`
@@ -55,16 +56,34 @@ type ExecutionStore struct {
 	data map[string][]*ExecutionTrace
 }
 
-// ListOutcome groups traces by PlanID and converts them into plan.Outcome
-// structures that are easier to consume by UI clients. When format==outcome on
-// the REST layer it calls this helper.
-// The returned slice is sorted by the order the first trace of each plan was
-// recorded (i.e. chronological plan execution order).
-func (t *ExecutionStore) ListOutcome(ctx context.Context, convID string) ([]*plan.Outcome, error) {
-	t.mux.RLock()
-	defer t.mux.RUnlock()
+// Update applies an in-place mutation to a previously stored trace identified
+// by conversation ID and trace ID. A no-op when the trace cannot be found.
+func (t *ExecutionStore) Update(ctx context.Context, convID string, traceID int, fn func(*ExecutionTrace)) error {
+	if fn == nil {
+		return nil
+	}
+	t.mux.Lock()
+	defer t.mux.Unlock()
+	list := t.data[convID]
+	idx := traceID - 1
+	if idx < 0 || idx >= len(list) {
+		return nil
+	}
+	if list[idx] == nil {
+		return nil
+	}
+	fn(list[idx])
+	return nil
+}
 
-	traces := t.data[convID]
+// ListOutcome groups traces by PlanID and converts them into plan.Outcome
+func (t *ExecutionStore) ListOutcome(ctx context.Context, convID string, parentID string) ([]*plan.Outcome, error) {
+	var traces []*ExecutionTrace
+	if parentID != "" {
+		traces, _ = t.ListByParent(ctx, convID, parentID)
+	} else {
+		traces, _ = t.List(ctx, convID)
+	}
 	if len(traces) == 0 {
 		return []*plan.Outcome{}, nil
 	}
@@ -102,10 +121,12 @@ func (t *ExecutionStore) ListOutcome(ctx context.Context, convID string) ([]*pla
 			Success:   tr.Success,
 			Error:     tr.Error,
 			StartedAt: tr.StartedAt.Format(time.RFC3339),
-			EndedAt:   tr.EndedAt.Format(time.RFC3339),
-			Elapsed:   tr.EndedAt.Sub(tr.StartedAt).String(),
 		}
 
+		if !tr.EndedAt.IsZero() {
+			stepOutcome.EndedAt = tr.EndedAt.Format(time.RFC3339)
+			stepOutcome.Elapsed = tr.EndedAt.Sub(tr.StartedAt).String()
+		}
 		// Elicitation if any
 		if tr.Elicitation != nil {
 			stepOutcome.Elicited = map[string]interface{}{"message": tr.Elicitation.Message}

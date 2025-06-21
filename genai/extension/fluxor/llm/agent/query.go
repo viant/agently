@@ -22,6 +22,10 @@ type QueryInput struct {
 	MaxDocuments    int          `json:"maxDocuments"`    // Maximum number of documents to retrieve
 	IncludeFile     bool         `json:"includeFile"`     // Whether to include complete file content
 	EmbeddingModel  string       `json:"embeddingModel"`  // Find to use for embeddings
+
+	// Optional runtime overrides (single-turn)
+	ModelOverride string   `json:"model,omitempty"` // llm model name
+	ToolsAllowed  []string `json:"tools,omitempty"` // allow-list for tools (empty = default)
 }
 
 // QueryOutput represents the result of an agent knowledge query

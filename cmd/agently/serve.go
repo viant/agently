@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/viant/agently/adapter/http/router"
+	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/service"
 )
 
@@ -26,6 +27,10 @@ func (s *ServeCmd) Execute(_ []string) error {
 	}
 
 	svc := service.New(exec, service.Options{})
+
+	// Ensure server never requests stdin approval for tool parameters.
+	ctxBase := context.Background()
+	ctxBase = tool.WithPolicy(ctxBase, &tool.Policy{Mode: tool.ModeAuto})
 
 	handler := router.New(exec, svc)
 

@@ -2,11 +2,16 @@
   label: Chat
   icon: chat
   childNodes:
-    - id: conversations
-      label: Conversations
+    - id: new
+      label: Chat
       icon: chat
-      windowKey: chat/conversations
-      windowTitle: Conversations
+      windowKey: chat/new
+      windowTitle: Chat
+    - id: history
+      label: History
+      icon: history
+      windowKey: chat/history
+      windowTitle: History
 
 - id: agents
   label: Agents

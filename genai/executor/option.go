@@ -21,11 +21,21 @@ type Option func(config *Service)
 // sessions can synchronously obtain the required payload.
 //
 // The last non-nil value wins when the option is applied multiple times.
+// WithElicitationAwaiter registers (or overrides) the Awaiter that will be used
+// to resolve schema-based elicitation requests originating from the runtime.
+//
+// Passing a non-nil Awaiter enables interactive (or otherwise custom)
+// behaviour.  Passing nil explicitly disables any previously registered
+// Awaiter – this is useful for headless deployments such as the embedded HTTP
+// server where blocking on stdin must be avoided.
+//
+// The *last* call wins, therefore a later invocation can override an earlier
+// one (including the implicit registration performed by the CLI helpers).
 func WithElicitationAwaiter(a elicitation.Awaiter) Option {
 	return func(s *Service) {
-		if a != nil {
-			s.mcpElicitationAwaiter = a
-		}
+		// Allow nil to reset an earlier registration so that callers like the
+		// HTTP server can ensure the executor never blocks on stdin.
+		s.mcpElicitationAwaiter = a
 	}
 }
 

@@ -5,4 +5,4 @@ columns:
   - id: title
     name: Title
 
-toolbar: $import('toolbar/conversations.yaml')
+toolbar: $import('toolbar/history.yaml')

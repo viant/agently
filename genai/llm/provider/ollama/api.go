@@ -11,6 +11,10 @@ import (
 	"net/http"
 )
 
+func (c *Client) Implements(feature string) bool {
+	return false
+}
+
 // Generate sends a chat request to the Ollama API and returns the response
 func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
 	if c.Model == "" {

@@ -152,7 +152,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		}
 		return exec(ctx, in, out)
 	}
-	e.convManager = conversation.New(e.history, convHandler)
+	e.convManager = conversation.New(e.history, e.executionStore, convHandler)
 	// Actions is modified in-place; no return value needed.
 }
 

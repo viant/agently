@@ -29,7 +29,7 @@ func echoHandler(store *memory.HistoryStore) conversation.QueryHandler {
 
 func TestConversationREST_EndToEnd(t *testing.T) {
 	store := memory.NewHistoryStore()
-	mgr := conversation.New(store, echoHandler(store))
+	mgr := conversation.New(store, nil, echoHandler(store))
 
 	// Build HTTP server around the manager.
 	// Use an IPv4-only listener to avoid permission issues on some CI

@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // HistoryStore manages conversation messages by conversation ID.
@@ -16,6 +17,11 @@ type History interface {
 	AddMessage(ctx context.Context, convID string, msg Message) error
 	GetMessages(ctx context.Context, convID string) ([]Message, error)
 	Retrieve(ctx context.Context, convID string, policy Policy) ([]Message, error)
+
+	// UpdateMessage finds message by id within convID and applies mutator.
+	UpdateMessage(ctx context.Context, convID string, id string, mutate func(*Message)) error
+
+	LatestMessage(ctx context.Context) (convID string, msg *Message, err error)
 }
 
 // NewHistoryStore creates a new in-memory history store.
@@ -29,6 +35,9 @@ func NewHistoryStore() *HistoryStore {
 func (h *HistoryStore) AddMessage(ctx context.Context, convID string, msg Message) error {
 	h.mux.Lock()
 	defer h.mux.Unlock()
+	if msg.CreatedAt.IsZero() {
+		msg.CreatedAt = time.Now()
+	}
 	h.data[convID] = append(h.data[convID], msg)
 	return nil
 }
@@ -74,4 +83,50 @@ func (h *HistoryStore) Delete(ctx context.Context, convID string) error {
 	defer h.mux.Unlock()
 	delete(h.data, convID)
 	return nil
+}
+
+// UpdateMessage applies a mutator function to the message with the given ID
+// inside the specified conversation. If the message is not found the call is
+// a no-op and returns nil so that callers do not have to care about races
+// between polling and updates.
+func (h *HistoryStore) UpdateMessage(ctx context.Context, convID string, id string, mutate func(*Message)) error {
+	if mutate == nil {
+		return nil
+	}
+	h.mux.Lock()
+	defer h.mux.Unlock()
+	msgs := h.data[convID]
+	for i := range msgs {
+		if msgs[i].ID == id {
+			mutate(&msgs[i])
+			break
+		}
+	}
+	return nil
+}
+
+// LatestToolMessage scans all conversations and returns the latest tool
+// message encountered. For the simple in-memory store we assume messages are
+// appended in chronological order, therefore the last conversation inspected
+// with a matching message provides the overall latest. While not perfectly
+// accurate in concurrent scenarios it is good enough for local/CLI usage.
+func (h *HistoryStore) LatestMessage(ctx context.Context) (string, *Message, error) {
+	h.mux.RLock()
+	defer h.mux.RUnlock()
+
+	var latestConv string
+	var latestMsg *Message
+	var latestTime time.Time
+	for convID, msgs := range h.data {
+		for i := len(msgs) - 1; i >= 0; i-- {
+			m := msgs[i]
+			if latestMsg == nil || msgs[i].CreatedAt.After(latestTime) {
+				latestConv = convID
+				tmp := m
+				latestMsg = &tmp
+				latestTime = m.CreatedAt
+			}
+		}
+	}
+	return latestConv, latestMsg, nil
 }

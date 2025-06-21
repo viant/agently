@@ -33,8 +33,8 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 			req.TopP = request.Options.TopP
 		}
 
-		// Set top_p if provided
-		if req.Temperature == nil {
+		// Set temperature only when explicitly specified (>0)
+		if request.Options.Temperature > 0 {
 			req.Temperature = &request.Options.Temperature
 		}
 

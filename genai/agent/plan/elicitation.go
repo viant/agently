@@ -23,11 +23,6 @@ import (
 // reconstruct it from the sub-fields.
 type Elicitation struct {
 	mcpproto.ElicitRequestParams `json:",inline"`
-
-	// Schema is a complete JSON Schema (draft-07) document that the user must
-	// satisfy.  When empty, the caller should fall back to RequestedSchema
-	// from the embedded type.
-	Schema string `json:"schema,omitempty"`
 }
 
 // IsEmpty reports whether the elicitation is effectively empty (i.e. there is
@@ -37,9 +32,7 @@ func (e *Elicitation) IsEmpty() bool {
 	if e == nil {
 		return true
 	}
-	if strings.TrimSpace(e.Schema) != "" {
-		return false
-	}
+
 	if strings.TrimSpace(e.Message) != "" {
 		return false
 	}

@@ -1,7 +1,9 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/api/conversations
+  uri: /v1/api/conversations/{id}
   method: GET
+  post:
+    uri: /v1/api/conversations
 
 selectors:
   data: data
@@ -11,4 +13,9 @@ selectors:
 uniqueKey:
   - field: id
 
-selectionMode: single
+parameters:
+  - name: id
+    kind: path
+    in: dataSource
+    location: conversations
+

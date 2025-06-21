@@ -4,19 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/adapter/http/ui"
-	"github.com/viant/agently/genai/conversation"
-	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
-	"github.com/viant/agently/metadata"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/viant/agently/adapter/http/ui"
+	mcpclient "github.com/viant/agently/adapter/mcp"
+	"github.com/viant/agently/genai/conversation"
+	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
+	"github.com/viant/agently/metadata"
+	"github.com/viant/mcp-protocol/schema"
+
+	"github.com/google/uuid"
 )
 
 // Server wraps a conversation manager and exposes minimal REST endpoints:
@@ -57,8 +60,9 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	// ------------------------------------------------------------------
 
 	// Conversations collection
-	mux.HandleFunc("POST /v1/api/conversations", s.handleConversations) // create new conversation
-	mux.HandleFunc("GET /v1/api/conversations", s.handleConversations)  // list conversations
+	mux.HandleFunc("POST /v1/api/conversations", s.handleConversations)     // create new conversation
+	mux.HandleFunc("GET /v1/api/conversations", s.handleConversations)      // list conversations
+	mux.HandleFunc("GET /v1/api/conversations/{id}", s.handleConversations) // list conversations
 
 	// Conversation messages collection & item
 	mux.HandleFunc("POST /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +77,7 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.handleGetSingleMessage(w, r, r.PathValue("id"), r.PathValue("msgId"))
 	})
 
-	// Execution trace
+	// Executions trace
 	mux.HandleFunc("GET /v1/api/conversations/{id}/execution", func(w http.ResponseWriter, r *http.Request) {
 		s.handleGetExecution(w, r, r.PathValue("id"))
 	})
@@ -85,6 +89,16 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	uiRoot := "embed://localhost/"
 	uiHandler := ui.NewEmbeddedHandler(uiRoot, &metadata.FS)
 	mux.Handle("/v1/api/agently/forge/", http.StripPrefix("/v1/api/agently/forge", uiHandler))
+
+	// Elicitation callback (MCP interactive)
+	mux.HandleFunc("POST /v1/api/elicitation/{msgId}", func(w http.ResponseWriter, r *http.Request) {
+		s.handleElicitationCallback(w, r, r.PathValue("msgId"))
+	})
+
+	// User interaction callback
+	mux.HandleFunc("POST /v1/api/interaction/{msgId}", func(w http.ResponseWriter, r *http.Request) {
+		s.handleInteractionCallback(w, r, r.PathValue("msgId"))
+	})
 
 	return WithCORS(mux)
 }
@@ -124,7 +138,12 @@ func encode(w http.ResponseWriter, statusCode int, data interface{}, err error) 
 		statusCode = http.StatusOK
 	}
 	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(apiResponse{Status: "OK", Data: data})
+	status := "ok"
+	if statusCode == http.StatusProcessing {
+		status = "processing"
+	}
+
+	_ = json.NewEncoder(w).Encode(apiResponse{Status: status, Data: data})
 }
 
 // handleConversations supports POST to create new conversation id.
@@ -136,10 +155,18 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		s.titles.Store(id, title)
 		encode(w, http.StatusOK, conversationInfo{ID: id, Title: title}, nil)
 	case http.MethodGet:
-		ids, err := s.mgr.List(r.Context())
-		if err != nil {
-			encode(w, http.StatusInternalServerError, nil, err)
-			return
+		id := r.PathValue("id")
+		var err error
+		var ids []string
+		if id != "" {
+			ids = append(ids, id)
+		}
+		if len(ids) == 0 {
+			ids, err = s.mgr.List(r.Context())
+			if err != nil {
+				encode(w, http.StatusInternalServerError, nil, err)
+				return
+			}
 		}
 		conversations := make([]conversationInfo, len(ids))
 		for i, id := range ids {
@@ -187,12 +214,27 @@ func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Reque
 
 // handleGetMessages supports GET /v1/api/conversations/{id}/messages to return full history.
 func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convID string) {
-	msgs, err := s.mgr.Messages(r.Context(), convID)
+	parentId := r.URL.Query().Get("parentId")
+	msgs, err := s.mgr.Messages(r.Context(), convID, parentId)
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
-	encode(w, http.StatusOK, msgs, nil)
+	if len(msgs) == 0 {
+		encode(w, http.StatusProcessing, msgs, nil)
+		return
+	}
+
+	// Filter out resolved MCP elicitation messages (status != "open")
+	var filtered []memory.Message
+	for _, m := range msgs {
+		if m.Role == "mcpelicitation" && m.Status != "" && m.Status != "open" {
+			continue
+		}
+		filtered = append(filtered, m)
+	}
+
+	encode(w, http.StatusOK, filtered, nil)
 }
 
 // handleGetSingleMessage supports GET /v1/api/conversations/{id}/messages/{msgID}
@@ -201,17 +243,19 @@ func (s *Server) handleGetSingleMessage(w http.ResponseWriter, r *http.Request, 
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	msgs, err := s.mgr.Messages(r.Context(), convID)
+	msgs, err := s.mgr.Messages(r.Context(), convID, "")
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
+
 	for _, m := range msgs {
 		if m.ID == msgID {
 			encode(w, http.StatusOK, m, nil)
 			return
 		}
 	}
+
 	// Not found.
 	w.WriteHeader(http.StatusNotFound)
 }
@@ -264,16 +308,15 @@ func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, conv
 	// so that callers can retrieve only the tool invocations associated with
 	// a specific assistant message.
 	query := r.URL.Query()
-
+	parentID := query.Get("parentId")
 	if format := query.Get("format"); format == "outcome" {
-		if outcomes, err := s.executionStore.ListOutcome(r.Context(), convID); err == nil {
+		if outcomes, err := s.executionStore.ListOutcome(r.Context(), convID, parentID); err == nil {
 			encode(w, http.StatusOK, outcomes, nil)
 			return
 		}
 	}
-
-	if messageID := query.Get("parentId"); messageID != "" {
-		traces, err := s.executionStore.ListByParent(r.Context(), convID, messageID)
+	if parentID != "" {
+		traces, err := s.executionStore.ListByParent(r.Context(), convID, parentID)
 		if err != nil {
 			encode(w, http.StatusInternalServerError, nil, err)
 			return
@@ -292,11 +335,148 @@ func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, conv
 	encode(w, http.StatusOK, traces, nil)
 }
 
+// handleElicitationCallback processes POST /v1/api/elicitation/{msgID} to
+// accept or decline MCP elicitation prompts.
+func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Request, msgID string) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Action  string                 `json:"action"` // "accept" | "decline" | "cancel"
+		Payload map[string]interface{} `json:"payload,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		encode(w, http.StatusBadRequest, nil, err)
+		return
+	}
+
+	if req.Action == "" {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"))
+		return
+	}
+
+	// Find the conversation containing this message.
+	ids, err := s.mgr.List(r.Context())
+	if err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+
+	var convID string
+	var found bool
+	for _, id := range ids {
+		msgs, _ := s.mgr.Messages(r.Context(), id, "")
+		for _, m := range msgs {
+			if m.ID == msgID {
+				convID = id
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+
+	if !found {
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("elicitation message not found"))
+		return
+	}
+
+	// Update message status.
+	status := "declined"
+	if req.Action == "accept" {
+		status = "done"
+	}
+
+	_ = s.mgr.History().UpdateMessage(r.Context(), convID, msgID, func(m *memory.Message) {
+		m.Status = status
+	})
+
+	if ch, ok := mcpclient.Waiter(msgID); ok {
+		result := &schema.ElicitResult{ // import schema
+			Action:  schema.ElicitResultAction(req.Action),
+			Content: req.Payload,
+		}
+		ch <- result
+	}
+
+	// TODO: bridge to MCP awaiter if present (not implemented here)
+
+	encode(w, http.StatusNoContent, nil, nil)
+}
+
+// handleInteractionCallback processes POST /v1/api/interaction/{msgID} to
+// accept or decline MCP user-interaction prompts.
+func (s *Server) handleInteractionCallback(w http.ResponseWriter, r *http.Request, msgID string) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Action string `json:"action"` // accept | decline | cancel
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		encode(w, http.StatusBadRequest, nil, err)
+		return
+	}
+	if req.Action == "" {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"))
+		return
+	}
+
+	// Find conversation containing this message
+	ids, err := s.mgr.List(r.Context())
+	if err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+
+	var convID string
+	var found bool
+	for _, id := range ids {
+		msgs, _ := s.mgr.Messages(r.Context(), id, "")
+		for _, m := range msgs {
+			if m.ID == msgID {
+				convID = id
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+
+	if !found {
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("interaction message not found"))
+		return
+	}
+
+	status := "declined"
+	if req.Action == "accept" {
+		status = "done"
+	}
+
+	_ = s.mgr.History().UpdateMessage(r.Context(), convID, msgID, func(m *memory.Message) {
+		m.Status = status
+	})
+
+	if ch, ok := mcpclient.WaiterInteraction(msgID); ok {
+		ch <- &schema.CreateUserInteractionResult{}
+	}
+
+	encode(w, http.StatusNoContent, nil, nil)
+}
+
 type postMessageRequest struct {
-	Content string `json:"content"`
-	// Optionally let client point to agent config location
-	Agent string   `json:"agent,omitempty"`
-	Tools []string `json:"tools,omitempty"`
+	Content string   `json:"content"`
+	Agent   string   `json:"agent,omitempty"`
+	Model   string   `json:"model,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
 }
 
 // defaultLocation returns supplied if not empty otherwise "chat".
@@ -314,13 +494,13 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 		return
 	}
 
-	msgID := uuid.NewString()
-
 	input := &agentpkg.QueryInput{
 		ConversationID: convID,
 		Query:          req.Content,
 		Location:       defaultLocation(req.Agent),
-		MessageID:      msgID,
+		ModelOverride:  req.Model,
+		ToolsAllowed:   req.Tools,
+		MessageID:      uuid.New().String(),
 	}
 
 	// Kick off processing in the background so that we can respond immediately.
@@ -329,6 +509,13 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 	go func() {
 		// Detach from request context to avoid immediate cancellation.
 		ctx := context.Background()
+		// Carry conversation ID so downstream services (MCP client) can
+		// persist interactive prompts even before the workflow explicitly
+		// sets it again.
+		ctx = context.WithValue(ctx, memory.ConversationIDKey, convID)
+
+		// Always auto mode for API requests; no CLI prompts.
+		ctx = tool.WithPolicy(ctx, &tool.Policy{Mode: tool.ModeAuto})
 		if policy != nil {
 			ctx = tool.WithPolicy(ctx, policy)
 		}
@@ -340,7 +527,7 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 	// Inform the caller that the message has been accepted and is being processed.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(apiResponse{Status: "ACCEPTED", Data: acceptedMessage{ID: msgID}})
+	_ = json.NewEncoder(w).Encode(apiResponse{Status: "ACCEPTED", Data: acceptedMessage{ID: input.MessageID}})
 }
 
 // ListenAndServe Simple helper to start the server (blocks).

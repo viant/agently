@@ -20,6 +20,10 @@ type Finder struct {
 	mux            sync.RWMutex
 }
 
+func (d *Finder) Best(p *llm.ModelPreferences) string {
+	return d.Matcher().Best(p)
+}
+
 func (d *Finder) Find(ctx context.Context, id string) (llm.Model, error) {
 	d.mux.RLock()
 	ret, ok := d.models[id]

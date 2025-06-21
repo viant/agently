@@ -50,6 +50,30 @@ func (s *Service) RunPlan(ctx context.Context, input *RunPlanInput, output *RunP
 	planSteps := input.Plan.Steps
 	totalSteps := 0
 
+	// ------------------------------------------------------------------
+	var stepTraceIDs []int
+	conversationID := memory.ConversationIDFromContext(ctx)
+	messageID := memory.MessageIDFromContext(ctx)
+	if s.traceStore != nil && conversationID != "" {
+		stepTraceIDs = make([]int, len(planSteps))
+
+		for i, st := range planSteps {
+			req, _ := json.Marshal(st.Args)
+
+			skel := &memory.ExecutionTrace{
+				Name:        st.Name,
+				Request:     req,
+				ParentMsgID: messageID,
+				Success:     false,
+				PlanID:      input.Plan.ID,
+				StepIndex:   i,
+				Step:        &planSteps[i],
+			}
+			tid, _ := s.traceStore.Add(ctx, conversationID, skel)
+			stepTraceIDs[i] = tid
+		}
+	}
+
 	// If planner indicated non-empty elicitation at plan level, propagate immediately.
 	if e := input.Plan.Elicitation; e != nil && len(input.Plan.Steps) == 0 && !e.IsEmpty() {
 		output.Elicitation = e
@@ -75,6 +99,18 @@ outer:
 			}
 			callToolOutput := &CallToolOutput{}
 			startAt := time.Now()
+
+			// use pre-populated trace id
+			traceID := 0
+			if len(stepTraceIDs) > i {
+				traceID = stepTraceIDs[i]
+			}
+			if s.traceStore != nil && conversationID != "" && traceID > 0 {
+				_ = s.traceStore.Update(ctx, conversationID, traceID, func(et *memory.ExecutionTrace) {
+					et.StartedAt = startAt
+				})
+			}
+
 			err := s.CallTool(ctx, callToolInput, callToolOutput)
 			endAt := time.Now()
 			result := plan.Result{Name: step.Name, Args: step.Args, Result: callToolOutput.Result, ID: step.ID}
@@ -86,30 +122,23 @@ outer:
 			// ------------------------------------------------------------------
 			// Record execution trace (best effort – ignore errors)
 			// ------------------------------------------------------------------
-			if s.traceStore != nil {
-				messageID := ""
-				if messageIDVal := ctx.Value(memory.MessageIDKey); messageIDVal != nil {
-					messageID, _ = messageIDVal.(string)
-				}
+			if s.traceStore != nil && conversationID != "" && traceID > 0 {
+				var resp []byte
 
-				if convVal := ctx.Value(memory.ConversationIDKey); convVal != nil {
-					if convID, ok := convVal.(string); ok && convID != "" {
-						trace := &memory.ExecutionTrace{
-							ParentMsgID: messageID,
-							Name:        step.Name,
-							Request:     step.Args,
-							Success:     err == nil,
-							Result:      callToolOutput.Result,
-							Error:       result.Error,
-							StartedAt:   startAt,
-							EndedAt:     endAt,
-							PlanID:      input.Plan.ID,
-							StepIndex:   i,
-							Step:        &step,
-						}
-						_, _ = s.traceStore.Add(ctx, convID, trace)
+				if strings.HasPrefix(result.Result, "{") || strings.HasPrefix(result.Result, "[") && json.Valid([]byte(result.Result)) {
+					resp = []byte(result.Result)
+				} else {
+					if data, err := json.Marshal(result.Result); err == nil {
+						resp = data
 					}
 				}
+
+				_ = s.traceStore.Update(ctx, conversationID, traceID, func(et *memory.ExecutionTrace) {
+					et.Success = err == nil
+					et.Result = resp
+					et.Error = result.Error
+					et.EndedAt = endAt
+				})
 			}
 
 			// If missing params error recorded via err, build elicitation

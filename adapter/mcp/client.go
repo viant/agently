@@ -6,15 +6,59 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
+	"sync"
+
+	"github.com/google/uuid"
 	elicitationSchema "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
+
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
 )
+
+type ctxKey string
+
+const historyKey ctxKey = "historyStore"
+
+func historyFromContext(ctx context.Context) memory.History {
+	if v := ctx.Value(historyKey); v != nil {
+		if h, ok := v.(memory.History); ok {
+			return h
+		}
+	}
+	return nil
+}
+
+var waiterRegistry sync.Map // msgID -> chan *schema.ElicitResult
+
+var interactionWaiterRegistry sync.Map // msgID -> chan *schema.CreateUserInteractionResult
+
+// Waiter returns the registered channel for a given message ID, if present.
+// It is used by the HTTP callback handler to deliver the user's response and
+// unblock the goroutine waiting inside Client.Elicit.
+func Waiter(id string) (chan *schema.ElicitResult, bool) {
+	v, ok := waiterRegistry.Load(id)
+	if !ok {
+		return nil, false
+	}
+	return v.(chan *schema.ElicitResult), true
+}
+
+// WaiterInteraction returns registered channel for a user-interaction message
+// (if any) so that HTTP callback can deliver user decisions back to the MCP
+// client.
+func WaiterInteraction(id string) (chan *schema.CreateUserInteractionResult, bool) {
+	v, ok := interactionWaiterRegistry.Load(id)
+	if !ok {
+		return nil, false
+	}
+	return v.(chan *schema.CreateUserInteractionResult), true
+}
 
 // Client adapts MCP operations to local execution.
 type Client struct {
@@ -23,6 +67,10 @@ type Client struct {
 	implements map[string]bool
 	awaiter    elicitation.Awaiter
 	llmCore    *core.Service
+
+	history memory.History // optional fallback when ctx lacks history
+
+	// waiter registries are shared for elicitation and interaction
 }
 
 func (c *Client) Init(ctx context.Context, capabilities *schema.ClientCapabilities) {
@@ -64,41 +112,66 @@ func (c *Client) ListRoots(ctx context.Context, p *jsonrpc.TypedRequest[*schema.
 
 func (c *Client) CreateUserInteraction(ctx context.Context, request *jsonrpc.TypedRequest[*schema.CreateUserInteractionRequest]) (*schema.CreateUserInteractionResult, *jsonrpc.Error) {
 	if request == nil || request.Request == nil || request.Request.Params.Interaction.Url == "" {
-		return nil, jsonrpc.NewInvalidParamsError("uri is required", nil)
+		return nil, jsonrpc.NewInvalidParamsError("url is required", nil)
 	}
+
 	p := request.Request.Params
-	_ = c.openURLFn(p.Interaction.Url) // ignore error – non-critical
-	return &schema.CreateUserInteractionResult{}, nil
+
+	// Determine history presence to decide CLI vs Web flow
+	var hist memory.History
+	if h := historyFromContext(ctx); h != nil {
+		hist = h
+	} else if c.history != nil {
+		hist = c.history
+	}
+
+	// CLI (no history) – open URL immediately and accept
+	if hist == nil {
+		if c.openURLFn != nil {
+			_ = c.openURLFn(p.Interaction.Url)
+		}
+		return &schema.CreateUserInteractionResult{}, nil
+	}
+
+	// Web flow ------------------------------------------------------
+	convID := memory.ConversationIDFromContext(ctx)
+	var parentID string
+	if convID == "" {
+		if cid, msg, err := hist.LatestMessage(ctx); err == nil && msg != nil {
+			convID = cid
+			parentID = msg.ID
+		}
+	}
+	if convID == "" {
+		return nil, jsonrpc.NewInternalError("unable to resolve conversation id", nil)
+	}
+
+	msgID := uuid.New().String()
+	_ = hist.AddMessage(ctx, convID, memory.Message{
+		ID:          msgID,
+		ParentID:    parentID,
+		Role:        "mcpuserinteraction",
+		Interaction: &memory.UserInteraction{URL: p.Interaction.Url},
+		CallbackURL: "/interaction/" + msgID,
+		Status:      "open",
+	})
+
+	ch := make(chan *schema.CreateUserInteractionResult, 1)
+	interactionWaiterRegistry.Store(msgID, ch)
+	select {
+	case res := <-ch:
+		interactionWaiterRegistry.Delete(msgID)
+		return res, nil
+	case <-ctx.Done():
+		interactionWaiterRegistry.Delete(msgID)
+		return nil, jsonrpc.NewInternalError("interaction cancelled", nil)
+	}
 }
 
 func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*schema.ElicitRequest]) (*schema.ElicitResult, *jsonrpc.Error) {
-	// When an Awaiter is configured we bypass the network round-trip entirely
-	// and resolve the prompt locally. We must translate between the MCP
-	// protocol types and the lightweight types declared in the local
-	// agently/schema package.
-
 	params := request.Request.Params
-
 	if c.awaiter != nil {
-		// ------------------------------------------------------------------
-		// Build JSON-schema string from the restricted MCP subset so that the
-		// generic Awaiter can operate on a single schema document.
-		// ------------------------------------------------------------------
-		var schemaJSON string
-		{
-			doc := map[string]interface{}{
-				"type":       params.RequestedSchema.Type,
-				"properties": params.RequestedSchema.Properties,
-			}
-			if len(params.RequestedSchema.Required) > 0 {
-				doc["required"] = params.RequestedSchema.Required
-			}
-			if b, _ := json.Marshal(doc); len(b) > 0 {
-				schemaJSON = string(b)
-			}
-		}
-
-		localReq := &elicitationSchema.Elicitation{Schema: schemaJSON}
+		localReq := &elicitationSchema.Elicitation{ElicitRequestParams: params}
 		res, err := c.awaiter.AwaitElicitation(ctx, localReq)
 		if err != nil {
 			return nil, jsonrpc.NewInternalError(err.Error(), nil)
@@ -110,7 +183,51 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 			Content: res.Payload,
 		}, nil
 	}
-	return nil, jsonrpc.NewInternalError("elicitation awaiter wes not configured ", nil)
+	// ------------------------------------------------------------------
+	// No local awaiter – persist message and block until HTTP callback
+	// resolves it through waiterRegistry (web UI scenario).
+	// ------------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// Generate synthetic message ID so that HTTP callback can reference it
+	msgID := uuid.New().String()
+
+	history := c.history
+	if history != nil {
+		convID := memory.ConversationIDFromContext(ctx)
+		var parentID string
+		if convID == "" {
+			if cid, msg, err := history.LatestMessage(ctx); err == nil && msg != nil {
+				convID = cid
+				parentID = msg.ID
+				if msg.ParentID != "" {
+					parentID = msg.ParentID
+				}
+			}
+		}
+		if convID != "" {
+			fmt.Printf("Adding mcpelicitation %v %v\n ", convID, parentID)
+			_ = history.AddMessage(ctx, convID, memory.Message{
+				ID:          msgID,
+				ParentID:    parentID,
+				Role:        "mcpelicitation",
+				Content:     params.Message,
+				Elicitation: &elicitationSchema.Elicitation{ElicitRequestParams: params},
+				CallbackURL: "/elicitation/" + msgID,
+				Status:      "open",
+			})
+		}
+	}
+	// Register waiter and block
+	ch := make(chan *schema.ElicitResult, 1)
+	waiterRegistry.Store(msgID, ch)
+	select {
+	case res := <-ch:
+		waiterRegistry.Delete(msgID)
+		return res, nil
+	case <-ctx.Done():
+		waiterRegistry.Delete(msgID)
+		return nil, jsonrpc.NewInternalError("elicitation cancelled", nil)
+	}
 }
 
 func (c *Client) CreateMessage(ctx context.Context, reqeust *jsonrpc.TypedRequest[*schema.CreateMessageRequest]) (*schema.CreateMessageResult, *jsonrpc.Error) {

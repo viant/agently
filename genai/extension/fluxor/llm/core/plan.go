@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	plan "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
 	"strings"
 )
@@ -18,11 +19,12 @@ var planPromptTemplate string
 
 // PlanInput defines input for Plan generation or finalization.
 type PlanInput struct {
-	Query     string   `json:"query"`
-	Context   string   `json:"context,omitempty"`
-	Model     string   `json:"model,omitempty"`
-	Tools     []string `json:"tools,omitempty"`     // available tools for selection
-	PromptURI string   `json:"promptURI,omitempty"` // optional custom prompt for Plan generation
+	Query      string               `json:"query"`
+	Context    string               `json:"context,omitempty"`
+	Model      string               `json:"model,omitempty"`
+	ModelMatch llm.ModelPreferences `json:"modelMatch,omitempty"`
+	Tools      []string             `json:"tools,omitempty"`     // available tools for selection
+	PromptURI  string               `json:"promptURI,omitempty"` // optional custom prompt for Plan generation
 	//Loopback parameters
 	Results       []plan.Result    `json:"results,omitempty"`    // structured step results for finalization
 	Transcript    []memory.Message `json:"transcript,omitempty"` // transcript of the conversation with the LLM`
@@ -79,6 +81,9 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 	}
 	for _, choice := range genOutput.Response.Choices {
 		if choice.Message.Role == llm.RoleAssistant {
+			if planResult.Elicitation != nil && json.Valid([]byte(choice.Message.Content)) {
+				continue //that was elicitation content
+			}
 			output.Transcript = append(output.Transcript, memory.Message{Role: string(choice.Message.Role), Content: choice.Message.Content})
 		}
 	}
@@ -92,7 +97,6 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 }
 
 func RefinePlan(results []plan.Result, result *plan.Plan) {
-
 	if len(result.Steps) == 0 {
 		return
 	}
@@ -124,12 +128,24 @@ func RefinePlan(results []plan.Result, result *plan.Plan) {
 // It returns a Plan if parsing succeeded, otherwise returns the answer text.
 func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate string, input *PlanInput, tools []llm.Tool, genOutput *GenerateOutput) (*plan.Plan, error) {
 
+	if len(input.ModelMatch.Hints) == 0 && modelName != "" {
+		input.ModelMatch.Hints = append(input.ModelMatch.Hints, modelName)
+	}
+	if model := s.modelMatcher.Best(&input.ModelMatch); model != "" {
+		modelName = model
+	}
+
 	bind := map[string]interface{}{
 		"Query":         input.Query,
 		"Context":       input.Context,
 		"Results":       input.Results,
 		"Tools":         input.Tools,
 		"ResultSummary": input.ResultSummary,
+		"CanUseTools":   false,
+	}
+	if model, _ := s.llmFinder.Find(ctx, modelName); model != nil {
+		bind["Model"] = model
+		bind["CanUseTools"] = model.Implements(base.CanUseTools)
 	}
 
 	s.enureResultCallID(input)
@@ -142,9 +158,9 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate st
 	}
 
 	if len(input.Results) > 0 {
-		var toolCalls []llm.ToolCall
-		var toolResultMessage []llm.Message
 		for _, result := range input.Results {
+			var toolCalls []llm.ToolCall
+			var toolResultMessage []llm.Message
 			toolCall := llm.NewToolCall(result.ID, result.Name, result.Args)
 			toolCalls = append(toolCalls, toolCall)
 			callResult := result.Result
@@ -152,11 +168,9 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate st
 				callResult = "Error:" + result.Error
 			}
 			toolResultMessage = append(toolResultMessage, llm.NewToolResultMessage(toolCall, callResult))
+			genInput.Message = append(genInput.Message, llm.NewAssistantMessageWithToolCalls(toolCalls...))
+			genInput.Message = append(genInput.Message, toolResultMessage...)
 		}
-
-		genInput.Message = append(genInput.Message, llm.NewAssistantMessageWithToolCalls(toolCalls...))
-		genInput.Message = append(genInput.Message, toolResultMessage...)
-
 	}
 
 	aPlan, err := s.generatePlan(ctx, genInput, genOutput)
@@ -208,8 +222,15 @@ func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, gen
 		}
 	}
 	var err error
-	if strings.Contains(genOutput.Content, `"tool"`) || strings.Contains(genOutput.Content, `"elicitation"`) {
+	if strings.Contains(genOutput.Content, `"tool"`) {
 		err = EnsureJSONResponse(ctx, genOutput.Content, aPlan)
+	}
+	if strings.Contains(genOutput.Content, `"elicitation"`) {
+		aPlan.Elicitation = &plan.Elicitation{}
+		_ = EnsureJSONResponse(ctx, genOutput.Content, aPlan.Elicitation)
+		if aPlan.Elicitation.IsEmpty() {
+			aPlan.Elicitation = nil
+		}
 	}
 	aPlan.Steps.EnsureID()
 	return aPlan, err

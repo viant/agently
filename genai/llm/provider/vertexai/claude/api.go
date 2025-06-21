@@ -7,10 +7,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/llm/provider/base"
 	"io"
 	"net/http"
 	"strings"
 )
+
+func (c *Client) Implements(feature string) bool {
+	switch feature {
+	case base.CanUseTools:
+		return true
+	}
+	return false
+}
 
 // Generate sends a chat request to the Claude API and returns the response
 func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {

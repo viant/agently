@@ -39,18 +39,15 @@ type GenerateOutput struct {
 }
 
 func (i *GenerateInput) Init(ctx context.Context) {
-	if len(i.Message) == 0 {
-		i.Message = []llm.Message{}
-		if i.SystemPrompt != "" {
-			i.Message = append(i.Message, llm.NewSystemMessage(i.SystemPrompt))
-		}
-		if i.Prompt != "" {
-			i.Message = append(i.Message, llm.NewUserMessage(i.Prompt))
-		}
-		for _, attachment := range i.Attachment {
-			i.Message = append(i.Message,
-				llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Prompt))
-		}
+	if i.SystemPrompt != "" {
+		i.Message = append(i.Message, llm.NewSystemMessage(i.SystemPrompt))
+	}
+	if i.Prompt != "" {
+		i.Message = append(i.Message, llm.NewUserMessage(i.Prompt))
+	}
+	for _, attachment := range i.Attachment {
+		i.Message = append(i.Message,
+			llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Prompt))
 	}
 }
 

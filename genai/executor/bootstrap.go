@@ -31,6 +31,10 @@ import (
 
 // init prepares the Service for handling requests.
 func (e *Service) init(ctx context.Context) error {
+	if err := e.initHistory(ctx); err != nil {
+		return err
+	}
+
 	// ------------------------------------------------------------------
 	// Step 1: defaults & validation
 	// ------------------------------------------------------------------
@@ -43,9 +47,6 @@ func (e *Service) init(ctx context.Context) error {
 	// Step 2: auxiliary stores (history, …)
 	// ------------------------------------------------------------------
 	e.executionStore = memory.NewExecutionStore()
-	if err := e.initHistory(ctx); err != nil {
-		return err
-	}
 
 	// ------------------------------------------------------------------
 	// Step 3: orchestration service (single source of truth for workflows & tools)
@@ -185,6 +186,9 @@ func (e *Service) initMcp() {
 		opts = append(opts, clientmcp.WithLLMCore(e.llmCore))
 		if e.mcpElicitationAwaiter != nil {
 			opts = append(opts, clientmcp.WithAwaiter(e.mcpElicitationAwaiter))
+		}
+		if e.history != nil {
+			opts = append(opts, clientmcp.WithHistory(e.history))
 		}
 		e.clientHandler = clientmcp.NewClient(opts...)
 	}

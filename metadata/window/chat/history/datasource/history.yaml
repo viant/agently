@@ -1,0 +1,14 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/api/conversations
+  method: GET
+
+selectors:
+  data: data
+
+uniqueKey:
+  - field: id
+
+# No parameters required – this DS always lists all conversations.
+
+selectionMode: single

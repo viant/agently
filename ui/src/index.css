@@ -1,0 +1,102 @@
+
+body {
+    margin: 0;
+    font-family: 'Arial', sans-serif;
+    font-size: 14px;
+    color: #333;
+}
+
+/* Remove left and right padding from the Navbar */
+.menu-bar .bp4-navbar {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* Adjustments for the main content area */
+.root-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.app-container {
+    display: flex;
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+.main-content {
+    flex-grow: 1;
+    overflow: auto;
+    min-width: 0; /* Added to fix flex item shrinking */
+}
+
+/* Remove any default margin or padding from the Navigation */
+.navigation-sidebar {
+    margin: 0;
+    padding: 0;
+    width: 250px;
+    overflow-y: auto;
+    border-right: 1px solid #ccc;
+    background-color: #f5f8fa;
+}
+
+/* Ensure MenuBar and StatusBar are positioned correctly */
+.menu-bar {
+    border-bottom: 1px solid #dcdcdc;
+}
+
+.status-bar {
+    border-top: 1px solid #dcdcdc;
+}
+
+
+.navigation-drawer {
+    position: fixed;
+    top: 50px; /* Adjust to match the height of the MenuBar */
+    bottom: 30px; /* Adjust to match the height of the StatusBar */
+    z-index: 400; /* Below the menu and status bar */
+}
+
+.navigation-tree {
+    width: 250px;
+    background-color: #f5f8fa;
+    height: 100%;
+    overflow-y: auto;
+}
+
+
+.window-layout {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.window-content {
+    display: flex;
+    flex: 1;
+}
+
+.menu-bar .bp4-button {
+    color: white;
+}
+
+label {
+    font-weight: bold;
+}
+
+label.label-data {
+    font-weight: normal;
+}
+
+/* Modify this to prevent overlapping */
+.navigation-drawer .bp4-drawer {
+    margin-top: 50px; /* Same as the menu-bar height */
+    margin-bottom: 30px; /* Same as the status-bar height */
+}
+
+/* -------------------------------------------------------------------------- */
+/* Chat components                                                             */
+/* -------------------------------------------------------------------------- */
+
+

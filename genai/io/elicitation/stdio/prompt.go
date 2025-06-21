@@ -33,21 +33,18 @@ func Prompt(ctx context.Context, w io.Writer, r io.Reader, p *plan.Elicitation) 
 	//    parse / sanity-check it.
 	// ------------------------------------------------------------------
 	var schemaSrc []byte
-	if strings.TrimSpace(p.Schema) != "" {
-		schemaSrc = []byte(p.Schema)
-	} else {
-		// Build minimal schema document from RequestedSchema – enough for the
-		// interactive prompt implementation that follows.
-		tmp := map[string]interface{}{
-			"type":       p.RequestedSchema.Type,
-			"properties": p.RequestedSchema.Properties,
-		}
-		if len(p.RequestedSchema.Required) > 0 {
-			tmp["required"] = p.RequestedSchema.Required
-		}
-		if b, _ := json.Marshal(tmp); len(b) > 0 {
-			schemaSrc = b
-		}
+
+	// Build minimal schema document from RequestedSchema – enough for the
+	// interactive prompt implementation that follows.
+	tmp := map[string]interface{}{
+		"type":       p.RequestedSchema.Type,
+		"properties": p.RequestedSchema.Properties,
+	}
+	if len(p.RequestedSchema.Required) > 0 {
+		tmp["required"] = p.RequestedSchema.Required
+	}
+	if b, _ := json.Marshal(tmp); len(b) > 0 {
+		schemaSrc = b
 	}
 
 	var s rawSchema

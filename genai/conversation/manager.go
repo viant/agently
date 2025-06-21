@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/memory"
-	
+	"time"
 )
 
 // QueryHandler is a thin adapter used by the Manager to delegate the actual
@@ -22,9 +22,10 @@ type QueryHandler func(ctx context.Context, input *agentpkg.QueryInput, output *
 // The goal is to decouple I/O adapters (CLI, REST, WebSocket, …) from the
 // underlying agent orchestration so that they only need to call Accept().
 type Manager struct {
-	history memory.History
-	handler QueryHandler
-	idGen   func() string
+	history        memory.History
+	executionStore *memory.ExecutionStore
+	handler        QueryHandler
+	idGen          func() string
 }
 
 // History returns underlying memory.History implementation.
@@ -34,14 +35,49 @@ func (m *Manager) History() memory.History { return m.history }
 // It is a thin proxy to the underlying memory.History implementation so that
 // HTTP adapters (REST, WebSocket, …) can expose the history without knowing
 // concrete history details.
-func (m *Manager) Messages(ctx context.Context, convID string) ([]memory.Message, error) {
+func (m *Manager) Messages(ctx context.Context, convID string, parentId string) ([]memory.Message, error) {
 	if m == nil {
 		return nil, errors.New("conversation manager is nil")
 	}
 	if convID == "" {
 		return nil, errors.New("conversation id is empty")
 	}
-	return m.history.GetMessages(ctx, convID)
+	messages, err := m.getMessages(ctx, convID, parentId)
+	if err != nil {
+		return nil, err
+	}
+	var result = make([]memory.Message, 0, len(messages)+1)
+	for _, msg := range messages {
+		result = append(result, msg)
+		if exec, _ := m.executionStore.ListOutcome(ctx, convID, msg.ID); len(exec) > 0 {
+			result = append(result, memory.Message{
+				ID:         msg.ID + "/1",
+				ParentID:   parentId,
+				Role:       "tool",
+				Executions: exec,
+				CreatedAt:  msg.CreatedAt.Add(time.Second),
+			})
+		}
+	}
+	return result, nil
+}
+
+func (m *Manager) getMessages(ctx context.Context, convID string, parentId string) ([]memory.Message, error) {
+	result, err := m.history.GetMessages(ctx, convID)
+	if err != nil {
+		return nil, err
+	}
+	if parentId == "" {
+		return result, nil
+	}
+
+	var filtered = make([]memory.Message, 0, len(result))
+	for _, item := range result {
+		if item.ParentID == parentId || item.ID == parentId {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
 }
 
 // List returns all known conversation IDs.
@@ -84,14 +120,15 @@ func WithIDGenerator(f func() string) Option {
 
 // New returns a new Manager instance. If history is nil an in-memory store is
 // created. If idGen is not supplied uuid.NewString() is used.
-func New(history memory.History, handler QueryHandler, opts ...Option) *Manager {
+func New(history memory.History, executionStore *memory.ExecutionStore, handler QueryHandler, opts ...Option) *Manager {
 	if history == nil {
 		history = memory.NewHistoryStore()
 	}
 	m := &Manager{
-		history: history,
-		handler: handler,
-		idGen:   uuid.NewString,
+		history:        history,
+		handler:        handler,
+		executionStore: executionStore,
+		idGen:          uuid.NewString,
 	}
 	for _, o := range opts {
 		o(m)

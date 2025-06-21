@@ -20,6 +20,11 @@ type Options struct {
 // Init instantiates the sub-command referenced by the first argument so that
 // flags.Parse can populate its fields.
 func (o *Options) Init(firstArg string) {
+	// Decide whether the CLI session should attach the interactive stdin
+	// awaiter. We do this before executor initialisation so that the option is
+	// in effect when the singleton is created later.
+	attachAwaiter(firstArg)
+
 	switch firstArg {
 	case "chat":
 		o.Chat = &ChatCmd{}

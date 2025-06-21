@@ -88,5 +88,6 @@ func (s *Service) Method(name string) (types.Executable, error) {
 
 // New creates a new extractor service
 func New(finder llm.Finder, registry tool.Registry, defaultModel string) *Service {
-	return &Service{llmFinder: finder, registry: registry, defaultModel: defaultModel, fs: afs.New()}
+	matcher, _ := finder.(llm.Matcher)
+	return &Service{llmFinder: finder, registry: registry, defaultModel: defaultModel, fs: afs.New(), modelMatcher: matcher}
 }
