@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"net/http"
 
 	chat "github.com/viant/agently/adapter/http"
@@ -19,6 +20,11 @@ func New(exec *execsvc.Service, svc *service.Service) http.Handler {
 	// Chat & workspace endpoints (existing)
 	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation(), chat.WithExecutionStore(exec.ExecutionStore())))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
+
+	// Kick off background sync that surfaces fluxor approval requests as chat
+	// messages so that web users can approve/reject tool executions.
+	ctx := context.Background()
+	chat.StartApprovalBridge(ctx, exec, exec.Conversation())
 
 	return chat.WithCORS(mux)
 }

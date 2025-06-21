@@ -29,6 +29,10 @@ export function classifyMessage(message) {
     if (message.role === 'mcpuserinteraction' && message.status === 'open') {
         return 'mcpuserinteraction';
     }
+
+    if (message.role === 'policyapproval' && message.status === 'open') {
+        return 'policyapproval';
+    }
     return message.elicitation?.requestedSchema ? 'form' : 'bubble';
 }
 

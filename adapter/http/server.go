@@ -100,6 +100,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.handleInteractionCallback(w, r, r.PathValue("msgId"))
 	})
 
+	// Policy approval callback
+	mux.HandleFunc("POST /v1/api/approval/{reqId}", func(w http.ResponseWriter, r *http.Request) {
+		s.handleApprovalCallback(w, r, r.PathValue("reqId"))
+	})
+
 	return WithCORS(mux)
 }
 
@@ -228,7 +233,7 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	// Filter out resolved MCP elicitation messages (status != "open")
 	var filtered []memory.Message
 	for _, m := range msgs {
-		if m.Role == "mcpelicitation" && m.Status != "" && m.Status != "open" {
+		if (m.Role == "mcpelicitation" || m.Role == "policyapproval") && m.Status != "" && m.Status != "open" {
 			continue
 		}
 		filtered = append(filtered, m)
@@ -467,6 +472,92 @@ func (s *Server) handleInteractionCallback(w http.ResponseWriter, r *http.Reques
 
 	if ch, ok := mcpclient.WaiterInteraction(msgID); ok {
 		ch <- &schema.CreateUserInteractionResult{}
+	}
+
+	encode(w, http.StatusNoContent, nil, nil)
+}
+
+// handleApprovalCallback processes POST /v1/api/approval/{reqID} accepting or
+// declining policy-approval requests that originated from the Fluxor approval
+// service.
+func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, reqID string) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		Action string `json:"action"` // accept | decline | cancel
+		Reason string `json:"reason,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		encode(w, http.StatusBadRequest, nil, err)
+		return
+	}
+	if body.Action == "" {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"))
+		return
+	}
+
+	// Map action to approved boolean.
+	var approved bool
+	switch strings.ToLower(body.Action) {
+	case "accept":
+		approved = true
+	case "decline":
+		approved = false
+	case "cancel":
+		// Treat cancel same as decline at approval layer but keep message open.
+		// Here we simply return 204 so UI knows call succeeded.
+		encode(w, http.StatusNoContent, nil, nil)
+		return
+	default:
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid action"))
+		return
+	}
+
+	// Locate conversation and update message status.
+	ids, err := s.mgr.List(r.Context())
+	if err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+
+	var convID string
+	var found bool
+	for _, id := range ids {
+		msgs, _ := s.mgr.Messages(r.Context(), id, "")
+		for _, m := range msgs {
+			if m.ID == reqID {
+				convID = id
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+
+	if !found {
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("approval message not found"))
+		return
+	}
+
+	newStatus := "declined"
+	if approved {
+		newStatus = "done"
+	}
+
+	_ = s.mgr.History().UpdateMessage(r.Context(), convID, reqID, func(m *memory.Message) {
+		m.Status = newStatus
+	})
+
+	// Forward decision to Fluxor approval service so that workflow can resume.
+	if s.executionStore != nil {
+		// Need access to ApprovalService: it's owned by executor encompassed in executionStore context.
+		// We cannot reach it here directly. Instead, the bridging goroutine listening on Approval events
+		// will take care of Decider. Thus nothing to do here.
 	}
 
 	encode(w, http.StatusNoContent, nil, nil)
