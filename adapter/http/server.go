@@ -17,6 +17,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/metadata"
+	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/mcp-protocol/schema"
 
 	"github.com/google/uuid"
@@ -34,6 +35,9 @@ type Server struct {
 	mgr            *conversation.Manager
 	executionStore *memory.ExecutionStore
 	titles         sync.Map // convID -> title
+
+	toolPolicy *tool.Policy
+	fluxPolicy *fluxpol.Policy
 }
 
 // ServerOption customises HTTP server behaviour.
@@ -43,6 +47,15 @@ type ServerOption func(*Server)
 // /v1/api/conversations/{id}/tool-trace can return audit information.
 func WithExecutionStore(ts *memory.ExecutionStore) ServerOption {
 	return func(s *Server) { s.executionStore = ts }
+}
+
+// WithPolicies injects default tool & fluxor policies so that API requests
+// inherit the configured mode (auto/ask/deny).
+func WithPolicies(tp *tool.Policy, fp *fluxpol.Policy) ServerOption {
+	return func(s *Server) {
+		s.toolPolicy = tp
+		s.fluxPolicy = fp
+	}
 }
 
 // NewServer returns an http.Handler with routes bound.
@@ -605,10 +618,21 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 		// sets it again.
 		ctx = context.WithValue(ctx, memory.ConversationIDKey, convID)
 
-		// Always auto mode for API requests; no CLI prompts.
-		ctx = tool.WithPolicy(ctx, &tool.Policy{Mode: tool.ModeAuto})
+		// Apply server-level default tool policy (auto, ask, deny). Fallback
+		// to auto when not provided.
+		if s.toolPolicy != nil {
+			ctx = tool.WithPolicy(ctx, s.toolPolicy)
+		} else {
+			ctx = tool.WithPolicy(ctx, &tool.Policy{Mode: tool.ModeAuto})
+		}
 		if policy != nil {
 			ctx = tool.WithPolicy(ctx, policy)
+		}
+
+		// Also embed fluxor policy so workflow approval layer matches the
+		// configured mode.
+		if s.fluxPolicy != nil {
+			ctx = fluxpol.WithPolicy(ctx, s.fluxPolicy)
 		}
 		if _, err := s.mgr.Accept(ctx, input); err != nil {
 			log.Printf("async accept error: %v", err)

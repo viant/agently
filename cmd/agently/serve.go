@@ -12,12 +12,14 @@ import (
 	"github.com/viant/agently/adapter/http/router"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/service"
+	fluxpol "github.com/viant/fluxor/policy"
 )
 
 // ServeCmd starts the embedded HTTP server.
 // Usage: agently serve --addr :8080
 type ServeCmd struct {
-	Addr string `short:"a" long:"addr" description:"listen address" default:":8080"`
+	Addr   string `short:"a" long:"addr" description:"listen address" default:":8080"`
+	Policy string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
 }
 
 func (s *ServeCmd) Execute(_ []string) error {
@@ -28,11 +30,19 @@ func (s *ServeCmd) Execute(_ []string) error {
 
 	svc := service.New(exec, service.Options{})
 
-	// Ensure server never requests stdin approval for tool parameters.
-	ctxBase := context.Background()
-	ctxBase = tool.WithPolicy(ctxBase, &tool.Policy{Mode: tool.ModeAuto})
+	// Build policies based on flag.
+	toolPol := buildPolicy(s.Policy)
+	fluxPol := buildFluxorPolicy(s.Policy)
 
-	handler := router.New(exec, svc)
+	ctxBase := context.Background()
+	ctxBase = tool.WithPolicy(ctxBase, toolPol)
+	ctxBase = fluxpol.WithPolicy(ctxBase, fluxPol)
+
+	// Launch stdin approval loop when ask mode (for server console decisions)
+	stop := startApprovalLoop(ctxBase, exec, fluxPol)
+	defer stop()
+
+	handler := router.New(exec, svc, toolPol, fluxPol)
 
 	srv := &http.Server{
 		Addr:    s.Addr,

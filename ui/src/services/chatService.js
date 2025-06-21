@@ -6,6 +6,7 @@ import { endpoints } from '../endpoint';
 import { FormRenderer } from 'forge';
 import MCPForm from '../components/MCPForm.jsx';
 import MCPInteraction from '../components/MCPInteraction.jsx';
+import PolicyApproval from '../components/PolicyApproval.jsx';
 import { poll, fetchJSON } from './utils/apiUtils';
 import { classifyMessage, normalizeMessages } from './messageNormalizer';
 import { ensureConversation, newConversation } from './conversationService';
@@ -241,5 +242,6 @@ export const chatService = {
         form: FormRenderer,
         mcpelicitation: MCPForm,
         mcpuserinteraction: MCPInteraction,
+        policyapproval: PolicyApproval,
     }
 };
