@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,8 +19,9 @@ import (
 // ServeCmd starts the embedded HTTP server.
 // Usage: agently serve --addr :8080
 type ServeCmd struct {
-	Addr   string `short:"a" long:"addr" description:"listen address" default:":8080"`
-	Policy string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
+	Addr            string `short:"a" long:"addr" description:"listen address" default:":8080"`
+	Policy          string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
+	ConsoleApproval bool   `long:"console-approval" description:"enable interactive approval prompts on the server console (defaults to false)"`
 }
 
 func (s *ServeCmd) Execute(_ []string) error {
@@ -31,15 +33,29 @@ func (s *ServeCmd) Execute(_ []string) error {
 	svc := service.New(exec, service.Options{})
 
 	// Build policies based on flag.
+	// Build tool policy. For web server we never use the stdin/console "Ask"
+	// helper as approvals are handled through the HTTP UI. Therefore even in
+	// ask mode we leave Policy.Ask unset so that no interactive prompt is
+	// triggered on the server terminal.
 	toolPol := buildPolicy(s.Policy)
+	if strings.ToLower(toolPol.Mode) == tool.ModeAsk {
+		toolPol.Ask = nil
+	}
 	fluxPol := buildFluxorPolicy(s.Policy)
 
 	ctxBase := context.Background()
 	ctxBase = tool.WithPolicy(ctxBase, toolPol)
 	ctxBase = fluxpol.WithPolicy(ctxBase, fluxPol)
 
-	// Launch stdin approval loop when ask mode (for server console decisions)
-	stop := startApprovalLoop(ctxBase, exec, fluxPol)
+	// Launch stdin approval loop only when explicitly requested by the user.
+	// The HTTP server exposes a web–based approval UI therefore, by default,
+	// duplicate prompts on the console are suppressed to avoid confusion.
+	var stop func()
+	if s.ConsoleApproval {
+		stop = startApprovalLoop(ctxBase, exec, fluxPol)
+	} else {
+		stop = func() {}
+	}
 	defer stop()
 
 	handler := router.New(exec, svc, toolPol, fluxPol)

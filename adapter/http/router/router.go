@@ -24,7 +24,9 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	// default to auto. The Serve command will provide an explicit policy via context.
 	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation(),
 		chat.WithExecutionStore(exec.ExecutionStore()),
-		chat.WithPolicies(toolPol, fluxPol)))
+		chat.WithPolicies(toolPol, fluxPol),
+		chat.WithApprovalService(exec.ApprovalService()),
+	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
 
 	// Kick off background sync that surfaces fluxor approval requests as chat

@@ -18,6 +18,7 @@ import (
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/metadata"
 	fluxpol "github.com/viant/fluxor/policy"
+	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/mcp-protocol/schema"
 
 	"github.com/google/uuid"
@@ -36,8 +37,9 @@ type Server struct {
 	executionStore *memory.ExecutionStore
 	titles         sync.Map // convID -> title
 
-	toolPolicy *tool.Policy
-	fluxPolicy *fluxpol.Policy
+	toolPolicy  *tool.Policy
+	fluxPolicy  *fluxpol.Policy
+	approvalSvc approval.Service
 }
 
 // ServerOption customises HTTP server behaviour.
@@ -56,6 +58,14 @@ func WithPolicies(tp *tool.Policy, fp *fluxpol.Policy) ServerOption {
 		s.toolPolicy = tp
 		s.fluxPolicy = fp
 	}
+}
+
+// WithApprovalService injects the Fluxor approval service so that the HTTP
+// callback handler can forward Accept/Decline decisions to the workflow
+// engine. Supplying the service is optional — when nil the server falls back
+// to chat-only status updates.
+func WithApprovalService(svc approval.Service) ServerOption {
+	return func(s *Server) { s.approvalSvc = svc }
 }
 
 // NewServer returns an http.Handler with routes bound.
@@ -557,6 +567,7 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	// 1) Persist decision in Conversation history so UI updates immediately.
 	newStatus := "declined"
 	if approved {
 		newStatus = "done"
@@ -566,11 +577,12 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		m.Status = newStatus
 	})
 
-	// Forward decision to Fluxor approval service so that workflow can resume.
-	if s.executionStore != nil {
-		// Need access to ApprovalService: it's owned by executor encompassed in executionStore context.
-		// We cannot reach it here directly. Instead, the bridging goroutine listening on Approval events
-		// will take care of Decider. Thus nothing to do here.
+	// 2) Forward the decision to the Fluxor approval service so that the
+	//    workflow waiting on this request can resume.  When the service is
+	//    not provided (nil) we simply skip this step – the workflow would be
+	//    blocked, but the UI still reflects the user choice.
+	if s.approvalSvc != nil {
+		_, _ = s.approvalSvc.Decide(r.Context(), reqID, approved, body.Reason)
 	}
 
 	encode(w, http.StatusNoContent, nil, nil)

@@ -128,7 +128,7 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 						Args:   parseArgs(req.Args),
 						Reason: "",
 					},
-					CallbackURL: "/v1/api/approval/" + req.ID,
+					CallbackURL: "/approval/" + req.ID,
 				}
 
 				if err := mgr.History().AddMessage(ctx, convID, m); err != nil {

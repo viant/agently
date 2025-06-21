@@ -37,13 +37,9 @@ func (e *Elicitation) IsEmpty() bool {
 		return false
 	}
 	// Fall back to inspecting embedded RequestedSchema.
-	if rs := e.RequestedSchema; rs.Type != "" {
-		if strings.TrimSpace(rs.Type) != "" {
-			return false
-		}
-		if len(rs.Properties) > 0 {
-			return false
-		}
+	rs := e.RequestedSchema
+	if len(rs.Properties) > 0 {
+		return false
 	}
 	return true
 }
