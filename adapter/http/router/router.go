@@ -9,14 +9,14 @@ import (
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/service"
-	
+	fluxorpol "github.com/viant/fluxor/policy"
 )
 
 // New constructs an http.Handler that combines chat API and workspace CRUD API.
 //
 // Chat endpoints are mounted under /v1/api/… (see adapter/http/server.go).
 // Workspace endpoints under /v1/workspace/… (see adapter/http/workspace).
-func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxpol.Policy) http.Handler {
+func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxorpol.Policy) http.Handler {
 	mux := http.NewServeMux()
 
 	// Chat & workspace endpoints (existing)
