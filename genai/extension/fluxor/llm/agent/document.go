@@ -56,8 +56,11 @@ func (s *Service) formatDocumentsForEnrichment(documents []schema.Document, incl
 		if i > 0 {
 			builder.WriteString("\n\n")
 		}
-
-		builder.WriteString(fmt.Sprintf("Document %d: %s\n", i+1, doc.Metadata["source"]))
+		path, ok := doc.Metadata["path"]
+		if !ok {
+			path = doc.Metadata["docId"]
+		}
+		builder.WriteString(fmt.Sprintf("Document %d: %s\n", i+1, path))
 
 		if includeFile {
 			builder.WriteString("Result:\n")
