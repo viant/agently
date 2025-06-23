@@ -12,7 +12,7 @@ stage:
         context: ${context}
         results: ${results}
         transcript: ${transcript}
-        promptURI: $path(prompt/plan.vm)
+        promptURI: $path(prompt/chat.vm)
 
       post:
         plan: ${plan}
