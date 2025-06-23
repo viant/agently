@@ -37,7 +37,7 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindModel, "o3.yaml"), "default/model_o3.yaml"},
 		{filepath.Join(KindEmbedder, "text.yaml"), "default/embedder_text.yaml"},
 
-		{filepath.Join(KindAgent, "chat/workflows/orchestration.yaml"), "default/workflow_orchestration.yaml"},
+		{filepath.Join(KindAgent, "chat/workflows/orchestration.yaml"), "default/agent_chat_workflow_orchestration.yaml"},
 		{filepath.Join(KindAgent, "chat/workflows/prompt", "chat.vm"), "default/agent_chat_prompt.vm"},
 		{filepath.Join(KindAgent, "chat/knowledge/doc.txt"), "default/doc.txt"},
 	}
