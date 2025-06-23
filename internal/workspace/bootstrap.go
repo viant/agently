@@ -39,7 +39,7 @@ func EnsureDefault(fs afs.Service) {
 
 		{filepath.Join(KindAgent, "chat/workflows/orchestration.yaml"), "default/agent_chat_workflow_orchestration.yaml"},
 		{filepath.Join(KindAgent, "chat/workflows/prompt", "chat.vm"), "default/agent_chat_prompt.vm"},
-		{filepath.Join(KindAgent, "chat/knowledge/doc.txt"), "default/doc.txt"},
+		{filepath.Join(KindAgent, "chat/knowledge/doc.txt"), "default/agent_chat_doc.txt"},
 	}
 
 	baseURL := url.Normalize(Root(), file.Scheme)
