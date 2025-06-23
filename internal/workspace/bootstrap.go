@@ -5,7 +5,6 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/viant/afs"
@@ -24,12 +23,7 @@ var defaultsFS embed.FS
 // they are missing. It is safe to call multiple times – it only writes files
 // that do not yet exist.
 func EnsureDefault(fs afs.Service) {
-	// Skip auto-bootstrapping when AGENTLY_ROOT is explicitly set. This gives
-	// callers full control over workspace contents (for example, unit tests that
-	// start with an empty repository).
-	if os.Getenv(envKey) != "" {
-		return
-	}
+
 	ctx := context.Background()
 
 	entries := []struct {
@@ -49,7 +43,11 @@ func EnsureDefault(fs afs.Service) {
 	}
 
 	baseURL := url.Normalize(Root(), file.Scheme)
-
+	absPath := url.Join(baseURL, entries[0].path)
+	if ok, _ := fs.Exists(ctx, absPath); ok {
+		//config already exists skipping default workspace creation
+		return
+	}
 	for _, e := range entries {
 		absPath := url.Join(baseURL, e.path)
 		// Skip if already present

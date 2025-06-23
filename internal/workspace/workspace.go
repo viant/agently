@@ -60,7 +60,7 @@ func Root() string {
 		return cachedRoot
 	}
 
-	home, err := os.UserHomeDir()
+	home, err := os.Getwd()
 	if err != nil {
 		// Fall back to current working directory on unexpected failure.
 		cachedRoot = abs(defaultRootDir)
