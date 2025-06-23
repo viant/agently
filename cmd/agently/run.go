@@ -44,7 +44,7 @@ func (r *RunCmd) Execute(_ []string) error {
 		return fmt.Errorf("decode input: %w", err)
 	}
 	if r.Location != "" {
-		q.Location = r.Location
+		q.AgentName = r.Location
 	}
 
 	// Unified log writer (uber)

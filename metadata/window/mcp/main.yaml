@@ -1,0 +1,23 @@
+namespace: MCPServers
+
+view:
+  content:
+    layout:
+      orientation: horizontal
+      columns: 2
+      divider:
+        sizes: [30,68]
+
+    containers:
+      - id: mcpTable
+        title: Models
+        dataSourceRef: servers
+        table: $import('table/servers.yaml')
+      - id: data
+        dataSourceRef: servers
+        tabs:
+          vertical: false
+        containers: $import('form.yaml')
+
+dataSource:
+  servers: $import('datasource/servers.yaml')

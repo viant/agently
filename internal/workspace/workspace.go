@@ -27,6 +27,7 @@ var (
 const (
 	KindAgent    = "agents"
 	KindModel    = "models"
+	KindEmbedder = "embedders"
 	KindMCP      = "mcp"
 	KindWorkflow = "workflows"
 )

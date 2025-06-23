@@ -1,0 +1,49 @@
+namespace: Chat
+
+# Window that displays a single conversation chat view (no conversation list).
+
+view:
+  content:
+    containers:
+      - id: header
+        dataSourceRef: conversations
+        fetchData: true
+        selectFirst: true
+        layout:
+          orientation: horizontal
+          columns: 3
+          labelPosition: top
+        items:
+          - id: title
+            type: label
+            dataSourceRef: conversations
+            columnSpan: 2
+            properties:
+              fontSize: 16
+
+          - id: addNew
+            type: button
+            columnSpan: 1
+            properties:
+              icon: new-object
+              intent: primary
+              minimal: true
+            style:
+              justifySelf: end
+            on:
+              - event: onClick
+                handler: chat.newConversation
+
+      - id: conversationSection
+        chat:
+          dataSourceRef: messages
+          tools: ["search", "code"]
+          on:
+            - event: onSubmit
+              handler: chat.submitMessage
+            - event: onUpload
+              handler: chat.upload
+
+dataSource:
+  conversations: $import('../conversations/datasource/conversations.yaml')
+  messages: $import('../conversations/datasource/messages.yaml')

@@ -1,0 +1,105 @@
+- id: basics
+  title: Basics
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  items:
+    - id: id
+      label: ID
+      type: text
+    - id: icon
+      label: Icon (URL / name)
+      type: text
+
+    - id: name
+      label: Name
+      type: text
+
+    - id: description
+      label: Description
+      type: textarea
+      columnSpan: 2
+      properties:
+        rows: 2
+        cols: 100
+
+
+# -----------------------------------------------------------------------------
+# Configuration – execution parameters
+# -----------------------------------------------------------------------------
+- id: config
+  title: Configuration
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  items:
+    - id: modelRef
+      label: Model Ref
+      type: text
+
+    - id: temperature
+      label: Temperature
+      type: number
+      properties:
+        min: 0
+        max: 1
+        step: 0.01
+
+    - id: orchestrationFlow
+      label: Orchestration Flow (URL / Path)
+      type: text
+      columnSpan: 2
+
+# -----------------------------------------------------------------------------
+# Source – optional source code or URL
+# -----------------------------------------------------------------------------
+- id: source
+  title: Source
+  layout:
+    orientation: horizontal
+    columns: 1
+    labelPosition: top
+  items:
+    - id: source.url
+      label: Source URL
+      type: text
+
+# -----------------------------------------------------------------------------
+# Prompt template
+# -----------------------------------------------------------------------------
+- id: prompt
+  title: Prompt
+  layout:
+    orientation: horizontal
+    columns: 1
+    labelPosition: top
+  items:
+    - id: prompt
+      label: Prompt Template
+      type: textarea
+      columnSpan: 1
+      properties:
+        rows: 6
+        cols: 100
+
+- id: tools
+  title: Tools
+  dataSourceRef: agentTools
+  layout:
+    orientation: horizontal
+    columns: 2
+  containers:
+    # ---------------------------------------------------------------------
+    # Left side – table with all tool entries of the selected agent
+    # ---------------------------------------------------------------------
+    - id: toolsTable
+      table: $import('table/tools.yaml')
+      items: $import('form/tool_item.yaml')
+
+
+- id: knowledge
+  title: Knowledge
+  dataSourceRef: agentKnowledge
+  table: $import('table/knowledge.yaml')

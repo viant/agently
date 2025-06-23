@@ -12,6 +12,10 @@ import {AuthProvider, AuthContext} from './AuthContext';
 import {endpoints} from './endpoint';
 import {connectorConfig} from "./connector.js";
 import { chatService } from './services/chatService.js';
+import { modelService } from './services/modelService.js';
+import { mcpService } from './services/mcpService.js';
+import { agentService } from './services/agentService.js';
+import { toolService } from './services/toolService.js';
 
 const router = createBrowserRouter([
     {
@@ -28,6 +32,10 @@ const router = createBrowserRouter([
 
 const services = {
   chat: chatService,
+  model: modelService,
+  mcp: mcpService,
+  agent: agentService,
+  tool: toolService,
 };
 
 // We no longer pass a plain object as `authContext`. Instead we use a proper

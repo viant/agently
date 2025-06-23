@@ -1,9 +1,12 @@
 default:
-  model: o3
+  model: o4-mini
+  embedder: text
   agent: chat
 models:
-    url: models
+  url: models
+embedders:
+  url: embedders
 agents:
-    url: agents
+  url: agents
 services:
   - system/exec

@@ -7,11 +7,14 @@ import (
 	clientmcp "github.com/viant/agently/adapter/mcp"
 	"github.com/viant/agently/adapter/tool"
 	"github.com/viant/agently/genai/agent"
+	embedderprovider "github.com/viant/agently/genai/embedder/provider"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
 	"github.com/viant/agently/genai/memory"
 	convdao "github.com/viant/agently/internal/dao/conversation"
 	agentrepo "github.com/viant/agently/internal/repository/agent"
+	embedderrepo "github.com/viant/agently/internal/repository/embedder"
 	modelrepo "github.com/viant/agently/internal/repository/model"
+
 	"log"
 
 	"github.com/viant/afs"
@@ -38,7 +41,7 @@ func (e *Service) init(ctx context.Context) error {
 	// ------------------------------------------------------------------
 	// Step 1: defaults & validation
 	// ------------------------------------------------------------------
-	e.initDefaults()
+	e.initDefaults(ctx)
 	if err := e.config.Validate(); err != nil {
 		return err
 	}
@@ -96,17 +99,14 @@ func (e *Service) init(ctx context.Context) error {
 	orchestration, err := mcpsvc.New(ctx,
 		mcpsvc.WithConfig(mcpConfig),
 		mcpsvc.WithWorkflowOptions(wfOptions...),
-
+		mcpsvc.WithMcpErrorHandler(func(config *mcp.ClientOptions, err error) error {
+			fmt.Printf("mcp %v initialization error: %v\n", config.Name, err)
+			return nil
+		}),
 		mcpsvc.WithClientHandler(e.clientHandler),
 	)
 	if err != nil {
-		log.Printf("orchestration init warning: %v", err)
-		// Fallback to a minimal Fluxor service without external MCP integration.
-		fallbackSvc := fluxor.New(wfOptions...)
-		orchestration = &mcpsvc.Service{}
-		// Manually wire minimal workflow fields so downstream code still works.
-		orchestration.Workflow.Runtime = fallbackSvc.Runtime()
-		orchestration.Workflow.Service = fallbackSvc
+		return fmt.Errorf("failed to create orchestration service: %w", err)
 	}
 	e.orchestration = orchestration
 	if e.tools == nil {
@@ -124,12 +124,13 @@ func (e *Service) init(ctx context.Context) error {
 
 // initDefaults sets fall-back implementations for all dependencies that were
 // not provided through options.
-func (e *Service) initDefaults() {
+func (e *Service) initDefaults(ctx context.Context) {
 	if e.config == nil {
 		e.config = &Config{}
 	}
 	e.initModel()
-	e.initAgent()
+	e.initEmbedders()
+	e.initAgent(ctx)
 	e.initMcp()
 
 	if e.modelFinder == nil {
@@ -142,9 +143,6 @@ func (e *Service) initDefaults() {
 	}
 	if e.embedderFinder == nil {
 		e.embedderFinder = e.config.DefaultEmbedderFinder()
-	}
-	if e.agentFinder == nil {
-		e.agentFinder = e.config.DefaultAgentFinder()
 	}
 
 }
@@ -170,6 +168,32 @@ func (e *Service) initModel() {
 			}
 			if !dup {
 				e.config.Model.Items = append(e.config.Model.Items, cfg)
+			}
+		}
+	}
+}
+
+func (e *Service) initEmbedders() {
+	// merge model repo first so DefaultModelFinder sees them
+	if e.config.Embedder == nil {
+		e.config.Embedder = &mcpcfg.Group[*embedderprovider.Config]{}
+	}
+	repo := embedderrepo.New(afs.New())
+	if names, err := repo.List(context.Background()); err == nil {
+		for _, n := range names {
+			cfg, err := repo.Load(context.Background(), n)
+			if err != nil || cfg == nil {
+				continue
+			}
+			dup := false
+			for _, ex := range e.config.Embedder.Items {
+				if ex != nil && ex.ID == cfg.ID {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				e.config.Embedder.Items = append(e.config.Embedder.Items, cfg)
 			}
 		}
 	}
@@ -226,15 +250,19 @@ func (e *Service) initMcp() {
 
 }
 
-func (e *Service) initAgent() {
+func (e *Service) initAgent(ctx context.Context) {
 	// Merge agent repo into config.Agent.Group if not duplicates by ID
 	if e.config.Agent == nil {
 		e.config.Agent = &mcpcfg.Group[*agent.Agent]{}
 	}
-	arepo := agentrepo.New(afs.New())
-	if names, err := arepo.List(context.Background()); err == nil {
+	if e.agentFinder == nil {
+		e.agentFinder = e.config.DefaultAgentFinder()
+	}
+
+	agentRepo := agentrepo.New(afs.New())
+	if names, err := agentRepo.List(context.Background()); err == nil {
 		for _, n := range names {
-			a, err := arepo.Load(context.Background(), n)
+			a, err := e.agentFinder.Find(ctx, n)
 			if err != nil || a == nil {
 				continue
 			}

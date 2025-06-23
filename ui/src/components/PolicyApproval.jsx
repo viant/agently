@@ -86,10 +86,10 @@ export default function PolicyApproval({ message, context }) {
       <div className={Classes.DIALOG_FOOTER}>
         <div className={Classes.DIALOG_FOOTER_ACTIONS}>
           {submitting && <Spinner size={16} />}
-          <Button minimal onClick={onDecline} disabled={submitting}>
+          <Button  onClick={onDecline} disabled={submitting}>
             Decline
           </Button>
-          <Button minimal onClick={onCancel} disabled={submitting}>
+          <Button  onClick={onCancel} disabled={submitting}>
             Cancel
           </Button>
           <Button intent="primary" onClick={onAccept} disabled={submitting}>

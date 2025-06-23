@@ -44,7 +44,9 @@ type PlanOutput struct {
 func (s *Service) plan(ctx context.Context, in, out interface{}) error {
 	input := in.(*PlanInput)
 	output := out.(*PlanOutput)
-	return s.Plan(ctx, input, output)
+
+	err := s.Plan(ctx, input, output)
+	return err
 }
 
 // Plan generates a structured Plan based on the provided input.

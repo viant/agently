@@ -1,0 +1,12 @@
+namespace: ChatHistory
+
+view:
+  content:
+    containers:
+      - id: historyTable
+        title: Past Conversations
+        dataSourceRef: history
+        table: $import('table/history.yaml')
+
+dataSource:
+  history: $import('datasource/history.yaml')

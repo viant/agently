@@ -15,8 +15,8 @@ type QueryInput struct {
 	// Optional client-supplied identifier for the user message. When empty the
 	// service will generate a UUID.
 	MessageID       string       `json:"messageId,omitempty"`
-	Location        string       `json:"location"`        // Path to the agent configuration
-	Agent           *agent.Agent `json:"agent"`           // Agent to use (alternative to Location)
+	AgentName       string       `json:"agentName"`       // Path to the agent configuration
+	Agent           *agent.Agent `json:"agent"`           // Agent to use (alternative to AgentName)
 	Query           string       `json:"query"`           // The query to submit
 	MaxResponseSize int          `json:"maxResponseSize"` // Maximum size of the response in bytes
 	MaxDocuments    int          `json:"maxDocuments"`    // Maximum number of documents to retrieve

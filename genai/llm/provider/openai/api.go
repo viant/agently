@@ -6,12 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/viant/agently/genai/llm"
 )
 
 func (c *Client) Implements(feature string) bool {

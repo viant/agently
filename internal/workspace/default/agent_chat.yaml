@@ -1,9 +1,11 @@
-agent:
-  id: chat
-  name: Chat
-  description: Default conversational agent
-  modelRef: o4-mini
-  temperature: 0.0
-  orchestrationFlow:  workflows/orchestration.yaml
-  tool:
-    - pattern: system/exec
+id: chat
+name: chat
+description: Default conversational agent
+modelRef: o4-mini
+temperature: 0.0
+orchestrationFlow:  workflows/orchestration.yaml
+tool:
+  - pattern: system/exec
+
+knowledge:
+  - url: knowledge/

@@ -1,0 +1,22 @@
+items:
+  # Refresh list of models
+  - id: refresh
+    icon: refresh
+    align: left
+
+  # Create a new model
+  - id: addNew
+    icon: new-object
+    align: left
+    on:
+     - event: onReadonly
+       handler: dataSource.noSelection
+     - event: onClick
+       handler: dataSource.handleAddNew
+
+  - id: saveModel
+    icon: floppy-disk
+    align: left
+    on:
+      - event: onClick
+        handler: model.saveModel

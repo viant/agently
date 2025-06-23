@@ -6,5 +6,5 @@ type // Knowledge represents a knowledge base
 Knowledge struct {
 	Description string          `yaml:"description,omitempty" json:"description,omitempty"`
 	Match       *option.Options `json:"match,omitempty"` // Optional matching options
-	URL         string          `yaml:"Paths,omitempty" json:"Paths,omitempty"`
+	URL         string          `yaml:"url,omitempty" json:"url,omitempty"`
 }

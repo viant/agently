@@ -38,8 +38,8 @@ func (s *Service) getDBPath() string {
 	return s.dbDSN
 }
 
-func (s *Service) AddMessage(ctx context.Context, convID string, msg memory.Message) error {
-
+func (s *Service) AddMessage(ctx context.Context, msg memory.Message) error {
+	convID := msg.ConversationID
 	if msg.ID == "" {
 		msg.ID = uuid.New().String()
 	}
@@ -108,9 +108,10 @@ func (s *Service) GetMessages(ctx context.Context, convID string) ([]memory.Mess
 		var messages []memory.Message
 		for _, view := range result.Data {
 			messages = append(messages, memory.Message{
-				ID:      view.Id,
-				Role:    view.Role,
-				Content: view.Content,
+				ID:             view.Id,
+				Role:           view.Role,
+				Content:        view.Content,
+				ConversationID: convID,
 			})
 		}
 		return messages, nil
@@ -138,8 +139,9 @@ func (s *Service) GetMessages(ctx context.Context, convID string) ([]memory.Mess
 		}
 
 		message := memory.Message{
-			Role:    role,
-			Content: content,
+			Role:           role,
+			Content:        content,
+			ConversationID: convID,
 		}
 		if toolName != nil {
 			message.ToolName = toolName
@@ -167,18 +169,25 @@ func (s *Service) Retrieve(ctx context.Context, convID string, policy memory.Pol
 	return messages, nil
 }
 
-// UpdateMessage updates a single message by id within the specified
-// conversation. The default implementation is best-effort: it loads the
-// current messages via GetMessages, applies the mutator in-memory and writes
-// back only when the underlying storage supports updates. For the current
-// SQLite/Datly setup we fall back to a direct SQL UPDATE when dbDSN is
-// configured; otherwise the call is a no-op so that in-memory unit tests still
-// satisfy the interface.
+// UpdateMessage updates a single message by id across all conversations.
+// The default implementation is best-effort: it loads the message via LookupMessage,
+// applies the mutator in-memory and writes back only when the underlying storage
+// supports updates. For the current SQLite/Datly setup we fall back to a direct
+// SQL UPDATE when dbDSN is configured; otherwise the call is a no-op so that
+// in-memory unit tests still satisfy the interface.
 
-func (s *Service) UpdateMessage(ctx context.Context, convID, id string, mutate func(*memory.Message)) error {
+func (s *Service) UpdateMessage(ctx context.Context, messageId string, mutate func(*memory.Message)) error {
 	if mutate == nil {
 		return nil
 	}
+
+	// First, try to find the message to get its conversation ID
+	msg, err := s.LookupMessage(ctx, messageId)
+	if err != nil || msg == nil {
+		return err
+	}
+
+	convID := msg.ConversationID
 
 	// When direct DB available attempt update on executions / status / etc.
 	if s.getDBPath() != "" {
@@ -188,14 +197,14 @@ func (s *Service) UpdateMessage(ctx context.Context, convID, id string, mutate f
 		}
 		// Load current JSON cols (content, status, callbackURL, etc.)
 		var role, content, status, callback string
-		err = db.QueryRowContext(ctx, "SELECT role, content, status, callback_url FROM message WHERE id = ? AND conversation_id = ?", id, convID).Scan(&role, &content, &status, &callback)
+		err = db.QueryRowContext(ctx, "SELECT role, content, status, callback_url FROM message WHERE id = ?", messageId).Scan(&role, &content, &status, &callback)
 		if err != nil {
 			return err
 		}
-		m := memory.Message{ID: id, Role: role, Content: content, Status: status, CallbackURL: callback}
+		m := memory.Message{ID: messageId, Role: role, Content: content, Status: status, CallbackURL: callback, ConversationID: convID}
 		mutate(&m)
 
-		_, err = db.ExecContext(ctx, "UPDATE message SET status = ? WHERE id = ? AND conversation_id = ?", m.Status, id, convID)
+		_, err = db.ExecContext(ctx, "UPDATE message SET status = ? WHERE id = ?", m.Status, messageId)
 		return err
 	}
 
@@ -203,60 +212,112 @@ func (s *Service) UpdateMessage(ctx context.Context, convID, id string, mutate f
 	return nil
 }
 
-// Removed LatestToolMessageID – use LatestMessage instead (conversation
-// independent) or perform custom scan where needed.
-
-// LatestToolMessage returns the most recent tool message across all
-// conversations in the DB.
-func (s *Service) LatestMessage(ctx context.Context) (string, *memory.Message, error) {
-	// We rely on ListIDs if implemented; otherwise perform SQL query.
-
-	var convIDs []string
-	if lister, ok := interface{}(s).(interface {
-		ListIDs(ctx context.Context) ([]string, error)
-	}); ok {
-		ids, err := lister.ListIDs(ctx)
-		if err == nil {
-			convIDs = ids
-		}
+// LookupMessage scans the specified conversation store for a message with the
+// given ID. When the underlying repository is backed by a SQL database we
+// perform a direct SELECT to avoid loading full message history. When no DB
+// connection is available we fall back to iterating over messages returned by
+// GetMessages. The returned Message is a standalone copy (mutating it will
+// not modify the store) and may be nil when not found.
+func (s *Service) LookupMessage(ctx context.Context, messageID string) (*memory.Message, error) {
+	if messageID == "" {
+		return nil, nil
 	}
 
-	// If ListIDs not available, attempt DB query
-	if len(convIDs) == 0 && s.getDBPath() != "" {
+	// Fast path: direct DB query when sqlite is configured.
+	if s.getDBPath() != "" {
 		db, err := sql.Open("sqlite3", s.getDBPath())
 		if err == nil {
-			rows, err2 := db.QueryContext(ctx, "SELECT DISTINCT conversation_id FROM conversation")
-			if err2 == nil {
+			defer db.Close()
+			var (
+				convID, role, content, status, callback sql.NullString
+			)
+			err = db.QueryRowContext(ctx, "SELECT conversation_id, role, content, status, callback_url FROM message WHERE id = ?", messageID).
+				Scan(&convID, &role, &content, &status, &callback)
+			if err == sql.ErrNoRows {
+				return nil, nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			msg := memory.Message{
+				ID:             messageID,
+				ConversationID: convID.String,
+				Role:           role.String,
+				Content:        content.String,
+				Status:         status.String,
+				CallbackURL:    callback.String,
+			}
+			return &msg, nil
+		}
+		// fallback to slower path on error
+	}
+
+	// Fallback: iterate over all conversations via GetConversationIDs + GetMessages.
+	ids, err := s.GetConversationIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, cid := range ids {
+		msgs, _ := s.GetMessages(ctx, cid)
+		for _, m := range msgs {
+			if m.ID == messageID {
+				copy := m
+				return &copy, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// GetConversationIDs returns all conversation IDs from the database
+func (s *Service) GetConversationIDs(ctx context.Context) ([]string, error) {
+	var convIDs []string
+
+	// Attempt DB query to get conversation IDs
+	if s.getDBPath() != "" {
+		db, err := sql.Open("sqlite3", s.getDBPath())
+		if err == nil {
+			defer db.Close()
+			rows, err := db.QueryContext(ctx, "SELECT DISTINCT conversation_id FROM conversation")
+			if err == nil {
+				defer rows.Close()
 				for rows.Next() {
 					var id string
-					_ = rows.Scan(&id)
-					convIDs = append(convIDs, id)
+					if err := rows.Scan(&id); err == nil {
+						convIDs = append(convIDs, id)
+					}
 				}
-				rows.Close()
+				return convIDs, nil
 			}
-			db.Close()
 		}
 	}
 
-	var latestConv string
+	// Fallback: return empty list if DB query fails
+	return []string{}, nil
+}
+
+// LatestMessage returns the most recent message across all conversations in the DB.
+func (s *Service) LatestMessage(ctx context.Context) (*memory.Message, error) {
+	// Get all conversation IDs
+	convIDs, err := s.GetConversationIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	var latestMsg *memory.Message
 	var latestTime time.Time
 	for _, cid := range convIDs {
 		msgs, _ := s.GetMessages(ctx, cid)
 		for i := len(msgs) - 1; i >= 0; i-- {
 			m := msgs[i]
-			if m.Role == "tool" || m.ToolName != nil || len(m.Executions) > 0 {
-				if latestMsg == nil || m.CreatedAt.After(latestTime) {
-					latestConv = cid
-					tmp := m
-					latestMsg = &tmp
-					latestTime = m.CreatedAt
-				}
-				break
+			if latestMsg == nil || m.CreatedAt.After(latestTime) {
+				tmp := m
+				latestMsg = &tmp
+				latestTime = m.CreatedAt
 			}
 		}
 	}
-	return latestConv, latestMsg, nil
+	return latestMsg, nil
 }
 
 func (s *Service) init(ctx context.Context) error {

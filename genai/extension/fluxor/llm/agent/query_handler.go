@@ -85,8 +85,8 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 // ensureAgent populates qi.Agent (using finder when needed) and echoes it on
 // qo.Agent for caller convenience.
 func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput, qo *QueryOutput) error {
-	if qi.Agent == nil && qi.Location != "" {
-		a, err := s.agentFinder.Find(ctx, qi.Location)
+	if qi.Agent == nil && qi.AgentName != "" {
+		a, err := s.agentFinder.Find(ctx, qi.AgentName)
 		if err != nil {
 			return fmt.Errorf("failed to load agent: %w", err)
 		}
@@ -108,7 +108,7 @@ func (s *Service) conversationID(qi *QueryInput) string {
 	if qi.ConversationID != "" {
 		return qi.ConversationID
 	}
-	return qi.Location
+	return qi.AgentName
 }
 
 // addMessage appends a new message to the conversation history. When
@@ -122,8 +122,8 @@ func (s *Service) addMessage(ctx context.Context, convID, role, content, id stri
 	if id == "" {
 		id = uuid.New().String()
 	}
-	msg := memory.Message{ID: id, ParentID: parentId, Role: role, Content: content}
-	err := s.history.AddMessage(ctx, convID, msg)
+	msg := memory.Message{ID: id, ParentID: parentId, Role: role, Content: content, ConversationID: convID}
+	err := s.history.AddMessage(ctx, msg)
 	return msg.ID, err
 }
 
@@ -356,14 +356,15 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 	}
 	parentID := memory.MessageIDFromContext(ctx)
 	msg := memory.Message{
-		ID:          uuid.New().String(),
-		ParentID:    parentID,
-		Role:        "assistant",
-		Content:     elic.Message,
-		Elicitation: elic,
-		CreatedAt:   time.Now(),
+		ID:             uuid.New().String(),
+		ParentID:       parentID,
+		ConversationID: convID,
+		Role:           "assistant",
+		Content:        elic.Message,
+		Elicitation:    elic,
+		CreatedAt:      time.Now(),
 	}
-	if err := s.history.AddMessage(ctx, convID, msg); err != nil {
+	if err := s.history.AddMessage(ctx, msg); err != nil {
 		log.Printf("warn: cannot record elicitation message: %v", err)
 	}
 }

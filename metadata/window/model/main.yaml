@@ -1,0 +1,23 @@
+namespace: ModelsList
+
+view:
+  content:
+    layout:
+      orientation: horizontal
+      columns: 2
+      divider:
+        sizes: [30,68]
+
+    containers:
+      - id: modelsTable
+        title: Models
+        dataSourceRef: models
+        table: $import('table/models.yaml')
+      - id: data
+        dataSourceRef: models
+        tabs:
+          vertical: false
+        containers: $import('form.yaml')
+
+dataSource:
+  models: $import('datasource/models.yaml')

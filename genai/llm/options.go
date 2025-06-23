@@ -1,7 +1,5 @@
 package llm
 
-// import "github.com/viant/mcp/schema" // removed: use llm.Tool instead
-
 type Options struct {
 	// Model is the model to use.
 	Model string `json:"model"`

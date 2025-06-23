@@ -24,6 +24,7 @@ func (s *Service) retrieveRelevantDocuments(ctx context.Context, input *QueryInp
 	for _, knowledge := range input.Agent.Knowledge {
 		augmenterInput.Locations = []string{knowledge.URL}
 		augmenterInput.Match = knowledge.Match
+		augmenterInput.Model = s.defaults.Embedder
 
 		// Use augmenter to get relevant documents
 		augmenterOutput := &augmenter.AugmentDocsOutput{}

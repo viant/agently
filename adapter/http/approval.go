@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -99,8 +100,8 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 					// As a fallback pick the latest active conversation so that the
 					// user still receives the approval prompt even if we cannot
 					// attribute it perfectly.
-					if cid, _, err := mgr.History().LatestMessage(ctx); err == nil && cid != "" {
-						convID = cid
+					if msg, err := mgr.History().LatestMessage(ctx); err == nil && msg != nil {
+						convID = msg.ConversationID
 					}
 				}
 
@@ -112,26 +113,28 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 
 				// Determine parentId so the UI poll (parentId=…) sees the prompt.
 				parentID := ""
-				if _, lastMsg, err := mgr.History().LatestMessage(ctx); err == nil && lastMsg != nil {
+				if lastMsg, err := mgr.History().LatestMessage(ctx); err == nil && lastMsg != nil {
 					parentID = lastMsg.ID
 					if lastMsg.ParentID != "" {
 						parentID = lastMsg.ParentID
 					}
 				}
 				m := memory.Message{
-					ID:       req.ID,
-					ParentID: parentID,
-					Role:     "policyapproval",
-					Status:   "open",
+					ID:             req.ID,
+					ParentID:       parentID,
+					ConversationID: convID,
+					Role:           "policyapproval",
+					Status:         "open",
 					PolicyApproval: &memory.PolicyApproval{
 						Tool:   req.Action,
 						Args:   parseArgs(req.Args),
 						Reason: "",
 					},
-					CallbackURL: "/approval/" + req.ID,
+					// Relative callback path (the Forge UI prefixes /v1/api automatically).
+					CallbackURL: "approval/" + req.ID,
 				}
 
-				if err := mgr.History().AddMessage(ctx, convID, m); err != nil {
+				if err := mgr.History().AddMessage(ctx, m); err != nil {
 					log.Printf("approval bridge add message error: %v", err)
 				} else {
 					id2conv[req.ID] = convID
@@ -163,12 +166,13 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 					}
 				}
 
+				fmt.Println("convID:", convID)
 				if convID != "" {
 					newStatus := "declined"
 					if dec.Approved {
 						newStatus = "done"
 					}
-					_ = mgr.History().UpdateMessage(ctx, convID, dec.ID, func(m *memory.Message) {
+					_ = mgr.History().UpdateMessage(ctx, dec.ID, func(m *memory.Message) {
 						m.Status = newStatus
 						if m.PolicyApproval != nil {
 							m.PolicyApproval.Reason = dec.Reason

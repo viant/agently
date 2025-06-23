@@ -4,6 +4,7 @@ import (
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/agent"
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
+	"github.com/viant/agently/genai/executor/config"
 	agentfinder "github.com/viant/agently/internal/finder/agent"
 	embedderfinder "github.com/viant/agently/internal/finder/embedder"
 	agentloader "github.com/viant/agently/internal/loader/agent"
@@ -21,11 +22,6 @@ import (
 	"github.com/viant/mcp"
 )
 
-type Default struct {
-	Model string
-	Agent string
-}
-
 type Config struct {
 	BaseURL      string                                  `yaml:"baseUrl" json:"baseUrl" `
 	Agent        *mcpcfg.Group[*agent.Agent]             `yaml:"agents" json:"agents"`
@@ -33,7 +29,7 @@ type Config struct {
 	Embedder     *mcpcfg.Group[*embedderprovider.Config] `yaml:"embedders" json:"embedders" `
 	MCP          *mcpcfg.Group[*mcp.ClientOptions]       `yaml:"mcp" json:"mcp"`
 	DAOConnector *view.DBConfig                          `yaml:"daoConfig" json:"daoConfig" `
-	Default      Default                                 `yaml:"default" json:"default"`
+	Default      config.Defaults                         `yaml:"default" json:"default"`
 
 	ToolRetries int
 	//
@@ -47,7 +43,7 @@ func (c *Config) Meta() *meta.Service {
 	}
 	baseURL := c.BaseURL
 	if baseURL == "" {
-		// Default to the centralised workspace root when caller did not
+		// Defaults to the centralised workspace root when caller did not
 		// specify a BaseURL explicitly.
 		baseURL = workspace.Root()
 	}

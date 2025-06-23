@@ -39,7 +39,8 @@ func (s *Service) runPlan(ctx context.Context, in, out interface{}) error {
 	input := in.(*RunPlanInput)
 	output := out.(*RunPlanOutput)
 	output.Results = input.Results
-	return s.RunPlan(ctx, input, output)
+	err := s.RunPlan(ctx, input, output)
+	return err
 }
 
 func (s *Service) RunPlan(ctx context.Context, input *RunPlanInput, output *RunPlanOutput) error {
@@ -77,7 +78,6 @@ func (s *Service) RunPlan(ctx context.Context, input *RunPlanInput, output *RunP
 	// If planner indicated non-empty elicitation at plan level, propagate immediately.
 	if e := input.Plan.Elicitation; e != nil && len(input.Plan.Steps) == 0 && !e.IsEmpty() {
 		output.Elicitation = e
-		fmt.Printf("Elicitation: %v\n", e)
 		return nil
 	}
 

@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"github.com/viant/afs/file"
+	"github.com/viant/afs/url"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/internal/shared"
 	"github.com/viant/agently/internal/workspace"
@@ -77,16 +79,19 @@ func (s *Service) Lookup(ctx context.Context, name string) (*agent.Agent, error)
 }
 
 // Load loads an agent from the specified URL
-func (s *Service) Load(ctx context.Context, URL string) (*agent.Agent, error) {
-	// When caller supplies a bare agent name (no path, no extension) – assume
-	// standard workspace layout: <root>/agents/<name>.yaml.
-	if !strings.Contains(URL, "/") && filepath.Ext(URL) == "" {
-		URL = filepath.Join(workspace.KindAgent, URL)
+func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agent.Agent, error) {
+	URL := nameOrLocation
+	if !strings.Contains(URL, "/") && filepath.Ext(nameOrLocation) == "" {
+		URL = filepath.Join(workspace.KindAgent, nameOrLocation, nameOrLocation)
 	}
 
 	ext := filepath.Ext(URL)
 	if ext == "" {
 		URL += s.defaultExtension
+	}
+
+	if url.IsRelative(URL) {
+		URL = s.metaService.GetURL(URL)
 	}
 
 	var node yaml.Node
@@ -99,7 +104,6 @@ func (s *Service) Load(ctx context.Context, URL string) (*agent.Agent, error) {
 			URL: URL,
 		},
 	}
-
 	// Parse the YAML into our agent model
 	if err := s.parseAgent((*yml.Node)(&node), anAgent); err != nil {
 		return nil, fmt.Errorf("failed to parse agent from %s: %w", URL, err)
@@ -110,10 +114,23 @@ func (s *Service) Load(ctx context.Context, URL string) (*agent.Agent, error) {
 		anAgent.Name = getAgentNameFromURL(URL)
 	}
 
+	for i := range anAgent.Knowledge {
+		knowledge := anAgent.Knowledge[i]
+		if knowledge.URL == "" {
+			return nil, fmt.Errorf("agent %v knowledge URL is empty", anAgent.Name)
+		}
+		if url.IsRelative(knowledge.URL) {
+			parentURL, _ := url.Split(URL, file.Scheme)
+			anAgent.Knowledge[i].URL = url.Join(parentURL, knowledge.URL)
+		}
+		anAgent.Knowledge[i].URL = url.Path(anAgent.Knowledge[i].URL)
+	}
+
 	// Validate agent
 	if err := anAgent.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid agent configuration from %s: %w", URL, err)
 	}
+
 	s.agents.Set(anAgent.Name, anAgent)
 	return anAgent, nil
 }
@@ -138,7 +155,6 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 	if err != nil {
 		return err
 	}
-
 	if agentNode == nil {
 		agentNode = rootNode // Use the root node if no "agent" node is found
 	}
@@ -255,7 +271,7 @@ func parseKnowledge(node *yml.Node) (*agent.Knowledge, error) {
 			if valueNode.Kind == yaml.ScalarNode {
 				knowledge.Description = valueNode.Value
 			}
-		case "locations":
+		case "locations", "url":
 			switch valueNode.Kind {
 			case yaml.ScalarNode:
 				knowledge.URL = valueNode.Value

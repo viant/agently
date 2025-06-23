@@ -20,7 +20,7 @@
     - id: list
       label: Catalogue
       icon: list
-      windowKey: agent/list
+      windowKey: agent
       windowTitle: Agent Catalogue
 
 - id: workflows
@@ -30,7 +30,7 @@
     - id: list
       label: Catalogue
       icon: list
-      windowKey: workflow/list
+      windowKey: workflow
       windowTitle: Workflow Catalogue
 
 - id: models
@@ -40,7 +40,7 @@
     - id: list
       label: Catalogue
       icon: database
-      windowKey: model/list
+      windowKey: model
       windowTitle: Models Catalogue
 
 - id: mcp
@@ -50,5 +50,5 @@
     - id: list
       label: Servers
       icon: database
-      windowKey: mcp/list
+      windowKey: mcp
       windowTitle: MCP Servers

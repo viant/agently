@@ -83,9 +83,10 @@ func TestService(t *testing.T) {
 	srv.db = db
 
 	// Add a test message
-	err = srv.AddMessage(context.Background(), convID, memory.Message{
-		Role:    "user",
-		Content: "hello world",
+	err = srv.AddMessage(context.Background(), memory.Message{
+		Role:           "user",
+		Content:        "hello world",
+		ConversationID: convID,
 	})
 	if !assert.Nil(t, err) {
 		t.Error("expected no error when adding message")

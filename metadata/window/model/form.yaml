@@ -1,0 +1,161 @@
+# ----------------------------------------------------------------------------
+# Model configuration form – aligned with genai/llm/provider/config.go
+# ----------------------------------------------------------------------------
+# The UI is divided into logical groups that closely mirror the provider.Config
+# structure and its nested Options struct so that every visible control maps
+# 1-to-1 to an actual configuration field.
+# ----------------------------------------------------------------------------
+- id: basics
+  title: Basics
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  items:
+    # Provider information ---------------------------------------------------
+    - id: provider
+      bindingPath: options.provider
+      columnSpan: 2
+      label: Provider
+      type: select
+      options:
+        - value: bedrock/claude
+          label: AWS Bedrock (Claude)
+        - value: gemini
+          label: Gemini AI
+        - value: inceptionlabs
+          label: Inception Labs
+        - value: ollama
+          label: Ollama
+        - value: openai
+          label: OpenAI
+        - value: vertex/claude
+          label: Vertex AI (Claude)
+        - value: vertexai
+          label: Vertex AI
+
+    # Model identity ---------------------------------------------------------
+    - id: id
+      label: ID
+      type: text
+
+    - id: model
+      bindingPath: options.model
+      label: Model
+      type: text
+
+    - id: description
+      label: Description
+      type: textarea
+      columnSpan: 2
+      properties:
+        rows: 2
+        cols: 100
+
+# ----------------------------------------------------------------------------
+# Performance indicators -----------------------------------------------------
+# ----------------------------------------------------------------------------
+- id: performance
+  title: Performance
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  items:
+    - id: intelligence
+      label: Intelligence
+      type: number
+      properties:
+        min: 0
+        max: 1
+        step: 0.05
+
+    - id: speed
+      label: Speed
+      type: number
+      properties:
+        min: 0
+        max: 1
+        step: 0.05
+
+# ----------------------------------------------------------------------------
+# Generation parameters – Options struct fields ------------------------------
+# ----------------------------------------------------------------------------
+- id: generation
+  title: Generation
+  layout:
+    orientation: horizontal
+    columns: 3
+    labelPosition: top
+  items:
+    - id: options.temperature
+      label: Temperature
+      type: number
+      properties:
+        min: 0
+        max: 1
+        step: 0.01
+
+    - id: options.maxTokens
+      label: Max Tokens
+      type: number
+
+    - id: options.topP
+      label: Top-P
+      type: number
+      properties:
+        min: 0
+        max: 1
+        step: 0.01
+
+# ----------------------------------------------------------------------------
+# Connectivity & Credentials -------------------------------------------------
+# ----------------------------------------------------------------------------
+- id: access
+  title: Access
+  layout:
+    orientation: grid
+    columns: 2
+    labelPosition: top
+  items:
+    - id: options.apiKeyURL
+      label: API-Key URL
+      type: text
+
+    - id: options.envKey
+      label: Environment Key
+      type: text
+
+    - id: options.credentialsURL
+      label: Credentials URL
+      type: text
+
+    - id: options.url
+      label: Endpoint URL
+      type: text
+
+    - id: options.projectID
+      label: Project ID
+      type: text
+
+    - id: options.region
+      label: Region
+      type: text
+
+# ----------------------------------------------------------------------------
+# Advanced – free-form metadata ---------------------------------------------
+# ----------------------------------------------------------------------------
+- id: meta
+  title: Meta
+  layout:
+    orientation: horizontal
+    columns: 1
+    labelPosition: top
+  items:
+    - id: options.meta
+      label: Metadata (YAML / JSON)
+      type: textarea
+      columnSpan: 1
+      properties:
+        rows: 4
+        cols: 100

@@ -51,11 +51,12 @@ func (m *Manager) Messages(ctx context.Context, convID string, parentId string) 
 		result = append(result, msg)
 		if exec, _ := m.executionStore.ListOutcome(ctx, convID, msg.ID); len(exec) > 0 {
 			result = append(result, memory.Message{
-				ID:         msg.ID + "/1",
-				ParentID:   parentId,
-				Role:       "tool",
-				Executions: exec,
-				CreatedAt:  msg.CreatedAt.Add(time.Second),
+				ID:             msg.ID + "/1",
+				ConversationID: msg.ConversationID,
+				ParentID:       parentId,
+				Role:           "tool",
+				Executions:     exec,
+				CreatedAt:      msg.CreatedAt.Add(time.Second),
 			})
 		}
 	}
@@ -161,11 +162,12 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 	if err := m.handler(ctx, input, &output); err != nil {
 		// Persist error as a synthetic system message so that callers
 		// polling the history can surface the failure.
-		_ = m.history.AddMessage(ctx, input.ConversationID, memory.Message{
-			ID:        uuid.NewString(),
-			Role:      "system",
-			Content:   "Error: " + err.Error(),
-			CreatedAt: time.Now(),
+		_ = m.history.AddMessage(ctx, memory.Message{
+			ID:             uuid.NewString(),
+			ConversationID: input.ConversationID,
+			Role:           "system",
+			Content:        "Error: " + err.Error(),
+			CreatedAt:      time.Now(),
 		})
 		return nil, err
 	}

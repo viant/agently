@@ -1,0 +1,23 @@
+items:
+  # Refresh list of agents
+  - id: refresh
+    icon: refresh
+    align: left
+
+  # Create a new agent
+  - id: addNew
+    icon: new-object
+    align: left
+    on:
+     - event: onReadonly
+       handler: dataSource.noSelection
+     - event: onClick
+       handler: dataSource.handleAddNew
+
+  # Persist changes
+  - id: saveAgent
+    icon: floppy-disk
+    align: left
+    on:
+      - event: onClick
+        handler: agent.saveAgent

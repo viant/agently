@@ -23,7 +23,7 @@ import (
 
 // ChatCmd handles interactive/chat queries.
 type ChatCmd struct {
-	Location  string `short:"l" long:"location" description:"agent definition path"`
+	AgentName string `short:"l" long:"agent-name" description:"agent name"`
 	Query     string `short:"q" long:"query"    description:"user query"`
 	ConvID    string `short:"c" long:"conv"     description:"conversation ID (optional)"`
 	Policy    string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
@@ -63,8 +63,8 @@ func (cliInteractionHandler) Accept(ctx context.Context, el *plan.Elicitation) (
 
 func (c *ChatCmd) Execute(_ []string) error {
 	// Fallbacks -------------------------------------------------------
-	if c.Location == "" {
-		c.Location = "chat" // default agent shipped with embedded config
+	if c.AgentName == "" {
+		c.AgentName = "chat" // default agent shipped with embedded config
 	}
 
 	// Reset logs if requested ------------------------------------------------------
@@ -184,7 +184,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 		ctx = withFluxorPolicy(ctx, fluxPol)
 		resp, err := svc.Chat(ctx, service.ChatRequest{
 			ConversationID: convID,
-			AgentPath:      c.Location,
+			AgentPath:      c.AgentName,
 			Query:          userQuery,
 			Timeout:        time.Duration(c.Timeout) * time.Second,
 		})

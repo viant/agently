@@ -1,0 +1,23 @@
+items:
+  # Refresh list of MCP servers
+  - id: refresh
+    icon: refresh
+    align: left
+
+  # Create a new MCP server entry
+  - id: addNew
+    icon: new-object
+    align: left
+    on:
+     - event: onReadonly
+       handler: dataSource.noSelection
+     - event: onClick
+       handler: dataSource.handleAddNew
+
+  # Persist changes
+  - id: saveServer
+    icon: floppy-disk
+    align: left
+    on:
+      - event: onClick
+        handler: mcp.saveServer

@@ -15,10 +15,10 @@ require (
 	github.com/viant/afs v1.26.2
 	github.com/viant/afsc v1.9.1
 	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
-	github.com/viant/embedius v0.0.0-20250503233925-d6900657ff75
-	github.com/viant/fluxor v0.1.15
-	github.com/viant/fluxor-mcp v0.1.8-0.20250617113512-1fce9a73ea5c
-	github.com/viant/forge v0.2.6
+	github.com/viant/embedius v0.1.0
+	github.com/viant/fluxor v0.1.16-0.20250623160932-0b8e90fda3a1
+	github.com/viant/fluxor-mcp v0.1.8
+	github.com/viant/forge v0.2.7-0.20250623174808-6fdff033f09e
 	github.com/viant/jsonrpc v0.7.2
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.4.3
@@ -107,6 +107,7 @@ require (
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.3 // indirect
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82 // indirect
+	github.com/sourcegraph/go-diff v0.7.0 // indirect
 	github.com/viant/aerospike v0.2.11-0.20241108195857-ed524b97800d // indirect
 	github.com/viant/bigquery v0.4.1 // indirect
 	github.com/viant/bindly v0.1.0 // indirect

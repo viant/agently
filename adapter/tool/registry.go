@@ -69,7 +69,8 @@ func (r *Registry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 	for _, n := range patterns {
 		matchedTools := r.MatchDefinition(n)
 		if len(matchedTools) == 0 {
-			return nil, fmt.Errorf("tool %q not found", n)
+			//TODO introduce UI agnostie warning
+			fmt.Printf("[WARN] tool %q not found\n", n)
 		}
 		for _, matchedTool := range matchedTools {
 			ret = append(ret, llm.Tool{Type: "function", Definition: *matchedTool})

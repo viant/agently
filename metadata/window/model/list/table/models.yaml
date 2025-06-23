@@ -1,5 +1,0 @@
-columns:
-  - id: id
-    name: Model ID
-  - id: description
-    name: Description

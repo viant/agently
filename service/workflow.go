@@ -33,7 +33,7 @@ type WorkflowResponse struct {
 	Usage  *usage.Aggregator
 }
 
-// ExecuteWorkflow loads the workflow located at req.Location and executes it
+// ExecuteWorkflow loads the workflow located at req.AgentName and executes it
 // using the shared runtime. When TaskID is empty the entire workflow is run;
 // otherwise only the specified task is executed. The method waits until
 // completion or timeout.

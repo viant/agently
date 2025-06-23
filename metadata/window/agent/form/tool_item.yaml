@@ -1,0 +1,15 @@
+
+  # -------------------------------------------------------------------------
+  # Human readable name shown in the UI. Stored inside `tool[].definition.name`.
+  # -------------------------------------------------------------------------
+  - id: definition.name
+    bindingPath: definition.name  # nested path inside the tool object
+    label: Name
+    type: text
+
+  # -------------------------------------------------------------------------
+  # Pattern that resolves to an actual fluxor tool implementation.
+  # -------------------------------------------------------------------------
+  - id: pattern
+    label: Pattern
+    type: text

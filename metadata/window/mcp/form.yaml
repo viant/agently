@@ -1,0 +1,77 @@
+# ----------------------------------------------------------------------------
+# Model configuration form – aligned with genai/llm/provider/config.go
+# ----------------------------------------------------------------------------
+# The UI is divided into logical groups that closely mirror the provider.Config
+# structure and its nested Options struct so that every visible control maps
+# 1-to-1 to an actual configuration field.
+# ----------------------------------------------------------------------------
+- id: basics
+  title: Basics
+  layout:
+    orientation: horizontal
+    columns: 1
+    labelPosition: top
+  items:
+    - id: name
+      label: Name
+      type: text
+    - id: version
+      label: Version
+      type: text
+    - id: protocolVersion
+      label: Protocol Version
+      type: text
+    - id: namespace
+      label: Namespace
+      type: text
+
+- id: transport
+  title: Transport
+  layout:
+    orientation: horizontal
+    columns: 1
+    labelPosition: top
+  items:
+    - id: transport.type
+      label: Type
+      type: select
+      options:
+        - value: stdio
+          label: stdio
+        - value: sse
+          label: sse
+        - value: streaming
+          label: streaming
+    - id: transport.command
+      label: Command
+      type: text
+    - id: transport.arguments
+      label: Arguments (space separated)
+      type: textarea
+      columnSpan: 2
+    - id: transport.url
+      label: URL
+      type: text
+      columnSpan: 2
+
+- id: auth
+  title: Auth
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  items:
+    - id: auth.oauth2ConfigURL
+      label: OAuth2 Config URLs (one per line)
+      type: textarea
+      columnSpan: 2
+    - id: auth.encryptionKey
+      label: Encryption Key
+      type: password
+      columnSpan: 2
+    - id: auth.useIdToken
+      label: Use ID Token
+      type: checkbox
+    - id: auth.backendForFrontend
+      label: Backend-for-Frontend
+      type: checkbox

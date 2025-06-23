@@ -35,22 +35,8 @@ export async function ensureConversation({ context }) {
     return convID;
 }
 
-/**
- * Creates a new conversation
- * @param {Object} options - Options object
- * @param {Object} options.context - Application context
- * @returns {Promise<string>} - The new conversation ID
- */
-export async function newConversation({ context }) {
-    try {
-        const convID = await ensureConversation({ context });
-        if (!convID) {
-            console.error('newConversation: backend did not return id');
-            return null;
-        }
-        return convID;
-    } catch (error) {
-        console.error('newConversation error:', error);
-        return null;
-    }
+
+export async function newConversation({context}) {
+    const conversations = context.Context('conversations');
+    conversations.handlers.dataSource.setSelection({args: {rowIndex: -1}})
 }

@@ -1,0 +1,18 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/workspace/models
+  method: GET
+  put:
+    uri: /v1/workspace/models/{id}
+
+
+
+
+paging:
+  size: 10
+
+selectors:
+  data: data
+
+uniqueKey:
+  - field: id

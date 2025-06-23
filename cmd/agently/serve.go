@@ -13,15 +13,13 @@ import (
 	"github.com/viant/agently/adapter/http/router"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/service"
-	fluxpol "github.com/viant/fluxor/policy"
 )
 
 // ServeCmd starts the embedded HTTP server.
 // Usage: agently serve --addr :8080
 type ServeCmd struct {
-	Addr            string `short:"a" long:"addr" description:"listen address" default:":8080"`
-	Policy          string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
-	ConsoleApproval bool   `long:"console-approval" description:"enable interactive approval prompts on the server console (defaults to false)"`
+	Addr   string `short:"a" long:"addr" description:"listen address" default:":8080"`
+	Policy string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
 }
 
 func (s *ServeCmd) Execute(_ []string) error {
@@ -43,20 +41,9 @@ func (s *ServeCmd) Execute(_ []string) error {
 	}
 	fluxPol := buildFluxorPolicy(s.Policy)
 
-	ctxBase := context.Background()
-	ctxBase = tool.WithPolicy(ctxBase, toolPol)
-	ctxBase = fluxpol.WithPolicy(ctxBase, fluxPol)
-
-	// Launch stdin approval loop only when explicitly requested by the user.
-	// The HTTP server exposes a web–based approval UI therefore, by default,
-	// duplicate prompts on the console are suppressed to avoid confusion.
-	var stop func()
-	if s.ConsoleApproval {
-		stop = startApprovalLoop(ctxBase, exec, fluxPol)
-	} else {
-		stop = func() {}
-	}
-	defer stop()
+	// In server mode we rely solely on the HTTP approval flow; no console/stdin
+	// prompts are wired up. CLI sub-commands (chat, run, …) still attach the
+	// interactive approval loop when needed.
 
 	handler := router.New(exec, svc, toolPol, fluxPol)
 

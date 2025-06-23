@@ -36,11 +36,12 @@ func ConversationIDFromContext(ctx context.Context) string {
 
 // Message represents a conversation message for memory storage.
 type Message struct {
-	ID       string  `json:"id"`
-	ParentID string  `json:"parentId,omitempty"`
-	Role     string  `json:"role"`
-	Content  string  `json:"content"`
-	ToolName *string `json:"toolName,omitempty"` // Optional tool name, can be nil
+	ID             string  `json:"id"`
+	ConversationID string  `json:"conversationId"`
+	ParentID       string  `json:"parentId,omitempty"`
+	Role           string  `json:"role"`
+	Content        string  `json:"content"`
+	ToolName       *string `json:"toolName,omitempty"` // Optional tool name, can be nil
 	// When messages include file uploads the Attachments slice describes each
 	// uploaded asset (or generated/downloadable asset on assistant side).
 	Attachments Attachments     `json:"attachments,omitempty" yaml:"attachments,omitempty" sqlx:"-"`
@@ -69,19 +70,19 @@ type Message struct {
 	// should render an approval card with a link and Accept/Decline buttons.
 	Interaction *UserInteraction `json:"interaction,omitempty" yaml:"interaction,omitempty"`
 
-    // PolicyApproval is non-nil when the system requires explicit user
-    // approval before executing a potentially sensitive action (e.g. running
-    // an external tool).  The UI should show the approval dialog when the
-    // message role == "policyapproval" and Status == "open".
-    PolicyApproval *PolicyApproval `json:"policyApproval,omitempty" yaml:"policyApproval,omitempty"`
+	// PolicyApproval is non-nil when the system requires explicit user
+	// approval before executing a potentially sensitive action (e.g. running
+	// an external tool).  The UI should show the approval dialog when the
+	// message role == "policyapproval" and Status == "open".
+	PolicyApproval *PolicyApproval `json:"policyApproval,omitempty" yaml:"policyApproval,omitempty"`
 }
 
 // PolicyApproval captures the details of an approval request that needs an
 // explicit Accept/Reject decision by the user.
 type PolicyApproval struct {
-    Tool   string                 `json:"tool" yaml:"tool"`               // tool/function name such as "system.exec"
-    Args   map[string]interface{} `json:"args,omitempty" yaml:"args,omitempty"` // flattened argument map
-    Reason string                 `json:"reason,omitempty" yaml:"reason,omitempty"`
+	Tool   string                 `json:"tool" yaml:"tool"`                     // tool/function name such as "system.exec"
+	Args   map[string]interface{} `json:"args,omitempty" yaml:"args,omitempty"` // flattened argument map
+	Reason string                 `json:"reason,omitempty" yaml:"reason,omitempty"`
 }
 
 // UserInteraction represents a structured prompt created via the MCP

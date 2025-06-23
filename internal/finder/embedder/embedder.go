@@ -34,6 +34,16 @@ func New(options ...Option) *Finder {
 	return d
 }
 
+func (d *Finder) Ids() []string {
+	d.mux.RLock()
+	defer d.mux.RUnlock()
+	ids := make([]string, 0, len(d.embedders))
+	for id := range d.embedders {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // Find returns a ready-to-use embeddings.Embedder by ID, creating and
 // caching it on first request.
 func (d *Finder) Find(ctx context.Context, id string) (embeddings.Embedder, error) {

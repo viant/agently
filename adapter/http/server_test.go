@@ -21,7 +21,7 @@ import (
 // retrieval work during tests.
 func echoHandler(store *memory.HistoryStore) conversation.QueryHandler {
 	return func(ctx context.Context, input *agentpkg.QueryInput, output *agentpkg.QueryOutput) error {
-		_ = store.AddMessage(ctx, input.ConversationID, memory.Message{Role: "user", Content: input.Query})
+		_ = store.AddMessage(ctx, memory.Message{Role: "user", Content: input.Query, ConversationID: input.ConversationID})
 		output.Content = "echo: " + input.Query
 		return nil
 	}

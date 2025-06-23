@@ -37,11 +37,15 @@ func EnsureDefault(fs afs.Service) {
 		src  string // path inside embed FS default/
 	}{
 		{"config.yaml", "default/config.yaml"},
-		{filepath.Join(KindAgent, "chat.yaml"), "default/agent_chat.yaml"},
+		{filepath.Join(KindAgent, "chat/chat.yaml"), "default/agent_chat.yaml"},
 
 		{filepath.Join(KindModel, "o4-mini.yaml"), "default/model_o4-mini.yaml"},
-		{filepath.Join(KindAgent, "workflows/orchestration.yaml"), "default/workflow_orchestration.yaml"},
-		{filepath.Join(KindAgent, "workflows/prompt", "plan.vm"), "default/plan.vm"},
+		{filepath.Join(KindModel, "o3.yaml"), "default/model_o3.yaml"},
+		{filepath.Join(KindEmbedder, "text.yaml"), "default/embedder_text.yaml"},
+
+		{filepath.Join(KindAgent, "chat/workflows/orchestration.yaml"), "default/workflow_orchestration.yaml"},
+		{filepath.Join(KindAgent, "chat/workflows/prompt", "plan.vm"), "default/plan.vm"},
+		{filepath.Join(KindAgent, "chat/knowledge/doc.txt"), "default/doc.txt"},
 	}
 
 	baseURL := url.Normalize(Root(), file.Scheme)

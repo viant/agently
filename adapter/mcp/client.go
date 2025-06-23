@@ -6,6 +6,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -20,19 +21,6 @@ import (
 	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
 )
-
-type ctxKey string
-
-const historyKey ctxKey = "historyStore"
-
-func historyFromContext(ctx context.Context) memory.History {
-	if v := ctx.Value(historyKey); v != nil {
-		if h, ok := v.(memory.History); ok {
-			return h
-		}
-	}
-	return nil
-}
 
 var waiterRegistry sync.Map // msgID -> chan *schema.ElicitResult
 
@@ -117,43 +105,32 @@ func (c *Client) CreateUserInteraction(ctx context.Context, request *jsonrpc.Typ
 
 	p := request.Request.Params
 
-	// Determine history presence to decide CLI vs Web flow
-	var hist memory.History
-	if h := historyFromContext(ctx); h != nil {
-		hist = h
-	} else if c.history != nil {
-		hist = c.history
-	}
-
 	// CLI (no history) – open URL immediately and accept
-	if hist == nil {
+	if c.history == nil {
 		if c.openURLFn != nil {
 			_ = c.openURLFn(p.Interaction.Url)
 		}
 		return &schema.CreateUserInteractionResult{}, nil
 	}
 
-	// Web flow ------------------------------------------------------
-	convID := memory.ConversationIDFromContext(ctx)
-	var parentID string
-	if convID == "" {
-		if cid, msg, err := hist.LatestMessage(ctx); err == nil && msg != nil {
-			convID = cid
-			parentID = msg.ID
-		}
+	owner, err := c.history.LatestMessage(ctx)
+	if err != nil {
+		return nil, jsonrpc.NewInternalError(err.Error(), nil)
 	}
-	if convID == "" {
-		return nil, jsonrpc.NewInternalError("unable to resolve conversation id", nil)
+	parentID := owner.ParentID
+	if parentID == "" {
+		parentID = owner.ID
 	}
 
 	msgID := uuid.New().String()
-	_ = hist.AddMessage(ctx, convID, memory.Message{
-		ID:          msgID,
-		ParentID:    parentID,
-		Role:        "mcpuserinteraction",
-		Interaction: &memory.UserInteraction{URL: p.Interaction.Url},
-		CallbackURL: "/interaction/" + msgID,
-		Status:      "open",
+	_ = c.history.AddMessage(ctx, memory.Message{
+		ID:             msgID,
+		ParentID:       parentID,
+		ConversationID: owner.ConversationID,
+		Role:           "mcpuserinteraction",
+		Interaction:    &memory.UserInteraction{URL: p.Interaction.Url},
+		CallbackURL:    "/interaction/" + msgID,
+		Status:         "open",
 	})
 
 	ch := make(chan *schema.CreateUserInteractionResult, 1)
@@ -169,6 +146,9 @@ func (c *Client) CreateUserInteraction(ctx context.Context, request *jsonrpc.Typ
 }
 
 func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*schema.ElicitRequest]) (*schema.ElicitResult, *jsonrpc.Error) {
+	data, _ := json.Marshal(request)
+	fmt.Println("Elicit STARTING ... ", string(data), c.awaiter)
+
 	params := request.Request.Params
 	if c.awaiter != nil {
 		localReq := &elicitationSchema.Elicitation{ElicitRequestParams: params}
@@ -193,29 +173,27 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 
 	history := c.history
 	if history != nil {
-		convID := memory.ConversationIDFromContext(ctx)
-		var parentID string
-		if convID == "" {
-			if cid, msg, err := history.LatestMessage(ctx); err == nil && msg != nil {
-				convID = cid
-				parentID = msg.ID
-				if msg.ParentID != "" {
-					parentID = msg.ParentID
-				}
-			}
+
+		owner, err := history.LatestMessage(ctx)
+		if err != nil {
+			return nil, jsonrpc.NewInternalError(err.Error(), nil)
 		}
-		if convID != "" {
-			fmt.Printf("Adding mcpelicitation %v %v\n ", convID, parentID)
-			_ = history.AddMessage(ctx, convID, memory.Message{
-				ID:          msgID,
-				ParentID:    parentID,
-				Role:        "mcpelicitation",
-				Content:     params.Message,
-				Elicitation: &elicitationSchema.Elicitation{ElicitRequestParams: params},
-				CallbackURL: "/elicitation/" + msgID,
-				Status:      "open",
-			})
+
+		parentID := owner.ParentID
+		if parentID == "" {
+			parentID = owner.ID
 		}
+
+		_ = history.AddMessage(ctx, memory.Message{
+			ID:             msgID,
+			ParentID:       parentID,
+			ConversationID: owner.ConversationID,
+			Role:           "mcpelicitation",
+			Content:        params.Message,
+			Elicitation:    &elicitationSchema.Elicitation{ElicitRequestParams: params},
+			CallbackURL:    "/elicitation/" + msgID,
+			Status:         "open",
+		})
 	}
 	// Register waiter and block
 	ch := make(chan *schema.ElicitResult, 1)
@@ -230,14 +208,14 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 	}
 }
 
-func (c *Client) CreateMessage(ctx context.Context, reqeust *jsonrpc.TypedRequest[*schema.CreateMessageRequest]) (*schema.CreateMessageResult, *jsonrpc.Error) {
+func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedRequest[*schema.CreateMessageRequest]) (*schema.CreateMessageResult, *jsonrpc.Error) {
 	if c.core == nil {
 		return nil, jsonrpc.NewInternalError("llm core not configured", nil)
 	}
-	if reqeust.Request == nil {
+	if request.Request == nil {
 		return nil, jsonrpc.NewInvalidParamsError("params is nil", nil)
 	}
-	p := &reqeust.Request.Params
+	p := &request.Request.Params
 	// Use last message as prompt, earlier messages ignored in MVP.
 	var prompt string
 	if len(p.Messages) > 0 {

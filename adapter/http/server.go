@@ -84,8 +84,10 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 
 	// Conversations collection
 	mux.HandleFunc("POST /v1/api/conversations", s.handleConversations)     // create new conversation
+	mux.HandleFunc("POST /v1/api/conversations/", s.handleConversations)    // create (trailing slash)
 	mux.HandleFunc("GET /v1/api/conversations", s.handleConversations)      // list conversations
-	mux.HandleFunc("GET /v1/api/conversations/{id}", s.handleConversations) // list conversations
+	mux.HandleFunc("GET /v1/api/conversations/", s.handleConversations)     // list (trailing slash)
+	mux.HandleFunc("GET /v1/api/conversations/{id}", s.handleConversations) // get conversation by id
 
 	// Conversation messages collection & item
 	mux.HandleFunc("POST /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
@@ -123,8 +125,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.handleInteractionCallback(w, r, r.PathValue("msgId"))
 	})
 
-	// Policy approval callback
+	// Policy approval callback (two paths for backwards-compatibility)
 	mux.HandleFunc("POST /v1/api/approval/{reqId}", func(w http.ResponseWriter, r *http.Request) {
+		s.handleApprovalCallback(w, r, r.PathValue("reqId"))
+	})
+	mux.HandleFunc("POST /approval/{reqId}", func(w http.ResponseWriter, r *http.Request) {
 		s.handleApprovalCallback(w, r, r.PathValue("reqId"))
 	})
 
@@ -181,6 +186,15 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		id := uuid.NewString()
 		title := fmt.Sprintf("Conversation %s", time.Now().Format("2006-01-02 15:04:05"))
 		s.titles.Store(id, title)
+
+		// Ensure the new conversation appears in subsequent list responses by
+		// inserting an empty slice into the history store. We do this by adding a
+		// zero-length message array entry so that ListIDs picks up the new key
+		// without polluting the visible chat history.
+		if hs, ok := s.mgr.History().(*memory.HistoryStore); ok {
+			hs.EnsureConversation(id)
+		}
+
 		encode(w, http.StatusOK, conversationInfo{ID: id, Title: title}, nil)
 	case http.MethodGet:
 		id := r.PathValue("id")
@@ -244,6 +258,9 @@ func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convID string) {
 	parentId := r.URL.Query().Get("parentId")
 	msgs, err := s.mgr.Messages(r.Context(), convID, parentId)
+	data, _ := json.Marshal(msgs)
+	fmt.Println("MESSAGES", string(data))
+
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
@@ -256,8 +273,11 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	// Filter out resolved MCP elicitation messages (status != "open")
 	var filtered []memory.Message
 	for _, m := range msgs {
-		if (m.Role == "mcpelicitation" || m.Role == "policyapproval") && m.Status != "" && m.Status != "open" {
-			continue
+		switch m.Role {
+		case "mcpelicitation", "mcpuserinteraction", "policyapproval":
+			if m.Status != "" && m.Status != "open" {
+				continue
+			}
 		}
 		filtered = append(filtered, m)
 	}
@@ -271,21 +291,16 @@ func (s *Server) handleGetSingleMessage(w http.ResponseWriter, r *http.Request, 
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	msgs, err := s.mgr.Messages(r.Context(), convID, "")
+	msg, err := s.mgr.History().LookupMessage(r.Context(), msgID)
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
-
-	for _, m := range msgs {
-		if m.ID == msgID {
-			encode(w, http.StatusOK, m, nil)
-			return
-		}
+	if msg == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
 	}
-
-	// Not found.
-	w.WriteHeader(http.StatusNotFound)
+	encode(w, http.StatusOK, msg, nil)
 }
 
 // dispatchConversationSubroutes routes /v1/api/conversations/{id}/... paths to
@@ -365,7 +380,7 @@ func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, conv
 
 // handleElicitationCallback processes POST /v1/api/elicitation/{msgID} to
 // accept or decline MCP elicitation prompts.
-func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Request, msgID string) {
+func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Request, messageID string) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -385,33 +400,13 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	message, _ := s.mgr.History().LookupMessage(r.Context(), messageID)
+	if message == nil {
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("interaction message not found"))
+		return
+	}
+
 	// Find the conversation containing this message.
-	ids, err := s.mgr.List(r.Context())
-	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err)
-		return
-	}
-
-	var convID string
-	var found bool
-	for _, id := range ids {
-		msgs, _ := s.mgr.Messages(r.Context(), id, "")
-		for _, m := range msgs {
-			if m.ID == msgID {
-				convID = id
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-	}
-
-	if !found {
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("elicitation message not found"))
-		return
-	}
 
 	// Update message status.
 	status := "declined"
@@ -419,11 +414,11 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 		status = "done"
 	}
 
-	_ = s.mgr.History().UpdateMessage(r.Context(), convID, msgID, func(m *memory.Message) {
+	_ = s.mgr.History().UpdateMessage(r.Context(), messageID, func(m *memory.Message) {
 		m.Status = status
 	})
 
-	if ch, ok := mcpclient.Waiter(msgID); ok {
+	if ch, ok := mcpclient.Waiter(messageID); ok {
 		result := &schema.ElicitResult{ // import schema
 			Action:  schema.ElicitResultAction(req.Action),
 			Content: req.Payload,
@@ -438,7 +433,7 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 
 // handleInteractionCallback processes POST /v1/api/interaction/{msgID} to
 // accept or decline MCP user-interaction prompts.
-func (s *Server) handleInteractionCallback(w http.ResponseWriter, r *http.Request, msgID string) {
+func (s *Server) handleInteractionCallback(w http.ResponseWriter, r *http.Request, messageID string) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -456,30 +451,8 @@ func (s *Server) handleInteractionCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Find conversation containing this message
-	ids, err := s.mgr.List(r.Context())
-	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err)
-		return
-	}
-
-	var convID string
-	var found bool
-	for _, id := range ids {
-		msgs, _ := s.mgr.Messages(r.Context(), id, "")
-		for _, m := range msgs {
-			if m.ID == msgID {
-				convID = id
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-	}
-
-	if !found {
+	message, _ := s.mgr.History().LookupMessage(r.Context(), messageID)
+	if message == nil {
 		encode(w, http.StatusNotFound, nil, fmt.Errorf("interaction message not found"))
 		return
 	}
@@ -489,11 +462,11 @@ func (s *Server) handleInteractionCallback(w http.ResponseWriter, r *http.Reques
 		status = "done"
 	}
 
-	_ = s.mgr.History().UpdateMessage(r.Context(), convID, msgID, func(m *memory.Message) {
+	_ = s.mgr.History().UpdateMessage(r.Context(), messageID, func(m *memory.Message) {
 		m.Status = status
 	})
 
-	if ch, ok := mcpclient.WaiterInteraction(msgID); ok {
+	if ch, ok := mcpclient.WaiterInteraction(messageID); ok {
 		ch <- &schema.CreateUserInteractionResult{}
 	}
 
@@ -503,7 +476,7 @@ func (s *Server) handleInteractionCallback(w http.ResponseWriter, r *http.Reques
 // handleApprovalCallback processes POST /v1/api/approval/{reqID} accepting or
 // declining policy-approval requests that originated from the Fluxor approval
 // service.
-func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, reqID string) {
+func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, messageId string) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -522,16 +495,16 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Map action to approved boolean.
+	// Map action to approved boolean accepting both "accept" (legacy) and
+	// "approve" (current Forge UI wording) for forward-compatibility.
 	var approved bool
-	switch strings.ToLower(body.Action) {
-	case "accept":
+	switch strings.ToLower(strings.TrimSpace(body.Action)) {
+	case "accept", "approve", "approved", "yes", "y":
 		approved = true
-	case "decline":
+	case "decline", "deny", "reject", "no", "n":
 		approved = false
 	case "cancel":
 		// Treat cancel same as decline at approval layer but keep message open.
-		// Here we simply return 204 so UI knows call succeeded.
 		encode(w, http.StatusNoContent, nil, nil)
 		return
 	default:
@@ -539,31 +512,9 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Locate conversation and update message status.
-	ids, err := s.mgr.List(r.Context())
-	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err)
-		return
-	}
-
-	var convID string
-	var found bool
-	for _, id := range ids {
-		msgs, _ := s.mgr.Messages(r.Context(), id, "")
-		for _, m := range msgs {
-			if m.ID == reqID {
-				convID = id
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-	}
-
-	if !found {
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("approval message not found"))
+	message, _ := s.mgr.History().LookupMessage(r.Context(), messageId)
+	if message == nil {
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("interaction message not found"))
 		return
 	}
 
@@ -573,7 +524,8 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		newStatus = "done"
 	}
 
-	_ = s.mgr.History().UpdateMessage(r.Context(), convID, reqID, func(m *memory.Message) {
+	fmt.Printf("MESSAGE ID: %s\n", messageId)
+	_ = s.mgr.History().UpdateMessage(r.Context(), messageId, func(m *memory.Message) {
 		m.Status = newStatus
 	})
 
@@ -582,7 +534,7 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 	//    not provided (nil) we simply skip this step – the workflow would be
 	//    blocked, but the UI still reflects the user choice.
 	if s.approvalSvc != nil {
-		_, _ = s.approvalSvc.Decide(r.Context(), reqID, approved, body.Reason)
+		_, _ = s.approvalSvc.Decide(r.Context(), messageId, approved, body.Reason)
 	}
 
 	encode(w, http.StatusNoContent, nil, nil)
@@ -613,7 +565,7 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 	input := &agentpkg.QueryInput{
 		ConversationID: convID,
 		Query:          req.Content,
-		Location:       defaultLocation(req.Agent),
+		AgentName:      defaultLocation(req.Agent),
 		ModelOverride:  req.Model,
 		ToolsAllowed:   req.Tools,
 		MessageID:      uuid.New().String(),

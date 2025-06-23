@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/viant/agently/genai/agent"
+	"github.com/viant/mcp"
 	"io"
 	"net/http"
 	"strings"
 
+	llmprovider "github.com/viant/agently/genai/llm/provider"
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/agently/service"
 	"gopkg.in/yaml.v3"
@@ -30,6 +33,23 @@ func NewHandler(svc *service.Service) http.Handler {
 
 type handler struct {
 	svc *service.Service
+}
+
+// newInstance returns a zero value pointer for the Go struct that corresponds
+// to the given workspace kind ("models", "agents" …). It returns nil when no
+// mapping is defined – the caller should fall back to generic map handling.
+func newInstance(kind string) interface{} {
+	// Keep the registry very small; extend with additional kinds as needed.
+	switch kind {
+	case workspace.KindModel, "model":
+		return &llmprovider.Config{}
+	case workspace.KindMCP:
+		return &mcp.ClientOptions{}
+	case workspace.KindAgent:
+		return &agent.Agent{}
+	default:
+		return nil
+	}
 }
 
 type apiResponse struct {
@@ -100,9 +120,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if err := yaml.Unmarshal(raw, &obj); err != nil {
 				continue
 			}
-			// Ensure id/name present for UI tables when missing.
+			// Ensure name/name present for UI tables when missing.
 			if _, ok := obj["name"]; !ok {
-				if id, ok := obj["id"]; ok {
+				if id, ok := obj["name"]; ok {
 					obj["name"] = id
 				} else {
 					obj["name"] = n
@@ -136,6 +156,23 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			encode(w, http.StatusBadRequest, nil, err)
 			return
+		}
+		// Prefer typed structs when we have a mapping for this kind. This ensures
+		// proper YAML layout and field tagging.
+		if inst := newInstance(kind); inst != nil {
+			if err := json.Unmarshal(body, inst); err == nil {
+				if data, marshalErr := yaml.Marshal(inst); marshalErr == nil && len(data) > 0 {
+					body = data
+				}
+			}
+		} else {
+			// Fallback to generic map handling when we don't know the struct.
+			transient := map[string]interface{}{}
+			if err := json.Unmarshal(body, &transient); err == nil {
+				if data, _ := yaml.Marshal(transient); len(data) > 0 {
+					body = data
+				}
+			}
 		}
 		if err := repo.Add(ctx, name, body); err != nil {
 			encode(w, http.StatusInternalServerError, nil, err)

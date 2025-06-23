@@ -3,6 +3,7 @@ package agent
 import (
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"reflect"
@@ -64,6 +65,7 @@ type Service struct {
 	// template for conversation summarization; if empty a default English
 	// prompt is used. It can reference ${conversation} placeholder.
 	summaryPrompt string
+	defaults      *config.Defaults
 }
 
 // SetRuntime sets the fluxor runtime for orchestration
@@ -72,17 +74,10 @@ func (s *Service) SetRuntime(rt *fluxor.Runtime) {
 }
 
 // New creates a new agent service instance with the given tool registry and fluxor runtime
-func New(
-	llm *core.Service,
-	agentFinder agent.Finder,
-	augmenter *augmenter.Service,
-	registry tool.Registry,
-	runtime *fluxor.Runtime,
-	history memory.History,
-	traceStore *memory.ExecutionStore,
-	opts ...Option,
-) *Service {
+func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Service, registry tool.Registry, runtime *fluxor.Runtime, history memory.History, traceStore *memory.ExecutionStore,
+	defaults *config.Defaults, opts ...Option) *Service {
 	srv := &Service{
+		defaults:         defaults,
 		llm:              llm,
 		agentFinder:      agentFinder,
 		augmenter:        augmenter,

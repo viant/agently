@@ -1,0 +1,25 @@
+columns:
+  - id: title
+    name: Title
+  - id: id
+    name: Conversation ID
+    width: 260
+  - id: openChat
+    icon: chat
+    type: button
+    width: 40
+    on:
+      - event: onClick
+        handler: window.openWindow
+        args:
+          - chat/new
+          - History Chat
+        parameters:
+          - name: input.parameters.id
+            kind: conversations
+            in: selection
+            location: history.id
+          - name: input.parameters.convID
+            kind: messages
+            in: selection
+            location: history.id

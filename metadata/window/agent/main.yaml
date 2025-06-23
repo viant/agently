@@ -1,0 +1,29 @@
+namespace: AgentsList
+
+view:
+  content:
+    layout:
+      orientation: horizontal
+      columns: 2
+      divider:
+        sizes: [30,68]
+
+    containers:
+      - id: agentsTable
+        title: Agents
+        dataSourceRef: agents
+        table: $import('table/agents.yaml')
+
+      - id: data
+        dataSourceRef: agents
+        tabs:
+          vertical: false
+        containers: $import('form.yaml')
+
+
+
+
+dataSource:
+  agents: $import('datasource/agents.yaml')
+  agentTools: $import('datasource/tools.yaml')
+  agentKnowledge: $import('datasource/knowledge.yaml')

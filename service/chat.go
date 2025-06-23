@@ -44,7 +44,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 	}
 
 	turn := func(ctx context.Context, convID, query string) (*agent.QueryOutput, string, error) {
-		input := &agent.QueryInput{ConversationID: convID, Location: req.AgentPath, Query: query}
+		input := &agent.QueryInput{ConversationID: convID, AgentName: req.AgentPath, Query: query}
 		out, err := s.exec.Conversation().Accept(ctx, input)
 		return out, input.ConversationID, err
 	}
