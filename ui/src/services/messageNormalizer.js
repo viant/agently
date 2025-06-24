@@ -16,6 +16,10 @@ const isAssistantElicitation = (message) =>
  * @returns {string} - The message classification ('form' or 'bubble')
  */
 export function classifyMessage(message) {
+    // Domain-specific: show execution bubble when available
+    if (Array.isArray(message.executions) && message.executions.length > 0) {
+        return 'execution';
+    }
     // Detect interactive MCP prompts that should be rendered with a dedicated
     // component (modal dialog).  We rely on message.status so that already
     // resolved prompts (status != "open") fall back to the default bubble

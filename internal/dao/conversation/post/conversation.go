@@ -11,13 +11,16 @@ type Conversations struct {
 }
 
 type Conversation struct {
-	Id           string           `sqlx:"id,primaryKey" validate:"required"`
-	Summary      *string          `sqlx:"summary" json:",omitempty"`
-	AgentName    string           `sqlx:"agent_name" `
-	CreatedAt    *time.Time       `sqlx:"created_at" json:",omitempty"`
-	LastActivity *time.Time       `sqlx:"last_activity" json:",omitempty"`
-	Message      []*Message       `sqlx:"-" on:"Id:id=ConversationId:conversation_id" view:",table=message" sql:"uri=conversation/message.sql" `
-	Has          *ConversationHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	Id                   string           `sqlx:"id,primaryKey" validate:"required"`
+	Summary              *string          `sqlx:"summary" json:",omitempty"`
+	AgentName            string           `sqlx:"agent_name" `
+	CreatedAt            *time.Time       `sqlx:"created_at" json:",omitempty"`
+	LastActivity         *time.Time       `sqlx:"last_activity" json:",omitempty"`
+	UsageInputTokens     int              `sqlx:"usage_input_tokens" json:",omitempty"`
+	UsageOutputTokens    int              `sqlx:"usage_output_tokens" json:",omitempty"`
+	UsageEmbeddingTokens int              `sqlx:"usage_embedding_tokens" json:",omitempty"`
+	Message              []*Message       `sqlx:"-" on:"Id:id=ConversationId:conversation_id" view:",table=message" sql:"uri=conversation/message.sql" `
+	Has                  *ConversationHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type Message struct {
@@ -40,12 +43,15 @@ type MessageHas struct {
 }
 
 type ConversationHas struct {
-	Id           bool
-	Summary      bool
-	AgentName    bool
-	CreatedAt    bool
-	LastActivity bool
-	Message      bool
+	Id                   bool
+	Summary              bool
+	AgentName            bool
+	CreatedAt            bool
+	LastActivity         bool
+	UsageInputTokens     bool
+	UsageOutputTokens    bool
+	UsageEmbeddingTokens bool
+	Message              bool
 }
 
 func (c *Conversation) SetId(value string) {
@@ -71,4 +77,19 @@ func (c *Conversation) SetCreatedAt(value time.Time) {
 func (c *Conversation) SetLastActivity(value time.Time) {
 	c.LastActivity = &value
 	c.Has.LastActivity = true
+}
+
+func (c *Conversation) SetUsageInputTokens(value int) {
+	c.UsageInputTokens = value
+	c.Has.UsageInputTokens = true
+}
+
+func (c *Conversation) SetUsageOutputTokens(value int) {
+	c.UsageOutputTokens = value
+	c.Has.UsageOutputTokens = true
+}
+
+func (c *Conversation) SetUsageEmbeddingTokens(value int) {
+	c.UsageEmbeddingTokens = value
+	c.Has.UsageEmbeddingTokens = true
 }

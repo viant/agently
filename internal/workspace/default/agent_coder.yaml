@@ -1,0 +1,11 @@
+id: coder
+name: coder
+description: Default conversational agent
+modelRef: o3
+orchestrationFlow:  workflows/orchestration.yaml
+tool:
+  - pattern: system/exec
+  - pattern: system/patch
+
+knowledge:
+  - url: knowledge/

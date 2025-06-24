@@ -29,10 +29,23 @@ func New[T any](fs afs.Service, kind string) *Repository[T] {
 
 // filename resolves name to absolute path with .yaml default extension.
 func (r *Repository[T]) filename(name string) string {
+	// Ensure we end with .yaml when extension missing.
 	if filepath.Ext(name) == "" {
 		name += ".yaml"
 	}
-	return filepath.Join(r.dir, name)
+
+	// First attempt the flat layout: <dir>/<name>.yaml
+	flat := filepath.Join(r.dir, name)
+
+	// Fast path – assume flat layout exists (no FS call).
+	if ok, _ := r.fs.Exists(context.TODO(), flat); ok {
+		return flat
+	}
+
+	// Fallback to historical nested layout: <dir>/<name>/<name>.yaml
+	base := strings.TrimSuffix(name, ".yaml")
+	nested := filepath.Join(r.dir, base, name)
+	return nested
 }
 
 // List basenames (without extension).
@@ -42,8 +55,15 @@ func (r *Repository[T]) List(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	var res []string
+
 	for _, o := range objs {
 		if o.IsDir() {
+			// Handle possible nested layout <dir>/<name>/<name>.yaml>
+			dirName := filepath.Base(o.Name())
+			nested := filepath.Join(r.dir, dirName, dirName+".yaml")
+			if ok, _ := r.fs.Exists(ctx, nested); ok {
+				res = append(res, dirName)
+			}
 			continue
 		}
 		base := filepath.Base(o.Name())

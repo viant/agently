@@ -6,8 +6,10 @@ import (
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
 	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/internal/shared"
 	"github.com/viant/agently/internal/workspace"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -80,18 +82,30 @@ func (s *Service) Lookup(ctx context.Context, name string) (*agent.Agent, error)
 
 // Load loads an agent from the specified URL
 func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agent.Agent, error) {
+	// Resolve relative name (e.g. "chat") to a workspace file path.
+	// All other workspace kinds store definitions flat as
+	//   <kind>/<name>.yaml
+	// so we keep the same convention for agents instead of the previous
+	// nested  <kind>/<name>/<name>.yaml layout.
 	URL := nameOrLocation
 	if !strings.Contains(URL, "/") && filepath.Ext(nameOrLocation) == "" {
-		URL = filepath.Join(workspace.KindAgent, nameOrLocation, nameOrLocation)
-	}
-
-	ext := filepath.Ext(URL)
-	if ext == "" {
-		URL += s.defaultExtension
+		URL = filepath.Join(workspace.KindAgent, nameOrLocation)
 	}
 
 	if url.IsRelative(URL) {
-		URL = s.metaService.GetURL(URL)
+		ext := ""
+		if filepath.Ext(URL) == "" {
+			ext = s.defaultExtension
+		}
+		ok, _ := s.metaService.Exists(ctx, URL+ext)
+		if ok {
+			URL = s.metaService.GetURL(URL + ext)
+		} else {
+			candidate := path.Join(URL, nameOrLocation)
+			if ok, _ = s.metaService.Exists(ctx, candidate+ext); ok {
+				URL = s.metaService.GetURL(candidate + ext)
+			}
+		}
 	}
 
 	var node yaml.Node
@@ -119,11 +133,10 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agent.Agent
 		if knowledge.URL == "" {
 			return nil, fmt.Errorf("agent %v knowledge URL is empty", anAgent.Name)
 		}
-		if url.IsRelative(knowledge.URL) {
+		if url.IsRelative(knowledge.URL) && !url.IsRelative(URL) {
 			parentURL, _ := url.Split(URL, file.Scheme)
 			anAgent.Knowledge[i].URL = url.Join(parentURL, knowledge.URL)
 		}
-		anAgent.Knowledge[i].URL = url.Path(anAgent.Knowledge[i].URL)
 	}
 
 	// Validate agent
@@ -251,6 +264,16 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 					return fmt.Errorf("unsupported YAML node for tool entry: kind=%d", itemNode.Kind)
 				}
 			}
+		case "elicitation":
+			// Accept mapping that follows plan.Elicitation schema.
+			if valueNode.Kind != yaml.MappingNode {
+				return fmt.Errorf("elicitation must be a mapping")
+			}
+			var elic plan.Elicitation
+			if err := (*yaml.Node)(valueNode).Decode(&elic); err != nil {
+				return fmt.Errorf("invalid elicitation definition: %w", err)
+			}
+			agent.Elicitation = &elic
 		}
 		return nil
 	})

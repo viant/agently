@@ -3,11 +3,7 @@ import { Dialog, Classes, Button, Spinner } from '@blueprintjs/core';
 import { SchemaBasedForm } from 'forge/components';
 
 import { endpoints } from '../endpoint';
-
-
-function joinURL(base, path) {
-  return `${(base || "").replace(/\/+$/, "")}/${(path || "").replace(/^\/+/, "")}`;
-}
+import { joinURL } from '../utils/url';
 
 
 /**

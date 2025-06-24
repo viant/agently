@@ -1,0 +1,13 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/workspace/tool
+  method: GET
+
+selectors:
+  data: data
+
+uniqueKey:
+  - field: name
+
+paging:
+  size: 10

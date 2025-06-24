@@ -1,0 +1,29 @@
+id: settingsForm
+dataSourceRef: conversations
+layout:
+  labelPosition: left
+items:
+  - id: model
+    label: Model
+    type: select
+    bindingPath: model
+    on:
+      - event: onProperties
+        handler: dataSource.buildOptions
+        args: [models, name, id]
+
+  - id: agent
+    label: Agent
+    type: select
+    bindingPath: agent
+    on:
+      - event: onProperties
+        handler: dataSource.buildOptions
+        args: [agents, name, id]
+
+  - id: tools
+    label: Tools (comma separated)
+    type: text
+    bindingPath: tools
+    properties:
+      placeholder: "code,browser,vision"

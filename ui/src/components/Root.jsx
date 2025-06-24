@@ -5,7 +5,6 @@ import StatusBar from './StatusBar';
 import {Outlet} from 'react-router-dom';
 import {HotkeysProvider} from '@blueprintjs/core';
 import {WindowManager} from "forge/components";
-import {useSetting} from "forge/core";
 
 const Root = () => {
     const [isNavigationOpen, setIsNavigationOpen] = useState(true);

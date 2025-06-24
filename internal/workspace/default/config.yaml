@@ -10,3 +10,4 @@ agents:
   url: agents
 services:
   - system/exec
+  - system/patch

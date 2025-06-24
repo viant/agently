@@ -4,6 +4,7 @@ import (
 	"context"
 	afs "github.com/viant/afs"
 	execpkg "github.com/viant/agently/genai/executor"
+	"github.com/viant/agently/genai/llm"
 	agentrepo "github.com/viant/agently/internal/repository/agent"
 	mcprepo "github.com/viant/agently/internal/repository/mcp"
 	modelrepo "github.com/viant/agently/internal/repository/model"
@@ -28,6 +29,7 @@ type Service struct {
 	aRepo   *agentrepo.Repository
 	wRepo   *workflowrepo.Repository
 	mcpRepo *mcprepo.Repository
+	// tools are dynamic – no repository, expose via executor.
 }
 
 // New returns a Service using the supplied executor.Service. Ownership of
@@ -52,7 +54,6 @@ func (s *Service) ResetModel(ctx context.Context, agentName string) error {
 func (s *Service) initRepos() {
 	s.once.Do(func() {
 		fs := afs.New()
-		// auto-bootstrap workspace with default resources when empty
 		workspace.EnsureDefault(fs)
 		s.mRepo = modelrepo.New(fs)
 		s.aRepo = agentrepo.New(fs)
@@ -66,3 +67,15 @@ func (s *Service) ModelRepo() *modelrepo.Repository       { s.initRepos(); retur
 func (s *Service) AgentRepo() *agentrepo.Repository       { s.initRepos(); return s.aRepo }
 func (s *Service) WorkflowRepo() *workflowrepo.Repository { s.initRepos(); return s.wRepo }
 func (s *Service) MCPRepo() *mcprepo.Repository           { s.initRepos(); return s.mcpRepo }
+
+// ToolDefinitions returns available tool definitions (read-only) gathered from the executor’s registry.
+func (s *Service) ToolDefinitions() []llm.ToolDefinition {
+	if s == nil || s.exec == nil {
+		return nil
+	}
+	core := s.exec.LLMCore()
+	if core == nil {
+		return nil
+	}
+	return core.ToolDefinitions()
+}

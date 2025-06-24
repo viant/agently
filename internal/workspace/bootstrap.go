@@ -5,7 +5,9 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/viant/afs"
 	_ "github.com/viant/afs/embed"
@@ -16,15 +18,17 @@ import (
 //go:embed default/*
 var defaultsFS embed.FS
 
-// ensureDefault populates the workspace root with minimal default resources
-// (config, agent, model, workflow) when they are missing so that first-time
-// users have a ready-to-use environment without manual setup.
-// EnsureDefault initialises a fresh workspace with baseline resources when
-// they are missing. It is safe to call multiple times – it only writes files
-// that do not yet exist.
+// EnsureDefault
 func EnsureDefault(fs afs.Service) {
 
 	ctx := context.Background()
+
+	// Respect explicit workspace override via $AGENTLY_ROOT: when the variable is
+	// set callers expect a clean workspace without auto-populated defaults (for
+	// example unit tests using t.TempDir()).
+	if env := os.Getenv(envKey); strings.TrimSpace(env) != "" {
+		return
+	}
 
 	entries := []struct {
 		path string // relative to workspace root

@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/genai/agent"
-	"github.com/viant/mcp"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 
-	llmprovider "github.com/viant/agently/genai/llm/provider"
+	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/internal/workspace"
+	"github.com/viant/mcp"
+
+	llmprovider "github.com/viant/agently/genai/llm/provider"
 	"github.com/viant/agently/service"
 	"gopkg.in/yaml.v3"
 )
@@ -90,6 +92,28 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	kind := parts[0]
+	// Special read-only handling for tools (not stored in repository)
+
+	if kind == workspace.KindTool || kind == "tool" {
+		if len(parts) != 1 || r.Method != http.MethodGet {
+			encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
+			return
+		}
+		defs := h.svc.ToolDefinitions()
+		// Convert to plain objects with expected fields for UI tables
+		items := make([]interface{}, 0, len(defs))
+		for _, d := range defs {
+			items = append(items, map[string]interface{}{
+				"name":         d.Name,
+				"schema":       d.Parameters,
+				"outputSchema": d.OutputSchema,
+				"description":  d.Description,
+			})
+		}
+		encode(w, http.StatusOK, items, nil)
+		return
+	}
+
 	repo, ok := h.repo(kind)
 	if !ok {
 		http.NotFound(w, r)
@@ -157,8 +181,23 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			encode(w, http.StatusBadRequest, nil, err)
 			return
 		}
-		// Prefer typed structs when we have a mapping for this kind. This ensures
-		// proper YAML layout and field tagging.
+
+		// If kind is agent and caller did not provide nested path, derive it
+		// from the payload's id field so we store <kind>/<id>/<id>.yaml.
+		if kind == workspace.KindAgent && !strings.Contains(name, "/") {
+			var payload struct {
+				ID   string `json:"id" yaml:"id"`
+				Name string `json:"name" yaml:"name"`
+			}
+			_ = yaml.Unmarshal(body, &payload) // ignore error – empty ID is fine
+			if payload.ID != "" {
+				name = filepath.Join(payload.ID, payload.ID)
+			} else if payload.Name != "" {
+				name = filepath.Join(payload.Name, payload.Name)
+			}
+		}
+
+		// Prefer typed structs when we have a mapping for this kind – ensures YAML tags.
 		if inst := newInstance(kind); inst != nil {
 			if err := json.Unmarshal(body, inst); err == nil {
 				if data, marshalErr := yaml.Marshal(inst); marshalErr == nil && len(data) > 0 {
@@ -166,7 +205,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		} else {
-			// Fallback to generic map handling when we don't know the struct.
+			// Generic map fallback.
 			transient := map[string]interface{}{}
 			if err := json.Unmarshal(body, &transient); err == nil {
 				if data, _ := yaml.Marshal(transient); len(data) > 0 {

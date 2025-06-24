@@ -2,10 +2,7 @@ import React, { useState } from 'react';
 import { Dialog, Classes, Button, Spinner } from '@blueprintjs/core';
 
 import { endpoints } from '../endpoint';
-
-function joinURL(base, path) {
-  return `${(base || '').replace(/\/+$/, '')}/${(path || '').replace(/^\/+/, '')}`;
-}
+import { joinURL } from '../utils/url';
 
 /**
  * MCPInteraction – Blueprint Dialog that renders an approval prompt for

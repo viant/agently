@@ -24,8 +24,9 @@ type QueryInput struct {
 	EmbeddingModel  string       `json:"embeddingModel"`  // Find to use for embeddings
 
 	// Optional runtime overrides (single-turn)
-	ModelOverride string   `json:"model,omitempty"` // llm model name
-	ToolsAllowed  []string `json:"tools,omitempty"` // allow-list for tools (empty = default)
+	ModelOverride string                 `json:"model,omitempty"` // llm model name
+	ToolsAllowed  []string               `json:"tools,omitempty"` // allow-list for tools (empty = default)
+	Context       map[string]interface{} `json:"context,omitempty"`
 }
 
 // QueryOutput represents the result of an agent knowledge query

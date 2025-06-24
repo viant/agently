@@ -107,6 +107,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.handleGetExecution(w, r, r.PathValue("id"))
 	})
 
+	// Usage statistics
+	mux.HandleFunc("GET /v1/api/conversations/{id}/usage", func(w http.ResponseWriter, r *http.Request) {
+		s.handleGetUsage(w, r, r.PathValue("id"))
+	})
+
 	// ------------------------------------------------------------------
 	// Forge UI metadata endpoints
 	// ------------------------------------------------------------------
@@ -378,6 +383,50 @@ func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, conv
 	encode(w, http.StatusOK, traces, nil)
 }
 
+// handleGetUsage responds with aggregated + per-model token usage.
+func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request, convID string) {
+	// Require GET only.
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	uStore := s.mgr.UsageStore()
+	if uStore == nil {
+		// No usage tracking configured – return zeros so that callers don't error out.
+		encode(w, http.StatusOK, map[string]any{
+			"inputTokens":     0,
+			"outputTokens":    0,
+			"embeddingTokens": 0,
+			"perModel":        map[string]any{},
+		}, nil)
+		return
+	}
+
+	p, c, e := uStore.Totals(convID)
+	per := map[string]any{}
+	if agg := uStore.Aggregator(convID); agg != nil {
+		for _, model := range agg.Keys() {
+			st := agg.PerModel[model]
+			if st == nil {
+				continue
+			}
+			per[model] = map[string]int{
+				"inputTokens":     st.PromptTokens,
+				"outputTokens":    st.CompletionTokens,
+				"embeddingTokens": st.EmbeddingTokens,
+			}
+		}
+	}
+
+	encode(w, http.StatusOK, map[string]any{
+		"inputTokens":     p,
+		"outputTokens":    c,
+		"embeddingTokens": e,
+		"perModel":        per,
+	}, nil)
+}
+
 // handleElicitationCallback processes POST /v1/api/elicitation/{msgID} to
 // accept or decline MCP elicitation prompts.
 func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Request, messageID string) {
@@ -541,10 +590,11 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 }
 
 type postMessageRequest struct {
-	Content string   `json:"content"`
-	Agent   string   `json:"agent,omitempty"`
-	Model   string   `json:"model,omitempty"`
-	Tools   []string `json:"tools,omitempty"`
+	Content string                 `json:"content"`
+	Agent   string                 `json:"agent,omitempty"`
+	Model   string                 `json:"model,omitempty"`
+	Tools   []string               `json:"tools,omitempty"`
+	Context map[string]interface{} `json:"context,omitempty"`
 }
 
 // defaultLocation returns supplied if not empty otherwise "chat".
@@ -568,6 +618,7 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 		AgentName:      defaultLocation(req.Agent),
 		ModelOverride:  req.Model,
 		ToolsAllowed:   req.Tools,
+		Context:        req.Context,
 		MessageID:      uuid.New().String(),
 	}
 

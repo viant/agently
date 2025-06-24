@@ -5,7 +5,8 @@ import (
 	"sync"
 	"text/template"
 
-	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agentl
 	"github.com/viant/velty"
 )
 
@@ -33,6 +34,13 @@ type (
 
 		// OrchestrationFlow optional path/URL to override default workflow graph.
 		OrchestrationFlow string `yaml:"orchestrationFlow,omitempty" json:"orchestrationFlow,omitempty"`
+
+		// Elicitation optionally defines required context schema that must be
+		// satisfied before the agent can execute its workflow. When provided, the
+		// runtime checks incoming QueryInput.Context against the schema and, if
+		// required properties are missing, responds with an elicitation request
+		// to gather the missing data from the caller.
+		Elicitation *plan.Elicitation `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
 
 		// cached compiled go template for prompt (if Prompt is static)
 		parsedTemplate *template.Template `yaml:"-" json:"-"`

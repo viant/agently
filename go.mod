@@ -15,10 +15,10 @@ require (
 	github.com/viant/afs v1.26.2
 	github.com/viant/afsc v1.9.1
 	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
-	github.com/viant/embedius v0.1.0
+	github.com/viant/embedius v0.1.1
 	github.com/viant/fluxor v0.1.16-0.20250623160932-0b8e90fda3a1
 	github.com/viant/fluxor-mcp v0.1.8
-	github.com/viant/forge v0.2.7-0.20250623174808-6fdff033f09e
+	github.com/viant/forge v0.2.7-0.20250624205243-ef6394381c11
 	github.com/viant/jsonrpc v0.7.2
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.4.3

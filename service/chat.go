@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/viant/agently/genai/agent/plan"
 	"time"
 
@@ -14,6 +15,13 @@ type ChatRequest struct {
 	ConversationID string
 	AgentPath      string
 	Query          string
+
+	// Optional context object forwarded to QueryInput so that the agent can
+	// incorporate caller supplied metadata (e.g. project, user location, etc.).
+	Context map[string]interface{}
+	// NOTE: Elicitation definition is now provided by the Agent configuration
+	// itself rather than the request. The field was removed – callers should
+	// supply required schema via agent's YAML/JSON.
 
 	Policy  *tool.Policy
 	Timeout time.Duration
@@ -44,7 +52,12 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 	}
 
 	turn := func(ctx context.Context, convID, query string) (*agent.QueryOutput, string, error) {
-		input := &agent.QueryInput{ConversationID: convID, AgentName: req.AgentPath, Query: query}
+		input := &agent.QueryInput{
+			ConversationID: convID,
+			AgentName:      req.AgentPath,
+			Query:          query,
+			Context:        req.Context,
+		}
 		out, err := s.exec.Conversation().Accept(ctx, input)
 		return out, input.ConversationID, err
 	}
@@ -81,6 +94,24 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 				// nothing to send back -> stop
 				goto DONE
 			}
+
+			// ------------------------------------------------------------------
+			//  Enrich the original request context with the keys provided by the
+			//  user so that subsequent turns see a complete Context map and the
+			//  agent template can reference {{ .Context.<key> }} directly.
+			// ------------------------------------------------------------------
+			var payloadCtx map[string]interface{}
+			if err := json.Unmarshal(res.Payload, &payloadCtx); err == nil {
+				if payloadCtx != nil {
+					if req.Context == nil {
+						req.Context = map[string]interface{}{}
+					}
+					for k, v := range payloadCtx {
+						req.Context[k] = v
+					}
+				}
+			}
+
 			currentQuery = string(res.Payload)
 			continue // loop again
 		case ActionDecline, ActionTimeout:

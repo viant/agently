@@ -1,0 +1,25 @@
+title: Settings
+id: settings
+content: $import('panel/settings.yaml')
+
+# Make the dialog reasonably sized
+style:
+  width: 55vw
+  height: 45vh
+
+# Action buttons shown in the footer
+actions:
+  - id: save
+    icon: floppy-disk
+    label: Save
+    intent: primary
+    on:
+      - event: onClick
+        handler: dialog.close
+
+  - id: cancel
+    icon: cross
+    label: Cancel
+    on:
+      - event: onClick
+        handler: dialog.close

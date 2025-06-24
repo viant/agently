@@ -25,6 +25,31 @@ import (
 	"time"
 )
 
+// validateContext checks whether all required properties defined by the
+// elicitation schema are present inside the caller supplied Context map. It
+// returns a slice with the names of missing properties (empty slice when the
+// context satisfies the schema).
+// validateContext checks whether all required properties defined by the
+// agent-level elicitation schema are present in the caller supplied Context
+// map. It returns a slice with the names of missing properties (empty slice
+// when the context satisfies the schema or no schema is defined).
+func validateContext(qi *QueryInput) []string {
+	if qi == nil || qi.Agent == nil || qi.Agent.Elicitation == nil {
+		return nil
+	}
+	rSchema := qi.Agent.Elicitation.RequestedSchema
+	if len(rSchema.Required) == 0 {
+		return nil // nothing explicitly required
+	}
+	missing := make([]string, 0)
+	for _, prop := range rSchema.Required {
+		if _, ok := qi.Context[prop]; !ok {
+			missing = append(missing, prop)
+		}
+	}
+	return missing
+}
+
 // --------------- Public entry -------------------------------------------------
 
 // query is a Fluxor-executable that accepts *QueryInput and returns *QueryOutput.
@@ -43,18 +68,31 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	// 0. start token usage aggregation
 	ctx, agg := usage.WithAggregator(ctx)
 
-	// 0.b Apply per-call tool policy if ToolsAllowed present
+	// ------------------------------------------------------------------
+	// 0.a Ensure agent is loaded (required for context validation below)
+	if err := s.ensureAgent(ctx, qi, qo); err != nil {
+		return err
+	}
+
+	// ------------------------------------------------------------------
+	// 0.b Optional: validate context against agent's elicitation schema
+	if qi.Agent.Elicitation != nil {
+		if missing := validateContext(qi); len(missing) > 0 {
+			// Context is incomplete – ask the caller for the remaining fields.
+			qo.Elicitation = qi.Agent.Elicitation
+			qo.Content = qi.Agent.Elicitation.Message
+			qo.Usage = agg
+			return nil // early exit – wait for user input
+		}
+	}
+
+	// 0.c Apply per-call tool policy if ToolsAllowed present
 	if len(qi.ToolsAllowed) > 0 {
 		pol := &tool.Policy{Mode: tool.ModeAuto, AllowList: qi.ToolsAllowed}
 		ctx = tool.WithPolicy(ctx, pol)
 	}
 
-	// 1. Ensure we have an agent instance on the input.
-	if err := s.ensureAgent(ctx, qi, qo); err != nil {
-		return err
-	}
-
-	// 2. Build conversation context string (excluding the current user message), then record the new user message.
+	// 1. Build conversation context string (excluding the current user message), then record the new user message.
 	convID := s.conversationID(qi)
 	convContext, err := s.conversationContext(ctx, convID, qi)
 	if err != nil {
@@ -178,7 +216,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 		return s.directAnswer(ctx, qi, qo, convID, query)
 	}
 
-	enrichment := s.buildEnrichment(query, s.formatDocumentsForEnrichment(docs, qi.IncludeFile))
+	enrichment := s.buildEnrichment(query, s.formatDocumentsForEnrichment(docs, qi.IncludeFile), qi.Context)
 
 	// 2. System prompt from agent template.
 	sysPrompt, err := s.buildSystemPrompt(ctx, qi, enrichment)
@@ -370,13 +408,16 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 }
 
 // buildEnrichment merges conversation context and knowledge enrichment.
-func (s *Service) buildEnrichment(conv, docs string) string {
+func (s *Service) buildEnrichment(conv, docs string, context map[string]interface{}) string {
 	parts := []string{}
 	if conv != "" {
 		parts = append(parts, "Conversation:\n"+conv)
 	}
 	if docs != "" {
 		parts = append(parts, "Documents:\n"+docs)
+	}
+	for k, v := range context {
+		parts = append(parts, fmt.Sprintf("%s: %v", k, v))
 	}
 	return strings.Join(parts, "\n\n")
 }

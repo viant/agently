@@ -15,7 +15,16 @@ export async function ensureConversation({ context }) {
     let convID = conversionHandlers.getSelection()?.selected?.id;
     
     if (!convID) {
-        const resp = await conversationAPI.post({});
+        // include current overrides (model, agent, tools) when present
+        const currentForm = conversationsContext.handlers?.dataSource?.peekFormData?.() || {};
+        const {model = '', agent = '', tools = ''} = currentForm;
+
+        const body = {};
+        if (model)  body.model  = model;
+        if (agent)  body.agent  = agent;
+        if (tools)  body.tools  = tools;
+
+        const resp = await conversationAPI.post({body});
         const data = resp?.data || {};
         convID = data?.id;
         

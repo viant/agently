@@ -1,17 +1,33 @@
 namespace: Chat
 
+# Dialogs available from this window
+dialogs:
+  - $import('dialog/settings.yaml')
+
 # Window that displays a single conversation chat view (no conversation list).
 
 view:
   content:
     containers:
+      # preload models for settings dialog
+      - id: modelsLoader
+        dataSourceRef: models
+        fetchData: true
+      # preload agents for settings dialog
+      - id: agentsLoader
+        dataSourceRef: agents
+        fetchData: true
+      - id: toolsLoader
+        dataSourceRef: tools
+        fetchData: true
+
       - id: header
         dataSourceRef: conversations
         fetchData: true
         selectFirst: true
         layout:
           orientation: horizontal
-          columns: 3
+          columns: 2
           labelPosition: top
         items:
           - id: title
@@ -21,29 +37,59 @@ view:
             properties:
               fontSize: 16
 
-          - id: addNew
-            type: button
-            columnSpan: 1
-            properties:
-              icon: new-object
-              intent: primary
-              minimal: true
-            style:
-              justifySelf: end
-            on:
-              - event: onClick
-                handler: chat.newConversation
+          - id: model
+            type: text
+            label: Model
+            dataSourceRef: conversations
+
+
+          - id: agent
+            type: text
+            label: Agent
+            dataSourceRef: conversations
+
 
       - id: conversationSection
         chat:
           dataSourceRef: messages
-          tools: ["search", "code"]
+          height: 75vh
+          toolbar:
+            dataSourceRef: conversations
+            items:
+              - id: newConv
+                icon: plus
+                enabled: true
+                align: left
+                label: "New chat"
+                on:
+                  - event: onClick
+                    handler: chat.newConversation        # gets full context
+              - id: settings
+                icon: cog
+                label: Settings
+                enabled: true
+                align: right
+                on:
+                  - event: onClick
+                    handler: window.openDialog
+                    args: ['settings']
+
           on:
             - event: onSubmit
               handler: chat.submitMessage
+              parameters:
+                - name: model
+                  in: form
+                  location: conversations.model
+                - name: agent
+                  in: form
+                  location: conversations.agent
             - event: onUpload
               handler: chat.upload
 
 dataSource:
   conversations: $import('../conversations/datasource/conversations.yaml')
   messages: $import('../conversations/datasource/messages.yaml')
+  models: $import('../../model/datasource/models.yaml')
+  agents: $import('../../agent/datasource/agents.yaml')
+  tools:  $import('../../tool/datasource/tools.yaml')

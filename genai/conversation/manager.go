@@ -24,9 +24,13 @@ type QueryHandler func(ctx context.Context, input *agentpkg.QueryInput, output *
 type Manager struct {
 	history        memory.History
 	executionStore *memory.ExecutionStore
+	usageStore     *memory.UsageStore
 	handler        QueryHandler
 	idGen          func() string
 }
+
+// UsageStore returns the in-memory usage registry attached to the manager (or nil).
+func (m *Manager) UsageStore() *memory.UsageStore { return m.usageStore }
 
 // History returns underlying memory.History implementation.
 func (m *Manager) History() memory.History { return m.history }
@@ -49,15 +53,17 @@ func (m *Manager) Messages(ctx context.Context, convID string, parentId string) 
 	var result = make([]memory.Message, 0, len(messages)+1)
 	for _, msg := range messages {
 		result = append(result, msg)
-		if exec, _ := m.executionStore.ListOutcome(ctx, convID, msg.ID); len(exec) > 0 {
-			result = append(result, memory.Message{
-				ID:             msg.ID + "/1",
-				ConversationID: msg.ConversationID,
-				ParentID:       parentId,
-				Role:           "tool",
-				Executions:     exec,
-				CreatedAt:      msg.CreatedAt.Add(time.Second),
-			})
+		if m.executionStore != nil {
+			if exec, _ := m.executionStore.ListOutcome(ctx, convID, msg.ID); len(exec) > 0 {
+				result = append(result, memory.Message{
+					ID:             msg.ID + "/1",
+					ConversationID: msg.ConversationID,
+					ParentID:       parentId,
+					Role:           "tool",
+					Executions:     exec,
+					CreatedAt:      msg.CreatedAt.Add(time.Second),
+				})
+			}
 		}
 	}
 	return result, nil
@@ -110,6 +116,14 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 // Option allows to customise Manager behaviour.
 type Option func(*Manager)
 
+// WithUsageStore injects an in-memory UsageStore so that Accept() automatically
+// aggregates token counts per conversation.
+func WithUsageStore(s *memory.UsageStore) Option {
+	return func(m *Manager) {
+		m.usageStore = s
+	}
+}
+
 // WithIDGenerator overrides the default conversation-ID generator.
 func WithIDGenerator(f func() string) Option {
 	return func(m *Manager) {
@@ -129,6 +143,7 @@ func New(history memory.History, executionStore *memory.ExecutionStore, handler 
 		history:        history,
 		handler:        handler,
 		executionStore: executionStore,
+		usageStore:     nil,
 		idGen:          uuid.NewString,
 	}
 	for _, o := range opts {
@@ -170,6 +185,18 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 			CreatedAt:      time.Now(),
 		})
 		return nil, err
+	}
+
+	// Record token usage when a memory store is configured and handler returned
+	// statistics.
+	if m.usageStore != nil && output.Usage != nil {
+		for _, model := range output.Usage.Keys() {
+			stat := output.Usage.PerModel[model]
+			if stat == nil {
+				continue
+			}
+			m.usageStore.Add(input.ConversationID, model, stat.PromptTokens, stat.CompletionTokens, stat.EmbeddingTokens)
+		}
 	}
 	return &output, nil
 }

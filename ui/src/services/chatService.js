@@ -2,14 +2,16 @@
 // Contains submitMessage implementation extracted from App.jsx to keep
 // App clean and focused on composition.
 
-import { endpoints } from '../endpoint';
-import { FormRenderer } from 'forge';
+import {endpoints} from '../endpoint';
+import {FormRenderer} from 'forge';
 import MCPForm from '../components/MCPForm.jsx';
 import MCPInteraction from '../components/MCPInteraction.jsx';
 import PolicyApproval from '../components/PolicyApproval.jsx';
-import { poll, fetchJSON } from './utils/apiUtils';
-import { classifyMessage, normalizeMessages } from './messageNormalizer';
-import { ensureConversation, newConversation } from './conversationService';
+import {poll, fetchJSON} from './utils/apiUtils';
+import {classifyMessage, normalizeMessages} from './messageNormalizer';
+
+import ExecutionBubble from '../components/chat/ExecutionBubble.jsx';
+import {ensureConversation, newConversation} from './conversationService';
 
 
 /**
@@ -19,7 +21,10 @@ import { ensureConversation, newConversation } from './conversationService';
  * @param {Object} options.message - Message to submit
  * @returns {Promise<void>}
  */
-export async function submitMessage({ context, message }) {
+export async function submitMessage(props) {
+    const {context, message, parameters} = props;
+    console.log('submitMessage', props)
+
     // Reference to DataSource controlling the chat collection – used to toggle
     // the global loading lock that enables / disables the Composer's Send button in the UI.
     const messagesContext = context.Context('messages');
@@ -28,17 +33,27 @@ export async function submitMessage({ context, message }) {
 
     // Engage global lock (button disabled)
     messageHandlers?.setLoading(true);
-
     try {
-        const convID = await ensureConversation({ context });
+        const convID = await ensureConversation({context});
         if (!convID) {
             return;
         }
 
+        const body = {
+            content: message.content,
+        }
+
+        if(parameters['model']){
+            body['model'] = parameters['model']
+        }
+        if(parameters['agent']){
+            body['agent'] = parameters['agent']
+        }
+
         // Post user message
         const postResp = await messagesAPI.post({
-            inputParameters: { convID },
-            body: { content: message.content },
+            inputParameters: {convID},
+            body: body
         });
 
         const messageId = postResp?.data?.id;
@@ -108,7 +123,7 @@ function mergeMessages(messagesContext, incoming) {
     incoming.forEach((msg) => {
         const idx = current.findIndex((m) => m.id === msg.id);
         if (idx >= 0) {
-            const updated = { ...current[idx], ...msg };
+            const updated = {...current[idx], ...msg};
             if (Array.isArray(updated.execution)) {
                 updated.execution = [...updated.execution]; // new ref to force tables
             }
@@ -118,8 +133,8 @@ function mergeMessages(messagesContext, incoming) {
             current[idx] = updated;
         } else {
             const addedBase = Array.isArray(msg.execution)
-                ? { ...msg, execution: [...msg.execution] }
-                : { ...msg };
+                ? {...msg, execution: [...msg.execution]}
+                : {...msg};
 
             if (!addedBase.createdAt) {
                 addedBase.createdAt = new Date().toISOString();
@@ -132,8 +147,8 @@ function mergeMessages(messagesContext, incoming) {
     collSig.value = [...current];
 
     // Keep the DataSource form in sync with the newest assistant chunk
-    messagesContext?.handlers?.dataSource?.setFormData?.({ 
-        values: { ...current[current.length - 1] } 
+    messagesContext?.handlers?.dataSource?.setFormData?.({
+        values: {...current[current.length - 1]}
     });
 }
 
@@ -223,10 +238,9 @@ async function pollForMessages(messagesContext, msgURL) {
             return assistantArrived && stillCount >= ASSISTANT_STABILITY_TICKS;
         },
         // Allow up to ~15 minutes of polling (900 attempts × 1s interval)
-        { maxAttempts: 900 }
+        {maxAttempts: 900}
     );
 }
-
 
 
 /**
@@ -239,6 +253,7 @@ export const chatService = {
     classifyMessage,
     normalizeMessages,
     renderers: {
+        execution: ExecutionBubble,
         form: FormRenderer,
         mcpelicitation: MCPForm,
         mcpuserinteraction: MCPInteraction,

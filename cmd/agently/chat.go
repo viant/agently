@@ -33,6 +33,11 @@ type ChatCmd struct {
 	ToolLog   string `long:"tool-log" description:"file to append debug logs for each tool call"`
 	TaskLog   string `long:"task-log" description:"file to append per-task Fluxor executor log"`
 	Log       string `long:"log" description:"unified log (LLM, TOOL, TASK)" default:"agently.log"`
+
+	// Arbitrary JSON payload that will be forwarded to the agent as contextual
+	// information. It can be supplied either as an inline JSON string or as
+	// @<path> pointing to a file containing the JSON document.
+	Context string `long:"context" description:"inline JSON object or @file with context data"`
 }
 
 // cliInteractionHandler satisfies service.InteractionHandler by prompting the
@@ -65,6 +70,27 @@ func (c *ChatCmd) Execute(_ []string) error {
 	// Fallbacks -------------------------------------------------------
 	if c.AgentName == "" {
 		c.AgentName = "chat" // default agent shipped with embedded config
+	}
+
+	// -----------------------------------------------------------------
+	// Parse --context flag (inline JSON or @file) once so that it is reused
+	// across all turns in the conversation.
+	var contextData map[string]interface{}
+	if ctxArg := strings.TrimSpace(c.Context); ctxArg != "" {
+		var data []byte
+		if strings.HasPrefix(ctxArg, "@") {
+			filePath := strings.TrimPrefix(ctxArg, "@")
+			b, err := os.ReadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("read context file: %w", err)
+			}
+			data = b
+		} else {
+			data = []byte(ctxArg)
+		}
+		if err := json.Unmarshal(data, &contextData); err != nil {
+			return fmt.Errorf("parse context JSON: %w", err)
+		}
 	}
 
 	// Reset logs if requested ------------------------------------------------------
@@ -186,6 +212,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 			ConversationID: convID,
 			AgentPath:      c.AgentName,
 			Query:          userQuery,
+			Context:        contextData,
 			Timeout:        time.Duration(c.Timeout) * time.Second,
 		})
 		if err != nil {

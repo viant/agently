@@ -8,7 +8,22 @@ CREATE TABLE conversation
     summary       TEXT,
     agent_name    TEXT,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    usage_input_tokens INT DEFAULT 0,
+    usage_output_tokens INT DEFAULT 0,
+    usage_embedding_tokens INT DEFAULT 0
+);
+
+
+-- Token usage breakdown per model
+CREATE TABLE conversation_model_usage
+(
+    conversation_id UUID REFERENCES conversation (id) ON DELETE CASCADE,
+    model_name      TEXT NOT NULL,
+    input_tokens    INT DEFAULT 0,
+    output_tokens   INT DEFAULT 0,
+    embedding_tokens INT DEFAULT 0,
+    PRIMARY KEY (conversation_id, model_name)
 );
 
 
