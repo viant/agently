@@ -270,7 +270,7 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 				return fmt.Errorf("elicitation must be a mapping")
 			}
 			var elic plan.Elicitation
-			if err := (*yaml.Node)(valueNode).Decode(&elic); err != nil {
+			if err := (*yaml.Node)(valueNode).Decode(&elic.ElicitRequestParams); err != nil {
 				return fmt.Errorf("invalid elicitation definition: %w", err)
 			}
 			agent.Elicitation = &elic

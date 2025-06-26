@@ -28,26 +28,17 @@ view:
         layout:
           orientation: horizontal
           columns: 2
-          labelPosition: top
+          labelPosition: left
         items:
           - id: title
             type: label
-            dataSourceRef: conversations
             columnSpan: 2
-            properties:
-              fontSize: 16
-
-          - id: model
-            type: text
-            label: Model
-            dataSourceRef: conversations
-
-
           - id: agent
-            type: text
+            type: label
             label: Agent
-            dataSourceRef: conversations
-
+          - id: model
+            type: label
+            label: Model
 
       - id: conversationSection
         chat:

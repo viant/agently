@@ -33,7 +33,7 @@ func TestService_Load(t *testing.T) {
 		{
 			name:         "Valid agent",
 			url:          "tester.yaml",
-			expectedJSON: `{"id":"agent-123","name":"Database tester Agent","icon":"https://example.com/icon.png","source":{"url":"tester.yaml"},"model":"o1","temperature":0.7,"description":"An example agent for demonstration purposes.","knowledge":[{"match":{"Inclusions":["*.md"]},"url":"knowledge/"}]}`,
+			expectedJSON: `{"id":"agent-123","name":"Database tester Agent","icon":"https://example.com/icon.png","source":{"url":"embed:///testdata/tester.yaml"},"model":"o1","temperature":0.7,"description":"An example agent for demonstration purposes.","knowledge":[{"match":{"Inclusions":["*.md"]},"url":"embed://localhost/testdata/knowledge"}]}`,
 		},
 		{
 			name:        "Invalid URL",

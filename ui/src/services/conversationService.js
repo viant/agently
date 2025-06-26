@@ -16,7 +16,7 @@ export async function ensureConversation({ context }) {
     
     if (!convID) {
         // include current overrides (model, agent, tools) when present
-        const currentForm = conversationsContext.handlers?.dataSource?.peekFormData?.() || {};
+        const currentForm = conversationContext.handlers?.dataSource?.peekFormData?.() || {};
         const {model = '', agent = '', tools = ''} = currentForm;
 
         const body = {};

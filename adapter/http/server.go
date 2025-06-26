@@ -190,17 +190,24 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		id := uuid.NewString()
 		title := fmt.Sprintf("Conversation %s", time.Now().Format("2006-01-02 15:04:05"))
+
+		// Read optional overrides from request body
+		payload := map[string]any{}
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&payload) // tolerate empty / invalid body
+		}
+		payload["id"] = id
+		payload["title"] = title
+		payload["createdAt"] = time.Now().UTC().Format(time.RFC3339)
+
 		s.titles.Store(id, title)
 
-		// Ensure the new conversation appears in subsequent list responses by
-		// inserting an empty slice into the history store. We do this by adding a
-		// zero-length message array entry so that ListIDs picks up the new key
-		// without polluting the visible chat history.
+		// ensure key exists in history store for subsequent list queries
 		if hs, ok := s.mgr.History().(*memory.HistoryStore); ok {
 			hs.EnsureConversation(id)
 		}
 
-		encode(w, http.StatusOK, conversationInfo{ID: id, Title: title}, nil)
+		encode(w, http.StatusOK, payload, nil)
 	case http.MethodGet:
 		id := r.PathValue("id")
 		var err error

@@ -9,3 +9,18 @@ tool:
 
 knowledge:
   - url: knowledge/
+
+elicitation:
+  message: "Please provide execution context"
+  requestedSchema:
+    type: object
+    properties:
+      Workdir:
+        type: string
+        description: Working directory path
+      User:
+        type: string
+        description: User initiating the request
+    required:
+      - Workdir
+      - User

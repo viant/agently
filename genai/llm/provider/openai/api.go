@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -58,6 +59,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	c.HTTPClient.Timeout = 10 * time.Minute
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
@@ -70,6 +72,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+	fmt.Println(string(respBytes))
 
 	// Check for non-200 status code
 	if resp.StatusCode != 200 {

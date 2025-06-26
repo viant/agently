@@ -43,11 +43,11 @@ export async function submitMessage(props) {
             content: message.content,
         }
 
-        if(parameters['model']){
-            body['model'] = parameters['model']
+        if (parameters && parameters.model) {
+            body.model = parameters.model;
         }
-        if(parameters['agent']){
-            body['agent'] = parameters['agent']
+        if (parameters && parameters.agent) {
+            body.agent = parameters.agent;
         }
 
         // Post user message

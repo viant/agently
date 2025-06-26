@@ -62,6 +62,7 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 						Name:        tool.Definition.Name,
 						Description: tool.Definition.Description,
 						Parameters:  tool.Definition.Parameters,
+						Required:    tool.Definition.Required,
 					},
 				}
 			}

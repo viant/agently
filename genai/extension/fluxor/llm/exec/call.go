@@ -32,23 +32,6 @@ func (s *Service) CallTool(ctx context.Context, input *CallToolInput, output *Ca
 	// Execute tool via injected registry or default
 	var executor func(ctx context.Context, name string, args map[string]interface{}) (string, error)
 	executor = s.registry.Execute
-
-	// ------------------------------------------------------------------
-	// Back-compat / sensible defaults for common tools
-	// ------------------------------------------------------------------
-	// Older LLM prompts – and some user-generated follow-up plans – often
-	// omit optional parameters that the JSON schema marks as *required*.
-	// Rather than failing the entire workflow for a missing timeout or
-	// abort flag, fall back to conservative defaults so that the tool
-	// still executes and the user receives a meaningful answer.
-
-	// --- policy evaluation -------------------------------------------------
-	// Tool approval is handled uniformly by the outer workflow via the Fluxor
-	// executor.  Requesting an additional approval here would duplicate the
-	// prompt.  We therefore enforce deny/allow lists but skip the explicit
-	// Ask branch – the decision will be captured once when the actual tool
-	// action (e.g. system/exec.execute) runs.
-
 	if pol := tool.FromContext(ctx); pol != nil {
 		if !pol.IsAllowed(input.Name) {
 			return fmt.Errorf("tool %s is not allowed by policy", input.Name)
@@ -60,5 +43,6 @@ func (s *Service) CallTool(ctx context.Context, input *CallToolInput, output *Ca
 
 	toolResult, err := executor(ctx, input.Name, input.Args)
 	output.Result = toolResult
+	fmt.Println("CallTool", toolResult, err)
 	return err
 }

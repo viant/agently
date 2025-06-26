@@ -151,6 +151,35 @@ Input/Output mirrors the planner but with `results` being appended.
 
 ## 5. Customisation recipes
 
+### 5.x Duplicate-call safety net *(added in vNext)*
+
+Agently now enforces two lightweight heuristics to prevent the agent from
+entering an infinite tool-call loop:
+
+1. **Consecutive guard** – if the *same* tool is called with the *same
+   arguments* three times **in a row**, the 3rd and any further consecutive
+   calls are blocked.
+2. **Sliding-window guard** – inside the last eight executed steps, if a
+   single `(tool, args)` pair appears four or more times *or* the pattern
+   alternates between exactly two distinct keys (e.g. `A B A B A B A`), the
+   next repeat is blocked.
+
+When a call is blocked the executor appends a synthetic `plan.Result` to
+`results`:
+
+```yaml
+- name:   cat.file
+  args:   {path: "file.txt"}
+  error:  duplicate_call_blocked   # <- special marker
+  result: "...last successful output..."  # echoed for convenience
+```
+
+The LLM therefore sees a clear signal that it must adjust its strategy.
+
+No configuration is required; the defaults work well in practice.  Advanced
+users can tune the limits via service options in code (`consecutiveLimit`,
+`windowSize`, `windowFreqLimit`).
+
 ### 5.1 Change the plan prompt
 
 1. Copy `plan_prompt.vm` to a new file (e.g. `my_prompt.vm`).

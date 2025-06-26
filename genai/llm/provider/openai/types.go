@@ -66,6 +66,7 @@ type ToolDefinition struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description,omitempty"`
 	Parameters  map[string]interface{} `json:"parameters,omitempty"`
+	Required    []string               `json:"required,omitempty"`
 }
 
 // Response represents the response structure from OpenAI API

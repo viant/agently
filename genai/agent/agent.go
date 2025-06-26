@@ -6,7 +6,7 @@ import (
 	"text/template"
 
 	"github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agentl
+	"github.com/viant/agently/genai/llm"
 	"github.com/viant/velty"
 )
 

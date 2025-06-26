@@ -77,11 +77,22 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	// ------------------------------------------------------------------
 	// 0.b Optional: validate context against agent's elicitation schema
 	if qi.Agent.Elicitation != nil {
+		// First attempt to auto-fill missing context properties from previous user
+		// messages that contain JSON objects.
+		s.enrichContextFromHistory(ctx, qi)
+
 		if missing := validateContext(qi); len(missing) > 0 {
+			// Ensure the initiating user message is stored so that the UI shows it.
+			convID := s.conversationID(qi)
+			if _, err := s.addMessage(ctx, convID, "user", qi.Query, qi.MessageID, ""); err != nil {
+				log.Printf("warn: cannot record initial user message: %v", err)
+			}
+
 			// Context is incomplete – ask the caller for the remaining fields.
 			qo.Elicitation = qi.Agent.Elicitation
 			qo.Content = qi.Agent.Elicitation.Message
 			qo.Usage = agg
+			s.recordAssistantElicitation(ctx, convID, qi.MessageID, qo.Elicitation)
 			return nil // early exit – wait for user input
 		}
 	}
@@ -116,6 +127,63 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	err = s.directAnswer(ctx, qi, qo, convID, convContext)
 	qo.Usage = agg
 	return err
+}
+
+// enrichContextFromHistory scans existing user messages in the conversation
+// for JSON objects and copies any fields that are required by the elicitation
+// schema but not yet present in qi.Context.
+func (s *Service) enrichContextFromHistory(ctx context.Context, qi *QueryInput) {
+	if qi == nil || qi.Agent == nil || qi.Agent.Elicitation == nil {
+		return
+	}
+	convID := s.conversationID(qi)
+	if convID == "" || s.history == nil {
+		return
+	}
+
+	// Build a lookup of missing keys.
+	required := make(map[string]struct{})
+	for _, k := range qi.Agent.Elicitation.RequestedSchema.Required {
+		if qi.Context != nil {
+			if _, ok := qi.Context[k]; ok {
+				continue // already satisfied
+			}
+		}
+		required[k] = struct{}{}
+	}
+	if len(required) == 0 {
+		return
+	}
+
+	msgs, err := s.history.GetMessages(ctx, convID)
+	if err != nil || len(msgs) == 0 {
+		return
+	}
+
+	for _, m := range msgs {
+		if len(required) == 0 {
+			break // all satisfied
+		}
+		if m.Role != "user" {
+			continue
+		}
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(m.Content)), &obj); err != nil {
+			continue // not a JSON object
+		}
+		if len(obj) == 0 {
+			continue
+		}
+		if qi.Context == nil {
+			qi.Context = map[string]interface{}{}
+		}
+		for k := range required {
+			if val, ok := obj[k]; ok {
+				qi.Context[k] = val
+				delete(required, k)
+			}
+		}
+	}
 }
 
 // --------------- Small helpers ------------------------------------------------
@@ -280,7 +348,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 			qo.Elicitation = elic
 			qo.Content = elic.Message
 			qo.DocumentsSize = s.calculateDocumentsSize(docs)
-			s.recordAssistantElicitation(ctx, convID, elic)
+			s.recordAssistantElicitation(ctx, convID, "", elic)
 			qo.Usage = usage.FromContext(ctx)
 			return nil
 		}
@@ -388,11 +456,14 @@ func (s *Service) recordAssistant(ctx context.Context, convID, content string) {
 // structured schema-based elicitation. The message is flagged with the
 // Elicitation field so that REST callers (and consequently the Forge UI)
 // receive the full schema and can render an interactive form.
-func (s *Service) recordAssistantElicitation(ctx context.Context, convID string, elic *plan.Elicitation) {
+func (s *Service) recordAssistantElicitation(ctx context.Context, convID string, messageID string, elic *plan.Elicitation) {
 	if elic == nil {
 		return
 	}
 	parentID := memory.MessageIDFromContext(ctx)
+	if messageID != "" {
+		parentID = messageID
+	}
 	msg := memory.Message{
 		ID:             uuid.New().String(),
 		ParentID:       parentID,

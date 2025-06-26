@@ -23,11 +23,11 @@ import (
 
 // ChatCmd handles interactive/chat queries.
 type ChatCmd struct {
-	AgentName string `short:"l" long:"agent-name" description:"agent name"`
+	AgentName string `short:"a" long:"agent-name" description:"agent name"`
 	Query     string `short:"q" long:"query"    description:"user query"`
 	ConvID    string `short:"c" long:"conv"     description:"conversation ID (optional)"`
 	Policy    string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
-	LLMLog    string `short:"a" long:"llm-log" description:"file to append raw LLM traffic"`
+	LLMLog    string `short:"l" long:"llm-log" description:"file to append raw LLM traffic"`
 	ResetLogs bool   `long:"reset-logs" description:"truncate/clean log files before each run"  `
 	Timeout   int    `short:"t" long:"timeout" description:"timeout in seconds for the agent response (0=none)" `
 	ToolLog   string `long:"tool-log" description:"file to append debug logs for each tool call"`

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	plan "github.com/viant/agently/genai/agent/plan"
+	core "github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/mcp-protocol/schema"
@@ -49,8 +51,14 @@ func (s *Service) RunPlan(ctx context.Context, input *RunPlanInput, output *RunP
 	var results []plan.Result
 	maxSteps := min(1000, s.maxSteps)
 	planSteps := input.Plan.Steps
+
 	totalSteps := 0
 
+	defer func() {
+
+		fmt.Println("RunPlan - done", totalSteps, results)
+
+	}()
 	// ------------------------------------------------------------------
 	var stepTraceIDs []int
 	conversationID := memory.ConversationIDFromContext(ctx)
@@ -182,7 +190,46 @@ outer:
 
 	// Ensure all accumulated results are surfaced.
 	output.Results = append(output.Results, results...)
+
+	// Deduplicate so that for any (tool,args) pair only the last execution result
+	// is kept. This guarantees the planner receives a clean history without
+	// repeated entries, yet still sees the most recent outcome.
+	output.Results = dedupKeepLast(output.Results)
 	return nil
+}
+
+// dedupKeepLast returns a new slice with only the last occurrence of each
+// (tool, canonical-args) pair, preserving the chronological order of those
+// last occurrences.
+func dedupKeepLast(in []plan.Result) []plan.Result {
+	if len(in) <= 1 {
+		return in
+	}
+
+	type key struct {
+		Name string
+		Args string
+	}
+
+	seen := make(map[key]struct{}, len(in))
+	outRev := make([]plan.Result, 0, len(in))
+
+	// Walk backwards so we keep the *last* occurrence.
+	for i := len(in) - 1; i >= 0; i-- {
+		r := in[i]
+		k := key{r.Name, core.CanonicalArgs(r.Args)}
+		if _, dup := seen[k]; dup {
+			continue
+		}
+		seen[k] = struct{}{}
+		outRev = append(outRev, r)
+	}
+
+	// Reverse back to chronological order.
+	for i, j := 0, len(outRev)-1; i < j; i, j = i+1, j-1 {
+		outRev[i], outRev[j] = outRev[j], outRev[i]
+	}
+	return outRev
 }
 
 // ---------------------------------------------
