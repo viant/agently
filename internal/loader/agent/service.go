@@ -3,18 +3,20 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"github.com/viant/afs"
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/internal/shared"
 	"github.com/viant/agently/internal/workspace"
-	"path"
-	"path/filepath"
-	"strings"
-
-	"github.com/viant/afs"
-	"github.com/viant/agently/genai/llm"
 	"github.com/viant/embedius/matching/option"
 	"github.com/viant/fluxor/service/meta"
 	"github.com/viant/fluxor/service/meta/yml"
@@ -36,6 +38,37 @@ type Service struct {
 	agents      shared.Map[string, *agent.Agent] //[ url ] -> [ agent]
 
 	defaultExtension string
+}
+
+// envPattern matches ${env.VAR_NAME}
+var envPattern = regexp.MustCompile(`\$\{env\.([A-Za-z0-9_]+)}`)
+
+// expandEnv replaces ${env.VAR} placeholders with os.Getenv("VAR").
+func expandEnv(in string) string {
+	return envPattern.ReplaceAllStringFunc(in, func(m string) string {
+		sub := envPattern.FindStringSubmatch(m)
+		if len(sub) != 2 {
+			return m
+		}
+		if val, ok := os.LookupEnv(sub[1]); ok {
+			return val
+		}
+		return "" // replace with empty when var undefined
+	})
+}
+
+// expandNodeEnv walks YAML node tree and expands env placeholders for scalar strings.
+func expandNodeEnv(n *yaml.Node) {
+	if n == nil {
+		return
+	}
+	if n.Kind == yaml.ScalarNode && n.Tag == "!!str" {
+		n.Value = expandEnv(n.Value)
+		return
+	}
+	for _, c := range n.Content {
+		expandNodeEnv(c)
+	}
 }
 
 // LoadAgents loads an agents from the specified URL
@@ -112,6 +145,9 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agent.Agent
 	if err := s.metaService.Load(ctx, URL, &node); err != nil {
 		return nil, fmt.Errorf("failed to load agent from %s: %w", URL, err)
 	}
+
+	// Expand ${env.*} placeholders inside YAML tree before decoding.
+	expandNodeEnv(&node)
 
 	anAgent := &agent.Agent{
 		Source: &agent.Source{

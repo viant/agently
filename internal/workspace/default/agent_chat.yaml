@@ -1,10 +1,10 @@
+description: Default conversational agent1
 id: chat
-name: chat
-description: Default conversational agent
 modelRef: o4-mini
-orchestrationFlow:  workflows/orchestration.yaml
+name: Chat
+orchestrationFlow: workflow/orchestration.yaml
+temperature: 0
 tool:
   - pattern: system/exec
-
 knowledge:
   - url: knowledge/

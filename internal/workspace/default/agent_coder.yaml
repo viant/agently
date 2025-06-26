@@ -1,8 +1,9 @@
+description: Coder agent
 id: coder
-name: coder
-description: Default conversational agent
-modelRef: o3
-orchestrationFlow:  workflows/orchestration.yaml
+modelRef: o4-mini
+name: Coder
+orchestrationFlow: workflow/orchestration.yaml
+temperature: 0
 tool:
   - pattern: system/exec
   - pattern: system/patch
@@ -18,9 +19,7 @@ elicitation:
       Workdir:
         type: string
         description: Working directory path
-      User:
-        type: string
-        description: User initiating the request
+        format: uri-reference
+        default: ${env.HOME}
     required:
       - Workdir
-      - User
