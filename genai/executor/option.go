@@ -131,3 +131,12 @@ func WithToolRetries(maxRetries int) Option {
 		s.config.ToolRetries = maxRetries
 	}
 }
+
+// WithoutHotSwap disables automatic workspace hot-reload. Use this option for
+// deterministic production runs where configuration should not change while
+// the process is running.
+func WithoutHotSwap() Option {
+	return func(s *Service) {
+		s.hotSwapDisabled = true
+	}
+}

@@ -16,12 +16,15 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
+	"github.com/viant/agently/internal/hotswap"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/extension"
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/fluxor/service/event"
 	"github.com/viant/fluxor/service/meta"
 	"io"
+	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -52,6 +55,10 @@ type Service struct {
 	convManager  *conversation.Manager
 	metaService  *meta.Service
 	started      int32
+
+	// Hot-swap manager and toggle
+	hotSwap         *hotswap.Manager
+	hotSwapDisabled bool
 
 	// hotSwap manages live reload of workspace resources (agents, models, etc.)
 
@@ -204,11 +211,33 @@ func New(ctx context.Context, options ...Option) (*Service, error) {
 		opt(ret)
 	}
 
+	// Environment variable toggle (overrides default, respects explicit option)
+	if !ret.hotSwapDisabled {
+		if v := os.Getenv("AGENTLY_HOTSWAP"); v != "" {
+			if isFalse(v) {
+				ret.hotSwapDisabled = true
+			}
+		}
+	}
+
 	err := ret.init(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// Start HotSwap when enabled --------------------------------------
+	if !ret.hotSwapDisabled {
+		ret.initialiseHotSwap()
+	}
 	return ret, nil
+}
+
+// isFalse loosely interprets various string representations of Boolean false.
+func isFalse(v string) bool {
+	v = strings.TrimSpace(strings.ToLower(v))
+	switch v {
+	case "0", "false", "no", "off":
+		return true
+	}
+	return false
 }

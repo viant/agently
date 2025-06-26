@@ -45,8 +45,9 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindAgent, "chat/workflows/prompt", "chat.vm"), "default/agent_chat_prompt.txt"},
 		{filepath.Join(KindAgent, "chat/knowledge/doc.txt"), "default/agent_chat_doc.txt"},
 		{filepath.Join(KindAgent, "coder/workflows/orchestration.yaml"), "default/agent_coder_workflow_orchestration.yaml"},
-		{filepath.Join(KindAgent, "coder/workflows/prompt", "chat.vm"), "default/agent_coder_prompt.txt"},
-		{filepath.Join(KindAgent, "coder/knowledge/golang.md"), "coder_knowledge_golang.md"},
+		{filepath.Join(KindAgent, "coder/workflows/prompt", "chat.vm"), "default/coder_chat_prompt.txt"},
+		{filepath.Join(KindAgent, "coder/knowledge/golang.md"), "default/coder_knowledge_golang.md"},
+		{filepath.Join(KindAgent, "coder/coder.yaml"), "default/agent_coder.yaml"},
 	}
 
 	baseURL := url.Normalize(Root(), file.Scheme)
