@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/viant/agently/genai/agent"
 )
@@ -13,9 +14,10 @@ var _ agent.Finder = (*Finder)(nil)
 
 // Finder is an in-memory cache with optional lazy-loading through Loader.
 type Finder struct {
-	mu     sync.RWMutex
-	items  map[string]*agent.Agent
-	loader agent.Loader
+	mu      sync.RWMutex
+	items   map[string]*agent.Agent
+	loader  agent.Loader
+	version int64
 }
 
 // Add stores an Agent under the provided name key.
@@ -26,6 +28,22 @@ func (d *Finder) Add(name string, a *agent.Agent) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.items[name] = a
+	atomic.AddInt64(&d.version, 1)
+}
+
+// Remove deletes cached agent by name and bumps Version.
+func (d *Finder) Remove(name string) {
+	d.mu.Lock()
+	if _, ok := d.items[name]; ok {
+		delete(d.items, name)
+		atomic.AddInt64(&d.version, 1)
+	}
+	d.mu.Unlock()
+}
+
+// Version returns internal version counter.
+func (d *Finder) Version() int64 {
+	return atomic.LoadInt64(&d.version)
 }
 
 // Agent returns an Agent by name, loading it if not found in the cache.

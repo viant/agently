@@ -16,7 +16,7 @@ require (
 	github.com/viant/afsc v1.9.1
 	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
 	github.com/viant/embedius v0.1.1
-	github.com/viant/fluxor v0.1.19-0.20250626020735-f070ec16b098
+	github.com/viant/fluxor v0.1.19
 	github.com/viant/fluxor-mcp v0.1.10
 	github.com/viant/forge v0.2.7-0.20250624205243-ef6394381c11
 	github.com/viant/jsonrpc v0.7.2
@@ -34,7 +34,10 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/mattn/go-sqlite3 v1.14.17
+require (
+	github.com/fsnotify/fsnotify v1.4.7
+	github.com/mattn/go-sqlite3 v1.14.17
+)
 
 require (
 	cloud.google.com/go v0.114.0 // indirect
@@ -181,4 +184,3 @@ require (
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
 )
-

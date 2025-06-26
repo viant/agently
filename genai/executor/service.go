@@ -53,6 +53,8 @@ type Service struct {
 	metaService  *meta.Service
 	started      int32
 
+	// hotSwap manages live reload of workspace resources (agents, models, etc.)
+
 	llmLogger       io.Writer `json:"-"`
 	fluxorLogWriter io.Writer `json:"-"`
 
@@ -201,6 +203,12 @@ func New(ctx context.Context, options ...Option) (*Service, error) {
 	for _, opt := range options {
 		opt(ret)
 	}
+
 	err := ret.init(ctx)
-	return ret, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Start HotSwap when enabled --------------------------------------
+	return ret, nil
 }

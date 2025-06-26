@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/viant/agently/genai/llm"
 	provider "github.com/viant/agently/genai/llm/provider"
@@ -18,6 +19,7 @@ type Finder struct {
 	configLoader   provider.ConfigLoader
 	models         map[string]llm.Model
 	mux            sync.RWMutex
+	version        int64
 }
 
 func (d *Finder) Best(p *llm.ModelPreferences) string {
@@ -104,4 +106,44 @@ func New(options ...Option) *Finder {
 	}
 
 	return dao
+}
+
+// Remove deletes a model configuration and any instantiated model from the
+// finder caches. It bumps the internal version so hot-swap watchers can
+// detect the change.
+func (d *Finder) Remove(name string) {
+	d.mux.Lock()
+	if _, ok := d.models[name]; ok {
+		delete(d.models, name)
+	}
+	d.mux.Unlock()
+
+	d.configRegistry.Remove(name)
+	atomic.AddInt64(&d.version, 1)
+}
+
+// Version returns monotonically increasing value changed on Add/Remove.
+func (d *Finder) Version() int64 { return atomic.LoadInt64(&d.version) }
+
+// DropModel removes an already instantiated llm.Model instance but keeps its
+// configuration. Next Find() will create a fresh model using the existing
+// config. Useful after model implementation reload without deleting YAML.
+func (d *Finder) DropModel(name string) {
+	d.mux.Lock()
+	if _, ok := d.models[name]; ok {
+		delete(d.models, name)
+		atomic.AddInt64(&d.version, 1)
+	}
+	d.mux.Unlock()
+}
+
+// AddConfig injects or overwrites a model configuration and bumps version.
+func (d *Finder) AddConfig(name string, cfg *provider.Config) {
+	if cfg == nil || name == "" {
+		return
+	}
+	d.configRegistry.Add(name, cfg)
+	// Drop any instantiated model to ensure next Find builds a fresh one.
+	d.DropModel(name)
+	atomic.AddInt64(&d.version, 1)
 }

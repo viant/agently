@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/tmc/langchaingo/embeddings"
 	provider "github.com/viant/agently/genai/embedder/provider"
@@ -18,6 +19,7 @@ type Finder struct {
 	loader         provider.ConfigLoader
 	embedders      map[string]embeddings.Embedder
 	mux            sync.RWMutex
+	version        int64
 }
 
 // New creates Finder instance.
@@ -33,6 +35,35 @@ func New(options ...Option) *Finder {
 	}
 	return d
 }
+
+// Remove deletes an embedder entry and its config.
+func (d *Finder) Remove(name string) {
+	d.mux.Lock()
+	if _, ok := d.embedders[name]; ok {
+		delete(d.embedders, name)
+	}
+	d.mux.Unlock()
+
+	d.configRegistry.Remove(name)
+	atomic.AddInt64(&d.version, 1)
+}
+
+// AddConfig registers or overwrites an embedder configuration and bumps the
+// internal version.
+func (d *Finder) AddConfig(name string, cfg *provider.Config) {
+	if cfg == nil || name == "" {
+		return
+	}
+	d.configRegistry.Add(name, cfg)
+	// Remove any instantiated embedder so next Find rebuilds it.
+	d.mux.Lock()
+	delete(d.embedders, name)
+	d.mux.Unlock()
+	atomic.AddInt64(&d.version, 1)
+}
+
+// Version returns counter changed on Add/Remove.
+func (d *Finder) Version() int64 { return atomic.LoadInt64(&d.version) }
 
 func (d *Finder) Ids() []string {
 	d.mux.RLock()
