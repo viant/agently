@@ -3,17 +3,16 @@ namespace: Chat
 # Dialogs available from this window
 dialogs:
   - $import('dialog/settings.yaml')
+  - $import('dialog/fileBrowser.yaml')
 
 # Window that displays a single conversation chat view (no conversation list).
 
 view:
   content:
     containers:
-      # preload models for settings dialog
       - id: modelsLoader
         dataSourceRef: models
         fetchData: true
-      # preload agents for settings dialog
       - id: agentsLoader
         dataSourceRef: agents
         fetchData: true
@@ -30,40 +29,42 @@ view:
           columns: 2
           labelPosition: left
         items:
-          - id: title
-            type: label
-            columnSpan: 2
           - id: agent
             type: label
             label: Agent
           - id: model
             type: label
             label: Model
+          - id: title
+            type: label
+            columnSpan: 2
 
       - id: conversationSection
         chat:
           dataSourceRef: messages
           height: 75vh
           toolbar:
-            dataSourceRef: conversations
+            dataSourceRef: messages
             items:
               - id: newConv
                 icon: plus
                 enabled: true
                 align: left
-                label: "New chat"
+                #label: "New chat"
                 on:
                   - event: onClick
-                    handler: chat.newConversation        # gets full context
+                    handler: chat.newConversation
+                  - event: onReadonly
+                    handler: dataSource.isSelected
               - id: settings
                 icon: cog
-                label: Settings
+               #label: Settings
                 enabled: true
                 align: right
                 on:
                   - event: onClick
                     handler: window.openDialog
-                    args: ['settings']
+                    args: [ 'settings' ]
 
           on:
             - event: onSubmit
@@ -77,10 +78,17 @@ view:
                   location: conversations.agent
             - event: onUpload
               handler: chat.upload
+on:
+  - event: onInit
+    handler: chat.onInit
+  - event: onDestroy
+    handler: chat.onDestroy
 
 dataSource:
   conversations: $import('../conversations/datasource/conversations.yaml')
   messages: $import('../conversations/datasource/messages.yaml')
   models: $import('../../model/datasource/models.yaml')
   agents: $import('../../agent/datasource/agents.yaml')
-  tools:  $import('../../tool/datasource/tools.yaml')
+  tools: $import('../../tool/datasource/tools.yaml')
+  meta: $import('datasource/meta.yaml')
+  fs: $import('../../filebrowser/datasource/fileBrowser.yaml')

@@ -204,6 +204,13 @@ func (e *Service) LLMCore() *core.Service {
 	return e.llmCore
 }
 
+// Config returns the underlying configuration struct (read-only). Callers
+// must treat the returned pointer as immutable once the executor has been
+// initialised.
+func (e *Service) Config() *Config {
+	return e.config
+}
+
 // New creates a new executor service
 func New(ctx context.Context, options ...Option) (*Service, error) {
 	ret := &Service{config: &Config{}}

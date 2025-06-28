@@ -18,7 +18,7 @@ require (
 	github.com/viant/embedius v0.1.1
 	github.com/viant/fluxor v0.1.19
 	github.com/viant/fluxor-mcp v0.1.10
-	github.com/viant/forge v0.2.7-0.20250624205243-ef6394381c11
+	github.com/viant/forge v0.2.7-0.20250628141010-2dd0b8c4affb
 	github.com/viant/jsonrpc v0.7.2
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.4.3
@@ -184,3 +184,4 @@ require (
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
 )
+

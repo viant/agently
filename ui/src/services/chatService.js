@@ -13,6 +13,231 @@ import {classifyMessage, normalizeMessages} from './messageNormalizer';
 import ExecutionBubble from '../components/chat/ExecutionBubble.jsx';
 import {ensureConversation, newConversation} from './conversationService';
 
+// -------------------------------
+// Window lifecycle helpers
+// -------------------------------
+
+/**
+ * Called by Forge when the Chat window becomes visible (onInit).
+ * Performs the following steps:
+ *   1. Fetches default agent & model via fetchMetaDefaults (backend).
+ *   2. Pre-selects every tool that matches the default agent patterns so the
+ *      Tools field starts populated.
+ *   3. Starts a 1-second interval ticker whose id is stored on the window
+ *      context so it can be cleared later in onDestroy.
+ */
+export async function onInit({context}) {
+
+
+    try {
+        const convContext = context.Context('conversations');
+        const agentContext = context.Context('agents');
+        const toolsContext = context.Context('tools');
+        const metaContext = context.Context('meta')
+
+
+        const defaults = await fetchMetaDefaults({context});
+        const agentResp = await agentContext.connector.get({})
+        const agents = agentResp.data || [];
+
+        const toolResp = await toolsContext.connector.get({})
+        const allTools = toolResp.data || [];
+        const values = {...defaults, agents:{}}
+
+        for (const agent of agents) {
+            const agentTools = agent.tool || []
+            const patterns = agentTools
+                .map(extractPattern)
+                .filter(Boolean)
+                .map(canonPattern);
+            const matchedTools = filterToolsByPatterns(allTools, patterns)
+            values.agents[agent.id] = matchedTools.map(t => t.name)
+
+            metaContext.handlers.dataSource.setFormData({values: values})
+        }
+        const matchedToolNames = values.agents[defaults.agent]
+        convContext.handlers.dataSource.setFormField({item: {id: 'tools'}, value: matchedToolNames})
+    } catch (err) {
+        console.error('chatService.onInit error:', err);
+    }
+
+    try {
+        // 3) Start 1-second polling loop. Replace any previous one.
+        if (context.resources.chatTimer) {
+            clearInterval(context.resources.chatTimer);
+        }
+        context.resources['chatTimerState'] = {busy:false}
+        context.resources['chatTimer'] = setInterval(() => {
+            startPolling({context});
+        }, 1000);
+    } catch
+        (err) {
+        console.error('chatService.onOpen error:', err);
+    }
+}
+
+function selectFolder(props) {
+    const {context, selected} = props;
+    console.log('selectFolder 1', context)
+
+    context.handlers.dialog.commit()
+    console.log('selectFolder', props)
+}
+
+function startPolling({context}) {
+    if (!context || typeof context.Context !== 'function') {
+        console.warn('chatService.startPolling: invalid context');
+        return;
+    }
+    const tick = async () => {
+        if(context.resources.chatTimerState) return;
+        try {
+            context.resources.chatTimerState = true;
+
+            const convCtx = context.Context('conversations');
+            const convID = convCtx?.handlers?.dataSource.peekFormData?.()?.id;
+            if (!convID) {
+                return; // no active conversation – nothing to do
+            }
+
+            const messagesCtx = context.Context('messages');
+            if (!messagesCtx) {
+                return;
+            }
+
+            const collSig = messagesCtx.signals?.collection;
+            const current = Array.isArray(collSig?.value) ? collSig.value : [];
+            const lastID = current.length ? current[current.length - 1].id : '';
+
+            const base = endpoints.appAPI.baseURL + `/conversations/${convID}/messages`;
+            const url = lastID ? `${base}?since=${encodeURIComponent(lastID)}` : base;
+
+            const json = await fetchJSON(url);
+            if (json && json.status === 'ok' && Array.isArray(json.data) && json.data.length) {
+                mergeMessages(messagesCtx, json.data);
+                injectFormMessages(messagesCtx, json.data);
+            }
+        } catch (err) {
+            console.error('chatService.startPolling tick error:', err);
+        }
+    };
+    tick().then().finally(()=> context.resources.chatTimerState = false)
+}
+
+
+
+
+
+/**
+ * Stops the polling loop created in onOpen. Bound to window onDestroy.
+ */
+export function onDestroy({context}) {
+    if (context?.resources?.chatTimer) {
+        clearInterval(context.resources.chatTimer);
+        delete context.resources.chatTimer;
+    }
+}
+
+
+function matchAgentTools(context, patterns) {
+    // grab the full tool objects, not just names
+    const allTools = getAllTools(context);
+    // filter by name patterns, but keep the full object
+    const matchedTools = filterToolsByPatterns(allTools, patterns);
+    return matchedTools;
+}
+
+/**
+ * Builds dynamic options for the tools treeMultiSelect widget.
+ * @param {Object} options - Forge handler options
+ * @param {Object} options.context - SettingProvider context instance
+ * @returns {{options: Array<{id: string, label: string, value: string, tooltip: string}>}}
+ */
+export function buildToolOptions({context}) {
+    const agentName = getSelectedAgent(context);
+    if (!agentName) {
+        return {options: []};
+    }
+
+    const patterns = getAgentPatterns(context, agentName);
+    if (!patterns.length) {
+        return {options: []};
+    }
+
+    const matchedTools = matchAgentTools(context, patterns);
+    return {options: formatOptions(matchedTools)};
+}
+
+// --- Helpers ---
+
+function getSelectedAgent(context) {
+    const conv = context.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+    return conv.agent || '';
+}
+
+function getAgentPatterns(context, agentName) {
+    const agentContext = context.Context('agents');
+    let agents = agentContext?.handlers?.dataSource?.peekCollection?.() || [];
+
+    const agent = agents.find(a => a?.name === agentName || a?.id === agentName);
+
+    if (!agent?.tool || !Array.isArray(agent.tool)) {
+        return [];
+    }
+    return agent.tool
+        .map(extractPattern)
+        .filter(Boolean)
+        .map(canonPattern);
+}
+
+function extractPattern(item) {
+    if (typeof item === 'string') return item;
+    return item.pattern || item.definition?.name || '';
+}
+
+function canonPattern(pattern) {
+    return pattern.replace(/\//g, '_');
+}
+
+// Return the full tool objects
+function getAllTools(context) {
+    return (context.Context?.('tools')?.handlers?.dataSource?.peekCollection?.() || [])
+        .filter(t => t && t.name)  // ensure valid
+        .map(t => ({name: t.name, description: t.description || '', id: t.id}));
+}
+
+// Filter the tools by your name-based patterns
+function filterToolsByPatterns(tools, patterns) {
+    const matches = tools.filter(tool =>
+        patterns.some(pat => pat === '*' || tool.name.startsWith(pat))
+    );
+    // dedupe by name and sort
+    const unique = Array.from(new Map(matches.map(t => [t.name, t])).values());
+    return unique.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Build the final options, including tooltip
+function formatOptions(tools) {
+    return tools.map(tool => ({
+        id: tool.name,
+        label: tool.name,
+        value: tool.name,
+        tooltip: tool.description
+    }));
+}
+
+
+export async function selectAgent(props) {
+    const {context} = props;
+    const metaContext = context.Context('meta')
+    const form = metaContext.handlers.dataSource.peekFormData()
+    const convContext = context.Context('conversations')
+    const agentId = props.selected
+    const tools = form.agents[agentId]
+    convContext.handlers.dataSource.setFormField({item: {id: 'tools'}, value: tools})
+    return true
+}
+
 
 /**
  * Submits a user message to the chat
@@ -65,9 +290,6 @@ export async function submitMessage(props) {
         // Optimistic UI update
         updateCollectionWithUserMessage(messagesContext, messageId, message.content);
 
-        // Polling
-        const msgURL = endpoints.appAPI.baseURL + `/conversations/${convID}/messages?parentId=${messageId}`;
-        await pollForMessages(messagesContext, msgURL);
     } catch (error) {
         console.error('submitMessage error:', error);
         messageHandlers?.setError(error);
@@ -82,6 +304,32 @@ export async function submitMessage(props) {
  */
 export async function upload() {
     // No implementation needed
+}
+
+/**
+ * Fetches default agent/model from backend metadata endpoint and pre-fills the
+ * conversations form data so that the Settings dialog shows current default
+ * selections.
+ */
+export async function fetchMetaDefaults({context}) {
+
+
+    const metaContext = context.Context('meta')
+    const metaAPI = metaContext.connector;
+    try {
+        const resp = await metaAPI.get({})
+        if (!resp) return;
+        const {agent = '', model = ''} = resp;
+        const convCtx = context.Context('conversations');
+        if (!convCtx?.handlers?.dataSource) return;
+
+        const existing = convCtx.handlers.dataSource.peekFormData?.() || {};
+        const values = {...existing, agent, model};
+        convCtx.handlers.dataSource.setFormData({values: values});
+        return values
+    } catch (err) {
+        console.error('fetchMetaDefaults error', err);
+    }
 }
 
 /**
@@ -194,52 +442,15 @@ function injectFormMessages(messagesContext, data) {
     }
 }
 
-/**
- * Polls for new messages
- * @param {Object} messagesContext - Messages context
- * @param {string} msgURL - URL to poll for messages
- * @returns {Promise<void>}
- */
-async function pollForMessages(messagesContext, msgURL) {
-    let assistantArrived = false;
-    let stillCount = 0;
-    let lastSig = '';
+// --------------------------- Public helper ------------------------------
 
-    await poll(
-        () => fetchJSON(msgURL),
-        (json) => {
-            if (!json || json.status !== 'ok' || !Array.isArray(json.data)) {
-                return false;
-            }
-
-            mergeMessages(messagesContext, json.data);
-            injectFormMessages(messagesContext, json.data);
-
-            // Detect stability
-            const sig = JSON.stringify(json.data);
-            if (sig === lastSig) {
-                stillCount += 1;
-            } else {
-                stillCount = 0;
-                lastSig = sig;
-            }
-
-            // Detect first assistant reply
-            if (!assistantArrived) {
-                const hasAssistant = json.data.some((m) => m.role === 'assistant');
-                if (hasAssistant) {
-                    assistantArrived = true;
-                }
-            }
-
-            // Stop polling when we already saw the assistant message and the
-            // payload stayed unchanged for at least one additional tick
-            const ASSISTANT_STABILITY_TICKS = 1;
-            return assistantArrived && stillCount >= ASSISTANT_STABILITY_TICKS;
-        },
-        // Allow up to ~15 minutes of polling (900 attempts × 1s interval)
-        {maxAttempts: 900}
-    );
+// receiveMessages merges incoming messages into the Forge messages DataSource
+// and injects synthetic form-renderer placeholders when necessary. Intended
+// for generic polling logic (open chat follow-up fetches).
+export function receiveMessages(messagesContext, data) {
+    if (!Array.isArray(data) || data.length === 0) return;
+    mergeMessages(messagesContext, data);
+    injectFormMessages(messagesContext, data);
 }
 
 
@@ -249,14 +460,30 @@ async function pollForMessages(messagesContext, msgURL) {
 export const chatService = {
     submitMessage,
     upload,
+    onInit,
+    onDestroy,
+    selectAgent,
+    fetchMetaDefaults,
     newConversation,
     classifyMessage,
     normalizeMessages,
+    selectFolder,
+    buildToolOptions,
+    receiveMessages,
     renderers: {
         execution: ExecutionBubble,
         form: FormRenderer,
         mcpelicitation: MCPForm,
         mcpuserinteraction: MCPInteraction,
         policyapproval: PolicyApproval,
-    }
+    },
+
 };
+
+
+// --------- internal state ---------
+
+// Maps window context objects → setInterval id so we can safely start / stop
+// per-window background polling without leaking intervals when the window is
+// closed or remounted.
+const pollingRegistry = new WeakMap();

@@ -8,6 +8,9 @@ import Root from './components/Root';
 import {SettingProvider} from 'forge/core';
 import {AuthProvider, AuthContext} from './AuthContext';
 
+// Custom Forge widgets (file / URI reference)
+import './forgeCustom/fileWidgetRegister.jsx';
+
 // Import your configurations
 import {endpoints} from './endpoint';
 import {connectorConfig} from "./connector.js";

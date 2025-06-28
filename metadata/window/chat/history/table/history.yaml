@@ -15,11 +15,11 @@ columns:
           - chat/new
           - History Chat
         parameters:
-          - name: input.parameters.id
-            kind: conversations
-            in: selection
-            location: history.id
-          - name: input.parameters.convID
-            kind: messages
-            in: selection
-            location: history.id
+          - name: parameters.id
+            to: conversations:input
+            from: :form
+            location: id
+          - name: parameters.convID
+            to: messages:input
+            from: :form
+            location: id

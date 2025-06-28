@@ -1,0 +1,5 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/metadata/defaults
+  method: GET
+

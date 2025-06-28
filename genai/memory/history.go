@@ -72,6 +72,34 @@ func (h *HistoryStore) GetMessages(ctx context.Context, convID string) ([]Messag
 	return copied, nil
 }
 
+// MessagesSince returns the slice of messages beginning with the one whose
+// ID matches sinceID (inclusive) followed by every subsequent message in
+// chronological order. If sinceID is empty the full history is returned. When
+// the supplied ID cannot be found the returned slice is empty and no error is
+// raised so that callers can treat it identical to "not yet available".
+func (h *HistoryStore) MessagesSince(ctx context.Context, convID string, sinceID string) ([]Message, error) {
+	if sinceID == "" {
+		return h.GetMessages(ctx, convID)
+	}
+
+	all, err := h.GetMessages(ctx, convID)
+	if err != nil {
+		return nil, err
+	}
+
+	start := -1
+	for i, m := range all {
+		if m.ID == sinceID {
+			start = i
+			break
+		}
+	}
+	if start == -1 {
+		return []Message{}, nil
+	}
+	return all[start:], nil
+}
+
 // Retrieve returns messages filtered by the provided policy.
 // If policy is nil, all messages are returned.
 func (h *HistoryStore) Retrieve(ctx context.Context, convID string, policy Policy) ([]Message, error) {

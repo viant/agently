@@ -266,13 +266,53 @@ func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNotFound)
 }
 
-// handleGetMessages supports GET /v1/api/conversations/{id}/messages to return full history.
+// handleGetMessages returns conversation messages. Supported query params:
+//
+//	– since=<msgID>   → inclusive slice starting at msgID and including any
+//	                    newer messages (generic tail-follow use-case).
+//	– parentId=<id>   → (deprecated) keeps previous behaviour for one level
+//	                    children filter so existing UIs do not break.
+//
+// When both parameters are absent the full history is returned.
+// When both are provided, since has priority.
 func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convID string) {
-	parentId := r.URL.Query().Get("parentId")
-	msgs, err := s.mgr.Messages(r.Context(), convID, parentId)
-	data, _ := json.Marshal(msgs)
-	fmt.Println("MESSAGES", string(data))
+	// ------------------------------------------------------------------
+	// 1. Determine filter semantics
+	// ------------------------------------------------------------------
+	sinceId := strings.TrimSpace(r.URL.Query().Get("since"))
+	parentId := strings.TrimSpace(r.URL.Query().Get("parentId")) // legacy
 
+	// ------------------------------------------------------------------
+	// 2. Fetch from manager (enriched with execution traces)
+	// ------------------------------------------------------------------
+	var msgs []memory.Message
+	var err error
+
+	if sinceId == "" {
+		// legacy or full history path
+		msgs, err = s.mgr.Messages(r.Context(), convID, parentId)
+	} else {
+		// Retrieve full history, then slice – keeps enrichment logic intact.
+		var all []memory.Message
+		all, err = s.mgr.Messages(r.Context(), convID, "")
+		if err == nil {
+			// Find index of sinceId (inclusive)
+			start := -1
+			for i, m := range all {
+				if m.ID == sinceId {
+					start = i
+					break
+				}
+			}
+			if start == -1 {
+				// Message not yet available – return 102 Processing to allow
+				// client to keep polling without error.
+				encode(w, http.StatusProcessing, []memory.Message{}, nil)
+				return
+			}
+			msgs = all[start:]
+		}
+	}
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return

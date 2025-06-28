@@ -17,12 +17,18 @@ export async function ensureConversation({ context }) {
     if (!convID) {
         // include current overrides (model, agent, tools) when present
         const currentForm = conversationContext.handlers?.dataSource?.peekFormData?.() || {};
-        const {model = '', agent = '', tools = ''} = currentForm;
+        const {model = '', agent = '', tools: toolsRaw = ''} = currentForm;
 
         const body = {};
         if (model)  body.model  = model;
         if (agent)  body.agent  = agent;
-        if (tools)  body.tools  = tools;
+
+        // Tools may come as array from treeMultiSelect or as comma separated string.
+        if (Array.isArray(toolsRaw) && toolsRaw.length) {
+            body.tools = toolsRaw.join(',');
+        } else if (typeof toolsRaw === 'string' && toolsRaw.trim() !== '') {
+            body.tools = toolsRaw.trim();
+        }
 
         const resp = await conversationAPI.post({body});
         const data = resp?.data || {};

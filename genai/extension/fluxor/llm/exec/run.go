@@ -53,12 +53,6 @@ func (s *Service) RunPlan(ctx context.Context, input *RunPlanInput, output *RunP
 	planSteps := input.Plan.Steps
 
 	totalSteps := 0
-
-	defer func() {
-
-		fmt.Println("RunPlan - done", totalSteps, results)
-
-	}()
 	// ------------------------------------------------------------------
 	var stepTraceIDs []int
 	conversationID := memory.ConversationIDFromContext(ctx)

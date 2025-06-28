@@ -1,6 +1,6 @@
-title: Settings
-id: settings
-content: $import('panel/settings.yaml')
+title: File Browser
+id: fileBrowser
+content: $import('panel/fileBrowser.yaml')
 
 # Make the dialog reasonably sized
 style:
@@ -10,15 +10,12 @@ style:
 # Action buttons shown in the footer
 actions:
   - id: save
-    icon: floppy-disk
-    label: Save
-    intent: primary
+    label: Select
     on:
       - event: onClick
-        handler: dialog.close
+        handler: chat.selectFolder
 
   - id: cancel
-    icon: cross
     label: Cancel
     on:
       - event: onClick

@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	chat "github.com/viant/agently/adapter/http"
+	"github.com/viant/agently/adapter/http/filebrowser"
+	"github.com/viant/agently/adapter/http/metadata"
 	"github.com/viant/agently/adapter/http/workspace"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
@@ -28,6 +30,12 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 		chat.WithApprovalService(exec.ApprovalService()),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
+
+	// File browser (Forge)
+	mux.Handle("/v1/workspace/file-browser/", http.StripPrefix("/v1/workspace/file-browser", filebrowser.New()))
+
+	// Metadata defaults endpoint
+	mux.HandleFunc("/v1/metadata/defaults", metadata.New(exec))
 
 	// Kick off background sync that surfaces fluxor approval requests as chat
 	// messages so that web users can approve/reject tool executions.

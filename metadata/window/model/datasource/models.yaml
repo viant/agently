@@ -6,8 +6,6 @@ service:
     uri: /v1/workspace/models/{id}
 
 
-
-
 paging:
   size: 10
 
