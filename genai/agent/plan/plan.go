@@ -20,6 +20,7 @@ type Outcome struct {
 
 type StepOutcome struct {
 	ID       string                 `yaml:"id,omitempty" json:"id,omitempty"`
+	TraceID  int                    `yaml:"traceId,omitempty" json:"traceId,omitempty"`
 	Tool     string                 `yaml:"tool,omitempty" json:"tool,omitempty"`
 	Reason   string                 `yaml:"reason,omitempty" json:"reason,omitempty"`
 	Request  json.RawMessage        `yaml:"request,omitempty" json:"request,omitempty"`

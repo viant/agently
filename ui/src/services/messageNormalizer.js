@@ -1,14 +1,55 @@
 // Message normalization logic for chat messages
 
-import { deepCopy } from './utils/apiUtils';
+import {deepCopy} from './utils/apiUtils';
 
 /**
  * Checks if a message is an assistant message with elicitation
  * @param {Object} message - The message to check
  * @returns {boolean} - True if the message is an assistant message with elicitation
  */
-const isAssistantElicitation = (message) =>
-    message.role === "assistant" && message.elicitation?.requestedSchema;
+// Determines whether the given JSON schema represents a *simple* text
+// prompt that should be rendered as a regular chat bubble rather than an
+// interactive form.  The heuristic intentionally stays minimalistic and
+// treats a schema as “simple” when **all** of the following hold true:
+//   • exactly one property is defined
+//   • the property has type "string" (or no type specified → defaults to string)
+//   • the property does **not** specify an enum (open text field)
+// Any other schema (multiple fields, enum constraints, number/array/etc.) is
+// considered *complex* and therefore rendered with the dedicated form
+// component.
+export function isSimpleTextSchema(schema) {
+    if (!schema || typeof schema !== 'object') return false;
+
+    const {properties} = schema;
+    if (!properties || typeof properties !== 'object') return false;
+
+    const keys = Object.keys(properties);
+    if (keys.length !== 1) return false;
+
+    const field = properties[keys[0]] || {};
+
+    // Detect enum – any non-empty array counts.
+    if (Array.isArray(field.enum) && field.enum.length > 0) {
+        return false;
+    }
+    if (field.format) {
+        return false;
+    }
+
+    // Normalize type to array for easy checking; undefined → treat as string.
+    const types = Array.isArray(field.type) ? field.type : [field.type || 'string'];
+    return types.every(t => t === 'string');
+}
+
+// Determines whether an assistant message should be handled as an interactive
+// form elicitation as opposed to a plain text bubble.
+const isAssistantElicitation = (message) => {
+    if (message.role !== 'assistant') return false;
+    const schema = message.elicitation?.requestedSchema;
+    if (!schema) return false;
+    // Skip simple single-field text questions – they don’t need the form UI.
+    return !isSimpleTextSchema(schema);
+};
 
 /**
  * Classifies a message based on its content and structure
@@ -37,7 +78,21 @@ export function classifyMessage(message) {
     if (message.role === 'policyapproval' && message.status === 'open') {
         return 'policyapproval';
     }
-    return message.elicitation?.requestedSchema ? 'form' : 'bubble';
+
+    // User supplied HTML table (JSON converted) gets special renderer.
+    if (message.role === 'user' && typeof message.content === 'string' && message.content.trim().startsWith('<')) {
+        return 'htmltable';
+    }
+    // Assistant elicitations that qualify as simple text questions
+    // (see isSimpleTextSchema) are downgraded to regular bubbles so they
+    // appear visually like a normal question without an embedded form.
+    if (message.elicitation?.requestedSchema) {
+        return isSimpleTextSchema(message.elicitation.requestedSchema)
+            ? 'bubble'
+            : 'form';
+    }
+
+    return 'bubble';
 }
 
 /**
@@ -48,56 +103,30 @@ export function classifyMessage(message) {
 export function normalizeMessages(raw = []) {
     const out = [];
 
-    let pending = null;          // waiting assistant-elicitation
-    const openStack = [];        // past elicitations still answerable
+    for (const msg of raw) {
+        const copy = deepCopy(msg);
 
-    const flushPending = () => {
-        if (pending) {
-            out.push(pending);
-            openStack.push(pending);
-            pending = null;
-        }
-    };
-
-    for (let i = 0; i < raw.length; i++) {
-        const message = raw[i];
-
-        // 1. Assistant message with elicitation
-        if (isAssistantElicitation(message)) {
-            flushPending();                     // avoid doublets
-            pending = deepCopy(message);
-            pending.elicitation.userInputs = [];
-            continue;                           // don't output yet
-        }
-
-        // 2. User message with potential JSON payload
-        if (message.role === "user") {
-            const payload = tryParseJSON(message.content);
-
-            if (payload && typeof payload === "object") {
-                const matchedElicitation = findMatchingElicitation(payload, pending, openStack);
-                
-                if (matchedElicitation) {
-                    // If best match is still pending, emit only the populated version
-                    const isPendingBest = matchedElicitation === pending;
-                    if (isPendingBest) pending = null;
-
-                    const populatedMessage = createPopulatedElicitationMessage(message, matchedElicitation, payload);
-                    
-                    out.push(populatedMessage);
-                    openStack.push(populatedMessage);
-                    continue;                      // consume user message
+        // When user supplies a JSON object, convert it to a markdown table so
+        // it renders nicely.
+        if (copy.role === 'user') {
+            const payload = tryParseJSON(copy.content);
+            if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+                const keys = Object.keys(payload);
+                if (keys.length) {
+                    let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">';
+                    html += '<tbody>';
+                    keys.forEach(k => {
+                        const cellStyle = 'word-break:break-word;white-space:pre-wrap';
+                        html += `<tr><th style="text-align:left;padding-right:8px;white-space:nowrap">${escapeHTML(k)}</th><td style="${cellStyle}">${escapeHTML(JSON.stringify(payload[k]))}</td></tr>`;
+                    });
+                    html += '</tbody></table></div>';
+                    copy.content = html;
                 }
             }
         }
 
-        // 3. Everything else
-        flushPending();
-        out.push(deepCopy(message));
+        out.push(copy);
     }
-
-    flushPending(); // tail flush
-
     return out;
 }
 
@@ -107,40 +136,23 @@ export function normalizeMessages(raw = []) {
  * @returns {Object|null} - Parsed object or null if parsing failed
  */
 function tryParseJSON(content) {
-    try { 
-        return JSON.parse(content ?? ""); 
+    try {
+        return JSON.parse(content ?? "");
     } catch {
         return null;
     }
 }
 
-/**
- * Finds the best matching elicitation for a payload
- * @param {Object} payload - The payload to match
- * @param {Object} pending - The pending elicitation
- * @param {Array} openStack - Stack of open elicitations
- * @returns {Object|null} - The best matching elicitation or null
- */
-function findMatchingElicitation(payload, pending, openStack) {
-    // Build search list: pending (if any) first, then openStack (newest→oldest)
-    const candidates = [
-        ...(pending ? [pending] : []),
-        ...openStack.slice().reverse(),
-    ];
-
-    let best = null;
-    for (const elicitation of candidates) {
-        const { properties, required = [] } = elicitation.elicitation.requestedSchema;
-        const sharesKey = Object.keys(payload).some((k) => k in properties);
-        if (!sharesKey) continue;
-
-        best = elicitation;
-        const hasAllRequired = required.every((k) => k in payload);
-        if (hasAllRequired) break;           // perfect match
-    }
-
-    return best;
+// Simple HTML escaper
+function escapeHTML(str = '') {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
+
 
 /**
  * Creates a populated elicitation message from a user message and matching elicitation
@@ -151,7 +163,7 @@ function findMatchingElicitation(payload, pending, openStack) {
  */
 function createPopulatedElicitationMessage(userMessage, matchingElicitation, payload) {
     const schema = deepCopy(matchingElicitation.elicitation.requestedSchema);
-    
+
     // Set default values in schema based on payload
     for (const [key, value] of Object.entries(payload)) {
         if (schema.properties?.[key]) {

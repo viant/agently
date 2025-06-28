@@ -195,7 +195,7 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 			if stat == nil {
 				continue
 			}
-			m.usageStore.Add(input.ConversationID, model, stat.PromptTokens, stat.CompletionTokens, stat.EmbeddingTokens)
+			m.usageStore.Add(input.ConversationID, model, stat.PromptTokens, stat.CompletionTokens, stat.EmbeddingTokens, 0)
 		}
 	}
 	return &output, nil

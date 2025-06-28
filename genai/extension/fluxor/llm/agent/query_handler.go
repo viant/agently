@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/elicitation/refiner"
 	corepkg "github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
@@ -460,6 +461,9 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 	if elic == nil {
 		return
 	}
+
+	// Refine schema for better UX.
+	refiner.Refine(&elic.RequestedSchema)
 	parentID := memory.MessageIDFromContext(ctx)
 	if messageID != "" {
 		parentID = messageID

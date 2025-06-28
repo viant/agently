@@ -24,8 +24,8 @@ func handlerWithUsage(u *usage.Aggregator) QueryHandler {
 func TestManager_UsageStoreIntegration(t *testing.T) {
 	// Prepare aggregator with two models.
 	agg := &usage.Aggregator{}
-	agg.Add("gpt-3.5", 100, 20, 5)
-	agg.Add("ada-002", 0, 0, 50)
+	agg.Add("gpt-3.5", 100, 20, 5, 0)
+	agg.Add("ada-002", 0, 0, 50, 0)
 
 	store := memory.NewUsageStore()
 	mgr := New(memory.NewHistoryStore(), nil, handlerWithUsage(agg), WithUsageStore(store))
@@ -35,10 +35,11 @@ func TestManager_UsageStoreIntegration(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Totals should match aggregator sums.
-	p, c, e := store.Totals("conv1")
+	p, c, e, cached := store.Totals("conv1")
 	assert.EqualValues(t, 100, p)
 	assert.EqualValues(t, 20, c)
 	assert.EqualValues(t, 55, e) // 5 + 50
+	assert.EqualValues(t, 0, cached)
 
 	aggConv := store.Aggregator("conv1")
 	assert.NotNil(t, aggConv)

@@ -17,12 +17,12 @@ require (
 	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
 	github.com/viant/embedius v0.1.1
 	github.com/viant/fluxor v0.1.19
-	github.com/viant/fluxor-mcp v0.1.10
+	github.com/viant/fluxor-mcp v0.1.11-0.20250628161328-cc368a81afcd
 	github.com/viant/forge v0.2.7-0.20250628141010-2dd0b8c4affb
-	github.com/viant/jsonrpc v0.7.2
+	github.com/viant/jsonrpc v0.7.3
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.4.3
-	github.com/viant/mcp-protocol v0.4.4
+	github.com/viant/mcp v0.5.0
+	github.com/viant/mcp-protocol v0.5.1
 	github.com/viant/scy v0.24.0
 	github.com/viant/structology v0.7.1 // indirect
 	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85
@@ -82,7 +82,6 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-sql-driver/mysql v1.7.1 // indirect
-	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
@@ -184,4 +183,3 @@ require (
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
 )
-

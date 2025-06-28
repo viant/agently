@@ -130,6 +130,45 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 				}
 				config.Options.Meta = metadata
 			}
+		case "inputtokenprice":
+			if valueNode.Kind == yaml.ScalarNode {
+				price := 0.0
+				switch v := valueNode.Interface().(type) {
+				case int:
+					price = float64(v)
+				case float64:
+					price = v
+				default:
+					return fmt.Errorf("invalid inputTokenPrice value: %T %v", v, v)
+				}
+				config.Options.InputTokenPrice = price
+			}
+		case "outputtokenprice":
+			if valueNode.Kind == yaml.ScalarNode {
+				price := 0.0
+				switch v := valueNode.Interface().(type) {
+				case int:
+					price = float64(v)
+				case float64:
+					price = v
+				default:
+					return fmt.Errorf("invalid outputTokenPrice value: %T %v", v, v)
+				}
+				config.Options.OutputTokenPrice = price
+			}
+		case "cachedtokenprice":
+			if valueNode.Kind == yaml.ScalarNode {
+				price := 0.0
+				switch v := valueNode.Interface().(type) {
+				case int:
+					price = float64(v)
+				case float64:
+					price = v
+				default:
+					return fmt.Errorf("invalid cachedTokenPrice value: %T %v", v, v)
+				}
+				config.Options.CachedTokenPrice = price
+			}
 		}
 		return nil
 	})

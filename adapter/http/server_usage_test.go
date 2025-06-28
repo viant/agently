@@ -28,8 +28,8 @@ func usageEchoHandler(u *usage.Aggregator) conversation.QueryHandler {
 func TestServer_GetUsage(t *testing.T) {
 	// Prepare aggregator with some numbers.
 	agg := &usage.Aggregator{}
-	agg.Add("gpt-3.5", 10, 2, 1)
-	agg.Add("ada-002", 0, 0, 5)
+	agg.Add("gpt-3.5", 10, 2, 1, 0)
+	agg.Add("ada-002", 0, 0, 5, 0)
 
 	uStore := memory.NewUsageStore()
 	mgr := conversation.New(memory.NewHistoryStore(), nil, usageEchoHandler(agg), conversation.WithUsageStore(uStore))
@@ -62,6 +62,8 @@ func TestServer_GetUsage(t *testing.T) {
 	assert.EqualValues(t, float64(10), data["inputTokens"]) // JSON numbers decoded as float64
 	assert.EqualValues(t, float64(2), data["outputTokens"])
 	assert.EqualValues(t, float64(6), data["embeddingTokens"])
+	_, hasCached := data["cachedTokens"]
+	assert.True(t, hasCached)
 
 	// Validate perModel map presence
 	perModel, ok := data["perModel"].(map[string]interface{})

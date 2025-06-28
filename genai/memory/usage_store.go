@@ -53,12 +53,12 @@ func (s *UsageStore) OnUsage(convID, model string, u *llm.Usage) {
 
 // Add is a lower-level helper that directly increments the counters for
 // convID / model.  It is mainly intended for tests.
-func (s *UsageStore) Add(convID, model string, prompt, completion, embed int) {
+func (s *UsageStore) Add(convID, model string, prompt, completion, embed, cached int) {
 	if convID == "" || model == "" {
 		return
 	}
 	agg := s.ensure(convID)
-	agg.Add(model, prompt, completion, embed)
+	agg.Add(model, prompt, completion, embed, cached)
 }
 
 // Aggregator returns the live aggregator for convID or nil when the
@@ -73,10 +73,10 @@ func (s *UsageStore) Aggregator(convID string) *usage.Aggregator {
 
 // Totals returns the rolled-up counts (prompt, completion, embedding) for the
 // given conversation.  When convID is unknown, all numbers are zero.
-func (s *UsageStore) Totals(convID string) (prompt, completion, embed int) {
+func (s *UsageStore) Totals(convID string) (prompt, completion, embed, cached int) {
 	agg := s.Aggregator(convID)
 	if agg == nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 	// Iterate over model stats and accumulate. We do not lock the aggregator
 	// internals directly (its mux is unexported). Instead we grab a snapshot
@@ -91,6 +91,7 @@ func (s *UsageStore) Totals(convID string) (prompt, completion, embed int) {
 		prompt += st.PromptTokens
 		completion += st.CompletionTokens
 		embed += st.EmbeddingTokens
+		cached += st.CachedTokens
 	}
 	return
 }

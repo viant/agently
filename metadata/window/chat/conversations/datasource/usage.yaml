@@ -1,0 +1,16 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/api/conversations/{convID}/usage
+  method: GET
+
+parameters:
+  - name: convID
+    to: request:path
+    from: conversations:selection
+    location: id
+
+selectors:
+  data: data
+
+uniqueKey:
+  - field: inputTokens

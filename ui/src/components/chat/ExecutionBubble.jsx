@@ -11,6 +11,9 @@ import ExecutionDetails from "./ExecutionDetails.jsx";
 // Minimal markdown → HTML renderer (copied from Forge)
 // ---------------------------------------------------------------------------
 function renderMarkdown(md = "") {
+    if (md.startsWith('<table')) {
+        return md; // already HTML table produced by normalizer
+    }
     const escaped = md
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")

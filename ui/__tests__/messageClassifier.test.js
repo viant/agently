@@ -22,6 +22,20 @@ describe('classifyMessage – table-driven', () => {
       input: { role: 'assistant', content: 'hello' },
       want: 'bubble',
     },
+    {
+      name: 'assistant simple text elicitation rendered as bubble',
+      input: {
+        role: 'assistant',
+        elicitation: {
+          requestedSchema: {
+            properties: {
+              comment: {type: 'string'},
+            },
+          },
+        },
+      },
+      want: 'bubble',
+    },
   ];
 
   cases.forEach(tc => {

@@ -161,7 +161,10 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		}
 		return exec(ctx, in, out)
 	}
-	e.convManager = conversation.New(e.history, e.executionStore, convHandler)
+	// Attach a shared in-memory usage store so that token statistics are
+	// collected and later exposed via HTTP GET /v1/api/conversations/{id}/usage.
+	usageStore := memory.NewUsageStore()
+	e.convManager = conversation.New(e.history, e.executionStore, convHandler, conversation.WithUsageStore(usageStore))
 	// Actions is modified in-place; no return value needed.
 }
 

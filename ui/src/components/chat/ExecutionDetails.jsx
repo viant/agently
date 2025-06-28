@@ -4,6 +4,7 @@ import React, { useMemo, useEffect } from "react";
 import {BasicTable as Basic} from "forge/components";
 import { Dialog } from "@blueprintjs/core";
 import { signal } from "@preact/signals-react";
+import { endpoints } from "../../endpoint";
 
 // Global window-level signals (copied unchanged)
 import {
@@ -13,6 +14,7 @@ import {
 } from "forge/core";
 
 import {BasicTable} from "../../../../../forge/index.js";
+// no extra util needed
 
 // Column template; dynamic handlers injected later
 const COLUMNS_BASE = [
@@ -39,7 +41,7 @@ const COLUMNS_BASE = [
     },
 ];
 
-function buildExecutionContext(parentContext, dataSourceId, openDialog) {
+function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart) {
     const collectionSig = getCollectionSignal(dataSourceId);
     const controlSig    = getControlSignal(dataSourceId);
     const selectionSig  = getSelectionSignal(dataSourceId, { selection: [] });
@@ -79,9 +81,9 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog) {
     const lookupHandler = (id) => {
         switch (id) {
             case "exec.openRequest":
-                return ({ row }) => openDialog("Request", row.request);
+                return ({ row }) => viewPart('request', row);
             case "exec.openResponse":
-                return ({ row }) => openDialog("Response", row.response);
+                return ({ row }) => viewPart('response', row);
             case "dataSource.toggleSelection":
                 return ({ rowIndex }) => toggleSelection({ rowIndex });
             case "dataSource.isSelected":
@@ -117,14 +119,14 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog) {
 
 function flattenExecutions(executions = []) {
     if (!executions) return [];
-    return executions.flatMap((exe) => (exe.steps || []).map((s) => ({
+    // executions array now directly contains trace objects (lightweight – no heavy payload).
+    return executions.flatMap(exe => (exe.steps || []).map(s => ({
+        traceId:  s.traceId,
         state:    s.endedAt || s.success !== undefined ? (s.success ? "✔︎" : "✖︎") : "⏳",
-        tool:      s.tool,
-        reason:    s.reason,
-        success:   s.success ? "success" : "error",
-        elapsed:   s.elapsed,
-        request:   typeof s.request === 'object' ? JSON.stringify(s.request) : (s.request ?? ''),
-        response:  typeof s.response === 'object' ? JSON.stringify(s.response) : (s.response ?? ''),
+        tool:     s.tool,
+        reason:   s.reason || s.error || '',
+        success:  s.success === undefined ? "pending" : (s.success ? "success" : "error"),
+        elapsed:  s.elapsed,
     })));
 }
 
@@ -138,8 +140,26 @@ export default function ExecutionDetails({ executions = [], context, messageId }
         sig.value = rows;
     }, [rows, dataSourceId]);
 
+    // Helper to fetch heavy payload on demand
+    const viewPart = async (part, row) => {
+        try {
+            const convID = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id;
+            if (!convID) return;
+            const title = part === 'request' ? 'Request' : 'Response';
+            setDialog({ title, payload: null, loading: true });
+            const url = `${endpoints.appAPI.baseURL}/conversations/${convID}/execution/${row.traceId}/${part}`;
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`${resp.status}`);
+            const json = await resp.json();
+            setDialog({ title, payload: json, loading: false });
+        } catch (err) {
+            console.error('fetch payload error', err);
+            setDialog({ title: 'Error', payload: String(err) });
+        }
+    };
+
     const execContext = useMemo(
-        () => buildExecutionContext(context, dataSourceId, (title, payload) => setDialog({ title, payload })),
+        () => buildExecutionContext(context, dataSourceId, (title, payload) => setDialog({ title, payload }), viewPart),
         [context, dataSourceId]
     );
 
@@ -159,11 +179,14 @@ export default function ExecutionDetails({ executions = [], context, messageId }
             >
                 {dialog && (
                     <div style={{ padding: 12, maxHeight: "70vh", overflow: "auto" }}>
-                        <pre className="text-xs whitespace-pre-wrap break-all">
-                            {typeof dialog.payload === "string"
-                                ? dialog.payload
-                                : JSON.stringify(dialog.payload, null, 2)}
-                        </pre>
+                        {dialog.loading && <span>Loading …</span>}
+                        {!dialog.loading && dialog.payload !== null && (
+                            <pre className="text-xs whitespace-pre-wrap break-all">
+                                {typeof dialog.payload === "string"
+                                    ? dialog.payload
+                                    : JSON.stringify(dialog.payload, null, 2)}
+                            </pre>
+                        )}
                     </div>
                 )}
             </Dialog>

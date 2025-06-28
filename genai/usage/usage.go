@@ -13,6 +13,7 @@ type Stat struct {
 	PromptTokens     int
 	CompletionTokens int
 	EmbeddingTokens  int
+	CachedTokens     int
 }
 
 // Aggregator collects usage grouped by model name.
@@ -32,7 +33,7 @@ func (a *Aggregator) OnUsage(model string, u *llm.Usage) {
 	if embed < 0 {
 		embed = 0
 	}
-	a.Add(model, u.PromptTokens, u.CompletionTokens, embed)
+	a.Add(model, u.PromptTokens, u.CompletionTokens, embed, 0)
 }
 
 func (a *Aggregator) ensure(model string) *Stat {
@@ -50,11 +51,14 @@ func (a *Aggregator) ensure(model string) *Stat {
 }
 
 // Add records token counts for a specific model.
-func (a *Aggregator) Add(model string, prompt, completion, embed int) {
+// Add records token counts for a specific model. Cached tokens are optional –
+// pass 0 when not applicable.
+func (a *Aggregator) Add(model string, prompt, completion, embed, cached int) {
 	stat := a.ensure(model)
 	stat.PromptTokens += prompt
 	stat.CompletionTokens += completion
 	stat.EmbeddingTokens += embed
+	stat.CachedTokens += cached
 }
 
 // Keys returns sorted list of model names.

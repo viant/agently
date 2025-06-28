@@ -9,7 +9,7 @@ import {SettingProvider} from 'forge/core';
 import {AuthProvider, AuthContext} from './AuthContext';
 
 // Custom Forge widgets (file / URI reference)
-import './forgeCustom/fileWidgetRegister.jsx';
+import './widget/fileWidgetRegister.jsx';
 
 // Import your configurations
 import {endpoints} from './endpoint';

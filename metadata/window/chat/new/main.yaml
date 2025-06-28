@@ -19,6 +19,9 @@ view:
       - id: toolsLoader
         dataSourceRef: tools
         fetchData: true
+      - id: usageLoader
+        dataSourceRef: usage
+        fetchData: true
 
       - id: header
         dataSourceRef: conversations
@@ -26,18 +29,36 @@ view:
         selectFirst: true
         layout:
           orientation: horizontal
-          columns: 2
+          columns: 3
           labelPosition: left
         items:
           - id: agent
             type: label
             label: Agent
+          - id: usageCost
+            datasourceRef: usage
+            label: Usage
+            type: label
           - id: model
             type: label
             label: Model
+          - id: usageInput
+            datasourceRef: usage
+            type: label
+            label: In
+          - id: usageCached
+            datasourceRef: usage
+            type: label
+            label: Cached
+          - id: usageOutput
+            datasourceRef: usage
+            type: label
+            label: Out
+
+
           - id: title
             type: label
-            columnSpan: 2
+            columnSpan: 3
 
       - id: conversationSection
         chat:
@@ -91,4 +112,5 @@ dataSource:
   agents: $import('../../agent/datasource/agents.yaml')
   tools: $import('../../tool/datasource/tools.yaml')
   meta: $import('datasource/meta.yaml')
+  usage: $import('../conversations/datasource/usage.yaml')
   fs: $import('../../filebrowser/datasource/fileBrowser.yaml')

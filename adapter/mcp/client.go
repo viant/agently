@@ -12,10 +12,12 @@ import (
 
 	"github.com/google/uuid"
 	elicitationSchema "github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/elicitation/refiner"
+	"git
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/elicitation/refiner"
 
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
@@ -37,17 +39,6 @@ func Waiter(id string) (chan *schema.ElicitResult, bool) {
 	return v.(chan *schema.ElicitResult), true
 }
 
-// WaiterInteraction returns registered channel for a user-interaction message
-// (if any) so that HTTP callback can deliver user decisions back to the MCP
-// client.
-func WaiterInteraction(id string) (chan *schema.CreateUserInteractionResult, bool) {
-	v, ok := interactionWaiterRegistry.Load(id)
-	if !ok {
-		return nil, false
-	}
-	return v.(chan *schema.CreateUserInteractionResult), true
-}
-
 // Client adapts MCP operations to local execution.
 type Client struct {
 	core       *core.Service
@@ -61,15 +52,20 @@ type Client struct {
 	// waiter registries are shared for elicitation and interaction
 }
 
+func (*Client) LastRequestID() jsonrpc.RequestId {
+	return 0
+}
+
+func (*Client) NextRequestID() jsonrpc.RequestId {
+	return 0
+}
+
 func (c *Client) Init(ctx context.Context, capabilities *schema.ClientCapabilities) {
 	if capabilities.Elicitation != nil {
 		c.implements[schema.MethodElicitationCreate] = true
 	}
 	if capabilities.Roots != nil {
 		c.implements[schema.MethodRootsList] = true
-	}
-	if capabilities.UserInteraction != nil {
-		c.implements[schema.MethodInteractionCreate] = true
 	}
 	if capabilities.Sampling != nil {
 		c.implements[schema.MethodSamplingCreateMessage] = true
@@ -81,8 +77,7 @@ func (c *Client) Implements(method string) bool {
 	switch method {
 	case schema.MethodRootsList,
 		schema.MethodSamplingCreateMessage,
-		schema.MethodElicitationCreate,
-		schema.MethodInteractionCreate:
+		schema.MethodElicitationCreate:
 		return true
 	default:
 		return false
@@ -96,53 +91,6 @@ func (c *Client) Implements(method string) bool {
 func (c *Client) ListRoots(ctx context.Context, p *jsonrpc.TypedRequest[*schema.ListRootsRequest]) (*schema.ListRootsResult, *jsonrpc.Error) {
 	// For local execution we have no workspace roots; return empty.
 	return &schema.ListRootsResult{Roots: []schema.Root{}}, nil
-}
-
-func (c *Client) CreateUserInteraction(ctx context.Context, request *jsonrpc.TypedRequest[*schema.CreateUserInteractionRequest]) (*schema.CreateUserInteractionResult, *jsonrpc.Error) {
-	if request == nil || request.Request == nil || request.Request.Params.Interaction.Url == "" {
-		return nil, jsonrpc.NewInvalidParamsError("url is required", nil)
-	}
-
-	p := request.Request.Params
-
-	// CLI (no history) – open URL immediately and accept
-	if c.history == nil {
-		if c.openURLFn != nil {
-			_ = c.openURLFn(p.Interaction.Url)
-		}
-		return &schema.CreateUserInteractionResult{}, nil
-	}
-
-	owner, err := c.history.LatestMessage(ctx)
-	if err != nil {
-		return nil, jsonrpc.NewInternalError(err.Error(), nil)
-	}
-	parentID := owner.ParentID
-	if parentID == "" {
-		parentID = owner.ID
-	}
-
-	msgID := uuid.New().String()
-	_ = c.history.AddMessage(ctx, memory.Message{
-		ID:             msgID,
-		ParentID:       parentID,
-		ConversationID: owner.ConversationID,
-		Role:           "mcpuserinteraction",
-		Interaction:    &memory.UserInteraction{URL: p.Interaction.Url},
-		CallbackURL:    "/interaction/" + msgID,
-		Status:         "open",
-	})
-
-	ch := make(chan *schema.CreateUserInteractionResult, 1)
-	interactionWaiterRegistry.Store(msgID, ch)
-	select {
-	case res := <-ch:
-		interactionWaiterRegistry.Delete(msgID)
-		return res, nil
-	case <-ctx.Done():
-		interactionWaiterRegistry.Delete(msgID)
-		return nil, jsonrpc.NewInternalError("interaction cancelled", nil)
-	}
 }
 
 func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*schema.ElicitRequest]) (*schema.ElicitResult, *jsonrpc.Error) {
@@ -190,8 +138,12 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 			ConversationID: owner.ConversationID,
 			Role:           "mcpelicitation",
 			Content:        params.Message,
-			Elicitation:    &elicitationSchema.Elicitation{ElicitRequestParams: params},
-			CallbackURL:    "/elicitation/" + msgID,
+				// Refine schema before persisting so that UI sees improved version.
+				refiner.Refine(&params.RequestedSchema)
+				return &elicitationSchema.Elicitation{ElicitRequestParams: params}
+			    return &elicitationSchema.Elicitation{ElicitRequestParams: params}
+			CallbackURL: "/elicitation/" + msgID,
+			Status:      "open",
 			Status:         "open",
 		})
 	}
@@ -267,7 +219,7 @@ func (c *Client) OnNotification(ctx context.Context, notification *jsonrpc.Notif
 
 func (c *Client) ProtocolVersion() string {
 	//schema.LatestProtocolVersion
-	return "2025-03-27"
+	return "2025-06-18"
 }
 
 // Option type remains in option.go

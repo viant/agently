@@ -8,9 +8,10 @@ import MCPForm from '../components/MCPForm.jsx';
 import MCPInteraction from '../components/MCPInteraction.jsx';
 import PolicyApproval from '../components/PolicyApproval.jsx';
 import {poll, fetchJSON} from './utils/apiUtils';
-import {classifyMessage, normalizeMessages} from './messageNormalizer';
+import {classifyMessage, normalizeMessages, isSimpleTextSchema} from './messageNormalizer';
 
 import ExecutionBubble from '../components/chat/ExecutionBubble.jsx';
+import HTMLTableBubble from '../components/chat/HTMLTableBubble.jsx';
 import {ensureConversation, newConversation} from './conversationService';
 
 // -------------------------------
@@ -116,6 +117,71 @@ function startPolling({context}) {
             if (json && json.status === 'ok' && Array.isArray(json.data) && json.data.length) {
                 mergeMessages(messagesCtx, json.data);
                 injectFormMessages(messagesCtx, json.data);
+            }
+
+            // Determine id of newest assistant message after merge.
+            const allMsgs = messagesCtx.signals?.collection?.value || [];
+            let newestAssistantID = '';
+            for (let i = allMsgs.length - 1; i >= 0; i--) {
+                if (allMsgs[i].role === 'assistant') {
+                    newestAssistantID = allMsgs[i].id;
+                    break;
+                }
+            }
+
+            // Only refresh usage when the last assistant message changed.
+            if (newestAssistantID && context.resources.lastAssistantID !== newestAssistantID) {
+                context.resources.lastAssistantID = newestAssistantID;
+
+                try {
+                    const usageURL = endpoints.appAPI.baseURL + `/conversations/${convID}/usage`;
+                    const usageResp = await fetchJSON(usageURL);
+                    if (usageResp && usageResp.status === 'ok') {
+                        const usageData = usageResp.data || {};
+                        const total = usageData.totalTokens !== undefined
+                            ? usageData.totalTokens
+                            : (usageData.inputTokens || 0) + (usageData.outputTokens || 0) + (usageData.cachedTokens || 0);
+
+                        if (convCtx?.handlers?.dataSource?.setFormField) {
+                            const ds = convCtx.handlers.dataSource;
+                            ds.setFormField({item:{id:'usageTokens'}, value: total});
+                            ds.setFormField({item:{id:'usageInput'}, value: usageData.inputTokens || 0});
+                            ds.setFormField({item:{id:'usageOutput'}, value: usageData.outputTokens || 0});
+                            ds.setFormField({item:{id:'usageCached'}, value: usageData.cachedTokens || 0});
+
+                            // Calculate $ cost based on model metadata when available.
+                            const modelsCtx = context.Context('models');
+                            const modelDefs = modelsCtx?.handlers?.dataSource?.peekCollection?.() || [];
+                            const priceMap = {};
+                            modelDefs.forEach(m=>{
+                                const opt = (m.options||{});
+                                priceMap[m.id||m.name] = {
+                                    in:  opt.inputTokenPrice || 0,
+                                    out: opt.outputTokenPrice || 0,
+                                    cache: opt.cachedTokenPrice || 0,
+                                };
+                            });
+
+                            let cost = 0;
+                            const perModel = usageData.perModel || {};
+                            Object.entries(perModel).forEach(([model, stats])=>{
+                                const p = priceMap[model] || {};
+                                cost += ((stats.inputTokens||0)/1000)*(p.in||0);
+                                cost += ((stats.outputTokens||0)/1000)*(p.out||0);
+                                cost += ((stats.cachedTokens||0)/1000)*(p.cache||0);
+                            });
+
+                            ds.setFormField({item:{id:'usageCost'}, value: cost.toFixed(4)});
+                        }
+
+                        const usageCtx = context.Context('usage');
+                        if (usageCtx?.handlers?.dataSource?.setFormData) {
+                            usageCtx.handlers.dataSource.setFormData({values: usageData});
+                        }
+                    }
+                } catch (err) {
+                    console.error('chatService.usageFetch error:', err);
+                }
             }
         } catch (err) {
             console.error('chatService.startPolling tick error:', err);
@@ -414,6 +480,9 @@ function injectFormMessages(messagesContext, data) {
 
         data.forEach((msg) => {
             if (msg.role !== 'assistant' || !msg.elicitation) return;
+            // Skip trivial single-field text elicitations – they are rendered
+            // as normal bubbles and therefore do not need a synthetic form.
+            if (isSimpleTextSchema(msg.elicitation.requestedSchema)) return;
 
             const formMsgId = `${msg.id}/form`;
 
@@ -476,6 +545,7 @@ export const chatService = {
         mcpelicitation: MCPForm,
         mcpuserinteraction: MCPInteraction,
         policyapproval: PolicyApproval,
+        htmltable: HTMLTableBubble,
     },
 
 };

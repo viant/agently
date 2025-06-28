@@ -56,6 +56,22 @@ type ExecutionStore struct {
 	data map[string][]*ExecutionTrace
 }
 
+// Get returns a single execution trace by conversation ID and trace ID (1-based).
+// A nil pointer is returned when not found.
+func (t *ExecutionStore) Get(ctx context.Context, convID string, traceID int) (*ExecutionTrace, error) {
+	t.mux.RLock()
+	defer t.mux.RUnlock()
+	list, ok := t.data[convID]
+	if !ok {
+		return nil, nil
+	}
+	idx := traceID - 1
+	if idx < 0 || idx >= len(list) {
+		return nil, nil
+	}
+	return list[idx], nil
+}
+
 // Update applies an in-place mutation to a previously stored trace identified
 // by conversation ID and trace ID. A no-op when the trace cannot be found.
 func (t *ExecutionStore) Update(ctx context.Context, convID string, traceID int, fn func(*ExecutionTrace)) error {
@@ -114,6 +130,7 @@ func (t *ExecutionStore) ListOutcome(ctx context.Context, convID string, parentI
 		// ensure Steps slice capacity
 		stepOutcome := &plan.StepOutcome{
 			ID:        fmt.Sprintf("%s-%d", pid, tr.StepIndex),
+			TraceID:   tr.ID,
 			Tool:      tr.Name,
 			Reason:    reason,
 			Request:   tr.Request,

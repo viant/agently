@@ -1,0 +1,6 @@
+items:
+  # Refresh the conversation list
+  - id: refresh
+    icon: refresh
+    align: left
+# Additional toolbar items could be added here in the future

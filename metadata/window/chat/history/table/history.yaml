@@ -23,3 +23,5 @@ columns:
             to: messages:input
             from: :form
             location: id
+
+toolbar: $import('toolbar/history.yaml')

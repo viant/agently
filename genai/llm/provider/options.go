@@ -16,4 +16,12 @@ type Options struct {
 	Meta           map[string]interface{} `yaml:"meta,omitempty" json:"meta,omitempty"`
 	Region         string                 `yaml:"region,omitempty" json:"region,omitempty"`
 	UsageListener  basecfg.UsageListener  `yaml:"-" json:"-"`
+
+	// ---- Pricing ----
+	// Cost per 1,000 input tokens in USD (or chosen currency). Optional.
+	InputTokenPrice float64 `yaml:"inputTokenPrice,omitempty" json:"inputTokenPrice,omitempty"`
+	// Cost per 1,000 output/completion tokens.
+	OutputTokenPrice float64 `yaml:"outputTokenPrice,omitempty" json:"outputTokenPrice,omitempty"`
+	// Cost per 1,000 tokens served from cache (no LLM call).
+	CachedTokenPrice float64 `yaml:"cachedTokenPrice,omitempty" json:"cachedTokenPrice,omitempty"`
 }

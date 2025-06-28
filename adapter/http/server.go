@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -107,6 +108,13 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.handleGetExecution(w, r, r.PathValue("id"))
 	})
 
+	// Execution part (request/response) – heavy payload on-demand
+	mux.HandleFunc("GET /v1/api/conversations/{id}/execution/{traceId}/{part}", func(w http.ResponseWriter, r *http.Request) {
+		traceIDStr := r.PathValue("traceId")
+		part := r.PathValue("part") // "request" | "response"
+		s.handleGetExecutionPart(w, r, r.PathValue("id"), traceIDStr, part)
+	})
+
 	// Usage statistics
 	mux.HandleFunc("GET /v1/api/conversations/{id}/usage", func(w http.ResponseWriter, r *http.Request) {
 		s.handleGetUsage(w, r, r.PathValue("id"))
@@ -123,11 +131,6 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	// Elicitation callback (MCP interactive)
 	mux.HandleFunc("POST /v1/api/elicitation/{msgId}", func(w http.ResponseWriter, r *http.Request) {
 		s.handleElicitationCallback(w, r, r.PathValue("msgId"))
-	})
-
-	// User interaction callback
-	mux.HandleFunc("POST /v1/api/interaction/{msgId}", func(w http.ResponseWriter, r *http.Request) {
-		s.handleInteractionCallback(w, r, r.PathValue("msgId"))
 	})
 
 	// Policy approval callback (two paths for backwards-compatibility)
@@ -184,12 +187,32 @@ func encode(w http.ResponseWriter, statusCode int, data interface{}, err error) 
 	_ = json.NewEncoder(w).Encode(apiResponse{Status: status, Data: data})
 }
 
+// humanTimestamp returns human friendly format like "Mon July 1st 2025, 09:15".
+func humanTimestamp(t time.Time) string {
+	day := t.Day()
+	suffix := "th"
+	if day%10 == 1 && day != 11 {
+		suffix = "st"
+	} else if day%10 == 2 && day != 12 {
+		suffix = "nd"
+	} else if day%10 == 3 && day != 13 {
+		suffix = "rd"
+	}
+	return fmt.Sprintf("%s %s %d%s %d, %02d:%02d",
+		t.Weekday().String()[:3], // Mon
+		t.Month().String(),       // July
+		day,
+		suffix,
+		t.Year(),
+		t.Hour(), t.Minute())
+}
+
 // handleConversations supports POST to create new conversation id.
 func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		id := uuid.NewString()
-		title := fmt.Sprintf("Conversation %s", time.Now().Format("2006-01-02 15:04:05"))
+		title := fmt.Sprintf("Conversation at %s", humanTimestamp(time.Now()))
 
 		// Read optional overrides from request body
 		payload := map[string]any{}
@@ -427,7 +450,67 @@ func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, conv
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
-	encode(w, http.StatusOK, traces, nil)
+
+	// Strip heavy request/response payloads to keep response lightweight.
+	lite := make([]*memory.ExecutionTrace, len(traces))
+	for i, tr := range traces {
+		if tr == nil {
+			continue
+		}
+		clone := *tr
+		clone.Request = nil
+		clone.Result = nil
+		lite[i] = &clone
+	}
+	encode(w, http.StatusOK, lite, nil)
+}
+
+// handleGetExecutionPart serves either the stored Request or Response payload
+// for a specific execution-trace entry. Large blobs are therefore transferred
+// only when the user explicitly expands the details in the UI.
+func (s *Server) handleGetExecutionPart(w http.ResponseWriter, r *http.Request, convID string, traceIDStr string, part string) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.executionStore == nil {
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("execution store not configured"))
+		return
+	}
+
+	id64, err := strconv.ParseInt(traceIDStr, 10, 0)
+	if err != nil || id64 <= 0 {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid trace id"))
+		return
+	}
+
+	trace, _ := s.executionStore.Get(r.Context(), convID, int(id64))
+	if trace == nil {
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("trace not found"))
+		return
+	}
+
+	switch strings.ToLower(part) {
+	case "request":
+		if trace.Request == nil {
+			encode(w, http.StatusNoContent, nil, nil)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(trace.Request)
+	case "response":
+		if trace.Result == nil {
+			encode(w, http.StatusNoContent, nil, nil)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(trace.Result)
+	default:
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("unknown part"))
+	}
 }
 
 // handleGetUsage responds with aggregated + per-model token usage.
@@ -445,12 +528,14 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request, convID s
 			"inputTokens":     0,
 			"outputTokens":    0,
 			"embeddingTokens": 0,
+			"cachedTokens":    0,
+			"totalTokens":     0,
 			"perModel":        map[string]any{},
 		}, nil)
 		return
 	}
 
-	p, c, e := uStore.Totals(convID)
+	p, c, e, cached := uStore.Totals(convID)
 	per := map[string]any{}
 	if agg := uStore.Aggregator(convID); agg != nil {
 		for _, model := range agg.Keys() {
@@ -462,6 +547,7 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request, convID s
 				"inputTokens":     st.PromptTokens,
 				"outputTokens":    st.CompletionTokens,
 				"embeddingTokens": st.EmbeddingTokens,
+				"cachedTokens":    st.CachedTokens,
 			}
 		}
 	}
@@ -470,6 +556,8 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request, convID s
 		"inputTokens":     p,
 		"outputTokens":    c,
 		"embeddingTokens": e,
+		"cachedTokens":    cached,
+		"totalTokens":     p + c + e + cached,
 		"perModel":        per,
 	}, nil)
 }
@@ -523,48 +611,6 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 	}
 
 	// TODO: bridge to MCP awaiter if present (not implemented here)
-
-	encode(w, http.StatusNoContent, nil, nil)
-}
-
-// handleInteractionCallback processes POST /v1/api/interaction/{msgID} to
-// accept or decline MCP user-interaction prompts.
-func (s *Server) handleInteractionCallback(w http.ResponseWriter, r *http.Request, messageID string) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		Action string `json:"action"` // accept | decline | cancel
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		encode(w, http.StatusBadRequest, nil, err)
-		return
-	}
-	if req.Action == "" {
-		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"))
-		return
-	}
-
-	message, _ := s.mgr.History().LookupMessage(r.Context(), messageID)
-	if message == nil {
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("interaction message not found"))
-		return
-	}
-
-	status := "declined"
-	if req.Action == "accept" {
-		status = "done"
-	}
-
-	_ = s.mgr.History().UpdateMessage(r.Context(), messageID, func(m *memory.Message) {
-		m.Status = status
-	})
-
-	if ch, ok := mcpclient.WaiterInteraction(messageID); ok {
-		ch <- &schema.CreateUserInteractionResult{}
-	}
 
 	encode(w, http.StatusNoContent, nil, nil)
 }
