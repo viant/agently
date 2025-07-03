@@ -12,23 +12,21 @@ import (
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/extension/fluxor/llm/exec"
 	"github.com/viant/agently/genai/extension/fluxor/llm/history"
-	"github.com/viant/agently/genai/extension/fluxo
+	"github.com/viant/agently/genai/extension/fluxor/output/extractor"
 	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/internal/finder/oauth"
-rnal/finder/oauth"
-	"github.com/viant/agently/int
-rnal/hotswap"
-	"github.com/viant/agently/internal
+	"github.com/viant/agently/internal/hotswap"
 	"github.com/viant/agently/internal/loader/oauth"
+	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/extension"
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/fluxor/service/event"
+	"github.com/viant/fluxor/service/meta"
 	"github.com/viant/scy"
-	"github.com/viant/agently/internal/workspace"
 	"io"
 	"os"
 	"path/filepath"
@@ -163,15 +161,15 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	if e.orchestration != nil {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
-		agentOpts = append(agentOpts, llmagent.WithSummaryPrompt(sp))
+	agentOpts := []llmagent.Option{}
 	if sp := strings.TrimSpace(e.config.Default.SummaryPrompt); sp != "" {
-	    agentOpts = append(agentOpts, llmagent.WithSummaryPrompt(sp))
-		agentOpts = append(agentOpts, llmagent.WithSummaryModel(sm))
+		agentOpts = append(agentOpts, llmagent.WithSummaryPrompt(sp))
+	}
 	if sm := strings.TrimSpace(e.config.Default.SummaryModel); sm != "" {
-	    agentOpts = append(agentOpts, llmagent.WithSummaryModel(sm))
-		agentOpts = append(agentOpts, llmagent.WithSummaryLastN(ln))
+		agentOpts = append(agentOpts, llmagent.WithSummaryModel(sm))
+	}
 	if ln := e.config.Default.SummaryLastN; ln > 0 {
-	    agentOpts = append(agentOpts, llmagent.WithSummaryLastN(ln))
+		agentOpts = append(agentOpts, llmagent.WithSummaryLastN(ln))
 	}
 	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history, e.executionStore, &e.config.Default, agentOpts...)
 	actions.Register(agentSvc)
@@ -220,10 +218,12 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		if err != nil {
 			return err
 		}
+		return exec(ctx, in, out)
+	}
 	// Attach shared in-memory stores for token usage and live stage tracking.
 	usageStore := memory.NewUsageStore()
 	stageStore := memory.NewStageStore()
-    usageStore := memory.NewUsageStore()
+
 	e.convManager = conversation.New(
 		e.history,
 		e.executionStore,
@@ -231,8 +231,6 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		conversation.WithUsageStore(usageStore),
 		conversation.WithStageStore(stageStore),
 	)
-        conversation.WithStageStore(stageStore),
-    )
 	// Actions is modified in-place; no return value needed.
 }
 

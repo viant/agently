@@ -9,11 +9,9 @@ import (
 	mcprepo "github.com/viant/agently/internal/repository/mcp"
 	modelrepo "github.com/viant/agently/internal/repository/model"
 	oauthrepo "github.com/viant/agently/internal/repository/oauth"
-	work
 	workflowrepo "github.com/viant/agently/internal/repository/workflow"
-ub.com/viant/agently/internal/workspace"
-	"git
 	"github.com/viant/agently/internal/workspace"
+	"github.com/viant/scy"
 	"sync"
 )
 
@@ -70,11 +68,10 @@ func (s *Service) initRepos() {
 }
 
 // Repositories expose typed accessors
-func (s *Service) ModelRepo() *modelrepo.Repository       { s.initRepos(); return s.mRepo }
-func (s *Service) AgentRepo() *agentrepo.Repository       { s.initRepos(); return s.aRepo }
-func (s *Service) OAuthRepo() *oauthrepo.Repository       { s.initRepos(); return s.oRepo }
-func (s *Service) MCPRepo() *mcprepo.Repository           { s.initRepos(); return s.mcpRepo }
-func (s *Service) OAuthRepo() *oauthrepo.Repository        { s.initRepos(); return s.oRepo }
+func (s *Service) ModelRepo() *modelrepo.Repository { s.initRepos(); return s.mRepo }
+func (s *Service) AgentRepo() *agentrepo.Repository { s.initRepos(); return s.aRepo }
+func (s *Service) OAuthRepo() *oauthrepo.Repository { s.initRepos(); return s.oRepo }
+func (s *Service) MCPRepo() *mcprepo.Repository     { s.initRepos(); return s.mcpRepo }
 
 // ToolDefinitions returns available tool definitions (read-only) gathered from the executor’s registry.
 func (s *Service) ToolDefinitions() []llm.ToolDefinition {
