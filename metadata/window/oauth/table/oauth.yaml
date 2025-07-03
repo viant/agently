@@ -1,0 +1,32 @@
+columns:
+  - id: id
+    name: ID
+  - id: clientID
+    name: Client Id
+
+toolbar:
+  items:
+    - id: refresh
+      icon: refresh
+      align: left
+    - id: addNew
+      icon: new-object
+      align: left
+      on:
+        - event: onClick
+          handler: dataSource.handleAddNew
+    - id: save
+      icon: floppy-disk
+      align: left
+      on:
+        - event: onClick
+          handler: oauth.saveOauth
+        - event: onClick
+          handler: dataSource.isFormNotDirty
+    - id: select
+      icon: confirm
+      align: left
+      on:
+        - event: onClick
+          handler: window.commitWindow
+

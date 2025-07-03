@@ -1,0 +1,35 @@
+layout:
+  orientation: horizontal
+  labelPosition: top
+  columns: 2
+
+items:
+  - id: id
+    type: text
+    label: ID
+  - id: description
+    type: text
+    label: Description
+    columnSpan: 1
+  - id: clientID
+    type: text
+    label: Client ID
+  - id: clientSecret
+    type: password
+    label: Client Secret
+  - id: endpoint.authURL
+    type: text
+    label: Auth URL
+  - id: endpoint.tokenURL
+    type: text
+    label: Token URL
+  - id: redirectURL
+    type: text
+    label: Redirect URL
+    columnSpan: 2
+  - id: scopes
+    type: textarea
+    label: Scopes (comma separated)
+    properties:
+      rows: 2
+    columnSpan: 2

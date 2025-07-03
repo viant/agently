@@ -1,0 +1,15 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/workspace/oauth
+  method: GET
+  put:
+    uri: /v1/workspace/oauth/{name}
+
+
+selectors:
+  data: data
+
+uniqueKey:
+  - field: id
+
+selectionMode: single
