@@ -6,8 +6,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"github.com/viant/agently/genai/memory"
 	"sync"
 
@@ -93,9 +91,6 @@ func (c *Client) ListRoots(ctx context.Context, p *jsonrpc.TypedRequest[*schema.
 }
 
 func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*schema.ElicitRequest]) (*schema.ElicitResult, *jsonrpc.Error) {
-	data, _ := json.Marshal(request)
-	fmt.Println("Elicit STARTING ... ", string(data), c.awaiter)
-
 	params := request.Request.Params
 	if c.awaiter != nil {
 		localReq := &elicitationSchema.Elicitation{ElicitRequestParams: params}

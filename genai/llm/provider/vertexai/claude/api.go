@@ -71,14 +71,14 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		}
 	}
 
-	fmt.Printf("req: %s\n", string(data))
+	//fmt.Printf("req: %s\n", string(data))
 	// Read the response body
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	fmt.Printf("resp: %s\n", string(respBytes))
+	//fmt.Printf("resp: %s\n", string(respBytes))
 
 	// Check for non-200 status code
 	if resp.StatusCode != 200 {

@@ -34,18 +34,25 @@ func (r *Repository[T]) Filename(name string) string {
 		name += ".yaml"
 	}
 
-	// First attempt the flat layout: <dir>/<name>.yaml
+	// Prefer the flat layout: <dir>/<name>.yaml
 	flat := filepath.Join(r.dir, name)
 
-	// Fast path – assume flat layout exists (no FS call).
+	// When the flat file exists we always use it.
 	if ok, _ := r.fs.Exists(context.TODO(), flat); ok {
 		return flat
 	}
 
-	// Fallback to historical nested layout: <dir>/<name>/<name>.yaml
+	// Otherwise attempt the historical nested layout: <dir>/<name>/<name>.yaml
 	base := strings.TrimSuffix(name, ".yaml")
 	nested := filepath.Join(r.dir, base, name)
-	return nested
+	if ok, _ := r.fs.Exists(context.TODO(), nested); ok {
+		return nested
+	}
+
+	// Neither layout exists – default to the preferred flat path so new files
+	// are created in the simplified structure while still remaining backward
+	// compatible when reading existing nested files.
+	return flat
 }
 
 // List basenames (without extension).
