@@ -25,6 +25,21 @@ Agently is a Go framework for building and interacting with AI agents. It provid
 go get github.com/viant/agently
 ```
 
+### Quick Start
+```bash
+export OPENAI_API_KEY=your_key
+
+export AGENTLY_ROOT=~/.agently
+
+cd project_root/agently
+
+go build
+
+./agently -h
+
+./agently chat
+```
+
 ## Usage
 
 ### Command Line Interface
