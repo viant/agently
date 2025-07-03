@@ -1,6 +1,6 @@
 default:
-  model: o4-mini
-  embedder: text
+  model: openai_o4-mini
+  embedder: openai_text
   agent: chat
 models:
   url: models

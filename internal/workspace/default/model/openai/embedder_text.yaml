@@ -1,5 +1,5 @@
 description: OpenAI mini model
-id: text
+id: openai_text
 name: text-embedding-3-small
 options:
     model: text-embedding-3-small

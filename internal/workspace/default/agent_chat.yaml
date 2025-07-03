@@ -1,6 +1,6 @@
 description: Default conversational agent1
 id: chat
-modelRef: o4-mini
+modelRef: openai_o4-mini
 name: Chat
 orchestrationFlow: workflow/orchestration.yaml
 temperature: 0

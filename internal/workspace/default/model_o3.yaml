@@ -1,5 +1,0 @@
-id: o3
-description: OpenAI mini model
-options:
-  provider: openai
-  model: o3

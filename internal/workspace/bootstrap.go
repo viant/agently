@@ -5,14 +5,11 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
 	"github.com/viant/afs"
 	_ "github.com/viant/afs/embed"
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
+	"path/filepath"
 )
 
 //go:embed default/*
@@ -22,30 +19,26 @@ var defaultsFS embed.FS
 func EnsureDefault(fs afs.Service) {
 
 	ctx := context.Background()
-
-	// Respect explicit workspace override via $AGENTLY_ROOT: when the variable is
-	// set callers expect a clean workspace without auto-populated defaults (for
-	// example unit tests using t.TempDir()).
-	if env := os.Getenv(envKey); strings.TrimSpace(env) != "" {
-		return
-	}
-
 	entries := []struct {
 		path string // relative to workspace root
 		src  string // path inside embed FS default/
 	}{
 		{"config.yaml", "default/config.yaml"},
+
+		{filepath.Join(KindEmbedder, "openai_text.yaml"), "default/model/openai/embedder_text.yaml"},
+		{filepath.Join(KindModel, "openai_o4-mini.yaml"), "default/model/openai/o4-mini.yaml"},
+		{filepath.Join(KindModel, "openai_o3.yaml"), "default/model/openai/o3.yaml"},
+
+		{filepath.Join(KindModel, "bedrock_claude_3_7.yaml"), "default/model/bedrock/claude_3_7.yaml"},
+		{filepath.Join(KindModel, "vertexai_claude_opus_4.yaml"), "default/model/vertexai/claude_opus_4.yaml"},
+		{filepath.Join(KindModel, "vertexai_gemini_flash2_5.yaml"), "default/model/vertexai/gemini_flash2_5.yaml"},
+
 		{filepath.Join(KindAgent, "chat/chat.yaml"), "default/agent_chat.yaml"},
-
-		{filepath.Join(KindModel, "o4-mini.yaml"), "default/model_o4-mini.yaml"},
-		{filepath.Join(KindModel, "o3.yaml"), "default/model_o3.yaml"},
-		{filepath.Join(KindEmbedder, "text.yaml"), "default/embedder_text.yaml"},
-
-		{filepath.Join(KindAgent, "chat/workflows/orchestration.yaml"), "default/agent_chat_workflow_orchestration.yaml"},
-		{filepath.Join(KindAgent, "chat/workflows/prompt", "chat.vm"), "default/agent_chat_prompt.txt"},
+		{filepath.Join(KindAgent, "chat/workflow/orchestration.yaml"), "default/agent_chat_workflow_orchestration.yaml"},
+		{filepath.Join(KindAgent, "chat/workflow/prompt", "chat.vm"), "default/agent_chat_prompt.txt"},
 		{filepath.Join(KindAgent, "chat/knowledge/doc.txt"), "default/agent_chat_doc.txt"},
-		{filepath.Join(KindAgent, "coder/workflows/orchestration.yaml"), "default/agent_coder_workflow_orchestration.yaml"},
-		{filepath.Join(KindAgent, "coder/workflows/prompt", "chat.vm"), "default/coder_chat_prompt.txt"},
+		{filepath.Join(KindAgent, "coder/workflow/orchestration.yaml"), "default/agent_coder_workflow_orchestration.yaml"},
+		{filepath.Join(KindAgent, "coder/workflow/prompt", "chat.vm"), "default/coder_chat_prompt.txt"},
 		{filepath.Join(KindAgent, "coder/knowledge/golang.md"), "default/coder_knowledge_golang.md"},
 		{filepath.Join(KindAgent, "coder/coder.yaml"), "default/agent_coder.yaml"},
 	}
@@ -62,6 +55,7 @@ func EnsureDefault(fs afs.Service) {
 		if ok, _ := fs.Exists(ctx, absPath); ok {
 			continue
 		}
+
 		data, err := fs.DownloadWithURL(ctx, url.Join("embed://localhost/", e.src), &defaultsFS)
 		if err != nil {
 			fmt.Printf("failed to download %v: %v\n", e.src, err)
