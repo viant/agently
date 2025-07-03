@@ -17,6 +17,11 @@ func Refine(rs *schema.ElicitRequestParamsRequestedSchema) {
 		return
 	}
 
+	// Apply user-configured global preset before the default heuristics so
+	// that explicit x-ui-order markers prevent the auto-order block from
+	// kicking in later.
+	applyPreset(rs)
+
 	// ------------------------------------------------------------------
 	// First pass – ensure each property has minimal metadata (type, formats).
 	// ------------------------------------------------------------------

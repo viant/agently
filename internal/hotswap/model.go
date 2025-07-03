@@ -20,7 +20,22 @@ func NewModelAdaptor(loader *modelload.Service, finder *modelfinder.Finder) Relo
 	}
 
 	setFn := func(name string, cfg *provider.Config) {
-		finder.AddConfig(name, cfg)
+		if cfg == nil {
+			return
+		}
+
+		// Primary key: prefer explicit ID; fallback to incoming name.
+		key := cfg.ID
+		if key == "" {
+			key = name
+		}
+		finder.AddConfig(key, cfg)
+
+		// Alias: when key and file-name differ make both resolve to the same
+		// config so callers using either identifier observe the update.
+		if key != name {
+			finder.AddConfig(name, cfg)
+		}
 	}
 
 	removeFn := func(name string) { finder.Remove(name) }

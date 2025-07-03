@@ -1,15 +1,17 @@
 package agent
 
 import (
+	"context"
+	"fmt"
+	"reflect"
+	"strings"
+	"time"
+
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
-	"reflect"
-	"strings"
-	"time"
-
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor"
@@ -18,6 +20,11 @@ import (
 
 // Option customises Service instances.
 type Option func(*Service)
+
+// -------------------- Run action types ----------------------------------
+
+// RunInput describes the parameters for the new "run" executable that
+// launches a sub-agent in a child conversation.
 
 // WithWorkflowTimeout sets the maximum duration the Query handler will wait
 // for an orchestration workflow to complete before giving up and returning a
@@ -34,6 +41,23 @@ func WithWorkflowTimeout(d time.Duration) Option {
 // WithSummaryPrompt overrides the default conversation summarisation prompt.
 func WithSummaryPrompt(prompt string) Option {
 	return func(s *Service) { s.summaryPrompt = prompt }
+}
+
+// WithSummaryModel overrides the default model used when creating summaries
+// for child-conversation link messages emitted by the internal "run" action.
+func WithSummaryModel(model string) Option {
+	return func(s *Service) { s.runSummaryModel = strings.TrimSpace(model) }
+}
+
+// WithSummaryLastN sets how many recent messages are included when summarising
+// a child conversation for the link preview inserted into the parent thread.
+// A value <= 0 leaves the previous configuration untouched.
+func WithSummaryLastN(n int) Option {
+	return func(s *Service) {
+		if n > 0 {
+			s.lastN = n
+		}
+	}
 }
 
 const (
@@ -61,6 +85,9 @@ type Service struct {
 	lastN            int
 	workflowTimeout  time.Duration
 	fs               afs.Service
+
+	// run-action summary settings
+	runSummaryModel string
 
 	// template for conversation summarization; if empty a default English
 	// prompt is used. It can reference ${conversation} placeholder.
@@ -109,6 +136,11 @@ func (s *Service) Methods() types.Signatures {
 			Input:  reflect.TypeOf(&QueryInput{}),
 			Output: reflect.TypeOf(&QueryOutput{}),
 		},
+		{
+			Name:   "run",
+			Input:  reflect.TypeOf(&RunInput{}),
+			Output: reflect.TypeOf(&RunOutput{}),
+		},
 	}
 }
 
@@ -117,7 +149,31 @@ func (s *Service) Method(name string) (types.Executable, error) {
 	switch strings.ToLower(name) {
 	case "query":
 		return s.query, nil
+	case "run":
+		return s.run, nil
 	default:
 		return nil, types.NewMethodNotFoundError(name)
 	}
 }
+
+// Query is a public helper that allows callers outside Fluxor runtime to run
+// an agent turn (or its orchestration workflow) programmatically. It wraps
+// the internal query executable so that other actions (e.g. agent.run) can
+// reuse existing logic without going through reflection-based invocation.
+func (s *Service) Query(ctx context.Context, in *QueryInput) (*QueryOutput, error) {
+	if s == nil {
+		return nil, fmt.Errorf("agent service is nil")
+	}
+	if in == nil {
+		return nil, fmt.Errorf("query input is nil")
+	}
+	var out QueryOutput
+	if err := s.query(ctx, in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// run implements the executable registered under "run". It spawns a child
+// conversation, delegates the actual agent turn via Query(), then writes a
+// link message (optionally with summary) into the parent thread.

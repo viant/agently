@@ -28,7 +28,14 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 		if err != nil {
 			return nil, err
 		}
-		return openai.NewClient(apiKey, options.Model, openai.WithUsageListener(options.UsageListener)), nil
+		opts := []openai.ClientOption{openai.WithUsageListener(options.UsageListener)}
+		if options.MaxTokens > 0 {
+			opts = append(opts, openai.WithMaxTokens(options.MaxTokens))
+		}
+		if options.Temperature != nil {
+			opts = append(opts, openai.WithTemperature(*options.Temperature))
+		}
+		return openai.NewClient(apiKey, options.Model, opts...), nil
 	case ProviderOllama:
 		client, err := ollama.NewClient(ctx, options.Model,
 			ollama.WithBaseURL(options.URL),
@@ -42,21 +49,43 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 		if err != nil {
 			return nil, err
 		}
-		return gemini.NewClient(apiKey, options.Model,
-			gemini.WithUsageListener(options.UsageListener)), nil
+		opts := []gemini.ClientOption{gemini.WithUsageListener(options.UsageListener)}
+		if options.MaxTokens > 0 {
+			opts = append(opts, gemini.WithMaxTokens(options.MaxTokens))
+		}
+		if options.Temperature != nil {
+			opts = append(opts, gemini.WithTemperature(*options.Temperature))
+		}
+		return gemini.NewClient(apiKey, options.Model, opts...), nil
 	case ProviderVertexAIClaude:
-		client, err := vertexaiclaude.NewClient(ctx, options.Model,
+		vOpts := []vertexaiclaude.ClientOption{
 			vertexaiclaude.WithProjectID(options.ProjectID),
-			vertexaiclaude.WithUsageListener(options.UsageListener))
+			vertexaiclaude.WithUsageListener(options.UsageListener),
+		}
+		if options.MaxTokens > 0 {
+			vOpts = append(vOpts, vertexaiclaude.WithMaxTokens(options.MaxTokens))
+		}
+		if options.Temperature != nil {
+			vOpts = append(vOpts, vertexaiclaude.WithTemperature(*options.Temperature))
+		}
+		client, err := vertexaiclaude.NewClient(ctx, options.Model, vOpts...)
 		if err != nil {
 			return nil, err
 		}
 		return client, nil
 	case ProviderBedrockClaude:
-		client, err := bedrockclaude.NewClient(ctx, options.Model,
+		bedrockOpts := []bedrockclaude.ClientOption{
 			bedrockclaude.WithRegion(options.Region),
 			bedrockclaude.WithCredentialsURL(options.CredentialsURL),
-			bedrockclaude.WithUsageListener(options.UsageListener))
+			bedrockclaude.WithUsageListener(options.UsageListener),
+		}
+		if options.MaxTokens > 0 {
+			bedrockOpts = append(bedrockOpts, bedrockclaude.WithMaxTokens(options.MaxTokens))
+		}
+		if options.Temperature != nil {
+			bedrockOpts = append(bedrockOpts, bedrockclaude.WithTemperature(*options.Temperature))
+		}
+		client, err := bedrockclaude.NewClient(ctx, options.Model, bedrockOpts...)
 		if err != nil {
 			return nil, err
 		}

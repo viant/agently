@@ -320,6 +320,21 @@ func (s *Service) LatestMessage(ctx context.Context) (*memory.Message, error) {
 	return latestMsg, nil
 }
 
+// ------------------------------------------------------------------
+// Conversation meta – DAO layer currently ignores hierarchy. Provide stub
+// implementations so that Service still satisfies memory.History.
+// ------------------------------------------------------------------
+
+func (s *Service) CreateMeta(ctx context.Context, id, parentID, title, visibility string) {}
+
+func (s *Service) Meta(ctx context.Context, id string) (*memory.ConversationMeta, bool) {
+	return nil, false
+}
+
+func (s *Service) Children(ctx context.Context, parentID string) ([]memory.ConversationMeta, bool) {
+	return nil, false
+}
+
 func (s *Service) init(ctx context.Context) error {
 	if err := DefineConversationComponent(ctx, s.dao); err != nil {
 		return err

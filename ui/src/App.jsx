@@ -19,6 +19,7 @@ import { modelService } from './services/modelService.js';
 import { mcpService } from './services/mcpService.js';
 import { agentService } from './services/agentService.js';
 import { toolService } from './services/toolService.js';
+import { oauthService } from './services/oauthService.js';
 
 const router = createBrowserRouter([
     {
@@ -39,6 +40,7 @@ const services = {
   mcp: mcpService,
   agent: agentService,
   tool: toolService,
+  oauth: oauthService,
 };
 
 // We no longer pass a plain object as `authContext`. Instead we use a proper

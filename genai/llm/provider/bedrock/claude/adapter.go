@@ -16,32 +16,51 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 
 	// Set options if provided
 	if request.Options != nil {
-		req.MaxTokens = request.Options.MaxTokens
-		req.Temperature = request.Options.Temperature
-		req.TopP = request.Options.TopP
+		if request.Options.MaxTokens > 0 {
+			req.MaxTokens = request.Options.MaxTokens
+		}
+		if request.Options.Temperature > 0 {
+			req.Temperature = request.Options.Temperature
+		}
+		if request.Options.TopP > 0 {
+			req.TopP = request.Options.TopP
+		}
 	}
 
 	if request.Options != nil && len(request.Options.Tools) > 0 {
-		var cfg ToolConfig
 		for _, tool := range request.Options.Tools {
-			inputSchema := map[string]interface{}{
-				"type":       "object",
-				"properties": tool.Definition.Parameters,
+			// If caller supplied a full JSON schema use it as-is; otherwise wrap parameters.
+			var inputSchema map[string]interface{}
+			if tool.Definition.Parameters != nil {
+				// assume already structured; ensure required is at top-level
+				if _, hasType := tool.Definition.Parameters["type"]; hasType {
+					// treat as full schema
+					inputSchema = tool.Definition.Parameters
+				} else {
+					inputSchema = map[string]interface{}{
+						"type":       "object",
+						"properties": tool.Definition.Parameters,
+					}
+				}
+			} else {
+				inputSchema = map[string]interface{}{"type": "object"}
 			}
 			if len(tool.Definition.Required) > 0 {
-				inputSchema["required"] = tool.Definition.Required
+				if _, exists := inputSchema["required"]; !exists {
+					inputSchema["required"] = tool.Definition.Required
+				}
 			}
+
 			def := ToolDefinition{
 				Name:        tool.Definition.Name,
 				Description: tool.Definition.Description,
 				InputSchema: inputSchema,
 			}
 			if len(tool.Definition.OutputSchema) > 0 {
-				def.OutputSchema = tool.Definition.OutputSchema
+				//def.OutputSchema = tool.Definition.OutputSchema
 			}
-			cfg.Tools = append(cfg.Tools, def)
+			req.Tools = append(req.Tools, def)
 		}
-		req.ToolConfig = &cfg
 	}
 
 	// Find system message
@@ -60,33 +79,43 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 			continue
 		}
 
+		// Tool invocations requested by the assistant ---------------------------
 		if len(msg.ToolCalls) > 0 {
 			var useBlocks []ContentBlock
 			for _, tc := range msg.ToolCalls {
+				// Ensure an ID is present (required by Bedrock)
+				id := tc.ID
+				if id == "" {
+					id = tc.Name // fallback; ideally caller provides a stable ID
+				}
 				useBlocks = append(useBlocks, ContentBlock{
-					ToolUse: &ToolUseBlock{
-						ToolUseId: tc.ID,
-						Name:      tc.Name,
-						Input:     tc.Arguments,
-					},
+					Type:  "tool_use",
+					ID:    id,
+					Name:  tc.Name,
+					Input: tc.Arguments,
 				})
 			}
 			req.Messages = append(req.Messages, Message{Role: string(msg.Role), Content: useBlocks})
 			continue
 		}
 
+		// Tool results from the caller ----------------------------------------
 		if msg.Role == llm.RoleTool && msg.ToolCallId != "" {
-			var resultBlocks []ToolResultContentBlock
+			// Bedrock expects tool result as role "user"
+			var resultContent interface{}
 			if len(msg.Items) > 0 {
-				for _, item := range msg.Items {
-					text := item.Data
-					resultBlocks = append(resultBlocks, ToolResultContentBlock{Text: &text})
-				}
+				resultContent = msg.Items[0].Data
 			} else if msg.Content != "" {
-				text := msg.Content
-				resultBlocks = append(resultBlocks, ToolResultContentBlock{Text: &text})
+				resultContent = msg.Content
 			}
-			req.Messages = append(req.Messages, Message{Role: string(msg.Role), Content: []ContentBlock{{ToolResult: &ToolResultBlock{ToolUseId: msg.ToolCallId, Content: resultBlocks}}}})
+			req.Messages = append(req.Messages, Message{
+				Role: "user",
+				Content: []ContentBlock{{
+					Type:      "tool_result",
+					ToolUseID: msg.ToolCallId,
+					Content:   resultContent,
+				}},
+			})
 			continue
 		}
 
@@ -165,34 +194,41 @@ func handleImageContent(ctx context.Context, fs afs.Service, item llm.ContentIte
 // ToLLMSResponse converts a Claude API Response to an llm.ChatResponse
 func ToLLMSResponse(resp *Response) *llm.GenerateResponse {
 	var fullText string
-	var contentItems []llm.ContentItem
+	var items []llm.ContentItem
+	var toolCalls []llm.ToolCall
 
-	// Extract text from content items
 	for _, item := range resp.Content {
-		if item.Type == "text" {
+		switch item.Type {
+		case "text":
 			fullText += item.Text
-			contentItems = append(contentItems, llm.ContentItem{
+			items = append(items, llm.ContentItem{
 				Type:   llm.ContentTypeText,
 				Source: llm.SourceRaw,
 				Data:   item.Text,
 				Text:   item.Text,
 			})
+		case "tool_use":
+			toolCalls = append(toolCalls, llm.ToolCall{
+				ID:        item.ID,
+				Name:      item.Name,
+				Arguments: item.Input,
+			})
 		}
 	}
 
-	// Create the response
+	msg := llm.Message{
+		Role:      llm.RoleAssistant,
+		Content:   fullText,
+		Items:     items,
+		ToolCalls: toolCalls,
+	}
+
 	return &llm.GenerateResponse{
-		Choices: []llm.Choice{
-			{
-				Index: 0,
-				Message: llm.Message{
-					Role:    llm.RoleAssistant,
-					Content: fullText,
-					Items:   contentItems,
-				},
-				FinishReason: resp.StopReason,
-			},
-		},
+		Choices: []llm.Choice{{
+			Index:        0,
+			Message:      msg,
+			FinishReason: resp.StopReason,
+		}},
 		Usage: &llm.Usage{
 			PromptTokens:     resp.Usage.InputTokens,
 			CompletionTokens: resp.Usage.OutputTokens,

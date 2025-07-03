@@ -1,0 +1,42 @@
+- id: totals
+  dataSourceRef: usage
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  items:
+    - id: inputTokens
+      label: Input tokens
+      type: label   
+    - id: outputTokens
+      label: Output tokens
+      type: label
+    - id: embeddingTokens
+      label: Embedding tokens
+      type: label
+    - id: cachedTokens
+      label: Cached tokens
+      type: label
+    - id: totalTokens
+      label: Total tokens
+      type: label
+    - id: cost
+      label: Cost($)
+      type: label
+
+
+- id: perModel
+  title: Per-model breakdown
+  dataSourceRef: usagePerModel
+  table:
+    columns:
+      - id: model
+        name: Model
+      - id: inputTokens
+        name: In
+      - id: outputTokens
+        name: Out
+      - id: embeddingTokens
+        name: Embedding
+      - id: cachedTokens
+        name: Cached

@@ -5,7 +5,7 @@ type Request struct {
 	Contents          []Content          `json:"contents"`
 	Stream            bool               `json:"stream,omitempty"`
 	CachedContent     string             `json:"cachedContent,omitempty"`
-	SystemInstruction *SystemInstruction `json:"systemInstruction,omitempty"`
+	SystemInstruction *SystemInstruction `json:"system_instruction,omitempty"`
 	GenerationConfig  *GenerationConfig  `json:"generationConfig,omitempty"`
 	SafetySettings    []SafetySetting    `json:"safetySettings,omitempty"`
 	Tools             []Tool             `json:"tools,omitempty"`
@@ -28,23 +28,23 @@ type SystemInstruction struct {
 // Part represents a part in a content for the Gemini API
 type Part struct {
 	Text             string            `json:"text,omitempty"`
-	InlineData       *InlineData       `json:"inlineData,omitempty"`
-	FileData         *FileData         `json:"fileData,omitempty"`
-	VideoMetadata    *VideoMetadata    `json:"videoMetadata,omitempty"`
+	InlineData       *InlineData       `json:"inline_data,omitempty"`
+	FileData         *FileData         `json:"file_data,omitempty"`
+	VideoMetadata    *VideoMetadata    `json:"video_metadata,omitempty"`
 	FunctionCall     *FunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *FunctionResponse `json:"functionResponse,omitempty"`
 }
 
 // FileData represents file data in the Gemini API
 type FileData struct {
-	MimeType string `json:"mimeType"`
-	FileURI  string `json:"fileUri"`
+	MimeType string `json:"mime_type"`
+	FileURI  string `json:"file_uri"`
 }
 
 // VideoMetadata represents video metadata in the Gemini API
 type VideoMetadata struct {
-	StartOffset *Offset `json:"startOffset,omitempty"`
-	EndOffset   *Offset `json:"endOffset,omitempty"`
+	StartOffset *Offset `json:"start_offset,omitempty"`
+	EndOffset   *Offset `json:"end_offset,omitempty"`
 }
 
 // Offset represents a time offset in the Gemini API
@@ -55,26 +55,32 @@ type Offset struct {
 
 // InlineData represents inline data (like images) in the Gemini API
 type InlineData struct {
-	MimeType string `json:"mimeType"`
+	MimeType string `json:"mime_type"`
 	Data     string `json:"data"`
 }
 
 // GenerationConfig represents generation configuration for the Gemini API
 type GenerationConfig struct {
-	Temperature      float64     `json:"temperature,omitempty"`
-	MaxOutputTokens  int         `json:"maxOutputTokens,omitempty"`
-	TopP             float64     `json:"topP,omitempty"`
-	TopK             int         `json:"topK,omitempty"`
-	CandidateCount   int         `json:"candidateCount,omitempty"`
-	StopSequences    []string    `json:"stopSequences,omitempty"`
-	PresencePenalty  float64     `json:"presencePenalty,omitempty"`
-	FrequencyPenalty float64     `json:"frequencyPenalty,omitempty"`
-	ResponseMIMEType string      `json:"responseMimeType,omitempty"`
-	ResponseSchema   interface{} `json:"responseSchema,omitempty"`
-	Seed             int         `json:"seed,omitempty"`
-	ResponseLogprobs bool        `json:"responseLogprobs,omitempty"`
-	Logprobs         int         `json:"logprobs,omitempty"`
-	AudioTimestamp   bool        `json:"audioTimestamp,omitempty"`
+	Temperature      float64         `json:"temperature,omitempty"`
+	MaxOutputTokens  int             `json:"maxOutputTokens,omitempty"`
+	TopP             float64         `json:"topP,omitempty"`
+	TopK             int             `json:"topK,omitempty"`
+	CandidateCount   int             `json:"candidateCount,omitempty"`
+	StopSequences    []string        `json:"stopSequences,omitempty"`
+	PresencePenalty  float64         `json:"presencePenalty,omitempty"`
+	FrequencyPenalty float64         `json:"frequencyPenalty,omitempty"`
+	ResponseMIMEType string          `json:"responseMimeType,omitempty"`
+	ResponseSchema   interface{}     `json:"responseSchema,omitempty"`
+	Seed             int             `json:"seed,omitempty"`
+	ResponseLogprobs bool            `json:"responseLogprobs,omitempty"`
+	Logprobs         int             `json:"logprobs,omitempty"`
+	AudioTimestamp   bool            `json:"audioTimestamp,omitempty"`
+	ThinkingConfig   *ThinkingConfig `json:"thinkingConfig,omitempty"`
+}
+
+// ThinkingConfig controls model "thinking" behaviour for Gemini 2.5 flash
+type ThinkingConfig struct {
+	ThinkingBudget int `json:"thinkingBudget,omitempty"`
 }
 
 // SafetySetting represents a safety setting for the Gemini API
@@ -103,18 +109,22 @@ type ToolConfig struct {
 // FunctionCallingConfig represents function calling configuration in the Gemini API
 type FunctionCallingConfig struct {
 	Mode string `json:"mode,omitempty"` // "AUTO" or "ANY" or "NONE"
+	// AllowedFunctionNames enumerates the function names the model is permitted to call.
+	// When empty the backend interprets it as "no restriction" and may call any declared function.
+	AllowedFunctionNames []string `json:"allowed_function_names,omitempty"`
 }
 
 // FunctionCall represents a function call in the Gemini API
 type FunctionCall struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+	Name      string      `json:"name"`
+	Args      interface{} `json:"args,omitempty"`      // v1beta responses
+	Arguments string      `json:"arguments,omitempty"` // request side uses this string form
 }
 
 // FunctionResponse represents a function response in the Gemini API
 type FunctionResponse struct {
-	Name     string `json:"name"`
-	Response string `json:"response"`
+	Name     string      `json:"name"`
+	Response interface{} `json:"response"`
 }
 
 // Response represents the response structure from Gemini API
@@ -123,6 +133,7 @@ type Response struct {
 	PromptFeedback *PromptFeedback `json:"promptFeedback,omitempty"`
 	UsageMetadata  *UsageMetadata  `json:"usageMetadata,omitempty"`
 	ModelVersion   string          `json:"modelVersion,omitempty"`
+	ResponseID     string          `json:"responseId,omitempty"`
 }
 
 // Candidate represents a candidate in the Gemini API response
@@ -191,4 +202,14 @@ type UsageMetadata struct {
 	PromptTokenCount     int `json:"promptTokenCount"`
 	CandidatesTokenCount int `json:"candidatesTokenCount"`
 	TotalTokenCount      int `json:"totalTokenCount"`
+
+	ThoughtsTokenCount  int           `json:"thoughtsTokenCount,omitempty"`
+	PromptTokensDetails []TokenDetail `json:"promptTokensDetails,omitempty"`
+	ResponseID          string        `json:"responseId,omitempty"` // top-level in response but convenient here
+}
+
+// TokenDetail represents details of tokens per modality
+type TokenDetail struct {
+	Modality   string `json:"modality"`
+	TokenCount int    `json:"tokenCount"`
 }

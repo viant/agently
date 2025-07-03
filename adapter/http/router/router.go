@@ -7,6 +7,7 @@ import (
 	chat "github.com/viant/agently/adapter/http"
 	"github.com/viant/agently/adapter/http/filebrowser"
 	"github.com/viant/agently/adapter/http/metadata"
+	"github.com/viant/agently/adapter/http/workflow"
 	"github.com/viant/agently/adapter/http/workspace"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
@@ -30,6 +31,9 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 		chat.WithApprovalService(exec.ApprovalService()),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
+
+	// Workflow run endpoint
+	mux.Handle("/v1/api/workflow/run", workflow.New(exec, svc))
 
 	// File browser (Forge)
 	mux.Handle("/v1/workspace/file-browser/", http.StripPrefix("/v1/workspace/file-browser", filebrowser.New()))

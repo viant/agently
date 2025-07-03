@@ -8,16 +8,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/viant/agently/genai/memory"
 	"sync"
 
 	"github.com/google/uuid"
 	elicitationSchema "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/elicitation/refiner"
-	"git
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/genai/elicitation/refiner"
 
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
@@ -138,15 +137,16 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 			ConversationID: owner.ConversationID,
 			Role:           "mcpelicitation",
 			Content:        params.Message,
+			Elicitation: func() *elicitationSchema.Elicitation {
 				// Refine schema before persisting so that UI sees improved version.
 				refiner.Refine(&params.RequestedSchema)
 				return &elicitationSchema.Elicitation{ElicitRequestParams: params}
-			    return &elicitationSchema.Elicitation{ElicitRequestParams: params}
+			}(),
 			CallbackURL: "/elicitation/" + msgID,
 			Status:      "open",
-			Status:         "open",
 		})
 	}
+
 	// Register waiter and block
 	ch := make(chan *schema.ElicitResult, 1)
 	waiterRegistry.Store(msgID, ch)

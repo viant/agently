@@ -33,6 +33,14 @@ func WithMaxRetries(max int) ClientOption {
 	return func(c *Client) { c.MaxRetries = max }
 }
 
+func WithMaxTokens(max int) ClientOption {
+	return func(c *Client) { c.MaxTokens = max }
+}
+
+func WithTemperature(temp float64) ClientOption {
+	return func(c *Client) { c.Temperature = &temp }
+}
+
 // WithUsageListener registers a callback to receive token usage information.
 func WithUsageListener(l basecfg.UsageListener) ClientOption {
 	return func(c *Client) { c.Config.UsageListener = l }

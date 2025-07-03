@@ -52,3 +52,8 @@
       icon: database
       windowKey: mcp
       windowTitle: MCP Servers
+    - id: list
+      label: OAuth2
+      icon: key
+      windowKey: oauth
+      windowTitle: OAuth Credentials

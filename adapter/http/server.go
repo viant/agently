@@ -16,6 +16,7 @@ import (
 	"github.com/viant/agently/genai/conversation"
 	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/stage"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/metadata"
 	fluxpol "github.com/viant/fluxor/policy"
@@ -41,6 +42,20 @@ type Server struct {
 	toolPolicy  *tool.Policy
 	fluxPolicy  *fluxpol.Policy
 	approvalSvc approval.Service
+}
+
+// currentStage returns pointer to Stage snapshot for convID when available.
+func (s *Server) currentStage(convID string) *stage.Stage {
+	if s == nil || convID == "" {
+		return nil
+	}
+	if s.mgr == nil {
+		return nil
+	}
+	if ss := s.mgr.StageStore(); ss != nil {
+		return ss.Get(convID)
+	}
+	return nil
 }
 
 // ServerOption customises HTTP server behaviour.
@@ -133,6 +148,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.handleElicitationCallback(w, r, r.PathValue("msgId"))
 	})
 
+	// Inline elicitation refinement (preset override)
+	mux.HandleFunc("POST /v1/api/elicitation/{msgId}/refine", func(w http.ResponseWriter, r *http.Request) {
+		s.handleElicitationRefine(w, r, r.PathValue("msgId"))
+	})
+
 	// Policy approval callback (two paths for backwards-compatibility)
 	mux.HandleFunc("POST /v1/api/approval/{reqId}", func(w http.ResponseWriter, r *http.Request) {
 		s.handleApprovalCallback(w, r, r.PathValue("reqId"))
@@ -146,9 +166,10 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 
 // apiResponse is the unified wrapper returned by all Agently HTTP endpoints.
 type apiResponse struct {
-	Status  string `json:"status"`
-	Message string `json:"message,omitempty"`
-	Data    any    `json:"data,omitempty"`
+	Status  string       `json:"status"`
+	Message string       `json:"message,omitempty"`
+	Stage   *stage.Stage `json:"stage,omitempty"`
+	Data    any          `json:"data,omitempty"`
 }
 
 // ------------------------------
@@ -164,8 +185,39 @@ type acceptedMessage struct {
 	ID string `json:"id"`
 }
 
+// usagePerModel represents token statistics per single model.
+type usagePerModel struct {
+	Model           string `json:"model"`
+	InputTokens     int    `json:"inputTokens"`
+	OutputTokens    int    `json:"outputTokens"`
+	EmbeddingTokens int    `json:"embeddingTokens"`
+	CachedTokens    int    `json:"cachedTokens"`
+}
+
+// usagePayload is the aggregate returned by GET /v1/api/conversations/{id}/usage
+// wrapped in the standard API envelope.
+type usagePayload struct {
+	ConversationID  string          `json:"conversationId"`
+	InputTokens     int             `json:"inputTokens"`
+	OutputTokens    int             `json:"outputTokens"`
+	EmbeddingTokens int             `json:"embeddingTokens"`
+	CachedTokens    int             `json:"cachedTokens"`
+	TotalTokens     int             `json:"totalTokens"`
+	PerModel        []usagePerModel `json:"perModel"`
+}
+
+// UsageResponse represents the full JSON body returned by GET
+// /v1/api/conversations/{id}/usage after the standard API envelope
+// encoding. It mirrors the {status, data:[usagePayload]} structure so that
+// callers can marshal/unmarshal strongly typed objects instead of working
+// with generic maps.
+type UsageResponse struct {
+	Status string         `json:"status"`
+	Data   []usagePayload `json:"data"`
+}
+
 // encode writes JSON response with the unified structure.
-func encode(w http.ResponseWriter, statusCode int, data interface{}, err error) {
+func encode(w http.ResponseWriter, statusCode int, data interface{}, err error, st *stage.Stage) {
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		if statusCode == 0 {
@@ -184,7 +236,7 @@ func encode(w http.ResponseWriter, statusCode int, data interface{}, err error) 
 		status = "processing"
 	}
 
-	_ = json.NewEncoder(w).Encode(apiResponse{Status: status, Data: data})
+	_ = json.NewEncoder(w).Encode(apiResponse{Status: status, Stage: st, Data: data})
 }
 
 // humanTimestamp returns human friendly format like "Mon July 1st 2025, 09:15".
@@ -230,7 +282,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			hs.EnsureConversation(id)
 		}
 
-		encode(w, http.StatusOK, payload, nil)
+		encode(w, http.StatusOK, payload, nil, nil)
 	case http.MethodGet:
 		id := r.PathValue("id")
 		var err error
@@ -241,7 +293,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		if len(ids) == 0 {
 			ids, err = s.mgr.List(r.Context())
 			if err != nil {
-				encode(w, http.StatusInternalServerError, nil, err)
+				encode(w, http.StatusInternalServerError, nil, err, nil)
 				return
 			}
 		}
@@ -257,9 +309,9 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			}
 			conversations[i] = conversationInfo{ID: id, Title: t}
 		}
-		encode(w, http.StatusOK, conversations, nil)
+		encode(w, http.StatusOK, conversations, nil, nil)
 	default:
-		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"), nil)
 	}
 }
 
@@ -328,20 +380,20 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 				}
 			}
 			if start == -1 {
-				// Message not yet available – return 102 Processing to allow
-				// client to keep polling without error.
-				encode(w, http.StatusProcessing, []memory.Message{}, nil)
+				// Message not yet available – return 102 Processing but include current stage.
+				encode(w, http.StatusProcessing, []memory.Message{}, nil, s.currentStage(convID))
 				return
 			}
 			msgs = all[start:]
 		}
 	}
 	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err)
+		encode(w, http.StatusInternalServerError, nil, err, nil)
 		return
 	}
 	if len(msgs) == 0 {
-		encode(w, http.StatusProcessing, msgs, nil)
+		// No new messages but still return current stage so UI can update.
+		encode(w, http.StatusProcessing, msgs, nil, s.currentStage(convID))
 		return
 	}
 
@@ -357,7 +409,23 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		filtered = append(filtered, m)
 	}
 
-	encode(w, http.StatusOK, filtered, nil)
+	st := s.currentStage(convID)
+	if st != nil && st.Phase == stage.StageThinking {
+		// Heuristic: presence of tool or assistant message indicates progress.
+		last := filtered[len(filtered)-1]
+		switch last.Role {
+		case "tool":
+			if last.ToolName != nil {
+				st = &stage.Stage{Phase: stage.StageExecuting, Tool: *last.ToolName}
+			} else {
+				st = &stage.Stage{Phase: stage.StageExecuting}
+			}
+		case "assistant":
+			st = &stage.Stage{Phase: stage.StageDone}
+		}
+	}
+	encode(w, http.StatusOK, filtered, nil, st)
+
 }
 
 // handleGetSingleMessage supports GET /v1/api/conversations/{id}/messages/{msgID}
@@ -368,14 +436,14 @@ func (s *Server) handleGetSingleMessage(w http.ResponseWriter, r *http.Request, 
 	}
 	msg, err := s.mgr.History().LookupMessage(r.Context(), msgID)
 	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err)
+		encode(w, http.StatusInternalServerError, nil, err, nil)
 		return
 	}
 	if msg == nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	encode(w, http.StatusOK, msg, nil)
+	encode(w, http.StatusOK, msg, nil, nil)
 }
 
 // dispatchConversationSubroutes routes /v1/api/conversations/{id}/... paths to
@@ -419,7 +487,7 @@ func (s *Server) dispatchConversationSubroutes(w http.ResponseWriter, r *http.Re
 func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, convID string) {
 	if s.executionStore == nil {
 		// Trace store not hooked up – return empty slice for compatibility.
-		encode(w, http.StatusOK, []memory.ExecutionTrace{}, nil)
+		encode(w, http.StatusOK, []memory.ExecutionTrace{}, nil, nil)
 		return
 	}
 	// If the client supplied a parentId query parameter, filter the trace list
@@ -429,17 +497,17 @@ func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, conv
 	parentID := query.Get("parentId")
 	if format := query.Get("format"); format == "outcome" {
 		if outcomes, err := s.executionStore.ListOutcome(r.Context(), convID, parentID); err == nil {
-			encode(w, http.StatusOK, outcomes, nil)
+			encode(w, http.StatusOK, outcomes, nil, nil)
 			return
 		}
 	}
 	if parentID != "" {
 		traces, err := s.executionStore.ListByParent(r.Context(), convID, parentID)
 		if err != nil {
-			encode(w, http.StatusInternalServerError, nil, err)
+			encode(w, http.StatusInternalServerError, nil, err, nil)
 			return
 		}
-		encode(w, http.StatusOK, traces, nil)
+		encode(w, http.StatusOK, traces, nil, nil)
 		return
 		// When conversion fails, fall back to returning full list – the caller
 		// can still filter client-side.
@@ -447,7 +515,7 @@ func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, conv
 
 	traces, err := s.executionStore.List(r.Context(), convID)
 	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err)
+		encode(w, http.StatusInternalServerError, nil, err, nil)
 		return
 	}
 
@@ -462,7 +530,7 @@ func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, conv
 		clone.Result = nil
 		lite[i] = &clone
 	}
-	encode(w, http.StatusOK, lite, nil)
+	encode(w, http.StatusOK, lite, nil, nil)
 }
 
 // handleGetExecutionPart serves either the stored Request or Response payload
@@ -475,26 +543,26 @@ func (s *Server) handleGetExecutionPart(w http.ResponseWriter, r *http.Request, 
 	}
 
 	if s.executionStore == nil {
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("execution store not configured"))
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("execution store not configured"), nil)
 		return
 	}
 
 	id64, err := strconv.ParseInt(traceIDStr, 10, 0)
 	if err != nil || id64 <= 0 {
-		encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid trace id"))
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid trace id"), nil)
 		return
 	}
 
 	trace, _ := s.executionStore.Get(r.Context(), convID, int(id64))
 	if trace == nil {
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("trace not found"))
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("trace not found"), nil)
 		return
 	}
 
 	switch strings.ToLower(part) {
 	case "request":
 		if trace.Request == nil {
-			encode(w, http.StatusNoContent, nil, nil)
+			encode(w, http.StatusNoContent, nil, nil, nil)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -502,14 +570,14 @@ func (s *Server) handleGetExecutionPart(w http.ResponseWriter, r *http.Request, 
 		w.Write(trace.Request)
 	case "response":
 		if trace.Result == nil {
-			encode(w, http.StatusNoContent, nil, nil)
+			encode(w, http.StatusNoContent, nil, nil, nil)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(trace.Result)
 	default:
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("unknown part"))
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("unknown part"), nil)
 	}
 }
 
@@ -524,42 +592,56 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request, convID s
 	uStore := s.mgr.UsageStore()
 	if uStore == nil {
 		// No usage tracking configured – return zeros so that callers don't error out.
-		encode(w, http.StatusOK, map[string]any{
-			"inputTokens":     0,
-			"outputTokens":    0,
-			"embeddingTokens": 0,
-			"cachedTokens":    0,
-			"totalTokens":     0,
-			"perModel":        map[string]any{},
-		}, nil)
+		encode(w, http.StatusOK, []usagePayload{{
+			ConversationID:  convID,
+			InputTokens:     0,
+			OutputTokens:    0,
+			EmbeddingTokens: 0,
+			CachedTokens:    0,
+			TotalTokens:     0,
+			PerModel:        []usagePerModel{},
+		}}, nil, nil)
 		return
 	}
 
+	// ------------------------------------------------------------------
+	// Build aggregated totals and per-model breakdown in the new response
+	// structure expected by Forge UI. The JSON payload now looks like:
+	// {"data":[ { totals…, "perModel":[ {model: "…", …} ] } ]}
+	// ------------------------------------------------------------------
+
+	// Totals across all models.
 	p, c, e, cached := uStore.Totals(convID)
-	per := map[string]any{}
+
+	// Build deterministic slice of per-model statistics.
+	perModels := make([]usagePerModel, 0)
 	if agg := uStore.Aggregator(convID); agg != nil {
 		for _, model := range agg.Keys() {
 			st := agg.PerModel[model]
 			if st == nil {
 				continue
 			}
-			per[model] = map[string]int{
-				"inputTokens":     st.PromptTokens,
-				"outputTokens":    st.CompletionTokens,
-				"embeddingTokens": st.EmbeddingTokens,
-				"cachedTokens":    st.CachedTokens,
-			}
+			perModels = append(perModels, usagePerModel{
+				Model:           model,
+				InputTokens:     st.PromptTokens,
+				OutputTokens:    st.CompletionTokens,
+				EmbeddingTokens: st.EmbeddingTokens,
+				CachedTokens:    st.CachedTokens,
+			})
 		}
 	}
 
-	encode(w, http.StatusOK, map[string]any{
-		"inputTokens":     p,
-		"outputTokens":    c,
-		"embeddingTokens": e,
-		"cachedTokens":    cached,
-		"totalTokens":     p + c + e + cached,
-		"perModel":        per,
-	}, nil)
+	aggPayload := usagePayload{
+		ConversationID:  convID,
+		InputTokens:     p,
+		OutputTokens:    c,
+		EmbeddingTokens: e,
+		CachedTokens:    cached,
+		TotalTokens:     p + c + e + cached,
+		PerModel:        perModels,
+	}
+
+	encode(w, http.StatusOK, []usagePayload{aggPayload}, nil, nil)
 }
 
 // handleElicitationCallback processes POST /v1/api/elicitation/{msgID} to
@@ -575,18 +657,18 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 		Payload map[string]interface{} `json:"payload,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		encode(w, http.StatusBadRequest, nil, err)
+		encode(w, http.StatusBadRequest, nil, err, nil)
 		return
 	}
 
 	if req.Action == "" {
-		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"))
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"), nil)
 		return
 	}
 
 	message, _ := s.mgr.History().LookupMessage(r.Context(), messageID)
 	if message == nil {
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("interaction message not found"))
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("interaction message not found"), nil)
 		return
 	}
 
@@ -612,7 +694,39 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 
 	// TODO: bridge to MCP awaiter if present (not implemented here)
 
-	encode(w, http.StatusNoContent, nil, nil)
+	encode(w, http.StatusNoContent, nil, nil, nil)
+}
+
+// handleElicitationRefine processes POST /v1/api/elicitation/{msgID}/refine.
+// It allows the client (UI) to supply a preset refinement that customises
+// field ordering or widget overrides for the elicitation form. The endpoint
+// mutates the stored assistant message in-place so that subsequent GET
+// /messages polls return the refined schema.
+func (s *Server) handleElicitationRefine(w http.ResponseWriter, r *http.Request, messageID string) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse payload – we accept the same structure as plan.Elicitation for
+	// simplicity and trust the UI to supply valid data.
+	var refine struct {
+		Fields []map[string]any `json:"fields"`
+		UI     map[string]any   `json:"ui,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&refine); err != nil {
+		encode(w, http.StatusBadRequest, nil, err, nil)
+		return
+	}
+
+	if len(refine.Fields) == 0 {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("fields are required"), nil)
+		return
+	}
+
+	// TODO: apply refinement to elicitation schema (Phase 2b). For now we just
+	// acknowledge so UI knows the preset was accepted.
+	encode(w, http.StatusNoContent, nil, nil, nil)
 }
 
 // handleApprovalCallback processes POST /v1/api/approval/{reqID} accepting or
@@ -629,11 +743,11 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		Reason string `json:"reason,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		encode(w, http.StatusBadRequest, nil, err)
+		encode(w, http.StatusBadRequest, nil, err, nil)
 		return
 	}
 	if body.Action == "" {
-		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"))
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"), nil)
 		return
 	}
 
@@ -647,16 +761,16 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		approved = false
 	case "cancel":
 		// Treat cancel same as decline at approval layer but keep message open.
-		encode(w, http.StatusNoContent, nil, nil)
+		encode(w, http.StatusNoContent, nil, nil, nil)
 		return
 	default:
-		encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid action"))
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid action"), nil)
 		return
 	}
 
 	message, _ := s.mgr.History().LookupMessage(r.Context(), messageId)
 	if message == nil {
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("interaction message not found"))
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("interaction message not found"), nil)
 		return
 	}
 
@@ -679,7 +793,7 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		_, _ = s.approvalSvc.Decide(r.Context(), messageId, approved, body.Reason)
 	}
 
-	encode(w, http.StatusNoContent, nil, nil)
+	encode(w, http.StatusNoContent, nil, nil, nil)
 }
 
 type postMessageRequest struct {
@@ -701,7 +815,7 @@ func defaultLocation(loc string) string {
 func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convID string) {
 	var req postMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		encode(w, http.StatusBadRequest, nil, err)
+		encode(w, http.StatusBadRequest, nil, err, nil)
 		return
 	}
 

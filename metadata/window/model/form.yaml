@@ -154,8 +154,4 @@
   items:
     - id: options.meta
       label: Metadata (YAML / JSON)
-      type: textarea
-      columnSpan: 1
-      properties:
-        rows: 4
-        cols: 100
+      type: object

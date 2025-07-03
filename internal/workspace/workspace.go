@@ -31,6 +31,7 @@ const (
 	KindMCP      = "mcp"
 	KindWorkflow = "workflows"
 	KindTool     = "tools"
+	KindOAuth    = "oauth"
 )
 
 // Root returns the absolute path to the Agently root directory.

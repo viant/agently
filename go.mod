@@ -19,10 +19,10 @@ require (
 	github.com/viant/fluxor v0.1.19
 	github.com/viant/fluxor-mcp v0.1.11-0.20250628161328-cc368a81afcd
 	github.com/viant/forge v0.2.7-0.20250628141010-2dd0b8c4affb
-	github.com/viant/jsonrpc v0.7.3
+	github.com/viant/jsonrpc v0.7.5-0.20250702150306-35013821a631
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.5.0
-	github.com/viant/mcp-protocol v0.5.1
+	github.com/viant/mcp v0.5.1-0.20250702143123-d8daf3d22477
+	github.com/viant/mcp-protocol v0.5.3-0.20250701140140-ffdad25e66d3
 	github.com/viant/scy v0.24.0
 	github.com/viant/structology v0.7.1 // indirect
 	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85

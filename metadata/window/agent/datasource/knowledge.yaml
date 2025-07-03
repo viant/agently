@@ -6,11 +6,4 @@ selectors:
   data: knowledge
 
 
-parameters:
-  - name: url
-    kind: query
-    in: dataSource
-    location: agents.url
-
-
 selectionMode: single

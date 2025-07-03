@@ -21,3 +21,5 @@ items:
     on:
       - event: onClick
         handler: mcp.saveServer
+      - event: onReadonly
+        handler: dataSource.isFormNotDirty

@@ -20,6 +20,9 @@ export async function saveModel({ context } ) {
     }
 
     const id = formData?.id;
+    if(formData.meta && typeof formData.meta === 'string') {
+        formData.meta  = JSON.parse(formData.meta);
+    }
 
     console.log('modelService.saveModel', id);
 

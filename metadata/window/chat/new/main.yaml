@@ -4,6 +4,7 @@ namespace: Chat
 dialogs:
   - $import('dialog/settings.yaml')
   - $import('dialog/fileBrowser.yaml')
+  - $import('dialog/usage.yaml')
 
 # Window that displays a single conversation chat view (no conversation list).
 
@@ -29,36 +30,22 @@ view:
         selectFirst: true
         layout:
           orientation: horizontal
-          columns: 3
+          columns: 2
           labelPosition: left
         items:
           - id: agent
             type: label
             label: Agent
-          - id: usageCost
-            datasourceRef: usage
-            label: Usage
-            type: label
+
           - id: model
             type: label
             label: Model
-          - id: usageInput
-            datasourceRef: usage
-            type: label
-            label: In
-          - id: usageCached
-            datasourceRef: usage
-            type: label
-            label: Cached
-          - id: usageOutput
-            datasourceRef: usage
-            type: label
-            label: Out
+
 
 
           - id: title
             type: label
-            columnSpan: 3
+            columnSpan: 2
 
       - id: conversationSection
         chat:
@@ -86,6 +73,14 @@ view:
                   - event: onClick
                     handler: window.openDialog
                     args: [ 'settings' ]
+              - id: usageInfo
+                icon: timeline-area-chart
+                enabled: true
+                align: right
+                on:
+                  - event: onClick
+                    handler: window.openDialog
+                    args: [ 'usageDetails' ]
 
           on:
             - event: onSubmit
@@ -113,4 +108,5 @@ dataSource:
   tools: $import('../../tool/datasource/tools.yaml')
   meta: $import('datasource/meta.yaml')
   usage: $import('../conversations/datasource/usage.yaml')
+  usagePerModel: $import('../conversations/datasource/usage_model.yaml')
   fs: $import('../../filebrowser/datasource/fileBrowser.yaml')

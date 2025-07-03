@@ -57,12 +57,12 @@ export default function MCPForm({message, context}) {
             canEscapeKeyClose={!submitting}
             canOutsideClickClose={!submitting}
             title="Additional input required"
-            style={{width: 'auto', maxWidth: 520}}>
+            style={{width: '100%', maxWidth: 520}}>
 
             <fieldset className={Classes.DIALOG_BODY}>
                 {prompt && <p style={{marginBottom: 12}}>{prompt}</p>}
                 {requestedSchema && (
-                    <div style={{width: '90vw', maxWidth: '90vw', margin: '0 auto'}}>
+                    <div>
                         <SchemaBasedForm
                             schema={requestedSchema}
                             dataBinding={`window.state.answers.${id}`}

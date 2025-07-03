@@ -32,7 +32,8 @@ func TestNewClient(t *testing.T) {
 		{
 			description: "client with custom anthropic version",
 			projectID:   "viant-e2e",
-			model:       "claude-3-7-sonnet@20250219",
+			//model:       "claude-3-7-sonnet@20250219",
+			model: "claude-opus-4@20250514",
 			options: []ClientOption{
 				WithLocation("us-east5"),
 				WithProjectID("viant-e2e"),

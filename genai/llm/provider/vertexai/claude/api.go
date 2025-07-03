@@ -36,6 +36,19 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if err != nil {
 		return nil, err
 	}
+	if req.MaxTokens == 0 && c.MaxTokens > 0 {
+		req.MaxTokens = c.MaxTokens
+	}
+	if req.Temperature == 0 && c.Temperature != nil {
+		req.Temperature = *c.Temperature
+	}
+	// client defaults
+	if req.MaxTokens == 0 && c.MaxTokens > 0 {
+		req.MaxTokens = c.MaxTokens
+	}
+	if req.Temperature == 0 && c.Temperature != nil {
+		req.Temperature = *c.Temperature
+	}
 
 	// Marshal the request to JSON
 	data, err := json.Marshal(req)
@@ -58,11 +71,14 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		}
 	}
 
+	fmt.Printf("req: %s\n", string(data))
 	// Read the response body
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+
+	fmt.Printf("resp: %s\n", string(respBytes))
 
 	// Check for non-200 status code
 	if resp.StatusCode != 200 {

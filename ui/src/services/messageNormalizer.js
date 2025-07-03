@@ -57,6 +57,23 @@ const isAssistantElicitation = (message) => {
  * @returns {string} - The message classification ('form' or 'bubble')
  */
 export function classifyMessage(message) {
+    // ------------------------------------------------------------------
+    // Summary / summarised housekeeping
+    // ------------------------------------------------------------------
+
+    // Fully ignore messages that were already skipped in normalizeMessages
+    // (status=="summarized").  We keep this guard as a safety net when
+    // classifyMessage is invoked on raw messages directly.
+    if (message.status === 'summarized') {
+        return undefined; // caller can decide to ignore undefined classes
+    }
+
+    // Render conversation *summary* messages (status=="summary") with a
+    // dedicated collapsed system-note component so they don’t clutter the
+    // transcript but remain accessible on demand.
+    if (message.status === 'summary') {
+        return 'summary';
+    }
     // Domain-specific: show execution bubble when available
     if (Array.isArray(message.executions) && message.executions.length > 0) {
         return 'execution';
@@ -104,6 +121,16 @@ export function normalizeMessages(raw = []) {
     const out = [];
 
     for (const msg of raw) {
+        // ------------------------------------------------------------------
+        // 1. Skip messages that have been explicitly marked as *summarized* –
+        //    those represent the older turns that have already been merged
+        //    into an aggregate summary. They should never reach the visible
+        //    chat transcript.
+        // ------------------------------------------------------------------
+        if (msg.status === 'summarized') {
+            continue; // drop entirely
+        }
+
         const copy = deepCopy(msg);
 
         // When user supplies a JSON object, convert it to a markdown table so

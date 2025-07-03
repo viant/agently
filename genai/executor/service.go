@@ -11,19 +11,27 @@ import (
 	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/extension/fluxor/llm/exec"
-	"github.com/viant/agently/genai/extension/fluxor/output/extractor"
+	"github.com/viant/agently/genai/extension/fluxor/llm/history"
+	"github.com/viant/agently/genai/extension/fluxo
 	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/agently/internal/hotswap"
+	"github.com/viant/agently/internal/finder/oauth"
+rnal/finder/oauth"
+	"github.com/viant/agently/int
+rnal/hotswap"
+	"github.com/viant/agently/internal
+	"github.com/viant/agently/internal/loader/oauth"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/extension"
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/fluxor/service/event"
-	"github.com/viant/fluxor/service/meta"
+	"github.com/viant/scy"
+	"github.com/viant/agently/internal/workspace"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -56,6 +64,9 @@ type Service struct {
 	metaService  *meta.Service
 	started      int32
 
+	// oauth credentials finder
+	oauthFinder *oauthfinder.Finder
+
 	// Hot-swap manager and toggle
 	hotSwap         *hotswap.Manager
 	hotSwapDisabled bool
@@ -72,6 +83,9 @@ type Service struct {
 func (e *Service) Orchestration() *mcp.Service {
 	return e.orchestration
 }
+
+// OAuthFinder exposes decrypted OAuth2 configurations loaded from workspace.
+func (e *Service) OAuthFinder() *oauthfinder.Finder { return e.oauthFinder }
 
 // ExecuteTool invokes a registered tool through the configured tool registry.
 // It provides a lightweight way to run an individual tool without crafting a
@@ -149,9 +163,56 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	if e.orchestration != nil {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
-	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history, e.executionStore, &e.config.Default)
+		agentOpts = append(agentOpts, llmagent.WithSummaryPrompt(sp))
+	if sp := strings.TrimSpace(e.config.Default.SummaryPrompt); sp != "" {
+	    agentOpts = append(agentOpts, llmagent.WithSummaryPrompt(sp))
+		agentOpts = append(agentOpts, llmagent.WithSummaryModel(sm))
+	if sm := strings.TrimSpace(e.config.Default.SummaryModel); sm != "" {
+	    agentOpts = append(agentOpts, llmagent.WithSummaryModel(sm))
+		agentOpts = append(agentOpts, llmagent.WithSummaryLastN(ln))
+	if ln := e.config.Default.SummaryLastN; ln > 0 {
+	    agentOpts = append(agentOpts, llmagent.WithSummaryLastN(ln))
+	}
+	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history, e.executionStore, &e.config.Default, agentOpts...)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
+
+	// Register history utility service
+	actions.Register(history.New(e.history, e.llmCore))
+
+	// Configure runagent defaults derived from executor config.
+	// The run executable is now part of agent.Service; configure via its options above.
+
+	// ------------------- OAuth configs -------------------
+	if e.oauthFinder == nil {
+		e.oauthFinder = oauthfinder.New()
+	}
+	// Use shared scy service (blowfish default key)
+	scySvc := scy.New()
+	loader := oauthloader.New(scySvc)
+
+	base := e.config.BaseURL
+	if strings.TrimSpace(base) == "" {
+		base = workspace.Root()
+	}
+	oauthDir := filepath.Join(base, "oauth")
+	_ = filepath.WalkDir(oauthDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d == nil || d.IsDir() || !strings.HasSuffix(path, ".yaml") {
+			return nil
+		}
+		cfg, err := loader.Load(context.Background(), path)
+		if err != nil {
+			fmt.Printf("warn: oauth load %s: %v\n", path, err)
+			return nil
+		}
+		e.oauthFinder.AddConfig(cfg.ID, cfg)
+		return nil
+	})
+
+	// Register OAuth hot-swap adaptor so edits on YAML refresh finder.
+	if e.hotSwap != nil && !e.hotSwapDisabled {
+		e.hotSwap.Register(workspace.KindOAuth, hotswap.NewOAuthAdaptor(loader, e.oauthFinder))
+	}
 
 	// Initialise shared conversation manager for multi-turn interactions
 	convHandler := func(ctx context.Context, in *llmagent.QueryInput, out *llmagent.QueryOutput) error {
@@ -159,12 +220,19 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		if err != nil {
 			return err
 		}
-		return exec(ctx, in, out)
-	}
-	// Attach a shared in-memory usage store so that token statistics are
-	// collected and later exposed via HTTP GET /v1/api/conversations/{id}/usage.
+	// Attach shared in-memory stores for token usage and live stage tracking.
 	usageStore := memory.NewUsageStore()
-	e.convManager = conversation.New(e.history, e.executionStore, convHandler, conversation.WithUsageStore(usageStore))
+	stageStore := memory.NewStageStore()
+    usageStore := memory.NewUsageStore()
+	e.convManager = conversation.New(
+		e.history,
+		e.executionStore,
+		convHandler,
+		conversation.WithUsageStore(usageStore),
+		conversation.WithStageStore(stageStore),
+	)
+        conversation.WithStageStore(stageStore),
+    )
 	// Actions is modified in-place; no return value needed.
 }
 

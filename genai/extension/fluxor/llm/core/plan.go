@@ -89,12 +89,16 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 	if planResult.Elicitation.IsEmpty() {
 		planResult.Elicitation = nil
 	}
-	for _, choice := range genOutput.Response.Choices {
-		if choice.Message.Role == llm.RoleAssistant {
-			if planResult.Elicitation != nil && json.Valid([]byte(choice.Message.Content)) {
-				continue //that was elicitation content
+
+	if output.Plan.IsEmpty() {
+		for _, choice := range genOutput.Response.Choices {
+			if choice.Message.Role == llm.RoleAssistant {
+				if planResult.Elicitation != nil && json.Valid([]byte(choice.Message.Content)) {
+					continue //that was elicitation content
+				}
+
+				output.Transcript = append(output.Transcript, memory.Message{Role: string(choice.Message.Role), Content: choice.Message.Content})
 			}
-			output.Transcript = append(output.Transcript, memory.Message{Role: string(choice.Message.Role), Content: choice.Message.Content})
 		}
 	}
 	for _, transcript := range output.Transcript {
@@ -209,35 +213,38 @@ func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, gen
 	aPlan := plan.New()
 
 	// Handle nested function calls (tool calls) in initial plan response.
-	if genOutput.Content == "" && len(genOutput.Response.Choices) == 1 {
-		choice := genOutput.Response.Choices[0]
-		if len(choice.Message.ToolCalls) > 0 {
-			steps := make(plan.Steps, 0, len(choice.Message.ToolCalls))
-			for _, tc := range choice.Message.ToolCalls {
-				name := tc.Name
-				args := tc.Arguments
-				if name == "" && tc.Function.Name != "" {
-					name = tc.Function.Name
-				}
-				if args == nil && tc.Function.Arguments != "" {
-					var parsed map[string]interface{}
-					if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
-						args = parsed
+	if len(genOutput.Response.Choices) > 0 {
+		for j := range genOutput.Response.Choices {
+			choice := genOutput.Response.Choices[j]
+			if len(choice.Message.ToolCalls) > 0 {
+				steps := make(plan.Steps, 0, len(choice.Message.ToolCalls))
+				for _, tc := range choice.Message.ToolCalls {
+					name := tc.Name
+					args := tc.Arguments
+					if name == "" && tc.Function.Name != "" {
+						name = tc.Function.Name
 					}
+					if args == nil && tc.Function.Arguments != "" {
+						var parsed map[string]interface{}
+						if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
+							args = parsed
+						}
+					}
+					steps = append(steps, plan.Step{
+						ID:     uuid.New().String(),
+						Type:   "tool",
+						Name:   name,
+						Args:   args,
+						Reason: choice.Message.Content,
+					})
+					data, _ := json.Marshal(args)
+					fmt.Printf("%s -> %s\n", name, string(data))
 				}
-				steps = append(steps, plan.Step{
-					ID:     uuid.New().String(),
-					Type:   "tool",
-					Name:   name,
-					Args:   args,
-					Reason: "assistant tool call",
-				})
-				data, _ := json.Marshal(args)
-				fmt.Printf("%s -> %s\n", name, string(data))
+				aPlan.Steps = append(aPlan.Steps, steps...)
+
 			}
-			aPlan.Steps = append(aPlan.Steps, steps...)
-			return aPlan, nil
 		}
+		return aPlan, nil
 	}
 	var err error
 	if strings.Contains(genOutput.Content, `"tool"`) {
@@ -251,5 +258,25 @@ func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, gen
 		}
 	}
 	aPlan.Steps.EnsureID()
+
+	// ------------------------------------------------------------------
+	// Enrich step reason with leading narrative text when Reason is empty.
+	// Many LLMs output helpful prose immediately before the JSON plan. We
+	// capture that prose (text until the opening `{` or fenced ```json block)
+	// and store it as the Reason of the first step when the JSON itself does
+	// not already carry one.
+	// ------------------------------------------------------------------
+	if len(aPlan.Steps) > 0 && strings.TrimSpace(aPlan.Steps[0].Reason) == "" {
+		prefix := genOutput.Content
+		if idx := strings.Index(prefix, "```json"); idx != -1 {
+			prefix = prefix[:idx]
+		} else if idx := strings.Index(prefix, "{"); idx != -1 {
+			prefix = prefix[:idx]
+		}
+		prefix = strings.TrimSpace(prefix)
+		if prefix != "" {
+			aPlan.Steps[0].Reason = prefix
+		}
+	}
 	return aPlan, err
 }

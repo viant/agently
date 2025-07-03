@@ -62,9 +62,25 @@
     labelPosition: top
   items:
     - id: auth.oauth2ConfigURL
-      label: OAuth2 Config URLs (one per line)
-      type: textarea
-      columnSpan: 2
+      label: OAuth2 Credential
+      type: text
+      readonly: true
+      columnSpan: 1
+    - id: selectOAuthCredential
+      type: button
+      icon: search
+      label: Select Credential
+      columnSpan: 1
+      on:
+        - event: onClick
+          handler: window.openWindow
+          args:
+            - oauth
+            - "Select OAuth Credential"
+          parameters:
+            - name: auth.oauth2ConfigURL
+              from: id
+              to: servers:form
     - id: auth.encryptionKey
       label: Encryption Key
       type: password

@@ -8,7 +8,11 @@ import (
 	agentrepo "github.com/viant/agently/internal/repository/agent"
 	mcprepo "github.com/viant/agently/internal/repository/mcp"
 	modelrepo "github.com/viant/agently/internal/repository/model"
+	oauthrepo "github.com/viant/agently/internal/repository/oauth"
+	work
 	workflowrepo "github.com/viant/agently/internal/repository/workflow"
+ub.com/viant/agently/internal/workspace"
+	"git
 	"github.com/viant/agently/internal/workspace"
 	"sync"
 )
@@ -29,6 +33,7 @@ type Service struct {
 	aRepo   *agentrepo.Repository
 	wRepo   *workflowrepo.Repository
 	mcpRepo *mcprepo.Repository
+	oRepo   *oauthrepo.Repository
 	// tools are dynamic – no repository, expose via executor.
 }
 
@@ -59,14 +64,17 @@ func (s *Service) initRepos() {
 		s.aRepo = agentrepo.New(fs)
 		s.wRepo = workflowrepo.New(fs)
 		s.mcpRepo = mcprepo.New(fs)
+
+		s.oRepo = oauthrepo.New(fs, scy.New())
 	})
 }
 
 // Repositories expose typed accessors
 func (s *Service) ModelRepo() *modelrepo.Repository       { s.initRepos(); return s.mRepo }
 func (s *Service) AgentRepo() *agentrepo.Repository       { s.initRepos(); return s.aRepo }
-func (s *Service) WorkflowRepo() *workflowrepo.Repository { s.initRepos(); return s.wRepo }
+func (s *Service) OAuthRepo() *oauthrepo.Repository       { s.initRepos(); return s.oRepo }
 func (s *Service) MCPRepo() *mcprepo.Repository           { s.initRepos(); return s.mcpRepo }
+func (s *Service) OAuthRepo() *oauthrepo.Repository        { s.initRepos(); return s.oRepo }
 
 // ToolDefinitions returns available tool definitions (read-only) gathered from the executor’s registry.
 func (s *Service) ToolDefinitions() []llm.ToolDefinition {

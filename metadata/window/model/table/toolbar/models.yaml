@@ -20,3 +20,5 @@ items:
     on:
       - event: onClick
         handler: model.saveModel
+      - event: onReadonly
+        handler: dataSource.isFormNotDirty

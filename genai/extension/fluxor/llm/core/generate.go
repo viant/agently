@@ -91,10 +91,15 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	// in the model finder. Avoid double-counting here.
 	var builder strings.Builder
 	for _, choice := range response.Choices {
+
+		if len(choice.Message.ToolCalls) > 0 {
+			continue
+		}
 		if txt := strings.TrimSpace(choice.Message.Content); txt != "" {
 			builder.WriteString(txt)
 			continue // prefer Content when provided, avoid double printing
 		}
+
 		for _, item := range choice.Message.Items {
 			if item.Type != llm.ContentTypeText {
 				continue
@@ -127,18 +132,27 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 // It trims potential code block markers and identifies the JSON object or array to parse.
 // Returns an error if no valid JSON is found or if unmarshalling fails.
 func EnsureJSONResponse(ctx context.Context, text string, target interface{}) error {
-	// Strip code block markers
-	if strings.HasPrefix(text, "```") {
-		if idx := strings.Index(text, "\n"); idx != -1 {
-			text = text[idx+1:]
+	// ------------------------------------------------------------
+	// 1. Remove Markdown fences *anywhere* in the text (not only prefix).
+	//    We look for the first ``` and the following matching ```.
+	// ------------------------------------------------------------
+	if start := strings.Index(text, "```json"); start != -1 {
+		fragment := text[start+len("```json"):]
+		if end := strings.Index(fragment, "```"); end != -1 {
+			text = fragment[:end]
 		}
-		if end := strings.LastIndex(text, "```"); end != -1 {
-			text = text[:end]
+	} else if start := strings.Index(text, "```"); start != -1 {
+		fragment := text[start+3:]
+		if end := strings.Index(fragment, "```"); end != -1 {
+			text = fragment[:end]
 		}
-		text = strings.TrimSpace(text)
 	}
 
-	// Extract likely JSON content
+	text = strings.TrimSpace(text)
+
+	// ------------------------------------------------------------
+	// 2. Extract the JSON substring. We want the outermost object or array.
+	// ------------------------------------------------------------
 	objectStart := strings.Index(text, "{")
 	objectEnd := strings.LastIndex(text, "}")
 	arrayStart := strings.Index(text, "[")
@@ -150,7 +164,7 @@ func EnsureJSONResponse(ctx context.Context, text string, target interface{}) er
 	case arrayStart != -1 && arrayEnd != -1:
 		text = text[arrayStart : arrayEnd+1]
 	default:
-		//regular response
+		// Could not locate a JSON payload – treat as plain answer.
 		return nil
 	}
 	// Attempt to parse JSON

@@ -42,6 +42,10 @@ type (
 		// to gather the missing data from the caller.
 		Elicitation *plan.Elicitation `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
 
+		// Persona defines the default conversational persona the agent uses when
+		// sending messages. When nil the role defaults to "assistant".
+		Persona *Persona `yaml:"persona,omitempty" json:"persona,omitempty"`
+
 		// cached compiled go template for prompt (if Prompt is static)
 		parsedTemplate *template.Template `yaml:"-" json:"-"`
 		once           sync.Once          `yaml:"-" json:"-"`

@@ -48,3 +48,18 @@ func (p *Plan) IsRefined() bool {
 	}
 	return p.Steps[0].Type != "noop"
 }
+
+func (p *Plan) IsEmpty() bool {
+	if p == nil {
+		return true
+	}
+	if len(p.Steps) == 0 {
+		return true
+	}
+	for _, step := range p.Steps {
+		if step.Name != "" && (step.Elicitation == nil || step.Elicitation.IsEmpty()) {
+			return true
+		}
+	}
+	return false
+}

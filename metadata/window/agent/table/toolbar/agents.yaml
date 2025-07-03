@@ -21,3 +21,5 @@ items:
     on:
       - event: onClick
         handler: agent.saveAgent
+      - event: onReadonly
+        handler: dataSource.isFormNotDirty

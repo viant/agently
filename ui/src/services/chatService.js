@@ -13,6 +13,8 @@ import {classifyMessage, normalizeMessages, isSimpleTextSchema} from './messageN
 import ExecutionBubble from '../components/chat/ExecutionBubble.jsx';
 import HTMLTableBubble from '../components/chat/HTMLTableBubble.jsx';
 import {ensureConversation, newConversation} from './conversationService';
+import SummaryNote from '../components/chat/SummaryNote.jsx';
+import {setStage} from '../utils/stageBus.js';
 
 // -------------------------------
 // Window lifecycle helpers
@@ -43,7 +45,7 @@ export async function onInit({context}) {
 
         const toolResp = await toolsContext.connector.get({})
         const allTools = toolResp.data || [];
-        const values = {...defaults, agents:{}}
+        const values = {...defaults, agents: {}}
 
         for (const agent of agents) {
             const agentTools = agent.tool || []
@@ -67,7 +69,7 @@ export async function onInit({context}) {
         if (context.resources.chatTimer) {
             clearInterval(context.resources.chatTimer);
         }
-        context.resources['chatTimerState'] = {busy:false}
+        context.resources['chatTimerState'] = {busy: false}
         context.resources['chatTimer'] = setInterval(() => {
             startPolling({context});
         }, 1000);
@@ -91,7 +93,7 @@ function startPolling({context}) {
         return;
     }
     const tick = async () => {
-        if(context.resources.chatTimerState) return;
+        if (context.resources.chatTimerState) return;
         try {
             context.resources.chatTimerState = true;
 
@@ -114,84 +116,45 @@ function startPolling({context}) {
             const url = lastID ? `${base}?since=${encodeURIComponent(lastID)}` : base;
 
             const json = await fetchJSON(url);
+
+            // Broadcast stage (even when no new messages) so StatusBar updates smoothly.
+            if (json && json.stage) {
+                setStage(json.stage);
+            }
+
             if (json && json.status === 'ok' && Array.isArray(json.data) && json.data.length) {
                 mergeMessages(messagesCtx, json.data);
                 injectFormMessages(messagesCtx, json.data);
             }
 
             // Determine id of newest assistant message after merge.
-            const allMsgs = messagesCtx.signals?.collection?.value || [];
+            const messages = messagesCtx.signals?.collection?.value || [];
             let newestAssistantID = '';
-            for (let i = allMsgs.length - 1; i >= 0; i--) {
-                if (allMsgs[i].role === 'assistant') {
-                    newestAssistantID = allMsgs[i].id;
+            for (let i = messages.length - 1; i >= 0; i--) {
+                if (messages[i].role === 'assistant') {
+                    newestAssistantID = messages[i].id;
                     break;
                 }
             }
 
             // Only refresh usage when the last assistant message changed.
-            if (newestAssistantID && context.resources.lastAssistantID !== newestAssistantID) {
-                context.resources.lastAssistantID = newestAssistantID;
+            // if (newestAssistantID && context.resources.lastAssistantID !== newestAssistantID) {
+            //     context.resources.lastAssistantID = newestAssistantID;
 
-                try {
-                    const usageURL = endpoints.appAPI.baseURL + `/conversations/${convID}/usage`;
-                    const usageResp = await fetchJSON(usageURL);
-                    if (usageResp && usageResp.status === 'ok') {
-                        const usageData = usageResp.data || {};
-                        const total = usageData.totalTokens !== undefined
-                            ? usageData.totalTokens
-                            : (usageData.inputTokens || 0) + (usageData.outputTokens || 0) + (usageData.cachedTokens || 0);
-
-                        if (convCtx?.handlers?.dataSource?.setFormField) {
-                            const ds = convCtx.handlers.dataSource;
-                            ds.setFormField({item:{id:'usageTokens'}, value: total});
-                            ds.setFormField({item:{id:'usageInput'}, value: usageData.inputTokens || 0});
-                            ds.setFormField({item:{id:'usageOutput'}, value: usageData.outputTokens || 0});
-                            ds.setFormField({item:{id:'usageCached'}, value: usageData.cachedTokens || 0});
-
-                            // Calculate $ cost based on model metadata when available.
-                            const modelsCtx = context.Context('models');
-                            const modelDefs = modelsCtx?.handlers?.dataSource?.peekCollection?.() || [];
-                            const priceMap = {};
-                            modelDefs.forEach(m=>{
-                                const opt = (m.options||{});
-                                priceMap[m.id||m.name] = {
-                                    in:  opt.inputTokenPrice || 0,
-                                    out: opt.outputTokenPrice || 0,
-                                    cache: opt.cachedTokenPrice || 0,
-                                };
-                            });
-
-                            let cost = 0;
-                            const perModel = usageData.perModel || {};
-                            Object.entries(perModel).forEach(([model, stats])=>{
-                                const p = priceMap[model] || {};
-                                cost += ((stats.inputTokens||0)/1000)*(p.in||0);
-                                cost += ((stats.outputTokens||0)/1000)*(p.out||0);
-                                cost += ((stats.cachedTokens||0)/1000)*(p.cache||0);
-                            });
-
-                            ds.setFormField({item:{id:'usageCost'}, value: cost.toFixed(4)});
-                        }
-
-                        const usageCtx = context.Context('usage');
-                        if (usageCtx?.handlers?.dataSource?.setFormData) {
-                            usageCtx.handlers.dataSource.setFormData({values: usageData});
-                        }
-                    }
-                } catch (err) {
-                    console.error('chatService.usageFetch error:', err);
-                }
+            const usageCtx = context.Context('usage');
+            try {
+                console.log('usageCtx', usageCtx.identity)
+                usageCtx.handlers.dataSource.fetchCollection({});
+            } catch (err) {
+                console.error('usage DS refresh error:', err);
             }
+
         } catch (err) {
             console.error('chatService.startPolling tick error:', err);
         }
     };
-    tick().then().finally(()=> context.resources.chatTimerState = false)
+    tick().then().finally(() => context.resources.chatTimerState = false)
 }
-
-
-
 
 
 /**
@@ -202,6 +165,9 @@ export function onDestroy({context}) {
         clearInterval(context.resources.chatTimer);
         delete context.resources.chatTimer;
     }
+
+    // Clear global stage so other windows do not show stale data.
+    setStage(null);
 }
 
 
@@ -435,6 +401,16 @@ function mergeMessages(messagesContext, incoming) {
     const current = Array.isArray(collSig.value) ? [...collSig.value] : [];
 
     incoming.forEach((msg) => {
+        // Messages flagged as "summarized" have been condensed into a single
+        // summary entry. Remove any prior copy from the transcript and skip
+        // adding/merging.
+        if (msg.status === 'summarized') {
+            const idx = current.findIndex((m) => m.id === msg.id);
+            if (idx >= 0) {
+                current.splice(idx, 1); // delete in-place
+            }
+            return; // done
+        }
         const idx = current.findIndex((m) => m.id === msg.id);
         if (idx >= 0) {
             const updated = {...current[idx], ...msg};
@@ -546,6 +522,7 @@ export const chatService = {
         mcpuserinteraction: MCPInteraction,
         policyapproval: PolicyApproval,
         htmltable: HTMLTableBubble,
+        summary: SummaryNote,
     },
 
 };

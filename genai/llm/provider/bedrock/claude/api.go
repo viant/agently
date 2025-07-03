@@ -8,9 +8,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	authAws "github.com/viant/scy/auth/aws"
+	"strings"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -33,8 +35,26 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		return nil, err
 	}
 
+	model := c.Model
+	if strings.Contains(model, "${AccountId}") {
+		err = c.ensureAccountID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		model = strings.ReplaceAll(model, "${AccountId}", c.AccountID)
+	}
+
 	// Set the Anthropic version
 	req.AnthropicVersion = c.AnthropicVersion
+	if req.MaxTokens == 0 {
+		req.MaxTokens = c.MaxTokens
+	}
+	if req.Temperature == 0 && c.Temperature != nil {
+		req.Temperature = *c.Temperature
+	}
+	if req.Temperature == 0 && c.Temperature != nil {
+		req.Temperature = *c.Temperature
+	}
 
 	// Marshal the request to JSON
 	data, err := json.Marshal(req)
@@ -44,10 +64,12 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 
 	// Create the Bedrock InvokeModel request
 	invokeRequest := &bedrockruntime.InvokeModelInput{
-		ModelId:     aws.String(c.Model),
+		ModelId:     aws.String(model),
 		Body:        data,
 		ContentType: aws.String("application/json"),
 	}
+
+	fmt.Printf("req: %v\n", string(data))
 
 	// Send the request to Bedrock
 	var resp *bedrockruntime.InvokeModelOutput
@@ -72,12 +94,34 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	// Set the model name in the response
 	apiResp.Model = c.Model
 
+	fmt.Printf("resp: %v\n", string(resp.Body))
+
 	// Convert Response to llms.GenerateResponse
 	llmsResp := ToLLMSResponse(&apiResp)
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
 	}
+	rrrr, _ := json.Marshal(llmsResp)
+	fmt.Printf("resp: %v\n", string(rrrr))
+
 	return llmsResp, nil
+}
+
+func (c *Client) ensureAccountID(ctx context.Context) error {
+	if c.AccountID != "" {
+		return nil
+	}
+	cfg, err := c.loadAwsConfig(ctx)
+	if err != nil {
+		return err
+	}
+	stsClient := sts.NewFromConfig(*cfg)
+	output, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return err
+	}
+	c.AccountID = *output.Account
+	return nil
 }
 
 // Stream sends a chat request to the Claude API on AWS Bedrock with streaming enabled
@@ -91,7 +135,12 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		return nil, err
 	}
 	req.AnthropicVersion = c.AnthropicVersion
-
+	if req.MaxTokens == 0 {
+		req.MaxTokens = c.MaxTokens
+	}
+	if req.MaxTokens == 0 {
+		req.MaxTokens = 8192
+	}
 	data, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)

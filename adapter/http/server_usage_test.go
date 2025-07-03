@@ -52,22 +52,20 @@ func TestServer_GetUsage(t *testing.T) {
 	defer resp.Body.Close()
 	assert.EqualValues(t, http.StatusOK, resp.StatusCode)
 
-	var wrapper struct {
-		Status string                 `json:"status"`
-		Data   map[string]interface{} `json:"data"`
+	var usageResp UsageResponse
+	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&usageResp))
+
+	if assert.Len(t, usageResp.Data, 1) {
+		data := usageResp.Data[0]
+		assert.EqualValues(t, "conv1", data.ConversationID)
+		assert.EqualValues(t, 10, data.InputTokens)
+		assert.EqualValues(t, 2, data.OutputTokens)
+		assert.EqualValues(t, 6, data.EmbeddingTokens)
+
+		// Validate perModel entries
+		assert.Len(t, data.PerModel, 2)
+		names := []string{data.PerModel[0].Model, data.PerModel[1].Model}
+		assert.Contains(t, names, "gpt-3.5")
+		assert.Contains(t, names, "ada-002")
 	}
-	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&wrapper))
-
-	data := wrapper.Data
-	assert.EqualValues(t, float64(10), data["inputTokens"]) // JSON numbers decoded as float64
-	assert.EqualValues(t, float64(2), data["outputTokens"])
-	assert.EqualValues(t, float64(6), data["embeddingTokens"])
-	_, hasCached := data["cachedTokens"]
-	assert.True(t, hasCached)
-
-	// Validate perModel map presence
-	perModel, ok := data["perModel"].(map[string]interface{})
-	assert.True(t, ok)
-	assert.Contains(t, perModel, "gpt-3.5")
-	assert.Contains(t, perModel, "ada-002")
 }

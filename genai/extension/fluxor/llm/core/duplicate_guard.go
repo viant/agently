@@ -43,6 +43,23 @@ func (g *DuplicateGuard) key(name string, args map[string]interface{}) toolKey {
 func (g *DuplicateGuard) ShouldBlock(name string, args map[string]interface{}) (bool, plan.Result) {
 	k := g.key(name, args)
 
+	// ------------------------------------------------------------------
+	// Fast-path: If we have already executed this exact tool call (same
+	// name and canonicalised args) in a *prior* iteration **and** it
+	// succeeded, short-circuit immediately. Invoking the tool again is
+	// wasteful and – for idempotent tools – yields an identical result,
+	// confusing the planner and potentially causing loops.
+	//
+	// Re-execution is still allowed when the previous attempt ended in an
+	// error so the plan has a chance to recover once the missing
+	// parameter/condition is fixed.
+	// ------------------------------------------------------------------
+	if prev, ok := g.latest[k]; ok {
+		if prev.Error == "" { // previous run succeeded – block duplicate
+			return true, prev
+		}
+	}
+
 	if k == g.lastKey {
 		g.consecutive++
 	} else {

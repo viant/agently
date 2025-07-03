@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"githu
 	"sync"
 	"time"
 )
@@ -11,6 +12,8 @@ import (
 type HistoryStore struct {
 	data map[string][]Message
 	mux  sync.RWMutex
+
+	meta map[string]ConversationMeta // key: convID
 }
 
 // History defines behaviour for conversation history storage.
@@ -26,12 +29,18 @@ type History interface {
 	LookupMessage(ctx context.Context, messageID string) (*Message, error)
 
 	LatestMessage(ctx context.Context) (msg *Message, err error)
+
+	// --- Conversation meta management ------------------------------
+	CreateMeta(ctx context.Context, id, parentID, title, visibility string)
+	Meta(ctx context.Context, id string) (*ConversationMeta, bool)
+	Children(ctx context.Context, parentID string) ([]ConversationMeta, bool)
 }
 
 // NewHistoryStore creates a new in-memory history store.
 func NewHistoryStore() *HistoryStore {
 	return &HistoryStore{
 		data: make(map[string][]Message),
+		meta: make(map[string]ConversationMeta),
 	}
 }
 
@@ -213,4 +222,74 @@ func (h *HistoryStore) LatestMessage(ctx context.Context) (*Message, error) {
 		}
 	}
 	return latestMsg, nil
+}
+
+// NewChildConversation creates a conversation ID, stores meta and returns it.
+// It is safe to call with nil History.
+func NewChildConversation(ctx context.Context, hist History, parentID, title, visibility string) string {
+	id := uuid.NewString()
+	if hist == nil {
+		return id
+	}
+	hist.CreateMeta(ctx, id, parentID, title, visibility)
+	// also ensure conversation key exists so messages can be added.
+	if hs, ok := hist.(*HistoryStore); ok {
+		hs.EnsureConversation(id)
+	}
+	return id
+}
+
+// -------------------------------------------------------------------
+// Conversation meta operations
+// -------------------------------------------------------------------
+
+// CreateMeta registers metadata for a conversation id. If meta already exists
+// it is left unchanged.
+func (h *HistoryStore) CreateMeta(ctx context.Context, id, parentID, title, visibility string) {
+	if id == "" {
+		return
+	}
+	h.mux.Lock()
+	defer h.mux.Unlock()
+	if _, exists := h.meta[id]; exists {
+		return
+	}
+	h.meta[id] = ConversationMeta{
+		ID:         id,
+		ParentID:   parentID,
+		Title:      title,
+		Visibility: visibility,
+		CreatedAt:  time.Now(),
+	}
+}
+
+// Meta fetches conversation meta by id.
+func (h *HistoryStore) Meta(ctx context.Context, id string) (*ConversationMeta, bool) {
+	h.mux.RLock()
+	defer h.mux.RUnlock()
+	m, ok := h.meta[id]
+	if !ok {
+		return nil, false
+	}
+	copy := m
+	return &copy, true
+}
+
+// Children returns all direct children for parentID.
+func (h *HistoryStore) Children(ctx context.Context, parentID string) ([]ConversationMeta, bool) {
+	h.mux.RLock()
+	defer h.mux.RUnlock()
+	if parentID == "" {
+		return nil, false
+	}
+	var out []ConversationMeta
+	for _, m := range h.meta {
+		if m.ParentID == parentID {
+			out = append(out, m)
+		}
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/oauth2"
+	oauthrepo "github.com/viant/agently/internal/repository/oauth"
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/mcp"
 
@@ -124,7 +126,48 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// List all resources of kind
 	if len(parts) == 1 {
+		// ------------------------------------------------------------
+		// Special cases when no explicit item name is present in the
+		// URL. Historically the API only supported listing (GET) in
+		// this form but for some kinds – notably "oauth" – it is more
+		// convenient to let the server derive the storage key from the
+		// incoming payload. We therefore allow implicit PUT for oauth.
+		// ------------------------------------------------------------
+
 		if r.Method != http.MethodGet {
+			if (kind == workspace.KindOAuth || kind == "oauth") && (r.Method == http.MethodPut || r.Method == http.MethodPost) {
+				// Derive name from payload's `name` or `id` field.
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					encode(w, http.StatusBadRequest, nil, err)
+					return
+				}
+				var tmp struct {
+					ID   string `json:"id" yaml:"id"`
+					Name string `json:"name" yaml:"name"`
+				}
+				_ = yaml.Unmarshal(body, &tmp)
+				key := tmp.Name
+				if key == "" {
+					key = tmp.ID
+				}
+				if key == "" {
+					encode(w, http.StatusBadRequest, nil, fmt.Errorf("missing name/id field in payload"))
+					return
+				}
+				// Rewind the body for downstream processing.
+				r.Body = io.NopCloser(strings.NewReader(string(body)))
+
+				// Rewrite URL to include derived key and fall through to
+				// normal single-item PUT logic below.
+				parts = append(parts, key)
+				name := key
+				// Now proceed similar to the single item PUT case later.
+				// But easiest: delegate by recursively invoking ServeHTTP with updated URL.
+				r.URL.Path = "/v1/workspace/" + kind + "/" + name
+				h.ServeHTTP(w, r)
+				return
+			}
 			encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
 			return
 		}
@@ -175,7 +218,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		encode(w, http.StatusOK, obj, nil)
-	case http.MethodPut:
+	case http.MethodPut, http.MethodPost: // allow POST as alias for PUT
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			encode(w, http.StatusBadRequest, nil, err)
@@ -197,6 +240,27 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Special secure handling first – must use original JSON body because
+		// oauth.Config expects JSON fields like clientId, clientSecret.
+		if kind == workspace.KindOAuth || kind == "oauth" {
+			if orepo, ok := repo.(*oauthrepo.Repository); ok {
+				var cfg oauth2.Config
+				if uErr := json.Unmarshal(body, &cfg); uErr != nil {
+					encode(w, http.StatusBadRequest, nil, uErr)
+					return
+				}
+				if cfg.Name == "" {
+					cfg.Name = name
+				}
+				if err := orepo.Save(ctx, name, &cfg); err != nil {
+					encode(w, http.StatusInternalServerError, nil, err)
+					return
+				}
+				encode(w, http.StatusOK, "ok", nil)
+				return
+			}
+		}
+
 		// Prefer typed structs when we have a mapping for this kind – ensures YAML tags.
 		if inst := newInstance(kind); inst != nil {
 			if err := json.Unmarshal(body, inst); err == nil {
@@ -213,6 +277,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+
 		if err := repo.Add(ctx, name, body); err != nil {
 			encode(w, http.StatusInternalServerError, nil, err)
 			return
@@ -238,6 +303,8 @@ func (h *handler) repo(kind string) (rawRepository, bool) {
 		return h.svc.ModelRepo(), true
 	case workspace.KindWorkflow, "workflow":
 		return h.svc.WorkflowRepo(), true
+	case workspace.KindOAuth:
+		return h.svc.OAuthRepo(), true
 	case workspace.KindMCP:
 		return h.svc.MCPRepo(), true
 	default:

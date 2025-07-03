@@ -24,6 +24,16 @@ func WithVersion(version string) ClientOption {
 	return func(c *Client) { c.Version = version }
 }
 
+// WithMaxTokens sets a default maxOutputTokens applied when request omits it.
+func WithMaxTokens(max int) ClientOption {
+	return func(c *Client) { c.MaxTokens = max }
+}
+
+// WithTemperature sets a default temperature applied when request omits it.
+func WithTemperature(temp float64) ClientOption {
+	return func(c *Client) { c.Temperature = &temp }
+}
+
 // WithUsageListener registers a callback to receive token usage information.
 func WithUsageListener(l basecfg.UsageListener) ClientOption {
 	return func(c *Client) { c.UsageListener = l }

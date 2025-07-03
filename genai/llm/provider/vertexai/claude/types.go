@@ -1,13 +1,26 @@
 package claude
 
 // Request represents the request structure for Claude API on Vertex AI
+// Request represents the request structure for Claude API on Vertex AI
+// The schema aligns with Anthropic's tool-calling contract that is also
+// used by AWS Bedrock so the same high-level llm.GenerateRequest can be
+// marshalled to either provider.
 type Request struct {
-	AnthropicVersion string    `json:"anthropic_version"`
-	Messages         []Message `json:"messages"`
-	MaxTokens        int       `json:"max_tokens,omitempty"`
-	Stream           bool      `json:"stream,omitempty"`
-	Thinking         *Thinking `json:"thinking,omitempty"`
-	System           string    `json:"system,omitempty"`
+	AnthropicVersion string           `json:"anthropic_version"`
+	Messages         []Message        `json:"messages"`
+	Tools            []ToolDefinition `json:"tools,omitempty"`
+
+	// optional generation parameters --------------------------------------------------
+	MaxTokens     int      `json:"max_tokens,omitempty"`
+	Temperature   float64  `json:"temperature,omitempty"`
+	TopP          float64  `json:"top_p,omitempty"`
+	TopK          int      `json:"top_k,omitempty"`
+	StopSequences []string `json:"stop_sequences,omitempty"`
+
+	// Vertex AI specific extensions ---------------------------------------------------
+	Stream   bool      `json:"stream,omitempty"`
+	Thinking *Thinking `json:"thinking,omitempty"`
+	System   string    `json:"system,omitempty"`
 }
 
 // Message represents a message in the Claude API request
@@ -17,33 +30,39 @@ type Message struct {
 }
 
 // ContentBlock represents a content block in a message
+// ContentBlock represents a content block in a message.
+// For consistency with AWS Bedrock implementation we keep a flat structure
+// where the "type" field distinguishes: "text", "image", "tool_use",
+// "tool_result", ...
 type ContentBlock struct {
-	Type   string  `json:"type"`
+	// Common -------------------------------------------------------------------------
+	Type string `json:"type"`
+
+	// Text content (when Type == "text") -------------------------------------------
 	Text   string  `json:"text,omitempty"`
 	Source *Source `json:"source,omitempty"`
-	// Tool request coming FROM the model
-	ToolUse *ToolUseBlock `json:"toolUse,omitempty"`
 
-	// Result you send back TO the model
-	ToolResult *ToolResultBlock `json:"toolResult,omitempty"`
+	// Tool invocation (when Type == "tool_use") -------------------------------------
+	ID    string                 `json:"id,omitempty"`
+	Name  string                 `json:"name,omitempty"`
+	Input map[string]interface{} `json:"input,omitempty"`
+
+	// Tool result (when Type == "tool_result") --------------------------------------
+	ToolUseID string      `json:"tool_use_id,omitempty"`
+	Content   interface{} `json:"content,omitempty"`
 }
 
-type ToolUseBlock struct {
-	ToolUseId string                 `json:"toolUseId"` // <— the correlation handle
-	Name      string                 `json:"name"`      // must match a ToolDefinition.Name
-	Input     map[string]interface{} `json:"input"`     // validated by InputSchema
+// ToolDefinition mirrors the JSON schema Claude expects when declaring tools.
+type ToolDefinition struct {
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description,omitempty"`
+	InputSchema  map[string]interface{} `json:"input_schema"`
+	OutputSchema map[string]interface{} `json:"output_schema,omitempty"`
 }
 
-type ToolResultBlock struct {
-	ToolUseId string                   `json:"toolUseId"`         // echo back unchanged
-	Content   []ToolResultContentBlock `json:"content,omitempty"` // result payload
-	Status    string                   `json:"status,omitempty"`  // "success" | "error" (Claude-only)
-}
-
-type ToolResultContentBlock struct {
-	Text *string     `json:"text,omitempty"`
-	JSON interface{} `json:"json,omitempty"` // any JSON-serialisable value
-}
+// The previous granular structs (ToolUseBlock, ToolResultBlock, ... ) have been
+// unified into the flat representation above because both Vertex AI and Bedrock
+// accept that shape and it keeps the adapter code provider-agnostic.
 
 // Source represents a source for image content
 type Source struct {
@@ -111,6 +130,9 @@ type VertexAIResponse struct {
 
 // TextContent represents a text content block in the VertexAI response
 type TextContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type  string                 `json:"type"`
+	Text  string                 `json:"text"`
+	Id    string                 `json:"id"`
+	Name  string                 `json:"name"`
+	Input map[string]interface{} `json:"input"`
 }

@@ -34,6 +34,16 @@ func WithRegion(region string) ClientOption {
 	}
 }
 
+func WithMaxTokens(maxTokens int) ClientOption {
+	return func(c *Client) {
+		c.MaxTokens = maxTokens
+	}
+}
+
+func WithTemperature(temp float64) ClientOption {
+	return func(c *Client) { c.Temperature = &temp }
+}
+
 func WithCredentialsURL(credentialsURL string) ClientOption {
 	return func(c *Client) {
 		c.CredentialsURL = credentialsURL

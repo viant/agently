@@ -311,6 +311,132 @@ func TestToLLMSResponse(t *testing.T) {
 				Model: "claude-3-7-sonnet-20250219",
 			},
 		},
+		{
+			description: "vertexai claude response with tool_use",
+			input: &VertexAIResponse{
+				ID:    "msg_vrtx_tool_123",
+				Type:  "message",
+				Role:  "assistant",
+				Model: "claude-opus-4-20250514",
+				Content: []TextContent{
+					{
+						Type: "text",
+						Text: "I'll check the current date for you using the system command.",
+					},
+					{
+						Type: "tool_use",
+						Id:   "toolu_vrtx_01N8iuspEBDTxujRZrjU7dkY",
+						Name: "system_exec-execute",
+						Input: map[string]interface{}{
+							"commands": []string{"date"},
+						},
+					},
+				},
+				StopReason: "tool_use",
+				Usage: &Usage{
+					InputTokens:              2827,
+					CacheCreationInputTokens: 0,
+					CacheReadInputTokens:     0,
+					OutputTokens:             71,
+				},
+			},
+			expected: &llm.GenerateResponse{
+				Choices: []llm.Choice{
+					{
+						Index: 0,
+						Message: llm.Message{
+							Role:    llm.RoleAssistant,
+							Content: "I'll check the current date for you using the system command.",
+							Items: []llm.ContentItem{
+								{
+									Type:   llm.ContentTypeText,
+									Source: llm.SourceRaw,
+									Data:   "I'll check the current date for you using the system command.",
+									Text:   "I'll check the current date for you using the system command.",
+								},
+							},
+							ToolCalls: []llm.ToolCall{
+								{
+									ID:        "toolu_vrtx_01N8iuspEBDTxujRZrjU7dkY",
+									Name:      "system_exec-execute",
+									Arguments: map[string]interface{}{"commands": []string{"date"}},
+								},
+							},
+						},
+						FinishReason: "tool_use",
+					},
+				},
+				Usage: &llm.Usage{
+					PromptTokens:     2827,
+					CompletionTokens: 71,
+					TotalTokens:      2898,
+				},
+				Model: "claude-opus-4-20250514",
+			},
+		},
+		{
+			description: "vertexai claude response tool_use precedes text",
+			input: &VertexAIResponse{
+				ID:    "msg_vrtx_tool_456",
+				Type:  "message",
+				Role:  "assistant",
+				Model: "claude-opus-4-20250514",
+				Content: []TextContent{
+					{
+						Type: "tool_use",
+						Id:   "toolu_vrtx_02abCD",
+						Name: "system_exec-execute",
+						Input: map[string]interface{}{
+							"commands": []string{"date"},
+						},
+					},
+					{
+						Type: "text",
+						Text: "Here is the result.",
+					},
+				},
+				StopReason: "tool_use",
+				Usage: &Usage{
+					InputTokens:              3000,
+					CacheCreationInputTokens: 0,
+					CacheReadInputTokens:     0,
+					OutputTokens:             53,
+				},
+			},
+			expected: &llm.GenerateResponse{
+				Choices: []llm.Choice{
+					{
+						Index: 0,
+						Message: llm.Message{
+							Role:    llm.RoleAssistant,
+							Content: "Here is the result.",
+							Items: []llm.ContentItem{
+								{
+									Type:   llm.ContentTypeText,
+									Source: llm.SourceRaw,
+									Data:   "Here is the result.",
+									Text:   "Here is the result.",
+								},
+							},
+							ToolCalls: []llm.ToolCall{
+								{
+									ID:        "toolu_vrtx_02abCD",
+									Name:      "system_exec-execute",
+									Arguments: map[string]interface{}{"commands": []string{"date"}},
+								},
+							},
+						},
+						FinishReason: "tool_use",
+					},
+				},
+				Usage: &llm.Usage{
+					PromptTokens:     3000,
+					CompletionTokens: 53,
+					TotalTokens:      3053,
+				},
+				Model: "claude-opus-4-20250514",
+			},
+		},
 	}
 
 	for _, tc := range testCases {

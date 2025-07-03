@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
-	"github.com/viant/agently/genai/agent"
+	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/internal/workspace"
 	"log"
 	"path"
@@ -17,8 +17,10 @@ import (
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/elicitation/refiner"
 	corepkg "github.com/viant/agently/genai/extension/fluxor/llm/core"
+	autoawait "github.com/viant/agently/genai/io/elicitation/auto"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/summary"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
 	"github.com/viant/fluxor/model"
@@ -49,6 +51,41 @@ func validateContext(qi *QueryInput) []string {
 		}
 	}
 	return missing
+}
+
+// tryAutoElicit attempts to satisfy the missing context properties using an
+// automatic elicitation agent. The first implementation delegates to a stub
+// awaiter that always declines so that future phases can replace it with real
+// LLM logic without touching call sites.
+func (s *Service) tryAutoElicit(ctx context.Context, qi *QueryInput, missing []string) (map[string]any, bool) {
+	helper := "elicitor"
+	if s.defaults != nil && strings.TrimSpace(s.defaults.Agent) != "" {
+		helper = s.defaults.Agent
+	}
+
+	caller := func(ctx context.Context, agentName, prompt string) (string, error) {
+		in := &QueryInput{AgentName: agentName, Query: prompt, Persona: &agentmdl.Persona{Role: "assistant", Actor: "auto-elicitation"}}
+		var out QueryOutput
+		if err := s.query(ctx, in, &out); err != nil {
+			return "", err
+		}
+		return out.Content, nil
+	}
+
+	awaiter := autoawait.New(caller, autoawait.Config{HelperAgent: helper, MaxRounds: 1})
+	res, err := awaiter.AwaitElicitation(ctx, qi.Agent.Elicitation)
+	if err != nil || res == nil {
+		return nil, false
+	}
+	if res.Action != plan.ElicitResultActionAccept || len(res.Payload) == 0 {
+		return nil, false
+	}
+	for _, m := range missing {
+		if _, ok := res.Payload[m]; !ok {
+			return nil, false
+		}
+	}
+	return res.Payload, true
 }
 
 // --------------- Public entry -------------------------------------------------
@@ -83,19 +120,44 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 		s.enrichContextFromHistory(ctx, qi)
 
 		if missing := validateContext(qi); len(missing) > 0 {
+			// Attempt auto-elicitation when mode == agent|hybrid.
+			autoAttempted := false
+			if qi.ElicitationMode == "agent" || qi.ElicitationMode == "hybrid" {
+				if payload, ok := s.tryAutoElicit(ctx, qi, missing); ok {
+					if qi.Context == nil {
+						qi.Context = map[string]any{}
+					}
+					for k, v := range payload {
+						qi.Context[k] = v
+					}
+					// Re-run validation after auto-fill.
+					if len(validateContext(qi)) == 0 {
+						// Auto fill succeeded – proceed without raising elicitation.
+						goto CONTINUE_PROCESSING
+					}
+				}
+				autoAttempted = true
+			}
+
+			if qi.ElicitationMode == "agent" && autoAttempted {
+				return fmt.Errorf("auto-elicitation failed to satisfy schema")
+			}
+
 			// Ensure the initiating user message is stored so that the UI shows it.
 			convID := s.conversationID(qi)
-			if _, err := s.addMessage(ctx, convID, "user", qi.Query, qi.MessageID, ""); err != nil {
+			if _, err := s.addMessage(ctx, convID, "user", "", qi.Query, qi.MessageID, ""); err != nil {
 				log.Printf("warn: cannot record initial user message: %v", err)
 			}
 
-			// Context is incomplete – ask the caller for the remaining fields.
+			// Context is still incomplete – ask the caller for the remaining fields.
 			qo.Elicitation = qi.Agent.Elicitation
 			qo.Content = qi.Agent.Elicitation.Message
 			qo.Usage = agg
 			s.recordAssistantElicitation(ctx, convID, qi.MessageID, qo.Elicitation)
 			return nil // early exit – wait for user input
 		}
+
+	CONTINUE_PROCESSING:
 	}
 
 	// 0.c Apply per-call tool policy if ToolsAllowed present
@@ -110,7 +172,7 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	messageID, err := s.addMessage(ctx, convID, "user", qi.Query, qi.MessageID, "")
+	messageID, err := s.addMessage(ctx, convID, "user", "", qi.Query, qi.MessageID, "")
 	if err != nil {
 		log.Printf("warn: cannot record message: %v", err)
 	}
@@ -222,14 +284,15 @@ func (s *Service) conversationID(qi *QueryInput) string {
 // idOverride is non-empty it is used as the message ID; otherwise a fresh UUID
 // is generated. The final ID is always returned so that callers can propagate
 // it via context for downstream services.
-func (s *Service) addMessage(ctx context.Context, convID, role, content, id string, parentId string) (string, error) {
+
+func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, id string, parentId string) (string, error) {
 	if strings.TrimSpace(content) == "" {
 		return "", nil
 	}
 	if id == "" {
 		id = uuid.New().String()
 	}
-	msg := memory.Message{ID: id, ParentID: parentId, Role: role, Content: content, ConversationID: convID}
+	msg := memory.Message{ID: id, ParentID: parentId, Role: role, Actor: actor, Content: content, ConversationID: convID}
 	err := s.history.AddMessage(ctx, msg)
 	return msg.ID, err
 }
@@ -237,9 +300,9 @@ func (s *Service) addMessage(ctx context.Context, convID, role, content, id stri
 // conversationContext summarises the conversation according to configured
 // policies and returns a plain-text string.
 func (s *Service) conversationContext(ctx context.Context, convID string, qi *QueryInput) (string, error) {
-	summarizer := summarize(s, qi)
+	summarizerFn := summary.Build(s.llm, qi.Agent.Model, s.summaryPrompt, convID)
 	policy := memory.NewCombinedPolicy(
-		memory.NewSummaryPolicy(s.summaryThreshold, summarizer),
+		memory.NewSummaryPolicy(s.summaryThreshold, summarizerFn),
 		memory.NewLastNPolicy(s.lastN),
 	)
 
@@ -325,7 +388,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 
 		qo.Content = fmt.Sprintf("I encountered an internal issue while composing the answer (details: %s).\n\nHere are the raw tool results I managed to obtain:\n%s", string(errsJSON), resSummary)
 		qo.DocumentsSize = s.calculateDocumentsSize(docs)
-		s.recordAssistant(ctx, convID, qo.Content)
+		s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
 		qo.Usage = usage.FromContext(ctx)
 		return nil
 	}
@@ -399,7 +462,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 		}
 	}
 	qo.DocumentsSize = s.calculateDocumentsSize(docs)
-	s.recordAssistant(ctx, convID, qo.Content)
+	s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
 
 	qo.Usage = usage.FromContext(ctx)
 
@@ -446,9 +509,19 @@ func (s *Service) buildSystemPrompt(ctx context.Context, qi *QueryInput, enrichm
 
 // recordAssistant writes the assistant's message into history, ignoring errors.
 
-func (s *Service) recordAssistant(ctx context.Context, convID, content string) {
+func (s *Service) recordAssistant(ctx context.Context, convID, content string, persona *agentmdl.Persona, defaultActor string) {
 	parentID := memory.MessageIDFromContext(ctx)
-	if _, err := s.addMessage(ctx, convID, "assistant", content, uuid.New().String(), parentID); err != nil {
+	role := "assistant"
+	actor := defaultActor
+	if persona != nil {
+		if persona.Role != "" {
+			role = persona.Role
+		}
+		if persona.Actor != "" {
+			actor = persona.Actor
+		}
+	}
+	if _, err := s.addMessage(ctx, convID, role, actor, content, uuid.New().String(), parentID); err != nil {
 		log.Printf("warn: cannot record assistant message: %v", err)
 	}
 }
@@ -524,7 +597,7 @@ func (s *Service) loadWorkflow(ctx context.Context, qi *QueryInput, enrichment, 
 	return wf, initial, err
 }
 
-func (s *Service) ensureLocation(ctx context.Context, parent *agent.Source, URI string) string {
+func (s *Service) ensureLocation(ctx context.Context, parent *agentmdl.Source, URI string) string {
 	if parent == nil || parent.URL == "" || !url.IsRelative(URI) {
 		return URI
 	}
@@ -610,7 +683,8 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 		// the raw JSON block.
 		qo.Content = elic.Message
 	}
-	s.recordAssistant(ctx, convID, qo.Content)
+
+	s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
 
 	qo.Usage = usage.FromContext(ctx)
 	return nil

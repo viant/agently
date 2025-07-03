@@ -37,6 +37,47 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if err != nil {
 		return nil, err
 	}
+	// client defaults
+	if req.GenerationConfig != nil {
+		if req.GenerationConfig.MaxOutputTokens == 0 && c.MaxTokens > 0 {
+			req.GenerationConfig.MaxOutputTokens = c.MaxTokens
+		}
+		if req.GenerationConfig.Temperature == 0 && c.Temperature != nil {
+			req.GenerationConfig.Temperature = *c.Temperature
+		}
+	} else {
+		gc := &GenerationConfig{}
+		if c.MaxTokens > 0 {
+			gc.MaxOutputTokens = c.MaxTokens
+		}
+		if c.Temperature != nil {
+			gc.Temperature = *c.Temperature
+		}
+		if gc.MaxOutputTokens > 0 || gc.Temperature != 0 {
+			req.GenerationConfig = gc
+		}
+	}
+
+	// apply client defaults
+	if req.GenerationConfig != nil {
+		if req.GenerationConfig.MaxOutputTokens == 0 && c.MaxTokens > 0 {
+			req.GenerationConfig.MaxOutputTokens = c.MaxTokens
+		}
+		if req.GenerationConfig.Temperature == 0 && c.Temperature != nil {
+			req.GenerationConfig.Temperature = *c.Temperature
+		}
+	} else {
+		gc := &GenerationConfig{}
+		if c.MaxTokens > 0 {
+			gc.MaxOutputTokens = c.MaxTokens
+		}
+		if c.Temperature != nil {
+			gc.Temperature = *c.Temperature
+		}
+		if gc.MaxOutputTokens > 0 || gc.Temperature != 0 {
+			req.GenerationConfig = gc
+		}
+	}
 
 	// Marshal the request to JSON
 	data, err := json.Marshal(req)
@@ -63,11 +104,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	}
 	defer resp.Body.Close()
 
+	fmt.Printf("req: %s\n", string(data))
 	// Read the response body
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+	fmt.Printf("resp: %s\n", string(respBytes))
 
 	// Check for non-200 status code
 	if resp.StatusCode != 200 {

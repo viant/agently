@@ -27,8 +27,8 @@ func New[T any](fs afs.Service, kind string) *Repository[T] {
 	return &Repository[T]{fs: fs, meta: meta.New(fs, dir), dir: dir}
 }
 
-// filename resolves name to absolute path with .yaml default extension.
-func (r *Repository[T]) filename(name string) string {
+// Filename resolves name to absolute path with .yaml default extension.
+func (r *Repository[T]) Filename(name string) string {
 	// Ensure we end with .yaml when extension missing.
 	if filepath.Ext(name) == "" {
 		name += ".yaml"
@@ -74,13 +74,13 @@ func (r *Repository[T]) List(ctx context.Context) ([]string, error) {
 
 // GetRaw downloads raw bytes.
 func (r *Repository[T]) GetRaw(ctx context.Context, name string) ([]byte, error) {
-	return r.fs.DownloadWithURL(ctx, r.filename(name))
+	return r.fs.DownloadWithURL(ctx, r.Filename(name))
 }
 
 // Load unmarshals YAML/JSON into *T.
 func (r *Repository[T]) Load(ctx context.Context, name string) (*T, error) {
 	var v T
-	if err := r.meta.Load(ctx, r.filename(name), &v); err != nil {
+	if err := r.meta.Load(ctx, r.Filename(name), &v); err != nil {
 		return nil, err
 	}
 	return &v, nil
@@ -97,10 +97,10 @@ func (r *Repository[T]) Save(ctx context.Context, name string, obj *T) error {
 
 // Add uploads raw data.
 func (r *Repository[T]) Add(ctx context.Context, name string, data []byte) error {
-	return r.fs.Upload(ctx, r.filename(name), file.DefaultFileOsMode, bytes.NewReader(data))
+	return r.fs.Upload(ctx, r.Filename(name), file.DefaultFileOsMode, bytes.NewReader(data))
 }
 
 // Delete removes file.
 func (r *Repository[T]) Delete(ctx context.Context, name string) error {
-	return r.fs.Delete(ctx, r.filename(name))
+	return r.fs.Delete(ctx, r.Filename(name))
 }

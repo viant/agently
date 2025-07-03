@@ -86,6 +86,52 @@ type SummaryPolicy struct {
 	Summarizer SummarizerFunc
 }
 
+// --------------------------------------------------------------------
+// Status-based filter policies
+// --------------------------------------------------------------------
+
+// statusPolicy filters messages depending on their Status value. When include
+// is non-empty, only messages whose Status is present in the map are kept.
+// When exclude is non-empty those statuses are removed. If both maps are
+// empty Apply returns the original slice unchanged.
+type statusPolicy struct {
+	include map[string]struct{}
+	exclude map[string]struct{}
+}
+
+func (p *statusPolicy) Apply(_ context.Context, messages []Message) ([]Message, error) {
+	// Fast paths – nothing to filter
+	if len(p.include) == 0 && len(p.exclude) == 0 {
+		return messages, nil
+	}
+	var out []Message
+	for _, m := range messages {
+		if len(p.include) > 0 {
+			if _, ok := p.include[m.Status]; !ok {
+				continue
+			}
+		}
+		if len(p.exclude) > 0 {
+			if _, ok := p.exclude[m.Status]; ok {
+				continue
+			}
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// SkipSummariesPolicy returns a Policy that removes messages flagged with
+// Status=="summary" or "summarized".
+func SkipSummariesPolicy() Policy {
+	return &statusPolicy{exclude: map[string]struct{}{"summary": {}, "summarized": {}}}
+}
+
+// OnlySummariesPolicy keeps only messages whose Status is "summary".
+func OnlySummariesPolicy() Policy {
+	return &statusPolicy{include: map[string]struct{}{"summary": {}}}
+}
+
 // NewSummaryPolicy creates a policy that summarizes messages when count > threshold.
 func NewSummaryPolicy(threshold int, summarizer SummarizerFunc) *SummaryPolicy {
 	return &SummaryPolicy{Threshold: threshold, Summarizer: summarizer}

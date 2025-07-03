@@ -40,6 +40,7 @@ type Message struct {
 	ConversationID string  `json:"conversationId"`
 	ParentID       string  `json:"parentId,omitempty"`
 	Role           string  `json:"role"`
+	Actor          string  `json:"actor,omitempty" yaml:"actor,omitempty"`
 	Content        string  `json:"content"`
 	ToolName       *string `json:"toolName,omitempty"` // Optional tool name, can be nil
 	// When messages include file uploads the Attachments slice describes each
@@ -75,6 +76,17 @@ type Message struct {
 	// an external tool).  The UI should show the approval dialog when the
 	// message role == "policyapproval" and Status == "open".
 	PolicyApproval *PolicyApproval `json:"policyApproval,omitempty" yaml:"policyApproval,omitempty"`
+}
+
+// ConversationMeta captures hierarchical metadata for a conversation. It is
+// kept minimal so that additional fields can be added without breaking
+// existing callers.
+type ConversationMeta struct {
+	ID         string    `json:"id"`
+	ParentID   string    `json:"parentId,omitempty"`
+	Title      string    `json:"title,omitempty"`
+	Visibility string    `json:"visibility,omitempty"` // full|summary|none
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // PolicyApproval captures the details of an approval request that needs an

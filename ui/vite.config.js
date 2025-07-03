@@ -31,7 +31,8 @@ export default defineConfig(({mode}) => {
                 '@blueprintjs/datetime',
                 '@blueprintjs/select',
                 '@blueprintjs/popover2',
-                '@blueprintjs/datetime2'
+                '@blueprintjs/datetime2',
+                '@phosphor-icons/react'
             ],
             exclude: ["forge"], // Prevents caching
         },

@@ -115,6 +115,8 @@ outer:
 
 			err := s.CallTool(ctx, callToolInput, callToolOutput)
 			endAt := time.Now()
+
+			fmt.Printf("RUN TOOL: req:%+v, resp: %+v err: %v\n", callToolInput, callToolOutput, err)
 			result := plan.Result{Name: step.Name, Args: step.Args, Result: callToolOutput.Result, ID: step.ID}
 			if err != nil {
 				result.Error = err.Error()

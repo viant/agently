@@ -16,6 +16,7 @@ const (
 // Client represents a Claude API client for AWS Bedrock
 type Client struct {
 	BedrockClient    *bedrockruntime.Client
+	MaxTokens        int
 	Model            string
 	AnthropicVersion string
 	Config           *aws.Config
@@ -25,6 +26,8 @@ type Client struct {
 	Region         string
 	MaxRetries     int
 	CredentialsURL string
+	AccountID      string
+	Temperature    *float64
 }
 
 //    inferenceProfileId: "arn:aws:bedrock:us-west-2:458197927229:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"

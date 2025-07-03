@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/stage"
 	"time"
 )
 
@@ -25,12 +26,16 @@ type Manager struct {
 	history        memory.History
 	executionStore *memory.ExecutionStore
 	usageStore     *memory.UsageStore
+	stageStore     *memory.StageStore
 	handler        QueryHandler
 	idGen          func() string
 }
 
 // UsageStore returns the in-memory usage registry attached to the manager (or nil).
 func (m *Manager) UsageStore() *memory.UsageStore { return m.usageStore }
+
+// StageStore returns the store tracking live execution stage (or nil).
+func (m *Manager) StageStore() *memory.StageStore { return m.stageStore }
 
 // History returns underlying memory.History implementation.
 func (m *Manager) History() memory.History { return m.history }
@@ -124,6 +129,14 @@ func WithUsageStore(s *memory.UsageStore) Option {
 	}
 }
 
+// WithStageStore attaches a live stage registry so that callers can observe
+// progress while a conversation turn is processed.
+func WithStageStore(s *memory.StageStore) Option {
+	return func(m *Manager) {
+		m.stageStore = s
+	}
+}
+
 // WithIDGenerator overrides the default conversation-ID generator.
 func WithIDGenerator(f func() string) Option {
 	return func(m *Manager) {
@@ -173,6 +186,11 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 		input.ConversationID = m.idGen()
 	}
 
+	// Stage → thinking just before delegation.
+	if m.stageStore != nil {
+		m.stageStore.Set(input.ConversationID, &stage.Stage{Phase: stage.StageThinking})
+	}
+
 	var output agentpkg.QueryOutput
 	if err := m.handler(ctx, input, &output); err != nil {
 		// Persist error as a synthetic system message so that callers
@@ -184,11 +202,13 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 			Content:        "Error: " + err.Error(),
 			CreatedAt:      time.Now(),
 		})
+		if m.stageStore != nil {
+			m.stageStore.Set(input.ConversationID, &stage.Stage{Phase: stage.StageError})
+		}
 		return nil, err
 	}
 
-	// Record token usage when a memory store is configured and handler returned
-	// statistics.
+	// Record token usage when a memory store is configured and handler returned statistics.
 	if m.usageStore != nil && output.Usage != nil {
 		for _, model := range output.Usage.Keys() {
 			stat := output.Usage.PerModel[model]
@@ -197,6 +217,16 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 			}
 			m.usageStore.Add(input.ConversationID, model, stat.PromptTokens, stat.CompletionTokens, stat.EmbeddingTokens, 0)
 		}
+	}
+
+	if m.stageStore != nil {
+		// Determine final phase. When the handler requested additional user
+		// input (elicitation) mark phase accordingly so UI can render form.
+		finalPhase := stage.StageDone
+		if output.Elicitation != nil {
+			finalPhase = stage.StageEliciting
+		}
+		m.stageStore.Set(input.ConversationID, &stage.Stage{Phase: finalPhase})
 	}
 	return &output, nil
 }

@@ -33,11 +33,21 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if req.Model == "" {
 		req.Model = c.Model
 	}
+
+	// Apply client-level defaults for max_tokens / temperature if not provided
+	if req.MaxTokens == 0 && c.MaxTokens > 0 {
+		req.MaxTokens = c.MaxTokens
+	}
+	if req.Temperature == nil && c.Temperature != nil {
+		req.Temperature = c.Temperature
+	}
 	// If the request didn't specify temperature, apply fallback for models
 	// that require a specific default different from 1.0. Currently we do
 	// not override for o4-mini because omitting the field is mandatory.
-	if value, ok := modelTemperature[req.Model]; ok {
-		req.Temperature = &value
+	if req.Temperature == nil {
+		if value, ok := modelTemperature[req.Model]; ok {
+			req.Temperature = &value
+		}
 	}
 
 	if req.Model == "" {
@@ -102,9 +112,19 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if req.Model == "" {
 		req.Model = c.Model
 	}
-	// Apply default temperature for models requiring non-default
-	if value, ok := modelTemperature[req.Model]; ok && req.Temperature == nil {
-		req.Temperature = &value
+
+	// apply client defaults
+	if req.MaxTokens == 0 && c.MaxTokens > 0 {
+		req.MaxTokens = c.MaxTokens
+	}
+	if req.Temperature == nil && c.Temperature != nil {
+		req.Temperature = c.Temperature
+	}
+	// Apply model-specific fallback if still nil
+	if req.Temperature == nil {
+		if value, ok := modelTemperature[req.Model]; ok {
+			req.Temperature = &value
+		}
 	}
 	if req.Model == "" {
 		return nil, fmt.Errorf("model is required")
