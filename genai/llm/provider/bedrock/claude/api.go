@@ -69,7 +69,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		ContentType: aws.String("application/json"),
 	}
 
-	fmt.Printf("req: %v\n", string(data))
+	//	fmt.Printf("req: %v\n", string(data))
 
 	// Send the request to Bedrock
 	var resp *bedrockruntime.InvokeModelOutput
@@ -94,15 +94,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	// Set the model name in the response
 	apiResp.Model = c.Model
 
-	fmt.Printf("resp: %v\n", string(resp.Body))
+	//fmt.Printf("resp: %v\n", string(resp.Body))
 
 	// Convert Response to llms.GenerateResponse
 	llmsResp := ToLLMSResponse(&apiResp)
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
 	}
-	rrrr, _ := json.Marshal(llmsResp)
-	fmt.Printf("resp: %v\n", string(rrrr))
 
 	return llmsResp, nil
 }

@@ -780,7 +780,6 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		newStatus = "done"
 	}
 
-	fmt.Printf("MESSAGE ID: %s\n", messageId)
 	_ = s.mgr.History().UpdateMessage(r.Context(), messageId, func(m *memory.Message) {
 		m.Status = newStatus
 	})

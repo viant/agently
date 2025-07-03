@@ -4,7 +4,6 @@ package agently
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -115,7 +114,5 @@ func (c *McpListCmd) Execute(_ []string) error {
 			items = append(items, &cfg)
 		}
 	}
-	out, _ := json.MarshalIndent(items, "", "  ")
-	fmt.Println(string(out))
 	return nil
 }

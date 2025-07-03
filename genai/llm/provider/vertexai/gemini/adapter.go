@@ -45,8 +45,6 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 				fd := &req.Tools[ti].FunctionDeclarations[fi]
 				if fd.Parameters != nil {
 					fd.Parameters = sanitizeSchema(fd.Parameters).(map[string]interface{})
-					ddd, _ := json.Marshal(fd.Parameters)
-					fmt.Println("Marshal", string(ddd))
 				}
 			}
 		}
@@ -127,8 +125,6 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 				}
 				// Capture function name for allowed list
 				funcNames = append(funcNames, tool.Definition.Name)
-				ddd, _ := json.Marshal(req.Tools[0].FunctionDeclarations[0].Parameters)
-				fmt.Println("Marshal 1", string(ddd))
 			}
 
 		}
