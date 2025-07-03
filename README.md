@@ -27,18 +27,136 @@ go get github.com/viant/agently
 
 ### Quick Start
 ```bash
+# Set your OpenAI API key
 export OPENAI_API_KEY=your_key
 
-export AGENTLY_ROOT=~/.agently
+# Clone the repository
+git clone https://github.com/viant/agently.git
+cd agently/cmd/agently
 
-cd project_root/agently
+# Set the Agently root directory (defaults to ~/.agently if not set)
+export AGENTLY_ROOT=./repo
 
-go build
+# Create the directory
+mkdir -p $AGENTLY_ROOT
 
+# Build the application
+go build -o agently ./cmd/agently
+
+# Check available commands
 ./agently -h
 
+# Start a chat session
 ./agently chat
 ```
+
+### How to run MCP server
+To run the MCP (Model Control Protocol) server with SQLKit support:
+
+```bash
+# Clone the MCP SQLKit repository
+git clone https://github.com/viant/mcp-sqlkit.git
+
+# Navigate to the project directory
+cd mcp-sqlkit
+
+# Start the MCP server on port 5000
+go run ./cmd/mcp-sqlkit -a :5000
+```
+
+The server will be available at http://localhost:5000 and can be used with Agently for database operations.
+
+### Quick Start with MCP server and sqlkit tool
+
+This guide will help you set up Agently with the MCP server and SQLKit tool for database operations.
+
+#### Prerequisites
+- Complete the Quick Start steps above to set up Agently
+- Have a MySQL server running (this example uses a local MySQL server)
+
+#### Step 1: Configure the MCP Server
+1. First, ensure both Agently and any running MCP servers are stopped.
+
+2. Create the MCP configuration file:
+```bash
+# Create the mcp directory if it doesn't exist
+mkdir -p $AGENTLY_ROOT/mcp
+
+# Create the SQLKit configuration file
+cat > $AGENTLY_ROOT/mcp/sqlkit.yaml << EOF
+name: sqlkit
+version: ""
+protocol: ""
+namespace: ""
+transport:
+    type: sse
+    command: ""
+    arguments: []
+    url: http://localhost:5000
+auth: null
+EOF
+```
+
+#### Step 2: Configure the Agent to Use SQLKit
+Update your agent configuration to include the SQLKit tool:
+
+```bash
+# Create or update the chat agent configuration
+mkdir -p $AGENTLY_ROOT/agents
+cat > $AGENTLY_ROOT/agents/chat.yaml << EOF
+description: Default conversational agent
+id: chat
+modelRef: openai_o4-mini
+name: Chat
+orchestrationFlow: workflow/orchestration.yaml
+temperature: 0
+tool:
+  - pattern: system/exec
+  - pattern: sqlkit
+knowledge:
+  - url: knowledge/
+EOF
+```
+
+#### Step 3: Start the Services
+1. Start the MCP server with SQLKit (follow the "How to run MCP server" steps above)
+2. Start Agently (run `./agently chat`)
+
+#### Step 4: Test Database Connectivity
+Ensure your MySQL server is running. For this example, we assume:
+```
+port: 3306
+user: root
+password: dev
+database: my_db
+```
+
+#### Step 5: Query Your Database
+Send a query to test the database connection:
+```
+> tell how many tables do we have in my_db db?
+```
+
+A configuration wizard will guide you through setting up the MySQL connector:
+1. When prompted for connector name, enter: `dev`
+2. For driver, enter: `mysql`
+3. For host, enter: `localhost`
+4. For connector name, accept the default: `dev`
+5. For port, enter your MySQL port (e.g., `3306`)
+6. For project, just press Enter to skip (not needed for MySQL)
+7. For DB/Dataset, enter: `my_db`
+8. For flowURI:
+
+   8.1 open given link in browser and submit user and password (e.g., `root` and `dev`)
+
+   8.2 enter any value or accept the default
+
+After configuration, Agently will execute your query and return the result, such as:
+```
+There are 340 base tables in the my_db schema when accessed via the dev connector.
+```
+
+You can now use natural language to query your database through Agently!
 
 ## Usage
 
