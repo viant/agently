@@ -84,3 +84,7 @@ func (s *Service) ToolDefinitions() []llm.ToolDefinition {
 	}
 	return core.ToolDefinitions()
 }
+
+func (s *Service) WorkflowRepo() *workflowrepo.Repository {
+	return s.wRepo
+}
