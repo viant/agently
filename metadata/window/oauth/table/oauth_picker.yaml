@@ -1,0 +1,12 @@
+columns:
+  - id: name
+    name: Name
+  - id: clientID
+    name: Client Id
+
+# Toolbar tailored for picker – only refresh button
+toolbar:
+  items:
+    - id: refresh
+      icon: refresh
+      align: left
