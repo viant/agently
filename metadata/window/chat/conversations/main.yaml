@@ -16,6 +16,8 @@ view:
               handler: chat.submitMessage
             - event: onUpload
               handler: chat.upload
+            - event: onAbort
+              handler: chat.abortConversation
 
 dataSource:
   conversations: $import('datasource/history.yaml')

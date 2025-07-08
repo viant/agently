@@ -19,6 +19,9 @@ import { modelService } from './services/modelService.js';
 import { mcpService } from './services/mcpService.js';
 import { agentService } from './services/agentService.js';
 import { toolService } from './services/toolService.js';
+import { toolRunnerService } from './services/toolRunnerService.js';
+import { workflowRunnerService } from './services/workflowRunnerService.js';
+import { workflowConversationService } from './services/workflowConversationService.js';
 import { oauthService } from './services/oauthService.js';
 
 const router = createBrowserRouter([
@@ -40,6 +43,9 @@ const services = {
   mcp: mcpService,
   agent: agentService,
   tool: toolService,
+  toolRunner: toolRunnerService,
+  workflowRunner: workflowRunnerService,
+  workflowConversation: workflowConversationService,
   oauth: oauthService,
 };
 

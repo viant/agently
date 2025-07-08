@@ -21,7 +21,7 @@
       label: Catalogue
       icon: list
       windowKey: agent
-      windowTitle: Agent Catalogue
+      windowTitle: Agents
 
 - id: workflows
   label: Workflows
@@ -31,7 +31,7 @@
       label: Catalogue
       icon: list
       windowKey: workflow
-      windowTitle: Workflow Catalogue
+      windowTitle: Workflows
 
 - id: models
   label: Models
@@ -41,7 +41,7 @@
       label: Catalogue
       icon: database
       windowKey: model
-      windowTitle: Models Catalogue
+      windowTitle: Models
 
 - id: mcp
   label: MCP
@@ -56,4 +56,18 @@
       label: OAuth2
       icon: key
       windowKey: oauth
-      windowTitle: OAuth Credentials
+      windowTitle: OAuth
+
+# ------------------------------------------------------------------
+# Tools – auto discover via MCP service
+# ------------------------------------------------------------------
+
+- id: tools
+  label: Tools
+  icon: function
+  childNodes:
+    - id: list
+      label: Catalogue
+      icon: list
+      windowKey: tool
+      windowTitle: Tools

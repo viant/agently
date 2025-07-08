@@ -7,7 +7,9 @@ import (
 	chat "github.com/viant/agently/adapter/http"
 	"github.com/viant/agently/adapter/http/filebrowser"
 	"github.com/viant/agently/adapter/http/metadata"
+	toolhttp "github.com/viant/agently/adapter/http/tool"
 	"github.com/viant/agently/adapter/http/workflow"
+
 	"github.com/viant/agently/adapter/http/workspace"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
@@ -34,6 +36,9 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 
 	// Workflow run endpoint
 	mux.Handle("/v1/api/workflow/run", workflow.New(exec, svc))
+
+	// Ad-hoc tool execution
+	mux.Handle("/v1/api/tools/", http.StripPrefix("/v1/api/tools", toolhttp.New(svc)))
 
 	// File browser (Forge)
 	mux.Handle("/v1/workspace/file-browser/", http.StripPrefix("/v1/workspace/file-browser", filebrowser.New()))

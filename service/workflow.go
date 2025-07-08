@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/viant/agently/genai/usage"
@@ -60,7 +61,11 @@ func (s *Service) ExecuteWorkflow(ctx context.Context, req WorkflowRequest) (*Wo
 
 	ctx, agg := usage.WithAggregator(ctx)
 
-	wf, err := runtime.LoadWorkflow(ctx, req.Location)
+	location := req.Location
+	if !strings.Contains(location, "/") {
+		location = "workflows/" + location
+	}
+	wf, err := runtime.LoadWorkflow(ctx, location)
 	if err != nil {
 		return nil, fmt.Errorf("load workflow: %w", err)
 	}
@@ -77,7 +82,14 @@ func (s *Service) ExecuteWorkflow(ctx context.Context, req WorkflowRequest) (*Wo
 		// Full workflow execution path; start a process and wait.
 		initial := map[string]interface{}{}
 		if req.Input != nil {
-			initial["input"] = req.Input
+			switch actual := req.Input.(type) {
+			case map[string]interface{}:
+				for k, v := range actual {
+					initial[k] = v
+				}
+			default:
+				initial["input"] = req.Input
+			}
 		}
 
 		_, waitFn, err := runtime.StartProcess(ctx, wf, initial)

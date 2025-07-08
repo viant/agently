@@ -12,7 +12,6 @@ type Endpoint struct {
 // the workspace under workspace/oauth/<id>.yaml. The ClientSecret is stored
 // encrypted – only its locator is persisted in YAML.
 type Config struct {
-	ID   string `yaml:"id"          json:"id"`
-	Name string `yaml:"name"        json:"name"`
-	oauth2.Config
+	Name          string
+	oauth2.Config `yaml:",inline"`
 }

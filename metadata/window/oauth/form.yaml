@@ -4,26 +4,26 @@ layout:
   columns: 2
 
 items:
-  - id: id
+  - id: name
     type: text
-    label: ID
+    label: Name
   - id: description
     type: text
     label: Description
     columnSpan: 1
-  - id: clientID
+  - id: clientid
     type: text
     label: Client ID
   - id: clientSecret
     type: password
     label: Client Secret
-  - id: endpoint.authURL
+  - id: endpoint.authurl
     type: text
     label: Auth URL
-  - id: endpoint.tokenURL
+  - id: endpoint.tokenurl
     type: text
     label: Token URL
-  - id: redirectURL
+  - id: redirecturl
     type: text
     label: Redirect URL
     columnSpan: 2

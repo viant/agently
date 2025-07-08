@@ -42,6 +42,9 @@ type Server struct {
 	toolPolicy  *tool.Policy
 	fluxPolicy  *fluxpol.Policy
 	approvalSvc approval.Service
+
+	mu      sync.Mutex
+	cancels map[string][]context.CancelFunc // convID -> cancel funcs for in-flight turns
 }
 
 // currentStage returns pointer to Stage snapshot for convID when available.
@@ -74,6 +77,56 @@ func WithPolicies(tp *tool.Policy, fp *fluxpol.Policy) ServerOption {
 		s.toolPolicy = tp
 		s.fluxPolicy = fp
 	}
+}
+
+// registerCancel stores cancel so that the /terminate endpoint can abort the
+// running turn for the given conversation.
+func (s *Server) registerCancel(convID string, cancel context.CancelFunc) {
+	if s == nil || convID == "" || cancel == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.cancels == nil {
+		s.cancels = make(map[string][]context.CancelFunc)
+	}
+	s.cancels[convID] = append(s.cancels[convID], cancel)
+	s.mu.Unlock()
+}
+
+// completeCancel removes cancel from registry so memory does not leak.
+func (s *Server) completeCancel(convID string, cancel context.CancelFunc) {
+	if s == nil || convID == "" || cancel == nil {
+		return
+	}
+	s.mu.Lock()
+	list := s.cancels[convID]
+	for i, c := range list {
+		if fmt.Sprintf("%p", c) == fmt.Sprintf("%p", cancel) { // naive identity compare
+			list = append(list[:i], list[i+1:]...)
+			break
+		}
+	}
+	if len(list) == 0 {
+		delete(s.cancels, convID)
+	} else {
+		s.cancels[convID] = list
+	}
+	s.mu.Unlock()
+}
+
+// cancelConversation aborts all in-flight turns for convID.
+func (s *Server) cancelConversation(convID string) bool {
+	s.mu.Lock()
+	cancels := s.cancels[convID]
+	delete(s.cancels, convID)
+	s.mu.Unlock()
+
+	for _, cancel := range cancels {
+		if cancel != nil {
+			cancel()
+		}
+	}
+	return len(cancels) > 0
 }
 
 // WithApprovalService injects the Fluxor approval service so that the HTTP
@@ -133,6 +186,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	// Usage statistics
 	mux.HandleFunc("GET /v1/api/conversations/{id}/usage", func(w http.ResponseWriter, r *http.Request) {
 		s.handleGetUsage(w, r, r.PathValue("id"))
+	})
+
+	// Terminate/cancel current turn – best-effort cancellation of running workflow.
+	mux.HandleFunc("POST /v1/api/conversations/{id}/terminate", func(w http.ResponseWriter, r *http.Request) {
+		s.handleTerminateConversation(w, r, r.PathValue("id"))
 	})
 
 	// ------------------------------------------------------------------
@@ -833,7 +891,13 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 	policy := tool.FromContext(originalCtx)
 	go func() {
 		// Detach from request context to avoid immediate cancellation.
-		ctx := context.Background()
+		ctx, cancel := context.WithCancel(context.Background())
+		// Register cancel so external caller can abort.
+		s.registerCancel(convID, cancel)
+		defer func() {
+			s.completeCancel(convID, cancel)
+			cancel()
+		}()
 		// Carry conversation ID so downstream services (MCP client) can
 		// persist interactive prompts even before the workflow explicitly
 		// sets it again.
@@ -864,6 +928,30 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(apiResponse{Status: "ACCEPTED", Data: acceptedMessage{ID: input.MessageID}})
+}
+
+// handleTerminateConversation processes POST /v1/api/conversations/{id}/terminate
+// and attempts to cancel all in-flight turns for the given conversation. It is
+// a best-effort operation – when no turn is running the endpoint still returns
+// 204 so the client can treat the conversation as idle.
+func (s *Server) handleTerminateConversation(w http.ResponseWriter, r *http.Request, convID string) {
+	if r.Method != http.MethodPost {
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"), nil)
+		return
+	}
+	if strings.TrimSpace(convID) == "" {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("conversation id required"), nil)
+		return
+	}
+
+	cancelled := s.cancelConversation(convID)
+
+	status := http.StatusAccepted
+	if !cancelled {
+		status = http.StatusNoContent
+	}
+
+	encode(w, status, map[string]any{"cancelled": cancelled}, nil, nil)
 }
 
 // ListenAndServe Simple helper to start the server (blocks).

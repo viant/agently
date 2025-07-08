@@ -1,5 +1,8 @@
 namespace: MCPServers
 
+dialogs:
+  - $import('dialog/oauthPicker.yaml')
+
 view:
   content:
     layout:
@@ -21,3 +24,4 @@ view:
 
 dataSource:
   servers: $import('datasource/servers.yaml')
+  oauth:   $import('../oauth/datasource/oauth.yaml')

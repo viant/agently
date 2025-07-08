@@ -339,6 +339,49 @@ export async function upload() {
 }
 
 /**
+ * Aborts the currently running assistant turn by calling backend terminate
+ * endpoint. Wired to chat.onAbort event so the Forge chat component shows the
+ * Abort/Stop button while streaming.
+ * @param {Object} props - Forge handler props
+ * @param {Object} props.context - SettingProvider context
+ */
+export async function abortConversation(props) {
+    const { context } = props || {};
+    if (!context || typeof context.Context !== 'function') {
+        console.warn('chatService.abortConversation: invalid context');
+        return false;
+    }
+
+    try {
+        const convCtx = context.Context('conversations');
+        const convAPI = convCtx?.connector;
+        const convID = convCtx?.handlers?.dataSource?.peekFormData?.()?.id ||
+                       convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id;
+
+        if (!convID) {
+            console.warn('chatService.abortConversation – no active conversation');
+            return false;
+        }
+
+        await convAPI.post({
+            uri: `/v1/api/conversations/${encodeURIComponent(convID)}/terminate`,
+            inputParameters: { id: convID },
+        });
+
+        // Optimistic stage update; backend will publish final stage via polling.
+        setStage({ phase: 'aborted' });
+
+        return true;
+    } catch (err) {
+        console.error('chatService.abortConversation error:', err);
+        // Show error in UI if possible.
+        const convCtx = context.Context('conversations');
+        convCtx?.handlers?.setError?.(err);
+        return false;
+    }
+}
+
+/**
  * Fetches default agent/model from backend metadata endpoint and pre-fills the
  * conversations form data so that the Settings dialog shows current default
  * selections.

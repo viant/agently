@@ -49,7 +49,7 @@ func (r *Repository) Load(ctx context.Context, name string) (*oauth2.Config, err
 	if !ok {
 		return nil, fmt.Errorf("failed to load secret: %v", err)
 	}
-	return &oauth2.Config{ID: name, Config: config.Config}, nil
+	return &oauth2.Config{Name: name, Config: config.Config}, nil
 }
 
 // Save marshals cfg to YAML, encrypts its ClientSecret via scy and stores the
@@ -59,8 +59,14 @@ func (r *Repository) Save(ctx context.Context, name string, cfg *oauth2.Config) 
 		return nil
 	}
 	filename := r.Filename(name)
+	if prev, err := r.Load(ctx, name); err == nil {
+		if cfg.ClientSecret == "" {
+			cfg.ClientSecret = prev.ClientSecret
+		}
+	}
 	wrapper := &cred.Oauth2Config{Config: cfg.Config}
 	res := scy.NewResource(wrapper, filename, "blowfish://default")
+
 	secret := scy.NewSecret(wrapper, res)
 	err := r.secrets.Store(ctx, secret)
 	if err != nil {

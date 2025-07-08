@@ -46,10 +46,21 @@ type (
 		// sending messages. When nil the role defaults to "assistant".
 		Persona *Persona `yaml:"persona,omitempty" json:"persona,omitempty"`
 
+		// ToolExport controls automatic exposure of this agent as a virtual tool
+		ToolExport *ToolExport `yaml:"toolExport,omitempty" json:"toolExport,omitempty"`
+
 		// cached compiled go template for prompt (if Prompt is static)
 		parsedTemplate *template.Template `yaml:"-" json:"-"`
 		once           sync.Once          `yaml:"-" json:"-"`
 		parseErr       error              `yaml:"-" json:"-"`
+	}
+
+	// ToolExport defines optional settings to expose an agent as a runtime tool.
+	ToolExport struct {
+		Expose  bool     `yaml:"expose,omitempty" json:"expose,omitempty"`   // opt-in flag
+		Service string   `yaml:"service,omitempty" json:"service,omitempty"` // MCP service name (default "agentExec")
+		Method  string   `yaml:"method,omitempty" json:"method,omitempty"`   // Method name (default agent.id)
+		Domains []string `yaml:"domains,omitempty" json:"domains,omitempty"` // Allowed parent domains
 	}
 )
 

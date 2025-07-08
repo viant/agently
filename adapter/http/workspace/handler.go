@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
-	"strings"
+	"sort"
+	"strconv"
+
 
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/oauth2"
@@ -102,15 +104,64 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defs := h.svc.ToolDefinitions()
+
+		// Ensure deterministic order for the UI
+		sort.Slice(defs, func(i, j int) bool {
+			return defs[i].Name < defs[j].Name
+		})
+
+		// Optional pattern filter supporting legacy "pattern" as well as
+		// alias query parameter "name" to improve discoverability.
+		pat := strings.TrimSpace(r.URL.Query().Get("pattern"))
+		if pat == "" {
+			pat = strings.TrimSpace(r.URL.Query().Get("name"))
+		}
+		pat = strings.ToLower(pat)
+
 		// Convert to plain objects with expected fields for UI tables
-		items := make([]interface{}, 0, len(defs))
+		filtered := make([]map[string]interface{}, 0, len(defs))
 		for _, d := range defs {
-			items = append(items, map[string]interface{}{
+			if pat != "" {
+				if !strings.Contains(strings.ToLower(d.Name), pat) && !strings.Contains(strings.ToLower(d.Description), pat) {
+					continue
+				}
+			}
+			// Enrich schema lazily – only for matched entry.
+			h.svc.EnrichToolDefinition(&d)
+
+			filtered = append(filtered, map[string]interface{}{
 				"name":         d.Name,
 				"schema":       d.Parameters,
 				"outputSchema": d.OutputSchema,
 				"description":  d.Description,
 			})
+		}
+
+		// Pagination: page (1-based) and size (default 50).
+		pageSize := 50
+		if sizeStr := r.URL.Query().Get("size"); sizeStr != "" {
+			if v, err := strconv.Atoi(sizeStr); err == nil && v > 0 {
+				pageSize = v
+			}
+		}
+		page := 1
+		if pageStr := r.URL.Query().Get("page"); pageStr != "" {
+			if v, err := strconv.Atoi(pageStr); err == nil && v > 0 {
+				page = v
+			}
+		}
+
+		start := (page - 1) * pageSize
+		end := start + pageSize
+		if start > len(filtered) {
+			start = len(filtered)
+		}
+		if end > len(filtered) {
+			end = len(filtered)
+		}
+		items := make([]interface{}, 0, end-start)
+		for _, it := range filtered[start:end] {
+			items = append(items, it)
 		}
 		encode(w, http.StatusOK, items, nil)
 		return

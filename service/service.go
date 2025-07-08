@@ -12,7 +12,8 @@ import (
 	workflowrepo "github.com/viant/agently/internal/repository/workflow"
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/scy"
-	"sync"
+	"os"
+	
 )
 
 // Options configures behaviour of Service.
@@ -57,7 +58,15 @@ func (s *Service) ResetModel(ctx context.Context, agentName string) error {
 func (s *Service) initRepos() {
 	s.once.Do(func() {
 		fs := afs.New()
-		workspace.EnsureDefault(fs)
+
+		// Only populate the workspace with built-in default resources when the
+		// caller did NOT override the root directory via the AGENTLY_ROOT
+		// environment variable.  This behaviour keeps unit tests or callers
+		// that work with a temporary/empty workspace in full control over its
+		// contents.
+		if os.Getenv("AGENTLY_ROOT") == "" {
+			workspace.EnsureDefault(fs)
+		}
 		s.mRepo = modelrepo.New(fs)
 		s.aRepo = agentrepo.New(fs)
 		s.wRepo = workflowrepo.New(fs)
@@ -86,5 +95,6 @@ func (s *Service) ToolDefinitions() []llm.ToolDefinition {
 }
 
 func (s *Service) WorkflowRepo() *workflowrepo.Repository {
+	s.initRepos()
 	return s.wRepo
 }

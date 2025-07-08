@@ -29,6 +29,8 @@ import (
 
 	texecutor "github.com/viant/fluxor/service/executor"
 	"strings"
+	// Helpers for exposing agents as Fluxor services
+	//	"github.com/viant/agently/genai/executor/agenttool"
 )
 
 // init prepares the Service for handling requests.
@@ -108,6 +110,13 @@ func (e *Service) init(ctx context.Context) error {
 		return fmt.Errorf("failed to create orchestration service: %w", err)
 	}
 	e.orchestration = orchestration
+
+	// ------------------------------------------------------------------
+	// Step 3b: expose agents as callable tools via orchestration service
+	// ------------------------------------------------------------------
+	if err := e.registerAgentTools(); err != nil {
+		return fmt.Errorf("failed to register agent tools: %w", err)
+	}
 	if e.tools == nil {
 		e.tools = tool.New(e.orchestration)
 	}

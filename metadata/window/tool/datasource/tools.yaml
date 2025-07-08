@@ -2,6 +2,13 @@ service:
   endpoint: agentlyAPI
   uri: /v1/workspace/tool
   method: GET
+  post:
+    uri: /v1/api/tools/{toolName}
+
+# Optional query parameters appended to the URI. When pattern is non-empty the
+# datasource issues /v1/workspace/tool?pattern=<value>
+params:
+  pattern: ""
 
 selectors:
   data: data
@@ -9,5 +16,14 @@ selectors:
 uniqueKey:
   - field: name
 
-paging:
-  size: 10
+
+
+filterSet:
+  - name: default
+    default: true
+    template:
+      - id: name
+        label: ToolName
+        operator: eq
+
+quickFilterSet: default

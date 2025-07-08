@@ -7,6 +7,7 @@ import (
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/embedder"
+	"github.com/viant/agently/genai/executor/agenttool"
 	llmagent "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
@@ -76,6 +77,51 @@ type Service struct {
 
 	fluxorOptions []fluxor.Option
 	orchestration *mcp.Service // shared fluxor-mcp service instance
+}
+
+// registerAgentTools exposes every agent with toolExport.expose==true as a
+// Fluxor-MCP service/method within the shared orchestration container. It must
+// be invoked after e.orchestration is initialised.
+func (e *Service) registerAgentTools() error {
+	if e.orchestration == nil {
+		return nil
+	}
+
+	actions := e.orchestration.WorkflowService().Actions()
+
+	for _, ag := range e.config.Agent.Items {
+		if ag == nil || ag.ToolExport == nil || !ag.ToolExport.Expose {
+			continue
+		}
+
+		svcName := ag.ToolExport.Service
+		if svcName == "" {
+			svcName = fmt.Sprintf("agentExec") // default shared service
+		}
+
+		method := ag.ToolExport.Method
+		if method == "" {
+			method = ag.ID // unique per agent in shared service
+		}
+
+		existing := actions.Lookup(svcName)
+		var gs *agenttool.GroupService
+		if existing == nil {
+			gs = agenttool.NewGroupService(svcName, e.orchestration)
+			if err := actions.Register(gs); err != nil {
+				return fmt.Errorf("register service %s: %w", svcName, err)
+			}
+		} else {
+			var ok bool
+			gs, ok = existing.(*agenttool.GroupService)
+			if !ok {
+				return fmt.Errorf("service name clash for %s", svcName)
+			}
+		}
+
+		gs.Add(method, ag)
+	}
+	return nil
 }
 
 func (e *Service) Orchestration() *mcp.Service {
@@ -203,7 +249,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 			fmt.Printf("warn: oauth load %s: %v\n", path, err)
 			return nil
 		}
-		e.oauthFinder.AddConfig(cfg.ID, cfg)
+		e.oauthFinder.AddConfig(cfg.Name, cfg)
 		return nil
 	})
 

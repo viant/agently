@@ -44,18 +44,33 @@ func (g *DuplicateGuard) ShouldBlock(name string, args map[string]interface{}) (
 	k := g.key(name, args)
 
 	// ------------------------------------------------------------------
-	// Fast-path: If we have already executed this exact tool call (same
-	// name and canonicalised args) in a *prior* iteration **and** it
-	// succeeded, short-circuit immediately. Invoking the tool again is
-	// wasteful and – for idempotent tools – yields an identical result,
-	// confusing the planner and potentially causing loops.
+	// Check whether we have executed this exact tool call (same name and
+	// canonicalised args) in one of the *prior* iterations.  While repeating
+	// such a call may sometimes be wasteful, forbidding it altogether turned
+	// out to be too restrictive in practice – certain idempotent or
+	// lightweight tools (for example simple arithmetic via "calc") are
+	// perfectly fine to rerun when the planner explicitly requests it.
 	//
-	// Re-execution is still allowed when the previous attempt ended in an
-	// error so the plan has a chance to recover once the missing
-	// parameter/condition is fixed.
+	// Therefore we no longer block immediately.  Instead, the duplicate will
+	// still be detected by the sliding-window & consecutive heuristics below
+	// which focus on pathological repetition patterns (loops) rather than a
+	// single re-execution.
 	// ------------------------------------------------------------------
-	if prev, ok := g.latest[k]; ok {
-		if prev.Error == "" { // previous run succeeded – block duplicate
+
+	prev, _ := g.latest[k] // keep for potential return later
+
+	// Certain tools are safe and inexpensive to execute multiple times.  Allow
+	// them to bypass the "prior successful result" optimisation so planners
+	// can intentionally re-run them across iterations.
+	var repeatAllowed = map[string]struct{}{
+		"calc": {}, // pure function – deterministic & idempotent
+	}
+
+	if prev.Name != "" && prev.Error == "" {
+		if _, ok := repeatAllowed[name]; ok {
+			// Explicitly permitted to repeat – fall through to regular loop
+			// detection heuristics instead of blocking immediately.
+		} else {
 			return true, prev
 		}
 	}
@@ -108,7 +123,6 @@ func (g *DuplicateGuard) ShouldBlock(name string, args map[string]interface{}) (
 	if !block {
 		return false, plan.Result{}
 	}
-	prev, _ := g.latest[k]
 	return true, prev
 }
 

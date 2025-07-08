@@ -16,14 +16,14 @@ require (
 	github.com/viant/afsc v1.9.1
 	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
 	github.com/viant/embedius v0.1.1
-	github.com/viant/fluxor v0.1.19
-	github.com/viant/fluxor-mcp v0.1.11-0.20250628161328-cc368a81afcd
+	github.com/viant/fluxor v0.1.20
+	github.com/viant/fluxor-mcp v0.1.11
 	github.com/viant/forge v0.2.7-0.20250628141010-2dd0b8c4affb
-	github.com/viant/jsonrpc v0.7.5-0.20250702150306-35013821a631
+	github.com/viant/jsonrpc v0.7.5
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.5.1-0.20250702143123-d8daf3d22477
-	github.com/viant/mcp-protocol v0.5.3-0.20250701140140-ffdad25e66d3
-	github.com/viant/scy v0.24.0
+	github.com/viant/mcp v0.5.1
+	github.com/viant/mcp-protocol v0.5.4
+	github.com/viant/scy v0.25.3
 	github.com/viant/structology v0.7.1 // indirect
 	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85
 	github.com/viant/x v0.3.0
@@ -35,8 +35,10 @@ require (
 )
 
 require (
+	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3
 	github.com/fsnotify/fsnotify v1.4.7
 	github.com/mattn/go-sqlite3 v1.14.17
+	golang.org/x/oauth2 v0.30.0
 )
 
 require (
@@ -71,7 +73,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.34.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.22.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.26.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3 // indirect
 	github.com/aws/smithy-go v1.20.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
@@ -156,7 +157,6 @@ require (
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/mod v0.23.0 // indirect
 	golang.org/x/net v0.37.0 // indirect
-	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sync v0.14.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/text v0.25.0 // indirect
@@ -183,3 +183,5 @@ require (
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
 )
+
+replace github.com/viant/forge => ../forge

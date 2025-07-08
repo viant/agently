@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
+	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/llm"
 	gtool "github.com/viant/agently/genai/tool"
 	mcpservice "github.com/viant/fluxor-mcp/mcp"
@@ -18,6 +20,10 @@ import (
 type Registry struct {
 	svc         *mcpservice.Service
 	debugWriter io.Writer
+
+	// virtual tool overlay (id → definition)
+	virtualDefs map[string]llm.ToolDefinition
+	virtualExec map[string]gtool.Handler
 }
 
 // New creates a registry bound to the given orchestration service.
@@ -27,8 +33,93 @@ func New(svc *mcpservice.Service) *Registry {
 		panic("adapter/tool: nil mcp.Service passed to registry.New")
 	}
 	return &Registry{
-		svc: svc,
+		svc:         svc,
+		virtualDefs: map[string]llm.ToolDefinition{},
+		virtualExec: map[string]gtool.Handler{},
 	}
+}
+
+// InjectVirtualAgentTools registers synthetic tool definitions that delegate
+// execution to another agent. It must be called once during bootstrap *after*
+// the agent catalogue is loaded. Domain can be empty to expose all.
+func (r *Registry) InjectVirtualAgentTools(agents []*agent.Agent, domain string) {
+	for _, ag := range agents {
+		if ag == nil || ag.ToolExport == nil || !ag.ToolExport.Expose {
+			continue
+		}
+
+		// Domain filter when requested
+		if len(ag.ToolExport.Domains) > 0 && domain != "" {
+			if !contains(ag.ToolExport.Domains, domain) {
+				continue
+			}
+		}
+
+		service := ag.ToolExport.Service
+		if service == "" {
+			service = "agentExec"
+		}
+		method := ag.ToolExport.Method
+		if method == "" {
+			method = ag.ID
+		}
+
+		toolID := fmt.Sprintf("%s/%s", service, method)
+
+		// Build parameter schema once
+		params := map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"objective": map[string]interface{}{
+					"type":        "string",
+					"description": "Concise goal for the agent",
+				},
+				"context": map[string]interface{}{
+					"type":        "object",
+					"description": "Optional shared context",
+				},
+			},
+			"required": []string{"objective"},
+		}
+
+		def := llm.ToolDefinition{
+			Name:        toolID,
+			Description: fmt.Sprintf("Executes the \"%s\" agent – %s", ag.Name, strings.TrimSpace(ag.Description)),
+			Parameters:  params,
+			Required:    []string{"objective"},
+			OutputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"answer": map[string]interface{}{"type": "string"},
+				},
+			},
+		}
+
+		// Handler closure captures agent pointer
+		handler := func(ctx context.Context, args map[string]interface{}) (string, error) {
+			// Merge agentId into args for downstream executor
+			if args == nil {
+				args = map[string]interface{}{}
+			}
+			args["agentId"] = ag.ID
+
+			// Reuse underlying MCP service to execute llm/exec:run_agent
+			result, err := r.Execute(ctx, "llm/exec:run_agent", args)
+			return result, err
+		}
+
+		r.virtualDefs[toolID] = def
+		r.virtualExec[toolID] = handler
+	}
+}
+
+func contains(arr []string, s string) bool {
+	for _, v := range arr {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -42,12 +133,35 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 		def := llm.ToolDefinitionFromMcpTool(&d.Metadata)
 		defs = append(defs, *def)
 	}
+
+	// 2. virtual agent tools
+	for _, def := range r.virtualDefs {
+		defs = append(defs, def)
+	}
 	return defs
 }
 
 func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 	mcpTools := r.svc.MatchTools(pattern)
 	var result []*llm.ToolDefinition
+
+	// virtual first (simple contains or wildcard match?) Use strings.HasSuffix? We'll simple exact match or '*' wildcard.
+	for id, def := range r.virtualDefs {
+		matched := false
+		if pattern == id {
+			matched = true
+		} else if strings.Contains(pattern, "*") {
+			// naive glob: replace * with anything
+			glob := strings.ReplaceAll(pattern, "*", "")
+			if strings.HasPrefix(id, glob) {
+				matched = true
+			}
+		}
+		if matched {
+			copyDef := def
+			result = append(result, &copyDef)
+		}
+	}
 	for _, tool := range mcpTools {
 		def := llm.ToolDefinitionFromMcpTool(&tool.Metadata)
 		result = append(result, def)
@@ -56,6 +170,9 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 }
 
 func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
+	if def, ok := r.virtualDefs[name]; ok {
+		return &def, true
+	}
 	mcpTool, err := r.svc.LookupTool(name)
 	if err != nil {
 		return nil, false
@@ -80,6 +197,10 @@ func (r *Registry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 }
 
 func (r *Registry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	// virtual tool?
+	if h, ok := r.virtualExec[name]; ok {
+		return h(ctx, args)
+	}
 	if r.debugWriter != nil {
 		fmt.Fprintf(r.debugWriter, "[adapter/tool] call %s args=%v (mcp)\n", name, args)
 	}

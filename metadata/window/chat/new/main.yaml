@@ -94,6 +94,8 @@ view:
                   location: conversations.agent
             - event: onUpload
               handler: chat.upload
+            - event: onAbort
+              handler: chat.abortConversation
 on:
   - event: onInit
     handler: chat.onInit

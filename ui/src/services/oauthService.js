@@ -25,9 +25,9 @@ export async function saveOauth({ context }) {
         return false;
     }
 
-    const name = formData?.id;
+    const name = formData?.name;
     if (!name) {
-        console.error('oauthService.saveOauth: id field is required');
+        console.error('oauthService.saveOauth: name field is required');
         return false;
     }
 
@@ -37,7 +37,6 @@ export async function saveOauth({ context }) {
             inputParameters: { name },
             body: { ...formData },
         });
-        console.log('oauthService.saveOauth PUT', resp);
         return resp;
     } catch (err) {
         console.error('oauthService.saveOauth error:', err);

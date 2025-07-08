@@ -1,6 +1,6 @@
 columns:
-  - id: id
-    name: ID
+  - id: name
+    name: Name
   - id: clientID
     name: Client Id
 

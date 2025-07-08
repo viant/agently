@@ -50,7 +50,7 @@ func (l *Service) Load(ctx context.Context, uri string) (*oauth2.Config, error) 
 	if cfg.ClientID == "" {
 		return nil, fmt.Errorf("clientID missing in %s", uri)
 	}
-	return &oauth2.Config{Config: cfg, ID: deriveIDFromPath(uri)}, nil
+	return &oauth2.Config{Config: cfg, Name: deriveIDFromPath(uri)}, nil
 }
 
 func deriveIDFromPath(uri string) string {

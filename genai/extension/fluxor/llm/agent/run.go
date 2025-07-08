@@ -24,6 +24,8 @@ type RunInput struct {
 
 type RunOutput struct {
 	ConversationID string `json:"conversationId"`
+	Content        string `json:"content,omitempty"`
+	Answer         string `json:"answer,omitempty"`
 }
 
 // run implements the executable registered under "run" on Service.
@@ -55,9 +57,11 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		Context:         arg.Context,
 		ElicitationMode: arg.ElicitationMode,
 	}
-	if _, err := s.Query(ctx, qi); err != nil {
+	queryResp, err := s.Query(ctx, qi)
+	if err != nil {
 		return err
 	}
+	res.Answer = queryResp.Content
 
 	// Write link (and optional summary) to parent thread.
 	if writeLink && parentID != "" {
@@ -81,6 +85,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 			Content:        content,
 			CallbackURL:    childID,
 		})
+		res.Content = content
 	}
 	return nil
 }

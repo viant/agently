@@ -1,0 +1,53 @@
+namespace: ToolsList
+
+dialogs:
+  - $import('dialog/runTool.yaml')
+
+view:
+  content:
+    layout:
+      orientation: horizontal
+      columns: 2
+      divider:
+        sizes: [30,68]
+
+    containers:
+      - id: toolsTable
+        title: Tools
+        dataSourceRef: tools
+        table: $import('table/tools.yaml')
+      - id: details
+        dataSourceRef: tools
+        layout:
+          orientation: horizontal
+          columns: 1
+          labelPosition: top
+        items:
+          - id: name
+            label: Name
+            type: text
+            properties:
+              readOnly: true
+          - id: description
+            label: Description
+            type: textarea
+            properties:
+              readOnly: true
+              cols: 100
+              rows: 4
+            columnSpan: 2
+          - id: schema
+            label: Parameters Schema
+            type: schema
+            language: json
+            properties:
+              readOnly: true
+            columnSpan: 2
+          - id: outputSchema
+            label: Output Schema
+            type: schema
+            readonly: true
+            columnSpan: 2
+
+dataSource:
+  tools: $import('datasource/tools.yaml')

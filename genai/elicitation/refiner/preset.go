@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 
+	overlaypkg "github.com/viant/agently/internal/overlay"
+
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/mcp-protocol/schema"
 	yaml "gopkg.in/yaml.v3"
@@ -187,21 +189,14 @@ func applyPreset(rs *schema.ElicitRequestParamsRequestedSchema) {
 // Rule: when Match.Fields is non-empty all names must be present in rs.Properties.
 // Otherwise the preset always applies.
 func presetMatchesSchema(p *Preset, rs *schema.ElicitRequestParamsRequestedSchema) bool {
-	if p == nil {
+	if p == nil || len(p.Match.Fields) == 0 {
 		return false
-	}
-	if len(p.Match.Fields) == 0 {
-		return false // requires explicit match list to avoid accidental match
 	}
 
-	// Ensure schema properties match exactly the listed fields (order irrelevant).
-	if len(p.Match.Fields) != len(rs.Properties) {
-		return false
+	// convert properties map[string]T (any) to map[string]any for helper
+	tmp := make(map[string]any, len(rs.Properties))
+	for k := range rs.Properties {
+		tmp[k] = struct{}{}
 	}
-	for _, f := range p.Match.Fields {
-		if _, ok := rs.Properties[f]; !ok {
-			return false
-		}
-	}
-	return true
+	return overlaypkg.FieldsMatch(tmp, p.Match.Fields, true)
 }
