@@ -1,0 +1,22 @@
+title: Run Workflow
+id: runWorkflowDialog
+dataSourceRef: workflows
+
+content:
+  containers:
+    - id: params
+      title: Input Parameters
+
+# Footer buttons
+actions:
+  - id: close
+    icon: cross
+    label: Close
+    on:
+      - event: onClick
+        handler: dialog.close
+
+# Dialog dimensions
+style:
+  minWidth: 60vw
+  minHeight: 60vh
