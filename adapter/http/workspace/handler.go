@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-
+	"strings"
 
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/oauth2"

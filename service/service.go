@@ -13,7 +13,7 @@ import (
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/scy"
 	"os"
-	
+	"sync"
 )
 
 // Options configures behaviour of Service.
