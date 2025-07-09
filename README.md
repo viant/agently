@@ -225,6 +225,10 @@ agently ws get    -k workflow -n plan_exec_finish
 agently ws remove -k mcp -n local
 ```
 
+### Clearing agents cache
+1. Close all running agents.
+2. Delete content of ~/.emb
+
 ### Model convenience helpers
 
 ```bash
