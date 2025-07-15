@@ -2,6 +2,10 @@ package router
 
 import (
 	"context"
+	"fmt"
+	"github.com/viant/afs"
+	fsadapter "github.com/viant/afs/adapter/http"
+	"github.com/viant/agently/deployment/ui"
 	"net/http"
 
 	chat "github.com/viant/agently/adapter/http"
@@ -45,6 +49,25 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 
 	// Metadata defaults endpoint
 	mux.HandleFunc("/v1/metadata/defaults", metadata.New(exec))
+
+	fileSystem := fsadapter.New(afs.New(), "embed://localhost", &ui.FS)
+	fileServer := http.FileServer(fileSystem)
+
+	// static content
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			w.Header().Set("Content-Type", "text/html")
+			w.Write(ui.Index)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		fmt.Println(r.URL)
+		fileServer.ServeHTTP(w, r)
+	})
+
+	mux.HandleFunc("/.well-known/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
 
 	// Kick off background sync that surfaces fluxor approval requests as chat
 	// messages so that web users can approve/reject tool executions.

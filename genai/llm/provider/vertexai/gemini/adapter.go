@@ -532,8 +532,9 @@ func sanitizeSchema(v interface{}) interface{} {
 	case reflect.Map:
 		cleaned := make(map[string]interface{}, rv.Len())
 		for _, key := range rv.MapKeys() {
+
 			kStr := fmt.Sprintf("%v", key.Interface())
-			if kStr == "additionalProperties" {
+			if kStr == "additionalProperties" || strings.HasPrefix(kStr, "x-") {
 				continue
 			}
 			cleaned[kStr] = sanitizeSchema(rv.MapIndex(key).Interface())

@@ -1106,6 +1106,12 @@ github.com/viant/aerospike v0.2.11-0.20241108195857-ed524b97800d h1:IRmoMmrWqkHD
 github.com/viant/aerospike v0.2.11-0.20241108195857-ed524b97800d/go.mod h1:eRBywl0oTDM/oGhGLUeJjnC7XzmkTGuW9/og5YFy0K0=
 github.com/viant/afs v1.26.2 h1:rOs/iFxFlEndhIRATJVXlNWhVU0cGdRQAGVTVJPdsc0=
 github.com/viant/afs v1.26.2/go.mod h1:rScbFd9LJPGTM8HOI8Kjwee0AZ+MZMupAvFpPg+Qdj4=
+github.com/viant/afs v1.26.3-0.20250715152711-25d610ad043c h1:2rdI5z5E8ebzdPqOPQq8psUi7MBNmDBNt40nGFia/HM=
+github.com/viant/afs v1.26.3-0.20250715152711-25d610ad043c/go.mod h1:rScbFd9LJPGTM8HOI8Kjwee0AZ+MZMupAvFpPg+Qdj4=
+github.com/viant/afs v1.26.3-0.20250715155540-49d324b9b076 h1:w0Ib+SEQZxH8elMUt1ZNy4jF+IXBHMFo/Ia+2DzlO+c=
+github.com/viant/afs v1.26.3-0.20250715155540-49d324b9b076/go.mod h1:rScbFd9LJPGTM8HOI8Kjwee0AZ+MZMupAvFpPg+Qdj4=
+github.com/viant/afs v1.26.3 h1:BEQxLrsOs/XvoOFIioIdXijuk2IC9JphrVmw/JuagZk=
+github.com/viant/afs v1.26.3/go.mod h1:rScbFd9LJPGTM8HOI8Kjwee0AZ+MZMupAvFpPg+Qdj4=
 github.com/viant/afsc v1.9.1 h1:BIus7fYyjM+MDgKuAzCBfoV4oVy2xTVhuFsQKUCPvkQ=
 github.com/viant/afsc v1.9.1/go.mod h1:FA/xVjaMM10qGByabP8anTVMH6N4eUsAeWm5xcEZJJA=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=

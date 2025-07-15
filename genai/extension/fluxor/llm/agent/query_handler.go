@@ -586,10 +586,14 @@ func (s *Service) loadWorkflow(ctx context.Context, qi *QueryInput, enrichment, 
 	} else {
 		wf, err = s.runtime.DecodeYAMLWorkflow(orchestrationWorkflow)
 	}
+	aModel := qi.Agent.Model
+	if qi.ModelOverride != "" {
+		aModel = qi.ModelOverride
+	}
 	initial := map[string]interface{}{
 		keyQuery:        qi.Query,
 		keyContext:      enrichment,
-		keyModel:        qi.Agent.Model,
+		keyModel:        aModel,
 		keyTools:        toolNames,
 		keySystemPrompt: systemPrompt,
 	}
@@ -658,8 +662,12 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 		return err
 	}
 
+	model := qi.Agent.Model
+	if qi.ModelOverride != "" {
+		model = qi.ModelOverride
+	}
 	genIn := &corepkg.GenerateInput{
-		Model:        qi.Agent.Model,
+		Model:        model,
 		SystemPrompt: sysPrompt,
 		Prompt:       qi.Query,
 		Options:      &llm.Options{Temperature: qi.Agent.Temperature},
@@ -670,6 +678,7 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 	}
 
 	qo.Content = genOut.Content
+	qo.Model = model
 
 	// ------------------------------------------------------------
 	// Check if the LLM response is an inline elicitation payload

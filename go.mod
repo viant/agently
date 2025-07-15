@@ -12,7 +12,7 @@ require (
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/stretchr/testify v1.10.0
 	github.com/tmc/langchaingo v0.1.14-0.20250213044659-d3e43b632176
-	github.com/viant/afs v1.26.2
+	github.com/viant/afs v1.26.3
 	github.com/viant/afsc v1.9.1
 	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
 	github.com/viant/embedius v0.1.1

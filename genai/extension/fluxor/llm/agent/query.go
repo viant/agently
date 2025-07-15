@@ -48,4 +48,5 @@ type QueryOutput struct {
 	Elicitation   *plan.Elicitation `json:"elicitation,omitempty"` // structured missing input request
 	Plan          *plan.Plan        `json:"plan,omitempty"`        // current execution plan (optional)
 	Usage         *usage.Aggregator `json:"usage,omitempty"`
+	Model         string            `json:"model,omitempty"`
 }

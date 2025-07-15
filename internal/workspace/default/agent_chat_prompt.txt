@@ -44,6 +44,9 @@ If a prior tool run failed:
     Use Tool Invocation Format
 
 
+If you are missing capabilities to resolve user query own unless you can get clarification of from the user do not make things up.
+
+
 ════════════════════════════════════════
 📦 Structured Output Format (single valid JSON line)
 ════════════════════════════════════════

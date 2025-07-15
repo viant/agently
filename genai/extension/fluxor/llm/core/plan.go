@@ -244,7 +244,9 @@ func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, gen
 
 			}
 		}
-		return aPlan, nil
+		if !aPlan.IsEmpty() {
+			return aPlan, nil
+		}
 	}
 	var err error
 	if strings.Contains(genOutput.Content, `"tool"`) {
