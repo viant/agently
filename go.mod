@@ -15,7 +15,7 @@ require (
 	github.com/viant/afs v1.26.3
 	github.com/viant/afsc v1.9.1
 	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
-	github.com/viant/embedius v0.1.1
+	github.com/viant/embedius v0.1.2-0.20250716210719-ef1d8a5a7925
 	github.com/viant/fluxor v0.1.20
 	github.com/viant/fluxor-mcp v0.1.11
 	github.com/viant/forge v0.2.7-0.20250708220613-1b8a2f4e75ac
@@ -183,4 +183,3 @@ require (
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
 )
-
