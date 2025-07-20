@@ -2,7 +2,6 @@ package router
 
 import (
 	"context"
-	"fmt"
 	"github.com/viant/afs"
 	fsadapter "github.com/viant/afs/adapter/http"
 	"github.com/viant/agently/deployment/ui"
@@ -61,7 +60,6 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		fmt.Println(r.URL)
 		fileServer.ServeHTTP(w, r)
 	})
 

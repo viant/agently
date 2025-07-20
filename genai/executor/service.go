@@ -51,11 +51,11 @@ type Service struct {
 	executionStore *memory.ExecutionStore
 	llmCore        *core.Service
 
-	// mcpElicitationAwaiter receives interactive user prompts when the runtime
+	// newAwaiter receives interactive user prompts when the runtime
 	// encounters a schema-based elicitation request. When non-nil it is injected
 	// into the internally managed MCP client so that the network round-trip can
 	// be bypassed during CLI sessions or unit-tests.
-	mcpElicitationAwaiter elicitation.Awaiter `json:"-"`
+	newAwaiter func() elicitation.Awaiter `json:"-"`
 
 	augmenter    *augmenter.Service
 	agentService *llmagent.Service

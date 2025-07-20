@@ -191,6 +191,7 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 		m.stageStore.Set(input.ConversationID, &stage.Stage{Phase: stage.StageThinking})
 	}
 
+	ctx = EnsureID(ctx, input.ConversationID)
 	var output agentpkg.QueryOutput
 	if err := m.handler(ctx, input, &output); err != nil {
 		// Persist error as a synthetic system message so that callers

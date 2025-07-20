@@ -40,7 +40,24 @@ export async function poll(requestFn, conditionFn, {
  */
 export async function fetchJSON(url, options) {
     const resp = await fetch(url, options);
-    return resp.ok ? resp.json() : null;
+
+    if (!resp.ok) return null;
+
+    // Some endpoints (204 No Content) deliberately return an empty body which
+    // causes resp.json() to throw a SyntaxError. Safeguard by checking the
+    // presence of a JSON Content-Type **and** non-zero length before parsing.
+    const ct = resp.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+        return null;
+    }
+    const text = await resp.text();
+    if (!text) return null;
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        console.warn('fetchJSON: invalid JSON response', e);
+        return null;
+    }
 }
 
 /**

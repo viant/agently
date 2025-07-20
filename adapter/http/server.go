@@ -901,7 +901,10 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 		// Carry conversation ID so downstream services (MCP client) can
 		// persist interactive prompts even before the workflow explicitly
 		// sets it again.
-		ctx = context.WithValue(ctx, memory.ConversationIDKey, convID)
+		// Propagate conversation ID via strongly typed context key so that
+		// downstream services (Fluxor, MCP client, awaiters) can unambiguously
+		// identify the conversation.
+		ctx = conversation.WithID(ctx, convID)
 
 		// Apply server-level default tool policy (auto, ask, deny). Fallback
 		// to auto when not provided.

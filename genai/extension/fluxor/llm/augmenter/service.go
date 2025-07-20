@@ -118,7 +118,7 @@ func (s *Service) AugmentCode(ctx context.Context, input *AugmentCodeInput, outp
 	output.DocumentsSize = Documents(searchDocuments).Size()
 	output.GroupedBy = output.Documents.GroupBy()
 
-	// Get the set for the provided paths or kind
+	// Ensure the set for the provided paths or kind
 	content := strings.Builder{}
 	documents := output.Documents
 	if input.ShallUseGroup() {
@@ -177,7 +177,7 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 	output.Documents = searchDocuments
 	output.DocumentsSize = Documents(searchDocuments).Size()
 
-	// Get the set for the provided paths or kind
+	// Ensure the set for the provided paths or kind
 	responseContent := strings.Builder{}
 
 	if input.IncludeFile {

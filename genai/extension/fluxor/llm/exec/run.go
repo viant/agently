@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/fluxor/model/types"
 
 	plan "github.com/viant/agently/genai/agent/plan"
 	core "github.com/viant/agently/genai/extension/fluxor/llm/core"
@@ -49,6 +50,9 @@ func (s *Service) RunPlan(ctx context.Context, input *RunPlanInput, output *RunP
 	// Prepare structured results for each plan step
 
 	var results []plan.Result
+	// Duplicate guard initialised with outcomes from *prior* iterations so that
+	// we can short-circuit identical calls in this execution round as well.
+	guard := core.NewDuplicateGuard(input.Results)
 	maxSteps := min(1000, s.maxSteps)
 	planSteps := input.Plan.Steps
 
@@ -92,6 +96,27 @@ outer:
 		step := planSteps[i]
 		switch step.Type {
 		case "tool":
+			// ---------------------------------------------------------
+			// Duplicate-call protection across iterations.  If the exact same
+			// (tool, args) pair has been executed before and the guard heuristics
+			// deem it a pathological repeat, we *do not* invoke the tool again.
+			// Instead we record a synthetic Result with a well-known error marker
+			// so that the planner sees the failure and can refine its strategy.
+			// ---------------------------------------------------------
+			if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
+				dupRes := plan.Result{
+					ID:     step.ID,
+					Name:   step.Name,
+					Args:   step.Args,
+					Result: prev.Result,
+					Error:  "duplicate_call_blocked",
+				}
+				results = append(results, dupRes)
+				// Register the synthetic result as latest so further repeats in
+				// the same plan are caught.
+				guard.RegisterResult(step.Name, step.Args, dupRes)
+				continue
+			}
 			// Resolve any $step[N].output placeholders before execution
 			step.Args = resolveArgsPlaceholders(step.Args, results)
 			callToolInput := &CallToolInput{
@@ -112,6 +137,8 @@ outer:
 					et.StartedAt = startAt
 				})
 			}
+
+			ctx = types.EnsureExecutionContext(ctx)
 
 			err := s.CallTool(ctx, callToolInput, callToolOutput)
 			endAt := time.Now()
@@ -160,6 +187,9 @@ outer:
 				}
 			}
 			results = append(results, result)
+			// Register successful (or failed) execution so the guard has the
+			// freshest outcome for subsequent repeats.
+			guard.RegisterResult(step.Name, step.Args, result)
 
 		case "clarify_intent": // backwards compatibility – treat same as "elicitation"
 			fallthrough

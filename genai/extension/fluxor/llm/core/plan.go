@@ -54,6 +54,8 @@ func (s *Service) plan(ctx context.Context, in, out interface{}) error {
 	output := out.(*PlanOutput)
 
 	err := s.Plan(ctx, input, output)
+	data, _ := json.Marshal(output)
+	fmt.Printf("Plan: %s\n=======\n\n", string(data))
 	return err
 }
 
@@ -96,7 +98,6 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 				if planResult.Elicitation != nil && json.Valid([]byte(choice.Message.Content)) {
 					continue //that was elicitation content
 				}
-
 				output.Transcript = append(output.Transcript, memory.Message{Role: string(choice.Message.Role), Content: choice.Message.Content})
 			}
 		}
@@ -115,7 +116,20 @@ func RefinePlan(prior []plan.Result, p *plan.Plan, _ string) {
 		return
 	}
 
-	guard := NewDuplicateGuard(prior) // detects cross-iteration loops
+	// ------------------------------------------------------------------
+	// Two-tier duplicate protection:
+	//   1. Inside a single Plan we *remove* redundant repetitions because
+	//      running the exact same tool call twice in the same batch is never
+	//      useful.
+	//   2. Across iterations we no longer discard the step here.  The
+	//      executor is now responsible for detecting whether an identical
+	//      call has already been executed earlier and – if so – it will
+	//      short-circuit the execution, returning a synthetic
+	//      "duplicate_call_blocked" error together with the previous result.
+	//      This gives the LLM visibility of the failed attempt so it can
+	//      adjust its strategy on the next planning round instead of the
+	//      call silently disappearing.
+	// ------------------------------------------------------------------
 
 	seenThisPlan := map[ToolKey]struct{}{}
 	filtered := make(plan.Steps, 0, len(p.Steps))
@@ -126,15 +140,10 @@ func RefinePlan(prior []plan.Result, p *plan.Plan, _ string) {
 			continue
 		}
 
-		// Intra-plan duplicate removal (adjacent or not)
+		// Remove duplicates that occur *within* the same Plan only.
 		tk := ToolKey{st.Name, CanonicalArgs(st.Args)}
 		if _, ok := seenThisPlan[tk]; ok {
-			continue // skip duplicate inside the same plan
-		}
-
-		// Cross-iteration guard – block if loop pattern detected
-		if block, _ := guard.ShouldBlock(st.Name, st.Args); block {
-			continue // remove before execution to end loop early
+			continue
 		}
 
 		seenThisPlan[tk] = struct{}{}

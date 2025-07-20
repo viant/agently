@@ -36,6 +36,14 @@ func Prompt(ctx context.Context, w io.Writer, r io.Reader, p *plan.Elicitation) 
 
 	// Build minimal schema document from RequestedSchema – enough for the
 	// interactive prompt implementation that follows.
+
+	// ------------------------------------------------------------------
+	// 0.b Display high level message if provided so the user understands the
+	//      purpose of the prompt before entering individual fields.
+	// ------------------------------------------------------------------
+	if strings.TrimSpace(p.Message) != "" {
+		fmt.Fprintf(w, "%s\n", p.Message)
+	}
 	tmp := map[string]interface{}{
 		"type":       p.RequestedSchema.Type,
 		"properties": p.RequestedSchema.Properties,

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	awaitreg "github.com/viant/agently/genai/awaitreg"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/memory"
@@ -9,10 +10,25 @@ import (
 // Option configures the customised client.
 type Option func(*Client)
 
-// WithAwaiter sets the interactive prompt handler used by orchestrating code
+// WithAwaiters sets the interactive prompt handler used by orchestrating code
 // whenever the server sends an "elicitation" request that needs user input.
-func WithAwaiter(a elicitation.Awaiter) Option {
-	return func(cl *Client) { cl.awaiter = a }
+// WithAwaiter is a backward-compatibility helper that accepts a factory function
+// and internally creates an Awaiters registry. Existing call-sites that passed
+// only a constructor (func() Awaiter) can keep using this option whilst the
+// implementation migrates towards the registry pattern.
+func WithAwaiter(f func() elicitation.Awaiter) Option {
+	return func(cl *Client) {
+		if f == nil {
+			return
+		}
+		cl.awaiters = awaitreg.New(f)
+	}
+}
+
+// WithRegistry injects an already-initialised per-conversation awaiter
+// registry.
+func WithRegistry(r *awaitreg.Registry) Option {
+	return func(cl *Client) { cl.awaiters = r }
 }
 
 // WithLLMCore stores a reference to the shared LLM core so that future

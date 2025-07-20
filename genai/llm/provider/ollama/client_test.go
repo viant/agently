@@ -88,7 +88,7 @@ func TestNewClient(t *testing.T) {
 					// Check if ContextTokens is populated
 					t.Logf("ContextTokens length: %d", len(response.Usage.ContextTokens))
 					if len(response.Usage.ContextTokens) > 0 {
-						// Get the first few tokens (up to 5)
+						// Ensure the first few tokens (up to 5)
 						numTokens := 5
 						if len(response.Usage.ContextTokens) < numTokens {
 							numTokens = len(response.Usage.ContextTokens)

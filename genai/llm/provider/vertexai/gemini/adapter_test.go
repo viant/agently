@@ -177,7 +177,7 @@ func TestToRequest(t *testing.T) {
 							Type: "function",
 							Definition: llm.ToolDefinition{
 								Name:        "get_weather",
-								Description: "Get the weather in a location",
+								Description: "Ensure the weather in a location",
 								Parameters: map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
@@ -210,7 +210,7 @@ func TestToRequest(t *testing.T) {
 						FunctionDeclarations: []FunctionDeclaration{
 							{
 								Name:        "get_weather",
-								Description: "Get the weather in a location",
+								Description: "Ensure the weather in a location",
 								Parameters: map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{

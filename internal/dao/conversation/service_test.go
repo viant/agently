@@ -118,7 +118,7 @@ func TestService(t *testing.T) {
 		}
 	}
 
-	// Get the messages using the service
+	// Ensure the messages using the service
 	t.Logf("[DEBUG_LOG] About to call GetMessages with convID: %s", convID)
 	messages, err := srv.GetMessages(context.Background(), convID)
 	if !assert.Nil(t, err) {

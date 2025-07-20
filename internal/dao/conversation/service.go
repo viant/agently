@@ -120,7 +120,7 @@ func (s *Service) GetMessages(ctx context.Context, convID string) ([]memory.Mess
 	// If datly approach fails, fall back to direct SQL
 	fmt.Printf("[DEBUG_LOG] Falling back to direct SQL query for conversation %s\n", convID)
 
-	// Get the database connection
+	// Ensure the database connection
 	db, err := sql.Open("sqlite3", s.getDBPath())
 
 	// Query the database directly
@@ -298,7 +298,7 @@ func (s *Service) GetConversationIDs(ctx context.Context) ([]string, error) {
 
 // LatestMessage returns the most recent message across all conversations in the DB.
 func (s *Service) LatestMessage(ctx context.Context) (*memory.Message, error) {
-	// Get all conversation IDs
+	// Ensure all conversation IDs
 	convIDs, err := s.GetConversationIDs(ctx)
 	if err != nil {
 		return nil, err

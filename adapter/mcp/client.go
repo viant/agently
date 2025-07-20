@@ -6,6 +6,8 @@ package mcp
 
 import (
 	"context"
+	awaitreg "github.com/viant/agently/genai/awaitreg"
+	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/memory"
 	"sync"
 
@@ -13,12 +15,12 @@ import (
 	elicitationSchema "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/elicitation/refiner"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
-	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/llm"
 
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
+	"strings"
 )
 
 var waiterRegistry sync.Map // msgID -> chan *schema.ElicitResult
@@ -41,11 +43,9 @@ type Client struct {
 	core       *core.Service
 	openURLFn  func(string) error
 	implements map[string]bool
-	awaiter    elicitation.Awaiter
+	awaiters   *awaitreg.Registry
 	llmCore    *core.Service
-
-	history memory.History // optional fallback when ctx lacks history
-
+	history    memory.History // optional fallback when ctx lacks history
 	// waiter registries are shared for elicitation and interaction
 }
 
@@ -92,9 +92,18 @@ func (c *Client) ListRoots(ctx context.Context, p *jsonrpc.TypedRequest[*schema.
 
 func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*schema.ElicitRequest]) (*schema.ElicitResult, *jsonrpc.Error) {
 	params := request.Request.Params
-	if c.awaiter != nil {
+	if c.awaiters != nil {
 		localReq := &elicitationSchema.Elicitation{ElicitRequestParams: params}
-		res, err := c.awaiter.AwaitElicitation(ctx, localReq)
+
+		// Handle out-of-band URL prompt: try to open browser before invoking
+		// Awaiter so the user can fill the form.
+		if strings.TrimSpace(params.Url) != "" && c.openURLFn != nil {
+			_ = c.openURLFn(params.Url)
+		}
+
+		aw := c.awaiters.Ensure(conversation.ID(ctx))
+
+		res, err := aw.AwaitElicitation(ctx, localReq)
 		if err != nil {
 			return nil, jsonrpc.NewInternalError(err.Error(), nil)
 		}
@@ -106,7 +115,7 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 		}, nil
 	}
 	// ------------------------------------------------------------------
-	// No local awaiter – persist message and block until HTTP callback
+	// No local awaiters – persist message and block until HTTP callback
 	// resolves it through waiterRegistry (web UI scenario).
 	// ------------------------------------------------------------------
 	// ------------------------------------------------------------------

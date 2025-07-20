@@ -216,8 +216,8 @@ func (e *Service) initMcp() {
 	if e.clientHandler == nil {
 		var opts []clientmcp.Option
 		opts = append(opts, clientmcp.WithLLMCore(e.llmCore))
-		if e.mcpElicitationAwaiter != nil {
-			opts = append(opts, clientmcp.WithAwaiter(e.mcpElicitationAwaiter))
+		if e.newAwaiter != nil {
+			opts = append(opts, clientmcp.WithAwaiter(e.newAwaiter))
 		}
 		if e.history != nil {
 			opts = append(opts, clientmcp.WithHistory(e.history))

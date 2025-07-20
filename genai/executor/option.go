@@ -15,13 +15,13 @@ import (
 
 type Option func(config *Service)
 
-// WithElicitationAwaiter registers an interactive Awaiter responsible for
+// WithNewElicitationAwaiter registers an interactive Awaiter responsible for
 // resolving schema-driven user prompts ("elicitation"). When set, the awaiter
 // is attached to the internally managed MCP client so that interactive CLI
 // sessions can synchronously obtain the required payload.
 //
 // The last non-nil value wins when the option is applied multiple times.
-// WithElicitationAwaiter registers (or overrides) the Awaiter that will be used
+// WithNewElicitationAwaiter registers (or overrides) the Awaiter that will be used
 // to resolve schema-based elicitation requests originating from the runtime.
 //
 // Passing a non-nil Awaiter enables interactive (or otherwise custom)
@@ -31,11 +31,11 @@ type Option func(config *Service)
 //
 // The *last* call wins, therefore a later invocation can override an earlier
 // one (including the implicit registration performed by the CLI helpers).
-func WithElicitationAwaiter(a elicitation.Awaiter) Option {
+func WithNewElicitationAwaiter(newAwaiter func() elicitation.Awaiter) Option {
 	return func(s *Service) {
 		// Allow nil to reset an earlier registration so that callers like the
 		// HTTP server can ensure the executor never blocks on stdin.
-		s.mcpElicitationAwaiter = a
+		s.newAwaiter = newAwaiter
 	}
 }
 

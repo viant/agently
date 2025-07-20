@@ -69,6 +69,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	fmt.Printf("req: %s\n=======\n", string(data))
 	c.HTTPClient.Timeout = 10 * time.Minute
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)
@@ -82,6 +83,8 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+
+	fmt.Printf("resp: %s\n=======\n", string(respBytes))
 
 	// Check for non-200 status code
 	if resp.StatusCode != 200 {

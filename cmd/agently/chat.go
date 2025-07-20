@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/service"
@@ -208,6 +210,12 @@ func (c *ChatCmd) Execute(_ []string) error {
 	callChat := func(userQuery string) error {
 		ctx := tool.WithPolicy(ctxBase, toolPol)
 		ctx = withFluxorPolicy(ctx, fluxPol)
+		// Guarantee non-empty conversation ID so downstream components can rely
+		// on its presence when the very first turn is executed.
+		if convID == "" {
+			convID = uuid.NewString()
+		}
+		ctx = conversation.WithID(ctx, convID)
 		resp, err := svc.Chat(ctx, service.ChatRequest{
 			ConversationID: convID,
 			AgentPath:      c.AgentName,

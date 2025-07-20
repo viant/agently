@@ -16,5 +16,5 @@ func attachAwaiter(firstArg string) {
 	if firstArg == "serve" {
 		return // server must never block on stdin
 	}
-	registerExecOption(executor.WithElicitationAwaiter(newStdinAwaiter()))
+	registerExecOption(executor.WithNewElicitationAwaiter(newStdinAwaiter))
 }

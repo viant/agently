@@ -19,7 +19,7 @@ export default function MCPForm({message, context}) {
     if (!message || !message.elicitation) return null;
 
     const {elicitation, callbackURL, id} = message;
-    const {requestedSchema, message: prompt} = elicitation;
+    const {requestedSchema, message: prompt, url} = elicitation;
 
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
@@ -61,7 +61,17 @@ export default function MCPForm({message, context}) {
 
             <fieldset className={Classes.DIALOG_BODY}>
                 {prompt && <p style={{marginBottom: 12}}>{prompt}</p>}
-                {requestedSchema && (
+                {/* Out-of-band URL mode */}
+                {url && (
+                    <div style={{marginBottom: 12}}>
+                        <a href={url} target="_blank" rel="noopener noreferrer">
+                            {url}
+                        </a>
+                    </div>
+                )}
+
+                {/* Inline JSON schema mode */}
+                {requestedSchema && Object.keys(requestedSchema.properties || {}).length > 0 && (
                     <div>
                         <SchemaBasedForm
                             schema={requestedSchema}
@@ -82,9 +92,14 @@ export default function MCPForm({message, context}) {
                     <Button minimal onClick={() => post('decline')} disabled={submitting}>
                         Decline
                     </Button>
-                    <Button onClick={() => post('cancel')} disabled={submitting}>
+                    <Button onClick={() => post('cancel')} disabled={submitting} style={{marginRight:8}}>
                         Cancel
                     </Button>
+                    {!requestedSchema || Object.keys(requestedSchema.properties || {}).length === 0 ? (
+                      <Button intent="primary" onClick={() => post('accept', {})} disabled={submitting}>
+                          Accept
+                      </Button>
+                    ) : null}
                 </div>
             </div>
         </Dialog>
