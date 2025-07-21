@@ -19,15 +19,30 @@ import (
 // tested place.
 type stdinAwaiter struct{}
 
+// openedURLs remembers which URLs were already attempted to be opened in the
+// current process so we do not spam the user with multiple browser tabs when
+// the same elicitation repeats (e.g. due to planning retries).
+var openedURLs = map[string]struct{}{}
+
 // AwaitElicitation implements elicitation.Awaiter.
 func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitation) (*plan.ElicitResult, error) {
 	// When the request contains an external URL we first inform the user and
 	// optionally attempt to open it with the system browser. The actual payload
 	// still has to be entered/pasted afterwards.
-	if req != nil && strings.TrimSpace(req.Url) != "" {
-		fmt.Fprintf(os.Stdout, "\nThe workflow requests additional information. Please follow the link below, complete the form and paste the resulting JSON here.\nURL: %s\n", req.Url)
-		// Best-effort attempt to open the browser (non-blocking).
-		_ = launchBrowser(req.Url)
+	if req != nil {
+		url := strings.TrimSpace(req.Url)
+		if url != "" {
+			// Inform the user once per unique URL.
+			if _, done := openedURLs[url]; !done {
+				openedURLs[url] = struct{}{}
+				fmt.Fprintf(os.Stdout, "\nThe workflow requests additional information. Please follow the link below, complete the form and paste the resulting JSON here.\nURL: %s\n", url)
+				// Best-effort attempt to open the browser (non-blocking).
+				_ = launchBrowser(url)
+			} else {
+				// Still remind the user of the URL but skip auto-open.
+				fmt.Fprintf(os.Stdout, "\nPlease provide the JSON from previously opened URL: %s\n", url)
+			}
+		}
 	}
 	var w io.Writer = os.Stdout // ensure stdout flushing
 	return stdio.Prompt(ctx, w, os.Stdin, req)
