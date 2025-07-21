@@ -293,3 +293,22 @@ func (h *HistoryStore) Children(ctx context.Context, parentID string) ([]Convers
 	}
 	return out, true
 }
+
+// UpdateMeta applies a mutator function to the ConversationMeta identified by
+// id. If the entry does not yet exist it will be created first so that the
+// mutator always receives a valid pointer. The method returns true when an
+// entry existed or was created, false when id is empty.
+func (h *HistoryStore) UpdateMeta(ctx context.Context, id string, mutate func(*ConversationMeta)) bool {
+	if id == "" || mutate == nil {
+		return false
+	}
+	h.mux.Lock()
+	defer h.mux.Unlock()
+	m, ok := h.meta[id]
+	if !ok {
+		m = ConversationMeta{ID: id, CreatedAt: time.Now()}
+	}
+	mutate(&m)
+	h.meta[id] = m
+	return true
+}

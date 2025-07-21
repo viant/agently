@@ -474,7 +474,13 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		switch last.Role {
 		case "tool":
 			if last.ToolName != nil {
-				st = &stage.Stage{Phase: stage.StageExecuting, Tool: *last.ToolName}
+				name := strings.ToLower(*last.ToolName)
+				if name == "llm/core.generate" || name == "llm/core:generate" {
+					// Treat generate-as-tool as part of thinking, not executing.
+					st = &stage.Stage{Phase: stage.StageThinking}
+				} else {
+					st = &stage.Stage{Phase: stage.StageExecuting, Tool: *last.ToolName}
+				}
 			} else {
 				st = &stage.Stage{Phase: stage.StageExecuting}
 			}
@@ -862,11 +868,13 @@ type postMessageRequest struct {
 }
 
 // defaultLocation returns supplied if not empty otherwise "chat".
+// defaultLocation preserves explicit agent location when provided. Returning
+// empty string lets the downstream agent-service fall back to the per-
+// conversation Agent stored in memory (ConversationMeta).  We therefore no
+// longer substitute the hard-coded "chat" default here; the agent service
+// already has its own default when no agent can be resolved.
 func defaultLocation(loc string) string {
-	if strings.TrimSpace(loc) == "" {
-		return "chat"
-	}
-	return loc
+	return strings.TrimSpace(loc)
 }
 
 func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convID string) {

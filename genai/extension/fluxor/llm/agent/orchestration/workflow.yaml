@@ -18,6 +18,7 @@ stage:
         elicitation: ${plan.elicitation}
         results: ${results}
         transcript: ${transcript}
+        model: ${model}
 
     exec:
       action: llm/exec:run_plan
@@ -35,6 +36,6 @@ stage:
         results: ${results}
         elicitation: ${elicitation}
         transcript: ${transcript}
+        model: ${model}
       goto:
         task: loop
-

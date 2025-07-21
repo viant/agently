@@ -87,6 +87,27 @@ type ConversationMeta struct {
 	Title      string    `json:"title,omitempty"`
 	Visibility string    `json:"visibility,omitempty"` // full|summary|none
 	CreatedAt  time.Time `json:"createdAt"`
+
+	// Model stores the last LLM model explicitly chosen by the user within
+	// this conversation. When a subsequent turn omits the model override the
+	// orchestration can fall back to this value so that the user does not
+	// have to repeat the flag every time.
+	Model string `json:"model,omitempty"`
+
+	// Tools keeps the last explicit per-turn tool allow-list requested by the
+	// user. When a subsequent turn sends an empty tools slice, orchestration
+	// falls back to this stored list so the preference persists.
+	Tools []string `json:"tools,omitempty"`
+
+	// Agent records the last agent configuration reference (path or name)
+	// explicitly used in the conversation so that subsequent requests can
+	// omit the field and still continue the thread with the same agent.
+	Agent string `json:"agent,omitempty"`
+
+	// Context holds the latest accepted elicitation payload so that the user
+	// does not have to resend the same data every turn when the same agent
+	// schema still applies.
+	Context map[string]interface{} `json:"context,omitempty"`
 }
 
 // PolicyApproval captures the details of an approval request that needs an

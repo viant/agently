@@ -107,6 +107,72 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	ctx, agg := usage.WithAggregator(ctx)
 
 	// ------------------------------------------------------------------
+	// 0.a Persist / restore per-conversation model override.
+	// ------------------------------------------------------------------
+	earlyConvID := s.conversationID(qi)
+	if hs, ok := s.history.(*memory.HistoryStore); ok && earlyConvID != "" {
+		if qi.ModelOverride == "" {
+			if meta, ok := hs.Meta(ctx, earlyConvID); ok && meta.Model != "" {
+				qi.ModelOverride = meta.Model
+			}
+		} else {
+			// Store/overwrite the chosen model so that subsequent turns inherit it.
+			hs.UpdateMeta(ctx, earlyConvID, func(m *memory.ConversationMeta) { m.Model = qi.ModelOverride })
+		}
+
+		// ------------------------------------------------------------
+		// Persist / restore per-conversation allowed tool list.
+		// ------------------------------------------------------------
+		if len(qi.ToolsAllowed) == 0 {
+			if meta, ok := hs.Meta(ctx, earlyConvID); ok && len(meta.Tools) > 0 {
+				// copy to avoid accidental mutation by caller
+				qi.ToolsAllowed = append([]string(nil), meta.Tools...)
+			}
+		} else {
+			allowedCopy := append([]string(nil), qi.ToolsAllowed...)
+			hs.UpdateMeta(ctx, earlyConvID, func(m *memory.ConversationMeta) { m.Tools = allowedCopy })
+		}
+
+		// ------------------------------------------------------------
+		// Persist / restore agent reference.
+		// ------------------------------------------------------------
+		chosenAgent := ""
+		if strings.TrimSpace(qi.AgentName) != "" {
+			chosenAgent = qi.AgentName
+		} else if qi.Agent != nil && strings.TrimSpace(qi.Agent.Name) != "" {
+			chosenAgent = qi.Agent.Name
+		}
+
+		if chosenAgent == "" {
+			if meta, ok := hs.Meta(ctx, earlyConvID); ok && meta.Agent != "" {
+				qi.AgentName = meta.Agent
+			}
+		} else {
+			// store
+			hs.UpdateMeta(ctx, earlyConvID, func(m *memory.ConversationMeta) { m.Agent = chosenAgent })
+		}
+	}
+
+	// ------------------------------------------------------------
+	// Treat current user query as potential JSON elicitation payload and
+	// merge into context *before* validation so the same turn can succeed
+	// without another round-trip.
+	// ------------------------------------------------------------
+	if strings.TrimSpace(qi.Query) != "" {
+		var tmp map[string]interface{}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(qi.Query)), &tmp); err == nil && len(tmp) > 0 {
+			if qi.Context == nil {
+				qi.Context = map[string]interface{}{}
+			}
+			for k, v := range tmp {
+				if _, exists := qi.Context[k]; !exists {
+					qi.Context[k] = v
+				}
+			}
+		}
+	}
+
+	// ------------------------------------------------------------------
 	// 0.a Ensure agent is loaded (required for context validation below)
 	if err := s.ensureAgent(ctx, qi, qo); err != nil {
 		return err
@@ -154,6 +220,18 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 			qo.Content = qi.Agent.Elicitation.Message
 			qo.Usage = agg
 			s.recordAssistantElicitation(ctx, convID, qi.MessageID, qo.Elicitation)
+
+			// Store any provided context fragments to avoid repeated prompts.
+			if hs, ok := s.history.(*memory.HistoryStore); ok && convID != "" {
+				hs.UpdateMeta(ctx, convID, func(m *memory.ConversationMeta) {
+					if m.Context == nil {
+						m.Context = map[string]interface{}{}
+					}
+					for k, v := range qi.Context {
+						m.Context[k] = v
+					}
+				})
+			}
 			return nil // early exit – wait for user input
 		}
 
@@ -171,6 +249,15 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	convContext, err := s.conversationContext(ctx, convID, qi)
 	if err != nil {
 		return err
+	}
+
+	// Persist completed context so that future turns inherit all values.
+	if hs, ok := s.history.(*memory.HistoryStore); ok && convID != "" && len(qi.Context) > 0 {
+		ctxCopy := map[string]interface{}{}
+		for k, v := range qi.Context {
+			ctxCopy[k] = v
+		}
+		hs.UpdateMeta(ctx, convID, func(m *memory.ConversationMeta) { m.Context = ctxCopy })
 	}
 	messageID, err := s.addMessage(ctx, convID, "user", "", qi.Query, qi.MessageID, "")
 	if err != nil {
