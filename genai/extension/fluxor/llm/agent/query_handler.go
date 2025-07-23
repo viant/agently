@@ -462,22 +462,33 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	if err != nil {
 		return fmt.Errorf("workflow execution error: %w", err)
 	}
+	// -----------------------------------------------------------------
+	// When some workflow steps report errors we do *not* immediately abort
+	// the reasoning process.  The agent keeps going as long as at least one
+	// tool invocation produced a usable output (answer / elicitation).  If
+	// every step failed (i.e. answer & elicitation missing) we fall back to a
+	// partial response so that the caller still receives diagnostic details.
+	// -----------------------------------------------------------------
 	if len(result.Errors) > 0 {
-		// Instead of bubbling a hard error, surface a partial response so that
-		// the user understands what went wrong and can decide how to proceed.
-		errsJSON, _ := json.Marshal(result.Errors)
-		var resSummary string
-		if resRaw, ok := result.Output[keyResults]; ok {
-			if b, err := json.Marshal(resRaw); err == nil {
-				resSummary = string(b)
+		if _, hasAnswer := result.Output[keyAnswer]; !hasAnswer {
+			if _, hasElicit := result.Output[keyElicitation]; !hasElicit {
+				// No successful output – surface diagnostic summary instead of
+				// bubbling a hard error.
+				errsJSON, _ := json.Marshal(result.Errors)
+				var resSummary string
+				if resRaw, ok := result.Output[keyResults]; ok {
+					if b, err := json.Marshal(resRaw); err == nil {
+						resSummary = string(b)
+					}
+				}
+
+				qo.Content = fmt.Sprintf("I encountered an internal issue while composing the answer (details: %s).\n\nHere are the raw tool results I managed to obtain:\n%s", string(errsJSON), resSummary)
+				qo.DocumentsSize = s.calculateDocumentsSize(docs)
+				s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
+				qo.Usage = usage.FromContext(ctx)
+				return nil
 			}
 		}
-
-		qo.Content = fmt.Sprintf("I encountered an internal issue while composing the answer (details: %s).\n\nHere are the raw tool results I managed to obtain:\n%s", string(errsJSON), resSummary)
-		qo.DocumentsSize = s.calculateDocumentsSize(docs)
-		s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
-		qo.Usage = usage.FromContext(ctx)
-		return nil
 	}
 
 	// 4. Extract output – same logic but isolated.
