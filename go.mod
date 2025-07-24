@@ -121,7 +121,7 @@ require (
 	github.com/viant/gds v0.4.5 // indirect
 	github.com/viant/gmetric v0.3.1-0.20230405233616-cc90deee60c4 // indirect
 	github.com/viant/godiff v0.4.1 // indirect
-	github.com/viant/gosh v0.2.1 // indirect
+	github.com/viant/gosh v0.2.2 // indirect
 	github.com/viant/govalidator v0.3.1 // indirect
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/parsly v0.3.3 // indirect
