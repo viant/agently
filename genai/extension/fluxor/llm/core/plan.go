@@ -240,7 +240,7 @@ func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, gen
 						}
 					}
 					steps = append(steps, plan.Step{
-						ID:     uuid.New().String(),
+						ID:     tc.ID,
 						Type:   "tool",
 						Name:   name,
 						Args:   args,
