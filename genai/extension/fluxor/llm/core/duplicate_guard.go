@@ -10,8 +10,8 @@ type toolKey struct {
 	Args string
 }
 
-// DuplicateGuard detects pathological repetition patterns of tool calls across
-// iterations and inside a single plan.
+// DuplicateGuard tracks the recent sequence of calls, detects pathological repetition patterns, and applies a set
+// of heuristics to decide whether a newly–proposed call should be blocked.
 type DuplicateGuard struct {
 	lastKey     toolKey
 	consecutive int
@@ -20,16 +20,22 @@ type DuplicateGuard struct {
 }
 
 const (
-	consecutiveLimit = 3 // 3rd identical consecutive call will be blocked
+	consecutiveLimit = 3 // block on the 3rd identical consecutive call
 	windowSize       = 8 // sliding window length
-	windowFreqLimit  = 4 // >=4 occurrences inside window triggers block
+	windowFreqLimit  = 5 // block if ≥5 occurrences inside the window
 )
 
-// NewDuplicateGuard initialises a guard primed with any prior results.
+// NewDuplicateGuard returns a guard pre‑seeded with prior results.
 func NewDuplicateGuard(prior []plan.Result) *DuplicateGuard {
-	g := &DuplicateGuard{latest: make(map[toolKey]plan.Result, len(prior))}
+	g := &DuplicateGuard{
+		latest: make(map[toolKey]plan.Result, len(prior)),
+		window: make([]toolKey, 0, windowSize),
+	}
 	for _, r := range prior {
-		g.latest[g.key(r.Name, r.Args)] = r
+		key := g.key(r.Name, r.Args)
+		g.latest[key] = r
+		g.window = append(g.window, key)
+		g.lastKey = key
 	}
 	return g
 }
@@ -38,95 +44,102 @@ func (g *DuplicateGuard) key(name string, args map[string]interface{}) toolKey {
 	return toolKey{Name: name, Args: CanonicalArgs(args)}
 }
 
-// ShouldBlock updates internal state with the proposed call and returns
-// whether it should be blocked together with the previous result if present.
+// ShouldBlock reports whether the proposed call should be blocked and, if so,
+// returns the latest cached result for the same key (if any).
+//
+// Blocking heuristics (evaluated in order):
+//  1. Immediate repeat of a *successful* call.
+//  2. The same call executed `consecutiveLimit` times in a row.
+//  3. The call appears at least `windowFreqLimit` times inside the sliding
+//     window of size `windowSize`.
+//  4. The window contains only two distinct calls that alternate (A, B,
+//     A, B, …).
 func (g *DuplicateGuard) ShouldBlock(name string, args map[string]interface{}) (bool, plan.Result) {
-	k := g.key(name, args)
+	key := g.key(name, args)
+	prev := g.latest[key] // previous result for the same key, if any
 
-	// ------------------------------------------------------------------
-	// Check whether we have executed this exact tool call (same name and
-	// canonicalised args) in one of the *prior* iterations.  While repeating
-	// such a call may sometimes be wasteful, forbidding it altogether turned
-	// out to be too restrictive in practice – certain idempotent or
-	// lightweight tools (for example simple arithmetic via "calc") are
-	// perfectly fine to rerun when the planner explicitly requests it.
-	//
-	// Therefore we no longer block immediately.  Instead, the duplicate will
-	// still be detected by the sliding-window & consecutive heuristics below
-	// which focus on pathological repetition patterns (loops) rather than a
-	// single re-execution.
-	// ------------------------------------------------------------------
-
-	prev, _ := g.latest[k] // keep for potential return later
-
-	// Certain tools are safe and inexpensive to execute multiple times.  Allow
-	// them to bypass the "prior successful result" optimisation so planners
-	// can intentionally re-run them across iterations.
-	var repeatAllowed = map[string]struct{}{
-		"calc": {}, // pure function – deterministic & idempotent
+	// Heuristic #1: immediately repeated *successful* call.
+	if key == g.lastKey && prev.Name != "" && prev.Error == "" {
+		return true, prev
 	}
 
-	if prev.Name != "" && prev.Error == "" {
-		if _, ok := repeatAllowed[name]; ok {
-			// Explicitly permitted to repeat – fall through to regular loop
-			// detection heuristics instead of blocking immediately.
-		} else {
-			return true, prev
-		}
+	// Update counters and window state.
+	g.updateConsecutive(key)
+	g.updateWindow(key)
+
+	// Apply remaining heuristics.
+	if g.consecutive >= consecutiveLimit {
+		return true, prev
+	}
+	if g.frequency(key) >= windowFreqLimit {
+		return true, prev
 	}
 
+	if g.isAlternatingPattern() {
+		return true, prev
+	}
+
+	return false, plan.Result{}
+}
+
+// updateConsecutive increments or resets the consecutive‑repeat counter.
+func (g *DuplicateGuard) updateConsecutive(k toolKey) {
 	if k == g.lastKey {
 		g.consecutive++
 	} else {
 		g.consecutive = 1
 		g.lastKey = k
 	}
+}
 
-	// sliding window update
+// updateWindow appends k to the sliding window, trimming it to windowSize.
+func (g *DuplicateGuard) updateWindow(k toolKey) {
 	g.window = append(g.window, k)
 	if len(g.window) > windowSize {
-		g.window = g.window[1:]
+		g.window = g.window[len(g.window)-windowSize:]
 	}
+}
 
-	block := false
-	if g.consecutive >= consecutiveLimit {
-		block = true
-	} else {
-		freq := 0
-		for _, w := range g.window {
-			if w == k {
-				freq++
-			}
-		}
-		if freq >= windowFreqLimit {
-			block = true
-		} else if len(g.window) == windowSize {
-			distinct := map[toolKey]struct{}{}
-			for _, w := range g.window {
-				distinct[w] = struct{}{}
-			}
-			if len(distinct) == 2 {
-				alternating := true
-				for i := 2; i < len(g.window); i++ {
-					if g.window[i] != g.window[i-2] {
-						alternating = false
-						break
-					}
-				}
-				if alternating {
-					block = true
-				}
-			}
+// frequency counts occurrences of k inside the current window.
+func (g *DuplicateGuard) frequency(k toolKey) int {
+	count := 0
+	for _, w := range g.window {
+		if w == k {
+			count++
 		}
 	}
+	return count
+}
 
-	if !block {
-		return false, plan.Result{}
+// isAlternatingPattern reports true when the window consists of exactly two
+// distinct keys that alternate without deviation (A, B, A, B, …).
+func (g *DuplicateGuard) isAlternatingPattern() bool {
+	if len(g.window) < windowSize {
+		return false
 	}
-	return true, prev
+
+	alternating := false
+	distinct := map[toolKey]struct{}{}
+	for _, w := range g.window {
+		distinct[w] = struct{}{}
+	}
+
+	if len(distinct) == 2 {
+		alternating = true
+		for i := 2; i < len(g.window); i++ {
+			if g.window[i] != g.window[i-2] {
+				alternating = false
+				break
+			}
+		}
+	}
+
+	return alternating
 }
 
 // RegisterResult stores latest outcome for reuse.
 func (g *DuplicateGuard) RegisterResult(name string, args map[string]interface{}, res plan.Result) {
-	g.latest[g.key(name, args)] = res
+	k := g.key(name, args)
+	g.latest[k] = res
+	g.lastKey = k
 }

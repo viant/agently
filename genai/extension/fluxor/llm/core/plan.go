@@ -105,13 +105,12 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 	for _, transcript := range output.Transcript {
 		output.Answer += transcript.Content + "\n"
 	}
-	RefinePlan(input.Results, planResult, output.Answer)
+	RefinePlan(planResult, output.Answer)
 	output.Plan = planResult
-	output.Results = input.Results
 	return nil
 }
 
-func RefinePlan(prior []plan.Result, p *plan.Plan, _ string) {
+func RefinePlan(p *plan.Plan, _ string) {
 	if len(p.Steps) == 0 {
 		return
 	}
@@ -121,14 +120,10 @@ func RefinePlan(prior []plan.Result, p *plan.Plan, _ string) {
 	//   1. Inside a single Plan we *remove* redundant repetitions because
 	//      running the exact same tool call twice in the same batch is never
 	//      useful.
-	//   2. Across iterations we no longer discard the step here.  The
-	//      executor is now responsible for detecting whether an identical
-	//      call has already been executed earlier and – if so – it will
-	//      short-circuit the execution, returning a synthetic
-	//      "duplicate_call_blocked" error together with the previous result.
-	//      This gives the LLM visibility of the failed attempt so it can
-	//      adjust its strategy on the next planning round instead of the
-	//      call silently disappearing.
+	// 2. Across iterations, we no longer discard the step here.
+	//    The executor is now responsible for detecting if an identical call
+	//    has already been executed, and if so, it will short-circuit the execution
+	//    and return the previous result.
 	// ------------------------------------------------------------------
 
 	seenThisPlan := map[ToolKey]struct{}{}
@@ -157,6 +152,8 @@ func RefinePlan(prior []plan.Result, p *plan.Plan, _ string) {
 // It returns a Plan if parsing succeeded, otherwise returns the answer text.
 func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate string, input *PlanInput, tools []llm.Tool, genOutput *GenerateOutput) (*plan.Plan, error) {
 
+	filteredInput := dedupResultsSkipSeenErrors(input.Results)
+
 	if len(input.ModelMatch.Hints) == 0 && modelName != "" {
 		input.ModelMatch.Hints = append(input.ModelMatch.Hints, modelName)
 	}
@@ -165,16 +162,19 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate st
 	}
 
 	bind := map[string]interface{}{
-		"Query":         input.Query,
-		"Context":       input.Context,
-		"Results":       input.Results,
-		"Tools":         input.Tools,
-		"ResultSummary": input.ResultSummary,
-		"CanUseTools":   false,
+		"Query":                        input.Query,
+		"Context":                      input.Context,
+		"Results":                      filteredInput,
+		"Tools":                        input.Tools,
+		"ResultSummary":                input.ResultSummary,
+		"CanUseTools":                  false,
+		"CanPreventDuplicateToolCalls": false,
 	}
+
 	if model, _ := s.llmFinder.Find(ctx, modelName); model != nil {
 		bind["Model"] = model
 		bind["CanUseTools"] = model.Implements(base.CanUseTools)
+		bind["CanPreventDuplicateToolCalls"] = model.Implements(base.CanPreventDuplicateToolCalls)
 	}
 
 	s.enureResultCallID(input)
@@ -186,19 +186,25 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate st
 		Tools:    tools,
 	}
 
-	if len(input.Results) > 0 {
-		for _, result := range input.Results {
+	if len(filteredInput) == 0 {
+		bind["CanPreventDuplicateToolCalls"] = false
+	}
+
+	if len(filteredInput) > 0 {
+		for i := range filteredInput {
 			var toolCalls []llm.ToolCall
 			var toolResultMessage []llm.Message
-			toolCall := llm.NewToolCall(result.ID, result.Name, result.Args)
+			toolCall := llm.NewToolCall(filteredInput[i].ID, filteredInput[i].Name, filteredInput[i].Args)
 			toolCalls = append(toolCalls, toolCall)
-			callResult := result.Result
-			if result.Error != "" {
-				callResult = "Error:" + result.Error
+			callResult := filteredInput[i].Result
+			if filteredInput[i].Error != "" {
+				callResult = "Error:" + filteredInput[i].Error
+				bind["CanPreventDuplicateToolCalls"] = false
 			}
 			toolResultMessage = append(toolResultMessage, llm.NewToolResultMessage(toolCall, callResult))
 			genInput.Message = append(genInput.Message, llm.NewAssistantMessageWithToolCalls(toolCalls...))
 			genInput.Message = append(genInput.Message, toolResultMessage...)
+			filteredInput[i].Seen = true
 		}
 	}
 
@@ -290,4 +296,47 @@ func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, gen
 		}
 	}
 	return aPlan, err
+}
+
+// dedupResultsSkipSeenErrors returns a new slice containing only the last occurrence
+// of each (Name, canonical Args) pair, preserving their chronological order.
+// It skips results that have an Error and were already seen by the LLM during the latest plan generation.
+func dedupResultsSkipSeenErrors(in []plan.Result) []*plan.Result {
+	outRev := make([]*plan.Result, 0, len(in))
+	if len(in) <= 1 {
+		for i := range in {
+			outRev = append(outRev, &in[i])
+		}
+		return outRev
+	}
+
+	type key struct {
+		Name string
+		Args string
+	}
+
+	seen := make(map[key]struct{}, len(in))
+
+	// Walk backwards so we keep the *last* occurrence.
+	for i := len(in) - 1; i >= 0; i-- {
+
+		k := key{in[i].Name, CanonicalArgs(in[i].Args)}
+		if _, dup := seen[k]; dup {
+			continue
+		}
+
+		// If the result has an error and has been seen by LLM, then skip it (don't show it again to LLM).
+		if in[i].Error != "" && in[i].Seen {
+			continue
+		}
+
+		seen[k] = struct{}{}
+		outRev = append(outRev, &in[i])
+	}
+
+	// Reverse back to chronological order.
+	for i, j := 0, len(outRev)-1; i < j; i, j = i+1, j-1 {
+		outRev[i], outRev[j] = outRev[j], outRev[i]
+	}
+	return outRev
 }

@@ -11,4 +11,5 @@ type Result struct {
 	Result string `json:"result"`
 	//Error tool call error
 	Error string `json:"error,omitempty"`
+	Seen  bool   `json:"seen"` // Seen indicates if the result was seen by LLM
 }

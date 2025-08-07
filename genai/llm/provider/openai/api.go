@@ -18,6 +18,8 @@ func (c *Client) Implements(feature string) bool {
 	switch feature {
 	case base.CanUseTools:
 		return true
+	case base.CanPreventDuplicateToolCalls:
+		return true
 	}
 	return false
 }

@@ -1132,8 +1132,6 @@ github.com/viant/embedius v0.1.1 h1:f0pUHoke2zHpl1R6WOFfd77fDzdqhVgFoD9QqgMVA2g=
 github.com/viant/embedius v0.1.1/go.mod h1:35sjLE4R/NVtypiP81QayIefVEPCCGIbqRS1UkVkP6w=
 github.com/viant/firebase v0.1.1 h1:a4IiehQ2GWoH4qTnUD7JnJ5lTc87nfxX8ClUwBO7AKU=
 github.com/viant/firebase v0.1.1/go.mod h1:Q2DK7L/pdGS5xNQRgMJ9B/x9VhIeXAfXCeh3cKpSIkM=
-github.com/viant/fluxor v0.1.22 h1:sSTu73uAMNjNhvhJ9v3tywFD6BtwTiphKTtJh17VhGU=
-github.com/viant/fluxor v0.1.22/go.mod h1:sviP+raIVMw2c/ce+uz+tgJ7wAwlWjAu8cn7vcy7ai4=
 github.com/viant/fluxor v0.1.23 h1:CEShBhBr1dLdzhIpQNCF6XWM4ksHR1YeWlUk5XsXqwc=
 github.com/viant/fluxor v0.1.23/go.mod h1:sviP+raIVMw2c/ce+uz+tgJ7wAwlWjAu8cn7vcy7ai4=
 github.com/viant/fluxor-mcp v0.1.13 h1:n1dpo7clxTEGPuFePpPBKLFDxId5mBm+NXhkNcRQGsw=
@@ -1146,8 +1144,6 @@ github.com/viant/gmetric v0.3.1-0.20230405233616-cc90deee60c4 h1:Lz5up/Q1N8A5pch
 github.com/viant/gmetric v0.3.1-0.20230405233616-cc90deee60c4/go.mod h1:RHqj7bdVZrPahrhQxhZRsFX3p/I7ixUEt7+G3l5z+v0=
 github.com/viant/godiff v0.4.1 h1:pjMA4zOz/mNcXRvl+CjWzg3m8XwOFBjaxDqfUYQXb9M=
 github.com/viant/godiff v0.4.1/go.mod h1:/q54pjC31YIOqbPcQnqwF2/dAZlnIr1SdQOtqoa0MpQ=
-github.com/viant/gosh v0.2.1 h1:ASvDPh1P2gcfWEw00OnJggimwXDpmGxO0OploDjz83M=
-github.com/viant/gosh v0.2.1/go.mod h1:I/EJ39XLZL9vAme3CrvZ4WeiASneHJPd+pMF2njt/Mw=
 github.com/viant/gosh v0.2.2 h1:WR0+EE7lTX0CPbv6PWfNaSPImybA9//JeoZe03YjLYE=
 github.com/viant/gosh v0.2.2/go.mod h1:INjYp/nU3liXeCvYS/jgvvKd4zO0wngwaAl5ViaI6b0=
 github.com/viant/govalidator v0.3.1 h1:V7f/KgfzbP8fVDc+Kj+jyPvfXxMr2N1x7srOlDV6lCA=

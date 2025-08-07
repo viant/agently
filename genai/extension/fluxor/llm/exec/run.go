@@ -100,23 +100,22 @@ outer:
 			// Duplicate-call protection across iterations.  If the exact same
 			// (tool, args) pair has been executed before and the guard heuristics
 			// deem it a pathological repeat, we *do not* invoke the tool again.
-			// Instead we record a synthetic Result with a well-known error marker
-			// so that the planner sees the failure and can refine its strategy.
+			// We record a Result with cached data from previous same call.
 			// ---------------------------------------------------------
+
+			var duplicatedCall bool
+			var duplicatedResult plan.Result // synthetic result for duplicate call
 			if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
-				dupRes := plan.Result{
+				duplicatedResult = plan.Result{
 					ID:     step.ID,
 					Name:   step.Name,
 					Args:   step.Args,
 					Result: prev.Result,
-					Error:  "duplicate_call_blocked",
+					Error:  prev.Error,
 				}
-				results = append(results, dupRes)
-				// Register the synthetic result as latest so further repeats in
-				// the same plan are caught.
-				guard.RegisterResult(step.Name, step.Args, dupRes)
-				continue
+				duplicatedCall = true
 			}
+
 			// Resolve any $step[N].output placeholders before execution
 			step.Args = resolveArgsPlaceholders(step.Args, results)
 			callToolInput := &CallToolInput{
@@ -140,9 +139,19 @@ outer:
 
 			ctx = types.EnsureExecutionContext(ctx)
 
-			err := s.CallTool(ctx, callToolInput, callToolOutput)
-			endAt := time.Now()
-			result := plan.Result{Name: step.Name, Args: step.Args, Result: callToolOutput.Result, ID: step.ID}
+			var err error
+			var endAt time.Time
+			var result plan.Result
+
+			if duplicatedCall {
+				endAt = time.Now()
+				result = duplicatedResult
+			} else {
+				err = s.CallTool(ctx, callToolInput, callToolOutput)
+				endAt = time.Now()
+				result = plan.Result{Name: step.Name, Args: step.Args, Result: callToolOutput.Result, ID: step.ID}
+			}
+
 			if err != nil {
 				result.Error = err.Error()
 				// missing param -> elicitation handled below
@@ -162,10 +171,15 @@ outer:
 					}
 				}
 
+				resErr := result.Error
+				if duplicatedCall {
+					resErr = "WARN: duplicated call (cached result)"
+				}
+
 				_ = s.traceStore.Update(ctx, conversationID, traceID, func(et *memory.ExecutionTrace) {
 					et.Success = err == nil
 					et.Result = resp
-					et.Error = result.Error
+					et.Error = resErr
 					et.EndedAt = endAt
 				})
 			}
@@ -215,45 +229,7 @@ outer:
 	// Ensure all accumulated results are surfaced.
 	output.Results = append(output.Results, results...)
 
-	// Deduplicate so that for any (tool,args) pair only the last execution result
-	// is kept. This guarantees the planner receives a clean history without
-	// repeated entries, yet still sees the most recent outcome.
-	output.Results = dedupKeepLast(output.Results)
 	return nil
-}
-
-// dedupKeepLast returns a new slice with only the last occurrence of each
-// (tool, canonical-args) pair, preserving the chronological order of those
-// last occurrences.
-func dedupKeepLast(in []plan.Result) []plan.Result {
-	if len(in) <= 1 {
-		return in
-	}
-
-	type key struct {
-		Name string
-		Args string
-	}
-
-	seen := make(map[key]struct{}, len(in))
-	outRev := make([]plan.Result, 0, len(in))
-
-	// Walk backwards so we keep the *last* occurrence.
-	for i := len(in) - 1; i >= 0; i-- {
-		r := in[i]
-		k := key{r.Name, core.CanonicalArgs(r.Args)}
-		if _, dup := seen[k]; dup {
-			continue
-		}
-		seen[k] = struct{}{}
-		outRev = append(outRev, r)
-	}
-
-	// Reverse back to chronological order.
-	for i, j := 0, len(outRev)-1; i < j; i, j = i+1, j-1 {
-		outRev[i], outRev[j] = outRev[j], outRev[i]
-	}
-	return outRev
 }
 
 // ---------------------------------------------
