@@ -9,7 +9,8 @@ tool:
   - pattern: system/patch
 
 knowledge:
-  - url: knowledge/
+  - inclusionMode: full
+    url: knowledge/
 
 elicitation:
   message: "Please provide execution context"
