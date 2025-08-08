@@ -294,6 +294,10 @@ func parseKnowledge(node *yml.Node) (*agent.Knowledge, error) {
 			if valueNode.Kind == yaml.ScalarNode {
 				knowledge.Description = valueNode.Value
 			}
+		case "inclusionmode":
+			if valueNode.Kind == yaml.ScalarNode {
+				knowledge.InclusionMode = valueNode.Value
+			}
 		case "locations", "url":
 			switch valueNode.Kind {
 			case yaml.ScalarNode:

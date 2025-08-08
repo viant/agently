@@ -47,10 +47,14 @@ func (s *Service) retrieveRelevantDocuments(ctx context.Context, input *QueryInp
 }
 
 // formatDocumentsForEnrichment formats documents for prompt enrichment
-func (s *Service) formatDocumentsForEnrichment(documents []schema.Document, includeFile bool) string {
+func (s *Service) formatDocumentsForEnrichment(ctx context.Context, documents []schema.Document, includeFile bool) string {
 	if len(documents) == 0 {
 		return ""
 	}
+
+	var included = map[string]bool{}
+
+	// If includeFile is true, we will include the file content in the output
 	var builder strings.Builder
 	for i, doc := range documents {
 		if i > 0 {
@@ -60,9 +64,23 @@ func (s *Service) formatDocumentsForEnrichment(documents []schema.Document, incl
 		if !ok {
 			path = doc.Metadata["docId"]
 		}
+		location, ok := path.(string)
+		if included[location] {
+			continue
+		}
 		builder.WriteString(fmt.Sprintf("Document %d: %s\n", i+1, path))
 
 		if includeFile {
+
+			if ok {
+				data, err := s.fs.DownloadWithURL(ctx, location)
+				if err == nil {
+					included[location] = true
+					builder.WriteString("Result:\n")
+					builder.WriteString(string(data))
+					continue
+				}
+			}
 			builder.WriteString("Result:\n")
 			builder.WriteString(doc.PageContent)
 		} else {

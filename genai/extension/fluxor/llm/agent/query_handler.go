@@ -435,7 +435,11 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 		return s.directAnswer(ctx, qi, qo, convID, query)
 	}
 
-	enrichment := s.buildEnrichment(query, s.formatDocumentsForEnrichment(docs, qi.IncludeFile), qi.Context)
+	if qi.Agent.Knowledge[0].InclusionMode == "full" {
+		qi.IncludeFile = true
+	}
+
+	enrichment := s.buildEnrichment(query, s.formatDocumentsForEnrichment(ctx, docs, qi.IncludeFile), qi.Context)
 
 	// 2. System prompt from agent template.
 	sysPrompt, err := s.buildSystemPrompt(ctx, qi, enrichment)
