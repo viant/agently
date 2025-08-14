@@ -32,7 +32,7 @@ export OPENAI_API_KEY=your_key
 
 # Clone the repository
 git clone https://github.com/viant/agently.git
-cd agently/cmd/agently
+cd agently/agently
 
 # Set the Agently root directory (defaults to ~/.agently if not set)
 export AGENTLY_ROOT=./repo
@@ -41,7 +41,7 @@ export AGENTLY_ROOT=./repo
 mkdir -p $AGENTLY_ROOT
 
 # Build the application
-go build -o agently ./cmd/agently
+go build -o agently .
 
 # Check available commands
 ./agently -h
