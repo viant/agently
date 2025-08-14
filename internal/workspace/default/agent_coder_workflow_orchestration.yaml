@@ -10,9 +10,11 @@ stage:
         tools: ${tools}
         query: ${query}
         context: ${context}
+        systemContext: ${systemContext}
         results: ${results}
         transcript: ${transcript}
         promptURI: $path(prompt/chat.vm)
+        systemPromptURI: $path(prompt/system.vm)
 
       post:
         plan: ${plan}

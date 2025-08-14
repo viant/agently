@@ -27,9 +27,10 @@ type GenerateInput struct {
 	// Options allows callers to specify advanced llm.Options (temperature,
 	// top-p, etc.).  If nil a minimal options struct will be created that only
 	// carries Tools.
-	Options  *llm.Options
-	Template string
-	Bind     map[string]interface{}
+	Options        *llm.Options
+	Template       string
+	SystemTemplate string
+	Bind           map[string]interface{}
 }
 
 // GenerateOutput represents output from extraction
@@ -185,6 +186,14 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		input.Prompt = expanded
 	}
 
+	if input.SystemTemplate != "" {
+		expanded, err := s.expandSystemTemplate(ctx, input)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to expand template: %w", err)
+		}
+		input.SystemPrompt = expanded
+	}
+
 	if input.Model == "" {
 		if input.Preferences != nil {
 			if m := s.modelMatcher.Best(input.Preferences); m != "" {
@@ -308,4 +317,36 @@ func (a *Attachment) MIMEType() string {
 		return "video/mp4"
 	}
 	return "application/octet-stream"
+}
+
+func (s *Service) expandSystemTemplate(ctx context.Context, input *GenerateInput) (string, error) {
+	planner := velty.New()
+	err := planner.DefineVariable("SystemPrompt", input.SystemPrompt)
+	if err != nil {
+		return "", err
+	}
+	// Define variables once during compilation
+	for k, v := range input.Bind {
+		if err := planner.DefineVariable(k, v); err != nil {
+			return "", err
+		}
+	}
+	exec, newState, err := planner.Compile([]byte(input.SystemTemplate))
+	if err != nil {
+		return "", err
+	}
+	state := newState()
+	state.SetValue("SystemPrompt", input.SystemPrompt)
+	// Define variables once during compilation
+	for k, v := range input.Bind {
+		if err := state.SetValue(k, v); err != nil {
+			return "", err
+		}
+	}
+	// No need to set values again, they were already defined during compilation
+	if err = exec.Exec(state); err != nil {
+		return "", err
+	}
+	output := string(state.Buffer.Bytes())
+	return output, nil
 }

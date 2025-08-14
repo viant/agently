@@ -139,6 +139,17 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agent.Agent
 		}
 	}
 
+	for i := range anAgent.SystemKnowledge {
+		knowledge := anAgent.SystemKnowledge[i]
+		if knowledge.URL == "" {
+			return nil, fmt.Errorf("agent %v system knowledge URL is empty", anAgent.Name)
+		}
+		if url.IsRelative(knowledge.URL) && !url.IsRelative(URL) {
+			parentURL, _ := url.Split(URL, file.Scheme)
+			anAgent.SystemKnowledge[i].URL = url.Join(parentURL, knowledge.URL)
+		}
+	}
+
 	// Validate agent
 	if err := anAgent.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid agent configuration from %s: %w", URL, err)
@@ -218,6 +229,16 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 						return err
 					}
 					agent.Knowledge = append(agent.Knowledge, knowledge)
+				}
+			}
+		case "systemknowledge":
+			if valueNode.Kind == yaml.SequenceNode {
+				for _, itemNode := range valueNode.Content {
+					knowledge, err := parseKnowledge((*yml.Node)(itemNode))
+					if err != nil {
+						return err
+					}
+					agent.SystemKnowledge = append(agent.SystemKnowledge, knowledge)
 				}
 			}
 		case "orchestrationflow":
