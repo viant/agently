@@ -4,8 +4,10 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"time"
 
 	"github.com/viant/agently/genai/tool"
+	elog "github.com/viant/agently/internal/log"
 )
 
 type CallToolInput struct {
@@ -29,7 +31,9 @@ func (s *Service) callTool(ctx context.Context, in, out interface{}) error {
 }
 
 func (s *Service) CallTool(ctx context.Context, input *CallToolInput, output *CallToolOutput) error {
+	// ------------------------------------------------------------
 	// Execute tool via injected registry or default
+	// ------------------------------------------------------------
 	var executor func(ctx context.Context, name string, args map[string]interface{}) (string, error)
 	executor = s.registry.Execute
 	if pol := tool.FromContext(ctx); pol != nil {
@@ -41,8 +45,30 @@ func (s *Service) CallTool(ctx context.Context, input *CallToolInput, output *Ca
 		}
 	}
 
+	// Publish TaskInput event before execution so that sinks can capture the
+	// tool invocation with its arguments.
+	elog.Publish(elog.Event{
+		Time:      time.Now(),
+		EventType: elog.TaskInput,
+		Payload: map[string]interface{}{
+			"tool": input.Name,
+			"args": input.Args,
+		},
+	})
+
 	toolResult, err := executor(ctx, input.Name, input.Args)
 	output.Result = toolResult
-	fmt.Println("CallTool", toolResult, err)
+
+	// Log the output/result (and potential error) so that it is captured by the
+	// default FileSink (typically writing to agently.log).
+	elog.Publish(elog.Event{
+		Time:      time.Now(),
+		EventType: elog.TaskOutput,
+		Payload: map[string]interface{}{
+			"tool":   input.Name,
+			"result": toolResult,
+			"error":  err,
+		},
+	})
 	return err
 }

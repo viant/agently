@@ -6,97 +6,146 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/viant/agently/genai/extension/fluxor/llm/core/stream"
 	"github.com/viant/agently/genai/llm"
 	fluxortypes "github.com/viant/fluxor/model/types"
 )
 
-// StreamEvent represents a partial or complete event in a streaming LLM response.
-// It captures text chunks, function calls, and final finish reasons.
-type StreamEvent struct {
-	Type         string                 `json:"type"`                   // chunk, function_call or done or error
-	Content      string                 `json:"content,omitempty"`      // text content for chunk events
-	Name         string                 `json:"name,omitempty"`         // function name for function_call events
-	Arguments    map[string]interface{} `json:"arguments,omitempty"`    // function arguments for function_call events
-	FinishReason string                 `json:"finishReason,omitempty"` // finish_reason for done events
+type StreamInput struct {
+	*GenerateInput
+	StreamID string
 }
 
 // StreamOutput aggregates streaming events into a slice.
 type StreamOutput struct {
-	Events []StreamEvent `json:"events"`
+	Events []stream.Event `json:"events"`
 }
 
 // stream handles streaming LLM responses, structuring JSON output for text chunks,
 // function calls and finish reasons.
 func (s *Service) stream(ctx context.Context, in, out interface{}) error {
-	input, ok := in.(*GenerateInput)
-	if !ok {
-		return fluxortypes.NewInvalidInputError(in)
-	}
-	output, ok := out.(*StreamOutput)
-	if !ok {
-		return fluxortypes.NewInvalidOutputError(out)
-	}
-
-	// Enable streaming
-	if input.Options == nil {
-		input.Options = &llm.Options{}
-	}
-	input.Options.Stream = true
-
-	req, model, err := s.prepareGenerateRequest(ctx, input)
+	input, output, err := s.validateStreamIO(in, out)
 	if err != nil {
 		return err
 	}
+	handler, cleanup, err := s.prepareStreamHandler(ctx, input.StreamID)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 
+	s.ensureStreamingOption(input)
+	req, model, err := s.prepareGenerateRequest(ctx, input.GenerateInput)
+	if err != nil {
+		return err
+	}
 	streamer, ok := model.(llm.StreamingModel)
 	if !ok {
 		return fmt.Errorf("model %T does not support streaming", model)
 	}
-	// Start streaming
 	streamCh, err := streamer.Stream(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to start stream: %w", err)
 	}
+	return s.consumeEvents(ctx, streamCh, handler, output)
+}
 
-	for event := range streamCh {
-		if event.Err != nil {
-			output.Events = append(output.Events, StreamEvent{Type: "error", Content: event.Err.Error()})
-			return event.Err
-		}
-		resp := event.Response
-		if resp == nil || len(resp.Choices) == 0 {
-			continue
-		}
-		choice := resp.Choices[0]
+// validateStreamIO validates and unwraps inputs.
+func (s *Service) validateStreamIO(in, out interface{}) (*StreamInput, *StreamOutput, error) {
+	input, ok := in.(*StreamInput)
+	if !ok {
+		return nil, nil, fluxortypes.NewInvalidInputError(in)
+	}
+	output, ok := out.(*StreamOutput)
+	if !ok {
+		return nil, nil, fluxortypes.NewInvalidOutputError(out)
+	}
+	if input.StreamID == "" {
+		return nil, nil, fmt.Errorf("streamID was empty")
+	}
+	return input, output, nil
+}
 
-		// Function call events
-		if len(choice.Message.ToolCalls) > 0 {
-			for _, tc := range choice.Message.ToolCalls {
-				name := tc.Name
-				args := tc.Arguments
-				if name == "" && tc.Function.Name != "" {
-					name = tc.Function.Name
-				}
-				if args == nil && tc.Function.Arguments != "" {
-					var parsed map[string]interface{}
-					if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
-						args = parsed
-					}
-				}
-				output.Events = append(output.Events, StreamEvent{Type: "function_call", Name: name, Arguments: args})
+// prepareStreamHandler registers and returns a stream handler with a cleanup.
+func (s *Service) prepareStreamHandler(ctx context.Context, id string) (stream.Handler, func(), error) {
+	h, err := stream.New(ctx, id)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create stream handler: %w", err)
+	}
+	cleanup := func() { stream.Finish(id) }
+	return h, cleanup, nil
+}
+
+// ensureStreamingOption turns on streaming at the request level.
+func (s *Service) ensureStreamingOption(input *StreamInput) {
+	if input.Options == nil {
+		input.Options = &llm.Options{}
+	}
+	input.Options.Stream = true
+}
+
+// consumeEvents pulls from provider stream channel, dispatches to handler and
+// appends structured events to output. Stops on error or done.
+func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, handler stream.Handler, output *StreamOutput) error {
+	for event := range ch {
+		if err := handler(ctx, &event); err != nil {
+			return fmt.Errorf("failed to handle stream event: %w", err)
+		}
+		if err := s.appendStreamEvent(&event, output); err != nil {
+			return err
+		}
+		// Stop on done or error
+		if len(output.Events) > 0 {
+			last := output.Events[len(output.Events)-1]
+			if last.Type == "done" || last.Type == "error" {
+				break
 			}
-		}
-
-		// Text chunk
-		if content := strings.TrimSpace(choice.Message.Content); content != "" {
-			output.Events = append(output.Events, StreamEvent{Type: "chunk", Content: content})
-		}
-
-		// Finish event
-		if choice.FinishReason != "" {
-			output.Events = append(output.Events, StreamEvent{Type: "done", FinishReason: choice.FinishReason})
-			break
 		}
 	}
 	return nil
+}
+
+// appendStreamEvent converts provider event to public stream.Event(s).
+func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput) error {
+	if event.Err != nil {
+		output.Events = append(output.Events, stream.Event{Type: "error", Content: event.Err.Error()})
+		return event.Err
+	}
+	resp := event.Response
+	if resp == nil || len(resp.Choices) == 0 {
+		return nil
+	}
+	choice := resp.Choices[0]
+	// Tool calls
+	if len(choice.Message.ToolCalls) > 0 {
+		output.Events = append(output.Events, s.toolCallEvents(&choice)...)
+	}
+	// Text chunk
+	if content := strings.TrimSpace(choice.Message.Content); content != "" {
+		output.Events = append(output.Events, stream.Event{Type: "chunk", Content: content})
+	}
+	// Done
+	if choice.FinishReason != "" {
+		output.Events = append(output.Events, stream.Event{Type: "done", FinishReason: choice.FinishReason})
+	}
+	return nil
+}
+
+func (s *Service) toolCallEvents(choice *llm.Choice) []stream.Event {
+	out := make([]stream.Event, 0, len(choice.Message.ToolCalls))
+	for _, tc := range choice.Message.ToolCalls {
+		name := tc.Name
+		args := tc.Arguments
+		if name == "" && tc.Function.Name != "" {
+			name = tc.Function.Name
+		}
+		if args == nil && tc.Function.Arguments != "" {
+			var parsed map[string]interface{}
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
+				args = parsed
+			}
+		}
+		out = append(out, stream.Event{Type: "function_call", Name: name, Arguments: args})
+	}
+	return out
 }

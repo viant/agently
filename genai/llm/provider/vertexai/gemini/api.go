@@ -18,6 +18,8 @@ func (c *Client) Implements(feature string) bool {
 	switch feature {
 	case base.CanUseTools:
 		return true
+	case base.CanStream:
+		return true
 	}
 	return false
 }
@@ -166,7 +168,16 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	events := make(chan llm.StreamEvent)
 	go func() {
 		defer resp.Body.Close()
+		defer close(events)
 		scanner := bufio.NewScanner(resp.Body)
+		// Aggregators per choice index (Gemini typically returns a single candidate)
+		type toolAgg struct {
+			name string
+			args map[string]interface{}
+		}
+		aggText := map[int]*strings.Builder{}
+		aggTools := map[int][]toolAgg{}
+		finish := map[int]string{}
 		for scanner.Scan() {
 			line := scanner.Text()
 			if !strings.HasPrefix(line, "data: ") {
@@ -179,14 +190,58 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			var chunk Response
 			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 				events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream response: %w", err)}
-				break
+				return
 			}
-			events <- llm.StreamEvent{Response: ToLLMSResponse(&chunk)}
+			for _, cand := range chunk.Candidates {
+				idx := cand.Index
+				if _, ok := aggText[idx]; !ok {
+					aggText[idx] = &strings.Builder{}
+				}
+				// accumulate parts
+				for _, p := range cand.Content.Parts {
+					if p.Text != "" {
+						aggText[idx].WriteString(p.Text)
+					}
+					if p.FunctionCall != nil {
+						var args map[string]interface{}
+						if p.FunctionCall.Args != nil {
+							if m, ok := p.FunctionCall.Args.(map[string]interface{}); ok {
+								args = m
+							}
+						} else if p.FunctionCall.Arguments != "" {
+							_ = json.Unmarshal([]byte(p.FunctionCall.Arguments), &args)
+						}
+						aggTools[idx] = append(aggTools[idx], toolAgg{name: p.FunctionCall.Name, args: args})
+					}
+				}
+				if cand.FinishReason != "" {
+					finish[idx] = cand.FinishReason
+				}
+			}
+			// Emit only for choices that have finishReason
+			if len(finish) > 0 {
+				outChoices := make([]llm.Choice, 0, len(finish))
+				for idx, reason := range finish {
+					msg := llm.Message{Role: llm.RoleAssistant, Content: aggText[idx].String()}
+					if calls, ok := aggTools[idx]; ok && len(calls) > 0 {
+						tc := make([]llm.ToolCall, 0, len(calls))
+						for _, t := range calls {
+							tc = append(tc, llm.ToolCall{Name: t.name, Arguments: t.args})
+						}
+						msg.ToolCalls = tc
+					}
+					outChoices = append(outChoices, llm.Choice{Index: idx, Message: msg, FinishReason: reason})
+				}
+				events <- llm.StreamEvent{Response: &llm.GenerateResponse{Choices: outChoices}}
+				// Clear finish map to avoid re-emitting
+				finish = map[int]string{}
+				aggText = map[int]*strings.Builder{}
+				aggTools = map[int][]toolAgg{}
+			}
 		}
 		if err := scanner.Err(); err != nil {
 			events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
 		}
-		close(events)
 	}()
 	return events, nil
 }
