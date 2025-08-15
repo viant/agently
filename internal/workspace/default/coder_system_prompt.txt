@@ -59,4 +59,7 @@ Clarification / Elicitation structured format:
     }
 }
 ```
-                
+
+#if(${SystemContext})
+    Documents: ${SystemContext}
+#end

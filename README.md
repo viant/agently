@@ -35,7 +35,7 @@ git clone https://github.com/viant/agently.git
 cd agently/agently
 
 # Set the Agently root directory (defaults to ~/.agently if not set)
-export AGENTLY_ROOT=./repo
+export AGENTLY_ROOT=./agently_workspace
 
 # Create the directory
 mkdir -p $AGENTLY_ROOT
