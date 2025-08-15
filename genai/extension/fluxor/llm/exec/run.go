@@ -180,7 +180,9 @@ func (s *Service) updateTraceWithPrev(ctx context.Context, convID string, traceI
 	now := time.Now()
 	_ = s.traceStore.Update(ctx, convID, traceID, func(et *memory.ExecutionTrace) {
 		if et.StartedAt.IsZero() {
-			et.StartedAt = now
+			// Ensure non-zero elapsed by backdating start slightly when we only
+			// have a final result coming from a previous iteration/stream.
+			et.StartedAt = now.Add(-1 * time.Millisecond)
 		}
 		et.Success = prev.Error == ""
 		et.Result = resp

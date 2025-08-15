@@ -277,7 +277,7 @@ func (c *Client) consumeStream(body io.Reader, events chan<- llm.StreamEvent) {
 				}
 			}
 			if len(finalized) > 0 {
-				events <- llm.StreamEvent{Response: &llm.GenerateResponse{Choices: finalized}}
+				events <- llm.StreamEvent{Response: &llm.GenerateResponse{Choices: finalized, Model: sresp.Model}}
 			}
 			continue
 		}

@@ -241,7 +241,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					}
 					outChoices = append(outChoices, llm.Choice{Index: idx, Message: msg, FinishReason: reason})
 				}
-				events <- llm.StreamEvent{Response: &llm.GenerateResponse{Choices: outChoices}}
+				events <- llm.StreamEvent{Response: &llm.GenerateResponse{Choices: outChoices, Model: c.Model}}
 				// Clear finish map to avoid re-emitting
 				finish = map[int]string{}
 				aggText = map[int]*strings.Builder{}
