@@ -18,9 +18,20 @@ func (c *Client) Implements(feature string) bool {
 	case base.CanUseTools:
 		return true
 	case base.CanStream:
-		return true
+		return c.canStream()
 	}
 	return false
+}
+
+func (c *Client) canStream() bool {
+	m := strings.ToLower(c.Model)
+	// Assume streaming unless known non-stream type (e.g., embeddings) – keep small blacklist.
+	for _, kw := range []string{"embed", "embedding"} {
+		if strings.Contains(m, kw) {
+			return false
+		}
+	}
+	return true
 }
 
 // Generate sends a chat request to the Claude API and returns the response
@@ -155,7 +166,34 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	apiURL := c.GetEndpointURL()
 	resp, err := c.sendRequest(ctx, apiURL, data)
 	if err != nil {
-		return nil, err
+		// Fallback to non-streaming generate
+		ch := make(chan llm.StreamEvent, 1)
+		go func() {
+			defer close(ch)
+			out, gerr := c.Generate(ctx, request)
+			if gerr != nil {
+				ch <- llm.StreamEvent{Err: gerr}
+				return
+			}
+			ch <- llm.StreamEvent{Response: out}
+		}()
+		return ch, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		// consume body then fallback
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		ch := make(chan llm.StreamEvent, 1)
+		go func() {
+			defer close(ch)
+			out, gerr := c.Generate(ctx, request)
+			if gerr != nil {
+				ch <- llm.StreamEvent{Err: fmt.Errorf("stream not supported: %w", gerr)}
+				return
+			}
+			ch <- llm.StreamEvent{Response: out}
+		}()
+		return ch, nil
 	}
 	// Stream response body with aggregation and finish-only emission
 	events := make(chan llm.StreamEvent)

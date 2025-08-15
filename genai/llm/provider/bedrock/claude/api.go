@@ -20,9 +20,23 @@ func (c *Client) Implements(feature string) bool {
 	case base.CanUseTools:
 		return true
 	case base.CanStream:
-		return true
+		return c.canStream()
 	}
 	return false
+}
+
+// canStream returns whether this model supports streaming. By default we assume
+// models can stream unless they match a known non-streaming category.
+func (c *Client) canStream() bool {
+	model := strings.ToLower(c.Model)
+	// Known non-streaming categories on Bedrock include embeddings and image generators.
+	blacklist := []string{"embed", "embedding", "image"}
+	for _, kw := range blacklist {
+		if strings.Contains(model, kw) {
+			return false
+		}
+	}
+	return true
 }
 
 // Generate sends a chat request to the Claude API on AWS Bedrock and returns the response
@@ -146,14 +160,34 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	// Resolve account placeholder if present (align with Generate)
+	modelID := c.Model
+	if strings.Contains(modelID, "${AccountId}") {
+		if err := c.ensureAccountID(ctx); err != nil {
+			return nil, err
+		}
+		modelID = strings.ReplaceAll(modelID, "${AccountId}", c.AccountID)
+	}
+
 	input := &bedrockruntime.InvokeModelWithResponseStreamInput{
-		ModelId:     aws.String(c.Model),
+		ModelId:     aws.String(modelID),
 		Body:        data,
 		ContentType: aws.String("application/json"),
 	}
 	output, err := c.BedrockClient.InvokeModelWithResponseStream(ctx, input)
 	if err != nil {
-		return nil, fmt.Errorf("failed to invoke Bedrock stream model: %w", err)
+		// Graceful fallback: return a channel that emits a single non-streaming result
+		ch := make(chan llm.StreamEvent, 1)
+		go func() {
+			defer close(ch)
+			resp, gerr := c.Generate(ctx, request)
+			if gerr != nil {
+				ch <- llm.StreamEvent{Err: fmt.Errorf("stream not supported, generate failed: %w", gerr)}
+				return
+			}
+			ch <- llm.StreamEvent{Response: resp}
+		}()
+		return ch, nil
 	}
 
 	events := make(chan llm.StreamEvent)

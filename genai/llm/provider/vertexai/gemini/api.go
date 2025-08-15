@@ -19,9 +19,18 @@ func (c *Client) Implements(feature string) bool {
 	case base.CanUseTools:
 		return true
 	case base.CanStream:
-		return true
+		return c.canStream()
 	}
 	return false
+}
+
+func (c *Client) canStream() bool {
+	m := strings.ToLower(c.Model)
+	// Gemini embedding endpoints do not stream
+	if strings.Contains(m, "embed") || strings.Contains(m, "embedding") {
+		return false
+	}
+	return true
 }
 
 // Generate generates a response using the Gemini API
