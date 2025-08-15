@@ -16,6 +16,7 @@ const (
 	TaskInput  EventType = "TASK_INPUT"
 	TaskOutput EventType = "TASK_OUTPUT"
 	TaskWhen   EventType = "TASK_WHEN"
+	PlanOutput EventType = "PLAN_OUTPUT"
 )
 
 type Event struct {

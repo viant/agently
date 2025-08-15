@@ -4,13 +4,21 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"fmt"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/google/uuid"
 	plan "github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/extension/fluxor/llm/core/stream"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
-	"strings"
+
+	elog "github.com/viant/agently/internal/log"
+	"github.com/viant/fluxor/model/graph"
+	"github.com/viant/fluxor/runtime/execution"
+	"github.com/viant/fluxor/runtime/orchestrator"
 )
 
 // ToolKey uniquely identifies a tool call by its name and canonicalised
@@ -37,6 +45,12 @@ type PlanInput struct {
 	Results       []plan.Result    `json:"results,omitempty"`    // structured step results for finalization
 	Transcript    []memory.Message `json:"transcript,omitempty"` // transcript of the conversation with the LLM`
 	ResultSummary string           `json:"resultSummary,omitempty"`
+	// Runner is an optional fully-qualified action (service:method) used to
+	// execute plan steps during streaming. For example: "llm/exec:run_plan".
+	// When provided and the Fluxor orchestrator is available in ctx, the plan
+	// service will execute newly generated steps via this runner, ensuring the
+	// same behavior as the non-streaming workflow path.
+	Runner string `json:"runner,omitempty"`
 }
 
 // PlanOutput defines Plan or Answer output.
@@ -54,8 +68,8 @@ func (s *Service) plan(ctx context.Context, in, out interface{}) error {
 	output := out.(*PlanOutput)
 
 	err := s.Plan(ctx, input, output)
-	data, _ := json.Marshal(output)
-	fmt.Printf("Plan: %s\n=======\n\n", string(data))
+	// Publish plan output event for logging
+	elog.Publish(elog.Event{Time: time.Now(), EventType: elog.PlanOutput, Payload: output})
 	return err
 }
 
@@ -63,51 +77,89 @@ func (s *Service) plan(ctx context.Context, in, out interface{}) error {
 func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput) error {
 	output.Results = input.Results
 	output.Transcript = input.Transcript
-	modelName := input.Model
-	if modelName == "" {
-		modelName = s.defaultModel
-	}
-	tools, err := s.registry.MustHaveTools(input.Tools)
+
+	modelName := s.resolveModelName(input)
+	tools, promptTemplate, err := s.prepareToolsAndPrompt(ctx, input)
 	if err != nil {
 		return err
 	}
 
-	promptTemplate := ""
-	if input.PromptURI != "" {
-		data, err := s.fs.DownloadWithURL(ctx, input.PromptURI)
-		if err != nil {
-			return err
-		}
-		promptTemplate = string(data)
-	}
-	if promptTemplate == "" {
-		promptTemplate = planPromptTemplate
-	}
 	genOutput := &GenerateOutput{}
-	planResult, err := s.GeneratePlan(ctx, modelName, promptTemplate, input, tools, genOutput)
+	planResult, execResults, err := s.GeneratePlan(ctx, modelName, promptTemplate, input, tools, genOutput)
 	if err != nil {
 		return err
 	}
+
 	if planResult.Elicitation.IsEmpty() {
 		planResult.Elicitation = nil
 	}
 
 	if output.Plan.IsEmpty() {
-		for _, choice := range genOutput.Response.Choices {
-			if choice.Message.Role == llm.RoleAssistant {
-				if planResult.Elicitation != nil && json.Valid([]byte(choice.Message.Content)) {
-					continue //that was elicitation content
-				}
-				output.Transcript = append(output.Transcript, memory.Message{Role: string(choice.Message.Role), Content: choice.Message.Content})
-			}
-		}
+		s.appendTranscriptFromGenerate(genOutput, planResult, output)
 	}
-	for _, transcript := range output.Transcript {
-		output.Answer += transcript.Content + "\n"
-	}
+	s.buildAnswerFromTranscript(output)
 	RefinePlan(planResult, output.Answer)
+	if len(execResults) > 0 {
+		output.Results = append(output.Results, execResults...)
+	}
 	output.Plan = planResult
 	return nil
+}
+
+func (s *Service) resolveModelName(input *PlanInput) string {
+	if input.Model != "" {
+		return input.Model
+	}
+	return s.defaultModel
+}
+
+func (s *Service) prepareToolsAndPrompt(ctx context.Context, input *PlanInput) ([]llm.Tool, string, error) {
+	tools, err := s.registry.MustHaveTools(input.Tools)
+	if err != nil {
+		return nil, "", err
+	}
+	prompt := ""
+	if input.PromptURI != "" {
+		data, err := s.fs.DownloadWithURL(ctx, input.PromptURI)
+		if err != nil {
+			return nil, "", err
+		}
+		prompt = string(data)
+	}
+	if prompt == "" {
+		prompt = planPromptTemplate
+	}
+	return tools, prompt, nil
+}
+
+func (s *Service) appendTranscriptFromGenerate(genOutput *GenerateOutput, planResult *plan.Plan, output *PlanOutput) {
+	if genOutput.Response != nil {
+		for _, choice := range genOutput.Response.Choices {
+			if choice.Message.Role != llm.RoleAssistant {
+				continue
+			}
+			if planResult.Elicitation != nil && json.Valid([]byte(choice.Message.Content)) {
+				continue
+			}
+			output.Transcript = append(output.Transcript, memory.Message{Role: string(choice.Message.Role), Content: choice.Message.Content})
+		}
+		return
+	}
+	if txt := strings.TrimSpace(genOutput.Content); txt != "" {
+		output.Transcript = append(output.Transcript, memory.Message{Role: string(llm.RoleAssistant), Content: txt})
+	}
+}
+
+func (s *Service) buildAnswerFromTranscript(output *PlanOutput) {
+	var b strings.Builder
+	for _, t := range output.Transcript {
+		if t.Content == "" {
+			continue
+		}
+		b.WriteString(t.Content)
+		b.WriteByte('\n')
+	}
+	output.Answer = b.String()
 }
 
 func RefinePlan(p *plan.Plan, _ string) {
@@ -150,7 +202,7 @@ func RefinePlan(p *plan.Plan, _ string) {
 
 // GeneratePlan invokes the LLM to produce or refine a plan based on the template and bind variables.
 // It returns a Plan if parsing succeeded, otherwise returns the answer text.
-func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate string, input *PlanInput, tools []llm.Tool, genOutput *GenerateOutput) (*plan.Plan, error) {
+func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate string, input *PlanInput, tools []llm.Tool, genOutput *GenerateOutput) (*plan.Plan, []plan.Result, error) {
 
 	filteredInput := dedupResultsSkipSeenErrors(input.Results)
 
@@ -169,6 +221,9 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate st
 		"ResultSummary":                input.ResultSummary,
 		"CanUseTools":                  false,
 		"CanPreventDuplicateToolCalls": false,
+	}
+	if strings.TrimSpace(input.Runner) != "" {
+		bind["Runner"] = input.Runner
 	}
 
 	if model, _ := s.llmFinder.Find(ctx, modelName); model != nil {
@@ -208,8 +263,8 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate st
 		}
 	}
 
-	aPlan, err := s.generatePlan(ctx, genInput, genOutput)
-	return aPlan, err
+	aPlan, results, err := s.generatePlan(ctx, genInput, genOutput)
+	return aPlan, results, err
 }
 
 func (s *Service) enureResultCallID(input *PlanInput) {
@@ -221,48 +276,177 @@ func (s *Service) enureResultCallID(input *PlanInput) {
 	}
 }
 
-func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, genOutput *GenerateOutput) (*plan.Plan, error) {
-	if err := s.Generate(ctx, genInput, genOutput); err != nil {
-		return nil, err
-	}
+var useStream = false
+
+func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, genOutput *GenerateOutput) (*plan.Plan, []plan.Result, error) {
 	aPlan := plan.New()
+	var execResults []plan.Result
 
-	// Handle nested function calls (tool calls) in initial plan response.
-	if len(genOutput.Response.Choices) > 0 {
-		for j := range genOutput.Response.Choices {
-			choice := genOutput.Response.Choices[j]
-			if len(choice.Message.ToolCalls) > 0 {
-				steps := make(plan.Steps, 0, len(choice.Message.ToolCalls))
-				for _, tc := range choice.Message.ToolCalls {
-					name := tc.Name
-					args := tc.Arguments
-					if name == "" && tc.Function.Name != "" {
-						name = tc.Function.Name
-					}
-					if args == nil && tc.Function.Arguments != "" {
-						var parsed map[string]interface{}
-						if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
-							args = parsed
-						}
-					}
-					steps = append(steps, plan.Step{
-						ID:     tc.ID,
-						Type:   "tool",
-						Name:   name,
-						Args:   args,
-						Reason: choice.Message.Content,
-					})
-					data, _ := json.Marshal(args)
-					fmt.Printf("%s -> %s\n", name, string(data))
-				}
-				aPlan.Steps = append(aPlan.Steps, steps...)
+	// Dynamically decide whether to use streaming based on model capability
+	doStream := false
+	if model, _ := s.llmFinder.Find(ctx, genInput.Model); model != nil {
+		doStream = model.Implements(base.CanStream)
+	}
 
+	if doStream {
+		runnerService, runnerMethod := s.deriveRunner(ctx, genInput)
+		var wg sync.WaitGroup
+		nextStepIdx := 0
+		streamId := s.registerStreamPlannerHandler(ctx, genInput, aPlan, runnerService, runnerMethod, &execResults, &wg, &nextStepIdx, genOutput)
+		_ = s.stream(ctx, &StreamInput{StreamID: streamId, GenerateInput: genInput}, &StreamOutput{})
+		wg.Wait()
+		s.synthesizeFinalResponse(genOutput)
+	} else {
+		if err := s.Generate(ctx, genInput, genOutput); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if s.extendPlanFromResponse(genOutput, aPlan) {
+		return aPlan, execResults, nil
+	}
+	if err := s.parsePlanFromText(ctx, genOutput, aPlan); err != nil {
+		return aPlan, execResults, err
+	}
+	return aPlan, execResults, nil
+}
+
+func (s *Service) deriveRunner(ctx context.Context, genInput *GenerateInput) (string, string) {
+	service, method := "", ""
+	if genInput != nil && genInput.Bind != nil {
+		if v, ok := genInput.Bind["Runner"]; ok {
+			if s2, ok := v.(string); ok && strings.Contains(s2, ":") {
+				parts := strings.SplitN(s2, ":", 2)
+				service, method = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 			}
 		}
-		if !aPlan.IsEmpty() {
-			return aPlan, nil
+	}
+	if service == "" || method == "" {
+		if proc := execution.ContextValue[*execution.Process](ctx); proc != nil && proc.Workflow != nil {
+			for _, t := range proc.Workflow.AllTasks() {
+				if tt, ok := any(t).(*graph.Task); ok && tt != nil && tt.Action != nil {
+					if strings.EqualFold(tt.Action.Method, "run_plan") {
+						if strings.TrimSpace(tt.Action.Service) != "" {
+							service, method = tt.Action.Service, tt.Action.Method
+							break
+						}
+					}
+				}
+			}
 		}
 	}
+	return service, method
+}
+
+func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *GenerateInput, aPlan *plan.Plan, runnerService, runnerMethod string, execResults *[]plan.Result, wg *sync.WaitGroup, nextStepIdx *int, genOutput *GenerateOutput) string {
+	var mux sync.Mutex
+	return stream.Register(func(ctx context.Context, event *llm.StreamEvent) error {
+		if event == nil || event.Response == nil || len(event.Response.Choices) == 0 {
+			return nil
+		}
+		choice := event.Response.Choices[0]
+		mux.Lock()
+		defer mux.Unlock()
+
+		if content := strings.TrimSpace(choice.Message.Content); content != "" {
+			if genOutput.Content == "" {
+				genOutput.Content = content
+			} else {
+				genOutput.Content += content
+			}
+		}
+		s.extendPlan(&choice, aPlan)
+		for *nextStepIdx < len(aPlan.Steps) {
+			st := aPlan.Steps[*nextStepIdx]
+			*nextStepIdx++
+			if st.Type != "tool" {
+				continue
+			}
+			if o, ok := orchestrator.FromContext(ctx); ok && o != nil && runnerService != "" && runnerMethod != "" {
+				wg.Add(1)
+				step := st
+				go func() {
+					defer wg.Done()
+					child := &execution.Execution{
+						Service: runnerService,
+						Method:  runnerMethod,
+						AtHoc:   true,
+						Input: map[string]interface{}{
+							"plan": map[string]interface{}{
+								"steps": []interface{}{map[string]interface{}{"id": step.ID, "type": step.Type, "name": step.Name, "args": step.Args, "reason": step.Reason}},
+							},
+							"model":      genInput.Model,
+							"tools":      genInput.Tools,
+							"results":    append([]plan.Result{}, (*execResults)...),
+							"transcript": genInput.Bind["Transcript"],
+							"context":    genInput.Bind["Context"],
+						},
+					}
+					elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskInput, Payload: map[string]interface{}{"tool": step.Name, "args": step.Args}})
+					outVal, err := o.Call(ctx, child, 60*time.Second)
+					var results []plan.Result
+					if m, ok := outVal.(map[string]interface{}); ok {
+						if v, exists := m["results"]; exists && v != nil {
+							if b, e := json.Marshal(v); e == nil {
+								_ = json.Unmarshal(b, &results)
+							}
+						}
+					}
+					elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskOutput, Payload: map[string]interface{}{"tool": step.Name, "result": results, "error": err}})
+					if len(results) > 0 {
+						*execResults = append(*execResults, results...)
+					} else {
+						*execResults = append(*execResults, plan.Result{ID: step.ID, Name: step.Name, Args: step.Args})
+					}
+				}()
+				continue
+			}
+
+			if s.registry != nil {
+				wg.Add(1)
+				step := st
+				go func() {
+					defer wg.Done()
+					elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskInput, Payload: map[string]interface{}{"tool": step.Name, "args": step.Args}})
+					toolResult, err := s.registry.Execute(ctx, step.Name, step.Args)
+					elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskOutput, Payload: map[string]interface{}{"tool": step.Name, "result": toolResult, "error": err}})
+					res := plan.Result{ID: step.ID, Name: step.Name, Args: step.Args, Result: toolResult}
+					if err != nil {
+						res.Error = err.Error()
+					}
+					*execResults = append(*execResults, res)
+				}()
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Service) synthesizeFinalResponse(genOutput *GenerateOutput) {
+	if strings.TrimSpace(genOutput.Content) == "" || genOutput.Response != nil {
+		return
+	}
+	genOutput.Response = &llm.GenerateResponse{
+		Choices: []llm.Choice{{
+			Index:        0,
+			Message:      llm.Message{Role: llm.RoleAssistant, Content: strings.TrimSpace(genOutput.Content)},
+			FinishReason: "stop",
+		}},
+	}
+}
+
+func (s *Service) extendPlanFromResponse(genOutput *GenerateOutput, aPlan *plan.Plan) bool {
+	if genOutput.Response == nil || len(genOutput.Response.Choices) == 0 {
+		return false
+	}
+	for j := range genOutput.Response.Choices {
+		choice := &genOutput.Response.Choices[j]
+		s.extendPlan(choice, aPlan)
+	}
+	return !aPlan.IsEmpty()
+}
+
+func (s *Service) parsePlanFromText(ctx context.Context, genOutput *GenerateOutput, aPlan *plan.Plan) error {
 	var err error
 	if strings.Contains(genOutput.Content, `"tool"`) {
 		err = EnsureJSONResponse(ctx, genOutput.Content, aPlan)
@@ -275,14 +459,6 @@ func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, gen
 		}
 	}
 	aPlan.Steps.EnsureID()
-
-	// ------------------------------------------------------------------
-	// Enrich step reason with leading narrative text when Reason is empty.
-	// Many LLMs output helpful prose immediately before the JSON plan. We
-	// capture that prose (text until the opening `{` or fenced ```json block)
-	// and store it as the Reason of the first step when the JSON itself does
-	// not already carry one.
-	// ------------------------------------------------------------------
 	if len(aPlan.Steps) > 0 && strings.TrimSpace(aPlan.Steps[0].Reason) == "" {
 		prefix := genOutput.Content
 		if idx := strings.Index(prefix, "```json"); idx != -1 {
@@ -295,7 +471,57 @@ func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, gen
 			aPlan.Steps[0].Reason = prefix
 		}
 	}
-	return aPlan, err
+	return err
+}
+
+func (s *Service) extendPlan(choice *llm.Choice, aPlan *plan.Plan) {
+	if len(choice.Message.ToolCalls) > 0 {
+		steps := make(plan.Steps, 0, len(choice.Message.ToolCalls))
+		for _, tc := range choice.Message.ToolCalls {
+			name := tc.Name
+			args := tc.Arguments
+			if name == "" && tc.Function.Name != "" {
+				name = tc.Function.Name
+			}
+			if args == nil && tc.Function.Arguments != "" {
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
+					args = parsed
+				}
+			}
+			// If a step with the same ID already exists, update its fields
+			// (e.g., progressively filled arguments) instead of appending a
+			// duplicate. This keeps the plan stable during streaming deltas.
+			updated := false
+			for i := range aPlan.Steps {
+				if aPlan.Steps[i].ID == tc.ID && tc.ID != "" {
+					if aPlan.Steps[i].Name == "" {
+						aPlan.Steps[i].Name = name
+					}
+					if len(aPlan.Steps[i].Args) == 0 && len(args) > 0 {
+						aPlan.Steps[i].Args = args
+					}
+					if aPlan.Steps[i].Reason == "" && strings.TrimSpace(choice.Message.Content) != "" {
+						aPlan.Steps[i].Reason = choice.Message.Content
+					}
+					updated = true
+					break
+				}
+			}
+			if !updated {
+				steps = append(steps, plan.Step{
+					ID:     tc.ID,
+					Type:   "tool",
+					Name:   name,
+					Args:   args,
+					Reason: choice.Message.Content,
+				})
+				elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskWhen, Payload: map[string]interface{}{"tool": name, "args": args}})
+			}
+		}
+		aPlan.Steps = append(aPlan.Steps, steps...)
+
+	}
 }
 
 // dedupResultsSkipSeenErrors returns a new slice containing only the last occurrence

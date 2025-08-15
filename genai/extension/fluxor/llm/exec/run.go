@@ -53,6 +53,15 @@ func (s *Service) RunPlan(ctx context.Context, input *RunPlanInput, output *RunP
 	// Duplicate guard initialised with outcomes from *prior* iterations so that
 	// we can short-circuit identical calls in this execution round as well.
 	guard := core.NewDuplicateGuard(input.Results)
+	// Fast skip: if streaming (or prior phases) already executed a step with
+	// the same tool-call ID, we do not execute it again. This complements the
+	// name/args duplicate guard with exact ID match semantics.
+	executedByID := map[string]plan.Result{}
+	for _, r := range input.Results {
+		if r.ID != "" {
+			executedByID[r.ID] = r
+		}
+	}
 	maxSteps := min(1000, s.maxSteps)
 	planSteps := input.Plan.Steps
 
@@ -96,6 +105,12 @@ outer:
 		step := planSteps[i]
 		switch step.Type {
 		case "tool":
+			// Skip step if an identical tool-call ID has already produced a result
+			if step.ID != "" {
+				if _, done := executedByID[step.ID]; done {
+					continue
+				}
+			}
 			// ---------------------------------------------------------
 			// Duplicate-call protection across iterations.  If the exact same
 			// (tool, args) pair has been executed before and the guard heuristics

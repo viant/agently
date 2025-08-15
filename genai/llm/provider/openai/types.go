@@ -92,3 +92,43 @@ type Usage struct {
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
 }
+
+// Streaming chunk types (SSE) -------------------------------------------------
+
+// StreamResponse represents a single Server-Sent Event chunk from OpenAI
+// chat/completions endpoint when stream=true. The payload places partial deltas
+// under choices[i].delta instead of choices[i].message.
+type StreamResponse struct {
+	ID      string         `json:"id"`
+	Object  string         `json:"object"`
+	Created int64          `json:"created"`
+	Model   string         `json:"model"`
+	Choices []StreamChoice `json:"choices"`
+}
+
+type StreamChoice struct {
+	Index        int          `json:"index"`
+	Delta        DeltaMessage `json:"delta"`
+	FinishReason *string      `json:"finish_reason"`
+}
+
+type DeltaMessage struct {
+	Role      string          `json:"role,omitempty"`
+	Content   *string         `json:"content,omitempty"`
+	ToolCalls []ToolCallDelta `json:"tool_calls,omitempty"`
+}
+
+// ToolCallDelta mirrors the incremental tool call fields included in streaming
+// deltas. Arguments are delivered as a concatenated string across multiple
+// events.
+type ToolCallDelta struct {
+	Index    int               `json:"index"`
+	ID       string            `json:"id,omitempty"`
+	Type     string            `json:"type,omitempty"`
+	Function FunctionCallDelta `json:"function,omitempty"`
+}
+
+type FunctionCallDelta struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
