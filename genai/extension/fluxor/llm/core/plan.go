@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	plan "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core/stream"
+	"github.com/viant/agently/genai/extension/fluxor/llm/shared/executil"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
@@ -372,6 +373,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *Ge
 						AtHoc:   true,
 						Input: map[string]interface{}{
 							"plan": map[string]interface{}{
+								"id":    aPlan.ID,
 								"steps": []interface{}{map[string]interface{}{"id": step.ID, "type": step.Type, "name": step.Name, "args": step.Args, "reason": step.Reason}},
 							},
 							"model":      genInput.Model,
@@ -383,14 +385,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *Ge
 					}
 					elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskInput, Payload: map[string]interface{}{"tool": step.Name, "args": step.Args}})
 					outVal, err := o.Call(ctx, child, 60*time.Second)
-					var results []plan.Result
-					if m, ok := outVal.(map[string]interface{}); ok {
-						if v, exists := m["results"]; exists && v != nil {
-							if b, e := json.Marshal(v); e == nil {
-								_ = json.Unmarshal(b, &results)
-							}
-						}
-					}
+					results := executil.DecodeResults(outVal)
 					elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskOutput, Payload: map[string]interface{}{"tool": step.Name, "result": results, "error": err}})
 					if len(results) > 0 {
 						*execResults = append(*execResults, results...)

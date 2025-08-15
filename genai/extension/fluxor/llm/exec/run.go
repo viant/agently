@@ -5,17 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"github.com/viant/fluxor/model/types"
+
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
 
 	plan "github.com/viant/agently/genai/agent/plan"
 	core "github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/mcp-protocol/schema"
-	"regexp"
-	"strconv"
-	"strings"
-	"time"
 )
 
 // RunPlanInput defines input for executing a plan of steps.
@@ -47,196 +49,54 @@ func (s *Service) runPlan(ctx context.Context, in, out interface{}) error {
 }
 
 func (s *Service) RunPlan(ctx context.Context, input *RunPlanInput, output *RunPlanOutput) error {
-	// Prepare structured results for each plan step
-
+	// Results accumulated during this invocation
 	var results []plan.Result
-	// Duplicate guard initialised with outcomes from *prior* iterations so that
-	// we can short-circuit identical calls in this execution round as well.
+
+	// Guard against pathological duplicate (tool,args) calls across iterations
 	guard := core.NewDuplicateGuard(input.Results)
-	// Fast skip: if streaming (or prior phases) already executed a step with
-	// the same tool-call ID, we do not execute it again. This complements the
-	// name/args duplicate guard with exact ID match semantics.
-	executedByID := map[string]plan.Result{}
-	for _, r := range input.Results {
-		if r.ID != "" {
-			executedByID[r.ID] = r
-		}
-	}
+	executedByID := buildExecutedByID(input.Results)
+
 	maxSteps := min(1000, s.maxSteps)
 	planSteps := input.Plan.Steps
 
-	totalSteps := 0
-	// ------------------------------------------------------------------
-	var stepTraceIDs []int
+	// Initialise trace skeletons for each step (best effort)
 	conversationID := memory.ConversationIDFromContext(ctx)
 	messageID := memory.MessageIDFromContext(ctx)
-	if s.traceStore != nil && conversationID != "" {
-		stepTraceIDs = make([]int, len(planSteps))
+	stepTraceIDs := s.initTraceSkeletons(ctx, planSteps, conversationID, messageID, input.Plan.ID)
 
-		for i, st := range planSteps {
-			req, _ := json.Marshal(st.Args)
-
-			skel := &memory.ExecutionTrace{
-				Name:        st.Name,
-				Request:     req,
-				ParentMsgID: messageID,
-				Success:     false,
-				PlanID:      input.Plan.ID,
-				StepIndex:   i,
-				Step:        &planSteps[i],
-			}
-			tid, _ := s.traceStore.Add(ctx, conversationID, skel)
-			stepTraceIDs[i] = tid
-		}
-	}
-
-	// If planner indicated non-empty elicitation at plan level, propagate immediately.
-	if e := input.Plan.Elicitation; e != nil && len(input.Plan.Steps) == 0 && !e.IsEmpty() {
+	// Fast exit when plan-level elicitation is requested and there are no steps
+	if e := input.Plan.Elicitation; e != nil && len(planSteps) == 0 && !e.IsEmpty() {
 		output.Elicitation = e
 		return nil
 	}
 
+	totalSteps := 0
 outer:
 	for i := 0; i < len(planSteps); i++ {
 		if maxSteps > 0 && totalSteps >= maxSteps {
 			break
 		}
 		totalSteps++
+
 		step := planSteps[i]
 		switch step.Type {
 		case "tool":
-			// Skip step if an identical tool-call ID has already produced a result
-			if step.ID != "" {
-				if _, done := executedByID[step.ID]; done {
-					continue
-				}
-			}
-			// ---------------------------------------------------------
-			// Duplicate-call protection across iterations.  If the exact same
-			// (tool, args) pair has been executed before and the guard heuristics
-			// deem it a pathological repeat, we *do not* invoke the tool again.
-			// We record a Result with cached data from previous same call.
-			// ---------------------------------------------------------
-
-			var duplicatedCall bool
-			var duplicatedResult plan.Result // synthetic result for duplicate call
-			if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
-				duplicatedResult = plan.Result{
-					ID:     step.ID,
-					Name:   step.Name,
-					Args:   step.Args,
-					Result: prev.Result,
-					Error:  prev.Error,
-				}
-				duplicatedCall = true
-			}
-
-			// Resolve any $step[N].output placeholders before execution
-			step.Args = resolveArgsPlaceholders(step.Args, results)
-			callToolInput := &CallToolInput{
-				Name:  step.Name,
-				Args:  step.Args,
-				Model: input.Model,
-			}
-			callToolOutput := &CallToolOutput{}
-			startAt := time.Now()
-
-			// use pre-populated trace id
 			traceID := 0
 			if len(stepTraceIDs) > i {
 				traceID = stepTraceIDs[i]
 			}
-			if s.traceStore != nil && conversationID != "" && traceID > 0 {
-				_ = s.traceStore.Update(ctx, conversationID, traceID, func(et *memory.ExecutionTrace) {
-					et.StartedAt = startAt
-				})
+			if s.processToolStep(ctx, step, traceID, guard, executedByID, &results, input, output, conversationID) {
+				break outer
 			}
-
-			ctx = types.EnsureExecutionContext(ctx)
-
-			var err error
-			var endAt time.Time
-			var result plan.Result
-
-			if duplicatedCall {
-				endAt = time.Now()
-				result = duplicatedResult
-			} else {
-				err = s.CallTool(ctx, callToolInput, callToolOutput)
-				endAt = time.Now()
-				result = plan.Result{Name: step.Name, Args: step.Args, Result: callToolOutput.Result, ID: step.ID}
-			}
-
-			if err != nil {
-				result.Error = err.Error()
-				// missing param -> elicitation handled below
-			}
-
-			// ------------------------------------------------------------------
-			// Record execution trace (best effort – ignore errors)
-			// ------------------------------------------------------------------
-			if s.traceStore != nil && conversationID != "" && traceID > 0 {
-				var resp []byte
-
-				if strings.HasPrefix(result.Result, "{") || strings.HasPrefix(result.Result, "[") && json.Valid([]byte(result.Result)) {
-					resp = []byte(result.Result)
-				} else {
-					if data, err := json.Marshal(result.Result); err == nil {
-						resp = data
-					}
-				}
-
-				resErr := result.Error
-				if duplicatedCall {
-					resErr = "WARN: duplicated call (cached result)"
-				}
-
-				_ = s.traceStore.Update(ctx, conversationID, traceID, func(et *memory.ExecutionTrace) {
-					et.Success = err == nil
-					et.Result = resp
-					et.Error = resErr
-					et.EndedAt = endAt
-				})
-			}
-
-			// If missing params error recorded via err, build elicitation
-			if err != nil {
-				if def, ok := s.registry.GetDefinition(step.Name); ok {
-					_, problems := tool.ValidateArgs(def, step.Args)
-					if len(problems) > 0 {
-						reqSchema := buildSchemaFromProblems(problems)
-						output.Elicitation = &plan.Elicitation{
-							ElicitRequestParams: schema.ElicitRequestParams{
-								Message:         fmt.Sprintf("Tool %q requires additional parameters.", step.Name),
-								RequestedSchema: reqSchema,
-							},
-						}
-						break outer
-					}
-				}
-			}
-			results = append(results, result)
-			// Register successful (or failed) execution so the guard has the
-			// freshest outcome for subsequent repeats.
-			guard.RegisterResult(step.Name, step.Args, result)
 
 		case "clarify_intent": // backwards compatibility – treat same as "elicitation"
 			fallthrough
 		case "elicitation":
-			// Record current results then exit with elicitation.
-			output.Results = append(output.Results, results...)
-			if step.Elicitation != nil {
-				// The step already carries the full elicitation payload – forward as-is.
-				output.Elicitation = step.Elicitation
-			} else if step.Type == "clarify_intent" {
-				// Fallback: Legacy models may send question/missing fields in args
-				output.Elicitation = &plan.Elicitation{
-					ElicitRequestParams: schema.ElicitRequestParams{Message: step.Content},
-				}
+			if s.processElicitationStep(step, output, &results) {
+				break outer
 			}
-			break outer
 		case "abort":
-			return errors.New(step.Reason)
+			return s.processAbortStep(step)
 
 		}
 	}
@@ -245,6 +105,166 @@ outer:
 	output.Results = append(output.Results, results...)
 
 	return nil
+}
+
+// ---------------------- helpers ----------------------
+
+func buildExecutedByID(prior []plan.Result) map[string]plan.Result {
+	out := map[string]plan.Result{}
+	for _, r := range prior {
+		if r.ID != "" {
+			out[r.ID] = r
+		}
+	}
+	return out
+}
+
+// initTraceSkeletons creates initial ExecutionTrace entries per step and
+// returns their IDs. Returns nil when traceStore or conversation is not set.
+func (s *Service) initTraceSkeletons(ctx context.Context, steps plan.Steps, convID, parentMsgID, planID string) []int {
+	if s.traceStore == nil || convID == "" {
+		return nil
+	}
+	out := make([]int, len(steps))
+	for i := range steps {
+		req, _ := json.Marshal(steps[i].Args)
+		skel := &memory.ExecutionTrace{Name: steps[i].Name, Request: req, ParentMsgID: parentMsgID, Success: false, PlanID: planID, StepIndex: i, Step: &steps[i]}
+		tid, _ := s.traceStore.Add(ctx, convID, skel)
+		out[i] = tid
+	}
+	return out
+}
+
+func (s *Service) updateTraceStart(ctx context.Context, convID string, traceID int, startAt time.Time) {
+	if s.traceStore == nil || convID == "" || traceID <= 0 {
+		return
+	}
+	_ = s.traceStore.Update(ctx, convID, traceID, func(et *memory.ExecutionTrace) { et.StartedAt = startAt })
+}
+
+func (s *Service) updateTraceEnd(ctx context.Context, convID string, traceID int, res plan.Result, duplicated bool, endAt time.Time) {
+	if s.traceStore == nil || convID == "" || traceID <= 0 {
+		return
+	}
+	// Marshal result payload to JSON
+	var resp []byte
+	if strings.HasPrefix(res.Result, "{") || strings.HasPrefix(res.Result, "[") && json.Valid([]byte(res.Result)) {
+		resp = []byte(res.Result)
+	} else if data, err := json.Marshal(res.Result); err == nil {
+		resp = data
+	}
+	resErr := res.Error
+	if duplicated {
+		resErr = "WARN: duplicated call (cached result)"
+	}
+	_ = s.traceStore.Update(ctx, convID, traceID, func(et *memory.ExecutionTrace) {
+		et.Success = resErr == ""
+		et.Result = resp
+		et.Error = resErr
+		et.EndedAt = endAt
+	})
+}
+
+// updateTraceWithPrev writes a previously computed result into the trace when
+// a step is skipped due to matching tool-call ID.
+func (s *Service) updateTraceWithPrev(ctx context.Context, convID string, traceID int, prev plan.Result) {
+	if s.traceStore == nil || convID == "" || traceID <= 0 {
+		return
+	}
+	var resp []byte
+	if strings.HasPrefix(prev.Result, "{") || strings.HasPrefix(prev.Result, "[") && json.Valid([]byte(prev.Result)) {
+		resp = []byte(prev.Result)
+	} else if data, err := json.Marshal(prev.Result); err == nil {
+		resp = data
+	}
+	now := time.Now()
+	_ = s.traceStore.Update(ctx, convID, traceID, func(et *memory.ExecutionTrace) {
+		if et.StartedAt.IsZero() {
+			et.StartedAt = now
+		}
+		et.Success = prev.Error == ""
+		et.Result = resp
+		et.Error = prev.Error
+		et.EndedAt = now
+	})
+}
+
+// processToolStep executes or short-circuits a single tool step and updates traces/results.
+// Returns true when the caller should break the outer loop (elicitation requested).
+func (s *Service) processToolStep(ctx context.Context, step plan.Step, traceID int, guard *core.DuplicateGuard, executedByID map[string]plan.Result, results *[]plan.Result, input *RunPlanInput, output *RunPlanOutput, conversationID string) bool {
+	// Skip execution when we already have a result for this tool-call ID.
+	if step.ID != "" {
+		if prev, done := executedByID[step.ID]; done {
+			s.updateTraceWithPrev(ctx, conversationID, traceID, prev)
+			return false
+		}
+	}
+
+	// Duplicate-call heuristic across iterations
+	duplicatedCall := false
+	duplicatedResult := plan.Result{}
+	if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
+		duplicatedResult = plan.Result{ID: step.ID, Name: step.Name, Args: step.Args, Result: prev.Result, Error: prev.Error}
+		duplicatedCall = true
+	}
+
+	// Resolve placeholders
+	step.Args = resolveArgsPlaceholders(step.Args, *results)
+	callToolInput := &CallToolInput{Name: step.Name, Args: step.Args, Model: input.Model}
+	callToolOutput := &CallToolOutput{}
+
+	startAt := time.Now()
+	s.updateTraceStart(ctx, conversationID, traceID, startAt)
+
+	ctx = types.EnsureExecutionContext(ctx)
+
+	var err error
+	var endAt time.Time
+	var result plan.Result
+	if duplicatedCall {
+		endAt = time.Now()
+		result = duplicatedResult
+	} else {
+		err = s.CallTool(ctx, callToolInput, callToolOutput)
+		endAt = time.Now()
+		result = plan.Result{Name: step.Name, Args: step.Args, Result: callToolOutput.Result, ID: step.ID}
+	}
+	if err != nil {
+		result.Error = err.Error()
+	}
+
+	// Update trace with actual or duplicated result
+	s.updateTraceEnd(ctx, conversationID, traceID, result, duplicatedCall, endAt)
+
+	// Elicitation on missing params (validation)
+	if err != nil {
+		if def, ok := s.registry.GetDefinition(step.Name); ok {
+			if _, problems := tool.ValidateArgs(def, step.Args); len(problems) > 0 {
+				reqSchema := buildSchemaFromProblems(problems)
+				output.Elicitation = &plan.Elicitation{ElicitRequestParams: schema.ElicitRequestParams{Message: fmt.Sprintf("Tool %q requires additional parameters.", step.Name), RequestedSchema: reqSchema}}
+				return true
+			}
+		}
+	}
+	*results = append(*results, result)
+	guard.RegisterResult(step.Name, step.Args, result)
+	return false
+}
+
+// processElicitationStep appends current results and sets elicitation in output; returns true to break loop.
+func (s *Service) processElicitationStep(step plan.Step, output *RunPlanOutput, results *[]plan.Result) bool {
+	output.Results = append(output.Results, *results...)
+	if step.Elicitation != nil {
+		output.Elicitation = step.Elicitation
+	} else if step.Type == "clarify_intent" {
+		output.Elicitation = &plan.Elicitation{ElicitRequestParams: schema.ElicitRequestParams{Message: step.Content}}
+	}
+	return true
+}
+
+// processAbortStep returns an error for abort steps.
+func (s *Service) processAbortStep(step plan.Step) error {
+	return errors.New(step.Reason)
 }
 
 // ---------------------------------------------
