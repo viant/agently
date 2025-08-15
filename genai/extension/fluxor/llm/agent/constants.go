@@ -7,11 +7,12 @@ const (
 	// Initial / output map keys
 	keyQuery = "query"
 
-	keyContext      = "context"
-	keyModel        = "model"
-	keyTools        = "tools"
-	keySystemPrompt = "systemPrompt"
-	keyToolPolicy   = "toolPolicy"
+	keyContext       = "context"
+	keySystemContext = "systemContext"
+	keyModel         = "model"
+	keyTools         = "tools"
+	keySystemPrompt  = "systemPrompt"
+	keyToolPolicy    = "toolPolicy"
 
 	// Workflow post keys / result fields
 	keyPlan        = "plan"

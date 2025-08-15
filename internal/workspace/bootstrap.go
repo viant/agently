@@ -5,11 +5,12 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"path/filepath"
+
 	"github.com/viant/afs"
 	_ "github.com/viant/afs/embed"
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
-	"path/filepath"
 )
 
 //go:embed default/*
@@ -39,7 +40,10 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindAgent, "chat/knowledge/doc.txt"), "default/agent_chat_doc.txt"},
 		{filepath.Join(KindAgent, "coder/workflow/orchestration.yaml"), "default/agent_coder_workflow_orchestration.yaml"},
 		{filepath.Join(KindAgent, "coder/workflow/prompt", "chat.vm"), "default/coder_chat_prompt.txt"},
-		{filepath.Join(KindAgent, "coder/knowledge/golang.md"), "default/coder_knowledge_golang.md"},
+		{filepath.Join(KindAgent, "coder/workflow/prompt", "system.vm"), "default/coder_system_prompt.txt"},
+		{filepath.Join(KindAgent, "coder/knowledge/README_DELETE_THIS.md"), "default/coder_knowledge_README_DELETE_THIS.md"},
+		{filepath.Join(KindAgent, "coder/system_knowledge/golang_rules.md"), "default/coder_system_knowledge_golang_rules.md"},
+		{filepath.Join(KindAgent, "coder/system_knowledge/README_DELETE_THIS.md"), "default/coder_system_knowledge_README_DELETE_THIS.md"},
 		{filepath.Join(KindAgent, "coder/coder.yaml"), "default/agent_coder.yaml"},
 	}
 

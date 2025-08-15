@@ -5,15 +5,15 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"log"
+	"path"
+	"strings"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
 	agentmdl "github.com/viant/agently/genai/agent"
-	"github.com/viant/agently/internal/workspace"
-	"log"
-	"path"
-	"strings"
-
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/elicitation/refiner"
 	corepkg "github.com/viant/agently/genai/extension/fluxor/llm/core"
@@ -23,9 +23,9 @@ import (
 	"github.com/viant/agently/genai/summary"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
+	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/fluxor/model"
 	"github.com/viant/fluxor/model/types"
-	"time"
 )
 
 // validateContext checks whether all required properties defined by the
@@ -423,6 +423,11 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 		searchInput.Query = query
 	}
 
+	systemDocs, err := s.retrieveSystemRelevantDocuments(ctx, &searchInput)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve system knowledge: %w", err)
+	}
+
 	docs, err := s.retrieveRelevantDocuments(ctx, &searchInput)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve knowledge: %w", err)
@@ -441,12 +446,14 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 
 	enrichment := s.buildEnrichment(query, s.formatDocumentsForEnrichment(ctx, docs, qi.IncludeFile), qi.Context)
 
+	systemEnrichment := s.buildSystemEnrichment(systemDocs)
+
 	// 2. System prompt from agent template.
-	sysPrompt, err := s.buildSystemPrompt(ctx, qi, enrichment)
+	sysPrompt, err := s.buildSystemPrompt(ctx, qi, systemEnrichment)
 	if err != nil {
 		return err
 	}
-	wf, initial, err := s.loadWorkflow(ctx, qi, enrichment, sysPrompt)
+	wf, initial, err := s.loadWorkflow(ctx, qi, enrichment, systemEnrichment, sysPrompt)
 	if err != nil {
 		return err
 	}
@@ -675,7 +682,7 @@ func (s *Service) buildEnrichment(conv, docs string, context map[string]interfac
 //go:embed orchestration/workflow.yaml
 var orchestrationWorkflow []byte
 
-func (s *Service) loadWorkflow(ctx context.Context, qi *QueryInput, enrichment, systemPrompt string) (*model.Workflow, map[string]interface{}, error) {
+func (s *Service) loadWorkflow(ctx context.Context, qi *QueryInput, enrichment, systemEnrichment, systemPrompt string) (*model.Workflow, map[string]interface{}, error) {
 	toolNames, err := s.ensureTools(qi)
 	if err != nil {
 		return nil, nil, err
@@ -693,11 +700,12 @@ func (s *Service) loadWorkflow(ctx context.Context, qi *QueryInput, enrichment, 
 		aModel = qi.ModelOverride
 	}
 	initial := map[string]interface{}{
-		keyQuery:        qi.Query,
-		keyContext:      enrichment,
-		keyModel:        aModel,
-		keyTools:        toolNames,
-		keySystemPrompt: systemPrompt,
+		keyQuery:         qi.Query,
+		keyContext:       enrichment,
+		keyModel:         aModel,
+		keyTools:         toolNames,
+		keySystemPrompt:  systemPrompt,
+		keySystemContext: systemEnrichment,
 	}
 
 	return wf, initial, err

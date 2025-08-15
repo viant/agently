@@ -12,6 +12,10 @@ knowledge:
   - inclusionMode: full
     url: knowledge/
 
+systemKnowledge:
+  - inclusionMode: full
+    url: system_knowledge/
+
 elicitation:
   message: "Please provide execution context"
   requestedSchema:

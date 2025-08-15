@@ -30,7 +30,8 @@ type (
 		Tool []*llm.Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
 
 		// Agent's knowledge base (optional)
-		Knowledge []*Knowledge `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
+		Knowledge       []*Knowledge `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
+		SystemKnowledge []*Knowledge `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
 
 		// OrchestrationFlow optional path/URL to override default workflow graph.
 		OrchestrationFlow string `yaml:"orchestrationFlow,omitempty" json:"orchestrationFlow,omitempty"`
