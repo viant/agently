@@ -19,6 +19,8 @@ func (c *Client) Implements(feature string) bool {
 	switch feature {
 	case base.CanUseTools:
 		return true
+	case base.CanStream:
+		return true
 	}
 	return false
 }
@@ -158,26 +160,113 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	go func() {
 		es := output.GetStream()
 		defer es.Close()
+		defer close(events)
+
+		// Aggregator for Claude streaming events
+		type toolAgg struct {
+			id, name string
+			json     string
+		}
+		aggText := strings.Builder{}
+		tools := map[int]*toolAgg{}
+		finishReason := ""
+
 		for ev := range es.Events() {
-			switch chunk := ev.(type) {
-			case *types.ResponseStreamMemberChunk:
-				var apiResp Response
-				if err := json.Unmarshal(chunk.Value.Bytes, &apiResp); err != nil {
-					events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream chunk: %w", err)}
-					return
+			chunk, ok := ev.(*types.ResponseStreamMemberChunk)
+			if !ok {
+				continue
+			}
+			var raw map[string]interface{}
+			if err := json.Unmarshal(chunk.Value.Bytes, &raw); err != nil {
+				events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream chunk: %w", err)}
+				return
+			}
+			t, _ := raw["type"].(string)
+			switch t {
+			case "content_block_start":
+				// Tool use start carries content_block with name/id
+				if cb, ok := raw["content_block"].(map[string]interface{}); ok {
+					if cb["type"] == "tool_use" {
+						index := intFromMap(raw, "index")
+						id, _ := cb["id"].(string)
+						name, _ := cb["name"].(string)
+						tools[index] = &toolAgg{id: id, name: name}
+					}
 				}
-				apiResp.Model = c.Model
-				events <- llm.StreamEvent{Response: ToLLMSResponse(&apiResp)}
+			case "content_block_delta":
+				index := intFromMap(raw, "index")
+				if delta, ok := raw["delta"].(map[string]interface{}); ok {
+					// Text delta
+					if txt, _ := delta["text"].(string); txt != "" {
+						aggText.WriteString(txt)
+					}
+					// Tool input partial JSON delta
+					if part, _ := delta["partial_json"].(string); part != "" {
+						if ta, ok := tools[index]; ok {
+							ta.json += part
+						}
+					}
+				}
+			case "message_delta":
+				if delta, ok := raw["delta"].(map[string]interface{}); ok {
+					if sr, _ := delta["stop_reason"].(string); sr != "" {
+						finishReason = sr
+					}
+				}
+				// When stop reason arrives, emit a single aggregated event
+				if finishReason != "" {
+					msg := llm.Message{Role: llm.RoleAssistant, Content: aggText.String()}
+					// Build tool calls in order of index
+					if len(tools) > 0 {
+						// gather keys
+						idxs := make([]int, 0, len(tools))
+						for i := range tools {
+							idxs = append(idxs, i)
+						}
+						// simple insertion sort
+						for i := 1; i < len(idxs); i++ {
+							j := i
+							for j > 0 && idxs[j-1] > idxs[j] {
+								idxs[j-1], idxs[j] = idxs[j], idxs[j-1]
+								j--
+							}
+						}
+						calls := make([]llm.ToolCall, 0, len(idxs))
+						for _, i := range idxs {
+							ta := tools[i]
+							var args map[string]interface{}
+							if err := json.Unmarshal([]byte(ta.json), &args); err != nil {
+								args = map[string]interface{}{"raw": ta.json}
+							}
+							calls = append(calls, llm.ToolCall{ID: ta.id, Name: ta.name, Arguments: args})
+						}
+						msg.ToolCalls = calls
+					}
+					lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}}
+					events <- llm.StreamEvent{Response: lr}
+				}
 			default:
-				// ignore unknown events
+				// ignore other types
 			}
 		}
 		if err := es.Err(); err != nil {
 			events <- llm.StreamEvent{Err: err}
 		}
-		close(events)
 	}()
 	return events, nil
+}
+
+// helper to read integer index fields that may be float64 from JSON
+func intFromMap(m map[string]interface{}, key string) int {
+	if v, ok := m[key]; ok {
+		switch t := v.(type) {
+		case float64:
+			return int(t)
+		case int:
+			return t
+		}
+	}
+	return 0
 }
 
 func (c *Client) loadAwsConfig(ctx context.Context) (*aws.Config, error) {

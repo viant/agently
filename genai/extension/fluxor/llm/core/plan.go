@@ -89,11 +89,9 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 	if err != nil {
 		return err
 	}
-
 	if planResult.Elicitation.IsEmpty() {
 		planResult.Elicitation = nil
 	}
-
 	if output.Plan.IsEmpty() {
 		s.appendTranscriptFromGenerate(genOutput, planResult, output)
 	}
@@ -321,6 +319,7 @@ func (s *Service) deriveRunner(ctx context.Context, genInput *GenerateInput) (st
 			}
 		}
 	}
+
 	if service == "" || method == "" {
 		if proc := execution.ContextValue[*execution.Process](ctx); proc != nil && proc.Workflow != nil {
 			for _, t := range proc.Workflow.AllTasks() {

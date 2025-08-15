@@ -17,6 +17,8 @@ func (c *Client) Implements(feature string) bool {
 	switch feature {
 	case base.CanUseTools:
 		return true
+	case base.CanStream:
+		return true
 	}
 	return false
 }
@@ -155,29 +157,116 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if err != nil {
 		return nil, err
 	}
-	// Stream response body
+	// Stream response body with aggregation and finish-only emission
 	events := make(chan llm.StreamEvent)
 	go func() {
 		defer resp.Body.Close()
+		defer close(events)
 		scanner := bufio.NewScanner(resp.Body)
+		// Aggregators
+		type toolAgg struct {
+			id, name string
+			json     string
+		}
+		aggText := strings.Builder{}
+		tools := map[int]*toolAgg{}
+		finishReason := ""
 		for scanner.Scan() {
 			part := scanner.Text()
-			if part == "" {
+			if strings.TrimSpace(part) == "" {
 				continue
 			}
-			var chunk Response
-			if err := json.Unmarshal([]byte(part), &chunk); err != nil {
+			var raw map[string]interface{}
+			if err := json.Unmarshal([]byte(part), &raw); err != nil {
 				events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream part: %w", err)}
-				break
+				return
 			}
-			events <- llm.StreamEvent{Response: ToLLMSResponse(&chunk)}
+			t, _ := raw["type"].(string)
+			switch t {
+			case "content_block_start":
+				if cb, ok := raw["content_block"].(map[string]interface{}); ok {
+					if cb["type"] == "tool_use" {
+						index := vtxInt(raw, "index")
+						id, _ := cb["id"].(string)
+						name, _ := cb["name"].(string)
+						tools[index] = &toolAgg{id: id, name: name}
+					}
+				}
+			case "content_block_delta":
+				index := vtxInt(raw, "index")
+				if delta, ok := raw["delta"].(map[string]interface{}); ok {
+					if txt, _ := delta["text"].(string); txt != "" {
+						aggText.WriteString(txt)
+					}
+					if part, _ := delta["partial_json"].(string); part != "" {
+						if ta, ok := tools[index]; ok {
+							ta.json += part
+						}
+					}
+				}
+			case "message_delta":
+				if delta, ok := raw["delta"].(map[string]interface{}); ok {
+					if sr, _ := delta["stop_reason"].(string); sr != "" {
+						finishReason = sr
+					}
+				}
+				if finishReason != "" {
+					msg := llm.Message{Role: llm.RoleAssistant, Content: aggText.String()}
+					if len(tools) > 0 {
+						idxs := make([]int, 0, len(tools))
+						for i := range tools {
+							idxs = append(idxs, i)
+						}
+						for i := 1; i < len(idxs); i++ {
+							j := i
+							for j > 0 && idxs[j-1] > idxs[j] {
+								idxs[j-1], idxs[j] = idxs[j], idxs[j-1]
+								j--
+							}
+						}
+						calls := make([]llm.ToolCall, 0, len(idxs))
+						for _, i := range idxs {
+							ta := tools[i]
+							var args map[string]interface{}
+							if err := json.Unmarshal([]byte(ta.json), &args); err != nil {
+								args = map[string]interface{}{"raw": ta.json}
+							}
+							calls = append(calls, llm.ToolCall{ID: ta.id, Name: ta.name, Arguments: args})
+						}
+						msg.ToolCalls = calls
+					}
+					lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}}
+					events <- llm.StreamEvent{Response: lr}
+				}
+			case "error":
+				if errObj, ok := raw["error"].(map[string]interface{}); ok {
+					if m, _ := errObj["message"].(string); m != "" {
+						events <- llm.StreamEvent{Err: fmt.Errorf("claude stream error: %s", m)}
+						return
+					}
+				}
+			default:
+				// ignore others: message_start, content_block_stop, message_stop
+			}
 		}
 		if err := scanner.Err(); err != nil {
 			events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
 		}
-		close(events)
 	}()
 	return events, nil
+}
+
+// helper for integer index
+func vtxInt(m map[string]interface{}, key string) int {
+	if v, ok := m[key]; ok {
+		switch t := v.(type) {
+		case float64:
+			return int(t)
+		case int:
+			return t
+		}
+	}
+	return 0
 }
 
 // handleStreamingResponse processes a streaming response from the Claude API
