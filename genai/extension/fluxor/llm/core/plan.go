@@ -294,9 +294,12 @@ func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, gen
 		var wg sync.WaitGroup
 		nextStepIdx := 0
 		streamId := s.registerStreamPlannerHandler(ctx, genInput, aPlan, runnerService, runnerMethod, &execResults, &wg, &nextStepIdx, genOutput)
-		_ = s.stream(ctx, &StreamInput{StreamID: streamId, GenerateInput: genInput}, &StreamOutput{})
+		err := s.stream(ctx, &StreamInput{StreamID: streamId, GenerateInput: genInput}, &StreamOutput{})
 		wg.Wait()
 		s.synthesizeFinalResponse(genOutput)
+		if err != nil {
+			return nil, nil, err
+		}
 	} else {
 		if err := s.Generate(ctx, genInput, genOutput); err != nil {
 			return nil, nil, err
@@ -344,6 +347,9 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *Ge
 	var mux sync.Mutex
 	return stream.Register(func(ctx context.Context, event *llm.StreamEvent) error {
 		if event == nil || event.Response == nil || len(event.Response.Choices) == 0 {
+			if event != nil {
+				return event.Err
+			}
 			return nil
 		}
 		choice := event.Response.Choices[0]

@@ -50,8 +50,6 @@ type (
 		// ToolExport controls automatic exposure of this agent as a virtual tool
 		ToolExport *ToolExport `yaml:"toolExport,omitempty" json:"toolExport,omitempty"`
 
-		UseStream *bool `yaml:"useStream,omitempty" json:"useStream,omitempty"`
-
 		// cached compiled go template for prompt (if Prompt is static)
 		parsedTemplate *template.Template `yaml:"-" json:"-"`
 		once           sync.Once          `yaml:"-" json:"-"`
