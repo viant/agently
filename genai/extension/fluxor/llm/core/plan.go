@@ -275,16 +275,18 @@ func (s *Service) enureResultCallID(input *PlanInput) {
 	}
 }
 
-var useStream = false
-
 func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, genOutput *GenerateOutput) (*plan.Plan, []plan.Result, error) {
 	aPlan := plan.New()
 	var execResults []plan.Result
 
 	// Dynamically decide whether to use streaming based on model capability
 	doStream := false
-	if model, _ := s.llmFinder.Find(ctx, genInput.Model); model != nil {
-		doStream = model.Implements(base.CanStream)
+	if genInput.UseStream == nil {
+		if model, _ := s.llmFinder.Find(ctx, genInput.Model); model != nil {
+			doStream = model.Implements(base.CanStream)
+		}
+	} else {
+		doStream = *genInput.UseStream
 	}
 
 	if doStream {

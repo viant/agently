@@ -780,6 +780,7 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 		Model:        model,
 		SystemPrompt: sysPrompt,
 		Prompt:       qi.Query,
+		UseStream:    qi.Agent.UseStream,
 		Options:      &llm.Options{Temperature: qi.Agent.Temperature},
 	}
 	genOut := &corepkg.GenerateOutput{}

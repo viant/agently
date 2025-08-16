@@ -6,10 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/genai/llm/provider/base"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/viant/agently/genai/llm/provider/base"
 
 	"github.com/viant/agently/genai/llm"
 )
@@ -150,107 +151,272 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if c.Model == "" {
 		return nil, fmt.Errorf("model is required")
 	}
-	// Convert llm.GenerateRequest to wire request and enable streaming
+	// Convert llm.GenerateRequest to wire request; for streaming we must use the
+	// streamGenerateContent endpoint (no "stream" field in the request body).
 	req, err := ToRequest(ctx, request)
 	if err != nil {
 		return nil, err
 	}
-	req.Stream = true
+	// Ensure we do not send an unsupported field
+	req.Stream = false
 
 	data, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
-	apiURL := fmt.Sprintf("%s/%s:generateContent?key=%s", c.BaseURL, c.Model, c.APIKey)
+	apiURL := fmt.Sprintf("%s/%s:streamGenerateContent?key=%s", c.BaseURL, c.Model, c.APIKey)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
+	// Vertex Gemini stream returns application/json; request JSON explicitly.
+	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Gemini stream error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
 	events := make(chan llm.StreamEvent)
 	go func() {
 		defer resp.Body.Close()
 		defer close(events)
-		scanner := bufio.NewScanner(resp.Body)
-		// Aggregators per choice index (Gemini typically returns a single candidate)
-		type toolAgg struct {
-			name string
-			args map[string]interface{}
-		}
-		aggText := map[int]*strings.Builder{}
-		aggTools := map[int][]toolAgg{}
-		finish := map[int]string{}
-		for scanner.Scan() {
-			line := scanner.Text()
-			if !strings.HasPrefix(line, "data: ") {
-				continue
-			}
-			data := strings.TrimPrefix(line, "data: ")
-			if data == "[DONE]" {
-				break
-			}
-			var chunk Response
-			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-				events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream response: %w", err)}
-				return
-			}
-			for _, cand := range chunk.Candidates {
-				idx := cand.Index
-				if _, ok := aggText[idx]; !ok {
-					aggText[idx] = &strings.Builder{}
-				}
-				// accumulate parts
-				for _, p := range cand.Content.Parts {
-					if p.Text != "" {
-						aggText[idx].WriteString(p.Text)
-					}
-					if p.FunctionCall != nil {
-						var args map[string]interface{}
-						if p.FunctionCall.Args != nil {
-							if m, ok := p.FunctionCall.Args.(map[string]interface{}); ok {
-								args = m
-							}
-						} else if p.FunctionCall.Arguments != "" {
-							_ = json.Unmarshal([]byte(p.FunctionCall.Arguments), &args)
-						}
-						aggTools[idx] = append(aggTools[idx], toolAgg{name: p.FunctionCall.Name, args: args})
-					}
-				}
-				if cand.FinishReason != "" {
-					finish[idx] = cand.FinishReason
-				}
-			}
-			// Emit only for choices that have finishReason
-			if len(finish) > 0 {
-				outChoices := make([]llm.Choice, 0, len(finish))
-				for idx, reason := range finish {
-					msg := llm.Message{Role: llm.RoleAssistant, Content: aggText[idx].String()}
-					if calls, ok := aggTools[idx]; ok && len(calls) > 0 {
-						tc := make([]llm.ToolCall, 0, len(calls))
-						for _, t := range calls {
-							tc = append(tc, llm.ToolCall{Name: t.name, Arguments: t.args})
-						}
-						msg.ToolCalls = tc
-					}
-					outChoices = append(outChoices, llm.Choice{Index: idx, Message: msg, FinishReason: reason})
-				}
-				events <- llm.StreamEvent{Response: &llm.GenerateResponse{Choices: outChoices, Model: c.Model}}
-				// Clear finish map to avoid re-emitting
-				finish = map[int]string{}
-				aggText = map[int]*strings.Builder{}
-				aggTools = map[int][]toolAgg{}
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
-		}
+		_ = resp.Header.Get("Content-Type")
+		agg := newGeminiAggregator(c.Model, c.UsageListener)
+		// Gemini uses application/json streams; decode with JSON decoder.
+		c.streamJSON(resp.Body, events, agg)
+		// drain any leftover on disconnect
+		agg.emitRemainder(events)
 	}()
 	return events, nil
+}
+
+// geminiAggregator accumulates per-candidate content/tool calls and emits only when finished.
+type geminiAggregator struct {
+	model     string
+	text      map[int]*strings.Builder
+	tools     map[int][]llm.ToolCall
+	finish    map[int]string
+	usage     *llm.Usage
+	listener  base.UsageListener
+	published bool
+}
+
+func newGeminiAggregator(model string, listener base.UsageListener) *geminiAggregator {
+	return &geminiAggregator{
+		model:    model,
+		text:     map[int]*strings.Builder{},
+		tools:    map[int][]llm.ToolCall{},
+		finish:   map[int]string{},
+		listener: listener,
+	}
+}
+
+func (a *geminiAggregator) addResponse(resp *Response) {
+	// capture usage if provided in this chunk
+	if resp.UsageMetadata != nil {
+		u := &llm.Usage{
+			PromptTokens:     resp.UsageMetadata.PromptTokenCount,
+			CompletionTokens: resp.UsageMetadata.CandidatesTokenCount,
+			TotalTokens:      resp.UsageMetadata.TotalTokenCount,
+		}
+		// Record only when meaningful
+		if u.TotalTokens > 0 || u.PromptTokens > 0 || u.CompletionTokens > 0 {
+			a.usage = u
+			if a.listener != nil && !a.published && a.model != "" {
+				a.listener.OnUsage(a.model, a.usage)
+				a.published = true
+			}
+		}
+	}
+	for _, cand := range resp.Candidates {
+		idx := cand.Index
+		if _, ok := a.text[idx]; !ok {
+			a.text[idx] = &strings.Builder{}
+		}
+		for _, p := range cand.Content.Parts {
+			if p.Text != "" {
+				a.text[idx].WriteString(p.Text)
+			}
+			if p.FunctionCall != nil {
+				var args map[string]interface{}
+				if p.FunctionCall.Args != nil {
+					if m, ok := p.FunctionCall.Args.(map[string]interface{}); ok {
+						args = m
+					}
+				} else if p.FunctionCall.Arguments != "" {
+					_ = json.Unmarshal([]byte(p.FunctionCall.Arguments), &args)
+				}
+				a.tools[idx] = append(a.tools[idx], llm.ToolCall{Name: p.FunctionCall.Name, Arguments: args})
+			}
+		}
+		if cand.FinishReason != "" {
+			a.finish[idx] = cand.FinishReason
+		}
+	}
+}
+
+// emitFinished builds and emits a response only for completed candidates, then clears them.
+func (a *geminiAggregator) emitFinished(events chan<- llm.StreamEvent) {
+	if len(a.finish) == 0 {
+		return
+	}
+	out := &llm.GenerateResponse{Model: a.model}
+	for idx, reason := range a.finish {
+		msg := llm.Message{Role: llm.RoleAssistant, Content: a.text[idx].String()}
+		if calls := a.tools[idx]; len(calls) > 0 {
+			msg.ToolCalls = calls
+		}
+		out.Choices = append(out.Choices, llm.Choice{Index: idx, Message: msg, FinishReason: reason})
+		delete(a.text, idx)
+		delete(a.tools, idx)
+	}
+	a.finish = map[int]string{}
+	if a.usage != nil && a.usage.TotalTokens > 0 {
+		out.Usage = a.usage
+	}
+	if len(out.Choices) > 0 {
+		events <- llm.StreamEvent{Response: out}
+	}
+}
+
+// emitRemainder flushes any non-finished candidates on stream end, using STOP finish reason.
+func (a *geminiAggregator) emitRemainder(events chan<- llm.StreamEvent) {
+	if len(a.text) == 0 && len(a.tools) == 0 {
+		return
+	}
+	out := &llm.GenerateResponse{Model: a.model}
+	for idx, b := range a.text {
+		msg := llm.Message{Role: llm.RoleAssistant, Content: b.String()}
+		if calls := a.tools[idx]; len(calls) > 0 {
+			msg.ToolCalls = calls
+		}
+		out.Choices = append(out.Choices, llm.Choice{Index: idx, Message: msg, FinishReason: "STOP"})
+	}
+	// clear state
+	a.text = map[int]*strings.Builder{}
+	a.tools = map[int][]llm.ToolCall{}
+	a.finish = map[int]string{}
+	if a.usage != nil && a.usage.TotalTokens > 0 {
+		out.Usage = a.usage
+	}
+	if len(out.Choices) > 0 {
+		events <- llm.StreamEvent{Response: out}
+	}
+}
+
+func (c *Client) emitPayloadAggregate(payload string, events chan<- llm.StreamEvent, agg *geminiAggregator) {
+	s := strings.TrimSpace(payload)
+	if s == "" || s == "[DONE]" {
+		return
+	}
+	if strings.HasPrefix(s, "[") {
+		var arr []Response
+		if err := json.Unmarshal([]byte(s), &arr); err != nil {
+			events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream array: %w", err)}
+			return
+		}
+		for i := range arr {
+			agg.addResponse(&arr[i])
+		}
+		agg.emitFinished(events)
+		return
+	}
+	var obj Response
+	if err := json.Unmarshal([]byte(s), &obj); err != nil {
+		events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream object: %w", err)}
+		return
+	}
+	agg.addResponse(&obj)
+	agg.emitFinished(events)
+}
+
+// streamJSON handles application/json streams. It supports:
+// - a single JSON array where each element is a Response
+// - multiple top-level JSON objects (sequential), separated by whitespace
+func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *geminiAggregator) {
+	br := bufio.NewReader(r)
+	isSpace := func(b byte) bool { return b == ' ' || b == '\n' || b == '\r' || b == '\t' }
+	for {
+		// skip leading whitespace between top-level values
+		for {
+			b, err := br.Peek(1)
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
+				return
+			}
+			if isSpace(b[0]) {
+				_, _ = br.ReadByte()
+				continue
+			}
+			break
+		}
+
+		b, err := br.Peek(1)
+		if err != nil {
+			if err == io.EOF {
+				return
+			}
+			events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
+			return
+		}
+
+		switch b[0] {
+		case '[':
+			dec := json.NewDecoder(br)
+			// read opening array token
+			tok, err := dec.Token()
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				events <- llm.StreamEvent{Err: fmt.Errorf("json decode error: %w", err)}
+				return
+			}
+			if d, ok := tok.(json.Delim); !ok || d != '[' {
+				events <- llm.StreamEvent{Err: fmt.Errorf("unexpected JSON, expected array start")}
+				return
+			}
+			for dec.More() {
+				var obj Response
+				if err := dec.Decode(&obj); err != nil {
+					if err == io.EOF {
+						break
+					}
+					events <- llm.StreamEvent{Err: fmt.Errorf("json decode error: %w", err)}
+					return
+				}
+				agg.addResponse(&obj)
+				agg.emitFinished(events)
+			}
+			// consume closing ']'
+			_, _ = dec.Token()
+		case '{':
+			dec := json.NewDecoder(br)
+			var obj Response
+			if err := dec.Decode(&obj); err != nil {
+				if err == io.EOF {
+					return
+				}
+				events <- llm.StreamEvent{Err: fmt.Errorf("json decode error: %w", err)}
+				return
+			}
+			agg.addResponse(&obj)
+			agg.emitFinished(events)
+		default:
+			// Unexpected leading byte; return an error to surface malformed stream
+			events <- llm.StreamEvent{Err: fmt.Errorf("unexpected JSON stream start: %q", string(b[0]))}
+			return
+		}
+	}
 }

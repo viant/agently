@@ -6,11 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/genai/llm/provider/base"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/llm/provider/base"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -157,6 +158,17 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if err != nil {
 		return nil, err
 	}
+	// Vertex AI Claude requires max_tokens on streaming requests.
+	if req.MaxTokens == 0 {
+		if c.MaxTokens > 0 {
+			req.MaxTokens = c.MaxTokens
+		} else {
+			return nil, fmt.Errorf("streaming requires max_tokens: set Options.MaxTokens or client WithMaxTokens")
+		}
+	}
+	if req.Temperature == 0 && c.Temperature != nil {
+		req.Temperature = *c.Temperature
+	}
 	// Marshal request
 	data, err := json.Marshal(req)
 	if err != nil {
@@ -164,124 +176,161 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	}
 	// Send HTTP request
 	apiURL := c.GetEndpointURL()
+	events := make(chan llm.StreamEvent)
+
 	resp, err := c.sendRequest(ctx, apiURL, data)
 	if err != nil {
-		// Fallback to non-streaming generate
-		ch := make(chan llm.StreamEvent, 1)
-		go func() {
-			defer close(ch)
-			out, gerr := c.Generate(ctx, request)
-			if gerr != nil {
-				ch <- llm.StreamEvent{Err: gerr}
-				return
-			}
-			ch <- llm.StreamEvent{Response: out}
-		}()
-		return ch, nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		// consume body then fallback
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		ch := make(chan llm.StreamEvent, 1)
-		go func() {
-			defer close(ch)
-			out, gerr := c.Generate(ctx, request)
-			if gerr != nil {
-				ch <- llm.StreamEvent{Err: fmt.Errorf("stream not supported: %w", gerr)}
-				return
-			}
-			ch <- llm.StreamEvent{Response: out}
-		}()
-		return ch, nil
+		events <- llm.StreamEvent{Err: err}
+		close(events)
+		return events, err
 	}
 	// Stream response body with aggregation and finish-only emission
-	events := make(chan llm.StreamEvent)
 	go func() {
 		defer resp.Body.Close()
 		defer close(events)
 		scanner := bufio.NewScanner(resp.Body)
-		// Aggregators
 		type toolAgg struct {
-			id, name string
-			json     string
+			id, name  string
+			json      string
+			completed bool
+			emitted   bool
 		}
 		aggText := strings.Builder{}
 		tools := map[int]*toolAgg{}
 		finishReason := ""
+		var usage *llm.Usage
+		var promptTokens, completionTokens int
+
+		emitToolsIfAny := func() {
+			idxs := make([]int, 0, len(tools))
+			for i, ta := range tools {
+				if ta != nil && ta.completed && !ta.emitted {
+					idxs = append(idxs, i)
+				}
+			}
+			if len(idxs) == 0 {
+				return
+			}
+			for i := 1; i < len(idxs); i++ {
+				j := i
+				for j > 0 && idxs[j-1] > idxs[j] {
+					idxs[j-1], idxs[j] = idxs[j], idxs[j-1]
+					j--
+				}
+			}
+			calls := make([]llm.ToolCall, 0, len(idxs))
+			for _, i := range idxs {
+				ta := tools[i]
+				var args map[string]interface{}
+				if err := json.Unmarshal([]byte(ta.json), &args); err != nil {
+					args = map[string]interface{}{"raw": ta.json}
+				}
+				calls = append(calls, llm.ToolCall{ID: ta.id, Name: ta.name, Arguments: args})
+				ta.emitted = true
+			}
+			msg := llm.Message{Role: llm.RoleAssistant, Content: aggText.String(), ToolCalls: calls}
+			lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model}
+			events <- llm.StreamEvent{Response: lr}
+		}
 		for scanner.Scan() {
-			part := scanner.Text()
-			if strings.TrimSpace(part) == "" {
+			line := scanner.Text()
+			if strings.TrimSpace(line) == "" {
 				continue
 			}
-			var raw map[string]interface{}
-			if err := json.Unmarshal([]byte(part), &raw); err != nil {
+			if strings.HasPrefix(line, "event:") {
+				continue
+			}
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload == "" {
+				continue
+			}
+			var evt Response
+			if err := json.Unmarshal([]byte(payload), &evt); err != nil {
 				events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream part: %w", err)}
 				return
 			}
-			t, _ := raw["type"].(string)
-			switch t {
+			switch evt.Type {
+			case "ping":
+				continue
 			case "content_block_start":
-				if cb, ok := raw["content_block"].(map[string]interface{}); ok {
-					if cb["type"] == "tool_use" {
-						index := vtxInt(raw, "index")
-						id, _ := cb["id"].(string)
-						name, _ := cb["name"].(string)
-						tools[index] = &toolAgg{id: id, name: name}
-					}
+				if evt.ContentBlock != nil && evt.ContentBlock.Type == "tool_use" {
+					tools[evt.Index] = &toolAgg{id: evt.ContentBlock.ID, name: evt.ContentBlock.Name}
 				}
 			case "content_block_delta":
-				index := vtxInt(raw, "index")
-				if delta, ok := raw["delta"].(map[string]interface{}); ok {
-					if txt, _ := delta["text"].(string); txt != "" {
-						aggText.WriteString(txt)
+				if evt.Delta != nil {
+					if evt.Delta.Text != "" {
+						aggText.WriteString(evt.Delta.Text)
 					}
-					if part, _ := delta["partial_json"].(string); part != "" {
-						if ta, ok := tools[index]; ok {
-							ta.json += part
+					if evt.Delta.PartialJSON != "" {
+						if ta, ok := tools[evt.Index]; ok {
+							ta.json += evt.Delta.PartialJSON
 						}
 					}
+				}
+			case "content_block_stop":
+				if ta, ok := tools[evt.Index]; ok && ta != nil {
+					ta.completed = true
+					emitToolsIfAny()
 				}
 			case "message_delta":
-				if delta, ok := raw["delta"].(map[string]interface{}); ok {
-					if sr, _ := delta["stop_reason"].(string); sr != "" {
-						finishReason = sr
-					}
+				if evt.Delta != nil && evt.Delta.StopReason != "" {
+					finishReason = evt.Delta.StopReason
 				}
-				if finishReason != "" {
-					msg := llm.Message{Role: llm.RoleAssistant, Content: aggText.String()}
-					if len(tools) > 0 {
-						idxs := make([]int, 0, len(tools))
-						for i := range tools {
-							idxs = append(idxs, i)
-						}
-						for i := 1; i < len(idxs); i++ {
-							j := i
-							for j > 0 && idxs[j-1] > idxs[j] {
-								idxs[j-1], idxs[j] = idxs[j], idxs[j-1]
-								j--
-							}
-						}
-						calls := make([]llm.ToolCall, 0, len(idxs))
-						for _, i := range idxs {
-							ta := tools[i]
-							var args map[string]interface{}
-							if err := json.Unmarshal([]byte(ta.json), &args); err != nil {
-								args = map[string]interface{}{"raw": ta.json}
-							}
-							calls = append(calls, llm.ToolCall{ID: ta.id, Name: ta.name, Arguments: args})
-						}
-						msg.ToolCalls = calls
+				if evt.Usage != nil {
+					// VertexAI streams output_tokens incrementally here
+					completionTokens += evt.Usage.OutputTokens
+				}
+			case "message_stop":
+				usage = &llm.Usage{PromptTokens: promptTokens, CompletionTokens: completionTokens, TotalTokens: promptTokens + completionTokens}
+				if c.UsageListener != nil {
+					c.UsageListener.OnUsage(c.Model, usage)
+				}
+				msg := llm.Message{Role: llm.RoleAssistant, Content: aggText.String()}
+				if len(tools) > 0 {
+					// include all tool calls aggregated so far, in index order
+					idxs := make([]int, 0, len(tools))
+					for i := range tools {
+						idxs = append(idxs, i)
 					}
-					lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model}
-					events <- llm.StreamEvent{Response: lr}
+					for i := 1; i < len(idxs); i++ {
+						j := i
+						for j > 0 && idxs[j-1] > idxs[j] {
+							idxs[j-1], idxs[j] = idxs[j], idxs[j-1]
+							j--
+						}
+					}
+					calls := make([]llm.ToolCall, 0, len(idxs))
+					for _, i := range idxs {
+						ta := tools[i]
+						var args map[string]interface{}
+						if err := json.Unmarshal([]byte(ta.json), &args); err != nil {
+							args = map[string]interface{}{"raw": ta.json}
+						}
+						calls = append(calls, llm.ToolCall{ID: ta.id, Name: ta.name, Arguments: args})
+					}
+					msg.ToolCalls = calls
+				}
+				lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model, Usage: usage}
+				events <- llm.StreamEvent{Response: lr}
+			case "message_start":
+				// read prompt tokens from nested message.usage if available
+				type msgStart struct {
+					Message struct {
+						Usage *Usage `json:"usage"`
+					} `json:"message"`
+				}
+				var ms msgStart
+				if err := json.Unmarshal([]byte(payload), &ms); err == nil && ms.Message.Usage != nil {
+					promptTokens = ms.Message.Usage.InputTokens
+					completionTokens += ms.Message.Usage.OutputTokens
 				}
 			case "error":
-				if errObj, ok := raw["error"].(map[string]interface{}); ok {
-					if m, _ := errObj["message"].(string); m != "" {
-						events <- llm.StreamEvent{Err: fmt.Errorf("claude stream error: %s", m)}
-						return
-					}
+				if evt.Error != nil && evt.Error.Message != "" {
+					events <- llm.StreamEvent{Err: fmt.Errorf("claude stream error: %s", evt.Error.Message)}
+					return
 				}
 			default:
 				// ignore others: message_start, content_block_stop, message_stop

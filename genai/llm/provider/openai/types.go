@@ -6,17 +6,23 @@ import (
 
 // Request represents the request structure for OpenAI API
 type Request struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Temperature *float64  `json:"temperature,omitempty"`
-	MaxTokens   int       `json:"max_completion_tokens,omitempty"`
-	TopP        float64   `json:"top_p,omitempty"`
-	N           int       `json:"n,omitempty"`
-	Stream      bool      `json:"stream,omitempty"`
+	Model         string         `json:"model"`
+	Messages      []Message      `json:"messages"`
+	Temperature   *float64       `json:"temperature,omitempty"`
+	MaxTokens     int            `json:"max_completion_tokens,omitempty"`
+	TopP          float64        `json:"top_p,omitempty"`
+	N             int            `json:"n,omitempty"`
+	Stream        bool           `json:"stream,omitempty"`
+	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	// Reasoning enables configuration of internal chain-of-thought reasoning features.
 	Reasoning  *llm.Reasoning `json:"reasoning,omitempty"`
 	Tools      []Tool         `json:"tools,omitempty"`
 	ToolChoice interface{}    `json:"tool_choice,omitempty"`
+}
+
+// StreamOptions controls additional streaming behavior.
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
 // ContentItem represents a single content item in a message for the OpenAI API

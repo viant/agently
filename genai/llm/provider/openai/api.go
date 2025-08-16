@@ -129,6 +129,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		return nil, err
 	}
 	req.Stream = true
+	// Ask OpenAI to include usage in the final stream event if supported
+	req.StreamOptions = &StreamOptions{IncludeUsage: true}
 	payload, err := c.marshalRequestBody(req)
 	if err != nil {
 		return nil, err
@@ -258,6 +260,9 @@ func (c *Client) consumeStream(body io.Reader, events chan<- llm.StreamEvent) {
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 	agg := newStreamAggregator()
+	var lastUsage *llm.Usage
+	var lastModel string
+	publishedUsage := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
@@ -269,6 +274,9 @@ func (c *Client) consumeStream(body io.Reader, events chan<- llm.StreamEvent) {
 		}
 		var sresp StreamResponse
 		if err := json.Unmarshal([]byte(data), &sresp); err == nil && len(sresp.Choices) > 0 {
+			if sresp.Model != "" {
+				lastModel = sresp.Model
+			}
 			finalized := make([]llm.Choice, 0)
 			for _, ch := range sresp.Choices {
 				agg.updateDelta(ch)
@@ -277,7 +285,30 @@ func (c *Client) consumeStream(body io.Reader, events chan<- llm.StreamEvent) {
 				}
 			}
 			if len(finalized) > 0 {
-				events <- llm.StreamEvent{Response: &llm.GenerateResponse{Choices: finalized, Model: sresp.Model}}
+				lr := &llm.GenerateResponse{Choices: finalized, Model: lastModel}
+				if lastUsage != nil && lastUsage.TotalTokens > 0 {
+					lr.Usage = lastUsage
+				}
+				events <- llm.StreamEvent{Response: lr}
+			}
+			continue
+		}
+		// capture usage if present (OpenAI include_usage option)
+		var maybeUsage struct {
+			Model string `json:"model"`
+			Usage struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			} `json:"usage"`
+		}
+
+		if err := json.Unmarshal([]byte(data), &maybeUsage); err == nil && (maybeUsage.Usage.PromptTokens > 0 || maybeUsage.Usage.CompletionTokens > 0 || maybeUsage.Usage.TotalTokens > 0) {
+			lastModel = maybeUsage.Model
+			lastUsage = &llm.Usage{PromptTokens: maybeUsage.Usage.PromptTokens, CompletionTokens: maybeUsage.Usage.CompletionTokens, TotalTokens: maybeUsage.Usage.TotalTokens}
+			if c.UsageListener != nil && !publishedUsage && lastModel != "" {
+				c.UsageListener.OnUsage(lastModel, lastUsage)
+				publishedUsage = true
 			}
 			continue
 		}

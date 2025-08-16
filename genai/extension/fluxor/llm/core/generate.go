@@ -28,6 +28,7 @@ type GenerateInput struct {
 	// top-p, etc.).  If nil a minimal options struct will be created that only
 	// carries Tools.
 	Options        *llm.Options
+	UseStream      *bool
 	Template       string
 	SystemTemplate string
 	Bind           map[string]interface{}

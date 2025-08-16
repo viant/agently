@@ -92,6 +92,10 @@ type Response struct {
 	StopReason   string        `json:"stop_reason,omitempty"`
 	StopSequence string        `json:"stop_sequence,omitempty"`
 	Usage        *Usage        `json:"usage,omitempty"`
+
+	// Streaming specific helpers
+	Index        int           `json:"index,omitempty"`
+	ContentBlock *ContentBlock `json:"content_block,omitempty"`
 }
 
 // Delta represents a delta in the streaming response
@@ -100,6 +104,8 @@ type Delta struct {
 	Text         string `json:"text,omitempty"`
 	StopReason   string `json:"stop_reason,omitempty"`
 	StopSequence string `json:"stop_sequence,omitempty"`
+	// For tool input deltas (type == "input_json_delta")
+	PartialJSON string `json:"partial_json,omitempty"`
 }
 
 // Error represents an error in the response
