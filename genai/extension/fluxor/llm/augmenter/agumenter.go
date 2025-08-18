@@ -3,17 +3,17 @@ package augmenter
 import (
 	"context"
 	"fmt"
+	"os"
+	"path"
+	"strings"
+
 	"github.com/tmc/langchaingo/embeddings"
 	"github.com/viant/embedius/indexer"
-	"github.com/viant/embedius/indexer/codebase"
 	"github.com/viant/embedius/indexer/fs"
 	"github.com/viant/embedius/indexer/fs/splitter"
 	"github.com/viant/embedius/matching"
 	"github.com/viant/embedius/matching/option"
 	"github.com/viant/embedius/vectordb/mem"
-	"os"
-	"path"
-	"strings"
 )
 
 type DocsAugmenter struct {
@@ -25,9 +25,8 @@ type DocsAugmenter struct {
 }
 
 type CodeAugmenter struct {
-	codebaseIndexer *codebase.Indexer
-	memStore        *mem.Store
-	service         *indexer.Service
+	memStore *mem.Store
+	service  *indexer.Service
 }
 
 func Key(embedder string, options *option.Options) string {
@@ -61,16 +60,6 @@ func NewDocsAugmenter(embeddingsModel string, embedder embeddings.Embedder, opti
 	return ret
 }
 
-func NewCodeAugmenter(embeddingsModel string, embedder embeddings.Embedder, options ...option.Option) *CodeAugmenter {
-	baseURL := embeddingBaseURL()
-	ret := &CodeAugmenter{
-		codebaseIndexer: codebase.New(embeddingsModel),
-		memStore:        mem.NewStore(),
-	}
-	ret.service = indexer.NewService(baseURL, ret.memStore, embedder, ret.codebaseIndexer)
-	return ret
-}
-
 func embeddingBaseURL() string {
 	baseURL := path.Join(os.Getenv("HOME"), ".emb")
 	return baseURL
@@ -90,20 +79,6 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 		}
 		augmenter = NewDocsAugmenter(input.Model, model, matchOptions...)
 		s.DocsAugmenters.Set(key, augmenter)
-	}
-	return augmenter, nil
-}
-
-func (s *Service) getCodeAugmenter(ctx context.Context, input *AugmentCodeInput) (*CodeAugmenter, error) {
-	key := Key(input.Model, nil)
-	augmenter, ok := s.CodeAugmenters.Get(key)
-	if !ok {
-		model, err := s.finder.Find(ctx, input.Model)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get model: %v, %w", input.Model, err)
-		}
-		augmenter = NewCodeAugmenter(input.Model, model)
-		s.CodeAugmenters.Set(key, augmenter)
 	}
 	return augmenter, nil
 }

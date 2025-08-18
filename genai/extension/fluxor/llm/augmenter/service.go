@@ -3,6 +3,10 @@ package augmenter
 import (
 	"context"
 	"fmt"
+	"path"
+	"reflect"
+	"strings"
+
 	"github.com/tmc/langchaingo/schema"
 	"github.com/tmc/langchaingo/vectorstores"
 	"github.com/viant/afs"
@@ -10,9 +14,6 @@ import (
 	"github.com/viant/agently/internal/shared"
 	embedius "github.com/viant/embedius"
 	"github.com/viant/fluxor/model/types"
-	"path"
-	"reflect"
-	"strings"
 )
 
 const name = "llm/augmenter"
@@ -40,7 +41,6 @@ func (s *Service) Name() string {
 
 const (
 	augmentDocsMethod = "augmentDocs"
-	augmentCodeMethod = "augmentCode"
 )
 
 // Methods returns the service methods
@@ -51,11 +51,6 @@ func (s *Service) Methods() types.Signatures {
 			Input:  reflect.TypeOf(&AugmentDocsInput{}),
 			Output: reflect.TypeOf(&AugmentDocsOutput{}),
 		},
-		{
-			Name:   augmentCodeMethod,
-			Input:  reflect.TypeOf(&AugmentCodeInput{}),
-			Output: reflect.TypeOf(&AugmentCodeOutput{}),
-		},
 	}
 }
 
@@ -64,76 +59,9 @@ func (s *Service) Method(name string) (types.Executable, error) {
 	switch name {
 	case augmentDocsMethod:
 		return s.augmentDocs, nil
-	case augmentCodeMethod:
-
-		return s.augmentCode, nil
 	default:
 		return nil, types.NewMethodNotFoundError(name)
 	}
-}
-
-// augmentCode processes LLM responses to code with embedded context
-func (s *Service) augmentCode(ctx context.Context, in, out interface{}) error {
-
-	input, ok := in.(*AugmentCodeInput)
-	if !ok {
-		return types.NewInvalidInputError(in)
-	}
-	output, ok := out.(*AugmentCodeOutput)
-	if !ok {
-		return types.NewInvalidOutputError(output)
-	}
-
-	return s.AugmentCode(ctx, input, output)
-}
-
-func (s *Service) AugmentCode(ctx context.Context, input *AugmentCodeInput, output *AugmentCodeOutput) error {
-	input.Init(ctx)
-	err := input.Validate(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to init input: %w", err)
-	}
-
-	augmenter, err := s.getCodeAugmenter(ctx, input)
-	if err != nil {
-		return err
-	}
-	service := embedius.NewService(augmenter.service)
-	var searchDocuments []schema.Document
-
-	var vectorOptions []vectorstores.Option
-	if input.Match != nil {
-		vectorOptions = append(vectorOptions, vectorstores.WithFilters(input.Match.Options()))
-	}
-
-	for _, location := range input.Locations {
-		docs, err := service.Match(ctx, input.Query, input.MaxDocuments, location, vectorOptions...)
-		if err != nil {
-			return fmt.Errorf("failed to augmentDocs documents: %w", err)
-		}
-		searchDocuments = append(searchDocuments, docs...)
-	}
-
-	output.Documents = Documents(searchDocuments).ProjectDocuments()
-	output.DocumentsSize = Documents(searchDocuments).Size()
-	output.GroupedBy = output.Documents.GroupBy()
-
-	// Ensure the set for the provided paths or kind
-	content := strings.Builder{}
-	documents := output.Documents
-	if input.ShallUseGroup() {
-		documents = output.GroupedBy
-	}
-	sizeSoFar := 0
-	for _, doc := range documents {
-		if sizeSoFar+doc.Size() > input.MaxResponseSize {
-			break
-		}
-		size, _ := s.addDocumentContent(&content, doc.Path, doc.Content)
-		sizeSoFar += size
-	}
-	output.Content = content.String()
-	return nil
 }
 
 // augmentDocs processes LLM responses to augmentDocs with embedded context

@@ -15,7 +15,7 @@ require (
 	github.com/viant/afs v1.26.3
 	github.com/viant/afsc v1.9.1
 	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
-	github.com/viant/embedius v0.1.1
+	github.com/viant/embedius v0.2.1
 	github.com/viant/fluxor v0.1.24
 	github.com/viant/fluxor-mcp v0.1.13
 	github.com/viant/forge v0.2.7-0.20250708220613-1b8a2f4e75ac
@@ -26,7 +26,7 @@ require (
 	github.com/viant/scy v0.25.3
 	github.com/viant/structology v0.7.1 // indirect
 	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85
-	github.com/viant/x v0.3.0
+	github.com/viant/x v0.3.0 // indirect
 	github.com/viant/xdatly/handler v0.0.0-20250418144853-029d9a05ae20
 	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20 // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect -- replaced with internal stub, see below
@@ -109,7 +109,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0 // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.3 // indirect
-	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82 // indirect
 	github.com/sourcegraph/go-diff v0.7.0 // indirect
 	github.com/viant/aerospike v0.2.11-0.20241108195857-ed524b97800d // indirect
 	github.com/viant/bigquery v0.4.1 // indirect
@@ -154,14 +153,14 @@ require (
 	go.opentelemetry.io/otel/metric v1.36.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.36.0 // indirect
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
-	golang.org/x/crypto v0.38.0 // indirect
-	golang.org/x/mod v0.23.0 // indirect
-	golang.org/x/net v0.37.0 // indirect
-	golang.org/x/sync v0.14.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/text v0.25.0 // indirect
+	golang.org/x/crypto v0.41.0 // indirect
+	golang.org/x/mod v0.26.0 // indirect
+	golang.org/x/net v0.42.0 // indirect
+	golang.org/x/sync v0.16.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.30.0 // indirect
+	golang.org/x/tools v0.35.0 // indirect
 	google.golang.org/api v0.183.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/appengine/v2 v2.0.2 // indirect
