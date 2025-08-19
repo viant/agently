@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/summary"
+	"github.com/viant/agently/internal/templating"
 	"github.com/viant/fluxor/model/types"
 )
 
@@ -16,6 +17,7 @@ type RunInput struct {
 	ConversationID  string         `json:"conversationId,omitempty"`
 	AgentName       string         `json:"agentName"`
 	Query           string         `json:"query"`
+	QueryTemplate   string         `json:"queryTemplate,omitempty"`
 	Context         map[string]any `json:"context,omitempty"`
 	ElicitationMode string         `json:"elicitationMode,omitempty"`
 	Visibility      string         `json:"visibility,omitempty"` // full|summary|none
@@ -49,11 +51,30 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	}
 	res.ConversationID = childID
 
+	// Resolve final query – support optional velty-based QueryTemplate that
+	// can interpolate Context and the original Query (as ${Prompt}).
+	finalQuery := arg.Query
+
+	if strings.TrimSpace(arg.QueryTemplate) != "" {
+		vars := map[string]interface{}{}
+		if arg.Context != nil {
+			for k, v := range arg.Context {
+				vars[k] = v
+			}
+		}
+		vars["Prompt"] = arg.Query
+		rendered, err := templating.Expand(arg.QueryTemplate, vars)
+		if err != nil {
+			return err
+		}
+		finalQuery = rendered
+	}
+
 	// Delegate to regular Query processing in the child conversation.
 	qi := &QueryInput{
 		ConversationID:  childID,
 		AgentName:       arg.AgentName,
-		Query:           arg.Query,
+		Query:           finalQuery,
 		Context:         arg.Context,
 		ElicitationMode: arg.ElicitationMode,
 	}

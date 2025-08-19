@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/internal/templating"
 	fluxortypes "github.com/viant/fluxor/model/types"
-	"github.com/viant/velty"
 
 	elog "github.com/viant/agently/internal/log"
 )
@@ -238,35 +238,11 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 }
 
 func (s *Service) expandTemplate(ctx context.Context, input *GenerateInput) (string, error) {
-	planner := velty.New()
-	err := planner.DefineVariable("Prompt", input.Prompt)
-	if err != nil {
-		return "", err
-	}
-	// Define variables once during compilation
+	vars := map[string]interface{}{"Prompt": input.Prompt}
 	for k, v := range input.Bind {
-		if err := planner.DefineVariable(k, v); err != nil {
-			return "", err
-		}
+		vars[k] = v
 	}
-	exec, newState, err := planner.Compile([]byte(input.Template))
-	if err != nil {
-		return "", err
-	}
-	state := newState()
-	state.SetValue("Prompt", input.Prompt)
-	// Define variables once during compilation
-	for k, v := range input.Bind {
-		if err := state.SetValue(k, v); err != nil {
-			return "", err
-		}
-	}
-	// No need to set values again, they were already defined during compilation
-	if err = exec.Exec(state); err != nil {
-		return "", err
-	}
-	output := string(state.Buffer.Bytes())
-	return output, nil
+	return templating.Expand(input.Template, vars)
 }
 
 type Attachment struct {
@@ -321,33 +297,9 @@ func (a *Attachment) MIMEType() string {
 }
 
 func (s *Service) expandSystemTemplate(ctx context.Context, input *GenerateInput) (string, error) {
-	planner := velty.New()
-	err := planner.DefineVariable("SystemPrompt", input.SystemPrompt)
-	if err != nil {
-		return "", err
-	}
-	// Define variables once during compilation
+	vars := map[string]interface{}{"SystemPrompt": input.SystemPrompt}
 	for k, v := range input.Bind {
-		if err := planner.DefineVariable(k, v); err != nil {
-			return "", err
-		}
+		vars[k] = v
 	}
-	exec, newState, err := planner.Compile([]byte(input.SystemTemplate))
-	if err != nil {
-		return "", err
-	}
-	state := newState()
-	state.SetValue("SystemPrompt", input.SystemPrompt)
-	// Define variables once during compilation
-	for k, v := range input.Bind {
-		if err := state.SetValue(k, v); err != nil {
-			return "", err
-		}
-	}
-	// No need to set values again, they were already defined during compilation
-	if err = exec.Exec(state); err != nil {
-		return "", err
-	}
-	output := string(state.Buffer.Bytes())
-	return output, nil
+	return templating.Expand(input.SystemTemplate, vars)
 }

@@ -7,7 +7,7 @@ import (
 
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
-	"github.com/viant/velty"
+	"github.com/viant/agently/internal/templating"
 )
 
 type (
@@ -88,39 +88,12 @@ func (a *Agent) GeneratePrompt(query string, enrichment string) (string, error) 
 
 // generateVeltyPrompt uses velty engine to process the template
 func (a *Agent) generateVeltyPrompt(query string, enrichment string) (string, error) {
-	planner := velty.New()
-
-	if err := planner.DefineVariable("Find", a); err != nil {
-		return "", err
+	vars := map[string]interface{}{
+		"Find":       a,
+		"Query":      query,
+		"Enrichment": enrichment,
 	}
-	if err := planner.DefineVariable("Query", query); err != nil {
-		return "", err
-	}
-	if err := planner.DefineVariable("Enrichment", enrichment); err != nil {
-		return "", err
-	}
-
-	exec, newState, err := planner.Compile([]byte(a.Prompt))
-	if err != nil {
-		return "", err
-	}
-
-	state := newState()
-	if err := state.SetValue("Find", a); err != nil {
-		return "", err
-	}
-	if err := state.SetValue("Query", query); err != nil {
-		return "", err
-	}
-	if err := state.SetValue("Enrichment", enrichment); err != nil {
-		return "", err
-	}
-
-	if err := exec.Exec(state); err != nil {
-		return "", err
-	}
-
-	return string(state.Buffer.Bytes()), nil
+	return templating.Expand(a.Prompt, vars)
 }
 
 // generateGoTemplatePrompt uses Go's text/template to process the template

@@ -107,6 +107,12 @@ func (s *Service) ExecuteWorkflow(ctx context.Context, req WorkflowRequest) (*Wo
 		if err != nil {
 			return nil, err
 		}
+		if len(procOut.Errors) > 0 {
+			if len(procOut.Output) == 0 {
+				procOut.Output = map[string]interface{}{}
+			}
+			procOut.Output["error"] = procOut.Errors
+		}
 		if procOut != nil {
 			output = procOut.Output
 		}

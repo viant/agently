@@ -63,7 +63,7 @@ func (w *WorkflowCmd) Execute(_ []string) error {
 
 	input, err := w.readInput()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read input: %w", err)
 	}
 
 	// Log file (optional)
@@ -93,6 +93,7 @@ func (w *WorkflowCmd) Execute(_ []string) error {
 		Input:    input,
 		Timeout:  timeout,
 	})
+
 	if err != nil {
 		return err
 	}

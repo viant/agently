@@ -255,6 +255,38 @@ agently mcp remove -n local
 
 ### Options
 
+### Templated agent queries (velty)
+
+Agently supports rendering prompts with the velty template engine so you can
+compose rich queries from structured inputs.
+
+Where you can use templates:
+- Agent workflow run (Fluxor): llm/agent:run input accepts queryTemplate in
+  addition to query. The template is rendered with variables:
+  - Prompt – the original query string
+  - everything from context – each key becomes a template variable
+
+Example (Fluxor task):
+
+```
+action: llm/agent:run
+input:
+  agentName: designer
+  query: "Initial feature brief"
+  queryTemplate: |
+    Design this feature based on:\n
+    Brief: ${Prompt}\n
+    Product: ${productName}\n
+    Constraints: ${constraints}
+  context:
+    productName: "Acme WebApp"
+    constraints: "Ship MVP in 2 sprints"
+```
+
+In addition, the core generation service uses the same unified templating for
+Template (with ${Prompt}) and SystemTemplate (with ${SystemPrompt}) together
+with any values placed in Bind.
+
 - `-f, --config`: Executor config YAML/JSON path
 - `-l, --location`: Agent definition path
 - `-q, --query`: User query

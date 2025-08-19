@@ -180,6 +180,42 @@ No configuration is required; the defaults work well in practice.  Advanced
 users can tune the limits via service options in code (`consecutiveLimit`,
 `windowSize`, `windowFreqLimit`).
 
+### 5.y Templated queries with velty (agent.run and core templates)
+
+Agently centralises velty templating so you can build prompts from structured
+inputs consistently across the stack.
+
+Where templates apply:
+- In `llm/agent:run`, you can supply both `query` and `queryTemplate`. The
+  engine renders `queryTemplate` using:
+  - `Prompt` – the original `query`
+  - all keys from `context` – each becomes a variable
+  The rendered output becomes the effective query passed to the agent.
+
+  Example:
+
+  ```yaml
+  action: llm/agent:run
+  input:
+    agentName: designer
+    query: "Initial feature brief"
+    queryTemplate: |
+      Design this feature based on:
+      Brief: ${Prompt}
+      Product: ${productName}
+      Constraints: ${constraints}
+    context:
+      productName: "Acme WebApp"
+      constraints: "Ship MVP in 2 sprints"
+  ```
+
+- In `llm/core:generate`, template fields are rendered the same way:
+  - `Template` sees `${Prompt}` and any variables from `Bind`
+  - `SystemTemplate` sees `${SystemPrompt}` and any variables from `Bind`
+
+This unified approach avoids having slightly different templating code paths
+and makes it easier to reason about which variables are available where.
+
 ### 5.1 Change the plan prompt
 
 1. Copy `plan_prompt.vm` to a new file (e.g. `my_prompt.vm`).
