@@ -87,17 +87,11 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 		return err
 	}
 
-	// TODO systemPromptTemplate start
-	systemPromptTemplate := ""
-
-	if input.SystemPromptURI != "" {
-		data, err := s.fs.DownloadWithURL(ctx, input.SystemPromptURI)
-		if err != nil {
-			return err
-		}
-		systemPromptTemplate = string(data)
+	systemPromptTemplate, err := s.prepareSystemPrompt(ctx, input)
+	if err != nil {
+		return err
 	}
-	// TODO systemPRomptTemplate end
+
 	genOutput := &GenerateOutput{}
 	planResult, execResults, err := s.GeneratePlan(ctx, modelName, promptTemplate, systemPromptTemplate, input, tools, genOutput)
 	if err != nil {
@@ -142,6 +136,18 @@ func (s *Service) prepareToolsAndPrompt(ctx context.Context, input *PlanInput) (
 		prompt = planPromptTemplate
 	}
 	return tools, prompt, nil
+}
+
+func (s *Service) prepareSystemPrompt(ctx context.Context, input *PlanInput) (string, error) {
+	if input.SystemPromptURI == "" {
+		return "", nil
+	}
+
+	data, err := s.fs.DownloadWithURL(ctx, input.SystemPromptURI)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func (s *Service) appendTranscriptFromGenerate(genOutput *GenerateOutput, planResult *plan.Plan, output *PlanOutput) {

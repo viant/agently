@@ -47,18 +47,21 @@ You MUST adhere to the following criteria when executing the task:
 Clarification / Elicitation structured format:
 ```json
 {
-"type": "elicitation",
-"message": "Please provide <parameter> for <tool-name>.",
-    "requestedSchema": {
+  "type": "elicitation",
+  "message": "Please provide <parameter> for <tool-name>.",
+  "requestedSchema": {
     "type": "object",
     "properties": {
-    "<param-1>": { "type": "string" },
-        "<param-2>": { "type": "uri" }
-            },
-            "required": [ "<param-1>", "<param-2>" ]
-    }
+      "<param-1>": { "type": "string" },
+      "<param-2>": { "type": "uri" }
+    },
+    "required": [ "<param-1>", "<param-2>" ]
+  }
 }
 ```
+
+Never ASK/Elicitate user to provide credentials (user/password) instead delegate that to tool internals.
+If you have final answer DO NOT use steps/tool invocation format.
 
 #if(${SystemContext})
     Documents: ${SystemContext}
