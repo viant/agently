@@ -36,12 +36,14 @@ var planPromptTemplate string
 
 // PlanInput defines input for Plan generation or finalization.
 type PlanInput struct {
-	Query      string               `json:"query"`
-	Context    string               `json:"context,omitempty"`
-	Model      string               `json:"model,omitempty"`
-	ModelMatch llm.ModelPreferences `json:"modelMatch,omitempty"`
-	Tools      []string             `json:"tools,omitempty"`     // available tools for selection
-	PromptURI  string               `json:"promptURI,omitempty"` // optional custom prompt for Plan generation
+	Query           string               `json:"query"`
+	Context         string               `json:"context,omitempty"`
+	SystemContext   string               `json:"systemContext,omitempty"`
+	Model           string               `json:"model,omitempty"`
+	ModelMatch      llm.ModelPreferences `json:"modelMatch,omitempty"`
+	Tools           []string             `json:"tools,omitempty"`     // available tools for selection
+	PromptURI       string               `json:"promptURI,omitempty"` // optional custom prompt for Plan generation
+	SystemPromptURI string               `json:"systemPromptURI,omitempty"`
 	//Loopback parameters
 	Results       []plan.Result    `json:"results,omitempty"`    // structured step results for finalization
 	Transcript    []memory.Message `json:"transcript,omitempty"` // transcript of the conversation with the LLM`
@@ -85,8 +87,19 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 		return err
 	}
 
+	// TODO systemPromptTemplate start
+	systemPromptTemplate := ""
+
+	if input.SystemPromptURI != "" {
+		data, err := s.fs.DownloadWithURL(ctx, input.SystemPromptURI)
+		if err != nil {
+			return err
+		}
+		systemPromptTemplate = string(data)
+	}
+	// TODO systemPRomptTemplate end
 	genOutput := &GenerateOutput{}
-	planResult, execResults, err := s.GeneratePlan(ctx, modelName, promptTemplate, input, tools, genOutput)
+	planResult, execResults, err := s.GeneratePlan(ctx, modelName, promptTemplate, systemPromptTemplate, input, tools, genOutput)
 	if err != nil {
 		return err
 	}
@@ -201,7 +214,7 @@ func RefinePlan(p *plan.Plan, _ string) {
 
 // GeneratePlan invokes the LLM to produce or refine a plan based on the template and bind variables.
 // It returns a Plan if parsing succeeded, otherwise returns the answer text.
-func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate string, input *PlanInput, tools []llm.Tool, genOutput *GenerateOutput) (*plan.Plan, []plan.Result, error) {
+func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate, systemPromptTemplate string, input *PlanInput, tools []llm.Tool, genOutput *GenerateOutput) (*plan.Plan, []plan.Result, error) {
 
 	filteredInput := dedupResultsSkipSeenErrors(input.Results)
 
@@ -215,6 +228,7 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate st
 	bind := map[string]interface{}{
 		"Query":                        input.Query,
 		"Context":                      input.Context,
+		"SystemContext":                input.SystemContext,
 		"Results":                      filteredInput,
 		"Tools":                        input.Tools,
 		"ResultSummary":                input.ResultSummary,
@@ -234,10 +248,11 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate st
 	s.enureResultCallID(input)
 
 	genInput := &GenerateInput{
-		Model:    modelName,
-		Template: promptTemplate,
-		Bind:     bind,
-		Tools:    tools,
+		Model:          modelName,
+		Template:       promptTemplate,
+		SystemTemplate: systemPromptTemplate,
+		Bind:           bind,
+		Tools:          tools,
 	}
 
 	if len(filteredInput) == 0 {
