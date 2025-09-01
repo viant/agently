@@ -1,11 +1,11 @@
 package ollama
 
 import (
-    "context"
-    "net/http"
-    "time"
+	"context"
+	"net/http"
+	"time"
 
-    basecfg "github.com/viant/agently/genai/llm/provider/base"
+	basecfg "github.com/viant/agently/genai/llm/provider/base"
 )
 
 const (
@@ -15,32 +15,32 @@ const (
 
 // Client represents an Ollama API client
 type Client struct {
-    basecfg.Config
-    Timeout time.Duration
+	basecfg.Config
+	Timeout time.Duration
 }
 
 // NewClient creates a new Ollama client
 func NewClient(ctx context.Context, model string, options ...ClientOption) (*Client, error) {
-    client := &Client{
-        Config: basecfg.Config{
-            BaseURL: defaultBaseURL,
-            Model:   model,
-            HTTPClient: &http.Client{
-                Transport: &http.Transport{
-                    TLSHandshakeTimeout:   10 * time.Second,
-                    IdleConnTimeout:       10 * time.Second,
-                    ResponseHeaderTimeout: defaultTimeout,
-                },
-                Timeout: 0,
-            },
-        },
-        Timeout: defaultTimeout,
-    }
+	client := &Client{
+		Config: basecfg.Config{
+			BaseURL: defaultBaseURL,
+			Model:   model,
+			HTTPClient: &http.Client{
+				Transport: &http.Transport{
+					TLSHandshakeTimeout:   10 * time.Second,
+					IdleConnTimeout:       10 * time.Second,
+					ResponseHeaderTimeout: defaultTimeout,
+				},
+				Timeout: 0,
+			},
+		},
+		Timeout: defaultTimeout,
+	}
 
 	// Apply options
-    for _, option := range options {
-        option(client)
-    }
+	for _, option := range options {
+		option(client)
+	}
 
 	return client, nil
 }

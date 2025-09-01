@@ -48,7 +48,7 @@ export default function ExecutionBubble({ message: msg, context }) {
                 <div className={bubbleClass} data-ts={formatDate(new Date(msg.createdAt), "HH:mm")}> 
                     <div className="prose max-w-full text-sm" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
 
-                    {msg.executions?.length > 0 && (
+                    {(msg.executions?.length > 0 || true) && (
                         <details className="mt-2">
                             <summary className="cursor-pointer text-xs text-blue-500">
                                 Execution details ({msg.executions.length})

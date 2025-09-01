@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/viant/afs"
 	fsadapter "github.com/viant/afs/adapter/http"
+	v2 "github.com/viant/agently/adapter/http/v2"
 	"github.com/viant/agently/deployment/ui"
 	"net/http"
 
@@ -16,8 +17,15 @@ import (
 	"github.com/viant/agently/adapter/http/workspace"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
+	daofactory "github.com/viant/agently/internal/dao/factory"
+	d "github.com/viant/agently/internal/domain"
+	dstore "github.com/viant/agently/internal/domain/adapter"
 	"github.com/viant/agently/service"
+	"github.com/viant/datly"
+	"github.com/viant/datly/view"
 	fluxorpol "github.com/viant/fluxor/policy"
+	"os"
+	"strings"
 )
 
 // New constructs an http.Handler that combines chat API and workspace CRUD API.
@@ -36,6 +44,11 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 		chat.WithApprovalService(exec.ApprovalService()),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
+
+	// Domain v2 API (DAO-backed). Prefer SQL when configured, fallback to memory.
+	apis, store := buildV2(context.Background())
+	v2h := v2.NewWithAPIs(store, apis)
+	v2h.Register(mux)
 
 	// Workflow run endpoint
 	mux.Handle("/v1/api/workflow/run", workflow.New(exec, svc))
@@ -73,4 +86,23 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	chat.StartApprovalBridge(ctx, exec, exec.Conversation())
 
 	return chat.WithCORS(mux)
+}
+
+func buildV2(ctx context.Context) (*daofactory.API, d.Store) {
+	driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
+	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
+	if driver != "" && dsn != "" {
+		if dao, err := datly.New(ctx); err == nil {
+			_ = dao.AddConnectors(ctx, view.NewConnector("agently", driver, dsn))
+			if apis, _ := daofactory.New(ctx, daofactory.DAOSQL, dao); apis != nil {
+				store := dstore.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
+				return apis, store
+			}
+		}
+	}
+	if apis, _ := daofactory.New(ctx, daofactory.DAOInMemory, nil); apis != nil {
+		store := dstore.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
+		return apis, store
+	}
+	return nil, nil
 }

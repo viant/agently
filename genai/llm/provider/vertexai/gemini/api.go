@@ -13,6 +13,8 @@ import (
 	"github.com/viant/agently/genai/llm/provider/base"
 
 	"github.com/viant/agently/genai/llm"
+	mcbuf "github.com/viant/agently/genai/modelcallctx"
+	"time"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -109,6 +111,10 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	// Observer start
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		ob.OnCallStart(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	}
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
@@ -139,6 +145,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	llmsResp := ToLLMSResponse(&apiResp)
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
+	}
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		info := mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage}
+		if llmsResp != nil && len(llmsResp.Choices) > 0 {
+			info.FinishReason = llmsResp.Choices[0].FinishReason
+		}
+		ob.OnCallEnd(ctx, info)
 	}
 	return llmsResp, nil
 }
@@ -184,18 +197,41 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		return nil, fmt.Errorf("Gemini stream error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	events := make(chan llm.StreamEvent)
+	out := make(chan llm.StreamEvent)
 	go func() {
 		defer resp.Body.Close()
-		defer close(events)
+		defer close(out)
 		_ = resp.Header.Get("Content-Type")
 		agg := newGeminiAggregator(c.Model, c.UsageListener)
+		// Proxy events to capture last response
+		proxy := make(chan llm.StreamEvent)
+		var lastLR *llm.GenerateResponse
+		go func() {
+			for ev := range proxy {
+				if ev.Response != nil {
+					lastLR = ev.Response
+				}
+				out <- ev
+			}
+		}()
 		// Gemini uses application/json streams; decode with JSON decoder.
-		c.streamJSON(resp.Body, events, agg)
+		c.streamJSON(resp.Body, proxy, agg)
+		close(proxy)
 		// drain any leftover on disconnect
-		agg.emitRemainder(events)
+		agg.emitRemainder(out)
+		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+			var respJSON []byte
+			var finishReason string
+			if lastLR != nil {
+				respJSON, _ = json.Marshal(lastLR)
+				if len(lastLR.Choices) > 0 {
+					finishReason = lastLR.Choices[0].FinishReason
+				}
+			}
+			ob.OnCallEnd(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: agg.usage, FinishReason: finishReason})
+		}
 	}()
-	return events, nil
+	return out, nil
 }
 
 // geminiAggregator accumulates per-candidate content/tool calls and emits only when finished.

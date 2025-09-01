@@ -13,6 +13,7 @@ import (
 
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
+	mcbuf "github.com/viant/agently/genai/modelcallctx"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -46,6 +47,10 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		return nil, err
 	}
 
+	// Observer start
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		ob.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, StartedAt: time.Now()})
+	}
 	// Execute
 	c.HTTPClient.Timeout = 10 * time.Minute
 	resp, err := c.HTTPClient.Do(httpReq)
@@ -61,7 +66,23 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, respBytes)
 	}
-	return c.parseGenerateResponse(req.Model, respBytes)
+	lr, perr := c.parseGenerateResponse(req.Model, respBytes)
+	// Observer end
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		info := mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now()}
+		if lr != nil {
+			info.Usage = lr.Usage
+			// capture finish reason from first choice if available
+			if len(lr.Choices) > 0 {
+				info.FinishReason = lr.Choices[0].FinishReason
+			}
+		}
+		if err != nil {
+			info.Err = err.Error()
+		}
+		ob.OnCallEnd(ctx, info)
+	}
+	return lr, perr
 }
 
 // prepareChatRequest converts a generic request and applies client/model defaults.
@@ -140,7 +161,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		return nil, err
 	}
 	httpReq.Header.Set("Accept", "text/event-stream")
-
+	// Observer start
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		ob.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, StartedAt: time.Now()})
+	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -149,7 +173,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	go func() {
 		defer resp.Body.Close()
 		defer close(events)
-		c.consumeStream(resp.Body, events)
+		c.consumeStream(ctx, resp.Body, events)
 	}()
 	return events, nil
 }
@@ -250,7 +274,7 @@ func (a *streamAggregator) finalizeChoice(idx int, finish string) llm.Choice {
 	return llm.Choice{Index: idx, Message: msg, FinishReason: finish}
 }
 
-func (c *Client) consumeStream(body io.Reader, events chan<- llm.StreamEvent) {
+func (c *Client) consumeStream(ctx context.Context, body io.Reader, events chan<- llm.StreamEvent) {
 	respBody, err := io.ReadAll(body)
 	if err != nil {
 		events <- llm.StreamEvent{Err: fmt.Errorf("failed to read response body: %w", err)}
@@ -262,6 +286,7 @@ func (c *Client) consumeStream(body io.Reader, events chan<- llm.StreamEvent) {
 	agg := newStreamAggregator()
 	var lastUsage *llm.Usage
 	var lastModel string
+	var lastLR *llm.GenerateResponse
 	publishedUsage := false
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -290,6 +315,7 @@ func (c *Client) consumeStream(body io.Reader, events chan<- llm.StreamEvent) {
 					lr.Usage = lastUsage
 				}
 				events <- llm.StreamEvent{Response: lr}
+				lastLR = lr
 			}
 			continue
 		}
@@ -321,5 +347,27 @@ func (c *Client) consumeStream(body io.Reader, events chan<- llm.StreamEvent) {
 	}
 	if err := scanner.Err(); err != nil {
 		events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
+	}
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		// Emit end with last aggregated response if available; fallback to raw SSE body.
+		var usage *llm.Usage
+		if lastUsage != nil {
+			usage = lastUsage
+		}
+		var respJSON []byte
+		var finishReason string
+		if lastLR != nil {
+			if b, err := json.Marshal(lastLR); err == nil {
+				respJSON = b
+			} else {
+				respJSON = respBody
+			}
+			if len(lastLR.Choices) > 0 {
+				finishReason = lastLR.Choices[0].FinishReason
+			}
+		} else {
+			respJSON = respBody
+		}
+		ob.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: lastModel, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason})
 	}
 }

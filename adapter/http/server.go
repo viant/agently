@@ -18,12 +18,16 @@ import (
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/stage"
 	"github.com/viant/agently/genai/tool"
+	usageread "github.com/viant/agently/internal/dao/usage/read"
 	"github.com/viant/agently/metadata"
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/mcp-protocol/schema"
 
 	"github.com/google/uuid"
+	msgread "github.com/viant/agently/internal/dao/message/read"
+	d "github.com/viant/agently/internal/domain"
+	"os"
 )
 
 // Server wraps a conversation manager and exposes minimal REST endpoints:
@@ -45,6 +49,9 @@ type Server struct {
 
 	mu      sync.Mutex
 	cancels map[string][]context.CancelFunc // convID -> cancel funcs for in-flight turns
+
+	// Optional domain store for v1 compatibility (reads from domain instead of memory when enabled)
+	store d.Store
 }
 
 // currentStage returns pointer to Stage snapshot for convID when available.
@@ -78,6 +85,11 @@ func WithPolicies(tp *tool.Policy, fp *fluxpol.Policy) ServerOption {
 		s.fluxPolicy = fp
 	}
 }
+
+// WithDomainStore injects a domain.Store so that v1 endpoints can read from DAO-backed store
+// when AGENTLY_V1_DOMAIN=1 is set. When store is nil or the flag is not set, legacy memory
+// reads remain in effect.
+func WithDomainStore(st d.Store) ServerOption { return func(s *Server) { s.store = st } }
 
 // registerCancel stores cancel so that the /terminate endpoint can abort the
 // running turn for the given conversation.
@@ -421,6 +433,75 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	var msgs []memory.Message
 	var err error
 
+	// Domain-backed path when enabled
+	if s.store != nil && os.Getenv("AGENTLY_V1_DOMAIN") == "1" {
+		// Build read options
+		in := []msgread.InputOption{}
+		// Exclude interim by default to match prior behavior
+		in = append(in, msgread.WithInterim(0))
+		// Since filtering: we approximate by slicing after fetch if needed
+		views, err := s.store.Messages().GetTranscript(r.Context(), convID, "", in...)
+		if err != nil {
+			encode(w, http.StatusInternalServerError, nil, err, nil)
+			return
+		}
+		// Map to memory.Message legacy shape
+		var out []memory.Message
+		for _, v := range views {
+			if v == nil {
+				continue
+			}
+			m := memory.Message{ID: v.Id, ConversationID: v.ConversationID, Role: v.Role, Content: v.Content}
+			if v.CreatedAt != nil {
+				m.CreatedAt = *v.CreatedAt
+			}
+			if v.ToolName != nil {
+				m.ToolName = v.ToolName
+			}
+			out = append(out, m)
+		}
+		// Apply since slicing if requested
+		if sinceId != "" {
+			start := -1
+			for i := range out {
+				if out[i].ID == sinceId {
+					start = i
+					break
+				}
+			}
+			if start == -1 {
+				encode(w, http.StatusProcessing, []memory.Message{}, nil, s.currentStage(convID))
+				return
+			}
+			out = out[start:]
+		}
+		if len(out) == 0 {
+			encode(w, http.StatusProcessing, out, nil, s.currentStage(convID))
+			return
+		}
+		st := s.currentStage(convID)
+		if st != nil && st.Phase == stage.StageThinking {
+			last := out[len(out)-1]
+			switch last.Role {
+			case "tool":
+				if last.ToolName != nil {
+					name := strings.ToLower(*last.ToolName)
+					if name == "llm/core.generate" || name == "llm/core:generate" {
+						st = &stage.Stage{Phase: stage.StageThinking}
+					} else {
+						st = &stage.Stage{Phase: stage.StageExecuting, Tool: *last.ToolName}
+					}
+				} else {
+					st = &stage.Stage{Phase: stage.StageExecuting}
+				}
+			case "assistant":
+				st = &stage.Stage{Phase: stage.StageDone}
+			}
+		}
+		encode(w, http.StatusOK, out, nil, st)
+		return
+	}
+
 	if sinceId == "" {
 		// legacy or full history path
 		msgs, err = s.mgr.Messages(r.Context(), convID, parentId)
@@ -498,6 +579,29 @@ func (s *Server) handleGetSingleMessage(w http.ResponseWriter, r *http.Request, 
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	// Domain-backed lookup when enabled
+	if s.store != nil && os.Getenv("AGENTLY_V1_DOMAIN") == "1" {
+		views, err := s.store.Messages().List(r.Context(), msgread.WithIDs(msgID))
+		if err != nil {
+			encode(w, http.StatusInternalServerError, nil, err, nil)
+			return
+		}
+		if len(views) == 0 {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		v := views[0]
+		mm := memory.Message{ID: v.Id, ConversationID: v.ConversationID, Role: v.Role, Content: v.Content}
+		if v.CreatedAt != nil {
+			mm.CreatedAt = *v.CreatedAt
+		}
+		if v.ToolName != nil {
+			mm.ToolName = v.ToolName
+		}
+		encode(w, http.StatusOK, mm, nil, nil)
+		return
+	}
+
 	msg, err := s.mgr.History().LookupMessage(r.Context(), msgID)
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err, nil)
@@ -650,6 +754,36 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request, convID s
 	// Require GET only.
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Domain-backed path: map DAO usage rows to legacy usage payload when enabled
+	if s.store != nil && os.Getenv("AGENTLY_V1_DOMAIN") == "1" {
+		in := usageread.Input{ConversationID: convID, Has: &usageread.Has{ConversationID: true}}
+		rows, err := s.store.Usage().List(r.Context(), in)
+		if err != nil {
+			encode(w, http.StatusInternalServerError, nil, err, nil)
+			return
+		}
+		totals := usagePayload{ConversationID: convID, PerModel: []usagePerModel{}}
+		for _, v := range rows {
+			if v == nil {
+				continue
+			}
+			pm := usagePerModel{Model: strings.TrimSpace(v.Provider + "/" + v.Model)}
+			if v.TotalPromptTokens != nil {
+				pm.InputTokens = *v.TotalPromptTokens
+				totals.InputTokens += *v.TotalPromptTokens
+			}
+			if v.TotalCompletionTokens != nil {
+				pm.OutputTokens = *v.TotalCompletionTokens
+				totals.OutputTokens += *v.TotalCompletionTokens
+			}
+			// No embedding/cached in DAO row → keep zero; TotalTokens computed at end
+			totals.PerModel = append(totals.PerModel, pm)
+		}
+		totals.TotalTokens = totals.InputTokens + totals.OutputTokens + totals.EmbeddingTokens + totals.CachedTokens
+		encode(w, http.StatusOK, []usagePayload{totals}, nil, nil)
 		return
 	}
 

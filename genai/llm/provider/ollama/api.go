@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/viant/agently/genai/llm"
+	mcbuf "github.com/viant/agently/genai/modelcallctx"
 	"io"
 	"net/http"
+	"time"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -41,6 +43,10 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	// Observer start
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		ob.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	}
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
@@ -95,6 +101,18 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(req.Model, llmsResp.Usage)
 	}
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		// We don't have the raw concatenated resp at this point; marshal the API response.
+		if b, _ := json.Marshal(apiResp); len(b) > 0 {
+			info := mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: b, CompletedAt: time.Now(), Usage: llmsResp.Usage}
+			if llmsResp != nil && len(llmsResp.Choices) > 0 {
+				info.FinishReason = llmsResp.Choices[0].FinishReason
+			}
+			ob.OnCallEnd(ctx, info)
+		} else {
+			ob.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", CompletedAt: time.Now(), Usage: llmsResp.Usage})
+		}
+	}
 	return llmsResp, nil
 }
 
@@ -119,6 +137,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		ob.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -128,6 +149,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	go func() {
 		defer resp.Body.Close()
 		reader := bufio.NewReader(resp.Body)
+		var lastLR *llm.GenerateResponse
 		for {
 			line, err := reader.ReadBytes('\n')
 			if len(line) > 0 {
@@ -136,7 +158,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream chunk: %w", err)}
 					break
 				}
-				events <- llm.StreamEvent{Response: ToLLMSResponse(&chunk)}
+				lr := ToLLMSResponse(&chunk)
+				lastLR = lr
+				events <- llm.StreamEvent{Response: lr}
 				if chunk.Done {
 					break
 				}
@@ -150,6 +174,17 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			}
 		}
 		close(events)
+		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+			var respJSON []byte
+			var finishReason string
+			if lastLR != nil {
+				respJSON, _ = json.Marshal(lastLR)
+				if len(lastLR.Choices) > 0 {
+					finishReason = lastLR.Choices[0].FinishReason
+				}
+			}
+			ob.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason})
+		}
 	}()
 	return events, nil
 }

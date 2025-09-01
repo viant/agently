@@ -112,8 +112,9 @@ function startPolling({context}) {
             const current = Array.isArray(collSig?.value) ? collSig.value : [];
             const lastID = current.length ? current[current.length - 1].id : '';
 
-            const base = endpoints.appAPI.baseURL + `/conversations/${convID}/messages`;
-            const url = lastID ? `${base}?since=${encodeURIComponent(lastID)}` : base;
+            // Switch to v2 transcript with sinceId semantics and include model/tool calls
+            const base = endpoints.appAPI.baseURL + `/v2/api/agently/conversation/${encodeURIComponent(convID)}/transcript?includeModelCalls=1&includeToolCalls=1&payloadLevel=preview`;
+            const url = lastID ? `${base}&sinceId=${encodeURIComponent(lastID)}` : base;
 
             const json = await fetchJSON(url);
 
@@ -123,7 +124,8 @@ function startPolling({context}) {
             }
 
             if (json && json.status === 'ok' && Array.isArray(json.data) && json.data.length) {
-                mergeMessages(messagesCtx, json.data);
+                const mapped = mapTranscriptToMessages(json.data);
+                mergeMessages(messagesCtx, mapped);
                 injectFormMessages(messagesCtx, json.data);
             }
 
@@ -154,6 +156,18 @@ function startPolling({context}) {
         }
     };
     tick().then().finally(() => context.resources.chatTimerState = false)
+}
+
+// Map v2 transcript DAO rows to legacy message shape expected by the UI merge
+function mapTranscriptToMessages(rows = []) {
+    return rows.map(v => ({
+        id: v.id,
+        conversationId: v.conversationId,
+        role: v.role,
+        content: v.content,
+        createdAt: v.createdAt || new Date().toISOString(),
+        toolName: v.toolName,
+    }));
 }
 
 

@@ -11,8 +11,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
+	mcbuf "github.com/viant/agently/genai/modelcallctx"
 	authAws "github.com/viant/scy/auth/aws"
 	"strings"
+	"time"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -87,6 +89,10 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 
 	//	fmt.Printf("req: %v\n", string(data))
 
+	// Observer start
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		ob.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	}
 	// Send the request to Bedrock
 	var resp *bedrockruntime.InvokeModelOutput
 	var invokeErr error
@@ -117,7 +123,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
 	}
-
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		info := mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: resp.Body, CompletedAt: time.Now(), Usage: llmsResp.Usage}
+		if llmsResp != nil && len(llmsResp.Choices) > 0 {
+			info.FinishReason = llmsResp.Choices[0].FinishReason
+		}
+		ob.OnCallEnd(ctx, info)
+	}
 	return llmsResp, nil
 }
 
@@ -174,6 +186,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		Body:        data,
 		ContentType: aws.String("application/json"),
 	}
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		ob.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	}
 	output, err := c.BedrockClient.InvokeModelWithResponseStream(ctx, input)
 	if err != nil {
 		// Graceful fallback: return a channel that emits a single non-streaming result
@@ -195,6 +210,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		es := output.GetStream()
 		defer es.Close()
 		defer close(events)
+		var lastLR *llm.GenerateResponse
 
 		// Aggregator for Claude streaming events
 		type toolAgg struct {
@@ -277,6 +293,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 						msg.ToolCalls = calls
 					}
 					lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model}
+					lastLR = lr
 					events <- llm.StreamEvent{Response: lr}
 				}
 			default:
@@ -285,6 +302,17 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		}
 		if err := es.Err(); err != nil {
 			events <- llm.StreamEvent{Err: err}
+		}
+		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+			var respJSON []byte
+			var finishReason string
+			if lastLR != nil {
+				respJSON, _ = json.Marshal(lastLR)
+				if len(lastLR.Choices) > 0 {
+					finishReason = lastLR.Choices[0].FinishReason
+				}
+			}
+			ob.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason})
 		}
 	}()
 	return events, nil

@@ -140,19 +140,51 @@ export default function ExecutionDetails({ executions = [], context, messageId }
         sig.value = rows;
     }, [rows, dataSourceId]);
 
+    // v2 operations fallback: when no legacy executions are present, load grouped operations
+    useEffect(() => {
+        const fetchOps = async () => {
+            if (!messageId || (Array.isArray(executions) && executions.length > 0)) return;
+            try {
+                const url = `${endpoints.appAPI.baseURL}/v2/api/agently/messages/${encodeURIComponent(messageId)}/operations?includePayloads=1`;
+                const resp = await fetch(url);
+                if (!resp.ok) return;
+                const json = await resp.json();
+                const data = json?.data || {};
+                const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
+                const modelCalls = Array.isArray(data.modelCalls) ? data.modelCalls : [];
+                const mapped = [
+                    ...modelCalls.map(mc => mapModelCall(mc)),
+                    ...toolCalls.map(tc => mapToolCall(tc)),
+                ];
+                const sig = getCollectionSignal(dataSourceId);
+                sig.value = mapped;
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.error('ExecutionDetails: fetch ops error', e);
+            }
+        };
+        fetchOps();
+    }, [messageId, executions, dataSourceId]);
+
     // Helper to fetch heavy payload on demand
     const viewPart = async (part, row) => {
         try {
-            const convID = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id;
-            if (!convID) return;
             const title = part === 'request' ? 'Request' : 'Response';
             setDialog({ title, payload: null, loading: true });
-            const url = `${endpoints.appAPI.baseURL}/conversations/${convID}/execution/${row.traceId}/${part}`;
+            const pid = part === 'request' ? (row.requestPayloadID || row.request?.id) : (row.responsePayloadID || row.response?.id);
+            if (!pid) { setDialog({ title, payload: '(no payload)' }); return; }
+            const url = `${endpoints.appAPI.baseURL}/v2/api/agently/payload/${encodeURIComponent(pid)}?raw=1`;
             const resp = await fetch(url);
             if (!resp.ok) throw new Error(`${resp.status}`);
-            const json = await resp.json();
-            setDialog({ title, payload: json, loading: false });
+            const ct = resp.headers.get('content-type') || '';
+            const text = await resp.text();
+            let payload = text;
+            if (ct.includes('application/json')) {
+                try { payload = JSON.parse(text); } catch (_) {}
+            }
+            setDialog({ title, payload, loading: false });
         } catch (err) {
+            // eslint-disable-next-line no-console
             console.error('fetch payload error', err);
             setDialog({ title: 'Error', payload: String(err) });
         }
@@ -192,4 +224,51 @@ export default function ExecutionDetails({ executions = [], context, messageId }
             </Dialog>
         </>
     );
+}
+
+// Map a DAO model call view (optionally enriched with request/response) to table row
+function mapModelCall(row = {}) {
+    const call = row.call || row; // support enriched shape {call, request, response}
+    const started = call.startedAt ? new Date(call.startedAt) : null;
+    const completed = call.completedAt ? new Date(call.completedAt) : null;
+    const elapsed = (started && completed) ? ((completed - started) / 1000).toFixed(2) + 's' : '';
+    const finish = call.finishReason || '';
+    const success = finish ? 'success' : 'pending';
+    return {
+        state: completed ? '✔︎' : '⏳',
+        tool: `${call.provider || ''}/${call.model || ''}`,
+        reason: finish,
+        success,
+        elapsed,
+        request: row.request,
+        response: row.response,
+        requestPayloadID: call.requestPayloadID,
+        responsePayloadID: call.responsePayloadID,
+    };
+}
+
+// Map a DAO tool call view (optionally enriched with request/response) to table row
+function mapToolCall(row = {}) {
+    const call = row.call || row;
+    const started = call.startedAt ? new Date(call.startedAt) : null;
+    const completed = call.completedAt ? new Date(call.completedAt) : null;
+    const elapsed = (started && completed) ? ((completed - started) / 1000).toFixed(2) + 's' : '';
+    const status = call.status || '';
+    const success = status === 'completed' ? 'success' : (status ? 'error' : 'pending');
+    return {
+        state: completed ? '✔︎' : '⏳',
+        tool: call.toolName || '',
+        reason: call.errorMessage || '',
+        success,
+        elapsed,
+        request: row.request,
+        response: row.response,
+        requestPayloadID: payloadIdFromSnapshot(call.requestSnapshot),
+        responsePayloadID: payloadIdFromSnapshot(call.responseSnapshot),
+    };
+}
+
+function payloadIdFromSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'string') return '';
+    try { const x = JSON.parse(snapshot); return x.payloadId || ''; } catch (_) { return ''; }
 }

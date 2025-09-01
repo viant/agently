@@ -12,6 +12,8 @@ import (
 
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
+	mcbuf "github.com/viant/agently/genai/modelcallctx"
+	"time"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -74,6 +76,10 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	apiURL := c.GetEndpointURL()
 	var resp *http.Response
 	for i := 0; i < max(1, c.MaxRetries); i++ {
+		// Observer start
+		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+			ob.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+		}
 		resp, err = c.sendRequest(ctx, apiURL, data)
 		if err != nil {
 			return nil, err
@@ -112,6 +118,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 			c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
 		}
+		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+			info := mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage}
+			if llmsResp != nil && len(llmsResp.Choices) > 0 {
+				info.FinishReason = llmsResp.Choices[0].FinishReason
+			}
+			ob.OnCallEnd(ctx, info)
+		}
 		return llmsResp, nil
 	}
 
@@ -125,6 +138,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	llmsResp := ToLLMSResponse(&apiResp)
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
+	}
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		info := mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage}
+		if len(llmsResp.Choices) > 0 {
+			info.FinishReason = llmsResp.Choices[0].FinishReason
+		}
+		ob.OnCallEnd(ctx, info)
 	}
 	return llmsResp, nil
 }
@@ -178,6 +198,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	apiURL := c.GetEndpointURL()
 	events := make(chan llm.StreamEvent)
 
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		ob.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	}
 	resp, err := c.sendRequest(ctx, apiURL, data)
 	if err != nil {
 		events <- llm.StreamEvent{Err: err}
@@ -232,6 +255,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model}
 			events <- llm.StreamEvent{Response: lr}
 		}
+		var lastLR *llm.GenerateResponse
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.TrimSpace(line) == "" {
@@ -315,6 +339,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				}
 				lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model, Usage: usage}
 				events <- llm.StreamEvent{Response: lr}
+				lastLR = lr
 			case "message_start":
 				// read prompt tokens from nested message.usage if available
 				type msgStart struct {
@@ -338,6 +363,17 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		}
 		if err := scanner.Err(); err != nil {
 			events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
+		}
+		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+			var respJSON []byte
+			var finishReason string
+			if lastLR != nil {
+				respJSON, _ = json.Marshal(lastLR)
+				if len(lastLR.Choices) > 0 {
+					finishReason = lastLR.Choices[0].FinishReason
+				}
+			}
+			ob.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason})
 		}
 	}()
 	return events, nil

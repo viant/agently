@@ -34,6 +34,19 @@ func ConversationIDFromContext(ctx context.Context) string {
 	return value.(string)
 }
 
+// TurnIDKey carries the current turn identifier through context.
+type turnIDKey string
+
+var TurnIDKey = turnIDKey("turnID")
+
+func TurnIDFromContext(ctx context.Context) string {
+	value := ctx.Value(TurnIDKey)
+	if value == nil {
+		return ""
+	}
+	return value.(string)
+}
+
 // Message represents a conversation message for memory storage.
 type Message struct {
 	ID             string  `json:"id"`

@@ -1,0 +1,74 @@
+package write
+
+import (
+	"time"
+)
+
+var PackageName = "conversation/write"
+
+type Conversations struct {
+	Conversations []*Conversation
+}
+
+type Conversation struct {
+	Id                   string           `sqlx:"id,primaryKey" validate:"required"`
+	Summary              *string          `sqlx:"summary" json:",omitempty"`
+	AgentName            string           `sqlx:"agent_name" `
+	CreatedAt            *time.Time       `sqlx:"created_at" json:",omitempty"`
+	LastActivity         *time.Time       `sqlx:"last_activity" json:",omitempty"`
+	UsageInputTokens     int              `sqlx:"usage_input_tokens" json:",omitempty"`
+	UsageOutputTokens    int              `sqlx:"usage_output_tokens" json:",omitempty"`
+	UsageEmbeddingTokens int              `sqlx:"usage_embedding_tokens" json:",omitempty"`
+	Has                  *ConversationHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+}
+
+type ConversationHas struct {
+	Id                   bool
+	Summary              bool
+	AgentName            bool
+	CreatedAt            bool
+	LastActivity         bool
+	UsageInputTokens     bool
+	UsageOutputTokens    bool
+	UsageEmbeddingTokens bool
+}
+
+func (c *Conversation) SetId(value string) {
+	c.Id = value
+	c.Has.Id = true
+}
+
+func (c *Conversation) SetSummary(value string) {
+	c.Summary = &value
+	c.Has.Summary = true
+}
+
+func (c *Conversation) SetAgentName(value string) {
+	c.AgentName = value
+	c.Has.AgentName = true
+}
+
+func (c *Conversation) SetCreatedAt(value time.Time) {
+	c.CreatedAt = &value
+	c.Has.CreatedAt = true
+}
+
+func (c *Conversation) SetLastActivity(value time.Time) {
+	c.LastActivity = &value
+	c.Has.LastActivity = true
+}
+
+func (c *Conversation) SetUsageInputTokens(value int) {
+	c.UsageInputTokens = value
+	c.Has.UsageInputTokens = true
+}
+
+func (c *Conversation) SetUsageOutputTokens(value int) {
+	c.UsageOutputTokens = value
+	c.Has.UsageOutputTokens = true
+}
+
+func (c *Conversation) SetUsageEmbeddingTokens(value int) {
+	c.UsageEmbeddingTokens = value
+	c.Has.UsageEmbeddingTokens = true
+}

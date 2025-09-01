@@ -1,3 +1,13 @@
+// Package agent coordinates an agent turn across multiple responsibilities
+// (message recording, turn lifecycle, model-call capture, usage totals).
+//
+// Dependency policy:
+//   - This service intentionally depends on the aggregated domain writer
+//     (writer.Recorder) because it uses several facets together.
+//   - Favor passing the single aggregated Recorder rather than multiple small
+//     interfaces to keep wiring simple and debugging easier.
+//   - If needs change to a single facet (unlikely here), consider narrowing, but
+//     avoid adding multiple separate parameters.
 package agent
 
 import (
@@ -14,6 +24,7 @@ import (
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
+	recorder "github.com/viant/agently/internal/domain/recorder"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/model/types"
 )
@@ -93,6 +104,12 @@ type Service struct {
 	// prompt is used. It can reference ${conversation} placeholder.
 	summaryPrompt string
 	defaults      *config.Defaults
+
+	// domain writer for shadow writes.
+	// Aggregated Recorder is used here because this service records messages,
+	// turns, model calls, and usage. A single dependency avoids interface
+	// sprawl and simplifies debugging.
+	domainWriter recorder.Recorder
 }
 
 // SetRuntime sets the fluxor runtime for orchestration
@@ -177,3 +194,7 @@ func (s *Service) Query(ctx context.Context, in *QueryInput) (*QueryOutput, erro
 // run implements the executable registered under "run". It spawns a child
 // conversation, delegates the actual agent turn via Query(), then writes a
 // link message (optionally with summary) into the parent thread.
+// WithDomainWriter injects a domain writer used for shadow writes.
+// WithDomainWriter injects the aggregated Recorder. Prefer Recorder here over
+// multiple narrow interfaces because the agent coordinates multiple facets.
+func WithDomainWriter(w recorder.Recorder) Option { return func(s *Service) { s.domainWriter = w } }

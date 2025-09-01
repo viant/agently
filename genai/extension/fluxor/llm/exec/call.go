@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	elog "github.com/viant/agently/internal/log"
 )
@@ -56,7 +57,9 @@ func (s *Service) CallTool(ctx context.Context, input *CallToolInput, output *Ca
 		},
 	})
 
+	startedAt := time.Now()
 	toolResult, err := executor(ctx, input.Name, input.Args)
+	completedAt := time.Now()
 	output.Result = toolResult
 
 	// Log the output/result (and potential error) so that it is captured by the
@@ -70,5 +73,25 @@ func (s *Service) CallTool(ctx context.Context, input *CallToolInput, output *Ca
 			"error":  err,
 		},
 	})
+	// Domain shadow write for tool-call
+	if s.domainWriter != nil && s.domainWriter.Enabled() {
+		// Try gather IDs from context; allow empty strings
+		msgID := memory.MessageIDFromContext(ctx)
+		turnID := memory.TurnIDFromContext(ctx)
+		// Prepare snapshots (best-effort JSON)
+		var resp interface{} = toolResult
+		var errMsg string
+		if err != nil {
+			errMsg = err.Error()
+		}
+		s.domainWriter.RecordToolCall(ctx, msgID, turnID, input.Name, statusFromErr(err), startedAt, completedAt, errMsg, nil, input.Args, resp)
+	}
 	return err
+}
+
+func statusFromErr(err error) string {
+	if err != nil {
+		return "failed"
+	}
+	return "completed"
 }

@@ -20,6 +20,7 @@ import (
 	autoawait "github.com/viant/agently/genai/io/elicitation/auto"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
+	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/summary"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
@@ -103,8 +104,9 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 		return types.NewInvalidOutputError(out)
 	}
 
-	// 0. start token usage aggregation
+	// 0. start token usage aggregation and model-call buffer
 	ctx, agg := usage.WithAggregator(ctx)
+	ctx, _ = modelcallctx.WithBuffer(ctx)
 
 	// ------------------------------------------------------------------
 	// 0.a Persist / restore per-conversation model override.
@@ -381,6 +383,9 @@ func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, 
 	}
 	msg := memory.Message{ID: id, ParentID: parentId, Role: role, Actor: actor, Content: content, ConversationID: convID}
 	err := s.history.AddMessage(ctx, msg)
+	if s.domainWriter != nil && s.domainWriter.Enabled() {
+		s.domainWriter.RecordMessage(ctx, msg)
+	}
 	return msg.ID, err
 }
 
@@ -464,6 +469,12 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	// 3. Run workflow – carry conversation ID on context so that downstream
 	// services (exec/run_plan) can record execution traces.
 	ctx = context.WithValue(ctx, memory.ConversationIDKey, convID)
+	// Start turn and carry TurnID
+	turnID := uuid.New().String()
+	if s.domainWriter != nil && s.domainWriter.Enabled() {
+		s.domainWriter.RecordTurnStart(ctx, convID, turnID, time.Now())
+	}
+	ctx = context.WithValue(ctx, memory.TurnIDKey, turnID)
 	_, wait, err := s.runtime.StartProcess(ctx, wf, initial)
 	if err != nil {
 		return fmt.Errorf("workflow start error: %w", err)
@@ -471,6 +482,9 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 
 	result, err := wait(ctx, s.workflowTimeout)
 	if err != nil {
+		if s.domainWriter != nil && s.domainWriter.Enabled() {
+			s.domainWriter.RecordTurnUpdate(ctx, turnID, "failed")
+		}
 		return fmt.Errorf("workflow execution error: %w", err)
 	}
 	// -----------------------------------------------------------------
@@ -495,8 +509,32 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 
 				qo.Content = fmt.Sprintf("I encountered an internal issue while composing the answer (details: %s).\n\nHere are the raw tool results I managed to obtain:\n%s", string(errsJSON), resSummary)
 				qo.DocumentsSize = s.calculateDocumentsSize(docs)
-				s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
+				mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
+				// Persist the most recent model call from buffer, if available
+				if s.domainWriter != nil && s.domainWriter.Enabled() {
+					if info, ok := modelcallctx.PopLast(ctx); ok {
+						s.domainWriter.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
+					}
+				}
 				qo.Usage = usage.FromContext(ctx)
+				if s.domainWriter != nil && s.domainWriter.Enabled() {
+					// Update turn and usage totals
+					s.domainWriter.RecordTurnUpdate(ctx, turnID, "failed")
+					if u := qo.Usage; u != nil {
+						// Sum totals across models
+						totalIn, totalOut, totalEmb := 0, 0, 0
+						for _, k := range u.Keys() {
+							st := u.PerModel[k]
+							if st == nil {
+								continue
+							}
+							totalIn += st.PromptTokens
+							totalOut += st.CompletionTokens
+							totalEmb += st.EmbeddingTokens
+						}
+						s.domainWriter.RecordUsageTotals(ctx, convID, totalIn, totalOut, totalEmb)
+					}
+				}
 				return nil
 			}
 		}
@@ -523,6 +561,22 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 			qo.DocumentsSize = s.calculateDocumentsSize(docs)
 			s.recordAssistantElicitation(ctx, convID, "", elic)
 			qo.Usage = usage.FromContext(ctx)
+			if s.domainWriter != nil && s.domainWriter.Enabled() {
+				s.domainWriter.RecordTurnUpdate(ctx, turnID, "succeeded")
+				if u := qo.Usage; u != nil {
+					totalIn, totalOut, totalEmb := 0, 0, 0
+					for _, k := range u.Keys() {
+						st := u.PerModel[k]
+						if st == nil {
+							continue
+						}
+						totalIn += st.PromptTokens
+						totalOut += st.CompletionTokens
+						totalEmb += st.EmbeddingTokens
+					}
+					s.domainWriter.RecordUsageTotals(ctx, convID, totalIn, totalOut, totalEmb)
+				}
+			}
 			return nil
 		}
 	}
@@ -571,7 +625,12 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 		}
 	}
 	qo.DocumentsSize = s.calculateDocumentsSize(docs)
-	s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
+	mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
+	if s.domainWriter != nil && s.domainWriter.Enabled() {
+		if info, ok := modelcallctx.PopLast(ctx); ok {
+			s.domainWriter.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
+		}
+	}
 
 	qo.Usage = usage.FromContext(ctx)
 
@@ -618,7 +677,7 @@ func (s *Service) buildSystemPrompt(ctx context.Context, qi *QueryInput, enrichm
 
 // recordAssistant writes the assistant's message into history, ignoring errors.
 
-func (s *Service) recordAssistant(ctx context.Context, convID, content string, persona *agentmdl.Persona, defaultActor string) {
+func (s *Service) recordAssistant(ctx context.Context, convID, content string, persona *agentmdl.Persona, defaultActor string) string {
 	parentID := memory.MessageIDFromContext(ctx)
 	role := "assistant"
 	actor := defaultActor
@@ -630,9 +689,11 @@ func (s *Service) recordAssistant(ctx context.Context, convID, content string, p
 			actor = persona.Actor
 		}
 	}
-	if _, err := s.addMessage(ctx, convID, role, actor, content, uuid.New().String(), parentID); err != nil {
+	mid, err := s.addMessage(ctx, convID, role, actor, content, uuid.New().String(), parentID)
+	if err != nil {
 		log.Printf("warn: cannot record assistant message: %v", err)
 	}
+	return mid
 }
 
 // recordAssistantElicitation stores an assistant message that carries a
@@ -661,6 +722,9 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 	}
 	if err := s.history.AddMessage(ctx, msg); err != nil {
 		log.Printf("warn: cannot record elicitation message: %v", err)
+	}
+	if s.domainWriter != nil && s.domainWriter.Enabled() {
+		s.domainWriter.RecordMessage(ctx, msg)
 	}
 }
 
@@ -803,7 +867,12 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 		qo.Content = elic.Message
 	}
 
-	s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
+	mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
+	if s.domainWriter != nil && s.domainWriter.Enabled() {
+		if info, ok := modelcallctx.PopLast(ctx); ok {
+			s.domainWriter.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
+		}
+	}
 
 	qo.Usage = usage.FromContext(ctx)
 	return nil

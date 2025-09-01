@@ -4,17 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+
 	clientmcp "github.com/viant/agently/adapter/mcp"
 	"github.com/viant/agently/adapter/tool"
 	"github.com/viant/agently/genai/agent"
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
 	"github.com/viant/agently/genai/memory"
-	convdao "github.com/viant/agently/internal/dao/conversation"
+	domainrecorder "github.com/viant/agently/internal/domain/recorder"
 	agentrepo "github.com/viant/agently/internal/repository/agent"
 	embedderrepo "github.com/viant/agently/internal/repository/embedder"
 	modelrepo "github.com/viant/agently/internal/repository/model"
-	"log"
 
 	"github.com/viant/afs"
 	mcprepo "github.com/viant/agently/internal/repository/mcp"
@@ -27,8 +28,9 @@ import (
 	"github.com/viant/mcp"
 	"gopkg.in/yaml.v3"
 
-	texecutor "github.com/viant/fluxor/service/executor"
 	"strings"
+
+	texecutor "github.com/viant/fluxor/service/executor"
 	// Helpers for exposing agents as Fluxor services
 	//	"github.com/viant/agently/genai/executor/agenttool"
 )
@@ -51,6 +53,8 @@ func (e *Service) init(ctx context.Context) error {
 	// Step 2: auxiliary stores (history, …)
 	// ------------------------------------------------------------------
 	e.executionStore = memory.NewExecutionStore()
+	// Build domain writer (shadow writes when enabled)
+	e.domainWriter = domainrecorder.New(ctx)
 
 	// ------------------------------------------------------------------
 	// Step 3: orchestration service (single source of truth for workflows & tools)
@@ -295,23 +299,9 @@ func (e *Service) initHistory(ctx context.Context) error {
 	if e.history != nil {
 		return nil
 	}
-
-	daoCfg, err := e.loadDAOConfig(ctx)
-	if err != nil {
-		return err
-	}
-
-	if daoCfg != nil {
-		connector := view.NewConnector(daoCfg.Name, daoCfg.Driver, daoCfg.DSN)
-		daoSvc, err := convdao.New(ctx, connector)
-		if err != nil {
-			return fmt.Errorf("failed to initialise conversation DAO: %w", err)
-		}
-		e.history = daoSvc
-		return nil
-	}
-
-	// fall back to in-memory implementation
+	// Use in-memory implementation by default; SQL-backed history can be
+	// provided by an alternate build-tagged implementation without
+	// hard-wiring imports here.
 	e.history = memory.NewHistoryStore()
 	return nil
 }

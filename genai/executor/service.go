@@ -3,6 +3,13 @@ package executor
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"time"
+
 	clientmcp "github.com/viant/agently/adapter/mcp"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/conversation"
@@ -18,6 +25,7 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
+	domainrec "github.com/viant/agently/internal/domain/recorder"
 	"github.com/viant/agently/internal/finder/oauth"
 	"github.com/viant/agently/internal/hotswap"
 	"github.com/viant/agently/internal/loader/oauth"
@@ -28,12 +36,6 @@ import (
 	"github.com/viant/fluxor/service/event"
 	"github.com/viant/fluxor/service/meta"
 	"github.com/viant/scy"
-	"io"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync/atomic"
-	"time"
 
 	"github.com/viant/fluxor-mcp/mcp"
 )
@@ -77,6 +79,7 @@ type Service struct {
 
 	fluxorOptions []fluxor.Option
 	orchestration *mcp.Service // shared fluxor-mcp service instance
+	domainWriter  domainrec.Recorder
 }
 
 // registerAgentTools exposes every agent with toolExport.expose==true as a
@@ -197,7 +200,12 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		e.llmCore.SetLogger(e.llmLogger)
 	}
 
-	actions.Register(exec.New(e.llmCore, e.tools, defaultModel, e.ApprovalService(), e.executionStore))
+	ex := exec.New(e.llmCore, e.tools, defaultModel, e.ApprovalService(), e.executionStore)
+	// Attach domain writer if enabled
+	if dw := e.domainWriter; dw != nil && dw.Enabled() {
+		ex.WithDomainWriter(dw)
+	}
+	actions.Register(ex)
 	actions.Register(enricher)
 	actions.Register(e.llmCore)
 	// capture actions for streaming and callbacks
@@ -217,6 +225,8 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	if ln := e.config.Default.SummaryLastN; ln > 0 {
 		agentOpts = append(agentOpts, llmagent.WithSummaryLastN(ln))
 	}
+	// Attach domain writer to agent service
+	agentOpts = append(agentOpts, llmagent.WithDomainWriter(e.domainWriter))
 	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history, e.executionStore, &e.config.Default, agentOpts...)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
