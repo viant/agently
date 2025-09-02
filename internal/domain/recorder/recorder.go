@@ -112,6 +112,9 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	if m.ConversationID != "" {
 		rec.SetConversationID(m.ConversationID)
 	}
+	if turn := memory.TurnIDFromContext(ctx); turn != "" {
+		rec.SetTurnID(turn)
+	}
 	if m.ParentID != "" {
 		rec.SetParentMessageID(m.ParentID)
 	}

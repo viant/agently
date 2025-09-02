@@ -111,6 +111,16 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	ctx, agg := usage.WithAggregator(ctx)
 	ctx, _ = modelcallctx.WithBuffer(ctx)
 
+	// 1.a Start a new turn and carry TurnID on context for this request
+	convIDEarly := s.conversationID(qi)
+	if convIDEarly != "" {
+		turnID := uuid.New().String()
+		ctx = context.WithValue(ctx, memory.TurnIDKey, turnID)
+		if s.domainWriter != nil && s.domainWriter.Enabled() {
+			s.domainWriter.RecordTurnStart(ctx, convIDEarly, turnID, time.Now())
+		}
+	}
+
 	// 2. Hydrate conversation meta (model, tools, agent)
 	s.hydrateConversationMeta(ctx, qi)
 
@@ -161,6 +171,30 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	}
 	err = s.directAnswer(ctx, qi, qo, convID, convContext)
 	qo.Usage = agg
+	// finalize turn for direct answer
+	if s.domainWriter != nil && s.domainWriter.Enabled() {
+		turnID := memory.TurnIDFromContext(ctx)
+		if turnID != "" {
+			status := "succeeded"
+			if err != nil {
+				status = "failed"
+			}
+			s.domainWriter.RecordTurnUpdate(ctx, turnID, status)
+			if u := qo.Usage; u != nil {
+				totalIn, totalOut, totalEmb := 0, 0, 0
+				for _, k := range u.Keys() {
+					st := u.PerModel[k]
+					if st == nil {
+						continue
+					}
+					totalIn += st.PromptTokens
+					totalOut += st.CompletionTokens
+					totalEmb += st.EmbeddingTokens
+				}
+				s.domainWriter.RecordUsageTotals(ctx, convID, totalIn, totalOut, totalEmb)
+			}
+		}
+	}
 	return err
 }
 
@@ -673,12 +707,8 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	// 3. Run workflow – carry conversation ID on context so that downstream
 	// services (exec/run_plan) can record execution traces.
 	ctx = context.WithValue(ctx, memory.ConversationIDKey, convID)
-	// Start turn and carry TurnID
-	turnID := uuid.New().String()
-	if s.domainWriter != nil && s.domainWriter.Enabled() {
-		s.domainWriter.RecordTurnStart(ctx, convID, turnID, time.Now())
-	}
-	ctx = context.WithValue(ctx, memory.TurnIDKey, turnID)
+	// Turn already started in query(); get turnID from context
+	turnID := memory.TurnIDFromContext(ctx)
 	_, wait, err := s.runtime.StartProcess(ctx, wf, initial)
 	if err != nil {
 		return fmt.Errorf("workflow start error: %w", err)
