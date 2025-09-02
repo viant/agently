@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,10 +22,10 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
-	"github.com/viant/agently/genai/summary"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
 	convw "github.com/viant/agently/internal/dao/conversation/write"
+	msgread "github.com/viant/agently/internal/dao/message/read"
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/fluxor/model"
 	"github.com/viant/fluxor/model/types"
@@ -115,6 +116,9 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 
 	// 3. Merge inline JSON from query into context
 	s.mergeInlineJSONIntoContext(qi)
+
+	// 3.a Enrich with cross-turn conversation memory (all user prompts + assistant finals)
+	s.enrichCrossTurnContext(ctx, qi)
 
 	// 4. Ensure agent is loaded
 	if err := s.ensureAgent(ctx, qi, qo); err != nil {
@@ -359,6 +363,128 @@ func (s *Service) persistCompletedContext(ctx context.Context, convID string, qi
 	}
 }
 
+// MessageTurn groups messages for a single turn (user messages + assistant final), ordered by created_at.
+type MessageTurn struct {
+	TurnID   string                 `json:"turnId"`
+	Messages []*msgread.MessageView `json:"messages"`
+}
+
+// enrichCrossTurnContext attaches cross-turn conversation turns to qi.Context under context.conversationTurns.
+func (s *Service) enrichCrossTurnContext(ctx context.Context, qi *QueryInput) {
+	if qi == nil {
+		return
+	}
+	convID := s.conversationID(qi)
+	if convID == "" {
+		return
+	}
+	turns, err := s.buildCrossTurnContext(ctx, convID)
+	if err != nil {
+		return
+	}
+	if qi.Context == nil {
+		qi.Context = map[string]any{}
+	}
+	ctxBlock, _ := qi.Context["context"].(map[string]any)
+	if ctxBlock == nil {
+		ctxBlock = map[string]any{}
+	}
+	ctxBlock["conversationTurns"] = turns
+	qi.Context["context"] = ctxBlock
+}
+
+// buildCrossTurnContext fetches conversation-level messages and splits them into user prompts and assistant finals.
+func (s *Service) buildCrossTurnContext(ctx context.Context, conversationID string) ([]MessageTurn, error) {
+	// Prefer domain store (backed by SQL or memory DAO)
+	all, err := s.domainStore.Messages().List(ctx, msgread.WithConversationID(conversationID))
+	if err != nil {
+		return nil, err
+	}
+
+	// Sort chronologically (created_at asc)
+	sort.SliceStable(all, func(i, j int) bool {
+		li, lj := all[i], all[j]
+		if li.CreatedAt != nil && lj.CreatedAt != nil {
+			return li.CreatedAt.Before(*lj.CreatedAt)
+		}
+		return i < j
+	})
+
+	// Group by turn: collect all user messages and last assistant per turn
+	latestAssistant := map[string]*msgread.MessageView{}
+	usersByTurn := map[string][]*msgread.MessageView{}
+	for _, v := range all {
+		if strings.ToLower(v.Role) == "user" {
+			key := ""
+			if v.TurnID != nil {
+				key = *v.TurnID
+			}
+			usersByTurn[key] = append(usersByTurn[key], v)
+			continue
+		}
+		key := ""
+		if v.TurnID != nil {
+			key = *v.TurnID
+		}
+		prev := latestAssistant[key]
+		if prev == nil {
+			latestAssistant[key] = v
+			continue
+		}
+		if v.Sequence != nil && prev.Sequence != nil {
+			if *v.Sequence >= *prev.Sequence {
+				latestAssistant[key] = v
+			}
+			continue
+		}
+		if v.CreatedAt != nil && (prev.CreatedAt == nil || prev.CreatedAt.Before(*v.CreatedAt)) {
+			latestAssistant[key] = v
+		}
+	}
+	// Order turns by first message time
+	type turnAgg struct {
+		key     string
+		firstAt *time.Time
+	}
+	var keys []turnAgg
+	seen := map[string]bool{}
+	for k, list := range usersByTurn {
+		if len(list) > 0 && !seen[k] {
+			keys = append(keys, turnAgg{key: k, firstAt: list[0].CreatedAt})
+			seen[k] = true
+		}
+	}
+	for k, a := range latestAssistant {
+		if !seen[k] {
+			keys = append(keys, turnAgg{key: k, firstAt: a.CreatedAt})
+			seen[k] = true
+		}
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		if keys[i].firstAt != nil && keys[j].firstAt != nil {
+			return keys[i].firstAt.Before(*keys[j].firstAt)
+		}
+		return keys[i].key < keys[j].key
+	})
+	// Assemble turns
+	out := make([]MessageTurn, 0, len(keys))
+	for _, t := range keys {
+		turnMsgs := append([]*msgread.MessageView{}, usersByTurn[t.key]...)
+		if a := latestAssistant[t.key]; a != nil {
+			turnMsgs = append(turnMsgs, a)
+		}
+		sort.SliceStable(turnMsgs, func(i, j int) bool {
+			li, lj := turnMsgs[i], turnMsgs[j]
+			if li.CreatedAt != nil && lj.CreatedAt != nil {
+				return li.CreatedAt.Before(*lj.CreatedAt)
+			}
+			return i < j
+		})
+		out = append(out, MessageTurn{TurnID: t.key, Messages: turnMsgs})
+	}
+	return out, nil
+}
+
 // enrichContextFromHistory scans existing user messages in the conversation
 // for JSON objects and copies any fields that are required by the elicitation
 // schema but not yet present in qi.Context.
@@ -470,22 +596,22 @@ func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, 
 // conversationContext summarises the conversation according to configured
 // policies and returns a plain-text string.
 func (s *Service) conversationContext(ctx context.Context, convID string, qi *QueryInput) (string, error) {
-	summarizerFn := summary.Build(s.llm, qi.Agent.Model, s.summaryPrompt, convID)
-	policy := memory.NewCombinedPolicy(
-		memory.NewSummaryPolicy(s.summaryThreshold, summarizerFn),
-		memory.NewLastNPolicy(s.lastN),
-	)
-
-	msgs, err := s.history.Retrieve(ctx, convID, policy)
+	// Build cross-turn memory using DAO-backed messages grouped by turn.
+	turns, err := s.buildCrossTurnContext(ctx, convID)
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve conversation: %w", err)
 	}
 	var b strings.Builder
-	for _, m := range msgs {
-		b.WriteString(m.Role)
-		b.WriteString(": ")
-		b.WriteString(m.Content)
-		b.WriteString("\n")
+	for _, t := range turns {
+		for _, m := range t.Messages {
+			if m == nil || strings.TrimSpace(m.Content) == "" {
+				continue
+			}
+			b.WriteString(m.Role)
+			b.WriteString(": ")
+			b.WriteString(m.Content)
+			b.WriteString("\n")
+		}
 	}
 	return b.String(), nil
 }
