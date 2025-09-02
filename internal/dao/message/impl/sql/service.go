@@ -83,15 +83,31 @@ func (s *Service) GetConversation(ctx context.Context, conversationID string, op
 		return nil, err
 	}
 
-	// sort by created_at asc to establish last user message (if needed later)
-	sort.SliceStable(out.Data, func(i, j int) bool {
-		li, lj := out.Data[i], out.Data[j]
+	// filter to user/assistant only, exclude control and interim by default
+	var filtered []*read2.MessageView
+	for _, m := range out.Data {
+		if m == nil {
+			continue
+		}
+		if m.Type == "control" {
+			continue
+		}
+		if m.Interim != nil && *m.Interim == 1 {
+			continue
+		}
+		if m.Role == "user" || m.Role == "assistant" {
+			filtered = append(filtered, m)
+		}
+	}
+	// sort by created_at asc
+	sort.SliceStable(filtered, func(i, j int) bool {
+		li, lj := filtered[i], filtered[j]
 		if li.CreatedAt != nil && lj.CreatedAt != nil {
 			return li.CreatedAt.Before(*lj.CreatedAt)
 		}
 		return i < j
 	})
-	return out.Data, nil
+	return filtered, nil
 }
 
 // Patch upserts messages via write component

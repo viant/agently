@@ -201,7 +201,7 @@ func TestService_GetTranscript(t *testing.T) {
 	// resolve DDL
 	_, filename, _, _ := runtime.Caller(0)
 	repoRoot := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filename))))))
-	ddlPath := filepath.Join(repoRoot, "internal", "script", "schema.ddl")
+	ddlPath := filepath.Join(repoRoot, "script", "schema.ddl")
 
 	cases := []testCase{
 		{
@@ -285,7 +285,7 @@ func TestService_GetConversation(t *testing.T) {
 	// resolve DDL
 	_, filename, _, _ := runtime.Caller(0)
 	repoRoot := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filename))))))
-	ddlPath := filepath.Join(repoRoot, "internal", "script", "schema.ddl")
+	ddlPath := filepath.Join(repoRoot, "script", "schema.ddl")
 
 	cases := []testCase{
 		{

@@ -22,6 +22,22 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 		}
 		if _, ok := i.CurMessageById[m.Id]; !ok {
 			m.SetCreatedAt(now)
+			// ensure non-null default fields
+			if m.Interim == nil {
+				zero := 0
+				m.Interim = &zero
+				m.Has.Interim = true
+			}
+			if m.ModelCallPresent == nil {
+				zero := 0
+				m.ModelCallPresent = &zero
+				m.Has.ModelCallPresent = true
+			}
+			if m.ToolCallPresent == nil {
+				zero := 0
+				m.ToolCallPresent = &zero
+				m.Has.ToolCallPresent = true
+			}
 		}
 	}
 	return nil
