@@ -14,7 +14,7 @@ require (
 	github.com/tmc/langchaingo v0.1.14-0.20250213044659-d3e43b632176
 	github.com/viant/afs v1.26.3
 	github.com/viant/afsc v1.9.1
-	github.com/viant/datly v0.20.10-0.20250821170008-990254ed49d8
+	github.com/viant/datly v0.20.13-0.20250829175155-17b3e4507af0
 	github.com/viant/embedius v0.2.1
 	github.com/viant/fluxor v0.1.24
 	github.com/viant/fluxor-mcp v0.1.13
@@ -183,4 +183,3 @@ require (
 	modernc.org/token v1.0.0 // indirect
 )
 
-replace github.com/viant/datly => ../datly

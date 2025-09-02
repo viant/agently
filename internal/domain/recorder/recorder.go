@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/redact"
+	"github.com/viant/agently/internal/dao/factory"
 	daofactory "github.com/viant/agently/internal/dao/factory"
 	msgw "github.com/viant/agently/internal/dao/message/write"
 	mcw "github.com/viant/agently/internal/dao/modelcall/write"
@@ -19,6 +21,8 @@ import (
 	usagew "github.com/viant/agently/internal/dao/usage/write"
 	d "github.com/viant/agently/internal/domain"
 	storeadapter "github.com/viant/agently/internal/domain/adapter"
+	"github.com/viant/datly"
+	"github.com/viant/datly/view"
 )
 
 type Mode string
@@ -385,7 +389,24 @@ func New(ctx context.Context) Writer {
 	if mode == ModeOff {
 		return &Store{mode: ModeOff}
 	}
-	apis, _ := daofactory.New(ctx, daofactory.DAOInMemory, nil)
+
+	var apis *factory.API
+	driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
+	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
+
+	if mode == ModeFull && driver != "" && dsn != "" {
+		if dao, err := datly.New(ctx); err == nil {
+			err = dao.AddConnectors(ctx, view.NewConnector("agently", driver, dsn))
+			if err == nil {
+				apis, _ = daofactory.New(ctx, daofactory.DAOSQL, dao)
+			}
+		}
+	}
+
+	if apis == nil {
+		apis, _ = daofactory.New(ctx, daofactory.DAOInMemory, nil)
+	}
+
 	if apis == nil {
 		return &Store{mode: ModeOff}
 	}

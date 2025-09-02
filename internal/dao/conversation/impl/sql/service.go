@@ -74,6 +74,25 @@ func New(ctx context.Context, connector *view.Connector, options ...repository.O
 	return ret, nil
 }
 
+func New2(ctx context.Context, dao *datly.Service) *Service {
+	ret := &Service{dao: dao}
+	if err := ret.init(ctx); err != nil {
+		return nil
+	}
+	return ret
+}
+
+func Register(ctx context.Context, dao *datly.Service) error {
+	if err := read.DefineConversationComponent(ctx, dao); err != nil {
+		return err
+	}
+
+	if _, err := write.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Service) init(ctx context.Context) error {
 	if err := read.DefineConversationComponent(ctx, s.dao); err != nil {
 		return err
