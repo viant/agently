@@ -24,6 +24,7 @@ import (
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
+	d "github.com/viant/agently/internal/domain"
 	recorder "github.com/viant/agently/internal/domain/recorder"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/model/types"
@@ -71,6 +72,11 @@ func WithSummaryLastN(n int) Option {
 	}
 }
 
+// WithDomainStore injects a domain.Store for conversation-level reads/writes.
+func WithDomainStore(store d.Store) Option {
+	return func(s *Service) { s.domainStore = store }
+}
+
 const (
 	name                    = "llm/agent"
 	defaultSummaryThreshold = 20
@@ -110,6 +116,7 @@ type Service struct {
 	// turns, model calls, and usage. A single dependency avoids interface
 	// sprawl and simplifies debugging.
 	domainWriter recorder.Recorder
+	domainStore  d.Store
 }
 
 // SetRuntime sets the fluxor runtime for orchestration

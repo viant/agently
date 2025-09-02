@@ -25,6 +25,9 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
+	daofactory "github.com/viant/agently/internal/dao/factory"
+	d "github.com/viant/agently/internal/domain"
+	storeadapter "github.com/viant/agently/internal/domain/adapter"
 	domainrec "github.com/viant/agently/internal/domain/recorder"
 	"github.com/viant/agently/internal/finder/oauth"
 	"github.com/viant/agently/internal/hotswap"
@@ -37,6 +40,8 @@ import (
 	"github.com/viant/fluxor/service/meta"
 	"github.com/viant/scy"
 
+	"github.com/viant/datly"
+	"github.com/viant/datly/view"
 	"github.com/viant/fluxor-mcp/mcp"
 )
 
@@ -227,6 +232,30 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	}
 	// Attach domain writer to agent service
 	agentOpts = append(agentOpts, llmagent.WithDomainWriter(e.domainWriter))
+
+	// Provide a domain store for agent meta persistence when domain is enabled.
+	if e.domainWriter != nil && e.domainWriter.Enabled() {
+		var st d.Store
+		// Prefer SQL when AGENTLY_DB_* configured; fallback to in-memory.
+		driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
+		dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
+		if driver != "" && dsn != "" {
+			if dao, err := datly.New(context.Background()); err == nil {
+				_ = dao.AddConnectors(context.Background(), view.NewConnector("agently", driver, dsn))
+				if apis, _ := daofactory.New(context.Background(), daofactory.DAOSQL, dao); apis != nil {
+					st = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
+				}
+			}
+		}
+		if st == nil {
+			if apis, _ := daofactory.New(context.Background(), daofactory.DAOInMemory, nil); apis != nil {
+				st = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
+			}
+		}
+		if st != nil {
+			agentOpts = append(agentOpts, llmagent.WithDomainStore(st))
+		}
+	}
 	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history, e.executionStore, &e.config.Default, agentOpts...)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc

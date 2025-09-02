@@ -26,24 +26,32 @@ func newConversationService(t *testing.T, dbPath string) *conv.Service {
 }
 
 type convExpected struct {
-	Id               string
-	Summary          *string
-	AgentName        *string
-	UsageInputTokens *int
-	HasCreatedAt     bool
-	HasLastActivity  bool
+	Id                   string
+	Summary              *string
+	AgentName            *string
+	UsageInputTokens     *int
+	HasCreatedAt         bool
+	HasLastActivity      bool
+	DefaultModelProvider *string
+	DefaultModel         *string
+	DefaultModelParams   *string
+	Metadata             *string
 }
 
 func toExpected(v *read.ConversationView) convExpected {
 	var agentName *string = v.AgentName
 	var usageIn *int = v.UsageInputTokens
 	return convExpected{
-		Id:               v.Id,
-		Summary:          v.Summary,
-		AgentName:        agentName,
-		UsageInputTokens: usageIn,
-		HasCreatedAt:     v.CreatedAt != nil,
-		HasLastActivity:  v.LastActivity != nil,
+		Id:                   v.Id,
+		Summary:              v.Summary,
+		AgentName:            agentName,
+		UsageInputTokens:     usageIn,
+		HasCreatedAt:         v.CreatedAt != nil,
+		HasLastActivity:      v.LastActivity != nil,
+		DefaultModelProvider: v.DefaultModelProvider,
+		DefaultModel:         v.DefaultModel,
+		DefaultModelParams:   v.DefaultModelParams,
+		Metadata:             v.Metadata,
 	}
 }
 
@@ -80,6 +88,29 @@ func Test_PostConversation_InsertAndUpdate_DataDriven(t *testing.T) {
 			}()},
 			verifyID: "c1",
 			expected: convExpected{Id: "c1", Summary: &alpha, AgentName: &agentA, UsageInputTokens: &zero, HasCreatedAt: true, HasLastActivity: true},
+		},
+		{
+			name: "set default model and metadata",
+			seed: nil,
+			patch: []*w.Conversation{func() *w.Conversation {
+				c := &w.Conversation{Has: &w.ConversationHas{}}
+				c.SetId("c5")
+				c.SetAgentName(agentA)
+				c.SetDefaultModelProvider("openai")
+				c.SetDefaultModel("gpt-4o-mini")
+				c.SetDefaultModelParams("{\"temperature\":0.3}")
+				c.SetMetadata("{\"tools\":[\"search\",\"web\"]}")
+				return c
+			}()},
+			verifyID: "c5",
+			expected: func() convExpected {
+				prov := "openai"
+				model := "gpt-4o-mini"
+				params := "{\"temperature\":0.3}"
+				meta := "{\"tools\":[\"search\",\"web\"]}"
+				return convExpected{Id: "c5", AgentName: &agentA, UsageInputTokens: &zero, HasCreatedAt: true, HasLastActivity: true,
+					DefaultModelProvider: &prov, DefaultModel: &model, DefaultModelParams: &params, Metadata: &meta}
+			}(),
 		},
 		{
 			name: "update existing conversation (summary, usage tokens)",

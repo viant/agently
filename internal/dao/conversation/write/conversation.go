@@ -19,6 +19,10 @@ type Conversation struct {
 	UsageInputTokens     int              `sqlx:"usage_input_tokens" json:",omitempty"`
 	UsageOutputTokens    int              `sqlx:"usage_output_tokens" json:",omitempty"`
 	UsageEmbeddingTokens int              `sqlx:"usage_embedding_tokens" json:",omitempty"`
+	DefaultModelProvider *string          `sqlx:"default_model_provider" json:",omitempty"`
+	DefaultModel         *string          `sqlx:"default_model" json:",omitempty"`
+	DefaultModelParams   *string          `sqlx:"default_model_params" json:",omitempty"`
+	Metadata             *string          `sqlx:"metadata" json:",omitempty"`
 	Has                  *ConversationHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
@@ -31,6 +35,10 @@ type ConversationHas struct {
 	UsageInputTokens     bool
 	UsageOutputTokens    bool
 	UsageEmbeddingTokens bool
+	DefaultModelProvider bool
+	DefaultModel         bool
+	DefaultModelParams   bool
+	Metadata             bool
 }
 
 func (c *Conversation) SetId(value string) {
@@ -71,4 +79,24 @@ func (c *Conversation) SetUsageOutputTokens(value int) {
 func (c *Conversation) SetUsageEmbeddingTokens(value int) {
 	c.UsageEmbeddingTokens = value
 	c.Has.UsageEmbeddingTokens = true
+}
+
+func (c *Conversation) SetDefaultModelProvider(value string) {
+	c.DefaultModelProvider = &value
+	c.Has.DefaultModelProvider = true
+}
+
+func (c *Conversation) SetDefaultModel(value string) {
+	c.DefaultModel = &value
+	c.Has.DefaultModel = true
+}
+
+func (c *Conversation) SetDefaultModelParams(value string) {
+	c.DefaultModelParams = &value
+	c.Has.DefaultModelParams = true
+}
+
+func (c *Conversation) SetMetadata(value string) {
+	c.Metadata = &value
+	c.Has.Metadata = true
 }
