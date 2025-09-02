@@ -366,6 +366,7 @@ func (s *Service) deriveRunner(ctx context.Context, genInput *GenerateInput) (st
 
 func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *GenerateInput, aPlan *plan.Plan, runnerService, runnerMethod string, execResults *[]plan.Result, wg *sync.WaitGroup, nextStepIdx *int, genOutput *GenerateOutput) string {
 	var mux sync.Mutex
+	var resultsMu sync.Mutex
 	return stream.Register(func(ctx context.Context, event *llm.StreamEvent) error {
 		if event == nil || event.Response == nil || len(event.Response.Choices) == 0 {
 			if event != nil {
@@ -430,14 +431,19 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *Ge
 				step := st
 				go func() {
 					defer wg.Done()
-					elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskInput, Payload: map[string]interface{}{"tool": step.Name, "args": step.Args}})
-					toolResult, err := s.registry.Execute(ctx, step.Name, step.Args)
-					elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskOutput, Payload: map[string]interface{}{"tool": step.Name, "result": toolResult, "error": err}})
-					res := plan.Result{ID: step.ID, Name: step.Name, Args: step.Args, Result: toolResult}
-					if err != nil {
-						res.Error = err.Error()
+					stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args}
+					convID := memory.ConversationIDFromContext(ctx)
+					optFns := []executil.Option{executil.WithConversation(convID)}
+					if s.tracer != nil {
+						optFns = append(optFns, executil.WithTracer(s.tracer))
 					}
+					if s.recorder != nil {
+						optFns = append(optFns, executil.WithRecorder(s.recorder))
+					}
+					res, _, _, _ := executil.RunTool(ctx, s.registry, stepInfo, optFns...)
+					resultsMu.Lock()
 					*execResults = append(*execResults, res)
+					resultsMu.Unlock()
 				}()
 			}
 		}

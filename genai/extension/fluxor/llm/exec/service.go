@@ -30,8 +30,8 @@ type Service struct {
 	maxRetries int
 	maxSteps   int
 
-	// domain writer for shadow writes (aggregated Recorder for consistency).
-	domainWriter recorder.Recorder
+	// recorder for shadow writes (aggregated Recorder for consistency).
+	recorder recorder.Recorder
 }
 
 // Name returns the service name
@@ -83,4 +83,4 @@ func New(llm *core.Service, registry tool.Registry, defaultModel string, approva
 // WithDomainWriter sets optional domain writer used for shadow writes.
 // Accepts the aggregated writer.Recorder; Recorder also satisfies the
 // narrower Enablement + ToolCallRecorder contract needed here.
-func (s *Service) WithDomainWriter(w recorder.Recorder) *Service { s.domainWriter = w; return s }
+func (s *Service) WithRecorder(w recorder.Recorder) *Service { s.recorder = w; return s }

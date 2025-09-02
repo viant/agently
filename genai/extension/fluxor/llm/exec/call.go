@@ -4,11 +4,9 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"time"
 
-	"github.com/viant/agently/genai/memory"
+	runner "github.com/viant/agently/genai/extension/fluxor/llm/shared/executil"
 	"github.com/viant/agently/genai/tool"
-	elog "github.com/viant/agently/internal/log"
 )
 
 type CallToolInput struct {
@@ -35,8 +33,6 @@ func (s *Service) CallTool(ctx context.Context, input *CallToolInput, output *Ca
 	// ------------------------------------------------------------
 	// Execute tool via injected registry or default
 	// ------------------------------------------------------------
-	var executor func(ctx context.Context, name string, args map[string]interface{}) (string, error)
-	executor = s.registry.Execute
 	if pol := tool.FromContext(ctx); pol != nil {
 		if !pol.IsAllowed(input.Name) {
 			return fmt.Errorf("tool %s is not allowed by policy", input.Name)
@@ -46,46 +42,10 @@ func (s *Service) CallTool(ctx context.Context, input *CallToolInput, output *Ca
 		}
 	}
 
-	// Publish TaskInput event before execution so that sinks can capture the
-	// tool invocation with its arguments.
-	elog.Publish(elog.Event{
-		Time:      time.Now(),
-		EventType: elog.TaskInput,
-		Payload: map[string]interface{}{
-			"tool": input.Name,
-			"args": input.Args,
-		},
-	})
-
-	startedAt := time.Now()
-	toolResult, err := executor(ctx, input.Name, input.Args)
-	completedAt := time.Now()
-	output.Result = toolResult
-
-	// Log the output/result (and potential error) so that it is captured by the
-	// default FileSink (typically writing to agently.log).
-	elog.Publish(elog.Event{
-		Time:      time.Now(),
-		EventType: elog.TaskOutput,
-		Payload: map[string]interface{}{
-			"tool":   input.Name,
-			"result": toolResult,
-			"error":  err,
-		},
-	})
-	// Domain shadow write for tool-call
-	if s.domainWriter != nil && s.domainWriter.Enabled() {
-		// Try gather IDs from context; allow empty strings
-		msgID := memory.MessageIDFromContext(ctx)
-		turnID := memory.TurnIDFromContext(ctx)
-		// Prepare snapshots (best-effort JSON)
-		var resp interface{} = toolResult
-		var errMsg string
-		if err != nil {
-			errMsg = err.Error()
-		}
-		s.domainWriter.RecordToolCall(ctx, msgID, turnID, input.Name, statusFromErr(err), startedAt, completedAt, errMsg, nil, input.Args, resp)
-	}
+	// Execute via shared runner (no trace by default in CallTool)
+	step := runner.StepInfo{ID: "", Name: input.Name, Args: input.Args}
+	res, _, _, err := runner.RunTool(ctx, s.registry, step, runner.WithRecorder(s.recorder))
+	output.Result = res.Result
 	return err
 }
 

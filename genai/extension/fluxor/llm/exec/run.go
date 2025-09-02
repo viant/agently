@@ -15,6 +15,7 @@ import (
 
 	plan "github.com/viant/agently/genai/agent/plan"
 	core "github.com/viant/agently/genai/extension/fluxor/llm/core"
+	runner "github.com/viant/agently/genai/extension/fluxor/llm/shared/executil"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/mcp-protocol/schema"
@@ -212,31 +213,19 @@ func (s *Service) processToolStep(ctx context.Context, step plan.Step, traceID i
 
 	// Resolve placeholders
 	step.Args = resolveArgsPlaceholders(step.Args, *results)
-	callToolInput := &CallToolInput{Name: step.Name, Args: step.Args, Model: input.Model}
-	callToolOutput := &CallToolOutput{}
-
-	startAt := time.Now()
-	s.updateTraceStart(ctx, conversationID, traceID, startAt)
-
 	ctx = types.EnsureExecutionContext(ctx)
-
-	var err error
-	var endAt time.Time
-	var result plan.Result
+	// Execute via shared runner with tracing
+	rstep := runner.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args}
+	optFns := []runner.Option{
+		runner.WithRecorder(s.recorder),
+		runner.WithConversation(conversationID),
+		runner.WithTrace(traceID),
+		runner.WithDuplicated(duplicatedCall),
+	}
 	if duplicatedCall {
-		endAt = time.Now()
-		result = duplicatedResult
-	} else {
-		err = s.CallTool(ctx, callToolInput, callToolOutput)
-		endAt = time.Now()
-		result = plan.Result{Name: step.Name, Args: step.Args, Result: callToolOutput.Result, ID: step.ID}
+		optFns = append(optFns, runner.WithDuplicatedResult(&duplicatedResult))
 	}
-	if err != nil {
-		result.Error = err.Error()
-	}
-
-	// Update trace with actual or duplicated result
-	s.updateTraceEnd(ctx, conversationID, traceID, result, duplicatedCall, endAt)
+	result, _, _, err := runner.RunTool(ctx, s.registry, rstep, optFns...)
 
 	// Elicitation on missing params (validation)
 	if err != nil {
@@ -252,6 +241,8 @@ func (s *Service) processToolStep(ctx context.Context, step plan.Step, traceID i
 	guard.RegisterResult(step.Name, step.Args, result)
 	return false
 }
+
+// tracer provided via NewTracer(s *Service) in tracer_adapter.go
 
 // processElicitationStep appends current results and sets elicitation in output; returns true to break loop.
 func (s *Service) processElicitationStep(step plan.Step, output *RunPlanOutput, results *[]plan.Result) bool {

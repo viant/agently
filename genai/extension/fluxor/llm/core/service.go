@@ -2,8 +2,10 @@ package core
 
 import (
 	"github.com/viant/afs"
+	executil "github.com/viant/agently/genai/extension/fluxor/llm/shared/executil"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/tool"
+	domainrec "github.com/viant/agently/internal/domain/recorder"
 	"github.com/viant/fluxor/model/types"
 	"io"
 	"reflect"
@@ -21,6 +23,10 @@ type Service struct {
 
 	logWriter io.Writer
 	fs        afs.Service
+
+	// optional tracer for tool execution in streaming plan path
+	tracer   executil.Tracer
+	recorder domainrec.ToolCallRecorder
 }
 
 // ToolDefinitions returns every tool definition registered in the tool
@@ -91,3 +97,7 @@ func New(finder llm.Finder, registry tool.Registry, defaultModel string) *Servic
 	matcher, _ := finder.(llm.Matcher)
 	return &Service{llmFinder: finder, registry: registry, defaultModel: defaultModel, fs: afs.New(), modelMatcher: matcher}
 }
+
+// SetTracer injects a tracer adapter (executil.Tracer-compatible) for streaming tool execution.
+func (s *Service) SetTracer(t executil.Tracer)              { s.tracer = t }
+func (s *Service) SetRecorder(r domainrec.ToolCallRecorder) { s.recorder = r }

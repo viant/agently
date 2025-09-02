@@ -208,9 +208,13 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	ex := exec.New(e.llmCore, e.tools, defaultModel, e.ApprovalService(), e.executionStore)
 	// Attach domain writer if enabled
 	if dw := e.domainWriter; dw != nil && dw.Enabled() {
-		ex.WithDomainWriter(dw)
+		ex.WithRecorder(dw)
 	}
 	actions.Register(ex)
+	// Inject recorder (and keep tracer if needed later) into core so streaming execution records tool calls.
+	if e.llmCore != nil {
+		e.llmCore.SetRecorder(e.domainWriter)
+	}
 	actions.Register(enricher)
 	actions.Register(e.llmCore)
 	// capture actions for streaming and callbacks
@@ -233,10 +237,9 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	// Attach domain writer to agent service
 	agentOpts = append(agentOpts, llmagent.WithDomainWriter(e.domainWriter))
 
-	// Provide a domain store for agent meta persistence when domain is enabled.
-	if e.domainWriter != nil && e.domainWriter.Enabled() {
+	// Provide a domain store for agent meta persistence (always inject; SQL when configured, otherwise in-memory).
+	{
 		var st d.Store
-		// Prefer SQL when AGENTLY_DB_* configured; fallback to in-memory.
 		driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
 		dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
 		if driver != "" && dsn != "" {
