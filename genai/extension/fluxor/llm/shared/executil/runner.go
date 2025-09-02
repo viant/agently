@@ -75,8 +75,22 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Op
 		opts.Tracer.UpdateTraceStart(ctx, opts.ConversationID, opts.TraceID, startedAt)
 	}
 
-	var out plan.Result
 	var err error
+	///
+	// Domain recorder – best-effort capture of tool call start
+	if opts.Recorder != nil {
+		msgID := memory.MessageIDFromContext(ctx)
+		turnID := memory.TurnIDFromContext(ctx)
+		opts.Recorder.RecordToolCallStart(ctx, domainrec.ToolCallStart{
+			MessageID: msgID,
+			TurnID:    turnID,
+			ToolName:  step.Name,
+			StartedAt: startedAt,
+			Request:   step.Args,
+		})
+	}
+
+	var out plan.Result
 	var toolResult string
 
 	if opts.Duplicated && opts.DuplicatedResult != nil {
@@ -100,7 +114,7 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Op
 		opts.Tracer.UpdateTraceEnd(ctx, opts.ConversationID, opts.TraceID, out, opts.Duplicated, endedAt)
 	}
 
-	// Domain recorder – best-effort capture of tool call operation
+	// Domain recorder – best-effort capture of tool call completion
 	if opts.Recorder != nil {
 		msgID := memory.MessageIDFromContext(ctx)
 		turnID := memory.TurnIDFromContext(ctx)
@@ -110,7 +124,16 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Op
 			status = "failed"
 			errMsg = err.Error()
 		}
-		opts.Recorder.RecordToolCall(ctx, msgID, turnID, step.Name, status, startedAt, endedAt, errMsg, nil, step.Args, out.Result)
+		opts.Recorder.RecordToolCallUpdate(ctx, domainrec.ToolCallUpdate{
+			MessageID:   msgID,
+			TurnID:      turnID,
+			ToolName:    step.Name,
+			Status:      status,
+			CompletedAt: endedAt,
+			ErrMsg:      errMsg,
+			Cost:        nil,
+			Response:    out.Result,
+		})
 	}
 	return out, startedAt, endedAt, err
 }

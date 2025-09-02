@@ -99,7 +99,9 @@ func TestToolCallRecorder_DataDriven(t *testing.T) {
 	t.Setenv("AGENTLY_DOMAIN_MODE", string(ModeShadow))
 	w := New(ctx).(*Store)
 	msgID, turnID := "m-tool", "t-tool"
-	w.RecordToolCall(ctx, msgID, turnID, "sys.echo", "completed", time.Now(), time.Now(), "", nil, map[string]any{"a": 1}, map[string]any{"b": 2})
+	// Start then update
+	w.RecordToolCallStart(ctx, ToolCallStart{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", StartedAt: time.Now(), Request: map[string]any{"a": 1}})
+	w.RecordToolCallUpdate(ctx, ToolCallUpdate{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", Status: "completed", CompletedAt: time.Now(), Response: map[string]any{"b": 2}})
 	_, err := w.store.Operations().GetByMessage(ctx, msgID)
 	assert.NoError(t, err)
 }
@@ -168,7 +170,10 @@ func TestStore_Memory_WriteFlow(t *testing.T) {
 
 	// Record tool call with payloads and error/cost
 	cost := 0.25
-	w.RecordToolCall(ctx, msgID, turnID, "sys.echo", "failed", time.Now().Add(-250*time.Millisecond), time.Now(), "boom", &cost, map[string]any{"a": 1}, map[string]any{"b": 2})
+	// Start then update with failure
+	started := time.Now().Add(-250 * time.Millisecond)
+	w.RecordToolCallStart(ctx, ToolCallStart{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", StartedAt: started, Request: map[string]any{"a": 1}})
+	w.RecordToolCallUpdate(ctx, ToolCallUpdate{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", Status: "failed", CompletedAt: time.Now(), ErrMsg: "boom", Cost: &cost, Response: map[string]any{"b": 2}})
 
 	// Record usage totals
 	w.RecordUsageTotals(ctx, convID, 10, 20, 5)

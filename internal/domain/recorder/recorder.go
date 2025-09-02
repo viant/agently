@@ -51,9 +51,11 @@ type TurnRecorder interface {
 
 // ToolCallRecorder persists tool-call operations (with optional payloads and metadata).
 type ToolCallRecorder interface {
-	RecordToolCall(ctx context.Context, messageID, turnID, toolName, status string, startedAt, completedAt time.Time, errMsg string, cost *float64, request map[string]interface{}, response interface{})
+	RecordToolCallStart(ctx context.Context, start ToolCallStart)
+	RecordToolCallUpdate(ctx context.Context, upd ToolCallUpdate)
 }
 
+// Add a new function RecordUpdateToolStatus(ctx context.Context, messageID, completedAt time.Time, errMsg string, response interface{})
 // ModelCallRecorder persists model-call operations (with optional payloads and metadata).
 type ModelCallRecorder interface {
 	RecordModelCall(ctx context.Context, messageID, turnID, provider, model, modelKind string, usage *llm.Usage, finishReason string, cost *float64, startedAt, completedAt time.Time, request interface{}, response interface{})
@@ -157,12 +159,29 @@ func (w *Store) RecordTurnUpdate(ctx context.Context, turnID, status string) {
 	_ = w.store.Turns().Update(ctx, rec)
 }
 
-func (w *Store) RecordToolCall(ctx context.Context, messageID, turnID, toolName, status string, startedAt, completedAt time.Time, errMsg string, cost *float64, request map[string]interface{}, response interface{}) {
-	if !w.Enabled() || messageID == "" || toolName == "" {
-		return
-	}
-	// Persist sanitized request/response as payloads
-	var reqID, resID string
+// ToolCallStart represents the initial tool-call data captured at start.
+type ToolCallStart struct {
+	MessageID string
+	TurnID    string
+	ToolName  string
+	StartedAt time.Time
+	Request   map[string]interface{}
+}
+
+// ToolCallUpdate represents the fields updated upon completion.
+type ToolCallUpdate struct {
+	MessageID   string
+	TurnID      string
+	ToolName    string
+	Status      string
+	CompletedAt time.Time
+	ErrMsg      string
+	Cost        *float64
+	Response    interface{}
+}
+
+// persistToolRequestPayload persists the request payload and returns its ID.
+func (w *Store) persistToolRequestPayload(ctx context.Context, request map[string]interface{}) (reqID string) {
 	if b := toJSONBytes(request); len(b) > 0 {
 		sb := redact.ScrubJSONBytes(b, nil)
 		id := uuid.New().String()
@@ -176,6 +195,11 @@ func (w *Store) RecordToolCall(ctx context.Context, messageID, turnID, toolName,
 		_, _ = w.store.Payloads().Patch(ctx, pw)
 		reqID = id
 	}
+	return reqID
+}
+
+// persistToolResponsePayload persists the response payload and returns its ID.
+func (w *Store) persistToolResponsePayload(ctx context.Context, response interface{}) (resID string) {
 	if b := toJSONBytes(response); len(b) > 0 {
 		sb := redact.ScrubJSONBytes(b, nil)
 		id := uuid.New().String()
@@ -189,21 +213,19 @@ func (w *Store) RecordToolCall(ctx context.Context, messageID, turnID, toolName,
 		_, _ = w.store.Payloads().Patch(ctx, pw)
 		resID = id
 	}
-	// Build optional metadata
-	var errPtr *string
-	if strings := errMsg; strings != "" {
-		errPtr = &errMsg
+	return resID
+}
+
+// RecordToolCallStart persists the initial request and metadata.
+func (w *Store) RecordToolCallStart(ctx context.Context, start ToolCallStart) {
+	if !w.Enabled() || start.MessageID == "" || start.ToolName == "" {
+		return
 	}
-	var startedPtr, completedPtr *time.Time
-	if !startedAt.IsZero() {
-		startedPtr = &startedAt
-	}
-	if !completedAt.IsZero() {
-		completedPtr = &completedAt
-	}
+	reqID := w.persistToolRequestPayload(ctx, start.Request)
+
 	tw := &tcw.ToolCall{}
-	tw.SetMessageID(messageID)
-	tw.TurnID = strp(turnID)
+	tw.SetMessageID(start.MessageID)
+	tw.TurnID = strp(start.TurnID)
 	if tw.TurnID != nil {
 		if tw.Has == nil {
 			tw.Has = &tcw.ToolCallHas{}
@@ -212,39 +234,64 @@ func (w *Store) RecordToolCall(ctx context.Context, messageID, turnID, toolName,
 	}
 	tw.SetOpID(uuid.New().String())
 	tw.SetAttempt(1)
-	tw.SetToolName(toolName)
+	tw.SetToolName(start.ToolName)
 	tw.SetToolKind("general")
-	tw.SetStatus(status)
-	if startedPtr != nil {
-		tw.StartedAt = startedPtr
+	tw.SetStatus("running")
+	if !start.StartedAt.IsZero() {
+		tw.StartedAt = &start.StartedAt
 		if tw.Has == nil {
 			tw.Has = &tcw.ToolCallHas{}
 		}
 		tw.Has.StartedAt = true
 	}
-	if completedPtr != nil {
-		tw.CompletedAt = completedPtr
+	_ = w.store.Operations().RecordToolCall(ctx, tw, reqID, "")
+}
+
+// RecordToolCallUpdate updates status and persists the response.
+func (w *Store) RecordToolCallUpdate(ctx context.Context, upd ToolCallUpdate) {
+	if !w.Enabled() || upd.MessageID == "" || upd.ToolName == "" || upd.Status == "" {
+		return
+	}
+	resID := w.persistToolResponsePayload(ctx, upd.Response)
+
+	tw := &tcw.ToolCall{}
+	tw.SetMessageID(upd.MessageID)
+	if upd.TurnID != "" {
+		tw.TurnID = &upd.TurnID
+		if tw.Has == nil {
+			tw.Has = &tcw.ToolCallHas{}
+		}
+		tw.Has.TurnID = true
+	}
+	// For updates we only set fields that change; required fields for insert are not needed here.
+	tw.SetToolName(upd.ToolName)
+	tw.SetToolKind("general")
+	tw.SetStatus(upd.Status)
+	if !upd.CompletedAt.IsZero() {
+		tw.CompletedAt = &upd.CompletedAt
 		if tw.Has == nil {
 			tw.Has = &tcw.ToolCallHas{}
 		}
 		tw.Has.CompletedAt = true
 	}
-	if errPtr != nil {
-		tw.ErrorMessage = errPtr
+	if upd.ErrMsg != "" {
+		tw.ErrorMessage = &upd.ErrMsg
 		if tw.Has == nil {
 			tw.Has = &tcw.ToolCallHas{}
 		}
 		tw.Has.ErrorMessage = true
 	}
-	if cost != nil {
-		tw.Cost = cost
+	if upd.Cost != nil {
+		tw.Cost = upd.Cost
 		if tw.Has == nil {
 			tw.Has = &tcw.ToolCallHas{}
 		}
 		tw.Has.Cost = true
 	}
-	_ = w.store.Operations().RecordToolCall(ctx, tw, reqID, resID)
+	_ = w.store.Operations().RecordToolCall(ctx, tw, "", resID)
 }
+
+// RecordToolCall has been replaced by RecordToolCallStart/RecordToolCallUpdate.
 
 func (w *Store) RecordUsageTotals(ctx context.Context, conversationID string, input, output, embed int) {
 	if !w.Enabled() || conversationID == "" {
