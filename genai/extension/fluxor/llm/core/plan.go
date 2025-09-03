@@ -96,7 +96,7 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 
 	// Pre-generate plan message ID and set the recorder observer so providers attach model calls to it.
 	planMID := uuid.NewString()
-	ctx = context.WithValue(ctx, memory.MessageIDKey, planMID)
+	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, planMID)
 	if s.recorder != nil {
 		ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
 	}
@@ -131,6 +131,12 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 	// If a plan was generated or tools are available, issue a short finalize
 	// generation to produce the final assistant answer as a distinct model call.
 	if (planResult != nil && len(planResult.Steps) > 0) || len(tools) > 0 {
+		// Pre-assign final assistant message id for the finalize call and inject recorder observer
+		finalMID := uuid.NewString()
+		ctx = context.WithValue(ctx, memory.ModelMessageIDKey, finalMID)
+		if s.recorder != nil {
+			ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
+		}
 		finIn := &GenerateInput{
 			Model:  modelName,
 			Prompt: strings.TrimSpace(output.Answer),

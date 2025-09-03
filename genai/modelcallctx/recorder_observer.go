@@ -22,7 +22,11 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) {
 		o.start.StartedAt = time.Now()
 	}
 	// Write initial model_call row with started_at so status reads as scheduled.
-	msgID := memory.MessageIDFromContext(ctx)
+	// Prefer explicitly assigned model message ID; fall back to general messageID for backward compatibility.
+	msgID := memory.ModelMessageIDFromContext(ctx)
+	if msgID == "" {
+		msgID = memory.MessageIDFromContext(ctx)
+	}
 	turnID := memory.TurnIDFromContext(ctx)
 	if msgID != "" && o.r != nil && o.r.Enabled() {
 		o.r.RecordModelCall(ctx, msgID, turnID, info.Provider, info.Model, info.ModelKind, nil, "", nil, o.start.StartedAt, time.Time{}, nil, nil)
@@ -41,7 +45,10 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
 		info.StartedAt = o.start.StartedAt
 	}
 	// attach to message/turn from context
-	msgID := memory.MessageIDFromContext(ctx)
+	msgID := memory.ModelMessageIDFromContext(ctx)
+	if msgID == "" {
+		msgID = memory.MessageIDFromContext(ctx)
+	}
 	turnID := memory.TurnIDFromContext(ctx)
 	if msgID == "" || o.r == nil || !o.r.Enabled() {
 		return

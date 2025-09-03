@@ -47,6 +47,19 @@ func TurnIDFromContext(ctx context.Context) string {
 	return value.(string)
 }
 
+// ModelMessageIDKey carries the message id to which the current model call should attach.
+type modelMessageIDKey string
+
+var ModelMessageIDKey = modelMessageIDKey("modelMessageID")
+
+func ModelMessageIDFromContext(ctx context.Context) string {
+	value := ctx.Value(ModelMessageIDKey)
+	if value == nil {
+		return ""
+	}
+	return value.(string)
+}
+
 // Message represents a conversation message for memory storage.
 type Message struct {
 	ID             string  `json:"id"`
