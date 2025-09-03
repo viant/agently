@@ -88,15 +88,7 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		if memory.ModelMessageIDFromContext(ctx) == "" {
 			ctx = context.WithValue(ctx, memory.ModelMessageIDKey, uuid.NewString())
 		}
-		// Seed TurnMeta if not present using existing keys
-		if _, ok := memory.TurnMetaFromContext(ctx); !ok {
-			tm := memory.TurnMeta{
-				TurnID:          memory.TurnIDFromContext(ctx),
-				ConversationID:  memory.ConversationIDFromContext(ctx),
-				ParentMessageID: memory.MessageIDFromContext(ctx),
-			}
-			ctx = memory.WithTurnMeta(ctx, tm)
-		}
+		// Require TurnMeta to be provided by upstream (agent) to avoid guessing from scattered keys.
 		ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
 	}
 	request, model, err := s.prepareGenerateRequest(ctx, input)
@@ -144,19 +136,11 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	if s.recorder != nil {
 		msgID := memory.ModelMessageIDFromContext(ctx)
 		if msgID != "" {
-			convID := memory.ConversationIDFromContext(ctx)
-			parentID := memory.MessageIDFromContext(ctx)
 			if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-				if tm.ConversationID != "" {
-					convID = tm.ConversationID
+				if tm.ConversationID != "" && strings.TrimSpace(output.Content) != "" {
+					s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()})
+					output.MessageID = msgID
 				}
-				if tm.ParentMessageID != "" {
-					parentID = tm.ParentMessageID
-				}
-			}
-			if convID != "" && strings.TrimSpace(output.Content) != "" {
-				s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: parentID, ConversationID: convID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()})
-				output.MessageID = msgID
 			}
 		}
 	}

@@ -23,17 +23,9 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) context.C
 		o.start.StartedAt = time.Now()
 	}
 
-	//TODO create a message call ,use parentMessageID  from memory.ModelMessageIDFromContext(ctx) (remove upstream assistant message creation if present)
-	//TODO then RecordModelCall
-	//TODO saturate new message ID in context so that OnCallEnd can patch right model_call with response_call_id,
+	msgID := uuid.NewString()
+	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, msgID)
 
-	// Ensure a target message id for this call (create when absent) and write initial model_call row.
-	msgID := memory.ModelMessageIDFromContext(ctx)
-	if msgID == "" {
-		// create a new message id for this model call
-		msgID = uuid.NewString()
-		ctx = context.WithValue(ctx, memory.ModelMessageIDKey, msgID)
-	}
 	turnID := memory.TurnIDFromContext(ctx)
 	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
 		if tm.TurnID != "" {

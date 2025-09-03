@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"strings"
 
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core/stream"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	fluxortypes "github.com/viant/fluxor/model/types"
-	"time"
 )
 
 type StreamInput struct {
@@ -82,19 +83,13 @@ func (s *Service) stream(ctx context.Context, in, out interface{}) error {
 		content := strings.TrimSpace(b.String())
 		if content != "" {
 			msgID := memory.ModelMessageIDFromContext(ctx)
-			parentID := memory.MessageIDFromContext(ctx)
-			convID := memory.ConversationIDFromContext(ctx)
-			if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-				if tm.ConversationID != "" {
-					convID = tm.ConversationID
+			if msgID != "" {
+				if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+					if tm.ConversationID != "" {
+						s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: content, CreatedAt: time.Now()})
+						output.MessageID = msgID
+					}
 				}
-				if tm.ParentMessageID != "" {
-					parentID = tm.ParentMessageID
-				}
-			}
-			if msgID != "" && convID != "" {
-				s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: parentID, ConversationID: convID, Role: "assistant", Content: content, CreatedAt: time.Now()})
-				output.MessageID = msgID
 			}
 		}
 	}
