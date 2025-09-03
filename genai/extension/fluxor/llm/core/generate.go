@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
+	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/internal/templating"
 	fluxortypes "github.com/viant/fluxor/model/types"
 
@@ -79,6 +81,14 @@ func (s *Service) generate(ctx context.Context, in, out interface{}) error {
 }
 
 func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) error {
+	// Ensure observer and target message id for real-time model-call attachment.
+	if s.recorder != nil {
+		// Assign a target message id if absent
+		if memory.ModelMessageIDFromContext(ctx) == "" {
+			ctx = context.WithValue(ctx, memory.ModelMessageIDKey, uuid.NewString())
+		}
+		ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
+	}
 	request, model, err := s.prepareGenerateRequest(ctx, input)
 	if err != nil {
 		return err

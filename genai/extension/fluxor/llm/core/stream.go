@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core/stream"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
+	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	fluxortypes "github.com/viant/fluxor/model/types"
+	"time"
 )
 
 type StreamInput struct {
@@ -43,11 +47,40 @@ func (s *Service) stream(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return fmt.Errorf("model %T does not support streaming", model)
 	}
+	// Ensure observer and target message id for real-time model-call attachment.
+	if s.recorder != nil {
+		if memory.ModelMessageIDFromContext(ctx) == "" {
+			ctx = context.WithValue(ctx, memory.ModelMessageIDKey, uuid.NewString())
+		}
+		ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
+	}
+
 	streamCh, err := streamer.Stream(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to start stream: %w", err)
 	}
-	return s.consumeEvents(ctx, streamCh, handler, output)
+	if err := s.consumeEvents(ctx, streamCh, handler, output); err != nil {
+		return err
+	}
+	// Persist assistant message with aggregated content.
+	if s.recorder != nil {
+		var b strings.Builder
+		for _, ev := range output.Events {
+			if ev.Type == "chunk" && strings.TrimSpace(ev.Content) != "" {
+				b.WriteString(ev.Content)
+			}
+		}
+		content := strings.TrimSpace(b.String())
+		if content != "" {
+			msgID := memory.ModelMessageIDFromContext(ctx)
+			parentID := memory.MessageIDFromContext(ctx)
+			convID := memory.ConversationIDFromContext(ctx)
+			if msgID != "" && convID != "" {
+				s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: parentID, ConversationID: convID, Role: "assistant", Content: content, CreatedAt: time.Now()})
+			}
+		}
+	}
+	return nil
 }
 
 // validateStreamIO validates and unwraps inputs.

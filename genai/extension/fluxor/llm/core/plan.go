@@ -16,7 +16,6 @@ import (
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
-	"strconv"
 
 	elog "github.com/viant/agently/internal/log"
 	"github.com/viant/fluxor/model/graph"
@@ -94,31 +93,18 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 		return err
 	}
 
-	// Pre-generate plan message ID and set the recorder observer so providers attach model calls to it.
+	// Pre-assign a target message id for the planner model call; stream/generate will attach to it.
 	planMID := uuid.NewString()
 	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, planMID)
-	if s.recorder != nil {
-		ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
-	}
 
 	genOutput := &GenerateOutput{}
 	planResult, execResults, err := s.GeneratePlan(ctx, modelName, promptTemplate, systemPromptTemplate, input, tools, genOutput)
 	if err != nil {
 		return err
 	}
-	// Persist a planning message (interim) and attach model-call to it.
+	// Requalify the last assistant message (created by stream/generate) as a plan interim if not final.
 	if s.recorder != nil {
-		convID := memory.ConversationIDFromContext(ctx)
-		if convID != "" {
-			// Keep message content informative but compact.
-			steps := len(planResult.Steps)
-			content := "Plan created"
-			if steps > 0 {
-				content = content + " (" + strconv.Itoa(steps) + " steps)"
-			}
-			// Role assistant, actor marks this as plan; recorder maps to type=plan + interim.
-			s.recorder.RecordMessage(ctx, memory.Message{ID: planMID, ConversationID: convID, Role: "assistant", Actor: "plan", Content: content, CreatedAt: time.Now()})
-		}
+		s.recorder.RecordMessage(ctx, memory.Message{ID: planMID, Role: "assistant", Actor: "plan"})
 	}
 	if planResult.Elicitation.IsEmpty() {
 		planResult.Elicitation = nil
