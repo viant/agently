@@ -48,6 +48,7 @@ type Output struct {
 
 type ModelCallView struct {
 	MessageID         string     `sqlx:"message_id"`
+	Status            string     `sqlx:"status"`
 	TurnID            *string    `sqlx:"turn_id"`
 	Provider          string     `sqlx:"provider"`
 	Model             string     `sqlx:"model"`

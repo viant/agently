@@ -1,5 +1,6 @@
 SELECT 
   mc.message_id,
+  CASE WHEN mc.completed_at IS NOT NULL THEN 'completed' ELSE 'scheduled' END AS status,
   mc.turn_id,
   mc.provider,
   mc.model,
