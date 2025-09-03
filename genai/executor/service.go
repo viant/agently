@@ -206,8 +206,8 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	}
 
 	ex := exec.New(e.llmCore, e.tools, defaultModel, e.ApprovalService(), e.executionStore)
-	// Attach domain writer if enabled
-	if rec := e.recorder; rec != nil && rec.Enabled() {
+	// Attach recorder (always present; internal gating handled by recorder)
+	if rec := e.recorder; rec != nil {
 		ex.WithRecorder(rec)
 	}
 	actions.Register(ex)

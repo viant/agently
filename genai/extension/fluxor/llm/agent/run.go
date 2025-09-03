@@ -104,9 +104,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		content := "↪ " + arg.Title
 		// v1: omit auto-summary; policy-driven summarization can be added later
 		msg := memory.Message{ID: uuid.NewString(), ConversationID: parentID, Role: "assistant", Actor: "agent.run", Content: content}
-		if s.recorder != nil && s.recorder.Enabled() {
-			s.recorder.RecordMessage(ctx, msg)
-		}
+		s.recorder.RecordMessage(ctx, msg)
 		res.Content = content
 	}
 	return nil

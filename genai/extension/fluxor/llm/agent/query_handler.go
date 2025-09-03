@@ -116,7 +116,7 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	if convIDEarly != "" {
 		turnID := uuid.New().String()
 		ctx = context.WithValue(ctx, memory.TurnIDKey, turnID)
-		if s.recorder != nil && s.recorder.Enabled() {
+		if s.recorder != nil {
 			s.recorder.RecordTurnStart(ctx, convIDEarly, turnID, time.Now())
 		}
 	}
@@ -495,7 +495,7 @@ func (s *Service) conversationID(qi *QueryInput) string {
 func (s *Service) startTurn(ctx context.Context, conversationID string) (context.Context, string) {
 	turnID := uuid.NewString()
 	ctx = context.WithValue(ctx, memory.TurnIDKey, turnID)
-	if s.recorder != nil && s.recorder.Enabled() {
+	if s.recorder != nil {
 		s.recorder.RecordTurnStart(ctx, conversationID, turnID, time.Now())
 	}
 	return ctx, turnID
@@ -503,7 +503,7 @@ func (s *Service) startTurn(ctx context.Context, conversationID string) (context
 
 // endTurn updates turn status and usage totals via recorder when available.
 func (s *Service) endTurn(ctx context.Context, conversationID, turnID string, succeeded bool, agg *usage.Aggregator) {
-	if s.recorder == nil || !s.recorder.Enabled() || turnID == "" {
+	if s.recorder == nil || turnID == "" {
 		return
 	}
 	status := "succeeded"
@@ -539,7 +539,7 @@ func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, 
 		id = uuid.New().String()
 	}
 	msg := memory.Message{ID: id, ParentID: parentId, Role: role, Actor: actor, Content: content, ConversationID: convID}
-	if s.recorder != nil && s.recorder.Enabled() {
+	if s.recorder != nil {
 		s.recorder.RecordMessage(ctx, msg)
 	}
 	return msg.ID, nil
@@ -634,9 +634,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 
 	result, err := wait(ctx, s.workflowTimeout)
 	if err != nil {
-		if s.recorder != nil && s.recorder.Enabled() {
-			s.recorder.RecordTurnUpdate(ctx, turnID, "failed")
-		}
+		s.endTurn(ctx, convID, turnID, false, usage.FromContext(ctx))
 		return fmt.Errorf("workflow execution error: %w", err)
 	}
 	// -----------------------------------------------------------------
@@ -663,30 +661,13 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 				qo.DocumentsSize = s.calculateDocumentsSize(docs)
 				mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
 				// Persist the most recent model call from buffer, if available
-				if s.recorder != nil && s.recorder.Enabled() {
+				if s.recorder != nil {
 					if info, ok := modelcallctx.PopLast(ctx); ok {
 						s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
 					}
 				}
 				qo.Usage = usage.FromContext(ctx)
-				if s.recorder != nil && s.recorder.Enabled() {
-					// Update turn and usage totals
-					s.recorder.RecordTurnUpdate(ctx, turnID, "failed")
-					if u := qo.Usage; u != nil {
-						// Sum totals across models
-						totalIn, totalOut, totalEmb := 0, 0, 0
-						for _, k := range u.Keys() {
-							st := u.PerModel[k]
-							if st == nil {
-								continue
-							}
-							totalIn += st.PromptTokens
-							totalOut += st.CompletionTokens
-							totalEmb += st.EmbeddingTokens
-						}
-						s.recorder.RecordUsageTotals(ctx, convID, totalIn, totalOut, totalEmb)
-					}
-				}
+				s.endTurn(ctx, convID, turnID, false, qo.Usage)
 				return nil
 			}
 		}
@@ -764,7 +745,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	}
 	qo.DocumentsSize = s.calculateDocumentsSize(docs)
 	mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
-	if s.recorder != nil && s.recorder.Enabled() {
+	if s.recorder != nil {
 		if info, ok := modelcallctx.PopLast(ctx); ok {
 			s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
 		}
@@ -780,6 +761,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 		}
 	}
 
+	s.endTurn(ctx, convID, turnID, true, qo.Usage)
 	return nil
 }
 
@@ -858,7 +840,7 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 		Elicitation:    elic,
 		CreatedAt:      time.Now(),
 	}
-	if s.recorder != nil && s.recorder.Enabled() {
+	if s.recorder != nil {
 		s.recorder.RecordMessage(ctx, msg)
 	}
 }
@@ -1003,7 +985,7 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 	}
 
 	mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
-	if s.recorder != nil && s.recorder.Enabled() {
+	if s.recorder != nil {
 		if info, ok := modelcallctx.PopLast(ctx); ok {
 			s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
 		}
