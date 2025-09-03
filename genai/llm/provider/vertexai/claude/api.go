@@ -75,10 +75,15 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	// Create the URL
 	apiURL := c.GetEndpointURL()
 	var resp *http.Response
+	observer := mcbuf.ObserverFromContext(ctx)
 	for i := 0; i < max(1, c.MaxRetries); i++ {
 		// Observer start
-		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-			ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+		if observer != nil {
+			var genReqJSON []byte
+			if request != nil {
+				genReqJSON, _ = json.Marshal(request)
+			}
+			ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()})
 		}
 		resp, err = c.sendRequest(ctx, apiURL, data)
 		if err != nil {
@@ -118,12 +123,12 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 			c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
 		}
-		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-			info := mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage}
+		if observer != nil {
+			info := mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage, LLMResponse: llmsResp}
 			if llmsResp != nil && len(llmsResp.Choices) > 0 {
 				info.FinishReason = llmsResp.Choices[0].FinishReason
 			}
-			ob.OnCallEnd(ctx, info)
+			observer.OnCallEnd(ctx, info)
 		}
 		return llmsResp, nil
 	}
@@ -139,12 +144,12 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
 	}
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		info := mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage}
+	if observer != nil {
+		info := mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage, LLMResponse: llmsResp}
 		if len(llmsResp.Choices) > 0 {
 			info.FinishReason = llmsResp.Choices[0].FinishReason
 		}
-		ob.OnCallEnd(ctx, info)
+		observer.OnCallEnd(ctx, info)
 	}
 	return llmsResp, nil
 }
@@ -198,8 +203,13 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	apiURL := c.GetEndpointURL()
 	events := make(chan llm.StreamEvent)
 
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()})
 	}
 	resp, err := c.sendRequest(ctx, apiURL, data)
 	if err != nil {
@@ -229,20 +239,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				events <- llm.StreamEvent{Response: lr}
 			}
 		}
-		endObserverOnce := func(lr *llm.GenerateResponse) {
-			if ended {
-				return
-			}
-			if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-				respJSON, _ := json.Marshal(lr)
-				var finish string
-				if lr != nil && len(lr.Choices) > 0 {
-					finish = lr.Choices[0].FinishReason
-				}
-				ob.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finish})
-				ended = true
-			}
-		}
+		// endObserverOnce removed; directly call OnCallEnd when final response is assembled.
 
 		emitToolsIfAny := func() {
 			idxs := make([]int, 0, len(tools))
@@ -358,7 +355,11 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					msg.ToolCalls = calls
 				}
 				lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model, Usage: usage}
-				endObserverOnce(lr)
+				if observer != nil {
+					respJSON, _ := json.Marshal(lr)
+					observer.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason, LLMResponse: lr})
+					ended = true
+				}
 				emit(lr)
 				lastLR = lr
 			case "message_start":
@@ -385,8 +386,16 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		if err := scanner.Err(); err != nil {
 			events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
 		}
-		if !ended {
-			endObserverOnce(lastLR)
+		if !ended && observer != nil {
+			var respJSON []byte
+			var finishReason string
+			if lastLR != nil {
+				respJSON, _ = json.Marshal(lastLR)
+				if len(lastLR.Choices) > 0 {
+					finishReason = lastLR.Choices[0].FinishReason
+				}
+			}
+			observer.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason, LLMResponse: lastLR})
 		}
 	}()
 	return events, nil

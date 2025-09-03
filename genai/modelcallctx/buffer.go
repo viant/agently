@@ -14,6 +14,8 @@ type Info struct {
 	ModelKind    string
 	RequestJSON  []byte
 	ResponseJSON []byte
+	Payload      []byte
+	LLMResponse  *llm.GenerateResponse
 	Usage        *llm.Usage
 	StartedAt    time.Time
 	CompletedAt  time.Time

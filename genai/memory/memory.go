@@ -143,6 +143,8 @@ type Message struct {
 	// an external tool).  The UI should show the approval dialog when the
 	// message role == "policyapproval" and Status == "open".
 	PolicyApproval *PolicyApproval `json:"policyApproval,omitempty" yaml:"policyApproval,omitempty"`
+
+	Interim *int `json:"interim,omitempty" yaml:"interim,omitempty"` // 1 for interim messages, nil or 0 otherwise
 }
 
 // ConversationMeta captures hierarchical metadata for a conversation. It is

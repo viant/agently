@@ -148,16 +148,6 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	if m.Content != "" {
 		rec.SetContent(m.Content)
 	}
-	// Mark messages created by planning stage (Actor == plan) as type=plan and interim.
-	if strings.ToLower(m.Actor) == "plan" {
-		rec.SetType("plan")
-		one := 1
-		rec.Interim = &one
-		if rec.Has == nil {
-			rec.Has = &msgw.MessageHas{}
-		}
-		rec.Has.Interim = true
-	}
 	if m.Elicitation != nil {
 		one := 1
 		rec.Interim = &one
@@ -166,6 +156,16 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 		}
 		rec.Has.Interim = true
 	}
+
+	if m.Interim != nil && *m.Interim == 1 {
+		one := 1
+		rec.Interim = &one
+		if rec.Has == nil {
+			rec.Has = &msgw.MessageHas{}
+		}
+		rec.Has.Interim = true
+	}
+
 	if m.ToolName != nil {
 		rec.SetToolName(*m.ToolName)
 	}

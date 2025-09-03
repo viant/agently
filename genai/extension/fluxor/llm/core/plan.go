@@ -15,8 +15,6 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
-	modelcallctx "github.com/viant/agently/genai/modelcallctx"
-
 	elog "github.com/viant/agently/internal/log"
 	"github.com/viant/fluxor/model/graph"
 	"github.com/viant/fluxor/runtime/execution"
@@ -100,10 +98,6 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 	if err != nil {
 		return err
 	}
-	// Requalify the assistant message created by generate/stream to plan interim.
-	if s.recorder != nil && genOutput.MessageID != "" {
-		s.recorder.RecordMessage(ctx, memory.Message{ID: genOutput.MessageID, Role: "assistant", Actor: "plan"})
-	}
 	if planResult.Elicitation.IsEmpty() {
 		planResult.Elicitation = nil
 	}
@@ -112,36 +106,7 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 	}
 	s.buildAnswerFromTranscript(output)
 	RefinePlan(planResult, output.Answer)
-	// If a plan was generated or tools are available, issue a short finalize
 	// generation to produce the final assistant answer as a distinct model call.
-	if (planResult != nil && len(planResult.Steps) > 0) || len(tools) > 0 {
-		// Resolve latest tool message as parent for finalize call (if resolver provided)
-		if s.parentResolver != nil {
-			if pid := s.parentResolver(ctx); pid != "" {
-				if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-					tm.ParentMessageID = pid
-					ctx = memory.WithTurnMeta(ctx, tm)
-				} else {
-					// seed minimal meta with updated parent
-					ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{TurnID: memory.TurnIDFromContext(ctx), ConversationID: memory.ConversationIDFromContext(ctx), ParentMessageID: pid})
-				}
-			}
-		}
-		if s.recorder != nil {
-			ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
-		}
-		finIn := &GenerateInput{
-			Model:  modelName,
-			Prompt: strings.TrimSpace(output.Answer),
-			// Keep low temperature to steer towards a clean finalization rather than new plans.
-			Options: &llm.Options{Temperature: 0},
-		}
-		finOut := &GenerateOutput{}
-		if err := s.Generate(ctx, finIn, finOut); err == nil && strings.TrimSpace(finOut.Content) != "" {
-			output.Answer = finOut.Content
-		}
-		// The model call is captured by modelcallctx and will be attached to the final assistant message.
-	}
 	if len(execResults) > 0 {
 		output.Results = append(output.Results, execResults...)
 	}

@@ -55,8 +55,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	// Observer start
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "inceptionlabs", Model: req.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "inceptionlabs", Model: req.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()})
 	}
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)
@@ -87,12 +92,12 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(req.Model, llmsResp.Usage)
 	}
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		info := mcbuf.Info{Provider: "inceptionlabs", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage}
+	if observer != nil {
+		info := mcbuf.Info{Provider: "inceptionlabs", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage, LLMResponse: llmsResp}
 		if llmsResp != nil && len(llmsResp.Choices) > 0 {
 			info.FinishReason = llmsResp.Choices[0].FinishReason
 		}
-		ob.OnCallEnd(ctx, info)
+		observer.OnCallEnd(ctx, info)
 	}
 	return llmsResp, nil
 }

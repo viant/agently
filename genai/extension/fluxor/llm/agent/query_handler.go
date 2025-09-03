@@ -390,6 +390,10 @@ func (s *Service) buildCrossTurnContext(ctx context.Context, conversationID stri
 	latestAssistant := map[string]*msgread.MessageView{}
 	usersByTurn := map[string][]*msgread.MessageView{}
 	for _, v := range all {
+		if v.IsInterim() {
+			continue
+		}
+
 		if strings.ToLower(v.Role) == "user" {
 			key := ""
 			if v.TurnID != nil {

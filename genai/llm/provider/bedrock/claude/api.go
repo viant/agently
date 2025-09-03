@@ -90,8 +90,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	//	fmt.Printf("req: %v\n", string(data))
 
 	// Observer start
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()})
 	}
 	// Send the request to Bedrock
 	var resp *bedrockruntime.InvokeModelOutput
@@ -123,12 +128,12 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
 	}
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		info := mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: resp.Body, CompletedAt: time.Now(), Usage: llmsResp.Usage}
+	if observer != nil {
+		info := mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: resp.Body, CompletedAt: time.Now(), Usage: llmsResp.Usage, LLMResponse: llmsResp}
 		if llmsResp != nil && len(llmsResp.Choices) > 0 {
 			info.FinishReason = llmsResp.Choices[0].FinishReason
 		}
-		ob.OnCallEnd(ctx, info)
+		observer.OnCallEnd(ctx, info)
 	}
 	return llmsResp, nil
 }
@@ -186,8 +191,13 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		Body:        data,
 		ContentType: aws.String("application/json"),
 	}
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()})
 	}
 	output, err := c.BedrockClient.InvokeModelWithResponseStream(ctx, input)
 	if err != nil {
@@ -217,20 +227,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				events <- llm.StreamEvent{Response: lr}
 			}
 		}
-		endObserverOnce := func(lr *llm.GenerateResponse) {
-			if ended {
-				return
-			}
-			if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-				respJSON, _ := json.Marshal(lr)
-				var finish string
-				if lr != nil && len(lr.Choices) > 0 {
-					finish = lr.Choices[0].FinishReason
-				}
-				ob.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finish})
-				ended = true
-			}
-		}
+		// endObserverOnce removed; directly call OnCallEnd when final response is assembled.
 
 		// Aggregator for Claude streaming events
 		type toolAgg struct {
@@ -313,7 +310,11 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 						msg.ToolCalls = calls
 					}
 					lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model}
-					endObserverOnce(lr)
+					if observer != nil {
+						respJSON, _ := json.Marshal(lr)
+						observer.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason, LLMResponse: lr})
+						ended = true
+					}
 					lastLR = lr
 					emit(lr)
 				}
@@ -324,8 +325,16 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		if err := es.Err(); err != nil {
 			events <- llm.StreamEvent{Err: err}
 		}
-		if !ended {
-			endObserverOnce(lastLR)
+		if !ended && observer != nil {
+			var respJSON []byte
+			var finishReason string
+			if lastLR != nil {
+				respJSON, _ = json.Marshal(lastLR)
+				if len(lastLR.Choices) > 0 {
+					finishReason = lastLR.Choices[0].FinishReason
+				}
+			}
+			observer.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason, LLMResponse: lastLR})
 		}
 	}()
 	return events, nil

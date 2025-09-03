@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/viant/xdatly/handler"
 	"github.com/viant/xdatly/handler/response"
@@ -42,7 +43,23 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 	if err != nil {
 		return err
 	}
+	const maxContentBytes = 64 * 1024
 	for _, rec := range in.Messages {
+		// Truncate content to maxContentBytes preserving valid UTF-8
+		if rec != nil {
+			b := []byte(rec.Content)
+			if len(b) > maxContentBytes {
+				trunc := b[:maxContentBytes]
+				// ensure we don't cut a multi-byte rune; backtrack to a valid boundary
+				for !utf8.Valid(trunc) && len(trunc) > 0 {
+					trunc = trunc[:len(trunc)-1]
+				}
+				rec.Content = string(trunc)
+				if rec.Has != nil {
+					rec.Has.Content = true
+				}
+			}
+		}
 		if _, ok := in.CurMessageById[rec.Id]; !ok {
 			if err = sql.Insert("message", rec); err != nil {
 				return err

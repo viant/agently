@@ -66,13 +66,15 @@ func (s *Service) stream(ctx context.Context, in, out interface{}) error {
 	if err := s.consumeEvents(ctx, streamCh, handler, output); err != nil {
 		return err
 	}
-	// Persist assistant message with aggregated content.
+	// Persist assistant message with aggregated content and mark interim when tool calls were returned.
 	if s.recorder != nil {
 		var b strings.Builder
+		// keep for completeness
 		for _, ev := range output.Events {
 			if ev.Type == "chunk" && strings.TrimSpace(ev.Content) != "" {
 				b.WriteString(ev.Content)
 			}
+			// function_call events detection is handled in the model-call observer.
 		}
 		content := strings.TrimSpace(b.String())
 		if content != "" {
@@ -81,6 +83,7 @@ func (s *Service) stream(ctx context.Context, in, out interface{}) error {
 				if tm, ok := memory.TurnMetaFromContext(ctx); ok {
 					if tm.ConversationID != "" {
 						s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: content, CreatedAt: time.Now()})
+						// Marking interim planner is now handled in the model-call observer based on final response.
 						output.MessageID = msgID
 					}
 				}

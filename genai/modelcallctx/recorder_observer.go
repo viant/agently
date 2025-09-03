@@ -32,7 +32,7 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) context.C
 			turnID = tm.TurnID
 		}
 	}
-	if msgID != "" && o.r != nil && o.r.Enabled() {
+	if msgID != "" && o.r != nil {
 		// Create assistant message with parent/conversation from TurnMeta
 		convID := memory.ConversationIDFromContext(ctx)
 		parentID := memory.MessageIDFromContext(ctx)
@@ -45,7 +45,7 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) context.C
 			}
 		}
 		if convID != "" {
-			o.r.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: parentID, ConversationID: convID, Role: "assistant", Content: " ", CreatedAt: time.Now()})
+			o.r.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: parentID, ConversationID: convID, Role: "assistant", Content: string(info.Payload), CreatedAt: time.Now()})
 		}
 		o.r.StartModelCall(ctx, rec.ModelCallStart{MessageID: msgID, TurnID: turnID, Provider: info.Provider, Model: info.Model, ModelKind: info.ModelKind, StartedAt: o.start.StartedAt, Request: info.RequestJSON})
 	}
@@ -79,10 +79,16 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
 			turnID = tm.TurnID
 		}
 	}
-	if msgID == "" || o.r == nil || !o.r.Enabled() {
+	if msgID == "" || o.r == nil {
 		return
 	}
+	// Finish model call first
 	o.r.FinishModelCall(ctx, rec.ModelCallFinish{MessageID: msgID, TurnID: turnID, Usage: info.Usage, FinishReason: info.FinishReason, Cost: info.Cost, CompletedAt: info.CompletedAt, Response: info.ResponseJSON})
+	// If the final response has tool/function calls, mark assistant message as interim planner.
+	if info.LLMResponse != nil {
+		interim := 1
+		o.r.RecordMessage(ctx, memory.Message{ID: msgID, Actor: "planner", Interim: &interim})
+	}
 }
 
 // WithRecorderObserver injects a recorder-backed Observer into context.

@@ -22,7 +22,7 @@ type Input struct {
 	Id             string     `parameter:",kind=query,in=id" predicate:"in,group=0,m,id"`
 	Ids            []string   `parameter:",kind=query,in=ids" predicate:"in,group=0,m,id"`
 	TurnID         string     `parameter:",kind=query,in=turn_id" predicate:"in,group=0,m,turn_id"`
-	Roles          []string   `parameter:",kind=query,in=roles" predicate:"in,group=0,m,roles"`
+	Roles          []string   `parameter:",kind=query,in=roles" predicate:"in,group=0,m,role"`
 	Type           string     `parameter:",kind=query,in=type" predicate:"in,group=0,m,type"`
 	Interim        []int      `parameter:",kind=query,in=interim" predicate:"in,group=0,m,interim"`
 	ElicitationID  string     `parameter:",kind=query,in=elicitation_id" predicate:"in,group=0,m,elicitation_id"`
@@ -148,3 +148,7 @@ func DefineComponent(ctx context.Context, srv *datly.Service) error {
 }
 
 func (i *Input) EmbedFS() *embed.FS { return &FS }
+
+func (v *MessageView) IsInterim() bool {
+	return v.Interim != nil && *v.Interim == 1
+}

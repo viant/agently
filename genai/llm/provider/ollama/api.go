@@ -44,8 +44,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	// Observer start
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()})
 	}
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)
@@ -101,16 +106,16 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(req.Model, llmsResp.Usage)
 	}
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+	if observer != nil {
 		// We don't have the raw concatenated resp at this point; marshal the API response.
 		if b, _ := json.Marshal(apiResp); len(b) > 0 {
-			info := mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: b, CompletedAt: time.Now(), Usage: llmsResp.Usage}
+			info := mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: b, CompletedAt: time.Now(), Usage: llmsResp.Usage, LLMResponse: llmsResp}
 			if llmsResp != nil && len(llmsResp.Choices) > 0 {
 				info.FinishReason = llmsResp.Choices[0].FinishReason
 			}
-			ob.OnCallEnd(ctx, info)
+			observer.OnCallEnd(ctx, info)
 		} else {
-			ob.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", CompletedAt: time.Now(), Usage: llmsResp.Usage})
+			observer.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", CompletedAt: time.Now(), Usage: llmsResp.Usage})
 		}
 	}
 	return llmsResp, nil
@@ -137,8 +142,13 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()})
 	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
@@ -159,13 +169,13 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			if ended {
 				return
 			}
-			if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+			if observer != nil {
 				respJSON, _ := json.Marshal(lr)
 				var finish string
 				if lr != nil && len(lr.Choices) > 0 {
 					finish = lr.Choices[0].FinishReason
 				}
-				ob.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finish})
+				observer.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finish})
 				ended = true
 			}
 		}
