@@ -22,7 +22,8 @@ type StreamInput struct {
 
 // StreamOutput aggregates streaming events into a slice.
 type StreamOutput struct {
-	Events []stream.Event `json:"events"`
+	Events    []stream.Event `json:"events"`
+	MessageID string         `json:"messageId,omitempty"`
 }
 
 // stream handles streaming LLM responses, structuring JSON output for text chunks,
@@ -52,6 +53,14 @@ func (s *Service) stream(ctx context.Context, in, out interface{}) error {
 		if memory.ModelMessageIDFromContext(ctx) == "" {
 			ctx = context.WithValue(ctx, memory.ModelMessageIDKey, uuid.NewString())
 		}
+		if _, ok := memory.TurnMetaFromContext(ctx); !ok {
+			tm := memory.TurnMeta{
+				TurnID:          memory.TurnIDFromContext(ctx),
+				ConversationID:  memory.ConversationIDFromContext(ctx),
+				ParentMessageID: memory.MessageIDFromContext(ctx),
+			}
+			ctx = memory.WithTurnMeta(ctx, tm)
+		}
 		ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
 	}
 
@@ -75,8 +84,17 @@ func (s *Service) stream(ctx context.Context, in, out interface{}) error {
 			msgID := memory.ModelMessageIDFromContext(ctx)
 			parentID := memory.MessageIDFromContext(ctx)
 			convID := memory.ConversationIDFromContext(ctx)
+			if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+				if tm.ConversationID != "" {
+					convID = tm.ConversationID
+				}
+				if tm.ParentMessageID != "" {
+					parentID = tm.ParentMessageID
+				}
+			}
 			if msgID != "" && convID != "" {
 				s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: parentID, ConversationID: convID, Role: "assistant", Content: content, CreatedAt: time.Now()})
+				output.MessageID = msgID
 			}
 		}
 	}

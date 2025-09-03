@@ -61,6 +61,46 @@ func ModelMessageIDFromContext(ctx context.Context) string {
 	return value.(string)
 }
 
+// TurnMeta captures minimal per-turn context for downstream persistence.
+// Prefer passing a single TurnMeta instead of scattering separate keys.
+type TurnMeta struct {
+	TurnID          string
+	ConversationID  string
+	ParentMessageID string // last user message id (or tool message when parenting final)
+}
+
+type turnMetaKeyT string
+
+var turnMetaKey = turnMetaKeyT("turnMeta")
+
+// WithTurnMeta stores TurnMeta on the context and also seeds individual keys
+// for backward compatibility with existing readers.
+func WithTurnMeta(ctx context.Context, meta TurnMeta) context.Context {
+	if meta.TurnID != "" {
+		ctx = context.WithValue(ctx, TurnIDKey, meta.TurnID)
+	}
+	if meta.ConversationID != "" {
+		ctx = context.WithValue(ctx, ConversationIDKey, meta.ConversationID)
+	}
+	if meta.ParentMessageID != "" {
+		ctx = context.WithValue(ctx, MessageIDKey, meta.ParentMessageID)
+	}
+	return context.WithValue(ctx, turnMetaKey, meta)
+}
+
+// TurnMetaFromContext returns a stored TurnMeta when present.
+func TurnMetaFromContext(ctx context.Context) (TurnMeta, bool) {
+	if ctx == nil {
+		return TurnMeta{}, false
+	}
+	if v := ctx.Value(turnMetaKey); v != nil {
+		if m, ok := v.(TurnMeta); ok {
+			return m, true
+		}
+	}
+	return TurnMeta{}, false
+}
+
 // Message represents a conversation message for memory storage.
 type Message struct {
 	ID             string  `json:"id"`
