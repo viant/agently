@@ -126,9 +126,8 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	if m.Content != "" {
 		rec.SetContent(m.Content)
 	}
-	// Normalize plan to assistant + type=plan, and mark interim. Elicitation is interim as well.
-	if strings.ToLower(m.Role) == "plan" {
-		rec.SetRole("assistant")
+	// Mark messages created by planning stage (Actor == plan) as type=plan and interim.
+	if strings.ToLower(m.Actor) == "plan" {
 		rec.SetType("plan")
 		one := 1
 		rec.Interim = &one

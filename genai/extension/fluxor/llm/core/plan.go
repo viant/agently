@@ -110,7 +110,8 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 				content = content + " (" + strconv.Itoa(steps) + " steps)"
 			}
 			mid := uuid.NewString()
-			s.recorder.RecordMessage(ctx, memory.Message{ID: mid, ConversationID: convID, Role: "plan", Content: content, CreatedAt: time.Now()})
+			// Role assistant, Actor marks this as plan; recorder maps to type=plan + interim.
+			s.recorder.RecordMessage(ctx, memory.Message{ID: mid, ConversationID: convID, Role: "assistant", Actor: "plan", Content: content, CreatedAt: time.Now()})
 			if info, ok := modelcallctx.PopLast(ctx); ok {
 				s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
 			}
