@@ -26,6 +26,10 @@ type bufferKeyT struct{}
 
 var bufferKey = bufferKeyT{}
 
+type observerKeyT struct{}
+
+var observerKey = observerKeyT{}
+
 type Buffer struct {
 	items     []Info
 	lastStart *Info
@@ -91,6 +95,11 @@ func (bufferObserver) OnCallEnd(ctx context.Context, info Info) {
 
 // ObserverFromContext returns an Observer that writes into the buffer in ctx.
 func ObserverFromContext(ctx context.Context) Observer {
+	if v := ctx.Value(observerKey); v != nil {
+		if ob, ok := v.(Observer); ok {
+			return ob
+		}
+	}
 	if FromContext(ctx) == nil {
 		return nil
 	}
@@ -131,4 +140,9 @@ func Last(ctx context.Context) (Info, bool) {
 		}
 	}
 	return b.items[len(b.items)-1], true
+}
+
+// WithObserver stores a concrete Observer in context so providers can call it directly.
+func WithObserver(ctx context.Context, ob Observer) context.Context {
+	return context.WithValue(ctx, observerKey, ob)
 }

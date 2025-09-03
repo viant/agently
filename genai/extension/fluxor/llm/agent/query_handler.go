@@ -1009,6 +1009,11 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 		Prompt:       qi.Query,
 		Options:      &llm.Options{Temperature: qi.Agent.Temperature},
 	}
+	// Pre-generate assistant message ID and set observer so provider can attach model call immediately.
+	preMID := uuid.NewString()
+	ctx = context.WithValue(ctx, memory.MessageIDKey, preMID)
+	ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
+
 	genOut := &corepkg.GenerateOutput{}
 	if err := exec(ctx, genIn, genOut); err != nil {
 		return err
@@ -1030,11 +1035,19 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 		qo.Content = elic.Message
 	}
 
-	mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
-	if s.recorder != nil {
-		if info, ok := modelcallctx.PopLast(ctx); ok {
-			s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
+	// Persist assistant message using the precomputed ID so the model call attaches to it.
+	role := "assistant"
+	actor := qi.Agent.Name
+	if qi.Persona != nil {
+		if qi.Persona.Role != "" {
+			role = qi.Persona.Role
 		}
+		if qi.Persona.Actor != "" {
+			actor = qi.Persona.Actor
+		}
+	}
+	if s.recorder != nil {
+		s.recorder.RecordMessage(ctx, memory.Message{ID: preMID, ConversationID: convID, Role: role, Actor: actor, Content: qo.Content, CreatedAt: time.Now()})
 	}
 
 	qo.Usage = usage.FromContext(ctx)

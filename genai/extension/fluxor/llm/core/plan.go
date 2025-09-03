@@ -94,6 +94,13 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 		return err
 	}
 
+	// Pre-generate plan message ID and set the recorder observer so providers attach model calls to it.
+	planMID := uuid.NewString()
+	ctx = context.WithValue(ctx, memory.MessageIDKey, planMID)
+	if s.recorder != nil {
+		ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
+	}
+
 	genOutput := &GenerateOutput{}
 	planResult, execResults, err := s.GeneratePlan(ctx, modelName, promptTemplate, systemPromptTemplate, input, tools, genOutput)
 	if err != nil {
@@ -109,13 +116,8 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 			if steps > 0 {
 				content = content + " (" + strconv.Itoa(steps) + " steps)"
 			}
-			mid := uuid.NewString()
 			// Role assistant, actor marks this as plan; recorder maps to type=plan + interim.
-			s.recorder.RecordMessage(ctx, memory.Message{ID: mid, ConversationID: convID, Role: "assistant", Actor: "plan", Content: content, CreatedAt: time.Now()})
-			// Attach the model call but do not consume it so final answer can also attach it if needed.
-			if info, ok := modelcallctx.Last(ctx); ok {
-				s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
-			}
+			s.recorder.RecordMessage(ctx, memory.Message{ID: planMID, ConversationID: convID, Role: "assistant", Actor: "plan", Content: content, CreatedAt: time.Now()})
 		}
 	}
 	if planResult.Elicitation.IsEmpty() {
