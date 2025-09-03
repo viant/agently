@@ -97,6 +97,7 @@ type ToolCallView struct {
 
 type ModelCallView struct {
 	MessageID         string     `sqlx:"message_id"`
+	Status            string     `sqlx:"status"`
 	Provider          string     `sqlx:"provider"`
 	Model             string     `sqlx:"model"`
 	ModelKind         string     `sqlx:"model_kind"`
