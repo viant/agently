@@ -115,7 +115,9 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	conversationID := s.conversationID(qi)
 
 	// 2. Hydrate conversation meta (model, tools, agent)
-	s.ensureConversation(ctx, qi)
+	if err := s.ensureConversation(ctx, qi); err != nil {
+		return err
+	}
 
 	if conversationID != "" {
 
@@ -153,7 +155,9 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 		return err
 	}
 
-	s.persistCompletedContext(ctx, convID, qi)
+	if err := s.persistCompletedContext(ctx, convID, qi); err != nil {
+		return err
+	}
 	messageID, err := s.addMessage(ctx, convID, "user", "", qi.Query, qi.MessageID, "")
 	if err != nil {
 		log.Printf("warn: cannot record message: %v", err)
@@ -328,9 +332,9 @@ func (s *Service) validateAndMaybeElicit(ctx context.Context, qi *QueryInput, qo
 }
 
 // persistCompletedContext saves qi.Context to conversation metadata (or history meta) after validation.
-func (s *Service) persistCompletedContext(ctx context.Context, convID string, qi *QueryInput) {
+func (s *Service) persistCompletedContext(ctx context.Context, convID string, qi *QueryInput) error {
 	if convID == "" || len(qi.Context) == 0 {
-		return
+		return nil
 	}
 	cv, _ := s.store.Conversations().Get(ctx, convID)
 	meta := map[string]interface{}{}
@@ -346,10 +350,13 @@ func (s *Service) persistCompletedContext(ctx context.Context, convID string, qi
 		w := &convw.Conversation{Has: &convw.ConversationHas{}}
 		w.SetId(convID)
 		w.SetMetadata(string(b))
-		_, _ = s.store.Conversations().Patch(ctx, w)
+		if _, err := s.store.Conversations().Patch(ctx, w); err != nil {
+			return fmt.Errorf("failed to persist conversation context: %w", err)
+		}
+	} else {
+		return fmt.Errorf("failed to marshal conversation context: %w", err)
 	}
-	return
-
+	return nil
 }
 
 // MessageTurn groups messages for a single turn (user messages + assistant final), ordered by created_at.

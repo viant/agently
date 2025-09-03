@@ -60,7 +60,9 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 			if strings.TrimSpace(arg.Visibility) != "" {
 				cw.SetVisibility(arg.Visibility)
 			}
-			_, _ = s.store.Conversations().Patch(ctx, cw)
+			if _, err := s.store.Conversations().Patch(ctx, cw); err != nil {
+				return err
+			}
 		}
 		writeLink = true
 	}
