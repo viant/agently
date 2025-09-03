@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/internal/templating"
 	fluxortypes "github.com/viant/fluxor/model/types"
 
@@ -114,6 +115,22 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		}
 	}
 	output.Content = strings.TrimSpace(builder.String())
+
+	// --------------------------------------------------------------
+	// Persist assistant message in real time when a target message ID is set
+	// (used by agent to preassign a message for model-call attachment).
+	// ParentID can be supplied via memory.MessageIDKey.
+	// --------------------------------------------------------------
+	if s.recorder != nil {
+		msgID := memory.ModelMessageIDFromContext(ctx)
+		if msgID != "" {
+			convID := memory.ConversationIDFromContext(ctx)
+			parentID := memory.MessageIDFromContext(ctx)
+			if convID != "" && strings.TrimSpace(output.Content) != "" {
+				s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: parentID, ConversationID: convID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()})
+			}
+		}
+	}
 
 	// --------------------------------------------------------------
 	// Optional logging

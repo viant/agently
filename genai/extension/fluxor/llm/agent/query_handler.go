@@ -109,7 +109,7 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 
 	// 1. Start usage/model-call aggregation
 	ctx, agg := usage.WithAggregator(ctx)
-	ctx, _ = modelcallctx.WithBuffer(ctx)
+	// modelcallctx.WithBuffer removed in favor of explicit observer callbacks
 
 	// 1.a Start a new turn and carry TurnID on context for this request
 	conversationID := s.conversationID(qi)
@@ -670,13 +670,8 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 				if lastTool := s.latestToolMessageID(ctx, convID, turnID); lastTool != "" {
 					ctx = context.WithValue(ctx, memory.MessageIDKey, lastTool)
 				}
-				mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
-				// Persist the most recent model call from buffer, if available
-				if s.recorder != nil {
-					if info, ok := modelcallctx.PopLast(ctx); ok {
-						s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
-					}
-				}
+				_ = s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
+				// Model call attachment is handled by provider observer during generate.
 				qo.Usage = usage.FromContext(ctx)
 				s.endTurn(ctx, convID, turnID, false, qo.Usage)
 				return nil
