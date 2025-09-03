@@ -2,8 +2,9 @@ package memory
 
 import (
 	"context"
-	"github.com/viant/agently/genai/agent/plan"
 	"time"
+
+	"github.com/viant/agently/genai/agent/plan"
 )
 
 type messageID string

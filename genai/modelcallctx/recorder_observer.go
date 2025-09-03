@@ -58,8 +58,5 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
 
 // WithRecorderObserver injects a recorder-backed Observer into context.
 func WithRecorderObserver(ctx context.Context, r rec.Recorder) context.Context {
-	if r == nil || !r.Enabled() {
-		return ctx
-	}
 	return WithObserver(ctx, &recorderObserver{r: r})
 }
