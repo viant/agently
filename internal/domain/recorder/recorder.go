@@ -126,8 +126,8 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	if m.Content != "" {
 		rec.SetContent(m.Content)
 	}
-	// Mark interim for planning messages (intermediate within a turn).
-	if strings.ToLower(m.Role) == "plan" {
+	// Mark interim for planning messages (intermediate) or elicitation prompts.
+	if strings.ToLower(m.Role) == "plan" || m.Elicitation != nil {
 		one := 1
 		rec.Interim = &one
 		if rec.Has == nil {
