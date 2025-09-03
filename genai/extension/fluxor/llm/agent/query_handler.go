@@ -750,25 +750,21 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 		}
 	}
 	qo.DocumentsSize = s.calculateDocumentsSize(docs)
-	// Parent to latest tool message if available and persist final assistant message with preassigned id (if any).
-	parentID := s.latestToolMessageID(ctx, convID, turnID)
-	// Use preassigned model message ID if set by core.Plan finalize
-	preMID := memory.ModelMessageIDFromContext(ctx)
-	role := "assistant"
-	actor := qi.Agent.Name
-	if qi.Persona != nil {
-		if qi.Persona.Role != "" {
-			role = qi.Persona.Role
+	// If core.Plan performed a finalize Generate, the assistant message has been persisted already.
+	// Otherwise, persist a fallback assistant message now.
+	if memory.ModelMessageIDFromContext(ctx) == "" && s.recorder != nil {
+		parentID := s.latestToolMessageID(ctx, convID, turnID)
+		role := "assistant"
+		actor := qi.Agent.Name
+		if qi.Persona != nil {
+			if qi.Persona.Role != "" {
+				role = qi.Persona.Role
+			}
+			if qi.Persona.Actor != "" {
+				actor = qi.Persona.Actor
+			}
 		}
-		if qi.Persona.Actor != "" {
-			actor = qi.Persona.Actor
-		}
-	}
-	if preMID == "" {
-		preMID = uuid.NewString()
-	}
-	if s.recorder != nil {
-		s.recorder.RecordMessage(ctx, memory.Message{ID: preMID, ParentID: parentID, ConversationID: convID, Role: role, Actor: actor, Content: qo.Content, CreatedAt: time.Now()})
+		s.recorder.RecordMessage(ctx, memory.Message{ID: uuid.NewString(), ParentID: parentID, ConversationID: convID, Role: role, Actor: actor, Content: qo.Content, CreatedAt: time.Now()})
 	}
 
 	qo.Usage = usage.FromContext(ctx)
@@ -1020,7 +1016,8 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 	}
 	// Pre-generate assistant message ID and set observer so provider can attach model call immediately.
 	preMID := uuid.NewString()
-	ctx = context.WithValue(ctx, memory.MessageIDKey, preMID)
+	// MessageIDKey carries parent (set earlier when recording user message); ModelMessageIDKey targets the assistant message to persist here.
+	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, preMID)
 	ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
 
 	genOut := &corepkg.GenerateOutput{}
@@ -1044,20 +1041,7 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 		qo.Content = elic.Message
 	}
 
-	// Persist assistant message using the precomputed ID so the model call attaches to it.
-	role := "assistant"
-	actor := qi.Agent.Name
-	if qi.Persona != nil {
-		if qi.Persona.Role != "" {
-			role = qi.Persona.Role
-		}
-		if qi.Persona.Actor != "" {
-			actor = qi.Persona.Actor
-		}
-	}
-	if s.recorder != nil {
-		s.recorder.RecordMessage(ctx, memory.Message{ID: preMID, ConversationID: convID, Role: role, Actor: actor, Content: qo.Content, CreatedAt: time.Now()})
-	}
+	// Message is persisted in core.Generate using ModelMessageIDKey for immediate attachment.
 
 	qo.Usage = usage.FromContext(ctx)
 	return nil
