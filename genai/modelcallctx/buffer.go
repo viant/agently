@@ -117,3 +117,18 @@ func PopLast(ctx context.Context) (Info, bool) {
 	b.items = b.items[:len(b.items)-1]
 	return it, true
 }
+
+// Last returns the most recent completed call info without removing it from the buffer.
+func Last(ctx context.Context) (Info, bool) {
+	b := FromContext(ctx)
+	if b == nil || len(b.items) == 0 {
+		return Info{}, false
+	}
+	for i := len(b.items) - 1; i >= 0; i-- {
+		it := b.items[i]
+		if !it.CompletedAt.IsZero() {
+			return it, true
+		}
+	}
+	return b.items[len(b.items)-1], true
+}
