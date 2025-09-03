@@ -755,11 +755,25 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 		}
 	}
 	qo.DocumentsSize = s.calculateDocumentsSize(docs)
-	mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
-	if s.recorder != nil {
-		if info, ok := modelcallctx.PopLast(ctx); ok {
-			s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
+	// Parent to latest tool message if available and persist final assistant message with preassigned id (if any).
+	parentID := s.latestToolMessageID(ctx, convID, turnID)
+	// Use preassigned model message ID if set by core.Plan finalize
+	preMID := memory.ModelMessageIDFromContext(ctx)
+	role := "assistant"
+	actor := qi.Agent.Name
+	if qi.Persona != nil {
+		if qi.Persona.Role != "" {
+			role = qi.Persona.Role
 		}
+		if qi.Persona.Actor != "" {
+			actor = qi.Persona.Actor
+		}
+	}
+	if preMID == "" {
+		preMID = uuid.NewString()
+	}
+	if s.recorder != nil {
+		s.recorder.RecordMessage(ctx, memory.Message{ID: preMID, ParentID: parentID, ConversationID: convID, Role: role, Actor: actor, Content: qo.Content, CreatedAt: time.Now()})
 	}
 
 	qo.Usage = usage.FromContext(ctx)
