@@ -15,6 +15,8 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
+	modelcallctx "github.com/viant/agently/genai/modelcallctx"
+	"strconv"
 
 	elog "github.com/viant/agently/internal/log"
 	"github.com/viant/fluxor/model/graph"
@@ -96,6 +98,23 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 	planResult, execResults, err := s.GeneratePlan(ctx, modelName, promptTemplate, systemPromptTemplate, input, tools, genOutput)
 	if err != nil {
 		return err
+	}
+	// Persist a planning message (interim) and attach model-call to it.
+	if s.recorder != nil {
+		convID := memory.ConversationIDFromContext(ctx)
+		if convID != "" {
+			// Keep message content informative but compact.
+			steps := len(planResult.Steps)
+			content := "Plan created"
+			if steps > 0 {
+				content = content + " (" + strconv.Itoa(steps) + " steps)"
+			}
+			mid := uuid.NewString()
+			s.recorder.RecordMessage(ctx, memory.Message{ID: mid, ConversationID: convID, Role: "plan", Content: content, CreatedAt: time.Now()})
+			if info, ok := modelcallctx.PopLast(ctx); ok {
+				s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
+			}
+		}
 	}
 	if planResult.Elicitation.IsEmpty() {
 		planResult.Elicitation = nil

@@ -126,6 +126,15 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	if m.Content != "" {
 		rec.SetContent(m.Content)
 	}
+	// Mark interim for planning messages (intermediate within a turn).
+	if strings.ToLower(m.Role) == "plan" {
+		one := 1
+		rec.Interim = &one
+		if rec.Has == nil {
+			rec.Has = &msgw.MessageHas{}
+		}
+		rec.Has.Interim = true
+	}
 	if m.ToolName != nil {
 		rec.SetToolName(*m.ToolName)
 	}
