@@ -126,8 +126,18 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	if m.Content != "" {
 		rec.SetContent(m.Content)
 	}
-	// Mark interim for planning messages (intermediate) or elicitation prompts.
-	if strings.ToLower(m.Role) == "plan" || m.Elicitation != nil {
+	// Normalize plan to assistant + type=plan, and mark interim. Elicitation is interim as well.
+	if strings.ToLower(m.Role) == "plan" {
+		rec.SetRole("assistant")
+		rec.SetType("plan")
+		one := 1
+		rec.Interim = &one
+		if rec.Has == nil {
+			rec.Has = &msgw.MessageHas{}
+		}
+		rec.Has.Interim = true
+	}
+	if m.Elicitation != nil {
 		one := 1
 		rec.Interim = &one
 		if rec.Has == nil {
