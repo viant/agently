@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"github.com/viant/afs"
 	executil "github.com/viant/agently/genai/extension/fluxor/llm/shared/executil"
 	"github.com/viant/agently/genai/llm"
@@ -25,8 +26,9 @@ type Service struct {
 	fs        afs.Service
 
 	// optional tracer for tool execution in streaming plan path
-	tracer   executil.Tracer
-	recorder domainrec.Recorder
+	tracer         executil.Tracer
+	recorder       domainrec.Recorder
+	parentResolver func(ctx context.Context) string
 }
 
 // ToolDefinitions returns every tool definition registered in the tool
@@ -99,5 +101,6 @@ func New(finder llm.Finder, registry tool.Registry, defaultModel string) *Servic
 }
 
 // SetTracer injects a tracer adapter (executil.Tracer-compatible) for streaming tool execution.
-func (s *Service) SetTracer(t executil.Tracer)      { s.tracer = t }
-func (s *Service) SetRecorder(r domainrec.Recorder) { s.recorder = r }
+func (s *Service) SetTracer(t executil.Tracer)                          { s.tracer = t }
+func (s *Service) SetRecorder(r domainrec.Recorder)                     { s.recorder = r }
+func (s *Service) SetParentResolver(r func(ctx context.Context) string) { s.parentResolver = r }

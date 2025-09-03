@@ -115,6 +115,18 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 	// If a plan was generated or tools are available, issue a short finalize
 	// generation to produce the final assistant answer as a distinct model call.
 	if (planResult != nil && len(planResult.Steps) > 0) || len(tools) > 0 {
+		// Resolve latest tool message as parent for finalize call (if resolver provided)
+		if s.parentResolver != nil {
+			if pid := s.parentResolver(ctx); pid != "" {
+				if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+					tm.ParentMessageID = pid
+					ctx = memory.WithTurnMeta(ctx, tm)
+				} else {
+					// seed minimal meta with updated parent
+					ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{TurnID: memory.TurnIDFromContext(ctx), ConversationID: memory.ConversationIDFromContext(ctx), ParentMessageID: pid})
+				}
+			}
+		}
 		// Pre-assign final assistant message id for the finalize call and inject recorder observer
 		finalMID := uuid.NewString()
 		ctx = context.WithValue(ctx, memory.ModelMessageIDKey, finalMID)

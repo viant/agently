@@ -22,6 +22,7 @@ import (
 	"github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
+	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	d "github.com/viant/agently/internal/domain"
 	recorder "github.com/viant/agently/internal/domain/recorder"
@@ -138,6 +139,16 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	}
 	for _, o := range opts {
 		o(srv)
+	}
+	// Set parent resolver for workflow finalize so core can parent final assistant to latest tool message.
+	if llm != nil {
+		llm.SetParentResolver(func(ctx context.Context) string {
+			// prefer TurnMeta when available
+			if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+				return srv.latestToolMessageID(ctx, tm.ConversationID, tm.TurnID)
+			}
+			return ""
+		})
 	}
 	return srv
 }
