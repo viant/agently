@@ -188,7 +188,7 @@ func matchFilter(mv *read.MessageView, in *read.Input) bool {
 	if in.Has.TurnID && (mv.TurnID == nil || *mv.TurnID != in.TurnID) {
 		return false
 	}
-	if in.Has.Role && mv.Role != in.Role {
+	if in.Has.Roles && len(mv.Role) != len(in.Roles) {
 		return false
 	}
 	if in.Has.Type && mv.Type != in.Type {

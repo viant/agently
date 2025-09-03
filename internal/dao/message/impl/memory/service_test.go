@@ -122,7 +122,7 @@ func TestMemoryMessage_List_DataDriven(t *testing.T) {
 					return m
 				}())
 			},
-			opts:     []read.InputOption{read.WithConversationID("c3"), read.WithRole("assistant")},
+			opts:     []read.InputOption{read.WithConversationID("c3"), read.WithRoles("assistant")},
 			expected: []string{"m4"},
 		},
 		{

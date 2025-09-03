@@ -22,7 +22,7 @@ type Input struct {
 	Id             string     `parameter:",kind=query,in=id" predicate:"in,group=0,m,id"`
 	Ids            []string   `parameter:",kind=query,in=ids" predicate:"in,group=0,m,id"`
 	TurnID         string     `parameter:",kind=query,in=turn_id" predicate:"in,group=0,m,turn_id"`
-	Role           string     `parameter:",kind=query,in=role" predicate:"in,group=0,m,role"`
+	Roles          []string   `parameter:",kind=query,in=roles" predicate:"in,group=0,m,roles"`
 	Type           string     `parameter:",kind=query,in=type" predicate:"in,group=0,m,type"`
 	Interim        []int      `parameter:",kind=query,in=interim" predicate:"in,group=0,m,interim"`
 	ElicitationID  string     `parameter:",kind=query,in=elicitation_id" predicate:"in,group=0,m,elicitation_id"`
@@ -35,7 +35,7 @@ type Has struct {
 	Id             bool
 	Ids            bool
 	TurnID         bool
-	Role           bool
+	Roles          bool
 	Type           bool
 	Interim        bool
 	ElicitationID  bool

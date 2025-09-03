@@ -16,8 +16,8 @@ func WithIDs(ids ...string) InputOption {
 	return func(in *Input) { in.Ids = ids; ensureHas(&in.Has); in.Has.Ids = true }
 }
 
-func WithRole(role string) InputOption {
-	return func(in *Input) { in.Role = role; ensureHas(&in.Has); in.Has.Role = true }
+func WithRoles(roles ...string) InputOption {
+	return func(in *Input) { in.Roles = roles; ensureHas(&in.Has); in.Has.Roles = true }
 }
 
 func WithType(typ string) InputOption {

@@ -112,23 +112,22 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	ctx, _ = modelcallctx.WithBuffer(ctx)
 
 	// 1.a Start a new turn and carry TurnID on context for this request
-	convIDEarly := s.conversationID(qi)
-	if convIDEarly != "" {
+	conversationID := s.conversationID(qi)
+
+	// 2. Hydrate conversation meta (model, tools, agent)
+	s.ensureConversation(ctx, qi)
+
+	if conversationID != "" {
+
 		turnID := uuid.New().String()
 		ctx = context.WithValue(ctx, memory.TurnIDKey, turnID)
 		if s.recorder != nil {
-			s.recorder.RecordTurnStart(ctx, convIDEarly, turnID, time.Now())
+			s.recorder.RecordTurnStart(ctx, conversationID, turnID, time.Now())
 		}
 	}
 
-	// 2. Hydrate conversation meta (model, tools, agent)
-	s.hydrateConversationMeta(ctx, qi)
-
 	// 3. Merge inline JSON from query into context
 	s.mergeInlineJSONIntoContext(qi)
-
-	// 3.a Enrich with cross-turn conversation memory (all user prompts + assistant finals)
-	s.enrichCrossTurnContext(ctx, qi)
 
 	// 4. Ensure agent is loaded
 	if err := s.ensureAgent(ctx, qi, qo); err != nil {
@@ -149,7 +148,7 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 
 	// 7. Build conversation context, persist final context and record user message
 	convID := s.conversationID(qi)
-	convContext, err := s.conversationContext(ctx, convID, qi)
+	convContext, err := s.enrichConversationContext(ctx, convID, qi)
 	if err != nil {
 		return err
 	}
@@ -175,75 +174,100 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	return err
 }
 
-// hydrateConversationMeta loads or persists per-conversation defaults via domain store (or legacy history fallback).
-func (s *Service) hydrateConversationMeta(ctx context.Context, qi *QueryInput) {
-	earlyConvID := s.conversationID(qi)
-	if earlyConvID == "" {
-		return
+// ensureConversation loads or persists per-conversation defaults via domain store (or legacy history fallback).
+func (s *Service) ensureConversation(ctx context.Context, qi *QueryInput) error {
+	convID := s.conversationID(qi)
+	if convID == "" {
+		return nil
 	}
-	if s.store != nil {
-		cv, _ := s.store.Conversations().Get(ctx, earlyConvID)
-		if qi.ModelOverride == "" {
-			if cv != nil && cv.DefaultModel != nil && strings.TrimSpace(*cv.DefaultModel) != "" {
-				qi.ModelOverride = *cv.DefaultModel
-			}
-		} else {
-			w := &convw.Conversation{Has: &convw.ConversationHas{}}
-			w.SetId(earlyConvID)
-			w.SetDefaultModel(qi.ModelOverride)
-			_, _ = s.store.Conversations().Patch(ctx, w)
+
+	aConversation, err := s.store.Conversations().Get(ctx, convID)
+	if err != nil {
+		return fmt.Errorf("failed to load conversation: %w", err)
+	}
+	if aConversation == nil {
+		initialConversation := &convw.Conversation{Has: &convw.ConversationHas{}}
+		initialConversation.SetId(convID)
+		// Default new conversations to public visibility; can be adjusted later.
+		initialConversation.SetVisibility(convw.VisibilityPublic)
+		// Seed basic meta from the request where available.
+		if strings.TrimSpace(qi.AgentName) != "" {
+			initialConversation.SetAgentName(strings.TrimSpace(qi.AgentName))
 		}
-		if len(qi.ToolsAllowed) == 0 {
-			if cv != nil && cv.Metadata != nil {
-				var meta map[string]interface{}
-				if err := json.Unmarshal([]byte(*cv.Metadata), &meta); err == nil {
-					if arr, ok := meta["tools"].([]interface{}); ok && len(arr) > 0 {
-						tools := make([]string, 0, len(arr))
-						for _, it := range arr {
-							if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
-								tools = append(tools, s)
-							}
+		if strings.TrimSpace(qi.ModelOverride) != "" {
+			initialConversation.SetDefaultModel(strings.TrimSpace(qi.ModelOverride))
+		}
+		if len(qi.ToolsAllowed) > 0 {
+			meta := map[string]any{"tools": append([]string{}, qi.ToolsAllowed...)}
+			if b, err := json.Marshal(meta); err == nil {
+				initialConversation.SetMetadata(string(b))
+			}
+		}
+		if _, err = s.store.Conversations().Patch(ctx, initialConversation); err != nil {
+			return fmt.Errorf("failed to create conversation: %w", err)
+		}
+	}
+
+	if qi.ModelOverride == "" {
+		if aConversation != nil && aConversation.DefaultModel != nil && strings.TrimSpace(*aConversation.DefaultModel) != "" {
+			qi.ModelOverride = *aConversation.DefaultModel
+		}
+	} else {
+		w := &convw.Conversation{Has: &convw.ConversationHas{}}
+		w.SetId(convID)
+		w.SetDefaultModel(qi.ModelOverride)
+		_, _ = s.store.Conversations().Patch(ctx, w)
+	}
+
+	if len(qi.ToolsAllowed) == 0 {
+		if aConversation != nil && aConversation.Metadata != nil {
+			var meta map[string]interface{}
+			if err := json.Unmarshal([]byte(*aConversation.Metadata), &meta); err == nil {
+				if arr, ok := meta["tools"].([]interface{}); ok && len(arr) > 0 {
+					tools := make([]string, 0, len(arr))
+					for _, it := range arr {
+						if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
+							tools = append(tools, s)
 						}
-						if len(tools) > 0 {
-							qi.ToolsAllowed = tools
-						}
+					}
+					if len(tools) > 0 {
+						qi.ToolsAllowed = tools
 					}
 				}
 			}
-		} else {
-			meta := map[string]interface{}{}
-			if cv != nil && cv.Metadata != nil && strings.TrimSpace(*cv.Metadata) != "" {
-				_ = json.Unmarshal([]byte(*cv.Metadata), &meta)
-			}
-			lst := make([]string, len(qi.ToolsAllowed))
-			copy(lst, qi.ToolsAllowed)
-			meta["tools"] = lst
-			if b, err := json.Marshal(meta); err == nil {
-				w := &convw.Conversation{Has: &convw.ConversationHas{}}
-				w.SetId(earlyConvID)
-				w.SetMetadata(string(b))
-				_, _ = s.store.Conversations().Patch(ctx, w)
-			}
 		}
-		chosenAgent := ""
-		if strings.TrimSpace(qi.AgentName) != "" {
-			chosenAgent = qi.AgentName
-		} else if qi.Agent != nil && strings.TrimSpace(qi.Agent.Name) != "" {
-			chosenAgent = qi.Agent.Name
+	} else {
+		meta := map[string]interface{}{}
+		if aConversation != nil && aConversation.Metadata != nil && strings.TrimSpace(*aConversation.Metadata) != "" {
+			_ = json.Unmarshal([]byte(*aConversation.Metadata), &meta)
 		}
-		if chosenAgent == "" {
-			if cv != nil && cv.AgentName != nil && strings.TrimSpace(*cv.AgentName) != "" {
-				qi.AgentName = *cv.AgentName
-			}
-		} else {
+		lst := make([]string, len(qi.ToolsAllowed))
+		copy(lst, qi.ToolsAllowed)
+		meta["tools"] = lst
+		if b, err := json.Marshal(meta); err == nil {
 			w := &convw.Conversation{Has: &convw.ConversationHas{}}
-			w.SetId(earlyConvID)
-			w.SetAgentName(chosenAgent)
+			w.SetId(convID)
+			w.SetMetadata(string(b))
 			_, _ = s.store.Conversations().Patch(ctx, w)
 		}
-		return
 	}
-	// When domain store is unavailable, leave defaults unchanged in v1.
+	chosenAgent := ""
+	if strings.TrimSpace(qi.AgentName) != "" {
+		chosenAgent = qi.AgentName
+	} else if qi.Agent != nil && strings.TrimSpace(qi.Agent.Name) != "" {
+		chosenAgent = qi.Agent.Name
+	}
+	if chosenAgent == "" {
+		if aConversation != nil && aConversation.AgentName != nil && strings.TrimSpace(*aConversation.AgentName) != "" {
+			qi.AgentName = *aConversation.AgentName
+		}
+	} else {
+		w := &convw.Conversation{Has: &convw.ConversationHas{}}
+		w.SetId(convID)
+		w.SetAgentName(chosenAgent)
+		_, _ = s.store.Conversations().Patch(ctx, w)
+	}
+	return nil
 }
 
 // mergeInlineJSONIntoContext copies JSON object fields from qi.Query into qi.Context (non-destructive).
@@ -308,25 +332,24 @@ func (s *Service) persistCompletedContext(ctx context.Context, convID string, qi
 	if convID == "" || len(qi.Context) == 0 {
 		return
 	}
-	if s.store != nil {
-		cv, _ := s.store.Conversations().Get(ctx, convID)
-		meta := map[string]interface{}{}
-		if cv != nil && cv.Metadata != nil && strings.TrimSpace(*cv.Metadata) != "" {
-			_ = json.Unmarshal([]byte(*cv.Metadata), &meta)
-		}
-		ctxCopy := map[string]interface{}{}
-		for k, v := range qi.Context {
-			ctxCopy[k] = v
-		}
-		meta["context"] = ctxCopy
-		if b, err := json.Marshal(meta); err == nil {
-			w := &convw.Conversation{Has: &convw.ConversationHas{}}
-			w.SetId(convID)
-			w.SetMetadata(string(b))
-			_, _ = s.store.Conversations().Patch(ctx, w)
-		}
-		return
+	cv, _ := s.store.Conversations().Get(ctx, convID)
+	meta := map[string]interface{}{}
+	if cv != nil && cv.Metadata != nil && strings.TrimSpace(*cv.Metadata) != "" {
+		_ = json.Unmarshal([]byte(*cv.Metadata), &meta)
 	}
+	ctxCopy := map[string]interface{}{}
+	for k, v := range qi.Context {
+		ctxCopy[k] = v
+	}
+	meta["context"] = ctxCopy
+	if b, err := json.Marshal(meta); err == nil {
+		w := &convw.Conversation{Has: &convw.ConversationHas{}}
+		w.SetId(convID)
+		w.SetMetadata(string(b))
+		_, _ = s.store.Conversations().Patch(ctx, w)
+	}
+	return
+
 }
 
 // MessageTurn groups messages for a single turn (user messages + assistant final), ordered by created_at.
@@ -335,37 +358,13 @@ type MessageTurn struct {
 	Messages []*msgread.MessageView `json:"messages"`
 }
 
-// enrichCrossTurnContext attaches cross-turn conversation turns to qi.Context under context.conversationTurns.
-func (s *Service) enrichCrossTurnContext(ctx context.Context, qi *QueryInput) {
-	if qi == nil {
-		return
-	}
-	convID := s.conversationID(qi)
-	if convID == "" {
-		return
-	}
-	turns, err := s.buildCrossTurnContext(ctx, convID)
-	if err != nil {
-		return
-	}
-	if qi.Context == nil {
-		qi.Context = map[string]any{}
-	}
-	ctxBlock, _ := qi.Context["context"].(map[string]any)
-	if ctxBlock == nil {
-		ctxBlock = map[string]any{}
-	}
-	ctxBlock["conversationTurns"] = turns
-	qi.Context["context"] = ctxBlock
-}
-
 // buildCrossTurnContext fetches conversation-level messages and splits them into user prompts and assistant finals.
 func (s *Service) buildCrossTurnContext(ctx context.Context, conversationID string) ([]MessageTurn, error) {
 	// Prefer domain store (backed by SQL or memory DAO)
 	if s.store == nil || s.store.Messages() == nil {
 		return nil, nil
 	}
-	all, err := s.store.Messages().List(ctx, msgread.WithConversationID(conversationID))
+	all, err := s.store.Messages().List(ctx, msgread.WithConversationID(conversationID), msgread.WithRoles("user", "assistant"))
 	if err != nil {
 		return nil, err
 	}
@@ -545,9 +544,9 @@ func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, 
 	return msg.ID, nil
 }
 
-// conversationContext summarises the conversation according to configured
+// enrichConversationContext summarises the conversation according to configured
 // policies and returns a plain-text string.
-func (s *Service) conversationContext(ctx context.Context, convID string, qi *QueryInput) (string, error) {
+func (s *Service) enrichConversationContext(ctx context.Context, convID string, qi *QueryInput) (string, error) {
 	// Build cross-turn memory using DAO-backed messages grouped by turn.
 	turns, err := s.buildCrossTurnContext(ctx, convID)
 	if err != nil {
