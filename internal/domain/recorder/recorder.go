@@ -3,7 +3,6 @@ package recorder
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -174,10 +173,7 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	if !m.CreatedAt.IsZero() {
 		rec.SetCreatedAt(m.CreatedAt)
 	}
-	_, err := w.store.Messages().Patch(ctx, rec)
-	if err != nil {
-		fmt.Printf("ERROR### MESSAGE: failed to record model call: %v\n", err)
-	}
+	_, _ = w.store.Messages().Patch(ctx, rec)
 }
 
 func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) {
@@ -194,10 +190,7 @@ func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at
 	if !at.IsZero() {
 		rec.SetCreatedAt(at)
 	}
-	_, err := w.store.Turns().Start(ctx, rec)
-	if err != nil {
-		fmt.Printf("ERROR### TURN START: failed to record model call: %v\n", err)
-	}
+	_, _ = w.store.Turns().Start(ctx, rec)
 }
 
 func (w *Store) UpdateTurn(ctx context.Context, turnID, status string) {
@@ -207,10 +200,7 @@ func (w *Store) UpdateTurn(ctx context.Context, turnID, status string) {
 	rec := &turnw.Turn{Has: &turnw.TurnHas{}}
 	rec.SetId(turnID)
 	rec.SetStatus(status)
-	err := w.store.Turns().Update(ctx, rec)
-	if err != nil {
-		fmt.Printf("ERROR### TURN UPDATE: failed to record model call: %v\n", err)
-	}
+	_ = w.store.Turns().Update(ctx, rec)
 }
 
 // ToolCallStart represents the initial tool-call data captured at start.
@@ -298,10 +288,7 @@ func (w *Store) StartToolCall(ctx context.Context, start ToolCallStart) {
 		}
 		tw.Has.StartedAt = true
 	}
-	err := w.store.Operations().RecordToolCall(ctx, tw, reqID, "")
-	if err != nil {
-		fmt.Printf("ERROR### TOOL CALL START: failed to record model call: %v\n", err)
-	}
+	_ = w.store.Operations().RecordToolCall(ctx, tw, reqID, "")
 }
 
 // FinishToolCall updates status and persists the response.
@@ -345,11 +332,7 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
 		}
 		tw.Has.Cost = true
 	}
-	err := w.store.Operations().RecordToolCall(ctx, tw, "", resID)
-
-	if err != nil {
-		fmt.Printf("ERROR### TOOL CALL UPDATE: failed to record model call: %v\n", err)
-	}
+	_ = w.store.Operations().RecordToolCall(ctx, tw, "", resID)
 }
 
 // RecordToolCall has been replaced by StartToolCall/FinishToolCall.
@@ -363,10 +346,7 @@ func (w *Store) RecordUsageTotals(ctx context.Context, conversationID string, in
 	rec.SetUsageInputTokens(input)
 	rec.SetUsageOutputTokens(output)
 	rec.SetUsageEmbeddingTokens(embed)
-	_, err := w.store.Usage().Patch(ctx, rec)
-	if err != nil {
-		fmt.Printf("ERROR### RecordUsageTotals: failed to record model call: %v\n", err)
-	}
+	_, _ = w.store.Usage().Patch(ctx, rec)
 }
 
 func (w *Store) RecordModelCall(ctx context.Context, messageID, turnID, provider, model, modelKind string, usage *llm.Usage, finishReason string, cost *float64, startedAt, completedAt time.Time, request interface{}, response interface{}) {
@@ -472,10 +452,7 @@ func (w *Store) RecordModelCall(ctx context.Context, messageID, turnID, provider
 		mw.CompletedAt = completedPtr
 		mw.Has.CompletedAt = true
 	}
-	err := w.store.Operations().RecordModelCall(ctx, mw, reqID, resID)
-	if err != nil {
-		fmt.Printf("ERROR###: failed to record model call: %v\n", err)
-	}
+	_ = w.store.Operations().RecordModelCall(ctx, mw, reqID, resID)
 }
 
 func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
