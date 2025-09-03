@@ -56,7 +56,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 
 	// Observer start
 	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ob.OnCallStart(ctx, mcbuf.Info{Provider: "inceptionlabs", Model: req.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "inceptionlabs", Model: req.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
 	}
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)

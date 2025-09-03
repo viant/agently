@@ -78,7 +78,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	for i := 0; i < max(1, c.MaxRetries); i++ {
 		// Observer start
 		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-			ob.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+			ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
 		}
 		resp, err = c.sendRequest(ctx, apiURL, data)
 		if err != nil {
@@ -199,7 +199,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	events := make(chan llm.StreamEvent)
 
 	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ob.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
 	}
 	resp, err := c.sendRequest(ctx, apiURL, data)
 	if err != nil {

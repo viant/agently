@@ -123,7 +123,7 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 		turnID := uuid.New().String()
 		ctx = context.WithValue(ctx, memory.TurnIDKey, turnID)
 		if s.recorder != nil {
-			s.recorder.RecordTurnStart(ctx, conversationID, turnID, time.Now())
+			s.recorder.StartTurn(ctx, conversationID, turnID, time.Now())
 		}
 	}
 
@@ -503,7 +503,7 @@ func (s *Service) startTurn(ctx context.Context, conversationID string) (context
 	turnID := uuid.NewString()
 	ctx = context.WithValue(ctx, memory.TurnIDKey, turnID)
 	if s.recorder != nil {
-		s.recorder.RecordTurnStart(ctx, conversationID, turnID, time.Now())
+		s.recorder.StartTurn(ctx, conversationID, turnID, time.Now())
 	}
 	return ctx, turnID
 }
@@ -517,7 +517,7 @@ func (s *Service) endTurn(ctx context.Context, conversationID, turnID string, su
 	if !succeeded {
 		status = "failed"
 	}
-	s.recorder.RecordTurnUpdate(ctx, turnID, status)
+	s.recorder.UpdateTurn(ctx, turnID, status)
 	if agg != nil {
 		totalIn, totalOut, totalEmb := 0, 0, 0
 		for _, k := range agg.Keys() {

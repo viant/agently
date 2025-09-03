@@ -68,8 +68,8 @@ func TestTurnRecorder_DataDriven(t *testing.T) {
 		_, _ = conv.Patch(ctx, c)
 	}
 	turnID := "t-1"
-	w.RecordTurnStart(ctx, convID, turnID, time.Now())
-	w.RecordTurnUpdate(ctx, turnID, "succeeded")
+	w.StartTurn(ctx, convID, turnID, time.Now())
+	w.UpdateTurn(ctx, turnID, "succeeded")
 	_, err := w.store.Turns().List(ctx)
 	assert.NoError(t, err)
 }
@@ -87,7 +87,8 @@ func TestModelCallRecorder_DataDriven(t *testing.T) {
 	}
 	w.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: convID, Role: "assistant", Content: "x", CreatedAt: time.Now()})
 	usage := &llm.Usage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3}
-	w.RecordModelCall(ctx, msgID, turnID, "openai", "gpt-x", "chat", usage, "stop", nil, time.Now(), time.Now(), map[string]string{"p": "v"}, map[string]string{"r": "v"})
+	w.StartModelCall(ctx, ModelCallStart{MessageID: msgID, TurnID: turnID, Provider: "openai", Model: "gpt-x", ModelKind: "chat", StartedAt: time.Now(), Request: map[string]string{"p": "v"}})
+	w.FinishModelCall(ctx, ModelCallFinish{MessageID: msgID, TurnID: turnID, Usage: usage, FinishReason: "stop", CompletedAt: time.Now(), Response: map[string]string{"r": "v"}})
 	// operations by message should not error
 	_, err := w.store.Operations().GetByMessage(ctx, msgID)
 	assert.NoError(t, err)
@@ -100,8 +101,8 @@ func TestToolCallRecorder_DataDriven(t *testing.T) {
 	w := New(ctx).(*Store)
 	msgID, turnID := "m-tool", "t-tool"
 	// Start then update
-	w.RecordToolCallStart(ctx, ToolCallStart{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", StartedAt: time.Now(), Request: map[string]any{"a": 1}})
-	w.RecordToolCallUpdate(ctx, ToolCallUpdate{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", Status: "completed", CompletedAt: time.Now(), Response: map[string]any{"b": 2}})
+	w.StartToolCall(ctx, ToolCallStart{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", StartedAt: time.Now(), Request: map[string]any{"a": 1}})
+	w.FinishToolCall(ctx, ToolCallUpdate{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", Status: "completed", CompletedAt: time.Now(), Response: map[string]any{"b": 2}})
 	_, err := w.store.Operations().GetByMessage(ctx, msgID)
 	assert.NoError(t, err)
 }
@@ -161,19 +162,20 @@ func TestStore_Memory_WriteFlow(t *testing.T) {
 	w.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: convID, Role: "assistant", Content: "hello", CreatedAt: time.Now()})
 
 	// Record turn start/update
-	w.RecordTurnStart(ctx, convID, turnID, time.Now().Add(-1*time.Second))
-	w.RecordTurnUpdate(ctx, turnID, "succeeded")
+	w.StartTurn(ctx, convID, turnID, time.Now().Add(-1*time.Second))
+	w.UpdateTurn(ctx, turnID, "succeeded")
 
 	// Record model call with usage and payloads
 	usage := &llm.Usage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7}
-	w.RecordModelCall(ctx, msgID, turnID, "openai", "gpt-4o", "chat", usage, "stop", nil, time.Now().Add(-500*time.Millisecond), time.Now(), map[string]string{"p": "x"}, map[string]string{"r": "y"})
+	w.StartModelCall(ctx, ModelCallStart{MessageID: msgID, TurnID: turnID, Provider: "openai", Model: "gpt-4o", ModelKind: "chat", StartedAt: time.Now().Add(-500 * time.Millisecond), Request: map[string]string{"p": "x"}})
+	w.FinishModelCall(ctx, ModelCallFinish{MessageID: msgID, TurnID: turnID, Usage: usage, FinishReason: "stop", CompletedAt: time.Now(), Response: map[string]string{"r": "y"}})
 
 	// Record tool call with payloads and error/cost
 	cost := 0.25
 	// Start then update with failure
 	started := time.Now().Add(-250 * time.Millisecond)
-	w.RecordToolCallStart(ctx, ToolCallStart{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", StartedAt: started, Request: map[string]any{"a": 1}})
-	w.RecordToolCallUpdate(ctx, ToolCallUpdate{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", Status: "failed", CompletedAt: time.Now(), ErrMsg: "boom", Cost: &cost, Response: map[string]any{"b": 2}})
+	w.StartToolCall(ctx, ToolCallStart{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", StartedAt: started, Request: map[string]any{"a": 1}})
+	w.FinishToolCall(ctx, ToolCallUpdate{MessageID: msgID, TurnID: turnID, ToolName: "sys.echo", Status: "failed", CompletedAt: time.Now(), ErrMsg: "boom", Cost: &cost, Response: map[string]any{"b": 2}})
 
 	// Record usage totals
 	w.RecordUsageTotals(ctx, convID, 10, 20, 5)

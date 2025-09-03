@@ -49,7 +49,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 
 	// Observer start
 	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ob.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, StartedAt: time.Now()})
+		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, StartedAt: time.Now()})
 	}
 	// Execute
 	c.HTTPClient.Timeout = 10 * time.Minute
@@ -163,7 +163,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	httpReq.Header.Set("Accept", "text/event-stream")
 	// Observer start
 	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ob.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, StartedAt: time.Now()})
+		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, StartedAt: time.Now()})
 	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {

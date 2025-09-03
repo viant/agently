@@ -82,7 +82,7 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Op
 	if opts.Recorder != nil {
 		msgID := memory.MessageIDFromContext(ctx)
 		turnID := memory.TurnIDFromContext(ctx)
-		opts.Recorder.RecordToolCallStart(ctx, domainrec.ToolCallStart{
+		opts.Recorder.StartToolCall(ctx, domainrec.ToolCallStart{
 			MessageID: msgID,
 			TurnID:    turnID,
 			ToolName:  step.Name,
@@ -125,7 +125,7 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Op
 			status = "failed"
 			errMsg = err.Error()
 		}
-		opts.Recorder.RecordToolCallUpdate(ctx, domainrec.ToolCallUpdate{
+		opts.Recorder.FinishToolCall(ctx, domainrec.ToolCallUpdate{
 			MessageID:   msgID,
 			TurnID:      turnID,
 			ToolName:    step.Name,

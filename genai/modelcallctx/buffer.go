@@ -49,7 +49,7 @@ type Buffer struct {
 
 // Observer exposes OnCallStart/OnCallEnd used by providers.
 type Observer interface {
-	OnCallStart(ctx context.Context, info Info)
+	OnCallStart(ctx context.Context, info Info) context.Context
 	OnCallEnd(ctx context.Context, info Info)
 }
 

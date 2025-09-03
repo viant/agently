@@ -91,7 +91,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 
 	// Observer start
 	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ob.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
 	}
 	// Send the request to Bedrock
 	var resp *bedrockruntime.InvokeModelOutput
@@ -187,7 +187,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		ContentType: aws.String("application/json"),
 	}
 	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-		ob.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
+		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, StartedAt: time.Now()})
 	}
 	output, err := c.BedrockClient.InvokeModelWithResponseStream(ctx, input)
 	if err != nil {
