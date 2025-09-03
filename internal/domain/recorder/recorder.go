@@ -3,6 +3,7 @@ package recorder
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -60,8 +61,6 @@ type ToolCallRecorder interface {
 type ModelCallRecorder interface {
 	StartModelCall(ctx context.Context, start ModelCallStart)
 	FinishModelCall(ctx context.Context, finish ModelCallFinish)
-	// Legacy compat
-	RecordModelCall(ctx context.Context, messageID, turnID, provider, model, modelKind string, usage *llm.Usage, finishReason string, cost *float64, startedAt, completedAt time.Time, request interface{}, response interface{})
 }
 
 type ModelCallStart struct {
@@ -349,111 +348,7 @@ func (w *Store) RecordUsageTotals(ctx context.Context, conversationID string, in
 	_, _ = w.store.Usage().Patch(ctx, rec)
 }
 
-func (w *Store) RecordModelCall(ctx context.Context, messageID, turnID, provider, model, modelKind string, usage *llm.Usage, finishReason string, cost *float64, startedAt, completedAt time.Time, request interface{}, response interface{}) {
-	if !w.Enabled() || messageID == "" || model == "" {
-		return
-	}
-	if provider == "" {
-		provider = "unknown"
-	}
-	if modelKind == "" {
-		modelKind = "chat"
-	}
-	// Build payloads (inline JSON bodies)
-	var reqID, resID string
-	if rb := toJSONBytes(request); len(rb) > 0 {
-		b := redact.ScrubJSONBytes(rb, nil)
-		reqID = uuid.New().String()
-		pw := &plw.Payload{Id: reqID, Has: &plw.PayloadHas{Id: true}}
-		pw.SetKind("model_request")
-		pw.SetMimeType("application/json")
-		pw.SetSizeBytes(len(b))
-		pw.SetStorage("inline")
-		pw.SetInlineBody(b)
-		pw.SetCompression("none")
-		_, _ = w.store.Payloads().Patch(ctx, pw)
-	}
-	if rb := toJSONBytes(response); len(rb) > 0 {
-		b := redact.ScrubJSONBytes(rb, nil)
-		resID = uuid.New().String()
-		pw := &plw.Payload{Id: resID, Has: &plw.PayloadHas{Id: true}}
-		pw.SetKind("model_response")
-		pw.SetMimeType("application/json")
-		pw.SetSizeBytes(len(b))
-		pw.SetStorage("inline")
-		pw.SetInlineBody(b)
-		pw.SetCompression("none")
-		_, _ = w.store.Payloads().Patch(ctx, pw)
-	}
-	// pass payload IDs to operations
-	// Optional usage/timing
-	var pt, ct, tt *int
-	if usage != nil {
-		if usage.PromptTokens > 0 {
-			v := usage.PromptTokens
-			pt = &v
-		}
-		if usage.CompletionTokens > 0 {
-			v := usage.CompletionTokens
-			ct = &v
-		}
-		if usage.TotalTokens > 0 {
-			v := usage.TotalTokens
-			tt = &v
-		}
-	}
-	var startedPtr, completedPtr *time.Time
-	if !startedAt.IsZero() {
-		startedPtr = &startedAt
-	}
-	if !completedAt.IsZero() {
-		completedPtr = &completedAt
-	}
-	var frPtr *string
-	if finishReason != "" {
-		frPtr = &finishReason
-	}
-	mw := &mcw.ModelCall{}
-	mw.SetMessageID(messageID)
-	mw.TurnID = strp(turnID)
-	if mw.TurnID != nil {
-		mw.Has = &mcw.ModelCallHas{TurnID: true}
-	} else {
-		mw.Has = &mcw.ModelCallHas{}
-	}
-	mw.SetProvider(provider)
-	mw.SetModel(model)
-	mw.SetModelKind(modelKind)
-	if pt != nil {
-		mw.PromptTokens = pt
-		mw.Has.PromptTokens = true
-	}
-	if ct != nil {
-		mw.CompletionTokens = ct
-		mw.Has.CompletionTokens = true
-	}
-	if tt != nil {
-		mw.TotalTokens = tt
-		mw.Has.TotalTokens = true
-	}
-	if frPtr != nil {
-		mw.FinishReason = frPtr
-		mw.Has.FinishReason = true
-	}
-	if cost != nil {
-		mw.Cost = cost
-		mw.Has.Cost = true
-	}
-	if startedPtr != nil {
-		mw.StartedAt = startedPtr
-		mw.Has.StartedAt = true
-	}
-	if completedPtr != nil {
-		mw.CompletedAt = completedPtr
-		mw.Has.CompletedAt = true
-	}
-	_ = w.store.Operations().RecordModelCall(ctx, mw, reqID, resID)
-}
+// Deprecated RecordModelCall removed; use StartModelCall and FinishModelCall instead.
 
 func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
 	if !w.Enabled() || start.MessageID == "" || start.Model == "" {
