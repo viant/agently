@@ -116,8 +116,8 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	if convIDEarly != "" {
 		turnID := uuid.New().String()
 		ctx = context.WithValue(ctx, memory.TurnIDKey, turnID)
-		if s.domainWriter != nil && s.domainWriter.Enabled() {
-			s.domainWriter.RecordTurnStart(ctx, convIDEarly, turnID, time.Now())
+		if s.recorder != nil && s.recorder.Enabled() {
+			s.recorder.RecordTurnStart(ctx, convIDEarly, turnID, time.Now())
 		}
 	}
 
@@ -171,30 +171,7 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 	}
 	err = s.directAnswer(ctx, qi, qo, convID, convContext)
 	qo.Usage = agg
-	// finalize turn for direct answer
-	if s.domainWriter != nil && s.domainWriter.Enabled() {
-		turnID := memory.TurnIDFromContext(ctx)
-		if turnID != "" {
-			status := "succeeded"
-			if err != nil {
-				status = "failed"
-			}
-			s.domainWriter.RecordTurnUpdate(ctx, turnID, status)
-			if u := qo.Usage; u != nil {
-				totalIn, totalOut, totalEmb := 0, 0, 0
-				for _, k := range u.Keys() {
-					st := u.PerModel[k]
-					if st == nil {
-						continue
-					}
-					totalIn += st.PromptTokens
-					totalOut += st.CompletionTokens
-					totalEmb += st.EmbeddingTokens
-				}
-				s.domainWriter.RecordUsageTotals(ctx, convID, totalIn, totalOut, totalEmb)
-			}
-		}
-	}
+	s.endTurn(ctx, convID, memory.TurnIDFromContext(ctx), err == nil, qo.Usage)
 	return err
 }
 
@@ -204,8 +181,8 @@ func (s *Service) hydrateConversationMeta(ctx context.Context, qi *QueryInput) {
 	if earlyConvID == "" {
 		return
 	}
-	if s.domainStore != nil {
-		cv, _ := s.domainStore.Conversations().Get(ctx, earlyConvID)
+	if s.store != nil {
+		cv, _ := s.store.Conversations().Get(ctx, earlyConvID)
 		if qi.ModelOverride == "" {
 			if cv != nil && cv.DefaultModel != nil && strings.TrimSpace(*cv.DefaultModel) != "" {
 				qi.ModelOverride = *cv.DefaultModel
@@ -214,7 +191,7 @@ func (s *Service) hydrateConversationMeta(ctx context.Context, qi *QueryInput) {
 			w := &convw.Conversation{Has: &convw.ConversationHas{}}
 			w.SetId(earlyConvID)
 			w.SetDefaultModel(qi.ModelOverride)
-			_, _ = s.domainStore.Conversations().Patch(ctx, w)
+			_, _ = s.store.Conversations().Patch(ctx, w)
 		}
 		if len(qi.ToolsAllowed) == 0 {
 			if cv != nil && cv.Metadata != nil {
@@ -245,7 +222,7 @@ func (s *Service) hydrateConversationMeta(ctx context.Context, qi *QueryInput) {
 				w := &convw.Conversation{Has: &convw.ConversationHas{}}
 				w.SetId(earlyConvID)
 				w.SetMetadata(string(b))
-				_, _ = s.domainStore.Conversations().Patch(ctx, w)
+				_, _ = s.store.Conversations().Patch(ctx, w)
 			}
 		}
 		chosenAgent := ""
@@ -262,40 +239,11 @@ func (s *Service) hydrateConversationMeta(ctx context.Context, qi *QueryInput) {
 			w := &convw.Conversation{Has: &convw.ConversationHas{}}
 			w.SetId(earlyConvID)
 			w.SetAgentName(chosenAgent)
-			_, _ = s.domainStore.Conversations().Patch(ctx, w)
+			_, _ = s.store.Conversations().Patch(ctx, w)
 		}
 		return
 	}
-	if hs, ok := s.history.(*memory.HistoryStore); ok {
-		if qi.ModelOverride == "" {
-			if meta, ok := hs.Meta(ctx, earlyConvID); ok && meta.Model != "" {
-				qi.ModelOverride = meta.Model
-			}
-		} else {
-			hs.UpdateMeta(ctx, earlyConvID, func(m *memory.ConversationMeta) { m.Model = qi.ModelOverride })
-		}
-		if len(qi.ToolsAllowed) == 0 {
-			if meta, ok := hs.Meta(ctx, earlyConvID); ok && len(meta.Tools) > 0 {
-				qi.ToolsAllowed = append([]string(nil), meta.Tools...)
-			}
-		} else {
-			allowedCopy := append([]string(nil), qi.ToolsAllowed...)
-			hs.UpdateMeta(ctx, earlyConvID, func(m *memory.ConversationMeta) { m.Tools = allowedCopy })
-		}
-		chosenAgent := ""
-		if strings.TrimSpace(qi.AgentName) != "" {
-			chosenAgent = qi.AgentName
-		} else if qi.Agent != nil && strings.TrimSpace(qi.Agent.Name) != "" {
-			chosenAgent = qi.Agent.Name
-		}
-		if chosenAgent == "" {
-			if meta, ok := hs.Meta(ctx, earlyConvID); ok && meta.Agent != "" {
-				qi.AgentName = meta.Agent
-			}
-		} else {
-			hs.UpdateMeta(ctx, earlyConvID, func(m *memory.ConversationMeta) { m.Agent = chosenAgent })
-		}
-	}
+	// When domain store is unavailable, leave defaults unchanged in v1.
 }
 
 // mergeInlineJSONIntoContext copies JSON object fields from qi.Query into qi.Context (non-destructive).
@@ -349,16 +297,7 @@ func (s *Service) validateAndMaybeElicit(ctx context.Context, qi *QueryInput, qo
 		qo.Content = qi.Agent.Elicitation.Message
 		qo.Usage = agg
 		s.recordAssistantElicitation(ctx, convID, qi.MessageID, qo.Elicitation)
-		if hs, ok := s.history.(*memory.HistoryStore); ok && convID != "" {
-			hs.UpdateMeta(ctx, convID, func(m *memory.ConversationMeta) {
-				if m.Context == nil {
-					m.Context = map[string]interface{}{}
-				}
-				for k, v := range qi.Context {
-					m.Context[k] = v
-				}
-			})
-		}
+		// v1: domain store metadata is updated in persistCompletedContext
 		return false, nil
 	}
 	return true, nil
@@ -369,8 +308,8 @@ func (s *Service) persistCompletedContext(ctx context.Context, convID string, qi
 	if convID == "" || len(qi.Context) == 0 {
 		return
 	}
-	if s.domainStore != nil {
-		cv, _ := s.domainStore.Conversations().Get(ctx, convID)
+	if s.store != nil {
+		cv, _ := s.store.Conversations().Get(ctx, convID)
 		meta := map[string]interface{}{}
 		if cv != nil && cv.Metadata != nil && strings.TrimSpace(*cv.Metadata) != "" {
 			_ = json.Unmarshal([]byte(*cv.Metadata), &meta)
@@ -384,16 +323,9 @@ func (s *Service) persistCompletedContext(ctx context.Context, convID string, qi
 			w := &convw.Conversation{Has: &convw.ConversationHas{}}
 			w.SetId(convID)
 			w.SetMetadata(string(b))
-			_, _ = s.domainStore.Conversations().Patch(ctx, w)
+			_, _ = s.store.Conversations().Patch(ctx, w)
 		}
 		return
-	}
-	if hs, ok := s.history.(*memory.HistoryStore); ok {
-		ctxCopy := map[string]interface{}{}
-		for k, v := range qi.Context {
-			ctxCopy[k] = v
-		}
-		hs.UpdateMeta(ctx, convID, func(m *memory.ConversationMeta) { m.Context = ctxCopy })
 	}
 }
 
@@ -430,7 +362,10 @@ func (s *Service) enrichCrossTurnContext(ctx context.Context, qi *QueryInput) {
 // buildCrossTurnContext fetches conversation-level messages and splits them into user prompts and assistant finals.
 func (s *Service) buildCrossTurnContext(ctx context.Context, conversationID string) ([]MessageTurn, error) {
 	// Prefer domain store (backed by SQL or memory DAO)
-	all, err := s.domainStore.Messages().List(ctx, msgread.WithConversationID(conversationID))
+	if s.store == nil || s.store.Messages() == nil {
+		return nil, nil
+	}
+	all, err := s.store.Messages().List(ctx, msgread.WithConversationID(conversationID))
 	if err != nil {
 		return nil, err
 	}
@@ -522,58 +457,7 @@ func (s *Service) buildCrossTurnContext(ctx context.Context, conversationID stri
 // enrichContextFromHistory scans existing user messages in the conversation
 // for JSON objects and copies any fields that are required by the elicitation
 // schema but not yet present in qi.Context.
-func (s *Service) enrichContextFromHistory(ctx context.Context, qi *QueryInput) {
-	if qi == nil || qi.Agent == nil || qi.Agent.Elicitation == nil {
-		return
-	}
-	convID := s.conversationID(qi)
-	if convID == "" || s.history == nil {
-		return
-	}
-
-	// Build a lookup of missing keys.
-	required := make(map[string]struct{})
-	for _, k := range qi.Agent.Elicitation.RequestedSchema.Required {
-		if qi.Context != nil {
-			if _, ok := qi.Context[k]; ok {
-				continue // already satisfied
-			}
-		}
-		required[k] = struct{}{}
-	}
-	if len(required) == 0 {
-		return
-	}
-
-	msgs, err := s.history.GetMessages(ctx, convID)
-	if err != nil || len(msgs) == 0 {
-		return
-	}
-
-	for _, m := range msgs {
-		if len(required) == 0 {
-			break // all satisfied
-		}
-		if m.Role != "user" {
-			continue
-		}
-		var obj map[string]interface{}
-		if err := json.Unmarshal([]byte(strings.TrimSpace(m.Content)), &obj); err != nil {
-			continue // not a JSON object
-		}
-		if len(obj) == 0 {
-			continue
-		}
-		if qi.Context == nil {
-			qi.Context = map[string]interface{}{}
-		}
-		for k := range required {
-			if val, ok := obj[k]; ok {
-				qi.Context[k] = val
-				delete(required, k)
-			}
-		}
-	}
+func (s *Service) enrichContextFromHistory(ctx context.Context, qi *QueryInput) { /* deprecated in v1 */
 }
 
 // --------------- Small helpers ------------------------------------------------
@@ -607,6 +491,41 @@ func (s *Service) conversationID(qi *QueryInput) string {
 	return qi.AgentName
 }
 
+// startTurn creates a new turn id, stores it in context and records turn start if recorder is enabled.
+func (s *Service) startTurn(ctx context.Context, conversationID string) (context.Context, string) {
+	turnID := uuid.NewString()
+	ctx = context.WithValue(ctx, memory.TurnIDKey, turnID)
+	if s.recorder != nil && s.recorder.Enabled() {
+		s.recorder.RecordTurnStart(ctx, conversationID, turnID, time.Now())
+	}
+	return ctx, turnID
+}
+
+// endTurn updates turn status and usage totals via recorder when available.
+func (s *Service) endTurn(ctx context.Context, conversationID, turnID string, succeeded bool, agg *usage.Aggregator) {
+	if s.recorder == nil || !s.recorder.Enabled() || turnID == "" {
+		return
+	}
+	status := "succeeded"
+	if !succeeded {
+		status = "failed"
+	}
+	s.recorder.RecordTurnUpdate(ctx, turnID, status)
+	if agg != nil {
+		totalIn, totalOut, totalEmb := 0, 0, 0
+		for _, k := range agg.Keys() {
+			st := agg.PerModel[k]
+			if st == nil {
+				continue
+			}
+			totalIn += st.PromptTokens
+			totalOut += st.CompletionTokens
+			totalEmb += st.EmbeddingTokens
+		}
+		s.recorder.RecordUsageTotals(ctx, conversationID, totalIn, totalOut, totalEmb)
+	}
+}
+
 // addMessage appends a new message to the conversation history. When
 // idOverride is non-empty it is used as the message ID; otherwise a fresh UUID
 // is generated. The final ID is always returned so that callers can propagate
@@ -620,11 +539,10 @@ func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, 
 		id = uuid.New().String()
 	}
 	msg := memory.Message{ID: id, ParentID: parentId, Role: role, Actor: actor, Content: content, ConversationID: convID}
-	err := s.history.AddMessage(ctx, msg)
-	if s.domainWriter != nil && s.domainWriter.Enabled() {
-		s.domainWriter.RecordMessage(ctx, msg)
+	if s.recorder != nil && s.recorder.Enabled() {
+		s.recorder.RecordMessage(ctx, msg)
 	}
-	return msg.ID, err
+	return msg.ID, nil
 }
 
 // conversationContext summarises the conversation according to configured
@@ -716,8 +634,8 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 
 	result, err := wait(ctx, s.workflowTimeout)
 	if err != nil {
-		if s.domainWriter != nil && s.domainWriter.Enabled() {
-			s.domainWriter.RecordTurnUpdate(ctx, turnID, "failed")
+		if s.recorder != nil && s.recorder.Enabled() {
+			s.recorder.RecordTurnUpdate(ctx, turnID, "failed")
 		}
 		return fmt.Errorf("workflow execution error: %w", err)
 	}
@@ -745,15 +663,15 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 				qo.DocumentsSize = s.calculateDocumentsSize(docs)
 				mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
 				// Persist the most recent model call from buffer, if available
-				if s.domainWriter != nil && s.domainWriter.Enabled() {
+				if s.recorder != nil && s.recorder.Enabled() {
 					if info, ok := modelcallctx.PopLast(ctx); ok {
-						s.domainWriter.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
+						s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
 					}
 				}
 				qo.Usage = usage.FromContext(ctx)
-				if s.domainWriter != nil && s.domainWriter.Enabled() {
+				if s.recorder != nil && s.recorder.Enabled() {
 					// Update turn and usage totals
-					s.domainWriter.RecordTurnUpdate(ctx, turnID, "failed")
+					s.recorder.RecordTurnUpdate(ctx, turnID, "failed")
 					if u := qo.Usage; u != nil {
 						// Sum totals across models
 						totalIn, totalOut, totalEmb := 0, 0, 0
@@ -766,7 +684,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 							totalOut += st.CompletionTokens
 							totalEmb += st.EmbeddingTokens
 						}
-						s.domainWriter.RecordUsageTotals(ctx, convID, totalIn, totalOut, totalEmb)
+						s.recorder.RecordUsageTotals(ctx, convID, totalIn, totalOut, totalEmb)
 					}
 				}
 				return nil
@@ -795,22 +713,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 			qo.DocumentsSize = s.calculateDocumentsSize(docs)
 			s.recordAssistantElicitation(ctx, convID, "", elic)
 			qo.Usage = usage.FromContext(ctx)
-			if s.domainWriter != nil && s.domainWriter.Enabled() {
-				s.domainWriter.RecordTurnUpdate(ctx, turnID, "succeeded")
-				if u := qo.Usage; u != nil {
-					totalIn, totalOut, totalEmb := 0, 0, 0
-					for _, k := range u.Keys() {
-						st := u.PerModel[k]
-						if st == nil {
-							continue
-						}
-						totalIn += st.PromptTokens
-						totalOut += st.CompletionTokens
-						totalEmb += st.EmbeddingTokens
-					}
-					s.domainWriter.RecordUsageTotals(ctx, convID, totalIn, totalOut, totalEmb)
-				}
-			}
+			s.endTurn(ctx, convID, turnID, true, qo.Usage)
 			return nil
 		}
 	}
@@ -842,6 +745,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 
 		qo.Usage = usage.FromContext(ctx)
 		qo.DocumentsSize = s.calculateDocumentsSize(docs)
+		s.endTurn(ctx, convID, turnID, true, qo.Usage)
 		return nil
 	}
 	ansStr, ok := ansRaw.(string)
@@ -860,9 +764,9 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 	}
 	qo.DocumentsSize = s.calculateDocumentsSize(docs)
 	mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
-	if s.domainWriter != nil && s.domainWriter.Enabled() {
+	if s.recorder != nil && s.recorder.Enabled() {
 		if info, ok := modelcallctx.PopLast(ctx); ok {
-			s.domainWriter.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
+			s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
 		}
 	}
 
@@ -954,11 +858,8 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 		Elicitation:    elic,
 		CreatedAt:      time.Now(),
 	}
-	if err := s.history.AddMessage(ctx, msg); err != nil {
-		log.Printf("warn: cannot record elicitation message: %v", err)
-	}
-	if s.domainWriter != nil && s.domainWriter.Enabled() {
-		s.domainWriter.RecordMessage(ctx, msg)
+	if s.recorder != nil && s.recorder.Enabled() {
+		s.recorder.RecordMessage(ctx, msg)
 	}
 }
 
@@ -1102,9 +1003,9 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 	}
 
 	mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
-	if s.domainWriter != nil && s.domainWriter.Enabled() {
+	if s.recorder != nil && s.recorder.Enabled() {
 		if info, ok := modelcallctx.PopLast(ctx); ok {
-			s.domainWriter.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
+			s.recorder.RecordModelCall(ctx, mid, memory.TurnIDFromContext(ctx), info.Provider, info.Model, info.ModelKind, info.Usage, info.FinishReason, info.Cost, info.StartedAt, info.CompletedAt, info.RequestJSON, info.ResponseJSON)
 		}
 	}
 

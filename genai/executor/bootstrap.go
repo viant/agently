@@ -53,8 +53,8 @@ func (e *Service) init(ctx context.Context) error {
 	// Step 2: auxiliary stores (history, …)
 	// ------------------------------------------------------------------
 	e.executionStore = memory.NewExecutionStore()
-	// Build domain writer (shadow writes when enabled)
-	e.domainWriter = domainrecorder.New(ctx)
+	// Build recorder (shadow writes when enabled)
+	e.recorder = domainrecorder.New(ctx)
 
 	// ------------------------------------------------------------------
 	// Step 3: orchestration service (single source of truth for workflows & tools)

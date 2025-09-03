@@ -14,6 +14,8 @@ type Conversation struct {
 	Id                   string           `sqlx:"id,primaryKey" validate:"required"`
 	Summary              *string          `sqlx:"summary" json:",omitempty"`
 	AgentName            string           `sqlx:"agent_name" `
+	Title                *string          `sqlx:"title" json:",omitempty"`
+	Visibility           *string          `sqlx:"visibility" json:",omitempty"`
 	CreatedAt            *time.Time       `sqlx:"created_at" json:",omitempty"`
 	LastActivity         *time.Time       `sqlx:"last_activity" json:",omitempty"`
 	UsageInputTokens     int              `sqlx:"usage_input_tokens" json:",omitempty"`
@@ -30,6 +32,8 @@ type ConversationHas struct {
 	Id                   bool
 	Summary              bool
 	AgentName            bool
+	Title                bool
+	Visibility           bool
 	CreatedAt            bool
 	LastActivity         bool
 	UsageInputTokens     bool
@@ -54,6 +58,16 @@ func (c *Conversation) SetSummary(value string) {
 func (c *Conversation) SetAgentName(value string) {
 	c.AgentName = value
 	c.Has.AgentName = true
+}
+
+func (c *Conversation) SetTitle(value string) {
+	c.Title = &value
+	c.Has.Title = true
+}
+
+func (c *Conversation) SetVisibility(value string) {
+	c.Visibility = &value
+	c.Has.Visibility = true
 }
 
 func (c *Conversation) SetCreatedAt(value time.Time) {

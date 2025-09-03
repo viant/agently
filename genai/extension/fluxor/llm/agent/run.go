@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/viant/agently/genai/memory"
-	"github.com/viant/agently/genai/summary"
+	convw "github.com/viant/agently/internal/dao/conversation/write"
 	"github.com/viant/agently/internal/templating"
 	"github.com/viant/fluxor/model/types"
 )
@@ -46,7 +46,22 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	childID := strings.TrimSpace(arg.ConversationID)
 	writeLink := false
 	if childID == "" {
-		childID = memory.NewChildConversation(ctx, s.history, parentID, arg.Title, arg.Visibility)
+		childID = uuid.NewString()
+		// Create conversation via domain store when available
+		if s.store != nil && s.store.Conversations() != nil {
+			cw := &convw.Conversation{Has: &convw.ConversationHas{}}
+			cw.SetId(childID)
+			if strings.TrimSpace(arg.AgentName) != "" {
+				cw.SetAgentName(arg.AgentName)
+			}
+			if strings.TrimSpace(arg.Title) != "" {
+				cw.SetTitle(arg.Title)
+			}
+			if strings.TrimSpace(arg.Visibility) != "" {
+				cw.SetVisibility(arg.Visibility)
+			}
+			_, _ = s.store.Conversations().Patch(ctx, cw)
+		}
 		writeLink = true
 	}
 	res.ConversationID = childID
@@ -87,25 +102,11 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	// Write link (and optional summary) to parent thread.
 	if writeLink && parentID != "" {
 		content := "↪ " + arg.Title
-
-		if strings.EqualFold(arg.Visibility, "summary") && s.llm != nil {
-			model := s.runSummaryModel
-			if strings.TrimSpace(model) == "" && qi.Agent != nil {
-				model = qi.Agent.Model
-			}
-			if sum, err := summary.Summarize(ctx, s.history, s.llm, model, childID, s.lastN, s.summaryPrompt); err == nil && strings.TrimSpace(sum) != "" {
-				content += "\n" + sum
-			}
+		// v1: omit auto-summary; policy-driven summarization can be added later
+		msg := memory.Message{ID: uuid.NewString(), ConversationID: parentID, Role: "assistant", Actor: "agent.run", Content: content}
+		if s.recorder != nil && s.recorder.Enabled() {
+			s.recorder.RecordMessage(ctx, msg)
 		}
-
-		_ = s.history.AddMessage(ctx, memory.Message{
-			ID:             uuid.New().String(),
-			ConversationID: parentID,
-			Role:           "assistant",
-			Actor:          "agent.run",
-			Content:        content,
-			CallbackURL:    childID,
-		})
 		res.Content = content
 	}
 	return nil

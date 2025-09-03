@@ -22,7 +22,6 @@ import (
 	"github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
-	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	d "github.com/viant/agently/internal/domain"
 	recorder "github.com/viant/agently/internal/domain/recorder"
@@ -74,7 +73,7 @@ func WithSummaryLastN(n int) Option {
 
 // WithDomainStore injects a domain.Store for conversation-level reads/writes.
 func WithDomainStore(store d.Store) Option {
-	return func(s *Service) { s.domainStore = store }
+	return func(s *Service) { s.store = store }
 }
 
 const (
@@ -91,8 +90,6 @@ type Service struct {
 	llm         *core.Service
 	agentFinder agent.Finder
 	augmenter   *augmenter.Service
-	history     memory.History
-	traceStore  *memory.ExecutionStore
 	registry    tool.Registry
 	// Runtime is the shared fluxor workflow runtime for orchestration
 	runtime *fluxor.Runtime
@@ -115,8 +112,8 @@ type Service struct {
 	// Aggregated Recorder is used here because this service records messages,
 	// turns, model calls, and usage. A single dependency avoids interface
 	// sprawl and simplifies debugging.
-	domainWriter recorder.Recorder
-	domainStore  d.Store
+	recorder recorder.Recorder
+	store    d.Store
 }
 
 // SetRuntime sets the fluxor runtime for orchestration
@@ -125,15 +122,13 @@ func (s *Service) SetRuntime(rt *fluxor.Runtime) {
 }
 
 // New creates a new agent service instance with the given tool registry and fluxor runtime
-func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Service, registry tool.Registry, runtime *fluxor.Runtime, history memory.History, traceStore *memory.ExecutionStore,
+func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Service, registry tool.Registry, runtime *fluxor.Runtime,
 	defaults *config.Defaults, opts ...Option) *Service {
 	srv := &Service{
 		defaults:         defaults,
 		llm:              llm,
 		agentFinder:      agentFinder,
 		augmenter:        augmenter,
-		history:          history,
-		traceStore:       traceStore,
 		registry:         registry,
 		runtime:          runtime,
 		summaryThreshold: defaultSummaryThreshold,
@@ -198,10 +193,6 @@ func (s *Service) Query(ctx context.Context, in *QueryInput) (*QueryOutput, erro
 	return &out, nil
 }
 
-// run implements the executable registered under "run". It spawns a child
-// conversation, delegates the actual agent turn via Query(), then writes a
-// link message (optionally with summary) into the parent thread.
-// WithDomainWriter injects a domain writer used for shadow writes.
-// WithDomainWriter injects the aggregated Recorder. Prefer Recorder here over
+// WithRecorded injects the aggregated Recorder. Prefer Recorder here over
 // multiple narrow interfaces because the agent coordinates multiple facets.
-func WithDomainWriter(w recorder.Recorder) Option { return func(s *Service) { s.domainWriter = w } }
+func WithRecorded(w recorder.Recorder) Option { return func(s *Service) { s.recorder = w } }

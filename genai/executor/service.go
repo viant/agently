@@ -84,7 +84,7 @@ type Service struct {
 
 	fluxorOptions []fluxor.Option
 	orchestration *mcp.Service // shared fluxor-mcp service instance
-	domainWriter  domainrec.Recorder
+	recorder      domainrec.Recorder
 }
 
 // registerAgentTools exposes every agent with toolExport.expose==true as a
@@ -207,13 +207,13 @@ func (e *Service) registerServices(actions *extension.Actions) {
 
 	ex := exec.New(e.llmCore, e.tools, defaultModel, e.ApprovalService(), e.executionStore)
 	// Attach domain writer if enabled
-	if dw := e.domainWriter; dw != nil && dw.Enabled() {
-		ex.WithRecorder(dw)
+	if rec := e.recorder; rec != nil && rec.Enabled() {
+		ex.WithRecorder(rec)
 	}
 	actions.Register(ex)
 	// Inject recorder (and keep tracer if needed later) into core so streaming execution records tool calls.
 	if e.llmCore != nil {
-		e.llmCore.SetRecorder(e.domainWriter)
+		e.llmCore.SetRecorder(e.recorder)
 	}
 	actions.Register(enricher)
 	actions.Register(e.llmCore)
@@ -235,7 +235,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		agentOpts = append(agentOpts, llmagent.WithSummaryLastN(ln))
 	}
 	// Attach domain writer to agent service
-	agentOpts = append(agentOpts, llmagent.WithDomainWriter(e.domainWriter))
+	agentOpts = append(agentOpts, llmagent.WithRecorded(e.recorder))
 
 	// Provide a domain store for agent meta persistence (always inject; SQL when configured, otherwise in-memory).
 	{
@@ -259,7 +259,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 			agentOpts = append(agentOpts, llmagent.WithDomainStore(st))
 		}
 	}
-	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history, e.executionStore, &e.config.Default, agentOpts...)
+	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, &e.config.Default, agentOpts...)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
 
