@@ -203,11 +203,34 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		defer close(out)
 		_ = resp.Header.Get("Content-Type")
 		agg := newGeminiAggregator(c.Model, c.UsageListener)
-		// Proxy events to capture last response
-		proxy := make(chan llm.StreamEvent)
+		// buffer final response so we can notify observer before publishing it
+		bufCh := make(chan llm.StreamEvent)
 		var lastLR *llm.GenerateResponse
+		emit := func(lr *llm.GenerateResponse) {
+			if lr != nil {
+				out <- llm.StreamEvent{Response: lr}
+			}
+		}
+		endObserver := func(final *llm.GenerateResponse) {
+			if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+				var respJSON []byte
+				var finishReason string
+				if final != nil {
+					respJSON, _ = json.Marshal(final)
+					if len(final.Choices) > 0 {
+						finishReason = final.Choices[0].FinishReason
+					}
+				} else if lastLR != nil {
+					respJSON, _ = json.Marshal(lastLR)
+					if len(lastLR.Choices) > 0 {
+						finishReason = lastLR.Choices[0].FinishReason
+					}
+				}
+				ob.OnCallEnd(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: agg.usage, FinishReason: finishReason})
+			}
+		}
 		go func() {
-			for ev := range proxy {
+			for ev := range bufCh {
 				if ev.Response != nil {
 					lastLR = ev.Response
 				}
@@ -215,21 +238,12 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			}
 		}()
 		// Gemini uses application/json streams; decode with JSON decoder.
-		c.streamJSON(resp.Body, proxy, agg)
-		close(proxy)
-		// drain any leftover on disconnect
-		agg.emitRemainder(out)
-		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-			var respJSON []byte
-			var finishReason string
-			if lastLR != nil {
-				respJSON, _ = json.Marshal(lastLR)
-				if len(lastLR.Choices) > 0 {
-					finishReason = lastLR.Choices[0].FinishReason
-				}
-			}
-			ob.OnCallEnd(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: agg.usage, FinishReason: finishReason})
-		}
+		c.streamJSON(resp.Body, bufCh, agg)
+		close(bufCh)
+		// Prepare remainder as final response without emitting yet
+		final := agg.emitRemainderResponse()
+		endObserver(final)
+		emit(final)
 	}()
 	return out, nil
 }
@@ -324,9 +338,9 @@ func (a *geminiAggregator) emitFinished(events chan<- llm.StreamEvent) {
 }
 
 // emitRemainder flushes any non-finished candidates on stream end, using STOP finish reason.
-func (a *geminiAggregator) emitRemainder(events chan<- llm.StreamEvent) {
+func (a *geminiAggregator) emitRemainderResponse() *llm.GenerateResponse {
 	if len(a.text) == 0 && len(a.tools) == 0 {
-		return
+		return nil
 	}
 	out := &llm.GenerateResponse{Model: a.model}
 	for idx, b := range a.text {
@@ -344,8 +358,9 @@ func (a *geminiAggregator) emitRemainder(events chan<- llm.StreamEvent) {
 		out.Usage = a.usage
 	}
 	if len(out.Choices) > 0 {
-		events <- llm.StreamEvent{Response: out}
+		return out
 	}
+	return nil
 }
 
 func (c *Client) emitPayloadAggregate(payload string, events chan<- llm.StreamEvent, agg *geminiAggregator) {

@@ -223,6 +223,26 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		finishReason := ""
 		var usage *llm.Usage
 		var promptTokens, completionTokens int
+		ended := false
+		emit := func(lr *llm.GenerateResponse) {
+			if lr != nil {
+				events <- llm.StreamEvent{Response: lr}
+			}
+		}
+		endObserverOnce := func(lr *llm.GenerateResponse) {
+			if ended {
+				return
+			}
+			if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+				respJSON, _ := json.Marshal(lr)
+				var finish string
+				if lr != nil && len(lr.Choices) > 0 {
+					finish = lr.Choices[0].FinishReason
+				}
+				ob.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finish})
+				ended = true
+			}
+		}
 
 		emitToolsIfAny := func() {
 			idxs := make([]int, 0, len(tools))
@@ -338,7 +358,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					msg.ToolCalls = calls
 				}
 				lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model, Usage: usage}
-				events <- llm.StreamEvent{Response: lr}
+				endObserverOnce(lr)
+				emit(lr)
 				lastLR = lr
 			case "message_start":
 				// read prompt tokens from nested message.usage if available
@@ -364,16 +385,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		if err := scanner.Err(); err != nil {
 			events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
 		}
-		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-			var respJSON []byte
-			var finishReason string
-			if lastLR != nil {
-				respJSON, _ = json.Marshal(lastLR)
-				if len(lastLR.Choices) > 0 {
-					finishReason = lastLR.Choices[0].FinishReason
-				}
-			}
-			ob.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason})
+		if !ended {
+			endObserverOnce(lastLR)
 		}
 	}()
 	return events, nil

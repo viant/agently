@@ -211,6 +211,26 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		defer es.Close()
 		defer close(events)
 		var lastLR *llm.GenerateResponse
+		ended := false
+		emit := func(lr *llm.GenerateResponse) {
+			if lr != nil {
+				events <- llm.StreamEvent{Response: lr}
+			}
+		}
+		endObserverOnce := func(lr *llm.GenerateResponse) {
+			if ended {
+				return
+			}
+			if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+				respJSON, _ := json.Marshal(lr)
+				var finish string
+				if lr != nil && len(lr.Choices) > 0 {
+					finish = lr.Choices[0].FinishReason
+				}
+				ob.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finish})
+				ended = true
+			}
+		}
 
 		// Aggregator for Claude streaming events
 		type toolAgg struct {
@@ -293,8 +313,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 						msg.ToolCalls = calls
 					}
 					lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model}
+					endObserverOnce(lr)
 					lastLR = lr
-					events <- llm.StreamEvent{Response: lr}
+					emit(lr)
 				}
 			default:
 				// ignore other types
@@ -303,16 +324,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		if err := es.Err(); err != nil {
 			events <- llm.StreamEvent{Err: err}
 		}
-		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-			var respJSON []byte
-			var finishReason string
-			if lastLR != nil {
-				respJSON, _ = json.Marshal(lastLR)
-				if len(lastLR.Choices) > 0 {
-					finishReason = lastLR.Choices[0].FinishReason
-				}
-			}
-			ob.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason})
+		if !ended {
+			endObserverOnce(lastLR)
 		}
 	}()
 	return events, nil

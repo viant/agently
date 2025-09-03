@@ -16,6 +16,48 @@ import (
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
 )
 
+// publishUsageOnce notifies the usage listener exactly once per stream.
+func (c *Client) publishUsageOnce(model string, usage *llm.Usage, published *bool) {
+	if c == nil || c.UsageListener == nil || published == nil {
+		return
+	}
+	if *published {
+		return
+	}
+	if model == "" || usage == nil {
+		return
+	}
+	c.UsageListener.OnUsage(model, usage)
+	*published = true
+}
+
+// endObserverOnce emits OnCallEnd once with the provided final response.
+func endObserverOnce(ctx context.Context, model string, lr *llm.GenerateResponse, usage *llm.Usage, ended *bool) {
+	if ended == nil || *ended {
+		return
+	}
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+		var respJSON []byte
+		var finish string
+		if lr != nil {
+			respJSON, _ = json.Marshal(lr)
+			if len(lr.Choices) > 0 {
+				finish = lr.Choices[0].FinishReason
+			}
+		}
+		ob.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finish})
+		*ended = true
+	}
+}
+
+// emitResponse wraps publishing a response event.
+func emitResponse(out chan<- llm.StreamEvent, lr *llm.GenerateResponse) {
+	if out == nil || lr == nil {
+		return
+	}
+	out <- llm.StreamEvent{Response: lr}
+}
+
 func (c *Client) Implements(feature string) bool {
 	switch feature {
 	case base.CanUseTools:
@@ -48,7 +90,8 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	}
 
 	// Observer start
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+	ob := mcbuf.ObserverFromContext(ctx)
+	if ob != nil {
 		ctx = ob.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, StartedAt: time.Now()})
 	}
 	// Execute
@@ -68,7 +111,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	}
 	lr, perr := c.parseGenerateResponse(req.Model, respBytes)
 	// Observer end
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+	if ob != nil {
 		info := mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now()}
 		if lr != nil {
 			info.Usage = lr.Usage
@@ -105,6 +148,10 @@ func (c *Client) prepareChatRequest(request *llm.GenerateRequest) (*Request, err
 	if req.Model == "" {
 		return nil, fmt.Errorf("model is required")
 	}
+
+	//TODO only for test purpurposes - remove later
+	//req.ParallelToolCalls = true
+
 	return req, nil
 }
 
@@ -287,6 +334,7 @@ func (c *Client) consumeStream(ctx context.Context, body io.Reader, events chan<
 	var lastUsage *llm.Usage
 	var lastModel string
 	var lastLR *llm.GenerateResponse
+	ended := false
 	publishedUsage := false
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -314,7 +362,9 @@ func (c *Client) consumeStream(ctx context.Context, body io.Reader, events chan<
 				if lastUsage != nil && lastUsage.TotalTokens > 0 {
 					lr.Usage = lastUsage
 				}
-				events <- llm.StreamEvent{Response: lr}
+				c.publishUsageOnce(lastModel, lastUsage, &publishedUsage)
+				endObserverOnce(ctx, lastModel, lr, lastUsage, &ended)
+				emitResponse(events, lr)
 				lastLR = lr
 			}
 			continue
@@ -343,12 +393,16 @@ func (c *Client) consumeStream(ctx context.Context, body io.Reader, events chan<
 			events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream response: %w", err)}
 			return
 		}
-		events <- llm.StreamEvent{Response: ToLLMSResponse(&apiResp)}
+		// Treat a single-object event as a terminal response for observer ordering
+		lr := ToLLMSResponse(&apiResp)
+		c.publishUsageOnce(lastModel, lastUsage, &publishedUsage)
+		endObserverOnce(ctx, lastModel, lr, lastUsage, &ended)
+		emitResponse(events, lr)
 	}
 	if err := scanner.Err(); err != nil {
 		events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
 	}
-	if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+	if ob := mcbuf.ObserverFromContext(ctx); ob != nil && !ended {
 		// Emit end with last aggregated response if available; fallback to raw SSE body.
 		var usage *llm.Usage
 		if lastUsage != nil {

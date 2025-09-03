@@ -149,6 +149,26 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	go func() {
 		defer resp.Body.Close()
 		reader := bufio.NewReader(resp.Body)
+		ended := false
+		emit := func(lr *llm.GenerateResponse) {
+			if lr != nil {
+				events <- llm.StreamEvent{Response: lr}
+			}
+		}
+		endObserverOnce := func(lr *llm.GenerateResponse) {
+			if ended {
+				return
+			}
+			if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
+				respJSON, _ := json.Marshal(lr)
+				var finish string
+				if lr != nil && len(lr.Choices) > 0 {
+					finish = lr.Choices[0].FinishReason
+				}
+				ob.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finish})
+				ended = true
+			}
+		}
 		var lastLR *llm.GenerateResponse
 		for {
 			line, err := reader.ReadBytes('\n')
@@ -160,10 +180,12 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				}
 				lr := ToLLMSResponse(&chunk)
 				lastLR = lr
-				events <- llm.StreamEvent{Response: lr}
 				if chunk.Done {
+					endObserverOnce(lr)
+					emit(lr)
 					break
 				}
+				emit(lr)
 			}
 			if err != nil {
 				if err == io.EOF {
@@ -174,16 +196,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			}
 		}
 		close(events)
-		if ob := mcbuf.ObserverFromContext(ctx); ob != nil {
-			var respJSON []byte
-			var finishReason string
-			if lastLR != nil {
-				respJSON, _ = json.Marshal(lastLR)
-				if len(lastLR.Choices) > 0 {
-					finishReason = lastLR.Choices[0].FinishReason
-				}
-			}
-			ob.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason})
+		if !ended {
+			endObserverOnce(lastLR)
 		}
 	}()
 	return events, nil
