@@ -21,7 +21,6 @@ import (
 	autoawait "github.com/viant/agently/genai/io/elicitation/auto"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
-	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
 	convw "github.com/viant/agently/internal/dao/conversation/write"
@@ -163,6 +162,8 @@ func (s *Service) query(ctx context.Context, in, out interface{}) error {
 		log.Printf("warn: cannot record message: %v", err)
 	}
 	ctx = context.WithValue(ctx, memory.MessageIDKey, messageID)
+	// Seed TurnMeta for downstream generate/stream so messages parent correctly and turn/conversation are reused.
+	ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{TurnID: memory.TurnIDFromContext(ctx), ConversationID: convID, ParentMessageID: messageID})
 
 	// 8. Execute workflow or direct answer
 	if s.requiresWorkflow(qi) {
@@ -1014,11 +1015,7 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 		Prompt:       qi.Query,
 		Options:      &llm.Options{Temperature: qi.Agent.Temperature},
 	}
-	// Pre-generate assistant message ID and set observer so provider can attach model call immediately.
-	preMID := uuid.NewString()
-	// MessageIDKey carries parent (set earlier when recording user message); ModelMessageIDKey targets the assistant message to persist here.
-	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, preMID)
-	ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
+	// TurnMeta has been set earlier; core.Generate will handle observer injection and message/model-call persistence.
 
 	genOut := &corepkg.GenerateOutput{}
 	if err := exec(ctx, genIn, genOut); err != nil {
