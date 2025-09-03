@@ -8,7 +8,6 @@ import (
 
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core/stream"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
@@ -49,21 +48,16 @@ func (s *Service) stream(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return fmt.Errorf("model %T does not support streaming", model)
 	}
-	// Ensure observer and target message id for real-time model-call attachment.
-	if s.recorder != nil {
-		if memory.ModelMessageIDFromContext(ctx) == "" {
-			ctx = context.WithValue(ctx, memory.ModelMessageIDKey, uuid.NewString())
+
+	if _, ok := memory.TurnMetaFromContext(ctx); !ok {
+		tm := memory.TurnMeta{
+			TurnID:          memory.TurnIDFromContext(ctx),
+			ConversationID:  memory.ConversationIDFromContext(ctx),
+			ParentMessageID: memory.MessageIDFromContext(ctx),
 		}
-		if _, ok := memory.TurnMetaFromContext(ctx); !ok {
-			tm := memory.TurnMeta{
-				TurnID:          memory.TurnIDFromContext(ctx),
-				ConversationID:  memory.ConversationIDFromContext(ctx),
-				ParentMessageID: memory.MessageIDFromContext(ctx),
-			}
-			ctx = memory.WithTurnMeta(ctx, tm)
-		}
-		ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
+		ctx = memory.WithTurnMeta(ctx, tm)
 	}
+	ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
 
 	streamCh, err := streamer.Stream(ctx, req)
 	if err != nil {

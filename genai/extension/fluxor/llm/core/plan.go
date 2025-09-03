@@ -127,9 +127,6 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 				}
 			}
 		}
-		// Pre-assign final assistant message id for the finalize call and inject recorder observer
-		finalMID := uuid.NewString()
-		ctx = context.WithValue(ctx, memory.ModelMessageIDKey, finalMID)
 		if s.recorder != nil {
 			ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
 		}
