@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	plan "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
@@ -31,7 +32,7 @@ type Options struct {
 	TraceID          int
 	Duplicated       bool
 	DuplicatedResult *plan.Result
-	Recorder         domainrec.ToolCallRecorder
+	Recorder         domainrec.Recorder
 }
 
 // Option configures Options via functional options pattern.
@@ -53,7 +54,7 @@ func WithDuplicated(dup bool) Option { return func(o *Options) { o.Duplicated = 
 func WithDuplicatedResult(r *plan.Result) Option { return func(o *Options) { o.DuplicatedResult = r } }
 
 // WithRecorder sets a domain recorder for tool-call persistence.
-func WithRecorder(rec domainrec.ToolCallRecorder) Option {
+func WithRecorder(rec domainrec.Recorder) Option {
 	return func(o *Options) { o.Recorder = rec }
 }
 
@@ -134,6 +135,17 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Op
 			Cost:        nil,
 			Response:    out.Result,
 		})
+		// Also persist a tool message with the result so transcript captures it.
+		if convID := memory.ConversationIDFromContext(ctx); convID != "" {
+			toolID := uuid.New().String()
+			parent := memory.MessageIDFromContext(ctx)
+			name := step.Name
+			msg := memory.Message{ID: toolID, ConversationID: convID, ParentID: parent, Role: "tool", Content: out.Result, ToolName: &name, CreatedAt: endedAt}
+			opts.Recorder.RecordMessage(ctx, msg)
+			// Note: context mutation here does not propagate to caller; parent linking
+			// for the subsequent model call is handled by the agent by finding the
+			// latest tool message in the turn.
+		}
 	}
 	return out, startedAt, endedAt, err
 }

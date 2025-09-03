@@ -658,6 +658,11 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 
 				qo.Content = fmt.Sprintf("I encountered an internal issue while composing the answer (details: %s).\n\nHere are the raw tool results I managed to obtain:\n%s", string(errsJSON), resSummary)
 				qo.DocumentsSize = s.calculateDocumentsSize(docs)
+				// If any tool messages were recorded during this turn, parent the final
+				// assistant message to the latest one so the transcript reflects causality.
+				if lastTool := s.latestToolMessageID(ctx, convID, turnID); lastTool != "" {
+					ctx = context.WithValue(ctx, memory.MessageIDKey, lastTool)
+				}
 				mid := s.recordAssistant(ctx, convID, qo.Content, qi.Persona, qi.Agent.Name)
 				// Persist the most recent model call from buffer, if available
 				if s.recorder != nil {
@@ -762,6 +767,41 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 
 	s.endTurn(ctx, convID, turnID, true, qo.Usage)
 	return nil
+}
+
+// latestToolMessageID returns the most recent tool-role message ID for a given
+// conversation/turn using DAO reads. Returns empty string when none found or on error.
+func (s *Service) latestToolMessageID(ctx context.Context, convID, turnID string) string {
+	if s.store == nil || convID == "" || turnID == "" {
+		return ""
+	}
+	views, err := s.store.Messages().List(ctx,
+		msgread.WithConversationID(convID),
+		msgread.WithTurnID(turnID),
+		msgread.WithRoles("tool"),
+		msgread.WithInterim(0),
+	)
+	if err != nil || len(views) == 0 {
+		return ""
+	}
+	// Pick the latest by CreatedAt or Sequence when available
+	latest := views[0]
+	for _, v := range views[1:] {
+		if v == nil {
+			continue
+		}
+		if v.CreatedAt != nil && (latest.CreatedAt == nil || latest.CreatedAt.Before(*v.CreatedAt)) {
+			latest = v
+			continue
+		}
+		if v.Sequence != nil && latest.Sequence != nil && *v.Sequence > *latest.Sequence {
+			latest = v
+		}
+	}
+	if latest != nil {
+		return latest.Id
+	}
+	return ""
 }
 
 // firstStepError scans workflow output map for results and returns the first

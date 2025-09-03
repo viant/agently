@@ -26,7 +26,7 @@ type Service struct {
 
 	// optional tracer for tool execution in streaming plan path
 	tracer   executil.Tracer
-	recorder domainrec.ToolCallRecorder
+	recorder domainrec.Recorder
 }
 
 // ToolDefinitions returns every tool definition registered in the tool
@@ -99,5 +99,5 @@ func New(finder llm.Finder, registry tool.Registry, defaultModel string) *Servic
 }
 
 // SetTracer injects a tracer adapter (executil.Tracer-compatible) for streaming tool execution.
-func (s *Service) SetTracer(t executil.Tracer)              { s.tracer = t }
-func (s *Service) SetRecorder(r domainrec.ToolCallRecorder) { s.recorder = r }
+func (s *Service) SetTracer(t executil.Tracer)      { s.tracer = t }
+func (s *Service) SetRecorder(r domainrec.Recorder) { s.recorder = r }
