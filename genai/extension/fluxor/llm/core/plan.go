@@ -126,6 +126,21 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 	}
 	s.buildAnswerFromTranscript(output)
 	RefinePlan(planResult, output.Answer)
+	// If a plan was generated or tools are available, issue a short finalize
+	// generation to produce the final assistant answer as a distinct model call.
+	if (planResult != nil && len(planResult.Steps) > 0) || len(tools) > 0 {
+		finIn := &GenerateInput{
+			Model:  modelName,
+			Prompt: strings.TrimSpace(output.Answer),
+			// Keep low temperature to steer towards a clean finalization rather than new plans.
+			Options: &llm.Options{Temperature: 0},
+		}
+		finOut := &GenerateOutput{}
+		if err := s.Generate(ctx, finIn, finOut); err == nil && strings.TrimSpace(finOut.Content) != "" {
+			output.Answer = finOut.Content
+		}
+		// The model call is captured by modelcallctx and will be attached to the final assistant message.
+	}
 	if len(execResults) > 0 {
 		output.Results = append(output.Results, execResults...)
 	}
