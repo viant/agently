@@ -39,8 +39,9 @@ type GenerateInput struct {
 
 // GenerateOutput represents output from extraction
 type GenerateOutput struct {
-	Response *llm.GenerateResponse
-	Content  string
+	Response  *llm.GenerateResponse
+	Content   string
+	MessageID string
 }
 
 func (i *GenerateInput) Init(ctx context.Context) {
@@ -86,6 +87,15 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		// Assign a target message id if absent
 		if memory.ModelMessageIDFromContext(ctx) == "" {
 			ctx = context.WithValue(ctx, memory.ModelMessageIDKey, uuid.NewString())
+		}
+		// Seed TurnMeta if not present using existing keys
+		if _, ok := memory.TurnMetaFromContext(ctx); !ok {
+			tm := memory.TurnMeta{
+				TurnID:          memory.TurnIDFromContext(ctx),
+				ConversationID:  memory.ConversationIDFromContext(ctx),
+				ParentMessageID: memory.MessageIDFromContext(ctx),
+			}
+			ctx = memory.WithTurnMeta(ctx, tm)
 		}
 		ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
 	}
@@ -136,8 +146,17 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		if msgID != "" {
 			convID := memory.ConversationIDFromContext(ctx)
 			parentID := memory.MessageIDFromContext(ctx)
+			if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+				if tm.ConversationID != "" {
+					convID = tm.ConversationID
+				}
+				if tm.ParentMessageID != "" {
+					parentID = tm.ParentMessageID
+				}
+			}
 			if convID != "" && strings.TrimSpace(output.Content) != "" {
 				s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: parentID, ConversationID: convID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()})
+				output.MessageID = msgID
 			}
 		}
 	}

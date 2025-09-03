@@ -93,18 +93,16 @@ func (s *Service) Plan(ctx context.Context, input *PlanInput, output *PlanOutput
 		return err
 	}
 
-	// Pre-assign a target message id for the planner model call; stream/generate will attach to it.
-	planMID := uuid.NewString()
-	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, planMID)
+	// No pre-assignment here; generate/stream assigns message IDs and persists messages.
 
 	genOutput := &GenerateOutput{}
 	planResult, execResults, err := s.GeneratePlan(ctx, modelName, promptTemplate, systemPromptTemplate, input, tools, genOutput)
 	if err != nil {
 		return err
 	}
-	// Requalify the last assistant message (created by stream/generate) as a plan interim if not final.
-	if s.recorder != nil {
-		s.recorder.RecordMessage(ctx, memory.Message{ID: planMID, Role: "assistant", Actor: "plan"})
+	// Requalify the assistant message created by generate/stream to plan interim.
+	if s.recorder != nil && genOutput.MessageID != "" {
+		s.recorder.RecordMessage(ctx, memory.Message{ID: genOutput.MessageID, Role: "assistant", Actor: "plan"})
 	}
 	if planResult.Elicitation.IsEmpty() {
 		planResult.Elicitation = nil

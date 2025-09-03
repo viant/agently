@@ -28,6 +28,11 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) {
 		msgID = memory.MessageIDFromContext(ctx)
 	}
 	turnID := memory.TurnIDFromContext(ctx)
+	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+		if tm.TurnID != "" {
+			turnID = tm.TurnID
+		}
+	}
 	if msgID != "" && o.r != nil && o.r.Enabled() {
 		o.r.RecordModelCall(ctx, msgID, turnID, info.Provider, info.Model, info.ModelKind, nil, "", nil, o.start.StartedAt, time.Time{}, nil, nil)
 	}
@@ -50,6 +55,11 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
 		msgID = memory.MessageIDFromContext(ctx)
 	}
 	turnID := memory.TurnIDFromContext(ctx)
+	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+		if tm.TurnID != "" {
+			turnID = tm.TurnID
+		}
+	}
 	if msgID == "" || o.r == nil || !o.r.Enabled() {
 		return
 	}
