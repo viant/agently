@@ -38,15 +38,16 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	// Chat & workspace endpoints (existing)
 	// Default policy inherited from environment variable AGENTLY_POLICY or
 	// default to auto. The Serve command will provide an explicit policy via context.
+	apis, store := buildV2(context.Background())
 	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation(),
 		chat.WithExecutionStore(exec.ExecutionStore()),
 		chat.WithPolicies(toolPol, fluxPol),
 		chat.WithApprovalService(exec.ApprovalService()),
+		chat.WithDomainStore(store),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
 
 	// Domain v2 API (DAO-backed). Prefer SQL when configured, fallback to memory.
-	apis, store := buildV2(context.Background())
 	v2h := v2.NewWithAPIs(store, apis)
 	v2h.Register(mux)
 

@@ -149,12 +149,26 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 		rec.SetContent(m.Content)
 	}
 	if m.Elicitation != nil {
-		one := 1
-		rec.Interim = &one
-		if rec.Has == nil {
-			rec.Has = &msgw.MessageHas{}
+		// Persist elicitation payload and link via ElicitationID.
+		if b := toJSONBytes(m.Elicitation); len(b) > 0 {
+			id := uuid.New().String()
+			pw := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
+			pw.SetKind("elicitation")
+			pw.SetMimeType("application/json")
+			pw.SetSizeBytes(len(b))
+			pw.SetStorage("inline")
+			pw.SetInlineBody(b)
+			pw.SetCompression("none")
+			if _, err := w.store.Payloads().Patch(ctx, pw); err == nil {
+				rec.ElicitationID = &id
+				if rec.Has == nil {
+					rec.Has = &msgw.MessageHas{}
+				}
+				rec.Has.ElicitationID = true
+			} else {
+				fmt.Printf("ERROR### Recorder.RecordMessage elicitation: %v\n", err)
+			}
 		}
-		rec.Has.Interim = true
 	}
 
 	if m.Interim != nil && *m.Interim == 1 {
@@ -507,7 +521,9 @@ func toJSONBytes(v interface{}) []byte {
 func New(ctx context.Context) Writer {
 	mode := Mode(os.Getenv("AGENTLY_DOMAIN_MODE"))
 	if mode == "" {
-		mode = ModeOff
+		// Default to shadow writes when not explicitly configured so
+		// v1 endpoints can persist via DAO-backed store out of the box.
+		mode = ModeShadow
 	}
 	if mode == ModeOff {
 		return &Store{mode: ModeOff}
@@ -517,7 +533,8 @@ func New(ctx context.Context) Writer {
 	driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
 	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
 
-	if mode == ModeFull && driver != "" && dsn != "" {
+	// Prefer SQL-backed DAOs whenever a connector is configured, regardless of mode
+	if driver != "" && dsn != "" {
 		if dao, err := datly.New(ctx); err == nil {
 			err = dao.AddConnectors(ctx, view.NewConnector("agently", driver, dsn))
 			if err == nil {

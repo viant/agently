@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/stage"
 	"github.com/viant/agently/genai/tool"
+	convw "github.com/viant/agently/internal/dao/conversation/write"
 	usageread "github.com/viant/agently/internal/dao/usage/read"
 	"github.com/viant/agently/metadata"
 	fluxpol "github.com/viant/fluxor/policy"
@@ -25,7 +27,9 @@ import (
 	"github.com/viant/mcp-protocol/schema"
 
 	"github.com/google/uuid"
+	plan "github.com/viant/agently/genai/agent/plan"
 	msgread "github.com/viant/agently/internal/dao/message/read"
+	plread "github.com/viant/agently/internal/dao/payload/read"
 	d "github.com/viant/agently/internal/domain"
 	"os"
 )
@@ -336,23 +340,80 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		id := uuid.NewString()
 		title := fmt.Sprintf("Conversation at %s", humanTimestamp(time.Now()))
 
-		// Read optional overrides from request body
-		payload := map[string]any{}
-		if r.Body != nil {
-			_ = json.NewDecoder(r.Body).Decode(&payload) // tolerate empty / invalid body
+		// Read optional overrides from request body into a typed struct
+		type createConversationRequest struct {
+			Model      string `json:"model"`
+			Agent      string `json:"agent"`
+			Tools      string `json:"tools"` // comma separated list
+			Title      string `json:"title"`
+			Visibility string `json:"visibility"`
 		}
-		payload["id"] = id
-		payload["title"] = title
-		payload["createdAt"] = time.Now().UTC().Format(time.RFC3339)
+		var req createConversationRequest
+		if r.Body != nil {
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+				// tolerate invalid body for backward compatibility
+				log.Printf("warn: ignoring invalid create conversation body: %v", err)
+			}
+		}
+		if strings.TrimSpace(req.Title) != "" {
+			title = strings.TrimSpace(req.Title)
+		}
+		createdAt := time.Now().UTC().Format(time.RFC3339)
+
+		// Best-effort persist to domain store when available
+		if s.store != nil {
+			cw := &convw.Conversation{Has: &convw.ConversationHas{}}
+			cw.SetId(id)
+			cw.SetTitle(title)
+			cw.SetCreatedAt(time.Now().UTC())
+			// Default visibility is public unless explicitly provided
+			if strings.TrimSpace(req.Visibility) == "" {
+				cw.SetVisibility(convw.VisibilityPublic)
+			} else {
+				cw.SetVisibility(strings.TrimSpace(req.Visibility))
+			}
+			if strings.TrimSpace(req.Agent) != "" {
+				cw.SetAgentName(strings.TrimSpace(req.Agent))
+			}
+			if strings.TrimSpace(req.Model) != "" {
+				cw.SetDefaultModel(strings.TrimSpace(req.Model))
+			}
+			if strings.TrimSpace(req.Tools) != "" {
+				parts := strings.Split(req.Tools, ",")
+				tools := make([]string, 0, len(parts))
+				for _, p := range parts {
+					if s := strings.TrimSpace(p); s != "" {
+						tools = append(tools, s)
+					}
+				}
+				if len(tools) > 0 {
+					meta := map[string]any{"tools": tools}
+					if b, err := json.Marshal(meta); err == nil {
+						cw.SetMetadata(string(b))
+					}
+				}
+			}
+			if _, err := s.store.Conversations().Patch(r.Context(), cw); err != nil {
+				encode(w, http.StatusInternalServerError, nil, fmt.Errorf("failed to persist conversation: %w", err), nil)
+				return
+			}
+		}
 
 		s.titles.Store(id, title)
 
-		// ensure key exists in history store for subsequent list queries
-		if hs, ok := s.mgr.History().(*memory.HistoryStore); ok {
-			hs.EnsureConversation(id)
-		}
+		// No dependency on history store; rely on domain persistence only
 
-		encode(w, http.StatusOK, payload, nil, nil)
+		// Response mirrors request fields in a typed shape for stability
+		type createConversationResponse struct {
+			ID        string `json:"id"`
+			Title     string `json:"title"`
+			CreatedAt string `json:"createdAt"`
+			Model     string `json:"model,omitempty"`
+			Agent     string `json:"agent,omitempty"`
+			Tools     string `json:"tools,omitempty"`
+		}
+		resp := createConversationResponse{ID: id, Title: title, CreatedAt: createdAt, Model: req.Model, Agent: req.Agent, Tools: req.Tools}
+		encode(w, http.StatusOK, resp, nil, nil)
 	case http.MethodGet:
 		id := r.PathValue("id")
 		var err error
@@ -433,8 +494,8 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	var msgs []memory.Message
 	var err error
 
-	// Domain-backed path when enabled
-	if s.store != nil && os.Getenv("AGENTLY_V1_DOMAIN") == "1" {
+	// Domain-backed path when store is available
+	if s.store != nil {
 		// Build read options
 		in := []msgread.InputOption{}
 		// Exclude interim by default to match prior behavior
@@ -457,6 +518,14 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 			}
 			if v.ToolName != nil {
 				m.ToolName = v.ToolName
+			}
+			if v.ElicitationID != nil && s.store != nil {
+				if pv, err := s.store.Payloads().List(r.Context(), plread.WithID(*v.ElicitationID)); err == nil && len(pv) > 0 && pv[0] != nil && pv[0].InlineBody != nil {
+					var e plan.Elicitation
+					if json.Unmarshal(*pv[0].InlineBody, &e) == nil {
+						m.Elicitation = &e
+					}
+				}
 			}
 			out = append(out, m)
 		}
@@ -579,8 +648,8 @@ func (s *Server) handleGetSingleMessage(w http.ResponseWriter, r *http.Request, 
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	// Domain-backed lookup when enabled
-	if s.store != nil && os.Getenv("AGENTLY_V1_DOMAIN") == "1" {
+	// Domain-backed lookup when store is available
+	if s.store != nil {
 		views, err := s.store.Messages().List(r.Context(), msgread.WithIDs(msgID))
 		if err != nil {
 			encode(w, http.StatusInternalServerError, nil, err, nil)
@@ -597,6 +666,14 @@ func (s *Server) handleGetSingleMessage(w http.ResponseWriter, r *http.Request, 
 		}
 		if v.ToolName != nil {
 			mm.ToolName = v.ToolName
+		}
+		if v.ElicitationID != nil && s.store != nil {
+			if pv, err := s.store.Payloads().List(r.Context(), plread.WithID(*v.ElicitationID)); err == nil && len(pv) > 0 && pv[0] != nil && pv[0].InlineBody != nil {
+				var e plan.Elicitation
+				if json.Unmarshal(*pv[0].InlineBody, &e) == nil {
+					mm.Elicitation = &e
+				}
+			}
 		}
 		encode(w, http.StatusOK, mm, nil, nil)
 		return
