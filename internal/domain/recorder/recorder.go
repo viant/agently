@@ -172,7 +172,9 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	if !m.CreatedAt.IsZero() {
 		rec.SetCreatedAt(m.CreatedAt)
 	}
-	_, _ = w.store.Messages().Patch(ctx, rec)
+	if _, err := w.store.Messages().Patch(ctx, rec); err != nil {
+		fmt.Printf("ERROR### Recorder.RecordMessage: %v\n", err)
+	}
 }
 
 func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) {
@@ -189,7 +191,9 @@ func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at
 	if !at.IsZero() {
 		rec.SetCreatedAt(at)
 	}
-	_, _ = w.store.Turns().Start(ctx, rec)
+	if _, err := w.store.Turns().Start(ctx, rec); err != nil {
+		fmt.Printf("ERROR### Recorder.StartTurn: %v\n", err)
+	}
 }
 
 func (w *Store) UpdateTurn(ctx context.Context, turnID, status string) {
@@ -199,7 +203,9 @@ func (w *Store) UpdateTurn(ctx context.Context, turnID, status string) {
 	rec := &turnw.Turn{Has: &turnw.TurnHas{}}
 	rec.SetId(turnID)
 	rec.SetStatus(status)
-	_ = w.store.Turns().Update(ctx, rec)
+	if err := w.store.Turns().Update(ctx, rec); err != nil {
+		fmt.Printf("ERROR### Recorder.UpdateTurn: %v\n", err)
+	}
 }
 
 // ToolCallStart represents the initial tool-call data captured at start.
@@ -235,8 +241,11 @@ func (w *Store) persistToolRequestPayload(ctx context.Context, request map[strin
 		pw.SetStorage("inline")
 		pw.SetInlineBody(sb)
 		pw.SetCompression("none")
-		_, _ = w.store.Payloads().Patch(ctx, pw)
-		reqID = id
+		if _, err := w.store.Payloads().Patch(ctx, pw); err == nil {
+			reqID = id
+		} else {
+			fmt.Printf("ERROR### Recorder.persistToolRequestPayload: %v\n", err)
+		}
 	}
 	return reqID
 }
@@ -253,8 +262,11 @@ func (w *Store) persistToolResponsePayload(ctx context.Context, response interfa
 		pw.SetStorage("inline")
 		pw.SetInlineBody(sb)
 		pw.SetCompression("none")
-		_, _ = w.store.Payloads().Patch(ctx, pw)
-		resID = id
+		if _, err := w.store.Payloads().Patch(ctx, pw); err == nil {
+			resID = id
+		} else {
+			fmt.Printf("ERROR### Recorder.persistToolResponsePayload: %v\n", err)
+		}
 	}
 	return resID
 }
@@ -287,7 +299,9 @@ func (w *Store) StartToolCall(ctx context.Context, start ToolCallStart) {
 		}
 		tw.Has.StartedAt = true
 	}
-	_ = w.store.Operations().RecordToolCall(ctx, tw, reqID, "")
+	if err := w.store.Operations().RecordToolCall(ctx, tw, reqID, ""); err != nil {
+		fmt.Printf("ERROR### Recorder.StartToolCall: %v\n", err)
+	}
 }
 
 // FinishToolCall updates status and persists the response.
@@ -331,7 +345,9 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
 		}
 		tw.Has.Cost = true
 	}
-	_ = w.store.Operations().RecordToolCall(ctx, tw, "", resID)
+	if err := w.store.Operations().RecordToolCall(ctx, tw, "", resID); err != nil {
+		fmt.Printf("ERROR### Recorder.FinishToolCall: %v\n", err)
+	}
 }
 
 // RecordToolCall has been replaced by StartToolCall/FinishToolCall.
@@ -345,7 +361,9 @@ func (w *Store) RecordUsageTotals(ctx context.Context, conversationID string, in
 	rec.SetUsageInputTokens(input)
 	rec.SetUsageOutputTokens(output)
 	rec.SetUsageEmbeddingTokens(embed)
-	_, _ = w.store.Usage().Patch(ctx, rec)
+	if _, err := w.store.Usage().Patch(ctx, rec); err != nil {
+		fmt.Printf("ERROR### Recorder.RecordUsageTotals: %v\n", err)
+	}
 }
 
 // Deprecated RecordModelCall removed; use StartModelCall and FinishModelCall instead.
@@ -365,15 +383,19 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
 	var reqID string
 	if rb := toJSONBytes(start.Request); len(rb) > 0 {
 		b := redact.ScrubJSONBytes(rb, nil)
-		reqID = uuid.New().String()
-		pw := &plw.Payload{Id: reqID, Has: &plw.PayloadHas{Id: true}}
+		id := uuid.New().String()
+		pw := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
 		pw.SetKind("model_request")
 		pw.SetMimeType("application/json")
 		pw.SetSizeBytes(len(b))
 		pw.SetStorage("inline")
 		pw.SetInlineBody(b)
 		pw.SetCompression("none")
-		_, _ = w.store.Payloads().Patch(ctx, pw)
+		if _, err := w.store.Payloads().Patch(ctx, pw); err == nil {
+			reqID = id
+		} else {
+			fmt.Printf("ERROR### Recorder.StartModelCall payload: %v\n", err)
+		}
 	}
 	mw := &mcw.ModelCall{}
 	mw.SetMessageID(start.MessageID)
@@ -400,15 +422,19 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 	var resID string
 	if rb := toJSONBytes(finish.Response); len(rb) > 0 {
 		b := redact.ScrubJSONBytes(rb, nil)
-		resID = uuid.New().String()
-		pw := &plw.Payload{Id: resID, Has: &plw.PayloadHas{Id: true}}
+		id := uuid.New().String()
+		pw := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
 		pw.SetKind("model_response")
 		pw.SetMimeType("application/json")
 		pw.SetSizeBytes(len(b))
 		pw.SetStorage("inline")
 		pw.SetInlineBody(b)
 		pw.SetCompression("none")
-		_, _ = w.store.Payloads().Patch(ctx, pw)
+		if _, err := w.store.Payloads().Patch(ctx, pw); err == nil {
+			resID = id
+		} else {
+			fmt.Printf("ERROR### Recorder.FinishModelCall payload: %v\n", err)
+		}
 	}
 	var pt, ct, tt *int
 	if u := finish.Usage; u != nil {

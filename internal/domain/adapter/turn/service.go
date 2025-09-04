@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"fmt"
 
 	turndao "github.com/viant/agently/internal/dao/turn"
 	read "github.com/viant/agently/internal/dao/turn/read"
@@ -17,11 +18,11 @@ func New(dao turndao.API) *Service { return &Service{dao: dao} }
 var _ d.Turns = (*Service)(nil)
 
 func (s *Service) Start(ctx context.Context, t *write.Turn) (string, error) {
-	if s == nil || s.dao == nil || t == nil {
-		if t != nil {
-			return t.Id, nil
-		}
-		return "", nil
+	if s == nil || s.dao == nil {
+		return "", fmt.Errorf("turn service is not configured")
+	}
+	if t == nil {
+		return "", fmt.Errorf("nil turn")
 	}
 	_, err := s.dao.Patch(ctx, t)
 	if err != nil {
@@ -31,8 +32,11 @@ func (s *Service) Start(ctx context.Context, t *write.Turn) (string, error) {
 }
 
 func (s *Service) Update(ctx context.Context, t *write.Turn) error {
-	if s == nil || s.dao == nil || t == nil {
-		return nil
+	if s == nil || s.dao == nil {
+		return fmt.Errorf("turn service is not configured")
+	}
+	if t == nil {
+		return fmt.Errorf("nil turn")
 	}
 	_, err := s.dao.Patch(ctx, t)
 	return err
@@ -40,7 +44,7 @@ func (s *Service) Update(ctx context.Context, t *write.Turn) error {
 
 func (s *Service) List(ctx context.Context, opts ...read.InputOption) ([]*read.TurnView, error) {
 	if s == nil || s.dao == nil {
-		return []*read.TurnView{}, nil
+		return nil, fmt.Errorf("turn service is not configured")
 	}
 	return s.dao.List(ctx, opts...)
 }

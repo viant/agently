@@ -2,6 +2,7 @@ package usage
 
 import (
 	"context"
+	"fmt"
 
 	dao "github.com/viant/agently/internal/dao/usage"
 	read "github.com/viant/agently/internal/dao/usage/read"
@@ -18,14 +19,14 @@ var _ d.Usage = (*Service)(nil)
 
 func (s *Service) List(ctx context.Context, in read.Input) ([]*read.UsageView, error) {
 	if s == nil || s.dao == nil {
-		return []*read.UsageView{}, nil
+		return nil, fmt.Errorf("usage service is not configured")
 	}
 	return s.dao.List(ctx, in)
 }
 
 func (s *Service) Patch(ctx context.Context, usages ...*write.Usage) (*write.Output, error) {
 	if s == nil || s.dao == nil {
-		return &write.Output{}, nil
+		return nil, fmt.Errorf("usage service is not configured")
 	}
 	return s.dao.Patch(ctx, usages...)
 }

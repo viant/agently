@@ -105,14 +105,22 @@ func (a *Service) GetTranscriptAggregated(ctx context.Context, conversationID, t
 		if opts.IncludeModelCalls {
 			mc := v.ModelCall
 			if mc == nil && a.API != nil && a.API.ModelCall != nil {
-				if rows, _ := a.API.ModelCall.List(ctx, mcread.WithMessageID(v.Id)); len(rows) > 0 {
+				rows, err := a.API.ModelCall.List(ctx, mcread.WithMessageID(v.Id))
+				if err != nil {
+					return nil, err
+				}
+				if len(rows) > 0 {
 					row := rows[0]
 					am.Model = &d.ModelCallTrace{Call: row}
 					if row.RequestPayloadID != nil {
 						if a.API == nil || a.API.Payload == nil {
 							return nil, fmt.Errorf("payload API is not configured (model request payload)")
 						}
-						if p, _ := a.API.Payload.List(ctx, pldaoRead.WithID(*row.RequestPayloadID)); len(p) > 0 {
+						p, err := a.API.Payload.List(ctx, pldaoRead.WithID(*row.RequestPayloadID))
+						if err != nil {
+							return nil, err
+						}
+						if len(p) > 0 {
 							am.Model.Request = mapPayloadView(p[0], opts)
 						}
 					}
@@ -120,7 +128,11 @@ func (a *Service) GetTranscriptAggregated(ctx context.Context, conversationID, t
 						if a.API == nil || a.API.Payload == nil {
 							return nil, fmt.Errorf("payload API is not configured (model response payload)")
 						}
-						if p, _ := a.API.Payload.List(ctx, pldaoRead.WithID(*row.ResponsePayloadID)); len(p) > 0 {
+						p, err := a.API.Payload.List(ctx, pldaoRead.WithID(*row.ResponsePayloadID))
+						if err != nil {
+							return nil, err
+						}
+						if len(p) > 0 {
 							am.Model.Response = mapPayloadView(p[0], opts)
 						}
 					}
@@ -152,7 +164,11 @@ func (a *Service) GetTranscriptAggregated(ctx context.Context, conversationID, t
 					if a.API == nil || a.API.Payload == nil {
 						return nil, fmt.Errorf("payload API is not configured (model request payload)")
 					}
-					if p, _ := a.API.Payload.List(ctx, pldaoRead.WithID(*mc.RequestPayloadID)); len(p) > 0 {
+					p, err := a.API.Payload.List(ctx, pldaoRead.WithID(*mc.RequestPayloadID))
+					if err != nil {
+						return nil, err
+					}
+					if len(p) > 0 {
 						am.Model.Request = mapPayloadView(p[0], opts)
 					}
 				}
@@ -160,7 +176,11 @@ func (a *Service) GetTranscriptAggregated(ctx context.Context, conversationID, t
 					if a.API == nil || a.API.Payload == nil {
 						return nil, fmt.Errorf("payload API is not configured (model response payload)")
 					}
-					if p, _ := a.API.Payload.List(ctx, pldaoRead.WithID(*mc.ResponsePayloadID)); len(p) > 0 {
+					p, err := a.API.Payload.List(ctx, pldaoRead.WithID(*mc.ResponsePayloadID))
+					if err != nil {
+						return nil, err
+					}
+					if len(p) > 0 {
 						am.Model.Response = mapPayloadView(p[0], opts)
 					}
 				}
@@ -170,7 +190,11 @@ func (a *Service) GetTranscriptAggregated(ctx context.Context, conversationID, t
 		if opts.IncludeToolCalls {
 			tc := v.ToolCall
 			if tc == nil && a.API != nil && a.API.ToolCall != nil {
-				if rows, _ := a.API.ToolCall.List(ctx, tcread.WithMessageID(v.Id)); len(rows) > 0 {
+				rows, err := a.API.ToolCall.List(ctx, tcread.WithMessageID(v.Id))
+				if err != nil {
+					return nil, err
+				}
+				if len(rows) > 0 {
 					row := rows[0]
 					am.Tool = &d.ToolCallTrace{Call: row}
 					if opts.PayloadLevel != d.PayloadNone && opts.PayloadLevel != d.PayloadFull {

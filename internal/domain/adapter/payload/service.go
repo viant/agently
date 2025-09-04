@@ -2,6 +2,7 @@ package payload
 
 import (
 	"context"
+	"fmt"
 
 	dao "github.com/viant/agently/internal/dao/payload"
 	read "github.com/viant/agently/internal/dao/payload/read"
@@ -19,7 +20,7 @@ var _ d.Payloads = (*Service)(nil)
 // Patch implements domain.Payloads.Patch using DAO write.
 func (s *Service) Patch(ctx context.Context, payloads ...*write.Payload) (*write.Output, error) {
 	if s == nil || s.dao == nil {
-		return &write.Output{}, nil
+		return nil, fmt.Errorf("payload service is not configured")
 	}
 	return s.dao.Patch(ctx, payloads...)
 }
@@ -27,7 +28,7 @@ func (s *Service) Patch(ctx context.Context, payloads ...*write.Payload) (*write
 // Get returns a DAO read view by ID.
 func (s *Service) Get(ctx context.Context, id string) (*read.PayloadView, error) {
 	if s == nil || s.dao == nil {
-		return nil, nil
+		return nil, fmt.Errorf("payload service is not configured")
 	}
 	rows, err := s.dao.List(ctx, read.WithID(id))
 	if err != nil || len(rows) == 0 {
@@ -39,7 +40,7 @@ func (s *Service) Get(ctx context.Context, id string) (*read.PayloadView, error)
 // List returns DAO read views using input options.
 func (s *Service) List(ctx context.Context, opts ...read.InputOption) ([]*read.PayloadView, error) {
 	if s == nil || s.dao == nil {
-		return []*read.PayloadView{}, nil
+		return nil, fmt.Errorf("payload service is not configured")
 	}
 	return s.dao.List(ctx, opts...)
 }

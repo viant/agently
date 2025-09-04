@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"fmt"
 
 	convdao "github.com/viant/agently/internal/dao/conversation"
 	convread "github.com/viant/agently/internal/dao/conversation/read"
@@ -24,7 +25,7 @@ var _ d.Conversations = (*Service)(nil)
 // Patch upserts conversations using DAO write model.
 func (s *Service) Patch(ctx context.Context, conversations ...*convwrite.Conversation) (*convwrite.Output, error) {
 	if s == nil || s.conv == nil {
-		return &convwrite.Output{}, nil
+		return nil, fmt.Errorf("conversation service is not configured")
 	}
 	return s.conv.PatchConversations(ctx, conversations...)
 }
@@ -32,7 +33,7 @@ func (s *Service) Patch(ctx context.Context, conversations ...*convwrite.Convers
 // Get returns a single conversation view by id.
 func (s *Service) Get(ctx context.Context, id string) (*convread.ConversationView, error) {
 	if s == nil || s.conv == nil {
-		return nil, nil
+		return nil, fmt.Errorf("conversation service is not configured")
 	}
 	return s.conv.GetConversation(ctx, id)
 }
@@ -40,7 +41,7 @@ func (s *Service) Get(ctx context.Context, id string) (*convread.ConversationVie
 // List queries conversations using input options.
 func (s *Service) List(ctx context.Context, opts ...convread.ConversationInputOption) ([]*convread.ConversationView, error) {
 	if s == nil || s.conv == nil {
-		return []*convread.ConversationView{}, nil
+		return nil, fmt.Errorf("conversation service is not configured")
 	}
 	return s.conv.GetConversations(ctx, opts...)
 }
@@ -48,7 +49,7 @@ func (s *Service) List(ctx context.Context, opts ...convread.ConversationInputOp
 // UpdateUsageTotals writes usage counters via usage write component.
 func (s *Service) UpdateUsageTotals(ctx context.Context, id string, totals d.UsageTotals) error {
 	if s == nil || s.usage == nil {
-		return nil
+		return fmt.Errorf("usage service is not configured")
 	}
 	w := &usagew.Usage{}
 	w.SetConversationID(id)

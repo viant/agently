@@ -102,21 +102,32 @@ func ensureMCHas(h **mcwrite.ModelCallHas) {
 func (a *Service) GetByMessage(ctx context.Context, messageID string) ([]*d.Operation, error) {
 	var out []*d.Operation
 	if a == nil || a.API == nil {
-		return out, nil
+		return nil, fmt.Errorf("operations service is not configured")
 	}
 	if a.API.ModelCall != nil {
-		views, _ := a.API.ModelCall.List(ctx, mcread.WithMessageID(messageID))
+		views, err := a.API.ModelCall.List(ctx, mcread.WithMessageID(messageID))
+		if err != nil {
+			return nil, err
+		}
 		for _, v := range views {
 			op := &d.Operation{MessageID: v.MessageID}
 			op.Model = &d.ModelCallTrace{Call: v}
 			if a.API.Payload != nil {
 				if v.RequestPayloadID != nil && *v.RequestPayloadID != "" {
-					if rows, _ := a.API.Payload.List(ctx, pldaoRead.WithID(*v.RequestPayloadID)); len(rows) > 0 {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(*v.RequestPayloadID))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
 						op.Model.Request = rows[0]
 					}
 				}
 				if v.ResponsePayloadID != nil && *v.ResponsePayloadID != "" {
-					if rows, _ := a.API.Payload.List(ctx, pldaoRead.WithID(*v.ResponsePayloadID)); len(rows) > 0 {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(*v.ResponsePayloadID))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
 						op.Model.Response = rows[0]
 					}
 				}
@@ -125,18 +136,29 @@ func (a *Service) GetByMessage(ctx context.Context, messageID string) ([]*d.Oper
 		}
 	}
 	if a.API.ToolCall != nil {
-		views, _ := a.API.ToolCall.List(ctx, tcread.WithMessageID(messageID))
+		views, err := a.API.ToolCall.List(ctx, tcread.WithMessageID(messageID))
+		if err != nil {
+			return nil, err
+		}
 		for _, v := range views {
 			op := &d.Operation{MessageID: v.MessageID}
 			op.Tool = &d.ToolCallTrace{Call: v}
 			if a.API.Payload != nil {
 				if id := payloadIDFromSnapshot(v.RequestSnapshot); id != "" {
-					if rows, _ := a.API.Payload.List(ctx, pldaoRead.WithID(id)); len(rows) > 0 {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(id))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
 						op.Tool.Request = rows[0]
 					}
 				}
 				if id := payloadIDFromSnapshot(v.ResponseSnapshot); id != "" {
-					if rows, _ := a.API.Payload.List(ctx, pldaoRead.WithID(id)); len(rows) > 0 {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(id))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
 						op.Tool.Response = rows[0]
 					}
 				}
@@ -150,21 +172,32 @@ func (a *Service) GetByMessage(ctx context.Context, messageID string) ([]*d.Oper
 func (a *Service) GetByTurn(ctx context.Context, turnID string) ([]*d.Operation, error) {
 	var out []*d.Operation
 	if a == nil || a.API == nil {
-		return out, nil
+		return nil, fmt.Errorf("operations service is not configured")
 	}
 	if a.API.ModelCall != nil {
-		views, _ := a.API.ModelCall.List(ctx, mcread.WithTurnID(turnID))
+		views, err := a.API.ModelCall.List(ctx, mcread.WithTurnID(turnID))
+		if err != nil {
+			return nil, err
+		}
 		for _, v := range views {
 			op := &d.Operation{MessageID: v.MessageID, TurnID: v.TurnID}
 			op.Model = &d.ModelCallTrace{Call: v}
 			if a.API.Payload != nil {
 				if v.RequestPayloadID != nil && *v.RequestPayloadID != "" {
-					if rows, _ := a.API.Payload.List(ctx, pldaoRead.WithID(*v.RequestPayloadID)); len(rows) > 0 {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(*v.RequestPayloadID))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
 						op.Model.Request = rows[0]
 					}
 				}
 				if v.ResponsePayloadID != nil && *v.ResponsePayloadID != "" {
-					if rows, _ := a.API.Payload.List(ctx, pldaoRead.WithID(*v.ResponsePayloadID)); len(rows) > 0 {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(*v.ResponsePayloadID))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
 						op.Model.Response = rows[0]
 					}
 				}
@@ -173,18 +206,29 @@ func (a *Service) GetByTurn(ctx context.Context, turnID string) ([]*d.Operation,
 		}
 	}
 	if a.API.ToolCall != nil {
-		views, _ := a.API.ToolCall.List(ctx, tcread.WithTurnID(turnID))
+		views, err := a.API.ToolCall.List(ctx, tcread.WithTurnID(turnID))
+		if err != nil {
+			return nil, err
+		}
 		for _, v := range views {
 			op := &d.Operation{MessageID: v.MessageID, TurnID: v.TurnID}
 			op.Tool = &d.ToolCallTrace{Call: v}
 			if a.API.Payload != nil {
 				if id := payloadIDFromSnapshot(v.RequestSnapshot); id != "" {
-					if rows, _ := a.API.Payload.List(ctx, pldaoRead.WithID(id)); len(rows) > 0 {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(id))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
 						op.Tool.Request = rows[0]
 					}
 				}
 				if id := payloadIDFromSnapshot(v.ResponseSnapshot); id != "" {
-					if rows, _ := a.API.Payload.List(ctx, pldaoRead.WithID(id)); len(rows) > 0 {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(id))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
 						op.Tool.Response = rows[0]
 					}
 				}

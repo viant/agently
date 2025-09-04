@@ -221,7 +221,9 @@ func (s *Service) ensureConversation(ctx context.Context, qi *QueryInput) error 
 		w := &convw.Conversation{Has: &convw.ConversationHas{}}
 		w.SetId(convID)
 		w.SetDefaultModel(qi.ModelOverride)
-		_, _ = s.store.Conversations().Patch(ctx, w)
+		if _, err := s.store.Conversations().Patch(ctx, w); err != nil {
+			return fmt.Errorf("failed to update conversation default model: %w", err)
+		}
 	}
 
 	if len(qi.ToolsAllowed) == 0 {
@@ -253,7 +255,9 @@ func (s *Service) ensureConversation(ctx context.Context, qi *QueryInput) error 
 			w := &convw.Conversation{Has: &convw.ConversationHas{}}
 			w.SetId(convID)
 			w.SetMetadata(string(b))
-			_, _ = s.store.Conversations().Patch(ctx, w)
+			if _, err := s.store.Conversations().Patch(ctx, w); err != nil {
+				return fmt.Errorf("failed to update conversation tools: %w", err)
+			}
 		}
 	}
 	chosenAgent := ""
@@ -270,7 +274,9 @@ func (s *Service) ensureConversation(ctx context.Context, qi *QueryInput) error 
 		w := &convw.Conversation{Has: &convw.ConversationHas{}}
 		w.SetId(convID)
 		w.SetAgentName(chosenAgent)
-		_, _ = s.store.Conversations().Patch(ctx, w)
+		if _, err := s.store.Conversations().Patch(ctx, w); err != nil {
+			return fmt.Errorf("failed to update conversation agent: %w", err)
+		}
 	}
 	return nil
 }
@@ -337,7 +343,10 @@ func (s *Service) persistCompletedContext(ctx context.Context, convID string, qi
 	if convID == "" || len(qi.Context) == 0 {
 		return nil
 	}
-	cv, _ := s.store.Conversations().Get(ctx, convID)
+	cv, err := s.store.Conversations().Get(ctx, convID)
+	if err != nil {
+		return fmt.Errorf("failed to load conversation: %w", err)
+	}
 	meta := map[string]interface{}{}
 	if cv != nil && cv.Metadata != nil && strings.TrimSpace(*cv.Metadata) != "" {
 		_ = json.Unmarshal([]byte(*cv.Metadata), &meta)
