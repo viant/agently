@@ -305,6 +305,7 @@ func (s *Service) validateAndMaybeElicit(ctx context.Context, qi *QueryInput, qo
 		return true, nil
 	}
 	s.enrichContextFromHistory(ctx, qi)
+
 	if missing := validateContext(qi); len(missing) > 0 {
 		autoAttempted := false
 		if qi.ElicitationMode == "agent" || qi.ElicitationMode == "hybrid" {
@@ -475,9 +476,70 @@ func (s *Service) buildCrossTurnContext(ctx context.Context, conversationID stri
 }
 
 // enrichContextFromHistory scans existing user messages in the conversation
-// for JSON objects and copies any fields that are required by the elicitation
-// schema but not yet present in qi.Context.
-func (s *Service) enrichContextFromHistory(ctx context.Context, qi *QueryInput) { /* deprecated in v1 */
+// (via domain message API) for JSON objects and copies any fields that are
+// required by the elicitation schema but not yet present in qi.Context.
+func (s *Service) enrichContextFromHistory(ctx context.Context, qi *QueryInput) {
+	if qi == nil || qi.Agent == nil || qi.Agent.Elicitation == nil {
+		return
+	}
+	convID := s.conversationID(qi)
+	// Use domain message API; skip when store/messages facet is unavailable.
+	if convID == "" || s.store == nil || s.store.Messages() == nil {
+		return
+	}
+
+	// Build a lookup of missing keys.
+	required := make(map[string]struct{})
+	for _, k := range qi.Agent.Elicitation.RequestedSchema.Required {
+		if qi.Context != nil {
+			if _, ok := qi.Context[k]; ok {
+				continue // already satisfied
+			}
+		}
+		required[k] = struct{}{}
+	}
+	if len(required) == 0 {
+		return
+	}
+
+	msgs, err := s.store.Messages().List(ctx,
+		msgread.WithConversationID(convID),
+		msgread.WithRoles("user"),
+		msgread.WithInterim(0),
+	)
+	if err != nil || len(msgs) == 0 {
+		return
+	}
+	// Process chronologically to preserve prior behavior.
+	sort.SliceStable(msgs, func(i, j int) bool {
+		li, lj := msgs[i], msgs[j]
+		if li.CreatedAt != nil && lj.CreatedAt != nil {
+			return li.CreatedAt.Before(*lj.CreatedAt)
+		}
+		return i < j
+	})
+
+	for _, m := range msgs {
+		if len(required) == 0 {
+			break // all satisfied
+		}
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(m.Content)), &obj); err != nil {
+			continue // not a JSON object
+		}
+		if len(obj) == 0 {
+			continue
+		}
+		if qi.Context == nil {
+			qi.Context = map[string]interface{}{}
+		}
+		for k := range required {
+			if val, ok := obj[k]; ok {
+				qi.Context[k] = val
+				delete(required, k)
+			}
+		}
+	}
 }
 
 // --------------- Small helpers ------------------------------------------------
@@ -892,6 +954,10 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 
 	// Refine schema for better UX.
 	refiner.Refine(&elic.RequestedSchema)
+	// Ensure elicitationId is present for client correlation.
+	if strings.TrimSpace(elic.ElicitationId) == "" {
+		elic.ElicitationId = uuid.New().String()
+	}
 	parentID := memory.MessageIDFromContext(ctx)
 	if messageID != "" {
 		parentID = messageID

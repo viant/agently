@@ -88,7 +88,7 @@ CREATE INDEX idx_msg_conv_created ON message (conversation_id, created_at DESC);
 CREATE TABLE call_payloads (
     id                         TEXT PRIMARY KEY,
     tenant_id                  TEXT,
-    kind                       TEXT NOT NULL CHECK (kind IN ('model_request','model_response','tool_request','tool_response')),
+    kind                       TEXT NOT NULL CHECK (kind IN ('model_request','model_response','tool_request','tool_response', 'elicitation_request')),
     subtype                    TEXT,
     mime_type                  TEXT NOT NULL,
     size_bytes                 INTEGER NOT NULL,

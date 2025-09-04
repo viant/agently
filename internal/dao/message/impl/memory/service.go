@@ -136,6 +136,9 @@ func (s *Service) Patch(ctx context.Context, messages ...*write.Message) (*write
 			if rec.Has.Content {
 				mv.Content = rec.Content
 			}
+			if rec.Has.ElicitationID {
+				mv.ElicitationID = rec.ElicitationID
+			}
 			if rec.Has.Interim {
 				mv.Interim = rec.Interim
 			}

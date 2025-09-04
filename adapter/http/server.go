@@ -26,12 +26,13 @@ import (
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/mcp-protocol/schema"
 
+	"os"
+
 	"github.com/google/uuid"
 	plan "github.com/viant/agently/genai/agent/plan"
 	msgread "github.com/viant/agently/internal/dao/message/read"
 	plread "github.com/viant/agently/internal/dao/payload/read"
 	d "github.com/viant/agently/internal/domain"
-	"os"
 )
 
 // Server wraps a conversation manager and exposes minimal REST endpoints:
@@ -486,6 +487,11 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	// 1. Determine filter semantics
 	// ------------------------------------------------------------------
 	sinceId := strings.TrimSpace(r.URL.Query().Get("since"))
+	// Some clients append synthetic suffixes (e.g. "/form") to message IDs for UI-only entries.
+	// Make since tolerant by stripping any suffix after the first '/'.
+	if idx := strings.IndexByte(sinceId, '/'); idx > 0 {
+		sinceId = sinceId[:idx]
+	}
 	parentId := strings.TrimSpace(r.URL.Query().Get("parentId")) // legacy
 
 	// ------------------------------------------------------------------
@@ -520,7 +526,8 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 				m.ToolName = v.ToolName
 			}
 			if v.ElicitationID != nil && s.store != nil {
-				if pv, err := s.store.Payloads().List(r.Context(), plread.WithID(*v.ElicitationID)); err == nil && len(pv) > 0 && pv[0] != nil && pv[0].InlineBody != nil {
+				pv, err := s.store.Payloads().List(r.Context(), plread.WithID(*v.ElicitationID))
+				if err == nil && len(pv) > 0 && pv[0] != nil && pv[0].InlineBody != nil {
 					var e plan.Elicitation
 					if json.Unmarshal(*pv[0].InlineBody, &e) == nil {
 						m.Elicitation = &e

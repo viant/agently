@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useMemo, useState} from 'react';
 import {Dialog, Classes, Button, Spinner} from '@blueprintjs/core';
 import {SchemaBasedForm} from 'forge/components';
 
@@ -23,6 +23,22 @@ export default function MCPForm({message, context}) {
 
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
+    const [formValues, setFormValues] = useState(null);
+
+    const defaultsPayload = useMemo(() => {
+        try {
+            const props = (requestedSchema && requestedSchema.properties) || {};
+            const out = {};
+            Object.keys(props).forEach((k) => {
+                if (props[k] && props[k].default !== undefined) {
+                    out[k] = props[k].default;
+                }
+            });
+            return out;
+        } catch (e) {
+            return {};
+        }
+    }, [requestedSchema]);
 
     const closeLocal = () => {
         const collSig = context.Context('messages').signals?.collection;
@@ -78,6 +94,7 @@ export default function MCPForm({message, context}) {
                             dataBinding={`window.state.answers.${id}`}
                             transport="post"
                             onSubmit={(payload) => post('accept', payload)}
+                            onChange={(payload) => setFormValues(payload)}
                         />
                     </div>
 
@@ -99,7 +116,13 @@ export default function MCPForm({message, context}) {
                       <Button intent="primary" onClick={() => post('accept', {})} disabled={submitting}>
                           Accept
                       </Button>
-                    ) : null}
+                    ) : (
+                      // Always-enabled submit for elicitation forms to suppress pristine/dirty gating in Forge.
+                      // Uses latest form values when available, otherwise falls back to schema defaults.
+                      <Button intent="primary" onClick={() => post('accept', formValues ?? defaultsPayload)} disabled={submitting}>
+                        Submit
+                      </Button>
+                    )}
                 </div>
             </div>
         </Dialog>

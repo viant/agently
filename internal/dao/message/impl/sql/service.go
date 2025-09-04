@@ -55,7 +55,10 @@ func (s *Service) List(ctx context.Context, opts ...read2.InputOption) ([]*read2
 // Includes roles: user, assistant, tool. Excludes control and interim by default.
 // Tool messages are de-duplicated by op_id keeping the latest attempt.
 func (s *Service) GetTranscript(ctx context.Context, conversationID, turnID string, opts ...read2.InputOption) ([]*read2.MessageView, error) {
-	in := &read2.Input{ConversationID: conversationID, TurnID: turnID, Has: &read2.Has{ConversationID: true, TurnID: true}}
+	in := &read2.Input{ConversationID: conversationID, TurnID: turnID, Has: &read2.Has{ConversationID: true}}
+	if turnID != "" {
+		in.Has.TurnID = true
+	}
 	for _, opt := range opts {
 		opt(in)
 	}
@@ -92,7 +95,7 @@ func (s *Service) GetConversation(ctx context.Context, conversationID string, op
 		if m.Type == "control" {
 			continue
 		}
-		if m.Interim != nil && *m.Interim == 1 {
+		if m.IsInterim() {
 			continue
 		}
 		if m.Role == "user" || m.Role == "assistant" {

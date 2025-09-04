@@ -148,26 +148,25 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	if m.Content != "" {
 		rec.SetContent(m.Content)
 	}
+
+	var elicitationRec *plw.Payload
+	var elicitationPayloadID string
+
 	if m.Elicitation != nil {
 		// Persist elicitation payload and link via ElicitationID.
+		// Use payload ID as canonical elicitation_id so POST/lookup can round-trip reliably.
+		pid := uuid.New().String()
+		// Ensure the payload body carries the same opaque ID.
+		m.Elicitation.ElicitationId = pid
 		if b := toJSONBytes(m.Elicitation); len(b) > 0 {
-			id := uuid.New().String()
-			pw := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
-			pw.SetKind("elicitation")
-			pw.SetMimeType("application/json")
-			pw.SetSizeBytes(len(b))
-			pw.SetStorage("inline")
-			pw.SetInlineBody(b)
-			pw.SetCompression("none")
-			if _, err := w.store.Payloads().Patch(ctx, pw); err == nil {
-				rec.ElicitationID = &id
-				if rec.Has == nil {
-					rec.Has = &msgw.MessageHas{}
-				}
-				rec.Has.ElicitationID = true
-			} else {
-				fmt.Printf("ERROR### Recorder.RecordMessage elicitation: %v\n", err)
-			}
+			elicitationRec = &plw.Payload{Id: pid, Has: &plw.PayloadHas{Id: true}}
+			elicitationRec.SetKind("elicitation_request")
+			elicitationRec.SetMimeType("application/json")
+			elicitationRec.SetSizeBytes(len(b))
+			elicitationRec.SetStorage("inline")
+			elicitationRec.SetInlineBody(b)
+			elicitationRec.SetCompression("none")
+			elicitationPayloadID = pid
 		}
 	}
 
@@ -186,9 +185,21 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	if !m.CreatedAt.IsZero() {
 		rec.SetCreatedAt(m.CreatedAt)
 	}
+
+	if elicitationRec != nil {
+		if _, err := w.store.Payloads().Patch(ctx, elicitationRec); err == nil {
+			// Store payload ID as message.elicitation_id for consistent matching on POST.
+			if elicitationPayloadID != "" {
+				rec.SetElicitationID(elicitationPayloadID)
+			}
+		} else {
+			fmt.Printf("ERROR### Recorder.RecordMessage elicitation: %v\n", err)
+		}
+	}
 	if _, err := w.store.Messages().Patch(ctx, rec); err != nil {
 		fmt.Printf("ERROR### Recorder.RecordMessage: %v\n", err)
 	}
+
 }
 
 func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) {

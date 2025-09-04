@@ -68,3 +68,9 @@ func (m *Message) SetParentMessageID(v string) {
 	m.ensureHas()
 	m.Has.ParentMessageID = true
 }
+
+func (m *Message) SetElicitationID(id string) {
+	m.ElicitationID = &id
+	m.ensureHas()
+	m.Has.ElicitationID = true
+}
