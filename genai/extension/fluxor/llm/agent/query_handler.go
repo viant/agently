@@ -504,7 +504,7 @@ func (s *Service) enrichContextFromHistory(ctx context.Context, qi *QueryInput) 
 
 	msgs, err := s.store.Messages().List(ctx,
 		msgread.WithConversationID(convID),
-		msgread.WithRoles("user"),
+		msgread.WithRoles("user", "assistant"),
 		msgread.WithInterim(0),
 	)
 	if err != nil || len(msgs) == 0 {

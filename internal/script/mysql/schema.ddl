@@ -76,7 +76,7 @@ CREATE TABLE `message` (
                            created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                            role                VARCHAR(255) NOT NULL CHECK (role IN ('system','user','assistant','tool','control')),
                            `type`              VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text','tool_op','control')),
-                           content             TEXT NOT NULL,
+                           content             MEDIUMTEXT NOT NULL,
                            context_summary     TEXT,
                            tags                TEXT,
                            interim             BIGINT NOT NULL DEFAULT 0 CHECK (interim IN (0,1)),

@@ -146,6 +146,9 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	// memory.Message has no Type; default to text
 	rec.SetType("text")
 	if m.Content != "" {
+		if len(m.Content) > 65535 {
+			fmt.Printf("WARN### Recorder.RecordMessage: content size %dB exceeds 65535; message may be truncated or rejected\n", len(m.Content))
+		}
 		rec.SetContent(m.Content)
 	}
 
