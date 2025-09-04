@@ -180,6 +180,8 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 			rec.Has = &msgw.MessageHas{}
 		}
 		rec.Has.Interim = true
+		rec.Content = "TODO content available in payload" // TODO Placeholder until we support payloads for messages
+		rec.Has.Content = true
 	}
 
 	if m.ToolName != nil {

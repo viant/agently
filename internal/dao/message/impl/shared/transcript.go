@@ -25,7 +25,7 @@ func BuildTranscript(rows []*read.MessageView, excludeInterim bool) []*read.Mess
 			return *li.Sequence < *lj.Sequence
 		}
 		if li.CreatedAt != nil && lj.CreatedAt != nil {
-			return li.CreatedAt.After(*lj.CreatedAt)
+			return li.CreatedAt.Before(*lj.CreatedAt)
 		}
 		return i < j
 	})

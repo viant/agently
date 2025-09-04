@@ -45,7 +45,8 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) context.C
 			}
 		}
 		if convID != "" {
-			o.r.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: parentID, ConversationID: convID, Role: "assistant", Content: string(info.Payload), CreatedAt: time.Now()})
+			one := 1
+			o.r.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: parentID, ConversationID: convID, Role: "assistant", Content: string(info.Payload), CreatedAt: time.Now(), Interim: &one})
 		}
 		o.r.StartModelCall(ctx, rec.ModelCallStart{MessageID: msgID, TurnID: turnID, Provider: info.Provider, Model: info.Model, ModelKind: info.ModelKind, StartedAt: o.start.StartedAt, Request: info.RequestJSON})
 	}

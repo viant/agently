@@ -518,6 +518,9 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 			if v == nil {
 				continue
 			}
+			if v.IsInterim() {
+				continue
+			}
 			m := memory.Message{ID: v.Id, ConversationID: v.ConversationID, Role: v.Role, Content: v.Content}
 			if v.CreatedAt != nil {
 				m.CreatedAt = *v.CreatedAt
