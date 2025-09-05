@@ -40,7 +40,6 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	// default to auto. The Serve command will provide an explicit policy via context.
 	apis, store := buildV2(context.Background())
 	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation(),
-		chat.WithExecutionStore(exec.ExecutionStore()),
 		chat.WithPolicies(toolPol, fluxPol),
 		chat.WithApprovalService(exec.ApprovalService()),
 		chat.WithDomainStore(store),

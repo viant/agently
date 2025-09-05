@@ -45,10 +45,8 @@ import (
 //
 // The server is designed to be simple and lightweight, suitable for quick
 type Server struct {
-	mgr            *conversation.Manager
-	executionStore *memory.ExecutionStore
-	titles         sync.Map // convID -> title
-
+	mgr         *conversation.Manager
+	titles      sync.Map // convID -> title
 	toolPolicy  *tool.Policy
 	fluxPolicy  *fluxpol.Policy
 	approvalSvc approval.Service
@@ -79,9 +77,7 @@ type ServerOption func(*Server)
 
 // WithExecutionStore attaches an in-memory ExecutionTrace store so that GET
 // /v1/api/conversations/{id}/tool-trace can return audit information.
-func WithExecutionStore(ts *memory.ExecutionStore) ServerOption {
-	return func(s *Server) { s.executionStore = ts }
-}
+// WithExecutionStore removed; execution traces now reconstructed from DAO tool_calls when needed.
 
 // WithPolicies injects default tool & fluxor policies so that API requests
 // inherit the configured mode (auto/ask/deny).
@@ -363,42 +359,40 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		createdAt := time.Now().UTC().Format(time.RFC3339)
 
 		// Best-effort persist to domain store when available
-		if s.store != nil {
-			cw := &convw.Conversation{Has: &convw.ConversationHas{}}
-			cw.SetId(id)
-			cw.SetTitle(title)
-			cw.SetCreatedAt(time.Now().UTC())
-			// Default visibility is public unless explicitly provided
-			if strings.TrimSpace(req.Visibility) == "" {
-				cw.SetVisibility(convw.VisibilityPublic)
-			} else {
-				cw.SetVisibility(strings.TrimSpace(req.Visibility))
-			}
-			if strings.TrimSpace(req.Agent) != "" {
-				cw.SetAgentName(strings.TrimSpace(req.Agent))
-			}
-			if strings.TrimSpace(req.Model) != "" {
-				cw.SetDefaultModel(strings.TrimSpace(req.Model))
-			}
-			if strings.TrimSpace(req.Tools) != "" {
-				parts := strings.Split(req.Tools, ",")
-				tools := make([]string, 0, len(parts))
-				for _, p := range parts {
-					if s := strings.TrimSpace(p); s != "" {
-						tools = append(tools, s)
-					}
-				}
-				if len(tools) > 0 {
-					meta := map[string]any{"tools": tools}
-					if b, err := json.Marshal(meta); err == nil {
-						cw.SetMetadata(string(b))
-					}
+		cw := &convw.Conversation{Has: &convw.ConversationHas{}}
+		cw.SetId(id)
+		cw.SetTitle(title)
+		cw.SetCreatedAt(time.Now().UTC())
+		// Default visibility is public unless explicitly provided
+		if strings.TrimSpace(req.Visibility) == "" {
+			cw.SetVisibility(convw.VisibilityPublic)
+		} else {
+			cw.SetVisibility(strings.TrimSpace(req.Visibility))
+		}
+		if strings.TrimSpace(req.Agent) != "" {
+			cw.SetAgentName(strings.TrimSpace(req.Agent))
+		}
+		if strings.TrimSpace(req.Model) != "" {
+			cw.SetDefaultModel(strings.TrimSpace(req.Model))
+		}
+		if strings.TrimSpace(req.Tools) != "" {
+			parts := strings.Split(req.Tools, ",")
+			tools := make([]string, 0, len(parts))
+			for _, p := range parts {
+				if s := strings.TrimSpace(p); s != "" {
+					tools = append(tools, s)
 				}
 			}
-			if _, err := s.store.Conversations().Patch(r.Context(), cw); err != nil {
-				encode(w, http.StatusInternalServerError, nil, fmt.Errorf("failed to persist conversation: %w", err), nil)
-				return
+			if len(tools) > 0 {
+				meta := map[string]any{"tools": tools}
+				if b, err := json.Marshal(meta); err == nil {
+					cw.SetMetadata(string(b))
+				}
 			}
+		}
+		if _, err := s.store.Conversations().Patch(r.Context(), cw); err != nil {
+			encode(w, http.StatusInternalServerError, nil, fmt.Errorf("failed to persist conversation: %w", err), nil)
+			return
 		}
 
 		s.titles.Store(id, title)
@@ -535,7 +529,7 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		if v.ToolName != nil {
 			m.ToolName = v.ToolName
 		}
-		if v.ElicitationID != nil && s.store != nil {
+		if v.ElicitationID != nil {
 			pv, err := s.store.Payloads().List(r.Context(), plread.WithID(*v.ElicitationID))
 			if err == nil && len(pv) > 0 && pv[0] != nil && pv[0].InlineBody != nil {
 				var e plan.Elicitation
@@ -628,60 +622,100 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		return r
 	}
 	// Aggregate all tool calls by root-most parent across entire subtree
-	outcomesByRoot := map[string][]*plan.Outcome{}
-	traceByRoot := map[string]int{}
+	// Build global ordered list of tool calls across conversation
+	type opRec struct {
+		rootID    string
+		tool      string
+		opID      string
+		attempt   int
+		started   *time.Time
+		completed *time.Time
+		req, res  json.RawMessage
+		success   bool
+		errMsg    string
+	}
+	var calls []opRec
 	for _, v := range views {
 		if v == nil {
 			continue
 		}
-		ops, err := s.store.Operations().GetByMessage(r.Context(), v.Id)
-		if err != nil || len(ops) == 0 {
+		ops, _ := s.store.Operations().GetByMessage(r.Context(), v.Id)
+		if len(ops) == 0 {
 			continue
 		}
 		rID := rootOf(v.Id)
 		if hasExecFor[rID] {
-			// Memory already provided executions for this root
 			continue
-		}
-		tr := traceByRoot[rID]
-		if tr == 0 {
-			tr = 1
 		}
 		for _, op := range ops {
 			if op == nil || op.Tool == nil || op.Tool.Call == nil {
 				continue
 			}
 			call := op.Tool.Call
-			outc := &plan.Outcome{ID: call.OpID}
-			step := &plan.StepOutcome{ID: call.OpID + "-0", Tool: call.ToolName, TraceID: tr}
-			tr++
+			var rq, rs json.RawMessage
 			if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
-				step.Request = json.RawMessage(*op.Tool.Request.InlineBody)
+				rq = json.RawMessage(*op.Tool.Request.InlineBody)
 			} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
-				step.Request = json.RawMessage([]byte(*call.RequestSnapshot))
+				rq = json.RawMessage([]byte(*call.RequestSnapshot))
 			}
 			if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
-				step.Response = json.RawMessage(*op.Tool.Response.InlineBody)
+				rs = json.RawMessage(*op.Tool.Response.InlineBody)
 			} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
-				step.Response = json.RawMessage([]byte(*call.ResponseSnapshot))
+				rs = json.RawMessage([]byte(*call.ResponseSnapshot))
 			}
-			step.Success = strings.ToLower(call.Status) == "completed"
-			if call.ErrorMessage != nil {
-				step.Error = *call.ErrorMessage
-			}
-			if call.StartedAt != nil {
-				step.StartedAt = call.StartedAt.Local().Format(time.RFC3339)
-			}
-			if call.CompletedAt != nil {
-				step.EndedAt = call.CompletedAt.Local().Format(time.RFC3339)
-				if call.StartedAt != nil {
-					step.Elapsed = call.CompletedAt.Sub(*call.StartedAt).Truncate(time.Millisecond).String()
-				}
-			}
-			outc.Steps = []*plan.StepOutcome{step}
-			outcomesByRoot[rID] = append(outcomesByRoot[rID], outc)
+			calls = append(calls, opRec{
+				rootID:    rID,
+				tool:      call.ToolName,
+				opID:      call.OpID,
+				attempt:   call.Attempt,
+				started:   call.StartedAt,
+				completed: call.CompletedAt,
+				req:       rq, res: rs,
+				success: strings.ToLower(call.Status) == "completed",
+				errMsg: func() string {
+					if call.ErrorMessage != nil {
+						return *call.ErrorMessage
+					}
+					return ""
+				}(),
+			})
 		}
-		traceByRoot[rID] = tr
+	}
+	sort.SliceStable(calls, func(i, j int) bool {
+		if calls[i].started == nil && calls[j].started == nil {
+			return i < j
+		}
+		if calls[i].started == nil {
+			return false
+		}
+		if calls[j].started == nil {
+			return true
+		}
+		return calls[i].started.Before(*calls[j].started)
+	})
+
+	// Assign GLOBAL trace ids and bucket per root
+	outcomesByRoot := map[string][]*plan.Outcome{}
+	for idx, c := range calls {
+		outc := &plan.Outcome{ID: c.opID}
+		step := &plan.StepOutcome{ID: c.opID + "-0", Tool: c.tool, TraceID: idx + 1}
+		step.Request = c.req
+		step.Response = c.res
+		step.Success = c.success
+		if c.errMsg != "" {
+			step.Error = c.errMsg
+		}
+		if c.started != nil {
+			step.StartedAt = c.started.Local().Format(time.RFC3339)
+		}
+		if c.completed != nil {
+			step.EndedAt = c.completed.Local().Format(time.RFC3339)
+			if c.started != nil {
+				step.Elapsed = c.completed.Sub(*c.started).Truncate(time.Millisecond).String()
+			}
+		}
+		outc.Steps = []*plan.StepOutcome{step}
+		outcomesByRoot[c.rootID] = append(outcomesByRoot[c.rootID], outc)
 	}
 	// Synthesize one tool message per root with aggregated outcomes
 	var execMsgs []memory.Message
@@ -739,46 +773,33 @@ func (s *Server) handleGetSingleMessage(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	// Domain-backed lookup when store is available
-	if s.store != nil {
-		views, err := s.store.Messages().List(r.Context(), msgread.WithIDs(msgID))
-		if err != nil {
-			encode(w, http.StatusInternalServerError, nil, err, nil)
-			return
-		}
-		if len(views) == 0 {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		v := views[0]
-		mm := memory.Message{ID: v.Id, ConversationID: v.ConversationID, Role: v.Role, Content: v.Content}
-		if v.CreatedAt != nil {
-			mm.CreatedAt = *v.CreatedAt
-		}
-		if v.ToolName != nil {
-			mm.ToolName = v.ToolName
-		}
-		if v.ElicitationID != nil && s.store != nil {
-			if pv, err := s.store.Payloads().List(r.Context(), plread.WithID(*v.ElicitationID)); err == nil && len(pv) > 0 && pv[0] != nil && pv[0].InlineBody != nil {
-				var e plan.Elicitation
-				if json.Unmarshal(*pv[0].InlineBody, &e) == nil {
-					mm.Elicitation = &e
-				}
-			}
-		}
-		encode(w, http.StatusOK, mm, nil, nil)
-		return
-	}
-
-	msg, err := s.mgr.History().LookupMessage(r.Context(), msgID)
+	views, err := s.store.Messages().List(r.Context(), msgread.WithIDs(msgID))
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err, nil)
 		return
 	}
-	if msg == nil {
+	if len(views) == 0 {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	encode(w, http.StatusOK, msg, nil, nil)
+	v := views[0]
+	mm := memory.Message{ID: v.Id, ConversationID: v.ConversationID, Role: v.Role, Content: v.Content}
+	if v.CreatedAt != nil {
+		mm.CreatedAt = *v.CreatedAt
+	}
+	if v.ToolName != nil {
+		mm.ToolName = v.ToolName
+	}
+	if v.ElicitationID != nil {
+		if pv, err := s.store.Payloads().List(r.Context(), plread.WithID(*v.ElicitationID)); err == nil && len(pv) > 0 && pv[0] != nil && pv[0].InlineBody != nil {
+			var e plan.Elicitation
+			if json.Unmarshal(*pv[0].InlineBody, &e) == nil {
+				mm.Elicitation = &e
+			}
+		}
+	}
+	encode(w, http.StatusOK, mm, nil, nil)
+	return
 }
 
 // dispatchConversationSubroutes routes /v1/api/conversations/{id}/... paths to
@@ -820,52 +841,94 @@ func (s *Server) dispatchConversationSubroutes(w http.ResponseWriter, r *http.Re
 // handleGetExecution responds with the full list of ExecutionTrace entries for the
 // given conversation ID.
 func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, convID string) {
-	if s.executionStore == nil {
-		// Trace store not hooked up – return empty slice for compatibility.
-		encode(w, http.StatusOK, []memory.ExecutionTrace{}, nil, nil)
-		return
-	}
+
 	// If the client supplied a parentId query parameter, filter the trace list
 	// so that callers can retrieve only the tool invocations associated with
 	// a specific assistant message.
 	query := r.URL.Query()
 	parentID := query.Get("parentId")
 	if format := query.Get("format"); format == "outcome" {
-		if outcomes, err := s.executionStore.ListOutcome(r.Context(), convID, parentID); err == nil {
-			encode(w, http.StatusOK, outcomes, nil, nil)
-			return
-		}
-	}
-	if parentID != "" {
-		traces, err := s.executionStore.ListByParent(r.Context(), convID, parentID)
+		// DAO-based outcomes for whole conversation (optionally filter by parentID root)
+		views, err := s.store.Messages().List(r.Context(), msgread.WithConversationID(convID))
 		if err != nil {
 			encode(w, http.StatusInternalServerError, nil, err, nil)
 			return
 		}
-		encode(w, http.StatusOK, traces, nil, nil)
-		return
-		// When conversion fails, fall back to returning full list – the caller
-		// can still filter client-side.
-	}
-
-	traces, err := s.executionStore.List(r.Context(), convID)
-	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err, nil)
-		return
-	}
-
-	// Strip heavy request/response payloads to keep response lightweight.
-	lite := make([]*memory.ExecutionTrace, len(traces))
-	for i, tr := range traces {
-		if tr == nil {
-			continue
+		// Build parent mapping to compute root-most parent
+		parent := map[string]string{}
+		for _, v := range views {
+			if v == nil {
+				continue
+			}
+			if v.ParentMessageID != nil && *v.ParentMessageID != "" {
+				parent[v.Id] = *v.ParentMessageID
+			}
 		}
-		clone := *tr
-		clone.Request = nil
-		clone.Result = nil
-		lite[i] = &clone
+		var rootOf func(string) string
+		cache := map[string]string{}
+		rootOf = func(id string) string {
+			if id == "" {
+				return ""
+			}
+			if r, ok := cache[id]; ok {
+				return r
+			}
+			p, ok := parent[id]
+			if !ok || p == "" || p == id {
+				cache[id] = id
+				return id
+			}
+			r := rootOf(p)
+			cache[id] = r
+			return r
+		}
+		var outcomes []*plan.Outcome
+		for _, v := range views {
+			if v == nil {
+				continue
+			}
+			root := rootOf(v.Id)
+			if parentID != "" && root != parentID && v.Id != parentID {
+				continue
+			}
+			ops, _ := s.store.Operations().GetByMessage(r.Context(), v.Id)
+			for _, op := range ops {
+				if op == nil || op.Tool == nil || op.Tool.Call == nil {
+					continue
+				}
+				call := op.Tool.Call
+				outc := &plan.Outcome{ID: call.OpID}
+				step := &plan.StepOutcome{ID: call.OpID + "-0", Tool: call.ToolName}
+				if call.StartedAt != nil {
+					step.StartedAt = call.StartedAt.Local().Format(time.RFC3339)
+				}
+				if call.CompletedAt != nil {
+					step.EndedAt = call.CompletedAt.Local().Format(time.RFC3339)
+					if call.StartedAt != nil {
+						step.Elapsed = call.CompletedAt.Sub(*call.StartedAt).Truncate(time.Millisecond).String()
+					}
+				}
+				if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
+					step.Request = json.RawMessage(*op.Tool.Request.InlineBody)
+				} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
+					step.Request = json.RawMessage([]byte(*call.RequestSnapshot))
+				}
+				if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
+					step.Response = json.RawMessage(*op.Tool.Response.InlineBody)
+				} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
+					step.Response = json.RawMessage([]byte(*call.ResponseSnapshot))
+				}
+				step.Success = strings.ToLower(call.Status) == "completed"
+				if call.ErrorMessage != nil {
+					step.Error = *call.ErrorMessage
+				}
+				outc.Steps = []*plan.StepOutcome{step}
+				outcomes = append(outcomes, outc)
+			}
+		}
+		encode(w, http.StatusOK, outcomes, nil, nil)
+		return
 	}
-	encode(w, http.StatusOK, lite, nil, nil)
 }
 
 // handleGetExecutionPart serves either the stored Request or Response payload
@@ -877,40 +940,88 @@ func (s *Server) handleGetExecutionPart(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	if s.executionStore == nil {
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("execution store not configured"), nil)
-		return
-	}
-
 	id64, err := strconv.ParseInt(traceIDStr, 10, 0)
 	if err != nil || id64 <= 0 {
 		encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid trace id"), nil)
 		return
 	}
 
-	trace, _ := s.executionStore.Get(r.Context(), convID, int(id64))
-	if trace == nil {
+	var req json.RawMessage
+	var res json.RawMessage
+	found := false
+	// DAO fallback: rebuild ordered list
+	views, err := s.store.Messages().List(r.Context(), msgread.WithConversationID(convID))
+	if err == nil {
+		type rec struct {
+			st     *time.Time
+			rq, rs json.RawMessage
+		}
+		var all []rec
+		for _, v := range views {
+			if v == nil {
+				continue
+			}
+			ops, _ := s.store.Operations().GetByMessage(r.Context(), v.Id)
+			for _, op := range ops {
+				if op == nil || op.Tool == nil || op.Tool.Call == nil {
+					continue
+				}
+				call := op.Tool.Call
+				var rq, rs json.RawMessage
+				if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
+					rq = json.RawMessage(*op.Tool.Request.InlineBody)
+				} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
+					rq = json.RawMessage([]byte(*call.RequestSnapshot))
+				}
+				if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
+					rs = json.RawMessage(*op.Tool.Response.InlineBody)
+				} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
+					rs = json.RawMessage([]byte(*call.ResponseSnapshot))
+				}
+				all = append(all, rec{st: call.StartedAt, rq: rq, rs: rs})
+			}
+		}
+		sort.SliceStable(all, func(i, j int) bool {
+			if all[i].st == nil && all[j].st == nil {
+				return i < j
+			}
+			if all[i].st == nil {
+				return false
+			}
+			if all[j].st == nil {
+				return true
+			}
+			return all[i].st.Before(*all[j].st)
+		})
+		idx := int(id64) - 1
+		if idx >= 0 && idx < len(all) {
+			req = all[idx].rq
+			res = all[idx].rs
+			found = true
+		}
+	}
+	if !found {
 		encode(w, http.StatusNotFound, nil, fmt.Errorf("trace not found"), nil)
 		return
 	}
 
 	switch strings.ToLower(part) {
 	case "request":
-		if trace.Request == nil {
+		if len(req) == 0 {
 			encode(w, http.StatusNoContent, nil, nil, nil)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(trace.Request)
+		w.Write(req)
 	case "response":
-		if trace.Result == nil {
+		if len(res) == 0 {
 			encode(w, http.StatusNoContent, nil, nil, nil)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(trace.Result)
+		w.Write(res)
 	default:
 		encode(w, http.StatusNotFound, nil, fmt.Errorf("unknown part"), nil)
 	}
