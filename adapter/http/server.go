@@ -506,22 +506,30 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		in := []msgread.InputOption{}
 		// Exclude interim by default to match prior behavior
 		in = append(in, msgread.WithInterim(0))
-		// Since filtering: we approximate by slicing after fetch if needed
-		views, err := s.store.Messages().GetTranscript(r.Context(), convID, "", in...)
+		// Fetch conversation-level messages (not per-turn) and exclude interim
+		in = append(in, msgread.WithConversationID(convID))
+		views, err := s.store.Messages().List(r.Context(), in...)
+
+		views, err = s.store.Messages().GetTranscript(r.Context(), convID, "", in...)
+
 		if err != nil {
 			encode(w, http.StatusInternalServerError, nil, err, nil)
 			return
 		}
-		// Map to memory.Message legacy shape
+		// Map to legacy shape, skip DAO tool-role messages to keep v1
+		// semantics (tool executions are added from executionStore below).
 		var out []memory.Message
 		for _, v := range views {
-			if v == nil {
+			if v == nil || v.IsInterim() {
 				continue
 			}
-			if v.IsInterim() {
+			if strings.ToLower(strings.TrimSpace(v.Role)) == "tool" {
 				continue
 			}
 			m := memory.Message{ID: v.Id, ConversationID: v.ConversationID, Role: v.Role, Content: v.Content}
+			if v.ParentMessageID != nil {
+				m.ParentID = *v.ParentMessageID
+			}
 			if v.CreatedAt != nil {
 				m.CreatedAt = *v.CreatedAt
 			}
@@ -539,6 +547,7 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 			}
 			out = append(out, m)
 		}
+
 		// Apply since slicing if requested
 		if sinceId != "" {
 			start := -1
@@ -577,6 +586,40 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 				st = &stage.Stage{Phase: stage.StageDone}
 			}
 		}
+
+		// TODO use dao to fetch execution traces when available instead of in-memory store
+		// Append synthetic tool messages built from execution traces
+		if s.executionStore != nil {
+			var execMsgs []memory.Message
+			for _, base := range out {
+				if exec, _ := s.executionStore.ListOutcome(r.Context(), convID, base.ID); len(exec) > 0 {
+					tm := memory.Message{
+						ID:             base.ID + "/1",
+						ConversationID: base.ConversationID,
+						ParentID:       base.ID,
+						Role:           "tool",
+						Executions:     exec,
+						CreatedAt:      base.CreatedAt.Add(time.Second),
+					}
+					execMsgs = append(execMsgs, tm)
+				}
+			}
+			if len(execMsgs) > 0 {
+				out = append(out, execMsgs...)
+			}
+		}
+
+		// Optional legacy parentId filter
+		if parentId != "" {
+			filtered := make([]memory.Message, 0, len(out))
+			for _, it := range out {
+				if it.ParentID == parentId || it.ID == parentId {
+					filtered = append(filtered, it)
+				}
+			}
+			out = filtered
+		}
+
 		encode(w, http.StatusOK, out, nil, st)
 		return
 	}
