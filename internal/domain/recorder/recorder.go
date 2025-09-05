@@ -257,6 +257,12 @@ type ToolCallUpdate struct {
 	ErrMsg      string
 	Cost        *float64
 	Response    interface{}
+	// New fields to properly persist unique tool call rows
+	ToolMessageID string
+	OpID          string
+	Attempt       int
+	StartedAt     time.Time
+	Request       interface{}
 }
 
 // persistToolRequestPayload persists the request payload and returns its ID.
@@ -308,30 +314,8 @@ func (w *Store) StartToolCall(ctx context.Context, start ToolCallStart) {
 	}
 	reqID := w.persistToolRequestPayload(ctx, start.Request)
 
-	tw := &tcw.ToolCall{}
-	tw.SetMessageID(start.MessageID)
-	tw.TurnID = strp(start.TurnID)
-	if tw.TurnID != nil {
-		if tw.Has == nil {
-			tw.Has = &tcw.ToolCallHas{}
-		}
-		tw.Has.TurnID = true
-	}
-	tw.SetOpID(uuid.New().String())
-	tw.SetAttempt(1)
-	tw.SetToolName(start.ToolName)
-	tw.SetToolKind("general")
-	tw.SetStatus("running")
-	if !start.StartedAt.IsZero() {
-		tw.StartedAt = &start.StartedAt
-		if tw.Has == nil {
-			tw.Has = &tcw.ToolCallHas{}
-		}
-		tw.Has.StartedAt = true
-	}
-	if err := w.store.Operations().RecordToolCall(ctx, tw, reqID, ""); err != nil {
-		fmt.Printf("ERROR### Recorder.StartToolCall: %v\n", err)
-	}
+	// At start, persist only request payload for auditing; defer tool_call row to finish
+	_ = reqID
 }
 
 // FinishToolCall updates status and persists the response.
@@ -339,10 +323,13 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
 	if !w.Enabled() || upd.MessageID == "" || upd.ToolName == "" || upd.Status == "" {
 		return
 	}
-	resID := w.persistToolResponsePayload(ctx, upd.Response)
-
 	tw := &tcw.ToolCall{}
-	tw.SetMessageID(upd.MessageID)
+	// Use per-tool message id when provided; fallback to parent message id
+	msgID := upd.ToolMessageID
+	if strings.TrimSpace(msgID) == "" {
+		msgID = upd.MessageID
+	}
+	tw.SetMessageID(msgID)
 	if upd.TurnID != "" {
 		tw.TurnID = &upd.TurnID
 		if tw.Has == nil {
@@ -350,7 +337,19 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
 		}
 		tw.Has.TurnID = true
 	}
-	// For updates we only set fields that change; required fields for insert are not needed here.
+	// Identify op and attempt
+	opID := strings.TrimSpace(upd.OpID)
+	if opID == "" {
+		opID = uuid.New().String()
+	}
+	tw.SetOpID(opID)
+	att := upd.Attempt
+	if att <= 0 {
+		att = 1
+	}
+	tw.SetAttempt(att)
+
+	// Required fields
 	tw.SetToolName(upd.ToolName)
 	tw.SetToolKind("general")
 	tw.SetStatus(upd.Status)
@@ -360,6 +359,13 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
 			tw.Has = &tcw.ToolCallHas{}
 		}
 		tw.Has.CompletedAt = true
+	}
+	if !upd.StartedAt.IsZero() {
+		tw.StartedAt = &upd.StartedAt
+		if tw.Has == nil {
+			tw.Has = &tcw.ToolCallHas{}
+		}
+		tw.Has.StartedAt = true
 	}
 	if upd.ErrMsg != "" {
 		tw.ErrorMessage = &upd.ErrMsg
@@ -375,7 +381,24 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
 		}
 		tw.Has.Cost = true
 	}
-	if err := w.store.Operations().RecordToolCall(ctx, tw, "", resID); err != nil {
+	// Inline snapshots
+	if b := toJSONBytes(upd.Request); len(b) > 0 {
+		s := string(b)
+		tw.RequestSnapshot = &s
+		if tw.Has == nil {
+			tw.Has = &tcw.ToolCallHas{}
+		}
+		tw.Has.RequestSnapshot = true
+	}
+	if b := toJSONBytes(upd.Response); len(b) > 0 {
+		s := string(b)
+		tw.ResponseSnapshot = &s
+		if tw.Has == nil {
+			tw.Has = &tcw.ToolCallHas{}
+		}
+		tw.Has.ResponseSnapshot = true
+	}
+	if err := w.store.Operations().RecordToolCall(ctx, tw, "", ""); err != nil {
 		fmt.Printf("ERROR### Recorder.FinishToolCall: %v\n", err)
 	}
 }

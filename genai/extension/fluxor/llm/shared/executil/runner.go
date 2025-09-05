@@ -115,6 +115,16 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Op
 		opts.Tracer.UpdateTraceEnd(ctx, opts.ConversationID, opts.TraceID, out, opts.Duplicated, endedAt)
 	}
 
+	// Persist a tool message so transcript captures it and link tool_call to it
+	var toolMsgID string
+	if convID := memory.ConversationIDFromContext(ctx); convID != "" && opts.Recorder != nil {
+		toolMsgID = uuid.New().String()
+		parent := memory.MessageIDFromContext(ctx)
+		name := step.Name
+		msg := memory.Message{ID: toolMsgID, ConversationID: convID, ParentID: parent, Role: "tool", Content: out.Result, ToolName: &name, CreatedAt: endedAt}
+		opts.Recorder.RecordMessage(ctx, msg)
+	}
+
 	// Domain recorder – best-effort capture of tool call completion
 	if opts.Recorder != nil {
 		msgID := memory.MessageIDFromContext(ctx)
@@ -126,26 +136,20 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Op
 			errMsg = err.Error()
 		}
 		opts.Recorder.FinishToolCall(ctx, domainrec.ToolCallUpdate{
-			MessageID:   msgID,
-			TurnID:      turnID,
-			ToolName:    step.Name,
-			Status:      status,
-			CompletedAt: endedAt,
-			ErrMsg:      errMsg,
-			Cost:        nil,
-			Response:    out.Result,
+			MessageID:     msgID,
+			ToolMessageID: toolMsgID,
+			TurnID:        turnID,
+			ToolName:      step.Name,
+			Status:        status,
+			StartedAt:     startedAt,
+			CompletedAt:   endedAt,
+			ErrMsg:        errMsg,
+			Cost:          nil,
+			Request:       step.Args,
+			Response:      out.Result,
+			OpID:          out.ID,
+			Attempt:       1,
 		})
-		// Also persist a tool message with the result so transcript captures it.
-		if convID := memory.ConversationIDFromContext(ctx); convID != "" {
-			toolID := uuid.New().String()
-			parent := memory.MessageIDFromContext(ctx)
-			name := step.Name
-			msg := memory.Message{ID: toolID, ConversationID: convID, ParentID: parent, Role: "tool", Content: out.Result, ToolName: &name, CreatedAt: endedAt}
-			opts.Recorder.RecordMessage(ctx, msg)
-			// Note: context mutation here does not propagate to caller; parent linking
-			// for the subsequent model call is handled by the agent by finding the
-			// latest tool message in the turn.
-		}
 	}
 	return out, startedAt, endedAt, err
 }

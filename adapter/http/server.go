@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -588,21 +589,146 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		}
 
 		// TODO use dao to fetch execution traces when available instead of in-memory store
+
 		// Append synthetic tool messages built from execution traces
-		if s.executionStore != nil {
-			var execMsgs []memory.Message
-			for _, base := range out {
-				if exec, _ := s.executionStore.ListOutcome(r.Context(), convID, base.ID); len(exec) > 0 {
-					tm := memory.Message{
-						ID:             base.ID + "/1",
-						ConversationID: base.ConversationID,
-						ParentID:       base.ID,
-						Role:           "tool",
-						Executions:     exec,
-						CreatedAt:      base.CreatedAt.Add(time.Second),
-					}
-					execMsgs = append(execMsgs, tm)
+		// Prefer in-memory execution store when available, otherwise fall back to DAO tool_calls
+		hasExecFor := map[string]bool{}
+		//if s.executionStore != nil {
+		//    var execMsgs []memory.Message
+		//    for _, base := range out {
+		//        if exec, _ := s.executionStore.ListOutcome(r.Context(), convID, base.ID); len(exec) > 0 {
+		//            tm := memory.Message{
+		//                ID:             base.ID + "/1",
+		//                ConversationID: base.ConversationID,
+		//                ParentID:       base.ID,
+		//                Role:           "tool",
+		//                Executions:     exec,
+		//                CreatedAt:      base.CreatedAt.Add(time.Second),
+		//            }
+		//            hasExecFor[base.ID] = true
+		//            execMsgs = append(execMsgs, tm)
+		//        }
+		//    }
+		//    if len(execMsgs) > 0 {
+		//        out = append(out, execMsgs...)
+		//    }
+		//}
+		// DAO fallback: aggregate executions by most parent message
+		if s.store != nil {
+			// Build parent map from DAO views
+			parent := map[string]string{}
+			created := map[string]time.Time{}
+			convByMsg := map[string]string{}
+			for _, v := range views {
+				if v == nil {
+					continue
 				}
+				if v.ParentMessageID != nil && *v.ParentMessageID != "" {
+					parent[v.Id] = *v.ParentMessageID
+				}
+				if v.CreatedAt != nil {
+					created[v.Id] = *v.CreatedAt
+				}
+				convByMsg[v.Id] = v.ConversationID
+			}
+			// Helper to find root-most parent id
+			rootCache := map[string]string{}
+			var rootOf func(string) string
+			rootOf = func(id string) string {
+				if id == "" {
+					return ""
+				}
+				if r, ok := rootCache[id]; ok {
+					return r
+				}
+				p, ok := parent[id]
+				if !ok || p == "" || p == id {
+					rootCache[id] = id
+					return id
+				}
+				r := rootOf(p)
+				rootCache[id] = r
+				return r
+			}
+			// Aggregate all tool calls by root-most parent across entire subtree
+			outcomesByRoot := map[string][]*plan.Outcome{}
+			traceByRoot := map[string]int{}
+			for _, v := range views {
+				if v == nil {
+					continue
+				}
+				ops, err := s.store.Operations().GetByMessage(r.Context(), v.Id)
+				if err != nil || len(ops) == 0 {
+					continue
+				}
+				rID := rootOf(v.Id)
+				if hasExecFor[rID] {
+					// Memory already provided executions for this root
+					continue
+				}
+				tr := traceByRoot[rID]
+				if tr == 0 {
+					tr = 1
+				}
+				for _, op := range ops {
+					if op == nil || op.Tool == nil || op.Tool.Call == nil {
+						continue
+					}
+					call := op.Tool.Call
+					outc := &plan.Outcome{ID: call.OpID}
+					step := &plan.StepOutcome{ID: call.OpID + "-0", Tool: call.ToolName, TraceID: tr}
+					tr++
+					if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
+						step.Request = json.RawMessage(*op.Tool.Request.InlineBody)
+					} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
+						step.Request = json.RawMessage([]byte(*call.RequestSnapshot))
+					}
+					if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
+						step.Response = json.RawMessage(*op.Tool.Response.InlineBody)
+					} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
+						step.Response = json.RawMessage([]byte(*call.ResponseSnapshot))
+					}
+					step.Success = strings.ToLower(call.Status) == "completed"
+					if call.ErrorMessage != nil {
+						step.Error = *call.ErrorMessage
+					}
+					if call.StartedAt != nil {
+						step.StartedAt = call.StartedAt.Local().Format(time.RFC3339)
+					}
+					if call.CompletedAt != nil {
+						step.EndedAt = call.CompletedAt.Local().Format(time.RFC3339)
+						if call.StartedAt != nil {
+							step.Elapsed = call.CompletedAt.Sub(*call.StartedAt).Truncate(time.Millisecond).String()
+						}
+					}
+					outc.Steps = []*plan.StepOutcome{step}
+					outcomesByRoot[rID] = append(outcomesByRoot[rID], outc)
+				}
+				traceByRoot[rID] = tr
+			}
+			// Synthesize one tool message per root with aggregated outcomes
+			var execMsgs []memory.Message
+			for rootID, outcomes := range outcomesByRoot {
+				if len(outcomes) == 0 {
+					continue
+				}
+				rt := created[rootID]
+				if rt.IsZero() {
+					rt = time.Now()
+				}
+				conv := convByMsg[rootID]
+				if conv == "" {
+					conv = convID
+				}
+				tm := memory.Message{
+					ID:             rootID + "/1",
+					ConversationID: conv,
+					ParentID:       rootID,
+					Role:           "tool",
+					Executions:     outcomes,
+					CreatedAt:      rt.Add(time.Second),
+				}
+				execMsgs = append(execMsgs, tm)
 			}
 			if len(execMsgs) > 0 {
 				out = append(out, execMsgs...)
@@ -620,10 +746,17 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 			out = filtered
 		}
 
+		// Order by sequence if present, otherwise created_at
+		sort.SliceStable(out, func(i, j int) bool {
+			mi, mj := out[i], out[j]
+			return mi.CreatedAt.Before(mj.CreatedAt)
+		})
+
 		encode(w, http.StatusOK, out, nil, st)
 		return
 	}
 
+	// Legacy in-memory path when store is not available
 	if sinceId == "" {
 		// legacy or full history path
 		msgs, err = s.mgr.Messages(r.Context(), convID, parentId)
