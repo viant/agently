@@ -498,321 +498,82 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	// ------------------------------------------------------------------
 	// 2. Fetch from manager (enriched with execution traces)
 	// ------------------------------------------------------------------
-	var msgs []memory.Message
-	var err error
 
-	// Domain-backed path when store is available
-	if s.store != nil {
-		// Build read options
-		in := []msgread.InputOption{}
-		// Exclude interim by default to match prior behavior
-		in = append(in, msgread.WithInterim(0))
-		// Fetch conversation-level messages (not per-turn) and exclude interim
-		in = append(in, msgread.WithConversationID(convID))
-		views, err := s.store.Messages().List(r.Context(), in...)
+	// Domain-backed path
 
-		views, err = s.store.Messages().GetTranscript(r.Context(), convID, "", in...)
+	// Build read options
+	in := []msgread.InputOption{}
+	// Exclude interim by default to match prior behavior
+	in = append(in, msgread.WithInterim(0))
+	// Fetch conversation-level messages (not per-turn) and exclude interim
+	in = append(in, msgread.WithConversationID(convID))
+	views, err := s.store.Messages().List(r.Context(), in...)
 
-		if err != nil {
-			encode(w, http.StatusInternalServerError, nil, err, nil)
-			return
-		}
-		// Map to legacy shape, skip DAO tool-role messages to keep v1
-		// semantics (tool executions are added from executionStore below).
-		var out []memory.Message
-		for _, v := range views {
-			if v == nil || v.IsInterim() {
-				continue
-			}
-			if strings.ToLower(strings.TrimSpace(v.Role)) == "tool" {
-				continue
-			}
-			m := memory.Message{ID: v.Id, ConversationID: v.ConversationID, Role: v.Role, Content: v.Content}
-			if v.ParentMessageID != nil {
-				m.ParentID = *v.ParentMessageID
-			}
-			if v.CreatedAt != nil {
-				m.CreatedAt = *v.CreatedAt
-			}
-			if v.ToolName != nil {
-				m.ToolName = v.ToolName
-			}
-			if v.ElicitationID != nil && s.store != nil {
-				pv, err := s.store.Payloads().List(r.Context(), plread.WithID(*v.ElicitationID))
-				if err == nil && len(pv) > 0 && pv[0] != nil && pv[0].InlineBody != nil {
-					var e plan.Elicitation
-					if json.Unmarshal(*pv[0].InlineBody, &e) == nil {
-						m.Elicitation = &e
-					}
-				}
-			}
-			out = append(out, m)
-		}
+	views, err = s.store.Messages().GetTranscript(r.Context(), convID, "", in...)
 
-		// Apply since slicing if requested
-		if sinceId != "" {
-			start := -1
-			for i := range out {
-				if out[i].ID == sinceId {
-					start = i
-					break
-				}
-			}
-			if start == -1 {
-				encode(w, http.StatusProcessing, []memory.Message{}, nil, s.currentStage(convID))
-				return
-			}
-			out = out[start:]
-		}
-		if len(out) == 0 {
-			encode(w, http.StatusProcessing, out, nil, s.currentStage(convID))
-			return
-		}
-		st := s.currentStage(convID)
-		if st != nil && st.Phase == stage.StageThinking {
-			last := out[len(out)-1]
-			switch last.Role {
-			case "tool":
-				if last.ToolName != nil {
-					name := strings.ToLower(*last.ToolName)
-					if name == "llm/core.generate" || name == "llm/core:generate" {
-						st = &stage.Stage{Phase: stage.StageThinking}
-					} else {
-						st = &stage.Stage{Phase: stage.StageExecuting, Tool: *last.ToolName}
-					}
-				} else {
-					st = &stage.Stage{Phase: stage.StageExecuting}
-				}
-			case "assistant":
-				st = &stage.Stage{Phase: stage.StageDone}
-			}
-		}
-
-		// TODO use dao to fetch execution traces when available instead of in-memory store
-
-		// Append synthetic tool messages built from execution traces
-		// Prefer in-memory execution store when available, otherwise fall back to DAO tool_calls
-		hasExecFor := map[string]bool{}
-		//if s.executionStore != nil {
-		//    var execMsgs []memory.Message
-		//    for _, base := range out {
-		//        if exec, _ := s.executionStore.ListOutcome(r.Context(), convID, base.ID); len(exec) > 0 {
-		//            tm := memory.Message{
-		//                ID:             base.ID + "/1",
-		//                ConversationID: base.ConversationID,
-		//                ParentID:       base.ID,
-		//                Role:           "tool",
-		//                Executions:     exec,
-		//                CreatedAt:      base.CreatedAt.Add(time.Second),
-		//            }
-		//            hasExecFor[base.ID] = true
-		//            execMsgs = append(execMsgs, tm)
-		//        }
-		//    }
-		//    if len(execMsgs) > 0 {
-		//        out = append(out, execMsgs...)
-		//    }
-		//}
-		// DAO fallback: aggregate executions by most parent message
-		if s.store != nil {
-			// Build parent map from DAO views
-			parent := map[string]string{}
-			created := map[string]time.Time{}
-			convByMsg := map[string]string{}
-			for _, v := range views {
-				if v == nil {
-					continue
-				}
-				if v.ParentMessageID != nil && *v.ParentMessageID != "" {
-					parent[v.Id] = *v.ParentMessageID
-				}
-				if v.CreatedAt != nil {
-					created[v.Id] = *v.CreatedAt
-				}
-				convByMsg[v.Id] = v.ConversationID
-			}
-			// Helper to find root-most parent id
-			rootCache := map[string]string{}
-			var rootOf func(string) string
-			rootOf = func(id string) string {
-				if id == "" {
-					return ""
-				}
-				if r, ok := rootCache[id]; ok {
-					return r
-				}
-				p, ok := parent[id]
-				if !ok || p == "" || p == id {
-					rootCache[id] = id
-					return id
-				}
-				r := rootOf(p)
-				rootCache[id] = r
-				return r
-			}
-			// Aggregate all tool calls by root-most parent across entire subtree
-			outcomesByRoot := map[string][]*plan.Outcome{}
-			traceByRoot := map[string]int{}
-			for _, v := range views {
-				if v == nil {
-					continue
-				}
-				ops, err := s.store.Operations().GetByMessage(r.Context(), v.Id)
-				if err != nil || len(ops) == 0 {
-					continue
-				}
-				rID := rootOf(v.Id)
-				if hasExecFor[rID] {
-					// Memory already provided executions for this root
-					continue
-				}
-				tr := traceByRoot[rID]
-				if tr == 0 {
-					tr = 1
-				}
-				for _, op := range ops {
-					if op == nil || op.Tool == nil || op.Tool.Call == nil {
-						continue
-					}
-					call := op.Tool.Call
-					outc := &plan.Outcome{ID: call.OpID}
-					step := &plan.StepOutcome{ID: call.OpID + "-0", Tool: call.ToolName, TraceID: tr}
-					tr++
-					if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
-						step.Request = json.RawMessage(*op.Tool.Request.InlineBody)
-					} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
-						step.Request = json.RawMessage([]byte(*call.RequestSnapshot))
-					}
-					if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
-						step.Response = json.RawMessage(*op.Tool.Response.InlineBody)
-					} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
-						step.Response = json.RawMessage([]byte(*call.ResponseSnapshot))
-					}
-					step.Success = strings.ToLower(call.Status) == "completed"
-					if call.ErrorMessage != nil {
-						step.Error = *call.ErrorMessage
-					}
-					if call.StartedAt != nil {
-						step.StartedAt = call.StartedAt.Local().Format(time.RFC3339)
-					}
-					if call.CompletedAt != nil {
-						step.EndedAt = call.CompletedAt.Local().Format(time.RFC3339)
-						if call.StartedAt != nil {
-							step.Elapsed = call.CompletedAt.Sub(*call.StartedAt).Truncate(time.Millisecond).String()
-						}
-					}
-					outc.Steps = []*plan.StepOutcome{step}
-					outcomesByRoot[rID] = append(outcomesByRoot[rID], outc)
-				}
-				traceByRoot[rID] = tr
-			}
-			// Synthesize one tool message per root with aggregated outcomes
-			var execMsgs []memory.Message
-			for rootID, outcomes := range outcomesByRoot {
-				if len(outcomes) == 0 {
-					continue
-				}
-				rt := created[rootID]
-				if rt.IsZero() {
-					rt = time.Now()
-				}
-				conv := convByMsg[rootID]
-				if conv == "" {
-					conv = convID
-				}
-				tm := memory.Message{
-					ID:             rootID + "/1",
-					ConversationID: conv,
-					ParentID:       rootID,
-					Role:           "tool",
-					Executions:     outcomes,
-					CreatedAt:      rt.Add(time.Second),
-				}
-				execMsgs = append(execMsgs, tm)
-			}
-			if len(execMsgs) > 0 {
-				out = append(out, execMsgs...)
-			}
-		}
-
-		// Optional legacy parentId filter
-		if parentId != "" {
-			filtered := make([]memory.Message, 0, len(out))
-			for _, it := range out {
-				if it.ParentID == parentId || it.ID == parentId {
-					filtered = append(filtered, it)
-				}
-			}
-			out = filtered
-		}
-
-		// Order by sequence if present, otherwise created_at
-		sort.SliceStable(out, func(i, j int) bool {
-			mi, mj := out[i], out[j]
-			return mi.CreatedAt.Before(mj.CreatedAt)
-		})
-
-		encode(w, http.StatusOK, out, nil, st)
-		return
-	}
-
-	// Legacy in-memory path when store is not available
-	if sinceId == "" {
-		// legacy or full history path
-		msgs, err = s.mgr.Messages(r.Context(), convID, parentId)
-	} else {
-		// Retrieve full history, then slice – keeps enrichment logic intact.
-		var all []memory.Message
-		all, err = s.mgr.Messages(r.Context(), convID, "")
-		if err == nil {
-			// Find index of sinceId (inclusive)
-			start := -1
-			for i, m := range all {
-				if m.ID == sinceId {
-					start = i
-					break
-				}
-			}
-			if start == -1 {
-				// Message not yet available – return 102 Processing but include current stage.
-				encode(w, http.StatusProcessing, []memory.Message{}, nil, s.currentStage(convID))
-				return
-			}
-			msgs = all[start:]
-		}
-	}
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err, nil)
 		return
 	}
-	if len(msgs) == 0 {
-		// No new messages but still return current stage so UI can update.
-		encode(w, http.StatusProcessing, msgs, nil, s.currentStage(convID))
-		return
-	}
-
-	// Filter out resolved MCP elicitation messages (status != "open")
-	var filtered []memory.Message
-	for _, m := range msgs {
-		switch m.Role {
-		case "mcpelicitation", "mcpuserinteraction", "policyapproval":
-			if m.Status != "" && m.Status != "open" {
-				continue
+	// Map to legacy shape, skip DAO tool-role messages to keep v1
+	// semantics (tool executions are added from executionStore below).
+	var out []memory.Message
+	for _, v := range views {
+		if v == nil || v.IsInterim() {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(v.Role)) == "tool" {
+			continue
+		}
+		m := memory.Message{ID: v.Id, ConversationID: v.ConversationID, Role: v.Role, Content: v.Content}
+		if v.ParentMessageID != nil {
+			m.ParentID = *v.ParentMessageID
+		}
+		if v.CreatedAt != nil {
+			m.CreatedAt = *v.CreatedAt
+		}
+		if v.ToolName != nil {
+			m.ToolName = v.ToolName
+		}
+		if v.ElicitationID != nil && s.store != nil {
+			pv, err := s.store.Payloads().List(r.Context(), plread.WithID(*v.ElicitationID))
+			if err == nil && len(pv) > 0 && pv[0] != nil && pv[0].InlineBody != nil {
+				var e plan.Elicitation
+				if json.Unmarshal(*pv[0].InlineBody, &e) == nil {
+					m.Elicitation = &e
+				}
 			}
 		}
-		filtered = append(filtered, m)
+		out = append(out, m)
 	}
 
+	// Apply since slicing if requested
+	if sinceId != "" {
+		start := -1
+		for i := range out {
+			if out[i].ID == sinceId {
+				start = i
+				break
+			}
+		}
+		if start == -1 {
+			encode(w, http.StatusProcessing, []memory.Message{}, nil, s.currentStage(convID))
+			return
+		}
+		out = out[start:]
+	}
+	if len(out) == 0 {
+		encode(w, http.StatusProcessing, out, nil, s.currentStage(convID))
+		return
+	}
 	st := s.currentStage(convID)
 	if st != nil && st.Phase == stage.StageThinking {
-		// Heuristic: presence of tool or assistant message indicates progress.
-		last := filtered[len(filtered)-1]
+		last := out[len(out)-1]
 		switch last.Role {
 		case "tool":
 			if last.ToolName != nil {
 				name := strings.ToLower(*last.ToolName)
 				if name == "llm/core.generate" || name == "llm/core:generate" {
-					// Treat generate-as-tool as part of thinking, not executing.
 					st = &stage.Stage{Phase: stage.StageThinking}
 				} else {
 					st = &stage.Stage{Phase: stage.StageExecuting, Tool: *last.ToolName}
@@ -824,8 +585,151 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 			st = &stage.Stage{Phase: stage.StageDone}
 		}
 	}
-	encode(w, http.StatusOK, filtered, nil, st)
 
+	// TODO use dao to fetch execution traces when available instead of in-memory store
+	// Append synthetic tool messages built from execution traces
+	// Prefer in-memory execution store when available, otherwise fall back to DAO tool_calls
+	hasExecFor := map[string]bool{}
+	// DAO fallback: aggregate executions by most parent message
+
+	// Build parent map from DAO views
+	parent := map[string]string{}
+	created := map[string]time.Time{}
+	convByMsg := map[string]string{}
+	for _, v := range views {
+		if v == nil {
+			continue
+		}
+		if v.ParentMessageID != nil && *v.ParentMessageID != "" {
+			parent[v.Id] = *v.ParentMessageID
+		}
+		if v.CreatedAt != nil {
+			created[v.Id] = *v.CreatedAt
+		}
+		convByMsg[v.Id] = v.ConversationID
+	}
+	// Helper to find root-most parent id
+	rootCache := map[string]string{}
+	var rootOf func(string) string
+	rootOf = func(id string) string {
+		if id == "" {
+			return ""
+		}
+		if r, ok := rootCache[id]; ok {
+			return r
+		}
+		p, ok := parent[id]
+		if !ok || p == "" || p == id {
+			rootCache[id] = id
+			return id
+		}
+		r := rootOf(p)
+		rootCache[id] = r
+		return r
+	}
+	// Aggregate all tool calls by root-most parent across entire subtree
+	outcomesByRoot := map[string][]*plan.Outcome{}
+	traceByRoot := map[string]int{}
+	for _, v := range views {
+		if v == nil {
+			continue
+		}
+		ops, err := s.store.Operations().GetByMessage(r.Context(), v.Id)
+		if err != nil || len(ops) == 0 {
+			continue
+		}
+		rID := rootOf(v.Id)
+		if hasExecFor[rID] {
+			// Memory already provided executions for this root
+			continue
+		}
+		tr := traceByRoot[rID]
+		if tr == 0 {
+			tr = 1
+		}
+		for _, op := range ops {
+			if op == nil || op.Tool == nil || op.Tool.Call == nil {
+				continue
+			}
+			call := op.Tool.Call
+			outc := &plan.Outcome{ID: call.OpID}
+			step := &plan.StepOutcome{ID: call.OpID + "-0", Tool: call.ToolName, TraceID: tr}
+			tr++
+			if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
+				step.Request = json.RawMessage(*op.Tool.Request.InlineBody)
+			} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
+				step.Request = json.RawMessage([]byte(*call.RequestSnapshot))
+			}
+			if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
+				step.Response = json.RawMessage(*op.Tool.Response.InlineBody)
+			} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
+				step.Response = json.RawMessage([]byte(*call.ResponseSnapshot))
+			}
+			step.Success = strings.ToLower(call.Status) == "completed"
+			if call.ErrorMessage != nil {
+				step.Error = *call.ErrorMessage
+			}
+			if call.StartedAt != nil {
+				step.StartedAt = call.StartedAt.Local().Format(time.RFC3339)
+			}
+			if call.CompletedAt != nil {
+				step.EndedAt = call.CompletedAt.Local().Format(time.RFC3339)
+				if call.StartedAt != nil {
+					step.Elapsed = call.CompletedAt.Sub(*call.StartedAt).Truncate(time.Millisecond).String()
+				}
+			}
+			outc.Steps = []*plan.StepOutcome{step}
+			outcomesByRoot[rID] = append(outcomesByRoot[rID], outc)
+		}
+		traceByRoot[rID] = tr
+	}
+	// Synthesize one tool message per root with aggregated outcomes
+	var execMsgs []memory.Message
+	for rootID, outcomes := range outcomesByRoot {
+		if len(outcomes) == 0 {
+			continue
+		}
+		rt := created[rootID]
+		if rt.IsZero() {
+			rt = time.Now()
+		}
+		conv := convByMsg[rootID]
+		if conv == "" {
+			conv = convID
+		}
+		tm := memory.Message{
+			ID:             rootID + "/1",
+			ConversationID: conv,
+			ParentID:       rootID,
+			Role:           "tool",
+			Executions:     outcomes,
+			CreatedAt:      rt.Add(time.Second),
+		}
+		execMsgs = append(execMsgs, tm)
+	}
+	if len(execMsgs) > 0 {
+		out = append(out, execMsgs...)
+	}
+
+	// Optional legacy parentId filter
+	if parentId != "" {
+		filtered := make([]memory.Message, 0, len(out))
+		for _, it := range out {
+			if it.ParentID == parentId || it.ID == parentId {
+				filtered = append(filtered, it)
+			}
+		}
+		out = filtered
+	}
+
+	// Order by sequence if present, otherwise created_at
+	sort.SliceStable(out, func(i, j int) bool {
+		mi, mj := out[i], out[j]
+		return mi.CreatedAt.Before(mj.CreatedAt)
+	})
+
+	encode(w, http.StatusOK, out, nil, st)
+	return
 }
 
 // handleGetSingleMessage supports GET /v1/api/conversations/{id}/messages/{msgID}
