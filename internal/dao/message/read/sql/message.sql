@@ -12,8 +12,6 @@ SELECT
   m.interim,
   m.elicitation_id,
   m.parent_message_id,
-  m.model_call_present,
-  m.tool_call_present,
   m.superseded_by,
   m.tool_name
 FROM message m

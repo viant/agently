@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"time"
 
+	plan "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
 	"github.com/viant/datly/repository/contract"
@@ -27,7 +28,13 @@ type Input struct {
 	Interim        []int      `parameter:",kind=query,in=interim" predicate:"in,group=0,m,interim"`
 	ElicitationID  string     `parameter:",kind=query,in=elicitation_id" predicate:"in,group=0,m,elicitation_id"`
 	Since          *time.Time `parameter:",kind=query,in=since" predicate:"greater_or_equal,group=0,m,created_at"`
-	Has            *Has       `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	// Non-DB parameters used by service layer for post-filter/backfill/aggregation
+	SinceID           string `json:"-"`
+	ElicitInline      bool   `json:"-"`
+	IncludeOutcomes   bool   `json:"-"`
+	FlattenExecutions bool   `json:"-"`
+	ParentRoot        string `json:"-"`
+	Has               *Has   `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type Has struct {
@@ -40,6 +47,8 @@ type Has struct {
 	Interim        bool
 	ElicitationID  bool
 	Since          bool
+	// Non-DB markers
+	SinceID bool
 }
 
 type Output struct {
@@ -49,26 +58,34 @@ type Output struct {
 }
 
 type MessageView struct {
-	Id               string     `sqlx:"id"`
-	ConversationID   string     `sqlx:"conversation_id"`
-	TurnID           *string    `sqlx:"turn_id"`
-	Sequence         *int       `sqlx:"sequence"`
-	CreatedAt        *time.Time `sqlx:"created_at"`
-	Role             string     `sqlx:"role"`
-	Type             string     `sqlx:"type"`
-	Content          string     `sqlx:"content"`
-	ContextSummary   *string    `sqlx:"context_summary"`
-	Tags             *string    `sqlx:"tags"`
-	Interim          *int       `sqlx:"interim"`
-	ElicitationID    *string    `sqlx:"elicitation_id"`
-	ParentMessageID  *string    `sqlx:"parent_message_id"`
-	ModelCallPresent *int       `sqlx:"model_call_present"`
-	ToolCallPresent  *int       `sqlx:"tool_call_present"`
-	SupersededBy     *string    `sqlx:"superseded_by"`
-	ToolName         *string    `sqlx:"tool_name"`
+	Id             string     `sqlx:"id"`
+	ConversationID string     `sqlx:"conversation_id"`
+	TurnID         *string    `sqlx:"turn_id"`
+	Sequence       *int       `sqlx:"sequence"`
+	CreatedAt      *time.Time `sqlx:"created_at"`
+	Role           string     `sqlx:"role"`
+	Type           string     `sqlx:"type"`
+	Content        string     `sqlx:"content"`
+	ContextSummary *string    `sqlx:"context_summary"`
+	Tags           *string    `sqlx:"tags"`
+	Interim        *int       `sqlx:"interim"`
+	ElicitationID  *string    `sqlx:"elicitation_id"`
+	ParentID       *string    `sqlx:"parent_message_id" json:"parentId,omitempty"`
+	SupersededBy   *string    `sqlx:"superseded_by"`
+	ToolName       *string    `sqlx:"tool_name"`
 
 	ToolCall  *ToolCallView  `sqlx:"-" on:"Id:id=MessageID:message_id" view:",table=tool_calls" sql:"uri=sql/tool_call.sql"`
 	ModelCall *ModelCallView `sqlx:"-" on:"Id:id=MessageID:message_id" view:",table=model_calls" sql:"uri=sql/model_call.sql"`
+	// ElicitationJSON holds inline JSON decoded from the payload referenced by
+	// ElicitationID. It is populated when caller opts in via WithElicitationInline.
+	// It is an internal staging field and not exposed in JSON.
+	ElicitationJSON *string `sqlx:"-" json:"-"`
+	// Elicitation is a typed view for UI/clients; when ElicitInline option is on
+	// the service decodes ElicitationJSON into this struct.
+	Elicitation *plan.Elicitation `sqlx:"-" json:"elicitation,omitempty"`
+	// Executions holds aggregated plan outcomes for the subtree rooted at this
+	// message. Populated when caller opts in via WithIncludeOutcomes.
+	Executions []*plan.Outcome `sqlx:"-" json:"executions,omitempty"`
 }
 
 type ToolCallView struct {

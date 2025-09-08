@@ -82,8 +82,6 @@ CREATE TABLE `message` (
                            interim             BIGINT NOT NULL DEFAULT 0 CHECK (interim IN (0,1)),
                            elicitation_id      VARCHAR(255),
                            parent_message_id   VARCHAR(255),
-                           model_call_present  BIGINT NOT NULL DEFAULT 0 CHECK (model_call_present IN (0,1)),
-                           tool_call_present   BIGINT NOT NULL DEFAULT 0 CHECK (tool_call_present IN (0,1)),
                            superseded_by       VARCHAR(255),
     -- legacy column to remain compatible with older readers
                            tool_name           TEXT,
