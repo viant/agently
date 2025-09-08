@@ -20,6 +20,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/stage"
 	"github.com/viant/agently/genai/tool"
+	convread "github.com/viant/agently/internal/dao/conversation/read"
 	convw "github.com/viant/agently/internal/dao/conversation/write"
 	usageread "github.com/viant/agently/internal/dao/usage/read"
 	"github.com/viant/agently/metadata"
@@ -437,7 +438,8 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// List all conversations
-		rows, err := s.store.Conversations().List(r.Context())
+		// Use an always-true archived filter to avoid predicate builder generating AND 1=0
+		rows, err := s.store.Conversations().List(r.Context(), convread.WithArchived(0, 1))
 		if err != nil {
 			encode(w, http.StatusInternalServerError, nil, err, nil)
 			return
