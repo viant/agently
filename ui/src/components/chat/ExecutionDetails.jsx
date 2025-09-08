@@ -3,6 +3,7 @@
 import React, { useMemo, useEffect } from "react";
 import {BasicTable as Basic} from "forge/components";
 import { Dialog } from "@blueprintjs/core";
+import JsonViewer from "../JsonViewer.jsx";
 import { signal } from "@preact/signals-react";
 import { endpoints } from "../../endpoint";
 
@@ -136,7 +137,7 @@ function flattenExecutions(executions = []) {
     })));
 }
 
-export default function ExecutionDetails({ executions = [], context, messageId, onError, useForgeDialog = false, resizable = false }) {
+export default function ExecutionDetails({ executions = [], context, messageId, onError, useForgeDialog = false, resizable = false, useCodeMirror = false }) {
     const [dialog, setDialog] = React.useState(null);
     const [dlgSize, setDlgSize] = React.useState({ width: 960, height: 640 });
     const dataSourceId = `ds${messageId ?? ""}`;
@@ -264,11 +265,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                     <div style={{ position: 'relative', padding: 12, height: resizable ? 'calc(100% - 24px)' : 'auto', maxHeight: resizable ? 'none' : '70vh', overflow: "auto" }}>
                         {dialog.loading && <span>Loading …</span>}
                         {!dialog.loading && dialog.payload !== null && (
-                            <pre className="text-xs whitespace-pre-wrap break-all">
-                                {typeof dialog.payload === "string"
-                                    ? dialog.payload
-                                    : JSON.stringify(dialog.payload, null, 2)}
-                            </pre>
+                            <JsonViewer value={dialog.payload} useCodeMirror={true} height={resizable ? '100%' : '60vh'} />
                         )}
                         {resizable && (
                             <div
