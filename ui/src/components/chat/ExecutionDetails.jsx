@@ -130,10 +130,13 @@ function flattenExecutions(executions = []) {
         // include request/response refs so the viewer can lazy-load payloads
         request:  s.request,
         response: s.response,
+        // pass through payload IDs from step exactly as presented
+        requestPayloadId: s.requestPayloadId,
+        responsePayloadId: s.responsePayloadId,
     })));
 }
 
-export default function ExecutionDetails({ executions = [], context, messageId }) {
+export default function ExecutionDetails({ executions = [], context, messageId, onError, useForgeDialog = false }) {
     const [dialog, setDialog] = React.useState(null);
     const dataSourceId = `ds${messageId ?? ""}`;
     const rows = useMemo(() => flattenExecutions(executions), [executions]);
@@ -161,56 +164,61 @@ export default function ExecutionDetails({ executions = [], context, messageId }
                     ...toolCalls.map(tc => mapToolCall(tc)),
                 ];
                 const sig = getCollectionSignal(dataSourceId);
-                if (mapped.length) {
+                const current = typeof sig.peek === 'function' ? sig.peek() : sig.value;
+                const hasExisting = Array.isArray(current) && current.length > 0;
+                if (!hasExisting && mapped.length) {
                     sig.value = mapped;
                 }
             } catch (e) {
-                // eslint-disable-next-line no-console
-                console.error('ExecutionDetails: fetch ops error', e);
+                if (typeof onError === 'function') {
+                    onError(e);
+                }
             }
         };
         fetchOps();
-    }, [messageId, dataSourceId]);
-
-    // Helper to fetch heavy payload on demand
-    const resolvePayloadRef = (val) => {
-        if (!val) return null;
-        if (typeof val === 'string') return val; // already a URL or path
-        if (typeof val === 'object') {
-            if (typeof val.$ref === 'string') return val.$ref;
-            if (typeof val.url === 'string') return val.url;
-            if (typeof val.href === 'string') return val.href;
-        }
-        return null;
-    };
-
-    const joinURL = (base, path) => {
-        if (!path) return base || '';
-        if (/^https?:\/\//i.test(path)) return path;
-        if (path.startsWith('/')) return path;
-        const b = (base || '').replace(/\/+$/,'');
-        const p = path.replace(/^\/+/, '');
-        return b ? `${b}/${p}` : `/${p}`;
-    };
+    }, [messageId, dataSourceId, onError]);
 
     const viewPart = async (part, row) => {
         try {
             const title = part === 'request' ? 'Request' : 'Response';
-            setDialog({ title, payload: null, loading: true });
-            // v1 lazy link support: `$ref` URL present
-            const ref = part === 'request'
-                ? resolvePayloadRef(row.request)
-                : resolvePayloadRef(row.response);
+            if (!useForgeDialog) {
+                setDialog({ title, payload: null, loading: true });
+            }
+            // Use only the provided payload ID fields
+            const pid = part === 'request'
+                ? row.requestPayloadId
+                : row.responsePayloadId;
             let url;
-            if (ref) {
-                // Build from ref: if it's absolute or starts with '/', use as-is; otherwise join with app API base.
-                url = joinURL(endpoints?.appAPI?.baseURL, ref);
-            } else {
-                // v2 payload id fallback
-                const pid = part === 'request' ? (row.requestPayloadID || row.request?.id) : (row.responsePayloadID || row.response?.id);
-                if (!pid) { setDialog({ title, payload: '(no payload)' }); return; }
-                const base = endpoints?.agentlyAPI?.baseURL || '';
-                url = `${(base || '').replace(/\/+$/,'')}/v2/api/agently/payload/${encodeURIComponent(pid)}?raw=1`;
+            if (!pid) { setDialog({ title, payload: '(no payload)' }); return; }
+            const base = endpoints?.agentlyAPI?.baseURL || '';
+            url = `${(base || '').replace(/\/+$/,'')}/v2/api/agently/payload/${encodeURIComponent(pid)}?raw=1`;
+
+            // If requested, open as a Forge dialog (resizable) and return early
+            if (useForgeDialog && context?.handlers?.window?.openDialog) {
+                try {
+                    const execArgs = [
+                        'payloadViewer',        // dialog id expected in Forge metadata
+                        title,                   // window title
+                        {
+                            awaitResult: false,
+                            resizable: true,
+                            width: 960,
+                            height: 720,
+                            params: { url },
+                        },
+                    ];
+                    await context.handlers.window.openDialog({ execution: { args: execArgs } });
+                    return;
+                } catch (e) {
+                    // Bubble error and fall back to inline dialog
+                    if (typeof onError === 'function') {
+                        try { onError(e); } catch (_) {}
+                    }
+                    // continue to fetch and render inline below
+                    if (!useForgeDialog) {
+                        setDialog({ title, payload: null, loading: true });
+                    }
+                }
             }
             const resp = await fetch(url);
             if (!resp.ok) throw new Error(`${resp.status}`);
@@ -222,8 +230,9 @@ export default function ExecutionDetails({ executions = [], context, messageId }
             }
             setDialog({ title, payload, loading: false });
         } catch (err) {
-            // eslint-disable-next-line no-console
-            console.error('fetch payload error', err);
+            if (typeof onError === 'function') {
+                try { onError(err); } catch (_) { /* ignore */ }
+            }
             setDialog({ title: 'Error', payload: String(err) });
         }
     };
@@ -280,8 +289,8 @@ function mapModelCall(row = {}) {
         elapsed,
         request: row.request,
         response: row.response,
-        requestPayloadID: call.requestPayloadID,
-        responsePayloadID: call.responsePayloadID,
+        requestPayloadId: call.requestPayloadId,
+        responsePayloadId: call.responsePayloadId,
     };
 }
 
@@ -301,12 +310,7 @@ function mapToolCall(row = {}) {
         elapsed,
         request: row.request,
         response: row.response,
-        requestPayloadID: call.requestPayloadID || payloadIdFromSnapshot(call.requestSnapshot),
-        responsePayloadID: call.responsePayloadID || payloadIdFromSnapshot(call.responseSnapshot),
+        requestPayloadId: call.requestPayloadId,
+        responsePayloadId: call.responsePayloadId,
     };
-}
-
-function payloadIdFromSnapshot(snapshot) {
-    if (!snapshot || typeof snapshot !== 'string') return '';
-    try { const x = JSON.parse(snapshot); return x.payloadId || ''; } catch (_) { return ''; }
 }
