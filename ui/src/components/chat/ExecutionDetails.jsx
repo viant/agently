@@ -136,8 +136,9 @@ function flattenExecutions(executions = []) {
     })));
 }
 
-export default function ExecutionDetails({ executions = [], context, messageId, onError, useForgeDialog = false }) {
+export default function ExecutionDetails({ executions = [], context, messageId, onError, useForgeDialog = false, resizable = false }) {
     const [dialog, setDialog] = React.useState(null);
+    const [dlgSize, setDlgSize] = React.useState({ width: 960, height: 640 });
     const dataSourceId = `ds${messageId ?? ""}`;
     const rows = useMemo(() => flattenExecutions(executions), [executions]);
 
@@ -254,10 +255,13 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                 isOpen={!!dialog}
                 onClose={() => setDialog(null)}
                 title={dialog?.title || ""}
-                style={{ width: "60vw", minWidth: "60vw", minHeight: "60vh" }}
+                style={resizable
+                    ? { width: dlgSize.width, height: dlgSize.height, minWidth: 480, minHeight: 320 }
+                    : { width: "60vw", minWidth: "60vw", minHeight: "60vh" }
+                }
             >
                 {dialog && (
-                    <div style={{ padding: 12, maxHeight: "70vh", overflow: "auto" }}>
+                    <div style={{ position: 'relative', padding: 12, height: resizable ? 'calc(100% - 24px)' : 'auto', maxHeight: resizable ? 'none' : '70vh', overflow: "auto" }}>
                         {dialog.loading && <span>Loading …</span>}
                         {!dialog.loading && dialog.payload !== null && (
                             <pre className="text-xs whitespace-pre-wrap break-all">
@@ -265,6 +269,40 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                                     ? dialog.payload
                                     : JSON.stringify(dialog.payload, null, 2)}
                             </pre>
+                        )}
+                        {resizable && (
+                            <div
+                                onMouseDown={(e) => {
+                                    const startX = e.clientX;
+                                    const startY = e.clientY;
+                                    const startW = dlgSize.width;
+                                    const startH = dlgSize.height;
+                                    const onMove = (evt) => {
+                                        const dx = evt.clientX - startX;
+                                        const dy = evt.clientY - startY;
+                                        const w = Math.max(480, startW + dx);
+                                        const h = Math.max(320, startH + dy);
+                                        setDlgSize({ width: w, height: h });
+                                    };
+                                    const onUp = () => {
+                                        window.removeEventListener('mousemove', onMove);
+                                        window.removeEventListener('mouseup', onUp);
+                                    };
+                                    window.addEventListener('mousemove', onMove);
+                                    window.addEventListener('mouseup', onUp);
+                                }}
+                                title="Drag to resize"
+                                style={{
+                                    position: 'absolute',
+                                    right: 6,
+                                    bottom: 6,
+                                    width: 14,
+                                    height: 14,
+                                    background: 'rgba(0,0,0,0.2)',
+                                    borderRadius: 2,
+                                    cursor: 'se-resize'
+                                }}
+                            />
                         )}
                     </div>
                 )}
