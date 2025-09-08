@@ -332,6 +332,7 @@ func (s *Service) GetTranscript(ctx context.Context, conversationID, turnID stri
 	// Optional: aggregate tool/model outcomes and attach to root messages
 	if in.IncludeOutcomes && len(rows) > 0 {
 		outcomesByRoot, _ := s.aggregateExecutions(ctx, conversationID, uri, in)
+		var updatedRow []*read2.MessageView
 		for _, v := range rows {
 			if v == nil {
 				continue
@@ -339,7 +340,13 @@ func (s *Service) GetTranscript(ctx context.Context, conversationID, turnID stri
 			if oc := outcomesByRoot[v.Id]; len(oc) > 0 {
 				v.Executions = oc
 			}
+			if in.FlattenExecutions && v.Role == "tool" {
+				continue
+			}
+			updatedRow = append(updatedRow, v)
 		}
+		rows = updatedRow
+
 		// Optionally flatten executions into synthetic tool messages and clear root executions
 		if in.FlattenExecutions {
 			flat := make([]*read2.MessageView, 0, len(rows))
@@ -385,6 +392,14 @@ func (s *Service) GetTranscript(ctx context.Context, conversationID, turnID stri
 			rows = filtered
 		}
 	}
+
+	sort.SliceStable(rows, func(i, j int) bool {
+		li, lj := rows[i], rows[j]
+		if li.CreatedAt != nil && lj.CreatedAt != nil {
+			return li.CreatedAt.Before(*lj.CreatedAt)
+		}
+		return i < j
+	})
 
 	return rows, nil
 }
