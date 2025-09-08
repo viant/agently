@@ -256,17 +256,36 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                 isOpen={!!dialog}
                 onClose={() => setDialog(null)}
                 title={dialog?.title || ""}
+                className={resizable ? 'agently-resizable-dialog' : undefined}
                 style={resizable
-                    ? { width: dlgSize.width, height: dlgSize.height, minWidth: 480, minHeight: 320 }
+                    ? { width: dlgSize.width, height: dlgSize.height, minWidth: 480, minHeight: 320, maxWidth: '95vw', maxHeight: '95vh' }
                     : { width: "60vw", minWidth: "60vw", minHeight: "60vh" }
                 }
             >
                 {dialog && (
-                    <div style={{ position: 'relative', padding: 12, height: resizable ? 'calc(100% - 24px)' : 'auto', maxHeight: resizable ? 'none' : '70vh', overflow: "auto" }}>
-                        {dialog.loading && <span>Loading …</span>}
-                        {!dialog.loading && dialog.payload !== null && (
-                            <JsonViewer value={dialog.payload} useCodeMirror={true} height={resizable ? '100%' : '60vh'} />
-                        )}
+                    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 8, padding: 12, height: resizable ? 'calc(100% - 24px)' : 'auto', maxHeight: resizable ? 'none' : '70vh', paddingRight: resizable ? 20 : 12, paddingBottom: resizable ? 20 : 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="bp4-button bp4-small"
+                                onClick={async () => {
+                                    try {
+                                        const text = typeof dialog.payload === 'string' ? dialog.payload : JSON.stringify(dialog.payload, null, 2);
+                                        await navigator.clipboard.writeText(text);
+                                    } catch (e) {
+                                        if (typeof onError === 'function') {
+                                            try { onError(e); } catch (_) {}
+                                        }
+                                    }
+                                }}
+                            >Copy</button>
+                        </div>
+                        <div style={{ flex: 1, minHeight: resizable ? 0 : undefined, overflow: 'auto' }}>
+                            {dialog.loading && <span>Loading …</span>}
+                            {!dialog.loading && dialog.payload !== null && (
+                                <JsonViewer value={dialog.payload} useCodeMirror={useCodeMirror} height={resizable ? 'calc(100% - 8px)' : '60vh'} />
+                            )}
+                        </div>
                         {resizable && (
                             <div
                                 onMouseDown={(e) => {
@@ -297,7 +316,8 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                                     height: 14,
                                     background: 'rgba(0,0,0,0.2)',
                                     borderRadius: 2,
-                                    cursor: 'se-resize'
+                                    cursor: 'se-resize',
+                                    zIndex: 5
                                 }}
                             />
                         )}

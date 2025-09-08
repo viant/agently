@@ -77,6 +77,12 @@ body {
     flex: 1;
 }
 
+/* Optional resizable BlueprintJS dialog for payload viewer */
+.agently-resizable-dialog.bp4-dialog {
+    resize: both;
+    overflow: auto;
+}
+
 .menu-bar .bp4-button {
     color: white;
 }
@@ -98,5 +104,4 @@ label.label-data {
 /* -------------------------------------------------------------------------- */
 /* Chat components                                                             */
 /* -------------------------------------------------------------------------- */
-
 
