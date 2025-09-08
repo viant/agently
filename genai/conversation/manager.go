@@ -3,11 +3,12 @@ package conversation
 import (
 	"context"
 	"errors"
+	"time"
+
 	"github.com/google/uuid"
 	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/stage"
-	"time"
 )
 
 // QueryHandler is a thin adapter used by the Manager to delegate the actual
@@ -149,9 +150,7 @@ func WithIDGenerator(f func() string) Option {
 // New returns a new Manager instance. If history is nil an in-memory store is
 // created. If idGen is not supplied uuid.NewString() is used.
 func New(history memory.History, executionStore *memory.ExecutionStore, handler QueryHandler, opts ...Option) *Manager {
-	if history == nil {
-		history = memory.NewHistoryStore()
-	}
+	// Do not create in-memory history by default; rely on recorder/domain store.
 	m := &Manager{
 		history:        history,
 		handler:        handler,

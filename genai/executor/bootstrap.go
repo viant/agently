@@ -299,10 +299,8 @@ func (e *Service) initHistory(ctx context.Context) error {
 	if e.history != nil {
 		return nil
 	}
-	// Use in-memory implementation by default; SQL-backed history can be
-	// provided by an alternate build-tagged implementation without
-	// hard-wiring imports here.
-	e.history = memory.NewHistoryStore()
+	// Default to a noop history; domain recorder handles persistence.
+	e.history = &memory.NoopHistory{}
 	return nil
 }
 

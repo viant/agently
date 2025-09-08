@@ -321,15 +321,20 @@ func (s *Service) messages(ctx context.Context, in, out interface{}) error {
 
 	var msgs []memory.Message
 	var err error
-	if arg.SinceID == "" {
-		msgs, err = s.hist.GetMessages(ctx, convID)
-	} else {
-		// HistoryStore implements MessagesSince
-		if hs, ok := s.hist.(*memory.HistoryStore); ok {
-			msgs, err = hs.MessagesSince(ctx, convID, arg.SinceID)
+	msgs, err = s.hist.GetMessages(ctx, convID)
+	if err == nil && arg.SinceID != "" {
+		// emulate MessagesSince when implementation does not provide it
+		start := -1
+		for i := range msgs {
+			if msgs[i].ID == arg.SinceID {
+				start = i
+				break
+			}
+		}
+		if start >= 0 {
+			msgs = msgs[start:]
 		} else {
-			// fallback to GetMessages when implementation lacks MessagesSince
-			msgs, err = s.hist.GetMessages(ctx, convID)
+			msgs = []memory.Message{}
 		}
 	}
 	if err != nil {

@@ -14,7 +14,7 @@ require (
 	github.com/tmc/langchaingo v0.1.14-0.20250213044659-d3e43b632176
 	github.com/viant/afs v1.26.3
 	github.com/viant/afsc v1.9.1
-	github.com/viant/datly v0.20.13-0.20250903120909-09ce111ae221
+	github.com/viant/datly v0.20.14
 	github.com/viant/embedius v0.2.1
 	github.com/viant/fluxor v0.1.24
 	github.com/viant/fluxor-mcp v0.1.13
@@ -37,6 +37,7 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3
 	github.com/fsnotify/fsnotify v1.4.7
+	github.com/go-sql-driver/mysql v1.7.1
 	github.com/viant/sqlx v0.17.7
 	golang.org/x/oauth2 v0.30.0
 	modernc.org/sqlite v1.18.1
@@ -84,7 +85,6 @@ require (
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-sql-driver/mysql v1.7.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect

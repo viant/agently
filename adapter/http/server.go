@@ -412,31 +412,46 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		encode(w, http.StatusOK, resp, nil, nil)
 	case http.MethodGet:
 		id := r.PathValue("id")
-		var err error
-		var ids []string
-		if id != "" {
-			ids = append(ids, id)
-		}
-		if len(ids) == 0 {
-			ids, err = s.mgr.List(r.Context())
+		// Prefer DAO listing to avoid reliance on history store
+		// Single conversation fetch by id
+		if strings.TrimSpace(id) != "" {
+			cv, err := s.store.Conversations().Get(r.Context(), id)
 			if err != nil {
 				encode(w, http.StatusInternalServerError, nil, err, nil)
 				return
 			}
+			if cv == nil {
+				encode(w, http.StatusNotFound, nil, fmt.Errorf("conversation not found"), nil)
+				return
+			}
+			t := id
+			if cv.Title != nil && strings.TrimSpace(*cv.Title) != "" {
+				t = *cv.Title
+			}
+			encode(w, http.StatusOK, []conversationInfo{{ID: id, Title: t}}, nil, nil)
+			return
 		}
-		conversations := make([]conversationInfo, len(ids))
-		for i, id := range ids {
-			title, _ := s.titles.Load(id)
-			var t string
-			if titleStr, ok := title.(string); ok {
-				t = titleStr
+		// List all conversations
+		rows, err := s.store.Conversations().List(r.Context())
+		if err != nil {
+			encode(w, http.StatusInternalServerError, nil, err, nil)
+			return
+		}
+		conversations := make([]conversationInfo, 0, len(rows))
+		for _, v := range rows {
+			if v == nil {
+				continue
 			}
-			if strings.TrimSpace(t) == "" {
-				t = id
+			t := v.Id
+			if v.Title != nil && strings.TrimSpace(*v.Title) != "" {
+				t = *v.Title
 			}
-			conversations[i] = conversationInfo{ID: id, Title: t}
+			conversations = append(conversations, conversationInfo{ID: v.Id, Title: t})
 		}
 		encode(w, http.StatusOK, conversations, nil, nil)
+		return
+		// Fallback empty list when DAO not available
+		encode(w, http.StatusOK, []conversationInfo{}, nil, nil)
 	default:
 		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"), nil)
 	}

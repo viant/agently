@@ -41,12 +41,7 @@ func New(exec *execsvc.Service, svc *service.Service) http.Handler {
 
 		convID := uuid.New().String()
 
-		// Ensure conversation exists in history so UI can fetch immediately.
-		if hist := exec.Conversation().History(); hist != nil {
-			if hs, ok := hist.(*memory.HistoryStore); ok {
-				hs.EnsureConversation(convID)
-			}
-		}
+		// HistoryStore removed – domain recorder ensures persistence.
 
 		// Kick off workflow in background – fire & forget.
 		go func() {
