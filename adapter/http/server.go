@@ -226,6 +226,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.handleElicitationRefine(w, r, r.PathValue("msgId"))
 	})
 
+	// Payload fetch (lazy request/response bodies)
+	mux.HandleFunc("GET /v1/api/payload/{id}", func(w http.ResponseWriter, r *http.Request) {
+		s.handleGetPayload(w, r, r.PathValue("id"))
+	})
+
 	// Policy approval callback (two paths for backwards-compatibility)
 	mux.HandleFunc("POST /v1/api/approval/{reqId}", func(w http.ResponseWriter, r *http.Request) {
 		s.handleApprovalCallback(w, r, r.PathValue("reqId"))
@@ -505,6 +510,10 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		sinceId = sinceId[:idx]
 	}
 	parentId := strings.TrimSpace(r.URL.Query().Get("parentId")) // legacy
+	includePayloads := func() bool {
+		v := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("includePayloads")))
+		return v == "1" || v == "true" || v == "yes"
+	}()
 
 	// ------------------------------------------------------------------
 	// 2. Fetch from manager (enriched with execution traces)
@@ -518,9 +527,10 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	in = append(in, msgread.WithInterim(0))
 	// Fetch conversation-level messages (not per-turn) and exclude interim
 	in = append(in, msgread.WithConversationID(convID))
-	views, err := s.store.Messages().List(r.Context(), in...)
-
-	views, err = s.store.Messages().GetTranscript(r.Context(), convID, "", in...)
+	// Primary views used to render output messages (exclude interim)
+	views, err := s.store.Messages().GetTranscript(r.Context(), convID, "", in...)
+	// Secondary list including interim used only for execution stitching
+	allViews, _ := s.store.Messages().List(r.Context(), msgread.WithConversationID(convID))
 
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err, nil)
@@ -603,11 +613,11 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	hasExecFor := map[string]bool{}
 	// DAO fallback: aggregate executions by most parent message
 
-	// Build parent map from DAO views
+	// Build parent map from DAO views (including interim)
 	parent := map[string]string{}
 	created := map[string]time.Time{}
 	convByMsg := map[string]string{}
-	for _, v := range views {
+	for _, v := range allViews {
 		if v == nil {
 			continue
 		}
@@ -638,8 +648,8 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		rootCache[id] = r
 		return r
 	}
-	// Aggregate all tool calls by root-most parent across entire subtree
-	// Build global ordered list of tool calls across conversation
+	// Aggregate all tool and model calls by root-most parent across entire subtree
+	// Build global ordered list of operations across conversation
 	type opRec struct {
 		rootID    string
 		tool      string
@@ -650,9 +660,15 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		req, res  json.RawMessage
 		success   bool
 		errMsg    string
+		turnID    string
+		isModel   bool
+		phase     int // 0=llm(plan), 1=tool, 2=llm(final)
 	}
 	var calls []opRec
-	for _, v := range views {
+	// Map a turn to the root id that produced tool calls in that turn,
+	// so we can co-locate model steps with their tool chain.
+	turnToolRoot := map[string]string{}
+	for _, v := range allViews {
 		if v == nil {
 			continue
 		}
@@ -665,50 +681,169 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 			continue
 		}
 		for _, op := range ops {
-			if op == nil || op.Tool == nil || op.Tool.Call == nil {
+			if op == nil {
 				continue
 			}
-			call := op.Tool.Call
-			var rq, rs json.RawMessage
-			if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
-				rq = json.RawMessage(*op.Tool.Request.InlineBody)
-			} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
-				rq = json.RawMessage([]byte(*call.RequestSnapshot))
-			}
-			if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
-				rs = json.RawMessage(*op.Tool.Response.InlineBody)
-			} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
-				rs = json.RawMessage([]byte(*call.ResponseSnapshot))
-			}
-			calls = append(calls, opRec{
-				rootID:    rID,
-				tool:      call.ToolName,
-				opID:      call.OpID,
-				attempt:   call.Attempt,
-				started:   call.StartedAt,
-				completed: call.CompletedAt,
-				req:       rq, res: rs,
-				success: strings.ToLower(call.Status) == "completed",
-				errMsg: func() string {
-					if call.ErrorMessage != nil {
-						return *call.ErrorMessage
+			// Tool call → keep existing behaviour
+			if op.Tool != nil && op.Tool.Call != nil {
+				call := op.Tool.Call
+				var rq, rs json.RawMessage
+				if includePayloads {
+					if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
+						rq = json.RawMessage(*op.Tool.Request.InlineBody)
+					} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
+						rq = json.RawMessage([]byte(*call.RequestSnapshot))
 					}
-					return ""
-				}(),
-			})
+					if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
+						rs = json.RawMessage(*op.Tool.Response.InlineBody)
+					} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
+						rs = json.RawMessage([]byte(*call.ResponseSnapshot))
+					}
+				} else {
+					if id := payloadIDFromSnapshot(call.RequestSnapshot); id != "" {
+						rq = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, id)))
+					}
+					if id := payloadIDFromSnapshot(call.ResponseSnapshot); id != "" {
+						rs = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, id)))
+					}
+				}
+				rec := opRec{
+					rootID:    rID,
+					tool:      call.ToolName,
+					opID:      call.OpID,
+					attempt:   call.Attempt,
+					started:   call.StartedAt,
+					completed: call.CompletedAt,
+					req:       rq, res: rs,
+					success: strings.ToLower(call.Status) == "completed",
+					errMsg: func() string {
+						if call.ErrorMessage != nil {
+							return *call.ErrorMessage
+						}
+						return ""
+					}(),
+					turnID: func() string {
+						if call.TurnID != nil {
+							return *call.TurnID
+						}
+						return ""
+					}(),
+					phase: 1,
+				}
+				calls = append(calls, rec)
+				if rec.turnID != "" {
+					if _, ok := turnToolRoot[rec.turnID]; !ok {
+						turnToolRoot[rec.turnID] = rID
+					}
+				}
+			}
+			// Model call → add as LLM step outcome
+			if op.Model != nil && op.Model.Call != nil {
+				call := op.Model.Call
+				var rq, rs json.RawMessage
+				if includePayloads {
+					if op.Model.Request != nil && op.Model.Request.InlineBody != nil {
+						rq = json.RawMessage(*op.Model.Request.InlineBody)
+					}
+					if op.Model.Response != nil && op.Model.Response.InlineBody != nil {
+						rs = json.RawMessage(*op.Model.Response.InlineBody)
+					}
+				} else {
+					if call.RequestPayloadID != nil && *call.RequestPayloadID != "" {
+						rq = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, *call.RequestPayloadID)))
+					}
+					if call.ResponsePayloadID != nil && *call.ResponsePayloadID != "" {
+						rs = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, *call.ResponsePayloadID)))
+					}
+				}
+				// Build a stable-ish op id for model calls
+				opID := "mc:" + call.MessageID
+				if call.StartedAt != nil {
+					opID += ":" + strconv.FormatInt(call.StartedAt.UnixNano(), 10)
+				} else if call.TraceID != nil && *call.TraceID != "" {
+					opID += ":" + *call.TraceID
+				}
+				// Determine model-call phase
+				phase := 0
+				if len(rs) > 0 && strings.Contains(strings.ToLower(string(rs)), "tool_calls") {
+					phase = 0 // planning that yields tool calls
+				} else if len(rq) > 0 && (strings.Contains(strings.ToLower(string(rq)), "\"role\":\"tool\"") || strings.Contains(strings.ToLower(string(rq)), "tool_call_id")) {
+					phase = 2 // finalization after tool results are present
+				} else {
+					// Fallback: if completed after a tool-root exists for the turn, assume final
+					if call.TurnID != nil {
+						if _, ok := turnToolRoot[*call.TurnID]; ok {
+							phase = 2
+						}
+					}
+				}
+				calls = append(calls, opRec{
+					rootID:    rID,
+					tool:      "llm:" + call.Provider + "/" + call.Model,
+					opID:      opID,
+					attempt:   0,
+					started:   call.StartedAt,
+					completed: call.CompletedAt,
+					req:       rq, res: rs,
+					success: strings.ToLower(call.Status) == "completed",
+					errMsg:  "",
+					turnID: func() string {
+						if call.TurnID != nil {
+							return *call.TurnID
+						}
+						return ""
+					}(),
+					isModel: true,
+					phase:   phase,
+				})
+			}
+		}
+	}
+	// Re-map model calls to the tool-root of their turn when available
+	for i := range calls {
+		if calls[i].isModel && calls[i].turnID != "" {
+			if root, ok := turnToolRoot[calls[i].turnID]; ok && root != "" {
+				calls[i].rootID = root
+			}
 		}
 	}
 	sort.SliceStable(calls, func(i, j int) bool {
-		if calls[i].started == nil && calls[j].started == nil {
-			return i < j
+		si, sj := calls[i].started, calls[j].started
+		// Primary: started time (nil last)
+		if si == nil && sj == nil {
+			// Both unknown: tiebreak by phase, then completed time, then index
+			if calls[i].phase != calls[j].phase {
+				return calls[i].phase < calls[j].phase
+			}
+			if calls[i].completed == nil || calls[j].completed == nil {
+				return i < j
+			}
+			if calls[i].completed.Equal(*calls[j].completed) {
+				return i < j
+			}
+			return calls[i].completed.Before(*calls[j].completed)
 		}
-		if calls[i].started == nil {
+		if si == nil {
 			return false
 		}
-		if calls[j].started == nil {
+		if sj == nil {
 			return true
 		}
-		return calls[i].started.Before(*calls[j].started)
+		if si.Equal(*sj) {
+			// Same start time: prefer phase ordering 0(plan) < 1(tool) < 2(final)
+			if calls[i].phase != calls[j].phase {
+				return calls[i].phase < calls[j].phase
+			}
+			// Next tiebreaker: completed time
+			if calls[i].completed == nil || calls[j].completed == nil {
+				return i < j
+			}
+			if calls[i].completed.Equal(*calls[j].completed) {
+				return i < j
+			}
+			return calls[i].completed.Before(*calls[j].completed)
+		}
+		return si.Before(*sj)
 	})
 
 	// Assign GLOBAL trace ids and bucket per root
@@ -734,6 +869,7 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		outc.Steps = []*plan.StepOutcome{step}
 		outcomesByRoot[c.rootID] = append(outcomesByRoot[c.rootID], outc)
 	}
+
 	// Synthesize one tool message per root with aggregated outcomes
 	var execMsgs []memory.Message
 	for rootID, outcomes := range outcomesByRoot {
@@ -817,6 +953,69 @@ func (s *Server) handleGetSingleMessage(w http.ResponseWriter, r *http.Request, 
 	}
 	encode(w, http.StatusOK, mm, nil, nil)
 	return
+}
+
+// handleGetPayload serves payload content or metadata for a given payload id.
+// Query params:
+//
+//	raw=1    -> stream raw body bytes with content-type; 204 when empty
+//	meta=1   -> JSON envelope without InlineBody
+//	inline=1 -> JSON envelope with InlineBody when present (default)
+func (s *Server) handleGetPayload(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if id == "" || s.store == nil {
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("payload not found"), nil)
+		return
+	}
+	rows, err := s.store.Payloads().List(r.Context(), plread.WithID(id))
+	if err != nil {
+		encode(w, http.StatusInternalServerError, nil, err, nil)
+		return
+	}
+	if len(rows) == 0 || rows[0] == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	v := rows[0]
+	q := strings.ToLower(r.URL.Query().Get("raw"))
+	if q == "1" || q == "true" || q == "yes" {
+		if v.InlineBody == nil || len(*v.InlineBody) == 0 {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if strings.TrimSpace(v.MimeType) != "" {
+			w.Header().Set("Content-Type", v.MimeType)
+		} else {
+			w.Header().Set("Content-Type", "application/octet-stream")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(*v.InlineBody)
+		return
+	}
+	// meta or inline JSON envelope
+	meta := strings.ToLower(r.URL.Query().Get("meta"))
+	copy := *v
+	if meta == "1" || meta == "true" || meta == "yes" {
+		copy.InlineBody = nil
+	}
+	encode(w, http.StatusOK, &copy, nil, nil)
+}
+
+// payloadIDFromSnapshot extracts payloadId from a snapshot JSON string.
+func payloadIDFromSnapshot(snapshot *string) string {
+	if snapshot == nil || *snapshot == "" {
+		return ""
+	}
+	var x struct {
+		PayloadID string `json:"payloadId"`
+	}
+	if json.Unmarshal([]byte(*snapshot), &x) == nil {
+		return x.PayloadID
+	}
+	return ""
 }
 
 // dispatchConversationSubroutes routes /v1/api/conversations/{id}/... paths to
@@ -966,15 +1165,19 @@ func (s *Server) handleGetExecutionPart(w http.ResponseWriter, r *http.Request, 
 	var req json.RawMessage
 	var res json.RawMessage
 	found := false
-	// DAO fallback: rebuild ordered list
-	views, err := s.store.Messages().List(r.Context(), msgread.WithConversationID(convID))
+	// Rebuild combined list (model + tool) with phase-aware ordering to match getMessages TraceIDs
+	allViews, err := s.store.Messages().List(r.Context(), msgread.WithConversationID(convID))
 	if err == nil {
 		type rec struct {
-			st     *time.Time
+			st, en *time.Time
+			phase  int // 0 plan llm, 1 tool, 2 final llm
 			rq, rs json.RawMessage
 		}
 		var all []rec
-		for _, v := range views {
+		// Determine tool-root presence per turn to classify model finalization when needed
+		turnHasTool := map[string]bool{}
+		// First pass: mark turns that have tool calls
+		for _, v := range allViews {
 			if v == nil {
 				continue
 			}
@@ -983,32 +1186,91 @@ func (s *Server) handleGetExecutionPart(w http.ResponseWriter, r *http.Request, 
 				if op == nil || op.Tool == nil || op.Tool.Call == nil {
 					continue
 				}
-				call := op.Tool.Call
-				var rq, rs json.RawMessage
-				if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
-					rq = json.RawMessage(*op.Tool.Request.InlineBody)
-				} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
-					rq = json.RawMessage([]byte(*call.RequestSnapshot))
+				if op.Tool.Call.TurnID != nil && *op.Tool.Call.TurnID != "" {
+					turnHasTool[*op.Tool.Call.TurnID] = true
 				}
-				if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
-					rs = json.RawMessage(*op.Tool.Response.InlineBody)
-				} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
-					rs = json.RawMessage([]byte(*call.ResponseSnapshot))
+			}
+		}
+		// Second pass: build records
+		for _, v := range allViews {
+			if v == nil {
+				continue
+			}
+			ops, _ := s.store.Operations().GetByMessage(r.Context(), v.Id)
+			for _, op := range ops {
+				if op == nil {
+					continue
 				}
-				all = append(all, rec{st: call.StartedAt, rq: rq, rs: rs})
+				if op.Tool != nil && op.Tool.Call != nil {
+					call := op.Tool.Call
+					var rq, rs json.RawMessage
+					if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
+						rq = json.RawMessage(*op.Tool.Request.InlineBody)
+					} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
+						rq = json.RawMessage([]byte(*call.RequestSnapshot))
+					}
+					if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
+						rs = json.RawMessage(*op.Tool.Response.InlineBody)
+					} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
+						rs = json.RawMessage([]byte(*call.ResponseSnapshot))
+					}
+					all = append(all, rec{st: call.StartedAt, en: call.CompletedAt, phase: 1, rq: rq, rs: rs})
+				}
+				if op.Model != nil && op.Model.Call != nil {
+					call := op.Model.Call
+					var rq, rs json.RawMessage
+					if op.Model.Request != nil && op.Model.Request.InlineBody != nil {
+						rq = json.RawMessage(*op.Model.Request.InlineBody)
+					}
+					if op.Model.Response != nil && op.Model.Response.InlineBody != nil {
+						rs = json.RawMessage(*op.Model.Response.InlineBody)
+					}
+					// Phase detection consistent with getMessages
+					phase := 0
+					if len(rs) > 0 && strings.Contains(strings.ToLower(string(rs)), "tool_calls") {
+						phase = 0
+					} else if len(rq) > 0 && (strings.Contains(strings.ToLower(string(rq)), "\"role\":\"tool\"") || strings.Contains(strings.ToLower(string(rq)), "tool_call_id")) {
+						phase = 2
+					} else if call.TurnID != nil && turnHasTool[*call.TurnID] {
+						phase = 2
+					}
+					all = append(all, rec{st: call.StartedAt, en: call.CompletedAt, phase: phase, rq: rq, rs: rs})
+				}
 			}
 		}
 		sort.SliceStable(all, func(i, j int) bool {
-			if all[i].st == nil && all[j].st == nil {
-				return i < j
+			si, sj := all[i].st, all[j].st
+			if si == nil && sj == nil {
+				if all[i].phase != all[j].phase {
+					return all[i].phase < all[j].phase
+				}
+				if all[i].en == nil || all[j].en == nil {
+					return i < j
+				}
+				if all[i].en.Equal(*all[j].en) {
+					return i < j
+				}
+				return all[i].en.Before(*all[j].en)
 			}
-			if all[i].st == nil {
+			if si == nil {
 				return false
 			}
-			if all[j].st == nil {
+			if sj == nil {
 				return true
 			}
-			return all[i].st.Before(*all[j].st)
+			if si.Equal(*sj) {
+				if all[i].phase != all[j].phase {
+					return all[i].phase < all[j].phase
+				}
+				if all[i].en == nil || all[j].en == nil {
+					return i < j
+				}
+				if all[i].en.Equal(*all[j].en) {
+					return i < j
+				}
+				return all[i].en.Before(*all[j].en)
+			}
+			return si.Before(*sj)
 		})
 		idx := int(id64) - 1
 		if idx >= 0 && idx < len(all) {
