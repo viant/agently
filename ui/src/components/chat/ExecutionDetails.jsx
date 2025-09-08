@@ -301,8 +301,8 @@ function mapToolCall(row = {}) {
         elapsed,
         request: row.request,
         response: row.response,
-        requestPayloadID: payloadIdFromSnapshot(call.requestSnapshot),
-        responsePayloadID: payloadIdFromSnapshot(call.responseSnapshot),
+        requestPayloadID: call.requestPayloadID || payloadIdFromSnapshot(call.requestSnapshot),
+        responsePayloadID: call.responsePayloadID || payloadIdFromSnapshot(call.responseSnapshot),
     };
 }
 

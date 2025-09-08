@@ -393,22 +393,20 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
 			}
 		}
 		if id := w.persistToolRequestPayload(ctx, reqMap); id != "" {
-			ref := `{"payloadId":"` + id + `"}`
-			tw.RequestSnapshot = &ref
+			tw.RequestPayloadID = &id
 			if tw.Has == nil {
 				tw.Has = &tcw.ToolCallHas{}
 			}
-			tw.Has.RequestSnapshot = true
+			tw.Has.RequestPayloadID = true
 		}
 	}
 	if upd.Response != nil {
 		if id := w.persistToolResponsePayload(ctx, upd.Response); id != "" {
-			ref := `{"payloadId":"` + id + `"}`
-			tw.ResponseSnapshot = &ref
+			tw.ResponsePayloadID = &id
 			if tw.Has == nil {
 				tw.Has = &tcw.ToolCallHas{}
 			}
-			tw.Has.ResponseSnapshot = true
+			tw.Has.ResponsePayloadID = true
 		}
 	}
 	if err := w.store.Operations().RecordToolCall(ctx, tw, "", ""); err != nil {

@@ -72,22 +72,20 @@ func (a *Service) RecordToolCall(ctx context.Context, call *tcwrite.ToolCall, re
 			w.Has.LatencyMS = true
 		}
 	}
-	// Capture references to payload IDs in snapshots when available.
+	// Persist payload IDs (not snapshots) similar to ModelCall
 	if requestPayloadID != "" {
-		ref := `{"payloadId":"` + requestPayloadID + `"}`
-		w.RequestSnapshot = &ref
+		w.RequestPayloadID = &requestPayloadID
 		if w.Has == nil {
 			w.Has = &tcwrite.ToolCallHas{}
 		}
-		w.Has.RequestSnapshot = true
+		w.Has.RequestPayloadID = true
 	}
 	if responsePayloadID != "" {
-		ref := `{"payloadId":"` + responsePayloadID + `"}`
-		w.ResponseSnapshot = &ref
+		w.ResponsePayloadID = &responsePayloadID
 		if w.Has == nil {
 			w.Has = &tcwrite.ToolCallHas{}
 		}
-		w.Has.ResponseSnapshot = true
+		w.Has.ResponsePayloadID = true
 	}
 	_, err := a.API.ToolCall.Patch(ctx, w)
 	return err
@@ -144,7 +142,15 @@ func (a *Service) GetByMessage(ctx context.Context, messageID string) ([]*d.Oper
 			op := &d.Operation{MessageID: v.MessageID}
 			op.Tool = &d.ToolCallTrace{Call: v}
 			if a.API.Payload != nil {
-				if id := payloadIDFromSnapshot(v.RequestSnapshot); id != "" {
+				if v.RequestPayloadID != nil && *v.RequestPayloadID != "" {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(*v.RequestPayloadID))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
+						op.Tool.Request = rows[0]
+					}
+				} else if id := payloadIDFromSnapshot(v.RequestSnapshot); id != "" {
 					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(id))
 					if err != nil {
 						return nil, err
@@ -153,7 +159,15 @@ func (a *Service) GetByMessage(ctx context.Context, messageID string) ([]*d.Oper
 						op.Tool.Request = rows[0]
 					}
 				}
-				if id := payloadIDFromSnapshot(v.ResponseSnapshot); id != "" {
+				if v.ResponsePayloadID != nil && *v.ResponsePayloadID != "" {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(*v.ResponsePayloadID))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
+						op.Tool.Response = rows[0]
+					}
+				} else if id := payloadIDFromSnapshot(v.ResponseSnapshot); id != "" {
 					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(id))
 					if err != nil {
 						return nil, err
@@ -214,7 +228,15 @@ func (a *Service) GetByTurn(ctx context.Context, turnID string) ([]*d.Operation,
 			op := &d.Operation{MessageID: v.MessageID, TurnID: v.TurnID}
 			op.Tool = &d.ToolCallTrace{Call: v}
 			if a.API.Payload != nil {
-				if id := payloadIDFromSnapshot(v.RequestSnapshot); id != "" {
+				if v.RequestPayloadID != nil && *v.RequestPayloadID != "" {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(*v.RequestPayloadID))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
+						op.Tool.Request = rows[0]
+					}
+				} else if id := payloadIDFromSnapshot(v.RequestSnapshot); id != "" {
 					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(id))
 					if err != nil {
 						return nil, err
@@ -223,7 +245,15 @@ func (a *Service) GetByTurn(ctx context.Context, turnID string) ([]*d.Operation,
 						op.Tool.Request = rows[0]
 					}
 				}
-				if id := payloadIDFromSnapshot(v.ResponseSnapshot); id != "" {
+				if v.ResponsePayloadID != nil && *v.ResponsePayloadID != "" {
+					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(*v.ResponsePayloadID))
+					if err != nil {
+						return nil, err
+					}
+					if len(rows) > 0 {
+						op.Tool.Response = rows[0]
+					}
+				} else if id := payloadIDFromSnapshot(v.ResponseSnapshot); id != "" {
 					rows, err := a.API.Payload.List(ctx, pldaoRead.WithID(id))
 					if err != nil {
 						return nil, err

@@ -47,27 +47,29 @@ type Output struct {
 }
 
 type ToolCallView struct {
-	MessageID        string     `sqlx:"message_id"`
-	TurnID           *string    `sqlx:"turn_id"`
-	OpID             string     `sqlx:"op_id"`
-	Attempt          int        `sqlx:"attempt"`
-	ToolName         string     `sqlx:"tool_name"`
-	ToolKind         string     `sqlx:"tool_kind"`
-	CapabilityTags   *string    `sqlx:"capability_tags"`
-	ResourceURIs     *string    `sqlx:"resource_uris"`
-	Status           string     `sqlx:"status"`
-	RequestSnapshot  *string    `sqlx:"request_snapshot"`
-	RequestHash      *string    `sqlx:"request_hash"`
-	ResponseSnapshot *string    `sqlx:"response_snapshot"`
-	ErrorCode        *string    `sqlx:"error_code"`
-	ErrorMessage     *string    `sqlx:"error_message"`
-	Retriable        *int       `sqlx:"retriable"`
-	StartedAt        *time.Time `sqlx:"started_at"`
-	CompletedAt      *time.Time `sqlx:"completed_at"`
-	LatencyMS        *int       `sqlx:"latency_ms"`
-	Cost             *float64   `sqlx:"cost"`
-	TraceID          *string    `sqlx:"trace_id"`
-	SpanID           *string    `sqlx:"span_id"`
+	MessageID         string     `sqlx:"message_id"`
+	TurnID            *string    `sqlx:"turn_id"`
+	OpID              string     `sqlx:"op_id"`
+	Attempt           int        `sqlx:"attempt"`
+	ToolName          string     `sqlx:"tool_name"`
+	ToolKind          string     `sqlx:"tool_kind"`
+	CapabilityTags    *string    `sqlx:"capability_tags"`
+	ResourceURIs      *string    `sqlx:"resource_uris"`
+	Status            string     `sqlx:"status"`
+	RequestSnapshot   *string    `sqlx:"-"`
+	RequestHash       *string    `sqlx:"request_hash"`
+	ResponseSnapshot  *string    `sqlx:"-"`
+	ErrorCode         *string    `sqlx:"error_code"`
+	ErrorMessage      *string    `sqlx:"error_message"`
+	Retriable         *int       `sqlx:"retriable"`
+	StartedAt         *time.Time `sqlx:"started_at"`
+	CompletedAt       *time.Time `sqlx:"completed_at"`
+	LatencyMS         *int       `sqlx:"latency_ms"`
+	Cost              *float64   `sqlx:"cost"`
+	TraceID           *string    `sqlx:"trace_id"`
+	SpanID            *string    `sqlx:"span_id"`
+	RequestPayloadID  *string    `sqlx:"request_payload_id"`
+	ResponsePayloadID *string    `sqlx:"response_payload_id"`
 }
 
 var PathBase = "/v2/api/agently/toolcall"

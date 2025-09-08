@@ -510,10 +510,6 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		sinceId = sinceId[:idx]
 	}
 	parentId := strings.TrimSpace(r.URL.Query().Get("parentId")) // legacy
-	includePayloads := func() bool {
-		v := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("includePayloads")))
-		return v == "1" || v == "true" || v == "yes"
-	}()
 
 	// ------------------------------------------------------------------
 	// 2. Fetch from manager (enriched with execution traces)
@@ -711,25 +707,14 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 			if op.Tool != nil && op.Tool.Call != nil {
 				call := op.Tool.Call
 				var rq, rs json.RawMessage
-				if includePayloads {
-					if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
-						rq = json.RawMessage(*op.Tool.Request.InlineBody)
-					} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
-						rq = json.RawMessage([]byte(*call.RequestSnapshot))
-					}
-					if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
-						rs = json.RawMessage(*op.Tool.Response.InlineBody)
-					} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
-						rs = json.RawMessage([]byte(*call.ResponseSnapshot))
-					}
-				} else {
-					if id := payloadIDFromSnapshot(call.RequestSnapshot); id != "" {
-						rq = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, id)))
-					}
-					if id := payloadIDFromSnapshot(call.ResponseSnapshot); id != "" {
-						rs = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, id)))
-					}
+
+				if call.RequestPayloadID != nil && *call.RequestPayloadID != "" {
+					rq = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, *call.RequestPayloadID)))
 				}
+				if call.ResponsePayloadID != nil && *call.ResponsePayloadID != "" {
+					rs = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, *call.ResponsePayloadID)))
+				}
+
 				rec := opRec{
 					rootID:    rID,
 					tool:      call.ToolName,
@@ -764,21 +749,14 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 			if op.Model != nil && op.Model.Call != nil {
 				call := op.Model.Call
 				var rq, rs json.RawMessage
-				if includePayloads {
-					if op.Model.Request != nil && op.Model.Request.InlineBody != nil {
-						rq = json.RawMessage(*op.Model.Request.InlineBody)
-					}
-					if op.Model.Response != nil && op.Model.Response.InlineBody != nil {
-						rs = json.RawMessage(*op.Model.Response.InlineBody)
-					}
-				} else {
-					if call.RequestPayloadID != nil && *call.RequestPayloadID != "" {
-						rq = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, *call.RequestPayloadID)))
-					}
-					if call.ResponsePayloadID != nil && *call.ResponsePayloadID != "" {
-						rs = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, *call.ResponsePayloadID)))
-					}
+
+				if call.RequestPayloadID != nil && *call.RequestPayloadID != "" {
+					rq = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, *call.RequestPayloadID)))
 				}
+				if call.ResponsePayloadID != nil && *call.ResponsePayloadID != "" {
+					rs = json.RawMessage([]byte(fmt.Sprintf(`{"$ref":"/v1/api/payload/%s?raw=1"}`, *call.ResponsePayloadID)))
+				}
+
 				// Build a stable-ish op id for model calls
 				opID := "mc:" + call.MessageID
 				if call.StartedAt != nil {

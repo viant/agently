@@ -8,9 +8,7 @@ SELECT
   tc.capability_tags,
   tc.resource_uris,
   tc.status,
-  tc.request_snapshot,
   tc.request_hash,
-  tc.response_snapshot,
   tc.error_code,
   tc.error_message,
   tc.retriable,
@@ -19,7 +17,9 @@ SELECT
   tc.latency_ms,
   tc.cost,
   tc.trace_id,
-  tc.span_id
+  tc.span_id,
+  tc.request_payload_id,
+  tc.response_payload_id
 FROM tool_calls tc
 LEFT JOIN message m ON m.id = tc.message_id
 ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")} 
