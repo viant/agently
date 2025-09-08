@@ -661,8 +661,31 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		turnID    string
 		isModel   bool
 		phase     int // 0=llm(plan), 1=tool, 2=llm(final)
+		reason    string
 	}
 	var calls []opRec
+	// Compute earliest tool start per turn to classify LLM plan/final by timing
+	minToolStart := map[string]time.Time{}
+	// Pre-scan all messages to establish per-turn earliest tool start
+	for _, v := range allViews {
+		if v == nil {
+			continue
+		}
+		ops, _ := s.store.Operations().GetByMessage(r.Context(), v.Id)
+		for _, op := range ops {
+			if op == nil || op.Tool == nil || op.Tool.Call == nil {
+				continue
+			}
+			call := op.Tool.Call
+			if call.TurnID == nil || call.StartedAt == nil {
+				continue
+			}
+			tid := *call.TurnID
+			if cur, ok := minToolStart[tid]; !ok || call.StartedAt.Before(cur) {
+				minToolStart[tid] = *call.StartedAt
+			}
+		}
+	}
 	// Map a turn to the root id that produced tool calls in that turn,
 	// so we can co-locate model steps with their tool chain.
 	turnToolRoot := map[string]string{}
@@ -761,19 +784,20 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 				} else if call.TraceID != nil && *call.TraceID != "" {
 					opID += ":" + *call.TraceID
 				}
-				// Determine model-call phase
+				// Determine model-call phase by timing relative to first tool call in the turn
 				phase := 0
-				if len(rs) > 0 && strings.Contains(strings.ToLower(string(rs)), "tool_calls") {
-					phase = 0 // planning that yields tool calls
-				} else if len(rq) > 0 && (strings.Contains(strings.ToLower(string(rq)), "\"role\":\"tool\"") || strings.Contains(strings.ToLower(string(rq)), "tool_call_id")) {
-					phase = 2 // finalization after tool results are present
-				} else {
-					// Fallback: if completed after a tool-root exists for the turn, assume final
-					if call.TurnID != nil {
-						if _, ok := turnToolRoot[*call.TurnID]; ok {
+				if call.TurnID != nil {
+					if t0, ok := minToolStart[*call.TurnID]; ok && call.StartedAt != nil {
+						if !call.StartedAt.Before(t0) {
 							phase = 2
+						} else {
+							phase = 0
 						}
 					}
+				}
+				var finish string
+				if call.FinishReason != nil {
+					finish = *call.FinishReason
 				}
 				calls = append(calls, opRec{
 					rootID:    rID,
@@ -793,6 +817,7 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 					}(),
 					isModel: true,
 					phase:   phase,
+					reason:  finish,
 				})
 			}
 		}
@@ -864,6 +889,10 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 				step.Elapsed = c.completed.Sub(*c.started).Truncate(time.Millisecond).String()
 			}
 		}
+		// Use original LLM finish reason when available (e.g. "tool_calls", "stop")
+		if c.isModel && c.reason != "" {
+			step.Reason = c.reason
+		}
 		outc.Steps = []*plan.StepOutcome{step}
 		outcomesByRoot[c.rootID] = append(outcomesByRoot[c.rootID], outc)
 	}
@@ -913,7 +942,77 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		return mi.CreatedAt.Before(mj.CreatedAt)
 	})
 
-	encode(w, http.StatusOK, out, nil, st)
+	// Transform executions: rename step field 'tool' -> 'name' and preserve 'reason'
+	type stepDTO struct {
+		ID        string          `json:"id,omitempty"`
+		TraceID   int             `json:"traceId,omitempty"`
+		Name      string          `json:"name,omitempty"`
+		Reason    string          `json:"reason,omitempty"`
+		Request   json.RawMessage `json:"request,omitempty"`
+		Response  json.RawMessage `json:"response,omitempty"`
+		Success   bool            `json:"success,omitempty"`
+		Error     string          `json:"error,omitempty"`
+		Elapsed   string          `json:"elapsed,omitempty"`
+		StartedAt string          `json:"startedAt,omitempty"`
+		EndedAt   string          `json:"endedAt,omitempty"`
+	}
+	type outcomeDTO struct {
+		ID    string    `json:"id,omitempty"`
+		Steps []stepDTO `json:"steps"`
+	}
+	type messageDTO struct {
+		ID             string            `json:"id"`
+		ConversationID string            `json:"conversationId"`
+		ParentID       string            `json:"parentId,omitempty"`
+		Role           string            `json:"role"`
+		Content        string            `json:"content"`
+		Executions     []outcomeDTO      `json:"executions,omitempty"`
+		CreatedAt      time.Time         `json:"createdAt"`
+		Elicitation    *plan.Elicitation `json:"elicitation,omitempty"`
+		CallbackURL    string            `json:"callbackURL,omitempty"`
+		Status         string            `json:"status,omitempty"`
+	}
+	dto := make([]messageDTO, 0, len(out))
+	for _, m := range out {
+		md := messageDTO{
+			ID:             m.ID,
+			ConversationID: m.ConversationID,
+			ParentID:       m.ParentID,
+			Role:           m.Role,
+			Content:        m.Content,
+			CreatedAt:      m.CreatedAt,
+			Elicitation:    m.Elicitation,
+			CallbackURL:    m.CallbackURL,
+			Status:         m.Status,
+		}
+		if len(m.Executions) > 0 {
+			md.Executions = make([]outcomeDTO, len(m.Executions))
+			for i, oc := range m.Executions {
+				od := outcomeDTO{ID: oc.ID}
+				if len(oc.Steps) > 0 {
+					od.Steps = make([]stepDTO, len(oc.Steps))
+					for j, s := range oc.Steps {
+						od.Steps[j] = stepDTO{
+							ID:        s.ID,
+							TraceID:   s.TraceID,
+							Name:      s.Tool, // rename
+							Reason:    s.Reason,
+							Request:   s.Request,
+							Response:  s.Response,
+							Success:   s.Success,
+							Error:     s.Error,
+							Elapsed:   s.Elapsed,
+							StartedAt: s.StartedAt,
+							EndedAt:   s.EndedAt,
+						}
+					}
+				}
+				md.Executions[i] = od
+			}
+		}
+		dto = append(dto, md)
+	}
+	encode(w, http.StatusOK, dto, nil, st)
 	return
 }
 
@@ -1140,7 +1239,46 @@ func (s *Server) handleGetExecution(w http.ResponseWriter, r *http.Request, conv
 				outcomes = append(outcomes, outc)
 			}
 		}
-		encode(w, http.StatusOK, outcomes, nil, nil)
+		// Rename step field 'tool' -> 'name' for UI compatibility
+		type stepDTO struct {
+			ID        string          `json:"id,omitempty"`
+			Name      string          `json:"name,omitempty"`
+			Reason    string          `json:"reason,omitempty"`
+			Request   json.RawMessage `json:"request,omitempty"`
+			Response  json.RawMessage `json:"response,omitempty"`
+			Success   bool            `json:"success,omitempty"`
+			Error     string          `json:"error,omitempty"`
+			Elapsed   string          `json:"elapsed,omitempty"`
+			StartedAt string          `json:"startedAt,omitempty"`
+			EndedAt   string          `json:"endedAt,omitempty"`
+		}
+		type outcomeDTO struct {
+			ID    string    `json:"id,omitempty"`
+			Steps []stepDTO `json:"steps"`
+		}
+		dto := make([]outcomeDTO, len(outcomes))
+		for i, oc := range outcomes {
+			od := outcomeDTO{ID: oc.ID}
+			if len(oc.Steps) > 0 {
+				od.Steps = make([]stepDTO, len(oc.Steps))
+				for j, s := range oc.Steps {
+					od.Steps[j] = stepDTO{
+						ID:        s.ID,
+						Name:      s.Tool,
+						Reason:    s.Reason,
+						Request:   s.Request,
+						Response:  s.Response,
+						Success:   s.Success,
+						Error:     s.Error,
+						Elapsed:   s.Elapsed,
+						StartedAt: s.StartedAt,
+						EndedAt:   s.EndedAt,
+					}
+				}
+			}
+			dto[i] = od
+		}
+		encode(w, http.StatusOK, dto, nil, nil)
 		return
 	}
 }
@@ -1172,9 +1310,8 @@ func (s *Server) handleGetExecutionPart(w http.ResponseWriter, r *http.Request, 
 			rq, rs json.RawMessage
 		}
 		var all []rec
-		// Determine tool-root presence per turn to classify model finalization when needed
-		turnHasTool := map[string]bool{}
-		// First pass: mark turns that have tool calls
+		// First pass: capture min tool start per turn
+		minToolStart := map[string]time.Time{}
 		for _, v := range allViews {
 			if v == nil {
 				continue
@@ -1184,8 +1321,12 @@ func (s *Server) handleGetExecutionPart(w http.ResponseWriter, r *http.Request, 
 				if op == nil || op.Tool == nil || op.Tool.Call == nil {
 					continue
 				}
-				if op.Tool.Call.TurnID != nil && *op.Tool.Call.TurnID != "" {
-					turnHasTool[*op.Tool.Call.TurnID] = true
+				call := op.Tool.Call
+				if call.TurnID != nil && call.StartedAt != nil {
+					tid := *call.TurnID
+					if cur, ok := minToolStart[tid]; !ok || call.StartedAt.Before(cur) {
+						minToolStart[tid] = *call.StartedAt
+					}
 				}
 			}
 		}
@@ -1223,14 +1364,16 @@ func (s *Server) handleGetExecutionPart(w http.ResponseWriter, r *http.Request, 
 					if op.Model.Response != nil && op.Model.Response.InlineBody != nil {
 						rs = json.RawMessage(*op.Model.Response.InlineBody)
 					}
-					// Phase detection consistent with getMessages
+					// Phase detection consistent with getMessages: time vs first tool start in turn
 					phase := 0
-					if len(rs) > 0 && strings.Contains(strings.ToLower(string(rs)), "tool_calls") {
-						phase = 0
-					} else if len(rq) > 0 && (strings.Contains(strings.ToLower(string(rq)), "\"role\":\"tool\"") || strings.Contains(strings.ToLower(string(rq)), "tool_call_id")) {
-						phase = 2
-					} else if call.TurnID != nil && turnHasTool[*call.TurnID] {
-						phase = 2
+					if call.TurnID != nil {
+						if t0, ok := minToolStart[*call.TurnID]; ok && call.StartedAt != nil {
+							if !call.StartedAt.Before(t0) {
+								phase = 2
+							} else {
+								phase = 0
+							}
+						}
 					}
 					all = append(all, rec{st: call.StartedAt, en: call.CompletedAt, phase: phase, rq: rq, rs: rs})
 				}

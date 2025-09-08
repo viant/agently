@@ -19,7 +19,7 @@ import {BasicTable} from "../../../../../forge/index.js";
 // Column template; dynamic handlers injected later
 const COLUMNS_BASE = [
     { id: "state", name: "", width: 24, align: "center", minWidth: "24px", enforceColumnSize: false },
-    { id: "tool",     name: "Tool",     width: 120 },
+    { id: "name",     name: "Name",     width: 120 },
     { id: "reason",   name: "Reason",   flex: 2 },
     { id: "success",  name: "Status",  width: 60 },
     { id: "elapsed",  name: "Time",     width: 90 },
@@ -123,10 +123,13 @@ function flattenExecutions(executions = []) {
     return executions.flatMap(exe => (exe.steps || []).map(s => ({
         traceId:  s.traceId,
         state:    s.endedAt || s.success !== undefined ? (s.success ? "✔︎" : "✖︎") : "⏳",
-        tool:     s.tool,
+        name:     s.name,
         reason:   s.reason || s.error || '',
         success:  s.success === undefined ? "pending" : (s.success ? "success" : "error"),
         elapsed:  s.elapsed,
+        // include request/response refs so the viewer can lazy-load payloads
+        request:  s.request,
+        response: s.response,
     })));
 }
 
@@ -143,9 +146,10 @@ export default function ExecutionDetails({ executions = [], context, messageId }
     // v2 operations fallback: when no legacy executions are present, load grouped operations
     useEffect(() => {
         const fetchOps = async () => {
-            if (!messageId || (Array.isArray(executions) && executions.length > 0)) return;
+            if (!messageId) return;
             try {
-                const url = `${endpoints.appAPI.baseURL}/v2/api/agently/messages/${encodeURIComponent(messageId)}/operations?includePayloads=1`;
+                const base = endpoints?.agentlyAPI?.baseURL || '';
+                const url = `${(base || '').replace(/\/+$/,'')}/v2/api/agently/messages/${encodeURIComponent(messageId)}/operations?includePayloads=1`;
                 const resp = await fetch(url);
                 if (!resp.ok) return;
                 const json = await resp.json();
@@ -157,23 +161,57 @@ export default function ExecutionDetails({ executions = [], context, messageId }
                     ...toolCalls.map(tc => mapToolCall(tc)),
                 ];
                 const sig = getCollectionSignal(dataSourceId);
-                sig.value = mapped;
+                if (mapped.length) {
+                    sig.value = mapped;
+                }
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.error('ExecutionDetails: fetch ops error', e);
             }
         };
         fetchOps();
-    }, [messageId, executions, dataSourceId]);
+    }, [messageId, dataSourceId]);
 
     // Helper to fetch heavy payload on demand
+    const resolvePayloadRef = (val) => {
+        if (!val) return null;
+        if (typeof val === 'string') return val; // already a URL or path
+        if (typeof val === 'object') {
+            if (typeof val.$ref === 'string') return val.$ref;
+            if (typeof val.url === 'string') return val.url;
+            if (typeof val.href === 'string') return val.href;
+        }
+        return null;
+    };
+
+    const joinURL = (base, path) => {
+        if (!path) return base || '';
+        if (/^https?:\/\//i.test(path)) return path;
+        if (path.startsWith('/')) return path;
+        const b = (base || '').replace(/\/+$/,'');
+        const p = path.replace(/^\/+/, '');
+        return b ? `${b}/${p}` : `/${p}`;
+    };
+
     const viewPart = async (part, row) => {
         try {
             const title = part === 'request' ? 'Request' : 'Response';
             setDialog({ title, payload: null, loading: true });
-            const pid = part === 'request' ? (row.requestPayloadID || row.request?.id) : (row.responsePayloadID || row.response?.id);
-            if (!pid) { setDialog({ title, payload: '(no payload)' }); return; }
-            const url = `${endpoints.appAPI.baseURL}/v2/api/agently/payload/${encodeURIComponent(pid)}?raw=1`;
+            // v1 lazy link support: `$ref` URL present
+            const ref = part === 'request'
+                ? resolvePayloadRef(row.request)
+                : resolvePayloadRef(row.response);
+            let url;
+            if (ref) {
+                // Build from ref: if it's absolute or starts with '/', use as-is; otherwise join with app API base.
+                url = joinURL(endpoints?.appAPI?.baseURL, ref);
+            } else {
+                // v2 payload id fallback
+                const pid = part === 'request' ? (row.requestPayloadID || row.request?.id) : (row.responsePayloadID || row.response?.id);
+                if (!pid) { setDialog({ title, payload: '(no payload)' }); return; }
+                const base = endpoints?.agentlyAPI?.baseURL || '';
+                url = `${(base || '').replace(/\/+$/,'')}/v2/api/agently/payload/${encodeURIComponent(pid)}?raw=1`;
+            }
             const resp = await fetch(url);
             if (!resp.ok) throw new Error(`${resp.status}`);
             const ct = resp.headers.get('content-type') || '';
@@ -236,7 +274,7 @@ function mapModelCall(row = {}) {
     const success = finish ? 'success' : 'pending';
     return {
         state: completed ? '✔︎' : '⏳',
-        tool: `${call.provider || ''}/${call.model || ''}`,
+        name: `${call.provider || ''}/${call.model || ''}`,
         reason: finish,
         success,
         elapsed,
@@ -257,7 +295,7 @@ function mapToolCall(row = {}) {
     const success = status === 'completed' ? 'success' : (status ? 'error' : 'pending');
     return {
         state: completed ? '✔︎' : '⏳',
-        tool: call.toolName || '',
+        name: call.name || '',
         reason: call.errorMessage || '',
         success,
         elapsed,

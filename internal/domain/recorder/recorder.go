@@ -312,10 +312,8 @@ func (w *Store) StartToolCall(ctx context.Context, start ToolCallStart) {
 	if !w.Enabled() || start.MessageID == "" || start.ToolName == "" {
 		return
 	}
-	reqID := w.persistToolRequestPayload(ctx, start.Request)
-
-	// At start, persist only request payload for auditing; defer tool_call row to finish
-	_ = reqID
+	// Defer request payload persistence to FinishToolCall where we persist
+	// both request and response and reference them via payloadId snapshots.
 }
 
 // FinishToolCall updates status and persists the response.
@@ -381,22 +379,37 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
 		}
 		tw.Has.Cost = true
 	}
-	// Inline snapshots
-	if b := toJSONBytes(upd.Request); len(b) > 0 {
-		s := string(b)
-		tw.RequestSnapshot = &s
-		if tw.Has == nil {
-			tw.Has = &tcw.ToolCallHas{}
+	// Persist payloads and reference by payloadId in snapshots
+	if upd.Request != nil {
+		// Request may be map[string]any or raw json; persist and reference
+		var reqMap map[string]interface{}
+		switch r := upd.Request.(type) {
+		case map[string]interface{}:
+			reqMap = r
+		default:
+			// try to marshal/unmarshal into map for consistent scrubbing
+			if b := toJSONBytes(upd.Request); len(b) > 0 {
+				_ = json.Unmarshal(b, &reqMap)
+			}
 		}
-		tw.Has.RequestSnapshot = true
+		if id := w.persistToolRequestPayload(ctx, reqMap); id != "" {
+			ref := `{"payloadId":"` + id + `"}`
+			tw.RequestSnapshot = &ref
+			if tw.Has == nil {
+				tw.Has = &tcw.ToolCallHas{}
+			}
+			tw.Has.RequestSnapshot = true
+		}
 	}
-	if b := toJSONBytes(upd.Response); len(b) > 0 {
-		s := string(b)
-		tw.ResponseSnapshot = &s
-		if tw.Has == nil {
-			tw.Has = &tcw.ToolCallHas{}
+	if upd.Response != nil {
+		if id := w.persistToolResponsePayload(ctx, upd.Response); id != "" {
+			ref := `{"payloadId":"` + id + `"}`
+			tw.ResponseSnapshot = &ref
+			if tw.Has == nil {
+				tw.Has = &tcw.ToolCallHas{}
+			}
+			tw.Has.ResponseSnapshot = true
 		}
-		tw.Has.ResponseSnapshot = true
 	}
 	if err := w.store.Operations().RecordToolCall(ctx, tw, "", ""); err != nil {
 		fmt.Printf("ERROR### Recorder.FinishToolCall: %v\n", err)
