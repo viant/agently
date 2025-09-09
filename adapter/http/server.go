@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -183,13 +182,6 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 
 	mux.HandleFunc("GET /v1/api/conversations/{id}/messages/{msgId}", func(w http.ResponseWriter, r *http.Request) {
 		s.handleGetSingleMessage(w, r, r.PathValue("id"), r.PathValue("msgId"))
-	})
-
-	// Execution part (request/response) – heavy payload on-demand
-	mux.HandleFunc("GET /v1/api/conversations/{id}/execution/{traceId}/{part}", func(w http.ResponseWriter, r *http.Request) {
-		traceIDStr := r.PathValue("traceId")
-		part := r.PathValue("part") // "request" | "response"
-		s.handleGetExecutionPart(w, r, r.PathValue("id"), traceIDStr, part)
 	})
 
 	// Usage statistics
@@ -517,7 +509,7 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	if parentId != "" {
 		opts = append(opts, msgread.WithParentRoot(parentId))
 	}
-	if data, err := s.store.Messages().GetTranscript(r.Context(), convID, "", opts...); err == nil {
+	if data, err := s.store.Messages().GetTranscript(r.Context(), convID, opts...); err == nil {
 		// Convert transcript to v1 memory.Message shape for compatibility
 		out := messagetrans.ToMemoryMessages(data)
 		if sinceId != "" && len(out) == 0 {
@@ -658,170 +650,6 @@ func (s *Server) dispatchConversationSubroutes(w http.ResponseWriter, r *http.Re
 		s.handleConversationMessages(w, r, convID, parts[2:])
 	default:
 		w.WriteHeader(http.StatusNotFound)
-	}
-}
-
-// handleGetExecutionPart serves either the stored Request or Response payload
-// for a specific execution-trace entry. Large blobs are therefore transferred
-// only when the user explicitly expands the details in the UI.
-func (s *Server) handleGetExecutionPart(w http.ResponseWriter, r *http.Request, convID string, traceIDStr string, part string) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	id64, err := strconv.ParseInt(traceIDStr, 10, 0)
-	if err != nil || id64 <= 0 {
-		encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid trace id"), nil)
-		return
-	}
-
-	var req json.RawMessage
-	var res json.RawMessage
-	found := false
-	// Rebuild combined list (model + tool) with phase-aware ordering to match getMessages TraceIDs
-	allViews, err := s.store.Messages().List(r.Context(), msgread.WithConversationID(convID))
-	if err == nil {
-		type rec struct {
-			st, en *time.Time
-			phase  int // 0 plan llm, 1 tool, 2 final llm
-			rq, rs json.RawMessage
-		}
-		var all []rec
-		// First pass: capture min tool start per turn
-		minToolStart := map[string]time.Time{}
-		for _, v := range allViews {
-			if v == nil {
-				continue
-			}
-			ops, _ := s.store.Operations().GetByMessage(r.Context(), v.Id)
-			for _, op := range ops {
-				if op == nil || op.Tool == nil || op.Tool.Call == nil {
-					continue
-				}
-				call := op.Tool.Call
-				if call.TurnID != nil && call.StartedAt != nil {
-					tid := *call.TurnID
-					if cur, ok := minToolStart[tid]; !ok || call.StartedAt.Before(cur) {
-						minToolStart[tid] = *call.StartedAt
-					}
-				}
-			}
-		}
-		// Second pass: build records
-		for _, v := range allViews {
-			if v == nil {
-				continue
-			}
-			ops, _ := s.store.Operations().GetByMessage(r.Context(), v.Id)
-			for _, op := range ops {
-				if op == nil {
-					continue
-				}
-				if op.Tool != nil && op.Tool.Call != nil {
-					call := op.Tool.Call
-					var rq, rs json.RawMessage
-					if op.Tool.Request != nil && op.Tool.Request.InlineBody != nil {
-						rq = json.RawMessage(*op.Tool.Request.InlineBody)
-					} else if call.RequestSnapshot != nil && *call.RequestSnapshot != "" {
-						rq = json.RawMessage([]byte(*call.RequestSnapshot))
-					}
-					if op.Tool.Response != nil && op.Tool.Response.InlineBody != nil {
-						rs = json.RawMessage(*op.Tool.Response.InlineBody)
-					} else if call.ResponseSnapshot != nil && *call.ResponseSnapshot != "" {
-						rs = json.RawMessage([]byte(*call.ResponseSnapshot))
-					}
-					all = append(all, rec{st: call.StartedAt, en: call.CompletedAt, phase: 1, rq: rq, rs: rs})
-				}
-				if op.Model != nil && op.Model.Call != nil {
-					call := op.Model.Call
-					var rq, rs json.RawMessage
-					if op.Model.Request != nil && op.Model.Request.InlineBody != nil {
-						rq = json.RawMessage(*op.Model.Request.InlineBody)
-					}
-					if op.Model.Response != nil && op.Model.Response.InlineBody != nil {
-						rs = json.RawMessage(*op.Model.Response.InlineBody)
-					}
-					// Phase detection consistent with getMessages: time vs first tool start in turn
-					phase := 0
-					if call.TurnID != nil {
-						if t0, ok := minToolStart[*call.TurnID]; ok && call.StartedAt != nil {
-							if !call.StartedAt.Before(t0) {
-								phase = 2
-							} else {
-								phase = 0
-							}
-						}
-					}
-					all = append(all, rec{st: call.StartedAt, en: call.CompletedAt, phase: phase, rq: rq, rs: rs})
-				}
-			}
-		}
-		sort.SliceStable(all, func(i, j int) bool {
-			si, sj := all[i].st, all[j].st
-			if si == nil && sj == nil {
-				if all[i].phase != all[j].phase {
-					return all[i].phase < all[j].phase
-				}
-				if all[i].en == nil || all[j].en == nil {
-					return i < j
-				}
-				if all[i].en.Equal(*all[j].en) {
-					return i < j
-				}
-				return all[i].en.Before(*all[j].en)
-			}
-			if si == nil {
-				return false
-			}
-			if sj == nil {
-				return true
-			}
-			if si.Equal(*sj) {
-				if all[i].phase != all[j].phase {
-					return all[i].phase < all[j].phase
-				}
-				if all[i].en == nil || all[j].en == nil {
-					return i < j
-				}
-				if all[i].en.Equal(*all[j].en) {
-					return i < j
-				}
-				return all[i].en.Before(*all[j].en)
-			}
-			return si.Before(*sj)
-		})
-		idx := int(id64) - 1
-		if idx >= 0 && idx < len(all) {
-			req = all[idx].rq
-			res = all[idx].rs
-			found = true
-		}
-	}
-	if !found {
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("trace not found"), nil)
-		return
-	}
-
-	switch strings.ToLower(part) {
-	case "request":
-		if len(req) == 0 {
-			encode(w, http.StatusNoContent, nil, nil, nil)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(req)
-	case "response":
-		if len(res) == 0 {
-			encode(w, http.StatusNoContent, nil, nil, nil)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(res)
-	default:
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("unknown part"), nil)
 	}
 }
 

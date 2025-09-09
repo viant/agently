@@ -2,17 +2,20 @@ package router
 
 import (
 	"context"
+	"net/http"
+
 	"github.com/viant/afs"
 	fsadapter "github.com/viant/afs/adapter/http"
-	v2 "github.com/viant/agently/adapter/http/v2"
 	"github.com/viant/agently/deployment/ui"
-	"net/http"
 
 	chat "github.com/viant/agently/adapter/http"
 	"github.com/viant/agently/adapter/http/filebrowser"
 	"github.com/viant/agently/adapter/http/metadata"
 	toolhttp "github.com/viant/agently/adapter/http/tool"
 	"github.com/viant/agently/adapter/http/workflow"
+
+	"os"
+	"strings"
 
 	"github.com/viant/agently/adapter/http/workspace"
 	execsvc "github.com/viant/agently/genai/executor"
@@ -24,8 +27,6 @@ import (
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
 	fluxorpol "github.com/viant/fluxor/policy"
-	"os"
-	"strings"
 )
 
 // New constructs an http.Handler that combines chat API and workspace CRUD API.
@@ -35,20 +36,13 @@ import (
 func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxorpol.Policy) http.Handler {
 	mux := http.NewServeMux()
 
-	// Chat & workspace endpoints (existing)
-	// Default policy inherited from environment variable AGENTLY_POLICY or
-	// default to auto. The Serve command will provide an explicit policy via context.
-	apis, store := buildV2(context.Background())
+	store := newStore(context.Background())
 	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation(),
 		chat.WithPolicies(toolPol, fluxPol),
 		chat.WithApprovalService(exec.ApprovalService()),
 		chat.WithDomainStore(store),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
-
-	// Domain v2 API (DAO-backed). Prefer SQL when configured, fallback to memory.
-	v2h := v2.NewWithAPIs(store, apis)
-	v2h.Register(mux)
 
 	// Workflow run endpoint
 	mux.Handle("/v1/api/workflow/run", workflow.New(exec, svc))
@@ -88,7 +82,7 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	return chat.WithCORS(mux)
 }
 
-func buildV2(ctx context.Context) (*daofactory.API, d.Store) {
+func newStore(ctx context.Context) d.Store {
 	driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
 	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
 	if driver != "" && dsn != "" {
@@ -96,13 +90,13 @@ func buildV2(ctx context.Context) (*daofactory.API, d.Store) {
 			_ = dao.AddConnectors(ctx, view.NewConnector("agently", driver, dsn))
 			if apis, _ := daofactory.New(ctx, daofactory.DAOSQL, dao); apis != nil {
 				store := dstore.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
-				return apis, store
+				return store
 			}
 		}
 	}
 	if apis, _ := daofactory.New(ctx, daofactory.DAOInMemory, nil); apis != nil {
 		store := dstore.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
-		return apis, store
+		return store
 	}
-	return nil, nil
+	return nil
 }

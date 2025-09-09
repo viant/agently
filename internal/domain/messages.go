@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+
 	msgread "github.com/viant/agently/internal/dao/message/read"
 	msgwrite "github.com/viant/agently/internal/dao/message/write"
 )
@@ -12,11 +13,9 @@ type Messages interface {
 	Patch(ctx context.Context, messages ...*msgwrite.Message) (*msgwrite.Output, error)
 
 	// List returns DAO read views using DAO read InputOptions.
-	List(ctx context.Context, opts ...msgread.InputOption) ([]*msgread.MessageView, error)
+	List(ctx context.Context, opts ...msgread.InputOption) (Transcript, error)
 
 	// GetTranscript returns a normalized transcript using DAO read views.
-	GetTranscript(ctx context.Context, conversationID, turnID string, opts ...msgread.InputOption) ([]*msgread.MessageView, error)
-
-	// Aggregated transcript remains available for one-call needs.
-	GetTranscriptAggregated(ctx context.Context, conversationID, turnID string, opts TranscriptAggOptions) (*AggregatedTranscript, error)
+	// Provide turn id via msgread.WithTurnID option when needed.
+	GetTranscript(ctx context.Context, conversationID string, opts ...msgread.InputOption) (Transcript, error)
 }

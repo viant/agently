@@ -1,67 +1,104 @@
 package domain
 
 import (
-	"time"
+	"strings"
 
-	mcread "github.com/viant/agently/internal/dao/modelcall/read"
-	pldaoRead "github.com/viant/agently/internal/dao/payload/read"
-	tcread "github.com/viant/agently/internal/dao/toolcall/read"
+	"github.com/viant/agently/genai/agent/plan"
+	msgread "github.com/viant/agently/internal/dao/message/read"
 )
 
-// AggregatedTranscript is a self-contained transcript view that aggregates
-// per-message related operations (model/tool calls) and optionally usage.
-// Implementations should populate only the requested parts based on
-// TranscriptAggOptions.
-type AggregatedTranscript struct {
-	Messages []*AggregatedMessage `json:"messages"`
+type Transcript []*msgread.MessageView
+
+// Filter returns a new transcript containing only messages matching fn.
+func (t Transcript) Filter(fn func(*msgread.MessageView) bool) Transcript {
+	if len(t) == 0 {
+		return t
+	}
+	out := make(Transcript, 0, len(t))
+	for _, v := range t {
+		if v == nil {
+			continue
+		}
+		if fn == nil || fn(v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
-// AggregatedMessage combines the base message with its related call aggregates
-// so that callers can render or forward a complete view without additional
-// repository roundtrips.
-type AggregatedMessage struct {
-	Message *TranscriptMessage `json:"message"`
-	Model   *ModelCallTrace    `json:"model,omitempty"`
-	Tool    *ToolCallTrace     `json:"tool,omitempty"`
+// WithoutInterim returns messages excluding interim entries (interim == 1).
+func (t Transcript) WithoutInterim() Transcript {
+	return t.Filter(func(v *msgread.MessageView) bool { return !v.IsInterim() })
 }
 
-// TranscriptMessage is a lightweight message DTO dedicated to aggregated
-// transcript responses. It avoids duplicating storage models elsewhere.
-type TranscriptMessage struct {
-	ID             string
-	ConversationID string
-	TurnID         *string
-	Sequence       *int
-	CreatedAt      *time.Time
-	Role           string
-	Type           string
-	Content        string
-	Interim        *int
-	ToolName       *string
+// OnlyRoles returns messages with role matching any of the provided roles (case-insensitive).
+func (t Transcript) OnlyRoles(roles ...string) Transcript {
+	if len(roles) == 0 {
+		return nil
+	}
+	set := map[string]struct{}{}
+	for _, r := range roles {
+		r = strings.ToLower(strings.TrimSpace(r))
+		if r == "" {
+			continue
+		}
+		set[r] = struct{}{}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return t.Filter(func(v *msgread.MessageView) bool {
+		_, ok := set[strings.ToLower(strings.TrimSpace(v.Role))]
+		return ok
+	})
 }
 
-// ModelCallTrace represents a model call attached to a message in aggregated transcript.
-type ModelCallTrace struct {
-	Call     *mcread.ModelCallView
-	Request  *pldaoRead.PayloadView
-	Response *pldaoRead.PayloadView
+// History returns user and assistant messages excluding interim and control type.
+func (t Transcript) History() Transcript {
+	return t.Filter(func(v *msgread.MessageView) bool {
+		if v == nil || v.Type == "control" || v.IsInterim() {
+			return false
+		}
+		role := strings.ToLower(strings.TrimSpace(v.Role))
+		return role == "user" || role == "assistant"
+	})
 }
 
-// ToolCallTrace represents a tool call attached to a message in aggregated transcript.
-type ToolCallTrace struct {
-	Call     *tcread.ToolCallView
-	Request  *pldaoRead.PayloadView
-	Response *pldaoRead.PayloadView
+// Users returns user messages excluding interim.
+func (t Transcript) Users() Transcript {
+	return t.OnlyRoles("user").WithoutInterim()
 }
 
-// (ModelCall and ToolCall domain duplicates removed; traces embed DAO read views.)
+// AssistantsNonInterim returns assistant messages excluding interim.
+func (t Transcript) AssistantsNonInterim() Transcript {
+	return t.Filter(func(v *msgread.MessageView) bool {
+		if v == nil || v.IsInterim() || v.Type == "control" {
+			return false
+		}
+		return strings.ToLower(strings.TrimSpace(v.Role)) == "assistant"
+	})
+}
 
-// Operation is a normalized view of a recorded model or tool call associated
-// with a message or turn scope used by Operations interface.
-type Operation struct {
-	ID        string
-	MessageID string
-	TurnID    *string
-	Model     *ModelCallTrace
-	Tool      *ToolCallTrace
+// Outcomes flattens all aggregated outcomes across the transcript in order.
+func (t Transcript) Outcomes() []*plan.Outcome {
+	var out []*plan.Outcome
+	for _, v := range t {
+		if v == nil || len(v.Executions) == 0 {
+			continue
+		}
+		out = append(out, v.Executions...)
+	}
+	return out
+}
+
+// StepOutcomes flattens step outcomes across all aggregated outcomes.
+func (t Transcript) StepOutcomes() []*plan.StepOutcome {
+	var steps []*plan.StepOutcome
+	for _, oc := range t.Outcomes() {
+		if oc == nil || len(oc.Steps) == 0 {
+			continue
+		}
+		steps = append(steps, oc.Steps...)
+	}
+	return steps
 }

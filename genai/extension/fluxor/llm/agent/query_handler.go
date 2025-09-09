@@ -1044,21 +1044,7 @@ func (s *Service) ensureLocation(ctx context.Context, parent *agentmdl.Source, U
 }
 
 func (s *Service) ensureTools(qi *QueryInput) ([]string, error) {
-	var toolPatterns []string
-	for _, aTool := range qi.Agent.Tool {
-		pattern := aTool.Pattern
-		if pattern == "" {
-			pattern = aTool.Ref
-		}
-		if pattern == "" {
-			pattern = aTool.Definition.Name
-		}
-		if pattern == "" {
-			continue
-		}
-		toolPatterns = append(toolPatterns, pattern)
-	}
-	tools, err := s.registry.MustHaveTools(toolPatterns)
+	tools, err := s.resolveTools(qi, false)
 	if err != nil {
 		return nil, err
 	}

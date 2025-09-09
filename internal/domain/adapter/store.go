@@ -12,7 +12,6 @@ import (
 	d "github.com/viant/agently/internal/domain"
 	convsvc "github.com/viant/agently/internal/domain/adapter/conversation"
 	msgsvc "github.com/viant/agently/internal/domain/adapter/message"
-	opsvc "github.com/viant/agently/internal/domain/adapter/operations"
 	payloadsvc "github.com/viant/agently/internal/domain/adapter/payload"
 	turnsvc "github.com/viant/agently/internal/domain/adapter/turn"
 	usagesvc "github.com/viant/agently/internal/domain/adapter/usage"
@@ -40,7 +39,6 @@ type Store struct {
 func New(conv convdao.API, msg msgdao.API, turn turndao.API, model mcdao.API, tool tcdao.API, pl pldao.API, use usagedao.API) *Store {
 	s := &Store{conv: conv, msg: msg, turn: turn, model: model, tool: tool, pl: pl, use: use}
 	s.messages = msgsvc.New(&daofactory.API{Message: msg, Payload: pl, ModelCall: model, ToolCall: tool, Usage: use})
-	s.operations = opsvc.New(&daofactory.API{ModelCall: model, ToolCall: tool, Payload: pl})
 	s.payloads = payloadsvc.New(pl)
 	s.usage = usagesvc.New(use)
 	s.turns = turnsvc.New(turn)

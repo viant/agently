@@ -48,8 +48,8 @@ func (s *Service) List(ctx context.Context, opts ...read.InputOption) ([]*read.M
 	return out, nil
 }
 
-func (s *Service) GetTranscript(ctx context.Context, conversationID, turnID string, opts ...read.InputOption) ([]*read.MessageView, error) {
-	in := &read.Input{ConversationID: conversationID, TurnID: turnID, Has: &read.Has{ConversationID: true, TurnID: true}}
+func (s *Service) GetTranscript(ctx context.Context, conversationID string, opts ...read.InputOption) ([]*read.MessageView, error) {
+	in := &read.Input{ConversationID: conversationID, Has: &read.Has{ConversationID: true}}
 	for _, opt := range opts {
 		opt(in)
 	}
@@ -63,8 +63,10 @@ func (s *Service) GetTranscript(ctx context.Context, conversationID, turnID stri
 		if m.ConversationID != conversationID {
 			continue
 		}
-		if m.TurnID == nil || *m.TurnID != turnID {
-			continue
+		if in.Has != nil && in.Has.TurnID {
+			if m.TurnID == nil || *m.TurnID != in.TurnID {
+				continue
+			}
 		}
 		filtered = append(filtered, m)
 	}

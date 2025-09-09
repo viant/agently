@@ -57,6 +57,8 @@ type Output struct {
 	Metrics         response.Metrics `parameter:",kind=output,in=metrics"`
 }
 
+type Message []*MessageView
+
 type MessageView struct {
 	Id             string     `sqlx:"id"`
 	ConversationID string     `sqlx:"conversation_id"`

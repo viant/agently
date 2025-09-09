@@ -257,11 +257,8 @@ func (s *Service) List(ctx context.Context, opts ...read2.InputOption) ([]*read2
 // GetTranscript returns transcript for a given conversation and turn.
 // Includes roles: user, assistant, tool. Excludes control and interim by default.
 // Tool messages are de-duplicated by op_id keeping the latest attempt.
-func (s *Service) GetTranscript(ctx context.Context, conversationID, turnID string, opts ...read2.InputOption) ([]*read2.MessageView, error) {
-	in := &read2.Input{ConversationID: conversationID, TurnID: turnID, Has: &read2.Has{ConversationID: true}}
-	if turnID != "" {
-		in.Has.TurnID = true
-	}
+func (s *Service) GetTranscript(ctx context.Context, conversationID string, opts ...read2.InputOption) ([]*read2.MessageView, error) {
+	in := &read2.Input{ConversationID: conversationID, Has: &read2.Has{ConversationID: true}}
 	for _, opt := range opts {
 		opt(in)
 	}

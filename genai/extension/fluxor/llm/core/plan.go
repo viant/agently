@@ -239,7 +239,7 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate, s
 		"SystemContext":                input.SystemContext,
 		"Results":                      filteredInput,
 		"Tools":                        input.Tools,
-		"ResultSummary":                input.ResultSummary,
+		"Result":                       input.ResultSummary,
 		"CanUseTools":                  false,
 		"CanPreventDuplicateToolCalls": false,
 	}

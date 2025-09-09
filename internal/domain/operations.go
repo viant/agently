@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+
 	mcwrite "github.com/viant/agently/internal/dao/modelcall/write"
 	tcwrite "github.com/viant/agently/internal/dao/toolcall/write"
 )
@@ -16,10 +17,4 @@ type Operations interface {
 
 	// RecordToolCall stores a tool call and optional request/response payloads.
 	RecordToolCall(ctx context.Context, call *tcwrite.ToolCall, requestPayloadID, responsePayloadID string) error
-
-	// GetByMessage returns operations associated with a messageID.
-	GetByMessage(ctx context.Context, messageID string) ([]*Operation, error)
-
-	// GetByTurn returns operations for a given turn.
-	GetByTurn(ctx context.Context, turnID string) ([]*Operation, error)
 }

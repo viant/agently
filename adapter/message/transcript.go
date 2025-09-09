@@ -6,6 +6,7 @@ import (
 
 	"github.com/viant/agently/genai/memory"
 	msgread "github.com/viant/agently/internal/dao/message/read"
+	d "github.com/viant/agently/internal/domain"
 )
 
 // ToMemoryMessages converts DAO transcript views into memory.Message slice
@@ -14,8 +15,10 @@ import (
 // executions for tool messages. It also maps typed elicitation when available.
 func ToMemoryMessages(views []*msgread.MessageView) []memory.Message {
 	out := make([]memory.Message, 0, len(views))
-	for _, v := range views {
-		if v == nil || v.IsInterim() {
+	// Reuse domain transcript helpers to drop interim consistently
+	tr := d.Transcript(views).WithoutInterim()
+	for _, v := range tr {
+		if v == nil {
 			continue
 		}
 		m := memory.Message{

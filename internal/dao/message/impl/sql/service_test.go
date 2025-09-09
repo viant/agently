@@ -260,7 +260,8 @@ func TestService_GetTranscript(t *testing.T) {
 			d := newDatly(t, dbPath)
 			svc := New(context.Background(), d)
 
-			rows, err := svc.GetTranscript(context.Background(), tc.conversationID, tc.turnID, tc.opts...)
+			// turn id provided via options when needed
+			rows, err := svc.GetTranscript(context.Background(), tc.conversationID, tc.opts...)
 			if !assert.Nil(t, err) {
 				return
 			}

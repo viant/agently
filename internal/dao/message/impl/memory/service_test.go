@@ -48,7 +48,7 @@ func TestMemoryMessage_BasicPatchList(t *testing.T) {
 	assert.Equal(t, 2, len(rows))
 
 	// transcript (no tool dedup needed since no tool messages)
-	rows, err = svc.GetTranscript(context.Background(), "c1", "", read.WithConversationID("c1"))
+	rows, err = svc.GetTranscript(context.Background(), "c1", read.WithConversationID("c1"))
 	if !assert.Nil(t, err) {
 		return
 	}
@@ -219,7 +219,7 @@ func TestMemoryMessage_List_DataDriven(t *testing.T) {
 			tc.seed(svc)
 			var ids []string
 			if tc.name == "transcript dedup tool latest attempt" {
-				rows, err := svc.GetTranscript(context.Background(), "c6", "turnX")
+				rows, err := svc.GetTranscript(context.Background(), "c6", read.WithTurnID("turnX"))
 				if !assert.Nil(t, err) {
 					return
 				}

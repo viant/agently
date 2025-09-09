@@ -100,6 +100,19 @@ func New(finder llm.Finder, registry tool.Registry, defaultModel string) *Servic
 	return &Service{llmFinder: finder, registry: registry, defaultModel: defaultModel, fs: afs.New(), modelMatcher: matcher}
 }
 
+// ModelImplements reports whether a given model supports a feature.
+// When modelName is empty or not found, it returns false.
+func (s *Service) ModelImplements(ctx context.Context, modelName, feature string) bool {
+	if s == nil || s.llmFinder == nil || strings.TrimSpace(modelName) == "" || strings.TrimSpace(feature) == "" {
+		return false
+	}
+	model, _ := s.llmFinder.Find(ctx, modelName)
+	if model == nil {
+		return false
+	}
+	return model.Implements(feature)
+}
+
 // SetTracer injects a tracer adapter (executil.Tracer-compatible) for streaming tool execution.
 func (s *Service) SetTracer(t executil.Tracer)                          { s.tracer = t }
 func (s *Service) SetRecorder(r domainrec.Recorder)                     { s.recorder = r }
