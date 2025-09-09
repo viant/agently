@@ -16,6 +16,12 @@ import (
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
 )
 
+// Scanner buffer sizes for SSE processing
+const (
+	sseInitialBuf = 64 * 1024
+	sseMaxBuf     = 1024 * 1024
+)
+
 // publishUsageOnce notifies the usage listener exactly once per stream.
 func (c *Client) publishUsageOnce(model string, usage *llm.Usage, published *bool) {
 	if c == nil || c.UsageListener == nil || published == nil {
@@ -165,7 +171,7 @@ func (c *Client) marshalRequestBody(req *Request) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
-	fmt.Printf("req: %s\n=======\n", string(data))
+	//fmt.Printf("req: %s\n=======\n", string(data))
 	return data, nil
 }
 
@@ -332,21 +338,29 @@ func (a *streamAggregator) finalizeChoice(idx int, finish string) llm.Choice {
 }
 
 func (c *Client) consumeStream(ctx context.Context, body io.Reader, events chan<- llm.StreamEvent) {
-	observer := mcbuf.ObserverFromContext(ctx)
-	respBody, err := io.ReadAll(body)
-	if err != nil {
-		events <- llm.StreamEvent{Err: fmt.Errorf("failed to read response body: %w", err)}
+	proc := &streamProcessor{
+		client:   c,
+		ctx:      ctx,
+		observer: mcbuf.ObserverFromContext(ctx),
+		events:   events,
+		agg:      newStreamAggregator(),
+		state:    &streamState{},
+	}
+
+	// Read response body
+	respBody, readErr := io.ReadAll(body)
+	if readErr != nil {
+		events <- llm.StreamEvent{Err: fmt.Errorf("failed to read response body: %w", readErr)}
 		return
 	}
+	proc.respBody = respBody
+
+	// Prepare scanner
 	scanner := bufio.NewScanner(bytes.NewReader(respBody))
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
-	agg := newStreamAggregator()
-	var lastUsage *llm.Usage
-	var lastModel string
-	var lastLR *llm.GenerateResponse
-	ended := false
-	publishedUsage := false
+	buf := make([]byte, 0, sseInitialBuf)
+	scanner.Buffer(buf, sseMaxBuf)
+
+	// Scan each SSE line
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
@@ -354,85 +368,14 @@ func (c *Client) consumeStream(ctx context.Context, body io.Reader, events chan<
 		}
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
+			break
+		}
+		if ok := proc.handleData(data); !ok {
+			// Stop further processing on parsing error to match previous behavior.
 			return
 		}
-		var sresp StreamResponse
-		if err := json.Unmarshal([]byte(data), &sresp); err == nil && len(sresp.Choices) > 0 {
-			if sresp.Model != "" {
-				lastModel = sresp.Model
-			}
-			finalized := make([]llm.Choice, 0)
-			for _, ch := range sresp.Choices {
-				agg.updateDelta(ch)
-				if ch.FinishReason != nil {
-					finalized = append(finalized, agg.finalizeChoice(ch.Index, *ch.FinishReason))
-				}
-			}
-			if len(finalized) > 0 {
-				lr := &llm.GenerateResponse{Choices: finalized, Model: lastModel}
-				if lastUsage != nil && lastUsage.TotalTokens > 0 {
-					lr.Usage = lastUsage
-				}
-				c.publishUsageOnce(lastModel, lastUsage, &publishedUsage)
-				endObserverOnce(observer, ctx, lastModel, lr, lastUsage, &ended)
-				emitResponse(events, lr)
-				lastLR = lr
-			}
-			continue
-		}
-		// capture usage if present (OpenAI include_usage option)
-		var maybeUsage struct {
-			Model string `json:"model"`
-			Usage struct {
-				PromptTokens     int `json:"prompt_tokens"`
-				CompletionTokens int `json:"completion_tokens"`
-				TotalTokens      int `json:"total_tokens"`
-			} `json:"usage"`
-		}
+	}
 
-		if err := json.Unmarshal([]byte(data), &maybeUsage); err == nil && (maybeUsage.Usage.PromptTokens > 0 || maybeUsage.Usage.CompletionTokens > 0 || maybeUsage.Usage.TotalTokens > 0) {
-			lastModel = maybeUsage.Model
-			lastUsage = &llm.Usage{PromptTokens: maybeUsage.Usage.PromptTokens, CompletionTokens: maybeUsage.Usage.CompletionTokens, TotalTokens: maybeUsage.Usage.TotalTokens}
-			if c.UsageListener != nil && !publishedUsage && lastModel != "" {
-				c.UsageListener.OnUsage(lastModel, lastUsage)
-				publishedUsage = true
-			}
-			continue
-		}
-		var apiResp Response
-		if err := json.Unmarshal([]byte(data), &apiResp); err != nil {
-			events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream response: %w", err)}
-			return
-		}
-		// Treat a single-object event as a terminal response for observer ordering
-		lr := ToLLMSResponse(&apiResp)
-		c.publishUsageOnce(lastModel, lastUsage, &publishedUsage)
-		endObserverOnce(observer, ctx, lastModel, lr, lastUsage, &ended)
-		emitResponse(events, lr)
-	}
-	if err := scanner.Err(); err != nil {
-		events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
-	}
-	if observer != nil && !ended {
-		// Emit end with last aggregated response if available; fallback to raw SSE body.
-		var usage *llm.Usage
-		if lastUsage != nil {
-			usage = lastUsage
-		}
-		var respJSON []byte
-		var finishReason string
-		if lastLR != nil {
-			if b, err := json.Marshal(lastLR); err == nil {
-				respJSON = b
-			} else {
-				respJSON = respBody
-			}
-			if len(lastLR.Choices) > 0 {
-				finishReason = lastLR.Choices[0].FinishReason
-			}
-		} else {
-			respJSON = respBody
-		}
-		observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: lastModel, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason, LLMResponse: lastLR})
-	}
+	// Finalize
+	proc.finalize(scanner.Err())
 }
