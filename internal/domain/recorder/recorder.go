@@ -14,11 +14,13 @@ import (
 	"github.com/viant/agently/genai/redact"
 	"github.com/viant/agently/internal/dao/factory"
 	daofactory "github.com/viant/agently/internal/dao/factory"
+	msgread "github.com/viant/agently/internal/dao/message/read"
 	msgw "github.com/viant/agently/internal/dao/message/write"
 	mcw "github.com/viant/agently/internal/dao/modelcall/write"
 	plw "github.com/viant/agently/internal/dao/payload/write"
 	tcw "github.com/viant/agently/internal/dao/toolcall/write"
 	turnw "github.com/viant/agently/internal/dao/turn/write"
+	usageread "github.com/viant/agently/internal/dao/usage/read"
 	usagew "github.com/viant/agently/internal/dao/usage/write"
 	d "github.com/viant/agently/internal/domain"
 	storeadapter "github.com/viant/agently/internal/domain/adapter"
@@ -513,6 +515,11 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 		if u.TotalTokens > 0 {
 			v := u.TotalTokens
 			tt = &v
+			// Fallback: if provider only reports total, attribute to completion tokens
+			if pt == nil && ct == nil {
+				vv := u.TotalTokens
+				ct = &vv
+			}
 		}
 	}
 	mw := &mcw.ModelCall{}
@@ -548,6 +555,44 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 	}
 	if err := w.store.Operations().RecordModelCall(ctx, mw, "", resID); err != nil {
 		fmt.Printf("ERROR### FinishModelCall: %v\n", err)
+	}
+
+	// Update conversation usage totals after each model call
+	convID := ""
+	if rows, err := w.store.Messages().List(ctx, msgread.WithIDs(finish.MessageID)); err == nil && len(rows) > 0 && rows[0] != nil {
+		convID = rows[0].ConversationID
+	}
+	if convID != "" {
+		// Aggregate usage via DAO read (model_calls) and patch conversation totals
+		in := usageread.Input{ConversationID: convID, Has: &usageread.Has{ConversationID: true}}
+		if views, err := w.store.Usage().List(ctx, in); err == nil {
+			totalIn, totalOut, totalEmb := 0, 0, 0
+			for _, v := range views {
+				if v == nil {
+					continue
+				}
+				pi, po := 0, 0
+				if v.TotalPromptTokens != nil {
+					pi = *v.TotalPromptTokens
+				}
+				if v.TotalCompletionTokens != nil {
+					po = *v.TotalCompletionTokens
+				}
+				if (pi+po) == 0 && v.TotalTokens != nil {
+					po = *v.TotalTokens
+				}
+				totalIn += pi
+				totalOut += po
+			}
+			u := &usagew.Usage{}
+			u.SetConversationID(convID)
+			u.SetUsageInputTokens(totalIn)
+			u.SetUsageOutputTokens(totalOut)
+			u.SetUsageEmbeddingTokens(totalEmb)
+			if _, err := w.store.Usage().Patch(ctx, u); err != nil {
+				fmt.Printf("WARN### FinishModelCall usage patch: %v\n", err)
+			}
+		}
 	}
 }
 

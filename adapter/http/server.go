@@ -28,8 +28,6 @@ import (
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/mcp-protocol/schema"
 
-	"os"
-
 	"github.com/google/uuid"
 	plan "github.com/viant/agently/genai/agent/plan"
 	msgread "github.com/viant/agently/internal/dao/message/read"
@@ -1435,35 +1433,40 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request, convID s
 		return
 	}
 
-	// Domain-backed path: map DAO usage rows to legacy usage payload when enabled
-	if s.store != nil && os.Getenv("AGENTLY_V1_DOMAIN") == "1" {
-		in := usageread.Input{ConversationID: convID, Has: &usageread.Has{ConversationID: true}}
-		rows, err := s.store.Usage().List(r.Context(), in)
-		if err != nil {
-			encode(w, http.StatusInternalServerError, nil, err, nil)
-			return
-		}
-		totals := usagePayload{ConversationID: convID, PerModel: []usagePerModel{}}
-		for _, v := range rows {
-			if v == nil {
-				continue
-			}
-			pm := usagePerModel{Model: strings.TrimSpace(v.Provider + "/" + v.Model)}
-			if v.TotalPromptTokens != nil {
-				pm.InputTokens = *v.TotalPromptTokens
-				totals.InputTokens += *v.TotalPromptTokens
-			}
-			if v.TotalCompletionTokens != nil {
-				pm.OutputTokens = *v.TotalCompletionTokens
-				totals.OutputTokens += *v.TotalCompletionTokens
-			}
-			// No embedding/cached in DAO row → keep zero; TotalTokens computed at end
-			totals.PerModel = append(totals.PerModel, pm)
-		}
-		totals.TotalTokens = totals.InputTokens + totals.OutputTokens + totals.EmbeddingTokens + totals.CachedTokens
-		encode(w, http.StatusOK, []usagePayload{totals}, nil, nil)
+	// Domain-backed path: map DAO usage rows to legacy usage payload
+	in := usageread.Input{ConversationID: convID, Has: &usageread.Has{ConversationID: true}}
+	rows, err := s.store.Usage().List(r.Context(), in)
+	if err != nil {
+		encode(w, http.StatusInternalServerError, nil, err, nil)
 		return
 	}
+	totals := usagePayload{ConversationID: convID, PerModel: []usagePerModel{}}
+	for _, v := range rows {
+		if v == nil {
+			continue
+		}
+		pm := usagePerModel{Model: strings.TrimSpace(v.Provider + "/" + v.Model)}
+		if v.TotalPromptTokens != nil {
+			pm.InputTokens = *v.TotalPromptTokens
+			totals.InputTokens += *v.TotalPromptTokens
+		}
+		if v.TotalCompletionTokens != nil {
+			pm.OutputTokens = *v.TotalCompletionTokens
+			totals.OutputTokens += *v.TotalCompletionTokens
+		}
+		// Fallback: when provider reports only total_tokens, attribute them to output
+		if (pm.InputTokens+pm.OutputTokens) == 0 && v.TotalTokens != nil {
+			pm.OutputTokens += *v.TotalTokens
+			totals.OutputTokens += *v.TotalTokens
+		}
+		// No embedding/cached in DAO row → keep zero; TotalTokens computed at end
+		totals.PerModel = append(totals.PerModel, pm)
+	}
+	// Stable ordering for UI diffing
+	sort.SliceStable(totals.PerModel, func(i, j int) bool { return totals.PerModel[i].Model < totals.PerModel[j].Model })
+	totals.TotalTokens = totals.InputTokens + totals.OutputTokens + totals.EmbeddingTokens + totals.CachedTokens
+	encode(w, http.StatusOK, []usagePayload{totals}, nil, nil)
+	return
 
 	uStore := s.mgr.UsageStore()
 	if uStore == nil {
@@ -1506,6 +1509,7 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request, convID s
 			})
 		}
 	}
+	sort.SliceStable(perModels, func(i, j int) bool { return perModels[i].Model < perModels[j].Model })
 
 	aggPayload := usagePayload{
 		ConversationID:  convID,

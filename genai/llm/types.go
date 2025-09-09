@@ -168,6 +168,12 @@ type Usage struct {
 
 	// ContextTokens is the list of token IDs used in the model context (Ollama-specific).
 	ContextTokens []int `json:"context_tokens,omitempty"`
+
+	CachedTokens int `json:"cached_tokens,omitempty"`
+
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
+
+	AudioTokens int `json:"audio_tokens,omitempty"`
 }
 
 // NewUserMessage creates a new message with the "user" role.
