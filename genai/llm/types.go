@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/base64"
 	"encoding/json"
+
 	"github.com/google/uuid"
 )
 
@@ -120,6 +121,10 @@ type ToolCall struct {
 	// Legacy fields for backward compatibility
 	Type     string       `json:"type,omitempty"`
 	Function FunctionCall `json:"function,omitempty"`
+
+	Result string `json:"result"`
+	//Error tool call error
+	Error string `json:"error,omitempty"`
 }
 
 // GenerateRequest represents a request to a chat-based LLM.
@@ -203,7 +208,11 @@ func NewToolMessage(name, content string) Message {
 }
 
 // NewToolResultMessage creates a tool role message with the given tool call's ID and result content.
-func NewToolResultMessage(call ToolCall, content string) Message {
+func NewToolResultMessage(call ToolCall) Message {
+	content := call.Result
+	if content == "" && call.Error != "" {
+		content = "Error:" + call.Error
+	}
 	msg := newTextMessage(RoleTool, content)
 	msg.Name = call.Name
 	msg.ToolCallId = call.ID

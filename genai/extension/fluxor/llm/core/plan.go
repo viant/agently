@@ -44,7 +44,7 @@ type PlanInput struct {
 	PromptURI       string               `json:"promptURI,omitempty"` // optional custom prompt for Plan generation
 	SystemPromptURI string               `json:"systemPromptURI,omitempty"`
 	//Loopback parameters
-	Results       []plan.Result    `json:"results,omitempty"`    // structured step results for finalization
+	Results       []llm.ToolCall   `json:"results,omitempty"`    // structured step results for finalization
 	Transcript    []memory.Message `json:"transcript,omitempty"` // transcript of the conversation with the LLM`
 	ResultSummary string           `json:"resultSummary,omitempty"`
 	// Runner is an optional fully-qualified action (service:method) used to
@@ -59,7 +59,7 @@ type PlanInput struct {
 type PlanOutput struct {
 	Plan          *plan.Plan       `json:"plan,omitempty"`
 	Answer        string           `json:"answer,omitempty"`
-	Results       []plan.Result    `json:"results,omitempty"`
+	Results       []llm.ToolCall   `json:"results,omitempty"`
 	Transcript    []memory.Message `json:"transcript,omitempty"` // transcript of the conversation with the LLM`
 	ResultSummary string           `json:"resultSummary,omitempty"`
 }
@@ -222,7 +222,7 @@ func RefinePlan(p *plan.Plan, _ string) {
 
 // GeneratePlan invokes the LLM to produce or refine a plan based on the template and bind variables.
 // It returns a Plan if parsing succeeded, otherwise returns the answer text.
-func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate, systemPromptTemplate string, input *PlanInput, tools []llm.Tool, genOutput *GenerateOutput) (*plan.Plan, []plan.Result, error) {
+func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate, systemPromptTemplate string, input *PlanInput, tools []llm.Tool, genOutput *GenerateOutput) (*plan.Plan, []llm.ToolCall, error) {
 
 	filteredInput := dedupResultsSkipSeenErrors(input.Results)
 
@@ -239,7 +239,7 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate, s
 		"SystemContext":                input.SystemContext,
 		"Results":                      filteredInput,
 		"Tools":                        input.Tools,
-		"Result":                       input.ResultSummary,
+		"ToolCall":                     input.ResultSummary,
 		"CanUseTools":                  false,
 		"CanPreventDuplicateToolCalls": false,
 	}
@@ -271,7 +271,7 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate, s
 		for i := range filteredInput {
 			var toolCalls []llm.ToolCall
 			var toolResultMessage []llm.Message
-			toolCall := llm.NewToolCall(filteredInput[i].ID, filteredInput[i].Name, filteredInput[i].Args)
+			toolCall := llm.NewToolCall(filteredInput[i].ID, filteredInput[i].Name, filteredInput[i].Arguments)
 			toolCalls = append(toolCalls, toolCall)
 			callResult := filteredInput[i].Result
 			if filteredInput[i].Error != "" {
@@ -281,7 +281,6 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate, s
 			toolResultMessage = append(toolResultMessage, llm.NewToolResultMessage(toolCall, callResult))
 			genInput.Message = append(genInput.Message, llm.NewAssistantMessageWithToolCalls(toolCalls...))
 			genInput.Message = append(genInput.Message, toolResultMessage...)
-			filteredInput[i].Seen = true
 		}
 	}
 
@@ -298,9 +297,9 @@ func (s *Service) enureResultCallID(input *PlanInput) {
 	}
 }
 
-func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, genOutput *GenerateOutput) (*plan.Plan, []plan.Result, error) {
+func (s *Service) generatePlan(ctx context.Context, genInput *GenerateInput, genOutput *GenerateOutput) (*plan.Plan, []llm.ToolCall, error) {
 	aPlan := plan.New()
-	var execResults []plan.Result
+	var execResults []llm.ToolCall
 
 	// Dynamically decide whether to use streaming based on model capability
 	doStream := false
@@ -366,7 +365,7 @@ func (s *Service) deriveRunner(ctx context.Context, genInput *GenerateInput) (st
 	return service, method
 }
 
-func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *GenerateInput, aPlan *plan.Plan, runnerService, runnerMethod string, execResults *[]plan.Result, wg *sync.WaitGroup, nextStepIdx *int, genOutput *GenerateOutput) string {
+func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *GenerateInput, aPlan *plan.Plan, runnerService, runnerMethod string, execResults *[]llm.ToolCall, wg *sync.WaitGroup, nextStepIdx *int, genOutput *GenerateOutput) string {
 	var mux sync.Mutex
 	var resultsMu sync.Mutex
 	return stream.Register(func(ctx context.Context, event *llm.StreamEvent) error {
@@ -410,7 +409,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *Ge
 							},
 							"model":      genInput.Model,
 							"tools":      genInput.Tools,
-							"results":    append([]plan.Result{}, (*execResults)...),
+							"results":    append([]llm.ToolCall{}, (*execResults)...),
 							"transcript": genInput.Bind["Transcript"],
 							"context":    genInput.Bind["Context"],
 						},
@@ -422,7 +421,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *Ge
 					if len(results) > 0 {
 						*execResults = append(*execResults, results...)
 					} else {
-						*execResults = append(*execResults, plan.Result{ID: step.ID, Name: step.Name, Args: step.Args})
+						*execResults = append(*execResults, llm.ToolCall{ID: step.ID, Name: step.Name, Args: step.Args})
 					}
 				}()
 				continue
@@ -558,8 +557,8 @@ func (s *Service) extendPlan(choice *llm.Choice, aPlan *plan.Plan) {
 // dedupResultsSkipSeenErrors returns a new slice containing only the last occurrence
 // of each (Name, canonical Args) pair, preserving their chronological order.
 // It skips results that have an Error and were already seen by the LLM during the latest plan generation.
-func dedupResultsSkipSeenErrors(in []plan.Result) []*plan.Result {
-	outRev := make([]*plan.Result, 0, len(in))
+func dedupResultsSkipSeenErrors(in []llm.ToolCall) []*llm.ToolCall {
+	outRev := make([]*llm.ToolCall, 0, len(in))
 	if len(in) <= 1 {
 		for i := range in {
 			outRev = append(outRev, &in[i])

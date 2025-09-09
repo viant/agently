@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	plan "github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/llm"
 )
 
 func TestRefinePlan(t *testing.T) {
@@ -14,13 +15,13 @@ func TestRefinePlan(t *testing.T) {
 	}
 
 	// Helper to build a prior result quickly.
-	mkResult := func(name string, args map[string]interface{}) plan.Result {
-		return plan.Result{Name: name, Args: args}
+	mkResult := func(name string, args map[string]interface{}) llm.ToolCall {
+		return llm.ToolCall{Name: name, Args: args}
 	}
 
 	tests := []struct {
 		name     string
-		prior    []plan.Result
+		prior    []llm.ToolCall
 		steps    plan.Steps
 		expected plan.Steps
 	}{
@@ -39,7 +40,7 @@ func TestRefinePlan(t *testing.T) {
 		},
 		{
 			name: "prior results do not remove allowed repeat",
-			prior: []plan.Result{
+			prior: []llm.ToolCall{
 				mkResult("calc", map[string]interface{}{"expr": "1+1"}),
 			},
 			steps: plan.Steps{

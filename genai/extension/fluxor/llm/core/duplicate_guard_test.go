@@ -1,21 +1,22 @@
 package core
 
 import (
-	plan "github.com/viant/agently/genai/agent/plan"
+	plan "github.com/viant/agently/genai/llm"
+
 	"testing"
 )
 
 func TestDuplicateGuard_ShouldBlock(t *testing.T) {
 	testCases := []struct {
 		name         string
-		priorResults []plan.Result
+		priorResults []plan.ToolCall
 		callName     string
 		callArgs     map[string]interface{}
 		wantBlock    bool
 	}{
 		{
 			name: "block when prior successful result exists",
-			priorResults: []plan.Result{{
+			priorResults: []plan.ToolCall{{
 				Name:   "sqlkit-dbListConnections",
 				Args:   map[string]interface{}{"pattern": "*"},
 				Result: "[{\"name\":\"dev\"}]",
@@ -27,7 +28,7 @@ func TestDuplicateGuard_ShouldBlock(t *testing.T) {
 		},
 		{
 			name: "allow retry when previous result had error",
-			priorResults: []plan.Result{{
+			priorResults: []plan.ToolCall{{
 				Name:  "sqlkit-dbListConnections",
 				Args:  map[string]interface{}{"pattern": "*"},
 				Error: "connection timeout",
@@ -231,7 +232,7 @@ func TestDuplicateGuard_ConsecutiveCalls(t *testing.T) {
 
 				// Register the result if not blocked
 				if !gotBlock {
-					guard.RegisterResult(call.Name, call.Args, plan.Result{
+					guard.RegisterResult(call.Name, call.Args, plan.ToolCall{
 						Name:   call.Name,
 						Args:   call.Args,
 						Result: "some result",
@@ -288,7 +289,7 @@ func TestDuplicateGuard_WindowFrequency(t *testing.T) {
 
 		// Register the result if not blocked
 		if !gotBlock {
-			guard.RegisterResult(call.Name, call.Args, plan.Result{
+			guard.RegisterResult(call.Name, call.Args, plan.ToolCall{
 				Name:   call.Name,
 				Args:   call.Args,
 				Result: "some result",
@@ -335,7 +336,7 @@ func TestDuplicateGuard_AlternatingPattern(t *testing.T) {
 
 		// Register the result if not blocked
 		if !gotBlock {
-			guard.RegisterResult(call.Name, call.Args, plan.Result{
+			guard.RegisterResult(call.Name, call.Args, plan.ToolCall{
 				Name:   call.Name,
 				Args:   call.Args,
 				Result: "some result",
@@ -432,7 +433,7 @@ func TestDuplicateGuard_Args(t *testing.T) {
 
 				// Register the result if not blocked
 				if !gotBlock {
-					guard.RegisterResult(call.name, call.args, plan.Result{
+					guard.RegisterResult(call.name, call.args, plan.ToolCall{
 						Name:   call.name,
 						Args:   call.args,
 						Result: "some result",

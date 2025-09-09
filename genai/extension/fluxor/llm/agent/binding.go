@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/agently/genai/agent"
 	base "github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
@@ -42,17 +43,22 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput, isSystem 
 	} else if len(execs) > 0 {
 		b.Tools.Executions = execs
 	}
-	docs, err := s.buildDocumentsBinding(ctx, input, isSystem)
+	docs, err := s.buildDocumentsBinding(ctx, input, false)
 	if err != nil {
 		return nil, err
 	}
 	b.Documents = docs
-	b.Flags.IsSystem = isSystem
+
+	b.SystemDocuments, err = s.buildDocumentsBinding(ctx, input, true)
+	if err != nil {
+		return nil, err
+	}
+
 	return b, nil
 }
 
 func (s *Service) buildTaskBinding(input *QueryInput) prompt.Task {
-	return prompt.Task{UserPrompt: input.Query}
+	return prompt.Task{Prompt: input.Query}
 }
 
 func (s *Service) buildHistoryBinding(ctx context.Context, input *QueryInput) (prompt.History, error) {
@@ -162,19 +168,17 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput) ([
 
 func (s *Service) buildDocumentsBinding(ctx context.Context, input *QueryInput, isSystem bool) (prompt.Documents, error) {
 	var docs prompt.Documents
+	var knowledge []*agent.Knowledge
 	if isSystem {
-		resources, err := s.retrieveSystemRelevantDocuments(ctx, input)
-		if err != nil {
-			return docs, err
-		}
-		docs.Items = padapter.FromAssets(resources)
-		return docs, nil
+		knowledge = input.Agent.SystemKnowledge
+	} else {
+		knowledge = input.Agent.Knowledge
 	}
-	userDocs, err := s.retrieveRelevantDocuments(ctx, input)
+	matchedDocs, err := s.matchDocuments(ctx, input, knowledge)
 	if err != nil {
 		return docs, err
 	}
-	docs.Items = padapter.FromSchemaDocs(userDocs)
+	docs.Items = padapter.FromSchemaDocs(matchedDocs)
 	return docs, nil
 }
 

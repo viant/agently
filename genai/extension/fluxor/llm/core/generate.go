@@ -11,29 +11,30 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
-	"github.com/viant/agently/internal/templating"
+	"github.com/viant/agently/genai/prompt"
 	fluxortypes "github.com/viant/fluxor/model/types"
 
 	elog "github.com/viant/agently/internal/log"
 )
 
 type GenerateInput struct {
-	Model        string
-	Preferences  *llm.ModelPreferences // optional model preferences
-	SystemPrompt string
-	Prompt       string
-	Attachment   []*Attachment
-	Message      []llm.Message
-	Tools        []llm.Tool
+	Model       string
+	Preferences *llm.ModelPreferences // optional model preferences
+
+	SystemPrompt *prompt.Prompt
+
+	Prompt  *prompt.Prompt
+	Binding prompt.Binding
+
+	Attachment []*Attachment
+	Message    []llm.Message
 
 	// Options allows callers to specify advanced llm.Options (temperature,
 	// top-p, etc.).  If nil a minimal options struct will be created that only
 	// carries Tools.
-	Options        *llm.Options
-	UseStream      *bool
-	Template       string
-	SystemTemplate string
-	Bind           map[string]interface{}
+	Options   *llm.Options
+	UseStream *bool
+	Bind      map[string]interface{}
 }
 
 // GenerateOutput represents output from extraction
@@ -43,17 +44,34 @@ type GenerateOutput struct {
 	MessageID string
 }
 
-func (i *GenerateInput) Init(ctx context.Context) {
-	if i.SystemPrompt != "" {
-		i.Message = append(i.Message, llm.NewSystemMessage(i.SystemPrompt))
+func (i *GenerateInput) Init(ctx context.Context) error {
+
+	if i.SystemPrompt != nil {
+		if err := i.SystemPrompt.Init(ctx); err != nil {
+			return err
+		}
+		expanded, err := i.SystemPrompt.Generate(ctx, i.Binding.SystemBinding())
+		if err != nil {
+			return fmt.Errorf("failed to expand system prompt: %w", err)
+		}
+		i.Message = append(i.Message, llm.NewSystemMessage(expanded))
 	}
-	if i.Prompt != "" {
-		i.Message = append(i.Message, llm.NewUserMessage(i.Prompt))
-	}
+
 	for _, attachment := range i.Attachment {
 		i.Message = append(i.Message,
-			llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Prompt))
+			llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Content))
 	}
+	if i.Prompt != nil {
+		if err := i.Prompt.Init(ctx); err != nil {
+			return err
+		}
+		expanded, err := i.Prompt.Generate(ctx, &i.Binding)
+		if err != nil {
+			return fmt.Errorf("failed to prompt: %w", err)
+		}
+		i.Message = append(i.Message, llm.NewUserMessage(expanded))
+	}
+	return nil
 }
 
 func (i *GenerateInput) Validate(ctx context.Context) error {
@@ -200,22 +218,6 @@ func EnsureJSONResponse(ctx context.Context, text string, target interface{}) er
 // prepareGenerateRequest prepares a GenerateRequest and resolves the model based
 // on preferences or defaults. It expands templates, validates input, and clones options.
 func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInput) (*llm.GenerateRequest, llm.Model, error) {
-	if input.Prompt == "" && input.Template != "" {
-		expanded, err := s.expandTemplate(ctx, input)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to expand template: %w", err)
-		}
-		input.Prompt = expanded
-	}
-
-	if input.SystemTemplate != "" {
-		expanded, err := s.expandSystemTemplate(ctx, input)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to expand template: %w", err)
-		}
-		input.SystemPrompt = expanded
-	}
-
 	if input.Model == "" {
 		if input.Preferences != nil {
 			if m := s.modelMatcher.Best(input.Preferences); m != "" {
@@ -227,7 +229,9 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		}
 	}
 
-	input.Init(ctx)
+	if err := input.Init(ctx); err != nil {
+		return nil, nil, fmt.Errorf("failed to init generate input: %w", err)
+	}
 	if err := input.Validate(ctx); err != nil {
 		return nil, nil, err
 	}
@@ -246,31 +250,27 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		opts = &llm.Options{}
 	}
 
-	if len(opts.Tools) == 0 && len(input.Tools) > 0 {
-		opts.Tools = input.Tools
+	if tools := input.Binding.Tools; tools != nil && len(tools.Signatures) > 0 {
+		for _, tool := range tools.Signatures {
+			opts.Tools = append(opts.Tools, llm.Tool{Ref: "", Definition: *tool})
+		}
+		for _, call := range tools.Executions {
+			input.Message = append(input.Message, llm.NewAssistantMessageWithToolCalls(*call))
+			input.Message = append(input.Message, llm.NewToolResultMessage(*call))
+		}
 	}
-
 	request := &llm.GenerateRequest{
 		Messages: messages,
 		Options:  opts,
 	}
-
 	return request, model, nil
 }
 
-func (s *Service) expandTemplate(ctx context.Context, input *GenerateInput) (string, error) {
-	vars := map[string]interface{}{"Prompt": input.Prompt}
-	for k, v := range input.Bind {
-		vars[k] = v
-	}
-	return templating.Expand(input.Template, vars)
-}
-
 type Attachment struct {
-	Name   string
-	Mime   string
-	Prompt string
-	Data   []byte
+	Name    string
+	Mime    string
+	Content string
+	Data    []byte
 }
 
 func (a *Attachment) MIMEType() string {
@@ -315,12 +315,4 @@ func (a *Attachment) MIMEType() string {
 		return "video/mp4"
 	}
 	return "application/octet-stream"
-}
-
-func (s *Service) expandSystemTemplate(ctx context.Context, input *GenerateInput) (string, error) {
-	vars := map[string]interface{}{"SystemPrompt": input.SystemPrompt}
-	for k, v := range input.Bind {
-		vars[k] = v
-	}
-	return templating.Expand(input.SystemTemplate, vars)
 }

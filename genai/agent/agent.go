@@ -43,7 +43,7 @@ type (
 
 		// Persona defines the default conversational persona the agent uses when
 		// sending messages. When nil the role defaults to "assistant".
-		Persona *Persona `yaml:"persona,omitempty" json:"persona,omitempty"`
+		Persona *prompt.Persona `yaml:"persona,omitempty" json:"persona,omitempty"`
 
 		// ToolExport controls automatic exposure of this agent as a virtual tool
 		ToolExport *ToolExport `yaml:"toolExport,omitempty" json:"toolExport,omitempty"`
@@ -70,7 +70,7 @@ func (a *Agent) Validate() error {
 // GeneratePrompt generates a prompt from the agent's template using provided query and enrichment data
 func (a *Agent) GeneratePrompt(query string, enrichment string) (string, error) {
 	//panic("deprecated ")
-	//if a.Prompt == "" {
+	//if a.Content == "" {
 	//	// Use default template if not specified
 	//	return a.generateDefaultPrompt(query, enrichment), nil
 	//}
@@ -93,7 +93,7 @@ func (a *Agent) generateVeltyPrompt(query string, enrichment string) (string, er
 	//	"Query":      query,
 	//	"Enrichment": enrichment,
 	//}
-	//return templating.Expand(a.Prompt, vars)
+	//return templating.Expand(a.Content, vars)
 	panic("deprecated ")
 }
 
@@ -101,7 +101,7 @@ func (a *Agent) generateVeltyPrompt(query string, enrichment string) (string, er
 func (a *Agent) generateGoTemplatePrompt(query string, enrichment string) (string, error) {
 	//// lazily compile template once
 	//a.once.Do(func() {
-	//	a.parsedTemplate, a.parseErr = template.New("prompt").Parse(a.Prompt)
+	//	a.parsedTemplate, a.parseErr = template.New("prompt").Parse(a.Content)
 	//})
 	//if a.parseErr != nil {
 	//	return "", a.parseErr

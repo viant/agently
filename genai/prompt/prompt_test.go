@@ -21,8 +21,8 @@ func TestPrompt_Generate_DataDriven(t *testing.T) {
 			t.Fatalf("write %s: %v", path, err)
 		}
 	}
-	mustWrite(fileVM, "User: ${Task.UserPrompt}")
-	mustWrite(fileGO, "User: {{.Task.UserPrompt}}")
+	mustWrite(fileVM, "User: ${Task.Prompt}")
+	mustWrite(fileGO, "User: {{.Task.Prompt}}")
 
 	cases := []struct {
 		name    string
@@ -32,32 +32,32 @@ func TestPrompt_Generate_DataDriven(t *testing.T) {
 	}{
 		{
 			name:    "inline-velty",
-			prompt:  Prompt{Engine: "vm", Text: "User: ${Task.UserPrompt}"},
-			binding: &Binding{Task: Task{UserPrompt: "Hello World"}},
+			prompt:  Prompt{Engine: "vm", Text: "User: ${Task.Prompt}"},
+			binding: &Binding{Task: Task{Prompt: "Hello World"}},
 			want:    "User: Hello World",
 		},
 		{
 			name:    "inline-go",
-			prompt:  Prompt{Engine: "go", Text: "User: {{.Task.UserPrompt}}"},
-			binding: &Binding{Task: Task{UserPrompt: "Hello World"}},
+			prompt:  Prompt{Engine: "go", Text: "User: {{.Task.Prompt}}"},
+			binding: &Binding{Task: Task{Prompt: "Hello World"}},
 			want:    "User: Hello World",
 		},
 		{
 			name:    "uri-file-velty",
 			prompt:  Prompt{Engine: "vm", URI: fileVM},
-			binding: &Binding{Task: Task{UserPrompt: "Hello World"}},
+			binding: &Binding{Task: Task{Prompt: "Hello World"}},
 			want:    "User: Hello World",
 		},
 		{
 			name:    "uri-file-go",
 			prompt:  Prompt{Engine: "go", URI: fileGO},
-			binding: &Binding{Task: Task{UserPrompt: "Hello World"}},
+			binding: &Binding{Task: Task{Prompt: "Hello World"}},
 			want:    "User: Hello World",
 		},
 		{
 			name:    "uri-file-scheme-velty",
 			prompt:  Prompt{Engine: "vm", URI: "file://" + fileVM},
-			binding: &Binding{Task: Task{UserPrompt: "Hello World"}},
+			binding: &Binding{Task: Task{Prompt: "Hello World"}},
 			want:    "User: Hello World",
 		},
 	}
@@ -90,9 +90,9 @@ func TestPrompt_Generate_BindingCoverage(t *testing.T) {
 	// Task only
 	run(
 		"task",
-		"T: ${Task.UserPrompt}",
-		"T: {{.Task.UserPrompt}}",
-		&Binding{Task: Task{UserPrompt: "Compute"}},
+		"T: ${Task.Prompt}",
+		"T: {{.Task.Prompt}}",
+		&Binding{Task: Task{Prompt: "Compute"}},
 		"T: Compute",
 	)
 
@@ -123,11 +123,11 @@ func TestPrompt_Generate_BindingCoverage(t *testing.T) {
 		"- search: completed (ok)\n",
 	)
 
-	// Documents
+	// LoadDocuments
 	run(
 		"documents",
-		"#foreach($d in $Documents.Items)- $d.Title ($d.SourceURI)\n#end",
-		"{{range .Documents.Items}}- {{.Title}} ({{.SourceURI}})\n{{end}}",
+		"#foreach($d in $LoadDocuments.Items)- $d.Title ($d.SourceURI)\n#end",
+		"{{range .LoadDocuments.Items}}- {{.Title}} ({{.SourceURI}})\n{{end}}",
 		&Binding{Documents: Documents{Items: []*Document{{Title: "Guide", SourceURI: "uri://a"}, {Title: "Spec", SourceURI: "uri://b"}}}},
 		"- Guide (uri://a)\n- Spec (uri://b)\n",
 	)

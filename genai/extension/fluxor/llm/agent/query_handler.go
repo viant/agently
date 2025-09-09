@@ -21,6 +21,7 @@ import (
 	autoawait "github.com/viant/agently/genai/io/elicitation/auto"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
 	convw "github.com/viant/agently/internal/dao/conversation/write"
@@ -66,7 +67,7 @@ func (s *Service) tryAutoElicit(ctx context.Context, qi *QueryInput, missing []s
 	}
 
 	caller := func(ctx context.Context, agentName, prompt string) (string, error) {
-		in := &QueryInput{AgentName: agentName, Query: prompt, Persona: &agentmdl.Persona{Role: "assistant", Actor: "auto-elicitation"}}
+		in := &QueryInput{AgentName: agentName, Query: prompt, Persona: &prompt.Persona{Role: "assistant", Actor: "auto-elicitation"}}
 		var out QueryOutput
 		if err := s.query(ctx, in, &out); err != nil {
 			return "", err
@@ -671,7 +672,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 		return fmt.Errorf("failed to retrieve system knowledge: %w", err)
 	}
 
-	docs, err := s.retrieveRelevantDocuments(ctx, &searchInput)
+	docs, err := s.matchDocuments(ctx, &searchInput)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve knowledge: %w", err)
 	}
@@ -924,7 +925,7 @@ func (s *Service) buildSystemPrompt(ctx context.Context, qi *QueryInput, enrichm
 
 // recordAssistant writes the assistant's message into history, ignoring errors.
 
-func (s *Service) recordAssistant(ctx context.Context, convID, content string, persona *agentmdl.Persona, defaultActor string) string {
+func (s *Service) recordAssistant(ctx context.Context, convID, content string, persona *prompt.Persona, defaultActor string) string {
 	parentID := memory.MessageIDFromContext(ctx)
 	role := "assistant"
 	actor := defaultActor
@@ -983,7 +984,7 @@ func (s *Service) buildEnrichment(conv, docs string, context map[string]interfac
 		parts = append(parts, "Conversation:\n"+conv)
 	}
 	if docs != "" {
-		parts = append(parts, "Documents:\n"+docs)
+		parts = append(parts, "LoadDocuments:\n"+docs)
 	}
 	for k, v := range context {
 		parts = append(parts, fmt.Sprintf("%s: %v", k, v))

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	plan "github.com/viant/agently/genai/agent/plan"
 	executil "github.com/viant/agently/genai/extension/fluxor/llm/shared/executil"
+	plan "github.com/viant/agently/genai/llm"
 )
 
 // NewTracer returns a Tracer that bridges to exec.Service trace methods.
@@ -19,7 +19,7 @@ func (t tracerAdapter) UpdateTraceStart(ctx context.Context, conversationID stri
 	}
 }
 
-func (t tracerAdapter) UpdateTraceEnd(ctx context.Context, conversationID string, traceID int, result plan.Result, duplicated bool, endAt time.Time) {
+func (t tracerAdapter) UpdateTraceEnd(ctx context.Context, conversationID string, traceID int, result plan.ToolCall, duplicated bool, endAt time.Time) {
 	if t.s != nil {
 		t.s.updateTraceEnd(ctx, conversationID, traceID, result, duplicated, endAt)
 	}

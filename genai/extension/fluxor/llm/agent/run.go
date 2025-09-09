@@ -69,7 +69,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	res.ConversationID = childID
 
 	// Resolve final query – support optional velty-based QueryTemplate that
-	// can interpolate Context and the original Query (as ${Prompt}).
+	// can interpolate Context and the original Query (as ${Content}).
 	finalQuery := arg.Query
 
 	if strings.TrimSpace(arg.QueryTemplate) != "" {
@@ -79,7 +79,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 				vars[k] = v
 			}
 		}
-		vars["Prompt"] = arg.Query
+		vars["Content"] = arg.Query
 		rendered, err := templating.Expand(arg.QueryTemplate, vars)
 		if err != nil {
 			return err

@@ -3,9 +3,11 @@ package augmenter
 import (
 	"context"
 	"errors"
-	"github.com/tmc/langchaingo/schema"
-	"github.com/viant/embedius/matching/option"
 	"strings"
+
+	"github.com/tmc/langchaingo/schema"
+	"github.com/viant/afs"
+	"github.com/viant/embedius/matching/option"
 )
 
 type AugmentDocsInput struct {
@@ -61,4 +63,29 @@ type AugmentDocsOutput struct {
 	Content       string
 	Documents     []schema.Document
 	DocumentsSize int
+}
+
+func (o *AugmentDocsOutput) LoadDocuments(ctx context.Context, fs afs.Service) []schema.Document {
+	var result = make([]*schema.Document, 0, len(o.Documents))
+	var unique = make(map[string]bool)
+	for _, doc := range o.Documents {
+		key, ok := doc.Metadata["path"]
+		if !ok {
+			key = doc.Metadata["docId"]
+		}
+		uri, ok := key.(string)
+		if !ok {
+			continue
+		}
+		if unique[uri] {
+			continue
+		}
+		content, err := fs.DownloadWithURL(ctx, uri)
+		if err != nil {
+			continue
+		}
+		unique[uri] = true
+		result = append(result, &schema.Document{Metadata: doc.Metadata, PageContent: string(content)})
+	}
+	return result
 }

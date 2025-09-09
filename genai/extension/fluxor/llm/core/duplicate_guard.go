@@ -1,7 +1,7 @@
 package core
 
 import (
-	plan "github.com/viant/agently/genai/agent/plan"
+	plan "github.com/viant/agently/genai/llm"
 )
 
 // toolKey uniquely identifies a tool invocation by its name and canonicalised arguments.
@@ -16,7 +16,7 @@ type DuplicateGuard struct {
 	lastKey     toolKey
 	consecutive int
 	window      []toolKey
-	latest      map[toolKey]plan.Result // most recent result for each key
+	latest      map[toolKey]plan.ToolCall // most recent result for each key
 }
 
 const (
@@ -26,9 +26,9 @@ const (
 )
 
 // NewDuplicateGuard returns a guard pre‑seeded with prior results.
-func NewDuplicateGuard(prior []plan.Result) *DuplicateGuard {
+func NewDuplicateGuard(prior []plan.ToolCall) *DuplicateGuard {
 	g := &DuplicateGuard{
-		latest: make(map[toolKey]plan.Result, len(prior)),
+		latest: make(map[toolKey]plan.ToolCall, len(prior)),
 		window: make([]toolKey, 0, windowSize),
 	}
 	for _, r := range prior {
@@ -54,7 +54,7 @@ func (g *DuplicateGuard) key(name string, args map[string]interface{}) toolKey {
 //     window of size `windowSize`.
 //  4. The window contains only two distinct calls that alternate (A, B,
 //     A, B, …).
-func (g *DuplicateGuard) ShouldBlock(name string, args map[string]interface{}) (bool, plan.Result) {
+func (g *DuplicateGuard) ShouldBlock(name string, args map[string]interface{}) (bool, plan.ToolCall) {
 	key := g.key(name, args)
 	prev := g.latest[key] // previous result for the same key, if any
 
@@ -79,7 +79,7 @@ func (g *DuplicateGuard) ShouldBlock(name string, args map[string]interface{}) (
 		return true, prev
 	}
 
-	return false, plan.Result{}
+	return false, plan.ToolCall{}
 }
 
 // updateConsecutive increments or resets the consecutive‑repeat counter.
@@ -138,7 +138,7 @@ func (g *DuplicateGuard) isAlternatingPattern() bool {
 }
 
 // RegisterResult stores latest outcome for reuse.
-func (g *DuplicateGuard) RegisterResult(name string, args map[string]interface{}, res plan.Result) {
+func (g *DuplicateGuard) RegisterResult(name string, args map[string]interface{}, res plan.ToolCall) {
 	k := g.key(name, args)
 	g.latest[k] = res
 	g.lastKey = k

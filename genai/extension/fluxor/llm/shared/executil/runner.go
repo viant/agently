@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	plan "github.com/viant/agently/genai/agent/plan"
+	plan "github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	domainrec "github.com/viant/agently/internal/domain/recorder"
@@ -15,7 +15,7 @@ import (
 // Tracer abstracts execution trace updates so callers can plug their own store.
 type Tracer interface {
 	UpdateTraceStart(ctx context.Context, conversationID string, traceID int, startAt time.Time)
-	UpdateTraceEnd(ctx context.Context, conversationID string, traceID int, result plan.Result, duplicated bool, endAt time.Time)
+	UpdateTraceEnd(ctx context.Context, conversationID string, traceID int, result plan.ToolCall, duplicated bool, endAt time.Time)
 }
 
 // StepInfo carries the tool step data needed for execution.
@@ -31,7 +31,7 @@ type Options struct {
 	ConversationID   string
 	TraceID          int
 	Duplicated       bool
-	DuplicatedResult *plan.Result
+	DuplicatedResult *plan.ToolCall
 	Recorder         domainrec.Recorder
 }
 
@@ -51,7 +51,9 @@ func WithTrace(id int) Option { return func(o *Options) { o.TraceID = id } }
 func WithDuplicated(dup bool) Option { return func(o *Options) { o.Duplicated = dup } }
 
 // WithDuplicatedResult provides a precomputed result for duplicated calls.
-func WithDuplicatedResult(r *plan.Result) Option { return func(o *Options) { o.DuplicatedResult = r } }
+func WithDuplicatedResult(r *plan.ToolCall) Option {
+	return func(o *Options) { o.DuplicatedResult = r }
+}
 
 // WithRecorder sets a domain recorder for tool-call persistence.
 func WithRecorder(rec domainrec.Recorder) Option {
@@ -59,8 +61,8 @@ func WithRecorder(rec domainrec.Recorder) Option {
 }
 
 // RunTool executes a tool step via the registry, publishing task logs and updating traces.
-// It returns the normalized plan.Result, start/end timestamps and error.
-func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Option) (plan.Result, time.Time, time.Time, error) {
+// It returns the normalized plan.ToolCall, start/end timestamps and error.
+func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Option) (plan.ToolCall, time.Time, time.Time, error) {
 	// build options
 	opts := Options{}
 	for _, fn := range optFns {
@@ -91,7 +93,7 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Op
 		})
 	}
 
-	var out plan.Result
+	var out plan.ToolCall
 	var toolResult string
 
 	if opts.Duplicated && opts.DuplicatedResult != nil {
@@ -99,7 +101,7 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Op
 		out = *opts.DuplicatedResult
 	} else {
 		toolResult, err = reg.Execute(ctx, step.Name, step.Args)
-		out = plan.Result{ID: step.ID, Name: step.Name, Args: step.Args, Result: toolResult}
+		out = plan.ToolCall{ID: step.ID, Name: step.Name, Args: step.Args, Result: toolResult}
 		if err != nil {
 			out.Error = err.Error()
 		}

@@ -29,9 +29,13 @@ type (
 	}
 )
 
-func (a *Prompt) Generate(ctx context.Context, binding *Binding) (string, error) {
-	if a == nil {
-		return "", nil
+func (a *Prompt) Init(ctx context.Context) error {
+	if a.URI != "" {
+		a.URI = strings.TrimSpace(a.URI)
+	}
+
+	if a.Text != "" {
+		return nil
 	}
 	// Determine template source
 	prompt := strings.TrimSpace(a.Text)
@@ -43,10 +47,23 @@ func (a *Prompt) Generate(ctx context.Context, binding *Binding) (string, error)
 		}
 		data, err := fs.DownloadWithURL(ctx, uri)
 		if err != nil {
-			return "", err
+			return err
 		}
 		prompt = string(data)
 	}
+	return nil
+
+}
+
+func (a *Prompt) Generate(ctx context.Context, binding *Binding) (string, error) {
+	if a == nil {
+		return "", nil
+	}
+	if err := a.Init(ctx); err != nil {
+		return "", err
+	}
+
+	prompt := strings.TrimSpace(a.Text)
 	if strings.TrimSpace(prompt) == "" {
 		return "", nil
 	}
@@ -68,14 +85,7 @@ func (a *Prompt) Generate(ctx context.Context, binding *Binding) (string, error)
 
 // generateVeltyPrompt uses velty engine to process the template
 func (a *Prompt) generateVeltyPrompt(binding *Binding) (string, error) {
-	var context = map[string]interface{}{
-		"Task":      binding.Task,
-		"History":   binding.History,
-		"Tools":     binding.Tools,
-		"Flags":     binding.Flags,
-		"Documents": binding.Documents,
-	}
-	return templating.Expand(a.Text, context)
+	return templating.Expand(a.Text, binding.Data())
 }
 
 func (a *goTemplatePrompt) generateGoTemplatePrompt(prompt string, binding *Binding) (string, error) {

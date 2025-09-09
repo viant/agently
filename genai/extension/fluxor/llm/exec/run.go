@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/viant/agently/genai/llm"
 	"github.com/viant/fluxor/model/types"
 
 	"regexp"
@@ -27,7 +28,7 @@ type RunPlanInput struct {
 	Plan       plan.Plan        `json:"plan,omitempty"`
 	Model      string           `json:"model,omitempty"`
 	Tools      []string         `json:"tools,omitempty"`
-	Results    []plan.Result    `json:"results,omitempty"`
+	Results    []llm.ToolCall   `json:"results,omitempty"`
 	Transcript []memory.Message `json:"transcript,omitempty"` // transcript of the conversation with the LLM`
 
 	Context string `json:"context,omitempty"`
@@ -35,7 +36,7 @@ type RunPlanInput struct {
 
 // RunPlanOutput defines output for executing a plan of steps.
 type RunPlanOutput struct {
-	Results     []plan.Result     `json:"results"`
+	Results     []llm.ToolCall    `json:"results"`
 	Transcript  []memory.Message  `json:"transcript,omitempty"` // transcript of the conversation with the LLM`
 	Elicitation *plan.Elicitation `json:"elicitation,omitempty"`
 }
@@ -51,7 +52,7 @@ func (s *Service) runPlan(ctx context.Context, in, out interface{}) error {
 
 func (s *Service) RunPlan(ctx context.Context, input *RunPlanInput, output *RunPlanOutput) error {
 	// Results accumulated during this invocation
-	var results []plan.Result
+	var results []llm.ToolCall
 
 	// Guard against pathological duplicate (tool,args) calls across iterations
 	guard := core.NewDuplicateGuard(input.Results)
@@ -110,8 +111,8 @@ outer:
 
 // ---------------------- helpers ----------------------
 
-func buildExecutedByID(prior []plan.Result) map[string]plan.Result {
-	out := map[string]plan.Result{}
+func buildExecutedByID(prior []llm.ToolCall) map[string]llm.ToolCall {
+	out := map[string]llm.ToolCall{}
 	for _, r := range prior {
 		if r.ID != "" {
 			out[r.ID] = r
@@ -143,7 +144,7 @@ func (s *Service) updateTraceStart(ctx context.Context, convID string, traceID i
 	_ = s.traceStore.Update(ctx, convID, traceID, func(et *memory.ExecutionTrace) { et.StartedAt = startAt })
 }
 
-func (s *Service) updateTraceEnd(ctx context.Context, convID string, traceID int, res plan.Result, duplicated bool, endAt time.Time) {
+func (s *Service) updateTraceEnd(ctx context.Context, convID string, traceID int, res llm.ToolCall, duplicated bool, endAt time.Time) {
 	if s.traceStore == nil || convID == "" || traceID <= 0 {
 		return
 	}
@@ -168,7 +169,7 @@ func (s *Service) updateTraceEnd(ctx context.Context, convID string, traceID int
 
 // updateTraceWithPrev writes a previously computed result into the trace when
 // a step is skipped due to matching tool-call ID.
-func (s *Service) updateTraceWithPrev(ctx context.Context, convID string, traceID int, prev plan.Result) {
+func (s *Service) updateTraceWithPrev(ctx context.Context, convID string, traceID int, prev llm.ToolCall) {
 	if s.traceStore == nil || convID == "" || traceID <= 0 {
 		return
 	}
@@ -194,7 +195,7 @@ func (s *Service) updateTraceWithPrev(ctx context.Context, convID string, traceI
 
 // processToolStep executes or short-circuits a single tool step and updates traces/results.
 // Returns true when the caller should break the outer loop (elicitation requested).
-func (s *Service) processToolStep(ctx context.Context, step plan.Step, traceID int, guard *core.DuplicateGuard, executedByID map[string]plan.Result, results *[]plan.Result, input *RunPlanInput, output *RunPlanOutput, conversationID string) bool {
+func (s *Service) processToolStep(ctx context.Context, step plan.Step, traceID int, guard *core.DuplicateGuard, executedByID map[string]llm.ToolCall, results *[]llm.ToolCall, input *RunPlanInput, output *RunPlanOutput, conversationID string) bool {
 	// Skip execution when we already have a result for this tool-call ID.
 	if step.ID != "" {
 		if prev, done := executedByID[step.ID]; done {
@@ -205,9 +206,9 @@ func (s *Service) processToolStep(ctx context.Context, step plan.Step, traceID i
 
 	// Duplicate-call heuristic across iterations
 	duplicatedCall := false
-	duplicatedResult := plan.Result{}
+	duplicatedResult := llm.ToolCall{}
 	if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
-		duplicatedResult = plan.Result{ID: step.ID, Name: step.Name, Args: step.Args, Result: prev.Result, Error: prev.Error}
+		duplicatedResult = llm.ToolCall{ID: step.ID, Name: step.Name, Args: step.Args, Result: prev.Result, Error: prev.Error}
 		duplicatedCall = true
 	}
 
@@ -245,7 +246,7 @@ func (s *Service) processToolStep(ctx context.Context, step plan.Step, traceID i
 // tracer provided via NewTracer(s *Service) in tracer_adapter.go
 
 // processElicitationStep appends current results and sets elicitation in output; returns true to break loop.
-func (s *Service) processElicitationStep(step plan.Step, output *RunPlanOutput, results *[]plan.Result) bool {
+func (s *Service) processElicitationStep(step plan.Step, output *RunPlanOutput, results *[]llm.ToolCall) bool {
 	output.Results = append(output.Results, *results...)
 	if step.Elicitation != nil {
 		output.Elicitation = step.Elicitation
@@ -269,7 +270,7 @@ var placeholderRegex = regexp.MustCompile(`^\$step\[(\d+)\]\.output(?:\.(.+))?$`
 // resolveArgsPlaceholders walks through the args map and substitutes any value
 // of the form $step[N].output.<field>  or  $step[N].output with the referenced
 // result from prior steps.
-func resolveArgsPlaceholders(args map[string]interface{}, prior []plan.Result) map[string]interface{} {
+func resolveArgsPlaceholders(args map[string]interface{}, prior []llm.ToolCall) map[string]interface{} {
 	if len(args) == 0 {
 		return args
 	}
@@ -294,7 +295,7 @@ func resolveArgsPlaceholders(args map[string]interface{}, prior []plan.Result) m
 
 // resolvePlaceholder attempts to resolve a single placeholder against prior
 // results. It returns the resolved value and a boolean indicating success.
-func resolvePlaceholder(raw string, prior []plan.Result) (interface{}, bool) {
+func resolvePlaceholder(raw string, prior []llm.ToolCall) (interface{}, bool) {
 	m := placeholderRegex.FindStringSubmatch(strings.TrimSpace(raw))
 	if len(m) == 0 {
 		return nil, false

@@ -81,7 +81,7 @@ func Prompt(ctx context.Context, w io.Writer, r io.Reader, p *plan.Elicitation) 
 				return nil, err
 			}
 
-			// Prompt label ------------------------------------------------
+			// Content label ------------------------------------------------
 			fmt.Fprintf(w, "%s", propName)
 			if prop.Description != "" {
 				fmt.Fprintf(w, " – %s", prop.Description)

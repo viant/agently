@@ -15,7 +15,7 @@ func FromSchemaDocs(docs []schema.Document) []*prompt.Document {
 	for _, d := range docs {
 		source := extractSource(d.Metadata)
 		title := baseName(source)
-		out = append(out, &prompt.Document{Title: title, Snippet: d.PageContent, SourceURI: source})
+		out = append(out, &prompt.Document{Title: title, PageContent: d.PageContent, SourceURI: source})
 	}
 	return out
 }
@@ -28,7 +28,7 @@ func FromAssets(resources []*asset.Resource) []*prompt.Document {
 			continue
 		}
 		title := baseName(r.Name)
-		out = append(out, &prompt.Document{Title: title, Snippet: string(r.Data), SourceURI: r.Name})
+		out = append(out, &prompt.Document{Title: title, PageContent: string(r.Data), SourceURI: r.Name})
 	}
 	return out
 }

@@ -8,6 +8,7 @@ import (
 	plan "github.com/viant/agently/genai/agent/plan"
 	core "github.com/viant/agently/genai/extension/fluxor/llm/core"
 	execsvc "github.com/viant/agently/genai/extension/fluxor/llm/exec"
+	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 )
 
@@ -71,7 +72,7 @@ func (s *Service) ReasonAndAct(ctx context.Context, input *QueryInput) (*QueryOu
 
 	// 3) Loop: create plan and execute until final answer or no progress
 	var (
-		allResults    []plan.Result
+		allResults    []llm.ToolCall
 		allTranscript []memory.Message
 		finalAnswer   string
 		lastPlan      *plan.Plan
@@ -89,7 +90,7 @@ func (s *Service) ReasonAndAct(ctx context.Context, input *QueryInput) (*QueryOu
 			SystemContext: systemPrompt,
 			Model:         model,
 			Tools:         tools,
-			Results:       append([]plan.Result{}, allResults...),
+			Results:       append([]llm.ToolCall{}, allResults...),
 			Transcript:    append([]memory.Message{}, allTranscript...),
 			// Enable step execution during streaming when supported
 			Runner: "llm/exec:run_plan",
@@ -122,7 +123,7 @@ func (s *Service) ReasonAndAct(ctx context.Context, input *QueryInput) (*QueryOu
 				Plan:       *pOut.Plan,
 				Model:      model,
 				Tools:      tools,
-				Results:    append([]plan.Result{}, allResults...),
+				Results:    append([]llm.ToolCall{}, allResults...),
 				Transcript: append([]memory.Message{}, allTranscript...),
 				Context:    prompt,
 			}
@@ -147,10 +148,10 @@ func (s *Service) ReasonAndAct(ctx context.Context, input *QueryInput) (*QueryOu
 	return out, nil
 }
 
-// CreatePlanFromGenerateInput creates a plan using exact prompts supplied in gi.Prompt and gi.SystemPrompt.
+// CreatePlanFromGenerateInput creates a plan using exact prompts supplied in gi.Content and gi.SystemPrompt.
 // It bypasses binding/template generation and feeds prompts directly into llm/core.GeneratePlan.
 // Tools are taken from gi.Tools and model from gi.Model (or the core's default when empty).
-func (s *Service) CreatePlanFromGenerateInput(ctx context.Context, gi *core.GenerateInput) (*plan.Plan, []plan.Result, error) {
+func (s *Service) CreatePlanFromGenerateInput(ctx context.Context, gi *core.GenerateInput) (*plan.Plan, []llm.ToolCall, error) {
 	if s == nil || s.llm == nil {
 		return nil, nil, fmt.Errorf("agent core service is nil")
 	}

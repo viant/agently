@@ -45,7 +45,7 @@ func (e *Elicitation) IsEmpty() bool {
 }
 
 // ---------------------------------------------------------------------------
-// Result helpers used by Awaiters and callers
+// ToolResult helpers used by Awaiters and callers
 // ---------------------------------------------------------------------------
 
 // ElicitResultAction defines the action selected by the user after the
