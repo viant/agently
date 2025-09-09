@@ -250,7 +250,7 @@ func (a *Service) GetTranscriptAggregated(ctx context.Context, conversationID, t
 func mapMessage(v *msgread.MessageView) *d.TranscriptMessage {
 	return &d.TranscriptMessage{ID: v.Id, ConversationID: v.ConversationID, TurnID: v.TurnID, Sequence: v.Sequence, CreatedAt: v.CreatedAt,
 		Role: v.Role, Type: v.Type, Content: v.Content, Interim: v.Interim, ToolName: v.ToolName,
-		ModelCallPresent: v.ModelCallPresent, ToolCallPresent: v.ToolCallPresent,
+		// Deprecated flags removed; presence can be inferred from related views
 	}
 }
 

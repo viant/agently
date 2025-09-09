@@ -2,6 +2,8 @@ package plan
 
 import (
 	"encoding/json"
+	"time"
+
 	"github.com/google/uuid"
 )
 
@@ -21,17 +23,20 @@ type Outcome struct {
 type StepOutcome struct {
 	ID       string                 `yaml:"id,omitempty" json:"id,omitempty"`
 	TraceID  int                    `yaml:"traceId,omitempty" json:"traceId,omitempty"`
-	Tool     string                 `yaml:"tool,omitempty" json:"tool,omitempty"`
+	Name     string                 `yaml:"name,omitempty" json:"name,omitempty"`
 	Reason   string                 `yaml:"reason,omitempty" json:"reason,omitempty"`
 	Request  json.RawMessage        `yaml:"request,omitempty" json:"request,omitempty"`
 	Response json.RawMessage        `yaml:"response,omitempty" json:"response,omitempty"`
 	Elicited map[string]interface{} `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
 	// Success mirrors tool call outcome
-	Success   bool   `yaml:"success,omitempty" json:"success,omitempty"`
-	Error     string `yaml:"error,omitempty" json:"error,omitempty"`
-	Elapsed   string `yaml:"elapsed,omitempty" json:"elapsed,omitempty"`
-	StartedAt string `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
-	EndedAt   string `yaml:"endedAt,omitempty" json:"endedAt,omitempty"`
+	Success   bool       `yaml:"success,omitempty" json:"success,omitempty"`
+	Error     string     `yaml:"error,omitempty" json:"error,omitempty"`
+	Elapsed   string     `yaml:"elapsed,omitempty" json:"elapsed,omitempty"`
+	StartedAt *time.Time `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
+	EndedAt   *time.Time `yaml:"endedAt,omitempty" json:"endedAt,omitempty"`
+	// Optional payload identifiers for lazy resolution on the client side.
+	RequestPayloadID  *string `yaml:"requestPayloadId,omitempty" json:"requestPayloadId,omitempty"`
+	ResponsePayloadID *string `yaml:"responsePayloadId,omitempty" json:"responsePayloadId,omitempty"`
 }
 
 func New() *Plan {

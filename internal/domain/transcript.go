@@ -28,18 +28,16 @@ type AggregatedMessage struct {
 // TranscriptMessage is a lightweight message DTO dedicated to aggregated
 // transcript responses. It avoids duplicating storage models elsewhere.
 type TranscriptMessage struct {
-	ID               string
-	ConversationID   string
-	TurnID           *string
-	Sequence         *int
-	CreatedAt        *time.Time
-	Role             string
-	Type             string
-	Content          string
-	Interim          *int
-	ToolName         *string
-	ModelCallPresent *int
-	ToolCallPresent  *int
+	ID             string
+	ConversationID string
+	TurnID         *string
+	Sequence       *int
+	CreatedAt      *time.Time
+	Role           string
+	Type           string
+	Content        string
+	Interim        *int
+	ToolName       *string
 }
 
 // ModelCallTrace represents a model call attached to a message in aggregated transcript.

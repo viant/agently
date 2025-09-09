@@ -53,7 +53,7 @@ export default function ExecutionBubble({ message: msg, context }) {
                             <summary className="cursor-pointer text-xs text-blue-500">
                                 Execution details ({msg.executions.length})
                             </summary>
-                            <ExecutionDetails executions={msg.executions} context={context} messageId={msg.id} />
+                            <ExecutionDetails executions={msg.executions} context={context} messageId={msg.id} resizable useCodeMirror />
                         </details>
                     )}
                 </div>

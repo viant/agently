@@ -74,8 +74,6 @@ CREATE TABLE message (
     interim             INTEGER NOT NULL DEFAULT 0 CHECK (interim IN (0,1)),
     elicitation_id      TEXT,
     parent_message_id   TEXT,
-    model_call_present  INTEGER NOT NULL DEFAULT 0 CHECK (model_call_present IN (0,1)),
-    tool_call_present   INTEGER NOT NULL DEFAULT 0 CHECK (tool_call_present IN (0,1)),
     superseded_by       TEXT,
     -- legacy column to remain compatible with older readers
     tool_name           TEXT

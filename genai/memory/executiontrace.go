@@ -129,19 +129,21 @@ func (t *ExecutionStore) ListOutcome(ctx context.Context, convID string, parentI
 		}
 		// ensure Steps slice capacity
 		stepOutcome := &plan.StepOutcome{
-			ID:        fmt.Sprintf("%s-%d", pid, tr.StepIndex),
-			TraceID:   tr.ID,
-			Tool:      tr.Name,
-			Reason:    reason,
-			Request:   tr.Request,
-			Response:  tr.Result,
-			Success:   tr.Success,
-			Error:     tr.Error,
-			StartedAt: tr.StartedAt.Format(time.RFC3339),
+			ID:       fmt.Sprintf("%s-%d", pid, tr.StepIndex),
+			TraceID:  tr.ID,
+			Name:     tr.Name,
+			Reason:   reason,
+			Request:  tr.Request,
+			Response: tr.Result,
+			Success:  tr.Success,
+			Error:    tr.Error,
 		}
+		t := tr.StartedAt
+		stepOutcome.StartedAt = &t
 
 		if !tr.EndedAt.IsZero() {
-			stepOutcome.EndedAt = tr.EndedAt.Format(time.RFC3339)
+			t2 := tr.EndedAt
+			stepOutcome.EndedAt = &t2
 			stepOutcome.Elapsed = tr.EndedAt.Sub(tr.StartedAt).String()
 		}
 		// Elicitation if any
