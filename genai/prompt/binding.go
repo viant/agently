@@ -29,11 +29,11 @@ type (
 	}
 
 	ToolCall struct {
-		Name          string `yaml:"name,omitempty" json:"name,omitempty"`
-		Status        string `yaml:"status,omitempty" json:"status,omitempty"`
-		ResultSummary string `yaml:"resultSummary,omitempty" json:"resultSummary,omitempty"`
-		Error         string `yaml:"error,omitempty" json:"error,omitempty"`
-		Elapsed       string `yaml:"elapsed,omitempty" json:"elapsed,omitempty"`
+		Name    string `yaml:"name,omitempty" json:"name,omitempty"`
+		Status  string `yaml:"status,omitempty" json:"status,omitempty"`
+		Result  string `yaml:"result,omitempty" json:"result,omitempty"`
+		Error   string `yaml:"error,omitempty" json:"error,omitempty"`
+		Elapsed string `yaml:"elapsed,omitempty" json:"elapsed,omitempty"`
 	}
 
 	Tools struct {

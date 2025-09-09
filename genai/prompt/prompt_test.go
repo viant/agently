@@ -117,9 +117,9 @@ func TestPrompt_Generate_BindingCoverage(t *testing.T) {
 	// Tools executions
 	run(
 		"tools-executions",
-		"#foreach($e in $Tools.Executions)- $e.Name: $e.Status ($e.ResultSummary)\n#end",
-		"{{range .Tools.Executions}}- {{.Name}}: {{.Status}} ({{.ResultSummary}})\n{{end}}",
-		&Binding{Tools: Tools{Executions: []*ToolCall{{Name: "search", Status: "completed", ResultSummary: "ok"}}}},
+		"#foreach($e in $Tools.Executions)- $e.Name: $e.Status ($e.Result)\n#end",
+		"{{range .Tools.Executions}}- {{.Name}}: {{.Status}} ({{.Result}})\n{{end}}",
+		&Binding{Tools: Tools{Executions: []*ToolCall{{Name: "search", Status: "completed", Result: "ok"}}}},
 		"- search: completed (ok)\n",
 	)
 
