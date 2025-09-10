@@ -21,9 +21,16 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if hist, err := s.buildHistoryBinding(ctx, input); err == nil {
 		b.History = hist
 	}
-	if sig, _, err := s.buildToolSignatures(input); err != nil {
+
+	sig, _, err := s.buildToolSignatures(input)
+	if err != nil {
 		return nil, err
-	} else if len(sig) > 0 {
+	}
+
+	if len(sig) > 0 {
+		if b.Tools == nil {
+			b.Tools = &prompt.Tools{}
+		}
 		b.Tools.Signatures = sig
 		// Determine native tool-use capability from the selected model.
 		model := ""
