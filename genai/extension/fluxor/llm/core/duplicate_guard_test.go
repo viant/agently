@@ -17,10 +17,10 @@ func TestDuplicateGuard_ShouldBlock(t *testing.T) {
 		{
 			name: "block when prior successful result exists",
 			priorResults: []plan.ToolCall{{
-				Name:   "sqlkit-dbListConnections",
-				Args:   map[string]interface{}{"pattern": "*"},
-				Result: "[{\"name\":\"dev\"}]",
-				Error:  "",
+				Name:      "sqlkit-dbListConnections",
+				Arguments: map[string]interface{}{"pattern": "*"},
+				Result:    "[{\"name\":\"dev\"}]",
+				Error:     "",
 			}},
 			callName:  "sqlkit-dbListConnections",
 			callArgs:  map[string]interface{}{"pattern": "*"},
@@ -29,9 +29,9 @@ func TestDuplicateGuard_ShouldBlock(t *testing.T) {
 		{
 			name: "allow retry when previous result had error",
 			priorResults: []plan.ToolCall{{
-				Name:  "sqlkit-dbListConnections",
-				Args:  map[string]interface{}{"pattern": "*"},
-				Error: "connection timeout",
+				Name:      "sqlkit-dbListConnections",
+				Arguments: map[string]interface{}{"pattern": "*"},
+				Error:     "connection timeout",
 			}},
 			callName:  "sqlkit-dbListConnections",
 			callArgs:  map[string]interface{}{"pattern": "*"},
@@ -233,10 +233,10 @@ func TestDuplicateGuard_ConsecutiveCalls(t *testing.T) {
 				// Register the result if not blocked
 				if !gotBlock {
 					guard.RegisterResult(call.Name, call.Args, plan.ToolCall{
-						Name:   call.Name,
-						Args:   call.Args,
-						Result: "some result",
-						Error:  call.Error,
+						Name:      call.Name,
+						Arguments: call.Args,
+						Result:    "some result",
+						Error:     call.Error,
 					})
 				}
 			}
@@ -290,10 +290,10 @@ func TestDuplicateGuard_WindowFrequency(t *testing.T) {
 		// Register the result if not blocked
 		if !gotBlock {
 			guard.RegisterResult(call.Name, call.Args, plan.ToolCall{
-				Name:   call.Name,
-				Args:   call.Args,
-				Result: "some result",
-				Error:  call.Error,
+				Name:      call.Name,
+				Arguments: call.Args,
+				Result:    "some result",
+				Error:     call.Error,
 			})
 		}
 	}
@@ -434,9 +434,9 @@ func TestDuplicateGuard_Args(t *testing.T) {
 				// Register the result if not blocked
 				if !gotBlock {
 					guard.RegisterResult(call.name, call.args, plan.ToolCall{
-						Name:   call.name,
-						Args:   call.args,
-						Result: "some result",
+						Name:      call.name,
+						Arguments: call.args,
+						Result:    "some result",
 					})
 				}
 			}

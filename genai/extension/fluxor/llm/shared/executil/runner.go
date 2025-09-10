@@ -101,7 +101,7 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, optFns ...Op
 		out = *opts.DuplicatedResult
 	} else {
 		toolResult, err = reg.Execute(ctx, step.Name, step.Args)
-		out = plan.ToolCall{ID: step.ID, Name: step.Name, Args: step.Args, Result: toolResult}
+		out = plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: toolResult}
 		if err != nil {
 			out.Error = err.Error()
 		}

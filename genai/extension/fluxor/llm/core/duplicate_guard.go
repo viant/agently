@@ -32,7 +32,7 @@ func NewDuplicateGuard(prior []plan.ToolCall) *DuplicateGuard {
 		window: make([]toolKey, 0, windowSize),
 	}
 	for _, r := range prior {
-		key := g.key(r.Name, r.Args)
+		key := g.key(r.Name, r.Arguments)
 		g.latest[key] = r
 		g.window = append(g.window, key)
 		g.lastKey = key

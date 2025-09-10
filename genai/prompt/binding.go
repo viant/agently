@@ -69,5 +69,11 @@ func (b *Binding) Data() map[string]interface{} {
 		"LoadDocuments": b.Documents,
 		"Context":       b.Context,
 	}
+	// Flatten selected keys from Context into top-level for convenience
+	for k, v := range b.Context {
+		if _, exists := context[k]; !exists {
+			context[k] = v
+		}
+	}
 	return context
 }

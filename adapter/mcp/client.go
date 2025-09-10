@@ -6,9 +6,12 @@ package mcp
 
 import (
 	"context"
+
 	awaitreg "github.com/viant/agently/genai/awaitreg"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/prompt"
+
 	"sync"
 
 	"github.com/google/uuid"
@@ -17,10 +20,11 @@ import (
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/llm"
 
+	"strings"
+
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
-	"strings"
 )
 
 var waiterRegistry sync.Map // msgID -> chan *schema.ElicitResult
@@ -173,14 +177,14 @@ func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedReques
 	}
 	p := &request.Request.Params
 	// Use last message as prompt, earlier messages ignored in MVP.
-	var prompt string
+	var promptText string
 	if len(p.Messages) > 0 {
-		prompt = p.Messages[len(p.Messages)-1].Content.Text // assuming text field
+		promptText = p.Messages[len(p.Messages)-1].Content.Text // assuming text field
 	}
 	in := &core.GenerateInput{
 		Preferences:  llm.NewModelPreferences(llm.WithPreferences(p.ModelPreferences)),
-		Prompt:       prompt,
-		SystemPrompt: conv.Dereference[string](p.SystemPrompt),
+		Prompt:       &prompt.Prompt{Text: promptText},
+		SystemPrompt: &prompt.Prompt{Text: conv.Dereference[string](p.SystemPrompt)},
 	}
 	if p.MaxTokens > 0 || p.Temperature != nil || len(p.StopSequences) > 0 {
 		in.Options = &llm.Options{

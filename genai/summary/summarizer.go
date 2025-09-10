@@ -7,6 +7,7 @@ import (
 
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/prompt"
 )
 
 const defaultPrompt = "Summarize the following conversation in a concise form:\n${conversation}"
@@ -32,7 +33,7 @@ func Build(llmCore *core.Service, model, promptTemplate, convID string) func(ctx
 		genOut := &core.GenerateOutput{}
 		if err := llmCore.Generate(ctx, &core.GenerateInput{
 			Model:        model,
-			SystemPrompt: buf.String(),
+			SystemPrompt: &prompt.Prompt{Text: buf.String()},
 		}, genOut); err != nil {
 			return memory.Message{}, err
 		}

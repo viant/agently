@@ -102,7 +102,7 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 		}
 		searchDocuments = append(searchDocuments, docs...)
 	}
-	output.LoadDocuments = searchDocuments
+	output.Documents = searchDocuments
 	output.DocumentsSize = Documents(searchDocuments).Size()
 
 	// Ensure the set for the provided paths or kind

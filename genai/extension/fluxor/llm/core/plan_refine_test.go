@@ -16,7 +16,7 @@ func TestRefinePlan(t *testing.T) {
 
 	// Helper to build a prior result quickly.
 	mkResult := func(name string, args map[string]interface{}) llm.ToolCall {
-		return llm.ToolCall{Name: name, Args: args}
+		return llm.ToolCall{Name: name, Arguments: args}
 	}
 
 	tests := []struct {

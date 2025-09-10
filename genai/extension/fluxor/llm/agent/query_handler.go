@@ -66,8 +66,8 @@ func (s *Service) tryAutoElicit(ctx context.Context, qi *QueryInput, missing []s
 		helper = s.defaults.Agent
 	}
 
-	caller := func(ctx context.Context, agentName, prompt string) (string, error) {
-		in := &QueryInput{AgentName: agentName, Query: prompt, Persona: &prompt.Persona{Role: "assistant", Actor: "auto-elicitation"}}
+	caller := func(ctx context.Context, agentName, text string) (string, error) {
+		in := &QueryInput{AgentName: agentName, Query: text, Persona: &prompt.Persona{Role: "assistant", Actor: "auto-elicitation"}}
 		var out QueryOutput
 		if err := s.query(ctx, in, &out); err != nil {
 			return "", err
@@ -667,12 +667,12 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 		searchInput.Query = query
 	}
 
-	systemDocs, err := s.retrieveSystemRelevantDocuments(ctx, &searchInput)
+	systemDocs, err := s.matchDocuments(ctx, &searchInput, qi.Agent.SystemKnowledge)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve system knowledge: %w", err)
 	}
 
-	docs, err := s.matchDocuments(ctx, &searchInput)
+	docs, err := s.matchDocuments(ctx, &searchInput, qi.Agent.Knowledge)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve knowledge: %w", err)
 	}
@@ -690,7 +690,7 @@ func (s *Service) runWorkflow(ctx context.Context, qi *QueryInput, qo *QueryOutp
 
 	enrichment := s.buildEnrichment(query, s.formatDocumentsForEnrichment(ctx, docs, qi.IncludeFile), qi.Context)
 
-	systemEnrichment := s.buildSystemEnrichment(systemDocs)
+	systemEnrichment := s.formatDocumentsForEnrichment(ctx, systemDocs, qi.IncludeFile)
 
 	// 2. System prompt from agent template.
 	sysPrompt, err := s.buildSystemPrompt(ctx, qi, systemEnrichment)
@@ -1077,8 +1077,8 @@ func (s *Service) directAnswer(ctx context.Context, qi *QueryInput, qo *QueryOut
 	}
 	genIn := &corepkg.GenerateInput{
 		Model:        model,
-		SystemPrompt: sysPrompt,
-		Prompt:       qi.Query,
+		SystemPrompt: &prompt.Prompt{Text: sysPrompt},
+		Prompt:       &prompt.Prompt{Text: qi.Query},
 		Options:      &llm.Options{Temperature: qi.Agent.Temperature},
 	}
 	// TurnMeta has been set earlier; core.Generate will handle observer injection and message/model-call persistence.

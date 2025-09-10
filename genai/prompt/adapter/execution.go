@@ -4,28 +4,24 @@ import (
 	"strings"
 
 	plan "github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/prompt"
+	"github.com/viant/agently/genai/llm"
 )
 
-// ToolCallFromStep converts a StepOutcome to a prompt.ToolCall.
-func ToolCallFromStep(st *plan.StepOutcome) *prompt.ToolCall {
+// ToolCallFromStep converts a StepOutcome to an llm.ToolCall.
+func ToolCallFromStep(st *plan.StepOutcome) *llm.ToolCall {
 	if st == nil || strings.TrimSpace(st.Name) == "" {
 		return nil
-	}
-	status := "failed"
-	if st.Success {
-		status = "completed"
 	}
 	summary := strings.TrimSpace(st.Reason)
 	if summary == "" && len(st.Response) > 0 {
 		summary = trimStr(string(st.Response), 160)
 	}
-	return &prompt.ToolCall{Name: st.Name, Status: status, Result: summary, Error: st.Error, Elapsed: st.Elapsed}
+	return &llm.ToolCall{Name: st.Name, Result: summary, Error: st.Error}
 }
 
-// ToolCallsFromOutcomes flattens outcomes into prompt.ToolCall slice.
-func ToolCallsFromOutcomes(out []*plan.Outcome) []*prompt.ToolCall {
-	var res []*prompt.ToolCall
+// ToolCallsFromOutcomes flattens outcomes into llm.ToolCall slice.
+func ToolCallsFromOutcomes(out []*plan.Outcome) []*llm.ToolCall {
+	var res []*llm.ToolCall
 	for _, oc := range out {
 		if oc == nil {
 			continue

@@ -208,7 +208,7 @@ func (s *Service) processToolStep(ctx context.Context, step plan.Step, traceID i
 	duplicatedCall := false
 	duplicatedResult := llm.ToolCall{}
 	if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
-		duplicatedResult = llm.ToolCall{ID: step.ID, Name: step.Name, Args: step.Args, Result: prev.Result, Error: prev.Error}
+		duplicatedResult = llm.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: prev.Result, Error: prev.Error}
 		duplicatedCall = true
 	}
 

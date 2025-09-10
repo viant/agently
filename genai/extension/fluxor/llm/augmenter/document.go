@@ -66,7 +66,7 @@ type AugmentDocsOutput struct {
 }
 
 func (o *AugmentDocsOutput) LoadDocuments(ctx context.Context, fs afs.Service) []schema.Document {
-	var result = make([]*schema.Document, 0, len(o.Documents))
+	var result = make([]schema.Document, 0, len(o.Documents))
 	var unique = make(map[string]bool)
 	for _, doc := range o.Documents {
 		key, ok := doc.Metadata["path"]
@@ -85,7 +85,7 @@ func (o *AugmentDocsOutput) LoadDocuments(ctx context.Context, fs afs.Service) [
 			continue
 		}
 		unique[uri] = true
-		result = append(result, &schema.Document{Metadata: doc.Metadata, PageContent: string(content)})
+		result = append(result, schema.Document{Metadata: doc.Metadata, PageContent: string(content)})
 	}
 	return result
 }

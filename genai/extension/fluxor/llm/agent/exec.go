@@ -160,16 +160,20 @@ func (s *Service) CreatePlanFromGenerateInput(ctx context.Context, gi *core.Gene
 	}
 	model := strings.TrimSpace(gi.Model)
 	// Collect tool names for PlanInput
-	toolNames := make([]string, 0, len(gi.Tools))
-	for i := range gi.Tools {
-		name := strings.TrimSpace(gi.Tools[i].Definition.Name)
-		if name != "" {
-			toolNames = append(toolNames, name)
+	toolNames := []string{}
+	var tools []llm.Tool
+	if gi.Binding.Tools != nil {
+		for _, def := range gi.Binding.Tools.Signatures {
+			if def == nil || strings.TrimSpace(def.Name) == "" {
+				continue
+			}
+			toolNames = append(toolNames, def.Name)
+			tools = append(tools, llm.NewFunctionTool(*def))
 		}
 	}
 	genOut := &core.GenerateOutput{}
 	// Feed the exact prompts as templates (no variables) into GeneratePlan.
-	p, results, err := s.llm.GeneratePlan(ctx, model, gi.Prompt, gi.SystemPrompt, &core.PlanInput{Tools: toolNames}, gi.Tools, genOut)
+	p, results, err := s.llm.GeneratePlan(ctx, model, gi.Prompt.Text, gi.SystemPrompt.Text, &core.PlanInput{Tools: toolNames}, tools, genOut)
 	if err != nil {
 		return nil, nil, err
 	}

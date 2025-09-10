@@ -15,6 +15,8 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/prompt"
+	promptadapter "github.com/viant/agently/genai/prompt/adapter"
 	elog "github.com/viant/agently/internal/log"
 	"github.com/viant/fluxor/model/graph"
 	"github.com/viant/fluxor/runtime/execution"
@@ -233,7 +235,9 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate, s
 		modelName = model
 	}
 
-	bind := map[string]interface{}{
+	// Build prompt binding
+	binding := prompt.Binding{}
+	binding.Context = map[string]interface{}{
 		"Query":                        input.Query,
 		"Context":                      input.Context,
 		"SystemContext":                input.SystemContext,
@@ -244,44 +248,39 @@ func (s *Service) GeneratePlan(ctx context.Context, modelName, promptTemplate, s
 		"CanPreventDuplicateToolCalls": false,
 	}
 	if strings.TrimSpace(input.Runner) != "" {
-		bind["Runner"] = input.Runner
+		binding.Context["Runner"] = input.Runner
 	}
 
 	if model, _ := s.llmFinder.Find(ctx, modelName); model != nil {
-		bind["Model"] = model
-		bind["CanUseTools"] = model.Implements(base.CanUseTools)
-		bind["CanPreventDuplicateToolCalls"] = model.Implements(base.CanPreventDuplicateToolCalls)
+		binding.Context["Model"] = model
+		binding.Context["CanUseTools"] = model.Implements(base.CanUseTools)
+		binding.Context["CanPreventDuplicateToolCalls"] = model.Implements(base.CanPreventDuplicateToolCalls)
 	}
 
-	s.enureResultCallID(input)
+	// Attach tool signatures and prior executions to binding
+	if len(tools) > 0 {
+		binding.Tools = &prompt.Tools{}
+		binding.Tools.Signatures = promptadapter.ToToolDefinitions(tools)
+	}
+	if len(filteredInput) > 0 {
+		// Ensure IDs present
+		s.enureResultCallID(input)
+		if binding.Tools == nil {
+			binding.Tools = &prompt.Tools{}
+		}
+		binding.Tools.Executions = make([]*llm.ToolCall, 0, len(filteredInput))
+		for i := range filteredInput {
+			binding.Tools.Executions = append(binding.Tools.Executions, filteredInput[i])
+		}
+		// When we have prior executions, avoid asking model to prevent duplicates preemptively
+		binding.Context["CanPreventDuplicateToolCalls"] = false
+	}
 
 	genInput := &GenerateInput{
-		Model:          modelName,
-		Template:       promptTemplate,
-		SystemTemplate: systemPromptTemplate,
-		Bind:           bind,
-		Tools:          tools,
-	}
-
-	if len(filteredInput) == 0 {
-		bind["CanPreventDuplicateToolCalls"] = false
-	}
-
-	if len(filteredInput) > 0 {
-		for i := range filteredInput {
-			var toolCalls []llm.ToolCall
-			var toolResultMessage []llm.Message
-			toolCall := llm.NewToolCall(filteredInput[i].ID, filteredInput[i].Name, filteredInput[i].Arguments)
-			toolCalls = append(toolCalls, toolCall)
-			callResult := filteredInput[i].Result
-			if filteredInput[i].Error != "" {
-				callResult = "Error:" + filteredInput[i].Error
-				bind["CanPreventDuplicateToolCalls"] = false
-			}
-			toolResultMessage = append(toolResultMessage, llm.NewToolResultMessage(toolCall, callResult))
-			genInput.Message = append(genInput.Message, llm.NewAssistantMessageWithToolCalls(toolCalls...))
-			genInput.Message = append(genInput.Message, toolResultMessage...)
-		}
+		Model:        modelName,
+		SystemPrompt: &prompt.Prompt{Text: systemPromptTemplate},
+		Prompt:       &prompt.Prompt{Text: promptTemplate},
+		Binding:      binding,
 	}
 
 	aPlan, results, err := s.generatePlan(ctx, genInput, genOutput)
@@ -398,6 +397,15 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *Ge
 				step := st
 				go func() {
 					defer wg.Done()
+					// Derive tool names from binding for runner input
+					toolNames := []string{}
+					if genInput.Binding.Tools != nil {
+						for _, s := range genInput.Binding.Tools.Signatures {
+							if s != nil {
+								toolNames = append(toolNames, s.Name)
+							}
+						}
+					}
 					child := &execution.Execution{
 						Service: runnerService,
 						Method:  runnerMethod,
@@ -408,7 +416,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *Ge
 								"steps": []interface{}{map[string]interface{}{"id": step.ID, "type": step.Type, "name": step.Name, "args": step.Args, "reason": step.Reason}},
 							},
 							"model":      genInput.Model,
-							"tools":      genInput.Tools,
+							"tools":      toolNames,
 							"results":    append([]llm.ToolCall{}, (*execResults)...),
 							"transcript": genInput.Bind["Transcript"],
 							"context":    genInput.Bind["Context"],
@@ -421,7 +429,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, genInput *Ge
 					if len(results) > 0 {
 						*execResults = append(*execResults, results...)
 					} else {
-						*execResults = append(*execResults, llm.ToolCall{ID: step.ID, Name: step.Name, Args: step.Args})
+						*execResults = append(*execResults, llm.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args})
 					}
 				}()
 				continue
@@ -576,15 +584,12 @@ func dedupResultsSkipSeenErrors(in []llm.ToolCall) []*llm.ToolCall {
 	// Walk backwards so we keep the *last* occurrence.
 	for i := len(in) - 1; i >= 0; i-- {
 
-		k := key{in[i].Name, CanonicalArgs(in[i].Args)}
+		k := key{in[i].Name, CanonicalArgs(in[i].Arguments)}
 		if _, dup := seen[k]; dup {
 			continue
 		}
 
-		// If the result has an error and has been seen by LLM, then skip it (don't show it again to LLM).
-		if in[i].Error != "" && in[i].Seen {
-			continue
-		}
+		// Note: Seen flag is no longer tracked on llm.ToolCall; include errors as well.
 
 		seen[k] = struct{}{}
 		outRev = append(outRev, &in[i])

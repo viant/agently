@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/viant/agently/genai/llm"
 )
 
 func TestPrompt_Generate_DataDriven(t *testing.T) {
@@ -110,17 +111,17 @@ func TestPrompt_Generate_BindingCoverage(t *testing.T) {
 		"tools-signatures",
 		"#foreach($s in $Tools.Signatures)- $s.Name: $s.Description\n#end",
 		"{{range .Tools.Signatures}}- {{.Name}}: {{.Description}}\n{{end}}",
-		&Binding{Tools: Tools{Signatures: []*ToolDefinition{{Name: "search", Description: "find"}, {Name: "calc", Description: "compute"}}}},
+		&Binding{Tools: Tools{Signatures: []*llm.ToolDefinition{{Name: "search", Description: "find"}, {Name: "calc", Description: "compute"}}}},
 		"- search: find\n- calc: compute\n",
 	)
 
-	// Tools executions
+	// Tools executions (status removed in llm.ToolCall)
 	run(
 		"tools-executions",
-		"#foreach($e in $Tools.Executions)- $e.Name: $e.Status ($e.Result)\n#end",
-		"{{range .Tools.Executions}}- {{.Name}}: {{.Status}} ({{.Result}})\n{{end}}",
-		&Binding{Tools: Tools{Executions: []*ToolCall{{Name: "search", Status: "completed", Result: "ok"}}}},
-		"- search: completed (ok)\n",
+		"#foreach($e in $Tools.Executions)- $e.Name: ($e.Result)\n#end",
+		"{{range .Tools.Executions}}- {{.Name}}: ({{.Result}})\n{{end}}",
+		&Binding{Tools: Tools{Executions: []*llm.ToolCall{{Name: "search", Result: "ok"}}}},
+		"- search: (ok)\n",
 	)
 
 	// LoadDocuments

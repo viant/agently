@@ -3,9 +3,9 @@ package agent
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/llm"
 	base "github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
@@ -99,7 +99,7 @@ func (s *Service) buildHistoryBinding(ctx context.Context, input *QueryInput) (p
 	return h, nil
 }
 
-func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([]*prompt.ToolDefinition, bool, error) {
+func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([]*llm.ToolDefinition, bool, error) {
 	if s.registry == nil || input.Agent == nil || len(input.Agent.Tool) == 0 {
 		return nil, false, nil
 	}
@@ -111,7 +111,7 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 	return out, len(out) > 0, nil
 }
 
-func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput) ([]*prompt.ToolCall, error) {
+func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput) ([]*llm.ToolCall, error) {
 	if s.store == nil || s.store.Messages() == nil {
 		return nil, nil
 	}
@@ -124,7 +124,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput) ([
 	if err != nil {
 		return nil, err
 	}
-	var execs []*prompt.ToolCall
+	var execs []*llm.ToolCall
 	for _, v := range views {
 		if v == nil || len(v.Executions) == 0 {
 			continue
@@ -142,25 +142,15 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput) ([
 		if v.ToolCall != nil {
 			name = v.ToolCall.ToolName
 		}
-		status := "completed"
-		if v.ToolCall != nil && strings.TrimSpace(strings.ToLower(v.ToolCall.Status)) != "" {
-			status = strings.ToLower(v.ToolCall.Status)
-		}
 		errMsg := ""
 		if v.ToolCall != nil && v.ToolCall.ErrorMessage != nil {
 			errMsg = *v.ToolCall.ErrorMessage
 		}
-		elapsed := ""
-		if v.ToolCall != nil && v.ToolCall.LatencyMS != nil {
-			elapsed = (time.Duration(*v.ToolCall.LatencyMS) * time.Millisecond).String()
-		}
 		summary := trimStr(v.Content, 160)
-		execs = append(execs, &prompt.ToolCall{
-			Name:    name,
-			Status:  status,
-			Result:  summary,
-			Error:   errMsg,
-			Elapsed: elapsed,
+		execs = append(execs, &llm.ToolCall{
+			Name:   name,
+			Result: summary,
+			Error:  errMsg,
 		})
 	}
 	return execs, nil
