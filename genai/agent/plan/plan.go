@@ -68,3 +68,12 @@ func (p *Plan) IsEmpty() bool {
 	}
 	return false
 }
+
+func (s Steps) Find(id string) *Step {
+	for i, step := range s {
+		if step.ID == id {
+			return &s[i]
+		}
+	}
+	return nil
+}

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -14,13 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/conversation"
-	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/service"
-	"github.com/viant/fluxor"
-	fluxexec "github.com/viant/fluxor/service/executor"
-
-	elog "github.com/viant/agently/internal/log"
 )
 
 // ChatCmd handles interactive/chat queries.
@@ -29,12 +23,8 @@ type ChatCmd struct {
 	Query     string `short:"q" long:"query"    description:"user query"`
 	ConvID    string `short:"c" long:"conv"     description:"conversation ID (optional)"`
 	Policy    string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
-	LLMLog    string `short:"l" long:"llm-log" description:"file to append raw LLM traffic"`
 	ResetLogs bool   `long:"reset-logs" description:"truncate/clean log files before each run"  `
 	Timeout   int    `short:"t" long:"timeout" description:"timeout in seconds for the agent response (0=none)" `
-	ToolLog   string `long:"tool-log" description:"file to append debug logs for each tool call"`
-	TaskLog   string `long:"task-log" description:"file to append per-task Fluxor executor log"`
-	Log       string `long:"log" description:"unified log (LLM, TOOL, TASK)" default:"agently.log"`
 
 	// Arbitrary JSON payload that will be forwarded to the agent as contextual
 	// information. It can be supplied either as an inline JSON string or as
@@ -92,101 +82,6 @@ func (c *ChatCmd) Execute(_ []string) error {
 		}
 		if err := json.Unmarshal(data, &contextData); err != nil {
 			return fmt.Errorf("parse context JSON: %w", err)
-		}
-	}
-
-	// Reset logs if requested ------------------------------------------------------
-	if c.ResetLogs {
-		if c.LLMLog != "" {
-			_ = os.Remove(c.LLMLog)
-		}
-		if c.ToolLog != "" {
-			_ = os.Remove(c.ToolLog)
-		}
-		if c.TaskLog != "" {
-			_ = os.Remove(c.TaskLog)
-		}
-		if c.Log != "" {
-			_ = os.Remove(c.Log)
-		}
-	}
-
-	// Prepare optional log writers ------------------------------------------------
-	logOpenFlags := os.O_CREATE | os.O_WRONLY
-	if !c.ResetLogs {
-		logOpenFlags |= os.O_APPEND
-	} else {
-		logOpenFlags |= os.O_TRUNC
-	}
-
-	// Uber log writer ------------------------------------------------------
-	var log io.Writer
-	if c.Log == "" {
-		c.Log = "agently.log"
-	}
-	if w, err := os.OpenFile(c.Log, logOpenFlags, 0644); err == nil {
-		log = w
-	} else {
-		fmt.Printf("warning: unable to open uber log file %s: %v\n", c.Log, err)
-	}
-
-	if log != nil {
-		elog.FileSink(log,
-			elog.LLMInput, elog.LLMOutput,
-			elog.TaskInput, elog.TaskOutput,
-			elog.TaskWhen,
-		)
-		registerExecOption(executor.WithWorkflowOptions(
-			fluxor.WithExecutorOptions(
-				fluxexec.WithListener(newJSONTaskListener()),
-			),
-		))
-	}
-
-	{
-		var llmWriters []io.Writer
-		if c.LLMLog != "" {
-			if w, err := os.OpenFile(c.LLMLog, logOpenFlags, 0644); err == nil {
-				llmWriters = append(llmWriters, w)
-			} else {
-				fmt.Printf("warning: unable to open llm log file %s: %v\n", c.LLMLog, err)
-			}
-		}
-		if len(llmWriters) > 0 {
-			registerExecOption(executor.WithLLMLogger(io.MultiWriter(llmWriters...)))
-		}
-	}
-
-	{
-		var toolWriters []io.Writer
-		if c.ToolLog != "" {
-			if w, err := os.OpenFile(c.ToolLog, logOpenFlags, 0644); err == nil {
-				toolWriters = append(toolWriters, w)
-			} else {
-				fmt.Printf("warning: unable to open tool log file %s: %v\n", c.ToolLog, err)
-			}
-		}
-		if len(toolWriters) > 0 {
-			registerExecOption(executor.WithToolDebugLogger(io.MultiWriter(toolWriters...)))
-		}
-	}
-
-	{
-		var taskWriters []io.Writer
-		if c.TaskLog != "" {
-			if w, err := os.OpenFile(c.TaskLog, logOpenFlags, 0644); err == nil {
-				taskWriters = append(taskWriters, w)
-			} else {
-				fmt.Printf("warning: unable to open task log file %s: %v\n", c.TaskLog, err)
-			}
-		}
-		if len(taskWriters) > 0 {
-			listener := newJSONTaskListener(taskWriters...)
-			registerExecOption(executor.WithWorkflowOptions(
-				fluxor.WithExecutorOptions(
-					fluxexec.WithListener(listener),
-				),
-			))
 		}
 	}
 

@@ -3,6 +3,7 @@ package stream
 // Event represents a partial or complete event in a streaming LLM response.
 // It captures text chunks, function calls, and final finish reasons.
 type Event struct {
+	ID           string                 `json:"id"`
 	Type         string                 `json:"type"`                   // chunk, function_call or done or error
 	Content      string                 `json:"content,omitempty"`      // text content for chunk events
 	Name         string                 `json:"name,omitempty"`         // function name for function_call events

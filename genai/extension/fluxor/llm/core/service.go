@@ -2,33 +2,32 @@ package core
 
 import (
 	"context"
+	"reflect"
+	"strings"
+
 	"github.com/viant/afs"
-	executil "github.com/viant/agently/genai/extension/fluxor/llm/shared/executil"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/tool"
 	domainrec "github.com/viant/agently/internal/domain/recorder"
 	"github.com/viant/fluxor/model/types"
-	"io"
-	"reflect"
-	"strings"
 )
 
 const Name = "llm/core"
 
 type Service struct {
-	registry tool.Registry
-
+	registry     tool.Registry
 	llmFinder    llm.Finder
 	modelMatcher llm.Matcher
-	defaultModel string
+	fs           afs.Service
+	recorder     domainrec.Recorder
+}
 
-	logWriter io.Writer
-	fs        afs.Service
+func (s *Service) ModelFinder() llm.Finder {
+	return s.llmFinder
+}
 
-	// optional tracer for tool execution in streaming plan path
-	tracer         executil.Tracer
-	recorder       domainrec.Recorder
-	parentResolver func(ctx context.Context) string
+func (s *Service) ModelMatcher() llm.Matcher {
+	return s.modelMatcher
 }
 
 // ToolDefinitions returns every tool definition registered in the tool
@@ -54,28 +53,7 @@ func (s *Service) Methods() types.Signatures {
 			Input:  reflect.TypeOf(&GenerateInput{}),
 			Output: reflect.TypeOf(&GenerateOutput{}),
 		},
-		{
-			Name:   "plan",
-			Input:  reflect.TypeOf(&PlanInput{}),
-			Output: reflect.TypeOf(&PlanOutput{}),
-		},
-		{
-			Name:   "rank",
-			Input:  reflect.TypeOf(&RankInput{}),
-			Output: reflect.TypeOf(&RankOutput{}),
-		},
-
-		{
-			Name:   "stream",
-			Input:  reflect.TypeOf(&GenerateInput{}),
-			Output: reflect.TypeOf(&StreamOutput{}),
-		},
 	}
-}
-
-// SetLogger sets the writer used to log LLM requests and responses.
-func (s *Service) SetLogger(w io.Writer) {
-	s.logWriter = w
 }
 
 // Method returns the specified method
@@ -83,21 +61,15 @@ func (s *Service) Method(name string) (types.Executable, error) {
 	switch strings.ToLower(name) {
 	case "generate":
 		return s.generate, nil
-	case "plan":
-		return s.plan, nil
-	case "rank":
-		return s.rank, nil
-	case "stream":
-		return s.stream, nil
 	default:
 		return nil, types.NewMethodNotFoundError(name)
 	}
 }
 
 // New creates a new extractor service
-func New(finder llm.Finder, registry tool.Registry, defaultModel string) *Service {
+func New(finder llm.Finder, registry tool.Registry, recorder domainrec.Recorder) *Service {
 	matcher, _ := finder.(llm.Matcher)
-	return &Service{llmFinder: finder, registry: registry, defaultModel: defaultModel, fs: afs.New(), modelMatcher: matcher}
+	return &Service{llmFinder: finder, registry: registry, recorder: recorder, fs: afs.New(), modelMatcher: matcher}
 }
 
 // ModelImplements reports whether a given model supports a feature.
@@ -113,7 +85,4 @@ func (s *Service) ModelImplements(ctx context.Context, modelName, feature string
 	return model.Implements(feature)
 }
 
-// SetTracer injects a tracer adapter (executil.Tracer-compatible) for streaming tool execution.
-func (s *Service) SetTracer(t executil.Tracer)                          { s.tracer = t }
-func (s *Service) SetRecorder(r domainrec.Recorder)                     { s.recorder = r }
-func (s *Service) SetParentResolver(r func(ctx context.Context) string) { s.parentResolver = r }
+func (s *Service) SetRecorder(r domainrec.Recorder) { s.recorder = r }

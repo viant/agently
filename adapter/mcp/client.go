@@ -182,7 +182,9 @@ func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedReques
 		promptText = p.Messages[len(p.Messages)-1].Content.Text // assuming text field
 	}
 	in := &core.GenerateInput{
-		Preferences:  llm.NewModelPreferences(llm.WithPreferences(p.ModelPreferences)),
+		ModelSelection: llm.ModelSelection{
+			Preferences: llm.NewModelPreferences(llm.WithPreferences(p.ModelPreferences)),
+		},
 		Prompt:       &prompt.Prompt{Text: promptText},
 		SystemPrompt: &prompt.Prompt{Text: conv.Dereference[string](p.SystemPrompt)},
 	}

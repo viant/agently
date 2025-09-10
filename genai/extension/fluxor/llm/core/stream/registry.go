@@ -79,3 +79,12 @@ func Register(h Handler) string                                  { return provid
 func New(ctx context.Context, sessionID string) (Handler, error) { return provider.New(ctx, sessionID) }
 func Finish(sessionID string) error                              { return provider.Finish(sessionID) }
 func Unregister(sessionID string)                                { provider.Unregister(sessionID) }
+
+func PrepareStreamHandler(ctx context.Context, id string) (Handler, func(), error) {
+	h, err := New(ctx, id)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create Stream handler: %w", err)
+	}
+	cleanup := func() { _ = Finish(id) }
+	return h, cleanup, nil
+}

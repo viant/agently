@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/viant/agently/genai/agent"
@@ -12,19 +13,15 @@ import (
 	padapter "github.com/viant/agently/genai/prompt/adapter"
 	msgread "github.com/viant/agently/internal/dao/message/read"
 	d "github.com/viant/agently/internal/domain"
-	"github.com/viant/fluxor/model/types"
 )
 
-func (s *Service) BuildBinding(ctx context.Context, input *QueryInput, isSystem bool) (*prompt.Binding, error) {
-	if input == nil || input.Agent == nil {
-		return nil, types.NewInvalidInputError(input)
-	}
+func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.Binding, error) {
 	b := &prompt.Binding{}
 	b.Task = s.buildTaskBinding(input)
 	if hist, err := s.buildHistoryBinding(ctx, input); err == nil {
 		b.History = hist
 	}
-	if sig, _, err := s.buildToolSignatures(ctx, input); err != nil {
+	if sig, _, err := s.buildToolSignatures(input); err != nil {
 		return nil, err
 	} else if len(sig) > 0 {
 		b.Tools.Signatures = sig
@@ -53,7 +50,8 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput, isSystem 
 	if err != nil {
 		return nil, err
 	}
-
+	b.Context = input.Context
+	b.Persona = input.Persona
 	return b, nil
 }
 
@@ -63,22 +61,9 @@ func (s *Service) buildTaskBinding(input *QueryInput) prompt.Task {
 
 func (s *Service) buildHistoryBinding(ctx context.Context, input *QueryInput) (prompt.History, error) {
 	var h prompt.History
-	convID := s.conversationID(input)
-	if convID == "" {
-		return h, nil
-	}
-	turnID := memory.TurnIDFromContext(ctx)
-	var (
-		views []*msgread.MessageView
-		err   error
-	)
-
-	if turnID != "" {
-		views, err = s.store.Messages().GetTranscript(ctx, convID, msgread.WithTurnID(turnID))
-	} else {
-		// Use conversation-level normalized transcript and filter to history
-		views, err = s.store.Messages().GetTranscript(ctx, convID)
-	}
+	convID := input.ConversationID
+	// Use conversation-level normalized transcript and filter to history
+	views, err := s.store.Messages().GetTranscript(ctx, convID)
 	if err != nil {
 		return h, err
 	}
@@ -92,14 +77,11 @@ func (s *Service) buildHistoryBinding(ctx context.Context, input *QueryInput) (p
 		}
 		flat = append(flat, &prompt.Message{Role: v.Role, Content: v.Content})
 	}
-	if s.lastN > 0 && len(flat) > s.lastN {
-		flat = flat[len(flat)-s.lastN:]
-	}
 	h.Messages = flat
 	return h, nil
 }
 
-func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([]*llm.ToolDefinition, bool, error) {
+func (s *Service) buildToolSignatures(input *QueryInput) ([]*llm.ToolDefinition, bool, error) {
 	if s.registry == nil || input.Agent == nil || len(input.Agent.Tool) == 0 {
 		return nil, false, nil
 	}
@@ -112,15 +94,12 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 }
 
 func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput) ([]*llm.ToolCall, error) {
-	if s.store == nil || s.store.Messages() == nil {
-		return nil, nil
+
+	turn, ok := memory.TurnMetaFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("failed to get turn meta from context")
 	}
-	convID := s.conversationID(input)
-	turnID := memory.TurnIDFromContext(ctx)
-	if convID == "" || turnID == "" {
-		return nil, nil
-	}
-	views, err := s.store.Messages().GetTranscript(ctx, convID, msgread.WithTurnID(turnID), msgread.WithIncludeOutcomes())
+	views, err := s.store.Messages().GetTranscript(ctx, turn.ConversationID, msgread.WithTurnID(turn.TurnID))
 	if err != nil {
 		return nil, err
 	}
@@ -133,25 +112,6 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput) ([
 	}
 	if len(execs) > 0 {
 		return execs, nil
-	}
-	for _, v := range views {
-		if v == nil || strings.ToLower(v.Role) != "tool" {
-			continue
-		}
-		name := ""
-		if v.ToolCall != nil {
-			name = v.ToolCall.ToolName
-		}
-		errMsg := ""
-		if v.ToolCall != nil && v.ToolCall.ErrorMessage != nil {
-			errMsg = *v.ToolCall.ErrorMessage
-		}
-		summary := trimStr(v.Content, 160)
-		execs = append(execs, &llm.ToolCall{
-			Name:   name,
-			Result: summary,
-			Error:  errMsg,
-		})
 	}
 	return execs, nil
 }

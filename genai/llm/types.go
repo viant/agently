@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/base64"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -122,9 +123,18 @@ type ToolCall struct {
 	Type     string       `json:"type,omitempty"`
 	Function FunctionCall `json:"function,omitempty"`
 
-	Result string `json:"result"`
+	Result string `json:"result,omitempty"`
 	//Error tool call error
 	Error string `json:"error,omitempty"`
+}
+
+type CallSpan struct {
+	StartedAt time.Time `json:"startedat"`
+	EndedAt   time.Time `json:"endedat"`
+}
+
+func (c *CallSpan) SetEnd(t time.Time) {
+	c.EndedAt = t
 }
 
 // GenerateRequest represents a request to a chat-based LLM.

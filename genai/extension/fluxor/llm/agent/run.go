@@ -2,112 +2,144 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	core "github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/memory"
-	convw "github.com/viant/agently/internal/dao/conversation/write"
-	"github.com/viant/agently/internal/templating"
-	"github.com/viant/fluxor/model/types"
+	"github.com/viant/agently/genai/tool"
+	"github.com/viant/agently/genai/usage"
 )
 
-// RunInput describes the parameters for the "run" executable that spawns a
-// sub-agent in a child conversation.
-type RunInput struct {
-	ConversationID  string         `json:"conversationId,omitempty"`
-	AgentName       string         `json:"agentName"`
-	Query           string         `json:"query"`
-	QueryTemplate   string         `json:"queryTemplate,omitempty"`
-	Context         map[string]any `json:"context,omitempty"`
-	ElicitationMode string         `json:"elicitationMode,omitempty"`
-	Visibility      string         `json:"visibility,omitempty"` // full|summary|none
-	Title           string         `json:"title,omitempty"`
-}
+// Query executes a query against an agent.
+func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) error {
 
-type RunOutput struct {
-	ConversationID string `json:"conversationId"`
-	Content        string `json:"content,omitempty"`
-	Answer         string `json:"answer,omitempty"`
-}
-
-// run implements the executable registered under "run" on Service.
-func (s *Service) run(ctx context.Context, in, out interface{}) error {
-	arg, ok := in.(*RunInput)
-	if !ok {
-		return types.NewInvalidInputError(in)
-	}
-	res, ok := out.(*RunOutput)
-	if !ok {
-		return types.NewInvalidOutputError(out)
+	// 4. Ensure agent is loaded
+	if err := s.ensureAgent(ctx, input); err != nil {
+		return err
 	}
 
-	parentID := memory.ConversationIDFromContext(ctx)
-
-	childID := strings.TrimSpace(arg.ConversationID)
-	writeLink := false
-	if childID == "" {
-		childID = uuid.NewString()
-		// Create conversation via domain store when available
-		if s.store != nil && s.store.Conversations() != nil {
-			cw := &convw.Conversation{Has: &convw.ConversationHas{}}
-			cw.SetId(childID)
-			if strings.TrimSpace(arg.AgentName) != "" {
-				cw.SetAgentName(arg.AgentName)
-			}
-			if strings.TrimSpace(arg.Title) != "" {
-				cw.SetTitle(arg.Title)
-			}
-			if strings.TrimSpace(arg.Visibility) != "" {
-				cw.SetVisibility(arg.Visibility)
-			}
-			if _, err := s.store.Conversations().Patch(ctx, cw); err != nil {
-				return err
-			}
-		}
-		writeLink = true
-	}
-	res.ConversationID = childID
-
-	// Resolve final query – support optional velty-based QueryTemplate that
-	// can interpolate Context and the original Query (as ${Content}).
-	finalQuery := arg.Query
-
-	if strings.TrimSpace(arg.QueryTemplate) != "" {
-		vars := map[string]interface{}{}
-		if arg.Context != nil {
-			for k, v := range arg.Context {
-				vars[k] = v
-			}
-		}
-		vars["Content"] = arg.Query
-		rendered, err := templating.Expand(arg.QueryTemplate, vars)
-		if err != nil {
-			return err
-		}
-		finalQuery = rendered
+	if input == nil || input.Agent == nil {
+		return fmt.Errorf("invalid input: agent is required")
 	}
 
-	// Delegate to regular Query processing in the child conversation.
-	qi := &QueryInput{
-		ConversationID:  childID,
-		AgentName:       arg.AgentName,
-		Query:           finalQuery,
-		Context:         arg.Context,
-		ElicitationMode: arg.ElicitationMode,
+	if err := s.ensureConversation(ctx, input); err != nil {
+		return err
 	}
-	queryResp, err := s.Query(ctx, qi)
+
+	s.tryMergePromptIntoContext(input)
+	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
+		return err
+	}
+
+	ctx, agg := usage.WithAggregator(ctx)
+	turn := memory.TurnMeta{
+		ConversationID:  input.ConversationID,
+		TurnID:          uuid.New().String(),
+		ParentMessageID: uuid.New().String(),
+	}
+	ctx = memory.WithTurnMeta(ctx, turn)
+	if len(input.ToolsAllowed) > 0 {
+		pol := &tool.Policy{Mode: tool.ModeAuto, AllowList: input.ToolsAllowed}
+		ctx = tool.WithPolicy(ctx, pol)
+	}
+
+	s.recorder.StartTurn(ctx, turn.ConversationID, turn.TurnID, time.Now())
+	_, err := s.addMessage(ctx, turn.ConversationID, "user", "", input.Query, turn.ParentMessageID, "")
+	if err != nil {
+		return fmt.Errorf("failed to add message: %w", err)
+	}
+	err = s.runPlanLoop(ctx, input, output)
+	status := "succeeded"
+	if err != nil {
+		status = "failed"
+	}
+	s.recorder.UpdateTurn(ctx, turn.TurnID, status)
 	if err != nil {
 		return err
 	}
-	res.Answer = queryResp.Content
-
-	// Write link (and optional summary) to parent thread.
-	if writeLink && parentID != "" {
-		content := "↪ " + arg.Title
-		// v1: omit auto-summary; policy-driven summarization can be added later
-		msg := memory.Message{ID: uuid.NewString(), ConversationID: parentID, Role: "assistant", Actor: "agent.run", Content: content}
-		s.recorder.RecordMessage(ctx, msg)
-		res.Content = content
+	if output.Plan.Elicitation != nil {
+		s.recordAssistantElicitation(ctx, turn.TurnID, turn.ParentMessageID, output.Plan.Elicitation)
 	}
+	output.Usage = agg
 	return nil
+}
+
+func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutput *QueryOutput) error {
+	var err error
+	for {
+		binding, bErr := s.BuildBinding(ctx, input)
+		if bErr != nil {
+			return bErr
+		}
+		modelSelection := input.Agent.ModelSelection
+		if input.ModelOverride != "" {
+			modelSelection.Model = input.ModelOverride
+		}
+		queryOutput.Model = modelSelection.Model
+		queryOutput.Agent = input.Agent
+		genInput := &core.GenerateInput{
+			Prompt:         input.Agent.Prompt,
+			SystemPrompt:   input.Agent.SystemPrompt,
+			Binding:        binding,
+			ModelSelection: modelSelection,
+		}
+		genOutput := &core.GenerateOutput{}
+		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
+		if aPlan != nil {
+			queryOutput.Plan = aPlan
+			if aPlan.Elicitation != nil {
+				queryOutput.Elicitation = aPlan.Elicitation
+				break
+			}
+			if aPlan.IsEmpty() {
+				queryOutput.Content = genOutput.Content
+				break
+			}
+		}
+		if pErr != nil {
+			err = pErr
+			break
+		}
+		if aPlan == nil {
+			err = fmt.Errorf("unable to generate plan")
+			break
+		}
+	}
+	return err
+}
+
+func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, id string, parentId string) (string, error) {
+	if strings.TrimSpace(content) == "" {
+		return "", nil
+	}
+	if id == "" {
+		id = uuid.New().String()
+	}
+	msg := memory.Message{ID: id, ParentID: parentId, Role: role, Actor: actor, Content: content, ConversationID: convID}
+	if s.recorder != nil {
+		s.recorder.RecordMessage(ctx, msg)
+	}
+	return msg.ID, nil
+}
+
+// mergeInlineJSONIntoContext copies JSON object fields from qi.Query into qi.Context (non-destructive).
+func (s *Service) tryMergePromptIntoContext(input *QueryInput) {
+	if input == nil || strings.TrimSpace(input.Query) == "" {
+		return
+	}
+	var tmp map[string]interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(input.Query)), &tmp); err == nil && len(tmp) > 0 {
+		if input.Context == nil {
+			input.Context = map[string]interface{}{}
+		}
+		for k, v := range tmp {
+			if _, exists := input.Context[k]; !exists {
+				input.Context[k] = v
+			}
+		}
+	}
 }

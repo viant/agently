@@ -13,12 +13,6 @@ import (
 	"github.com/viant/agently/adapter/http/router"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/service"
-
-	// Logging & workflow listener
-	"github.com/viant/agently/genai/executor"
-	elog "github.com/viant/agently/internal/log"
-	"github.com/viant/fluxor"
-	fluxexec "github.com/viant/fluxor/service/executor"
 )
 
 // ServeCmd starts the embedded HTTP server.
@@ -36,31 +30,6 @@ func (s *ServeCmd) Execute(_ []string) error {
 	exec := executorSingleton()
 	if !exec.IsStarted() {
 		exec.Start(context.Background())
-	}
-
-	// ------------------------------------------------------------------
-	// Optional unified log writer (agently.log by default)
-	// ------------------------------------------------------------------
-
-	var logWriter *os.File
-	if s.Log == "" {
-		s.Log = "agently.log"
-	}
-	if lf, err := os.OpenFile(s.Log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
-		logWriter = lf
-		// Subscribe to relevant event types.
-		elog.FileSink(logWriter, elog.LLMInput, elog.LLMOutput, elog.TaskInput, elog.TaskOutput)
-
-		// Attach Fluxor task listener so that each task is encoded as JSON to
-		// the same sink.
-		registerExecOption(executor.WithWorkflowOptions(
-			fluxor.WithExecutorOptions(
-				fluxexec.WithListener(newJSONTaskListener()),
-			),
-		))
-	} else {
-		// Logging is best-effort; continue if the file cannot be opened.
-		log.Printf("warning: unable to open log file %s: %v", s.Log, err)
 	}
 
 	svc := service.New(exec, service.Options{})

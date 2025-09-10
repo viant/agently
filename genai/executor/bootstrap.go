@@ -149,9 +149,6 @@ func (e *Service) initDefaults(ctx context.Context) {
 		finder := e.config.DefaultModelFinder()
 		e.modelFinder = finder
 		e.modelMatcher = finder.Matcher()
-		if agent := e.config.Agent; agent != nil && len(agent.Items) > 0 && e.config.Default.Model == "" {
-			e.config.Default.Model = agent.Items[0].Model // use first agent's model as default
-		}
 	}
 	if e.embedderFinder == nil {
 		e.embedderFinder = e.config.DefaultEmbedderFinder()

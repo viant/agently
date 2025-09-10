@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"io"
+
 	atool "github.com/viant/agently/adapter/tool"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/io/elicitation"
@@ -10,7 +12,6 @@ import (
 	"github.com/viant/fluxor"
 	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
 	"github.com/viant/fluxor/service/meta"
-	"io"
 )
 
 type Option func(config *Service)
@@ -42,14 +43,6 @@ func WithNewElicitationAwaiter(newAwaiter func() elicitation.Awaiter) Option {
 func WithConfig(config *Config) Option {
 	return func(s *Service) {
 		s.config = config
-	}
-}
-
-// WithLLMLogger redirects all LLM prompt/response traffic captured by the core
-// LLM service to the supplied writer. Passing nil disables logging.
-func WithLLMLogger(w io.Writer) Option {
-	return func(s *Service) {
-		s.llmLogger = w
 	}
 }
 
@@ -122,13 +115,6 @@ func WithTools(tools tool.Registry) Option {
 func WithHistory(store memory.History) Option {
 	return func(s *Service) {
 		s.history = store
-	}
-}
-
-// WithToolRetries sets the default retry count for atool execution steps.
-func WithToolRetries(maxRetries int) Option {
-	return func(s *Service) {
-		s.config.ToolRetries = maxRetries
 	}
 }
 

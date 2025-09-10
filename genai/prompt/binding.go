@@ -7,6 +7,7 @@ import (
 type (
 	Flags struct {
 		CanUseTool bool `yaml:"canUseTool,omitempty" json:"canUseTool,omitempty"`
+		CanStream  bool `yaml:"canStream,omitempty" json:"canStream,omitempty"`
 		IsSystem   bool `yaml:"isSystemPath,omitempty" json:"isSystemPath,omitempty"`
 	}
 
@@ -42,11 +43,16 @@ type (
 		Prompt string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 	}
 
+	Meta struct {
+		Model string `yaml:"model,omitempty" json:"model,omitempty"`
+	}
+
 	Binding struct {
 		Task            Task                   `yaml:"task" json:"task"`
 		Persona         *Persona               `yaml:"persona,omitempty" json:"persona,omitempty"`
 		History         History                `yaml:"history,omitempty" json:"history,omitempty"`
 		Tools           *Tools                 `yaml:"tools,omitempty" json:"tools,omitempty"`
+		Meta            *Meta                  `yaml:"meta,omitempty" json:"meta,omitempty"`
 		SystemDocuments Documents              `yaml:"systemDocuments,omitempty" json:"systemDocuments,omitempty"`
 		Documents       Documents              `yaml:"documents,omitempty" json:"documents,omitempty"`
 		Flags           Flags                  `yaml:"flags,omitempty" json:"flags,omitempty"`
@@ -67,6 +73,7 @@ func (b *Binding) Data() map[string]interface{} {
 		"Tools":         b.Tools,
 		"Flags":         b.Flags,
 		"LoadDocuments": b.Documents,
+		"Meta":          b.Meta,
 		"Context":       b.Context,
 	}
 	// Flatten selected keys from Context into top-level for convenience

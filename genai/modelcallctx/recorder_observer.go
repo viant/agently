@@ -22,35 +22,19 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) context.C
 	if info.StartedAt.IsZero() {
 		o.start.StartedAt = time.Now()
 	}
-
 	msgID := uuid.NewString()
 	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, msgID)
-
-	turnID := memory.TurnIDFromContext(ctx)
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-		if tm.TurnID != "" {
-			turnID = tm.TurnID
-		}
-	}
-	if msgID != "" && o.r != nil {
-		// Create assistant message with parent/conversation from TurnMeta
-		convID := memory.ConversationIDFromContext(ctx)
-		parentID := memory.MessageIDFromContext(ctx)
-		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-			if tm.ConversationID != "" {
-				convID = tm.ConversationID
-			}
-			if tm.ParentMessageID != "" {
-				parentID = tm.ParentMessageID
-			}
-		}
-		if convID != "" {
-			one := 1
-			o.r.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: parentID, ConversationID: convID, Role: "assistant", Content: string(info.Payload), CreatedAt: time.Now(), Interim: &one})
-		}
-		o.r.StartModelCall(ctx, rec.ModelCallStart{MessageID: msgID, TurnID: turnID, Provider: info.Provider, Model: info.Model, ModelKind: info.ModelKind, StartedAt: o.start.StartedAt, Request: info.RequestJSON})
+	turn, ok := memory.TurnMetaFromContext(ctx)
+	if !ok {
+		turn = memory.TurnMeta{}
 	}
 
+	//TODO would it make sense to combine message, model call, payload in one call
+	if turn.ConversationID != "" {
+		one := 1
+		o.r.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: turn.ParentMessageID, ConversationID: turn.ConversationID, Role: "assistant", Content: string(info.Payload), CreatedAt: time.Now(), Interim: &one})
+	}
+	o.r.StartModelCall(ctx, rec.ModelCallStart{MessageID: msgID, TurnID: turn.TurnID, Provider: info.Provider, Model: info.Model, ModelKind: info.ModelKind, StartedAt: o.start.StartedAt, Request: info.RequestJSON})
 	return ctx
 }
 
@@ -58,41 +42,34 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
 	if !o.hasBeg { // tolerate missing start
 		o.start = Info{}
 	}
-
-	//Match model call baased on saturated message id (created in OnCallStart)
-	//RecordModelCall with response rson and completed time
-
-	// merge fields
-	if len(info.RequestJSON) == 0 {
-		info.RequestJSON = o.start.RequestJSON
-	}
-	if info.StartedAt.IsZero() {
-		info.StartedAt = o.start.StartedAt
+	turn, ok := memory.TurnMetaFromContext(ctx)
+	if !ok {
+		turn = memory.TurnMeta{}
 	}
 	// attach to message/turn from context
 	msgID := memory.ModelMessageIDFromContext(ctx)
 	if msgID == "" {
-		msgID = memory.MessageIDFromContext(ctx)
-	}
-	turnID := memory.TurnIDFromContext(ctx)
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-		if tm.TurnID != "" {
-			turnID = tm.TurnID
-		}
-	}
-	if msgID == "" || o.r == nil {
 		return
 	}
-	// Finish model call first
-	o.r.FinishModelCall(ctx, rec.ModelCallFinish{MessageID: msgID, TurnID: turnID, Usage: info.Usage, FinishReason: info.FinishReason, Cost: info.Cost, CompletedAt: info.CompletedAt, Response: info.ResponseJSON})
-	// If the final response has tool/function calls, mark assistant message as interim planner.
+
+	//TODO would it make sense to combine message, model call, payload in one call
 	if info.LLMResponse != nil {
 		interim := 1
-		o.r.RecordMessage(ctx, memory.Message{ID: msgID, Actor: "planner", Interim: &interim})
+		o.r.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: turn.ConversationID, Actor: "planner", Interim: &interim})
 	}
+	// Finish model call first
+	o.r.FinishModelCall(ctx, rec.ModelCallFinish{MessageID: msgID, TurnID: turn.TurnID, Usage: info.Usage, FinishReason: info.FinishReason, Cost: info.Cost, CompletedAt: info.CompletedAt, Response: info.ResponseJSON})
 }
 
 // WithRecorderObserver injects a recorder-backed Observer into context.
 func WithRecorderObserver(ctx context.Context, r rec.Recorder) context.Context {
+	_, ok := memory.TurnMetaFromContext(ctx) //ensure turn is in context
+	if !ok {
+		ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{
+			TurnID:          uuid.New().String(),
+			ConversationID:  memory.ConversationIDFromContext(ctx),
+			ParentMessageID: memory.ModelMessageIDFromContext(ctx),
+		})
+	}
 	return WithObserver(ctx, &recorderObserver{r: r})
 }

@@ -1,11 +1,13 @@
 package agent
 
 import (
-	"github.com/tmc/langchaingo/schema"
+	"context"
+
 	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/usage"
+	"github.com/viant/fluxor/model/types"
 )
 
 // QueryInput represents the input for querying an agent's knowledge
@@ -42,12 +44,23 @@ type QueryInput struct {
 
 // QueryOutput represents the result of an agent knowledge query
 type QueryOutput struct {
-	Agent         *agentmdl.Agent   `json:"agent"`                 // Agent used for the query
-	Content       string            `json:"content"`               // Generated content from the agent
-	Documents     []schema.Document `json:"documents"`             // List of relevant documents
-	DocumentsSize int               `json:"documentsSize"`         // Total size of retrieved documents
-	Elicitation   *plan.Elicitation `json:"elicitation,omitempty"` // structured missing input request
-	Plan          *plan.Plan        `json:"plan,omitempty"`        // current execution plan (optional)
-	Usage         *usage.Aggregator `json:"usage,omitempty"`
-	Model         string            `json:"model,omitempty"`
+	Agent       *agentmdl.Agent   `json:"agent"`                 // Agent used for the query
+	Content     string            `json:"content"`               // Generated content from the agent
+	Elicitation *plan.Elicitation `json:"elicitation,omitempty"` // structured missing input request
+	Plan        *plan.Plan        `json:"plan,omitempty"`        // current execution plan (optional)
+	Usage       *usage.Aggregator `json:"usage,omitempty"`
+	Model       string            `json:"model,omitempty"`
+}
+
+func (s *Service) query(ctx context.Context, input interface{}, output interface{}) error {
+	// 0. Coerce IO
+	queryInput, ok := input.(*QueryInput)
+	if !ok {
+		return types.NewInvalidInputError(input)
+	}
+	queryOutput, ok := output.(*QueryOutput)
+	if !ok {
+		return types.NewInvalidOutputError(output)
+	}
+	return s.Query(ctx, queryInput, queryOutput)
 }

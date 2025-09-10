@@ -37,7 +37,7 @@ func TestServer_GetUsage(t *testing.T) {
 	// Trigger one Accept call so that usage gets recorded.
 	_, _ = mgr.Accept(context.Background(), &agentpkg.QueryInput{ConversationID: "conv1", AgentName: "dummy"})
 
-	// Start HTTP server
+	// StartedAt HTTP server
 	ln, errLn := net.Listen("tcp4", "127.0.0.1:0")
 	if errLn != nil {
 		t.Skip("cannot allocate listener")

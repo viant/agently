@@ -2,39 +2,28 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path"
 	"strings"
 	"time"
 
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
-	modelcallctx "github.com/viant/agently/genai/modelcallctx"
+	"github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/prompt"
 	fluxortypes "github.com/viant/fluxor/model/types"
-
-	elog "github.com/viant/agently/internal/log"
 )
 
 type GenerateInput struct {
-	Model       string
-	Preferences *llm.ModelPreferences // optional model preferences
-
+	llm.ModelSelection
 	SystemPrompt *prompt.Prompt
 
 	Prompt  *prompt.Prompt
-	Binding prompt.Binding
+	Binding *prompt.Binding
 
 	Attachment []*Attachment
 	Message    []llm.Message
-
-	// Options allows callers to specify advanced llm.Options (temperature,
-	// top-p, etc.).  If nil a minimal options struct will be created that only
-	// carries Tools.
-	Options   *llm.Options
-	UseStream *bool
-	Bind      map[string]interface{}
 }
 
 // GenerateOutput represents output from extraction
@@ -42,6 +31,15 @@ type GenerateOutput struct {
 	Response  *llm.GenerateResponse
 	Content   string
 	MessageID string
+}
+
+func (i *GenerateInput) MatchModelIfNeeded(matcher llm.Matcher) {
+	if i.Model != "" || i.Preferences == nil {
+		return
+	}
+	if m := matcher.Best(i.Preferences); m != "" {
+		i.Model = m
+	}
 }
 
 func (i *GenerateInput) Init(ctx context.Context) error {
@@ -65,12 +63,23 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		if err := i.Prompt.Init(ctx); err != nil {
 			return err
 		}
-		expanded, err := i.Prompt.Generate(ctx, &i.Binding)
+		expanded, err := i.Prompt.Generate(ctx, i.Binding)
 		if err != nil {
 			return fmt.Errorf("failed to prompt: %w", err)
 		}
 		i.Message = append(i.Message, llm.NewUserMessage(expanded))
 	}
+
+	if tools := i.Binding.Tools; tools != nil && len(tools.Signatures) > 0 {
+		for _, tool := range tools.Signatures {
+			i.Options.Tools = append(i.Options.Tools, llm.Tool{Ref: "", Definition: *tool})
+		}
+		for _, call := range tools.Executions {
+			i.Message = append(i.Message, llm.NewAssistantMessageWithToolCalls(*call))
+			i.Message = append(i.Message, llm.NewToolResultMessage(*call))
+		}
+	}
+
 	return nil
 }
 
@@ -99,6 +108,7 @@ func (s *Service) generate(ctx context.Context, in, out interface{}) error {
 }
 
 func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) error {
+
 	ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
 	request, model, err := s.prepareGenerateRequest(ctx, input)
 	if err != nil {
@@ -115,7 +125,6 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	// in the model finder. Avoid double-counting here.
 	var builder strings.Builder
 	for _, choice := range response.Choices {
-
 		if len(choice.Message.ToolCalls) > 0 {
 			continue
 		}
@@ -135,82 +144,16 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 			}
 		}
 	}
-	output.Content = strings.TrimSpace(builder.String())
 
-	// --------------------------------------------------------------
-	// Persist assistant message in real time when a target message ID is set
-	// (used by agent to preassign a message for model-call attachment).
-	// ParentID can be supplied via memory.MessageIDKey.
-	// --------------------------------------------------------------
-	if s.recorder != nil {
-		msgID := memory.ModelMessageIDFromContext(ctx)
-		if msgID != "" {
-			if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-				if tm.ConversationID != "" && strings.TrimSpace(output.Content) != "" {
-					s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()})
-					output.MessageID = msgID
-				}
+	output.Content = strings.TrimSpace(builder.String())
+	msgID := memory.ModelMessageIDFromContext(ctx)
+	if msgID != "" {
+		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+			if tm.ConversationID != "" && strings.TrimSpace(output.Content) != "" {
+				s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()})
+				output.MessageID = msgID
 			}
 		}
-	}
-
-	// --------------------------------------------------------------
-	// Optional logging
-	// --------------------------------------------------------------
-	elog.Publish(elog.Event{Time: time.Now(), EventType: elog.LLMInput, Payload: request})
-	elog.Publish(elog.Event{Time: time.Now(), EventType: elog.LLMOutput, Payload: response})
-
-	if s.logWriter != nil {
-		req, _ := json.Marshal(request)
-		s.logWriter.Write(append(req, '\n'))
-		resp, _ := json.Marshal(response)
-		s.logWriter.Write(append(resp, '\n'))
-	}
-	return nil
-}
-
-// EnsureJSONResponse extracts and unmarshals valid JSON content from a given string into the target interface.
-// It trims potential code block markers and identifies the JSON object or array to parse.
-// Returns an error if no valid JSON is found or if unmarshalling fails.
-func EnsureJSONResponse(ctx context.Context, text string, target interface{}) error {
-	// ------------------------------------------------------------
-	// 1. Remove Markdown fences *anywhere* in the text (not only prefix).
-	//    We look for the first ``` and the following matching ```.
-	// ------------------------------------------------------------
-	if start := strings.Index(text, "```json"); start != -1 {
-		fragment := text[start+len("```json"):]
-		if end := strings.Index(fragment, "```"); end != -1 {
-			text = fragment[:end]
-		}
-	} else if start := strings.Index(text, "```"); start != -1 {
-		fragment := text[start+3:]
-		if end := strings.Index(fragment, "```"); end != -1 {
-			text = fragment[:end]
-		}
-	}
-
-	text = strings.TrimSpace(text)
-
-	// ------------------------------------------------------------
-	// 2. Extract the JSON substring. We want the outermost object or array.
-	// ------------------------------------------------------------
-	objectStart := strings.Index(text, "{")
-	objectEnd := strings.LastIndex(text, "}")
-	arrayStart := strings.Index(text, "[")
-	arrayEnd := strings.LastIndex(text, "]")
-
-	switch {
-	case objectStart != -1 && objectEnd != -1 && (arrayStart == -1 || objectStart < arrayStart):
-		text = text[objectStart : objectEnd+1]
-	case arrayStart != -1 && arrayEnd != -1:
-		text = text[arrayStart : arrayEnd+1]
-	default:
-		// Could not locate a JSON payload – treat as plain answer.
-		return nil
-	}
-	// Attempt to parse JSON
-	if err := json.Unmarshal([]byte(text), target); err != nil {
-		return fmt.Errorf("failed to unmarshal LLM text into %T: %w\nRaw text: %s", target, err, text)
 	}
 	return nil
 }
@@ -218,16 +161,8 @@ func EnsureJSONResponse(ctx context.Context, text string, target interface{}) er
 // prepareGenerateRequest prepares a GenerateRequest and resolves the model based
 // on preferences or defaults. It expands templates, validates input, and clones options.
 func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInput) (*llm.GenerateRequest, llm.Model, error) {
-	if input.Model == "" {
-		if input.Preferences != nil {
-			if m := s.modelMatcher.Best(input.Preferences); m != "" {
-				input.Model = m
-			}
-		}
-		if input.Model == "" {
-			input.Model = s.defaultModel
-		}
-	}
+
+	input.MatchModelIfNeeded(s.modelMatcher)
 
 	if err := input.Init(ctx); err != nil {
 		return nil, nil, fmt.Errorf("failed to init generate input: %w", err)
@@ -240,30 +175,21 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to find model: %w", err)
 	}
-
-	messages := input.Message
-	var opts *llm.Options
-	if input.Options != nil {
-		clone := *input.Options
-		opts = &clone
-	} else {
-		opts = &llm.Options{}
+	if input.Binding == nil {
+		input.Binding = &prompt.Binding{}
 	}
+	s.updateFlags(input, model)
 
-	if tools := input.Binding.Tools; tools != nil && len(tools.Signatures) > 0 {
-		for _, tool := range tools.Signatures {
-			opts.Tools = append(opts.Tools, llm.Tool{Ref: "", Definition: *tool})
-		}
-		for _, call := range tools.Executions {
-			input.Message = append(input.Message, llm.NewAssistantMessageWithToolCalls(*call))
-			input.Message = append(input.Message, llm.NewToolResultMessage(*call))
-		}
-	}
 	request := &llm.GenerateRequest{
-		Messages: messages,
-		Options:  opts,
+		Messages: input.Message,
+		Options:  input.Options,
 	}
 	return request, model, nil
+}
+
+func (s *Service) updateFlags(input *GenerateInput, model llm.Model) {
+	input.Binding.Flags.CanUseTool = model.Implements(base.CanUseTools)
+	input.Binding.Flags.CanStream = model.Implements(base.CanStream)
 }
 
 type Attachment struct {
@@ -279,7 +205,7 @@ func (a *Attachment) MIMEType() string {
 	}
 	// Handle empty Name case
 	if a.Name == "" {
-		return "application/octet-stream"
+		return "application/octet-Stream"
 	}
 	ext := strings.ToLower(strings.TrimPrefix(path.Ext(a.Name), "."))
 	switch ext {
@@ -314,5 +240,5 @@ func (a *Attachment) MIMEType() string {
 	case "mp4":
 		return "video/mp4"
 	}
-	return "application/octet-stream"
+	return "application/octet-Stream"
 }

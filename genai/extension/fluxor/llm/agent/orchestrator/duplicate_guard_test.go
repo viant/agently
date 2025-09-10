@@ -1,4 +1,4 @@
-package core
+package orchestrator
 
 import (
 	plan "github.com/viant/agently/genai/llm"

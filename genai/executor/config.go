@@ -4,7 +4,6 @@ import (
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/agent"
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
-	"github.com/viant/agently/genai/executor/config"
 	agentfinder "github.com/viant/agently/internal/finder/agent"
 	embedderfinder "github.com/viant/agently/internal/finder/embedder"
 	agentloader "github.com/viant/agently/internal/loader/agent"
@@ -29,9 +28,6 @@ type Config struct {
 	Embedder     *mcpcfg.Group[*embedderprovider.Config] `yaml:"embedders" json:"embedders" `
 	MCP          *mcpcfg.Group[*mcp.ClientOptions]       `yaml:"mcp" json:"mcp"`
 	DAOConnector *view.DBConfig                          `yaml:"daoConfig" json:"daoConfig" `
-	Default      config.Defaults                         `yaml:"default" json:"default"`
-
-	ToolRetries int
 	//
 	metaService *meta.Service
 	Services    []string `yaml:"services" json:"services"`

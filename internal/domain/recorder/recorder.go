@@ -94,7 +94,6 @@ type UsageRecorder interface {
 // Downstream code can depend on individual sub-interfaces to reduce coupling
 // and enable plugging alternative implementations (e.g. history DAO, exec traces).
 type Recorder interface {
-	Enablement
 	MessageRecorder
 	TurnRecorder
 	ToolCallRecorder
@@ -106,8 +105,6 @@ type Recorder interface {
 // Deprecated: prefer depending on specific sub-interfaces or Recorder.
 type Writer = Recorder
 
-// Compile-time assertions: Store implements all recorder facets.
-var _ Enablement = (*Store)(nil)
 var _ MessageRecorder = (*Store)(nil)
 var _ TurnRecorder = (*Store)(nil)
 var _ ToolCallRecorder = (*Store)(nil)
@@ -120,14 +117,7 @@ type Store struct {
 	store d.Store
 }
 
-func (w *Store) Enabled() bool {
-	return w != nil && w.store != nil && (w.mode == ModeShadow || w.mode == ModeFull)
-}
-
 func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
-	if !w.Enabled() {
-		return
-	}
 	id := m.ID
 	if id == "" {
 		id = uuid.New().String()
@@ -136,8 +126,8 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	if m.ConversationID != "" {
 		rec.SetConversationID(m.ConversationID)
 	}
-	if turn := memory.TurnIDFromContext(ctx); turn != "" {
-		rec.SetTurnID(turn)
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+		rec.SetTurnID(turn.TurnID)
 	}
 	if m.ParentID != "" {
 		rec.SetParentMessageID(m.ParentID)
@@ -148,9 +138,6 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	// memory.Message has no Type; default to text
 	rec.SetType("text")
 	if m.Content != "" {
-		if len(m.Content) > 65535 {
-			fmt.Printf("WARN### Recorder.RecordMessage: content size %dB exceeds 65535; message may be truncated or rejected\n", len(m.Content))
-		}
 		rec.SetContent(m.Content)
 	}
 
@@ -210,9 +197,6 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 }
 
 func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) {
-	if !w.Enabled() || conversationID == "" {
-		return
-	}
 	if turnID == "" {
 		turnID = uuid.New().String()
 	}
@@ -229,9 +213,6 @@ func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at
 }
 
 func (w *Store) UpdateTurn(ctx context.Context, turnID, status string) {
-	if !w.Enabled() || turnID == "" || status == "" {
-		return
-	}
 	rec := &turnw.Turn{Has: &turnw.TurnHas{}}
 	rec.SetId(turnID)
 	rec.SetStatus(status)
@@ -311,7 +292,7 @@ func (w *Store) persistToolResponsePayload(ctx context.Context, response interfa
 
 // StartToolCall persists the initial request and metadata.
 func (w *Store) StartToolCall(ctx context.Context, start ToolCallStart) {
-	if !w.Enabled() || start.MessageID == "" || start.ToolName == "" {
+	if start.MessageID == "" || start.ToolName == "" {
 		return
 	}
 	// Defer request payload persistence to FinishToolCall where we persist
@@ -320,7 +301,7 @@ func (w *Store) StartToolCall(ctx context.Context, start ToolCallStart) {
 
 // FinishToolCall updates status and persists the response.
 func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
-	if !w.Enabled() || upd.MessageID == "" || upd.ToolName == "" || upd.Status == "" {
+	if upd.MessageID == "" || upd.ToolName == "" || upd.Status == "" {
 		return
 	}
 	tw := &tcw.ToolCall{}
@@ -419,7 +400,7 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
 // RecordToolCall has been replaced by StartToolCall/FinishToolCall.
 
 func (w *Store) RecordUsageTotals(ctx context.Context, conversationID string, input, output, embed int) {
-	if !w.Enabled() || conversationID == "" {
+	if conversationID == "" {
 		return
 	}
 	rec := &usagew.Usage{Has: &usagew.UsageHas{}}
@@ -435,7 +416,7 @@ func (w *Store) RecordUsageTotals(ctx context.Context, conversationID string, in
 // Deprecated RecordModelCall removed; use StartModelCall and FinishModelCall instead.
 
 func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
-	if !w.Enabled() || start.MessageID == "" || start.Model == "" {
+	if start.MessageID == "" || start.Model == "" {
 		return
 	}
 	provider := start.Provider
@@ -450,53 +431,53 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
 	if rb := toJSONBytes(start.Request); len(rb) > 0 {
 		b := redact.ScrubJSONBytes(rb, nil)
 		id := uuid.New().String()
-		pw := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
-		pw.SetKind("model_request")
-		pw.SetMimeType("application/json")
-		pw.SetSizeBytes(len(b))
-		pw.SetStorage("inline")
-		pw.SetInlineBody(b)
-		pw.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx, pw); err == nil {
+		payload := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
+		payload.SetKind("model_request")
+		payload.SetMimeType("application/json")
+		payload.SetSizeBytes(len(b))
+		payload.SetStorage("inline")
+		payload.SetInlineBody(b)
+		payload.SetCompression("none")
+		if _, err := w.store.Payloads().Patch(ctx, payload); err == nil {
 			reqID = id
 		} else {
 			fmt.Printf("ERROR### Recorder.StartModelCall payload: %v\n", err)
 		}
 	}
-	mw := &mcw.ModelCall{}
-	mw.SetMessageID(start.MessageID)
-	mw.TurnID = strp(start.TurnID)
-	mw.Has = &mcw.ModelCallHas{}
-	mw.Has.TurnID = mw.TurnID != nil
-	mw.SetProvider(provider)
-	mw.SetModel(start.Model)
-	mw.SetModelKind(modelKind)
+	modelCAll := &mcw.ModelCall{}
+	modelCAll.SetMessageID(start.MessageID)
+	modelCAll.TurnID = strp(start.TurnID)
+	modelCAll.Has = &mcw.ModelCallHas{}
+	modelCAll.Has.TurnID = modelCAll.TurnID != nil
+	modelCAll.SetProvider(provider)
+	modelCAll.SetModel(start.Model)
+	modelCAll.SetModelKind(modelKind)
 	if !start.StartedAt.IsZero() {
 		t := start.StartedAt
-		mw.StartedAt = &t
-		mw.Has.StartedAt = true
+		modelCAll.StartedAt = &t
+		modelCAll.Has.StartedAt = true
 	}
-	if err := w.store.Operations().RecordModelCall(ctx, mw, reqID, ""); err != nil {
+	if err := w.store.Operations().RecordModelCall(ctx, modelCAll, reqID, ""); err != nil {
 		fmt.Printf("ERROR### StartModelCall: %v\n", err)
 	}
 }
 
 func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
-	if !w.Enabled() || finish.MessageID == "" {
+	if finish.MessageID == "" {
 		return
 	}
 	var resID string
 	if rb := toJSONBytes(finish.Response); len(rb) > 0 {
 		b := redact.ScrubJSONBytes(rb, nil)
 		id := uuid.New().String()
-		pw := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
-		pw.SetKind("model_response")
-		pw.SetMimeType("application/json")
-		pw.SetSizeBytes(len(b))
-		pw.SetStorage("inline")
-		pw.SetInlineBody(b)
-		pw.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx, pw); err == nil {
+		payload := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
+		payload.SetKind("model_response")
+		payload.SetMimeType("application/json")
+		payload.SetSizeBytes(len(b))
+		payload.SetStorage("inline")
+		payload.SetInlineBody(b)
+		payload.SetCompression("none")
+		if _, err := w.store.Payloads().Patch(ctx, payload); err == nil {
 			resID = id
 		} else {
 			fmt.Printf("ERROR### Recorder.FinishModelCall payload: %v\n", err)
@@ -522,38 +503,38 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 			}
 		}
 	}
-	mw := &mcw.ModelCall{}
-	mw.SetMessageID(finish.MessageID)
-	mw.TurnID = strp(finish.TurnID)
-	mw.Has = &mcw.ModelCallHas{}
-	mw.Has.TurnID = mw.TurnID != nil
+	modelCall := &mcw.ModelCall{}
+	modelCall.SetMessageID(finish.MessageID)
+	modelCall.TurnID = strp(finish.TurnID)
+	modelCall.Has = &mcw.ModelCallHas{}
+	modelCall.Has.TurnID = modelCall.TurnID != nil
 	if finish.FinishReason != "" {
 		fr := finish.FinishReason
-		mw.FinishReason = &fr
-		mw.Has.FinishReason = true
+		modelCall.FinishReason = &fr
+		modelCall.Has.FinishReason = true
 	}
 	if finish.Cost != nil {
-		mw.Cost = finish.Cost
-		mw.Has.Cost = true
+		modelCall.Cost = finish.Cost
+		modelCall.Has.Cost = true
 	}
 	if !finish.CompletedAt.IsZero() {
 		t := finish.CompletedAt
-		mw.CompletedAt = &t
-		mw.Has.CompletedAt = true
+		modelCall.CompletedAt = &t
+		modelCall.Has.CompletedAt = true
 	}
 	if pt != nil {
-		mw.PromptTokens = pt
-		mw.Has.PromptTokens = true
+		modelCall.PromptTokens = pt
+		modelCall.Has.PromptTokens = true
 	}
 	if ct != nil {
-		mw.CompletionTokens = ct
-		mw.Has.CompletionTokens = true
+		modelCall.CompletionTokens = ct
+		modelCall.Has.CompletionTokens = true
 	}
 	if tt != nil {
-		mw.TotalTokens = tt
-		mw.Has.TotalTokens = true
+		modelCall.TotalTokens = tt
+		modelCall.Has.TotalTokens = true
 	}
-	if err := w.store.Operations().RecordModelCall(ctx, mw, "", resID); err != nil {
+	if err := w.store.Operations().RecordModelCall(ctx, modelCall, "", resID); err != nil {
 		fmt.Printf("ERROR### FinishModelCall: %v\n", err)
 	}
 

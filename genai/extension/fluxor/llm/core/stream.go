@@ -11,7 +11,7 @@ import (
 	"github.com/viant/agently/genai/extension/fluxor/llm/core/stream"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
-	modelcallctx "github.com/viant/agently/genai/modelcallctx"
+	"github.com/viant/agently/genai/modelcallctx"
 	fluxortypes "github.com/viant/fluxor/model/types"
 )
 
@@ -26,14 +26,14 @@ type StreamOutput struct {
 	MessageID string         `json:"messageId,omitempty"`
 }
 
-// stream handles streaming LLM responses, structuring JSON output for text chunks,
+// Stream handles streaming LLM responses, structuring JSON output for text chunks,
 // function calls and finish reasons.
-func (s *Service) stream(ctx context.Context, in, out interface{}) error {
+func (s *Service) Stream(ctx context.Context, in, out interface{}) error {
 	input, output, err := s.validateStreamIO(in, out)
 	if err != nil {
 		return err
 	}
-	handler, cleanup, err := s.prepareStreamHandler(ctx, input.StreamID)
+	handler, cleanup, err := stream.PrepareStreamHandler(ctx, input.StreamID)
 	if err != nil {
 		return err
 	}
@@ -48,48 +48,35 @@ func (s *Service) stream(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return fmt.Errorf("model %T does not support streaming", model)
 	}
-
-	if _, ok := memory.TurnMetaFromContext(ctx); !ok {
-		tm := memory.TurnMeta{
-			TurnID:          memory.TurnIDFromContext(ctx),
-			ConversationID:  memory.ConversationIDFromContext(ctx),
-			ParentMessageID: memory.MessageIDFromContext(ctx),
-		}
-		ctx = memory.WithTurnMeta(ctx, tm)
-	}
 	ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
 
 	streamCh, err := streamer.Stream(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to start stream: %w", err)
+		return fmt.Errorf("failed to start Stream: %w", err)
 	}
 	if err := s.consumeEvents(ctx, streamCh, handler, output); err != nil {
 		return err
 	}
-	// Persist assistant message with aggregated content and mark interim when tool calls were returned.
-	if s.recorder != nil {
-		var b strings.Builder
-		// keep for completeness
-		for _, ev := range output.Events {
-			if ev.Type == "chunk" && strings.TrimSpace(ev.Content) != "" {
-				b.WriteString(ev.Content)
-			}
-			// function_call events detection is handled in the model-call observer.
+
+	var b strings.Builder
+	// keep for completeness
+	for _, ev := range output.Events {
+		if ev.Type == "chunk" && strings.TrimSpace(ev.Content) != "" {
+			b.WriteString(ev.Content)
 		}
-		content := strings.TrimSpace(b.String())
-		if content != "" {
-			msgID := memory.ModelMessageIDFromContext(ctx)
-			if msgID != "" {
-				if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-					if tm.ConversationID != "" {
-						s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: content, CreatedAt: time.Now()})
-						// Marking interim planner is now handled in the model-call observer based on final response.
-						output.MessageID = msgID
-					}
-				}
-			}
+		// function_call events detection is handled in the model-call observer.
+	}
+	content := strings.TrimSpace(b.String())
+	if content != "" {
+		msgID := memory.ModelMessageIDFromContext(ctx)
+		turn, _ := memory.TurnMetaFromContext(ctx)
+		if turn.ConversationID != "" {
+			s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: turn.ParentMessageID, ConversationID: turn.ConversationID, Role: "assistant", Content: content, CreatedAt: time.Now()})
+			// Marking interim planner is now handled in the model-call observer based on final response.
+			output.MessageID = msgID
 		}
 	}
+
 	return nil
 }
 
@@ -109,16 +96,6 @@ func (s *Service) validateStreamIO(in, out interface{}) (*StreamInput, *StreamOu
 	return input, output, nil
 }
 
-// prepareStreamHandler registers and returns a stream handler with a cleanup.
-func (s *Service) prepareStreamHandler(ctx context.Context, id string) (stream.Handler, func(), error) {
-	h, err := stream.New(ctx, id)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create stream handler: %w", err)
-	}
-	cleanup := func() { stream.Finish(id) }
-	return h, cleanup, nil
-}
-
 // ensureStreamingOption turns on streaming at the request level.
 func (s *Service) ensureStreamingOption(input *StreamInput) {
 	if input.Options == nil {
@@ -127,12 +104,12 @@ func (s *Service) ensureStreamingOption(input *StreamInput) {
 	input.Options.Stream = true
 }
 
-// consumeEvents pulls from provider stream channel, dispatches to handler and
+// consumeEvents pulls from provider Stream channel, dispatches to handler and
 // appends structured events to output. Stops on error or done.
 func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, handler stream.Handler, output *StreamOutput) error {
 	for event := range ch {
 		if err := handler(ctx, &event); err != nil {
-			return fmt.Errorf("failed to handle stream event: %w", err)
+			return fmt.Errorf("failed to handle Stream event: %w", err)
 		}
 		if err := s.appendStreamEvent(&event, output); err != nil {
 			return err
@@ -188,7 +165,7 @@ func (s *Service) toolCallEvents(choice *llm.Choice) []stream.Event {
 				args = parsed
 			}
 		}
-		out = append(out, stream.Event{Type: "function_call", Name: name, Arguments: args})
+		out = append(out, stream.Event{ID: tc.ID, Type: "function_call", Name: name, Arguments: args})
 	}
 	return out
 }

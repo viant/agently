@@ -435,7 +435,7 @@ func handleStreamingResponse(respBytes []byte) (*llm.GenerateResponse, error) {
 		if resp.Type == "message_delta" && resp.Delta != nil && resp.Delta.Type == "text_delta" {
 			fullText += resp.Delta.Text
 		} else if resp.Type == "message_stop" {
-			// End of the stream
+			// EndedAt of the stream
 			break
 		} else if resp.Type == "error" && resp.Error != nil {
 			return nil, fmt.Errorf("Claude API streaming error: %s", resp.Error.Message)

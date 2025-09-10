@@ -7,18 +7,6 @@ import (
 	"github.com/viant/agently/genai/agent/plan"
 )
 
-type messageID string
-
-var MessageIDKey = messageID("messageID")
-
-func MessageIDFromContext(ctx context.Context) string {
-	value := ctx.Value(MessageIDKey)
-	if value == nil {
-		return ""
-	}
-	return value.(string)
-}
-
 // ConversationIDKey is used to propagate the current conversation identifier
 // via context so that downstream services (e.g. tool-execution tracing) can
 // associate side-effects with the correct conversation without changing every
@@ -29,19 +17,6 @@ var ConversationIDKey = conversationID("conversationID")
 
 func ConversationIDFromContext(ctx context.Context) string {
 	value := ctx.Value(ConversationIDKey)
-	if value == nil {
-		return ""
-	}
-	return value.(string)
-}
-
-// TurnIDKey carries the current turn identifier through context.
-type turnIDKey string
-
-var TurnIDKey = turnIDKey("turnID")
-
-func TurnIDFromContext(ctx context.Context) string {
-	value := ctx.Value(TurnIDKey)
 	if value == nil {
 		return ""
 	}
@@ -76,14 +51,9 @@ var turnMetaKey = turnMetaKeyT("turnMeta")
 // WithTurnMeta stores TurnMeta on the context and also seeds individual keys
 // for backward compatibility with existing readers.
 func WithTurnMeta(ctx context.Context, meta TurnMeta) context.Context {
-	if meta.TurnID != "" {
-		ctx = context.WithValue(ctx, TurnIDKey, meta.TurnID)
-	}
+
 	if meta.ConversationID != "" {
 		ctx = context.WithValue(ctx, ConversationIDKey, meta.ConversationID)
-	}
-	if meta.ParentMessageID != "" {
-		ctx = context.WithValue(ctx, MessageIDKey, meta.ParentMessageID)
 	}
 	return context.WithValue(ctx, turnMetaKey, meta)
 }

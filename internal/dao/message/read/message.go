@@ -29,12 +29,8 @@ type Input struct {
 	ElicitationID  string     `parameter:",kind=query,in=elicitation_id" predicate:"in,group=0,m,elicitation_id"`
 	Since          *time.Time `parameter:",kind=query,in=since" predicate:"greater_or_equal,group=0,m,created_at"`
 	// Non-DB parameters used by service layer for post-filter/backfill/aggregation
-	SinceID           string `json:"-"`
-	ElicitInline      bool   `json:"-"`
-	IncludeOutcomes   bool   `json:"-"`
-	FlattenExecutions bool   `json:"-"`
-	ParentRoot        string `json:"-"`
-	Has               *Has   `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	SinceID string `json:"-"`
+	Has     *Has   `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type Has struct {
@@ -100,9 +96,7 @@ type ToolCallView struct {
 	CapabilityTags    *string    `sqlx:"capability_tags"`
 	ResourceURIs      *string    `sqlx:"resource_uris"`
 	Status            string     `sqlx:"status"`
-	RequestSnapshot   *string    `sqlx:"-"`
 	RequestHash       *string    `sqlx:"request_hash"`
-	ResponseSnapshot  *string    `sqlx:"-"`
 	ErrorCode         *string    `sqlx:"error_code"`
 	ErrorMessage      *string    `sqlx:"error_message"`
 	Retriable         *int       `sqlx:"retriable"`

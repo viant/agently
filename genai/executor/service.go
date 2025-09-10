@@ -18,15 +18,13 @@ import (
 	llmagent "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
 	"github.com/viant/agently/genai/extension/fluxor/llm/core"
-	"github.com/viant/agently/genai/extension/fluxor/llm/exec"
-	"github.com/viant/agently/genai/extension/fluxor/llm/history"
 	"github.com/viant/agently/genai/extension/fluxor/output/extractor"
 	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	daofactory "github.com/viant/agently/internal/dao/factory"
-	d "github.com/viant/agently/internal/domain"
+	domain "github.com/viant/agently/internal/domain"
 	storeadapter "github.com/viant/agently/internal/domain/adapter"
 	domainrec "github.com/viant/agently/internal/domain/recorder"
 	"github.com/viant/agently/internal/finder/oauth"
@@ -79,7 +77,6 @@ type Service struct {
 
 	// hotSwap manages live reload of workspace resources (agents, models, etc.)
 
-	llmLogger       io.Writer `json:"-"`
 	fluxorLogWriter io.Writer `json:"-"`
 
 	fluxorOptions []fluxor.Option
@@ -197,20 +194,9 @@ func (e *Service) Runtime() *fluxor.Runtime {
 
 func (e *Service) registerServices(actions *extension.Actions) {
 	// Register orchestration actions: plan, execute and finalize
-	defaultModel := e.config.Default.Model
 	enricher := augmenter.New(e.embedderFinder)
-	e.llmCore = core.New(e.modelFinder, e.tools, defaultModel)
+	e.llmCore = core.New(e.modelFinder, e.tools, e.recorder)
 
-	if e.llmLogger != nil {
-		e.llmCore.SetLogger(e.llmLogger)
-	}
-
-	ex := exec.New(e.llmCore, e.tools, defaultModel, e.ApprovalService(), e.executionStore)
-	// Attach recorder (always present; internal gating handled by recorder)
-	if rec := e.recorder; rec != nil {
-		ex.WithRecorder(rec)
-	}
-	actions.Register(ex)
 	// Inject recorder (and keep tracer if needed later) into core so streaming execution records tool calls.
 	if e.llmCore != nil {
 		e.llmCore.SetRecorder(e.recorder)
@@ -224,47 +210,10 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	if e.orchestration != nil {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
-	agentOpts := []llmagent.Option{}
-	if sp := strings.TrimSpace(e.config.Default.SummaryPrompt); sp != "" {
-		agentOpts = append(agentOpts, llmagent.WithSummaryPrompt(sp))
-	}
-	if sm := strings.TrimSpace(e.config.Default.SummaryModel); sm != "" {
-		agentOpts = append(agentOpts, llmagent.WithSummaryModel(sm))
-	}
-	if ln := e.config.Default.SummaryLastN; ln > 0 {
-		agentOpts = append(agentOpts, llmagent.WithSummaryLastN(ln))
-	}
-	// Attach domain writer to agent service
-	agentOpts = append(agentOpts, llmagent.WithRecorded(e.recorder))
-
-	// Provide a domain store for agent meta persistence (always inject; SQL when configured, otherwise in-memory).
-	{
-		var st d.Store
-		driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
-		dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
-		if driver != "" && dsn != "" {
-			if dao, err := datly.New(context.Background()); err == nil {
-				_ = dao.AddConnectors(context.Background(), view.NewConnector("agently", driver, dsn))
-				if apis, _ := daofactory.New(context.Background(), daofactory.DAOSQL, dao); apis != nil {
-					st = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
-				}
-			}
-		}
-		if st == nil {
-			if apis, _ := daofactory.New(context.Background(), daofactory.DAOInMemory, nil); apis != nil {
-				st = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
-			}
-		}
-		if st != nil {
-			agentOpts = append(agentOpts, llmagent.WithDomainStore(st))
-		}
-	}
-	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, &e.config.Default, agentOpts...)
+	store := e.ensureStore()
+	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.recorder, store)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
-
-	// Register history utility service
-	actions.Register(history.New(e.history, e.llmCore))
 
 	// Configure runagent defaults derived from executor config.
 	// The run executable is now part of agent.Service; configure via its options above.
@@ -320,6 +269,26 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		conversation.WithStageStore(stageStore),
 	)
 	// Actions is modified in-place; no return value needed.
+}
+
+func (e *Service) ensureStore() domain.Store {
+	var store domain.Store
+	driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
+	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
+	if driver != "" && dsn != "" {
+		if dao, err := datly.New(context.Background()); err == nil {
+			_ = dao.AddConnectors(context.Background(), view.NewConnector("agently", driver, dsn))
+			if apis, _ := daofactory.New(context.Background(), daofactory.DAOSQL, dao); apis != nil {
+				store = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
+			}
+		}
+	}
+	if store == nil {
+		if apis, _ := daofactory.New(context.Background(), daofactory.DAOInMemory, nil); apis != nil {
+			store = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
+		}
+	}
+	return store
 }
 
 func (e *Service) NewContext(ctx context.Context) context.Context {
@@ -389,7 +358,7 @@ func New(ctx context.Context, options ...Option) (*Service, error) {
 		return nil, err
 	}
 
-	// Start HotSwap when enabled --------------------------------------
+	// StartedAt HotSwap when enabled --------------------------------------
 	if !ret.hotSwapDisabled {
 		ret.initialiseHotSwap()
 	}

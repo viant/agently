@@ -10,7 +10,6 @@ import (
 
 	chat "github.com/viant/agently/adapter/http"
 	"github.com/viant/agently/adapter/http/filebrowser"
-	"github.com/viant/agently/adapter/http/metadata"
 	toolhttp "github.com/viant/agently/adapter/http/tool"
 	"github.com/viant/agently/adapter/http/workflow"
 
@@ -52,9 +51,6 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 
 	// File browser (Forge)
 	mux.Handle("/v1/workspace/file-browser/", http.StripPrefix("/v1/workspace/file-browser", filebrowser.New()))
-
-	// Metadata defaults endpoint
-	mux.HandleFunc("/v1/metadata/defaults", metadata.New(exec))
 
 	fileSystem := fsadapter.New(afs.New(), "embed://localhost", &ui.FS)
 	fileServer := http.FileServer(fileSystem)

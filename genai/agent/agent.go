@@ -19,9 +19,11 @@ type (
 
 	// Agent represents an agent
 	Agent struct {
-		Identity    `yaml:",inline" json:",inline"`
-		Source      *Source        `yaml:"source,omitempty" json:"source,omitempty"`           // Source of the agent
-		Model       string         `yaml:"modelRef,omitempty" json:"model,omitempty"`          // Language model configuration
+		Identity `yaml:",inline" json:",inline"`
+		Source   *Source `yaml:"source,omitempty" json:"source,omitempty"` // Source of the agent
+
+		llm.ModelSelection `yaml:",inline" json:",inline"`
+
 		Temperature float64        `yaml:"temperature,omitempty" json:"temperature,omitempty"` // Temperature
 		Description string         `yaml:"description,omitempty" json:"description,omitempty"` // Description of the agent
 		Prompt      *prompt.Prompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`           // Prompt template

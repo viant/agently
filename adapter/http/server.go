@@ -495,19 +495,12 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	if idx := strings.IndexByte(sinceId, '/'); idx > 0 {
 		sinceId = sinceId[:idx]
 	}
-	parentId := strings.TrimSpace(r.URL.Query().Get("parentId")) // legacy
 	opts := []msgread.InputOption{
 		msgread.WithInterim(0),
 		msgread.WithConversationID(convID),
-		msgread.WithElicitationInline(),
-		msgread.WithIncludeOutcomes(),
-		msgread.WithFlattenExecutions(),
 	}
 	if sinceId != "" {
 		opts = append(opts, msgread.WithSinceID(sinceId))
-	}
-	if parentId != "" {
-		opts = append(opts, msgread.WithParentRoot(parentId))
 	}
 	if data, err := s.store.Messages().GetTranscript(r.Context(), convID, opts...); err == nil {
 		// Convert transcript to v1 memory.Message shape for compatibility

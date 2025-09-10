@@ -58,7 +58,7 @@ func TestStore_Smoke(t *testing.T) {
 		t.Fatalf("payloads list empty serialization")
 	}
 
-	// Turns: Start + List
+	// Turns: StartedAt + List
 	tw := &turnwrite.Turn{}
 	tw.SetId("t1")
 	tw.SetConversationID("cv1")
