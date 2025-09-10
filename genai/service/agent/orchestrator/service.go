@@ -8,22 +8,22 @@ import (
 	"sync"
 
 	"github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/extension/fluxor/llm/core"
-	"github.com/viant/agently/genai/extension/fluxor/llm/core/stream"
-	"github.com/viant/agently/genai/extension/fluxor/llm/shared/executil"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
+	core2 "github.com/viant/agently/genai/service/core"
+	"github.com/viant/agently/genai/service/core/stream"
+	executil2 "github.com/viant/agently/genai/service/shared/executil"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/internal/domain/recorder"
 )
 
 type Service struct {
-	llm      *core.Service
+	llm      *core2.Service
 	registry tool.Registry
 	recorder recorder.Recorder
 }
 
-func (s *Service) Run(ctx context.Context, genInput *core.GenerateInput, genOutput *core.GenerateOutput) (*plan.Plan, error) {
+func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
 	aPlan := plan.New()
 
 	var wg sync.WaitGroup
@@ -34,7 +34,7 @@ func (s *Service) Run(ctx context.Context, genInput *core.GenerateInput, genOutp
 		return nil, fmt.Errorf("failed to check if model can stream: %w", err)
 	}
 	if canStream {
-		if err = s.llm.Stream(ctx, &core.StreamInput{StreamID: streamId, GenerateInput: genInput}, &core.StreamOutput{}); err != nil {
+		if err = s.llm.Stream(ctx, &core2.StreamInput{StreamID: streamId, GenerateInput: genInput}, &core2.StreamOutput{}); err != nil {
 			return nil, fmt.Errorf("failed to stream: %w", err)
 		}
 		wg.Wait()
@@ -83,7 +83,7 @@ func (s *Service) streamPlanSteps(ctx context.Context, streamId string, aPlan *p
 	return nil
 }
 
-func (s *Service) canStream(ctx context.Context, genInput *core.GenerateInput) (bool, error) {
+func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) (bool, error) {
 	genInput.MatchModelIfNeeded(s.llm.ModelMatcher())
 	model, err := s.llm.ModelFinder().Find(ctx, genInput.Model)
 	if err != nil {
@@ -93,7 +93,7 @@ func (s *Service) canStream(ctx context.Context, genInput *core.GenerateInput) (
 	return doStream, nil
 }
 
-func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core.GenerateOutput) string {
+func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) string {
 	var mux sync.Mutex
 	return stream.Register(func(ctx context.Context, event *llm.StreamEvent) error {
 		if event == nil || event.Response == nil || len(event.Response.Choices) == 0 {
@@ -125,15 +125,15 @@ func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGr
 			step := st
 			go func() {
 				defer wg.Done()
-				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args}
-				_, _, _ = executil.RunTool(ctx, s.registry, stepInfo, s.recorder)
+				stepInfo := executil2.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args}
+				_, _, _ = executil2.RunTool(ctx, s.registry, stepInfo, s.recorder)
 			}()
 		}
 		return nil
 	})
 }
 
-func (s *Service) extendPlanFromResponse(ctx context.Context, genOutput *core.GenerateOutput, aPlan *plan.Plan) (bool, error) {
+func (s *Service) extendPlanFromResponse(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) (bool, error) {
 	if genOutput.Response == nil || len(genOutput.Response.Choices) == 0 {
 		return false, nil
 	}
@@ -183,14 +183,14 @@ func (s *Service) extendPlanWithToolCalls(choice *llm.Choice, aPlan *plan.Plan) 
 	aPlan.Steps = append(aPlan.Steps, steps...)
 }
 
-func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core.GenerateOutput, aPlan *plan.Plan) error {
+func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) error {
 	var err error
 	if strings.Contains(genOutput.Content, `"tool"`) {
-		err = executil.EnsureJSONResponse(ctx, genOutput.Content, aPlan)
+		err = executil2.EnsureJSONResponse(ctx, genOutput.Content, aPlan)
 	}
 	if strings.Contains(genOutput.Content, `"elicitation"`) {
 		aPlan.Elicitation = &plan.Elicitation{}
-		_ = executil.EnsureJSONResponse(ctx, genOutput.Content, aPlan.Elicitation)
+		_ = executil2.EnsureJSONResponse(ctx, genOutput.Content, aPlan.Elicitation)
 		if aPlan.Elicitation.IsEmpty() {
 			aPlan.Elicitation = nil
 		}
@@ -211,7 +211,7 @@ func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core.Gen
 	return err
 }
 
-func (s *Service) synthesizeFinalResponse(genOutput *core.GenerateOutput) {
+func (s *Service) synthesizeFinalResponse(genOutput *core2.GenerateOutput) {
 	if strings.TrimSpace(genOutput.Content) == "" || genOutput.Response != nil {
 		return
 	}
@@ -224,7 +224,7 @@ func (s *Service) synthesizeFinalResponse(genOutput *core.GenerateOutput) {
 	}
 }
 
-func New(service *core.Service, registry tool.Registry, recorder recorder.Recorder) *Service {
+func New(service *core2.Service, registry tool.Registry, recorder recorder.Recorder) *Service {
 	return &Service{
 		llm:      service,
 		registry: registry,

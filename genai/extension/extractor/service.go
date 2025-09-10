@@ -2,14 +2,15 @@ package extractor
 
 import (
 	"context"
+	"reflect"
+	"strings"
+
 	"github.com/tmc/langchaingo/llms"
 	"github.com/viant/afs"
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
 	extractor2 "github.com/viant/agently/genai/io/extractor"
 	"github.com/viant/fluxor/model/types"
-	"reflect"
-	"strings"
 )
 
 const name = "output/extractor"

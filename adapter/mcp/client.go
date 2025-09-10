@@ -9,15 +9,13 @@ import (
 
 	awaitreg "github.com/viant/agently/genai/awaitreg"
 	"github.com/viant/agently/genai/conversation"
-	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
+	core2 "github.com/viant/agently/genai/service/core"
 
 	"sync"
 
 	"github.com/google/uuid"
 	elicitationSchema "github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/elicitation/refiner"
-	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/llm"
 
 	"strings"
@@ -44,12 +42,11 @@ func Waiter(id string) (chan *schema.ElicitResult, bool) {
 
 // Client adapts MCP operations to local execution.
 type Client struct {
-	core       *core.Service
+	core       *core2.Service
 	openURLFn  func(string) error
 	implements map[string]bool
 	awaiters   *awaitreg.Registry
-	llmCore    *core.Service
-	history    memory.History // optional fallback when ctx lacks history
+	llmCore    *core2.Service
 	// waiter registries are shared for elicitation and interaction
 }
 
@@ -118,42 +115,38 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 			Content: res.Payload,
 		}, nil
 	}
-	// ------------------------------------------------------------------
-	// No local awaiters – persist message and block until HTTP callback
-	// resolves it through waiterRegistry (web UI scenario).
-	// ------------------------------------------------------------------
-	// ------------------------------------------------------------------
-	// Generate synthetic message ID so that HTTP callback can reference it
+
 	msgID := uuid.New().String()
 
-	history := c.history
-	if history != nil {
-
-		owner, err := history.LatestMessage(ctx)
-		if err != nil {
-			return nil, jsonrpc.NewInternalError(err.Error(), nil)
-		}
-
-		parentID := owner.ParentID
-		if parentID == "" {
-			parentID = owner.ID
-		}
-
-		_ = history.AddMessage(ctx, memory.Message{
-			ID:             msgID,
-			ParentID:       parentID,
-			ConversationID: owner.ConversationID,
-			Role:           "mcpelicitation",
-			Content:        params.Message,
-			Elicitation: func() *elicitationSchema.Elicitation {
-				// Refine schema before persisting so that UI sees improved version.
-				refiner.Refine(&params.RequestedSchema)
-				return &elicitationSchema.Elicitation{ElicitRequestParams: params}
-			}(),
-			CallbackURL: "/elicitation/" + msgID,
-			Status:      "open",
-		})
-	}
+	//TODO refactor/rethink - make sure that  message is tied to respective conversaton id (in case many user/many conversation at the same time)
+	//history := c.history
+	//if history != nil {
+	//
+	//	owner, err := history.LatestMessage(ctx)
+	//	if err != nil {
+	//		return nil, jsonrpc.NewInternalError(err.Error(), nil)
+	//	}
+	//
+	//	parentID := owner.ParentID
+	//	if parentID == "" {
+	//		parentID = owner.ID
+	//	}
+	//
+	//	_ = history.AddMessage(ctx, memory.Message{
+	//		ID:             msgID,
+	//		ParentID:       parentID,
+	//		ConversationID: owner.ConversationID,
+	//		Role:           "mcpelicitation",
+	//		Content:        params.Message,
+	//		Elicitation: func() *elicitationSchema.Elicitation {
+	//			// Refine schema before persisting so that UI sees improved version.
+	//			refiner.Refine(&params.RequestedSchema)
+	//			return &elicitationSchema.Elicitation{ElicitRequestParams: params}
+	//		}(),
+	//		CallbackURL: "/elicitation/" + msgID,
+	//		Status:      "open",
+	//	})
+	//}
 
 	// Register waiter and block
 	ch := make(chan *schema.ElicitResult, 1)
@@ -181,7 +174,7 @@ func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedReques
 	if len(p.Messages) > 0 {
 		promptText = p.Messages[len(p.Messages)-1].Content.Text // assuming text field
 	}
-	in := &core.GenerateInput{
+	in := &core2.GenerateInput{
 		ModelSelection: llm.ModelSelection{
 			Preferences: llm.NewModelPreferences(llm.WithPreferences(p.ModelPreferences)),
 		},
@@ -196,7 +189,7 @@ func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedReques
 		}
 	}
 
-	var out core.GenerateOutput
+	var out core2.GenerateOutput
 	if err := c.core.Generate(ctx, in, &out); err != nil {
 		return nil, jsonrpc.NewInternalError(err.Error(), nil)
 	}

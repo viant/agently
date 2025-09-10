@@ -11,6 +11,7 @@ type Message struct {
 	Sequence        *int        `sqlx:"sequence" json:",omitempty"`
 	CreatedAt       *time.Time  `sqlx:"created_at" json:",omitempty"`
 	Role            string      `sqlx:"role" validate:"required"`
+	Status          string      `sqlx:"status" `
 	Type            string      `sqlx:"type" validate:"required"`
 	Content         string      `sqlx:"content" validate:"required"`
 	ContextSummary  *string     `sqlx:"context_summary" json:",omitempty"`
@@ -30,6 +31,7 @@ type MessageHas struct {
 	Sequence        bool
 	CreatedAt       bool
 	Role            bool
+	Status          bool
 	Type            bool
 	Content         bool
 	ContextSummary  bool

@@ -8,10 +8,10 @@ import (
 
 	"time"
 
-	"github.com/viant/agently/genai/extension/fluxor/llm/core/stream"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/modelcallctx"
+	stream2 "github.com/viant/agently/genai/service/core/stream"
 	fluxortypes "github.com/viant/fluxor/model/types"
 )
 
@@ -22,8 +22,8 @@ type StreamInput struct {
 
 // StreamOutput aggregates streaming events into a slice.
 type StreamOutput struct {
-	Events    []stream.Event `json:"events"`
-	MessageID string         `json:"messageId,omitempty"`
+	Events    []stream2.Event `json:"events"`
+	MessageID string          `json:"messageId,omitempty"`
 }
 
 // Stream handles streaming LLM responses, structuring JSON output for text chunks,
@@ -33,7 +33,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	handler, cleanup, err := stream.PrepareStreamHandler(ctx, input.StreamID)
+	handler, cleanup, err := stream2.PrepareStreamHandler(ctx, input.StreamID)
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func (s *Service) ensureStreamingOption(input *StreamInput) {
 
 // consumeEvents pulls from provider Stream channel, dispatches to handler and
 // appends structured events to output. Stops on error or done.
-func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, handler stream.Handler, output *StreamOutput) error {
+func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, handler stream2.Handler, output *StreamOutput) error {
 	for event := range ch {
 		if err := handler(ctx, &event); err != nil {
 			return fmt.Errorf("failed to handle Stream event: %w", err)
@@ -128,7 +128,7 @@ func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, 
 // appendStreamEvent converts provider event to public stream.Event(s).
 func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput) error {
 	if event.Err != nil {
-		output.Events = append(output.Events, stream.Event{Type: "error", Content: event.Err.Error()})
+		output.Events = append(output.Events, stream2.Event{Type: "error", Content: event.Err.Error()})
 		return event.Err
 	}
 	resp := event.Response
@@ -142,17 +142,17 @@ func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput
 	}
 	// Text chunk
 	if content := strings.TrimSpace(choice.Message.Content); content != "" {
-		output.Events = append(output.Events, stream.Event{Type: "chunk", Content: content})
+		output.Events = append(output.Events, stream2.Event{Type: "chunk", Content: content})
 	}
 	// Done
 	if choice.FinishReason != "" {
-		output.Events = append(output.Events, stream.Event{Type: "done", FinishReason: choice.FinishReason})
+		output.Events = append(output.Events, stream2.Event{Type: "done", FinishReason: choice.FinishReason})
 	}
 	return nil
 }
 
-func (s *Service) toolCallEvents(choice *llm.Choice) []stream.Event {
-	out := make([]stream.Event, 0, len(choice.Message.ToolCalls))
+func (s *Service) toolCallEvents(choice *llm.Choice) []stream2.Event {
+	out := make([]stream2.Event, 0, len(choice.Message.ToolCalls))
 	for _, tc := range choice.Message.ToolCalls {
 		name := tc.Name
 		args := tc.Arguments
@@ -165,7 +165,7 @@ func (s *Service) toolCallEvents(choice *llm.Choice) []stream.Event {
 				args = parsed
 			}
 		}
-		out = append(out, stream.Event{ID: tc.ID, Type: "function_call", Name: name, Arguments: args})
+		out = append(out, stream2.Event{ID: tc.ID, Type: "function_call", Name: name, Arguments: args})
 	}
 	return out
 }

@@ -2,9 +2,8 @@ package mcp
 
 import (
 	awaitreg "github.com/viant/agently/genai/awaitreg"
-	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/io/elicitation"
-	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/service/core"
 )
 
 // Option configures the customised client.
@@ -42,12 +41,4 @@ func WithLLMCore(c *core.Service) Option {
 // WithURLOpener overrides the function used to open browser.
 func WithURLOpener(fn func(string) error) Option {
 	return func(c *Client) { c.openURLFn = fn }
-}
-
-// WithHistory injects a shared conversation history implementation so that
-// the client can persist interactive elicitation messages even when the
-// incoming context does not carry the history reference (e.g. when the
-// runtime originates from a background goroutine that lost values).
-func WithHistory(h memory.History) Option {
-	return func(c *Client) { c.history = h }
 }

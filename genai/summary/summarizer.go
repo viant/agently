@@ -5,15 +5,15 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
+	core2 "github.com/viant/agently/genai/service/core"
 )
 
 const defaultPrompt = "Summarize the following conversation in a concise form:\n${conversation}"
 
 // Build returns a function compatible with memory.NewSummaryPolicy.
-func Build(llmCore *core.Service, model, promptTemplate, convID string) func(ctx context.Context, msgs []memory.Message) (memory.Message, error) {
+func Build(llmCore *core2.Service, model, promptTemplate, convID string) func(ctx context.Context, msgs []memory.Message) (memory.Message, error) {
 	if strings.TrimSpace(promptTemplate) == "" {
 		promptTemplate = defaultPrompt
 	}
@@ -30,8 +30,8 @@ func Build(llmCore *core.Service, model, promptTemplate, convID string) func(ctx
 		var buf strings.Builder
 		_ = tmpl.Execute(&buf, map[string]string{"conversation": raw.String()})
 
-		genOut := &core.GenerateOutput{}
-		if err := llmCore.Generate(ctx, &core.GenerateInput{
+		genOut := &core2.GenerateOutput{}
+		if err := llmCore.Generate(ctx, &core2.GenerateInput{
 			Model:        model,
 			SystemPrompt: &prompt.Prompt{Text: buf.String()},
 		}, genOut); err != nil {
@@ -42,7 +42,7 @@ func Build(llmCore *core.Service, model, promptTemplate, convID string) func(ctx
 }
 
 // Summarize retrieves lastN messages and returns summary content.
-func Summarize(ctx context.Context, hist memory.History, llmCore *core.Service, model, convID string, lastN int, prompt string) (string, error) {
+func Summarize(ctx context.Context, hist memory.History, llmCore *core2.Service, model, convID string, lastN int, prompt string) (string, error) {
 	if hist == nil {
 		return "", nil
 	}

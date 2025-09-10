@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+
 	"github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/service/agent"
+
 	"time"
 
-	"github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/tool"
 )
 

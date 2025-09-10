@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
+	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/service"
 )

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
+	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
 )
 

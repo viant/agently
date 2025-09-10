@@ -7,7 +7,6 @@ import (
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/io/elicitation"
 	modelprovider "github.com/viant/agently/genai/llm/provider"
-	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor"
 	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
@@ -108,13 +107,6 @@ func WithAgents(agents ...*agent.Agent) Option {
 func WithTools(tools tool.Registry) Option {
 	return func(s *Service) {
 		s.tools = tools
-	}
-}
-
-// WithHistory injects a custom conversation history implementation.
-func WithHistory(store memory.History) Option {
-	return func(s *Service) {
-		s.history = store
 	}
 }
 

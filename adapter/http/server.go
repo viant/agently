@@ -14,14 +14,14 @@ import (
 
 	"github.com/viant/agently/adapter/http/ui"
 	mcpclient "github.com/viant/agently/adapter/mcp"
-	messagetrans "github.com/viant/agently/adapter/message"
 	"github.com/viant/agently/genai/conversation"
-	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/memory"
+	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/stage"
 	"github.com/viant/agently/genai/tool"
 	convread "github.com/viant/agently/internal/dao/conversation/read"
 	convw "github.com/viant/agently/internal/dao/conversation/write"
+	"github.com/viant/agently/internal/dao/message/write"
 	usageread "github.com/viant/agently/internal/dao/usage/read"
 	"github.com/viant/agently/metadata"
 	fluxpol "github.com/viant/fluxor/policy"
@@ -55,20 +55,6 @@ type Server struct {
 
 	// Optional domain store for v1 compatibility (reads from domain instead of memory when enabled)
 	store d.Store
-}
-
-// currentStage returns pointer to Stage snapshot for convID when available.
-func (s *Server) currentStage(convID string) *stage.Stage {
-	if s == nil || convID == "" {
-		return nil
-	}
-	if s.mgr == nil {
-		return nil
-	}
-	if ss := s.mgr.StageStore(); ss != nil {
-		return ss.Get(convID)
-	}
-	return nil
 }
 
 // ServerOption customises HTTP server behaviour.
@@ -502,16 +488,19 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	if sinceId != "" {
 		opts = append(opts, msgread.WithSinceID(sinceId))
 	}
-	if data, err := s.store.Messages().GetTranscript(r.Context(), convID, opts...); err == nil {
-		// Convert transcript to v1 memory.Message shape for compatibility
-		out := messagetrans.ToMemoryMessages(data)
-		if sinceId != "" && len(out) == 0 {
-			encode(w, http.StatusProcessing, out, nil, s.currentStage(convID))
-			return
-		}
-		encode(w, http.StatusOK, out, nil, s.currentStage(convID))
-		return
-	}
+
+	//TODO fix me - or updated  messages with status, usage, step outcmes
+
+	//if data, err := s.store.Messages().GetTranscript(r.Context(), convID, opts...); err == nil {
+	//	//// Convert transcript to v1 memory.Message shape for compatibility
+	//	//out := messagetrans.ToMemoryMessages(data)
+	//	//if sinceId != "" && len(out) == 0 {
+	//	//	encode(w, http.StatusProcessing, out, nil, s.currentStage(convID))
+	//	//	return
+	//	//}
+	//	//encode(w, http.StatusOK, out, nil, s.currentStage(convID))
+	//	return
+	//}
 	// If DAO is not available or returned error, fall through to legacy path below.
 
 	return
@@ -688,61 +677,6 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request, convID s
 	totals.TotalTokens = totals.InputTokens + totals.OutputTokens + totals.EmbeddingTokens + totals.CachedTokens
 	encode(w, http.StatusOK, []usagePayload{totals}, nil, nil)
 	return
-
-	uStore := s.mgr.UsageStore()
-	if uStore == nil {
-		// No usage tracking configured – return zeros so that callers don't error out.
-		encode(w, http.StatusOK, []usagePayload{{
-			ConversationID:  convID,
-			InputTokens:     0,
-			OutputTokens:    0,
-			EmbeddingTokens: 0,
-			CachedTokens:    0,
-			TotalTokens:     0,
-			PerModel:        []usagePerModel{},
-		}}, nil, nil)
-		return
-	}
-
-	// ------------------------------------------------------------------
-	// Build aggregated totals and per-model breakdown in the new response
-	// structure expected by Forge UI. The JSON payload now looks like:
-	// {"data":[ { totals…, "perModel":[ {model: "…", …} ] } ]}
-	// ------------------------------------------------------------------
-
-	// Totals across all models.
-	p, c, e, cached := uStore.Totals(convID)
-
-	// Build deterministic slice of per-model statistics.
-	perModels := make([]usagePerModel, 0)
-	if agg := uStore.Aggregator(convID); agg != nil {
-		for _, model := range agg.Keys() {
-			st := agg.PerModel[model]
-			if st == nil {
-				continue
-			}
-			perModels = append(perModels, usagePerModel{
-				Model:           model,
-				InputTokens:     st.PromptTokens,
-				OutputTokens:    st.CompletionTokens,
-				EmbeddingTokens: st.EmbeddingTokens,
-				CachedTokens:    st.CachedTokens,
-			})
-		}
-	}
-	sort.SliceStable(perModels, func(i, j int) bool { return perModels[i].Model < perModels[j].Model })
-
-	aggPayload := usagePayload{
-		ConversationID:  convID,
-		InputTokens:     p,
-		OutputTokens:    c,
-		EmbeddingTokens: e,
-		CachedTokens:    cached,
-		TotalTokens:     p + c + e + cached,
-		PerModel:        perModels,
-	}
-
-	encode(w, http.StatusOK, []usagePayload{aggPayload}, nil, nil)
 }
 
 // handleElicitationCallback processes POST /v1/api/elicitation/{msgID} to
@@ -767,11 +701,12 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	message, _ := s.mgr.History().LookupMessage(r.Context(), messageID)
-	if message == nil {
+	messages, _ := s.store.Messages().List(r.Context(), msgread.WithIDs(messageID))
+	if len(messages) == 0 {
 		encode(w, http.StatusNotFound, nil, fmt.Errorf("interaction message not found"), nil)
 		return
 	}
+	message := messages[0]
 
 	// Find the conversation containing this message.
 
@@ -781,8 +716,12 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 		status = "done"
 	}
 
-	_ = s.mgr.History().UpdateMessage(r.Context(), messageID, func(m *memory.Message) {
-		m.Status = status
+	s.store.Messages().Patch(r.Context(), &write.Message{
+		Id:     message.Id,
+		Status: status,
+		Has: &write.MessageHas{
+			Status: true,
+		},
 	})
 
 	if ch, ok := mcpclient.Waiter(messageID); ok {
@@ -869,11 +808,12 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	message, _ := s.mgr.History().LookupMessage(r.Context(), messageId)
-	if message == nil {
+	messages, _ := s.store.Messages().List(r.Context(), msgread.WithIDs(messageId))
+	if len(messages) == 0 {
 		encode(w, http.StatusNotFound, nil, fmt.Errorf("interaction message not found"), nil)
 		return
 	}
+	message := messages[0]
 
 	// 1) Persist decision in Conversation history so UI updates immediately.
 	newStatus := "declined"
@@ -881,8 +821,12 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		newStatus = "done"
 	}
 
-	_ = s.mgr.History().UpdateMessage(r.Context(), messageId, func(m *memory.Message) {
-		m.Status = newStatus
+	s.store.Messages().Patch(r.Context(), &write.Message{
+		Id:     message.Id,
+		Status: newStatus,
+		Has: &write.MessageHas{
+			Status: true,
+		},
 	})
 
 	// 2) Forward the decision to the Fluxor approval service so that the

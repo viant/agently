@@ -15,13 +15,12 @@ import (
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/embedder"
 	"github.com/viant/agently/genai/executor/agenttool"
-	llmagent "github.com/viant/agently/genai/extension/fluxor/llm/agent"
-	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
-	"github.com/viant/agently/genai/extension/fluxor/llm/core"
-	"github.com/viant/agently/genai/extension/fluxor/output/extractor"
+	"github.com/viant/agently/genai/extension/extractor"
 	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/genai/memory"
+	agent2 "github.com/viant/agently/genai/service/agent"
+	"github.com/viant/agently/genai/service/augmenter"
+	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
 	daofactory "github.com/viant/agently/internal/dao/factory"
 	domain "github.com/viant/agently/internal/domain"
@@ -52,9 +51,7 @@ type Service struct {
 	agentFinder    agent.Finder
 	tools          tool.Registry
 
-	history        memory.History
-	executionStore *memory.ExecutionStore
-	llmCore        *core.Service
+	llmCore *core.Service
 
 	// newAwaiter receives interactive user prompts when the runtime
 	// encounters a schema-based elicitation request. When non-nil it is injected
@@ -63,7 +60,7 @@ type Service struct {
 	newAwaiter func() elicitation.Awaiter `json:"-"`
 
 	augmenter    *augmenter.Service
-	agentService *llmagent.Service
+	agentService *agent2.Service
 	convManager  *conversation.Manager
 	metaService  *meta.Service
 	started      int32
@@ -159,7 +156,7 @@ func (e *Service) ExecuteTool(ctx context.Context, name string, args map[string]
 }
 
 // AgentService returns the registered llmagent service
-func (e *Service) AgentService() *llmagent.Service {
+func (e *Service) AgentService() *agent2.Service {
 	return e.agentService
 }
 
@@ -211,7 +208,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
 	store := e.ensureStore()
-	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.recorder, store)
+	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.recorder, store)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
 
@@ -250,24 +247,15 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	}
 
 	// Initialise shared conversation manager for multi-turn interactions
-	convHandler := func(ctx context.Context, in *llmagent.QueryInput, out *llmagent.QueryOutput) error {
+	convHandler := func(ctx context.Context, in *agent2.QueryInput, out *agent2.QueryOutput) error {
 		exec, err := agentSvc.Method("query")
 		if err != nil {
 			return err
 		}
 		return exec(ctx, in, out)
 	}
-	// Attach shared in-memory stores for token usage and live stage tracking.
-	usageStore := memory.NewUsageStore()
-	stageStore := memory.NewStageStore()
 
-	e.convManager = conversation.New(
-		e.history,
-		e.executionStore,
-		convHandler,
-		conversation.WithUsageStore(usageStore),
-		conversation.WithStageStore(stageStore),
-	)
+	e.convManager = conversation.New(convHandler)
 	// Actions is modified in-place; no return value needed.
 }
 
@@ -317,11 +305,6 @@ func (e *Service) ApprovalService() approval.Service {
 // Conversation returns the shared conversation manager initialised by the service.
 func (e *Service) Conversation() *conversation.Manager {
 	return e.convManager
-}
-
-// ExecutionStore returns the shared executoin store
-func (e *Service) ExecutionStore() *memory.ExecutionStore {
-	return e.executionStore
 }
 
 // LLMCore returns the underlying llm/core service instance (mainly for

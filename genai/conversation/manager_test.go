@@ -2,8 +2,10 @@ package conversation
 
 import (
 	"context"
+
 	genai "github.com/viant/agently/genai/agent"
-	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
+	agentpkg "github.com/viant/agently/genai/service/agent"
+
 	"testing"
 
 	"github.com/stretchr/testify/assert"

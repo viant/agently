@@ -11,7 +11,6 @@ import (
 	"github.com/viant/agently/genai/agent"
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
-	"github.com/viant/agently/genai/memory"
 	domainrecorder "github.com/viant/agently/internal/domain/recorder"
 	agentrepo "github.com/viant/agently/internal/repository/agent"
 	embedderrepo "github.com/viant/agently/internal/repository/embedder"
@@ -37,9 +36,6 @@ import (
 
 // init prepares the Service for handling requests.
 func (e *Service) init(ctx context.Context) error {
-	if err := e.initHistory(ctx); err != nil {
-		return err
-	}
 
 	// ------------------------------------------------------------------
 	// Step 1: defaults & validation
@@ -49,10 +45,6 @@ func (e *Service) init(ctx context.Context) error {
 		return err
 	}
 
-	// ------------------------------------------------------------------
-	// Step 2: auxiliary stores (history, …)
-	// ------------------------------------------------------------------
-	e.executionStore = memory.NewExecutionStore()
 	// Build recorder (shadow writes when enabled)
 	e.recorder = domainrecorder.New(ctx)
 
@@ -220,9 +212,6 @@ func (e *Service) initMcp() {
 		if e.newAwaiter != nil {
 			opts = append(opts, clientmcp.WithAwaiter(e.newAwaiter))
 		}
-		if e.history != nil {
-			opts = append(opts, clientmcp.WithHistory(e.history))
-		}
 		e.clientHandler = clientmcp.NewClient(opts...)
 	}
 	repo := mcprepo.New(afs.New())
@@ -287,18 +276,6 @@ func (e *Service) initAgent(ctx context.Context) {
 			}
 		}
 	}
-}
-
-// initHistory initialises a conversation history store. When a DAO connector
-// is configured, a DB-backed implementation is used, otherwise an in-memory
-// store is created.
-func (e *Service) initHistory(ctx context.Context) error {
-	if e.history != nil {
-		return nil
-	}
-	// Default to a noop history; domain recorder handles persistence.
-	e.history = &memory.NoopHistory{}
-	return nil
 }
 
 // loadDAOConfig loads DAO connector config from inline value or from external

@@ -7,9 +7,9 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/agent"
-	"github.com/viant/agently/genai/extension/fluxor/llm/agent/orchestrator"
-	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
-	"github.com/viant/agently/genai/extension/fluxor/llm/core"
+	"github.com/viant/agently/genai/service/agent/orchestrator"
+	"github.com/viant/agently/genai/service/augmenter"
+	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/internal/domain"
 	"github.com/viant/agently/internal/domain/recorder"

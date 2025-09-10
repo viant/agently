@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	core "github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
 )

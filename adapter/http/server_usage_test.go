@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	agentpkg "github.com/viant/agently/genai/service/agent"
 
 	"github.com/viant/agently/genai/conversation"
-	agentpkg "github.com/viant/agently/genai/extension/fluxor/llm/agent"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/usage"
 )

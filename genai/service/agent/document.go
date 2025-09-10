@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/viant/agently/genai/agent"
-	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
+	"github.com/viant/agently/genai/service/augmenter"
 
 	"github.com/tmc/langchaingo/schema"
 )
