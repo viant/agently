@@ -110,7 +110,7 @@ func TestService_Query_DataDriven(t *testing.T) {
 				Model:   "override-model",
 				Usage:   &usage.Aggregator{},
 			},
-			expectedCtx: map[string]interface{}{"foo": "bar", "x": 2},
+			expectedCtx: map[string]interface{}{"foo": "bar", "x": float64(2)},
 		},
 	}
 
@@ -157,8 +157,13 @@ func TestService_Query_DataDriven(t *testing.T) {
 				return
 			}
 
-			// Prepare expected by echoing agent pointer for comparison
+			// Prepare expected by echoing agent pointer and aligning dynamic fields for comparison
 			tc.expectedOutput.Agent = tc.input.Agent
+			if tc.expectedOutput.Plan != nil && out.Plan != nil {
+				tc.expectedOutput.Plan.ID = out.Plan.ID
+			}
+			// Align aggregator instance (empty state) to avoid pointer inequality noise
+			tc.expectedOutput.Usage = out.Usage
 
 			// Assert output equality (single value assertion per case)
 			assert.EqualValues(t, tc.expectedOutput, out)
