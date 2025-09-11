@@ -169,12 +169,10 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 
 	output.Content = strings.TrimSpace(builder.String())
 	msgID := memory.ModelMessageIDFromContext(ctx)
-	if msgID != "" {
-		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-			if tm.ConversationID != "" && strings.TrimSpace(output.Content) != "" {
-				s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()})
-				output.MessageID = msgID
-			}
+	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+		if tm.ConversationID != "" && strings.TrimSpace(output.Content) != "" {
+			s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()})
+			output.MessageID = msgID
 		}
 	}
 	return nil
