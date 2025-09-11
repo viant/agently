@@ -353,6 +353,29 @@ func (c *Client) consumeStream(ctx context.Context, body io.Reader, events chan<
 	}
 	proc.respBody = respBody
 
+	// Handle non-SSE error envelopes (OpenAI may return a JSON error instead of SSE)
+	// Detect when the body does not contain any SSE data lines and looks like a JSON object
+	if !bytes.Contains(respBody, []byte("data: ")) {
+		type apiErr struct {
+			Error struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Param   string `json:"param"`
+				Code    string `json:"code"`
+			} `json:"error"`
+		}
+		var e apiErr
+		if err := json.Unmarshal(bytes.TrimSpace(respBody), &e); err == nil && e.Error.Message != "" {
+			// Bubble error to caller and close stream
+			if proc.observer != nil && !proc.state.ended {
+				proc.observer.OnCallEnd(proc.ctx, mcbuf.Info{Provider: "openai", Model: proc.state.lastModel, ModelKind: "chat", ResponseJSON: respBody, CompletedAt: time.Now()})
+				proc.state.ended = true
+			}
+			events <- llm.StreamEvent{Err: fmt.Errorf("openai error: %s (type=%s, param=%s, code=%s)", e.Error.Message, e.Error.Type, e.Error.Param, e.Error.Code)}
+			return
+		}
+	}
+
 	// Prepare scanner
 	scanner := bufio.NewScanner(bytes.NewReader(respBody))
 	buf := make([]byte, 0, sseInitialBuf)

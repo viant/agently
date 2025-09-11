@@ -193,9 +193,10 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 			for j, toolCall := range msg.ToolCalls {
 				message.ToolCalls[j] = ToolCall{
 					ID:   toolCall.ID,
-					Type: toolCall.Type,
+					Type: "function",
+
 					Function: FunctionCall{
-						Name:      toolCall.Function.Name,
+						Name:      toolCall.Name,
 						Arguments: toolCall.Function.Arguments,
 					},
 				}
