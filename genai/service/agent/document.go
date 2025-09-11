@@ -10,13 +10,14 @@ import (
 	"github.com/tmc/langchaingo/schema"
 )
 
-const defaultEmbeddingModel = "TODO"
-
 // matchDocuments gets relevant documents from the knowledge base
 func (s *Service) matchDocuments(ctx context.Context, input *QueryInput, knowledge []*agent.Knowledge) ([]schema.Document, error) {
 	if input.EmbeddingModel == "" {
-		// TODO
-		input.EmbeddingModel = defaultEmbeddingModel
+		input.EmbeddingModel = s.defaults.Embedder
+	}
+
+	if input.EmbeddingModel == "" {
+		return nil, fmt.Errorf("embedding model was not specified")
 	}
 
 	// Initialize augmenter input
@@ -24,6 +25,10 @@ func (s *Service) matchDocuments(ctx context.Context, input *QueryInput, knowled
 		Model:        input.EmbeddingModel,
 		Query:        input.Query,
 		MaxDocuments: input.MaxDocuments,
+	}
+
+	if augmenterInput.Model == "" {
+		augmenterInput.Model = s.defaults.Embedder
 	}
 
 	var allDocuments []schema.Document

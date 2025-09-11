@@ -208,7 +208,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
 	store := e.ensureStore()
-	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.recorder, store)
+	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.recorder, store, &e.config.Default)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
 

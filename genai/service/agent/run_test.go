@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
@@ -147,8 +148,9 @@ func TestService_Query_DataDriven(t *testing.T) {
 				tc.input.EmbeddingModel = "dummy"
 			}
 
-			// Service under test
-			svc := New(coreSvc, nil, nil, nil, nil, rec, store)
+			// Service under test (defaults must be non-nil)
+			defaults := &config.Defaults{Embedder: "dummy"}
+			svc := New(coreSvc, nil, nil, nil, nil, rec, store, defaults)
 
 			// Act
 			out := &QueryOutput{}

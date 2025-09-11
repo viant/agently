@@ -7,6 +7,7 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/service/agent/orchestrator"
 	"github.com/viant/agently/genai/service/augmenter"
 	"github.com/viant/agently/genai/service/core"
@@ -36,6 +37,7 @@ type Service struct {
 
 	recorder recorder.Recorder
 	store    domain.Store
+	defaults *config.Defaults
 }
 
 // SetRuntime sets the fluxor runtime for orchestration
@@ -48,8 +50,9 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	runtime *fluxor.Runtime,
 	recorder recorder.Recorder,
 	store domain.Store,
-	opts ...Option) *Service {
+	defaults *config.Defaults, opts ...Option) *Service {
 	srv := &Service{
+		defaults:     defaults,
 		llm:          llm,
 		agentFinder:  agentFinder,
 		augmenter:    augmenter,
