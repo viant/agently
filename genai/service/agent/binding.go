@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently/genai/agent"
+	plan "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
 	base "github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
@@ -97,7 +98,6 @@ func (s *Service) buildToolSignatures(input *QueryInput) ([]*llm.ToolDefinition,
 }
 
 func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput) ([]*llm.ToolCall, error) {
-
 	turn, ok := memory.TurnMetaFromContext(ctx)
 	if !ok {
 		return nil, fmt.Errorf("failed to get turn meta from context")
@@ -106,17 +106,15 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput) ([
 	if err != nil {
 		return nil, err
 	}
-	var execs []*llm.ToolCall
-	for _, v := range views {
-		if v == nil || len(v.Executions) == 0 {
-			continue
-		}
-		execs = append(execs, padapter.ToolCallsFromOutcomes(v.Executions)...)
+	outcome, err := d.BuildToolOutcomes(ctx, s.store, d.Transcript(views))
+	if err != nil {
+		return nil, err
 	}
-	if len(execs) > 0 {
-		return execs, nil
+	if outcome == nil || len(outcome.Steps) == 0 {
+		return nil, nil
 	}
-	return execs, nil
+	calls := padapter.ToolCallsFromOutcomes([]*plan.Outcome{outcome})
+	return calls, nil
 }
 
 func (s *Service) buildDocumentsBinding(ctx context.Context, input *QueryInput, isSystem bool) (prompt.Documents, error) {
