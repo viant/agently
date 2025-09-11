@@ -17,7 +17,6 @@ import (
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/memory"
 	agentpkg "github.com/viant/agently/genai/service/agent"
-	"github.com/viant/agently/genai/stage"
 	"github.com/viant/agently/genai/tool"
 	convread "github.com/viant/agently/internal/dao/conversation/read"
 	convw "github.com/viant/agently/internal/dao/conversation/write"
@@ -30,6 +29,7 @@ import (
 
 	"github.com/google/uuid"
 	plan "github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/stage"
 	msgread "github.com/viant/agently/internal/dao/message/read"
 	plread "github.com/viant/agently/internal/dao/payload/read"
 	d "github.com/viant/agently/internal/domain"
@@ -489,21 +489,165 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		opts = append(opts, msgread.WithSinceID(sinceId))
 	}
 
-	//TODO fix me - or updated  messages with status, usage, step outcmes
+	// Domain-backed transcript with per-message tool outcomes
+	views, err := s.store.Messages().GetTranscript(r.Context(), convID, opts...)
+	if err != nil {
+		encode(w, http.StatusInternalServerError, nil, err, s.currentStage(convID))
+		return
+	}
 
-	//if data, err := s.store.Messages().GetTranscript(r.Context(), convID, opts...); err == nil {
-	//	//// Convert transcript to v1 memory.Message shape for compatibility
-	//	//out := messagetrans.ToMemoryMessages(data)
-	//	//if sinceId != "" && len(out) == 0 {
-	//	//	encode(w, http.StatusProcessing, out, nil, s.currentStage(convID))
-	//	//	return
-	//	//}
-	//	//encode(w, http.StatusOK, out, nil, s.currentStage(convID))
-	//	return
-	//}
-	// If DAO is not available or returned error, fall through to legacy path below.
+	msgs := make([]memory.Message, 0, len(views))
+	for _, v := range views {
+		if v == nil || v.IsInterim() {
+			continue
+		}
+		mm := memory.Message{ID: v.Id, ConversationID: v.ConversationID, Role: v.Role, Content: v.Content}
+		if v.ParentID != nil {
+			mm.ParentID = *v.ParentID
+		}
+		if v.ToolName != nil {
+			mm.ToolName = v.ToolName
+		}
+		if v.CreatedAt != nil {
+			mm.CreatedAt = *v.CreatedAt
+		} else {
+			mm.CreatedAt = time.Now()
+		}
+		if v.Elicitation != nil {
+			mm.Elicitation = v.Elicitation
+		}
+		// Build single-step outcome for tool messages
+		if strings.EqualFold(strings.TrimSpace(v.Role), "tool") && v.ToolCall != nil {
+			st := &plan.StepOutcome{
+				ID:                v.ToolCall.OpID,
+				Name:              v.ToolCall.ToolName,
+				Reason:            v.Content,
+				Success:           strings.EqualFold(strings.TrimSpace(v.ToolCall.Status), "completed"),
+				Error:             derefStr(v.ToolCall.ErrorMessage),
+				StartedAt:         v.ToolCall.StartedAt,
+				EndedAt:           v.ToolCall.CompletedAt,
+				RequestPayloadID:  v.ToolCall.RequestPayloadID,
+				ResponsePayloadID: v.ToolCall.ResponsePayloadID,
+			}
+			if v.ToolCall.StartedAt != nil && v.ToolCall.CompletedAt != nil {
+				st.Elapsed = v.ToolCall.CompletedAt.Sub(*v.ToolCall.StartedAt).Round(time.Millisecond).String()
+			}
+			// Inline request/response bodies if available
+			if v.ToolCall.RequestPayloadID != nil && *v.ToolCall.RequestPayloadID != "" {
+				if pv, e := s.store.Payloads().Get(r.Context(), *v.ToolCall.RequestPayloadID); e == nil && pv != nil && pv.InlineBody != nil {
+					st.Request = json.RawMessage(*pv.InlineBody)
+				} else if e != nil {
+					encode(w, http.StatusInternalServerError, nil, e, s.currentStage(convID))
+					return
+				}
+			}
+			if v.ToolCall.ResponsePayloadID != nil && *v.ToolCall.ResponsePayloadID != "" {
+				if pv, e := s.store.Payloads().Get(r.Context(), *v.ToolCall.ResponsePayloadID); e == nil && pv != nil && pv.InlineBody != nil {
+					st.Response = json.RawMessage(*pv.InlineBody)
+				} else if e != nil {
+					encode(w, http.StatusInternalServerError, nil, e, s.currentStage(convID))
+					return
+				}
+			}
+			mm.Executions = []*plan.Outcome{{Steps: []*plan.StepOutcome{st}}}
+		}
+		msgs = append(msgs, mm)
+	}
 
-	return
+	if sinceId != "" && len(msgs) == 0 {
+		encode(w, http.StatusProcessing, msgs, nil, s.currentStage(convID))
+		return
+	}
+	encode(w, http.StatusOK, msgs, nil, s.currentStage(convID))
+}
+
+func derefStr(p *string) string {
+	if p != nil {
+		return *p
+	}
+	return ""
+}
+
+// currentStage infers live phase of a conversation based on recent transcript.
+// Heuristics:
+// - waiting: no messages
+// - executing: latest tool call present and running (completed_at nil or status==running)
+// - elicitation: latest assistant message carries elicitation request
+// - thinking: last message is user (no assistant response yet)
+// - error: latest tool call status failed and no newer assistant success
+// - done: otherwise
+func (s *Server) currentStage(convID string) *stage.Stage {
+	st := &stage.Stage{Phase: stage.StageWaiting}
+	if s == nil || s.store == nil || strings.TrimSpace(convID) == "" {
+		return st
+	}
+	views, err := s.store.Messages().GetTranscript(context.Background(), convID)
+	if err != nil || len(views) == 0 {
+		return st
+	}
+	// Work from the end to detect freshest signals
+	lastRole := ""
+	lastAssistantElic := false
+	lastToolStatus := ""
+	lastToolRunning := false
+	lastToolFailed := false
+	lastModelRunning := false
+	for i := len(views) - 1; i >= 0; i-- {
+		v := views[i]
+		if v == nil || v.IsInterim() {
+			continue
+		}
+		r := strings.ToLower(strings.TrimSpace(v.Role))
+		if lastRole == "" {
+			lastRole = r
+		}
+		// Tool signals
+		if v.ToolCall != nil {
+			status := strings.ToLower(strings.TrimSpace(v.ToolCall.Status))
+			lastToolStatus = status
+			if status == "running" || v.ToolCall.CompletedAt == nil {
+				lastToolRunning = true
+				break
+			}
+			if status == "failed" {
+				lastToolFailed = true
+			}
+		}
+		// Model call signals (thinking)
+		if v.ModelCall != nil {
+			mstatus := strings.ToLower(strings.TrimSpace(v.ModelCall.Status))
+			if mstatus == "running" || v.ModelCall.CompletedAt == nil {
+				lastModelRunning = true
+				break
+			}
+		}
+		// Assistant elicitation
+		if r == "assistant" && v.Elicitation != nil {
+			lastAssistantElic = true
+			break
+		}
+		// Stop at first non-interim meaningful signal
+		if r == "assistant" || r == "user" || r == "tool" {
+			// keep scanning for tool or elicitation if needed
+		}
+	}
+
+	switch {
+	case lastToolRunning:
+		st.Phase = stage.StageExecuting
+	case lastAssistantElic:
+		st.Phase = stage.StageEliciting
+	case lastModelRunning:
+		st.Phase = stage.StageThinking
+	case lastRole == "user":
+		st.Phase = stage.StageThinking
+	case lastToolFailed:
+		st.Phase = stage.StageError
+	default:
+		st.Phase = stage.StageDone
+	}
+	_ = lastToolStatus // reserved for future tool name/reporting
+	return st
 }
 
 // handleGetSingleMessage supports GET /v1/api/conversations/{id}/messages/{msgID}
