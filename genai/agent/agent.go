@@ -33,9 +33,6 @@ type (
 		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
 		Tool            []*llm.Tool    `yaml:"tool,omitempty" json:"tool,omitempty"`
 
-		// OrchestrationFlow optional path/URL to override default workflow graph.
-		OrchestrationFlow string `yaml:"orchestrationFlow,omitempty" json:"orchestrationFlow,omitempty"`
-
 		// Elicitation optionally defines required context schema that must be
 		// satisfied before the agent can execute its workflow. When provided, the
 		// runtime checks incoming QueryInput.Context against the schema and, if

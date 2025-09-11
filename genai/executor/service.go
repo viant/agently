@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,10 +70,6 @@ type Service struct {
 	// Hot-swap manager and toggle
 	hotSwap         *hotswap.Manager
 	hotSwapDisabled bool
-
-	// hotSwap manages live reload of workspace resources (agents, models, etc.)
-
-	fluxorLogWriter io.Writer `json:"-"`
 
 	fluxorOptions []fluxor.Option
 	orchestration *mcp.Service // shared fluxor-mcp service instance

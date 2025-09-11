@@ -45,15 +45,6 @@ func WithConfig(config *Config) Option {
 	}
 }
 
-// WithFluxorActivityLogger writes every executed Fluxor task (as seen by the
-// executor listener) to the supplied writer in JSON. Passing nil disables
-// logging.
-func WithFluxorActivityLogger(w io.Writer) Option {
-	return func(s *Service) {
-		s.fluxorLogWriter = w
-	}
-}
-
 // WithToolDebugLogger enables debug logging for every atool call executed via
 // the executor's atool registry. Each invocation is written to the supplied
 // writer. Passing nil disables logging.

@@ -111,7 +111,7 @@ func TestPrompt_Generate_BindingCoverage(t *testing.T) {
 		"tools-signatures",
 		"#foreach($s in $Tools.Signatures)- $s.Name: $s.Description\n#end",
 		"{{range .Tools.Signatures}}- {{.Name}}: {{.Description}}\n{{end}}",
-		&Binding{Tools: Tools{Signatures: []*llm.ToolDefinition{{Name: "search", Description: "find"}, {Name: "calc", Description: "compute"}}}},
+		&Binding{Tools: &Tools{Signatures: []*llm.ToolDefinition{{Name: "search", Description: "find"}, {Name: "calc", Description: "compute"}}}},
 		"- search: find\n- calc: compute\n",
 	)
 
@@ -120,15 +120,15 @@ func TestPrompt_Generate_BindingCoverage(t *testing.T) {
 		"tools-executions",
 		"#foreach($e in $Tools.Executions)- $e.Name: ($e.Result)\n#end",
 		"{{range .Tools.Executions}}- {{.Name}}: ({{.Result}})\n{{end}}",
-		&Binding{Tools: Tools{Executions: []*llm.ToolCall{{Name: "search", Result: "ok"}}}},
+		&Binding{Tools: &Tools{Executions: []*llm.ToolCall{{Name: "search", Result: "ok"}}}},
 		"- search: (ok)\n",
 	)
 
-	// LoadDocuments
+	// Documents
 	run(
 		"documents",
-		"#foreach($d in $LoadDocuments.Items)- $d.Title ($d.SourceURI)\n#end",
-		"{{range .LoadDocuments.Items}}- {{.Title}} ({{.SourceURI}})\n{{end}}",
+		"#foreach($d in $Documents.Items)- $d.Title ($d.SourceURI)\n#end",
+		"{{range .Documents.Items}}- {{.Title}} ({{.SourceURI}})\n{{end}}",
 		&Binding{Documents: Documents{Items: []*Document{{Title: "Guide", SourceURI: "uri://a"}, {Title: "Spec", SourceURI: "uri://b"}}}},
 		"- Guide (uri://a)\n- Spec (uri://b)\n",
 	)

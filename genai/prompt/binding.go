@@ -68,14 +68,16 @@ func (b *Binding) SystemBinding() *Binding {
 
 func (b *Binding) Data() map[string]interface{} {
 	var context = map[string]interface{}{
-		"Task":          b.Task,
-		"History":       b.History,
-		"Tools":         b.Tools,
-		"Flags":         b.Flags,
-		"LoadDocuments": b.Documents,
-		"Meta":          b.Meta,
-		"Context":       b.Context,
+		"Task":            b.Task,
+		"History":         b.History,
+		"Tools":           b.Tools,
+		"Flags":           b.Flags,
+		"Documents":       b.Documents,
+		"Meta":            b.Meta,
+		"Context":         b.Context,
+		"SystemDocuments": b.SystemDocuments,
 	}
+
 	// Flatten selected keys from Context into top-level for convenience
 	for k, v := range b.Context {
 		if _, exists := context[k]; !exists {

@@ -51,6 +51,10 @@ func (a *Prompt) Init(ctx context.Context) error {
 		}
 		prompt = string(data)
 	}
+	// Persist resolved prompt text for downstream Generate()
+	if strings.TrimSpace(prompt) != "" {
+		a.Text = prompt
+	}
 	return nil
 
 }

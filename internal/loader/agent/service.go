@@ -13,6 +13,7 @@ import (
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/internal/shared"
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/embedius/matching/option"
@@ -241,10 +242,16 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 					agent.SystemKnowledge = append(agent.SystemKnowledge, knowledge)
 				}
 			}
-		case "orchestrationflow":
-			if valueNode.Kind == yaml.ScalarNode {
-				agent.OrchestrationFlow = valueNode.Value
+		case "prompt":
+			if agent.Prompt, err = s.getPrompt(valueNode); err != nil {
+				return err
 			}
+
+		case "systemPrompt":
+			if agent.SystemPrompt, err = s.getPrompt(valueNode); err != nil {
+				return err
+			}
+
 		case "tool":
 			// Accept either
 			//   tool:
@@ -298,6 +305,92 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 		}
 		return nil
 	})
+}
+
+func (s *Service) getPrompt(valueNode *yml.Node) (*prompt.Prompt, error) {
+	var aPrompt *prompt.Prompt
+
+	if valueNode.Kind == yaml.ScalarNode {
+		aPrompt = &prompt.Prompt{
+			Text: valueNode.Value,
+		}
+		inferPromptEngine(aPrompt)
+
+	} else if valueNode.Kind == yaml.MappingNode {
+		var err error
+		if aPrompt, err = parsePrompt((*yml.Node)(valueNode)); err != nil {
+			return nil, err
+		}
+	}
+
+	return aPrompt, nil
+}
+
+func parsePrompt(y *yml.Node) (*prompt.Prompt, error) {
+	if y == nil {
+		return &prompt.Prompt{}, nil
+	}
+	if y.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("prompt node should be a mapping")
+	}
+
+	p := &prompt.Prompt{}
+	// Collect primary fields with a forgiving schema: text/content, uri/url/path, engine/type
+	if err := y.Pairs(func(key string, v *yml.Node) error {
+		k := strings.ToLower(strings.TrimSpace(key))
+		switch k {
+		case "text", "content":
+			if v.Kind == yaml.ScalarNode {
+				p.Text = v.Value
+			}
+		case "uri", "url", "path", "file":
+			if v.Kind == yaml.ScalarNode {
+				p.URI = v.Value
+			}
+		case "engine", "type":
+			if v.Kind == yaml.ScalarNode {
+				p.Engine = strings.ToLower(strings.TrimSpace(v.Value))
+			}
+		default:
+			// tolerate unknown keys for forward compatibility
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	// Infer engine via shared helper to avoid duplication.
+	inferPromptEngine(p)
+	return p, nil
+}
+
+// inferPromptEngine sets prompt.Engine if empty using URI suffixes or inline
+// text markers. Recognizes .vm => "vm" and .gotmpl/.tmpl => "go". As a
+// fallback, detects "{{ ... }}" => go and "$" => vm.
+func inferPromptEngine(p *prompt.Prompt) {
+	if p == nil || strings.TrimSpace(p.Engine) != "" {
+		return
+	}
+	if u := strings.TrimSpace(p.URI); u != "" {
+		cand := u
+		if strings.HasPrefix(cand, "$path(") && strings.HasSuffix(cand, ")") {
+			cand = strings.TrimSuffix(strings.TrimPrefix(cand, "$path("), ")")
+		}
+		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(cand), "."))
+		switch ext {
+		case "vm":
+			p.Engine = "vm"
+		case "gotmpl", "tmpl":
+			p.Engine = "go"
+		}
+	}
+	if strings.TrimSpace(p.Engine) == "" {
+		if strings.Contains(p.Text, "{{") && strings.Contains(p.Text, "}}") {
+			p.Engine = "go"
+		} else if strings.Contains(p.Text, "$") {
+			p.Engine = "vm"
+		}
+	}
 }
 
 // parseKnowledge parses a knowledge entry from a YAML node

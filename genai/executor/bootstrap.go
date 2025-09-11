@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 
@@ -22,8 +21,6 @@ import (
 	"github.com/viant/fluxor"
 	mcpsvc "github.com/viant/fluxor-mcp/mcp"
 	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
-	"github.com/viant/fluxor/model/graph"
-	"github.com/viant/fluxor/runtime/execution"
 	"github.com/viant/mcp"
 	"gopkg.in/yaml.v3"
 
@@ -61,36 +58,10 @@ func (e *Service) init(ctx context.Context) error {
 	// Collect additional fluxor options that Agently requires.
 	wfOptions := append(e.fluxorOptions,
 		fluxor.WithMetaService(e.config.Meta()),
+		fluxor.WithExecutorOptions(
+			texecutor.WithApprovalSkipPrefixes("llm/"),
+		),
 		fluxor.WithRootTaskNodeName("stage"))
-	// ------------------------------------------------------------------
-	// Debug hooks and executor listener
-	// ------------------------------------------------------------------
-
-	if e.fluxorLogWriter != nil {
-		listener := func(task *graph.Task, exec *execution.Execution) {
-			if task == nil {
-				return
-			}
-			entry := map[string]interface{}{
-				"task":   task,
-				"input":  exec.Input,
-				"output": exec.Output,
-				"error":  exec.Error,
-			}
-			if data, err := json.Marshal(entry); err == nil {
-				_, _ = e.fluxorLogWriter.Write(append(data, '\n'))
-			}
-		}
-
-		wfOptions = append(wfOptions, fluxor.WithExecutorOptions(
-			texecutor.WithListener(listener),
-			texecutor.WithApprovalSkipPrefixes("llm/"),
-		))
-	} else {
-		wfOptions = append(wfOptions, fluxor.WithExecutorOptions(
-			texecutor.WithApprovalSkipPrefixes("llm/"),
-		))
-	}
 
 	// Build orchestration (fluxor-mcp) service instance
 	orchestration, err := mcpsvc.New(ctx,
