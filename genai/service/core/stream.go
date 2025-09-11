@@ -26,36 +26,37 @@ type StreamOutput struct {
 	MessageID string          `json:"messageId,omitempty"`
 }
 
+func nop() {}
+
 // Stream handles streaming LLM responses, structuring JSON output for text chunks,
 // function calls and finish reasons.
-func (s *Service) Stream(ctx context.Context, in, out interface{}) error {
+func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), error) {
 	input, output, err := s.validateStreamIO(in, out)
 	if err != nil {
-		return err
+		return nop, err
 	}
 	handler, cleanup, err := stream2.PrepareStreamHandler(ctx, input.StreamID)
 	if err != nil {
-		return err
+		return nop, err
 	}
-	defer cleanup()
 
 	s.ensureStreamingOption(input)
 	req, model, err := s.prepareGenerateRequest(ctx, input.GenerateInput)
 	if err != nil {
-		return err
+		return cleanup, err
 	}
 	streamer, ok := model.(llm.StreamingModel)
 	if !ok {
-		return fmt.Errorf("model %T does not support streaming", model)
+		return cleanup, fmt.Errorf("model %T does not support streaming", model)
 	}
 	ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
 
 	streamCh, err := streamer.Stream(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to start Stream: %w", err)
+		return cleanup, fmt.Errorf("failed to start Stream: %w", err)
 	}
 	if err := s.consumeEvents(ctx, streamCh, handler, output); err != nil {
-		return err
+		return cleanup, err
 	}
 
 	var b strings.Builder
@@ -77,7 +78,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) error {
 		}
 	}
 
-	return nil
+	return cleanup, nil
 }
 
 // validateStreamIO validates and unwraps inputs.

@@ -3,7 +3,6 @@ package domain
 import (
 	"strings"
 
-	"github.com/viant/agently/genai/agent/plan"
 	msgread "github.com/viant/agently/internal/dao/message/read"
 )
 
@@ -77,28 +76,4 @@ func (t Transcript) AssistantsNonInterim() Transcript {
 		}
 		return strings.ToLower(strings.TrimSpace(v.Role)) == "assistant"
 	})
-}
-
-// Outcomes flattens all aggregated outcomes across the transcript in order.
-func (t Transcript) Outcomes() []*plan.Outcome {
-	var out []*plan.Outcome
-	for _, v := range t {
-		if v == nil || len(v.Executions) == 0 {
-			continue
-		}
-		out = append(out, v.Executions...)
-	}
-	return out
-}
-
-// StepOutcomes flattens step outcomes across all aggregated outcomes.
-func (t Transcript) StepOutcomes() []*plan.StepOutcome {
-	var steps []*plan.StepOutcome
-	for _, oc := range t.Outcomes() {
-		if oc == nil || len(oc.Steps) == 0 {
-			continue
-		}
-		steps = append(steps, oc.Steps...)
-	}
-	return steps
 }

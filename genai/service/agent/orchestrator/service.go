@@ -34,7 +34,9 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 		return nil, fmt.Errorf("failed to check if model can stream: %w", err)
 	}
 	if canStream {
-		if err = s.llm.Stream(ctx, &core2.StreamInput{StreamID: streamId, GenerateInput: genInput}, &core2.StreamOutput{}); err != nil {
+		cleanup, err := s.llm.Stream(ctx, &core2.StreamInput{StreamID: streamId, GenerateInput: genInput}, &core2.StreamOutput{})
+		defer cleanup()
+		if err != nil {
 			return nil, fmt.Errorf("failed to stream: %w", err)
 		}
 		wg.Wait()
@@ -46,12 +48,16 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			return nil, fmt.Errorf("failed to generate: %w", err)
 		}
 	}
-	ok, err := s.extendPlanFromResponse(ctx, genOutput, aPlan)
-	if ok {
-		if err = s.streamPlanSteps(ctx, streamId, aPlan); err != nil {
-			return nil, fmt.Errorf("failed to stream plan steps: %w", err)
+	if aPlan.IsEmpty() {
+		ok, err := s.extendPlanFromResponse(ctx, genOutput, aPlan)
+		if ok {
+			if err = s.streamPlanSteps(ctx, streamId, aPlan); err != nil {
+				return nil, fmt.Errorf("failed to stream plan steps: %w", err)
+			}
+			wg.Wait()
 		}
 	}
+
 	RefinePlan(aPlan)
 	return aPlan, nil
 }

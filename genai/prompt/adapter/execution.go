@@ -12,11 +12,7 @@ func ToolCallFromStep(st *plan.StepOutcome) *llm.ToolCall {
 	if st == nil || strings.TrimSpace(st.Name) == "" {
 		return nil
 	}
-	summary := strings.TrimSpace(st.Reason)
-	if summary == "" && len(st.Response) > 0 {
-		summary = trimStr(string(st.Response), 160)
-	}
-	return &llm.ToolCall{Name: st.Name, Result: summary, Error: st.Error}
+	return &llm.ToolCall{Name: st.Name, Result: string(st.Response), Error: st.Error}
 }
 
 // ToolCallsFromOutcomes flattens outcomes into llm.ToolCall slice.

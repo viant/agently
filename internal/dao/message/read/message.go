@@ -81,9 +81,6 @@ type MessageView struct {
 	// Elicitation is a typed view for UI/clients; when ElicitInline option is on
 	// the service decodes ElicitationJSON into this struct.
 	Elicitation *plan.Elicitation `sqlx:"-" json:"elicitation,omitempty"`
-	// Executions holds aggregated plan outcomes for the subtree rooted at this
-	// message. Populated when caller opts in via WithIncludeOutcomes.
-	Executions []*plan.Outcome `sqlx:"-" json:"executions,omitempty"`
 }
 
 type ToolCallView struct {

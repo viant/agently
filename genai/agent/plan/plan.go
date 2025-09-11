@@ -22,7 +22,6 @@ type Outcome struct {
 
 type StepOutcome struct {
 	ID       string                 `yaml:"id,omitempty" json:"id,omitempty"`
-	TraceID  int                    `yaml:"traceId,omitempty" json:"traceId,omitempty"`
 	Name     string                 `yaml:"name,omitempty" json:"name,omitempty"`
 	Reason   string                 `yaml:"reason,omitempty" json:"reason,omitempty"`
 	Request  json.RawMessage        `yaml:"request,omitempty" json:"request,omitempty"`
@@ -62,7 +61,7 @@ func (p *Plan) IsEmpty() bool {
 		return true
 	}
 	for _, step := range p.Steps {
-		if step.Name != "" && (step.Elicitation == nil || step.Elicitation.IsEmpty()) {
+		if step.Name == "" && (step.Elicitation == nil || step.Elicitation.IsEmpty()) {
 			return true
 		}
 	}
