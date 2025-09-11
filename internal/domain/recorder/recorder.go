@@ -392,7 +392,7 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
 			tw.Has.ResponsePayloadID = true
 		}
 	}
-	if err := w.store.Operations().RecordToolCall(ctx, tw, "", ""); err != nil {
+	if err := w.store.Operations().RecordToolCall(ctx, tw); err != nil {
 		fmt.Printf("ERROR### Recorder.FinishToolCall: %v\n", err)
 	}
 }
@@ -427,23 +427,6 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
 	if modelKind == "" {
 		modelKind = "chat"
 	}
-	var reqID string
-	if rb := toJSONBytes(start.Request); len(rb) > 0 {
-		b := redact.ScrubJSONBytes(rb, nil)
-		id := uuid.New().String()
-		payload := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
-		payload.SetKind("model_request")
-		payload.SetMimeType("application/json")
-		payload.SetSizeBytes(len(b))
-		payload.SetStorage("inline")
-		payload.SetInlineBody(b)
-		payload.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx, payload); err == nil {
-			reqID = id
-		} else {
-			fmt.Printf("ERROR### Recorder.StartModelCall payload: %v\n", err)
-		}
-	}
 	modelCAll := &mcw.ModelCall{}
 	modelCAll.SetMessageID(start.MessageID)
 	modelCAll.TurnID = strp(start.TurnID)
@@ -457,7 +440,29 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
 		modelCAll.StartedAt = &t
 		modelCAll.Has.StartedAt = true
 	}
-	if err := w.store.Operations().RecordModelCall(ctx, modelCAll, reqID, ""); err != nil {
+
+	if rb := toJSONBytes(start.Request); len(rb) > 0 {
+		b := redact.ScrubJSONBytes(rb, nil)
+		id := uuid.New().String()
+		payload := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
+		payload.SetKind("model_request")
+		payload.SetMimeType("application/json")
+		payload.SetSizeBytes(len(b))
+		payload.SetStorage("inline")
+		payload.SetInlineBody(b)
+		payload.SetCompression("none")
+		if _, err := w.store.Payloads().Patch(ctx, payload); err != nil {
+			fmt.Printf("ERROR### Recorder.StartModelCall payload: %v\n", err)
+		} else {
+			// attach to write model directly
+			modelCAll.RequestPayloadID = &id
+			if modelCAll.Has == nil {
+				modelCAll.Has = &mcw.ModelCallHas{}
+			}
+			modelCAll.Has.RequestPayloadID = true
+		}
+	}
+	if err := w.store.Operations().RecordModelCall(ctx, modelCAll); err != nil {
 		fmt.Printf("ERROR### StartModelCall: %v\n", err)
 	}
 }
@@ -466,7 +471,12 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 	if finish.MessageID == "" {
 		return
 	}
-	var resID string
+	modelCall := &mcw.ModelCall{}
+	modelCall.SetMessageID(finish.MessageID)
+	modelCall.TurnID = strp(finish.TurnID)
+	modelCall.Has = &mcw.ModelCallHas{}
+	modelCall.Has.TurnID = modelCall.TurnID != nil
+
 	if rb := toJSONBytes(finish.Response); len(rb) > 0 {
 		b := redact.ScrubJSONBytes(rb, nil)
 		id := uuid.New().String()
@@ -477,10 +487,15 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 		payload.SetStorage("inline")
 		payload.SetInlineBody(b)
 		payload.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx, payload); err == nil {
-			resID = id
-		} else {
+		if _, err := w.store.Payloads().Patch(ctx, payload); err != nil {
 			fmt.Printf("ERROR### Recorder.FinishModelCall payload: %v\n", err)
+		} else {
+			// attach to write model directly
+			modelCall.ResponsePayloadID = &id
+			if modelCall.Has == nil {
+				modelCall.Has = &mcw.ModelCallHas{}
+			}
+			modelCall.Has.ResponsePayloadID = true
 		}
 	}
 	var pt, ct, tt *int
@@ -503,11 +518,6 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 			}
 		}
 	}
-	modelCall := &mcw.ModelCall{}
-	modelCall.SetMessageID(finish.MessageID)
-	modelCall.TurnID = strp(finish.TurnID)
-	modelCall.Has = &mcw.ModelCallHas{}
-	modelCall.Has.TurnID = modelCall.TurnID != nil
 	if finish.FinishReason != "" {
 		fr := finish.FinishReason
 		modelCall.FinishReason = &fr
@@ -534,7 +544,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 		modelCall.TotalTokens = tt
 		modelCall.Has.TotalTokens = true
 	}
-	if err := w.store.Operations().RecordModelCall(ctx, modelCall, "", resID); err != nil {
+	if err := w.store.Operations().RecordModelCall(ctx, modelCall); err != nil {
 		fmt.Printf("ERROR### FinishModelCall: %v\n", err)
 	}
 
