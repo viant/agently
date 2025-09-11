@@ -49,10 +49,10 @@ type (
 
 	Binding struct {
 		Task            Task                   `yaml:"task" json:"task"`
-		Persona         *Persona               `yaml:"persona,omitempty" json:"persona,omitempty"`
+		Persona         Persona                `yaml:"persona,omitempty" json:"persona,omitempty"`
 		History         History                `yaml:"history,omitempty" json:"history,omitempty"`
-		Tools           *Tools                 `yaml:"tools,omitempty" json:"tools,omitempty"`
-		Meta            *Meta                  `yaml:"meta,omitempty" json:"meta,omitempty"`
+		Tools           Tools                  `yaml:"tools,omitempty" json:"tools,omitempty"`
+		Meta            Meta                   `yaml:"meta,omitempty" json:"meta,omitempty"`
 		SystemDocuments Documents              `yaml:"systemDocuments,omitempty" json:"systemDocuments,omitempty"`
 		Documents       Documents              `yaml:"documents,omitempty" json:"documents,omitempty"`
 		Flags           Flags                  `yaml:"flags,omitempty" json:"flags,omitempty"`
@@ -68,14 +68,14 @@ func (b *Binding) SystemBinding() *Binding {
 
 func (b *Binding) Data() map[string]interface{} {
 	var context = map[string]interface{}{
-		"Task":            b.Task,
-		"History":         b.History,
-		"Tools":           b.Tools,
-		"Flags":           b.Flags,
-		"Documents":       b.Documents,
-		"Meta":            b.Meta,
-		"Context":         b.Context,
-		"SystemDocuments": b.SystemDocuments,
+		"Task":            &b.Task,
+		"History":         &b.History,
+		"Tools":           &b.Tools,
+		"Flags":           &b.Flags,
+		"Documents":       &b.Documents,
+		"Meta":            &b.Meta,
+		"Context":         &b.Context,
+		"SystemDocuments": &b.SystemDocuments,
 	}
 
 	// Flatten selected keys from Context into top-level for convenience

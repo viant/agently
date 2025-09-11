@@ -151,6 +151,9 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agent.Agent
 		}
 	}
 
+	// Resolve relative prompt URIs against the agent source location
+	s.resolvePromptURIs(anAgent)
+
 	// Validate agent
 	if err := anAgent.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid agent configuration from %s: %w", URL, err)
@@ -158,6 +161,25 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agent.Agent
 
 	s.agents.Set(anAgent.Name, anAgent)
 	return anAgent, nil
+}
+
+// resolvePromptURIs updates agent Prompt/SystemPrompt URI when relative by
+// resolving them against the agent source URL directory.
+func (s *Service) resolvePromptURIs(a *agent.Agent) {
+    if a == nil || a.Source == nil || strings.TrimSpace(a.Source.URL) == "" {
+        return
+    }
+    base, _ := url.Split(a.Source.URL, file.Scheme)
+    fix := func(p *prompt.Prompt) {
+        if p == nil { return }
+        u := strings.TrimSpace(p.URI)
+        if u == "" { return }
+        if url.Scheme(u, "") == "" && !strings.HasPrefix(u, "/") {
+            p.URI = url.Join(base, u)
+        }
+    }
+    fix(a.Prompt)
+    fix(a.SystemPrompt)
 }
 
 // parseAgent parses agent properties from a YAML node
@@ -247,7 +269,7 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 				return err
 			}
 
-		case "systemPrompt":
+		case "systemprompt":
 			if agent.SystemPrompt, err = s.getPrompt(valueNode); err != nil {
 				return err
 			}
@@ -302,6 +324,14 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 				return fmt.Errorf("invalid elicitation definition: %w", err)
 			}
 			agent.Elicitation = &elic
+		case "persona":
+			if valueNode.Kind == yaml.MappingNode {
+				var p prompt.Persona
+				if err := (*yaml.Node)(valueNode).Decode(&p); err != nil {
+					return fmt.Errorf("invalid persona definition: %w", err)
+				}
+				agent.Persona = &p
+			}
 		}
 		return nil
 	})

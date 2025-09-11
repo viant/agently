@@ -28,9 +28,6 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 
 	if len(sig) > 0 {
-		if b.Tools == nil {
-			b.Tools = &prompt.Tools{}
-		}
 		b.Tools.Signatures = sig
 		// Determine native tool-use capability from the selected model.
 		model := ""
@@ -58,7 +55,6 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		return nil, err
 	}
 	b.Context = input.Context
-	b.Persona = input.Persona
 	return b, nil
 }
 

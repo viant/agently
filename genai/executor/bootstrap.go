@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
+	"strings"
 
 	clientmcp "github.com/viant/agently/adapter/mcp"
 	"github.com/viant/agently/adapter/tool"
@@ -17,14 +19,13 @@ import (
 
 	"github.com/viant/afs"
 	mcprepo "github.com/viant/agently/internal/repository/mcp"
+	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/datly/view"
 	"github.com/viant/fluxor"
 	mcpsvc "github.com/viant/fluxor-mcp/mcp"
 	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
 	"github.com/viant/mcp"
 	"gopkg.in/yaml.v3"
-
-	"strings"
 
 	texecutor "github.com/viant/fluxor/service/executor"
 	// Helpers for exposing agents as Fluxor services
@@ -103,6 +104,11 @@ func (e *Service) initDefaults(ctx context.Context) {
 	if e.config == nil {
 		e.config = &Config{}
 	}
+
+	// Load default workspace config.yaml when no explicit config was supplied.
+	// This makes CLI/HTTP entry-points that construct executor.Service directly
+	// respect $AGENTLY_ROOT/ag/config.yaml without going through instance.Init.
+	e.loadWorkspaceConfigIfEmpty(ctx)
 	e.initModel()
 	e.initEmbedders()
 	e.initAgent(ctx)
@@ -117,6 +123,51 @@ func (e *Service) initDefaults(ctx context.Context) {
 		e.embedderFinder = e.config.DefaultEmbedderFinder()
 	}
 
+}
+
+// loadWorkspaceConfigIfEmpty attempts to load $AGENTLY_ROOT/config.yaml (or the
+// Config.BaseURL root) into e.config when the current config appears empty.
+func (e *Service) loadWorkspaceConfigIfEmpty(ctx context.Context) {
+	// consider config empty when all groups are nil and no base/dao/services set
+	isEmpty := func(c *Config) bool {
+		if c == nil {
+			return true
+		}
+		if strings.TrimSpace(c.BaseURL) != "" { // has explicit base
+			return false
+		}
+		if c.Agent != nil || c.Model != nil || c.Embedder != nil || c.MCP != nil || c.DAOConnector != nil {
+			return false
+		}
+		if len(c.Services) > 0 {
+			return false
+		}
+		// Defaults may be zero-value; we don't try to introspect deeply
+		return true
+	}
+	if !isEmpty(e.config) {
+		return
+	}
+
+	base := e.config.BaseURL
+	if strings.TrimSpace(base) == "" {
+		base = workspace.Root()
+	}
+	cfgPath := filepath.Join(base, "config.yaml")
+	fs := afs.New()
+	if ok, _ := fs.Exists(ctx, cfgPath); !ok {
+		return
+	}
+	data, err := fs.DownloadWithURL(ctx, cfgPath)
+	if err != nil {
+		return
+	}
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return
+	}
+	// Replace the empty config with loaded one.
+	e.config = &cfg
 }
 
 func (e *Service) initModel() {

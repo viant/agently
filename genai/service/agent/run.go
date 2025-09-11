@@ -26,6 +26,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return fmt.Errorf("invalid input: agent is required")
 	}
 
+	if input.EmbeddingModel == "" {
+		input.EmbeddingModel = s.defaults.Embedder
+	}
+
 	if err := s.ensureConversation(ctx, input); err != nil {
 		return err
 	}

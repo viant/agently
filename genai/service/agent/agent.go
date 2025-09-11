@@ -18,9 +18,5 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 	if qi.Agent == nil {
 		return fmt.Errorf("agent is required")
 	}
-	// Apply model override when supplied
-	if qi.ModelOverride != "" {
-		qi.Agent.Model = qi.ModelOverride
-	}
 	return nil
 }

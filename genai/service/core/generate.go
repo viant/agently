@@ -72,7 +72,7 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 	}
 	i.Message = append(i.Message, llm.NewUserMessage(expanded))
 
-	if tools := i.Binding.Tools; tools != nil && len(tools.Signatures) > 0 {
+	if tools := i.Binding.Tools; len(tools.Signatures) > 0 {
 		for _, tool := range tools.Signatures {
 			i.Options.Tools = append(i.Options.Tools, llm.Tool{Ref: "", Definition: *tool})
 		}
