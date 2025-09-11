@@ -12,6 +12,7 @@ import (
 	d "github.com/viant/agently/internal/domain"
 	convsvc "github.com/viant/agently/internal/domain/adapter/conversation"
 	msgsvc "github.com/viant/agently/internal/domain/adapter/message"
+	opsvc "github.com/viant/agently/internal/domain/adapter/operations"
 	payloadsvc "github.com/viant/agently/internal/domain/adapter/payload"
 	turnsvc "github.com/viant/agently/internal/domain/adapter/turn"
 	usagesvc "github.com/viant/agently/internal/domain/adapter/usage"
@@ -44,6 +45,7 @@ func New(conv convdao.API, msg msgdao.API, turn turndao.API, model mcdao.API, to
 	s.turns = turnsvc.New(turn)
 	// Conversations now use a dedicated adapter backed by DAO read/write models.
 	s.convs = convsvc.New(conv, use)
+	s.operations = opsvc.New(&daofactory.API{Conversation: conv, Message: msg, ModelCall: model, ToolCall: tool, Payload: pl, Turn: turn, Usage: use})
 	return s
 }
 

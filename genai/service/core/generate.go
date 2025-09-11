@@ -70,7 +70,27 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to prompt: %w", err)
 	}
-	i.Message = append(i.Message, llm.NewUserMessage(expanded))
+	// Deduplicate: if the last history entry is already the same user content,
+	// skip appending another user message to avoid duplication between
+	// transcript and prompt.
+	shouldAppend := true
+	if i.Binding != nil && len(i.Binding.History.Messages) > 0 {
+		msgs := i.Binding.History.Messages
+		for k := len(msgs) - 1; k >= 0; k-- {
+			m := msgs[k]
+			if m == nil || strings.TrimSpace(m.Content) == "" {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(m.Role), string(llm.RoleUser)) &&
+				strings.TrimSpace(m.Content) == strings.TrimSpace(expanded) {
+				shouldAppend = false
+			}
+			break
+		}
+	}
+	if shouldAppend {
+		i.Message = append(i.Message, llm.NewUserMessage(expanded))
+	}
 
 	if tools := i.Binding.Tools; len(tools.Signatures) > 0 {
 		for _, tool := range tools.Signatures {

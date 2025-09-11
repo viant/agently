@@ -12,9 +12,9 @@ import (
 // persist concrete call operations (with optional payload indirection) rather
 // than low-level tracing spans.
 type Operations interface {
-	// RecordModelCall stores a model call and optional request/response payloads.
-	RecordModelCall(ctx context.Context, call *mcwrite.ModelCall, requestPayloadID, responsePayloadID string) error
+	// RecordModelCall stores a model call (with payload IDs already attached if any).
+	RecordModelCall(ctx context.Context, call *mcwrite.ModelCall) error
 
-	// RecordToolCall stores a tool call and optional request/response payloads.
-	RecordToolCall(ctx context.Context, call *tcwrite.ToolCall, requestPayloadID, responsePayloadID string) error
+	// RecordToolCall stores a tool call (with payload IDs already attached if any).
+	RecordToolCall(ctx context.Context, call *tcwrite.ToolCall) error
 }
