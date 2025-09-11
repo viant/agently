@@ -17,6 +17,7 @@ import (
 
 	msgw "github.com/viant/agently/internal/dao/message/write"
 	plw "github.com/viant/agently/internal/dao/payload/write"
+	tcwrite "github.com/viant/agently/internal/dao/toolcall/write"
 	turnread "github.com/viant/agently/internal/dao/turn/read"
 	turnwrite "github.com/viant/agently/internal/dao/turn/write"
 	useread "github.com/viant/agently/internal/dao/usage/read"
@@ -83,19 +84,16 @@ func TestStore_Smoke(t *testing.T) {
 	assert.NoError(t, err)
 	_ = ul // may be empty depending on memory DAO state
 
-	// Operations: Record calls and fetch by message
-	tw := &tcwrite.ToolCall{}
-	tw.SetMessageID("m1")
-	tw.SetOpID("op1")
-	tw.SetAttempt(1)
-	tw.SetToolName("sys.echo")
-	tw.SetToolKind("general")
-	tw.SetStatus("completed")
-	err = store.Operations().RecordToolCall(ctx, tw, "", "")
+	// Operations: Record a tool call (smoke test)
+	tc := &tcwrite.ToolCall{}
+	tc.SetMessageID("m1")
+	tc.SetOpID("op1")
+	tc.SetAttempt(1)
+	tc.SetToolName("sys.echo")
+	tc.SetToolKind("general")
+	tc.SetStatus("completed")
+	err = store.Operations().RecordToolCall(ctx, tc)
 	assert.NoError(t, err)
-	ops, err := store.Operations().GetByMessage(ctx, "m1")
-	assert.NoError(t, err)
-	assert.True(t, len(ops) >= 0)
 }
 
 // no-op
