@@ -39,12 +39,13 @@ type QueryInput struct {
 
 // QueryOutput represents the result of an agent knowledge query
 type QueryOutput struct {
-	Agent       *agentmdl.Agent   `json:"agent"`                 // Agent used for the query
-	Content     string            `json:"content"`               // Generated content from the agent
-	Elicitation *plan.Elicitation `json:"elicitation,omitempty"` // structured missing input request
-	Plan        *plan.Plan        `json:"plan,omitempty"`        // current execution plan (optional)
-	Usage       *usage.Aggregator `json:"usage,omitempty"`
-	Model       string            `json:"model,omitempty"`
+	ConversationID string            `json:"conversationId,omitempty"`
+	Agent          *agentmdl.Agent   `json:"agent"`                 // Agent used for the query
+	Content        string            `json:"content"`               // Generated content from the agent
+	Elicitation    *plan.Elicitation `json:"elicitation,omitempty"` // structured missing input request
+	Plan           *plan.Plan        `json:"plan,omitempty"`        // current execution plan (optional)
+	Usage          *usage.Aggregator `json:"usage,omitempty"`
+	Model          string            `json:"model,omitempty"`
 }
 
 func (s *Service) query(ctx context.Context, input interface{}, output interface{}) error {

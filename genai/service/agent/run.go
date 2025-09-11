@@ -33,7 +33,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.ensureConversation(ctx, input); err != nil {
 		return err
 	}
-
+	output.ConversationID = input.ConversationID
 	s.tryMergePromptIntoContext(input)
 	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
 		return err

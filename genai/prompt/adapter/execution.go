@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"encoding/json"
 	"strings"
 
 	plan "github.com/viant/agently/genai/agent/plan"
@@ -12,7 +13,19 @@ func ToolCallFromStep(st *plan.StepOutcome) *llm.ToolCall {
 	if st == nil || strings.TrimSpace(st.Name) == "" {
 		return nil
 	}
-	return &llm.ToolCall{Name: st.Name, Result: string(st.Response), Error: st.Error}
+	var args map[string]interface{}
+	if len(st.Request) > 0 {
+		// best-effort parse; ignore errors to avoid breaking UX
+		_ = json.Unmarshal(st.Request, &args)
+	}
+	call := &llm.ToolCall{
+		ID:        strings.TrimSpace(st.ID),
+		Name:      st.Name,
+		Arguments: args,
+		Result:    string(st.Response),
+		Error:     st.Error,
+	}
+	return call
 }
 
 // ToolCallsFromOutcomes flattens outcomes into llm.ToolCall slice.
