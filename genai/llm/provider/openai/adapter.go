@@ -57,7 +57,7 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 			req.Tools = make([]Tool, len(request.Options.Tools))
 			for i, tool := range request.Options.Tools {
 				req.Tools[i] = Tool{
-					Type: tool.Type,
+					Type: "function",
 					Function: ToolDefinition{
 						Name:        tool.Definition.Name,
 						Description: tool.Definition.Description,
