@@ -74,6 +74,7 @@ CREATE TABLE `message` (
                            turn_id             VARCHAR(255),
                            sequence            BIGINT,
                            created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                           status              VARCHAR(255),
                            role                VARCHAR(255) NOT NULL CHECK (role IN ('system','user','assistant','tool','control')),
                            `type`              VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text','tool_op','control')),
                            content             MEDIUMTEXT NOT NULL,

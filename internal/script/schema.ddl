@@ -66,6 +66,7 @@ CREATE TABLE message (
     turn_id             TEXT REFERENCES turns(id) ON DELETE SET NULL,
     sequence            INTEGER,
     created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status              TEXT,
     role                TEXT NOT NULL CHECK (role IN ('system','user','assistant','tool','control')),
     type                TEXT NOT NULL DEFAULT 'text' CHECK (type IN ('text','tool_op','control')),
     content             TEXT NOT NULL,
