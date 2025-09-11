@@ -61,6 +61,7 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 		runtime:      runtime,
 		store:        store,
 		orchestrator: orchestrator.New(llm, registry, recorder),
+		fs:           afs.New(),
 	}
 	for _, o := range opts {
 		o(srv)

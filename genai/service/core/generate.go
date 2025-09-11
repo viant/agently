@@ -59,16 +59,18 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		i.Message = append(i.Message,
 			llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Content))
 	}
-	if i.Prompt != nil {
-		if err := i.Prompt.Init(ctx); err != nil {
-			return err
-		}
-		expanded, err := i.Prompt.Generate(ctx, i.Binding)
-		if err != nil {
-			return fmt.Errorf("failed to prompt: %w", err)
-		}
-		i.Message = append(i.Message, llm.NewUserMessage(expanded))
+
+	if i.Prompt == nil {
+		i.Prompt = &prompt.Prompt{}
 	}
+	if err := i.Prompt.Init(ctx); err != nil {
+		return err
+	}
+	expanded, err := i.Prompt.Generate(ctx, i.Binding)
+	if err != nil {
+		return fmt.Errorf("failed to prompt: %w", err)
+	}
+	i.Message = append(i.Message, llm.NewUserMessage(expanded))
 
 	if tools := i.Binding.Tools; tools != nil && len(tools.Signatures) > 0 {
 		for _, tool := range tools.Signatures {
