@@ -81,6 +81,16 @@ func (s *Service) buildHistoryBinding(ctx context.Context, input *QueryInput) (p
 		}
 		flat = append(flat, &prompt.Message{Role: v.Role, Content: v.Content})
 	}
+	// Avoid duplicating the current user query in both Task.Prompt and History:
+	// if the most recent history entry is a user message equal to input.Query,
+	// drop it from History so the prompt shows it only once under "User Query".
+	if n := len(flat); n > 0 {
+		last := flat[n-1]
+		if last != nil && strings.EqualFold(strings.TrimSpace(last.Role), "user") &&
+			strings.TrimSpace(last.Content) == strings.TrimSpace(input.Query) {
+			flat = flat[:n-1]
+		}
+	}
 	h.Messages = flat
 	return h, nil
 }
