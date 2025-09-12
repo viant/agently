@@ -28,7 +28,7 @@ func TestMessageRecorder_DataDriven(t *testing.T) {
 		c.SetId(convID)
 		_, _ = conv.Patch(ctx, c)
 	}
-	w.RecordMessage(ctx, memory.Message{ID: "m-1", ConversationID: convID, Role: "user", Content: "hi", CreatedAt: time.Now()})
+	_ = w.RecordMessage(ctx, memory.Message{ID: "m-1", ConversationID: convID, Role: "user", Content: "hi", CreatedAt: time.Now()})
 	// list messages by conversation; may be empty depending on DAO, but ensure no error
 	_, err := w.store.Messages().List(ctx, msgread.WithConversationID(convID))
 	assert.NoError(t, err)
@@ -65,7 +65,7 @@ func TestModelCallRecorder_DataDriven(t *testing.T) {
 		c.SetId(convID)
 		_, _ = conv.Patch(ctx, c)
 	}
-	w.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: convID, Role: "assistant", Content: "x", CreatedAt: time.Now()})
+	_ = w.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: convID, Role: "assistant", Content: "x", CreatedAt: time.Now()})
 	usage := &llm.Usage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3}
 	w.StartModelCall(ctx, ModelCallStart{MessageID: msgID, TurnID: turnID, Provider: "openai", Model: "gpt-x", ModelKind: "chat", StartedAt: time.Now(), Request: map[string]string{"p": "v"}})
 	w.FinishModelCall(ctx, ModelCallFinish{MessageID: msgID, TurnID: turnID, Usage: usage, FinishReason: "stop", CompletedAt: time.Now(), Response: map[string]string{"r": "v"}})
@@ -142,7 +142,7 @@ func TestStore_Memory_WriteFlow(t *testing.T) {
 		c.SetId(convID)
 		_, _ = conv.Patch(ctx, c)
 	}
-	w.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: convID, Role: "assistant", Content: "hello", CreatedAt: time.Now()})
+	_ = w.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: convID, Role: "assistant", Content: "hello", CreatedAt: time.Now()})
 
 	// Record turn start/update
 	err = w.StartTurn(ctx, convID, turnID, time.Now().Add(-1*time.Second))

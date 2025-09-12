@@ -171,7 +171,9 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	msgID := memory.ModelMessageIDFromContext(ctx)
 	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
 		if tm.ConversationID != "" && strings.TrimSpace(output.Content) != "" {
-			s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()})
+			if err := s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()}); err != nil {
+				return err
+			}
 			output.MessageID = msgID
 		}
 	}

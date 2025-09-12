@@ -57,7 +57,12 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, recorder dom
 	toolMsgID = uuid.New().String()
 	name := step.Name
 	msg := memory.Message{ID: toolMsgID, ConversationID: turn.ConversationID, ParentID: turn.ParentMessageID, Role: "tool", Content: out.Result, ToolName: &name, CreatedAt: span.EndedAt}
-	recorder.RecordMessage(ctx, msg)
+	if recErr := recorder.RecordMessage(ctx, msg); recErr != nil {
+		if err != nil {
+			return out, span, errors.Join(err, recErr)
+		}
+		return out, span, recErr
+	}
 
 	status := "completed"
 	var errMsg string

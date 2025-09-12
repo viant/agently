@@ -71,7 +71,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return updateErr
 	}
 	if output.Plan.Elicitation != nil {
-		s.recordAssistantElicitation(ctx, turn.ConversationID, turn.ParentMessageID, output.Plan.Elicitation)
+		if err := s.recordAssistantElicitation(ctx, turn.ConversationID, turn.ParentMessageID, output.Plan.Elicitation); err != nil {
+			return err
+		}
 	}
 	output.Usage = agg
 	return nil
@@ -130,7 +132,9 @@ func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, 
 	}
 	msg := memory.Message{ID: id, ParentID: parentId, Role: role, Actor: actor, Content: content, ConversationID: convID}
 	if s.recorder != nil {
-		s.recorder.RecordMessage(ctx, msg)
+		if err := s.recorder.RecordMessage(ctx, msg); err != nil {
+			return "", err
+		}
 	}
 	return msg.ID, nil
 }

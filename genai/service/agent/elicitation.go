@@ -11,9 +11,9 @@ import (
 	"github.com/viant/agently/genai/memory"
 )
 
-func (s *Service) recordAssistantElicitation(ctx context.Context, convID string, messageID string, elic *plan.Elicitation) {
+func (s *Service) recordAssistantElicitation(ctx context.Context, convID string, messageID string, elic *plan.Elicitation) error {
 	if elic == nil {
-		return
+		return nil
 	}
 
 	// Refine schema for better UX.
@@ -32,5 +32,5 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 		Elicitation:    elic,
 		CreatedAt:      time.Now(),
 	}
-	s.recorder.RecordMessage(ctx, msg)
+	return s.recorder.RecordMessage(ctx, msg)
 }

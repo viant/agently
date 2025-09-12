@@ -12,9 +12,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/genai/agent/plan"
 	"io"
 	"strings"
+
+	"github.com/viant/agently/genai/agent/plan"
 
 	"github.com/xeipuuv/gojsonschema"
 )
@@ -162,7 +163,7 @@ func Prompt(ctx context.Context, w io.Writer, r io.Reader, p *plan.Elicitation) 
 			}
 			b.WriteString(e.String())
 		}
-		return nil, fmt.Errorf("collected payload does not satisfy schema: %s", b.String())
+		return nil, fmt.Errorf("collected payload does not satisfy schema: %s, payload: %s", b.String(), payload)
 	}
 
 	return &plan.ElicitResult{Action: plan.ElicitResultActionAccept, Payload: payload}, nil

@@ -32,7 +32,7 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) context.C
 	//TODO would it make sense to combine message, model call, payload in one call
 	if turn.ConversationID != "" {
 		one := 1
-		o.r.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: turn.ParentMessageID, ConversationID: turn.ConversationID, Role: "assistant", Content: string(info.Payload), CreatedAt: time.Now(), Interim: &one})
+		_ = o.r.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: turn.ParentMessageID, ConversationID: turn.ConversationID, Role: "assistant", Content: string(info.Payload), CreatedAt: time.Now(), Interim: &one})
 	}
 	o.r.StartModelCall(ctx, rec.ModelCallStart{MessageID: msgID, TurnID: turn.TurnID, Provider: info.Provider, Model: info.Model, ModelKind: info.ModelKind, StartedAt: o.start.StartedAt, Request: info.RequestJSON})
 	return ctx
@@ -55,7 +55,7 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
 	//TODO would it make sense to combine message, model call, payload in one call
 	if info.LLMResponse != nil {
 		interim := 1
-		o.r.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: turn.ConversationID, Actor: "planner", Interim: &interim})
+		_ = o.r.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: turn.ConversationID, Actor: "planner", Interim: &interim})
 	}
 	// Finish model call first
 	o.r.FinishModelCall(ctx, rec.ModelCallFinish{MessageID: msgID, TurnID: turn.TurnID, Usage: info.Usage, FinishReason: info.FinishReason, Cost: info.Cost, CompletedAt: info.CompletedAt, Response: info.ResponseJSON})

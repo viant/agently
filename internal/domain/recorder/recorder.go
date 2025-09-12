@@ -43,7 +43,7 @@ type Enablement interface {
 
 // MessageRecorder persists messages.
 type MessageRecorder interface {
-	RecordMessage(ctx context.Context, m memory.Message)
+	RecordMessage(ctx context.Context, m memory.Message) error
 }
 
 // TurnRecorder persists turn lifecycle events.
@@ -117,7 +117,13 @@ type Store struct {
 	store d.Store
 }
 
-func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
+func (w *Store) RecordMessage(ctx context.Context, m memory.Message) error {
+	if ctx == nil {
+		return fmt.Errorf("record message: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("record message: %w", err)
+	}
 	id := m.ID
 	if id == "" {
 		id = uuid.New().String()
@@ -152,6 +158,10 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 			elicitationRec.SetStorage("inline")
 			elicitationRec.SetInlineBody(b)
 			elicitationRec.SetCompression("none")
+			// Persist payload first to avoid dangling reference
+			if _, err := w.store.Payloads().Patch(ctx, elicitationRec); err != nil {
+				return fmt.Errorf("record message: patch elicitation payload: %w", err)
+			}
 			rec.SetElicitationID(elicitationRec.Id)
 		}
 	}
@@ -175,14 +185,9 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	}
 
 	if _, err := w.store.Messages().Patch(ctx, rec); err != nil {
-		fmt.Printf("ERROR### Recorder.RecordMessage: %v\n", err)
+		return fmt.Errorf("record message: patch message: %w", err)
 	}
-	if elicitationRec != nil {
-		if _, err := w.store.Payloads().Patch(ctx, elicitationRec); err == nil {
-		} else {
-			fmt.Printf("ERROR### Recorder.RecordMessage elicitation: %v\n", err)
-		}
-	}
+	return nil
 }
 
 func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) error {

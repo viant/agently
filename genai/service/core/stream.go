@@ -70,7 +70,9 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	if content != "" {
 		msgID := memory.ModelMessageIDFromContext(ctx)
 		turn, _ := memory.TurnMetaFromContext(ctx)
-		s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: turn.ParentMessageID, ConversationID: turn.ConversationID, Role: "assistant", Content: content, CreatedAt: time.Now()})
+		if err := s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: turn.ParentMessageID, ConversationID: turn.ConversationID, Role: "assistant", Content: content, CreatedAt: time.Now()}); err != nil {
+			return cleanup, err
+		}
 		// Marking interim planner is now handled in the model-call observer based on final response.
 		output.MessageID = msgID
 	}
