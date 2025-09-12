@@ -65,7 +65,6 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 		if ev.Type == "chunk" && strings.TrimSpace(ev.Content) != "" {
 			b.WriteString(ev.Content)
 		}
-		// function_call events detection is handled in the model-call observer.
 	}
 	content := strings.TrimSpace(b.String())
 	if content != "" {

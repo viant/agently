@@ -51,7 +51,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		ctx = tool.WithPolicy(ctx, pol)
 	}
 
-	s.recorder.StartTurn(ctx, turn.ConversationID, turn.TurnID, time.Now())
+	if err := s.recorder.StartTurn(ctx, turn.ConversationID, turn.TurnID, time.Now()); err != nil {
+		return err
+	}
 	_, err := s.addMessage(ctx, turn.ConversationID, "user", "", input.Query, turn.ParentMessageID, "")
 	if err != nil {
 		return fmt.Errorf("failed to add message: %w", err)
@@ -61,9 +63,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err != nil {
 		status = "failed"
 	}
-	s.recorder.UpdateTurn(ctx, turn.TurnID, status)
+	updateErr := s.recorder.UpdateTurn(ctx, turn.TurnID, status)
 	if err != nil {
 		return err
+	}
+	if updateErr != nil {
+		return updateErr
 	}
 	if output.Plan.Elicitation != nil {
 		s.recordAssistantElicitation(ctx, turn.TurnID, turn.ParentMessageID, output.Plan.Elicitation)

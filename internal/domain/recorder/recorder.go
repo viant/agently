@@ -48,14 +48,14 @@ type MessageRecorder interface {
 
 // TurnRecorder persists turn lifecycle events.
 type TurnRecorder interface {
-	StartTurn(ctx context.Context, conversationID, turnID string, at time.Time)
-	UpdateTurn(ctx context.Context, turnID, status string)
+	StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) error
+	UpdateTurn(ctx context.Context, turnID, status string) error
 }
 
 // ToolCallRecorder persists tool-call operations (with optional payloads and metadata).
 type ToolCallRecorder interface {
-	StartToolCall(ctx context.Context, start ToolCallStart)
-	FinishToolCall(ctx context.Context, upd ToolCallUpdate)
+	StartToolCall(ctx context.Context, start ToolCallStart) error
+	FinishToolCall(ctx context.Context, upd ToolCallUpdate) error
 }
 
 // Add a new function RecordUpdateToolStatus(ctx context.Context, messageID, completedAt time.Time, errMsg string, response interface{})
@@ -196,7 +196,7 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 
 }
 
-func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) {
+func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) error {
 	if turnID == "" {
 		turnID = uuid.New().String()
 	}
@@ -208,17 +208,19 @@ func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at
 		rec.SetCreatedAt(at)
 	}
 	if _, err := w.store.Turns().Start(ctx, rec); err != nil {
-		fmt.Printf("ERROR### Recorder.StartTurn: %v\n", err)
+		return err
 	}
+	return nil
 }
 
-func (w *Store) UpdateTurn(ctx context.Context, turnID, status string) {
+func (w *Store) UpdateTurn(ctx context.Context, turnID, status string) error {
 	rec := &turnw.Turn{Has: &turnw.TurnHas{}}
 	rec.SetId(turnID)
 	rec.SetStatus(status)
 	if err := w.store.Turns().Update(ctx, rec); err != nil {
-		fmt.Printf("ERROR### Recorder.UpdateTurn: %v\n", err)
+		return err
 	}
+	return nil
 }
 
 // ToolCallStart represents the initial tool-call data captured at start.
@@ -249,7 +251,7 @@ type ToolCallUpdate struct {
 }
 
 // persistToolRequestPayload persists the request payload and returns its ID.
-func (w *Store) persistToolRequestPayload(ctx context.Context, request map[string]interface{}) (reqID string) {
+func (w *Store) persistToolRequestPayload(ctx context.Context, request map[string]interface{}) (reqID string, err error) {
 	if b := toJSONBytes(request); len(b) > 0 {
 		sb := redact.ScrubJSONBytes(b, nil)
 		id := uuid.New().String()
@@ -260,17 +262,15 @@ func (w *Store) persistToolRequestPayload(ctx context.Context, request map[strin
 		pw.SetStorage("inline")
 		pw.SetInlineBody(sb)
 		pw.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx, pw); err == nil {
+		if _, err = w.store.Payloads().Patch(ctx, pw); err == nil {
 			reqID = id
-		} else {
-			fmt.Printf("ERROR### Recorder.persistToolRequestPayload: %v\n", err)
 		}
 	}
-	return reqID
+	return reqID, err
 }
 
 // persistToolResponsePayload persists the response payload and returns its ID.
-func (w *Store) persistToolResponsePayload(ctx context.Context, response interface{}) (resID string) {
+func (w *Store) persistToolResponsePayload(ctx context.Context, response interface{}) (resID string, err error) {
 	if b := toJSONBytes(response); len(b) > 0 {
 		sb := redact.ScrubJSONBytes(b, nil)
 		id := uuid.New().String()
@@ -281,28 +281,27 @@ func (w *Store) persistToolResponsePayload(ctx context.Context, response interfa
 		pw.SetStorage("inline")
 		pw.SetInlineBody(sb)
 		pw.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx, pw); err == nil {
+		if _, err = w.store.Payloads().Patch(ctx, pw); err == nil {
 			resID = id
-		} else {
-			fmt.Printf("ERROR### Recorder.persistToolResponsePayload: %v\n", err)
 		}
 	}
-	return resID
+	return resID, err
 }
 
 // StartToolCall persists the initial request and metadata.
-func (w *Store) StartToolCall(ctx context.Context, start ToolCallStart) {
+func (w *Store) StartToolCall(ctx context.Context, start ToolCallStart) error {
 	if start.MessageID == "" || start.ToolName == "" {
-		return
+		return nil
 	}
 	// Defer request payload persistence to FinishToolCall where we persist
 	// both request and response and reference them via payloadId snapshots.
+	return nil
 }
 
 // FinishToolCall updates status and persists the response.
-func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
+func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) error {
 	if upd.MessageID == "" || upd.ToolName == "" || upd.Status == "" {
-		return
+		return fmt.Errorf("invalid tool call update: messageID, toolName and status are required")
 	}
 	tw := &tcw.ToolCall{}
 	// Use per-tool message id when provided; fallback to parent message id
@@ -375,26 +374,31 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) {
 				_ = json.Unmarshal(b, &reqMap)
 			}
 		}
-		if id := w.persistToolRequestPayload(ctx, reqMap); id != "" {
+		if id, perr := w.persistToolRequestPayload(ctx, reqMap); id != "" {
 			tw.RequestPayloadID = &id
 			if tw.Has == nil {
 				tw.Has = &tcw.ToolCallHas{}
 			}
 			tw.Has.RequestPayloadID = true
+		} else if perr != nil {
+			return perr
 		}
 	}
 	if upd.Response != nil {
-		if id := w.persistToolResponsePayload(ctx, upd.Response); id != "" {
+		if id, perr := w.persistToolResponsePayload(ctx, upd.Response); id != "" {
 			tw.ResponsePayloadID = &id
 			if tw.Has == nil {
 				tw.Has = &tcw.ToolCallHas{}
 			}
 			tw.Has.ResponsePayloadID = true
+		} else if perr != nil {
+			return perr
 		}
 	}
 	if err := w.store.Operations().RecordToolCall(ctx, tw); err != nil {
-		fmt.Printf("ERROR### Recorder.FinishToolCall: %v\n", err)
+		return err
 	}
+	return nil
 }
 
 // RecordToolCall has been replaced by StartToolCall/FinishToolCall.
@@ -549,14 +553,17 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 	}
 
 	// Update conversation usage totals after each model call
+	// Use a non-cancelable context to avoid losing updates when the parent
+	// request context gets cancelled immediately after response delivery.
+	noCancel := context.WithoutCancel(ctx)
 	convID := ""
-	if rows, err := w.store.Messages().List(ctx, msgread.WithIDs(finish.MessageID)); err == nil && len(rows) > 0 && rows[0] != nil {
+	if rows, err := w.store.Messages().List(noCancel, msgread.WithIDs(finish.MessageID)); err == nil && len(rows) > 0 && rows[0] != nil {
 		convID = rows[0].ConversationID
 	}
 	if convID != "" {
 		// Aggregate usage via DAO read (model_calls) and patch conversation totals
 		in := usageread.Input{ConversationID: convID, Has: &usageread.Has{ConversationID: true}}
-		if views, err := w.store.Usage().List(ctx, in); err == nil {
+		if views, err := w.store.Usage().List(noCancel, in); err == nil {
 			totalIn, totalOut, totalEmb := 0, 0, 0
 			for _, v := range views {
 				if v == nil {
@@ -580,7 +587,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 			u.SetUsageInputTokens(totalIn)
 			u.SetUsageOutputTokens(totalOut)
 			u.SetUsageEmbeddingTokens(totalEmb)
-			if _, err := w.store.Usage().Patch(ctx, u); err != nil {
+			if _, err := w.store.Usage().Patch(noCancel, u); err != nil {
 				fmt.Printf("WARN### FinishModelCall usage patch: %v\n", err)
 			}
 		}

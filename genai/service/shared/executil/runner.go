@@ -2,6 +2,7 @@ package executil
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -31,13 +32,15 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, recorder dom
 		return plan.ToolCall{}, span, fmt.Errorf("turn meta not found")
 	}
 
-	recorder.StartToolCall(ctx, domainrec.ToolCallStart{
+	if err := recorder.StartToolCall(ctx, domainrec.ToolCallStart{
 		MessageID: turn.ParentMessageID,
 		TurnID:    turn.TurnID,
 		ToolName:  step.Name,
 		StartedAt: span.StartedAt,
 		Request:   step.Args,
-	})
+	}); err != nil {
+		return plan.ToolCall{}, span, err
+	}
 	var out plan.ToolCall
 	var toolResult string
 
@@ -62,7 +65,7 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, recorder dom
 		status = "failed"
 		errMsg = err.Error()
 	}
-	recorder.FinishToolCall(ctx, domainrec.ToolCallUpdate{
+	finishErr := recorder.FinishToolCall(ctx, domainrec.ToolCallUpdate{
 		MessageID:     turn.ParentMessageID,
 		ToolMessageID: toolMsgID,
 		TurnID:        turn.TurnID,
@@ -77,5 +80,11 @@ func RunTool(ctx context.Context, reg tool.Registry, step StepInfo, recorder dom
 		OpID:          out.ID,
 		Attempt:       1,
 	})
+	if finishErr != nil {
+		if err != nil {
+			return out, span, errors.Join(err, finishErr)
+		}
+		return out, span, finishErr
+	}
 	return out, span, err
 }

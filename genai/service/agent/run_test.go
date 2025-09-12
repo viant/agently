@@ -167,6 +167,9 @@ func TestService_Query_DataDriven(t *testing.T) {
 			// Align aggregator instance (empty state) to avoid pointer inequality noise
 			tc.expectedOutput.Usage = out.Usage
 
+			// Align dynamic conversation ID for deterministic comparison
+			tc.expectedOutput.ConversationID = out.ConversationID
+
 			// Assert output equality (single value assertion per case)
 			assert.EqualValues(t, tc.expectedOutput, out)
 
@@ -188,12 +191,18 @@ func TestService_Query_DataDriven(t *testing.T) {
 // noopRecorder implements recorder.Recorder with no-ops for unit testing.
 type noopRecorder struct{}
 
-func (n *noopRecorder) RecordMessage(ctx context.Context, m memory.Message)                        {}
-func (n *noopRecorder) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) {}
-func (n *noopRecorder) UpdateTurn(ctx context.Context, turnID, status string)                      {}
-func (n *noopRecorder) StartToolCall(ctx context.Context, start recpkg.ToolCallStart)              {}
-func (n *noopRecorder) FinishToolCall(ctx context.Context, upd recpkg.ToolCallUpdate)              {}
-func (n *noopRecorder) StartModelCall(ctx context.Context, start recpkg.ModelCallStart)            {}
-func (n *noopRecorder) FinishModelCall(ctx context.Context, finish recpkg.ModelCallFinish)         {}
+func (n *noopRecorder) RecordMessage(ctx context.Context, m memory.Message) {}
+func (n *noopRecorder) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) error {
+	return nil
+}
+func (n *noopRecorder) UpdateTurn(ctx context.Context, turnID, status string) error { return nil }
+func (n *noopRecorder) StartToolCall(ctx context.Context, start recpkg.ToolCallStart) error {
+	return nil
+}
+func (n *noopRecorder) FinishToolCall(ctx context.Context, upd recpkg.ToolCallUpdate) error {
+	return nil
+}
+func (n *noopRecorder) StartModelCall(ctx context.Context, start recpkg.ModelCallStart)    {}
+func (n *noopRecorder) FinishModelCall(ctx context.Context, finish recpkg.ModelCallFinish) {}
 func (n *noopRecorder) RecordUsageTotals(ctx context.Context, conversationID string, input, output, embed int) {
 }

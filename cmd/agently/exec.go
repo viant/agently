@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/service"
-	"github.com/viant/fluxor-mcp/mcp/tool"
 	"io"
 	"os"
 	"time"
+
+	"github.com/viant/agently/service"
+	"github.com/viant/fluxor-mcp/mcp/tool"
 )
 
 // ExecCmd executes a registered tool via the Agently executor. It mirrors the
@@ -68,6 +69,7 @@ func (c *ExecCmd) Execute(_ []string) error {
 	if timeout <= 0 {
 		timeout = 15 * time.Minute
 	}
+
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithTimeout(ctx, timeout)
 	defer cancel()
