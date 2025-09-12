@@ -7,12 +7,13 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	core2 "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/service/core/stream"
-	executil2 "github.com/viant/agently/genai/service/shared/executil"
+	executil "github.com/viant/agently/genai/service/shared/executil"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/internal/domain/recorder"
 )
@@ -131,8 +132,8 @@ func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGr
 			step := st
 			go func() {
 				defer wg.Done()
-				stepInfo := executil2.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args}
-				_, _, _ = executil2.RunTool(ctx, s.registry, stepInfo, s.recorder)
+				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args}
+				_, _, _ = executil.RunTool(ctx, s.registry, stepInfo, s.recorder)
 			}()
 		}
 		return nil
@@ -192,13 +193,17 @@ func (s *Service) extendPlanWithToolCalls(choice *llm.Choice, aPlan *plan.Plan) 
 func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) error {
 	var err error
 	if strings.Contains(genOutput.Content, `"tool"`) {
-		err = executil2.EnsureJSONResponse(ctx, genOutput.Content, aPlan)
+		err = executil.EnsureJSONResponse(ctx, genOutput.Content, aPlan)
 	}
 	if strings.Contains(genOutput.Content, `"elicitation"`) {
 		aPlan.Elicitation = &plan.Elicitation{}
-		_ = executil2.EnsureJSONResponse(ctx, genOutput.Content, aPlan.Elicitation)
+		_ = executil.EnsureJSONResponse(ctx, genOutput.Content, aPlan.Elicitation)
 		if aPlan.Elicitation.IsEmpty() {
 			aPlan.Elicitation = nil
+		} else {
+			if aPlan.Elicitation.ElicitationId == "" {
+				aPlan.Elicitation.ElicitationId = uuid.New().String()
+			}
 		}
 	}
 	aPlan.Steps.EnsureID()

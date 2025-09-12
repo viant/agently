@@ -32,7 +32,5 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 		Elicitation:    elic,
 		CreatedAt:      time.Now(),
 	}
-	if s.recorder != nil {
-		s.recorder.RecordMessage(ctx, msg)
-	}
+	s.recorder.RecordMessage(ctx, msg)
 }

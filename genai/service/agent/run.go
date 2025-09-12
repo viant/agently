@@ -71,7 +71,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return updateErr
 	}
 	if output.Plan.Elicitation != nil {
-		s.recordAssistantElicitation(ctx, turn.TurnID, turn.ParentMessageID, output.Plan.Elicitation)
+		s.recordAssistantElicitation(ctx, turn.ConversationID, turn.ParentMessageID, output.Plan.Elicitation)
 	}
 	output.Usage = agg
 	return nil

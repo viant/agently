@@ -142,23 +142,17 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 	}
 
 	var elicitationRec *plw.Payload
-	var elicitationPayloadID string
-
 	if m.Elicitation != nil {
-		// Persist elicitation payload and link via ElicitationID.
-		// Use payload ID as canonical elicitation_id so POST/lookup can round-trip reliably.
-		pid := uuid.New().String()
 		// Ensure the payload body carries the same opaque ID.
-		m.Elicitation.ElicitationId = pid
 		if b := toJSONBytes(m.Elicitation); len(b) > 0 {
-			elicitationRec = &plw.Payload{Id: pid, Has: &plw.PayloadHas{Id: true}}
+			elicitationRec = &plw.Payload{Id: m.Elicitation.ElicitationId, Has: &plw.PayloadHas{Id: true}}
 			elicitationRec.SetKind("elicitation_request")
 			elicitationRec.SetMimeType("application/json")
 			elicitationRec.SetSizeBytes(len(b))
 			elicitationRec.SetStorage("inline")
 			elicitationRec.SetInlineBody(b)
 			elicitationRec.SetCompression("none")
-			elicitationPayloadID = pid
+			rec.SetElicitationID(elicitationRec.Id)
 		}
 	}
 
@@ -180,20 +174,15 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) {
 		rec.SetCreatedAt(m.CreatedAt)
 	}
 
+	if _, err := w.store.Messages().Patch(ctx, rec); err != nil {
+		fmt.Printf("ERROR### Recorder.RecordMessage: %v\n", err)
+	}
 	if elicitationRec != nil {
 		if _, err := w.store.Payloads().Patch(ctx, elicitationRec); err == nil {
-			// Store payload ID as message.elicitation_id for consistent matching on POST.
-			if elicitationPayloadID != "" {
-				rec.SetElicitationID(elicitationPayloadID)
-			}
 		} else {
 			fmt.Printf("ERROR### Recorder.RecordMessage elicitation: %v\n", err)
 		}
 	}
-	if _, err := w.store.Messages().Patch(ctx, rec); err != nil {
-		fmt.Printf("ERROR### Recorder.RecordMessage: %v\n", err)
-	}
-
 }
 
 func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) error {
