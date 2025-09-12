@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/viant/agently/adapter/http/router/metadata"
 	"github.com/viant/agently/adapter/http/workspace"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
@@ -51,6 +52,9 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 
 	// File browser (Forge)
 	mux.Handle("/v1/workspace/file-browser/", http.StripPrefix("/v1/workspace/file-browser", filebrowser.New()))
+
+	// Metadata defaults endpoint
+	mux.HandleFunc("/v1/metadata/defaults", metadata.New(exec))
 
 	fileSystem := fsadapter.New(afs.New(), "embed://localhost", &ui.FS)
 	fileServer := http.FileServer(fileSystem)
