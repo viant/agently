@@ -125,10 +125,17 @@ func Prompt(ctx context.Context, w io.Writer, r io.Reader, p *plan.Elicitation) 
 				continue // re-prompt
 			}
 
-			// Type casting via json.Unmarshal – fallback to plain string
+			// Type-aware casting: if schema says string, keep raw input string.
+			// Otherwise, try JSON parse (numbers, bools, objects, arrays),
+			// and fall back to the raw string if parsing fails.
 			var v any
-			if err := json.Unmarshal([]byte(answer), &v); err != nil {
+			switch strings.ToLower(strings.TrimSpace(prop.Type)) {
+			case "string", "":
 				v = answer
+			default:
+				if err := json.Unmarshal([]byte(answer), &v); err != nil {
+					v = answer
+				}
 			}
 
 			payload[propName] = v
@@ -163,7 +170,7 @@ func Prompt(ctx context.Context, w io.Writer, r io.Reader, p *plan.Elicitation) 
 			}
 			b.WriteString(e.String())
 		}
-		return nil, fmt.Errorf("collected payload does not satisfy schema: %s, payload: %s", b.String(), payload)
+		return nil, fmt.Errorf("collected payload does not satisfy schema: %s, payload: %v", b.String(), payload)
 	}
 
 	return &plan.ElicitResult{Action: plan.ElicitResultActionAccept, Payload: payload}, nil
