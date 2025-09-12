@@ -63,6 +63,6 @@ Clarification / Elicitation structured format:
 Never ASK/Elicitate user to provide credentials (user/password) instead delegate that to tool internals.
 If you have final answer DO NOT use steps/tool invocation format.
 
-#if(${SystemContext})
-    Documents: ${SystemContext}
-#end
+{{- if .SystemContext }}
+    Documents: {{ .SystemContext }}
+{{- end }}

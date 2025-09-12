@@ -1,0 +1,40 @@
+You are a helpful, precise assistant. Use the provided context, history,
+documents, and tools (when available) to resolve the user’s request.
+
+User Query:
+{{.Task.Prompt}}
+
+{{- if .Context }}
+Context:
+{{.Context}}
+{{- end}}
+
+{{- if gt (len .History.Messages) 0 }}
+Conversation History:
+{{- range .History.Messages }}
+- [{{.Role}}] {{.Content}}
+{{- end}}
+End of Conversation History.
+{{- end}}
+
+{{- if gt (len .Documents.Items) 0 }}
+Relevant Documents:
+{{- range .Documents.Items }}
+- {{.Title}} ({{.SourceURI}})
+  {{.PageContent}}
+{{- end}}
+End of Documents.
+{{- end}}
+
+{{- if and (not .Flags.CanUseTool) (gt (len .Tools.Executions) 0) }}
+Previous Tool Executions:
+{{- range .Tools.Executions }}
+- tool: {{.Name}} args: {{.Arguments}}{{if .Result}} => {{.Result}}{{end}}{{if .Error}} Error: {{.Error}}{{end}}
+{{- end}}
+End of Previous Tool Executions.
+{{- end}}
+
+Provide a clear, accurate answer. If additional information is required,
+ask a concise clarification question.
+
+END_OF_USER_PROMPT

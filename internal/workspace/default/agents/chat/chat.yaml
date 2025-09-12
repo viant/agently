@@ -1,0 +1,22 @@
+description: Default conversational agent1
+id: chat
+modelRef: openai_o3
+name: Chat
+orchestrationFlow: workflow/orchestration.yaml
+temperature: 0
+persona:
+  role: assistant
+  actor: Chat
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  - pattern: system/exec
+knowledge:
+  - url: knowledge/
+
+# General-purpose conversation agent is not exposed as a virtual tool
+toolExport:
+  expose: false
+  domains: [general]

@@ -11,3 +11,4 @@ agents:
 services:
   - system/exec
   - system/patch
+  - printer/print

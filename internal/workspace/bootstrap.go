@@ -34,17 +34,20 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindModel, "vertexai_claude_opus_4.yaml"), "default/model/vertexai/claude_opus_4.yaml"},
 		{filepath.Join(KindModel, "vertexai_gemini_flash2_5.yaml"), "default/model/vertexai/gemini_flash2_5.yaml"},
 
-		{filepath.Join(KindAgent, "chat/chat.yaml"), "default/agent_chat.yaml"},
-		{filepath.Join(KindAgent, "chat/workflow/orchestration.yaml"), "default/agent_chat_workflow_orchestration.yaml"},
-		{filepath.Join(KindAgent, "chat/workflow/prompt", "chat.vm"), "default/agent_chat_prompt.txt"},
-		{filepath.Join(KindAgent, "chat/knowledge/doc.txt"), "default/agent_chat_doc.txt"},
-		{filepath.Join(KindAgent, "coder/workflow/orchestration.yaml"), "default/agent_coder_workflow_orchestration.yaml"},
-		{filepath.Join(KindAgent, "coder/workflow/prompt", "chat.vm"), "default/coder_chat_prompt.txt"},
-		{filepath.Join(KindAgent, "coder/workflow/prompt", "system.vm"), "default/coder_system_prompt.txt"},
-		{filepath.Join(KindAgent, "coder/knowledge/README_DELETE_THIS.md"), "default/coder_knowledge_README_DELETE_THIS.md"},
-		{filepath.Join(KindAgent, "coder/system_knowledge/golang_rules.md"), "default/coder_system_knowledge_golang_rules.md"},
-		{filepath.Join(KindAgent, "coder/system_knowledge/README_DELETE_THIS.md"), "default/coder_system_knowledge_README_DELETE_THIS.md"},
-		{filepath.Join(KindAgent, "coder/coder.yaml"), "default/agent_coder.yaml"},
+		{filepath.Join(KindAgent, "chat/knowledge/doc.txt"), "default/agents/chat/knowledge/doc.txt"},
+		{filepath.Join(KindAgent, "chat/knowledge/README_DELETE_THIS.md"), "default/agents/chat/knowledge/README_DELETE_THIS.md"},
+		{filepath.Join(KindAgent, "chat/prompt/system.tmpl"), "default/agents/chat/prompt/system.tmpl"},
+		{filepath.Join(KindAgent, "chat/prompt/user.tmpl"), "default/agents/chat/prompt/user.tmpl"},
+		{filepath.Join(KindAgent, "chat/system_knowledge/golang_rules.md"), "default/agents/chat/system_knowledge/golang_rules.md"},
+		{filepath.Join(KindAgent, "chat/system_knowledge/README_DELETE_THIS.md"), "default/agents/chat/system_knowledge/README_DELETE_THIS.md"},
+		{filepath.Join(KindAgent, "chat/chat.yaml"), "default/agents/chat/chat.yaml"},
+
+		{filepath.Join(KindAgent, "coder/knowledge/README_DELETE_THIS.md"), "default/agents/coder/knowledge/README_DELETE_THIS.md"},
+		{filepath.Join(KindAgent, "coder/prompt/system.tmpl"), "default/agents/coder/prompt/system.tmpl"},
+		{filepath.Join(KindAgent, "coder/prompt/user.tmpl"), "default/agents/coder/prompt/user.tmpl"},
+		{filepath.Join(KindAgent, "coder/system_knowledge/golang_rules.md"), "default/agents/coder/system_knowledge/golang_rules.md"},
+		{filepath.Join(KindAgent, "coder/system_knowledge/README_DELETE_THIS.md"), "default/agents/coder/system_knowledge/README_DELETE_THIS.md"},
+		{filepath.Join(KindAgent, "coder/coder.yaml"), "default/agents/coder/coder.yaml"},
 	}
 
 	baseURL := url.Normalize(Root(), file.Scheme)
