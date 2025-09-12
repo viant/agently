@@ -9,7 +9,6 @@ import (
 	"github.com/viant/afs"
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
-	extractor2 "github.com/viant/agently/genai/io/extractor"
 	"github.com/viant/fluxor/model/types"
 )
 
@@ -47,13 +46,13 @@ func (i *Input) Init(ctx context.Context) {
 // Output represents output from extraction
 type Output struct {
 	// Extracted section
-	Section *extractor2.Section `json:"section"`
+	Section *Section `json:"section"`
 
 	// If a specific section was requested, this contains its content
 	Content string `json:"content,omitempty"`
 
 	// Extracted code blocks
-	CodeBlocks []extractor2.CodeBlock `json:"codeBlocks,omitempty"`
+	CodeBlocks []CodeBlock `json:"codeBlocks,omitempty"`
 
 	UploadPaths []string `json:"uploadedURL,omitempty"`
 }
@@ -102,7 +101,7 @@ func (s *Service) extract(ctx context.Context, in, out interface{}) error {
 	input.Init(ctx)
 	// Parse the response
 	var err error
-	output.Section, err = extractor2.ParseLLMResponse([]byte(input.Content))
+	output.Section, err = ParseLLMResponse([]byte(input.Content))
 	if err != nil {
 		return err
 	}

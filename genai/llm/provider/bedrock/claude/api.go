@@ -266,6 +266,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					// Text delta
 					if txt, _ := delta["text"].(string); txt != "" {
 						aggText.WriteString(txt)
+						if observer != nil {
+							observer.OnStreamDelta(ctx, []byte(txt))
+						}
 					}
 					// Tool input partial JSON delta
 					if part, _ := delta["partial_json"].(string); part != "" {

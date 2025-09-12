@@ -21,6 +21,7 @@ type Conversation struct {
 	UsageInputTokens     int              `sqlx:"usage_input_tokens" json:",omitempty"`
 	UsageOutputTokens    int              `sqlx:"usage_output_tokens" json:",omitempty"`
 	UsageEmbeddingTokens int              `sqlx:"usage_embedding_tokens" json:",omitempty"`
+	CreatedByUserID      *string          `sqlx:"created_by_user_id" json:",omitempty"`
 	DefaultModelProvider *string          `sqlx:"default_model_provider" json:",omitempty"`
 	DefaultModel         *string          `sqlx:"default_model" json:",omitempty"`
 	DefaultModelParams   *string          `sqlx:"default_model_params" json:",omitempty"`
@@ -39,6 +40,7 @@ type ConversationHas struct {
 	UsageInputTokens     bool
 	UsageOutputTokens    bool
 	UsageEmbeddingTokens bool
+	CreatedByUserID      bool
 	DefaultModelProvider bool
 	DefaultModel         bool
 	DefaultModelParams   bool
@@ -73,6 +75,11 @@ func (c *Conversation) SetVisibility(value string) {
 func (c *Conversation) SetCreatedAt(value time.Time) {
 	c.CreatedAt = &value
 	c.Has.CreatedAt = true
+}
+
+func (c *Conversation) SetCreatedByUserID(value string) {
+	c.CreatedByUserID = &value
+	c.Has.CreatedByUserID = true
 }
 
 func (c *Conversation) SetLastActivity(value time.Time) {

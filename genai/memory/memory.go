@@ -115,6 +115,16 @@ type Message struct {
 	PolicyApproval *PolicyApproval `json:"policyApproval,omitempty" yaml:"policyApproval,omitempty"`
 
 	Interim *int `json:"interim,omitempty" yaml:"interim,omitempty"` // 1 for interim messages, nil or 0 otherwise
+
+	// Usage reports token counts for model calls associated with this message (if any).
+	Usage *Usage `json:"usage,omitempty" yaml:"usage,omitempty"`
+}
+
+// Usage captures per-message token accounting when a model call is present.
+type Usage struct {
+	PromptTokens     int `json:"promptTokens,omitempty"`
+	CompletionTokens int `json:"completionTokens,omitempty"`
+	TotalTokens      int `json:"totalTokens,omitempty"`
 }
 
 // PolicyApproval captures the details of an approval request that needs an

@@ -69,6 +69,17 @@ func WithVisibility(vis string) ConversationInputOption {
 	}
 }
 
+// WithCreatedByUserID filters by created_by_user_id equality.
+func WithCreatedByUserID(userID string) ConversationInputOption {
+	return func(in *ConversationInput) {
+		in.CreatedByUserID = userID
+		if in.Has == nil {
+			in.Has = &ConversationInputHas{}
+		}
+		in.Has.CreatedByUserID = true
+	}
+}
+
 // WithArchived filters by archived flag(s) using IN predicate.
 func WithArchived(values ...int) ConversationInputOption {
 	return func(in *ConversationInput) {

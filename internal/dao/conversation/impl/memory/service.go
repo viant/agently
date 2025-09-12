@@ -93,6 +93,9 @@ func (s *Service) PatchConversations(ctx context.Context, conversations ...*writ
 				v := rec.UsageEmbeddingTokens
 				cur.UsageEmbeddingTokens = &v
 			}
+			if rec.Has.CreatedByUserID {
+				cur.CreatedByUserID = rec.CreatedByUserID
+			}
 		}
 		s.items[rec.Id] = cur
 	}

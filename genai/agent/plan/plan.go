@@ -36,6 +36,7 @@ type StepOutcome struct {
 	// Optional payload identifiers for lazy resolution on the client side.
 	RequestPayloadID  *string `yaml:"requestPayloadId,omitempty" json:"requestPayloadId,omitempty"`
 	ResponsePayloadID *string `yaml:"responsePayloadId,omitempty" json:"responsePayloadId,omitempty"`
+	StreamPayloadID   *string `yaml:"streamPayloadId,omitempty" json:"streamPayloadId,omitempty"`
 }
 
 func New() *Plan {

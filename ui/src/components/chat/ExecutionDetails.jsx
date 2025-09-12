@@ -29,7 +29,7 @@ const COLUMNS_BASE = [
         name: "Request",
         width: 80,
         type: "button",
-        cellProperties: { text: "view", minimal: true, small: true },
+        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.requestPayloadId' },
         on: [ { event: "onClick", handler: "exec.openRequest" } ],
     },
     {
@@ -37,8 +37,16 @@ const COLUMNS_BASE = [
         name: "Response",
         width: 80,
         type: "button",
-        cellProperties: { text: "view", minimal: true, small: true },
+        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.responsePayloadId' },
         on: [ { event: "onClick", handler: "exec.openResponse" } ],
+    },
+    {
+        id: "stream",
+        name: "Stream",
+        width: 80,
+        type: "button",
+        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.streamPayloadId' },
+        on: [ { event: "onClick", handler: "exec.openStream" } ],
     },
 ];
 
@@ -134,6 +142,7 @@ function flattenExecutions(executions = []) {
         // pass through payload IDs from step exactly as presented
         requestPayloadId: s.requestPayloadId,
         responsePayloadId: s.responsePayloadId,
+        streamPayloadId: s.streamPayloadId,
     })));
 }
 
@@ -158,11 +167,15 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
             // Use only the provided payload ID fields
             const pid = part === 'request'
                 ? row.requestPayloadId
-                : row.responsePayloadId;
+                : part === 'response'
+                    ? row.responsePayloadId
+                    : row.streamPayloadId;
             let url;
             if (!pid) { setDialog({ title, payload: '(no payload)' }); return; }
-            const base = endpoints?.agentlyAPI?.baseURL || '';
-            url = `${(base || '').replace(/\/+$/,'')}/v1/api/payload/${encodeURIComponent(pid)}`;
+            // Build absolute or relative URL robustly
+            const base = endpoints?.agentlyAPI?.baseURL || (typeof window !== 'undefined' ? window.location.origin : '');
+            const root = (base || '').replace(/\/+$/,'');
+            url = `${root}/v1/api/payload/${encodeURIComponent(pid)}`;
 
             // If requested, open as a Forge dialog (resizable) and return early
             if (useForgeDialog && context?.handlers?.window?.openDialog) {
@@ -191,7 +204,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                     }
                 }
             }
-            const resp = await fetch(url);
+            const resp = await fetch(url, { credentials: 'same-origin' });
             if (!resp.ok) throw new Error(`${resp.status}`);
             const ct = resp.headers.get('content-type') || '';
             const text = await resp.text();

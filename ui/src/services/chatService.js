@@ -125,8 +125,7 @@ function startPolling({context}) {
             }
 
             if (json && json.status === 'ok' && Array.isArray(json.data) && json.data.length) {
-                mergeMessages(messagesCtx, json.data);
-                injectFormMessages(messagesCtx, json.data);
+                receiveMessages(messagesCtx, json.data, lastID);
             }
 
             // Determine id of newest assistant message after merge.
@@ -139,16 +138,15 @@ function startPolling({context}) {
                 }
             }
 
-            // Only refresh usage when the last assistant message changed.
-            // if (newestAssistantID && context.resources.lastAssistantID !== newestAssistantID) {
-            //     context.resources.lastAssistantID = newestAssistantID;
-
-            const usageCtx = context.Context('usage');
+            // Refresh usage panel by computing from messages (avoid extra HTTP call).
             try {
-                console.log('usageCtx', usageCtx.identity)
-                usageCtx.handlers.dataSource.fetchCollection({});
+                const usageCtx = context.Context('usage');
+                const summary = computeUsageFromMessages(messages, convID);
+                // Set as a one-row collection so derived usagePerModel (selectors.data: perModel)
+                // can project the perModel list.
+                usageCtx?.handlers?.dataSource?.setCollection?.({ rows: [summary] });
             } catch (err) {
-                console.error('usage DS refresh error:', err);
+                console.error('usage compute error:', err);
             }
 
         } catch (err) {
@@ -432,6 +430,18 @@ function updateCollectionWithUserMessage(messagesContext, messageId, content) {
     if (!collSig) return;
 
     const curr = Array.isArray(collSig.value) ? collSig.value : [];
+    // If this id already exists (e.g., server responded faster than optimistic add),
+    // do not append a duplicate; update fields in-place if needed.
+    const idx = curr.findIndex(m => m && m.id === messageId);
+    if (idx >= 0) {
+        const existing = { ...curr[idx] };
+        if (!existing.content) existing.content = content;
+        if (!existing.createdAt) existing.createdAt = new Date().toISOString();
+        const next = [...curr];
+        next[idx] = existing;
+        collSig.value = next;
+        return;
+    }
     collSig.value = [
         ...curr,
         {
@@ -470,18 +480,30 @@ function mergeMessages(messagesContext, incoming) {
         }
         const idx = current.findIndex((m) => m.id === msg.id);
         if (idx >= 0) {
-            const updated = {...current[idx], ...msg};
-            if (Array.isArray(updated.execution)) {
-                updated.execution = [...updated.execution]; // new ref to force tables
-            }
+            const prev = current[idx] || {};
+            // Prefer latest network payload wholesale when id matches.
+            const updated = { ...msg };
+            // Preserve createdAt if network omitted it
             if (!updated.createdAt) {
-                updated.createdAt = new Date().toISOString();
+                updated.createdAt = prev.createdAt || new Date().toISOString();
+            }
+            // Ensure immutable refs for arrays
+            if (Array.isArray(updated.executions)) {
+                updated.executions = [...updated.executions];
+            }
+            if (Array.isArray(updated.execution)) {
+                updated.execution = [...updated.execution];
             }
             current[idx] = updated;
         } else {
             const addedBase = Array.isArray(msg.execution)
                 ? {...msg, execution: [...msg.execution]}
                 : {...msg};
+
+            // Force new ref for executions array when present
+            if (Array.isArray(addedBase.executions)) {
+                addedBase.executions = [...addedBase.executions];
+            }
 
             if (!addedBase.createdAt) {
                 addedBase.createdAt = new Date().toISOString();
@@ -490,8 +512,22 @@ function mergeMessages(messagesContext, incoming) {
         }
     });
 
-    // Publish via signal with new array ref
-    collSig.value = [...current];
+    // Final safety net: ensure uniqueness by id (last-write wins), preserve order
+    const dedupById = (list) => {
+        const seen = new Set();
+        const out = [];
+        for (let i = list.length - 1; i >= 0; i--) {
+            const it = list[i];
+            const id = it && it.id;
+            if (!id) continue;
+            if (seen.has(id)) continue;
+            seen.add(id);
+            out.unshift(it);
+        }
+        return out;
+    };
+
+    collSig.value = dedupById(current);
 
     // Keep the DataSource form in sync with the newest assistant chunk
     messagesContext?.handlers?.dataSource?.setFormData?.({
@@ -549,10 +585,45 @@ function injectFormMessages(messagesContext, data) {
 // receiveMessages merges incoming messages into the Forge messages DataSource
 // and injects synthetic form-renderer placeholders when necessary. Intended
 // for generic polling logic (open chat follow-up fetches).
-export function receiveMessages(messagesContext, data) {
+export function receiveMessages(messagesContext, data, sinceId = '') {
     if (!Array.isArray(data) || data.length === 0) return;
+    // Prefer merging fully – including the sinceId boundary – so that enriched
+    // rows (with executions/usage) update the existing optimistic/plain row.
     mergeMessages(messagesContext, data);
     injectFormMessages(messagesContext, data);
+}
+
+// --------------------------- Usage computation ------------------------------
+
+function computeUsageFromMessages(messages = [], conversationId = '') {
+    let inputTokens = 0, outputTokens = 0, embeddingTokens = 0, cachedTokens = 0;
+    const perModelMap = new Map();
+
+    for (const m of messages) {
+        const u = m?.usage;
+        if (!u) continue;
+        inputTokens += (u.promptTokens || 0);
+        outputTokens += (u.completionTokens || 0);
+        // No embedding/cached per message – keep at zero
+
+        // Determine model name from executions thinking step, fallback to 'unknown'
+        let model = 'unknown';
+        if (Array.isArray(m.executions)) {
+            for (const ex of m.executions) {
+                const steps = ex?.steps || [];
+                const mc = steps.find(s => (s?.reason === 'thinking' && s?.name));
+                if (mc && mc.name) { model = mc.name; break; }
+            }
+        }
+        const agg = perModelMap.get(model) || { model, inputTokens: 0, outputTokens: 0, embeddingTokens: 0, cachedTokens: 0 };
+        agg.inputTokens += (u.promptTokens || 0);
+        agg.outputTokens += (u.completionTokens || 0);
+        perModelMap.set(model, agg);
+    }
+
+    const perModel = Array.from(perModelMap.values());
+    const totalTokens = inputTokens + outputTokens + embeddingTokens + cachedTokens;
+    return { conversationId, inputTokens, outputTokens, embeddingTokens, cachedTokens, totalTokens, perModel };
 }
 
 

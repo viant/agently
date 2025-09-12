@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/viant/agently/genai/llm"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
+	"strings"
 	"time"
 )
 
@@ -37,6 +38,12 @@ func (p *streamProcessor) handleData(data string) bool {
 		finalized := make([]llm.Choice, 0)
 		for _, ch := range sresp.Choices {
 			p.agg.updateDelta(ch)
+			// Emit text stream delta to observer when content arrives
+			if ch.Delta.Content != nil {
+				if txt := strings.TrimSpace(*ch.Delta.Content); txt != "" && p.observer != nil {
+					p.observer.OnStreamDelta(p.ctx, []byte(txt))
+				}
+			}
 			if ch.FinishReason != nil {
 				finalized = append(finalized, p.agg.finalizeChoice(ch.Index, *ch.FinishReason))
 			}
@@ -98,6 +105,16 @@ func (p *streamProcessor) finalize(scannerErr error) {
 		} else {
 			respJSON = p.respBody
 		}
-		p.observer.OnCallEnd(p.ctx, mcbuf.Info{Provider: "openai", Model: p.state.lastModel, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason, LLMResponse: p.state.lastLR})
+		// Extract plain text content (vanilla stream) for persistence convenience
+		var streamTxt string
+		if p.state.lastLR != nil {
+			for _, ch := range p.state.lastLR.Choices {
+				if strings.TrimSpace(ch.Message.Content) != "" {
+					streamTxt = strings.TrimSpace(ch.Message.Content)
+					break
+				}
+			}
+		}
+		p.observer.OnCallEnd(p.ctx, mcbuf.Info{Provider: "openai", Model: p.state.lastModel, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason, LLMResponse: p.state.lastLR, StreamText: streamTxt})
 	}
 }

@@ -18,12 +18,16 @@ func BuildTranscript(rows []*read.MessageView, excludeInterim bool) []*read.Mess
 		if li == nil || lj == nil {
 			return i < j
 		}
-		if li.Sequence != nil && lj.Sequence != nil {
-			return *li.Sequence < *lj.Sequence
-		}
+
 		if li.CreatedAt != nil && lj.CreatedAt != nil {
+			if li.CreatedAt.Equal(*lj.CreatedAt) {
+				if li.Role == "user" {
+					return true
+				}
+			}
 			return li.CreatedAt.Before(*lj.CreatedAt)
 		}
+
 		return i < j
 	})
 

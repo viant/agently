@@ -17,6 +17,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
+	authctx "github.com/viant/agently/internal/auth"
 	convread "github.com/viant/agently/internal/dao/conversation/read"
 	convw "github.com/viant/agently/internal/dao/conversation/write"
 	msgread "github.com/viant/agently/internal/dao/message/read"
@@ -72,9 +73,18 @@ type GetResponse struct {
 func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error) {
 	opts := []msgread.InputOption{msgread.WithConversationID(req.ConversationID)}
 	if id := strings.TrimSpace(req.SinceID); id != "" {
-		// Some callers may pass synthetic suffixes (e.g. "/form"). Strip anything after first '/'.
+		// Normalize synthetic suffixes like "/form" or "/1".
 		if idx := strings.IndexByte(id, '/'); idx > 0 {
 			id = id[:idx]
+		}
+		// If since points to a non-user row (e.g., assistant or child), anchor to its parent user message.
+		if rows, err := s.store.Messages().List(ctx, msgread.WithIDs(id)); err == nil && len(rows) > 0 && rows[0] != nil {
+			v := rows[0]
+			if !strings.EqualFold(strings.TrimSpace(v.Role), "user") {
+				if v.ParentID != nil && strings.TrimSpace(*v.ParentID) != "" {
+					id = *v.ParentID
+				}
+			}
 		}
 		opts = append(opts, msgread.WithSinceID(id))
 	}
@@ -87,12 +97,21 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 	var execution = make(map[string][]*msgread.MessageView)
 	var turns []*msgread.MessageView
 	for i, v := range transcript {
-		if v.IsInterim() && v.ParentID != nil || v.ToolCall != nil {
+		// Treat interim children and tool-call rows as execution details under their parent.
+		if (v.IsInterim() && v.ParentID != nil) || v.ToolCall != nil {
 			execution[*v.ParentID] = append(execution[*v.ParentID], transcript[i])
 			continue
 		}
+		// Some backends emit synthetic child message IDs (e.g., "<parent>/1") without setting ParentID.
+		// Infer parent from ID when ParentID is missing to avoid duplicate user-visible bubbles.
+		if v.ParentID == nil {
+			if slash := strings.IndexByte(v.Id, '/'); slash > 0 {
+				parent := v.Id[:slash]
+				execution[parent] = append(execution[parent], transcript[i])
+				continue
+			}
+		}
 		turns = append(turns, transcript[i])
-
 	}
 	messages := make([]memory.Message, 0, len(transcript))
 
@@ -147,16 +166,32 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 						EndedAt:           anExecution.ModelCall.CompletedAt,
 						RequestPayloadID:  anExecution.ModelCall.RequestPayloadID,
 						ResponsePayloadID: anExecution.ModelCall.ResponsePayloadID,
+						StreamPayloadID:   anExecution.ModelCall.StreamPayloadID,
 					}
 					if anExecution.ModelCall.StartedAt != nil && anExecution.ModelCall.CompletedAt != nil {
 						st.Elapsed = anExecution.ModelCall.CompletedAt.Sub(*anExecution.ModelCall.StartedAt).Round(time.Millisecond).String()
 					}
 					mm.Executions = append(mm.Executions, &plan.Outcome{Steps: []*plan.StepOutcome{st}})
+
+					// Attach per-message usage when tokens are present
+					if anExecution.ModelCall.PromptTokens != nil || anExecution.ModelCall.CompletionTokens != nil || anExecution.ModelCall.TotalTokens != nil {
+						var pt, ct, tt int
+						if anExecution.ModelCall.PromptTokens != nil {
+							pt = *anExecution.ModelCall.PromptTokens
+						}
+						if anExecution.ModelCall.CompletionTokens != nil {
+							ct = *anExecution.ModelCall.CompletionTokens
+						}
+						if anExecution.ModelCall.TotalTokens != nil {
+							tt = *anExecution.ModelCall.TotalTokens
+						} else {
+							tt = pt + ct
+						}
+						mm.Usage = &memory.Usage{PromptTokens: pt, CompletionTokens: ct, TotalTokens: tt}
+					}
 				}
 			}
-
 		}
-
 		messages = append(messages, mm)
 	}
 
@@ -279,29 +314,28 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		MessageID:      msgID,
 	}
 
-	go func(parent context.Context) {
-		runCtx, cancel := context.WithCancel(context.Background())
-		s.registerCancel(conversationID, msgID, cancel)
-		defer func() {
-			s.completeCancel(conversationID, msgID, cancel)
-			cancel()
-		}()
-		// Propagate conversation ID and policies
-		runCtx = conversation.WithID(runCtx, conversationID)
-		// Defaults
-		if s.toolPolicy != nil {
-			runCtx = tool.WithPolicy(runCtx, s.toolPolicy)
-		} else {
-			runCtx = tool.WithPolicy(runCtx, &tool.Policy{Mode: tool.ModeAuto})
-		}
-		if pol := tool.FromContext(parent); pol != nil {
-			runCtx = tool.WithPolicy(runCtx, pol)
-		}
-		if s.fluxPolicy != nil {
-			runCtx = fluxpol.WithPolicy(runCtx, s.fluxPolicy)
-		}
-		_, _ = s.mgr.Accept(runCtx, input)
-	}(ctx)
+	// Start from background to avoid cancellation when HTTP context ends,
+	// then copy relevant values (auth, policies) from parent.
+	runCtx, cancel := context.WithCancel(ctx)
+	s.registerCancel(conversationID, msgID, cancel)
+	defer func() {
+		s.completeCancel(conversationID, msgID, cancel)
+	}()
+	// Propagate conversation ID and policies
+	runCtx = conversation.WithID(runCtx, conversationID)
+	// Defaults
+	if s.toolPolicy != nil {
+		runCtx = tool.WithPolicy(runCtx, s.toolPolicy)
+	} else {
+		runCtx = tool.WithPolicy(runCtx, &tool.Policy{Mode: tool.ModeAuto})
+	}
+	if pol := tool.FromContext(ctx); pol != nil {
+		runCtx = tool.WithPolicy(runCtx, pol)
+	}
+	if s.fluxPolicy != nil {
+		runCtx = fluxpol.WithPolicy(runCtx, s.fluxPolicy)
+	}
+	_, _ = s.mgr.Accept(runCtx, input)
 
 	return msgID, nil
 }
@@ -435,6 +469,16 @@ func (s *Service) CreateConversation(ctx context.Context, in CreateConversationR
 	cw.SetId(id)
 	cw.SetTitle(title)
 	cw.SetCreatedAt(createdAt)
+	// Persist created_by_user_id when present in context
+	if ui := authctx.User(ctx); ui != nil {
+		userID := strings.TrimSpace(ui.Subject)
+		if userID == "" {
+			userID = strings.TrimSpace(ui.Email)
+		}
+		if userID != "" {
+			cw.SetCreatedByUserID(userID)
+		}
+	}
 	if strings.TrimSpace(in.Visibility) == "" {
 		cw.SetVisibility(convw.VisibilityPublic)
 	} else {
@@ -491,7 +535,22 @@ func (s *Service) ListConversations(ctx context.Context) ([]ConversationSummary,
 	if s.store == nil {
 		return nil, fmt.Errorf("store not initialised")
 	}
-	rows, err := s.store.Conversations().List(ctx, convread.WithArchived(0, 1))
+	opts := []convread.ConversationInputOption{convread.WithArchived(0, 1)}
+	// Authorize list: show user's own OR public
+	if ui := authctx.User(ctx); ui != nil {
+		uid := strings.TrimSpace(ui.Subject)
+		if uid == "" {
+			uid = strings.TrimSpace(ui.Email)
+		}
+		if uid != "" {
+			opts = append(opts, convread.WithCreatedByUserID(uid))
+			opts = append(opts, convread.WithVisibility(convw.VisibilityPublic))
+		}
+	} else {
+		// No user context: default to public only
+		opts = append(opts, convread.WithVisibility(convw.VisibilityPublic))
+	}
+	rows, err := s.store.Conversations().List(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}

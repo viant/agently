@@ -16,6 +16,7 @@ type Info struct {
 	ResponseJSON []byte
 	Payload      []byte
 	LLMResponse  *llm.GenerateResponse
+	StreamText   string
 	Usage        *llm.Usage
 	StartedAt    time.Time
 	CompletedAt  time.Time
@@ -53,6 +54,9 @@ type Buffer struct {
 type Observer interface {
 	OnCallStart(ctx context.Context, info Info) context.Context
 	OnCallEnd(ctx context.Context, info Info)
+	// OnStreamDelta delivers raw streamed chunks (provider-specific encoding).
+	// Implementations may aggregate plain text or persist progressive payloads.
+	OnStreamDelta(ctx context.Context, data []byte)
 }
 
 // WithObserver stores a concrete Observer in context so providers can call it directly.

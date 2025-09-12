@@ -13,7 +13,7 @@ selectors:
   data: data
 
 uniqueKey:
-  - field: CreatedAt
+  - field: id
 
 on:
   - event: onSuccess

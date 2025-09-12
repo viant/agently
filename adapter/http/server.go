@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +24,7 @@ import (
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
 
+	"github.com/viant/agently/internal/auth"
 	d "github.com/viant/agently/internal/domain"
 )
 
@@ -172,9 +172,7 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	})
 
 	// Usage statistics
-	mux.HandleFunc("GET /v1/api/conversations/{id}/usage", func(w http.ResponseWriter, r *http.Request) {
-		s.handleGetUsage(w, r, r.PathValue("id"))
-	})
+	// Usage endpoint removed; usage is computed client-side from messages.
 
 	// Terminate/cancel current turn – best-effort cancellation of running workflow.
 	mux.HandleFunc("POST /v1/api/conversations/{id}/terminate", func(w http.ResponseWriter, r *http.Request) {
@@ -287,10 +285,11 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		var req chat.CreateConversationRequest
 		if r.Body != nil {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-				log.Printf("warn: ignoring invalid create conversation body: %v", err)
+				// ignore invalid body; return best-effort error below
 			}
 		}
-		resp, err := s.chatSvc.CreateConversation(r.Context(), req)
+		ctx := s.withAuthFromRequest(r)
+		resp, err := s.chatSvc.CreateConversation(ctx, req)
 		if err != nil {
 			encode(w, http.StatusInternalServerError, nil, err, nil)
 			return
@@ -311,7 +310,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			encode(w, http.StatusOK, []chat.ConversationSummary{*cv}, nil, nil)
 			return
 		}
-		list, err := s.chatSvc.ListConversations(r.Context())
+		list, err := s.chatSvc.ListConversations(s.withAuthFromRequest(r))
 		if err != nil {
 			encode(w, http.StatusInternalServerError, nil, err, nil)
 			return
@@ -476,28 +475,7 @@ func (s *Server) dispatchConversationSubroutes(w http.ResponseWriter, r *http.Re
 	}
 }
 
-// handleGetUsage responds with aggregated + per-model token usage.
-func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request, convID string) {
-	// Require GET only.
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	if s.chatSvc == nil {
-		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"), nil)
-		return
-	}
-	usage, err := s.chatSvc.GetUsage(r.Context(), convID)
-	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err, nil)
-		return
-	}
-	// Stable ordering for UI diffing
-	sort.SliceStable(usage.PerModel, func(i, j int) bool { return usage.PerModel[i].Model < usage.PerModel[j].Model })
-	encode(w, http.StatusOK, []chat.Usage{*usage}, nil, nil)
-	return
-}
+// handleGetUsage removed – usage route no longer exposed.
 
 // handleElicitationCallback processes POST /v1/api/elicitation/{msgID} to
 // accept or decline MCP elicitation prompts.
@@ -584,7 +562,8 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 		encode(w, http.StatusBadRequest, nil, err, nil)
 		return
 	}
-	id, err := s.chatSvc.Post(r.Context(), convID, req)
+	ctx := s.withAuthFromRequest(r)
+	id, err := s.chatSvc.Post(ctx, convID, req)
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err, nil)
 		return
@@ -626,4 +605,27 @@ func ListenAndServe(addr string, mgr *conversation.Manager) error {
 	handler := NewServer(mgr)
 	log.Printf("HTTP chat server listening on %s", addr)
 	return http.ListenAndServe(addr, handler)
+}
+
+// withAuthFromRequest extracts Authorization bearer token, decodes minimal
+// identity and enriches the request context so downstream services can persist
+// user info without direct HTTP coupling.
+func (s *Server) withAuthFromRequest(r *http.Request) context.Context {
+	ctx := r.Context()
+	authz := r.Header.Get("Authorization")
+	if strings.TrimSpace(authz) == "" {
+		// No auth header; set default anonymous user for flow testing
+		return auth.WithUserInfo(ctx, &auth.UserInfo{Subject: "anonymous"})
+	}
+	token := auth.ExtractBearer(authz)
+	if token == "" {
+		return auth.WithUserInfo(ctx, &auth.UserInfo{Subject: "anonymous"})
+	}
+	ctx = auth.WithBearer(ctx, token)
+	if info, err := auth.DecodeUserInfo(token); err == nil && info != nil {
+		ctx = auth.WithUserInfo(ctx, info)
+		return ctx
+	}
+	// Could not decode – use anonymous by default
+	return auth.WithUserInfo(ctx, &auth.UserInfo{Subject: "anonymous"})
 }

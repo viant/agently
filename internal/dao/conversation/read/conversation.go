@@ -18,13 +18,14 @@ import (
 var ConversationFS embed.FS
 
 type ConversationInput struct {
-	Summary         string                `parameter:",kind=query,in=summary" predicate:"contains,group=0,c,summary"`
-	Id              string                `parameter:",kind=path,in=id" predicate:"in,group=0,c,id"`
-	Title           string                `parameter:",kind=query,in=title" predicate:"contains,group=0,c,title"`
-	AgentName       string                `parameter:",kind=query,in=agent_name" predicate:"contains,group=0,c,agent_name"`
-	AgentID         string                `parameter:",kind=query,in=agent_id" predicate:"in,group=0,c,agent_id"`
-	AgentConfigID   string                `parameter:",kind=query,in=agent_config_id" predicate:"in,group=0,c,agent_config_id"`
-	Visibility      string                `parameter:",kind=query,in=visibility" predicate:"in,group=0,c,visibility"`
+	Summary       string `parameter:",kind=query,in=summary" predicate:"contains,group=0,c,summary"`
+	Id            string `parameter:",kind=path,in=id" predicate:"in,group=0,c,id"`
+	Title         string `parameter:",kind=query,in=title" predicate:"contains,group=0,c,title"`
+	AgentName     string `parameter:",kind=query,in=agent_name" predicate:"contains,group=0,c,agent_name"`
+	AgentID       string `parameter:",kind=query,in=agent_id" predicate:"in,group=0,c,agent_id"`
+	AgentConfigID string `parameter:",kind=query,in=agent_config_id" predicate:"in,group=0,c,agent_config_id"`
+	// Visibility is placed in predicate group=1 so SQL can OR it with group 0 (created_by_user_id).
+	Visibility      string                `parameter:",kind=query,in=visibility" predicate:"in,group=1,c,visibility"`
 	TenantID        string                `parameter:",kind=query,in=tenant_id" predicate:"in,group=0,c,tenant_id"`
 	CreatedByUserID string                `parameter:",kind=query,in=created_by_user_id" predicate:"in,group=0,c,created_by_user_id"`
 	Archived        []int                 `parameter:",kind=query,in=archived" predicate:"in,group=0,c,archived"`

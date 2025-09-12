@@ -304,6 +304,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				if evt.Delta != nil {
 					if evt.Delta.Text != "" {
 						aggText.WriteString(evt.Delta.Text)
+						if observer != nil {
+							observer.OnStreamDelta(ctx, []byte(evt.Delta.Text))
+						}
 					}
 					if evt.Delta.PartialJSON != "" {
 						if ta, ok := tools[evt.Index]; ok {

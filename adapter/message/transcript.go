@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	plan "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/memory"
 	msgread "github.com/viant/agently/internal/dao/message/read"
 	d "github.com/viant/agently/internal/domain"
@@ -40,8 +41,23 @@ func ToMemoryMessages(views []*msgread.MessageView) []memory.Message {
 			m.CreatedAt = time.Now()
 		}
 		// Preserve executions only for tool messages when present
-		if strings.EqualFold(strings.TrimSpace(v.Role), "tool") && len(v.Executions) > 0 {
-			m.Executions = v.Executions
+		if strings.EqualFold(strings.TrimSpace(v.Role), "tool") && v.ToolCall != nil {
+			tc := v.ToolCall
+			st := &plan.StepOutcome{
+				ID:                tc.OpID,
+				Name:              tc.ToolName,
+				Reason:            "tool_call",
+				Success:           strings.EqualFold(strings.TrimSpace(tc.Status), "completed"),
+				Error:             deref(tc.ErrorMessage),
+				StartedAt:         tc.StartedAt,
+				EndedAt:           tc.CompletedAt,
+				RequestPayloadID:  tc.RequestPayloadID,
+				ResponsePayloadID: tc.ResponsePayloadID,
+			}
+			if tc.StartedAt != nil && tc.CompletedAt != nil {
+				st.Elapsed = tc.CompletedAt.Sub(*tc.StartedAt).Round(time.Millisecond).String()
+			}
+			m.Executions = []*plan.Outcome{{Steps: []*plan.StepOutcome{st}}}
 		}
 		// Interim flag if available (kept for parity)
 		if v.Interim != nil {
@@ -50,4 +66,11 @@ func ToMemoryMessages(views []*msgread.MessageView) []memory.Message {
 		out = append(out, m)
 	}
 	return out
+}
+
+func deref(p *string) string {
+	if p != nil {
+		return *p
+	}
+	return ""
 }

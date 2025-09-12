@@ -24,6 +24,7 @@ type ModelCall struct {
 	SpanID            *string       `sqlx:"span_id" json:",omitempty"`
 	RequestPayloadID  *string       `sqlx:"request_payload_id" json:",omitempty"`
 	ResponsePayloadID *string       `sqlx:"response_payload_id" json:",omitempty"`
+	StreamPayloadID   *string       `sqlx:"stream_payload_id" json:",omitempty"`
 	Has               *ModelCallHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
@@ -47,6 +48,7 @@ type ModelCallHas struct {
 	SpanID            bool
 	RequestPayloadID  bool
 	ResponsePayloadID bool
+	StreamPayloadID   bool
 }
 
 func (m *ModelCall) ensureHas() {
@@ -58,3 +60,8 @@ func (m *ModelCall) SetMessageID(v string) { m.MessageID = v; m.ensureHas(); m.H
 func (m *ModelCall) SetProvider(v string)  { m.Provider = v; m.ensureHas(); m.Has.Provider = true }
 func (m *ModelCall) SetModel(v string)     { m.Model = v; m.ensureHas(); m.Has.Model = true }
 func (m *ModelCall) SetModelKind(v string) { m.ModelKind = v; m.ensureHas(); m.Has.ModelKind = true }
+func (m *ModelCall) SetStreamPayloadID(v string) {
+	m.StreamPayloadID = &v
+	m.ensureHas()
+	m.Has.StreamPayloadID = true
+}

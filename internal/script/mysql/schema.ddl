@@ -74,6 +74,7 @@ CREATE TABLE `message` (
                            turn_id             VARCHAR(255),
                            sequence            BIGINT,
                            created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                           created_by_user_id  VARCHAR(255),
                            status              VARCHAR(255),
                            role                VARCHAR(255) NOT NULL CHECK (role IN ('system','user','assistant','tool','control')),
                            `type`              VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text','tool_op','control')),
@@ -153,6 +154,7 @@ CREATE TABLE model_calls (
                              span_id                    TEXT,
                              request_payload_id         VARCHAR(255),
                              response_payload_id        VARCHAR(255),
+                             stream_payload_id          VARCHAR(255),
 
                              CONSTRAINT fk_model_calls_message
                                  FOREIGN KEY (message_id)          REFERENCES `message`(id)      ON DELETE CASCADE,
@@ -162,6 +164,9 @@ CREATE TABLE model_calls (
                                  FOREIGN KEY (request_payload_id)  REFERENCES call_payloads(id)  ON DELETE SET NULL,
                              CONSTRAINT fk_model_calls_res_payload
                                  FOREIGN KEY (response_payload_id) REFERENCES call_payloads(id)  ON DELETE SET NULL
+                            ,
+                             CONSTRAINT fk_model_calls_stream_payload
+                                FOREIGN KEY (stream_payload_id) REFERENCES call_payloads(id)  ON DELETE SET NULL
 );
 
 CREATE INDEX idx_model_calls_model ON model_calls(model);

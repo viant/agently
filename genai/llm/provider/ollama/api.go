@@ -10,6 +10,7 @@ import (
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -190,6 +191,15 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				}
 				lr := ToLLMSResponse(&chunk)
 				lastLR = lr
+				// Emit delta to observer when plain text is present
+				if observer != nil {
+					// Extract plain text content from first choice
+					if lr != nil && len(lr.Choices) > 0 {
+						if txt := strings.TrimSpace(lr.Choices[0].Message.Content); txt != "" {
+							observer.OnStreamDelta(ctx, []byte(txt))
+						}
+					}
+				}
 				if chunk.Done {
 					endObserverOnce(lr)
 					emit(lr)

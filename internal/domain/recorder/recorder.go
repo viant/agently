@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/viant/agently/genai/io/redact"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
-	"github.com/viant/agently/genai/redact"
+	authctx "github.com/viant/agently/internal/auth"
 	"github.com/viant/agently/internal/dao/factory"
 	daofactory "github.com/viant/agently/internal/dao/factory"
 	msgread "github.com/viant/agently/internal/dao/message/read"
@@ -63,26 +64,30 @@ type ToolCallRecorder interface {
 type ModelCallRecorder interface {
 	StartModelCall(ctx context.Context, start ModelCallStart)
 	FinishModelCall(ctx context.Context, finish ModelCallFinish)
+	AppendStreamChunk(ctx context.Context, payloadID string, chunk []byte) error
 }
 
 type ModelCallStart struct {
-	MessageID string
-	TurnID    string
-	Provider  string
-	Model     string
-	ModelKind string
-	StartedAt time.Time
-	Request   interface{}
+	MessageID       string
+	TurnID          string
+	Provider        string
+	Model           string
+	ModelKind       string
+	StartedAt       time.Time
+	Request         interface{}
+	StreamPayloadID string
 }
 
 type ModelCallFinish struct {
-	MessageID    string
-	TurnID       string
-	Usage        *llm.Usage
-	FinishReason string
-	Cost         *float64
-	CompletedAt  time.Time
-	Response     interface{}
+	MessageID       string
+	TurnID          string
+	Usage           *llm.Usage
+	FinishReason    string
+	Cost            *float64
+	CompletedAt     time.Time
+	Response        interface{}
+	StreamText      string
+	StreamPayloadID *string
 }
 
 // UsageRecorder persists usage totals aggregated per conversation.
@@ -181,6 +186,17 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) error {
 	}
 	if !m.CreatedAt.IsZero() {
 		rec.SetCreatedAt(m.CreatedAt)
+	}
+
+	// Attach created_by_user_id from context when available
+	if ui := authctx.User(ctx); ui != nil {
+		userID := strings.TrimSpace(ui.Subject)
+		if userID == "" {
+			userID = strings.TrimSpace(ui.Email)
+		}
+		if userID != "" {
+			rec.SetCreatedByUserID(userID)
+		}
 	}
 
 	if _, err := w.store.Messages().Patch(ctx, rec); err != nil {
@@ -495,6 +511,33 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 			modelCall.Has.ResponsePayloadID = true
 		}
 	}
+	// (stream payload created in StartModelCall)
+	if finish.StreamPayloadID != nil && strings.TrimSpace(*finish.StreamPayloadID) != "" {
+		modelCall.StreamPayloadID = finish.StreamPayloadID
+		if modelCall.Has == nil {
+			modelCall.Has = &mcw.ModelCallHas{}
+		}
+		modelCall.Has.StreamPayloadID = true
+	} else if strings.TrimSpace(finish.StreamText) != "" {
+		sb := []byte(finish.StreamText)
+		id := uuid.New().String()
+		payload := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
+		payload.SetKind("model_stream")
+		payload.SetMimeType("text/plain")
+		payload.SetSizeBytes(len(sb))
+		payload.SetStorage("inline")
+		payload.SetInlineBody(sb)
+		payload.SetCompression("none")
+		if _, err := w.store.Payloads().Patch(ctx, payload); err == nil {
+			modelCall.StreamPayloadID = &id
+			if modelCall.Has == nil {
+				modelCall.Has = &mcw.ModelCallHas{}
+			}
+			modelCall.Has.StreamPayloadID = true
+		} else {
+			fmt.Printf("ERROR### Recorder.FinishModelCall stream payload: %v\n", err)
+		}
+	}
 	var pt, ct, tt *int
 	if u := finish.Usage; u != nil {
 		if u.PromptTokens > 0 {
@@ -585,6 +628,33 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 			}
 		}
 	}
+}
+
+// AppendStreamChunk appends bytes to inline stream payload by id (best-effort).
+func (w *Store) AppendStreamChunk(ctx context.Context, payloadID string, chunk []byte) error {
+	if strings.TrimSpace(payloadID) == "" || len(chunk) == 0 {
+		return nil
+	}
+	pv, err := w.store.Payloads().Get(ctx, payloadID)
+	if err != nil {
+		return err
+	}
+	var cur []byte
+	if pv != nil && pv.InlineBody != nil {
+		cur = *pv.InlineBody
+	}
+	next := append(cur, chunk...)
+	rec := &plw.Payload{Id: payloadID, Has: &plw.PayloadHas{Id: true}}
+	rec.SetKind("model_stream")
+	rec.SetMimeType("text/plain")
+	rec.SetSizeBytes(len(next))
+	rec.SetStorage("inline")
+	rec.SetInlineBody(next)
+	rec.SetCompression("none")
+	if _, err := w.store.Payloads().Patch(ctx, rec); err != nil {
+		return err
+	}
+	return nil
 }
 
 func toJSONBytes(v interface{}) []byte {

@@ -66,6 +66,7 @@ CREATE TABLE message (
     turn_id             TEXT REFERENCES turns(id) ON DELETE SET NULL,
     sequence            INTEGER,
     created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id  TEXT,
     status              TEXT,
     role                TEXT NOT NULL CHECK (role IN ('system','user','assistant','tool','control')),
     type                TEXT NOT NULL DEFAULT 'text' CHECK (type IN ('text','tool_op','control')),
@@ -137,6 +138,8 @@ CREATE TABLE model_calls (
     span_id                    TEXT,
     request_payload_id         TEXT REFERENCES call_payloads(id) ON DELETE SET NULL,
     response_payload_id        TEXT REFERENCES call_payloads(id) ON DELETE SET NULL
+    ,
+    stream_payload_id          TEXT REFERENCES call_payloads(id) ON DELETE SET NULL
 );
 
 CREATE INDEX idx_model_calls_model ON model_calls(model);

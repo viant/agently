@@ -17,6 +17,7 @@ import (
 // Query executes a query against an agent.
 func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) error {
 
+	fmt.Println("Query - stared")
 	// 4. Ensure agent is loaded
 	if err := s.ensureAgent(ctx, input); err != nil {
 		return err
@@ -78,10 +79,18 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		}
 	}
 	output.Usage = agg
+
+	fmt.Println("Query - ended")
+
 	return nil
 }
 
 func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutput *QueryOutput) error {
+
+	fmt.Println("runPlanLoop - started")
+	defer func() {
+		fmt.Println("runPlanLoop - end")
+	}()
 	var err error
 	for {
 		binding, bErr := s.BuildBinding(ctx, input)

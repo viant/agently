@@ -18,7 +18,8 @@ SELECT
   mc.trace_id,
   mc.span_id,
   mc.request_payload_id,
-  mc.response_payload_id
+  mc.response_payload_id,
+  mc.stream_payload_id
 FROM model_calls mc
 LEFT JOIN message m ON m.id = mc.message_id
 ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")} 

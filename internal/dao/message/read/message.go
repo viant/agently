@@ -127,6 +127,7 @@ type ModelCallView struct {
 	SpanID            *string    `sqlx:"span_id"`
 	RequestPayloadID  *string    `sqlx:"request_payload_id"`
 	ResponsePayloadID *string    `sqlx:"response_payload_id"`
+	StreamPayloadID   *string    `sqlx:"stream_payload_id"`
 }
 
 var PathBase = "/v2/api/agently/message"

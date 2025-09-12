@@ -49,6 +49,8 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	if !ok {
 		return cleanup, fmt.Errorf("model %T does not support streaming", model)
 	}
+	// Attach finish barrier so final message waits for model-call persistence.
+	ctx, _ = modelcallctx.WithFinishBarrier(ctx)
 	ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
 
 	streamCh, err := streamer.Stream(ctx, req)
@@ -70,6 +72,8 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	if content != "" {
 		msgID := memory.ModelMessageIDFromContext(ctx)
 		turn, _ := memory.TurnMetaFromContext(ctx)
+		// Wait for model-call finish so response payload id is available before persisting final message
+		modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
 		if err := s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: turn.ParentMessageID, ConversationID: turn.ConversationID, Role: "assistant", Content: content, CreatedAt: time.Now()}); err != nil {
 			return cleanup, err
 		}

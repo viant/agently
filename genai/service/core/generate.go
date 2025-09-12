@@ -137,6 +137,8 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		return err
 	}
 
+	// Attach finish barrier to upstream ctx so recorder observer can signal completion (payload ids, usage).
+	ctx, _ = modelcallctx.WithFinishBarrier(ctx)
 	response, err := model.Generate(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to generate content: %w", err)
@@ -171,6 +173,9 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	msgID := memory.ModelMessageIDFromContext(ctx)
 	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
 		if tm.ConversationID != "" && strings.TrimSpace(output.Content) != "" {
+			// Ensure model-call persistence (including payload ids) has completed before
+			// we persist the final assistant message to avoid UI missing response payloads.
+			modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
 			if err := s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()}); err != nil {
 				return err
 			}

@@ -10,6 +10,7 @@ type Message struct {
 	TurnID          *string     `sqlx:"turn_id" json:",omitempty"`
 	Sequence        *int        `sqlx:"sequence" json:",omitempty"`
 	CreatedAt       *time.Time  `sqlx:"created_at" json:",omitempty"`
+	CreatedByUserID *string     `sqlx:"created_by_user_id" json:",omitempty"`
 	Role            string      `sqlx:"role" validate:"required"`
 	Status          string      `sqlx:"status" `
 	Type            string      `sqlx:"type" validate:"required"`
@@ -30,6 +31,7 @@ type MessageHas struct {
 	TurnID          bool
 	Sequence        bool
 	CreatedAt       bool
+	CreatedByUserID bool
 	Role            bool
 	Status          bool
 	Type            bool
@@ -57,10 +59,15 @@ func (m *Message) SetConversationID(v string) {
 func (m *Message) SetTurnID(v string)       { m.TurnID = &v; m.ensureHas(); m.Has.TurnID = true }
 func (m *Message) SetSequence(v int)        { m.Sequence = &v; m.ensureHas(); m.Has.Sequence = true }
 func (m *Message) SetCreatedAt(v time.Time) { m.CreatedAt = &v; m.ensureHas(); m.Has.CreatedAt = true }
-func (m *Message) SetRole(v string)         { m.Role = v; m.ensureHas(); m.Has.Role = true }
-func (m *Message) SetType(v string)         { m.Type = v; m.ensureHas(); m.Has.Type = true }
-func (m *Message) SetContent(v string)      { m.Content = v; m.ensureHas(); m.Has.Content = true }
-func (m *Message) SetToolName(v string)     { m.ToolName = &v; m.ensureHas(); m.Has.ToolName = true }
+func (m *Message) SetCreatedByUserID(v string) {
+	m.CreatedByUserID = &v
+	m.ensureHas()
+	m.Has.CreatedByUserID = true
+}
+func (m *Message) SetRole(v string)     { m.Role = v; m.ensureHas(); m.Has.Role = true }
+func (m *Message) SetType(v string)     { m.Type = v; m.ensureHas(); m.Has.Type = true }
+func (m *Message) SetContent(v string)  { m.Content = v; m.ensureHas(); m.Has.Content = true }
+func (m *Message) SetToolName(v string) { m.ToolName = &v; m.ensureHas(); m.Has.ToolName = true }
 func (m *Message) SetParentMessageID(v string) {
 	m.ParentMessageID = &v
 	m.ensureHas()

@@ -249,7 +249,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			}
 		}()
 		// Gemini uses application/json streams; decode with JSON decoder.
-		c.streamJSON(resp.Body, bufCh, agg)
+		c.streamJSON(resp.Body, bufCh, agg, observer, ctx)
 		close(bufCh)
 		// Prepare remainder as final response without emitting yet
 		final := agg.emitRemainderResponse()
@@ -403,7 +403,7 @@ func (c *Client) emitPayloadAggregate(payload string, events chan<- llm.StreamEv
 // streamJSON handles application/json streams. It supports:
 // - a single JSON array where each element is a Response
 // - multiple top-level JSON objects (sequential), separated by whitespace
-func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *geminiAggregator) {
+func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *geminiAggregator, observer mcbuf.Observer, ctx context.Context) {
 	br := bufio.NewReader(r)
 	isSpace := func(b byte) bool { return b == ' ' || b == '\n' || b == '\r' || b == '\t' }
 	for {
@@ -459,6 +459,16 @@ func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *gem
 					return
 				}
 				agg.addResponse(&obj)
+				// emit text deltas to observer when present
+				if observer != nil {
+					for _, cand := range obj.Candidates {
+						for _, p := range cand.Content.Parts {
+							if p.Text != "" {
+								observer.OnStreamDelta(ctx, []byte(p.Text))
+							}
+						}
+					}
+				}
 				agg.emitFinished(events)
 			}
 			// consume closing ']'
@@ -474,6 +484,15 @@ func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *gem
 				return
 			}
 			agg.addResponse(&obj)
+			if observer != nil {
+				for _, cand := range obj.Candidates {
+					for _, p := range cand.Content.Parts {
+						if p.Text != "" {
+							observer.OnStreamDelta(ctx, []byte(p.Text))
+						}
+					}
+				}
+			}
 			agg.emitFinished(events)
 		default:
 			// Unexpected leading byte; return an error to surface malformed stream
