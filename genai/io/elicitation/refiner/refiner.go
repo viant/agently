@@ -5,9 +5,10 @@ package refiner
 // detection, column span.
 
 import (
-	"github.com/viant/mcp-protocol/schema"
 	"sort"
 	"strings"
+
+	"github.com/viant/mcp-protocol/schema"
 )
 
 // Refine mutates the supplied schema in-place. It is safe to call multiple

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/agently/cmd/service"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/agently/service"
 )
 
 // WorkflowCmd executes a Fluxor workflow graph directly.

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/viant/agently/adapter/http/router"
+	"github.com/viant/agently/cmd/service"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/agently/service"
 )
 
 // ServeCmd starts the embedded HTTP server.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/viant/agently/service"
+	"github.com/viant/agently/cmd/service"
 )
 
 type ModelResetCmd struct {

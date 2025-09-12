@@ -18,12 +18,12 @@ import (
 
 	"github.com/viant/agently/adapter/http/router/metadata"
 	"github.com/viant/agently/adapter/http/workspace"
+	"github.com/viant/agently/cmd/service"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
 	daofactory "github.com/viant/agently/internal/dao/factory"
 	d "github.com/viant/agently/internal/domain"
 	dstore "github.com/viant/agently/internal/domain/adapter"
-	"github.com/viant/agently/service"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
 	fluxorpol "github.com/viant/fluxor/policy"

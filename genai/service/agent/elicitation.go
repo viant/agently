@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/elicitation/refiner"
+	"github.com/viant/agently/genai/io/elicitation/refiner"
 	"github.com/viant/agently/genai/memory"
 )
 

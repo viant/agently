@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/viant/agently/service"
+	"github.com/viant/agently/cmd/service"
 	"github.com/viant/fluxor-mcp/mcp/tool"
 )
 

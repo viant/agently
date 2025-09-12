@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/viant/agently/cmd/service"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/agently/service"
 )
 
 // ChatCmd handles interactive/chat queries.

@@ -17,8 +17,8 @@ import (
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/mcp"
 
+	"github.com/viant/agently/cmd/service"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
-	"github.com/viant/agently/service"
 	"gopkg.in/yaml.v3"
 )
 

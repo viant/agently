@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/viant/agently/service"
+	"github.com/viant/agently/cmd/service"
 	"github.com/viant/mcp"
 	"gopkg.in/yaml.v3"
 )

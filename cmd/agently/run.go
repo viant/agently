@@ -7,9 +7,9 @@ import (
 	"io"
 	"os"
 
+	"github.com/viant/agently/cmd/service"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/agently/service"
 )
 
 // RunCmd executes full agentic workflow from JSON payload.
