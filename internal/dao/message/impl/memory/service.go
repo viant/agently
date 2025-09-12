@@ -12,7 +12,7 @@ import (
 	write "github.com/viant/agently/internal/dao/message/write"
 )
 
-// Service is an in-memory implementation of the Message API.
+// Service is an in-memory implementation of the Messages API.
 type Service struct {
 	mu       sync.RWMutex
 	messages map[string]*read.MessageView   // by id

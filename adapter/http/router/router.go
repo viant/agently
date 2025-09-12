@@ -40,7 +40,7 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation(),
 		chat.WithPolicies(toolPol, fluxPol),
 		chat.WithApprovalService(exec.ApprovalService()),
-		chat.WithDomainStore(store),
+		chat.WithStore(store),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
 

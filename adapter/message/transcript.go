@@ -9,7 +9,7 @@ import (
 	d "github.com/viant/agently/internal/domain"
 )
 
-// ToMemoryMessages converts DAO transcript views into memory.Message slice
+// ToMemoryMessages converts DAO transcript views into memory.Messages slice
 // suitable for v1 handlers and UI clients. It preserves IDs, parent linkage,
 // roles, content, tool name, created time and (when present) aggregated
 // executions for tool messages. It also maps typed elicitation when available.

@@ -38,12 +38,14 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
 		return err
 	}
-
+	if input.MessageID == "" {
+		input.MessageID = uuid.New().String()
+	}
 	ctx, agg := usage.WithAggregator(ctx)
 	turn := memory.TurnMeta{
 		ConversationID:  input.ConversationID,
-		TurnID:          uuid.New().String(),
-		ParentMessageID: uuid.New().String(),
+		TurnID:          input.MessageID,
+		ParentMessageID: input.MessageID,
 	}
 	ctx = memory.WithTurnMeta(ctx, turn)
 	if len(input.ToolsAllowed) > 0 {

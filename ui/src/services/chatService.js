@@ -114,8 +114,8 @@ function startPolling({context}) {
 
             const base = endpoints.appAPI.baseURL + `/conversations/${convID}/messages`;
             const url = lastID
-                ? `${base}?since=${encodeURIComponent(lastID)}&includePayloads=1`
-                : `${base}?includePayloads=1`;
+                ? `${base}?since=${encodeURIComponent(lastID)}`
+                : `${base}`;
 
             const json = await fetchJSON(url);
 

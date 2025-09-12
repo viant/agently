@@ -7,9 +7,6 @@ import (
 )
 
 // BuildTranscript normalizes a transcript view from message rows.
-// It sorts messages (sequence asc, then created_at asc), excludes control type,
-// optionally excludes interim messages, and deduplicates tool messages keeping
-// only the latest attempt per logical op key (op_id|request_hash when available).
 func BuildTranscript(rows []*read.MessageView, excludeInterim bool) []*read.MessageView {
 	if len(rows) == 0 {
 		return rows
@@ -58,8 +55,6 @@ func BuildTranscript(rows []*read.MessageView, excludeInterim bool) []*read.Mess
 			continue
 		}
 		switch m.Role {
-		case "user", "assistant":
-			result = append(result, m)
 		case "tool":
 			if m.ToolCall != nil && m.ToolCall.OpID != "" {
 				key := m.ToolCall.OpID
@@ -72,6 +67,7 @@ func BuildTranscript(rows []*read.MessageView, excludeInterim bool) []*read.Mess
 			}
 			result = append(result, m)
 		default:
+			result = append(result, m)
 			// ignore other roles by default
 		}
 	}

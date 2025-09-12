@@ -73,7 +73,7 @@ func (s *Service) GetTranscript(ctx context.Context, conversationID string, opts
 		return nil, err
 	}
 	// Normalize transcript with shared logic
-	rows := shared.BuildTranscript(out.Data, true)
+	rows := shared.BuildTranscript(out.Data, false)
 
 	//TODO move to the hooks
 	for _, v := range rows {

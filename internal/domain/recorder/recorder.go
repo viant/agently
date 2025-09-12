@@ -141,7 +141,7 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) error {
 	if m.Role != "" {
 		rec.SetRole(m.Role)
 	}
-	// memory.Message has no Type; default to text
+	// memory.Messages has no Type; default to text
 	rec.SetType("text")
 	if m.Content != "" {
 		rec.SetContent(m.Content)
@@ -173,7 +173,6 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) error {
 			rec.Has = &msgw.MessageHas{}
 		}
 		rec.Has.Interim = true
-		rec.Content = "TODO content available in payload" // TODO Placeholder until we support payloads for messages
 		rec.Has.Content = true
 	}
 

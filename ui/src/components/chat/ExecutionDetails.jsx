@@ -148,37 +148,6 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
         sig.value = rows;
     }, [rows, dataSourceId]);
 
-    // v2 operations fallback: when no legacy executions are present, load grouped operations
-    useEffect(() => {
-        const fetchOps = async () => {
-            if (!messageId) return;
-            try {
-                const base = endpoints?.agentlyAPI?.baseURL || '';
-                const url = `${(base || '').replace(/\/+$/,'')}/v2/api/agently/messages/${encodeURIComponent(messageId)}/operations?includePayloads=1`;
-                const resp = await fetch(url);
-                if (!resp.ok) return;
-                const json = await resp.json();
-                const data = json?.data || {};
-                const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
-                const modelCalls = Array.isArray(data.modelCalls) ? data.modelCalls : [];
-                const mapped = [
-                    ...modelCalls.map(mc => mapModelCall(mc)),
-                    ...toolCalls.map(tc => mapToolCall(tc)),
-                ];
-                const sig = getCollectionSignal(dataSourceId);
-                const current = typeof sig.peek === 'function' ? sig.peek() : sig.value;
-                const hasExisting = Array.isArray(current) && current.length > 0;
-                if (!hasExisting && mapped.length) {
-                    sig.value = mapped;
-                }
-            } catch (e) {
-                if (typeof onError === 'function') {
-                    onError(e);
-                }
-            }
-        };
-        fetchOps();
-    }, [messageId, dataSourceId, onError]);
 
     const viewPart = async (part, row) => {
         try {
@@ -193,7 +162,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
             let url;
             if (!pid) { setDialog({ title, payload: '(no payload)' }); return; }
             const base = endpoints?.agentlyAPI?.baseURL || '';
-            url = `${(base || '').replace(/\/+$/,'')}/v2/api/agently/payload/${encodeURIComponent(pid)}?raw=1`;
+            url = `${(base || '').replace(/\/+$/,'')}/v1/api/payload/${encodeURIComponent(pid)}`;
 
             // If requested, open as a Forge dialog (resizable) and return early
             if (useForgeDialog && context?.handlers?.window?.openDialog) {
