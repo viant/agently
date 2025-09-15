@@ -3,10 +3,13 @@ package router
 import (
 	"context"
 	"net/http"
+	"os"
 
 	"github.com/viant/afs"
 	fsadapter "github.com/viant/afs/adapter/http"
 	"github.com/viant/agently/deployment/ui"
+	"github.com/viant/datly"
+	"github.com/viant/datly/view"
 
 	chat "github.com/viant/agently/adapter/http"
 	"github.com/viant/agently/adapter/http/filebrowser"
@@ -14,7 +17,6 @@ import (
 	"github.com/viant/agently/adapter/http/workflow"
 
 	"encoding/json"
-	"os"
 	"strings"
 
 	"github.com/viant/agently/adapter/http/router/metadata"
@@ -25,9 +27,8 @@ import (
 	daofactory "github.com/viant/agently/internal/dao/factory"
 	d "github.com/viant/agently/internal/domain"
 	dstore "github.com/viant/agently/internal/domain/adapter"
-	agconv "github.com/viant/agently/pkg/agently/conversation"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
+	apiconv "github.com/viant/agently/sdk/conversation"
+	implconv "github.com/viant/agently/sdk/conversation/impl"
 	fluxorpol "github.com/viant/fluxor/policy"
 )
 
@@ -73,42 +74,30 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 			return
 		}
 		since := r.URL.Query().Get("since")
-		dao, err := datly.New(ctx)
+		svc, err := implconv.NewFromEnv(ctx)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		// Attach connector
-		driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
-		dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
-		if driver == "" || dsn == "" {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"status":"ERROR","message":"database not configured"}`))
-			return
-		}
-		_ = dao.AddConnectors(ctx, view.NewConnector("agently", driver, dsn))
-		// Register component
-		if err := agconv.DefineConversationComponent(ctx, dao); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		in := &agconv.ConversationInput{Id: id, IncludeToolCall: 1}
-		out := &agconv.ConversationOutput{}
-		uri := strings.ReplaceAll(agconv.ConversationPathURI, "{id}", id)
+		var opts []apiconv.Option
 		if since != "" {
-			in.Since = since
+			opts = append(opts, apiconv.WithSince(since))
 		}
-
-		if _, err := dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(in)); err != nil {
+		conv, err := svc.Get(ctx, id, opts...)
+		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		enc := json.NewEncoder(w)
-		_ = enc.Encode(struct {
-			Status string                     `json:"status"`
-			Data   []*agconv.ConversationView `json:"data"`
-		}{Status: "ok", Data: out.Data})
+		_ = json.NewEncoder(w).Encode(struct {
+			Status string                  `json:"status"`
+			Data   []*apiconv.Conversation `json:"data"`
+		}{Status: "ok", Data: func() []*apiconv.Conversation {
+			if conv == nil {
+				return nil
+			}
+			return []*apiconv.Conversation{conv}
+		}()})
 	})
 
 	fileSystem := fsadapter.New(afs.New(), "embed://localhost", &ui.FS)

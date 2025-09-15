@@ -1,0 +1,58 @@
+init:
+  mysqlCred: mysql-e2e.json
+  mysqlSecrets: ${secrets.$mysqlCred}
+  repoPath: $WorkingDirectory(./..)
+  appURL: http://localhost:8080/
+  dbIP:
+    mysql: localhost
+    user: ${mysqlSecrets.Username}
+    password: ${mysqlSecrets.Password}
+  dbPort:
+    mysql: 3307
+  connections: -c='agently|mysql|${dbIP.user}:${dbIP.password}@tcp(${dbIP.mysql}:${dbPort.mysql})/agently?parseTime=true'
+  datlyOptions: $connections
+
+pipeline:
+
+  init:
+    system:
+      action: run
+      description: init system
+      request: '@system'
+
+    database:
+      action: run
+      description: init database
+      request: '@database/database'
+
+  build:
+    action: run
+    description: build application
+    request: '@build/build'
+
+  rule:
+    cleanup:
+      action: exec:run
+      TimeoutMs: 120000
+      checkError: true
+      commands:
+        - cd $appPath
+        - rm -rf repo/
+
+    transcript:
+      acl:
+        action: run
+        request: '@rule/transcript'
+
+
+#
+#  test:
+#    action: run
+#    description: run e2e tests
+#    request: '@regression/regression'
+#
+#  validate:
+#    action: print
+#    message: validation ...
+#
+#
