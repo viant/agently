@@ -29,8 +29,8 @@ var ConversationFS embed.FS
 type ConversationInput struct {
 	Id              string                `parameter:",kind=path,in=id"`
 	Since           string                `parameter:",kind=query,in=since" predicate:"expr,group=0,created_at >= (SELECT created_at FROM turn WHERE id = ?)"`
-	IncludeModelCal int                   `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"1"`
-	IncludeToolCall int                   `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"1"`
+	IncludeModelCal bool                  `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"false"`
+	IncludeToolCall bool                  `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"false"`
 	Has             *ConversationInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
@@ -119,84 +119,84 @@ type MessageView struct {
 }
 
 type ModelCallView struct {
-	MessageId                          string       `sqlx:"message_id"`
-	TurnId                             *string      `sqlx:"turn_id"`
-	Provider                           string       `sqlx:"provider"`
-	Model                              string       `sqlx:"model"`
-	ModelKind                          string       `sqlx:"model_kind"`
-	PromptSnapshot                     *string      `sqlx:"prompt_snapshot"`
-	PromptRef                          *string      `sqlx:"prompt_ref"`
-	PromptHash                         *string      `sqlx:"prompt_hash"`
-	ResponseSnapshot                   *string      `sqlx:"response_snapshot"`
-	ResponseRef                        *string      `sqlx:"response_ref"`
-	FinishReason                       *string      `sqlx:"finish_reason"`
-	PromptTokens                       *int         `sqlx:"prompt_tokens"`
-	PromptCachedTokens                 *int         `sqlx:"prompt_cached_tokens"`
-	CompletionTokens                   *int         `sqlx:"completion_tokens"`
-	TotalTokens                        *int         `sqlx:"total_tokens"`
-	PromptAudioTokens                  *int         `sqlx:"prompt_audio_tokens"`
-	CompletionReasoningTokens          *int         `sqlx:"completion_reasoning_tokens"`
-	CompletionAudioTokens              *int         `sqlx:"completion_audio_tokens"`
-	CompletionAcceptedPredictionTokens *int         `sqlx:"completion_accepted_prediction_tokens"`
-	CompletionRejectedPredictionTokens *int         `sqlx:"completion_rejected_prediction_tokens"`
-	StartedAt                          *time.Time   `sqlx:"started_at"`
-	CompletedAt                        *time.Time   `sqlx:"completed_at"`
-	LatencyMs                          *int         `sqlx:"latency_ms"`
-	CacheHit                           int          `sqlx:"cache_hit"`
-	CacheKey                           *string      `sqlx:"cache_key"`
-	Cost                               *float64     `sqlx:"cost"`
-	SafetyBlocked                      *int         `sqlx:"safety_blocked"`
-	SafetyReasons                      *string      `sqlx:"safety_reasons"`
-	RedactionPolicyVersion             *string      `sqlx:"redaction_policy_version"`
-	Redacted                           int          `sqlx:"redacted"`
-	TraceId                            *string      `sqlx:"trace_id"`
-	SpanId                             *string      `sqlx:"span_id"`
-	RequestPayloadId                   *string      `sqlx:"request_payload_id"`
-	ResponsePayloadId                  *string      `sqlx:"response_payload_id"`
-	ProviderRequestPayloadId           *string      `sqlx:"provider_request_payload_id"`
-	ProviderResponsePayloadId          *string      `sqlx:"provider_response_payload_id"`
-	StreamPayloadId                    *string      `sqlx:"stream_payload_id"`
-	ModelCallRequestPayload            *PayloadView `view:",table=call_payload" on:"RequestPayloadId:request_payload_id=Id:id" sql:"uri=conversation/model_call_request_payload.sql"`
-	ModelCallProviderRequestPayload    *PayloadView `view:",table=call_payload" on:"ProviderRequestPayloadId:provider_request_payload_id=Id:id" sql:"uri=conversation/model_call_provider_request_payload.sql"`
-	ModelCallResponsePayload           *PayloadView `view:",table=call_payload" on:"ResponsePayloadId:response_payload_id=Id:id" sql:"uri=conversation/model_call_response_payload.sql"`
-	ModelCallProviderResponsePayload   *PayloadView `view:",table=call_payload" on:"ProviderResponsePayloadId:provider_response_payload_id=Id:id" sql:"uri=conversation/model_call_provider_response_payload.sql"`
-	ModelCallStreamPayload             *PayloadView `view:",table=call_payload" on:"StreamPayloadId:stream_payload_id=Id:id" sql:"uri=conversation/model_call_stream_payload.sql"`
+	MessageId                          string               `sqlx:"message_id"`
+	TurnId                             *string              `sqlx:"turn_id"`
+	Provider                           string               `sqlx:"provider"`
+	Model                              string               `sqlx:"model"`
+	ModelKind                          string               `sqlx:"model_kind"`
+	PromptSnapshot                     *string              `sqlx:"prompt_snapshot"`
+	PromptRef                          *string              `sqlx:"prompt_ref"`
+	PromptHash                         *string              `sqlx:"prompt_hash"`
+	ResponseSnapshot                   *string              `sqlx:"response_snapshot"`
+	ResponseRef                        *string              `sqlx:"response_ref"`
+	FinishReason                       *string              `sqlx:"finish_reason"`
+	PromptTokens                       *int                 `sqlx:"prompt_tokens"`
+	PromptCachedTokens                 *int                 `sqlx:"prompt_cached_tokens"`
+	CompletionTokens                   *int                 `sqlx:"completion_tokens"`
+	TotalTokens                        *int                 `sqlx:"total_tokens"`
+	PromptAudioTokens                  *int                 `sqlx:"prompt_audio_tokens"`
+	CompletionReasoningTokens          *int                 `sqlx:"completion_reasoning_tokens"`
+	CompletionAudioTokens              *int                 `sqlx:"completion_audio_tokens"`
+	CompletionAcceptedPredictionTokens *int                 `sqlx:"completion_accepted_prediction_tokens"`
+	CompletionRejectedPredictionTokens *int                 `sqlx:"completion_rejected_prediction_tokens"`
+	StartedAt                          *time.Time           `sqlx:"started_at"`
+	CompletedAt                        *time.Time           `sqlx:"completed_at"`
+	LatencyMs                          *int                 `sqlx:"latency_ms"`
+	CacheHit                           int                  `sqlx:"cache_hit"`
+	CacheKey                           *string              `sqlx:"cache_key"`
+	Cost                               *float64             `sqlx:"cost"`
+	SafetyBlocked                      *int                 `sqlx:"safety_blocked"`
+	SafetyReasons                      *string              `sqlx:"safety_reasons"`
+	RedactionPolicyVersion             *string              `sqlx:"redaction_policy_version"`
+	Redacted                           int                  `sqlx:"redacted"`
+	TraceId                            *string              `sqlx:"trace_id"`
+	SpanId                             *string              `sqlx:"span_id"`
+	RequestPayloadId                   *string              `sqlx:"request_payload_id"`
+	ResponsePayloadId                  *string              `sqlx:"response_payload_id"`
+	ProviderRequestPayloadId           *string              `sqlx:"provider_request_payload_id"`
+	ProviderResponsePayloadId          *string              `sqlx:"provider_response_payload_id"`
+	StreamPayloadId                    *string              `sqlx:"stream_payload_id"`
+	ModelCallRequestPayload            *ResponsePayloadView `view:",table=call_payload" on:"RequestPayloadId:request_payload_id=Id:id" sql:"uri=conversation/model_call_request_payload.sql"`
+	ModelCallProviderRequestPayload    *ResponsePayloadView `view:",table=call_payload" on:"ProviderRequestPayloadId:provider_request_payload_id=Id:id" sql:"uri=conversation/model_call_provider_request_payload.sql"`
+	ModelCallResponsePayload           *ResponsePayloadView `view:",table=call_payload" on:"ResponsePayloadId:response_payload_id=Id:id" sql:"uri=conversation/model_call_response_payload.sql"`
+	ModelCallProviderResponsePayload   *ResponsePayloadView `view:",table=call_payload" on:"ProviderResponsePayloadId:provider_response_payload_id=Id:id" sql:"uri=conversation/model_call_provider_response_payload.sql"`
+	ModelCallStreamPayload             *ResponsePayloadView `view:",table=call_payload" on:"StreamPayloadId:stream_payload_id=Id:id" sql:"uri=conversation/model_call_stream_payload.sql"`
 }
 
-type PayloadView struct {
+type ResponsePayloadView struct {
 	Id          string  `sqlx:"id"`
 	InlineBody  *string `sqlx:"inline_body"`
 	Compression string  `sqlx:"compression"`
 }
 
 type ToolCallView struct {
-	MessageId         string       `sqlx:"message_id"`
-	TurnId            *string      `sqlx:"turn_id"`
-	OpId              string       `sqlx:"op_id"`
-	Attempt           int          `sqlx:"attempt"`
-	ToolName          string       `sqlx:"tool_name"`
-	ToolKind          string       `sqlx:"tool_kind"`
-	CapabilityTags    *string      `sqlx:"capability_tags"`
-	ResourceUris      *string      `sqlx:"resource_uris"`
-	Status            string       `sqlx:"status"`
-	RequestSnapshot   *string      `sqlx:"request_snapshot"`
-	RequestRef        *string      `sqlx:"request_ref"`
-	RequestHash       *string      `sqlx:"request_hash"`
-	ResponseSnapshot  *string      `sqlx:"response_snapshot"`
-	ResponseRef       *string      `sqlx:"response_ref"`
-	ErrorCode         *string      `sqlx:"error_code"`
-	ErrorMessage      *string      `sqlx:"error_message"`
-	Retriable         *int         `sqlx:"retriable"`
-	StartedAt         *time.Time   `sqlx:"started_at"`
-	CompletedAt       *time.Time   `sqlx:"completed_at"`
-	LatencyMs         *int         `sqlx:"latency_ms"`
-	Cost              *float64     `sqlx:"cost"`
-	TraceId           *string      `sqlx:"trace_id"`
-	SpanId            *string      `sqlx:"span_id"`
-	RequestPayloadId  *string      `sqlx:"request_payload_id"`
-	ResponsePayloadId *string      `sqlx:"response_payload_id"`
-	RequestPayload    *PayloadView `view:",table=call_payload" on:"RequestPayloadId:request_payload_id=Id:id" sql:"uri=conversation/request_payload.sql"`
-	Payload           *PayloadView `view:",table=call_payload" on:"ResponsePayloadId:response_payload_id=Id:id" sql:"uri=conversation/payload.sql"`
+	MessageId         string               `sqlx:"message_id"`
+	TurnId            *string              `sqlx:"turn_id"`
+	OpId              string               `sqlx:"op_id"`
+	Attempt           int                  `sqlx:"attempt"`
+	ToolName          string               `sqlx:"tool_name"`
+	ToolKind          string               `sqlx:"tool_kind"`
+	CapabilityTags    *string              `sqlx:"capability_tags"`
+	ResourceUris      *string              `sqlx:"resource_uris"`
+	Status            string               `sqlx:"status"`
+	RequestSnapshot   *string              `sqlx:"request_snapshot"`
+	RequestRef        *string              `sqlx:"request_ref"`
+	RequestHash       *string              `sqlx:"request_hash"`
+	ResponseSnapshot  *string              `sqlx:"response_snapshot"`
+	ResponseRef       *string              `sqlx:"response_ref"`
+	ErrorCode         *string              `sqlx:"error_code"`
+	ErrorMessage      *string              `sqlx:"error_message"`
+	Retriable         *int                 `sqlx:"retriable"`
+	StartedAt         *time.Time           `sqlx:"started_at"`
+	CompletedAt       *time.Time           `sqlx:"completed_at"`
+	LatencyMs         *int                 `sqlx:"latency_ms"`
+	Cost              *float64             `sqlx:"cost"`
+	TraceId           *string              `sqlx:"trace_id"`
+	SpanId            *string              `sqlx:"span_id"`
+	RequestPayloadId  *string              `sqlx:"request_payload_id"`
+	ResponsePayloadId *string              `sqlx:"response_payload_id"`
+	RequestPayload    *ResponsePayloadView `view:",table=call_payload" on:"RequestPayloadId:request_payload_id=Id:id" sql:"uri=conversation/request_payload.sql"`
+	ResponsePayload   *ResponsePayloadView `view:",table=call_payload" on:"ResponsePayloadId:response_payload_id=Id:id" sql:"uri=conversation/response_payload.sql"`
 }
 
 type UsageView struct {

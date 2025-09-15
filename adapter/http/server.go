@@ -192,7 +192,7 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.handleElicitationCallback(w, r, r.PathValue("msgId"))
 	})
 
-	// Payload fetch (lazy request/response bodies)
+	// ResponsePayload fetch (lazy request/response bodies)
 	mux.HandleFunc("GET /v1/api/payload/{id}", func(w http.ResponseWriter, r *http.Request) {
 		s.handleGetPayload(w, r, r.PathValue("id"))
 	})

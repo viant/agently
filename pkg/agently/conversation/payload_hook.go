@@ -6,7 +6,7 @@ import (
 	"context"
 )
 
-func (p *PayloadView) OnFetch(ctx context.Context) error {
+func (p *ResponsePayloadView) OnFetch(ctx context.Context) error {
 	if p.Compression == "gzip" && p.InlineBody != nil {
 		gr, err := gzip.NewReader(bytes.NewReader([]byte(*p.InlineBody)))
 		if err == nil {

@@ -1,9 +1,74 @@
 package conversation
 
-import "github.com/viant/agently/pkg/agently/conversation"
+import (
+	"strings"
+	"unsafe"
 
-type Transcript []*conversation.TranscriptView
+	"github.com/viant/agently/genai/prompt"
+	"github.com/viant/agently/pkg/agently/conversation"
+)
 
-func (t *Transcript) Size() int {
-	return len(*t)
+type Turn conversation.TranscriptView
+
+type Transcript []*Turn
+
+func (t *Turn) GetMessages() Messages {
+	return *(*Messages)(unsafe.Pointer(&t.Message))
+}
+
+func (t *Turn) ToolCalls() Messages {
+	filtered := t.Filter(func(v *Message) bool {
+		if v.ToolCall != nil {
+			return true
+		}
+		return false
+	})
+	return filtered
+}
+
+func (t *Transcript) History(query string) []*prompt.Message {
+	normalized := t.Filter(func(v *Message) bool {
+		if v == nil || v.Type == "control" || v.IsInterim() || v.Content == "" {
+			return false
+		}
+		role := strings.ToLower(strings.TrimSpace(v.Role))
+		return role == "user" || role == "assistant"
+	})
+
+	if n := len(normalized); n > 0 && query != "" {
+		last := normalized[n-1]
+		if last != nil && strings.EqualFold(strings.TrimSpace(last.Role), "user") &&
+			strings.TrimSpace(last.Content) == strings.TrimSpace(query) {
+			normalized = normalized[:n-1]
+		}
+	}
+	normalized.SortedByCreatedAt(true)
+
+	var result []*prompt.Message
+	for _, v := range normalized {
+		result = append(result, &prompt.Message{Role: v.Role, Content: v.Content})
+	}
+	return result
+}
+
+func (t *Turn) Filter(f func(v *Message) bool) Messages {
+	result := make(Messages, 0)
+	for _, m := range t.GetMessages() {
+		if f(m) {
+			result = append(result, m)
+		}
+	}
+	return result
+}
+
+func (t *Transcript) Filter(f func(v *Message) bool) Messages {
+	var result Messages
+	for _, turn := range *t {
+		for _, message := range turn.GetMessages() {
+			if f(message) {
+				result = append(result, message)
+			}
+		}
+	}
+	return result
 }
