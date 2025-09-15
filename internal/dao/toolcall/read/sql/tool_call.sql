@@ -20,6 +20,6 @@ SELECT
   tc.span_id,
   tc.request_payload_id,
   tc.response_payload_id
-FROM tool_calls tc
+FROM tool_call tc
 LEFT JOIN message m ON m.id = tc.message_id
 ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")} 

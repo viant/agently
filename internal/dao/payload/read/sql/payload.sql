@@ -17,5 +17,5 @@ SELECT
   p.schema_ref,
   p.preview,
   p.tags
-FROM call_payloads p
+FROM call_payload p
 ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")} 

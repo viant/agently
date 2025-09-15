@@ -23,13 +23,14 @@ const (
 
 // API groups API APIs produced by New.
 type API struct {
-	Conversation convdao.API
-	Message      msgdao.API
-	ModelCall    mcdao.API
-	ToolCall     tcdao.API
-	Payload      pldao.API
-	Turn         turndao.API
-	Usage        usagedao.API
+	Conversation  convdao.API
+	Message       msgdao.API
+	ModelCall     mcdao.API
+	ToolCall      tcdao.API
+	Payload       pldao.API
+	Turn          turndao.API
+	Usage         usagedao.API
+	Conversation2 convdao.APIV2
 }
 
 // New returns API APIs for the requested kind.

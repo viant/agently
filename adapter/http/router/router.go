@@ -13,6 +13,7 @@ import (
 	toolhttp "github.com/viant/agently/adapter/http/tool"
 	"github.com/viant/agently/adapter/http/workflow"
 
+	"encoding/json"
 	"os"
 	"strings"
 
@@ -24,6 +25,7 @@ import (
 	daofactory "github.com/viant/agently/internal/dao/factory"
 	d "github.com/viant/agently/internal/domain"
 	dstore "github.com/viant/agently/internal/domain/adapter"
+	agconv "github.com/viant/agently/pkg/agently/conversation"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
 	fluxorpol "github.com/viant/fluxor/policy"
@@ -55,6 +57,59 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 
 	// Metadata defaults endpoint
 	mux.HandleFunc("/v1/metadata/defaults", metadata.New(exec))
+
+	// v2 read endpoints (Datly-backed) – rich conversation
+	mux.HandleFunc("/v2/api/agently/conversation/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		ctx := r.Context()
+		id := strings.TrimPrefix(r.URL.Path, "/v2/api/agently/conversation/")
+		id = strings.Trim(id, "/")
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"status":"ERROR","message":"id is required"}`))
+			return
+		}
+		since := r.URL.Query().Get("since")
+		dao, err := datly.New(ctx)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		// Attach connector
+		driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
+		dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
+		if driver == "" || dsn == "" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"status":"ERROR","message":"database not configured"}`))
+			return
+		}
+		_ = dao.AddConnectors(ctx, view.NewConnector("agently", driver, dsn))
+		// Register component
+		if err := agconv.DefineConversationComponent(ctx, dao); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		in := &agconv.ConversationInput{Id: id, IncludeToolCall: 1}
+		out := &agconv.ConversationOutput{}
+		uri := strings.ReplaceAll(agconv.ConversationPathURI, "{id}", id)
+		if since != "" {
+			in.Since = since
+		}
+
+		if _, err := dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(in)); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		_ = enc.Encode(struct {
+			Status string                     `json:"status"`
+			Data   []*agconv.ConversationView `json:"data"`
+		}{Status: "ok", Data: out.Data})
+	})
 
 	fileSystem := fsadapter.New(afs.New(), "embed://localhost", &ui.FS)
 	fileServer := http.FileServer(fileSystem)

@@ -45,9 +45,10 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 		// Enable streaming if requested
 		req.Stream = request.Options.Stream
 		// Propagate reasoning summary if requested on supported models
-		if r := request.Options.Reasoning; r != nil && r.Summary == "auto" {
+		if r := request.Options.Reasoning; r != nil {
 			switch req.Model {
-			case "o3", "o4-mini", "codex-mini-latest":
+			case "o3", "o4-mini", "codex-mini-latest",
+				"gpt-4.1", "gpt-4.1-mini", "gpt-5", "o3-mini":
 				req.Reasoning = r
 			}
 		}
@@ -337,12 +338,32 @@ func ToLLMSResponse(resp *Response) *llm.GenerateResponse {
 		llmsResp.Choices[i] = llmsChoice
 	}
 
-	// Convert usage
-	llmsResp.Usage = &llm.Usage{
+	// Convert usage including detailed fields when available
+	u := &llm.Usage{
 		PromptTokens:     resp.Usage.PromptTokens,
 		CompletionTokens: resp.Usage.CompletionTokens,
 		TotalTokens:      resp.Usage.TotalTokens,
 	}
+	// Map prompt details
+	u.PromptCachedTokens = resp.Usage.PromptTokensDetails.CachedTokens
+	if resp.Usage.PromptTokensDetails.AudioTokens > 0 {
+		u.PromptAudioTokens = resp.Usage.PromptTokensDetails.AudioTokens
+	}
+	// Map completion details
+	if resp.Usage.CompletionTokensDetails.ReasoningTokens > 0 {
+		u.ReasoningTokens = resp.Usage.CompletionTokensDetails.ReasoningTokens
+		u.CompletionReasoningTokens = resp.Usage.CompletionTokensDetails.ReasoningTokens
+	}
+	if resp.Usage.CompletionTokensDetails.AudioTokens > 0 {
+		u.CompletionAudioTokens = resp.Usage.CompletionTokensDetails.AudioTokens
+		// Keep legacy aggregate when single source available
+		if u.AudioTokens == 0 {
+			u.AudioTokens = resp.Usage.CompletionTokensDetails.AudioTokens
+		}
+	}
+	u.AcceptedPredictionTokens = resp.Usage.CompletionTokensDetails.AcceptedPredictionTokens
+	u.RejectedPredictionTokens = resp.Usage.CompletionTokensDetails.RejectedPredictionTokens
+	llmsResp.Usage = u
 
 	return llmsResp
 }

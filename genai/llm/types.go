@@ -189,6 +189,19 @@ type Usage struct {
 	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 
 	AudioTokens int `json:"audio_tokens,omitempty"`
+
+	// Provider-detailed usage (OpenAI-compatible)
+	// Prompt-level cached tokens (from prompt_tokens_details.cached_tokens)
+	PromptCachedTokens int `json:"prompt_cached_tokens,omitempty"`
+	// Prompt-level audio tokens (from prompt_tokens_details.audio_tokens)
+	PromptAudioTokens int `json:"prompt_audio_tokens,omitempty"`
+	// Completion-level reasoning tokens (from completion_tokens_details.reasoning_tokens)
+	CompletionReasoningTokens int `json:"completion_reasoning_tokens,omitempty"`
+	// Completion-level audio tokens (from completion_tokens_details.audio_tokens)
+	CompletionAudioTokens int `json:"completion_audio_tokens,omitempty"`
+	// Speculative decoding accepted/rejected prediction tokens
+	AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
+	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
 }
 
 // NewUserMessage creates a new message with the "user" role.

@@ -19,7 +19,7 @@ func New(ctx context.Context, dao *datly.Service) *Service { return &Service{dao
 // Register components (to be invoked by parent module).
 func Register(ctx context.Context, dao *datly.Service) error { return DefineComponent(ctx, dao) }
 
-// List returns turns using input options.
+// List returns turn rows using input options.
 func (s *Service) List(ctx context.Context, opts ...read2.InputOption) ([]*read2.TurnView, error) {
 	in := &read2.Input{}
 	for _, opt := range opts {
@@ -53,7 +53,7 @@ func (s *Service) List(ctx context.Context, opts ...read2.InputOption) ([]*read2
 	return ret, nil
 }
 
-// Patch upserts turns via write component.
+// Patch upserts turn rows via write component.
 func (s *Service) Patch(ctx context.Context, turns ...*write2.Turn) (*write2.Output, error) {
 	in := &write2.Input{Turns: turns}
 	out := &write2.Output{}

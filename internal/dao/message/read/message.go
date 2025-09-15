@@ -72,8 +72,8 @@ type MessageView struct {
 	SupersededBy   *string    `sqlx:"superseded_by"`
 	ToolName       *string    `sqlx:"tool_name"`
 
-	ToolCall  *ToolCallView  `sqlx:"-" on:"Id:id=MessageID:message_id" view:",table=tool_calls" sql:"uri=sql/tool_call.sql"`
-	ModelCall *ModelCallView `sqlx:"-" on:"Id:id=MessageID:message_id" view:",table=model_calls" sql:"uri=sql/model_call.sql"`
+	ToolCall  *ToolCallView  `sqlx:"-" on:"Id:id=MessageID:message_id" view:",table=tool_call" sql:"uri=sql/tool_call.sql"`
+	ModelCall *ModelCallView `sqlx:"-" on:"Id:id=MessageID:message_id" view:",table=model_call" sql:"uri=sql/model_call.sql"`
 	// ElicitationJSON holds inline JSON decoded from the payload referenced by
 	// ElicitationID. It is populated when caller opts in via WithElicitationInline.
 	// It is an internal staging field and not exposed in JSON.
@@ -108,26 +108,34 @@ type ToolCallView struct {
 }
 
 type ModelCallView struct {
-	MessageID         string     `sqlx:"message_id"`
-	Status            string     `sqlx:"status"`
-	Provider          string     `sqlx:"provider"`
-	Model             string     `sqlx:"model"`
-	ModelKind         string     `sqlx:"model_kind"`
-	PromptTokens      *int       `sqlx:"prompt_tokens"`
-	CompletionTokens  *int       `sqlx:"completion_tokens"`
-	TotalTokens       *int       `sqlx:"total_tokens"`
-	FinishReason      *string    `sqlx:"finish_reason"`
-	CacheHit          *int       `sqlx:"cache_hit"`
-	CacheKey          *string    `sqlx:"cache_key"`
-	StartedAt         *time.Time `sqlx:"started_at"`
-	CompletedAt       *time.Time `sqlx:"completed_at"`
-	LatencyMS         *int       `sqlx:"latency_ms"`
-	Cost              *float64   `sqlx:"cost"`
-	TraceID           *string    `sqlx:"trace_id"`
-	SpanID            *string    `sqlx:"span_id"`
-	RequestPayloadID  *string    `sqlx:"request_payload_id"`
-	ResponsePayloadID *string    `sqlx:"response_payload_id"`
-	StreamPayloadID   *string    `sqlx:"stream_payload_id"`
+	MessageID                          string     `sqlx:"message_id"`
+	Status                             string     `sqlx:"status"`
+	Provider                           string     `sqlx:"provider"`
+	Model                              string     `sqlx:"model"`
+	ModelKind                          string     `sqlx:"model_kind"`
+	PromptTokens                       *int       `sqlx:"prompt_tokens"`
+	PromptCachedTokens                 *int       `sqlx:"prompt_cached_tokens"`
+	CompletionTokens                   *int       `sqlx:"completion_tokens"`
+	TotalTokens                        *int       `sqlx:"total_tokens"`
+	PromptAudioTokens                  *int       `sqlx:"prompt_audio_tokens"`
+	CompletionReasoningTokens          *int       `sqlx:"completion_reasoning_tokens"`
+	CompletionAudioTokens              *int       `sqlx:"completion_audio_tokens"`
+	CompletionAcceptedPredictionTokens *int       `sqlx:"completion_accepted_prediction_tokens"`
+	CompletionRejectedPredictionTokens *int       `sqlx:"completion_rejected_prediction_tokens"`
+	FinishReason                       *string    `sqlx:"finish_reason"`
+	CacheHit                           *int       `sqlx:"cache_hit"`
+	CacheKey                           *string    `sqlx:"cache_key"`
+	StartedAt                          *time.Time `sqlx:"started_at"`
+	CompletedAt                        *time.Time `sqlx:"completed_at"`
+	LatencyMS                          *int       `sqlx:"latency_ms"`
+	Cost                               *float64   `sqlx:"cost"`
+	TraceID                            *string    `sqlx:"trace_id"`
+	SpanID                             *string    `sqlx:"span_id"`
+	RequestPayloadID                   *string    `sqlx:"request_payload_id"`
+	ResponsePayloadID                  *string    `sqlx:"response_payload_id"`
+	ProviderRequestPayloadID           *string    `sqlx:"provider_request_payload_id"`
+	ProviderResponsePayloadID          *string    `sqlx:"provider_response_payload_id"`
+	StreamPayloadID                    *string    `sqlx:"stream_payload_id"`
 }
 
 var PathBase = "/v2/api/agently/message"

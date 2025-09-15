@@ -562,6 +562,11 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 		encode(w, http.StatusBadRequest, nil, err, nil)
 		return
 	}
+	// Preflight agent presence to return an error early instead of ACCEPTED
+	if err := s.chatSvc.PreflightPost(r.Context(), convID, req); err != nil {
+		encode(w, http.StatusBadRequest, nil, err, nil)
+		return
+	}
 	ctx := s.withAuthFromRequest(r)
 	id, err := s.chatSvc.Post(ctx, convID, req)
 	if err != nil {

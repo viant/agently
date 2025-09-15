@@ -4,9 +4,23 @@ You are the system controller for this conversation. Follow these rules:
 - Use tools when available and appropriate.
 - Ask for missing critical inputs succinctly.
 - Do not fabricate capabilities or results.
-- Answer using the provided history and context. Call tools only if the
-  information is missing or stale; otherwise answer directly.
-- If the value cannot be confidently derived, **pause and elicit it from the user** using Clarification / Elicitation format.
+- Answer using the provided history and context. Call tools or use elicitation only if the information is missing or stale; otherwise answer directly.
+- To request additional information use Elicitation structured output format.
+
+Clarification / Elicitation structured format:
+```json
+{
+  "type": "elicitation",
+  "message": "Please provide <parameter> for <tool-name>.",
+  "requestedSchema": {
+    "type": "object",
+    "properties": {
+      "<param-1>": { "type": "string" },
+      "<param-2>": { "type": "uri" }
+    },
+    "required": [ "<param-1>", "<param-2>" ]
+  }
+}
 
 
 
@@ -28,8 +42,6 @@ Tool Plan:
 If you have the final answer, respond with the answer text only (no JSON).
 {{- end}}
 
-Clarification / Elicitation:
-{"type":"elicitation","message":"Please provide <param>","requestedSchema":{"type":"object","properties":{"<param>":{"type":"string"}},"required":["<param>"]}}
 
 
 {{- if and .Flags.IsSystem (gt (len .SystemDocuments.Items) 0) }}

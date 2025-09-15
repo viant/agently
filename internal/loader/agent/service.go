@@ -166,20 +166,24 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agent.Agent
 // resolvePromptURIs updates agent Prompt/SystemPrompt URI when relative by
 // resolving them against the agent source URL directory.
 func (s *Service) resolvePromptURIs(a *agent.Agent) {
-    if a == nil || a.Source == nil || strings.TrimSpace(a.Source.URL) == "" {
-        return
-    }
-    base, _ := url.Split(a.Source.URL, file.Scheme)
-    fix := func(p *prompt.Prompt) {
-        if p == nil { return }
-        u := strings.TrimSpace(p.URI)
-        if u == "" { return }
-        if url.Scheme(u, "") == "" && !strings.HasPrefix(u, "/") {
-            p.URI = url.Join(base, u)
-        }
-    }
-    fix(a.Prompt)
-    fix(a.SystemPrompt)
+	if a == nil || a.Source == nil || strings.TrimSpace(a.Source.URL) == "" {
+		return
+	}
+	base, _ := url.Split(a.Source.URL, file.Scheme)
+	fix := func(p *prompt.Prompt) {
+		if p == nil {
+			return
+		}
+		u := strings.TrimSpace(p.URI)
+		if u == "" {
+			return
+		}
+		if url.Scheme(u, "") == "" && !strings.HasPrefix(u, "/") {
+			p.URI = url.Join(base, u)
+		}
+	}
+	fix(a.Prompt)
+	fix(a.SystemPrompt)
 }
 
 // parseAgent parses agent properties from a YAML node

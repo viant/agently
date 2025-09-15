@@ -48,7 +48,7 @@ func TestToolCall_List(t *testing.T) {
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary) VALUES (?,?)", Params: []interface{}{"c1", "A"}},
 				{SQL: "INSERT INTO message (id, conversation_id, role, type, content) VALUES (?,?,?,?,?)", Params: []interface{}{"m1", "c1", "tool", "tool_op", "x"}},
-				{SQL: "INSERT INTO tool_calls (message_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?)", Params: []interface{}{"m1", "op1", 1, "search", "general", "completed"}},
+				{SQL: "INSERT INTO tool_call (message_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?)", Params: []interface{}{"m1", "op1", 1, "search", "general", "completed"}},
 			},
 			exec: func(srv *Service) (interface{}, error) {
 				rows, err := srv.List(context.Background(), WithConversationID("c1"))
@@ -68,7 +68,7 @@ func TestToolCall_List(t *testing.T) {
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary) VALUES (?,?)", Params: []interface{}{"c1", "A"}},
 				{SQL: "INSERT INTO message (id, conversation_id, role, type, content) VALUES (?,?,?,?,?)", Params: []interface{}{"m1", "c1", "tool", "tool_op", "x"}},
-				{SQL: "INSERT INTO tool_calls (message_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?)", Params: []interface{}{"m1", "op1", 1, "search", "general", "completed"}},
+				{SQL: "INSERT INTO tool_call (message_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?)", Params: []interface{}{"m1", "op1", 1, "search", "general", "completed"}},
 			},
 			exec: func(srv *Service) (interface{}, error) {
 				rows, err := srv.List(context.Background(), WithToolName("search"))

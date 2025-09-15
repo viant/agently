@@ -184,6 +184,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		for {
 			line, err := reader.ReadBytes('\n')
 			if len(line) > 0 {
+				if observer != nil {
+					// append raw line for full fidelity
+					observer.OnStreamDelta(ctx, line)
+				}
 				var chunk Response
 				if err := json.Unmarshal(line, &chunk); err != nil {
 					events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream chunk: %w", err)}

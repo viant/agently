@@ -49,7 +49,7 @@ func TestService_List(t *testing.T) {
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary, agent_name) VALUES (?,?,?)", Params: []interface{}{"cvM", "Alpha", "AgentA"}},
 				{SQL: "INSERT INTO message (id, conversation_id, role, type, content, interim) VALUES (?,?,?,?,?,?)", Params: []interface{}{"mA", "cvM", "assistant", "text", "answer", 0}},
-				{SQL: "INSERT INTO model_calls (message_id, provider, model, model_kind) VALUES (?,?,?,?)", Params: []interface{}{"mA", "openai", "gpt-4o-mini", "chat"}},
+				{SQL: "INSERT INTO model_call (message_id, provider, model, model_kind) VALUES (?,?,?,?)", Params: []interface{}{"mA", "openai", "gpt-4o-mini", "chat"}},
 			},
 			opts:                   []InputOption{WithConversationID("cvM")},
 			expectedMessageIDs:     []string{"mA"},
@@ -61,7 +61,7 @@ func TestService_List(t *testing.T) {
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary, agent_name) VALUES (?,?,?)", Params: []interface{}{"cv1", "Alpha", "AgentA"}},
 				{SQL: "INSERT INTO message (id, conversation_id, role, type, content, interim) VALUES (?,?,?,?,?,?)", Params: []interface{}{"m3", "cv1", "tool", "tool_op", "call", 0}},
-				{SQL: "INSERT INTO tool_calls (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?,?)", Params: []interface{}{"m3", nil, "op-1", 1, "search", "general", "completed"}},
+				{SQL: "INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?,?)", Params: []interface{}{"m3", nil, "op-1", 1, "search", "general", "completed"}},
 			},
 			opts:                  []InputOption{WithConversationID("cv1"), WithType("tool_op")},
 			expectedMessageIDs:    []string{"m3"},
@@ -210,23 +210,23 @@ func TestService_GetTranscript(t *testing.T) {
 			turnID:         "t1",
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary, agent_name) VALUES (?,?,?)", Params: []interface{}{"cv1", "Alpha", "AgentA"}},
-				{SQL: "INSERT INTO turns (id, conversation_id, status) VALUES (?,?,?)", Params: []interface{}{"t1", "cv1", "running"}},
+				{SQL: "INSERT INTO turn (id, conversation_id, status) VALUES (?,?,?)", Params: []interface{}{"t1", "cv1", "running"}},
 				// user (seq 1)
 				{SQL: "INSERT INTO message (id, conversation_id, turn_id, sequence, role, type, content, interim, created_at) VALUES (?,?,?,?,?,?,?,?,?)", Params: []interface{}{"m1", "cv1", "t1", 1, "user", "text", "q", 0, "2024-01-01 10:00:00"}},
 				// tool opA/rh1 attempt 1 (seq 2) – should be dropped due to newer attempt
 				{SQL: "INSERT INTO message (id, conversation_id, turn_id, sequence, role, type, content, interim, created_at) VALUES (?,?,?,?,?,?,?,?,?)", Params: []interface{}{"m2", "cv1", "t1", 2, "tool", "tool_op", "call a1", 0, "2024-01-01 10:01:00"}},
-				{SQL: "INSERT INTO tool_calls (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, request_hash) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"m2", "t1", "opA", 1, "fetch", "general", "completed", "rh1"}},
+				{SQL: "INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, request_hash) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"m2", "t1", "opA", 1, "fetch", "general", "completed", "rh1"}},
 				// tool opA/rh1 attempt 2 (seq 3) – should be kept
 				{SQL: "INSERT INTO message (id, conversation_id, turn_id, sequence, role, type, content, interim, created_at) VALUES (?,?,?,?,?,?,?,?,?)", Params: []interface{}{"m3", "cv1", "t1", 3, "tool", "tool_op", "call a2", 0, "2024-01-01 10:02:00"}},
-				{SQL: "INSERT INTO tool_calls (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, request_hash) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"m3", "t1", "opA", 2, "fetch", "general", "completed", "rh1"}},
+				{SQL: "INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, request_hash) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"m3", "t1", "opA", 2, "fetch", "general", "completed", "rh1"}},
 				// tool opA/rh2 attempt 3 (seq 4) – different args, should be kept
 				{SQL: "INSERT INTO message (id, conversation_id, turn_id, sequence, role, type, content, interim, created_at) VALUES (?,?,?,?,?,?,?,?,?)", Params: []interface{}{"m4", "cv1", "t1", 4, "tool", "tool_op", "call a3", 0, "2024-01-01 10:03:00"}},
-				{SQL: "INSERT INTO tool_calls (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, request_hash) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"m4", "t1", "opA", 3, "fetch", "general", "completed", "rh2"}},
+				{SQL: "INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, request_hash) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"m4", "t1", "opA", 3, "fetch", "general", "completed", "rh2"}},
 				// control type (seq 5) – should be excluded
 				{SQL: "INSERT INTO message (id, conversation_id, turn_id, sequence, role, type, content, interim, created_at) VALUES (?,?,?,?,?,?,?,?,?)", Params: []interface{}{"m5", "cv1", "t1", 5, "control", "control", "ctrl", 0, "2024-01-01 10:04:00"}},
 				// interim tool (seq 6) – should be excluded by default
 				{SQL: "INSERT INTO message (id, conversation_id, turn_id, sequence, role, type, content, interim, created_at) VALUES (?,?,?,?,?,?,?,?,?)", Params: []interface{}{"m6", "cv1", "t1", 6, "tool", "tool_op", "call interim", 1, "2024-01-01 10:05:00"}},
-				{SQL: "INSERT INTO tool_calls (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, request_hash) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"m6", "t1", "opB", 1, "fetch", "general", "running", "rhX"}},
+				{SQL: "INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, request_hash) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"m6", "t1", "opB", 1, "fetch", "general", "running", "rhX"}},
 				// assistant (seq 7)
 				{SQL: "INSERT INTO message (id, conversation_id, turn_id, sequence, role, type, content, interim, created_at) VALUES (?,?,?,?,?,?,?,?,?)", Params: []interface{}{"m7", "cv1", "t1", 7, "assistant", "text", "ans", 0, "2024-01-01 10:06:00"}},
 			},
@@ -238,12 +238,12 @@ func TestService_GetTranscript(t *testing.T) {
 			turnID:         "t2",
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary, agent_name) VALUES (?,?,?)", Params: []interface{}{"cv2", "Alpha", "AgentA"}},
-				{SQL: "INSERT INTO turns (id, conversation_id, status) VALUES (?,?,?)", Params: []interface{}{"t2", "cv2", "running"}},
+				{SQL: "INSERT INTO turn (id, conversation_id, status) VALUES (?,?,?)", Params: []interface{}{"t2", "cv2", "running"}},
 				{SQL: "INSERT INTO message (id, conversation_id, turn_id, sequence, role, type, content, interim) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"u1", "cv2", "t2", 1, "user", "text", "q", 0}},
 				{SQL: "INSERT INTO message (id, conversation_id, turn_id, sequence, role, type, content, interim) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"ta1", "cv2", "t2", 2, "tool", "tool_op", "a1", 0}},
-				{SQL: "INSERT INTO tool_calls (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?,?)", Params: []interface{}{"ta1", "t2", "opX", 1, "calc", "general", "completed"}},
+				{SQL: "INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?,?)", Params: []interface{}{"ta1", "t2", "opX", 1, "calc", "general", "completed"}},
 				{SQL: "INSERT INTO message (id, conversation_id, turn_id, sequence, role, type, content, interim) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"ta2", "cv2", "t2", 3, "tool", "tool_op", "a2", 0}},
-				{SQL: "INSERT INTO tool_calls (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?,?)", Params: []interface{}{"ta2", "t2", "opX", 2, "calc", "general", "completed"}},
+				{SQL: "INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?,?)", Params: []interface{}{"ta2", "t2", "opX", 2, "calc", "general", "completed"}},
 				{SQL: "INSERT INTO message (id, conversation_id, turn_id, sequence, role, type, content, interim) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"as1", "cv2", "t2", 4, "assistant", "text", "ans", 0}},
 			},
 			expectedMessageIDs: []string{"u1", "ta2", "as1"},
@@ -294,10 +294,10 @@ func TestService_GetConversation(t *testing.T) {
 			conversationID: "cv3",
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary, agent_name) VALUES (?,?,?)", Params: []interface{}{"cv3", "Alpha", "AgentA"}},
-				{SQL: "INSERT INTO turns (id, conversation_id, status) VALUES (?,?,?)", Params: []interface{}{"t3", "cv3", "running"}},
+				{SQL: "INSERT INTO turn (id, conversation_id, status) VALUES (?,?,?)", Params: []interface{}{"t3", "cv3", "running"}},
 				{SQL: "INSERT INTO message (id, conversation_id, created_at, role, type, content, interim) VALUES (?,?,?,?,?,?,?)", Params: []interface{}{"u1", "cv3", "2024-01-01 10:00:00", "user", "text", "hi", 0}},
 				{SQL: "INSERT INTO message (id, conversation_id, created_at, role, type, content, interim) VALUES (?,?,?,?,?,?,?)", Params: []interface{}{"tool1", "cv3", "2024-01-01 10:01:00", "tool", "tool_op", "t", 0}},
-				{SQL: "INSERT INTO tool_calls (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, request_hash) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"tool1", "t3", "opZ", 1, "web", "general", "completed", "rh9"}},
+				{SQL: "INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, request_hash) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"tool1", "t3", "opZ", 1, "web", "general", "completed", "rh9"}},
 				{SQL: "INSERT INTO message (id, conversation_id, created_at, role, type, content, interim) VALUES (?,?,?,?,?,?,?)", Params: []interface{}{"a1", "cv3", "2024-01-01 10:02:00", "assistant", "text", "ok", 0}},
 			},
 			expectedMessageIDs: []string{"u1", "a1"},

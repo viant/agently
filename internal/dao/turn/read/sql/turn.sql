@@ -10,5 +10,5 @@ SELECT
   t.model_override_provider,
   t.model_override,
   t.model_params_override
-FROM turns t
+FROM turn t
 ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")} 

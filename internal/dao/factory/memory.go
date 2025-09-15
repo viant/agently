@@ -65,12 +65,13 @@ func newSQL(ctx context.Context, dao *datly.Service) (*API, error) {
 		return nil, err
 	}
 	return &API{
-		Conversation: convsql.New2(ctx, dao),
-		Message:      msgsql.New(ctx, dao),
-		ModelCall:    mcpsql.New(ctx, dao),
-		ToolCall:     tcsql.New(ctx, dao),
-		Payload:      plsql.New(ctx, dao),
-		Turn:         turnsql.New(ctx, dao),
-		Usage:        usagesql.New(ctx, dao),
+		Conversation:  convsql.NewService(ctx, dao),
+		Message:       msgsql.New(ctx, dao),
+		ModelCall:     mcpsql.New(ctx, dao),
+		ToolCall:      tcsql.New(ctx, dao),
+		Payload:       plsql.New(ctx, dao),
+		Turn:          turnsql.New(ctx, dao),
+		Usage:         usagesql.New(ctx, dao),
+		Conversation2: convsql.NewService(ctx, dao),
 	}, nil
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/viant/datly"
 )
 
-// DefineComponent registers read and write components for turns.
+// DefineComponent registers read and write components for turn.
 func DefineComponent(ctx context.Context, srv *datly.Service) error {
 	if err := read.DefineComponent(ctx, srv); err != nil {
 		return fmt.Errorf("failed to add turn read: %w", err)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/viant/agently/internal/dao/conversation/read"
 	"github.com/viant/agently/internal/dao/conversation/write"
+	agconv "github.com/viant/agently/pkg/agently/conversation"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
 	"github.com/viant/datly/repository/contract"
@@ -74,7 +75,7 @@ func New(ctx context.Context, connector *view.Connector, options ...repository.O
 	return ret, nil
 }
 
-func New2(ctx context.Context, dao *datly.Service) *Service {
+func NewService(ctx context.Context, dao *datly.Service) *Service {
 	ret := &Service{dao: dao}
 	if err := ret.init(ctx); err != nil {
 		return nil
@@ -84,6 +85,10 @@ func New2(ctx context.Context, dao *datly.Service) *Service {
 
 func Register(ctx context.Context, dao *datly.Service) error {
 	if err := read.DefineConversationComponent(ctx, dao); err != nil {
+		return err
+	}
+	// Register rich conversation (transcript + usage) component from pkg/agently
+	if err := agconv.DefineConversationComponent(ctx, dao); err != nil {
 		return err
 	}
 
@@ -97,10 +102,30 @@ func (s *Service) init(ctx context.Context) error {
 	if err := read.DefineConversationComponent(ctx, s.dao); err != nil {
 		return err
 	}
+	// Register rich conversation (transcript + usage) component from pkg/agently
+	if err := agconv.DefineConversationComponent(ctx, s.dao); err != nil {
+		return err
+	}
 	if _, err := write.DefineComponent(ctx, s.dao); err != nil {
 		return err
 	}
 	return nil
+}
+
+// GetConversationRich returns the rich conversation view (metadata + transcript + usage)
+// using the generated component in pkg/agently/conversation.
+func (s *Service) GetConversationRich(ctx context.Context, id string) (*agconv.ConversationView, error) {
+	in := &agconv.ConversationInput{Id: id}
+	out := &agconv.ConversationOutput{}
+	uri := strings.ReplaceAll(agconv.ConversationPathURI, "{id}", id)
+	_, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(in))
+	if err != nil {
+		return nil, err
+	}
+	if len(out.Data) == 0 {
+		return nil, nil
+	}
+	return out.Data[0], nil
 }
 
 // PatchConversations upserts conversations using write component.

@@ -60,7 +60,7 @@ func Test_TurnWrite_InsertUpdate_DataDriven(t *testing.T) {
 			name: "update existing turn status",
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary) VALUES (?,?)", Params: []interface{}{"c2", "A"}},
-				{SQL: "INSERT INTO turns (id, conversation_id, status) VALUES (?,?,?)", Params: []interface{}{"t2", "c2", "pending"}},
+				{SQL: "INSERT INTO turn (id, conversation_id, status) VALUES (?,?,?)", Params: []interface{}{"t2", "c2", "pending"}},
 			},
 			patch: []*w.Turn{func() *w.Turn {
 				t := &w.Turn{Has: &w.TurnHas{}}
@@ -76,7 +76,7 @@ func Test_TurnWrite_InsertUpdate_DataDriven(t *testing.T) {
 			name: "mixed upsert",
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary) VALUES (?,?)", Params: []interface{}{"c3", "A"}},
-				{SQL: "INSERT INTO turns (id, conversation_id, status) VALUES (?,?,?)", Params: []interface{}{"t3", "c3", "pending"}},
+				{SQL: "INSERT INTO turn (id, conversation_id, status) VALUES (?,?,?)", Params: []interface{}{"t3", "c3", "pending"}},
 			},
 			patch: []*w.Turn{
 				func() *w.Turn { // update t3

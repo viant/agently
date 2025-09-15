@@ -75,19 +75,21 @@ type ModelCallStart struct {
 	ModelKind       string
 	StartedAt       time.Time
 	Request         interface{}
+	ProviderRequest interface{}
 	StreamPayloadID string
 }
 
 type ModelCallFinish struct {
-	MessageID       string
-	TurnID          string
-	Usage           *llm.Usage
-	FinishReason    string
-	Cost            *float64
-	CompletedAt     time.Time
-	Response        interface{}
-	StreamText      string
-	StreamPayloadID *string
+	MessageID        string
+	TurnID           string
+	Usage            *llm.Usage
+	FinishReason     string
+	Cost             *float64
+	CompletedAt      time.Time
+	Response         interface{}
+	ProviderResponse interface{}
+	StreamText       string
+	StreamPayloadID  *string
 }
 
 // UsageRecorder persists usage totals aggregated per conversation.
@@ -148,7 +150,7 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) error {
 	}
 	// memory.Messages has no Type; default to text
 	rec.SetType("text")
-	if m.Content != "" {
+	if m.Content != "" && (m.Interim == nil || *m.Interim == 0) {
 		rec.SetContent(m.Content)
 	}
 
@@ -156,17 +158,7 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) error {
 	if m.Elicitation != nil {
 		// Ensure the payload body carries the same opaque ID.
 		if b := toJSONBytes(m.Elicitation); len(b) > 0 {
-			elicitationRec = &plw.Payload{Id: m.Elicitation.ElicitationId, Has: &plw.PayloadHas{Id: true}}
-			elicitationRec.SetKind("elicitation_request")
-			elicitationRec.SetMimeType("application/json")
-			elicitationRec.SetSizeBytes(len(b))
-			elicitationRec.SetStorage("inline")
-			elicitationRec.SetInlineBody(b)
-			elicitationRec.SetCompression("none")
-			// Persist payload first to avoid dangling reference
-			if _, err := w.store.Payloads().Patch(ctx, elicitationRec); err != nil {
-				return fmt.Errorf("record message: patch elicitation payload: %w", err)
-			}
+			rec.SetContent(string(b))
 			rec.SetElicitationID(elicitationRec.Id)
 		}
 	}
@@ -429,6 +421,7 @@ func (w *Store) RecordUsageTotals(ctx context.Context, conversationID string, in
 // Deprecated RecordModelCall removed; use StartModelCall and FinishModelCall instead.
 
 func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
+	ctx2 := context.WithoutCancel(ctx)
 	if start.MessageID == "" || start.Model == "" {
 		return
 	}
@@ -464,7 +457,7 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
 		payload.SetStorage("inline")
 		payload.SetInlineBody(b)
 		payload.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx, payload); err != nil {
+		if _, err := w.store.Payloads().Patch(ctx2, payload); err != nil {
 			fmt.Printf("ERROR### Recorder.StartModelCall payload: %v\n", err)
 		} else {
 			// attach to write model directly
@@ -475,7 +468,28 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
 			modelCAll.Has.RequestPayloadID = true
 		}
 	}
-	if err := w.store.Operations().RecordModelCall(ctx, modelCAll); err != nil {
+	// Persist provider-specific request payload (raw wire body)
+	if prb := toJSONBytes(start.ProviderRequest); len(prb) > 0 {
+		b := redact.ScrubJSONBytes(prb, nil)
+		id := uuid.New().String()
+		payload := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
+		payload.SetKind("provider_request")
+		payload.SetMimeType("application/json")
+		payload.SetSizeBytes(len(b))
+		payload.SetStorage("inline")
+		payload.SetInlineBody(b)
+		payload.SetCompression("none")
+		if _, err := w.store.Payloads().Patch(ctx2, payload); err == nil {
+			modelCAll.ProviderRequestPayloadID = &id
+			if modelCAll.Has == nil {
+				modelCAll.Has = &mcw.ModelCallHas{}
+			}
+			modelCAll.Has.ProviderRequestPayloadID = true
+		} else {
+			fmt.Printf("ERROR### Recorder.StartModelCall provider payload: %v\n", err)
+		}
+	}
+	if err := w.store.Operations().RecordModelCall(ctx2, modelCAll); err != nil {
 		fmt.Printf("ERROR### StartModelCall: %v\n", err)
 	}
 }
@@ -490,6 +504,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 	modelCall.Has = &mcw.ModelCallHas{}
 	modelCall.Has.TurnID = modelCall.TurnID != nil
 
+	ctx2 := context.WithoutCancel(ctx)
 	if rb := toJSONBytes(finish.Response); len(rb) > 0 {
 		b := redact.ScrubJSONBytes(rb, nil)
 		id := uuid.New().String()
@@ -500,7 +515,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 		payload.SetStorage("inline")
 		payload.SetInlineBody(b)
 		payload.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx, payload); err != nil {
+		if _, err := w.store.Payloads().Patch(ctx2, payload); err != nil {
 			fmt.Printf("ERROR### Recorder.FinishModelCall payload: %v\n", err)
 		} else {
 			// attach to write model directly
@@ -509,6 +524,27 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 				modelCall.Has = &mcw.ModelCallHas{}
 			}
 			modelCall.Has.ResponsePayloadID = true
+		}
+	}
+	// Persist provider-specific response payload (raw wire body)
+	if prb := toJSONBytes(finish.ProviderResponse); len(prb) > 0 {
+		b := redact.ScrubJSONBytes(prb, nil)
+		id := uuid.New().String()
+		payload := &plw.Payload{Id: id, Has: &plw.PayloadHas{Id: true}}
+		payload.SetKind("provider_response")
+		payload.SetMimeType("application/json")
+		payload.SetSizeBytes(len(b))
+		payload.SetStorage("inline")
+		payload.SetInlineBody(b)
+		payload.SetCompression("none")
+		if _, err := w.store.Payloads().Patch(ctx2, payload); err == nil {
+			modelCall.ProviderResponsePayloadID = &id
+			if modelCall.Has == nil {
+				modelCall.Has = &mcw.ModelCallHas{}
+			}
+			modelCall.Has.ProviderResponsePayloadID = true
+		} else {
+			fmt.Printf("ERROR### Recorder.FinishModelCall provider payload: %v\n", err)
 		}
 	}
 	// (stream payload created in StartModelCall)
@@ -528,7 +564,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 		payload.SetStorage("inline")
 		payload.SetInlineBody(sb)
 		payload.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx, payload); err == nil {
+		if _, err := w.store.Payloads().Patch(ctx2, payload); err == nil {
 			modelCall.StreamPayloadID = &id
 			if modelCall.Has == nil {
 				modelCall.Has = &mcw.ModelCallHas{}
@@ -539,6 +575,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 		}
 	}
 	var pt, ct, tt *int
+	var pCached, pAudio, cReason, cAudio, cAccPred, cRejPred *int
 	if u := finish.Usage; u != nil {
 		if u.PromptTokens > 0 {
 			v := u.PromptTokens
@@ -556,6 +593,30 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 				vv := u.TotalTokens
 				ct = &vv
 			}
+		}
+		if u.PromptCachedTokens > 0 {
+			v := u.PromptCachedTokens
+			pCached = &v
+		}
+		if u.PromptAudioTokens > 0 {
+			v := u.PromptAudioTokens
+			pAudio = &v
+		}
+		if u.CompletionReasoningTokens > 0 {
+			v := u.CompletionReasoningTokens
+			cReason = &v
+		}
+		if u.CompletionAudioTokens > 0 {
+			v := u.CompletionAudioTokens
+			cAudio = &v
+		}
+		if u.AcceptedPredictionTokens > 0 { // maps to completion_* per OpenAI
+			v := u.AcceptedPredictionTokens
+			cAccPred = &v
+		}
+		if u.RejectedPredictionTokens > 0 {
+			v := u.RejectedPredictionTokens
+			cRejPred = &v
 		}
 	}
 	if finish.FinishReason != "" {
@@ -584,7 +645,31 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 		modelCall.TotalTokens = tt
 		modelCall.Has.TotalTokens = true
 	}
-	if err := w.store.Operations().RecordModelCall(ctx, modelCall); err != nil {
+	if pCached != nil {
+		modelCall.PromptCachedTokens = pCached
+		modelCall.Has.PromptCachedTokens = true
+	}
+	if pAudio != nil {
+		modelCall.PromptAudioTokens = pAudio
+		modelCall.Has.PromptAudioTokens = true
+	}
+	if cReason != nil {
+		modelCall.CompletionReasoningTokens = cReason
+		modelCall.Has.CompletionReasoningTokens = true
+	}
+	if cAudio != nil {
+		modelCall.CompletionAudioTokens = cAudio
+		modelCall.Has.CompletionAudioTokens = true
+	}
+	if cAccPred != nil {
+		modelCall.CompletionAcceptedPredictionTokens = cAccPred
+		modelCall.Has.CompletionAcceptedPredictionTokens = true
+	}
+	if cRejPred != nil {
+		modelCall.CompletionRejectedPredictionTokens = cRejPred
+		modelCall.Has.CompletionRejectedPredictionTokens = true
+	}
+	if err := w.store.Operations().RecordModelCall(ctx2, modelCall); err != nil {
 		fmt.Printf("ERROR### FinishModelCall: %v\n", err)
 	}
 
@@ -597,7 +682,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 		convID = rows[0].ConversationID
 	}
 	if convID != "" {
-		// Aggregate usage via DAO read (model_calls) and patch conversation totals
+		// Aggregate usage via DAO read (model_call) and patch conversation totals
 		in := usageread.Input{ConversationID: convID, Has: &usageread.Has{ConversationID: true}}
 		if views, err := w.store.Usage().List(noCancel, in); err == nil {
 			totalIn, totalOut, totalEmb := 0, 0, 0
@@ -632,10 +717,11 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 
 // AppendStreamChunk appends bytes to inline stream payload by id (best-effort).
 func (w *Store) AppendStreamChunk(ctx context.Context, payloadID string, chunk []byte) error {
+	ctx2 := context.WithoutCancel(ctx)
 	if strings.TrimSpace(payloadID) == "" || len(chunk) == 0 {
 		return nil
 	}
-	pv, err := w.store.Payloads().Get(ctx, payloadID)
+	pv, err := w.store.Payloads().Get(ctx2, payloadID)
 	if err != nil {
 		return err
 	}
@@ -651,7 +737,7 @@ func (w *Store) AppendStreamChunk(ctx context.Context, payloadID string, chunk [
 	rec.SetStorage("inline")
 	rec.SetInlineBody(next)
 	rec.SetCompression("none")
-	if _, err := w.store.Payloads().Patch(ctx, rec); err != nil {
+	if _, err := w.store.Payloads().Patch(ctx2, rec); err != nil {
 		return err
 	}
 	return nil

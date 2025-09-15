@@ -46,6 +46,7 @@ type QueryOutput struct {
 	Plan           *plan.Plan        `json:"plan,omitempty"`        // current execution plan (optional)
 	Usage          *usage.Aggregator `json:"usage,omitempty"`
 	Model          string            `json:"model,omitempty"`
+	MessageID      string            `json:"messageId,omitempty"`
 }
 
 func (s *Service) query(ctx context.Context, input interface{}, output interface{}) error {

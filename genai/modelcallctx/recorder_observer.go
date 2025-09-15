@@ -2,7 +2,6 @@ package modelcallctx
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -42,13 +41,12 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) context.C
 	}
 	// Generate stream payload id up-front so deltas can append progressively
 	o.streamPayloadID = uuid.New().String()
-	o.r.StartModelCall(ctx, rec.ModelCallStart{MessageID: msgID, TurnID: turn.TurnID, Provider: info.Provider, Model: info.Model, ModelKind: info.ModelKind, StartedAt: o.start.StartedAt, Request: info.RequestJSON, StreamPayloadID: o.streamPayloadID})
+	o.r.StartModelCall(ctx, rec.ModelCallStart{MessageID: msgID, TurnID: turn.TurnID, Provider: info.Provider, Model: info.Model, ModelKind: info.ModelKind, StartedAt: o.start.StartedAt, Request: info.Payload, ProviderRequest: info.RequestJSON, StreamPayloadID: o.streamPayloadID})
 	// Capture stream payload id by reading it from model_calls row is expensive; rely on recorder contract
 	// to seed it in StartModelCall and use AppendStreamChunk via payload id carried in observer state
 	// For simplicity, we store it as messageID-derived mapping (not implemented). The recorder provides only
 	// AppendStreamChunk by payload id, we cannot inspect it here without extra DAO read. We'll accumulate text
 	// in OnStreamDelta and persist on Finish.
-	fmt.Println("StartModelCall ...")
 	return ctx
 }
 
@@ -56,8 +54,6 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
 	if !o.hasBeg { // tolerate missing start
 		o.start = Info{}
 	}
-	fmt.Println("FinishModelCall...")
-
 	turn, ok := memory.TurnMetaFromContext(ctx)
 	if !ok {
 		turn = memory.TurnMeta{}
@@ -79,11 +75,9 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
 		streamTxt = o.acc.String()
 	}
 	// Finish model call first
-	o.r.FinishModelCall(ctx, rec.ModelCallFinish{MessageID: msgID, TurnID: turn.TurnID, Usage: info.Usage, FinishReason: info.FinishReason, Cost: info.Cost, CompletedAt: info.CompletedAt, Response: info.ResponseJSON, StreamText: streamTxt})
+	o.r.FinishModelCall(ctx, rec.ModelCallFinish{MessageID: msgID, TurnID: turn.TurnID, Usage: info.Usage, FinishReason: info.FinishReason, Cost: info.Cost, CompletedAt: info.CompletedAt, Response: info.LLMResponse, ProviderResponse: info.ResponseJSON, StreamText: streamTxt})
 	// Signal finish so any waiters can proceed (e.g., emitting final assistant message)
 	signalFinish(ctx)
-
-	fmt.Println("FinishModelCall - done")
 }
 
 // OnStreamDelta aggregates streamed chunks. Persisted once in FinishModelCall.

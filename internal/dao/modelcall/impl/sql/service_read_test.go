@@ -48,7 +48,7 @@ func TestModelCall_List(t *testing.T) {
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary) VALUES (?,?)", Params: []interface{}{"c1", "A"}},
 				{SQL: "INSERT INTO message (id, conversation_id, role, type, content) VALUES (?,?,?,?,?)", Params: []interface{}{"m1", "c1", "assistant", "text", "x"}},
-				{SQL: "INSERT INTO model_calls (message_id, provider, model, model_kind, cache_hit) VALUES (?,?,?,?,?)", Params: []interface{}{"m1", "openai", "gpt", "chat", 0}},
+				{SQL: "INSERT INTO model_call (message_id, provider, model, model_kind, cache_hit) VALUES (?,?,?,?,?)", Params: []interface{}{"m1", "openai", "gpt", "chat", 0}},
 			},
 			exec: func(srv *Service) (interface{}, error) {
 				rows, err := srv.List(context.Background(), WithConversationID("c1"))
@@ -68,7 +68,7 @@ func TestModelCall_List(t *testing.T) {
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary) VALUES (?,?)", Params: []interface{}{"c1", "A"}},
 				{SQL: "INSERT INTO message (id, conversation_id, role, type, content) VALUES (?,?,?,?,?)", Params: []interface{}{"m1", "c1", "assistant", "text", "x"}},
-				{SQL: "INSERT INTO model_calls (message_id, provider, model, model_kind, cache_hit) VALUES (?,?,?,?,?)", Params: []interface{}{"m1", "openai", "gpt", "chat", 0}},
+				{SQL: "INSERT INTO model_call (message_id, provider, model, model_kind, cache_hit) VALUES (?,?,?,?,?)", Params: []interface{}{"m1", "openai", "gpt", "chat", 0}},
 			},
 			exec: func(srv *Service) (interface{}, error) {
 				rows, err := srv.List(context.Background(), WithProvider("openai"))

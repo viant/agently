@@ -298,38 +298,37 @@ func (a *streamAggregator) finalizeChoice(idx int, finish string) llm.Choice {
 	} else {
 		msg.Role = llm.RoleAssistant
 	}
-	if finish == "tool_calls" {
-		if ca != nil && len(ca.tools) > 0 {
-			type idxAgg struct {
-				idx int
-				a   *aggTC
-			}
-			items := make([]idxAgg, 0, len(ca.tools))
-			for _, t := range ca.tools {
-				items = append(items, idxAgg{idx: t.index, a: t})
-			}
-			for i := 1; i < len(items); i++ {
-				j := i
-				for j > 0 && items[j-1].idx > items[j].idx {
-					items[j-1], items[j] = items[j], items[j-1]
-					j--
-				}
-			}
-			out := make([]llm.ToolCall, 0, len(items))
-			for _, it := range items {
-				t := it.a
-				var arguments map[string]interface{}
-				if err := json.Unmarshal([]byte(t.args), &arguments); err != nil {
-					arguments = map[string]interface{}{"raw": t.args}
-				}
-				out = append(out, llm.ToolCall{ID: t.id, Name: t.name, Arguments: arguments, Type: "function", Function: llm.FunctionCall{Name: t.name, Arguments: t.args}})
-			}
-			msg.ToolCalls = out
+	// Always include tool calls in final aggregation when present (even if already emitted as events)
+	if ca != nil && len(ca.tools) > 0 {
+		type idxAgg struct {
+			idx int
+			a   *aggTC
 		}
-	} else {
-		if ca != nil {
-			msg.Content = ca.content.String()
+		items := make([]idxAgg, 0, len(ca.tools))
+		for _, t := range ca.tools {
+			items = append(items, idxAgg{idx: t.index, a: t})
 		}
+		for i := 1; i < len(items); i++ {
+			j := i
+			for j > 0 && items[j-1].idx > items[j].idx {
+				items[j-1], items[j] = items[j], items[j-1]
+				j--
+			}
+		}
+		out := make([]llm.ToolCall, 0, len(items))
+		for _, it := range items {
+			t := it.a
+			var arguments map[string]interface{}
+			if err := json.Unmarshal([]byte(t.args), &arguments); err != nil {
+				arguments = map[string]interface{}{"raw": t.args}
+			}
+			out = append(out, llm.ToolCall{ID: t.id, Name: t.name, Arguments: arguments, Type: "function", Function: llm.FunctionCall{Name: t.name, Arguments: t.args}})
+		}
+		msg.ToolCalls = out
+	}
+	// Preserve any accumulated content as assistant text
+	if ca != nil && ca.content.Len() > 0 {
+		msg.Content = ca.content.String()
 	}
 	delete(a.choices, idx)
 	return llm.Choice{Index: idx, Message: msg, FinishReason: finish}

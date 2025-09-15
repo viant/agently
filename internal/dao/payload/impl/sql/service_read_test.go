@@ -46,7 +46,7 @@ func TestPayload_List(t *testing.T) {
 		{
 			name: "by tenant",
 			seed: []dbtest.ParameterizedSQL{
-				{SQL: "INSERT INTO call_payloads (id, tenant_id, kind, mime_type, size_bytes, storage, compression, inline_body, uri) VALUES (?,?,?,?,?,?,?,?,?)", Params: []interface{}{"p1", "t1", "model_request", "application/json", 10, "inline", "none", []byte("{}"), nil}},
+				{SQL: "INSERT INTO call_payload (id, tenant_id, kind, mime_type, size_bytes, storage, compression, inline_body, uri) VALUES (?,?,?,?,?,?,?,?,?)", Params: []interface{}{"p1", "t1", "model_request", "application/json", 10, "inline", "none", []byte("{}"), nil}},
 			},
 			exec: func(srv *Service) (interface{}, error) {
 				rows, err := srv.List(context.Background(), WithTenantID("t1"))
@@ -64,7 +64,7 @@ func TestPayload_List(t *testing.T) {
 		{
 			name: "by kind",
 			seed: []dbtest.ParameterizedSQL{
-				{SQL: "INSERT INTO call_payloads (id, tenant_id, kind, mime_type, size_bytes, storage, compression, inline_body, uri) VALUES (?,?,?,?,?,?,?,?,?)", Params: []interface{}{"p2", "t1", "tool_request", "application/json", 9, "inline", "none", []byte("{}"), nil}},
+				{SQL: "INSERT INTO call_payload (id, tenant_id, kind, mime_type, size_bytes, storage, compression, inline_body, uri) VALUES (?,?,?,?,?,?,?,?,?)", Params: []interface{}{"p2", "t1", "tool_request", "application/json", 9, "inline", "none", []byte("{}"), nil}},
 			},
 			exec: func(srv *Service) (interface{}, error) {
 				rows, err := srv.List(context.Background(), WithKind("tool_request"))

@@ -155,6 +155,7 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 					mm.Executions = append(mm.Executions, &plan.Outcome{Steps: []*plan.StepOutcome{st}})
 				}
 				if anExecution.ModelCall != nil {
+					mm.Content = ""
 					st := &plan.StepOutcome{
 						ID:      anExecution.ModelCall.MessageID,
 						Name:    anExecution.ModelCall.Model,
@@ -162,17 +163,18 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 						Success: strings.EqualFold(strings.TrimSpace(anExecution.ModelCall.Status), "completed"),
 						//TODO add to model_calls
 						//	Error:             derefStr(v.ModelCall.ErrorMessage),
-						StartedAt:         anExecution.ModelCall.StartedAt,
-						EndedAt:           anExecution.ModelCall.CompletedAt,
-						RequestPayloadID:  anExecution.ModelCall.RequestPayloadID,
-						ResponsePayloadID: anExecution.ModelCall.ResponsePayloadID,
-						StreamPayloadID:   anExecution.ModelCall.StreamPayloadID,
+						StartedAt:                 anExecution.ModelCall.StartedAt,
+						EndedAt:                   anExecution.ModelCall.CompletedAt,
+						RequestPayloadID:          anExecution.ModelCall.RequestPayloadID,
+						ResponsePayloadID:         anExecution.ModelCall.ResponsePayloadID,
+						StreamPayloadID:           anExecution.ModelCall.StreamPayloadID,
+						ProviderRequestPayloadID:  anExecution.ModelCall.ProviderRequestPayloadID,
+						ProviderResponsePayloadID: anExecution.ModelCall.ProviderResponsePayloadID,
 					}
 					if anExecution.ModelCall.StartedAt != nil && anExecution.ModelCall.CompletedAt != nil {
 						st.Elapsed = anExecution.ModelCall.CompletedAt.Sub(*anExecution.ModelCall.StartedAt).Round(time.Millisecond).String()
 					}
 					mm.Executions = append(mm.Executions, &plan.Outcome{Steps: []*plan.StepOutcome{st}})
-
 					// Attach per-message usage when tokens are present
 					if anExecution.ModelCall.PromptTokens != nil || anExecution.ModelCall.CompletionTokens != nil || anExecution.ModelCall.TotalTokens != nil {
 						var pt, ct, tt int
@@ -292,6 +294,26 @@ type PostRequest struct {
 	Model   string                 `json:"model,omitempty"`
 	Tools   []string               `json:"tools,omitempty"`
 	Context map[string]interface{} `json:"context,omitempty"`
+}
+
+// PreflightPost validates minimal conditions before accepting a post.
+// It ensures an agent can be determined either from request or conversation defaults.
+func (s *Service) PreflightPost(ctx context.Context, conversationID string, req PostRequest) error {
+	if s == nil || s.store == nil {
+		return nil
+	}
+	if strings.TrimSpace(req.Agent) != "" {
+		return nil
+	}
+	// Check conversation has AgentName
+	if cv, err := s.store.Conversations().Get(ctx, conversationID); err == nil {
+		if cv != nil && cv.AgentName != nil && strings.TrimSpace(*cv.AgentName) != "" {
+			return nil
+		}
+	} else {
+		return err
+	}
+	return fmt.Errorf("agent is required")
 }
 
 // defaultLocation returns supplied if not empty (preserving explicit agent location).

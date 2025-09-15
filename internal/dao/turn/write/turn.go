@@ -4,7 +4,7 @@ import "time"
 
 var PackageName = "turn/write"
 
-// Turn mirrors the turns table for upsert operations.
+// Turn mirrors the turn table for upsert operations.
 type Turn struct {
 	Id                    string     `sqlx:"id,primaryKey" validate:"required"`
 	ConversationID        string     `sqlx:"conversation_id" validate:"required"`

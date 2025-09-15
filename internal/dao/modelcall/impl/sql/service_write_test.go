@@ -77,7 +77,7 @@ func Test_ModelCallWrite_InsertUpdate_DataDriven(t *testing.T) {
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary) VALUES (?,?)", Params: []interface{}{"c2", "A"}},
 				{SQL: "INSERT INTO message (id, conversation_id, role, type, content) VALUES (?,?,?,?,?)", Params: []interface{}{"m2", "c2", "assistant", "text", "answer"}},
-				{SQL: "INSERT INTO model_calls (message_id, provider, model, model_kind) VALUES (?,?,?,?)", Params: []interface{}{"m2", "openai", "gpt-4o-mini", "chat"}},
+				{SQL: "INSERT INTO model_call (message_id, provider, model, model_kind) VALUES (?,?,?,?)", Params: []interface{}{"m2", "openai", "gpt-4o-mini", "chat"}},
 			},
 			patch: []*w.ModelCall{func() *w.ModelCall {
 				mc := &w.ModelCall{Has: &w.ModelCallHas{}}

@@ -14,6 +14,7 @@ type streamState struct {
 	lastUsage      *llm.Usage
 	lastModel      string
 	lastLR         *llm.GenerateResponse
+	lastProvider   []byte
 	ended          bool
 	publishedUsage bool
 }
@@ -29,6 +30,11 @@ type streamProcessor struct {
 }
 
 func (p *streamProcessor) handleData(data string) bool {
+	// Persist full raw SSE line for complete stream fidelity (JSON chunk as-is).
+	if p.observer != nil && strings.TrimSpace(data) != "" && data != "[DONE]" {
+		// Append newline to maintain readable separation between chunks
+		p.observer.OnStreamDelta(p.ctx, []byte(data+"\n"))
+	}
 	// 1) Aggregated delta chunk
 	var sresp StreamResponse
 	if err := json.Unmarshal([]byte(data), &sresp); err == nil && len(sresp.Choices) > 0 {
@@ -63,10 +69,41 @@ func (p *streamProcessor) handleData(data string) bool {
 	// 2) Final response object
 	var apiResp Response
 	if err := json.Unmarshal([]byte(data), &apiResp); err != nil {
-		p.events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream response: %w", err)}
-		return false
+		// Tolerate non-standard or intermediary payloads that are not valid
+		// JSON responses (e.g., provider diagnostics). Ignore and continue
+		// scanning rather than failing the whole stream.
+		return true
 	}
 	lr := ToLLMSResponse(&apiResp)
+	// Keep a snapshot of the last provider-level response object for persistence
+	if b, err := json.Marshal(apiResp); err == nil {
+		p.state.lastProvider = b
+	}
+
+	// If this is a usage-only final chunk (OpenAI streams often end with
+	// an object whose choices == [] but usage is populated), do NOT emit an
+	// empty-choices response. Capture usage and model, but leave final message
+	// emission to previously finalized choices or to finalize().
+	if lr != nil && len(lr.Choices) == 0 {
+		if lr.Usage != nil && lr.Usage.TotalTokens > 0 {
+			if p.state.lastModel == "" && lr.Model != "" {
+				p.state.lastModel = lr.Model
+			}
+			p.state.lastUsage = lr.Usage
+			p.client.publishUsageOnce(p.state.lastModel, p.state.lastUsage, &p.state.publishedUsage)
+			// Re-emit the last aggregated response with usage attached, if available
+			if p.state.lastLR != nil {
+				// clone shallow and attach usage
+				updated := *p.state.lastLR
+				updated.Usage = lr.Usage
+				updated.Model = p.state.lastModel
+				emitResponse(p.events, &updated)
+				p.state.lastLR = &updated
+			}
+		}
+		// Do not end observer here; finalize() will notify with accumulated text
+		return true
+	}
 
 	if lr != nil && lr.Usage != nil && lr.Usage.TotalTokens > 0 {
 		if p.state.lastModel == "" && lr.Model != "" {
@@ -94,8 +131,9 @@ func (p *streamProcessor) finalize(scannerErr error) {
 		var respJSON []byte
 		var finishReason string
 		if p.state.lastLR != nil {
-			if b, err := json.Marshal(p.state.lastLR); err == nil {
-				respJSON = b
+			// Prefer provider final object snapshot when available; fallback to SSE body
+			if len(p.state.lastProvider) > 0 {
+				respJSON = p.state.lastProvider
 			} else {
 				respJSON = p.respBody
 			}

@@ -6,8 +6,14 @@ SELECT
   mc.model,
   mc.model_kind,
   mc.prompt_tokens,
+  mc.prompt_cached_tokens,
   mc.completion_tokens,
   mc.total_tokens,
+  mc.prompt_audio_tokens,
+  mc.completion_reasoning_tokens,
+  mc.completion_audio_tokens,
+  mc.completion_accepted_prediction_tokens,
+  mc.completion_rejected_prediction_tokens,
   mc.finish_reason,
   mc.cache_hit,
   mc.cache_key,
@@ -19,7 +25,9 @@ SELECT
   mc.span_id,
   mc.request_payload_id,
   mc.response_payload_id,
+  mc.provider_request_payload_id,
+  mc.provider_response_payload_id,
   mc.stream_payload_id
-FROM model_calls mc
+FROM model_call mc
 LEFT JOIN message m ON m.id = mc.message_id
 ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")} 

@@ -83,6 +83,92 @@ func BuildToolOutcomes(ctx context.Context, store Store, transcript Transcript) 
 	return out, nil
 }
 
+// BuildOutcomes constructs a single Outcome that includes both model call and
+// tool call step outcomes, ordered by their occurrence in the transcript.
+// It augments StepOutcome with Request/Response (inline when available) and
+// Request/Response/Stream payload IDs for lazy clients.
+func BuildOutcomes(ctx context.Context, store Store, transcript Transcript) (*plan.Outcome, error) {
+	if store == nil {
+		return &plan.Outcome{}, nil
+	}
+	rows := transcript.WithoutInterim()
+	out := &plan.Outcome{}
+	for _, v := range rows {
+		if v == nil {
+			continue
+		}
+		// Model call → thinking step
+		if v.ModelCall != nil {
+			mc := v.ModelCall
+			st := &plan.StepOutcome{
+				ID:                mc.MessageID,
+				Name:              mc.Model,
+				Reason:            "thinking",
+				Success:           strings.EqualFold(strings.TrimSpace(mc.Status), "completed"),
+				StartedAt:         mc.StartedAt,
+				EndedAt:           mc.CompletedAt,
+				RequestPayloadID:  mc.RequestPayloadID,
+				ResponsePayloadID: mc.ResponsePayloadID,
+				StreamPayloadID:   mc.StreamPayloadID,
+			}
+			if mc.StartedAt != nil && mc.CompletedAt != nil {
+				st.Elapsed = mc.CompletedAt.Sub(*mc.StartedAt).Round(time.Millisecond).String()
+			}
+			// Inline request/response when present
+			if mc.RequestPayloadID != nil && *mc.RequestPayloadID != "" {
+				if pv, err := store.Payloads().Get(ctx, *mc.RequestPayloadID); err == nil && pv != nil && pv.InlineBody != nil {
+					st.Request = json.RawMessage(*pv.InlineBody)
+				} else if err != nil {
+					return nil, err
+				}
+			}
+			if mc.ResponsePayloadID != nil && *mc.ResponsePayloadID != "" {
+				if pv, err := store.Payloads().Get(ctx, *mc.ResponsePayloadID); err == nil && pv != nil && pv.InlineBody != nil {
+					st.Response = json.RawMessage(*pv.InlineBody)
+				} else if err != nil {
+					return nil, err
+				}
+			}
+			out.Steps = append(out.Steps, st)
+		}
+		// Tool call → tool_call step
+		if v.ToolCall != nil {
+			tc := v.ToolCall
+			st := &plan.StepOutcome{
+				ID:                tc.OpID,
+				Name:              tc.ToolName,
+				Reason:            "tool_call",
+				Success:           strings.EqualFold(strings.TrimSpace(tc.Status), "completed"),
+				Error:             derefS(tc.ErrorMessage),
+				StartedAt:         tc.StartedAt,
+				EndedAt:           tc.CompletedAt,
+				RequestPayloadID:  tc.RequestPayloadID,
+				ResponsePayloadID: tc.ResponsePayloadID,
+			}
+			if tc.StartedAt != nil && tc.CompletedAt != nil {
+				st.Elapsed = tc.CompletedAt.Sub(*tc.StartedAt).Round(time.Millisecond).String()
+			}
+			// Inline request/response when present
+			if tc.RequestPayloadID != nil && *tc.RequestPayloadID != "" {
+				if pv, err := store.Payloads().Get(ctx, *tc.RequestPayloadID); err == nil && pv != nil && pv.InlineBody != nil {
+					st.Request = json.RawMessage(*pv.InlineBody)
+				} else if err != nil {
+					return nil, err
+				}
+			}
+			if tc.ResponsePayloadID != nil && *tc.ResponsePayloadID != "" {
+				if pv, err := store.Payloads().Get(ctx, *tc.ResponsePayloadID); err == nil && pv != nil && pv.InlineBody != nil {
+					st.Response = json.RawMessage(*pv.InlineBody)
+				} else if err != nil {
+					return nil, err
+				}
+			}
+			out.Steps = append(out.Steps, st)
+		}
+	}
+	return out, nil
+}
+
 // helpers ------------------------------------------------------------------
 
 func derefS(p *string) string {

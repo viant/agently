@@ -9,16 +9,23 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/viant/agently/genai/memory"
+	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
+	convw "github.com/viant/agently/internal/dao/conversation/write"
 )
 
 // Query executes a query against an agent.
 func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) error {
 
 	fmt.Println("Query - stared")
-	// 4. Ensure agent is loaded
+	// Ensure conversation exists and reuse stored defaults (agent/model/tools)
+	if err := s.ensureConversation(ctx, input); err != nil {
+		return err
+	}
+
+	// Ensure agent is loaded (may be sourced from conversation when not provided)
 	if err := s.ensureAgent(ctx, input); err != nil {
 		return err
 	}
@@ -31,9 +38,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		input.EmbeddingModel = s.defaults.Embedder
 	}
 
-	if err := s.ensureConversation(ctx, input); err != nil {
-		return err
-	}
+	// Conversation already ensured above (fills AgentName/Model/Tools when missing)
 	output.ConversationID = input.ConversationID
 	s.tryMergePromptIntoContext(input)
 	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
@@ -73,8 +78,28 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if updateErr != nil {
 		return updateErr
 	}
+	// Persist/refresh conversation default model with the actually used model this turn
+	if strings.TrimSpace(output.Model) != "" {
+		w := &convw.Conversation{Has: &convw.ConversationHas{}}
+		w.SetId(turn.ConversationID)
+		w.SetDefaultModel(output.Model)
+		_, _ = s.store.Conversations().Patch(ctx, w)
+	}
+
 	if output.Plan.Elicitation != nil {
+		// Wait for model-call persistence so payload ids are ready
+		modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
 		if err := s.recordAssistantElicitation(ctx, turn.ConversationID, turn.ParentMessageID, output.Plan.Elicitation); err != nil {
+			return err
+		}
+	} else if strings.TrimSpace(output.Content) != "" {
+		// Persist final assistant text using the shared message ID
+		modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
+		msgID := memory.ModelMessageIDFromContext(ctx)
+		if msgID == "" {
+			msgID = output.MessageID
+		}
+		if _, err := s.addMessage(ctx, turn.ConversationID, "assistant", "", output.Content, msgID, turn.ParentMessageID); err != nil {
 			return err
 		}
 	}

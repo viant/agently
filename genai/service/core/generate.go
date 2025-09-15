@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"path"
 	"strings"
-	"time"
 
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
-	"github.com/viant/agently/genai/modelcallctx"
+	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/prompt"
 	fluxortypes "github.com/viant/fluxor/model/types"
 )
@@ -170,17 +169,9 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	}
 
 	output.Content = strings.TrimSpace(builder.String())
-	msgID := memory.ModelMessageIDFromContext(ctx)
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-		if tm.ConversationID != "" && strings.TrimSpace(output.Content) != "" {
-			// Ensure model-call persistence (including payload ids) has completed before
-			// we persist the final assistant message to avoid UI missing response payloads.
-			modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
-			if err := s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: tm.ParentMessageID, ConversationID: tm.ConversationID, Role: "assistant", Content: output.Content, CreatedAt: time.Now()}); err != nil {
-				return err
-			}
-			output.MessageID = msgID
-		}
+	// Provide the shared assistant message ID to the caller; orchestrator writes the final assistant message.
+	if msgID := memory.ModelMessageIDFromContext(ctx); msgID != "" {
+		output.MessageID = msgID
 	}
 	return nil
 }

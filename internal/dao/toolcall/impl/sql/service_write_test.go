@@ -77,7 +77,7 @@ func Test_ToolCallWrite_InsertUpdate_DataDriven(t *testing.T) {
 			seed: []dbtest.ParameterizedSQL{
 				{SQL: "INSERT INTO conversation (id, summary) VALUES (?,?)", Params: []interface{}{"c2", "A"}},
 				{SQL: "INSERT INTO message (id, conversation_id, role, type, content) VALUES (?,?,?,?,?)", Params: []interface{}{"m2", "c2", "tool", "tool_op", "x"}},
-				{SQL: "INSERT INTO tool_calls (message_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?)", Params: []interface{}{"m2", "op-1", 1, "search", "general", "running"}},
+				{SQL: "INSERT INTO tool_call (message_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?,?,?,?,?,?)", Params: []interface{}{"m2", "op-1", 1, "search", "general", "running"}},
 			},
 			patch: []*w.ToolCall{func() *w.ToolCall {
 				tc := &w.ToolCall{Has: &w.ToolCallHas{}}

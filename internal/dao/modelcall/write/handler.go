@@ -44,11 +44,11 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 	}
 	for _, rec := range in.ModelCalls {
 		if _, ok := in.CurByID[rec.MessageID]; !ok {
-			if err = sql.Insert("model_calls", rec); err != nil {
+			if err = sql.Insert("model_call", rec); err != nil {
 				return err
 			}
 		} else {
-			if err = sql.Update("model_calls", rec); err != nil {
+			if err = sql.Update("model_call", rec); err != nil {
 				return err
 			}
 		}

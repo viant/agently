@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
@@ -67,16 +66,9 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 			b.WriteString(ev.Content)
 		}
 	}
-	content := strings.TrimSpace(b.String())
-	if content != "" {
-		msgID := memory.ModelMessageIDFromContext(ctx)
-		turn, _ := memory.TurnMetaFromContext(ctx)
-		// Wait for model-call finish so response payload id is available before persisting final message
-		modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
-		if err := s.recorder.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: turn.ParentMessageID, ConversationID: turn.ConversationID, Role: "assistant", Content: content, CreatedAt: time.Now()}); err != nil {
-			return cleanup, err
-		}
-		// Marking interim planner is now handled in the model-call observer based on final response.
+
+	// Provide the shared assistant message ID to the caller; orchestrator writes the final assistant message.
+	if msgID := memory.ModelMessageIDFromContext(ctx); msgID != "" {
 		output.MessageID = msgID
 	}
 

@@ -44,6 +44,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		}
 	}
 
+	// Derive model when not provided: fall back to conversation default model only.
 	if input.ModelOverride == "" {
 		if aConversation != nil && aConversation.DefaultModel != nil && strings.TrimSpace(*aConversation.DefaultModel) != "" {
 			input.ModelOverride = *aConversation.DefaultModel

@@ -45,11 +45,11 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 	}
 	for _, rec := range in.Turns {
 		if _, ok := in.CurTurnById[rec.Id]; !ok {
-			if err = sql.Insert("turns", rec); err != nil {
+			if err = sql.Insert("turn", rec); err != nil {
 				return err
 			}
 		} else {
-			if err = sql.Update("turns", rec); err != nil {
+			if err = sql.Update("turn", rec); err != nil {
 				return err
 			}
 		}

@@ -34,9 +34,11 @@ type StepOutcome struct {
 	StartedAt *time.Time `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
 	EndedAt   *time.Time `yaml:"endedAt,omitempty" json:"endedAt,omitempty"`
 	// Optional payload identifiers for lazy resolution on the client side.
-	RequestPayloadID  *string `yaml:"requestPayloadId,omitempty" json:"requestPayloadId,omitempty"`
-	ResponsePayloadID *string `yaml:"responsePayloadId,omitempty" json:"responsePayloadId,omitempty"`
-	StreamPayloadID   *string `yaml:"streamPayloadId,omitempty" json:"streamPayloadId,omitempty"`
+	RequestPayloadID          *string `yaml:"requestPayloadId,omitempty" json:"requestPayloadId,omitempty"`
+	ResponsePayloadID         *string `yaml:"responsePayloadId,omitempty" json:"responsePayloadId,omitempty"`
+	StreamPayloadID           *string `yaml:"streamPayloadId,omitempty" json:"streamPayloadId,omitempty"`
+	ProviderRequestPayloadID  *string `yaml:"providerRequestPayloadId,omitempty" json:"providerRequestPayloadId,omitempty"`
+	ProviderResponsePayloadID *string `yaml:"providerResponsePayloadId,omitempty" json:"providerResponsePayloadId,omitempty"`
 }
 
 func New() *Plan {

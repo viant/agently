@@ -75,7 +75,7 @@ func Test_PayloadWrite_InsertUpdate_DataDriven(t *testing.T) {
 		{
 			name: "update to object storage",
 			seed: []dbtest.ParameterizedSQL{
-				{SQL: "INSERT INTO call_payloads (id, tenant_id, kind, mime_type, size_bytes, storage, compression, inline_body) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"p2", "t1", "tool_request", jsonMime, 2, "inline", "none", []byte("x")}},
+				{SQL: "INSERT INTO call_payload (id, tenant_id, kind, mime_type, size_bytes, storage, compression, inline_body) VALUES (?,?,?,?,?,?,?,?)", Params: []interface{}{"p2", "t1", "tool_request", jsonMime, 2, "inline", "none", []byte("x")}},
 			},
 			patch: []*w.Payload{func() *w.Payload {
 				p := &w.Payload{Has: &w.PayloadHas{}}

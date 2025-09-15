@@ -1,0 +1,1 @@
+SELECT id, inline_body, compression FROM call_payload

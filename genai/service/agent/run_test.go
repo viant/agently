@@ -191,6 +191,11 @@ func TestService_Query_DataDriven(t *testing.T) {
 // noopRecorder implements recorder.Recorder with no-ops for unit testing.
 type noopRecorder struct{}
 
+func (n *noopRecorder) AppendStreamChunk(ctx context.Context, payloadID string, chunk []byte) error {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (n *noopRecorder) RecordMessage(ctx context.Context, m memory.Message) error { return nil }
 func (n *noopRecorder) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) error {
 	return nil

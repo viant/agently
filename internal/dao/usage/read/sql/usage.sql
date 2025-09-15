@@ -10,8 +10,7 @@ SELECT
   SUM(CASE WHEN COALESCE(mc.cache_hit,0)=1 THEN 1 ELSE 0 END) AS cached_calls,
   MIN(mc.started_at)                      AS first_call_at,
   MAX(mc.completed_at)                    AS last_call_at
-FROM model_calls mc
+FROM model_call mc
 JOIN message m ON m.id = mc.message_id
 ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")} 
 GROUP BY m.conversation_id, mc.provider, mc.model
-

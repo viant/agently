@@ -1,0 +1,1 @@
+( SELECT t.*, '' AS stage FROM conversation t WHERE id = $criteria.AppendBinding($Unsafe.Id) )

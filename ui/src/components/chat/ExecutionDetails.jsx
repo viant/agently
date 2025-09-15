@@ -143,6 +143,8 @@ function flattenExecutions(executions = []) {
         requestPayloadId: s.requestPayloadId,
         responsePayloadId: s.responsePayloadId,
         streamPayloadId: s.streamPayloadId,
+        providerRequestPayloadId: s.providerRequestPayloadId,
+        providerResponsePayloadId: s.providerResponsePayloadId,
     })));
 }
 
@@ -160,15 +162,16 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
 
     const viewPart = async (part, row) => {
         try {
-            const title = part === 'request' ? 'Request' : 'Response';
+            const title = part === 'request' ? 'Request' : (part === 'stream' ? 'Stream' : 'Response');
             if (!useForgeDialog) {
                 setDialog({ title, payload: null, loading: true });
             }
             // Use only the provided payload ID fields
+            // Prefer provider-specific payloads when available
             const pid = part === 'request'
-                ? row.requestPayloadId
+                ? (row.providerRequestPayloadId || row.requestPayloadId)
                 : part === 'response'
-                    ? row.responsePayloadId
+                    ? (row.providerResponsePayloadId || row.responsePayloadId)
                     : row.streamPayloadId;
             let url;
             if (!pid) { setDialog({ title, payload: '(no payload)' }); return; }
@@ -212,7 +215,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
             if (ct.includes('application/json')) {
                 try { payload = JSON.parse(text); } catch (_) {}
             }
-            setDialog({ title, payload, loading: false });
+            setDialog({ title, payload, loading: false, contentType: ct, kind: part });
         } catch (err) {
             if (typeof onError === 'function') {
                 try { onError(err); } catch (_) { /* ignore */ }
@@ -222,7 +225,17 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
     };
 
     const execContext = useMemo(
-        () => buildExecutionContext(context, dataSourceId, (title, payload) => setDialog({ title, payload }), viewPart),
+        () => {
+            const ctx = buildExecutionContext(context, dataSourceId, (title, payload) => setDialog({ title, payload }), viewPart);
+            const originalLookup = ctx.lookupHandler;
+            ctx.lookupHandler = (id) => {
+                if (id === 'exec.openRequest') return ({ row }) => viewPart('request', row);
+                if (id === 'exec.openResponse') return ({ row }) => viewPart('response', row);
+                if (id === 'exec.openStream') return ({ row }) => viewPart('stream', row);
+                return originalLookup ? originalLookup(id) : () => {};
+            };
+            return ctx;
+        },
         [context, dataSourceId]
     );
 
@@ -264,9 +277,31 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                         </div>
                         <div style={{ flex: 1, minHeight: resizable ? 0 : undefined, overflow: 'auto' }}>
                             {dialog.loading && <span>Loading …</span>}
-                            {!dialog.loading && dialog.payload !== null && (
-                                <JsonViewer value={dialog.payload} useCodeMirror={useCodeMirror} height={resizable ? 'calc(100% - 8px)' : '60vh'} />
-                            )}
+                            {!dialog.loading && dialog.payload !== null && (() => {
+                                const ct = (dialog.contentType || '').toLowerCase();
+                                const isString = typeof dialog.payload === 'string';
+                                const looksHTML = isString && /<\s*(table|thead|tbody|tr|td|th|div|span|p|html|body)\b/i.test(dialog.payload);
+                                // Render raw HTML payloads as HTML (e.g., elicitation tables)
+                                if (ct.includes('text/html') || looksHTML) {
+                                    return (
+                                        <div
+                                            className="prose max-w-full"
+                                            style={{ width: '100%', overflowX: 'auto' }}
+                                            dangerouslySetInnerHTML={{ __html: String(dialog.payload) }}
+                                        />
+                                    );
+                                }
+                                // Otherwise, show JSON or plain text via JsonViewer
+                                const language = (dialog.kind === 'stream' || (ct && !ct.includes('application/json'))) ? 'text' : 'json';
+                                return (
+                                    <JsonViewer
+                                        value={dialog.payload}
+                                        useCodeMirror={useCodeMirror}
+                                        height={resizable ? 'calc(100% - 8px)' : '60vh'}
+                                        language={language}
+                                    />
+                                );
+                            })()}
                         </div>
                         {resizable && (
                             <div

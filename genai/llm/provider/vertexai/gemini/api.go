@@ -459,8 +459,12 @@ func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *gem
 					return
 				}
 				agg.addResponse(&obj)
-				// emit text deltas to observer when present
+				// emit raw and text deltas to observer when present
 				if observer != nil {
+					if b, err := json.Marshal(&obj); err == nil {
+						b = append(b, '\n')
+						observer.OnStreamDelta(ctx, b)
+					}
 					for _, cand := range obj.Candidates {
 						for _, p := range cand.Content.Parts {
 							if p.Text != "" {
@@ -485,6 +489,10 @@ func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *gem
 			}
 			agg.addResponse(&obj)
 			if observer != nil {
+				if b, err := json.Marshal(&obj); err == nil {
+					b = append(b, '\n')
+					observer.OnStreamDelta(ctx, b)
+				}
 				for _, cand := range obj.Candidates {
 					for _, p := range cand.Content.Parts {
 						if p.Text != "" {

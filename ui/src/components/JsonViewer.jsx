@@ -3,7 +3,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
 import { oneDark } from '@codemirror/theme-one-dark';
 
-export default function JsonViewer({ value, height = '60vh', readOnly = true, useCodeMirror = false }) {
+export default function JsonViewer({ value, height = '60vh', readOnly = true, useCodeMirror = false, language = 'json' }) {
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
   if (!useCodeMirror) {
     return (
@@ -11,6 +11,10 @@ export default function JsonViewer({ value, height = '60vh', readOnly = true, us
         {text}
       </pre>
     );
+  }
+  const extensions = [];
+  if (language === 'json') {
+    extensions.push(json());
   }
   return (
     <div style={{ height, minHeight: 200 }}>
@@ -26,11 +30,10 @@ export default function JsonViewer({ value, height = '60vh', readOnly = true, us
           autocompletion: false,
           foldGutter: true,
         }}
-        extensions={[json()]}
+        extensions={extensions}
         onChange={() => { /* read-only viewer */ }}
         style={{ fontSize: 12 }}
       />
     </div>
   );
 }
-
