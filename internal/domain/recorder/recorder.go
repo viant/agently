@@ -441,6 +441,7 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
 	modelCAll.SetProvider(provider)
 	modelCAll.SetModel(start.Model)
 	modelCAll.SetModelKind(modelKind)
+	modelCAll.SetStatus("queued")
 	if !start.StartedAt.IsZero() {
 		t := start.StartedAt
 		modelCAll.StartedAt = &t
@@ -504,6 +505,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 	modelCall.Has = &mcw.ModelCallHas{}
 	modelCall.Has.TurnID = modelCall.TurnID != nil
 
+	// TODO set the right status
 	ctx2 := context.WithoutCancel(ctx)
 	if rb := toJSONBytes(finish.Response); len(rb) > 0 {
 		b := redact.ScrubJSONBytes(rb, nil)

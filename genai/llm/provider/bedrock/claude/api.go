@@ -96,7 +96,11 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
-		ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()})
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			ctx = newCtx
+		} else {
+			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+		}
 	}
 	// Send the request to Bedrock
 	var resp *bedrockruntime.InvokeModelOutput
@@ -197,7 +201,11 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
-		ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()})
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			ctx = newCtx
+		} else {
+			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+		}
 	}
 	output, err := c.BedrockClient.InvokeModelWithResponseStream(ctx, input)
 	if err != nil {

@@ -61,7 +61,11 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
-		ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "inceptionlabs", Model: req.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()})
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "inceptionlabs", Model: req.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			ctx = newCtx
+		} else {
+			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+		}
 	}
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)

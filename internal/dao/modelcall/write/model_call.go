@@ -10,6 +10,7 @@ type ModelCall struct {
 	Provider                           string        `sqlx:"provider" validate:"required"`
 	Model                              string        `sqlx:"model" validate:"required"`
 	ModelKind                          string        `sqlx:"model_kind" validate:"required"`
+	Status                             string        `sqlx:"status" validate:"required"`
 	PromptTokens                       *int          `sqlx:"prompt_tokens" json:",omitempty"`
 	PromptCachedTokens                 *int          `sqlx:"prompt_cached_tokens" json:",omitempty"`
 	CompletionTokens                   *int          `sqlx:"completion_tokens" json:",omitempty"`
@@ -65,6 +66,7 @@ type ModelCallHas struct {
 	ProviderRequestPayloadID           bool
 	ProviderResponsePayloadID          bool
 	StreamPayloadID                    bool
+	Status                             bool
 }
 
 func (m *ModelCall) ensureHas() {
@@ -76,6 +78,7 @@ func (m *ModelCall) SetMessageID(v string) { m.MessageID = v; m.ensureHas(); m.H
 func (m *ModelCall) SetProvider(v string)  { m.Provider = v; m.ensureHas(); m.Has.Provider = true }
 func (m *ModelCall) SetModel(v string)     { m.Model = v; m.ensureHas(); m.Has.Model = true }
 func (m *ModelCall) SetModelKind(v string) { m.ModelKind = v; m.ensureHas(); m.Has.ModelKind = true }
+func (m *ModelCall) SetStatus(v string)    { m.Status = v; m.ensureHas(); m.Has.Status = true }
 func (m *ModelCall) SetStreamPayloadID(v string) {
 	m.StreamPayloadID = &v
 	m.ensureHas()

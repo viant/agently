@@ -19,7 +19,7 @@ type recorderObserver struct {
 	streamPayloadID string
 }
 
-func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) context.Context {
+func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.Context, error) {
 	o.start = info
 	o.hasBeg = true
 	if info.StartedAt.IsZero() {
@@ -37,17 +37,21 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) context.C
 	//TODO would it make sense to combine message, model call, payload in one call
 	if turn.ConversationID != "" {
 		one := 1
-		_ = o.r.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: turn.ParentMessageID, ConversationID: turn.ConversationID, Role: "assistant", Content: string(info.Payload), CreatedAt: time.Now(), Interim: &one})
+		if err := o.r.RecordMessage(ctx, memory.Message{ID: msgID, ParentID: turn.ParentMessageID, ConversationID: turn.ConversationID, Role: "assistant", Content: string(info.Payload), CreatedAt: time.Now(), Interim: &one}); err != nil {
+			return nil, err
+		}
 	}
 	// Generate stream payload id up-front so deltas can append progressively
 	o.streamPayloadID = uuid.New().String()
+
+	// TODO error handling
 	o.r.StartModelCall(ctx, rec.ModelCallStart{MessageID: msgID, TurnID: turn.TurnID, Provider: info.Provider, Model: info.Model, ModelKind: info.ModelKind, StartedAt: o.start.StartedAt, Request: info.Payload, ProviderRequest: info.RequestJSON, StreamPayloadID: o.streamPayloadID})
 	// Capture stream payload id by reading it from model_calls row is expensive; rely on recorder contract
 	// to seed it in StartModelCall and use AppendStreamChunk via payload id carried in observer state
 	// For simplicity, we store it as messageID-derived mapping (not implemented). The recorder provides only
 	// AppendStreamChunk by payload id, we cannot inspect it here without extra DAO read. We'll accumulate text
 	// in OnStreamDelta and persist on Finish.
-	return ctx
+	return ctx, nil
 }
 
 func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
