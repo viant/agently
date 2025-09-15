@@ -62,7 +62,7 @@ type ToolCallRecorder interface {
 // Add a new function RecordUpdateToolStatus(ctx context.Context, messageID, completedAt time.Time, errMsg string, response interface{})
 // ModelCallRecorder persists model-call operations (with optional payloads and metadata).
 type ModelCallRecorder interface {
-	StartModelCall(ctx context.Context, start ModelCallStart)
+	StartModelCall(ctx context.Context, start ModelCallStart) error
 	FinishModelCall(ctx context.Context, finish ModelCallFinish)
 	AppendStreamChunk(ctx context.Context, payloadID string, chunk []byte) error
 }
@@ -420,10 +420,10 @@ func (w *Store) RecordUsageTotals(ctx context.Context, conversationID string, in
 
 // Deprecated RecordModelCall removed; use StartModelCall and FinishModelCall instead.
 
-func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
+func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) error {
 	ctx2 := context.WithoutCancel(ctx)
 	if start.MessageID == "" || start.Model == "" {
-		return
+		return nil
 	}
 	provider := start.Provider
 	if provider == "" {
@@ -459,7 +459,7 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
 		payload.SetInlineBody(b)
 		payload.SetCompression("none")
 		if _, err := w.store.Payloads().Patch(ctx2, payload); err != nil {
-			fmt.Printf("ERROR### Recorder.StartModelCall payload: %v\n", err)
+			return err
 		} else {
 			// attach to write model directly
 			modelCAll.RequestPayloadID = &id
@@ -487,12 +487,15 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) {
 			}
 			modelCAll.Has.ProviderRequestPayloadID = true
 		} else {
-			fmt.Printf("ERROR### Recorder.StartModelCall provider payload: %v\n", err)
+			return err
 		}
 	}
+
 	if err := w.store.Operations().RecordModelCall(ctx2, modelCAll); err != nil {
-		fmt.Printf("ERROR### StartModelCall: %v\n", err)
+		return err
 	}
+
+	return nil
 }
 
 func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
