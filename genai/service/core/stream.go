@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
 	"time"
 
 	"github.com/viant/agently/genai/llm"
@@ -111,22 +110,36 @@ func (s *Service) ensureStreamingOption(input *StreamInput) {
 // consumeEvents pulls from provider Stream channel, dispatches to handler and
 // appends structured events to output. Stops on error or done.
 func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, handler stream.Handler, output *StreamOutput) error {
+	var resErr error
+	var ignore bool
+
 	for event := range ch {
+		if ignore {
+			continue
+		}
+
 		if err := handler(ctx, &event); err != nil {
-			return fmt.Errorf("failed to handle Stream event: %w", err)
+			resErr = fmt.Errorf("failed to handle Stream event: %w", err)
+			ignore = true
+			continue
 		}
+
 		if err := s.appendStreamEvent(&event, output); err != nil {
-			return err
+			resErr = err
+			ignore = true
+			continue
 		}
+
 		// Stop on done or error
 		if len(output.Events) > 0 {
 			last := output.Events[len(output.Events)-1]
 			if last.Type == "done" || last.Type == "error" {
-				break
+				ignore = true
 			}
 		}
 	}
-	return nil
+
+	return resErr
 }
 
 // appendStreamEvent converts provider event to public stream.Event(s).
