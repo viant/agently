@@ -1,0 +1,20 @@
+
+pipeline:
+  stop:
+    services:
+      action: docker:stop
+      images:
+        - mysql
+
+  services:
+    mysql:
+      action: docker:run
+      sleepTimeMs: 2000
+      image: mysql:8.0
+      platform: linux/amd64
+      name: mysql_agently
+      ports:
+        3307: 3306
+      env:
+        MYSQL_ROOT_PASSWORD: ${mysqlSecrets.Password}
+
