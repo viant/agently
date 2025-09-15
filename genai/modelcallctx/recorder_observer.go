@@ -44,8 +44,9 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 	// Generate stream payload id up-front so deltas can append progressively
 	o.streamPayloadID = uuid.New().String()
 
-	// TODO error handling
-	o.r.StartModelCall(ctx, rec.ModelCallStart{MessageID: msgID, TurnID: turn.TurnID, Provider: info.Provider, Model: info.Model, ModelKind: info.ModelKind, StartedAt: o.start.StartedAt, Request: info.Payload, ProviderRequest: info.RequestJSON, StreamPayloadID: o.streamPayloadID})
+	if err := o.r.StartModelCall(ctx, rec.ModelCallStart{MessageID: msgID, TurnID: turn.TurnID, Provider: info.Provider, Model: info.Model, ModelKind: info.ModelKind, StartedAt: o.start.StartedAt, Request: info.Payload, ProviderRequest: info.RequestJSON, StreamPayloadID: o.streamPayloadID}); err != nil {
+		return nil, err
+	}
 	// Capture stream payload id by reading it from model_calls row is expensive; rely on recorder contract
 	// to seed it in StartModelCall and use AppendStreamChunk via payload id carried in observer state
 	// For simplicity, we store it as messageID-derived mapping (not implemented). The recorder provides only
