@@ -76,7 +76,7 @@ CREATE TABLE message
     status             TEXT,
     role               TEXT      NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'control')),
     type               TEXT      NOT NULL DEFAULT 'text' CHECK (type IN ('text', 'tool_op', 'control')),
-    content            TEXT      NOT NULL,
+    content            TEXT,
     context_summary    TEXT,
     tags               TEXT,
     interim            INTEGER   NOT NULL DEFAULT 0 CHECK (interim IN (0, 1)),

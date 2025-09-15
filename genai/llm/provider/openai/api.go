@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/viant/afs"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
@@ -100,7 +102,11 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
-		ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, Payload: genReqJSON, StartedAt: time.Now()})
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			ctx = newCtx
+		} else {
+			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+		}
 	}
 	// Execute
 	c.HTTPClient.Timeout = 10 * time.Minute
@@ -224,7 +230,11 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
-		ctx = observer.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, Payload: genReqJSON, StartedAt: time.Now()})
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			ctx = newCtx
+		} else {
+			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+		}
 	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {

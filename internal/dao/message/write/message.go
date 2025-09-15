@@ -14,7 +14,7 @@ type Message struct {
 	Role            string      `sqlx:"role" validate:"required"`
 	Status          string      `sqlx:"status" `
 	Type            string      `sqlx:"type" validate:"required"`
-	Content         string      `sqlx:"content" validate:"required"`
+	Content         string      `sqlx:"content"`
 	ContextSummary  *string     `sqlx:"context_summary" json:",omitempty"`
 	Tags            *string     `sqlx:"tags" json:",omitempty"`
 	Interim         *int        `sqlx:"interim" json:",omitempty"`
