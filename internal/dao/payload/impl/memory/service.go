@@ -12,7 +12,7 @@ import (
 	write "github.com/viant/agently/internal/dao/payload/write"
 )
 
-// Service is an in-memory implementation of the Payload API.
+// Service is an in-memory implementation of the ResponsePayload API.
 type Service struct {
 	mu      sync.RWMutex
 	payload map[string]*read.PayloadView

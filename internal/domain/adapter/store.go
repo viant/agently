@@ -63,4 +63,4 @@ func (s *Store) Usage() d.Usage                 { return s.usage }
 
 // conversationsAdapter removed; replaced with dedicated adapter/service in adapter/conversation.
 
-// Payload adapter moved to internal/domain/adapter/payload.
+// ResponsePayload adapter moved to internal/domain/adapter/payload.

@@ -93,7 +93,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		return nil, err
 	}
 
-	// Observer start: include generic llm request as Payload JSON
+	// Observer start: include generic llm request as ResponsePayload JSON
 	observer := mcbuf.ObserverFromContext(ctx)
 	if observer != nil {
 		var genReqJSON []byte

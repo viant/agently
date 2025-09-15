@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -14,14 +15,25 @@ import (
 	padapter "github.com/viant/agently/genai/prompt/adapter"
 	msgread "github.com/viant/agently/internal/dao/message/read"
 	d "github.com/viant/agently/internal/domain"
+	apiconv "github.com/viant/agently/sdk/conversation"
 )
 
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.Binding, error) {
 	b := &prompt.Binding{}
 	b.Task = s.buildTaskBinding(input)
-	if hist, err := s.buildHistoryBinding(ctx, input); err == nil {
-		b.History = hist
+	// Fetch conversation transcript once and reuse; bubble up errors
+	if s.convAPI == nil {
+		return nil, fmt.Errorf("conversation API not configured")
 	}
+	conv, err := s.convAPI.Get(ctx, input.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	hist, err := s.buildHistoryBindingFromTranscript(ctx, input, conv)
+	if err != nil {
+		return nil, err
+	}
+	b.History = hist
 
 	sig, _, err := s.buildToolSignatures(input)
 	if err != nil {
@@ -40,11 +52,12 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		}
 		b.Flags.CanUseTool = s.llm != nil && s.llm.ModelImplements(ctx, model, base.CanUseTools)
 	}
-	if execs, err := s.buildToolExecutions(ctx, input); err != nil {
+	if execs, err := s.buildToolExecutionsFromTranscript(ctx, input, conv); err != nil {
 		return nil, err
 	} else if len(execs) > 0 {
 		b.Tools.Executions = execs
 	}
+
 	docs, err := s.buildDocumentsBinding(ctx, input, false)
 	if err != nil {
 		return nil, err
@@ -64,35 +77,63 @@ func (s *Service) buildTaskBinding(input *QueryInput) prompt.Task {
 }
 
 func (s *Service) buildHistoryBinding(ctx context.Context, input *QueryInput) (prompt.History, error) {
+	// This method delegates to buildHistoryBindingFromTranscript with no pre-fetched conversation,
+	// preserving backward compatibility when called directly.
+	return s.buildHistoryBindingFromTranscript(ctx, input, nil)
+}
+
+// buildHistoryBindingFromTranscript derives history from a provided conversation (if non-nil),
+// otherwise falls back to DAO transcript for compatibility.
+func (s *Service) buildHistoryBindingFromTranscript(ctx context.Context, input *QueryInput, conv *apiconv.Conversation) (prompt.History, error) {
+
 	var h prompt.History
-	convID := input.ConversationID
-	// Use conversation-level normalized transcript and filter to history
-	views, err := s.store.Messages().GetTranscript(ctx, convID)
-	if err != nil {
-		return h, err
+	if conv == nil {
+		return h, nil
 	}
-	var flat []*prompt.Message
-	for _, v := range d.Transcript(views).History() {
-		if v == nil {
-			continue
-		}
-		if strings.TrimSpace(v.Content) == "" {
-			continue
-		}
-		flat = append(flat, &prompt.Message{Role: v.Role, Content: v.Content})
-	}
-	// Avoid duplicating the current user query in both Task.Prompt and History:
-	// if the most recent history entry is a user message equal to input.Query,
-	// drop it from History so the prompt shows it only once under "User Query".
-	if n := len(flat); n > 0 {
-		last := flat[n-1]
-		if last != nil && strings.EqualFold(strings.TrimSpace(last.Role), "user") &&
-			strings.TrimSpace(last.Content) == strings.TrimSpace(input.Query) {
-			flat = flat[:n-1]
-		}
-	}
-	h.Messages = flat
+	transcript := conv.GetTranscript()
+	h.Messages = transcript.History(input.Query)
 	return h, nil
+}
+
+// buildToolExecutionsFromTranscript extracts tool calls from the provided conversation transcript for the current turn.
+func (s *Service) buildToolExecutionsFromTranscript(ctx context.Context, input *QueryInput, conv *apiconv.Conversation) ([]*llm.ToolCall, error) {
+	if conv == nil {
+		return s.buildToolExecutions(ctx, input)
+	}
+	turnMeta, ok := memory.TurnMetaFromContext(ctx)
+	if !ok || strings.TrimSpace(turnMeta.TurnID) == "" {
+		return nil, nil
+	}
+	transcript := conv.GetTranscript()
+	// Find current turn
+	var aTurn *apiconv.Turn
+	for _, t := range transcript {
+		if t != nil && t.Id == turnMeta.TurnID {
+			aTurn = t
+			break
+		}
+	}
+	if aTurn == nil {
+		return nil, nil
+	}
+	// Build tool calls from messages in current turn
+	var out []*llm.ToolCall
+	for _, m := range aTurn.ToolCalls() {
+		args := map[string]interface{}{}
+		// Prefer request payload (inline body JSON) for arguments
+		if m.ToolCall.RequestPayload != nil && m.ToolCall.RequestPayload.InlineBody != nil {
+			raw := strings.TrimSpace(*m.ToolCall.RequestPayload.InlineBody)
+			if raw != "" {
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+					args = parsed
+				}
+			}
+		}
+		tc := &llm.ToolCall{ID: m.ToolCall.OpId, Name: name, Arguments: args}
+		out = append(out, tc)
+	}
+	return out, nil
 }
 
 func (s *Service) buildToolSignatures(input *QueryInput) ([]*llm.ToolDefinition, bool, error) {

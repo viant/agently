@@ -2,6 +2,8 @@
 package agent
 
 import (
+	"context"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -14,6 +16,8 @@ import (
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/internal/domain"
 	"github.com/viant/agently/internal/domain/recorder"
+	apiconv "github.com/viant/agently/sdk/conversation"
+	implconv "github.com/viant/agently/sdk/conversation/impl"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/model/types"
 )
@@ -38,6 +42,9 @@ type Service struct {
 	recorder recorder.Recorder
 	store    domain.Store
 	defaults *config.Defaults
+
+	// convAPI is a shared conversation API instance used to fetch transcript/usage.
+	convAPI apiconv.API
 }
 
 // SetRuntime sets the fluxor runtime for orchestration
@@ -63,10 +70,21 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 		orchestrator: orchestrator.New(llm, registry, recorder),
 		fs:           afs.New(),
 	}
+
 	for _, o := range opts {
 		o(srv)
 	}
+	// Instantiate conversation API once; ignore errors to preserve backward compatibility
+	api, err := implconv.NewFromEnv(context.Background())
+	srv.convAPI = api
+	fmt.Println(err)
+
 	return srv
+}
+
+// WithConversationAPI injects a shared conversation API instance.
+func WithConversationAPI(api apiconv.API) Option {
+	return func(s *Service) { s.convAPI = api }
 }
 
 // Name returns the service name

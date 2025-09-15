@@ -8,8 +8,8 @@
 
 #set($_ = $Id<string>(path/id))
 #set($_ = $Since<string>(query/since).WithPredicate(0,'expr','created_at >= (SELECT created_at FROM turn WHERE id = ?)'))
-#set($_ = $IncludeModelCal<int>(query/includeModelCall).Value(1).WithPredicate(2, 'expr', '?'))
-#set($_ = $IncludeToolCall<int>(query/includeToolCall).Value(1).WithPredicate(3, 'expr', '?'))
+#set($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
+#set($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
 
 
 SELECT conversation.*
@@ -52,7 +52,7 @@ JOIN (
 ) requestPayload ON requestPayload.id = toolCall.request_payload_id AND  1 = 1
 JOIN (
    SELECT id, inline_body, compression FROM call_payload${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")}
-) payload ON payload.id = toolCall.response_payload_id AND  1 = 1
+) responsePayload ON responsePayload.id = toolCall.response_payload_id AND  1 = 1
 JOIN (
   SELECT 
     m.conversation_id AS conversation_id,
