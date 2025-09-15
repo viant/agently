@@ -14,3 +14,23 @@ func WithSince(since string) Option {
 		input.Has.Since = true
 	}
 }
+
+func WithIncludeToolCall(include bool) Option {
+	return func(input *Input) {
+		input.IncludeToolCall = include
+		if input.Has == nil {
+			input.Has = &agconv.ConversationInputHas{}
+		}
+		input.Has.IncludeToolCall = true
+	}
+}
+
+func WithIncludeModelCall(include bool) Option {
+	return func(input *Input) {
+		input.IncludeModelCal = include
+		if input.Has == nil {
+			input.Has = &agconv.ConversationInputHas{}
+		}
+		input.Has.IncludeModelCal = true
+	}
+}
