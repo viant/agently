@@ -66,32 +66,6 @@ export async function onInit({context}) {
         if (handlers?.peekFormData?.()?.id) {
             try { console.log('[chat] onInit:immediate tick (have id)'); } catch(_) {}
             try { context.resources.messagesGraceUntil = Date.now() - 1; } catch(_) {}
-            // If we have preloaded rows for this conv, seed the messages DS now
-            try {
-                const convID = handlers.peekFormData().id;
-                const preloaded = context.resources?.preloadedMessages?.[convID];
-                if (preloaded && Array.isArray(preloaded) && preloaded.length) {
-                    const messagesCtx = context.Context('messages');
-                    messagesCtx?.handlers?.dataSource?.setCollection?.({ rows: preloaded });
-                    console.log('[chat] onInit:seeded from preloaded', preloaded.length);
-                } else {
-                    // Watch briefly (up to 800ms) for preloader to finish and seed once
-                    const started = Date.now();
-                    const timer = setInterval(() => {
-                        const rows = context.resources?.preloadedMessages?.[convID];
-                        if (rows && rows.length) {
-                            clearInterval(timer);
-                            try {
-                                const messagesCtx = context.Context('messages');
-                                messagesCtx?.handlers?.dataSource?.setCollection?.({ rows });
-                                console.log('[chat] onInit:late seed from preloaded', rows.length, 'after', Date.now() - started, 'ms');
-                            } catch(_) {}
-                        } else if ((Date.now() - started) > 800) {
-                            clearInterval(timer);
-                        }
-                    }, 50);
-                }
-            } catch(_) {}
             try { startPolling({ context }); } catch(_) {}
         } else {
             const start = Date.now();
@@ -103,29 +77,6 @@ export async function onInit({context}) {
                     clearInterval(timer);
                     try { console.log('[chat] onInit:convId acquired', got, 'after', Date.now() - start, 'ms'); } catch(_) {}
                     try { context.resources.messagesGraceUntil = Date.now() - 1; } catch(_) {}
-                    try {
-                        const preloaded = context.resources?.preloadedMessages?.[got];
-                        if (preloaded && Array.isArray(preloaded) && preloaded.length) {
-                            const messagesCtx = context.Context('messages');
-                            messagesCtx?.handlers?.dataSource?.setCollection?.({ rows: preloaded });
-                            console.log('[chat] onInit:seeded from preloaded', preloaded.length);
-                        } else {
-                            const started2 = Date.now();
-                            const timer2 = setInterval(() => {
-                                const rows2 = context.resources?.preloadedMessages?.[got];
-                                if (rows2 && rows2.length) {
-                                    clearInterval(timer2);
-                                    try {
-                                        const messagesCtx = context.Context('messages');
-                                        messagesCtx?.handlers?.dataSource?.setCollection?.({ rows: rows2 });
-                                        console.log('[chat] onInit:late seed from preloaded', rows2.length, 'after', Date.now() - started2, 'ms');
-                                    } catch(_) {}
-                                } else if ((Date.now() - started2) > 800) {
-                                    clearInterval(timer2);
-                                }
-                            }, 50);
-                        }
-                    } catch(_) {}
                     try { startPolling({ context }); } catch(_) {}
                 } else if ((Date.now() - start) > waitMs) {
                     clearInterval(timer);
@@ -213,70 +164,6 @@ export function debugMessagesError({ context, error }) {
     }
 }
 
-// Seed messages and stage from conversations DS (/conversations/{id}/messages response)
-export function seedFromConversationDS({ context, response }) {
-    try {
-        const data = response?.data || response;
-        if (!data) return;
-        const convID = data?.Id || data?.id;
-        const stage = data?.Stage || data?.stage;
-        if (stage) {
-            try { setStage({ phase: String(stage) }); } catch(_) {}
-        }
-        const transcript = Array.isArray(data?.Transcript) ? data.Transcript : (Array.isArray(data?.transcript) ? data.transcript : []);
-        // Map transcript to rows (same as initial mapping)
-        const toISOSafe = (v) => { try { const d = new Date(v); if (!isNaN(d.getTime())) return d.toISOString(); } catch(_) {} return new Date().toISOString(); };
-        const rows = [];
-        for (const turn of transcript) {
-            const turnId = turn?.Id || turn?.id;
-            const messages = Array.isArray(turn?.Message) ? turn.Message : (Array.isArray(turn?.message) ? turn.message : []);
-            const steps = [];
-            for (const m of messages) {
-                const interim = m?.Interim ?? m?.interim;
-                const created = m?.CreatedAt || m?.createdAt;
-                if (interim) {
-                    steps.push({ id: (m.Id || m.id || '') + '/interim', name: 'assistant', reason: 'interim', success: true, startedAt: created, endedAt: created });
-                }
-                const tc = m?.ToolCall || m?.toolCall;
-                const mc = m?.ModelCall || m?.modelCall;
-                if (tc) steps.push({ id: tc.OpId || tc.opId, name: tc.ToolName || tc.toolName, reason: 'tool_call', success: String((tc.Status || tc.status || '')).toLowerCase() === 'completed', startedAt: tc.StartedAt || tc.startedAt, endedAt: tc.CompletedAt || tc.completedAt });
-                if (mc) steps.push({ id: mc.MessageId || mc.messageId, name: mc.Model || mc.model, reason: 'thinking', success: String((mc.Status || mc.status || '')).toLowerCase() === 'completed', startedAt: mc.StartedAt || mc.startedAt, endedAt: mc.CompletedAt || mc.completedAt });
-            }
-            const normalized = steps.map(s => {
-                const a = s.startedAt ? new Date(s.startedAt) : null;
-                const b = s.endedAt ? new Date(s.endedAt) : null;
-                let e = '';
-                if (a && b && !isNaN(a) && !isNaN(b)) e = (((b - a) / 1000).toFixed(2)) + 's';
-                return { ...s, elapsed: e };
-            });
-            const turnExec = normalized.length ? [{ steps: normalized }] : [];
-            const turnRows = [];
-            for (const m of messages) {
-                const roleLower = String(m.Role || m.role || '').toLowerCase();
-                if (m?.Interim || m?.interim) continue;
-                if (roleLower !== 'user' && roleLower !== 'assistant') continue;
-                if (m?.ModelCall || m?.modelCall || m?.ToolCall || m?.toolCall) continue;
-                const id = m.Id || m.id;
-                const createdAt = toISOSafe(m.CreatedAt || m.createdAt);
-                const turnIdRef = m.TurnId || m.turnId || turnId;
-                turnRows.push({ id, conversationId: m.ConversationId || m.conversationId, role: roleLower, content: m.Content || m.content || '', createdAt, toolName: m.ToolName || m.toolName, turnId: turnIdRef, parentId: turnIdRef, executions: [] });
-            }
-            let carrierIdx = -1; for (let i = 0; i < turnRows.length; i++) if (turnRows[i].role === 'user') { carrierIdx = i; break; }
-            if (carrierIdx === -1 && turnRows.length) carrierIdx = 0;
-            if (carrierIdx >= 0) turnRows[carrierIdx] = { ...turnRows[carrierIdx], executions: turnExec };
-            for (const r of turnRows) rows.push(r);
-        }
-        if (!context.resources) context.resources = {};
-        if (!context.resources.preloadedMessages) context.resources.preloadedMessages = {};
-        if (convID) context.resources.preloadedMessages[convID] = rows;
-        // Seed immediately if messages DS is present
-        try { const messagesCtx = context.Context('messages'); messagesCtx?.handlers?.dataSource?.setCollection?.({ rows }); } catch(_) {}
-        console.log('[chat] seeded from conversations DS', rows.length);
-    } catch (e) {
-        console.error('seedFromConversationDS error', e);
-    }
-}
-
 function startPolling({context}) {
     if (!context || typeof context.Context !== 'function') {
         console.warn('chatService.startPolling: invalid context');
@@ -303,7 +190,7 @@ function startPolling({context}) {
                 if (convID) context.resources.convID = convID;
             }
             if (!convID) {
-                // Too noisy in logs and not actionable; quietly skip
+                try { console.log('[chat] poll:skip no convID'); } catch(_) {}
                 return; // no active conversation – nothing to do
             }
 
@@ -583,89 +470,6 @@ function startPolling({context}) {
         context.resources.messagesFetchInFlight = false;
         try { console.log('[chat] poll:end', { elapsedMs: Date.now() - t0 }); } catch(_) {}
     });
-}
-
-// Prefetch conversation transcript to seed the chat window before it opens.
-export async function preloadConversation({ context, row }) {
-    try {
-        const convID = row?.id || row?.Id || context?.Context('history')?.handlers?.dataSource?.peekSelection?.()?.selected?.id;
-        if (!convID) return false;
-        const baseRoot = (endpoints.appAPI.baseURL || (typeof window !== 'undefined' ? window.location.origin + '/v1/api' : ''))
-            .replace(/\/+$/,'');
-        const base = `${baseRoot}/conversations/${encodeURIComponent(convID)}/messages`;
-        console.time('[chat] preload fetch');
-        const json = await fetchJSON(base);
-        console.timeEnd('[chat] preload fetch');
-        const conv = json && json.status === 'ok' ? json.data : null;
-        const transcript = Array.isArray(conv?.transcript) ? conv.transcript
-                          : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
-
-        const toISOSafe = (v) => {
-            if (!v) return new Date().toISOString();
-            try { const d = new Date(v); if (!isNaN(d.getTime())) return d.toISOString(); } catch(_) {}
-            return new Date().toISOString();
-        };
-
-        const rows = [];
-        for (const turn of transcript) {
-            const turnId = turn?.id || turn?.Id;
-            const messages = Array.isArray(turn?.message) ? turn.message
-                             : Array.isArray(turn?.Message) ? turn.Message : [];
-            // Aggregate steps (thinking/tool/interim) as in polling path
-            const steps = [];
-            for (const m of messages) {
-                const interim = m?.interim ?? m?.Interim;
-                const created = m?.createdAt || m?.CreatedAt;
-                if (interim) {
-                    steps.push({ id: (m.id || m.Id || '') + '/interim', name: 'assistant', reason: 'interim', success: true, startedAt: created, endedAt: created });
-                }
-                const tc = m?.toolCall || m?.ToolCall;
-                const mc = m?.modelCall || m?.ModelCall;
-                if (tc) {
-                    steps.push({ id: tc.opId || tc.OpId, name: tc.toolName || tc.ToolName, reason: 'tool_call', success: String((tc.status || tc.Status || '')).toLowerCase() === 'completed', startedAt: tc.startedAt || tc.StartedAt, endedAt: tc.completedAt || tc.CompletedAt });
-                }
-                if (mc) {
-                    steps.push({ id: mc.messageId || mc.MessageId, name: mc.model || mc.Model, reason: 'thinking', success: String((mc.status || mc.Status || '')).toLowerCase() === 'completed', startedAt: mc.startedAt || mc.StartedAt, endedAt: mc.completedAt || mc.CompletedAt });
-                }
-            }
-            const normalizedSteps = steps.map(s => {
-                const started = s.startedAt ? new Date(s.startedAt) : null;
-                const ended = s.endedAt ? new Date(s.endedAt) : null;
-                let elapsed = '';
-                if (started && ended && !isNaN(started) && !isNaN(ended)) {
-                    elapsed = (((ended - started) / 1000).toFixed(2)) + 's';
-                }
-                return { ...s, elapsed };
-            });
-            const turnExecutions = normalizedSteps.length ? [{ steps: normalizedSteps }] : [];
-            const turnRows = [];
-            for (const m of messages) {
-                const roleLower = String(m.role || m.Role || '').toLowerCase();
-                if (m?.interim || m?.Interim) continue;
-                if (roleLower !== 'user' && roleLower !== 'assistant') continue;
-                const mc = m?.modelCall || m?.ModelCall;
-                const tc = m?.toolCall || m?.ToolCall;
-                if (mc || tc) continue;
-                const id = m.id || m.Id;
-                const createdAt = toISOSafe(m.createdAt || m.CreatedAt);
-                const turnIdRef = m.turnId || m.TurnId || turnId;
-                turnRows.push({ id, conversationId: m.conversationId || m.ConversationId, role: roleLower, content: m.content || m.Content || '', createdAt, toolName: m.toolName || m.ToolName, turnId: turnIdRef, parentId: turnIdRef, executions: [] });
-            }
-            // Attach executions to first user or first message
-            let carrierIdx = -1;
-            for (let i = 0; i < turnRows.length; i++) if (turnRows[i].role === 'user') { carrierIdx = i; break; }
-            if (carrierIdx === -1 && turnRows.length) carrierIdx = 0;
-            if (carrierIdx >= 0) turnRows[carrierIdx] = { ...turnRows[carrierIdx], executions: turnExecutions };
-            for (const r of turnRows) rows.push(r);
-        }
-        if (!context.resources.preloadedMessages) context.resources.preloadedMessages = {};
-        context.resources.preloadedMessages[convID] = rows;
-        console.log('[chat] preload:cached rows', rows.length, 'for', convID);
-        return true;
-    } catch (e) {
-        console.error('preloadConversation error', e);
-        return false;
-    }
 }
 
 // Map v2 transcript DAO rows to legacy message shape expected by the UI merge
@@ -1131,7 +935,6 @@ export const chatService = {
     selectFolder,
     buildToolOptions,
     receiveMessages,
-    preloadConversation,
     renderers: {
         execution: ExecutionBubble,
         form: FormRenderer,
