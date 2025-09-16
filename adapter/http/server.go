@@ -226,7 +226,8 @@ type conversationInfo struct {
 }
 
 type acceptedMessage struct {
-	ID string `json:"id"`
+	ID     string `json:"id"`
+	TurnID string `json:"turnId"`
 }
 
 // Note: usage-related data structures moved to sdk/chat. Keep HTTP layer thin.
@@ -364,14 +365,10 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	sinceId := strings.TrimSpace(r.URL.Query().Get("since"))
 	resp, err := s.chatSvc.Get(r.Context(), chat.GetRequest{ConversationID: convID, SinceID: sinceId})
 	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err, s.chatSvc.Stage(r.Context(), convID))
+		encode(w, http.StatusInternalServerError, nil, err, nil)
 		return
 	}
-	status := http.StatusOK
-	if resp.InProgress {
-		status = http.StatusProcessing
-	}
-	encode(w, status, resp.Messages, nil, resp.Stage)
+	encode(w, http.StatusOK, resp.Conversation, nil, nil)
 }
 
 // currentStage infers live phase of a conversation based on recent transcript.
@@ -575,7 +572,7 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(apiResponse{Status: "ACCEPTED", Data: acceptedMessage{ID: id}})
+	_ = json.NewEncoder(w).Encode(apiResponse{Status: "ACCEPTED", Data: acceptedMessage{ID: id, TurnID: id}})
 }
 
 // handleTerminateConversation processes POST /v1/api/conversations/{id}/terminate

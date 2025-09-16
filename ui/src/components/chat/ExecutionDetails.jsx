@@ -128,24 +128,28 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
 
 function flattenExecutions(executions = []) {
     if (!executions) return [];
-    // executions array now directly contains trace objects (lightweight – no heavy payload).
-    return executions.flatMap(exe => (exe.steps || []).map(s => ({
-        traceId:  s.traceId,
-        state:    s.endedAt || s.success !== undefined ? (s.success ? "✔︎" : "✖︎") : "⏳",
-        name:     s.name,
-        reason:   s.reason || s.error || '',
-        success:  s.success === undefined ? "pending" : (s.success ? "success" : "error"),
-        elapsed:  s.elapsed,
-        // include request/response refs so the viewer can lazy-load payloads
-        request:  s.request,
-        response: s.response,
-        // pass through payload IDs from step exactly as presented
-        requestPayloadId: s.requestPayloadId,
-        responsePayloadId: s.responsePayloadId,
-        streamPayloadId: s.streamPayloadId,
-        providerRequestPayloadId: s.providerRequestPayloadId,
-        providerResponsePayloadId: s.providerResponsePayloadId,
-    })));
+    // Show only model/tool steps in the table (hide interim/control or bubble message steps)
+    const allowed = new Set([ 'thinking', 'tool_call' ]);
+    return executions.flatMap(exe => (exe.steps || [])
+        .filter(s => allowed.has(String(s?.reason || '').toLowerCase()))
+        .map(s => ({
+            traceId:  s.traceId,
+            state:    s.endedAt || s.success !== undefined ? (s.success ? "✔︎" : "✖︎") : "⏳",
+            name:     s.name,
+            reason:   '', // suppress reason text to avoid duplication; show only name + status
+            success:  s.success === undefined ? "pending" : (s.success ? "success" : "error"),
+            elapsed:  s.elapsed,
+            // include request/response refs so the viewer can lazy-load payloads
+            request:  s.request,
+            response: s.response,
+            // pass through payload IDs from step exactly as presented
+            requestPayloadId: s.requestPayloadId,
+            responsePayloadId: s.responsePayloadId,
+            streamPayloadId: s.streamPayloadId,
+            providerRequestPayloadId: s.providerRequestPayloadId,
+            providerResponsePayloadId: s.providerResponsePayloadId,
+        }))
+    );
 }
 
 export default function ExecutionDetails({ executions = [], context, messageId, onError, useForgeDialog = false, resizable = false, useCodeMirror = false }) {

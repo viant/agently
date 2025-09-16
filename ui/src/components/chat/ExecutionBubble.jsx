@@ -11,7 +11,8 @@ import ExecutionDetails from "./ExecutionDetails.jsx";
 // Minimal markdown → HTML renderer (copied from Forge)
 // ---------------------------------------------------------------------------
 function renderMarkdown(md = "") {
-    if (md.startsWith('<table')) {
+    const trimmed = (md || '').trim();
+    if (trimmed.startsWith('<table') || /<table\b/i.test(trimmed)) {
         return md; // already HTML table produced by normalizer
     }
     const escaped = md
@@ -45,17 +46,27 @@ export default function ExecutionBubble({ message: msg, context }) {
                 <div className="avatar" style={{ background: avatarColour }}>
                     <Icon icon={iconName} color="var(--black)" size={12} />
                 </div>
-                <div className={bubbleClass} data-ts={formatDate(new Date(msg.createdAt), "HH:mm")}> 
+                <div className={bubbleClass} data-ts={(function(){ try { const d = new Date(msg.createdAt); return isNaN(d) ? '' : formatDate(d, 'HH:mm'); } catch(_) { return ''; } })()}> 
                     <div className="prose max-w-full text-sm" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
 
-                    {(msg.executions?.length > 0 || true) && (
+                    {(msg.executions?.length > 0 || true) && (() => {
+                        const steps = Array.isArray(msg.executions) && msg.executions[0] && Array.isArray(msg.executions[0].steps)
+                            ? msg.executions[0].steps
+                            : [];
+                        const controlCount = steps.filter(s => {
+                            const r = String(s?.reason || '').toLowerCase();
+                            return r === 'interim' || r === 'control';
+                        }).length;
+                        const countLabel = String(controlCount);
+                        return (
                         <details className="mt-2">
                             <summary className="cursor-pointer text-xs text-blue-500">
-                                Execution details ({msg.executions.length})
+                                Execution details ({countLabel})
                             </summary>
                             <ExecutionDetails executions={msg.executions} context={context} messageId={msg.id} resizable useCodeMirror />
                         </details>
-                    )}
+                        );
+                    })()}
                 </div>
             </div>
         </div>

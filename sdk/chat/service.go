@@ -25,6 +25,8 @@ import (
 	plread "github.com/viant/agently/internal/dao/payload/read"
 	usageread "github.com/viant/agently/internal/dao/usage/read"
 	d "github.com/viant/agently/internal/domain"
+	apiconv "github.com/viant/agently/sdk/conversation"
+	implconv "github.com/viant/agently/sdk/conversation/impl"
 	"github.com/viant/agently/sdk/stage"
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
@@ -39,12 +41,20 @@ type Service struct {
 	fluxPolicy *fluxpol.Policy
 	approval   approval.Service
 
+	convAPI apiconv.API
+
 	mu            sync.Mutex
 	cancelsByTurn map[string][]context.CancelFunc // key: user turn id (message id)
 	turnsByConv   map[string][]string             // convID -> []turnID
 }
 
-func NewService(store d.Store) *Service { return &Service{store: store} }
+func NewService(store d.Store) *Service {
+	svc := &Service{store: store}
+	if api, err := implconv.NewFromEnv(context.Background()); err == nil {
+		svc.convAPI = api
+	}
+	return svc
+}
 
 // AttachManager configures the conversation manager and optional default policies.
 func (s *Service) AttachManager(mgr *conversation.Manager, tp *tool.Policy, fp *fluxpol.Policy) {
@@ -62,158 +72,24 @@ type GetRequest struct {
 	SinceID        string // optional: inclusive slice starting from this message id
 }
 
-// GetResponse carries fetched messages, inferred stage and progress flag.
+// GetResponse carries the rich conversation view for the given request.
 type GetResponse struct {
-	Messages   []memory.Message
-	Stage      *stage.Stage
-	InProgress bool // true when SinceID set and no new messages yet
+	Conversation *apiconv.Conversation
 }
 
-// Get fetches messages according to request and computes conversation stage.
+// Get fetches a conversation using the rich transcript API.
 func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error) {
-	opts := []msgread.InputOption{msgread.WithConversationID(req.ConversationID)}
+	var opts []apiconv.Option
 	if id := strings.TrimSpace(req.SinceID); id != "" {
-		// Normalize synthetic suffixes like "/form" or "/1".
-		if idx := strings.IndexByte(id, '/'); idx > 0 {
-			id = id[:idx]
-		}
-		// If since points to a non-user row (e.g., assistant or child), anchor to its parent user message.
-		if rows, err := s.store.Messages().List(ctx, msgread.WithIDs(id)); err == nil && len(rows) > 0 && rows[0] != nil {
-			v := rows[0]
-			if !strings.EqualFold(strings.TrimSpace(v.Role), "user") {
-				if v.ParentID != nil && strings.TrimSpace(*v.ParentID) != "" {
-					id = *v.ParentID
-				}
-			}
-		}
-		opts = append(opts, msgread.WithSinceID(id))
+		// Server-side transcript supports inclusive since on turn id.
+		// Use provided id directly; turns/messages map on backend.
+		opts = append(opts, apiconv.WithSince(id))
 	}
-
-	transcript, err := s.store.Messages().GetTranscript(ctx, req.ConversationID, opts...)
+	conv, err := s.convAPI.Get(ctx, req.ConversationID, opts...)
 	if err != nil {
 		return nil, err
 	}
-
-	var execution = make(map[string][]*msgread.MessageView)
-	var turns []*msgread.MessageView
-	for i, v := range transcript {
-		// Treat interim children and tool-call rows as execution details under their parent.
-		if (v.IsInterim() && v.ParentID != nil) || v.ToolCall != nil {
-			execution[*v.ParentID] = append(execution[*v.ParentID], transcript[i])
-			continue
-		}
-		// Some backends emit synthetic child message IDs (e.g., "<parent>/1") without setting ParentID.
-		// Infer parent from ID when ParentID is missing to avoid duplicate user-visible bubbles.
-		if v.ParentID == nil {
-			if slash := strings.IndexByte(v.Id, '/'); slash > 0 {
-				parent := v.Id[:slash]
-				execution[parent] = append(execution[parent], transcript[i])
-				continue
-			}
-		}
-		turns = append(turns, transcript[i])
-	}
-	messages := make([]memory.Message, 0, len(transcript))
-
-	for _, v := range turns {
-		if v == nil {
-			continue
-		}
-		mm := memory.Message{ID: v.Id, ConversationID: v.ConversationID, Role: v.Role, Content: v.Content}
-		if v.ParentID != nil {
-			mm.ParentID = *v.ParentID
-		}
-		if v.ToolName != nil {
-			mm.ToolName = v.ToolName
-		}
-		if v.CreatedAt != nil {
-			mm.CreatedAt = *v.CreatedAt
-		} else {
-			mm.CreatedAt = time.Now()
-		}
-		if v.Elicitation != nil {
-			mm.Elicitation = v.Elicitation
-		}
-
-		if executions, ok := execution[v.Id]; ok {
-			for _, anExecution := range executions {
-				if anExecution.ToolCall != nil {
-					st := &plan.StepOutcome{
-						ID:                anExecution.ToolCall.OpID,
-						Name:              anExecution.ToolCall.ToolName,
-						Reason:            "tool_call",
-						Success:           strings.EqualFold(strings.TrimSpace(anExecution.ToolCall.Status), "completed"),
-						Error:             derefStr(anExecution.ToolCall.ErrorMessage),
-						StartedAt:         anExecution.ToolCall.StartedAt,
-						EndedAt:           anExecution.ToolCall.CompletedAt,
-						RequestPayloadID:  anExecution.ToolCall.RequestPayloadID,
-						ResponsePayloadID: anExecution.ToolCall.ResponsePayloadID,
-					}
-					if anExecution.ToolCall.StartedAt != nil && anExecution.ToolCall.CompletedAt != nil {
-						st.Elapsed = anExecution.ToolCall.CompletedAt.Sub(*anExecution.ToolCall.StartedAt).Round(time.Millisecond).String()
-					}
-					mm.Executions = append(mm.Executions, &plan.Outcome{Steps: []*plan.StepOutcome{st}})
-				}
-				if anExecution.ModelCall != nil {
-					mm.Content = ""
-					st := &plan.StepOutcome{
-						ID:      anExecution.ModelCall.MessageID,
-						Name:    anExecution.ModelCall.Model,
-						Reason:  "thinking",
-						Success: strings.EqualFold(strings.TrimSpace(anExecution.ModelCall.Status), "completed"),
-						//TODO add to model_calls
-						//	Error:             derefStr(v.ModelCall.ErrorMessage),
-						StartedAt:                 anExecution.ModelCall.StartedAt,
-						EndedAt:                   anExecution.ModelCall.CompletedAt,
-						RequestPayloadID:          anExecution.ModelCall.RequestPayloadID,
-						ResponsePayloadID:         anExecution.ModelCall.ResponsePayloadID,
-						StreamPayloadID:           anExecution.ModelCall.StreamPayloadID,
-						ProviderRequestPayloadID:  anExecution.ModelCall.ProviderRequestPayloadID,
-						ProviderResponsePayloadID: anExecution.ModelCall.ProviderResponsePayloadID,
-					}
-					if anExecution.ModelCall.StartedAt != nil && anExecution.ModelCall.CompletedAt != nil {
-						st.Elapsed = anExecution.ModelCall.CompletedAt.Sub(*anExecution.ModelCall.StartedAt).Round(time.Millisecond).String()
-					}
-					mm.Executions = append(mm.Executions, &plan.Outcome{Steps: []*plan.StepOutcome{st}})
-					// Attach per-message usage when tokens are present
-					if anExecution.ModelCall.PromptTokens != nil || anExecution.ModelCall.CompletionTokens != nil || anExecution.ModelCall.TotalTokens != nil {
-						var pt, ct, tt int
-						if anExecution.ModelCall.PromptTokens != nil {
-							pt = *anExecution.ModelCall.PromptTokens
-						}
-						if anExecution.ModelCall.CompletionTokens != nil {
-							ct = *anExecution.ModelCall.CompletionTokens
-						}
-						if anExecution.ModelCall.TotalTokens != nil {
-							tt = *anExecution.ModelCall.TotalTokens
-						} else {
-							tt = pt + ct
-						}
-						mm.Usage = &memory.Usage{PromptTokens: pt, CompletionTokens: ct, TotalTokens: tt}
-					}
-				}
-			}
-		}
-		messages = append(messages, mm)
-	}
-
-	stg := s.currentStage(ctx, req.ConversationID)
-	inProgress := strings.TrimSpace(req.SinceID) != "" && len(messages) == 0
-	return &GetResponse{Messages: messages, Stage: stg, InProgress: inProgress}, nil
-}
-
-func (s *Service) inlinePayload(ctx context.Context, id *string, out *json.RawMessage) error {
-	if id == nil || strings.TrimSpace(*id) == "" {
-		return nil
-	}
-	pv, err := s.store.Payloads().Get(ctx, *id)
-	if err != nil {
-		return err
-	}
-	if pv != nil && pv.InlineBody != nil {
-		*out = json.RawMessage(*pv.InlineBody)
-	}
-	return nil
+	return &GetResponse{Conversation: conv}, nil
 }
 
 // currentStage infers the live phase of a conversation using transcript signals.

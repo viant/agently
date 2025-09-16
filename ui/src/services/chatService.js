@@ -70,6 +70,11 @@ export async function onInit({context}) {
             clearInterval(context.resources.chatTimer);
         }
         context.resources['chatTimerState'] = {busy: false}
+        // Grace period to avoid duplicate initial fetch (DataSource auto-fetch vs poller)
+        context.resources['messagesGraceUntil'] = Date.now() + 2000;
+        context.resources['messagesPollThrottleMs'] = 900;
+        context.resources['messagesLastFetchTs'] = 0;
+        context.resources['messagesFetchInFlight'] = false;
         context.resources['chatTimer'] = setInterval(() => {
             startPolling({context});
         }, 1000);
@@ -97,6 +102,13 @@ function startPolling({context}) {
         try {
             context.resources.chatTimerState = true;
 
+            // Skip polling during initial grace window to avoid duplicate calls
+            const now = Date.now();
+            const graceUntil = context.resources?.messagesGraceUntil || 0;
+            if (now < graceUntil) {
+                return;
+            }
+
             const convCtx = context.Context('conversations');
             const convID = convCtx?.handlers?.dataSource.peekFormData?.()?.id;
             if (!convID) {
@@ -109,23 +121,199 @@ function startPolling({context}) {
             }
 
             const collSig = messagesCtx.signals?.collection;
+            const ctrlSig = messagesCtx.signals?.control;
+            // If the DataSource is already fetching (auto-fetch on input change), skip this tick
+            if (ctrlSig?.peek?.()?.loading) {
+                return;
+            }
             const current = Array.isArray(collSig?.value) ? collSig.value : [];
-            const lastID = current.length ? current[current.length - 1].id : '';
-
-            const base = endpoints.appAPI.baseURL + `/conversations/${convID}/messages`;
-            const url = lastID
-                ? `${base}?since=${encodeURIComponent(lastID)}`
-                : `${base}`;
-
-            const json = await fetchJSON(url);
-
-            // Broadcast stage (even when no new messages) so StatusBar updates smoothly.
-            if (json && json.stage) {
-                setStage(json.stage);
+            // Prefer last turnId if present; fallback to last message id
+            let lastID = '';
+            for (let i = current.length - 1; i >= 0; i--) {
+                if (current[i]?.turnId) { lastID = current[i].turnId; break; }
+            }
+            if (!lastID && current.length) {
+                lastID = current[current.length - 1].id;
             }
 
-            if (json && json.status === 'ok' && Array.isArray(json.data) && json.data.length) {
-                receiveMessages(messagesCtx, json.data, lastID);
+            // Skip first poll if no messages yet – initial DataSource fetch handles it
+            if (!lastID) {
+                return;
+            }
+
+            // Throttle and de-dupe in-flight calls
+            const nowTick = Date.now();
+            const lastTs = context.resources?.messagesLastFetchTs || 0;
+            const throttleMs = context.resources?.messagesPollThrottleMs || 900;
+            if ((nowTick - lastTs) < throttleMs) {
+                return;
+            }
+            if (context.resources?.messagesFetchInFlight) {
+                return;
+            }
+
+            // Fetch rich conversation view (v2) via backend proxy on v1 path
+            const baseRoot = (endpoints.appAPI.baseURL || (typeof window !== 'undefined' ? window.location.origin + '/v1/api' : ''))
+                .replace(/\/+$/,'');
+            const base = `${baseRoot}/conversations/${encodeURIComponent(convID)}/messages`;
+            const url = `${base}?since=${encodeURIComponent(lastID)}`;
+            context.resources.messagesFetchInFlight = true;
+            context.resources.messagesLastFetchTs = nowTick;
+            const json = await fetchJSON(url);
+
+            // New format: data is a Conversation object with transcript and stage (Go fields are Capitalized)
+            const conv = json && json.status === 'ok' ? json.data : null;
+            const convStage = conv?.stage || conv?.Stage;
+            if (convStage) {
+                setStage({ phase: String(convStage) });
+            }
+            const transcript = Array.isArray(conv?.transcript) ? conv.transcript
+                              : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
+            const rows = [];
+
+            // Safe date → ISO helper to avoid Invalid time values in UI
+            const toISO = (v) => {
+                if (!v) return new Date().toISOString();
+                try {
+                    const d = new Date(v);
+                    if (!isNaN(d.getTime())) return d.toISOString();
+                } catch (_) { /* ignore */ }
+                return new Date().toISOString();
+            };
+
+            for (const turn of transcript) {
+                const turnId = turn?.id || turn?.Id;
+                const messages = Array.isArray(turn?.message) ? turn.message
+                                 : Array.isArray(turn?.Message) ? turn.Message : [];
+
+                // Aggregate all events in this turn into a single executions list
+                const turnSteps = [];
+                for (const m of messages) {
+                    // interim events
+                    const interim = m?.interim ?? m?.Interim;
+                    const created = m?.createdAt || m?.CreatedAt;
+                    if (interim) {
+                        turnSteps.push({
+                            id: (m.id || m.Id || '') + '/interim',
+                            name: 'assistant',
+                            reason: 'interim',
+                            success: true,
+                            startedAt: created,
+                            endedAt: created,
+                        });
+                    }
+                    // Do not include user/assistant non-interim messages in execution steps
+                    // tool/model calls
+                    const toolCall = m?.toolCall || m?.ToolCall;
+                    const modelCall = m?.modelCall || m?.ModelCall;
+                    if (toolCall) {
+                        const tc = toolCall;
+                        turnSteps.push({
+                            id: tc.opId || tc.OpId,
+                            name: tc.toolName || tc.ToolName,
+                            reason: 'tool_call',
+                            success: String((tc.status || tc.Status || '')).toLowerCase() === 'completed',
+                            error: tc.errorMessage || tc.ErrorMessage || '',
+                            startedAt: tc.startedAt || tc.StartedAt,
+                            endedAt: tc.completedAt || tc.CompletedAt,
+                            requestPayloadId: tc.requestPayloadId || tc.RequestPayloadId,
+                            responsePayloadId: tc.responsePayloadId || tc.ResponsePayloadId,
+                            providerRequestPayloadId: null,
+                            providerResponsePayloadId: null,
+                        });
+                    }
+                    if (modelCall) {
+                        const mc = modelCall;
+                        turnSteps.push({
+                            id: mc.messageId || mc.MessageId,
+                            name: mc.model || mc.Model,
+                            reason: 'thinking',
+                            success: String((mc.status || mc.Status || '')).toLowerCase() === 'completed',
+                            error: mc.errorMessage || mc.ErrorMessage || '',
+                            startedAt: mc.startedAt || mc.StartedAt,
+                            endedAt: mc.completedAt || mc.CompletedAt,
+                            requestPayloadId: mc.requestPayloadId || mc.RequestPayloadId,
+                            responsePayloadId: mc.responsePayloadId || mc.ResponsePayloadId,
+                            streamPayloadId: mc.streamPayloadId || mc.StreamPayloadId,
+                            providerRequestPayloadId: mc.providerRequestPayloadId || mc.ProviderRequestPayloadId,
+                            providerResponsePayloadId: mc.providerResponsePayloadId || mc.ProviderResponsePayloadId,
+                        });
+                    }
+                }
+
+                // Normalize/compute elapsed for each step and drop invalid dates
+                const normalizedSteps = turnSteps.map(s => {
+                    const started = s.startedAt ? new Date(s.startedAt) : null;
+                    const ended = s.endedAt ? new Date(s.endedAt) : null;
+                    let elapsed = '';
+                    if (started && ended && !isNaN(started) && !isNaN(ended)) {
+                        elapsed = (((ended - started) / 1000).toFixed(2)) + 's';
+                    }
+                    return { ...s, elapsed };
+                });
+                const turnExecutions = normalizedSteps.length ? [{ steps: normalizedSteps }] : [];
+
+                // Build per-message rows first; attach executions only to one carrier message
+                const turnRows = [];
+                for (const m of messages) {
+                    const modelCall = m?.modelCall || m?.ModelCall;
+                    const toolCall  = m?.toolCall  || m?.ToolCall;
+                    const hasCall   = !!(modelCall || toolCall);
+                    const isInterim = !!(m?.interim ?? m?.Interim);
+                    const roleLower = String(m.role || m.Role || '').toLowerCase();
+                    let usage = null;
+                    const pt = (modelCall && (modelCall.promptTokens || modelCall.PromptTokens)) || 0;
+                    const ct = (modelCall && (modelCall.completionTokens || modelCall.CompletionTokens)) || 0;
+                    const tt = (modelCall && (modelCall.totalTokens || modelCall.TotalTokens));
+                    if (pt || ct || tt) {
+                        usage = {
+                            promptTokens: Number(pt || 0),
+                            completionTokens: Number(ct || 0),
+                            totalTokens: Number(tt != null ? tt : (Number(pt || 0) + Number(ct || 0))),
+                        };
+                    }
+                    const id = m.id || m.Id;
+                    const createdAt = toISO(m.createdAt || m.CreatedAt);
+                    const turnIdRef = m.turnId || m.TurnId || turnId;
+
+                    // Only keep user/assistant roles, skip interim entries
+                    if (isInterim) continue;
+                    if (roleLower !== 'user' && roleLower !== 'assistant') continue;
+                    // Keep assistant elicitation prompts so they render as forms
+
+                    // If message carries tool/model call, do not render a separate bubble
+                    if (hasCall) continue;
+
+                    turnRows.push({
+                        id,
+                        conversationId: m.conversationId || m.ConversationId,
+                        role: roleLower,
+                        content: m.content || m.Content || '',
+                        createdAt,
+                        toolName: m.toolName || m.ToolName,
+                        turnId: turnIdRef,
+                        parentId: turnIdRef,
+                        executions: [], // attach later to a single row
+                        usage,
+                        elicitation: m.elicitation || m.Elicitation,
+                    });
+                }
+
+                // Choose a single carrier message for executions: prefer first user, else first message
+                let carrierIdx = -1;
+                for (let i = 0; i < turnRows.length; i++) {
+                    if (turnRows[i].role === 'user') { carrierIdx = i; break; }
+                }
+                if (carrierIdx === -1 && turnRows.length) carrierIdx = 0;
+                if (carrierIdx >= 0) {
+                    turnRows[carrierIdx] = { ...turnRows[carrierIdx], executions: turnExecutions };
+                }
+
+                // Append to global rows
+                for (const r of turnRows) rows.push(r);
+            }
+            if (rows.length) {
+                receiveMessages(messagesCtx, rows, lastID);
             }
 
             // Determine id of newest assistant message after merge.
@@ -153,7 +341,10 @@ function startPolling({context}) {
             console.error('chatService.startPolling tick error:', err);
         }
     };
-    tick().then().finally(() => context.resources.chatTimerState = false)
+    tick().then(() => {}).finally(() => {
+        context.resources.chatTimerState = false;
+        context.resources.messagesFetchInFlight = false;
+    });
 }
 
 // Map v2 transcript DAO rows to legacy message shape expected by the UI merge
@@ -541,43 +732,7 @@ function mergeMessages(messagesContext, incoming) {
  * @param {Array} data - Message data
  */
 function injectFormMessages(messagesContext, data) {
-    try {
-        const collSig = messagesContext.signals?.collection;
-        if (!collSig || !Array.isArray(data)) return;
-
-        const current = Array.isArray(collSig.value) ? [...collSig.value] : [];
-
-        data.forEach((msg) => {
-            if (msg.role !== 'assistant' || !msg.elicitation) return;
-            // Skip trivial single-field text elicitations – they are rendered
-            // as normal bubbles and therefore do not need a synthetic form.
-            if (isSimpleTextSchema(msg.elicitation.requestedSchema)) return;
-
-            const formMsgId = `${msg.id}/form`;
-
-            // Skip when the synthetic form already exists
-            const exists = current.some((m) => m.id === formMsgId);
-            if (exists) return;
-
-            const synthetic = {
-                id: formMsgId,
-                parentId: msg.id,
-                role: 'assistant',
-                isForm: true,                // flag for custom renderer
-                formSpec: msg.elicitation,   // pass full elicitation struct
-                createdAt: new Date().toISOString(),
-            };
-
-            current.push(synthetic);
-        });
-
-        // Update signal when we added synthetic entries
-        if (current.length !== collSig.value.length) {
-            collSig.value = [...current];
-        }
-    } catch (error) {
-        console.error('injectFormMessages error:', error);
-    }
+    // No-op: we render assistant elicitations directly via FormRenderer now.
 }
 
 // --------------------------- Public helper ------------------------------

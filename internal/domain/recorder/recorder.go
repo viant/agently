@@ -155,12 +155,11 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) error {
 		rec.SetContent(m.Content)
 	}
 
-	var elicitationRec *plw.Payload
 	if m.Elicitation != nil {
 		// Ensure the payload body carries the same opaque ID.
 		if b := toJSONBytes(m.Elicitation); len(b) > 0 {
 			rec.SetContent(string(b))
-			rec.SetElicitationID(elicitationRec.Id)
+			rec.SetElicitationID(m.Elicitation.ElicitationId)
 		}
 	}
 

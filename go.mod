@@ -37,8 +37,6 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3
 	github.com/fsnotify/fsnotify v1.4.7
-	github.com/go-sql-driver/mysql v1.7.1
-	github.com/viant/sqlx v0.17.7
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
 	golang.org/x/oauth2 v0.30.0
 	modernc.org/sqlite v1.18.1
@@ -86,6 +84,7 @@ require (
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-sql-driver/mysql v1.7.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
@@ -129,6 +128,7 @@ require (
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlparser v0.8.1 // indirect
+	github.com/viant/sqlx v0.17.7 // indirect
 	github.com/viant/structql v0.5.2 // indirect
 	github.com/viant/tagly v0.2.2 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
