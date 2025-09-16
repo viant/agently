@@ -55,7 +55,7 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 	return ctx, nil
 }
 
-func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
+func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) error {
 	if !o.hasBeg { // tolerate missing start
 		o.start = Info{}
 	}
@@ -66,13 +66,15 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
 	// attach to message/turn from context
 	msgID := memory.ModelMessageIDFromContext(ctx)
 	if msgID == "" {
-		return
+		return nil
 	}
 
 	//TODO would it make sense to combine message, model call, payload in one call
 	if info.LLMResponse != nil {
 		interim := 1
-		_ = o.r.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: turn.ConversationID, Actor: "planner", Interim: &interim})
+		if err := o.r.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: turn.ConversationID, Actor: "planner", Interim: &interim}); err != nil {
+			return err
+		}
 	}
 	// Prefer provider-supplied stream text; fall back to accumulated chunks
 	streamTxt := info.StreamText
@@ -98,9 +100,13 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
 		StreamText:       streamTxt,
 		Status:           status,
 	}
-	_ = o.r.FinishModelCall(ctx, finishResult)
+	if err := o.r.FinishModelCall(ctx, finishResult); err != nil {
+		return err
+	}
+
 	// Signal finish so any waiters can proceed (e.g., emitting final assistant message)
 	signalFinish(ctx)
+	return nil
 }
 
 // OnStreamDelta aggregates streamed chunks. Persisted once in FinishModelCall.

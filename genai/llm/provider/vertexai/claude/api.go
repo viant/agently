@@ -10,10 +10,11 @@ import (
 	"net/http"
 	"strings"
 
+	"time"
+
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
-	"time"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -132,7 +133,9 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 			if llmsResp != nil && len(llmsResp.Choices) > 0 {
 				info.FinishReason = llmsResp.Choices[0].FinishReason
 			}
-			observer.OnCallEnd(ctx, info)
+			if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
+				return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+			}
 		}
 		return llmsResp, nil
 	}
@@ -153,7 +156,10 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		if len(llmsResp.Choices) > 0 {
 			info.FinishReason = llmsResp.Choices[0].FinishReason
 		}
-		observer.OnCallEnd(ctx, info)
+
+		if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
+			return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+		}
 	}
 	return llmsResp, nil
 }
@@ -371,7 +377,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model, Usage: usage}
 				if observer != nil {
 					respJSON, _ := json.Marshal(lr)
-					observer.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason, LLMResponse: lr})
+					if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason, LLMResponse: lr}); obErr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+						return
+					}
 					ended = true
 				}
 				emit(lr)
@@ -409,7 +418,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					finishReason = lastLR.Choices[0].FinishReason
 				}
 			}
-			observer.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason, LLMResponse: lastLR})
+			if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason, LLMResponse: lastLR}); obErr != nil {
+				events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+				return
+			}
 		}
 	}()
 	return events, nil

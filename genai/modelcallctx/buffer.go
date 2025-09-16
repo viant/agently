@@ -53,7 +53,7 @@ type Buffer struct {
 // Observer exposes OnCallStart/OnCallEnd used by providers.
 type Observer interface {
 	OnCallStart(ctx context.Context, info Info) (context.Context, error)
-	OnCallEnd(ctx context.Context, info Info)
+	OnCallEnd(ctx context.Context, info Info) error
 	// OnStreamDelta delivers raw streamed chunks (provider-specific encoding).
 	// Implementations may aggregate plain text or persist progressive payloads.
 	OnStreamDelta(ctx context.Context, data []byte)

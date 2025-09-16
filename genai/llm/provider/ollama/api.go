@@ -70,8 +70,6 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	defer resp.Body.Close()
-
 	reader := bufio.NewReader(resp.Body)
 	apiResp := &Response{}
 
@@ -118,9 +116,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 			if llmsResp != nil && len(llmsResp.Choices) > 0 {
 				info.FinishReason = llmsResp.Choices[0].FinishReason
 			}
-			observer.OnCallEnd(ctx, info)
+			if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
+				return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+			}
 		} else {
-			observer.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", CompletedAt: time.Now(), Usage: llmsResp.Usage})
+			if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", CompletedAt: time.Now(), Usage: llmsResp.Usage}); obErr != nil {
+				return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+			}
 		}
 	}
 	return llmsResp, nil
@@ -184,7 +186,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				if lr != nil && len(lr.Choices) > 0 {
 					finish = lr.Choices[0].FinishReason
 				}
-				observer.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finish})
+				if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finish}); obErr != nil {
+					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+					return
+				}
 				ended = true
 			}
 		}
