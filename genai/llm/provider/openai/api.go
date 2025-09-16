@@ -8,11 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
-	"github.com/viant/afs"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
@@ -53,7 +51,9 @@ func endObserverOnce(observer mcbuf.Observer, ctx context.Context, model string,
 				finish = lr.Choices[0].FinishReason
 			}
 		}
-		observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finish, LLMResponse: lr})
+		if err := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finish, LLMResponse: lr}); err != nil {
+			//return nil, fmt.Errorf("observer OnCallEnd failed: %w", err)
+		}
 		*ended = true
 	}
 }
@@ -135,10 +135,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 			}
 			info.LLMResponse = lr
 		}
-		if err != nil {
-			info.Err = err.Error()
+		if perr != nil {
+			info.Err = perr.Error()
 		}
-		observer.OnCallEnd(ctx, info)
+
+		if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
+			return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+		}
 	}
 	return lr, perr
 }
@@ -375,12 +378,15 @@ func (c *Client) consumeStream(ctx context.Context, body io.Reader, events chan<
 		}
 		var e apiErr
 		if err := json.Unmarshal(bytes.TrimSpace(respBody), &e); err == nil && e.Error.Message != "" {
+			events <- llm.StreamEvent{Err: fmt.Errorf("openai error: %s (type=%s, param=%s, code=%s)", e.Error.Message, e.Error.Type, e.Error.Param, e.Error.Code)}
 			// Bubble error to caller and close stream
 			if proc.observer != nil && !proc.state.ended {
-				proc.observer.OnCallEnd(proc.ctx, mcbuf.Info{Provider: "openai", Model: proc.state.lastModel, ModelKind: "chat", ResponseJSON: respBody, CompletedAt: time.Now()})
+				if obErr := proc.observer.OnCallEnd(proc.ctx, mcbuf.Info{Provider: "openai", Model: proc.state.lastModel, ModelKind: "chat", ResponseJSON: respBody, CompletedAt: time.Now()}); obErr != nil {
+					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+					return
+				}
 				proc.state.ended = true
 			}
-			events <- llm.StreamEvent{Err: fmt.Errorf("openai error: %s (type=%s, param=%s, code=%s)", e.Error.Message, e.Error.Type, e.Error.Param, e.Error.Code)}
 			return
 		}
 	}

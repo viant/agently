@@ -12,9 +12,10 @@ import (
 
 	"github.com/viant/agently/genai/llm/provider/base"
 
+	"time"
+
 	"github.com/viant/agently/genai/llm"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
-	"time"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -236,12 +237,15 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 						finishReason = lastLR.Choices[0].FinishReason
 					}
 				}
-				observer.OnCallEnd(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: agg.usage, FinishReason: finishReason, LLMResponse: func() *llm.GenerateResponse {
+				if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: agg.usage, FinishReason: finishReason, LLMResponse: func() *llm.GenerateResponse {
 					if final != nil {
 						return final
 					}
 					return lastLR
-				}()})
+				}()}); obErr != nil {
+					out <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+					return
+				}
 			}
 		}
 		go func() {

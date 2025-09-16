@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"time"
+
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/llm/provider/openai"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
-	"io"
-	"net/http"
-	"time"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -101,7 +102,10 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		if llmsResp != nil && len(llmsResp.Choices) > 0 {
 			info.FinishReason = llmsResp.Choices[0].FinishReason
 		}
-		observer.OnCallEnd(ctx, info)
+
+		if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
+			return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+		}
 	}
 	return llmsResp, nil
 }
