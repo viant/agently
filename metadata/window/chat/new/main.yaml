@@ -4,25 +4,14 @@ namespace: Chat
 dialogs:
   - $import('dialog/settings.yaml')
   - $import('dialog/fileBrowser.yaml')
-  - $import('dialog/usage.yaml')
 
 # Window that displays a single conversation chat view (no conversation list).
 
 view:
   content:
     containers:
-      - id: modelsLoader
-        dataSourceRef: models
-        fetchData: true
-      - id: agentsLoader
-        dataSourceRef: agents
-        fetchData: true
-      - id: toolsLoader
-        dataSourceRef: tools
-        fetchData: true
-      - id: usageLoader
-        dataSourceRef: usage
-        fetchData: true
+      # Lazy-load models/agents/tools on demand (e.g., in Settings). No eager fetch.
+
 
       - id: header
         dataSourceRef: conversations
@@ -73,14 +62,7 @@ view:
                   - event: onClick
                     handler: window.openDialog
                     args: [ 'settings' ]
-              - id: usageInfo
-                icon: timeline-area-chart
-                enabled: true
-                align: right
-                on:
-                  - event: onClick
-                    handler: window.openDialog
-                    args: [ 'usageDetails' ]
+
 
           on:
             - event: onSubmit
@@ -105,10 +87,18 @@ on:
 dataSource:
   conversations: $import('../conversations/datasource/conversations.yaml')
   messages: $import('../conversations/datasource/messages.yaml')
-  models: $import('../../model/datasource/models.yaml')
-  agents: $import('../../agent/datasource/agents.yaml')
-  tools: $import('../../tool/datasource/tools.yaml')
-  meta: $import('datasource/meta.yaml')
-  usage: $import('../conversations/datasource/usage.yaml')
-  usagePerModel: $import('../conversations/datasource/usage_model.yaml')
-  fs: $import('../../filebrowser/datasource/fileBrowser.yaml')
+  models:
+    mount: false
+    $import: '../../model/datasource/models.yaml'
+  agents:
+    mount: false
+    $import: '../../agent/datasource/agents.yaml'
+  tools:
+    mount: false
+    $import: '../../tool/datasource/tools.yaml'
+  meta:
+    mount: false
+    $import: 'datasource/meta.yaml'
+  fs:
+    mount: false
+    $import: '../../filebrowser/datasource/fileBrowser.yaml'

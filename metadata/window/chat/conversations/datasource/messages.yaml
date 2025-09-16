@@ -3,11 +3,12 @@ service:
   uri: /v1/api/conversations/{convID}/messages
   method: GET
 
-parameters:
-  - name: convID
-    kind: path
-    in: dataSource
-    location: conversations.id
+# Disable auto parameter binding to prevent auto-fetch; chatService performs all fetches
+# parameters:
+#   - name: convID
+#     kind: path
+#     in: dataSource
+#     location: conversations.id
 
 selectors:
   data: data
@@ -17,7 +18,6 @@ uniqueKey:
 
 on:
   - event: onSuccess
-    handler: signal.emit
-    args:
-      - globalStage
-      - "{{response.Stage}}"
+    handler: chat.debugMessagesLoaded
+  - event: onError
+    handler: chat.debugMessagesError
