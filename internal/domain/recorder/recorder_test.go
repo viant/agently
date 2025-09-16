@@ -65,10 +65,16 @@ func TestModelCallRecorder_DataDriven(t *testing.T) {
 		c.SetId(convID)
 		_, _ = conv.Patch(ctx, c)
 	}
-	_ = w.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: convID, Role: "assistant", Content: "x", CreatedAt: time.Now()})
+	err := w.RecordMessage(ctx, memory.Message{ID: msgID, ConversationID: convID, Role: "assistant", Content: "x", CreatedAt: time.Now()})
+	assert.NoError(t, err)
+
 	usage := &llm.Usage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3}
-	_ = w.StartModelCall(ctx, ModelCallStart{MessageID: msgID, TurnID: turnID, Provider: "openai", Model: "gpt-x", ModelKind: "chat", StartedAt: time.Now(), Request: map[string]string{"p": "v"}})
-	w.FinishModelCall(ctx, ModelCallFinish{MessageID: msgID, TurnID: turnID, Usage: usage, FinishReason: "stop", CompletedAt: time.Now(), Response: map[string]string{"r": "v"}})
+
+	err = w.StartModelCall(ctx, ModelCallStart{MessageID: msgID, TurnID: turnID, Provider: "openai", Model: "gpt-x", ModelKind: "chat", StartedAt: time.Now(), Request: map[string]string{"p": "v"}})
+	assert.NoError(t, err)
+
+	err = w.FinishModelCall(ctx, ModelCallFinish{MessageID: msgID, TurnID: turnID, Usage: usage, FinishReason: "stop", CompletedAt: time.Now(), Response: map[string]string{"r": "v"}})
+	assert.NoError(t, err)
 	// operations by message should not error
 	_, err := w.store.Operations().GetByMessage(ctx, msgID)
 	assert.NoError(t, err)
@@ -152,8 +158,10 @@ func TestStore_Memory_WriteFlow(t *testing.T) {
 
 	// Record model call with usage and payloads
 	usage := &llm.Usage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7}
-	_ = w.StartModelCall(ctx, ModelCallStart{MessageID: msgID, TurnID: turnID, Provider: "openai", Model: "gpt-4o", ModelKind: "chat", StartedAt: time.Now().Add(-500 * time.Millisecond), Request: map[string]string{"p": "x"}})
-	w.FinishModelCall(ctx, ModelCallFinish{MessageID: msgID, TurnID: turnID, Usage: usage, FinishReason: "stop", CompletedAt: time.Now(), Response: map[string]string{"r": "y"}})
+	err = w.StartModelCall(ctx, ModelCallStart{MessageID: msgID, TurnID: turnID, Provider: "openai", Model: "gpt-4o", ModelKind: "chat", StartedAt: time.Now().Add(-500 * time.Millisecond), Request: map[string]string{"p": "x"}})
+	assert.NoError(t, err)
+	err = w.FinishModelCall(ctx, ModelCallFinish{MessageID: msgID, TurnID: turnID, Usage: usage, FinishReason: "stop", CompletedAt: time.Now(), Response: map[string]string{"r": "y"}})
+	assert.NoError(t, err)
 
 	// Record tool call with payloads and error/cost
 	cost := 0.25

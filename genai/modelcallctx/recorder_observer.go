@@ -79,8 +79,26 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) {
 	if strings.TrimSpace(streamTxt) == "" {
 		streamTxt = o.acc.String()
 	}
+
+	status := "completed"
+	if info.Err != "" {
+		status = "failed"
+	}
+
 	// Finish model call first
-	o.r.FinishModelCall(ctx, rec.ModelCallFinish{MessageID: msgID, TurnID: turn.TurnID, Usage: info.Usage, FinishReason: info.FinishReason, Cost: info.Cost, CompletedAt: info.CompletedAt, Response: info.LLMResponse, ProviderResponse: info.ResponseJSON, StreamText: streamTxt})
+	finishResult := rec.ModelCallFinish{
+		MessageID:        msgID,
+		TurnID:           turn.TurnID,
+		Usage:            info.Usage,
+		FinishReason:     info.FinishReason,
+		Cost:             info.Cost,
+		CompletedAt:      info.CompletedAt,
+		Response:         info.LLMResponse,
+		ProviderResponse: info.ResponseJSON,
+		StreamText:       streamTxt,
+		Status:           status,
+	}
+	_ = o.r.FinishModelCall(ctx, finishResult)
 	// Signal finish so any waiters can proceed (e.g., emitting final assistant message)
 	signalFinish(ctx)
 }

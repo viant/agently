@@ -210,6 +210,8 @@ func (n *noopRecorder) FinishToolCall(ctx context.Context, upd recpkg.ToolCallUp
 func (n *noopRecorder) StartModelCall(ctx context.Context, start recpkg.ModelCallStart) error {
 	return nil
 }
-func (n *noopRecorder) FinishModelCall(ctx context.Context, finish recpkg.ModelCallFinish) {}
+func (n *noopRecorder) FinishModelCall(ctx context.Context, finish recpkg.ModelCallFinish) error {
+	return nil
+}
 func (n *noopRecorder) RecordUsageTotals(ctx context.Context, conversationID string, input, output, embed int) {
 }

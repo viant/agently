@@ -63,7 +63,7 @@ type ToolCallRecorder interface {
 // ModelCallRecorder persists model-call operations (with optional payloads and metadata).
 type ModelCallRecorder interface {
 	StartModelCall(ctx context.Context, start ModelCallStart) error
-	FinishModelCall(ctx context.Context, finish ModelCallFinish)
+	FinishModelCall(ctx context.Context, finish ModelCallFinish) error
 	AppendStreamChunk(ctx context.Context, payloadID string, chunk []byte) error
 }
 
@@ -90,6 +90,7 @@ type ModelCallFinish struct {
 	ProviderResponse interface{}
 	StreamText       string
 	StreamPayloadID  *string
+	Status           string
 }
 
 // UsageRecorder persists usage totals aggregated per conversation.
@@ -498,15 +499,17 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) error 
 	return nil
 }
 
-func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
+func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) error {
 	if finish.MessageID == "" {
-		return
+		return nil
 	}
 	modelCall := &mcw.ModelCall{}
 	modelCall.SetMessageID(finish.MessageID)
 	modelCall.TurnID = strp(finish.TurnID)
 	modelCall.Has = &mcw.ModelCallHas{}
 	modelCall.Has.TurnID = modelCall.TurnID != nil
+	modelCall.Status = finish.Status
+	modelCall.Has.Status = true
 
 	// TODO set the right status
 	ctx2 := context.WithoutCancel(ctx)
@@ -521,7 +524,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 		payload.SetInlineBody(b)
 		payload.SetCompression("none")
 		if _, err := w.store.Payloads().Patch(ctx2, payload); err != nil {
-			fmt.Printf("ERROR### Recorder.FinishModelCall payload: %v\n", err)
+			return err
 		} else {
 			// attach to write model directly
 			modelCall.ResponsePayloadID = &id
@@ -549,7 +552,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 			}
 			modelCall.Has.ProviderResponsePayloadID = true
 		} else {
-			fmt.Printf("ERROR### Recorder.FinishModelCall provider payload: %v\n", err)
+			return err
 		}
 	}
 	// (stream payload created in StartModelCall)
@@ -576,7 +579,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 			}
 			modelCall.Has.StreamPayloadID = true
 		} else {
-			fmt.Printf("ERROR### Recorder.FinishModelCall stream payload: %v\n", err)
+			return err
 		}
 	}
 	var pt, ct, tt *int
@@ -675,7 +678,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 		modelCall.Has.CompletionRejectedPredictionTokens = true
 	}
 	if err := w.store.Operations().RecordModelCall(ctx2, modelCall); err != nil {
-		fmt.Printf("ERROR### FinishModelCall: %v\n", err)
+		return err
 	}
 
 	// Update conversation usage totals after each model call
@@ -714,10 +717,14 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) {
 			u.SetUsageOutputTokens(totalOut)
 			u.SetUsageEmbeddingTokens(totalEmb)
 			if _, err := w.store.Usage().Patch(noCancel, u); err != nil {
-				fmt.Printf("WARN### FinishModelCall usage patch: %v\n", err)
+				return err
 			}
+		} else {
+			return err
 		}
 	}
+
+	return nil
 }
 
 // AppendStreamChunk appends bytes to inline stream payload by id (best-effort).
