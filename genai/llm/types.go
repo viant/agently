@@ -332,7 +332,7 @@ func NewFunctionCall(name string, args map[string]interface{}) FunctionCall {
 
 // NewToolCall creates a ToolCall with the given function name and arguments.
 // An ID is generated automatically and legacy fields are populated for backward compatibility.
-func NewToolCall(id string, name string, args map[string]interface{}) ToolCall {
+func NewToolCall(id string, name string, args map[string]interface{}, result string) ToolCall {
 	if id == "" {
 		id = uuid.NewString()
 	}
@@ -348,6 +348,7 @@ func NewToolCall(id string, name string, args map[string]interface{}) ToolCall {
 		Arguments: copied,
 		Type:      "function",
 		Function:  fc,
+		Result:    result,
 	}
 }
 
