@@ -87,18 +87,8 @@ on:
 dataSource:
   conversations: $import('../conversations/datasource/conversations.yaml')
   messages: $import('../conversations/datasource/messages.yaml')
-  models:
-    mount: false
-    $import: '../../model/datasource/models.yaml'
-  agents:
-    mount: false
-    $import: '../../agent/datasource/agents.yaml'
-  tools:
-    mount: false
-    $import: '../../tool/datasource/tools.yaml'
-  meta:
-    mount: false
-    $import: 'datasource/meta.yaml'
-  fs:
-    mount: false
-    $import: '../../filebrowser/datasource/fileBrowser.yaml'
+  models: $import('../../model/datasource/models.yaml')
+  agents: $import('../../agent/datasource/agents.yaml')
+  tools: $import('../../tool/datasource/tools.yaml')
+  meta: $import('datasource/meta.yaml')
+  fs: $import('../../filebrowser/datasource/fileBrowser.yaml')
