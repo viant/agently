@@ -10,6 +10,8 @@ columns:
     width: 40
     on:
       - event: onClick
+        handler: chat.debugHistoryOpen
+      - event: onClick
         handler: window.openWindow
         args:
           - chat/new
@@ -17,10 +19,6 @@ columns:
         parameters:
           - name: parameters.id
             to: conversations:input
-            from: :form
-            location: id
-          - name: parameters.convID
-            to: messages:input
             from: :form
             location: id
 

@@ -2,6 +2,19 @@ title: Settings
 id: settings
 content: $import('panel/settings.yaml')
 
+on:
+  - event: onInit
+    handler: dataSource.fetch
+    args: [ models ]
+  - event: onInit
+    handler: dataSource.fetch
+    args: [ agents ]
+  - event: onInit
+    handler: dataSource.fetch
+    args: [ tools ]
+  - event: onInit
+    handler: chat.fetchMetaDefaults
+
 # Make the dialog reasonably sized
 style:
   width: 55vw

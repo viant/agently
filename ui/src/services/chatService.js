@@ -20,6 +20,16 @@ import {setStage} from '../utils/stageBus.js';
 // Window lifecycle helpers
 // -------------------------------
 
+// Utility: Safe date → ISO string to avoid invalid time values
+const toISOSafe = (v) => {
+    if (!v) return new Date().toISOString();
+    try {
+        const d = new Date(v);
+        if (!isNaN(d.getTime())) return d.toISOString();
+    } catch (_) { /* ignore */ }
+    return new Date().toISOString();
+};
+
 /**
  * Called by Forge when the Chat window becomes visible (onInit).
  * Performs the following steps:
@@ -30,38 +40,70 @@ import {setStage} from '../utils/stageBus.js';
  *      context so it can be cleared later in onDestroy.
  */
 export async function onInit({context}) {
+    // Defer all defaults/agents/tools fetching to when the Settings dialog opens.
+    try { console.log('[chat] onInit:start', Date.now()); } catch(_) {}
 
-
+    // When opened from history, ensure conversations form has id immediately
     try {
-        const convContext = context.Context('conversations');
-        const agentContext = context.Context('agents');
-        const toolsContext = context.Context('tools');
-        const metaContext = context.Context('meta')
-
-
-        const defaults = await fetchMetaDefaults({context});
-        const agentResp = await agentContext.connector.get({})
-        const agents = agentResp.data || [];
-
-        const toolResp = await toolsContext.connector.get({})
-        const allTools = toolResp.data || [];
-        const values = {...defaults, agents: {}}
-
-        for (const agent of agents) {
-            const agentTools = agent.tool || []
-            const patterns = agentTools
-                .map(extractPattern)
-                .filter(Boolean)
-                .map(canonPattern);
-            const matchedTools = filterToolsByPatterns(allTools, patterns)
-            values.agents[agent.id] = matchedTools.map(t => t.name)
-
-            metaContext.handlers.dataSource.setFormData({values: values})
+        const convCtx = context.Context('conversations');
+        const handlers = convCtx?.handlers?.dataSource;
+        const form = handlers?.peekFormData?.() || {};
+        // Input may carry id directly or wrapped under filter.id
+        const inputSig = convCtx?.signals?.input;
+        let convID = undefined;
+        try { convID = inputSig?.peek?.()?.filter?.id ?? inputSig?.peek?.()?.id; } catch (_) {}
+        if (convID && !form.id) {
+            handlers.setFormData({ values: { id: convID } });
         }
-        const matchedToolNames = values.agents[defaults.agent]
-        convContext.handlers.dataSource.setFormField({item: {id: 'tools'}, value: matchedToolNames})
-    } catch (err) {
-        console.error('chatService.onInit error:', err);
+        // Cache convID to survive brief form clears during mount
+        if (convID) {
+            context.resources.convID = convID;
+        } else if (form.id) {
+            context.resources.convID = form.id;
+        }
+        try { console.log('[chat] onInit:convId', convID, 'form.id', handlers?.peekFormData?.()?.id); } catch(_) {}
+        // Kick immediate poll tick if we have convID; otherwise wait briefly for it
+        if (handlers?.peekFormData?.()?.id) {
+            try { console.log('[chat] onInit:immediate tick (have id)'); } catch(_) {}
+            try { context.resources.messagesGraceUntil = Date.now() - 1; } catch(_) {}
+            // If we have preloaded rows for this conv, seed the messages DS now
+            try {
+                const convID = handlers.peekFormData().id;
+                const preloaded = context.resources?.preloadedMessages?.[convID];
+                if (preloaded && Array.isArray(preloaded) && preloaded.length) {
+                    const messagesCtx = context.Context('messages');
+                    messagesCtx?.handlers?.dataSource?.setCollection?.({ rows: preloaded });
+                    console.log('[chat] onInit:seeded from preloaded', preloaded.length);
+                }
+            } catch(_) {}
+            try { startPolling({ context }); } catch(_) {}
+        } else {
+            const start = Date.now();
+            const waitMs = 1200;
+            const timer = setInterval(() => {
+                const formNow = handlers?.peekFormData?.() || {};
+                const got = formNow.id;
+                if (got) {
+                    clearInterval(timer);
+                    try { console.log('[chat] onInit:convId acquired', got, 'after', Date.now() - start, 'ms'); } catch(_) {}
+                    try { context.resources.messagesGraceUntil = Date.now() - 1; } catch(_) {}
+                    try {
+                        const preloaded = context.resources?.preloadedMessages?.[got];
+                        if (preloaded && Array.isArray(preloaded) && preloaded.length) {
+                            const messagesCtx = context.Context('messages');
+                            messagesCtx?.handlers?.dataSource?.setCollection?.({ rows: preloaded });
+                            console.log('[chat] onInit:seeded from preloaded', preloaded.length);
+                        }
+                    } catch(_) {}
+                    try { startPolling({ context }); } catch(_) {}
+                } else if ((Date.now() - start) > waitMs) {
+                    clearInterval(timer);
+                    try { console.log('[chat] onInit:convId not found after', waitMs, 'ms'); } catch(_) {}
+                }
+            }, 60);
+        }
+    } catch (e) {
+        // ignore – not critical
     }
 
     try {
@@ -75,6 +117,7 @@ export async function onInit({context}) {
         context.resources['messagesPollThrottleMs'] = 900;
         context.resources['messagesLastFetchTs'] = 0;
         context.resources['messagesFetchInFlight'] = false;
+        context.resources['messagesNoopPolls'] = 0;
         context.resources['chatTimer'] = setInterval(() => {
             startPolling({context});
         }, 1000);
@@ -92,12 +135,60 @@ function selectFolder(props) {
     console.log('selectFolder', props)
 }
 
+// --------------------------- Debug helpers ------------------------------
+
+export function debugHistoryOpen({ context }) {
+    try {
+        const convCtx = context.Context('history') || context.Context('conversations');
+        const selected = convCtx?.handlers?.dataSource?.peekSelection?.()?.selected || {};
+        const id = selected?.id;
+        console.log('[chat][history] open click at', Date.now(), 'convId:', id, 'row:', selected);
+    } catch (e) {
+        console.log('[chat][history] open click log error', e);
+    }
+}
+
+export function debugHistorySelection({ context }) {
+    try {
+        const convCtx = context.Context('history') || context.Context('conversations');
+        const sel = convCtx?.handlers?.dataSource?.peekSelection?.();
+        console.log('[chat][history] selection', Date.now(), sel);
+    } catch (e) {
+        console.log('[chat][history] selection log error', e);
+    }
+}
+
+export function debugMessagesLoaded({ context, response }) {
+    try {
+        const data = response?.data || response;
+        const transcript = Array.isArray(data?.Transcript) ? data.Transcript : (Array.isArray(data?.transcript) ? data.transcript : []);
+        const turns = transcript.length;
+        let messages = 0;
+        for (const t of transcript) {
+            const list = Array.isArray(t?.Message) ? t.Message : (Array.isArray(t?.message) ? t.message : []);
+            messages += list.length;
+        }
+        console.log('[chat][messagesDS] onSuccess at', Date.now(), 'turns:', turns, 'messages:', messages);
+    } catch (e) {
+        console.log('[chat][messagesDS] onSuccess log error', e);
+    }
+}
+
+export function debugMessagesError({ context, error }) {
+    try {
+        console.log('[chat][messagesDS] onError at', Date.now(), error);
+    } catch (e) {
+        // ignore
+    }
+}
+
 function startPolling({context}) {
     if (!context || typeof context.Context !== 'function') {
         console.warn('chatService.startPolling: invalid context');
         return;
     }
     const tick = async () => {
+        const t0 = Date.now();
         if (context.resources.chatTimerState) return;
         try {
             context.resources.chatTimerState = true;
@@ -106,17 +197,24 @@ function startPolling({context}) {
             const now = Date.now();
             const graceUntil = context.resources?.messagesGraceUntil || 0;
             if (now < graceUntil) {
+                try { console.log('[chat] poll:skip grace', { now, graceUntil }); } catch(_) {}
                 return;
             }
 
             const convCtx = context.Context('conversations');
-            const convID = convCtx?.handlers?.dataSource.peekFormData?.()?.id;
+            let convID = context.resources?.convID;
             if (!convID) {
+                convID = convCtx?.handlers?.dataSource.peekFormData?.()?.id;
+                if (convID) context.resources.convID = convID;
+            }
+            if (!convID) {
+                try { console.log('[chat] poll:skip no convID'); } catch(_) {}
                 return; // no active conversation – nothing to do
             }
 
             const messagesCtx = context.Context('messages');
             if (!messagesCtx) {
+                try { console.log('[chat] poll:skip no messagesCtx'); } catch(_) {}
                 return;
             }
 
@@ -124,6 +222,7 @@ function startPolling({context}) {
             const ctrlSig = messagesCtx.signals?.control;
             // If the DataSource is already fetching (auto-fetch on input change), skip this tick
             if (ctrlSig?.peek?.()?.loading) {
+                try { console.log('[chat] poll:skip DS loading'); } catch(_) {}
                 return;
             }
             const current = Array.isArray(collSig?.value) ? collSig.value : [];
@@ -136,29 +235,79 @@ function startPolling({context}) {
                 lastID = current[current.length - 1].id;
             }
 
-            // Skip first poll if no messages yet – initial DataSource fetch handles it
+            // If no messages in UI yet, perform initial load (full transcript)
+            const baseRoot = (endpoints.appAPI.baseURL || (typeof window !== 'undefined' ? window.location.origin + '/v1/api' : ''))
+                .replace(/\/+$/,'');
+            const base = `${baseRoot}/conversations/${encodeURIComponent(convID)}/messages`;
             if (!lastID) {
+                const nowTick0 = Date.now();
+                const lastTs0 = context.resources?.messagesLastFetchTs || 0;
+                const throttleMs0 = context.resources?.messagesPollThrottleMs || 900;
+                if ((nowTick0 - lastTs0) >= throttleMs0 && !context.resources?.messagesFetchInFlight) {
+                    context.resources.messagesFetchInFlight = true;
+                    context.resources.messagesLastFetchTs = nowTick0;
+                    try { console.log('[chat] initial:GET', base); console.time('[chat] initial fetch'); } catch(_) {}
+                    const json0 = await fetchJSON(base);
+                    const conv0 = json0 && json0.status === 'ok' ? json0.data : null;
+                    const convStage0 = conv0?.stage || conv0?.Stage;
+                    if (convStage0) {
+                        setStage({ phase: String(convStage0) });
+                    }
+                    const transcript0 = Array.isArray(conv0?.transcript) ? conv0.transcript
+                                      : Array.isArray(conv0?.Transcript) ? conv0.Transcript : [];
+                    const rows0 = [];
+                    // reuse existing turn → rows mapping logic by mimicking transcript var
+                    for (const turn of transcript0) {
+                        const turnId = turn?.id || turn?.Id;
+                        const messages = Array.isArray(turn?.message) ? turn.message
+                                         : Array.isArray(turn?.Message) ? turn.Message : [];
+                        // Minimal mapping: push rows without executions; let subsequent tick compute executions
+                        for (const m of messages) {
+                            const roleLower = String(m.role || m.Role || '').toLowerCase();
+                            if (roleLower !== 'user' && roleLower !== 'assistant') continue;
+                            if (m?.interim || m?.Interim) continue;
+                            rows0.push({
+                                id: m.id || m.Id,
+                                conversationId: m.conversationId || m.ConversationId,
+                                role: roleLower,
+                                content: m.content || m.Content || '',
+                                createdAt: toISOSafe(m.createdAt || m.CreatedAt),
+                                toolName: m.toolName || m.ToolName,
+                                turnId: m.turnId || m.TurnId || turnId,
+                                parentId: m.turnId || m.TurnId || turnId,
+                                executions: [],
+                            });
+                        }
+                    }
+                    if (rows0.length) {
+                        receiveMessages(messagesCtx, rows0, '');
+                        try { console.log('[chat] initial:rows', rows0.length); } catch(_) {}
+                    }
+                    try { console.timeEnd('[chat] initial fetch'); } catch(_) {}
+                }
                 return;
             }
 
             // Throttle and de-dupe in-flight calls
             const nowTick = Date.now();
             const lastTs = context.resources?.messagesLastFetchTs || 0;
-            const throttleMs = context.resources?.messagesPollThrottleMs || 900;
+            const baseThrottle = context.resources?.messagesPollThrottleMs || 900;
+            const noopCount = context.resources?.messagesNoopPolls || 0;
+            const throttleMs = Math.min(5000, baseThrottle + (noopCount * 600));
             if ((nowTick - lastTs) < throttleMs) {
+                try { console.log('[chat] poll:skip throttle'); } catch(_) {}
                 return;
             }
             if (context.resources?.messagesFetchInFlight) {
+                try { console.log('[chat] poll:skip inflight'); } catch(_) {}
                 return;
             }
 
             // Fetch rich conversation view (v2) via backend proxy on v1 path
-            const baseRoot = (endpoints.appAPI.baseURL || (typeof window !== 'undefined' ? window.location.origin + '/v1/api' : ''))
-                .replace(/\/+$/,'');
-            const base = `${baseRoot}/conversations/${encodeURIComponent(convID)}/messages`;
             const url = `${base}?since=${encodeURIComponent(lastID)}`;
             context.resources.messagesFetchInFlight = true;
             context.resources.messagesLastFetchTs = nowTick;
+            try { console.log('[chat] poll:GET', url); console.time('[chat] poll fetch'); } catch(_) {}
             const json = await fetchJSON(url);
 
             // New format: data is a Conversation object with transcript and stage (Go fields are Capitalized)
@@ -171,15 +320,6 @@ function startPolling({context}) {
                               : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
             const rows = [];
 
-            // Safe date → ISO helper to avoid Invalid time values in UI
-            const toISO = (v) => {
-                if (!v) return new Date().toISOString();
-                try {
-                    const d = new Date(v);
-                    if (!isNaN(d.getTime())) return d.toISOString();
-                } catch (_) { /* ignore */ }
-                return new Date().toISOString();
-            };
 
             for (const turn of transcript) {
                 const turnId = turn?.id || turn?.Id;
@@ -273,7 +413,7 @@ function startPolling({context}) {
                         };
                     }
                     const id = m.id || m.Id;
-                    const createdAt = toISO(m.createdAt || m.CreatedAt);
+                    const createdAt = toISOSafe(m.createdAt || m.CreatedAt);
                     const turnIdRef = m.turnId || m.TurnId || turnId;
 
                     // Only keep user/assistant roles, skip interim entries
@@ -315,27 +455,29 @@ function startPolling({context}) {
             if (rows.length) {
                 receiveMessages(messagesCtx, rows, lastID);
             }
-
-            // Determine id of newest assistant message after merge.
-            const messages = messagesCtx.signals?.collection?.value || [];
-            let newestAssistantID = '';
-            for (let i = messages.length - 1; i >= 0; i--) {
-                if (messages[i].role === 'assistant') {
-                    newestAssistantID = messages[i].id;
-                    break;
-                }
+            // Adjust noop backoff: if newest turnId didn't change, increase; otherwise reset
+            let newestTurnId = '';
+            for (let i = transcript.length - 1; i >= 0; i--) {
+                const t = transcript[i];
+                newestTurnId = (t?.id || t?.Id || newestTurnId);
+                if (newestTurnId) break;
             }
-
-            // Refresh usage panel by computing from messages (avoid extra HTTP call).
-            try {
-                const usageCtx = context.Context('usage');
-                const summary = computeUsageFromMessages(messages, convID);
-                // Set as a one-row collection so derived usagePerModel (selectors.data: perModel)
-                // can project the perModel list.
-                usageCtx?.handlers?.dataSource?.setCollection?.({ rows: [summary] });
-            } catch (err) {
-                console.error('usage compute error:', err);
+            if (newestTurnId && newestTurnId === lastID) {
+                context.resources.messagesNoopPolls = Math.min((context.resources.messagesNoopPolls || 0) + 1, 10);
+            } else {
+                context.resources.messagesNoopPolls = 0;
             }
+            try { console.log('[chat] poll:rows', rows.length, 'turns', transcript.length, 'noopPolls', context.resources.messagesNoopPolls); console.timeEnd('[chat] poll fetch'); } catch(_) {}
+
+            // Determine id of newest assistant message after merge (kept for future features)
+            // const messages = messagesCtx.signals?.collection?.value || [];
+            // let newestAssistantID = '';
+            // for (let i = messages.length - 1; i >= 0; i--) {
+            //     if (messages[i].role === 'assistant') {
+            //         newestAssistantID = messages[i].id;
+            //         break;
+            //     }
+            // }
 
         } catch (err) {
             console.error('chatService.startPolling tick error:', err);
@@ -344,7 +486,91 @@ function startPolling({context}) {
     tick().then(() => {}).finally(() => {
         context.resources.chatTimerState = false;
         context.resources.messagesFetchInFlight = false;
+        try { console.log('[chat] poll:end', { elapsedMs: Date.now() - t0 }); } catch(_) {}
     });
+}
+
+// Prefetch conversation transcript to seed the chat window before it opens.
+export async function preloadConversation({ context, row }) {
+    try {
+        const convID = row?.id || row?.Id || context?.Context('history')?.handlers?.dataSource?.peekSelection?.()?.selected?.id;
+        if (!convID) return false;
+        const baseRoot = (endpoints.appAPI.baseURL || (typeof window !== 'undefined' ? window.location.origin + '/v1/api' : ''))
+            .replace(/\/+$/,'');
+        const base = `${baseRoot}/conversations/${encodeURIComponent(convID)}/messages`;
+        console.time('[chat] preload fetch');
+        const json = await fetchJSON(base);
+        console.timeEnd('[chat] preload fetch');
+        const conv = json && json.status === 'ok' ? json.data : null;
+        const transcript = Array.isArray(conv?.transcript) ? conv.transcript
+                          : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
+
+        const toISOSafe = (v) => {
+            if (!v) return new Date().toISOString();
+            try { const d = new Date(v); if (!isNaN(d.getTime())) return d.toISOString(); } catch(_) {}
+            return new Date().toISOString();
+        };
+
+        const rows = [];
+        for (const turn of transcript) {
+            const turnId = turn?.id || turn?.Id;
+            const messages = Array.isArray(turn?.message) ? turn.message
+                             : Array.isArray(turn?.Message) ? turn.Message : [];
+            // Aggregate steps (thinking/tool/interim) as in polling path
+            const steps = [];
+            for (const m of messages) {
+                const interim = m?.interim ?? m?.Interim;
+                const created = m?.createdAt || m?.CreatedAt;
+                if (interim) {
+                    steps.push({ id: (m.id || m.Id || '') + '/interim', name: 'assistant', reason: 'interim', success: true, startedAt: created, endedAt: created });
+                }
+                const tc = m?.toolCall || m?.ToolCall;
+                const mc = m?.modelCall || m?.ModelCall;
+                if (tc) {
+                    steps.push({ id: tc.opId || tc.OpId, name: tc.toolName || tc.ToolName, reason: 'tool_call', success: String((tc.status || tc.Status || '')).toLowerCase() === 'completed', startedAt: tc.startedAt || tc.StartedAt, endedAt: tc.completedAt || tc.CompletedAt });
+                }
+                if (mc) {
+                    steps.push({ id: mc.messageId || mc.MessageId, name: mc.model || mc.Model, reason: 'thinking', success: String((mc.status || mc.Status || '')).toLowerCase() === 'completed', startedAt: mc.startedAt || mc.StartedAt, endedAt: mc.completedAt || mc.CompletedAt });
+                }
+            }
+            const normalizedSteps = steps.map(s => {
+                const started = s.startedAt ? new Date(s.startedAt) : null;
+                const ended = s.endedAt ? new Date(s.endedAt) : null;
+                let elapsed = '';
+                if (started && ended && !isNaN(started) && !isNaN(ended)) {
+                    elapsed = (((ended - started) / 1000).toFixed(2)) + 's';
+                }
+                return { ...s, elapsed };
+            });
+            const turnExecutions = normalizedSteps.length ? [{ steps: normalizedSteps }] : [];
+            const turnRows = [];
+            for (const m of messages) {
+                const roleLower = String(m.role || m.Role || '').toLowerCase();
+                if (m?.interim || m?.Interim) continue;
+                if (roleLower !== 'user' && roleLower !== 'assistant') continue;
+                const mc = m?.modelCall || m?.ModelCall;
+                const tc = m?.toolCall || m?.ToolCall;
+                if (mc || tc) continue;
+                const id = m.id || m.Id;
+                const createdAt = toISOSafe(m.createdAt || m.CreatedAt);
+                const turnIdRef = m.turnId || m.TurnId || turnId;
+                turnRows.push({ id, conversationId: m.conversationId || m.ConversationId, role: roleLower, content: m.content || m.Content || '', createdAt, toolName: m.toolName || m.ToolName, turnId: turnIdRef, parentId: turnIdRef, executions: [] });
+            }
+            // Attach executions to first user or first message
+            let carrierIdx = -1;
+            for (let i = 0; i < turnRows.length; i++) if (turnRows[i].role === 'user') { carrierIdx = i; break; }
+            if (carrierIdx === -1 && turnRows.length) carrierIdx = 0;
+            if (carrierIdx >= 0) turnRows[carrierIdx] = { ...turnRows[carrierIdx], executions: turnExecutions };
+            for (const r of turnRows) rows.push(r);
+        }
+        if (!context.resources.preloadedMessages) context.resources.preloadedMessages = {};
+        context.resources.preloadedMessages[convID] = rows;
+        console.log('[chat] preload:cached rows', rows.length, 'for', convID);
+        return true;
+    } catch (e) {
+        console.error('preloadConversation error', e);
+        return false;
+    }
 }
 
 // Map v2 transcript DAO rows to legacy message shape expected by the UI merge
@@ -651,6 +877,7 @@ function updateCollectionWithUserMessage(messagesContext, messageId, content) {
  * @param {Array} incoming - Incoming messages to merge
  */
 function mergeMessages(messagesContext, incoming) {
+    try { console.log('[chat] mergeMessages:incoming', Array.isArray(incoming) ? incoming.length : 0); } catch(_) {}
     const collSig = messagesContext.signals?.collection;
     if (!collSig || !Array.isArray(incoming) || !incoming.length) {
         return;
@@ -718,7 +945,10 @@ function mergeMessages(messagesContext, incoming) {
         return out;
     };
 
-    collSig.value = dedupById(current);
+    const before = Array.isArray(collSig.value) ? collSig.value.length : 0;
+    const next = dedupById(current);
+    collSig.value = next;
+    try { console.log('[chat] mergeMessages:applied', { before, after: next.length }); } catch(_) {}
 
     // Keep the DataSource form in sync with the newest assistant chunk
     messagesContext?.handlers?.dataSource?.setFormData?.({
@@ -742,6 +972,10 @@ function injectFormMessages(messagesContext, data) {
 // for generic polling logic (open chat follow-up fetches).
 export function receiveMessages(messagesContext, data, sinceId = '') {
     if (!Array.isArray(data) || data.length === 0) return;
+    try {
+        const convId = data?.[0]?.conversationId;
+        console.log('[chat] receiveMessages', { count: data.length, sinceId, convId });
+    } catch(_) {}
     // Prefer merging fully – including the sinceId boundary – so that enriched
     // rows (with executions/usage) update the existing optimistic/plain row.
     mergeMessages(messagesContext, data);
@@ -790,6 +1024,10 @@ export const chatService = {
     upload,
     onInit,
     onDestroy,
+    debugHistoryOpen,
+    debugHistorySelection,
+    debugMessagesLoaded,
+    debugMessagesError,
     selectAgent,
     fetchMetaDefaults,
     newConversation,
@@ -798,6 +1036,7 @@ export const chatService = {
     selectFolder,
     buildToolOptions,
     receiveMessages,
+    preloadConversation,
     renderers: {
         execution: ExecutionBubble,
         form: FormRenderer,

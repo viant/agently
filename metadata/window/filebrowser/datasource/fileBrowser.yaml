@@ -1,6 +1,6 @@
 service:
-  endpoint: agentlyAPI
-  uri: /v1/workspace/file-browser/list
+  endpoint: appAPI
+  uri: /workspace/file-browser/list
   method: GET
 selfReference: childNodes
 selectors:
