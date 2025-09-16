@@ -20,4 +20,4 @@ on:
     handler: signal.emit
     args:
       - globalStage
-      - "{{response.stage}}"
+      - "{{response.Stage}}"

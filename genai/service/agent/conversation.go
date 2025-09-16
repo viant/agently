@@ -10,6 +10,63 @@ import (
 	convw "github.com/viant/agently/internal/dao/conversation/write"
 )
 
+// ConversationMetadata is a typed representation of conversation metadata.
+// It preserves unknown fields during round trips.
+type ConversationMetadata struct {
+	Tools   []string                   `json:"tools,omitempty"`
+	Context map[string]interface{}     `json:"context,omitempty"`
+	Extra   map[string]json.RawMessage `json:"-"`
+}
+
+func (m *ConversationMetadata) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	m.Extra = map[string]json.RawMessage{}
+	for k, v := range raw {
+		switch k {
+		case "tools":
+			var tools []string
+			if err := json.Unmarshal(v, &tools); err == nil {
+				m.Tools = tools
+			}
+		case "context":
+			var ctx map[string]interface{}
+			if err := json.Unmarshal(v, &ctx); err == nil {
+				m.Context = ctx
+			}
+		default:
+			m.Extra[k] = v
+		}
+	}
+	return nil
+}
+
+func (m ConversationMetadata) MarshalJSON() ([]byte, error) {
+	out := map[string]json.RawMessage{}
+	if len(m.Tools) > 0 {
+		if b, err := json.Marshal(m.Tools); err == nil {
+			out["tools"] = b
+		} else {
+			return nil, err
+		}
+	}
+	if len(m.Context) > 0 {
+		if b, err := json.Marshal(m.Context); err == nil {
+			out["context"] = b
+		} else {
+			return nil, err
+		}
+	}
+	for k, v := range m.Extra {
+		if _, exists := out[k]; !exists {
+			out[k] = v
+		}
+	}
+	return json.Marshal(out)
+}
+
 // ensureConversation loads or persists per-conversation defaults via domain store (or legacy history fallback).
 func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) error {
 	convID := input.ConversationID
@@ -17,79 +74,40 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		convID = uuid.New().String()
 		input.ConversationID = convID
 	}
-	aConversation, err := s.store.Conversations().Get(ctx, convID)
+	if s.convAPI == nil {
+		return fmt.Errorf("conversation API not configured")
+	}
+	var (
+		defaultModel *string
+		agentName    *string
+		metadata     *string
+		exists       bool
+	)
+	aConversation, err := s.convAPI.Get(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("failed to load conversation: %w", err)
 	}
-	if aConversation == nil {
-		initialConversation := &convw.Conversation{Has: &convw.ConversationHas{}}
-		initialConversation.SetId(convID)
-		// Default new conversations to public visibility; can be adjusted later.
-		initialConversation.SetVisibility(convw.VisibilityPublic)
-		// Seed basic meta from the request where available.
-		if strings.TrimSpace(input.AgentName) != "" {
-			initialConversation.SetAgentName(strings.TrimSpace(input.AgentName))
-		}
-		if strings.TrimSpace(input.ModelOverride) != "" {
-			initialConversation.SetDefaultModel(strings.TrimSpace(input.ModelOverride))
-		}
-		if len(input.ToolsAllowed) > 0 {
-			meta := map[string]any{"tools": append([]string{}, input.ToolsAllowed...)}
-			if b, err := json.Marshal(meta); err == nil {
-				initialConversation.SetMetadata(string(b))
-			}
-		}
-		if _, err = s.store.Conversations().Patch(ctx, initialConversation); err != nil {
-			return fmt.Errorf("failed to create conversation: %w", err)
-		}
+	if exists = aConversation != nil; exists {
+		defaultModel = aConversation.DefaultModel
+		agentName = aConversation.AgentName
+		metadata = aConversation.Metadata
 	}
 
 	// Derive model when not provided: fall back to conversation default model only.
 	if input.ModelOverride == "" {
-		if aConversation != nil && aConversation.DefaultModel != nil && strings.TrimSpace(*aConversation.DefaultModel) != "" {
-			input.ModelOverride = *aConversation.DefaultModel
-		}
-	} else {
-		w := &convw.Conversation{Has: &convw.ConversationHas{}}
-		w.SetId(convID)
-		w.SetDefaultModel(input.ModelOverride)
-		if _, err := s.store.Conversations().Patch(ctx, w); err != nil {
-			return fmt.Errorf("failed to update conversation default model: %w", err)
+		if defaultModel != nil && strings.TrimSpace(*defaultModel) != "" {
+			input.ModelOverride = *defaultModel
 		}
 	}
 
+	// Tools metadata: read once, then decide to populate input
+	var meta ConversationMetadata
+	if metadata != nil && strings.TrimSpace(*metadata) != "" {
+		_ = json.Unmarshal([]byte(*metadata), &meta)
+	}
 	if len(input.ToolsAllowed) == 0 {
-		if aConversation != nil && aConversation.Metadata != nil {
-			var meta map[string]interface{}
-			if err := json.Unmarshal([]byte(*aConversation.Metadata), &meta); err == nil {
-				if arr, ok := meta["tools"].([]interface{}); ok && len(arr) > 0 {
-					tools := make([]string, 0, len(arr))
-					for _, it := range arr {
-						if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
-							tools = append(tools, s)
-						}
-					}
-					if len(tools) > 0 {
-						input.ToolsAllowed = tools
-					}
-				}
-			}
-		}
-	} else {
-		meta := map[string]interface{}{}
-		if aConversation != nil && aConversation.Metadata != nil && strings.TrimSpace(*aConversation.Metadata) != "" {
-			_ = json.Unmarshal([]byte(*aConversation.Metadata), &meta)
-		}
-		lst := make([]string, len(input.ToolsAllowed))
-		copy(lst, input.ToolsAllowed)
-		meta["tools"] = lst
-		if b, err := json.Marshal(meta); err == nil {
-			w := &convw.Conversation{Has: &convw.ConversationHas{}}
-			w.SetId(convID)
-			w.SetMetadata(string(b))
-			if _, err := s.store.Conversations().Patch(ctx, w); err != nil {
-				return fmt.Errorf("failed to update conversation tools: %w", err)
-			}
+		if len(meta.Tools) > 0 {
+			input.ToolsAllowed = append([]string(nil), meta.Tools...)
 		}
 	}
 
@@ -100,15 +118,43 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		chosenAgent = input.Agent.Name
 	}
 	if chosenAgent == "" {
-		if aConversation != nil && aConversation.AgentName != nil && strings.TrimSpace(*aConversation.AgentName) != "" {
-			input.AgentName = *aConversation.AgentName
+		if agentName != nil && strings.TrimSpace(*agentName) != "" {
+			input.AgentName = *agentName
 		}
-	} else {
-		w := &convw.Conversation{Has: &convw.ConversationHas{}}
-		w.SetId(convID)
-		w.SetAgentName(chosenAgent)
-		if _, err := s.store.Conversations().Patch(ctx, w); err != nil {
-			return fmt.Errorf("failed to update conversation agent: %w", err)
+	}
+
+	// Prepare a single patch with all required changes
+	patch := &convw.Conversation{Has: &convw.ConversationHas{}}
+	patch.SetId(convID)
+	needsPatch := false
+
+	if !exists {
+		patch.SetVisibility(convw.VisibilityPublic)
+		needsPatch = true
+	}
+	if strings.TrimSpace(input.ModelOverride) != "" {
+		patch.SetDefaultModel(strings.TrimSpace(input.ModelOverride))
+		needsPatch = true
+	}
+	if chosenAgent != "" { // set agent name when provided
+		patch.SetAgentName(chosenAgent)
+		needsPatch = true
+	}
+	if len(input.ToolsAllowed) > 0 { // update tools metadata only when provided
+		meta.Tools = append([]string(nil), input.ToolsAllowed...)
+		if b, err := json.Marshal(meta); err == nil {
+			patch.SetMetadata(string(b))
+			needsPatch = true
+		} else {
+			return fmt.Errorf("failed to marshal tools metadata: %w", err)
+		}
+	}
+	if needsPatch {
+		if _, err := s.store.Conversations().Patch(ctx, patch); err != nil {
+			if !exists {
+				return fmt.Errorf("failed to create conversation: %w", err)
+			}
+			return fmt.Errorf("failed to update conversation: %w", err)
 		}
 	}
 	return nil
@@ -119,19 +165,27 @@ func (s *Service) updatedConversationContext(ctx context.Context, convID string,
 	if convID == "" || len(qi.Context) == 0 {
 		return nil
 	}
-	cv, err := s.store.Conversations().Get(ctx, convID)
+	if s.convAPI == nil {
+		return fmt.Errorf("conversation API not configured")
+	}
+	var metaSrc string
+	cv, err := s.convAPI.Get(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("failed to load conversation: %w", err)
 	}
-	meta := map[string]interface{}{}
 	if cv != nil && cv.Metadata != nil && strings.TrimSpace(*cv.Metadata) != "" {
-		_ = json.Unmarshal([]byte(*cv.Metadata), &meta)
+		metaSrc = *cv.Metadata
 	}
+	var meta ConversationMetadata
+	if metaSrc != "" {
+		_ = json.Unmarshal([]byte(metaSrc), &meta)
+	}
+	// copy context
 	ctxCopy := map[string]interface{}{}
 	for k, v := range qi.Context {
 		ctxCopy[k] = v
 	}
-	meta["context"] = ctxCopy
+	meta.Context = ctxCopy
 	if b, err := json.Marshal(meta); err == nil {
 		w := &convw.Conversation{Has: &convw.ConversationHas{}}
 		w.SetId(convID)

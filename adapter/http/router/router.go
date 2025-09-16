@@ -73,15 +73,20 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 			_, _ = w.Write([]byte(`{"status":"ERROR","message":"id is required"}`))
 			return
 		}
-		since := r.URL.Query().Get("since")
 		svc, err := implconv.NewFromEnv(ctx)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		var opts []apiconv.Option
-		if since != "" {
-			opts = append(opts, apiconv.WithSince(since))
+		if value := r.URL.Query().Get("since"); value != "" {
+			opts = append(opts, apiconv.WithSince(value))
+		}
+		if value := r.URL.Query().Get("includeModelCallPayload"); value != "" {
+			opts = append(opts, apiconv.WithIncludeModelCall(value != "" && value != "0"))
+		}
+		if value := r.URL.Query().Get("includeToolCallPayload"); value != "" {
+			opts = append(opts, apiconv.WithIncludeToolCall(value != "" && value != "0"))
 		}
 		conv, err := svc.Get(ctx, id, opts...)
 		if err != nil {

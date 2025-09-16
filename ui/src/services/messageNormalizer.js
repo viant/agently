@@ -104,9 +104,8 @@ export function classifyMessage(message) {
     // (see isSimpleTextSchema) are downgraded to regular bubbles so they
     // appear visually like a normal question without an embedded form.
     if (message.elicitation?.requestedSchema) {
-        return isSimpleTextSchema(message.elicitation.requestedSchema)
-            ? 'bubble'
-            : 'form';
+        // Always render schema-based form when elicitation is present
+        return 'form';
     }
 
     return 'bubble';
@@ -119,6 +118,16 @@ export function classifyMessage(message) {
  */
 export function normalizeMessages(raw = []) {
     const out = [];
+
+    // Safe date → ISO helper to avoid invalid time errors in Forge MessageCard
+    const toISOSafe = (v) => {
+        if (!v) return new Date().toISOString();
+        try {
+            const d = new Date(v);
+            if (!isNaN(d.getTime())) return d.toISOString();
+        } catch (_) { /* ignore */ }
+        return new Date().toISOString();
+    };
 
     for (const msg of raw) {
         // ------------------------------------------------------------------
@@ -133,20 +142,44 @@ export function normalizeMessages(raw = []) {
 
         const copy = deepCopy(msg);
 
-        // When user supplies a JSON object, convert it to a markdown table so
-        // it renders nicely.
+        // Normalize timestamp for Forge MessageCard (expects valid date)
+        copy.createdAt = toISOSafe(copy.createdAt || copy.CreatedAt);
+        // Normalize role casing for consistent renderer classification
+        if (copy.role) {
+            copy.role = String(copy.role).toLowerCase();
+        }
+
+        // Assistant elicitation: when content is a JSON string/object with
+        // { elicitationId, message, requestedSchema }
+        if (copy.role === 'assistant') {
+            const maybeObj = typeof copy.content === 'string' ? tryParseJSON(copy.content) : copy.content;
+            if (maybeObj && typeof maybeObj === 'object' && (maybeObj.requestedSchema || maybeObj.elicitationId)) {
+                copy.elicitation = {
+                    elicitationId: maybeObj.elicitationId,
+                    message: maybeObj.message || maybeObj.prompt || '',
+                    requestedSchema: maybeObj.requestedSchema || {},
+                };
+                // Keep content as prompt text for context (not used by FormRenderer)
+                copy.content = copy.elicitation.message || '';
+            }
+        }
+
+        // When user supplies a JSON object, convert it to an HTML table so it renders nicely.
         if (copy.role === 'user') {
             const payload = tryParseJSON(copy.content);
             if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
                 const keys = Object.keys(payload);
                 if (keys.length) {
-                    let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">';
+                    // Start directly with <table> so HTML-based renderers pass it through
+                    let html = '<table style="width:100%;border-collapse:collapse">';
                     html += '<tbody>';
                     keys.forEach(k => {
                         const cellStyle = 'word-break:break-word;white-space:pre-wrap';
-                        html += `<tr><th style="text-align:left;padding-right:8px;white-space:nowrap">${escapeHTML(k)}</th><td style="${cellStyle}">${escapeHTML(JSON.stringify(payload[k]))}</td></tr>`;
+                        const v = payload[k];
+                        const rendered = typeof v === 'string' ? escapeHTML(v) : escapeHTML(JSON.stringify(v, null, 2));
+                        html += `<tr><th style="text-align:left;padding-right:8px;white-space:nowrap">${escapeHTML(k)}</th><td style="${cellStyle}">${rendered}</td></tr>`;
                     });
-                    html += '</tbody></table></div>';
+                    html += '</tbody></table>';
                     copy.content = html;
                 }
             }

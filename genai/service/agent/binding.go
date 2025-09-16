@@ -7,14 +7,11 @@ import (
 	"strings"
 
 	"github.com/viant/agently/genai/agent"
-	plan "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
 	base "github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
 	padapter "github.com/viant/agently/genai/prompt/adapter"
-	msgread "github.com/viant/agently/internal/dao/message/read"
-	d "github.com/viant/agently/internal/domain"
 	apiconv "github.com/viant/agently/sdk/conversation"
 )
 
@@ -29,7 +26,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if err != nil {
 		return nil, err
 	}
-	hist, err := s.buildHistoryBindingFromTranscript(ctx, input, conv)
+	hist, err := s.buildHistory(ctx, input, conv)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +49,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		}
 		b.Flags.CanUseTool = s.llm != nil && s.llm.ModelImplements(ctx, model, base.CanUseTools)
 	}
-	if execs, err := s.buildToolExecutionsFromTranscript(ctx, input, conv); err != nil {
+	if execs, err := s.buildToolExecutions(ctx, input, conv); err != nil {
 		return nil, err
 	} else if len(execs) > 0 {
 		b.Tools.Executions = execs
@@ -76,15 +73,9 @@ func (s *Service) buildTaskBinding(input *QueryInput) prompt.Task {
 	return prompt.Task{Prompt: input.Query}
 }
 
-func (s *Service) buildHistoryBinding(ctx context.Context, input *QueryInput) (prompt.History, error) {
-	// This method delegates to buildHistoryBindingFromTranscript with no pre-fetched conversation,
-	// preserving backward compatibility when called directly.
-	return s.buildHistoryBindingFromTranscript(ctx, input, nil)
-}
-
-// buildHistoryBindingFromTranscript derives history from a provided conversation (if non-nil),
+// buildHistory derives history from a provided conversation (if non-nil),
 // otherwise falls back to DAO transcript for compatibility.
-func (s *Service) buildHistoryBindingFromTranscript(ctx context.Context, input *QueryInput, conv *apiconv.Conversation) (prompt.History, error) {
+func (s *Service) buildHistory(ctx context.Context, input *QueryInput, conv *apiconv.Conversation) (prompt.History, error) {
 
 	var h prompt.History
 	if conv == nil {
@@ -95,11 +86,8 @@ func (s *Service) buildHistoryBindingFromTranscript(ctx context.Context, input *
 	return h, nil
 }
 
-// buildToolExecutionsFromTranscript extracts tool calls from the provided conversation transcript for the current turn.
-func (s *Service) buildToolExecutionsFromTranscript(ctx context.Context, input *QueryInput, conv *apiconv.Conversation) ([]*llm.ToolCall, error) {
-	if conv == nil {
-		return s.buildToolExecutions(ctx, input)
-	}
+// buildToolExecutions extracts tool calls from the provided conversation transcript for the current turn.
+func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, conv *apiconv.Conversation) ([]*llm.ToolCall, error) {
 	turnMeta, ok := memory.TurnMetaFromContext(ctx)
 	if !ok || strings.TrimSpace(turnMeta.TurnID) == "" {
 		return nil, nil
@@ -146,26 +134,6 @@ func (s *Service) buildToolSignatures(input *QueryInput) ([]*llm.ToolDefinition,
 	}
 	out := padapter.ToToolDefinitions(tools)
 	return out, len(out) > 0, nil
-}
-
-func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput) ([]*llm.ToolCall, error) {
-	turn, ok := memory.TurnMetaFromContext(ctx)
-	if !ok {
-		return nil, fmt.Errorf("failed to get turn meta from context")
-	}
-	views, err := s.store.Messages().GetTranscript(ctx, turn.ConversationID, msgread.WithTurnID(turn.TurnID))
-	if err != nil {
-		return nil, err
-	}
-	outcome, err := d.BuildToolOutcomes(ctx, s.store, d.Transcript(views))
-	if err != nil {
-		return nil, err
-	}
-	if outcome == nil || len(outcome.Steps) == 0 {
-		return nil, nil
-	}
-	calls := padapter.ToolCallsFromOutcomes([]*plan.Outcome{outcome})
-	return calls, nil
 }
 
 func (s *Service) buildDocumentsBinding(ctx context.Context, input *QueryInput, isSystem bool) (prompt.Documents, error) {

@@ -12,7 +12,7 @@ export default function HTMLTableBubble({message, context}) {
                 <div className="avatar" style={{background: avatarColour}}>
                     <Icon icon="person" color="var(--black)" size={12}/>
                 </div>
-                <div className={bubbleClass} data-ts={formatDate(new Date(message.createdAt), 'HH:mm')}>
+                <div className={bubbleClass} data-ts={(function(){ try { const d = new Date(message.createdAt); return isNaN(d) ? '' : formatDate(d, 'HH:mm'); } catch(_) { return ''; } })()}>
                     {/* message.content already contains trusted HTML */}
                     <div
                         className="prose max-w-full text-sm"
