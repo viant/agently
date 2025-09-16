@@ -130,8 +130,8 @@ func (s *Service) buildToolExecutionsFromTranscript(ctx context.Context, input *
 				}
 			}
 		}
-		tc := &llm.ToolCall{ID: m.ToolCall.OpId, Name: m.ToolCall.ToolName, Arguments: args}
-		out = append(out, tc)
+		tc := llm.NewToolCall(m.ToolCall.OpId, m.ToolCall.ToolName, args, m.Content)
+		out = append(out, &tc)
 	}
 	return out, nil
 }
