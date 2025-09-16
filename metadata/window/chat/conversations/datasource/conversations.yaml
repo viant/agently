@@ -1,6 +1,6 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/api/conversations/{id}/messages
+  uri: /v1/api/conversations/{id}
   method: GET
   post:
     uri: /v1/api/conversations
@@ -19,6 +19,3 @@ parameters:
     in: dataSource
     location: conversations
 
-on:
-  - event: onSuccess
-    handler: chat.seedFromConversationDS
