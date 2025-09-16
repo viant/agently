@@ -303,7 +303,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				continue
 			}
 			if observer != nil {
-				observer.OnStreamDelta(ctx, []byte(payload+"\n"))
+				if obErr := observer.OnStreamDelta(ctx, []byte(payload+"\n")); obErr != nil {
+					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+					return
+				}
 			}
 			var evt Response
 			if err := json.Unmarshal([]byte(payload), &evt); err != nil {
@@ -322,7 +325,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					if evt.Delta.Text != "" {
 						aggText.WriteString(evt.Delta.Text)
 						if observer != nil {
-							observer.OnStreamDelta(ctx, []byte(evt.Delta.Text))
+							if obErr := observer.OnStreamDelta(ctx, []byte(evt.Delta.Text)); obErr != nil {
+								events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+								return
+							}
 						}
 					}
 					if evt.Delta.PartialJSON != "" {

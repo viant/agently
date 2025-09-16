@@ -56,7 +56,8 @@ type Observer interface {
 	OnCallEnd(ctx context.Context, info Info) error
 	// OnStreamDelta delivers raw streamed chunks (provider-specific encoding).
 	// Implementations may aggregate plain text or persist progressive payloads.
-	OnStreamDelta(ctx context.Context, data []byte)
+	// Returns error when persistence fails; callers may choose to abort stream.
+	OnStreamDelta(ctx context.Context, data []byte) error
 }
 
 // WithObserver stores a concrete Observer in context so providers can call it directly.

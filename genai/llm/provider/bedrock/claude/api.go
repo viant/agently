@@ -259,7 +259,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				// Append raw JSON chunk bytes for full fidelity
 				b := append([]byte{}, chunk.Value.Bytes...)
 				b = append(b, '\n')
-				observer.OnStreamDelta(ctx, b)
+				if obErr := observer.OnStreamDelta(ctx, b); obErr != nil {
+					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+					return
+				}
 			}
 			var raw map[string]interface{}
 			if err := json.Unmarshal(chunk.Value.Bytes, &raw); err != nil {
@@ -285,7 +288,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					if txt, _ := delta["text"].(string); txt != "" {
 						aggText.WriteString(txt)
 						if observer != nil {
-							observer.OnStreamDelta(ctx, []byte(txt))
+							if obErr := observer.OnStreamDelta(ctx, []byte(txt)); obErr != nil {
+								events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+								return
+							}
 						}
 					}
 					// Tool input partial JSON delta
