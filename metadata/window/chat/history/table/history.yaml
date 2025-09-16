@@ -12,6 +12,8 @@ columns:
       - event: onClick
         handler: chat.debugHistoryOpen
       - event: onClick
+        handler: chat.preloadConversation
+      - event: onClick
         handler: window.openWindow
         args:
           - chat/new

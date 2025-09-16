@@ -74,6 +74,22 @@ export async function onInit({context}) {
                     const messagesCtx = context.Context('messages');
                     messagesCtx?.handlers?.dataSource?.setCollection?.({ rows: preloaded });
                     console.log('[chat] onInit:seeded from preloaded', preloaded.length);
+                } else {
+                    // Watch briefly (up to 800ms) for preloader to finish and seed once
+                    const started = Date.now();
+                    const timer = setInterval(() => {
+                        const rows = context.resources?.preloadedMessages?.[convID];
+                        if (rows && rows.length) {
+                            clearInterval(timer);
+                            try {
+                                const messagesCtx = context.Context('messages');
+                                messagesCtx?.handlers?.dataSource?.setCollection?.({ rows });
+                                console.log('[chat] onInit:late seed from preloaded', rows.length, 'after', Date.now() - started, 'ms');
+                            } catch(_) {}
+                        } else if ((Date.now() - started) > 800) {
+                            clearInterval(timer);
+                        }
+                    }, 50);
                 }
             } catch(_) {}
             try { startPolling({ context }); } catch(_) {}
@@ -93,6 +109,21 @@ export async function onInit({context}) {
                             const messagesCtx = context.Context('messages');
                             messagesCtx?.handlers?.dataSource?.setCollection?.({ rows: preloaded });
                             console.log('[chat] onInit:seeded from preloaded', preloaded.length);
+                        } else {
+                            const started2 = Date.now();
+                            const timer2 = setInterval(() => {
+                                const rows2 = context.resources?.preloadedMessages?.[got];
+                                if (rows2 && rows2.length) {
+                                    clearInterval(timer2);
+                                    try {
+                                        const messagesCtx = context.Context('messages');
+                                        messagesCtx?.handlers?.dataSource?.setCollection?.({ rows: rows2 });
+                                        console.log('[chat] onInit:late seed from preloaded', rows2.length, 'after', Date.now() - started2, 'ms');
+                                    } catch(_) {}
+                                } else if ((Date.now() - started2) > 800) {
+                                    clearInterval(timer2);
+                                }
+                            }, 50);
                         }
                     } catch(_) {}
                     try { startPolling({ context }); } catch(_) {}
@@ -182,6 +213,70 @@ export function debugMessagesError({ context, error }) {
     }
 }
 
+// Seed messages and stage from conversations DS (/conversations/{id}/messages response)
+export function seedFromConversationDS({ context, response }) {
+    try {
+        const data = response?.data || response;
+        if (!data) return;
+        const convID = data?.Id || data?.id;
+        const stage = data?.Stage || data?.stage;
+        if (stage) {
+            try { setStage({ phase: String(stage) }); } catch(_) {}
+        }
+        const transcript = Array.isArray(data?.Transcript) ? data.Transcript : (Array.isArray(data?.transcript) ? data.transcript : []);
+        // Map transcript to rows (same as initial mapping)
+        const toISOSafe = (v) => { try { const d = new Date(v); if (!isNaN(d.getTime())) return d.toISOString(); } catch(_) {} return new Date().toISOString(); };
+        const rows = [];
+        for (const turn of transcript) {
+            const turnId = turn?.Id || turn?.id;
+            const messages = Array.isArray(turn?.Message) ? turn.Message : (Array.isArray(turn?.message) ? turn.message : []);
+            const steps = [];
+            for (const m of messages) {
+                const interim = m?.Interim ?? m?.interim;
+                const created = m?.CreatedAt || m?.createdAt;
+                if (interim) {
+                    steps.push({ id: (m.Id || m.id || '') + '/interim', name: 'assistant', reason: 'interim', success: true, startedAt: created, endedAt: created });
+                }
+                const tc = m?.ToolCall || m?.toolCall;
+                const mc = m?.ModelCall || m?.modelCall;
+                if (tc) steps.push({ id: tc.OpId || tc.opId, name: tc.ToolName || tc.toolName, reason: 'tool_call', success: String((tc.Status || tc.status || '')).toLowerCase() === 'completed', startedAt: tc.StartedAt || tc.startedAt, endedAt: tc.CompletedAt || tc.completedAt });
+                if (mc) steps.push({ id: mc.MessageId || mc.messageId, name: mc.Model || mc.model, reason: 'thinking', success: String((mc.Status || mc.status || '')).toLowerCase() === 'completed', startedAt: mc.StartedAt || mc.startedAt, endedAt: mc.CompletedAt || mc.completedAt });
+            }
+            const normalized = steps.map(s => {
+                const a = s.startedAt ? new Date(s.startedAt) : null;
+                const b = s.endedAt ? new Date(s.endedAt) : null;
+                let e = '';
+                if (a && b && !isNaN(a) && !isNaN(b)) e = (((b - a) / 1000).toFixed(2)) + 's';
+                return { ...s, elapsed: e };
+            });
+            const turnExec = normalized.length ? [{ steps: normalized }] : [];
+            const turnRows = [];
+            for (const m of messages) {
+                const roleLower = String(m.Role || m.role || '').toLowerCase();
+                if (m?.Interim || m?.interim) continue;
+                if (roleLower !== 'user' && roleLower !== 'assistant') continue;
+                if (m?.ModelCall || m?.modelCall || m?.ToolCall || m?.toolCall) continue;
+                const id = m.Id || m.id;
+                const createdAt = toISOSafe(m.CreatedAt || m.createdAt);
+                const turnIdRef = m.TurnId || m.turnId || turnId;
+                turnRows.push({ id, conversationId: m.ConversationId || m.conversationId, role: roleLower, content: m.Content || m.content || '', createdAt, toolName: m.ToolName || m.toolName, turnId: turnIdRef, parentId: turnIdRef, executions: [] });
+            }
+            let carrierIdx = -1; for (let i = 0; i < turnRows.length; i++) if (turnRows[i].role === 'user') { carrierIdx = i; break; }
+            if (carrierIdx === -1 && turnRows.length) carrierIdx = 0;
+            if (carrierIdx >= 0) turnRows[carrierIdx] = { ...turnRows[carrierIdx], executions: turnExec };
+            for (const r of turnRows) rows.push(r);
+        }
+        if (!context.resources) context.resources = {};
+        if (!context.resources.preloadedMessages) context.resources.preloadedMessages = {};
+        if (convID) context.resources.preloadedMessages[convID] = rows;
+        // Seed immediately if messages DS is present
+        try { const messagesCtx = context.Context('messages'); messagesCtx?.handlers?.dataSource?.setCollection?.({ rows }); } catch(_) {}
+        console.log('[chat] seeded from conversations DS', rows.length);
+    } catch (e) {
+        console.error('seedFromConversationDS error', e);
+    }
+}
+
 function startPolling({context}) {
     if (!context || typeof context.Context !== 'function') {
         console.warn('chatService.startPolling: invalid context');
@@ -208,7 +303,7 @@ function startPolling({context}) {
                 if (convID) context.resources.convID = convID;
             }
             if (!convID) {
-                try { console.log('[chat] poll:skip no convID'); } catch(_) {}
+                // Too noisy in logs and not actionable; quietly skip
                 return; // no active conversation – nothing to do
             }
 
