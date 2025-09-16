@@ -6,12 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/genai/llm"
-	mcbuf "github.com/viant/agently/genai/modelcallctx"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/viant/agently/genai/llm"
+	mcbuf "github.com/viant/agently/genai/modelcallctx"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -199,7 +200,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			if len(line) > 0 {
 				if observer != nil {
 					// append raw line for full fidelity
-					observer.OnStreamDelta(ctx, line)
+					if obErr := observer.OnStreamDelta(ctx, line); obErr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+						break
+					}
 				}
 				var chunk Response
 				if err := json.Unmarshal(line, &chunk); err != nil {
@@ -213,7 +217,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					// Extract plain text content from first choice
 					if lr != nil && len(lr.Choices) > 0 {
 						if txt := strings.TrimSpace(lr.Choices[0].Message.Content); txt != "" {
-							observer.OnStreamDelta(ctx, []byte(txt))
+							if obErr := observer.OnStreamDelta(ctx, []byte(txt)); obErr != nil {
+								events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+								break
+							}
 						}
 					}
 				}

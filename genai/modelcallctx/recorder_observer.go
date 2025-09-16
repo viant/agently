@@ -110,15 +110,18 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) error {
 }
 
 // OnStreamDelta aggregates streamed chunks. Persisted once in FinishModelCall.
-func (o *recorderObserver) OnStreamDelta(_ context.Context, data []byte) {
+func (o *recorderObserver) OnStreamDelta(_ context.Context, data []byte) error {
 	if len(data) == 0 {
-		return
+		return nil
 	}
 	o.acc.Write(data)
 	// Best-effort append to stream payload inline body
 	if strings.TrimSpace(o.streamPayloadID) != "" && o.r != nil {
-		_ = o.r.AppendStreamChunk(context.Background(), o.streamPayloadID, data)
+		if err := o.r.AppendStreamChunk(context.Background(), o.streamPayloadID, data); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // WithRecorderObserver injects a recorder-backed Observer into context.

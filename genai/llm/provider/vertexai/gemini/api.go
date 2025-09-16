@@ -473,12 +473,18 @@ func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *gem
 				if observer != nil {
 					if b, err := json.Marshal(&obj); err == nil {
 						b = append(b, '\n')
-						observer.OnStreamDelta(ctx, b)
+						if obErr := observer.OnStreamDelta(ctx, b); obErr != nil {
+							events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+							return
+						}
 					}
 					for _, cand := range obj.Candidates {
 						for _, p := range cand.Content.Parts {
 							if p.Text != "" {
-								observer.OnStreamDelta(ctx, []byte(p.Text))
+								if obErr := observer.OnStreamDelta(ctx, []byte(p.Text)); obErr != nil {
+									events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+									return
+								}
 							}
 						}
 					}
@@ -501,12 +507,18 @@ func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *gem
 			if observer != nil {
 				if b, err := json.Marshal(&obj); err == nil {
 					b = append(b, '\n')
-					observer.OnStreamDelta(ctx, b)
+					if obErr := observer.OnStreamDelta(ctx, b); obErr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+						return
+					}
 				}
 				for _, cand := range obj.Candidates {
 					for _, p := range cand.Content.Parts {
 						if p.Text != "" {
-							observer.OnStreamDelta(ctx, []byte(p.Text))
+							if obErr := observer.OnStreamDelta(ctx, []byte(p.Text)); obErr != nil {
+								events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+								return
+							}
 						}
 					}
 				}

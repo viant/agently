@@ -34,7 +34,10 @@ func (p *streamProcessor) handleData(data string) bool {
 	// Persist full raw SSE line for complete stream fidelity (JSON chunk as-is).
 	if p.observer != nil && strings.TrimSpace(data) != "" && data != "[DONE]" {
 		// Append newline to maintain readable separation between chunks
-		p.observer.OnStreamDelta(p.ctx, []byte(data+"\n"))
+		if err := p.observer.OnStreamDelta(p.ctx, []byte(data+"\n")); err != nil {
+			p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
+			return false
+		}
 	}
 	// 1) Aggregated delta chunk
 	var sresp StreamResponse
@@ -48,7 +51,10 @@ func (p *streamProcessor) handleData(data string) bool {
 			// Emit text stream delta to observer when content arrives
 			if ch.Delta.Content != nil {
 				if txt := strings.TrimSpace(*ch.Delta.Content); txt != "" && p.observer != nil {
-					p.observer.OnStreamDelta(p.ctx, []byte(txt))
+					if err := p.observer.OnStreamDelta(p.ctx, []byte(txt)); err != nil {
+						p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
+						return false
+					}
 				}
 			}
 			if ch.FinishReason != nil {
