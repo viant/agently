@@ -38,9 +38,9 @@ func (c *Client) publishUsageOnce(model string, usage *llm.Usage, published *boo
 }
 
 // endObserverOnce emits OnCallEnd once with the provided final response.
-func endObserverOnce(observer mcbuf.Observer, ctx context.Context, model string, lr *llm.GenerateResponse, usage *llm.Usage, ended *bool) {
+func endObserverOnce(observer mcbuf.Observer, ctx context.Context, model string, lr *llm.GenerateResponse, usage *llm.Usage, ended *bool) error {
 	if ended == nil || *ended {
-		return
+		return nil
 	}
 	if observer != nil {
 		var respJSON []byte
@@ -52,10 +52,11 @@ func endObserverOnce(observer mcbuf.Observer, ctx context.Context, model string,
 			}
 		}
 		if err := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finish, LLMResponse: lr}); err != nil {
-			//return nil, fmt.Errorf("observer OnCallEnd failed: %w", err)
+			return err
 		}
 		*ended = true
 	}
+	return nil
 }
 
 // emitResponse wraps publishing a response event.

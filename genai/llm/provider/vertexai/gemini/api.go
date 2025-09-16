@@ -161,7 +161,9 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		if llmsResp != nil && len(llmsResp.Choices) > 0 {
 			info.FinishReason = llmsResp.Choices[0].FinishReason
 		}
-		observer.OnCallEnd(ctx, info)
+		if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
+			return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+		}
 	}
 	return llmsResp, nil
 }

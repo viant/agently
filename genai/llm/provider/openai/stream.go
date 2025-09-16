@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/genai/llm"
-	mcbuf "github.com/viant/agently/genai/modelcallctx"
 	"strings"
 	"time"
+
+	"github.com/viant/agently/genai/llm"
+	mcbuf "github.com/viant/agently/genai/modelcallctx"
 )
 
 type streamState struct {
@@ -112,7 +113,9 @@ func (p *streamProcessor) handleData(data string) bool {
 		p.state.lastUsage = lr.Usage
 	}
 	p.client.publishUsageOnce(p.state.lastModel, p.state.lastUsage, &p.state.publishedUsage)
-	endObserverOnce(p.observer, p.ctx, p.state.lastModel, lr, p.state.lastUsage, &p.state.ended)
+	if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, lr, p.state.lastUsage, &p.state.ended); err != nil {
+		p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
+	}
 	emitResponse(p.events, lr)
 	p.state.lastLR = lr
 	return true
