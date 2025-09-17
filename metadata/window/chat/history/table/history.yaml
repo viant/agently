@@ -1,9 +1,10 @@
 columns:
   - id: title
     name: Title
+    width: 260
   - id: id
     name: Conversation ID
-    width: 260
+    width: 50
   - id: openChat
     icon: chat
     type: button
