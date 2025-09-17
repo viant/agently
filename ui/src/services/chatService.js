@@ -143,17 +143,41 @@ async function dsTick({ context }) {
         context.resources = context.resources || {};
         context.resources.lastDsReqTs = nowTs;
 
-        // Update DS input and mark fetch=true so DS effect triggers doFetchRecords
-        const inSig = messagesCtx.signals?.input;
-        if (inSig) {
-            const cur = (typeof inSig.peek === 'function') ? (inSig.peek() || {}) : (inSig.value || {});
-            const params = { ...(cur.parameters || {}), convID, since };
-            const next = { ...cur, parameters: params, fetch: true };
-            if (typeof inSig.set === 'function') inSig.set(next); else inSig.value = next;
-            try { console.log('[chat][signals] update messages.input (fetch)', next); } catch(_) {}
+        // Perform a silent poll via connector to avoid toggling DS loading and flicker
+        try {
+            const api = messagesCtx.connector;
+            console.time(`[chat][poll][silent] since=${since}`);
+            const json = await api.get({ inputParameters: { convID, since } });
+            const conv = json && (json.data ?? json.Data ?? json.conversation ?? json.Conversation ?? json);
+            const convStage = conv?.stage || conv?.Stage;
+            if (convStage) {
+                setStage({ phase: String(convStage) });
+            }
+            const transcript = Array.isArray(conv?.transcript) ? conv.transcript
+                              : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
+            const rows = mapTranscriptToRowsWithExecutions(transcript);
+            if (rows.length) {
+                receiveMessages(messagesCtx, rows, since);
+            }
+            // Update noop/backoff signals
+            let newestTurnId = '';
+            for (let i = transcript.length - 1; i >= 0; i--) {
+                const t = transcript[i];
+                newestTurnId = (t?.id || t?.Id || newestTurnId);
+                if (newestTurnId) break;
+            }
+            if (newestTurnId && newestTurnId === since) {
+                context.resources.messagesNoopPolls = Math.min((context.resources.messagesNoopPolls || 0) + 1, 10);
+            } else {
+                context.resources.messagesNoopPolls = 0;
+            }
+            if (newestTurnId) {
+                context.resources.messagesLastTurnId = newestTurnId;
+            }
+            console.timeEnd(`[chat][poll][silent] since=${since}`);
+        } catch (e) {
+            console.warn('dsTick poll error', e);
         }
-        // Trigger fetch via signals; DataSource.useSignalEffect will handle network call
-        // when input.fetch == true and dependencies are satisfied.
     } catch (e) {
         console.warn('dsTick error', e);
     }
@@ -1077,3 +1101,5 @@ export const chatService = {
 // per-window background polling without leaking intervals when the window is
 // closed or remounted.
 const pollingRegistry = new WeakMap();
+
+//
