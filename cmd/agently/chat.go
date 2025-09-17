@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/viant/agently/cmd/service"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/conversation"
+	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
 )
 
@@ -30,6 +32,10 @@ type ChatCmd struct {
 	// information. It can be supplied either as an inline JSON string or as
 	// @<path> pointing to a file containing the JSON document.
 	Context string `long:"context" description:"inline JSON object or @file with context data"`
+
+	// Attach allows adding one or more files to the LLM request. Repeatable.
+	// Format: <path>[::caption]
+	Attach []string `long:"attach" description:"file to attach (repeatable). Format: <path>[::caption]"`
 }
 
 // cliInteractionHandler satisfies service.InteractionHandler by prompting the
@@ -85,6 +91,30 @@ func (c *ChatCmd) Execute(_ []string) error {
 		}
 	}
 
+	// Parse --attach flags into binary attachments
+	var attachments []*core.Attachment
+	for _, spec := range c.Attach {
+		spec = strings.TrimSpace(spec)
+		if spec == "" {
+			continue
+		}
+		var pathPart, caption string
+		parts := strings.SplitN(spec, "::", 2)
+		pathPart = parts[0]
+		if len(parts) == 2 {
+			caption = parts[1]
+		}
+		data, err := os.ReadFile(pathPart)
+		if err != nil {
+			return fmt.Errorf("read attachment %q: %w", pathPart, err)
+		}
+		attachments = append(attachments, &core.Attachment{
+			Name:    filepath.Base(pathPart),
+			Content: caption,
+			Data:    data,
+		})
+	}
+
 	// Build executor and service --------------------------------------------
 	svcExec := executorSingleton()
 
@@ -101,6 +131,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 	svc := service.New(svcExec, serviceOpts)
 
 	convID := c.ConvID
+	sentAttachments := false
 
 	callChat := func(userQuery string) error {
 		ctx := tool.WithPolicy(ctxBase, toolPol)
@@ -111,13 +142,17 @@ func (c *ChatCmd) Execute(_ []string) error {
 			convID = uuid.NewString()
 		}
 		ctx = conversation.WithID(ctx, convID)
-		resp, err := svc.Chat(ctx, service.ChatRequest{
+		req := service.ChatRequest{
 			ConversationID: convID,
 			AgentPath:      c.AgentName,
 			Query:          userQuery,
 			Context:        contextData,
 			Timeout:        time.Duration(c.Timeout) * time.Second,
-		})
+		}
+		if !sentAttachments && len(attachments) > 0 {
+			req.Attachments = attachments
+		}
+		resp, err := svc.Chat(ctx, req)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				fmt.Println("[no response] - timeout")
@@ -126,6 +161,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 			return err
 		}
 		convID = resp.ConversationID
+		sentAttachments = true
 		if strings.TrimSpace(resp.Content) == "" {
 			fmt.Println("[no response] - no content")
 		} else {

@@ -5,6 +5,7 @@ import (
 
 	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/usage"
 	"github.com/viant/fluxor/model/types"
 )
@@ -29,6 +30,11 @@ type QueryInput struct {
 	ModelOverride string                 `json:"model,omitempty"` // llm model name
 	ToolsAllowed  []string               `json:"tools,omitempty"` // allow-list for tools (empty = default)
 	Context       map[string]interface{} `json:"context,omitempty"`
+
+	// Attachments carries optional user-provided assets (e.g. images) to be
+	// included in the LLM request alongside the text prompt for this turn.
+	// Each attachment is added as a separate user message item.
+	Attachments []*core.Attachment `json:"attachments,omitempty"`
 
 	// ElicitationMode controls how missing-input requests are handled.
 	//   "user"   – always forward to end-user (current default)
