@@ -30,8 +30,8 @@ export async function ensureConversation({ context }) {
             body.tools = toolsRaw.trim();
         }
 
-        const resp = await conversationAPI.post({body});
-        const data = resp?.data || {};
+        const resp = await conversationAPI.post({ body });
+        const data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp;
         convID = data?.id;
         
         if (!convID) {
@@ -39,12 +39,21 @@ export async function ensureConversation({ context }) {
             return null;
         }
 
-        const input = conversationContext.signals?.input || {};
-        const collection = conversationContext.signals?.collection || {};
-        collection.value = [{ ...data }];
-        input.value = { ...input.peek(), filter: { id: convID } };
-        conversionHandlers.setFormData({ ...data });
-        conversionHandlers.setSelected({ selected: { ...data }, rowIndex: 0 });
+        try {
+            const inputSig = conversationContext.signals?.input;
+            const collSig  = conversationContext.signals?.collection;
+            if (Array.isArray(collSig?.value)) {
+                collSig.value = [{ ...data }];
+            } else if (collSig) {
+                collSig.value = [{ ...data }];
+            }
+            if (inputSig) {
+                const cur = (typeof inputSig.peek === 'function') ? (inputSig.peek() || {}) : (inputSig.value || {});
+                inputSig.value = { ...cur, filter: { id: convID } };
+            }
+        } catch(_) {}
+        try { conversionHandlers.setFormData({ values: { ...data } }); } catch(_) {}
+        try { conversionHandlers.setSelected({ selected: { ...data }, rowIndex: 0 }); } catch(_) {}
     }
     
     return convID;

@@ -15,6 +15,7 @@ import HTMLTableBubble from '../components/chat/HTMLTableBubble.jsx';
 import {ensureConversation, newConversation} from './conversationService';
 import SummaryNote from '../components/chat/SummaryNote.jsx';
 import {setStage} from '../utils/stageBus.js';
+import {setComposerBusy} from '../utils/composerBus.js';
 
 // -------------------------------
 // Window lifecycle helpers
@@ -308,6 +309,13 @@ function installMessagesDebugHooks(context) {
                 const coerced = String(errVal.message || errVal.toString?.() || '');
                 ctrlSig.value = { ...ctrlVal, error: coerced };
             }
+            // Once we have any messages, suppress spinner on background polls.
+            if (len > 0) {
+                context.resources = context.resources || {};
+                if (!context.resources.suppressMessagesLoading) {
+                    context.resources.suppressMessagesLoading = true;
+                }
+            }
             if (len !== lastLen || loading !== lastLoading) {
                 console.log('[chat][signals] messages', { len, loading, ts: Date.now() });
                 lastLen = len;
@@ -339,6 +347,27 @@ function installMessagesDebugHooks(context) {
             return res;
         };
     }
+
+    // Suppress loading spinner flicker for background polling after initial load.
+    try {
+        const ds = messagesCtx?.handlers?.dataSource;
+        if (ds && typeof ds.setLoading === 'function' && !ds._setLoadingWrapped) {
+            const origSetLoading = ds.setLoading.bind(ds);
+            ds.setLoading = (flag) => {
+                // After initial data arrives, avoid toggling loading=true; only allow clearing to false.
+                const suppress = !!(context?.resources?.suppressMessagesLoading);
+                if (suppress) {
+                    if (!flag) {
+                        return origSetLoading(false);
+                    }
+                    // ignore true to prevent spinner flicker
+                    return;
+                }
+                return origSetLoading(flag);
+            };
+            ds._setLoadingWrapped = true;
+        }
+    } catch (_) {}
 }
 
 function selectFolder(props) {
@@ -650,19 +679,17 @@ export async function submitMessage(props) {
     const {context, message, parameters} = props;
     console.log('submitMessage', props)
 
-    // Reference to DataSource controlling the chat collection – used to toggle
-    // the global loading lock that enables / disables the Composer's Send button in the UI.
     const messagesContext = context.Context('messages');
     const messagesAPI = messagesContext.connector;
-    const messageHandlers = messagesContext?.handlers?.dataSource;
 
-    // Engage global lock (button disabled)
-    messageHandlers?.setLoading(true);
     try {
         const convID = await ensureConversation({context});
         if (!convID) {
             return;
         }
+
+        // Mark composer busy via dedicated signal (decoupled from DS loading)
+        try { setComposerBusy(true); } catch(_) {}
 
         const body = {
             content: message.content,
@@ -688,14 +715,25 @@ export async function submitMessage(props) {
         }
 
         // Ask DS to refresh from backend so DataSource stays the single source of truth
-        try { await messageHandlers?.getCollection?.(); } catch(_) {}
+        // Trigger immediate messages refresh: reset since cursor and fetch
+        try {
+            const msgCtx = context.Context('messages');
+            const inSig = msgCtx?.signals?.input;
+            if (inSig) {
+                const cur = (typeof inSig.peek === 'function') ? (inSig.peek() || {}) : (inSig.value || {});
+                const params = { ...(cur.parameters || {}), convID, since: '' };
+                const next = { ...cur, parameters: params, fetch: true };
+                if (typeof inSig.set === 'function') inSig.set(next); else inSig.value = next;
+            } else {
+                await msgCtx?.handlers?.dataSource?.getCollection?.();
+            }
+        } catch(_) {}
 
     } catch (error) {
         console.error('submitMessage error:', error);
-        messageHandlers?.setError(error);
+        messagesContext?.handlers?.dataSource?.setError(error);
     } finally {
-        // Release global lock (button enabled)
-        messageHandlers?.setLoading(false);
+        try { setComposerBusy(false); } catch(_) {}
     }
 }
 
