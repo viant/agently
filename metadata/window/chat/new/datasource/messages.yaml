@@ -1,0 +1,40 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/api/conversations/{convID}/messages
+  method: GET
+
+# No automatic parameter binding from other DataSources. Polling logic drives
+# incremental GETs and merges results into this DataSource's collection via
+# signals to prevent UI blinks. The connector GET is wrapped in chatService to
+# swallow any DS-driven GETs that do not include a since cursor.
+
+parameters:
+  - name: convID
+    kind: path
+    in: input
+    location: convID
+  - name: since
+    kind: query
+    in: input
+    location: since
+
+# Provide a default query parameter so DS dependency resolver does not treat
+# "since" as missing. The connector wrapper still swallows network calls that
+# come without a real cursor (since == '').
+params:
+  since: ""
+
+selectors:
+  # Extract turns from the unwrapped API payload (status/data envelope):
+  # use data.Transcript so DS receives an array for onFetch transformation.
+  data: data.Transcript
+
+uniqueKey:
+  - field: id
+
+on:
+  # Transform Transcript (turns) into message rows and merge with existing collection (service handler).
+  - event: onFetch
+    handler: chat.onFetchMessages
+  - event: onError
+    handler: chat.debugMessagesError

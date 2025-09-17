@@ -21,5 +21,9 @@ columns:
             to: conversations:input
             from: :form
             location: id
+          - name: parameters.convID
+            to: messages:input
+            from: :form
+            location: id
 
 toolbar: $import('toolbar/history.yaml')

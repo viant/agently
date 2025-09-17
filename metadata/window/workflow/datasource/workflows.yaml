@@ -1,6 +1,6 @@
 service:
-  endpoint: appAPI
-  uri: /workspace/workflow
+  endpoint: agentlyAPI
+  uri: /v1/workspace/workflow
   method: GET
   post:
     uri: /v1/api/workflow/run

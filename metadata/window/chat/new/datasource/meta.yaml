@@ -1,5 +1,7 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/metadata/defaults
+  uri: /v1/workspace/metadata
   method: GET
 
+selectors:
+  data: data

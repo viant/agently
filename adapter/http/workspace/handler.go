@@ -95,7 +95,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kind := parts[0]
+	kind := parts[len(parts)-1]
 	// Special read-only handling for tools (not stored in repository)
 
 	if kind == workspace.KindTool || kind == "tool" {

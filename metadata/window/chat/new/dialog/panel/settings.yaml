@@ -10,10 +10,10 @@ items:
     bindingPath: agent
     on:
       - event: onProperties
-        handler: dataSource.buildOptions
-        args: [agents, name, id]
+        handler: chat.buildOptionsFromMeta
+        args: [ agents ]
       - event: onSelection
-        handler: chat.selectAgent
+        handler: chat.applyAgentToolsFromMeta
 
   - id: model
     label: Model
@@ -21,8 +21,8 @@ items:
     bindingPath: model
     on:
       - event: onProperties
-        handler: dataSource.buildOptions
-        args: [models, name, id]
+        handler: chat.buildOptionsFromMeta
+        args: [ models ]
 
 
 
@@ -34,4 +34,4 @@ items:
       separator: '-'
     on:
       - event: onProperties
-        handler: chat.buildToolOptions
+        handler: chat.buildToolOptionsFromMeta

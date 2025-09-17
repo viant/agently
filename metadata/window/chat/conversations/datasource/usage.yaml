@@ -1,7 +1,0 @@
-parameters: []
-
-selectors:
-  data: data
-
-uniqueKey:
-  - field: inputTokens
