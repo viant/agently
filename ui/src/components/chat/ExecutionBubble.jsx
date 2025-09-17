@@ -54,11 +54,9 @@ export default function ExecutionBubble({ message: msg, context }) {
                         const steps = Array.isArray(msg.executions) && msg.executions[0] && Array.isArray(msg.executions[0].steps)
                             ? msg.executions[0].steps
                             : [];
-                        const controlCount = steps.filter(s => {
-                            const r = String(s?.reason || '').toLowerCase();
-                            return r === 'interim' || r === 'control';
-                        }).length;
-                        const countLabel = String(controlCount);
+                        const allowed = new Set(['thinking', 'tool_call']);
+                        const totalCount = steps.filter(s => allowed.has(String(s?.reason || '').toLowerCase())).length;
+                        const countLabel = String(totalCount);
                         return (
                         <details className="mt-2">
                             <summary className="cursor-pointer text-xs text-blue-500">

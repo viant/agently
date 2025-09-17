@@ -130,19 +130,17 @@ async function dsTick({ context }) {
         let since = '';
         for (let i = coll.length - 1; i >= 0; i--) { if (coll[i]?.turnId) { since = coll[i].turnId; break; } }
         if (!since && coll.length) { since = coll[coll.length - 1]?.id || ''; }
-        // Gate fetch to avoid toggling loading and input flicker.
-        const reqSig = `${convID}|${since}`;
-        const initialFetched = !!context.resources?.dsInitialMessagesFetched;
-        if (Array.isArray(coll) && coll.length > 0) {
-            context.resources = context.resources || {};
-            context.resources.dsInitialMessagesFetched = true;
-        }
-        if (context.resources?.lastDsReqSig === reqSig && initialFetched) {
-            try { console.log('[chat][dsTick] skip: unchanged since', { since }); } catch(_) {}
+        // Throttle requests but do not skip when 'since' is unchanged – we still want
+        // to pick up updates within the same turn (model/tool call progress).
+        const nowTs = Date.now();
+        const minIntervalMs = context.resources?.messagesPollThrottleMs || 1000;
+        const lastReqTs = context.resources?.lastDsReqTs || 0;
+        if ((nowTs - lastReqTs) < minIntervalMs) {
+            try { console.log('[chat][dsTick] skip: throttle'); } catch(_) {}
             return;
         }
         context.resources = context.resources || {};
-        context.resources.lastDsReqSig = reqSig;
+        context.resources.lastDsReqTs = nowTs;
 
         // Update DS input and mark fetch=true so DS effect triggers doFetchRecords
         const inSig = messagesCtx.signals?.input;
@@ -158,6 +156,131 @@ async function dsTick({ context }) {
     } catch (e) {
         console.warn('dsTick error', e);
     }
+}
+
+// --------------------------- Transcript → rows helpers ------------------------------
+
+function buildThinkingStepFromModelCall(mc) {
+    if (!mc) return null;
+    return {
+        id: mc.messageId || mc.MessageId,
+        name: mc.model || mc.Model,
+        reason: 'thinking',
+        success: String((mc.status || mc.Status || '')).toLowerCase() === 'completed',
+        error: mc.errorMessage || mc.ErrorMessage || '',
+        startedAt: mc.startedAt || mc.StartedAt,
+        endedAt: mc.completedAt || mc.CompletedAt,
+        requestPayloadId: mc.requestPayloadId || mc.RequestPayloadId,
+        responsePayloadId: mc.responsePayloadId || mc.ResponsePayloadId,
+        streamPayloadId: mc.streamPayloadId || mc.StreamPayloadId,
+        providerRequestPayloadId: mc.providerRequestPayloadId || mc.ProviderRequestPayloadId,
+        providerResponsePayloadId: mc.providerResponsePayloadId || mc.ProviderResponsePayloadId,
+    };
+}
+
+function buildToolStepFromToolCall(tc) {
+    if (!tc) return null;
+    return {
+        id: tc.opId || tc.OpId,
+        name: tc.toolName || tc.ToolName,
+        reason: 'tool_call',
+        success: String((tc.status || tc.Status || '')).toLowerCase() === 'completed',
+        error: tc.errorMessage || tc.ErrorMessage || '',
+        startedAt: tc.startedAt || tc.StartedAt,
+        endedAt: tc.completedAt || tc.CompletedAt,
+        requestPayloadId: tc.requestPayloadId || tc.RequestPayloadId,
+        responsePayloadId: tc.responsePayloadId || tc.ResponsePayloadId,
+        providerRequestPayloadId: null,
+        providerResponsePayloadId: null,
+    };
+}
+
+function computeElapsed(step) {
+    const started = step.startedAt ? new Date(step.startedAt) : null;
+    const ended = step.endedAt ? new Date(step.endedAt) : null;
+    let elapsed = '';
+    if (started && ended && !isNaN(started) && !isNaN(ended)) {
+        elapsed = (((ended - started) / 1000).toFixed(2)) + 's';
+    }
+    return elapsed;
+}
+
+function mapTranscriptToRowsWithExecutions(transcript = []) {
+    const rows = [];
+    for (const turn of transcript) {
+        const turnId = turn?.id || turn?.Id;
+        const messages = Array.isArray(turn?.message) ? turn.message
+                         : Array.isArray(turn?.Message) ? turn.Message : [];
+
+        // 1) Build all execution steps in this turn (model/tool/interim)
+        const steps = [];
+        for (const m of messages) {
+            const isInterim = !!(m?.interim ?? m?.Interim);
+            if (isInterim) {
+                const created = m?.createdAt || m?.CreatedAt;
+                const interim = { id: (m.id || m.Id || '') + '/interim', name: 'assistant', reason: 'interim', success: true, startedAt: created, endedAt: created };
+                steps.push({ ...interim, elapsed: computeElapsed(interim) });
+            }
+            const mc = m?.modelCall || m?.ModelCall;
+            const tc = m?.toolCall || m?.ToolCall;
+            const s1 = buildThinkingStepFromModelCall(mc);
+            const s2 = buildToolStepFromToolCall(tc);
+            if (s1) steps.push({ ...s1, elapsed: computeElapsed(s1) });
+            if (s2) steps.push({ ...s2, elapsed: computeElapsed(s2) });
+        }
+
+        // Sort steps by timestamp (prefer startedAt, fallback endedAt)
+        steps.sort((a, b) => {
+            const ta = a?.startedAt || a?.endedAt || '';
+            const tb = b?.startedAt || b?.endedAt || '';
+            const da = ta ? new Date(ta).getTime() : 0;
+            const db = tb ? new Date(tb).getTime() : 0;
+            return da - db;
+        });
+
+        // 2) Build visible chat rows (user/assistant non-interim, skip call-only entries)
+        const turnRows = [];
+        for (const m of messages) {
+            const roleLower = String(m.role || m.Role || '').toLowerCase();
+            const isInterim = !!(m?.interim ?? m?.Interim);
+            const hasCall = !!(m?.toolCall || m?.ToolCall || m?.modelCall || m?.ModelCall);
+            if (isInterim) continue;
+            if (hasCall) continue; // call content is represented in steps
+            if (roleLower !== 'user' && roleLower !== 'assistant') continue;
+
+            const id = m.id || m.Id;
+            const createdAt = toISOSafe(m.createdAt || m.CreatedAt);
+            const turnIdRef = m.turnId || m.TurnId || turnId;
+
+            // Row usage derived from model call only when attached to this row later; leave null here.
+            turnRows.push({
+                id,
+                conversationId: m.conversationId || m.ConversationId,
+                role: roleLower,
+                content: m.content || m.Content || '',
+                createdAt,
+                toolName: m.toolName || m.ToolName,
+                turnId: turnIdRef,
+                parentId: turnIdRef,
+                executions: [],
+                usage: null,
+                elicitation: m.elicitation || m.Elicitation,
+            });
+        }
+
+        // 3) Attach steps to a single carrier message in the same turn (prefer first user)
+        if (steps.length && turnRows.length) {
+            let carrierIdx = turnRows.findIndex(r => r.role === 'user');
+            if (carrierIdx < 0) carrierIdx = 0;
+            // Compute usage from the thinking step model if available
+            let usage = null;
+            // No token fields on step; usage computed elsewhere in poll path; keep null here.
+            turnRows[carrierIdx] = { ...turnRows[carrierIdx], executions: [{ steps }], usage };
+        }
+
+        for (const r of turnRows) rows.push(r);
+    }
+    return rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -305,34 +428,7 @@ export function onFetchMessages(props) {
     try {
         const { collection, context } = props || {};
         const transcript = Array.isArray(collection) ? collection : [];
-
-        // Flatten turns to rows
-        const toISOSafe = (v) => {
-            if (!v) return new Date().toISOString();
-            try { const d = new Date(v); return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString(); } catch(_) { return new Date().toISOString(); }
-        };
-        const rows = [];
-        for (const turn of transcript) {
-            const turnId = turn?.id || turn?.Id;
-            const msgs = Array.isArray(turn?.message) ? turn.message : (Array.isArray(turn?.Message) ? turn.Message : []);
-            for (const m of msgs) {
-                const interim = m?.interim ?? m?.Interim;
-                const role = String(m?.role || m?.Role || '').toLowerCase();
-                if (interim) continue;
-                if (role !== 'user' && role !== 'assistant') continue;
-                rows.push({
-                    id: m.id || m.Id,
-                    conversationId: m.conversationId || m.ConversationId,
-                    role,
-                    content: m.content || m.Content || '',
-                    createdAt: toISOSafe(m.createdAt || m.CreatedAt),
-                    toolName: m.toolName || m.ToolName,
-                    turnId: m.turnId || m.TurnId || turnId,
-                    parentId: m.turnId || m.TurnId || turnId,
-                    executions: [],
-                });
-            }
-        }
+        const built = mapTranscriptToRowsWithExecutions(transcript);
 
         // Append-only merge with existing DS rows
         let prev = [];
@@ -340,17 +436,15 @@ export function onFetchMessages(props) {
             const msgCtx = context?.Context?.('messages');
             prev = Array.isArray(msgCtx?.signals?.collection?.peek?.()) ? msgCtx.signals.collection.peek() : [];
         } catch(_) {}
-
         const seen = new Set((prev || []).map(r => r && r.id).filter(Boolean));
         const merged = [...prev];
-        for (const r of rows) {
+        for (const r of built) {
             if (!r || !r.id || seen.has(r.id)) continue;
             seen.add(r.id);
             merged.push(r);
         }
         return merged;
-    } catch (e) {
-        console.warn('onFetchMessages error', e);
+    } catch (_) {
         return [];
     }
 }
@@ -362,414 +456,12 @@ export function mergeFromResponse({ context, response }) {
         if (!conv) return;
         const transcript = Array.isArray(conv?.transcript) ? conv.transcript
                           : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
-        try { console.log('[chat][mergeFromResponse] transcript size', transcript.length); } catch(_) {}
-        const rows = [];
-        for (const turn of transcript) {
-            const turnId = turn?.id || turn?.Id;
-            const messages = Array.isArray(turn?.message) ? turn.message
-                             : Array.isArray(turn?.Message) ? turn.Message : [];
-            const usage = turn?.usage || turn?.Usage;
-            const turnExecutions = [];
-            for (const m of messages) {
-                const interim = m?.interim ?? m?.Interim;
-                const roleLower = String(m.role || m.Role || '').toLowerCase();
-                const hasCall = !!(m?.toolCall || m?.ToolCall || m?.modelCall || m?.ModelCall);
-                if (interim) {
-                    const created = m?.createdAt || m?.CreatedAt;
-                    turnExecutions.push({ id: (m.id || m.Id || '') + '/interim', name: 'assistant', reason: 'interim', success: true, startedAt: created, endedAt: created });
-                    continue;
-                }
-                if (hasCall) continue;
-                if (roleLower !== 'user' && roleLower !== 'assistant') continue;
-                const id = m.id || m.Id;
-                const createdAt = toISOSafe(m.createdAt || m.CreatedAt);
-                const turnIdRef = m.turnId || m.TurnId || turnId;
-                rows.push({ id, conversationId: m.conversationId || m.ConversationId, role: roleLower, content: m.content || m.Content || '', createdAt, toolName: m.toolName || m.ToolName, turnId: turnIdRef, parentId: turnIdRef, executions: [], usage, elicitation: m.elicitation || m.Elicitation });
-            }
-            // Attach turn executions to a single carrier row
-            if (turnExecutions.length && rows.length) {
-                const idx = rows.findIndex(r => r.turnId === turnId && r.role === 'user');
-                const cidx = idx >= 0 ? idx : rows.findIndex(r => r.turnId === turnId);
-                if (cidx >= 0) {
-                    rows[cidx] = { ...rows[cidx], executions: turnExecutions };
-                }
-            }
-        }
+        const rows = mapTranscriptToRowsWithExecutions(transcript);
         const messagesCtx = context.Context('messages');
         receiveMessages(messagesCtx, rows);
     } catch (e) {
         console.warn('mergeFromResponse error', e);
     }
-}
-
-// Deprecated – DataSource now owns fetching; retained for reference but unused
-function startPolling({context}) {
-    if (!context || typeof context.Context !== 'function') {
-        console.warn('chatService.startPolling: invalid context');
-        return;
-    }
-    const tick = async () => {
-        const t0 = Date.now();
-        const seq = (context.resources.pollSeq = (context.resources.pollSeq || 0) + 1);
-        if (context.resources.chatTimerState) return;
-        try {
-            context.resources.chatTimerState = true;
-
-            // Skip polling during initial grace window to avoid duplicate calls
-            const now = Date.now();
-            const graceUntil = context.resources?.messagesGraceUntil || 0;
-            if (now < graceUntil) {
-                try { console.log('[chat][poll]', seq, 'skip grace', { now, graceUntil, remainMs: (graceUntil - now) }); } catch(_) {}
-                return;
-            }
-
-            const convCtx = context.Context('conversations');
-            let convID = context.resources?.convID;
-            if (!convID) {
-                convID = convCtx?.handlers?.dataSource.peekFormData?.()?.id;
-                if (convID) context.resources.convID = convID;
-            }
-            if (!convID) {
-                try { console.log('[chat][poll]', seq, 'skip no convID'); } catch(_) {}
-                return; // no active conversation – nothing to do
-            }
-
-            const messagesCtx = context.Context('messages');
-            if (!messagesCtx) {
-                try { console.log('[chat][poll]', seq, 'skip no messagesCtx'); } catch(_) {}
-                return;
-            }
-
-            const collSig = messagesCtx.signals?.collection;
-            const ctrlSig = messagesCtx.signals?.control;
-            // If the DataSource is already fetching (auto-fetch on input change), skip this tick
-            if (ctrlSig?.peek?.()?.loading) {
-                try { console.log('[chat][poll]', seq, 'skip DS loading'); } catch(_) {}
-                return;
-            }
-            let current = Array.isArray(collSig?.value) ? collSig.value : [];
-            try { console.log('[chat][poll]', seq, 'collLen', current.length); } catch(_) {}
-            // Prevent UI blink if DS altered collection (cleared or shrunk) by restoring last snapshot
-            try {
-                if (context.resources?.messagesDidInitialFetch) {
-                    const snap = messagesCtx && messagesCtx._snapshot;
-                    if (Array.isArray(snap) && snap.length > 0 && (!current || current.length < snap.length)) {
-                        collSig.value = [...snap];
-                        current = collSig.value;
-                        console.log('[chat][poll]', seq, 'restored snapshot to prevent blink', { size: current.length });
-                    }
-                }
-            } catch(_) {}
-            // Prefer last turnId if present; fallback to last message id
-            let lastID = '';
-            for (let i = current.length - 1; i >= 0; i--) {
-                if (current[i]?.turnId) { lastID = current[i].turnId; break; }
-            }
-            if (!lastID && current.length) {
-                lastID = current[current.length - 1].id;
-            }
-            // Fallback to stored last seen turnId to survive transient collection clears
-            if (!lastID) {
-                const stored = context.resources?.messagesLastTurnId || '';
-                if (stored) lastID = stored;
-            }
-
-            // If no messages in UI yet, perform initial load (full transcript)
-            const messagesAPI = messagesCtx.connector;
-            if (!lastID && !context.resources?.messagesDidInitialFetch && !initialFetchDoneByConv.has(convID)) {
-                const nowTick0 = Date.now();
-                const lastTs0 = context.resources?.messagesLastFetchTs || 0;
-                const throttleMs0 = context.resources?.messagesPollThrottleMs || 900;
-                if ((nowTick0 - lastTs0) >= throttleMs0 && !context.resources?.messagesFetchInFlight) {
-                    context.resources.messagesFetchInFlight = true;
-                    context.resources.messagesLastFetchTs = nowTick0;
-                    try { console.log('[chat][initial]', seq, 'DS GET', {convID, since: ''}); console.time(`[chat][initial] seq=${seq}`); } catch(_) {}
-                    const json0 = await messagesAPI.get({ inputParameters: { convID, since: '' } });
-                    const conv0 = json0 && (json0.data ?? json0.Data ?? json0.conversation ?? json0.Conversation ?? json0);
-                    const convStage0 = conv0?.stage || conv0?.Stage;
-                    if (convStage0) {
-                        setStage({ phase: String(convStage0) });
-                    }
-                    const transcript0 = Array.isArray(conv0?.transcript) ? conv0.transcript
-                                      : Array.isArray(conv0?.Transcript) ? conv0.Transcript : [];
-                    try { console.log('[chat][initial] transcript size', transcript0.length); } catch(_) {}
-                    const rows0 = [];
-                    // reuse existing turn → rows mapping logic by mimicking transcript var
-                    for (const turn of transcript0) {
-                        const turnId = turn?.id || turn?.Id;
-                        const messages = Array.isArray(turn?.message) ? turn.message
-                                         : Array.isArray(turn?.Message) ? turn.Message : [];
-                        // Minimal mapping: push rows without executions; let subsequent tick compute executions
-                        for (const m of messages) {
-                            const roleLower = String(m.role || m.Role || '').toLowerCase();
-                            if (roleLower !== 'user' && roleLower !== 'assistant') continue;
-                            if (m?.interim || m?.Interim) continue;
-                            rows0.push({
-                                id: m.id || m.Id,
-                                conversationId: m.conversationId || m.ConversationId,
-                                role: roleLower,
-                                content: m.content || m.Content || '',
-                                createdAt: toISOSafe(m.createdAt || m.CreatedAt),
-                                toolName: m.toolName || m.ToolName,
-                                turnId: m.turnId || m.TurnId || turnId,
-                                parentId: m.turnId || m.TurnId || turnId,
-                                executions: [],
-                            });
-                        }
-                    }
-                    if (rows0.length) {
-                        receiveMessages(messagesCtx, rows0, '');
-                        try { console.log('[chat][initial]', seq, 'rows', rows0.length, 'turns', transcript0.length); } catch(_) {}
-                    }
-                    // Track newest turnId from initial transcript
-                    let newestTurnId0 = '';
-                    for (let i = transcript0.length - 1; i >= 0; i--) {
-                        const t = transcript0[i];
-                        newestTurnId0 = (t?.id || t?.Id || newestTurnId0);
-                        if (newestTurnId0) break;
-                    }
-                    context.resources.messagesLastTurnId = newestTurnId0 || context.resources.messagesLastTurnId || '';
-                    context.resources.messagesDidInitialFetch = true;
-                    initialFetchDoneByConv.add(convID);
-                    try { console.timeEnd(`[chat][initial] seq=${seq}`); } catch(_) {}
-                }
-                return;
-            }
-            // If we have already done an initial fetch but still no lastID (e.g., transient clears), skip this tick
-            if (!lastID) {
-                try { console.log('[chat][poll]', seq, 'skip no lastID (post-initial)'); } catch(_) {}
-                return;
-            }
-
-            // Throttle and de-dupe in-flight calls
-            const nowTick = Date.now();
-            const lastTs = context.resources?.messagesLastFetchTs || 0;
-            const baseThrottle = context.resources?.messagesPollThrottleMs || 900;
-            const noopCount = context.resources?.messagesNoopPolls || 0;
-            const throttleMs = Math.min(5000, baseThrottle + (noopCount * 600));
-            if ((nowTick - lastTs) < throttleMs) {
-                try { console.log('[chat] poll:skip throttle'); } catch(_) {}
-                return;
-            }
-            if (context.resources?.messagesFetchInFlight) {
-                try { console.log('[chat] poll:skip inflight'); } catch(_) {}
-                return;
-            }
-
-            // Fetch rich conversation view (v2) via backend proxy on v1 path
-            const url = { convID, since: lastID };
-            context.resources.messagesFetchInFlight = true;
-            context.resources.messagesLastFetchTs = nowTick;
-            try { console.log('[chat][poll]', seq, 'DS GET', url); console.time(`[chat][poll] seq=${seq}`); } catch(_) {}
-            const json = await messagesAPI.get({ inputParameters: url });
-
-            // New format: data is a Conversation object with transcript and stage (Go fields are Capitalized)
-            const conv = json && (json.data ?? json.Data ?? json.conversation ?? json.Conversation ?? json);
-            const convStage = conv?.stage || conv?.Stage;
-            if (convStage) {
-                setStage({ phase: String(convStage) });
-            }
-            const transcript = Array.isArray(conv?.transcript) ? conv.transcript
-                              : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
-            const rows = [];
-
-
-            for (const turn of transcript) {
-                const turnId = turn?.id || turn?.Id;
-                const messages = Array.isArray(turn?.message) ? turn.message
-                                 : Array.isArray(turn?.Message) ? turn.Message : [];
-
-                // Aggregate all events in this turn into a single executions list
-                const turnSteps = [];
-                for (const m of messages) {
-                    // interim events
-                    const interim = m?.interim ?? m?.Interim;
-                    const created = m?.createdAt || m?.CreatedAt;
-                    if (interim) {
-                        turnSteps.push({
-                            id: (m.id || m.Id || '') + '/interim',
-                            name: 'assistant',
-                            reason: 'interim',
-                            success: true,
-                            startedAt: created,
-                            endedAt: created,
-                        });
-                    }
-                    // Do not include user/assistant non-interim messages in execution steps
-                    // tool/model calls
-                    const toolCall = m?.toolCall || m?.ToolCall;
-                    const modelCall = m?.modelCall || m?.ModelCall;
-                    if (toolCall) {
-                        const tc = toolCall;
-                        turnSteps.push({
-                            id: tc.opId || tc.OpId,
-                            name: tc.toolName || tc.ToolName,
-                            reason: 'tool_call',
-                            success: String((tc.status || tc.Status || '')).toLowerCase() === 'completed',
-                            error: tc.errorMessage || tc.ErrorMessage || '',
-                            startedAt: tc.startedAt || tc.StartedAt,
-                            endedAt: tc.completedAt || tc.CompletedAt,
-                            requestPayloadId: tc.requestPayloadId || tc.RequestPayloadId,
-                            responsePayloadId: tc.responsePayloadId || tc.ResponsePayloadId,
-                            providerRequestPayloadId: null,
-                            providerResponsePayloadId: null,
-                        });
-                    }
-                    if (modelCall) {
-                        const mc = modelCall;
-                        turnSteps.push({
-                            id: mc.messageId || mc.MessageId,
-                            name: mc.model || mc.Model,
-                            reason: 'thinking',
-                            success: String((mc.status || mc.Status || '')).toLowerCase() === 'completed',
-                            error: mc.errorMessage || mc.ErrorMessage || '',
-                            startedAt: mc.startedAt || mc.StartedAt,
-                            endedAt: mc.completedAt || mc.CompletedAt,
-                            requestPayloadId: mc.requestPayloadId || mc.RequestPayloadId,
-                            responsePayloadId: mc.responsePayloadId || mc.ResponsePayloadId,
-                            streamPayloadId: mc.streamPayloadId || mc.StreamPayloadId,
-                            providerRequestPayloadId: mc.providerRequestPayloadId || mc.ProviderRequestPayloadId,
-                            providerResponsePayloadId: mc.providerResponsePayloadId || mc.ProviderResponsePayloadId,
-                        });
-                    }
-                }
-
-                // Normalize/compute elapsed for each step and drop invalid dates
-                const normalizedSteps = turnSteps.map(s => {
-                    const started = s.startedAt ? new Date(s.startedAt) : null;
-                    const ended = s.endedAt ? new Date(s.endedAt) : null;
-                    let elapsed = '';
-                    if (started && ended && !isNaN(started) && !isNaN(ended)) {
-                        elapsed = (((ended - started) / 1000).toFixed(2)) + 's';
-                    }
-                    return { ...s, elapsed };
-                });
-                const turnExecutions = normalizedSteps.length ? [{ steps: normalizedSteps }] : [];
-
-                // Build per-message rows first; attach executions only to one carrier message
-                const turnRows = [];
-                for (const m of messages) {
-                    const modelCall = m?.modelCall || m?.ModelCall;
-                    const toolCall  = m?.toolCall  || m?.ToolCall;
-                    const hasCall   = !!(modelCall || toolCall);
-                    const isInterim = !!(m?.interim ?? m?.Interim);
-                    const roleLower = String(m.role || m.Role || '').toLowerCase();
-                    let usage = null;
-                    const pt = (modelCall && (modelCall.promptTokens || modelCall.PromptTokens)) || 0;
-                    const ct = (modelCall && (modelCall.completionTokens || modelCall.CompletionTokens)) || 0;
-                    const tt = (modelCall && (modelCall.totalTokens || modelCall.TotalTokens));
-                    if (pt || ct || tt) {
-                        usage = {
-                            promptTokens: Number(pt || 0),
-                            completionTokens: Number(ct || 0),
-                            totalTokens: Number(tt != null ? tt : (Number(pt || 0) + Number(ct || 0))),
-                        };
-                    }
-                    const id = m.id || m.Id;
-                    const createdAt = toISOSafe(m.createdAt || m.CreatedAt);
-                    const turnIdRef = m.turnId || m.TurnId || turnId;
-
-                    // Only keep user/assistant roles, skip interim entries
-                    if (isInterim) continue;
-                    if (roleLower !== 'user' && roleLower !== 'assistant') continue;
-                    // Keep assistant elicitation prompts so they render as forms
-
-                    // If message carries tool/model call, do not render a separate bubble
-                    if (hasCall) continue;
-
-                    turnRows.push({
-                        id,
-                        conversationId: m.conversationId || m.ConversationId,
-                        role: roleLower,
-                        content: m.content || m.Content || '',
-                        createdAt,
-                        toolName: m.toolName || m.ToolName,
-                        turnId: turnIdRef,
-                        parentId: turnIdRef,
-                        executions: [], // attach later to a single row
-                        usage,
-                        elicitation: m.elicitation || m.Elicitation,
-                    });
-                }
-
-                // Choose a single carrier message for executions: prefer first user, else first message
-                let carrierIdx = -1;
-                for (let i = 0; i < turnRows.length; i++) {
-                    if (turnRows[i].role === 'user') { carrierIdx = i; break; }
-                }
-                if (carrierIdx === -1 && turnRows.length) carrierIdx = 0;
-                if (carrierIdx >= 0) {
-                    turnRows[carrierIdx] = { ...turnRows[carrierIdx], executions: turnExecutions };
-                }
-
-                // Append to global rows
-                for (const r of turnRows) rows.push(r);
-            }
-            if (rows.length) {
-                receiveMessages(messagesCtx, rows, lastID);
-            }
-            // Adjust noop backoff: if newest turnId didn't change, increase; otherwise reset
-            let newestTurnId = '';
-            for (let i = transcript.length - 1; i >= 0; i--) {
-                const t = transcript[i];
-                newestTurnId = (t?.id || t?.Id || newestTurnId);
-                if (newestTurnId) break;
-            }
-            if (newestTurnId && newestTurnId === lastID) {
-                context.resources.messagesNoopPolls = Math.min((context.resources.messagesNoopPolls || 0) + 1, 10);
-            } else {
-                context.resources.messagesNoopPolls = 0;
-            }
-            // Persist newest turnId for resilience across DS resets
-            if (newestTurnId) {
-                context.resources.messagesLastTurnId = newestTurnId;
-            }
-            try {
-                console.log('[chat][poll]', seq, 'rows', rows.length, 'turns', transcript.length, 'noopPolls', context.resources.messagesNoopPolls, 'newestTurnId', newestTurnId, 'lastID', lastID);
-                console.timeEnd(`[chat][poll] seq=${seq}`);
-            } catch(_) {}
-
-            // Determine id of newest assistant message after merge (kept for future features)
-            // const messages = messagesCtx.signals?.collection?.value || [];
-            // let newestAssistantID = '';
-            // for (let i = messages.length - 1; i >= 0; i--) {
-            //     if (messages[i].role === 'assistant') {
-            //         newestAssistantID = messages[i].id;
-            //         break;
-            //     }
-            // }
-
-        } catch (err) {
-            console.error('chatService.startPolling tick error:', err);
-        }
-    };
-    tick().then(() => {}).finally(() => {
-        context.resources.chatTimerState = false;
-        context.resources.messagesFetchInFlight = false;
-        try { console.log('[chat][poll] end', { elapsedMs: Date.now() - t0 }); } catch(_) {}
-        try {
-            const now2 = Date.now();
-            const desired = (now2 > (context.resources.stabilizationUntil || 0)) ? 1000 : 250;
-            if ((context.resources.pollIntervalMs || 0) !== desired) {
-                clearInterval(context.resources.chatTimer);
-                context.resources.pollIntervalMs = desired;
-                context.resources.chatTimer = setInterval(() => startPolling({ context }), desired);
-                console.log('[chat][poll] interval adjusted to', desired, 'ms');
-            }
-        } catch(_) {}
-    });
-}
-
-// Map v2 transcript DAO rows to legacy message shape expected by the UI merge
-function mapTranscriptToMessages(rows = []) {
-    return rows.map(v => ({
-        id: v.id,
-        conversationId: v.conversationId,
-        role: v.role,
-        content: v.content,
-        createdAt: v.createdAt || new Date().toISOString(),
-        toolName: v.toolName,
-    }));
 }
 
 
@@ -1208,9 +900,8 @@ function mergeMessages(messagesContext, incoming) {
         collSig.value = next;
         try { messagesContext._snapshot = [...next]; } catch(_) {}
         try { console.log('[chat] mergeMessages:applied', { before, after: next.length }); } catch(_) {}
-        // Keep the DataSource form in sync with the newest assistant chunk
-        const last = next[next.length - 1] || {};
-        messagesContext?.handlers?.dataSource?.setFormData?.({ values: { ...last } });
+        // Do not mutate the messages DataSource form here; changing form values
+        // can reset the chat composer input and cause focus flicker.
     }
 }
 
