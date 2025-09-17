@@ -153,9 +153,7 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 
 	// Conversations collection
 	mux.HandleFunc("POST /v1/api/conversations", s.handleConversations)     // create new conversation
-	mux.HandleFunc("POST /v1/api/conversations/", s.handleConversations)    // create (trailing slash)
 	mux.HandleFunc("GET /v1/api/conversations", s.handleConversations)      // list conversations
-	mux.HandleFunc("GET /v1/api/conversations/", s.handleConversations)     // list (trailing slash)
 	mux.HandleFunc("GET /v1/api/conversations/{id}", s.handleConversations) // get conversation by id
 
 	// Conversation messages collection & item
@@ -165,10 +163,6 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 
 	mux.HandleFunc("GET /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		s.handleGetMessages(w, r, r.PathValue("id"))
-	})
-
-	mux.HandleFunc("GET /v1/api/conversations/{id}/messages/{msgId}", func(w http.ResponseWriter, r *http.Request) {
-		s.handleGetSingleMessage(w, r, r.PathValue("id"), r.PathValue("msgId"))
 	})
 
 	// Usage statistics

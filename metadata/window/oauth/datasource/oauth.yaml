@@ -1,6 +1,6 @@
 service:
-  endpoint: appAPI
-  uri: /workspace/oauth
+  endpoint: agentlyAPI
+  uri: /v1/workspace/oauth
 
 
 selectors:

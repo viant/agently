@@ -1,9 +1,9 @@
 service:
-  endpoint: appAPI
-  uri: /workspace/tool
+  endpoint: agentlyAPI
+  uri: /v1/workspace/tool
   method: GET
   post:
-    uri: /tools/{toolName}
+    uri: /v1/api/tools/{toolName}
 
 # Optional query parameters appended to the URI. When pattern is non-empty the
 # datasource issues /v1/workspace/tool?pattern=<value>

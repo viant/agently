@@ -16,7 +16,6 @@ import (
 	toolhttp "github.com/viant/agently/adapter/http/tool"
 	"github.com/viant/agently/adapter/http/workflow"
 
-	"encoding/json"
 	"strings"
 
 	"github.com/viant/agently/adapter/http/router/metadata"
@@ -27,8 +26,6 @@ import (
 	daofactory "github.com/viant/agently/internal/dao/factory"
 	d "github.com/viant/agently/internal/domain"
 	dstore "github.com/viant/agently/internal/domain/adapter"
-	apiconv "github.com/viant/agently/sdk/conversation"
-	implconv "github.com/viant/agently/sdk/conversation/impl"
 	fluxorpol "github.com/viant/fluxor/policy"
 )
 
@@ -56,54 +53,8 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	// File browser (Forge)
 	mux.Handle("/v1/workspace/file-browser/", http.StripPrefix("/v1/workspace/file-browser", filebrowser.New()))
 
-	// Metadata defaults endpoint
-	mux.HandleFunc("/v1/metadata/defaults", metadata.New(exec))
-
-	// v2 read endpoints (Datly-backed) – rich conversation
-	mux.HandleFunc("/v2/api/agently/conversation/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		ctx := r.Context()
-		id := strings.TrimPrefix(r.URL.Path, "/v2/api/agently/conversation/")
-		id = strings.Trim(id, "/")
-		if id == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`{"status":"ERROR","message":"id is required"}`))
-			return
-		}
-		svc, err := implconv.NewFromEnv(ctx)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		var opts []apiconv.Option
-		if value := r.URL.Query().Get("since"); value != "" {
-			opts = append(opts, apiconv.WithSince(value))
-		}
-		if value := r.URL.Query().Get("includeModelCallPayload"); value != "" {
-			opts = append(opts, apiconv.WithIncludeModelCall(value != "" && value != "0"))
-		}
-		if value := r.URL.Query().Get("includeToolCallPayload"); value != "" {
-			opts = append(opts, apiconv.WithIncludeToolCall(value != "" && value != "0"))
-		}
-		conv, err := svc.Get(ctx, id, opts...)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(struct {
-			Status string                  `json:"status"`
-			Data   []*apiconv.Conversation `json:"data"`
-		}{Status: "ok", Data: func() []*apiconv.Conversation {
-			if conv == nil {
-				return nil
-			}
-			return []*apiconv.Conversation{conv}
-		}()})
-	})
+	// Preferred path
+	mux.HandleFunc("/v1/workspace/metadata", metadata.NewAgently(exec))
 
 	fileSystem := fsadapter.New(afs.New(), "embed://localhost", &ui.FS)
 	fileServer := http.FileServer(fileSystem)

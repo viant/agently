@@ -117,6 +117,11 @@ export function classifyMessage(message) {
  * @returns {Array} - Normalized messages for display
  */
 export function normalizeMessages(raw = []) {
+    // Guard against non-array inputs (e.g., envelope objects) to prevent
+    // runtime errors when rendering Chat immediately after a DS fetch.
+    if (!Array.isArray(raw)) {
+        return [];
+    }
     const out = [];
 
     // Safe date → ISO helper to avoid invalid time errors in Forge MessageCard

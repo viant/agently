@@ -1,9 +1,9 @@
 service:
-  endpoint: appAPI
-  uri: /workspace/models
+  endpoint: agentlyAPI
+  uri: /v1/workspace/models
   method: GET
   put:
-    uri: /workspace/models/{id}
+    uri: /v1/workspace/models/{id}
 
 
 paging:

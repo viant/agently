@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	execsvc "github.com/viant/agently/genai/executor"
@@ -23,12 +24,24 @@ func New(exec *execsvc.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		cfg := exec.Config()
 		if cfg == nil {
-			w.WriteHeader(http.StatusInternalServerError)
+			http.Error(w, ErrNilConfig.Error(), http.StatusInternalServerError)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(response{
-			Agent: cfg.Default.Agent,
-			Model: cfg.Default.Model,
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(struct {
+			Status string   `json:"status"`
+			Data   response `json:"data"`
+		}{
+			Status: "ok",
+			Data: response{
+				Agent: cfg.Default.Agent,
+				Model: cfg.Default.Model,
+			},
 		})
 	}
 }
+
+// Shared errors
+var (
+	ErrNilConfig = errors.New("executor config is nil")
+)

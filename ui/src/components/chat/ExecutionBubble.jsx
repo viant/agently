@@ -30,6 +30,7 @@ function renderMarkdown(md = "") {
 }
 
 export default function ExecutionBubble({ message: msg, context }) {
+    try { console.log('[chat][render] ExecutionBubble', { id: msg?.id, role: msg?.role, ts: Date.now() }); } catch(_) {}
     const avatarColour = msg.role === "user" ? "var(--blue4)"
         : msg.role === "assistant" ? "var(--light-gray4)"
         : "var(--orange3)";

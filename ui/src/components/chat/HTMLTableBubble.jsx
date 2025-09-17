@@ -3,6 +3,7 @@ import { Icon } from '@blueprintjs/core';
 import { format as formatDate } from 'date-fns';
 
 export default function HTMLTableBubble({message, context}) {
+    try { console.log('[chat][render] HTMLTableBubble', { id: message?.id, role: message?.role, ts: Date.now() }); } catch(_) {}
     const avatarColour = 'var(--blue4)';
     const bubbleClass = 'chat-bubble chat-user';
 
