@@ -570,6 +570,7 @@ export async function buildOptionsFromMeta({ context, args }) {
     if (!listName) return { options: [] };
     const meta = await ensureMeta(context);
     const list = Array.isArray(meta?.[listName]) ? meta[listName] : [];
+    try { console.log('[settings] buildOptionsFromMeta', { listName, size: list.length }); } catch(_) {}
     const options = list.map(v => ({ id: String(v), label: String(v), value: String(v) }));
     return { options };
 }
@@ -578,7 +579,16 @@ export async function buildOptionsFromMeta({ context, args }) {
  * Builds tool options from aggregated meta tools list.
  */
 export async function buildToolOptionsFromMeta({ context }) {
-    return buildOptionsFromMeta({ context, args: ['tools'] });
+    try {
+        const meta = await ensureMeta(context);
+        const tools = Array.isArray(meta?.tools) ? meta.tools : [];
+        console.log('[settings] buildToolOptionsFromMeta', { size: tools.length });
+        const options = tools.map(v => ({ id: String(v), label: String(v), value: String(v) }));
+        return { options };
+    } catch (e) {
+        console.warn('[settings] buildToolOptionsFromMeta error', e);
+        return { options: [] };
+    }
 }
 
 // Applies meta.agentTools mapping to the conversations.tools field when agent changes
@@ -588,6 +598,7 @@ export async function applyAgentToolsFromMeta({ context, selected }) {
         const agentTools = meta?.agentTools || {};
         const convCtx = context.Context('conversations');
         const toolNames = agentTools?.[selected] || [];
+        console.log('[settings] applyAgentToolsFromMeta', { selected, size: toolNames.length });
         if (convCtx?.handlers?.dataSource?.setFormField) {
             convCtx.handlers.dataSource.setFormField({ item: { id: 'tools' }, value: toolNames });
         }
@@ -601,11 +612,13 @@ export async function applyAgentToolsFromMeta({ context, selected }) {
 async function ensureMeta(context) {
     // Prefer cached result on window context.
     if (context?.resources?.metaPayload) {
+        try { console.log('[settings][meta] using cached payload'); } catch(_) {}
         return context.resources.metaPayload;
     }
     const metaContext = context?.Context?.('meta');
     const metaAPI = metaContext?.connector;
     try {
+        console.log('[settings][meta] fetch:start via DS');
         const resp = await metaAPI?.get?.({});
         const data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp;
         if (data) {
@@ -613,10 +626,11 @@ async function ensureMeta(context) {
             context.resources = context.resources || {};
             context.resources.metaPayload = data;
             try { metaContext?.handlers?.dataSource?.setFormData?.({ values: data }); } catch(_) {}
+            try { console.log('[settings][meta] fetch:done', { keys: Object.keys(data||{}) }); } catch(_) {}
             return data;
         }
     } catch (err) {
-        console.error('ensureMeta error', err);
+        console.error('[settings][meta] ensureMeta error', err);
     }
     return {};
 }
@@ -822,6 +836,7 @@ export async function fetchMetaDefaults({context}) {
     const metaContext = context.Context('meta')
     const metaAPI = metaContext.connector;
     try {
+        console.log('[settings][meta] fetch defaults:start');
         const resp = await metaAPI.get({})
         const data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp;
         if (!data) return;
@@ -833,10 +848,11 @@ export async function fetchMetaDefaults({context}) {
 
         const existing = convCtx.handlers.dataSource.peekFormData?.() || {};
         const values = {...existing, agent, model};
+        console.log('[settings][meta] defaults', { agent, model, tools: (values.tools||[]).length });
         convCtx.handlers.dataSource.setFormData({values: values});
         return values
     } catch (err) {
-        console.error('fetchMetaDefaults error', err);
+        console.error('[settings][meta] fetch defaults error', err);
     }
 }
 
@@ -1063,6 +1079,7 @@ export const chatService = {
     upload,
     onInit,
     onDestroy,
+    prepareSettings,
     debugHistoryOpen,
     debugHistorySelection,
     debugMessagesLoaded,
@@ -1101,5 +1118,33 @@ export const chatService = {
 // per-window background polling without leaking intervals when the window is
 // closed or remounted.
 const pollingRegistry = new WeakMap();
+
+// Prepare settings dialog with defaults from meta when fields are empty.
+async function prepareSettings({ context }) {
+    try {
+        const meta = await ensureMeta(context);
+        const defaults = meta?.defaults || {};
+        const convCtx = context.Context('conversations');
+        const ds = convCtx?.handlers?.dataSource;
+        if (!ds) return false;
+        const current = ds.peekFormData?.() || {};
+        const agent = current.agent || defaults.agent || '';
+        const model = current.model || defaults.model || '';
+        // Prefer existing tools; else apply mapping from meta.agentTools
+        let tools = current.tools;
+        const isEmptyArray = Array.isArray(tools) && tools.length === 0;
+        const isEmptyString = (typeof tools === 'string') && tools.trim() === '';
+        if (!tools || isEmptyArray || isEmptyString) {
+            const map = meta?.agentTools || {};
+            tools = map?.[agent] || [];
+        }
+        console.log('[settings] prepareSettings', { agent, model, toolsSize: Array.isArray(tools)? tools.length : (tools? 1 : 0) });
+        ds.setFormData?.({ values: { ...current, agent, model, tools } });
+        return true;
+    } catch (e) {
+        console.warn('[settings] prepareSettings error', e);
+        return false;
+    }
+}
 
 //
