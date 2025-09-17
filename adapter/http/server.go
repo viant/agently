@@ -220,8 +220,9 @@ type conversationInfo struct {
 }
 
 type acceptedMessage struct {
-	ID     string `json:"id"`
-	TurnID string `json:"turnId"`
+	ID             string `json:"id"` // message id (turn id)
+	TurnID         string `json:"turnId"`
+	ConversationID string `json:"conversationId"`
 }
 
 // Note: usage-related data structures moved to sdk/chat. Keep HTTP layer thin.
@@ -566,7 +567,7 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(apiResponse{Status: "ACCEPTED", Data: acceptedMessage{ID: id, TurnID: id}})
+	_ = json.NewEncoder(w).Encode(apiResponse{Status: "ACCEPTED", Data: acceptedMessage{ID: id, TurnID: id, ConversationID: convID}})
 }
 
 // handleTerminateConversation processes POST /v1/api/conversations/{id}/terminate
@@ -607,7 +608,7 @@ func ListenAndServe(addr string, mgr *conversation.Manager) error {
 // identity and enriches the request context so downstream services can persist
 // user info without direct HTTP coupling.
 func (s *Server) withAuthFromRequest(r *http.Request) context.Context {
-	ctx := r.Context()
+	ctx := context.Background()
 	authz := r.Header.Get("Authorization")
 	if strings.TrimSpace(authz) == "" {
 		// No auth header; set default anonymous user for flow testing

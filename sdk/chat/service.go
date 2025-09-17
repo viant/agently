@@ -212,28 +212,39 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		MessageID:      msgID,
 	}
 
-	// Start from background to avoid cancellation when HTTP context ends,
-	// then copy relevant values (auth, policies) from parent.
-	runCtx, cancel := context.WithCancel(ctx)
-	s.registerCancel(conversationID, msgID, cancel)
-	defer func() {
-		s.completeCancel(conversationID, msgID, cancel)
-	}()
-	// Propagate conversation ID and policies
-	runCtx = conversation.WithID(runCtx, conversationID)
-	// Defaults
-	if s.toolPolicy != nil {
-		runCtx = tool.WithPolicy(runCtx, s.toolPolicy)
-	} else {
-		runCtx = tool.WithPolicy(runCtx, &tool.Policy{Mode: tool.ModeAuto})
-	}
-	if pol := tool.FromContext(ctx); pol != nil {
-		runCtx = tool.WithPolicy(runCtx, pol)
-	}
-	if s.fluxPolicy != nil {
-		runCtx = fluxpol.WithPolicy(runCtx, s.fluxPolicy)
-	}
-	_, _ = s.mgr.Accept(runCtx, input)
+	fmt.Println("starting")
+	// Launch asynchronous processing to avoid blocking HTTP caller.
+	go func(parent context.Context) {
+		// Detach from HTTP cancellation but preserve auth and policies.
+		// Start from background and reattach values explicitly.
+		base := context.Background()
+		// Preserve auth bearer and user info if present
+		if ui := authctx.User(parent); ui != nil {
+			base = authctx.WithUserInfo(base, ui)
+		}
+		if tok := authctx.Bearer(parent); tok != "" {
+			base = authctx.WithBearer(base, tok)
+		}
+		runCtx, cancel := context.WithCancel(base)
+		s.registerCancel(conversationID, msgID, cancel)
+		defer s.completeCancel(conversationID, msgID, cancel)
+
+		// Propagate conversation ID and policies
+		runCtx = conversation.WithID(runCtx, conversationID)
+		if s.toolPolicy != nil {
+			runCtx = tool.WithPolicy(runCtx, s.toolPolicy)
+		} else {
+			runCtx = tool.WithPolicy(runCtx, &tool.Policy{Mode: tool.ModeAuto})
+		}
+		if pol := tool.FromContext(parent); pol != nil {
+			runCtx = tool.WithPolicy(runCtx, pol)
+		}
+		if s.fluxPolicy != nil {
+			runCtx = fluxpol.WithPolicy(runCtx, s.fluxPolicy)
+		}
+		// Execute agentic flow; turn/message persistence handled by agent recorder.
+		_, _ = s.mgr.Accept(runCtx, input)
+	}(ctx)
 
 	return msgID, nil
 }
