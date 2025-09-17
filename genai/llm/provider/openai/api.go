@@ -75,6 +75,9 @@ func (c *Client) Implements(feature string) bool {
 		return true
 	case base.CanStream:
 		return true
+	case base.IsMultimodal:
+		// Chat models generally support images; accept attachments.
+		return true
 	}
 	return false
 }
