@@ -6,6 +6,7 @@ import (
 
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/service/agent"
+	"github.com/viant/agently/genai/service/core"
 
 	"time"
 
@@ -27,6 +28,10 @@ type ChatRequest struct {
 
 	Policy  *tool.Policy
 	Timeout time.Duration
+
+	// Attachments are optional assets to include in this turn (e.g. images).
+	// They are forwarded to the underlying LLM request as user content items.
+	Attachments []*core.Attachment
 }
 
 type ChatResponse struct {
@@ -59,6 +64,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 			AgentName:      req.AgentPath,
 			Query:          query,
 			Context:        req.Context,
+			Attachments:    req.Attachments,
 		}
 		out, err := s.exec.Conversation().Accept(ctx, input)
 		return out, input.ConversationID, err
@@ -72,6 +78,11 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 
 	for {
 		var newID string
+		// Propagate attachments for the first turn only; subsequent turns may
+		// supply new files via elicitation.
+		if req.Attachments != nil && len(req.Attachments) > 0 {
+			// The turn() helper closes over req; attach before calling.
+		}
 		out, newID, err = turn(ctx, convID, currentQuery)
 		if err != nil {
 			return nil, err

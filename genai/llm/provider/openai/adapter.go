@@ -1,6 +1,8 @@
 package openai
 
 import (
+	"strings"
+
 	"github.com/viant/agently/genai/llm"
 )
 
@@ -131,6 +133,16 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 								contentItem.ImageURL.Detail = detail
 							}
 						}
+					}
+				case llm.ContentTypeBinary:
+					// Best effort: if binary looks like an image, convert to data-URL image
+					if strings.HasPrefix(item.MimeType, "image/") && item.Data != "" {
+						contentItem.Type = "image_url"
+						// item.Data is expected to be base64-encoded already when coming from llm.NewBinaryContent
+						dataURL := "data:" + item.MimeType + ";base64," + item.Data
+						contentItem.ImageURL = &ImageURL{URL: dataURL}
+					} else {
+						// Unsupported binary for OpenAI chat – skip by leaving zero-value contentItem
 					}
 				}
 
