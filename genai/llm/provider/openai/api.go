@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/viant/afs"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
@@ -73,6 +75,9 @@ func (c *Client) Implements(feature string) bool {
 		return true
 	case base.CanStream:
 		return true
+	case base.IsMultimodal:
+		// Chat models generally support images; accept attachments.
+		return true
 	}
 	return false
 }
@@ -91,6 +96,17 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if err != nil {
 		return nil, err
 	}
+	////
+	fs := afs.New()
+
+	//name := fmt.Sprintf("%s_%s.json", `request_`, time.Now().Format(time.RFC3339))
+	name := fmt.Sprintf("%s_%s.json", time.Now().Format(time.RFC3339), `_request`)
+	err = fs.Upload(context.Background(), `//Users/pol-mfilipowicz/WORK1/AGNETLY_LOCAL/_LOCAL/REQUESTS_TMP/`+name, os.ModePerm, bytes.NewBuffer(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload request file: %w", err)
+	}
+
+	////
 	httpReq, err := c.createHTTPChatRequest(ctx, payload)
 	if err != nil {
 		return nil, err
@@ -222,6 +238,18 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if err != nil {
 		return nil, err
 	}
+	///
+	////
+	fs := afs.New()
+
+	name := fmt.Sprintf("%s_%s.json", time.Now().Format(time.RFC3339), `_request`)
+	err = fs.Upload(context.Background(), `//Users/pol-mfilipowicz/WORK1/AGNETLY_LOCAL/_LOCAL/REQUESTS_TMP/`+name, os.ModePerm, bytes.NewBuffer(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload request file: %w", err)
+	}
+
+	////
+	///
 	httpReq, err := c.createHTTPChatRequest(ctx, payload)
 	if err != nil {
 		return nil, err
@@ -391,6 +419,19 @@ func (c *Client) consumeStream(ctx context.Context, body io.Reader, events chan<
 			return
 		}
 	}
+
+	///
+	////
+	fs := afs.New()
+
+	name := fmt.Sprintf("%s_%s.json", time.Now().Format(time.RFC3339), `_response`)
+	err := fs.Upload(context.Background(), `//Users/pol-mfilipowicz/WORK1/AGNETLY_LOCAL/_LOCAL/REQUESTS_TMP/`+name, os.ModePerm, bytes.NewBuffer(respBody))
+	if err != nil {
+		fmt.Printf("TEST ERR failed to upload request file: %v", err)
+	}
+
+	////
+	///
 
 	// Prepare scanner
 	scanner := bufio.NewScanner(bytes.NewReader(respBody))

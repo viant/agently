@@ -133,6 +133,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			SystemPrompt:   input.Agent.SystemPrompt,
 			Binding:        binding,
 			ModelSelection: modelSelection,
+			Attachment:     input.Attachments,
 		}
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
