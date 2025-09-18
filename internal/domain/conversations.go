@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+
 	convread "github.com/viant/agently/internal/dao/conversation/read"
 	convwrite "github.com/viant/agently/internal/dao/conversation/write"
 )
@@ -17,7 +18,4 @@ type Conversations interface {
 
 	// List returns conversations using DAO read input options.
 	List(ctx context.Context, opts ...convread.ConversationInputOption) ([]*convread.ConversationView, error)
-
-	// UpdateUsageTotals updates usage totals of a conversation.
-	UpdateUsageTotals(ctx context.Context, id string, totals UsageTotals) error
 }

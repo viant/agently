@@ -15,16 +15,13 @@ import (
 	authctx "github.com/viant/agently/internal/auth"
 	"github.com/viant/agently/internal/dao/factory"
 	daofactory "github.com/viant/agently/internal/dao/factory"
-	msgread "github.com/viant/agently/internal/dao/message/read"
-	msgw "github.com/viant/agently/internal/dao/message/write"
 	mcw "github.com/viant/agently/internal/dao/modelcall/write"
 	plw "github.com/viant/agently/internal/dao/payload/write"
 	tcw "github.com/viant/agently/internal/dao/toolcall/write"
 	turnw "github.com/viant/agently/internal/dao/turn/write"
-	usageread "github.com/viant/agently/internal/dao/usage/read"
-	usagew "github.com/viant/agently/internal/dao/usage/write"
 	d "github.com/viant/agently/internal/domain"
 	storeadapter "github.com/viant/agently/internal/domain/adapter"
+	msgw "github.com/viant/agently/pkg/agently/message"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
 )
@@ -93,11 +90,6 @@ type ModelCallFinish struct {
 	Status           string
 }
 
-// UsageRecorder persists usage totals aggregated per conversation.
-type UsageRecorder interface {
-	RecordUsageTotals(ctx context.Context, conversationID string, input, output, embed int)
-}
-
 // Recorder is the unified surface that composes the smaller responsibilities.
 // Downstream code can depend on individual sub-interfaces to reduce coupling
 // and enable plugging alternative implementations (e.g. history DAO, exec traces).
@@ -106,7 +98,6 @@ type Recorder interface {
 	TurnRecorder
 	ToolCallRecorder
 	ModelCallRecorder
-	UsageRecorder
 }
 
 // Writer is kept as a backward-compatible alias for Recorder.
@@ -117,7 +108,6 @@ var _ MessageRecorder = (*Store)(nil)
 var _ TurnRecorder = (*Store)(nil)
 var _ ToolCallRecorder = (*Store)(nil)
 var _ ModelCallRecorder = (*Store)(nil)
-var _ UsageRecorder = (*Store)(nil)
 var _ Recorder = (*Store)(nil)
 
 type Store struct {
@@ -402,22 +392,6 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) error {
 	return nil
 }
 
-// RecordToolCall has been replaced by StartToolCall/FinishToolCall.
-
-func (w *Store) RecordUsageTotals(ctx context.Context, conversationID string, input, output, embed int) {
-	if conversationID == "" {
-		return
-	}
-	rec := &usagew.Usage{Has: &usagew.UsageHas{}}
-	rec.SetConversationID(conversationID)
-	rec.SetUsageInputTokens(input)
-	rec.SetUsageOutputTokens(output)
-	rec.SetUsageEmbeddingTokens(embed)
-	if _, err := w.store.Usage().Patch(ctx, rec); err != nil {
-		fmt.Printf("ERROR### Recorder.RecordUsageTotals: %v\n", err)
-	}
-}
-
 // Deprecated RecordModelCall removed; use StartModelCall and FinishModelCall instead.
 
 func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) error {
@@ -680,49 +654,6 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) err
 		return err
 	}
 
-	// Update conversation usage totals after each model call
-	// Use a non-cancelable context to avoid losing updates when the parent
-	// request context gets cancelled immediately after response delivery.
-	noCancel := context.WithoutCancel(ctx)
-	convID := ""
-	if rows, err := w.store.Messages().List(noCancel, msgread.WithIDs(finish.MessageID)); err == nil && len(rows) > 0 && rows[0] != nil {
-		convID = rows[0].ConversationID
-	}
-	if convID != "" {
-		// Aggregate usage via DAO read (model_call) and patch conversation totals
-		in := usageread.Input{ConversationID: convID, Has: &usageread.Has{ConversationID: true}}
-		if views, err := w.store.Usage().List(noCancel, in); err == nil {
-			totalIn, totalOut, totalEmb := 0, 0, 0
-			for _, v := range views {
-				if v == nil {
-					continue
-				}
-				pi, po := 0, 0
-				if v.TotalPromptTokens != nil {
-					pi = *v.TotalPromptTokens
-				}
-				if v.TotalCompletionTokens != nil {
-					po = *v.TotalCompletionTokens
-				}
-				if (pi+po) == 0 && v.TotalTokens != nil {
-					po = *v.TotalTokens
-				}
-				totalIn += pi
-				totalOut += po
-			}
-			u := &usagew.Usage{}
-			u.SetConversationID(convID)
-			u.SetUsageInputTokens(totalIn)
-			u.SetUsageOutputTokens(totalOut)
-			u.SetUsageEmbeddingTokens(totalEmb)
-			if _, err := w.store.Usage().Patch(noCancel, u); err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -803,7 +734,7 @@ func New(ctx context.Context) Writer {
 	if apis == nil {
 		return &Store{mode: ModeOff}
 	}
-	st := storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
+	st := storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload)
 	return &Store{mode: mode, store: st}
 }
 

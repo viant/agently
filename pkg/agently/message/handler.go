@@ -1,10 +1,11 @@
-package write
+package message
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/viant/xdatly/handler"
 	"github.com/viant/xdatly/handler/response"
@@ -22,9 +23,9 @@ func (h *Handler) Exec(ctx context.Context, sess handler.Session) (interface{}, 
 		}
 		out.setError(err)
 	}
-	if len(out.Violations) > 0 {
+	if len(out.Violations) > 0 { //TODO better error hanlding
 		out.setError(fmt.Errorf("failed validation"))
-		return out, response.NewError(http.StatusBadRequest, "bad request")
+		return out, response.NewError(http.StatusBadRequest, "bad request"+" - failed validation: "+out.Violations[0].Message)
 	}
 	return out, nil
 }
@@ -34,7 +35,7 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 	if err := in.Init(ctx, sess, out); err != nil {
 		return err
 	}
-	out.Data = in.Usages
+	out.Data = in.Messages
 	if err := in.Validate(ctx, sess, out); err != nil || len(out.Violations) > 0 {
 		return err
 	}
@@ -42,13 +43,29 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 	if err != nil {
 		return err
 	}
-	for _, rec := range in.Usages {
-		if _, ok := in.CurByID[rec.Id]; !ok {
-			if err = sql.Insert("conversation", rec); err != nil {
+	const maxContentBytes = 64 * 1024
+	for _, rec := range in.Messages {
+		// Truncate content to maxContentBytes preserving valid UTF-8
+		if rec != nil {
+			b := []byte(rec.Content)
+			if len(b) > maxContentBytes {
+				trunc := b[:maxContentBytes]
+				// ensure we don't cut a multi-byte rune; backtrack to a valid boundary
+				for !utf8.Valid(trunc) && len(trunc) > 0 {
+					trunc = trunc[:len(trunc)-1]
+				}
+				rec.Content = string(trunc)
+				if rec.Has != nil {
+					rec.Has.Content = true
+				}
+			}
+		}
+		if _, ok := in.CurMessageById[rec.Id]; !ok {
+			if err = sql.Insert("message", rec); err != nil {
 				return err
 			}
 		} else {
-			if err = sql.Update("conversation", rec); err != nil {
+			if err = sql.Update("message", rec); err != nil {
 				return err
 			}
 		}

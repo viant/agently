@@ -12,22 +12,17 @@ import (
 
 	"github.com/google/uuid"
 	mcpclient "github.com/viant/agently/adapter/mcp"
-	plan "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/conversation"
-	"github.com/viant/agently/genai/memory"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
 	authctx "github.com/viant/agently/internal/auth"
 	convread "github.com/viant/agently/internal/dao/conversation/read"
 	convw "github.com/viant/agently/internal/dao/conversation/write"
-	msgread "github.com/viant/agently/internal/dao/message/read"
-	msgwrite "github.com/viant/agently/internal/dao/message/write"
 	plread "github.com/viant/agently/internal/dao/payload/read"
-	usageread "github.com/viant/agently/internal/dao/usage/read"
 	d "github.com/viant/agently/internal/domain"
+	msgwrite "github.com/viant/agently/pkg/agently/message"
 	apiconv "github.com/viant/agently/sdk/conversation"
 	implconv "github.com/viant/agently/sdk/conversation/impl"
-	"github.com/viant/agently/sdk/stage"
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/mcp-protocol/schema"
@@ -92,77 +87,6 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 		return nil, err
 	}
 	return &GetResponse{Conversation: conv}, nil
-}
-
-// currentStage infers the live phase of a conversation using transcript signals.
-func (s *Service) currentStage(ctx context.Context, convID string) *stage.Stage {
-	st := &stage.Stage{Phase: stage.StageWaiting}
-	if s == nil || s.store == nil || strings.TrimSpace(convID) == "" {
-		return st
-	}
-	views, err := s.store.Messages().GetTranscript(ctx, convID)
-	if err != nil || len(views) == 0 {
-		return st
-	}
-	lastRole := ""
-	lastAssistantElic := false
-	lastToolRunning := false
-	lastToolFailed := false
-	lastModelRunning := false
-	for i := len(views) - 1; i >= 0; i-- {
-		v := views[i]
-		if v == nil || v.IsInterim() {
-			continue
-		}
-		r := strings.ToLower(strings.TrimSpace(v.Role))
-		if lastRole == "" {
-			lastRole = r
-		}
-		if v.ToolCall != nil {
-			status := strings.ToLower(strings.TrimSpace(v.ToolCall.Status))
-			if status == "running" || v.ToolCall.CompletedAt == nil {
-				lastToolRunning = true
-				break
-			}
-			if status == "failed" {
-				lastToolFailed = true
-			}
-		}
-		if v.ModelCall != nil {
-			mstatus := strings.ToLower(strings.TrimSpace(v.ModelCall.Status))
-			if mstatus == "running" || v.ModelCall.CompletedAt == nil {
-				lastModelRunning = true
-				break
-			}
-		}
-		if r == "assistant" && v.Elicitation != nil {
-			lastAssistantElic = true
-			break
-		}
-	}
-
-	switch {
-	case lastToolRunning:
-		st.Phase = stage.StageExecuting
-	case lastAssistantElic:
-		st.Phase = stage.StageEliciting
-	case lastModelRunning:
-		st.Phase = stage.StageThinking
-	case lastRole == "user":
-		st.Phase = stage.StageThinking
-	case lastToolFailed:
-		st.Phase = stage.StageError
-	default:
-		st.Phase = stage.StageDone
-	}
-	return st
-}
-
-func derefStr(p *string) string {
-	if p != nil {
-		return *p
-	}
-	return ""
 }
 
 // PostRequest defines inputs to submit a user message.
@@ -515,16 +439,7 @@ func (s *Service) Approve(ctx context.Context, messageID, action, reason string)
 		newStatus = "done"
 	}
 
-	// Verify message exists and patch status
-	rows, err := s.store.Messages().List(ctx, msgread.WithIDs(messageID))
-	if err != nil {
-		return err
-	}
-	if len(rows) == 0 || rows[0] == nil {
-		return fmt.Errorf("interaction message not found")
-	}
-	msg := rows[0]
-	_, _ = s.store.Messages().Patch(ctx, &msgwrite.Message{Id: msg.Id, Status: newStatus, Has: &msgwrite.MessageHas{Status: true}})
+	_, _ = s.store.Messages().Patch(ctx, &msgwrite.Message{Id: messageID, Status: newStatus, Has: &msgwrite.MessageHas{Status: true}})
 
 	if s.approval != nil {
 		_, _ = s.approval.Decide(ctx, messageID, approved, reason)
@@ -539,103 +454,15 @@ func (s *Service) Elicit(ctx context.Context, messageID, action string, payload 
 	if action == "" {
 		return fmt.Errorf("action is required")
 	}
-	rows, err := s.store.Messages().List(ctx, msgread.WithIDs(messageID))
-	if err != nil {
-		return err
-	}
-	if len(rows) == 0 || rows[0] == nil {
-		return fmt.Errorf("interaction message not found")
-	}
-	msg := rows[0]
 	status := "declined"
 	if action == "accept" {
 		status = "done"
 	}
-	_, _ = s.store.Messages().Patch(ctx, &msgwrite.Message{Id: msg.Id, Status: status, Has: &msgwrite.MessageHas{Status: true}})
+	_, _ = s.store.Messages().Patch(ctx, &msgwrite.Message{Id: messageID, Status: status, Has: &msgwrite.MessageHas{Status: true}})
 	if ch, ok := mcpclient.Waiter(messageID); ok {
 		ch <- &schema.ElicitResult{Action: schema.ElicitResultAction(action), Content: payload}
 	}
 	return nil
-}
-
-// GetMessage fetches a single message by id and, when present, decodes
-// elicitation payload into a typed structure.
-func (s *Service) GetMessage(ctx context.Context, id string) (*memory.Message, error) {
-	rows, err := s.store.Messages().List(ctx, msgread.WithIDs(id))
-	if err != nil || len(rows) == 0 || rows[0] == nil {
-		return nil, err
-	}
-	v := rows[0]
-	mm := memory.Message{ID: v.Id, ConversationID: v.ConversationID, Role: v.Role, Content: v.Content}
-	if v.CreatedAt != nil {
-		mm.CreatedAt = *v.CreatedAt
-	}
-	if v.ToolName != nil {
-		mm.ToolName = v.ToolName
-	}
-	// Inline elicitation when payload present
-	if v.ElicitationID != nil {
-		if pv, e := s.store.Payloads().List(ctx, plread.WithID(*v.ElicitationID)); e == nil && len(pv) > 0 && pv[0] != nil && pv[0].InlineBody != nil {
-			var ecli plan.Elicitation
-			if json.Unmarshal(*pv[0].InlineBody, &ecli) == nil {
-				mm.Elicitation = &ecli
-			}
-		} else if e != nil {
-			return nil, e
-		}
-	}
-	return &mm, nil
-}
-
-// UsagePerModel represents token statistics for a single model.
-type UsagePerModel struct {
-	Model           string `json:"model"`
-	InputTokens     int    `json:"inputTokens"`
-	OutputTokens    int    `json:"outputTokens"`
-	EmbeddingTokens int    `json:"embeddingTokens"`
-	CachedTokens    int    `json:"cachedTokens"`
-}
-
-// Usage aggregates conversation usage totals and per-model breakdown.
-type Usage struct {
-	ConversationID  string          `json:"conversationId"`
-	InputTokens     int             `json:"inputTokens"`
-	OutputTokens    int             `json:"outputTokens"`
-	EmbeddingTokens int             `json:"embeddingTokens"`
-	CachedTokens    int             `json:"cachedTokens"`
-	TotalTokens     int             `json:"totalTokens"`
-	PerModel        []UsagePerModel `json:"perModel"`
-}
-
-// GetUsage aggregates token usage per model and totals for a conversation.
-func (s *Service) GetUsage(ctx context.Context, conversationID string) (*Usage, error) {
-	in := usageread.Input{ConversationID: conversationID, Has: &usageread.Has{ConversationID: true}}
-	rows, err := s.store.Usage().List(ctx, in)
-	if err != nil {
-		return nil, err
-	}
-	out := &Usage{ConversationID: conversationID, PerModel: []UsagePerModel{}}
-	for _, v := range rows {
-		if v == nil {
-			continue
-		}
-		pm := UsagePerModel{Model: strings.TrimSpace(v.Provider + "/" + v.Model)}
-		if v.TotalPromptTokens != nil {
-			pm.InputTokens = *v.TotalPromptTokens
-			out.InputTokens += *v.TotalPromptTokens
-		}
-		if v.TotalCompletionTokens != nil {
-			pm.OutputTokens = *v.TotalCompletionTokens
-			out.OutputTokens += *v.TotalCompletionTokens
-		}
-		if (pm.InputTokens+pm.OutputTokens) == 0 && v.TotalTokens != nil {
-			pm.OutputTokens += *v.TotalTokens
-			out.OutputTokens += *v.TotalTokens
-		}
-		out.PerModel = append(out.PerModel, pm)
-	}
-	out.TotalTokens = out.InputTokens + out.OutputTokens + out.EmbeddingTokens + out.CachedTokens
-	return out, nil
 }
 
 var (
@@ -664,9 +491,4 @@ func (s *Service) GetPayload(ctx context.Context, id string) ([]byte, string, er
 		ctype = "application/octet-stream"
 	}
 	return *v.InlineBody, ctype, nil
-}
-
-// Stage exposes currentStage for external callers.
-func (s *Service) Stage(ctx context.Context, conversationID string) *stage.Stage {
-	return s.currentStage(ctx, conversationID)
 }

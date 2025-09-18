@@ -1,4 +1,4 @@
-package write
+package message
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/viant/datly/repository/contract"
 )
 
-var PathURI = "/v1/api/agently/usage"
+var PathURI = "/v1/api/agently/message"
 
 func DefineComponent(ctx context.Context, srv *datly.Service) (*repository.Component, error) {
 	return srv.AddHandler(ctx, contract.NewPath("PATCH", PathURI), &Handler{},

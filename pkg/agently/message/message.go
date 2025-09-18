@@ -1,4 +1,4 @@
-package write
+package message
 
 import "time"
 

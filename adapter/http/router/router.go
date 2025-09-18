@@ -89,13 +89,13 @@ func newStore(ctx context.Context) d.Store {
 		if dao, err := datly.New(ctx); err == nil {
 			_ = dao.AddConnectors(ctx, view.NewConnector("agently", driver, dsn))
 			if apis, _ := daofactory.New(ctx, daofactory.DAOSQL, dao); apis != nil {
-				store := dstore.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
+				store := dstore.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload)
 				return store
 			}
 		}
 	}
 	if apis, _ := daofactory.New(ctx, daofactory.DAOInMemory, nil); apis != nil {
-		store := dstore.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
+		store := dstore.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload)
 		return store
 	}
 	return nil

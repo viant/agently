@@ -5,9 +5,8 @@ import (
 	"fmt"
 
 	daofactory "github.com/viant/agently/internal/dao/factory"
-	msgread "github.com/viant/agently/internal/dao/message/read"
-	msgwrite "github.com/viant/agently/internal/dao/message/write"
 	"github.com/viant/agently/internal/domain"
+	msgwrite "github.com/viant/agently/pkg/agently/message"
 )
 
 // Service adapts DAO message/modelcall/toolcall/payload to the domain.Messages API.
@@ -50,20 +49,4 @@ func (a *Service) Patch(ctx context.Context, messages ...*msgwrite.Message) (*ms
 		return nil, fmt.Errorf("no messages to patch")
 	}
 	return a.API.Message.Patch(ctx, messages...)
-}
-
-// List implements domain.Messages.List (DAO read view).
-func (a *Service) List(ctx context.Context, opts ...msgread.InputOption) (domain.Transcript, error) {
-	if a == nil || a.API == nil || a.API.Message == nil {
-		return nil, fmt.Errorf("message service is not configured")
-	}
-	return a.API.Message.List(ctx, opts...)
-}
-
-// GetTranscript implements domain.Messages.GetTranscript (DAO read view).
-func (a *Service) GetTranscript(ctx context.Context, conversationID string, opts ...msgread.InputOption) (domain.Transcript, error) {
-	if a == nil || a.API == nil || a.API.Message == nil {
-		return nil, fmt.Errorf("message service is not configured")
-	}
-	return a.API.Message.GetTranscript(ctx, conversationID, opts...)
 }

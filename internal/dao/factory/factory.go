@@ -9,7 +9,6 @@ import (
 	pldao "github.com/viant/agently/internal/dao/payload"
 	tcdao "github.com/viant/agently/internal/dao/toolcall"
 	turndao "github.com/viant/agently/internal/dao/turn"
-	usagedao "github.com/viant/agently/internal/dao/usage"
 	"github.com/viant/datly"
 )
 
@@ -29,7 +28,6 @@ type API struct {
 	ToolCall      tcdao.API
 	Payload       pldao.API
 	Turn          turndao.API
-	Usage         usagedao.API
 	Conversation2 convdao.APIV2
 }
 

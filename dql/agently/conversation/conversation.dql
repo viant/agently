@@ -8,6 +8,7 @@
 
 #set($_ = $Id<string>(path/id))
 #set($_ = $Since<string>(query/since).WithPredicate(0,'expr','created_at >= (SELECT created_at FROM turn WHERE id = ?)'))
+#set($_ = $IncludeTranscript<bool>(query/includeTranscript).Value('true').WithPredicate(0, 'expr', '?'))
 #set($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
 #set($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
 
@@ -28,20 +29,20 @@ JOIN (
  FROM model_call t
 ) modelCall ON modelCall.message_id = message.id AND  1 = 1
 JOIN (
-   SELECT id, inline_body, compression FROM call_payload${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+   SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
 ) modelCallRequestPayload ON modelCallRequestPayload.id = modelCall.request_payload_id AND  1 = 1
 JOIN (
-   SELECT id, inline_body, compression FROM call_payload${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+   SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
 ) modelCallProviderRequestPayload ON modelCallProviderRequestPayload.id = modelCall.provider_request_payload_id AND  1 = 1
 JOIN (
-   SELECT id, inline_body, compression FROM call_payload${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+   SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
 ) modelCallResponsePayload ON modelCallResponsePayload.id = modelCall.response_payload_id AND  1 = 1
 
 JOIN (
-   SELECT id, inline_body, compression FROM call_payload${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+   SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
 ) modelCallProviderResponsePayload ON modelCallProviderResponsePayload.id = modelCall.provider_response_payload_id AND  1 = 1
 JOIN (
-   SELECT id, inline_body, compression FROM call_payload${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+   SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
 ) modelCallStreamPayload ON modelCallStreamPayload.id = modelCall.stream_payload_id AND  1 = 1
 JOIN (
    SELECT t.*
