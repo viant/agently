@@ -7,7 +7,7 @@ import (
 
 	api "github.com/viant/agently/internal/dao/modelcall"
 	read "github.com/viant/agently/internal/dao/modelcall/read"
-	write "github.com/viant/agently/internal/dao/modelcall/write"
+	write "github.com/viant/agently/pkg/agently/modelcall"
 )
 
 // Service is an in-memory implementation of the ModelCall API.
@@ -19,31 +19,6 @@ type Service struct {
 
 func New() *Service {
 	return &Service{items: map[string]*read.ModelCallView{}, byConv: map[string][]*read.ModelCallView{}}
-}
-
-func (s *Service) List(ctx context.Context, opts ...read.InputOption) ([]*read.ModelCallView, error) {
-	in := &read.Input{}
-	for _, opt := range opts {
-		opt(in)
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var out []*read.ModelCallView
-	// If conversationID filter supplied, scan byConv; else scan all
-	if in.Has != nil && in.Has.ConversationID && in.ConversationID != "" {
-		for _, v := range s.byConv[in.ConversationID] {
-			if match(v, in) {
-				out = append(out, clone(v))
-			}
-		}
-		return out, nil
-	}
-	for _, v := range s.items {
-		if match(v, in) {
-			out = append(out, clone(v))
-		}
-	}
-	return out, nil
 }
 
 func (s *Service) Patch(ctx context.Context, calls ...*write.ModelCall) (*write.Output, error) {

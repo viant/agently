@@ -1,4 +1,4 @@
-package write
+package modelcall
 
 import (
 	"github.com/viant/xdatly/handler/response"
