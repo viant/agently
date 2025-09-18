@@ -118,7 +118,11 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 				}
 			}
 		}
-		tc := llm.NewToolCall(m.ToolCall.OpId, m.ToolCall.ToolName, args, m.Content)
+		result := ""
+		if m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
+			result = strings.TrimSpace(*m.ToolCall.ResponsePayload.InlineBody)
+		}
+		tc := llm.NewToolCall(m.ToolCall.OpId, m.ToolCall.ToolName, args, result)
 		out = append(out, &tc)
 	}
 	return out, nil
