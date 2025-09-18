@@ -1,5 +1,8 @@
 // Conversation management service
 
+import {data} from "autoprefixer";
+import {saveSettings} from "./chatService.js";
+
 /**
  * Ensures a conversation exists, creating a new one if necessary
  * @param {Object} options - Options object
@@ -61,6 +64,12 @@ export async function ensureConversation({ context }) {
 
 
 export async function newConversation({context}) {
-    const conversations = context.Context('conversations');
-    conversations.handlers.dataSource.setSelection({args: {rowIndex: -1}})
+    const msgCtx = context.Context('messages');
+    msgCtx.handlers.dataSource.handleAddNew()
+    msgCtx.handlers.dataSource.setCollection([])
+
+    const convContext = context.Context('conversations');
+    convContext.handlers.dataSource.setSelection({args: {rowIndex: -1}})
+    saveSettings({context})
+
 }
