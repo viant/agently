@@ -46,13 +46,7 @@ const initialFetchDoneByConv = new Set();
  *      context so it can be cleared later in onDestroy.
  */
 export async function onInit({context}) {
-    try {
-        console.log('[chat] onInit:start', Date.now());
-    } catch (_) {
-    }
-    // 1) Defaults and options will be applied in meta DS onSuccess via chat.onMetaLoaded
 
-    // 3) One-shot: wait briefly for conversations.id then trigger messages fetch
     try {
         const convCtx = context.Context('conversations');
         const handlers = convCtx?.handlers?.dataSource;
@@ -123,29 +117,16 @@ async function dsTick({context}) {
         const convCtx = context.Context('conversations');
         const convID = convCtx?.handlers?.dataSource?.peekFormData?.()?.id;
         if (!convID) {
-            try {
-                console.log('[chat][dsTick] skip: no convID');
-            } catch (_) {
-            }
-            ;
+            const msgContext = context.Context('messages');
+            msgContext.signals.collection.value = []
             return;
         }
         const messagesCtx = context.Context('messages');
         if (!messagesCtx) {
-            try {
-                console.log('[chat][dsTick] skip: no messagesCtx');
-            } catch (_) {
-            }
-            ;
             return;
         }
         const ctrl = messagesCtx.signals?.control;
         if (ctrl?.peek?.()?.loading) {
-            try {
-                console.log('[chat][dsTick] skip: DS loading');
-            } catch (_) {
-            }
-            ;
             return;
         }
         const coll = Array.isArray(messagesCtx.signals?.collection?.value) ? messagesCtx.signals.collection.value : [];
@@ -156,6 +137,9 @@ async function dsTick({context}) {
                 break;
             }
         }
+
+
+
         if (!since && coll.length) {
             since = coll[coll.length - 1]?.id || '';
         }
@@ -165,10 +149,6 @@ async function dsTick({context}) {
         const minIntervalMs = context.resources?.messagesPollThrottleMs || 1000;
         const lastReqTs = context.resources?.lastDsReqTs || 0;
         if ((nowTs - lastReqTs) < minIntervalMs) {
-            try {
-                console.log('[chat][dsTick] skip: throttle');
-            } catch (_) {
-            }
             return;
         }
         context.resources = context.resources || {};
@@ -184,6 +164,9 @@ async function dsTick({context}) {
             if (convStage) {
                 setStage({phase: String(convStage)});
             }
+
+
+
             const transcript = Array.isArray(conv?.transcript) ? conv.transcript
                 : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
             const rows = mapTranscriptToRowsWithExecutions(transcript);
@@ -571,12 +554,8 @@ export function onDestroy({context}) {
 export function saveSettings(args) {
     const {context} = args
     const metaContext = context.Context('meta');
-    console.log('saveSettings', args);
-
 
     const source = metaContext.handlers.dataSource.peekFormData();
-    console.log('[chat][history] settings save', source);
-
     const {agent, model, tools} = source
     const convContext = context.Context('conversations');
     const convDataSource = convContext?.handlers?.dataSource;
@@ -1100,7 +1079,6 @@ function onFetchMeta(args) {
             tool: agentInfo[data.defaults.agent]?.tools
         };
     });
-    console.log('[settings] onFetchMeta', updated);
     return updated;
 }
 
