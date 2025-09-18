@@ -7,7 +7,7 @@ import (
 
 	api "github.com/viant/agently/internal/dao/turn"
 	read "github.com/viant/agently/internal/dao/turn/read"
-	write "github.com/viant/agently/internal/dao/turn/write"
+	write "github.com/viant/agently/pkg/agently/turn"
 )
 
 // Service is an in-memory implementation of the Turn API.

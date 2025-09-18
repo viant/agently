@@ -1,4 +1,4 @@
-package write
+package payload
 
 import (
 	"context"
@@ -18,14 +18,14 @@ func (i *Input) Validate(ctx context.Context, sess handler.Session, output *Outp
 		return err
 	}
 	opts := []validator.Option{
-		validator.WithLocation("ToolCalls"),
+		validator.WithLocation("Payloads"),
 		validator.WithDB(db),
 		validator.WithUnique(true),
 		validator.WithRefCheck(true),
 		validator.WithCanUseMarkerProvider(i.canUseMarkerProvider),
 	}
 	validation := validator.NewValidation()
-	_, err = aValidator.Validate(ctx, i.ToolCalls, append(opts, validator.WithValidation(validation))...)
+	_, err = aValidator.Validate(ctx, i.Payloads, append(opts, validator.WithValidation(validation))...)
 	output.Violations = append(output.Violations, validation.Violations...)
 	if err == nil && len(validation.Violations) > 0 {
 		validation.Violations.Sort()
@@ -35,8 +35,8 @@ func (i *Input) Validate(ctx context.Context, sess handler.Session, output *Outp
 
 func (i *Input) canUseMarkerProvider(v interface{}) bool {
 	switch actual := v.(type) {
-	case *ToolCall:
-		_, ok := i.CurByID[actual.MessageID]
+	case *Payload:
+		_, ok := i.CurByID[actual.Id]
 		return ok
 	default:
 		return true

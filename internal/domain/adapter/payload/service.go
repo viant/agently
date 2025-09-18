@@ -6,8 +6,8 @@ import (
 
 	dao "github.com/viant/agently/internal/dao/payload"
 	read "github.com/viant/agently/internal/dao/payload/read"
-	write "github.com/viant/agently/internal/dao/payload/write"
 	d "github.com/viant/agently/internal/domain"
+	write "github.com/viant/agently/pkg/agently/payload"
 )
 
 // Service adapts payload DAO to domain.Payloads.

@@ -3,8 +3,8 @@ package domain
 import (
 	"context"
 
-	tcwrite "github.com/viant/agently/internal/dao/toolcall/write"
 	mcwrite "github.com/viant/agently/pkg/agently/modelcall"
+	tcwrite "github.com/viant/agently/pkg/agently/toolcall"
 )
 
 // Operations exposes higher-level operations to record and fetch model/tool calls.

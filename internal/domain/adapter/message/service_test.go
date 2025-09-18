@@ -11,10 +11,10 @@ import (
 	mcmem "github.com/viant/agently/internal/dao/modelcall/impl/memory"
 	mcw "github.com/viant/agently/internal/dao/modelcall/write"
 	plmem "github.com/viant/agently/internal/dao/payload/impl/memory"
-	plw "github.com/viant/agently/internal/dao/payload/write"
 	tcmem "github.com/viant/agently/internal/dao/toolcall/impl/memory"
 	tcw "github.com/viant/agently/internal/dao/toolcall/write"
 	d "github.com/viant/agently/internal/domain"
+	plw "github.com/viant/agently/pkg/agently/payload"
 	"sort"
 	"testing"
 )

@@ -7,7 +7,7 @@ import (
 
 	api "github.com/viant/agently/internal/dao/toolcall"
 	read "github.com/viant/agently/internal/dao/toolcall/read"
-	write "github.com/viant/agently/internal/dao/toolcall/write"
+	write "github.com/viant/agently/pkg/agently/toolcall"
 )
 
 // Service is an in-memory implementation of the ToolCall API.

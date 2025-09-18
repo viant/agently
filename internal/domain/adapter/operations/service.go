@@ -4,9 +4,9 @@ import (
 	"context"
 
 	daofactory "github.com/viant/agently/internal/dao/factory"
-	tcwrite "github.com/viant/agently/internal/dao/toolcall/write"
 	d "github.com/viant/agently/internal/domain"
 	mcwrite "github.com/viant/agently/pkg/agently/modelcall"
+	tcwrite "github.com/viant/agently/pkg/agently/toolcall"
 )
 
 // Service implements domain.Operations using DAO write components.

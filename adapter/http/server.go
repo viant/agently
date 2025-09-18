@@ -20,7 +20,7 @@ import (
 
 	"github.com/viant/agently/metadata"
 	"github.com/viant/agently/sdk/chat"
-	"github.com/viant/agently/sdk/stage"
+
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
 
@@ -204,10 +204,9 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 
 // apiResponse is the unified wrapper returned by all Agently HTTP endpoints.
 type apiResponse struct {
-	Status  string       `json:"status"`
-	Message string       `json:"message,omitempty"`
-	Stage   *stage.Stage `json:"stage,omitempty"`
-	Data    any          `json:"data,omitempty"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // ------------------------------
@@ -228,7 +227,7 @@ type acceptedMessage struct {
 // Note: usage-related data structures moved to sdk/chat. Keep HTTP layer thin.
 
 // encode writes JSON response with the unified structure.
-func encode(w http.ResponseWriter, statusCode int, data interface{}, err error, st *stage.Stage) {
+func encode(w http.ResponseWriter, statusCode int, data interface{}, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		if statusCode == 0 {
@@ -247,7 +246,7 @@ func encode(w http.ResponseWriter, statusCode int, data interface{}, err error, 
 		status = "processing"
 	}
 
-	_ = json.NewEncoder(w).Encode(apiResponse{Status: status, Stage: st, Data: data})
+	_ = json.NewEncoder(w).Encode(apiResponse{Status: status, Data: data})
 }
 
 // humanTimestamp returns human friendly format like "Mon July 1st 2025, 09:15".
@@ -273,7 +272,7 @@ func humanTimestamp(t time.Time) string {
 // handleConversations supports POST to create new conversation id.
 func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 	if s.chatSvc == nil {
-		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"), nil)
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
 	switch r.Method {
@@ -287,33 +286,33 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		ctx := s.withAuthFromRequest(r)
 		resp, err := s.chatSvc.CreateConversation(ctx, req)
 		if err != nil {
-			encode(w, http.StatusInternalServerError, nil, err, nil)
+			encode(w, http.StatusInternalServerError, nil, err)
 			return
 		}
-		encode(w, http.StatusOK, resp, nil, nil)
+		encode(w, http.StatusOK, resp, nil)
 	case http.MethodGet:
 		id := r.PathValue("id")
 		if strings.TrimSpace(id) != "" {
 			cv, err := s.chatSvc.GetConversation(r.Context(), id)
 			if err != nil {
-				encode(w, http.StatusInternalServerError, nil, err, nil)
+				encode(w, http.StatusInternalServerError, nil, err)
 				return
 			}
 			if cv == nil {
-				encode(w, http.StatusNotFound, nil, fmt.Errorf("conversation not found"), nil)
+				encode(w, http.StatusNotFound, nil, fmt.Errorf("conversation not found"))
 				return
 			}
-			encode(w, http.StatusOK, []chat.ConversationSummary{*cv}, nil, nil)
+			encode(w, http.StatusOK, []chat.ConversationSummary{*cv}, nil)
 			return
 		}
 		list, err := s.chatSvc.ListConversations(s.withAuthFromRequest(r))
 		if err != nil {
-			encode(w, http.StatusInternalServerError, nil, err, nil)
+			encode(w, http.StatusInternalServerError, nil, err)
 			return
 		}
-		encode(w, http.StatusOK, list, nil, nil)
+		encode(w, http.StatusOK, list, nil)
 	default:
-		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"), nil)
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
 	}
 }
 
@@ -347,17 +346,17 @@ func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Reque
 // When both are provided, since has priority.
 func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convID string) {
 	if s.chatSvc == nil {
-		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"), nil)
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
 	sinceId := strings.TrimSpace(r.URL.Query().Get("since"))
 	includeModelCallPayload := strings.TrimSpace(r.URL.Query().Get("includeModelCallPayload"))
 	resp, err := s.chatSvc.Get(r.Context(), chat.GetRequest{ConversationID: convID, SinceID: sinceId, IncludeModelCallPayload: includeModelCallPayload == "1"})
 	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err, nil)
+		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
-	encode(w, http.StatusOK, resp.Conversation, nil, nil)
+	encode(w, http.StatusOK, resp.Conversation, nil)
 }
 
 // handleGetPayload serves payload content or metadata for a given payload id.
@@ -372,20 +371,20 @@ func (s *Server) handleGetPayload(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	if s.chatSvc == nil {
-		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"), nil)
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
 	raw, ctype, err := s.chatSvc.GetPayload(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, chat.ErrNotFound) {
-			encode(w, http.StatusNotFound, nil, err, nil)
+			encode(w, http.StatusNotFound, nil, err)
 			return
 		}
 		if errors.Is(err, chat.ErrNoContent) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		encode(w, http.StatusInternalServerError, nil, err, nil)
+		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
 	w.Header().Set("Content-Type", ctype)
@@ -437,26 +436,26 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 		Payload map[string]interface{} `json:"payload,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		encode(w, http.StatusBadRequest, nil, err, nil)
+		encode(w, http.StatusBadRequest, nil, err)
 		return
 	}
 	if s.chatSvc == nil {
-		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"), nil)
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
 	if err := s.chatSvc.Elicit(r.Context(), messageID, req.Action, req.Payload); err != nil {
 		if strings.Contains(err.Error(), "action is required") {
-			encode(w, http.StatusBadRequest, nil, err, nil)
+			encode(w, http.StatusBadRequest, nil, err)
 			return
 		}
 		if strings.Contains(err.Error(), "interaction message not found") {
-			encode(w, http.StatusNotFound, nil, err, nil)
+			encode(w, http.StatusNotFound, nil, err)
 			return
 		}
-		encode(w, http.StatusInternalServerError, nil, err, nil)
+		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
-	encode(w, http.StatusNoContent, nil, nil, nil)
+	encode(w, http.StatusNoContent, nil, nil)
 }
 
 // handleApprovalCallback processes POST /v1/api/approval/{reqID} accepting or
@@ -472,53 +471,53 @@ func (s *Server) handleApprovalCallback(w http.ResponseWriter, r *http.Request, 
 		Reason string `json:"reason,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		encode(w, http.StatusBadRequest, nil, err, nil)
+		encode(w, http.StatusBadRequest, nil, err)
 		return
 	}
 	if strings.TrimSpace(body.Action) == "" {
-		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"), nil)
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"))
 		return
 	}
 	if s.chatSvc == nil {
-		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"), nil)
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
 	if err := s.chatSvc.Approve(r.Context(), messageId, body.Action, body.Reason); err != nil {
 		if strings.Contains(err.Error(), "interaction message not found") {
-			encode(w, http.StatusNotFound, nil, err, nil)
+			encode(w, http.StatusNotFound, nil, err)
 			return
 		}
 		if strings.Contains(err.Error(), "invalid action") {
-			encode(w, http.StatusBadRequest, nil, err, nil)
+			encode(w, http.StatusBadRequest, nil, err)
 			return
 		}
-		encode(w, http.StatusInternalServerError, nil, err, nil)
+		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
-	encode(w, http.StatusNoContent, nil, nil, nil)
+	encode(w, http.StatusNoContent, nil, nil)
 }
 
 // moved to sdk/chat: PostRequest and defaultLocation
 
 func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convID string) {
 	if s.chatSvc == nil {
-		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"), nil)
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
 	var req chat.PostRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		encode(w, http.StatusBadRequest, nil, err, nil)
+		encode(w, http.StatusBadRequest, nil, err)
 		return
 	}
 	// Preflight agent presence to return an error early instead of ACCEPTED
 	if err := s.chatSvc.PreflightPost(r.Context(), convID, req); err != nil {
-		encode(w, http.StatusBadRequest, nil, err, nil)
+		encode(w, http.StatusBadRequest, nil, err)
 		return
 	}
 	ctx := s.withAuthFromRequest(r)
 	id, err := s.chatSvc.Post(ctx, convID, req)
 	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err, nil)
+		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -532,11 +531,11 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 // 204 so the client can treat the conversation as idle.
 func (s *Server) handleTerminateConversation(w http.ResponseWriter, r *http.Request, convID string) {
 	if r.Method != http.MethodPost {
-		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"), nil)
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
 		return
 	}
 	if strings.TrimSpace(convID) == "" {
-		encode(w, http.StatusBadRequest, nil, fmt.Errorf("conversation id required"), nil)
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("conversation id required"))
 		return
 	}
 
@@ -550,7 +549,7 @@ func (s *Server) handleTerminateConversation(w http.ResponseWriter, r *http.Requ
 		status = http.StatusNoContent
 	}
 
-	encode(w, status, map[string]any{"cancelled": cancelled}, nil, nil)
+	encode(w, status, map[string]any{"cancelled": cancelled}, nil)
 }
 
 // ListenAndServe Simple helper to start the server (blocks).

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	plmem "github.com/viant/agently/internal/dao/payload/impl/memory"
 	plread "github.com/viant/agently/internal/dao/payload/read"
-	plwrite "github.com/viant/agently/internal/dao/payload/write"
+	plwrite "github.com/viant/agently/pkg/agently/payload"
 )
 
 func toGraph(rows []*plread.PayloadView) []map[string]interface{} {

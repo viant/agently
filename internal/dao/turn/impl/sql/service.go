@@ -7,7 +7,7 @@ import (
 	"time"
 
 	read2 "github.com/viant/agently/internal/dao/turn/read"
-	write2 "github.com/viant/agently/internal/dao/turn/write"
+	write2 "github.com/viant/agently/pkg/agently/turn"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 )

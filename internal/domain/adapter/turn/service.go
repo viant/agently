@@ -6,8 +6,8 @@ import (
 
 	turndao "github.com/viant/agently/internal/dao/turn"
 	read "github.com/viant/agently/internal/dao/turn/read"
-	write "github.com/viant/agently/internal/dao/turn/write"
 	d "github.com/viant/agently/internal/domain"
+	write "github.com/viant/agently/pkg/agently/turn"
 )
 
 // Service adapts Turn DAO to domain.Turns.

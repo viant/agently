@@ -1,4 +1,4 @@
-package write
+package payload
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	"bytes"
 	"compress/gzip"
+
 	"github.com/viant/xdatly/handler"
 )
 

@@ -1,4 +1,4 @@
-package write
+package payload
 
 import (
 	"github.com/viant/xdatly/handler/response"

@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"strings"
 	"sync"
 
 	api "github.com/viant/agently/internal/dao/modelcall"
@@ -92,51 +91,6 @@ func (s *Service) Patch(ctx context.Context, calls ...*write.ModelCall) (*write.
 		// cannot derive conversationID from model_calls alone; keep byConv empty unless needed
 	}
 	return &write.Output{Data: calls}, nil
-}
-
-func match(v *read.ModelCallView, in *read.Input) bool {
-	if in.Has == nil {
-		return true
-	}
-	if in.Has.MessageID && in.MessageID != v.MessageID {
-		return false
-	}
-	if in.Has.MessageIDs && len(in.MessageIDs) > 0 {
-		ok := false
-		for _, id := range in.MessageIDs {
-			if id == v.MessageID {
-				ok = true
-				break
-			}
-		}
-		if !ok {
-			return false
-		}
-	}
-	if in.Has.TurnID && (v.TurnID == nil || *v.TurnID != in.TurnID) {
-		return false
-	}
-	if in.Has.Provider && !strings.EqualFold(v.Provider, in.Provider) {
-		return false
-	}
-	if in.Has.Model && v.Model != in.Model {
-		return false
-	}
-	if in.Has.ModelKind && v.ModelKind != in.ModelKind {
-		return false
-	}
-	if in.Has.Since && in.Since != nil && v.StartedAt != nil && v.StartedAt.Before(*in.Since) {
-		return false
-	}
-	return true
-}
-
-func clone(v *read.ModelCallView) *read.ModelCallView {
-	if v == nil {
-		return nil
-	}
-	c := *v
-	return &c
 }
 
 var _ api.API = (*Service)(nil)

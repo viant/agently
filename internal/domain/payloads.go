@@ -3,7 +3,7 @@ package domain
 import (
 	"context"
 	read "github.com/viant/agently/internal/dao/payload/read"
-	write "github.com/viant/agently/internal/dao/payload/write"
+	write "github.com/viant/agently/pkg/agently/payload"
 )
 
 // Payloads exposes payload operations using DAO read/write models.
