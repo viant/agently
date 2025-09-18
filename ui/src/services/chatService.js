@@ -27,7 +27,8 @@ const toISOSafe = (v) => {
     try {
         const d = new Date(v);
         if (!isNaN(d.getTime())) return d.toISOString();
-    } catch (_) { /* ignore */ }
+    } catch (_) { /* ignore */
+    }
     return new Date().toISOString();
 };
 
@@ -45,25 +46,11 @@ const initialFetchDoneByConv = new Set();
  *      context so it can be cleared later in onDestroy.
  */
 export async function onInit({context}) {
-    try { console.log('[chat] onInit:start', Date.now()); } catch(_) {}
-    // 1) Pre-fill conversation form defaults
-    let defaults = {};
-    try { defaults = await fetchMetaDefaults({ context }) || {}; } catch(_) {}
-
-
-    // 2) Use aggregated meta to preselect tools for the default agent
     try {
-        const convCtx = context.Context('conversations');
-        const metaCtx = context.Context('meta');
-        const meta = await ensureMeta(context);
-        const agentTools = meta?.agentTools || {};
-        // persist mapping on meta form
-        try { metaCtx?.handlers?.dataSource?.setFormData?.({ values: { ...(meta || {}), agentTools } }); } catch(_) {}
-        const matchedToolNames = agentTools?.[defaults.agent] || [];
-        if (matchedToolNames && convCtx?.handlers?.dataSource?.setFormField) {
-            convCtx.handlers.dataSource.setFormField({ item: { id: 'tools' }, value: matchedToolNames });
-        }
-    } catch(_) {}
+        console.log('[chat] onInit:start', Date.now());
+    } catch (_) {
+    }
+    // 1) Defaults and options will be applied in meta DS onSuccess via chat.onMetaLoaded
 
     // 3) One-shot: wait briefly for conversations.id then trigger messages fetch
     try {
@@ -75,10 +62,14 @@ export async function onInit({context}) {
             let convID = '';
             try {
                 convID = handlers?.peekFormData?.()?.id || convCtx?.signals?.input?.peek?.()?.id || convCtx?.signals?.input?.peek?.()?.filter?.id;
-            } catch(_) {}
+            } catch (_) {
+            }
             if (convID) {
                 clearInterval(timer);
-                try { handlers?.setFormData?.({ values: { id: convID } }); } catch(_) {}
+                try {
+                    handlers?.setFormData?.({values: {id: convID}});
+                } catch (_) {
+                }
                 // Avoid DS-driven fetch to prevent UI blink. Kick off polling immediately.
                 try {
                     // Wrap setError to always store string
@@ -93,19 +84,27 @@ export async function onInit({context}) {
                     const inSig = msgCtx?.signals?.input;
                     if (inSig) {
                         const cur = (typeof inSig.peek === 'function') ? (inSig.peek() || {}) : (inSig.value || {});
-                        const params = { ...(cur.parameters || {}), convID, since: '' };
-                        const next = { ...cur, parameters: params, fetch: true };
+                        const params = {...(cur.parameters || {}), convID, since: ''};
+                        const next = {...cur, parameters: params, fetch: true};
                         if (typeof inSig.set === 'function') inSig.set(next); else inSig.value = next;
                         console.log('[chat][signals] set messages.input (initial fetch)', next);
                     }
-                } catch(_) {}
-                try { dsTick({ context }); } catch(_) {}
-                try { installMessagesDebugHooks(context); } catch(_) {}
+                } catch (_) {
+                }
+                try {
+                    dsTick({context});
+                } catch (_) {
+                }
+                try {
+                    installMessagesDebugHooks(context);
+                } catch (_) {
+                }
             } else if (Date.now() > deadline) {
                 clearInterval(timer);
             }
         }, 60);
-    } catch (_) { /* ignore */ }
+    } catch (_) { /* ignore */
+    }
 
     // 4) Start DS-driven refresh loop (no external poller logic).
     try {
@@ -113,31 +112,63 @@ export async function onInit({context}) {
             clearInterval(context.resources.chatTimer);
         }
         context.resources = context.resources || {};
-        context.resources.chatTimer = setInterval(() => dsTick({ context }), 1000);
-    } catch (_) { /* ignore */ }
+        context.resources.chatTimer = setInterval(() => dsTick({context}), 1000);
+    } catch (_) { /* ignore */
+    }
 }
 
 // DS-driven refresh: computes since and invokes DS getCollection with input parameters
-async function dsTick({ context }) {
+async function dsTick({context}) {
     try {
         const convCtx = context.Context('conversations');
         const convID = convCtx?.handlers?.dataSource?.peekFormData?.()?.id;
-        if (!convID) { try { console.log('[chat][dsTick] skip: no convID'); } catch(_) {} ; return; }
+        if (!convID) {
+            try {
+                console.log('[chat][dsTick] skip: no convID');
+            } catch (_) {
+            }
+            ;
+            return;
+        }
         const messagesCtx = context.Context('messages');
-        if (!messagesCtx) { try { console.log('[chat][dsTick] skip: no messagesCtx'); } catch(_) {} ; return; }
+        if (!messagesCtx) {
+            try {
+                console.log('[chat][dsTick] skip: no messagesCtx');
+            } catch (_) {
+            }
+            ;
+            return;
+        }
         const ctrl = messagesCtx.signals?.control;
-        if (ctrl?.peek?.()?.loading) { try { console.log('[chat][dsTick] skip: DS loading'); } catch(_) {} ; return; }
+        if (ctrl?.peek?.()?.loading) {
+            try {
+                console.log('[chat][dsTick] skip: DS loading');
+            } catch (_) {
+            }
+            ;
+            return;
+        }
         const coll = Array.isArray(messagesCtx.signals?.collection?.value) ? messagesCtx.signals.collection.value : [];
         let since = '';
-        for (let i = coll.length - 1; i >= 0; i--) { if (coll[i]?.turnId) { since = coll[i].turnId; break; } }
-        if (!since && coll.length) { since = coll[coll.length - 1]?.id || ''; }
+        for (let i = coll.length - 1; i >= 0; i--) {
+            if (coll[i]?.turnId) {
+                since = coll[i].turnId;
+                break;
+            }
+        }
+        if (!since && coll.length) {
+            since = coll[coll.length - 1]?.id || '';
+        }
         // Throttle requests but do not skip when 'since' is unchanged – we still want
         // to pick up updates within the same turn (model/tool call progress).
         const nowTs = Date.now();
         const minIntervalMs = context.resources?.messagesPollThrottleMs || 1000;
         const lastReqTs = context.resources?.lastDsReqTs || 0;
         if ((nowTs - lastReqTs) < minIntervalMs) {
-            try { console.log('[chat][dsTick] skip: throttle'); } catch(_) {}
+            try {
+                console.log('[chat][dsTick] skip: throttle');
+            } catch (_) {
+            }
             return;
         }
         context.resources = context.resources || {};
@@ -147,14 +178,14 @@ async function dsTick({ context }) {
         try {
             const api = messagesCtx.connector;
             console.time(`[chat][poll][silent] since=${since}`);
-            const json = await api.get({ inputParameters: { convID, since } });
+            const json = await api.get({inputParameters: {convID, since}});
             const conv = json && (json.data ?? json.Data ?? json.conversation ?? json.Conversation ?? json);
             const convStage = conv?.stage || conv?.Stage;
             if (convStage) {
-                setStage({ phase: String(convStage) });
+                setStage({phase: String(convStage)});
             }
             const transcript = Array.isArray(conv?.transcript) ? conv.transcript
-                              : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
+                : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
             const rows = mapTranscriptToRowsWithExecutions(transcript);
             if (rows.length) {
                 receiveMessages(messagesCtx, rows, since);
@@ -235,7 +266,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
     for (const turn of transcript) {
         const turnId = turn?.id || turn?.Id;
         const messages = Array.isArray(turn?.message) ? turn.message
-                         : Array.isArray(turn?.Message) ? turn.Message : [];
+            : Array.isArray(turn?.Message) ? turn.Message : [];
 
         // 1) Build all execution steps in this turn (model/tool/interim)
         const steps = [];
@@ -243,15 +274,22 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const isInterim = !!(m?.interim ?? m?.Interim);
             if (isInterim) {
                 const created = m?.createdAt || m?.CreatedAt;
-                const interim = { id: (m.id || m.Id || '') + '/interim', name: 'assistant', reason: 'interim', success: true, startedAt: created, endedAt: created };
-                steps.push({ ...interim, elapsed: computeElapsed(interim) });
+                const interim = {
+                    id: (m.id || m.Id || '') + '/interim',
+                    name: 'assistant',
+                    reason: 'interim',
+                    success: true,
+                    startedAt: created,
+                    endedAt: created
+                };
+                steps.push({...interim, elapsed: computeElapsed(interim)});
             }
             const mc = m?.modelCall || m?.ModelCall;
             const tc = m?.toolCall || m?.ToolCall;
             const s1 = buildThinkingStepFromModelCall(mc);
             const s2 = buildToolStepFromToolCall(tc);
-            if (s1) steps.push({ ...s1, elapsed: computeElapsed(s1) });
-            if (s2) steps.push({ ...s2, elapsed: computeElapsed(s2) });
+            if (s1) steps.push({...s1, elapsed: computeElapsed(s1)});
+            if (s2) steps.push({...s2, elapsed: computeElapsed(s2)});
         }
 
         // Sort steps by timestamp (prefer startedAt, fallback endedAt)
@@ -300,7 +338,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             // Compute usage from the thinking step model if available
             let usage = null;
             // No token fields on step; usage computed elsewhere in poll path; keep null here.
-            turnRows[carrierIdx] = { ...turnRows[carrierIdx], executions: [{ steps }], usage };
+            turnRows[carrierIdx] = {...turnRows[carrierIdx], executions: [{steps}], usage};
         }
 
         for (const r of turnRows) rows.push(r);
@@ -331,7 +369,7 @@ function installMessagesDebugHooks(context) {
             if (errVal && (typeof errVal === 'object')) {
                 // Coerce Error object to string so Chat error banner can render safely
                 const coerced = String(errVal.message || errVal.toString?.() || '');
-                ctrlSig.value = { ...ctrlVal, error: coerced };
+                ctrlSig.value = {...ctrlVal, error: coerced};
             }
             // Once we have any messages, suppress spinner on background polls.
             if (len > 0) {
@@ -341,11 +379,12 @@ function installMessagesDebugHooks(context) {
                 }
             }
             if (len !== lastLen || loading !== lastLoading) {
-                console.log('[chat][signals] messages', { len, loading, ts: Date.now() });
+                console.log('[chat][signals] messages', {len, loading, ts: Date.now()});
                 lastLen = len;
                 lastLoading = loading;
             }
-        } catch(_) {}
+        } catch (_) {
+        }
     };
     const t = setInterval(tick, 120);
     context.resources = context.resources || {};
@@ -359,7 +398,7 @@ function installMessagesDebugHooks(context) {
         conn.get = async (opts) => {
             console.log('[chat][connector][GET] messages', opts);
             const res = await origGet(opts);
-            console.log('[chat][connector][GET][done] messages', { status: res?.status, keys: Object.keys(res || {}) });
+            console.log('[chat][connector][GET][done] messages', {status: res?.status, keys: Object.keys(res || {})});
             return res;
         };
     }
@@ -367,7 +406,10 @@ function installMessagesDebugHooks(context) {
         conn.post = async (opts) => {
             console.log('[chat][connector][POST] messages', opts);
             const res = await origPost(opts);
-            console.log('[chat][connector][POST][done] messages', { status: res?.status, dataKeys: Object.keys(res?.data || {}) });
+            console.log('[chat][connector][POST][done] messages', {
+                status: res?.status,
+                dataKeys: Object.keys(res?.data || {})
+            });
             return res;
         };
     }
@@ -391,7 +433,8 @@ function installMessagesDebugHooks(context) {
             };
             ds._setLoadingWrapped = true;
         }
-    } catch (_) {}
+    } catch (_) {
+    }
 }
 
 function selectFolder(props) {
@@ -404,7 +447,7 @@ function selectFolder(props) {
 
 // --------------------------- Debug helpers ------------------------------
 
-export function debugHistoryOpen({ context }) {
+export function debugHistoryOpen({context}) {
     try {
         const convCtx = context.Context('history') || context.Context('conversations');
         const selected = convCtx?.handlers?.dataSource?.peekSelection?.()?.selected || {};
@@ -415,7 +458,7 @@ export function debugHistoryOpen({ context }) {
     }
 }
 
-export function debugHistorySelection({ context }) {
+export function debugHistorySelection({context}) {
     try {
         const convCtx = context.Context('history') || context.Context('conversations');
         const sel = convCtx?.handlers?.dataSource?.peekSelection?.();
@@ -425,7 +468,7 @@ export function debugHistorySelection({ context }) {
     }
 }
 
-export function debugMessagesLoaded({ context, response }) {
+export function debugMessagesLoaded({context, response}) {
     try {
         const data = response?.data || response;
         const transcript = Array.isArray(data?.Transcript) ? data.Transcript : (Array.isArray(data?.transcript) ? data.transcript : []);
@@ -441,14 +484,14 @@ export function debugMessagesLoaded({ context, response }) {
     }
 }
 
-export function debugMessagesError({ context, error }) {
+export function debugMessagesError({context, error}) {
     try {
         const msgCtx = context.Context('messages');
         const ctrl = msgCtx?.signals?.control;
         if (ctrl) {
             const prev = (typeof ctrl.peek === 'function') ? (ctrl.peek() || {}) : (ctrl.value || {});
             const coerced = String(error?.message || error);
-            ctrl.value = { ...prev, error: coerced, loading: false };
+            ctrl.value = {...prev, error: coerced, loading: false};
         }
         console.log('[chat][messagesDS] onError at', Date.now(), error);
     } catch (e) {
@@ -458,7 +501,7 @@ export function debugMessagesError({ context, error }) {
 
 // Ensure DS-driven refresh does not shrink the displayed collection by
 // restoring the last known full snapshot captured by the polling path.
-export function hydrateMessagesCollection({ context }) {
+export function hydrateMessagesCollection({context}) {
     try {
         const messagesCtx = context.Context('messages');
         const collSig = messagesCtx?.signals?.collection;
@@ -467,7 +510,13 @@ export function hydrateMessagesCollection({ context }) {
         const curr = Array.isArray(collSig.value) ? collSig.value : [];
         if (curr.length < snap.length) {
             collSig.value = [...snap];
-            try { console.log('[chat] hydrateMessagesCollection: restored snapshot', { before: curr.length, after: snap.length }); } catch(_) {}
+            try {
+                console.log('[chat] hydrateMessagesCollection: restored snapshot', {
+                    before: curr.length,
+                    after: snap.length
+                });
+            } catch (_) {
+            }
         }
     } catch (e) {
         // ignore
@@ -479,7 +528,7 @@ export function hydrateMessagesCollection({ context }) {
 // Transform transcript turns (collection) into flat message rows for Chat UI.
 export function onFetchMessages(props) {
     try {
-        const { collection, context } = props || {};
+        const {collection, context} = props || {};
         const transcript = Array.isArray(collection) ? collection : [];
         const built = mapTranscriptToRowsWithExecutions(transcript);
 
@@ -488,7 +537,8 @@ export function onFetchMessages(props) {
         try {
             const msgCtx = context?.Context?.('messages');
             prev = Array.isArray(msgCtx?.signals?.collection?.peek?.()) ? msgCtx.signals.collection.peek() : [];
-        } catch(_) {}
+        } catch (_) {
+        }
         const seen = new Set((prev || []).map(r => r && r.id).filter(Boolean));
         const merged = [...prev];
         for (const r of built) {
@@ -499,21 +549,6 @@ export function onFetchMessages(props) {
         return merged;
     } catch (_) {
         return [];
-    }
-}
-
-// onSuccess handler: merges response conversation transcript rows into DS collection.
-export function mergeFromResponse({ context, response }) {
-    try {
-        const conv = response?.data || response?.Data || response?.conversation || response?.Conversation || response;
-        if (!conv) return;
-        const transcript = Array.isArray(conv?.transcript) ? conv.transcript
-                          : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
-        const rows = mapTranscriptToRowsWithExecutions(transcript);
-        const messagesCtx = context.Context('messages');
-        receiveMessages(messagesCtx, rows);
-    } catch (e) {
-        console.warn('mergeFromResponse error', e);
     }
 }
 
@@ -532,108 +567,40 @@ export function onDestroy({context}) {
 }
 
 
-function matchAgentTools(context, patterns) {
-    // grab the full tool objects, not just names
-    const allTools = getAllTools(context);
-    // filter by name patterns, but keep the full object
-    const matchedTools = filterToolsByPatterns(allTools, patterns);
-    return matchedTools;
-}
+// Saves settings from the Settings dialog into the conversations form (in-memory)
+export function saveSettings(args) {
+    const {context} = args
+    const metaContext = context.Context('meta');
+    console.log('saveSettings', args);
 
-/**
- * Builds dynamic options for the tools treeMultiSelect widget.
- * @param {Object} options - Forge handler options
- * @param {Object} options.context - SettingProvider context instance
- * @returns {{options: Array<{id: string, label: string, value: string, tooltip: string}>}}
- */
-export function buildToolOptions({context}) {
-    const agentName = getSelectedAgent(context);
-    if (!agentName) {
-        return {options: []};
-    }
 
-    const patterns = getAgentPatterns(context, agentName);
-    if (!patterns.length) {
-        return {options: []};
-    }
+    const source = metaContext.handlers.dataSource.peekFormData();
+    console.log('[chat][history] settings save', source);
 
-    const matchedTools = matchAgentTools(context, patterns);
-    return {options: formatOptions(matchedTools)};
-}
-
-/**
- * Builds options for a simple select from aggregated meta list (agents/models/tools).
- * args[0] should be one of: 'agents' | 'models' | 'tools'.
- */
-export async function buildOptionsFromMeta({ context, args }) {
-    const listName = Array.isArray(args) && args[0] ? String(args[0]) : '';
-    if (!listName) return { options: [] };
-    const meta = await ensureMeta(context);
-    const list = Array.isArray(meta?.[listName]) ? meta[listName] : [];
-    try { console.log('[settings] buildOptionsFromMeta', { listName, size: list.length }); } catch(_) {}
-    const options = list.map(v => ({ id: String(v), label: String(v), value: String(v) }));
-    return { options };
-}
-
-/**
- * Builds tool options from aggregated meta tools list.
- */
-export async function buildToolOptionsFromMeta({ context }) {
-    try {
-        const meta = await ensureMeta(context);
-        const tools = Array.isArray(meta?.tools) ? meta.tools : [];
-        console.log('[settings] buildToolOptionsFromMeta', { size: tools.length });
-        const options = tools.map(v => ({ id: String(v), label: String(v), value: String(v) }));
-        return { options };
-    } catch (e) {
-        console.warn('[settings] buildToolOptionsFromMeta error', e);
-        return { options: [] };
-    }
+    const {agent, model, tools} = source
+    const convContext = context.Context('conversations');
+    const convDataSource = convContext?.handlers?.dataSource;
+    const current = convDataSource.peekFormData()
+    convDataSource.setFormData?.({values: {...current, agent, model, tools}});
 }
 
 // Applies meta.agentTools mapping to the conversations.tools field when agent changes
-export async function applyAgentToolsFromMeta({ context, selected }) {
-    try {
-        const meta = await ensureMeta(context);
-        const agentTools = meta?.agentTools || {};
-        const convCtx = context.Context('conversations');
-        const toolNames = agentTools?.[selected] || [];
-        console.log('[settings] applyAgentToolsFromMeta', { selected, size: toolNames.length });
-        if (convCtx?.handlers?.dataSource?.setFormField) {
-            convCtx.handlers.dataSource.setFormField({ item: { id: 'tools' }, value: toolNames });
-        }
-        return true;
-    } catch (e) {
-        console.warn('applyAgentToolsFromMeta error', e);
-        return false;
-    }
+export function selectAgent(args) {
+    const {context, selected} = args
+    const form = context.handlers.dataSource.peekFormData()
+    const selectedTools = form.agentInfo[selected]?.tools || []
+    const selectedModel = form.agentInfo[selected]?.model || '';
+    context.handlers.dataSource.setFormField({item: {id: 'tool'}, value: selectedTools});
+    context.handlers.dataSource.setFormField({item: {id: 'model'}, value: selectedModel});
 }
 
-async function ensureMeta(context) {
-    // Prefer cached result on window context.
-    if (context?.resources?.metaPayload) {
-        try { console.log('[settings][meta] using cached payload'); } catch(_) {}
-        return context.resources.metaPayload;
-    }
-    const metaContext = context?.Context?.('meta');
-    const metaAPI = metaContext?.connector;
-    try {
-        console.log('[settings][meta] fetch:start via DS');
-        const resp = await metaAPI?.get?.({});
-        const data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp;
-        if (data) {
-            // Cache on context and try to persist in DS form for other handlers.
-            context.resources = context.resources || {};
-            context.resources.metaPayload = data;
-            try { metaContext?.handlers?.dataSource?.setFormData?.({ values: data }); } catch(_) {}
-            try { console.log('[settings][meta] fetch:done', { keys: Object.keys(data||{}) }); } catch(_) {}
-            return data;
-        }
-    } catch (err) {
-        console.error('[settings][meta] ensureMeta error', err);
-    }
-    return {};
+
+// Applies meta.agentTools mapping to the conversations.tools field when agent changes
+export function selectModel(args) {
+    const {context, selected} = args
+    context.handlers.dataSource.setFormField({item: {id: 'model'}, value: selected});
 }
+
 
 // --- Helpers ---
 
@@ -694,18 +661,6 @@ function formatOptions(tools) {
 }
 
 
-export async function selectAgent(props) {
-    const {context} = props;
-    const metaContext = context.Context('meta')
-    const form = metaContext.handlers.dataSource.peekFormData()
-    const convContext = context.Context('conversations')
-    const agentId = props.selected
-    const tools = form.agents[agentId]
-    convContext.handlers.dataSource.setFormField({item: {id: 'tools'}, value: tools})
-    return true
-}
-
-
 /**
  * Submits a user message to the chat
  * @param {Object} options - Options object
@@ -727,7 +682,10 @@ export async function submitMessage(props) {
         }
 
         // Mark composer busy via dedicated signal (decoupled from DS loading)
-        try { setComposerBusy(true); } catch(_) {}
+        try {
+            setComposerBusy(true);
+        } catch (_) {
+        }
 
         const body = {
             content: message.content,
@@ -759,19 +717,23 @@ export async function submitMessage(props) {
             const inSig = msgCtx?.signals?.input;
             if (inSig) {
                 const cur = (typeof inSig.peek === 'function') ? (inSig.peek() || {}) : (inSig.value || {});
-                const params = { ...(cur.parameters || {}), convID, since: '' };
-                const next = { ...cur, parameters: params, fetch: true };
+                const params = {...(cur.parameters || {}), convID, since: ''};
+                const next = {...cur, parameters: params, fetch: true};
                 if (typeof inSig.set === 'function') inSig.set(next); else inSig.value = next;
             } else {
                 await msgCtx?.handlers?.dataSource?.getCollection?.();
             }
-        } catch(_) {}
+        } catch (_) {
+        }
 
     } catch (error) {
         console.error('submitMessage error:', error);
         messagesContext?.handlers?.dataSource?.setError(error);
     } finally {
-        try { setComposerBusy(false); } catch(_) {}
+        try {
+            setComposerBusy(false);
+        } catch (_) {
+        }
     }
 }
 
@@ -790,7 +752,7 @@ export async function upload() {
  * @param {Object} props.context - SettingProvider context
  */
 export async function abortConversation(props) {
-    const { context } = props || {};
+    const {context} = props || {};
     if (!context || typeof context.Context !== 'function') {
         console.warn('chatService.abortConversation: invalid context');
         return false;
@@ -800,7 +762,7 @@ export async function abortConversation(props) {
         const convCtx = context.Context('conversations');
         const convAPI = convCtx?.connector;
         const convID = convCtx?.handlers?.dataSource?.peekFormData?.()?.id ||
-                       convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id;
+            convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id;
 
         if (!convID) {
             console.warn('chatService.abortConversation – no active conversation');
@@ -809,11 +771,11 @@ export async function abortConversation(props) {
 
         await convAPI.post({
             uri: `/v1/api/conversations/${encodeURIComponent(convID)}/terminate`,
-            inputParameters: { id: convID },
+            inputParameters: {id: convID},
         });
 
         // Optimistic stage update; backend will publish final stage via polling.
-        setStage({ phase: 'aborted' });
+        setStage({phase: 'aborted'});
 
         return true;
     } catch (err) {
@@ -825,71 +787,6 @@ export async function abortConversation(props) {
     }
 }
 
-/**
- * Fetches default agent/model from backend metadata endpoint and pre-fills the
- * conversations form data so that the Settings dialog shows current default
- * selections.
- */
-export async function fetchMetaDefaults({context}) {
-
-
-    const metaContext = context.Context('meta')
-    const metaAPI = metaContext.connector;
-    try {
-        console.log('[settings][meta] fetch defaults:start');
-        const resp = await metaAPI.get({})
-        const data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp;
-        if (!data) return;
-        const defaults = data?.defaults || {};
-        const agent = defaults.agent || '';
-        const model = defaults.model || '';
-        const convCtx = context.Context('conversations');
-        if (!convCtx?.handlers?.dataSource) return;
-
-        const existing = convCtx.handlers.dataSource.peekFormData?.() || {};
-        const values = {...existing, agent, model};
-        console.log('[settings][meta] defaults', { agent, model, tools: (values.tools||[]).length });
-        convCtx.handlers.dataSource.setFormData({values: values});
-        return values
-    } catch (err) {
-        console.error('[settings][meta] fetch defaults error', err);
-    }
-}
-
-/**
- * Updates the collection signal with a new user message
- * @param {Object} messagesContext - Messages context
- * @param {string} messageId - ID of the new message
- * @param {string} content - Content of the message
- */
-function updateCollectionWithUserMessage(messagesContext, messageId, content) {
-    const collSig = messagesContext.signals?.collection;
-    if (!collSig) return;
-
-    const curr = Array.isArray(collSig.value) ? collSig.value : [];
-    // If this id already exists (e.g., server responded faster than optimistic add),
-    // do not append a duplicate; update fields in-place if needed.
-    const idx = curr.findIndex(m => m && m.id === messageId);
-    if (idx >= 0) {
-        const existing = { ...curr[idx] };
-        if (!existing.content) existing.content = content;
-        if (!existing.createdAt) existing.createdAt = new Date().toISOString();
-        const next = [...curr];
-        next[idx] = existing;
-        collSig.value = next;
-        return;
-    }
-    collSig.value = [
-        ...curr,
-        {
-            id: messageId,
-            parentId: messageId,
-            role: 'user',
-            content: content,
-            createdAt: new Date().toISOString(),
-        },
-    ];
-}
 
 /**
  * Merges incoming messages with the current collection
@@ -897,7 +794,10 @@ function updateCollectionWithUserMessage(messagesContext, messageId, content) {
  * @param {Array} incoming - Incoming messages to merge
  */
 function mergeMessages(messagesContext, incoming) {
-    try { console.log('[chat] mergeMessages:incoming', Array.isArray(incoming) ? incoming.length : 0); } catch(_) {}
+    try {
+        console.log('[chat] mergeMessages:incoming', Array.isArray(incoming) ? incoming.length : 0);
+    } catch (_) {
+    }
     const collSig = messagesContext.signals?.collection;
     if (!collSig || !Array.isArray(incoming) || !incoming.length) {
         return;
@@ -921,7 +821,7 @@ function mergeMessages(messagesContext, incoming) {
         if (idx >= 0) {
             const prev = current[idx] || {};
             // Prefer latest network payload wholesale when id matches.
-            const updated = { ...msg };
+            const updated = {...msg};
             // Preserve createdAt if network omitted it
             if (!updated.createdAt) {
                 updated.createdAt = prev.createdAt || new Date().toISOString();
@@ -976,8 +876,14 @@ function mergeMessages(messagesContext, incoming) {
     const publish = changed || before !== next.length || !sameIds(collSig.value, next);
     if (publish) {
         collSig.value = next;
-        try { messagesContext._snapshot = [...next]; } catch(_) {}
-        try { console.log('[chat] mergeMessages:applied', { before, after: next.length }); } catch(_) {}
+        try {
+            messagesContext._snapshot = [...next];
+        } catch (_) {
+        }
+        try {
+            console.log('[chat] mergeMessages:applied', {before, after: next.length});
+        } catch (_) {
+        }
         // Do not mutate the messages DataSource form here; changing form values
         // can reset the chat composer input and cause focus flicker.
     }
@@ -1030,8 +936,9 @@ export function receiveMessages(messagesContext, data, sinceId = '') {
     if (!Array.isArray(data) || data.length === 0) return;
     try {
         const convId = data?.[0]?.conversationId;
-        console.log('[chat] receiveMessages', { count: data.length, sinceId, convId });
-    } catch(_) {}
+        console.log('[chat] receiveMessages', {count: data.length, sinceId, convId});
+    } catch (_) {
+    }
     // Prefer merging fully – including the sinceId boundary – so that enriched
     // rows (with executions/usage) update the existing optimistic/plain row.
     mergeMessages(messagesContext, data);
@@ -1056,10 +963,19 @@ function computeUsageFromMessages(messages = [], conversationId = '') {
             for (const ex of m.executions) {
                 const steps = ex?.steps || [];
                 const mc = steps.find(s => (s?.reason === 'thinking' && s?.name));
-                if (mc && mc.name) { model = mc.name; break; }
+                if (mc && mc.name) {
+                    model = mc.name;
+                    break;
+                }
             }
         }
-        const agg = perModelMap.get(model) || { model, inputTokens: 0, outputTokens: 0, embeddingTokens: 0, cachedTokens: 0 };
+        const agg = perModelMap.get(model) || {
+            model,
+            inputTokens: 0,
+            outputTokens: 0,
+            embeddingTokens: 0,
+            cachedTokens: 0
+        };
         agg.inputTokens += (u.promptTokens || 0);
         agg.outputTokens += (u.completionTokens || 0);
         perModelMap.set(model, agg);
@@ -1067,7 +983,7 @@ function computeUsageFromMessages(messages = [], conversationId = '') {
 
     const perModel = Array.from(perModelMap.values());
     const totalTokens = inputTokens + outputTokens + embeddingTokens + cachedTokens;
-    return { conversationId, inputTokens, outputTokens, embeddingTokens, cachedTokens, totalTokens, perModel };
+    return {conversationId, inputTokens, outputTokens, embeddingTokens, cachedTokens, totalTokens, perModel};
 }
 
 
@@ -1079,26 +995,24 @@ export const chatService = {
     upload,
     onInit,
     onDestroy,
-    prepareSettings,
+    onMetaLoaded,
+    onFetchMeta,
+
+    saveSettings,
     debugHistoryOpen,
     debugHistorySelection,
     debugMessagesLoaded,
     debugMessagesError,
     // selectAgent no longer needed in new chat window; keep for compatibility where used
     selectAgent,
-    fetchMetaDefaults,
+    selectModel,
     newConversation,
     classifyMessage,
     normalizeMessages,
     selectFolder,
-    buildToolOptions,
-    buildOptionsFromMeta,
-    buildToolOptionsFromMeta,
-    applyAgentToolsFromMeta,
     receiveMessages,
     // DS event handlers
     onFetchMessages,
-    mergeFromResponse,
     renderers: {
         execution: ExecutionBubble,
         form: FormRenderer,
@@ -1119,32 +1033,75 @@ export const chatService = {
 // closed or remounted.
 const pollingRegistry = new WeakMap();
 
-// Prepare settings dialog with defaults from meta when fields are empty.
-async function prepareSettings({ context }) {
-    try {
-        const meta = await ensureMeta(context);
-        const defaults = meta?.defaults || {};
-        const convCtx = context.Context('conversations');
-        const ds = convCtx?.handlers?.dataSource;
-        if (!ds) return false;
-        const current = ds.peekFormData?.() || {};
-        const agent = current.agent || defaults.agent || '';
-        const model = current.model || defaults.model || '';
-        // Prefer existing tools; else apply mapping from meta.agentTools
-        let tools = current.tools;
-        const isEmptyArray = Array.isArray(tools) && tools.length === 0;
-        const isEmptyString = (typeof tools === 'string') && tools.trim() === '';
-        if (!tools || isEmptyArray || isEmptyString) {
-            const map = meta?.agentTools || {};
-            tools = map?.[agent] || [];
+
+// Called when meta DS fetch completes; ensures conversations form has defaults when empty
+function onMetaLoaded(args) {
+    const {context, response, collection} = args
+    if (!collection || collection?.length === 0) return;
+    const data = collection[0]
+
+    const convCtx = context.Context('conversations');
+    const ds = convCtx?.handlers?.dataSource;
+    if (!ds) return;
+    const current = ds.peekFormData?.() || {};
+    const {defaults} = data
+    ds.setFormData?.({
+        values: {
+            ...current,
+            agent: defaults.agent || '',
+            model: defaults.model || '',
+            agentInfo: data.agentInfo || {},
         }
-        console.log('[settings] prepareSettings', { agent, model, toolsSize: Array.isArray(tools)? tools.length : (tools? 1 : 0) });
-        ds.setFormData?.({ values: { ...current, agent, model, tools } });
-        return true;
-    } catch (e) {
-        console.warn('[settings] prepareSettings error', e);
-        return false;
-    }
+    });
+
+}
+
+// Prevent DS from trying to assign object payload to a collection; return [] so
+// the collection path is left untouched and onSuccess can map to the form.
+function onFetchMeta(args) {
+    const {collection = []} = args;
+    console.log('[settings] onFetchMeta', collection);
+
+    const updated = collection.map(data => {
+
+        const agentInfo = data.agentInfo || {};
+
+        console.log('agentInfo', agentInfo)
+
+
+        const agentsRaw = Array.isArray(data?.agents)
+            ? data.agents
+            : (data?.agentInfo ? Object.keys(data.agentInfo) : []);
+
+        const modelsRaw = Array.isArray(data?.models)
+            ? data.models
+            : (defaults?.model ? [defaults.model] : []);
+
+        const toolsRaw = Array.isArray(data?.tools) ? data.tools : [];
+
+        return {
+            ...data,
+            agentOptions: agentsRaw.map(v => ({
+                value: String(v).toLowerCase(),
+                label: String(v)
+            })),
+            agent: data.defaults.agent,
+
+            modelOptions: modelsRaw.map(v => ({
+                value: String(v),
+                label: String(v)
+            })),
+            model: data.defaults.model,
+
+            toolOptions: toolsRaw.map(v => ({
+                value: String(v),
+                label: String(v)
+            })),
+            tool: agentInfo[data.defaults.agent]?.tools
+        };
+    });
+    console.log('[settings] onFetchMeta', updated);
+    return updated;
 }
 
 //

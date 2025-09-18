@@ -2,9 +2,11 @@ title: Settings
 id: settings
 content: $import('panel/settings.yaml')
 
-on:
-  - event: onOpen
-    handler: chat.prepareSettings
+#on:
+#  - event: onOpen
+#    handler: chat.prepareSettings
+
+
 
 # Make the dialog reasonably sized
 style:
@@ -18,6 +20,8 @@ actions:
     label: Save
     intent: primary
     on:
+      - event: onClick
+        handler: chat.saveSettings
       - event: onClick
         handler: dialog.close
 

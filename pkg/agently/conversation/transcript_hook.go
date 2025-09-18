@@ -21,6 +21,9 @@ func (t *TranscriptView) OnRelation(ctx context.Context) {
 				return mj == nil && mi != nil
 			}
 			if mi.CreatedAt.Equal(mj.CreatedAt) {
+				if mi.ToolCall != nil {
+					return true
+				}
 				// Use Sequence if available as a tie breaker
 				if mi.Sequence != nil && mj.Sequence != nil {
 					return *mi.Sequence < *mj.Sequence

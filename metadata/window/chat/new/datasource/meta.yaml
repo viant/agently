@@ -5,3 +5,9 @@ service:
 
 selectors:
   data: data
+
+on:
+  - event: onFetch
+    handler: chat.onFetchMeta
+  - event: onSuccess
+    handler: chat.onMetaLoaded
