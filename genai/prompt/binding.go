@@ -6,9 +6,10 @@ import (
 
 type (
 	Flags struct {
-		CanUseTool bool `yaml:"canUseTool,omitempty" json:"canUseTool,omitempty"`
-		CanStream  bool `yaml:"canStream,omitempty" json:"canStream,omitempty"`
-		IsSystem   bool `yaml:"isSystemPath,omitempty" json:"isSystemPath,omitempty"`
+		CanUseTool   bool `yaml:"canUseTool,omitempty" json:"canUseTool,omitempty"`
+		CanStream    bool `yaml:"canStream,omitempty" json:"canStream,omitempty"`
+		IsMultimodal bool `yaml:"isMultimodal,omitempty" json:"isMultimodal,omitempty"`
+		IsSystem     bool `yaml:"isSystemPath,omitempty" json:"isSystemPath,omitempty"`
 	}
 
 	Documents struct {

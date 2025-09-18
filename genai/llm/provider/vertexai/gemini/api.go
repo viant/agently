@@ -24,6 +24,8 @@ func (c *Client) Implements(feature string) bool {
 		return true
 	case base.CanStream:
 		return c.canStream()
+	case base.IsMultimodal:
+		return true
 	}
 	return false
 }

@@ -54,10 +54,8 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		i.Message = append(i.Message, llm.NewSystemMessage(expanded))
 	}
 
-	for _, attachment := range i.Attachment {
-		i.Message = append(i.Message,
-			llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Content))
-	}
+	// Note: attachments are appended later in prepareGenerateRequest after
+	// model capabilities are known (IsMultimodal flag).
 
 	if i.Prompt == nil {
 		i.Prompt = &prompt.Prompt{}
@@ -198,6 +196,19 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 	}
 	s.updateFlags(input, model)
 
+	// Append attachments only when the model reports multimodal capability.
+	if len(input.Attachment) > 0 {
+		if input.Binding != nil && input.Binding.Flags.IsMultimodal {
+			for _, attachment := range input.Attachment {
+				input.Message = append(input.Message,
+					llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Content))
+			}
+		} else {
+			// Provide user-visible feedback when attachments are ignored.
+			fmt.Println("[warning] attachments ignored: selected model is not multimodal")
+		}
+	}
+
 	request := &llm.GenerateRequest{
 		Messages: input.Message,
 		Options:  input.Options,
@@ -208,6 +219,7 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 func (s *Service) updateFlags(input *GenerateInput, model llm.Model) {
 	input.Binding.Flags.CanUseTool = model.Implements(base.CanUseTools)
 	input.Binding.Flags.CanStream = model.Implements(base.CanStream)
+	input.Binding.Flags.IsMultimodal = model.Implements(base.IsMultimodal)
 }
 
 type Attachment struct {
