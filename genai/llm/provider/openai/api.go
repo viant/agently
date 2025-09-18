@@ -74,10 +74,26 @@ func (c *Client) Implements(feature string) bool {
 	case base.CanStream:
 		return true
 	case base.IsMultimodal:
-		// Chat models generally support images; accept attachments.
-		return true
+		return c.canMultimodal()
 	}
 	return false
+}
+
+func (c *Client) canMultimodal() bool {
+	//TODO
+	/*
+	   m := strings.ToLower(c.Model)
+	   // Heuristic: enable only on known vision-capable chat families.
+	   // Examples: gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, omni, vision
+	   keywords := []string{"gpt-4o", "4o", "4.1", "-omni", "vision"}
+	   for _, kw := range keywords {
+	       if strings.Contains(m, kw) {
+	           return true
+	       }
+	   }
+	   return false
+	*/
+	return true
 }
 
 // Generate sends a chat request to the OpenAI API and returns the response

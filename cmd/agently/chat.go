@@ -170,6 +170,39 @@ func (c *ChatCmd) Execute(_ []string) error {
 		return nil
 	}
 
+	// one-off variant for a single turn with explicit attachments (drag-and-drop)
+	callChatWithAtts := func(userQuery string, turnAtts []*core.Attachment) error {
+		ctx := tool.WithPolicy(ctxBase, toolPol)
+		ctx = withFluxorPolicy(ctx, fluxPol)
+		if convID == "" {
+			convID = uuid.NewString()
+		}
+		ctx = conversation.WithID(ctx, convID)
+		req := service.ChatRequest{
+			ConversationID: convID,
+			AgentPath:      c.AgentName,
+			Query:          userQuery,
+			Context:        contextData,
+			Timeout:        time.Duration(c.Timeout) * time.Second,
+			Attachments:    turnAtts,
+		}
+		resp, err := svc.Chat(ctx, req)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				fmt.Println("[no response] - timeout")
+				return nil
+			}
+			return err
+		}
+		convID = resp.ConversationID
+		if strings.TrimSpace(resp.Content) == "" {
+			fmt.Println("[no response] - no content")
+		} else {
+			fmt.Println(resp.Content)
+		}
+		return nil
+	}
+
 	// Single-turn when -q provided.
 	if c.Query != "" {
 		if err := callChat(c.Query); err != nil {
@@ -188,9 +221,111 @@ func (c *ChatCmd) Execute(_ []string) error {
 			fmt.Printf("[conversation-id] %s\n", convID)
 			break
 		}
+
+		// Detect drag-and-dropped file paths optionally followed by ':: caption'.
+		if dropAtts, caption, ok := parseDropLine(line); ok {
+			if err := callChatWithAtts(caption, dropAtts); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := callChat(line); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// parseDropLine detects whether the input line contains only file path tokens
+// (supporting quoted paths) optionally followed by ':: caption'. When all
+// path tokens are valid files, it returns attachments, caption, and ok=true.
+func parseDropLine(line string) ([]*core.Attachment, string, bool) {
+	if strings.TrimSpace(line) == "" {
+		return nil, "", false
+	}
+	var left, caption string
+	if idx := strings.Index(line, "::"); idx >= 0 {
+		left = strings.TrimSpace(line[:idx])
+		caption = strings.TrimSpace(line[idx+2:])
+	} else {
+		left = strings.TrimSpace(line)
+	}
+	tokens := tokenizePaths(left)
+	if len(tokens) == 0 {
+		return nil, "", false
+	}
+	var atts []*core.Attachment
+	firstNonPathIdx := -1
+	for i, tok := range tokens {
+		p := expandHome(tok)
+		info, err := os.Stat(p)
+		if err != nil || info.IsDir() {
+			firstNonPathIdx = i
+			break
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil, "", false
+		}
+		atts = append(atts, &core.Attachment{
+			Name:    filepath.Base(p),
+			Content: "",
+			Data:    data,
+		})
+	}
+	if len(atts) == 0 {
+		return nil, "", false
+	}
+	if caption == "" && firstNonPathIdx >= 0 {
+		caption = strings.TrimSpace(strings.Join(tokens[firstNonPathIdx:], " "))
+	}
+	return atts, caption, true
+}
+
+// tokenizePaths splits a string by whitespace while preserving quoted segments
+// (single or double quotes).
+func tokenizePaths(s string) []string {
+	var out []string
+	var cur strings.Builder
+	inQuote := byte(0)
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inQuote == 0 {
+			switch ch {
+			case '"', '\'':
+				inQuote = ch
+				continue
+			case ' ', '\t':
+				if cur.Len() > 0 {
+					out = append(out, cur.String())
+					cur.Reset()
+				}
+				continue
+			}
+			cur.WriteByte(ch)
+		} else {
+			if ch == inQuote {
+				inQuote = 0
+				continue
+			}
+			cur.WriteByte(ch)
+		}
+	}
+	if cur.Len() > 0 {
+		out = append(out, cur.String())
+	}
+	for i := range out {
+		out[i] = strings.Trim(out[i], "\"'")
+	}
+	return out
+}
+
+// expandHome expands a leading ~ to the user's home directory.
+func expandHome(p string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(p, "~/"))
+		}
+	}
+	return p
 }
