@@ -2,8 +2,9 @@ package turn
 
 import (
 	"context"
+
 	read "github.com/viant/agently/internal/dao/turn/read"
-	write "github.com/viant/agently/internal/dao/turn/write"
+	write "github.com/viant/agently/pkg/agently/turn"
 )
 
 // API defines a backend-agnostic contract for turn DAO.

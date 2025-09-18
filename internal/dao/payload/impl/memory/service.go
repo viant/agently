@@ -9,7 +9,7 @@ import (
 
 	api "github.com/viant/agently/internal/dao/payload"
 	read "github.com/viant/agently/internal/dao/payload/read"
-	write "github.com/viant/agently/internal/dao/payload/write"
+	write "github.com/viant/agently/pkg/agently/payload"
 )
 
 // Service is an in-memory implementation of the ResponsePayload API.

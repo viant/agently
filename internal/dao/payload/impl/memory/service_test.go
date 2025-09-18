@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	api "github.com/viant/agently/internal/dao/payload"
 	read "github.com/viant/agently/internal/dao/payload/read"
-	write "github.com/viant/agently/internal/dao/payload/write"
+	write "github.com/viant/agently/pkg/agently/payload"
 )
 
 func TestMemoryPayload_List_DataDriven(t *testing.T) {

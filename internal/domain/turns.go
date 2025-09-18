@@ -2,8 +2,9 @@ package domain
 
 import (
 	"context"
+
 	read "github.com/viant/agently/internal/dao/turn/read"
-	write "github.com/viant/agently/internal/dao/turn/write"
+	write "github.com/viant/agently/pkg/agently/turn"
 )
 
 // Turns exposes turn lifecycle operations.

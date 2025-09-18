@@ -10,7 +10,7 @@ import (
 
 	"github.com/viant/agently/internal/dao/payload"
 	read2 "github.com/viant/agently/internal/dao/payload/read"
-	write2 "github.com/viant/agently/internal/dao/payload/write"
+	write2 "github.com/viant/agently/pkg/agently/payload"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 )

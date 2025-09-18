@@ -1,4 +1,4 @@
-package write
+package toolcall
 
 import (
 	"github.com/viant/xdatly/handler/response"
@@ -7,11 +7,8 @@ import (
 
 type Output struct {
 	response.Status `parameter:",kind=output,in=status" anonymous:"true"`
-	Data            []*Turn                `parameter:",kind=body"`
+	Data            []*ToolCall            `parameter:",kind=body"`
 	Violations      []*validator.Violation `parameter:",kind=transient"`
 }
 
-func (o *Output) setError(err error) {
-	o.Status.Message = err.Error()
-	o.Status.Status = "error"
-}
+func (o *Output) setError(err error) { o.Status.Message = err.Error(); o.Status.Status = "error" }
