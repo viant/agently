@@ -28,7 +28,7 @@ func (t *Turn) ToolCalls() Messages {
 
 func (t *Transcript) History(query string) []*prompt.Message {
 	normalized := t.Filter(func(v *Message) bool {
-		if v == nil || v.Type == "control" || v.IsInterim() || v.Content == "" {
+		if v == nil || v.Type == "control" || v.IsInterim() || v.Content == nil || *v.Content == "" {
 			return false
 		}
 		role := strings.ToLower(strings.TrimSpace(v.Role))
@@ -37,8 +37,8 @@ func (t *Transcript) History(query string) []*prompt.Message {
 
 	if n := len(normalized); n > 0 && query != "" {
 		last := normalized[n-1]
-		if last != nil && strings.EqualFold(strings.TrimSpace(last.Role), "user") &&
-			strings.TrimSpace(last.Content) == strings.TrimSpace(query) {
+		if last != nil && last.Content != nil && strings.EqualFold(strings.TrimSpace(last.Role), "user") &&
+			strings.TrimSpace(*last.Content) == strings.TrimSpace(query) {
 			normalized = normalized[:n-1]
 		}
 	}
@@ -46,7 +46,11 @@ func (t *Transcript) History(query string) []*prompt.Message {
 
 	var result []*prompt.Message
 	for _, v := range normalized {
-		result = append(result, &prompt.Message{Role: v.Role, Content: v.Content})
+		content := ""
+		if v.Content != nil {
+			content = *v.Content
+		}
+		result = append(result, &prompt.Message{Role: v.Role, Content: content})
 	}
 	return result
 }
