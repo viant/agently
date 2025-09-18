@@ -1,4 +1,4 @@
-package write
+package modelcall
 
 import "time"
 
