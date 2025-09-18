@@ -358,7 +358,8 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		return
 	}
 	sinceId := strings.TrimSpace(r.URL.Query().Get("since"))
-	resp, err := s.chatSvc.Get(r.Context(), chat.GetRequest{ConversationID: convID, SinceID: sinceId})
+	includeModelCallPayload := strings.TrimSpace(r.URL.Query().Get("includeModelCallPayload"))
+	resp, err := s.chatSvc.Get(r.Context(), chat.GetRequest{ConversationID: convID, SinceID: sinceId, IncludeModelCallPayload: includeModelCallPayload == "1"})
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err, nil)
 		return

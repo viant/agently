@@ -1,5 +1,5 @@
 id: settingsForm
-dataSourceRef: conversations
+dataSourceRef: meta
 layout:
   labelPosition: left
   columns: 2
@@ -7,31 +7,21 @@ items:
   - id: agent
     label: Agent
     type: select
-    bindingPath: agent
     on:
-      - event: onProperties
-        handler: chat.buildOptionsFromMeta
-        args: [ agents ]
       - event: onSelection
-        handler: chat.applyAgentToolsFromMeta
+        handler: chat.selectAgent
 
   - id: model
     label: Model
     type: select
-    bindingPath: model
     on:
-      - event: onProperties
-        handler: chat.buildOptionsFromMeta
-        args: [ models ]
+      - event: onSelection
+        handler: chat.selectModel
 
 
 
-  - id: tools
+  - id: tool
     label: Tools
     type: treeMultiSelect
-    bindingPath: tools
     properties:
       separator: '-'
-    on:
-      - event: onProperties
-        handler: chat.buildToolOptionsFromMeta

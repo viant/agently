@@ -14,7 +14,6 @@ view:
       - id: metaLoader
         dataSourceRef: meta
         fetchData: true
-      # Removed usage loader; not required in new-chat window
 
       - id: header
         dataSourceRef: conversations

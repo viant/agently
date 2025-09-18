@@ -68,8 +68,9 @@ func (s *Service) AttachApproval(svc approval.Service) { s.approval = svc }
 
 // GetRequest defines inputs to fetch messages.
 type GetRequest struct {
-	ConversationID string
-	SinceID        string // optional: inclusive slice starting from this message id
+	ConversationID          string
+	IncludeModelCallPayload bool
+	SinceID                 string // optional: inclusive slice starting from this message id
 }
 
 // GetResponse carries the rich conversation view for the given request.
@@ -81,9 +82,10 @@ type GetResponse struct {
 func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error) {
 	var opts []apiconv.Option
 	if id := strings.TrimSpace(req.SinceID); id != "" {
-		// Server-side transcript supports inclusive since on turn id.
-		// Use provided id directly; turns/messages map on backend.
 		opts = append(opts, apiconv.WithSince(id))
+	}
+	if req.IncludeModelCallPayload {
+		opts = append(opts, apiconv.WithIncludeModelCall(true))
 	}
 	conv, err := s.convAPI.Get(ctx, req.ConversationID, opts...)
 	if err != nil {
