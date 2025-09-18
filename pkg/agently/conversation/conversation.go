@@ -231,6 +231,7 @@ type ModelView struct {
 }
 
 var ConversationPathURI = "/v1/api/agently/conversation/{id}"
+var ConversationsPathURI = "/v1/api/agently/conversation/"
 
 func DefineConversationComponent(ctx context.Context, srv *datly.Service) error {
 	aComponent, err := repository.NewComponent(
@@ -251,4 +252,21 @@ func DefineConversationComponent(ctx context.Context, srv *datly.Service) error 
 
 func (i *ConversationInput) EmbedFS() *embed.FS {
 	return &ConversationFS
+}
+
+func DefineConversationsComponent(ctx context.Context, srv *datly.Service) error {
+	aComponent, err := repository.NewComponent(
+		contract.NewPath("GET", ConversationsPathURI),
+		repository.WithResource(srv.Resource()),
+		repository.WithContract(
+			reflect.TypeOf(ConversationInput{}),
+			reflect.TypeOf(ConversationOutput{}), &ConversationFS, view.WithConnectorRef("agently")))
+
+	if err != nil {
+		return fmt.Errorf("failed to create Conversation component: %w", err)
+	}
+	if err := srv.AddComponent(ctx, aComponent); err != nil {
+		return fmt.Errorf("failed to add Conversation component: %w", err)
+	}
+	return nil
 }

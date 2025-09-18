@@ -7,7 +7,8 @@ import (
 )
 
 type API interface {
-	Get(ctx context.Context, id string, options ...Option) (*Conversation, error)
+	GetConversation(ctx context.Context, id string, options ...Option) (*Conversation, error)
+	GetConversations(ctx context.Context) ([]*Conversation, error)
 }
 
 type Input conversation.ConversationInput

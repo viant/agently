@@ -82,7 +82,7 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 	if req.IncludeModelCallPayload {
 		opts = append(opts, apiconv.WithIncludeModelCall(true))
 	}
-	conv, err := s.convAPI.Get(ctx, req.ConversationID, opts...)
+	conv, err := s.convAPI.GetConversation(ctx, req.ConversationID, opts...)
 	if err != nil {
 		return nil, err
 	}

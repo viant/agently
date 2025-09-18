@@ -49,7 +49,7 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 	if req.IncludeToolCall {
 		opts = append(opts, WithIncludeToolCall(true))
 	}
-	conv, err := s.api.Get(ctx, req.Id, opts...)
+	conv, err := s.api.GetConversation(ctx, req.Id, opts...)
 	if err != nil {
 		return nil, err
 	}
