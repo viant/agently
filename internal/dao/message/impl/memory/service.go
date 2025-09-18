@@ -9,7 +9,7 @@ import (
 	api "github.com/viant/agently/internal/dao/message"
 	shared "github.com/viant/agently/internal/dao/message/impl/shared"
 	read "github.com/viant/agently/internal/dao/message/read"
-	write "github.com/viant/agently/internal/dao/message/write"
+	message "github.com/viant/agently/pkg/agently/message"
 )
 
 // Service is an in-memory implementation of the Messages API.
@@ -104,7 +104,7 @@ func (s *Service) GetConversation(ctx context.Context, conversationID string, op
 	return result, nil
 }
 
-func (s *Service) Patch(ctx context.Context, messages ...*write.Message) (*write.Output, error) {
+func (s *Service) Patch(ctx context.Context, messages ...*message.Message) (*message.Output, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
@@ -165,7 +165,7 @@ func (s *Service) Patch(ctx context.Context, messages ...*write.Message) (*write
 			s.byConv[mv.ConversationID] = list
 		}
 	}
-	return &write.Output{Data: messages}, nil
+	return &message.Output{Data: messages}, nil
 }
 
 func matchFilter(mv *read.MessageView, in *read.Input) bool {

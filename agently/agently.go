@@ -19,7 +19,7 @@ func main() {
 	os.Setenv("AGENTLY_ROOT", "/Users/awitas/go/src/github.com/viant/agently/ag")
 	os.Args = []string{"", "serve"}
 
-	//os.Args = []string{"", "chat", "-q=now plan trip for next week to my favorite city?", "-c=501451ae-3e0b-4d47-89e6-4c32e42eda77"}
+	os.Args = []string{"", "chat", "-q=now plan trip for next week to my favorite city?", "-c=501451ae-3e0b-4d47-89e6-4c32e42eda77"}
 
 	//os.Args = []string{"", "serve"}
 	//os.Args = []string{"", "serve"}

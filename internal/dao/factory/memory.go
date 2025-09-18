@@ -15,8 +15,6 @@ import (
 	tcsql "github.com/viant/agently/internal/dao/toolcall/impl/sql"
 	turnmem "github.com/viant/agently/internal/dao/turn/impl/memory"
 	turnsql "github.com/viant/agently/internal/dao/turn/impl/sql"
-	usagemem "github.com/viant/agently/internal/dao/usage/impl/memory"
-	usagesql "github.com/viant/agently/internal/dao/usage/impl/sql"
 	"github.com/viant/datly"
 )
 
@@ -28,7 +26,6 @@ func newMemory(_ context.Context) (*API, error) {
 		ToolCall:     tcmem.New(),
 		Payload:      plmem.New(),
 		Turn:         turnmem.New(),
-		Usage:        usagemem.New(),
 	}, nil
 }
 
@@ -56,10 +53,6 @@ func newSQL(ctx context.Context, dao *datly.Service) (*API, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = usagesql.Register(ctx, dao)
-	if err != nil {
-		return nil, err
-	}
 	err = convsql.Register(ctx, dao)
 	if err != nil {
 		return nil, err
@@ -71,7 +64,6 @@ func newSQL(ctx context.Context, dao *datly.Service) (*API, error) {
 		ToolCall:      tcsql.New(ctx, dao),
 		Payload:       plsql.New(ctx, dao),
 		Turn:          turnsql.New(ctx, dao),
-		Usage:         usagesql.New(ctx, dao),
 		Conversation2: convsql.NewService(ctx, dao),
 	}, nil
 }

@@ -27,18 +27,20 @@ func init() {
 var ConversationFS embed.FS
 
 type ConversationInput struct {
-	Id              string                `parameter:",kind=path,in=id"`
-	Since           string                `parameter:",kind=query,in=since" predicate:"expr,group=0,created_at >= (SELECT created_at FROM turn WHERE id = ?)"`
-	IncludeModelCal bool                  `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"false"`
-	IncludeToolCall bool                  `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"false"`
-	Has             *ConversationInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	Id                string                `parameter:",kind=path,in=id"`
+	Since             string                `parameter:",kind=query,in=since" predicate:"expr,group=0,created_at >= (SELECT created_at FROM turn WHERE id = ?)"`
+	IncludeTranscript bool                  `parameter:",kind=query,in=includeTranscript" predicate:"expr,group=0,?" value:"true"`
+	IncludeModelCal   bool                  `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"false"`
+	IncludeToolCall   bool                  `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"false"`
+	Has               *ConversationInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type ConversationInputHas struct {
-	Id              bool
-	Since           bool
-	IncludeModelCal bool
-	IncludeToolCall bool
+	Id                bool
+	Since             bool
+	IncludeTranscript bool
+	IncludeModelCal   bool
+	IncludeToolCall   bool
 }
 
 type ConversationOutput struct {

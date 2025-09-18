@@ -13,7 +13,6 @@ import (
 	msgread "github.com/viant/agently/internal/dao/message/read"
 	mcread "github.com/viant/agently/internal/dao/modelcall/read"
 	tcread "github.com/viant/agently/internal/dao/toolcall/read"
-	usageread "github.com/viant/agently/internal/dao/usage/read"
 	d "github.com/viant/agently/internal/domain"
 )
 
@@ -107,7 +106,7 @@ func TestUsageRecorder_DataDriven(t *testing.T) {
 		_, _ = conv.Patch(ctx, c)
 	}
 	w.RecordUsageTotals(ctx, convID, 5, 6, 7)
-	_, err := w.store.Usage().List(ctx, usageread.Input{ConversationID: convID, Has: &usageread.Has{ConversationID: true}})
+	_, err := w.store.Conversations().Get(ctx, convID)
 	assert.NoError(t, err)
 }
 
@@ -196,11 +195,10 @@ func TestStore_Memory_WriteFlow(t *testing.T) {
 		return
 	}
 
-	ul, err := s.store.Usage().List(ctx, usageread.Input{ConversationID: convID, Has: &usageread.Has{ConversationID: true}})
+	_, err = s.store.Conversations().Get(ctx, convID)
 	if !assert.NoError(t, err) {
 		return
 	}
-	_ = ul // may be empty depending on memory DAO behavior
 
 	// Also exercise DAO read packages directly via domain store adapters where possible
 	// Messages list by conversation

@@ -262,13 +262,13 @@ func (e *Service) ensureStore() domain.Store {
 		if dao, err := datly.New(context.Background()); err == nil {
 			_ = dao.AddConnectors(context.Background(), view.NewConnector("agently", driver, dsn))
 			if apis, _ := daofactory.New(context.Background(), daofactory.DAOSQL, dao); apis != nil {
-				store = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
+				store = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload)
 			}
 		}
 	}
 	if store == nil {
 		if apis, _ := daofactory.New(context.Background(), daofactory.DAOInMemory, nil); apis != nil {
-			store = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload, apis.Usage)
+			store = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload)
 		}
 	}
 	return store

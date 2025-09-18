@@ -7,18 +7,15 @@ import (
 	convdao "github.com/viant/agently/internal/dao/conversation"
 	convread "github.com/viant/agently/internal/dao/conversation/read"
 	convwrite "github.com/viant/agently/internal/dao/conversation/write"
-	usagedao "github.com/viant/agently/internal/dao/usage"
-	usagew "github.com/viant/agently/internal/dao/usage/write"
 	d "github.com/viant/agently/internal/domain"
 )
 
 // Service adapts conversation DAO APIs to the domain.Conversations interface.
 type Service struct {
-	conv  convdao.API
-	usage usagedao.API
+	conv convdao.API
 }
 
-func New(conv convdao.API, usage usagedao.API) *Service { return &Service{conv: conv, usage: usage} }
+func New(conv convdao.API) *Service { return &Service{conv: conv} }
 
 var _ d.Conversations = (*Service)(nil)
 
@@ -44,18 +41,4 @@ func (s *Service) List(ctx context.Context, opts ...convread.ConversationInputOp
 		return nil, fmt.Errorf("conversation service is not configured")
 	}
 	return s.conv.GetConversations(ctx, opts...)
-}
-
-// UpdateUsageTotals writes usage counters via usage write component.
-func (s *Service) UpdateUsageTotals(ctx context.Context, id string, totals d.UsageTotals) error {
-	if s == nil || s.usage == nil {
-		return fmt.Errorf("usage service is not configured")
-	}
-	w := &usagew.Usage{}
-	w.SetConversationID(id)
-	w.SetUsageInputTokens(totals.InputTokens)
-	w.SetUsageOutputTokens(totals.OutputTokens)
-	w.SetUsageEmbeddingTokens(totals.EmbeddingTokens)
-	_, err := s.usage.Patch(ctx, w)
-	return err
 }

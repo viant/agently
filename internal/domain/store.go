@@ -4,12 +4,7 @@ package domain
 type Store interface {
 	Conversations() Conversations
 	Payloads() Payloads
-	//deprecated
-	Usage() Usage
-	//deprecated
 	Messages() Messages
-	//deprecated
 	Turns() Turns
-	//deprecated
 	Operations() Operations
 }

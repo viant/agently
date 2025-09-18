@@ -332,13 +332,6 @@ func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// If we have exactly one additional part treat it as message ID for retrieval.
-	if len(extraParts) == 1 && r.Method == http.MethodGet {
-		msgID := extraParts[0]
-		s.handleGetSingleMessage(w, r, convID, msgID)
-		return
-	}
-
 	// Everything else is not supported.
 	w.WriteHeader(http.StatusNotFound)
 }
@@ -365,44 +358,6 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		return
 	}
 	encode(w, http.StatusOK, resp.Conversation, nil, nil)
-}
-
-// currentStage infers live phase of a conversation based on recent transcript.
-// Heuristics:
-// - waiting: no messages
-// - executing: latest tool call present and running (completed_at nil or status==running)
-// - elicitation: latest assistant message carries elicitation request
-// - thinking: last message is user (no assistant response yet)
-// - error: latest tool call status failed and no newer assistant success
-// - done: otherwise
-func (s *Server) currentStage(convID string) *stage.Stage {
-	if s.chatSvc == nil {
-		return &stage.Stage{Phase: stage.StageWaiting}
-	}
-	return s.chatSvc.Stage(context.Background(), convID)
-}
-
-// handleGetSingleMessage supports GET /v1/api/conversations/{id}/messages/{msgID}
-func (s *Server) handleGetSingleMessage(w http.ResponseWriter, r *http.Request, convID, msgID string) {
-	if msgID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if s.chatSvc == nil {
-		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"), nil)
-		return
-	}
-	msg, err := s.chatSvc.GetMessage(r.Context(), msgID)
-	if err != nil {
-		encode(w, http.StatusInternalServerError, nil, err, nil)
-		return
-	}
-	if msg == nil {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	encode(w, http.StatusOK, *msg, nil, nil)
-	return
 }
 
 // handleGetPayload serves payload content or metadata for a given payload id.
