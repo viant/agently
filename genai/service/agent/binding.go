@@ -22,7 +22,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if s.convAPI == nil {
 		return nil, fmt.Errorf("conversation API not configured")
 	}
-	conv, err := s.convAPI.Get(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
+	conv, err := s.convAPI.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
 	if err != nil {
 		return nil, err
 	}
