@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/viant/afs"
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/service/agent/orchestrator"
@@ -15,8 +16,7 @@ import (
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/internal/domain"
 	"github.com/viant/agently/internal/domain/recorder"
-	apiconv "github.com/viant/agently/sdk/conversation"
-	implconv "github.com/viant/agently/sdk/conversation/impl"
+	implconv "github.com/viant/agently/internal/service/conversation"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/model/types"
 )

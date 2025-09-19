@@ -18,8 +18,8 @@ import (
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/tool"
 
+	chat "github.com/viant/agently/internal/service/chat"
 	"github.com/viant/agently/metadata"
-	"github.com/viant/agently/sdk/chat"
 
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"

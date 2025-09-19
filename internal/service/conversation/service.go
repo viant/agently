@@ -1,4 +1,4 @@
-package impl
+package conversation
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unsafe"
 
+	api "github.com/viant/agently/client/conversation"
 	daopayload "github.com/viant/agently/internal/dao/payload"
 	payloadread "github.com/viant/agently/internal/dao/payload/read"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
@@ -15,7 +16,6 @@ import (
 	modelcallw "github.com/viant/agently/pkg/agently/modelcall"
 	payloadw "github.com/viant/agently/pkg/agently/payload"
 	toolcallw "github.com/viant/agently/pkg/agently/toolcall"
-	api "github.com/viant/agently/sdk/conversation"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 )
