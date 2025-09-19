@@ -13,7 +13,7 @@ import (
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
-	convw "github.com/viant/agently/internal/dao/conversation/write"
+	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 // Query executes a query against an agent.

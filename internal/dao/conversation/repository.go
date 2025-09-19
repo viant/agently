@@ -4,8 +4,8 @@ import (
 	"context"
 
 	read2 "github.com/viant/agently/internal/dao/conversation/read"
-	"github.com/viant/agently/internal/dao/conversation/write"
 	"github.com/viant/agently/pkg/agently/conversation"
+	"github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 // API defines a backend-agnostic contract for conversation DAO.

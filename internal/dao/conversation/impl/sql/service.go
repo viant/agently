@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/viant/agently/internal/dao/conversation/read"
-	"github.com/viant/agently/internal/dao/conversation/write"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
+	"github.com/viant/agently/pkg/agently/conversation/write"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
 	"github.com/viant/datly/repository/contract"

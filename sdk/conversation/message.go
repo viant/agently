@@ -4,9 +4,12 @@ import (
 	"sort"
 
 	"github.com/viant/agently/pkg/agently/conversation"
+	"github.com/viant/agently/pkg/agently/message"
 )
 
 type Message conversation.MessageView
+
+type MutableMessage *message.Message
 
 func (m *Message) IsInterim() bool {
 	if m != nil && m.Interim == 1 {

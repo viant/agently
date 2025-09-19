@@ -3,7 +3,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"strings"
 
@@ -75,9 +74,11 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 		o(srv)
 	}
 	// Instantiate conversation API once; ignore errors to preserve backward compatibility
-	api, err := implconv.NewFromEnv(context.Background())
-	srv.convAPI = api
-	fmt.Println(err)
+	if dao, err := implconv.NewDatly(context.Background()); err == nil {
+		if api, err := implconv.New(context.Background(), dao); err == nil {
+			srv.convAPI = api
+		}
+	}
 
 	return srv
 }

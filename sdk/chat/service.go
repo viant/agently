@@ -17,9 +17,9 @@ import (
 	"github.com/viant/agently/genai/tool"
 	authctx "github.com/viant/agently/internal/auth"
 	convread "github.com/viant/agently/internal/dao/conversation/read"
-	convw "github.com/viant/agently/internal/dao/conversation/write"
 	plread "github.com/viant/agently/internal/dao/payload/read"
 	d "github.com/viant/agently/internal/domain"
+	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	msgwrite "github.com/viant/agently/pkg/agently/message"
 	apiconv "github.com/viant/agently/sdk/conversation"
 	implconv "github.com/viant/agently/sdk/conversation/impl"
@@ -45,8 +45,10 @@ type Service struct {
 
 func NewService(store d.Store) *Service {
 	svc := &Service{store: store}
-	if api, err := implconv.NewFromEnv(context.Background()); err == nil {
-		svc.convAPI = api
+	if dao, err := implconv.NewDatly(context.Background()); err == nil {
+		if api, err := implconv.New(context.Background(), dao); err == nil {
+			svc.convAPI = api
+		}
 	}
 	return svc
 }

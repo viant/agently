@@ -4,7 +4,7 @@ import (
 	"context"
 
 	convread "github.com/viant/agently/internal/dao/conversation/read"
-	convwrite "github.com/viant/agently/internal/dao/conversation/write"
+	convwrite "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 // Conversations exposes conversation-oriented operations using DAO read/write models.

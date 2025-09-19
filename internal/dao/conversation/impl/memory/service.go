@@ -8,7 +8,7 @@ import (
 
 	conv "github.com/viant/agently/internal/dao/conversation"
 	read2 "github.com/viant/agently/internal/dao/conversation/read"
-	"github.com/viant/agently/internal/dao/conversation/write"
+	"github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 // Service is an in-memory implementation of the conversation DAO API.
