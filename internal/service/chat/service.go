@@ -35,7 +35,7 @@ type Service struct {
 	fluxPolicy *fluxpol.Policy
 	approval   approval.Service
 
-	convAPI apiconv.Client
+	convClient apiconv.Client
 
 	mu            sync.Mutex
 	cancelsByTurn map[string][]context.CancelFunc // key: user turn id (message id)
@@ -45,8 +45,8 @@ type Service struct {
 func NewService(store d.Store) *Service {
 	svc := &Service{store: store}
 	if dao, err := implconv.NewDatly(context.Background()); err == nil {
-		if api, err := implconv.New(context.Background(), dao); err == nil {
-			svc.convAPI = api
+		if cli, err := implconv.New(context.Background(), dao); err == nil {
+			svc.convClient = cli
 		}
 	}
 	return svc
@@ -83,7 +83,7 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 	if req.IncludeModelCallPayload {
 		opts = append(opts, apiconv.WithIncludeModelCall(true))
 	}
-	conv, err := s.convAPI.GetConversation(ctx, req.ConversationID, opts...)
+	conv, err := s.convClient.GetConversation(ctx, req.ConversationID, opts...)
 	if err != nil {
 		return nil, err
 	}
