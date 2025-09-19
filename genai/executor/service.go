@@ -21,7 +21,6 @@ import (
 	"github.com/viant/agently/genai/service/augmenter"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
-	domainrec "github.com/viant/agently/internal/domain/recorder"
 	"github.com/viant/agently/internal/finder/oauth"
 	"github.com/viant/agently/internal/hotswap"
 	"github.com/viant/agently/internal/loader/oauth"
@@ -68,7 +67,6 @@ type Service struct {
 
 	fluxorOptions []fluxor.Option
 	orchestration *mcp.Service // shared fluxor-mcp service instance
-	recorder      domainrec.Recorder
 }
 
 // registerAgentTools exposes every agent with toolExport.expose==true as a
@@ -197,7 +195,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	if e.orchestration != nil {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
-	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.recorder, &e.config.Default)
+	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, &e.config.Default)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
 

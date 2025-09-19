@@ -14,7 +14,6 @@ import (
 	"github.com/viant/agently/genai/service/augmenter"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/agently/internal/domain/recorder"
 	implconv "github.com/viant/agently/internal/service/conversation"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/model/types"
@@ -37,7 +36,6 @@ type Service struct {
 	runtime      *fluxor.Runtime
 	orchestrator *orchestrator.Service
 
-	recorder recorder.Recorder
 	defaults *config.Defaults
 
 	// convClient is a shared conversation client used to fetch transcript/usage.
@@ -52,14 +50,12 @@ func (s *Service) SetRuntime(rt *fluxor.Runtime) {
 // New creates a new agent service instance with the given tool registry and fluxor runtime
 func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Service, registry tool.Registry,
 	runtime *fluxor.Runtime,
-	recorder recorder.Recorder,
 	defaults *config.Defaults, opts ...Option) *Service {
 	srv := &Service{
 		defaults:    defaults,
 		llm:         llm,
 		agentFinder: agentFinder,
 		augmenter:   augmenter,
-		recorder:    recorder,
 		registry:    registry,
 		runtime:     runtime,
 		fs:          afs.New(),

@@ -12,7 +12,6 @@ import (
 	"github.com/viant/agently/genai/agent"
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
-	domainrecorder "github.com/viant/agently/internal/domain/recorder"
 	agentrepo "github.com/viant/agently/internal/repository/agent"
 	embedderrepo "github.com/viant/agently/internal/repository/embedder"
 	modelrepo "github.com/viant/agently/internal/repository/model"
@@ -42,9 +41,6 @@ func (e *Service) init(ctx context.Context) error {
 	if err := e.config.Validate(); err != nil {
 		return err
 	}
-
-	// Build recorder (shadow writes when enabled)
-	e.recorder = domainrecorder.New(ctx)
 
 	// ------------------------------------------------------------------
 	// Step 3: orchestration service (single source of truth for workflows & tools)
