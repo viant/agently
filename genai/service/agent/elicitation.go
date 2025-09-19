@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
@@ -24,18 +23,9 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 		elic.ElicitationId = uuid.New().String()
 	}
 
-	msg := memory.Message{
-		ID:             uuid.New().String(),
-		ParentID:       messageID,
-		ConversationID: convID,
-		Role:           "assistant",
-		Content:        elic.Message,
-		Elicitation:    elic,
-		CreatedAt:      time.Now(),
-	}
 	// Persist elicitation assistant message via conversation client
 	m := apiconv.NewMessage()
-	m.SetId(msg.ID)
+	m.SetId(uuid.New().String())
 	m.SetConversationID(convID)
 	if turn, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
 		m.SetTurnID(turn.TurnID)

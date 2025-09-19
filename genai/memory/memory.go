@@ -2,9 +2,6 @@ package memory
 
 import (
 	"context"
-	"time"
-
-	"github.com/viant/agently/genai/agent/plan"
 )
 
 // ConversationIDKey is used to propagate the current conversation identifier
@@ -69,62 +66,6 @@ func TurnMetaFromContext(ctx context.Context) (TurnMeta, bool) {
 		}
 	}
 	return TurnMeta{}, false
-}
-
-// Message represents a conversation message for memory storage.
-type Message struct {
-	ID             string  `json:"id"`
-	ConversationID string  `json:"conversationId"`
-	ParentID       string  `json:"parentId,omitempty"`
-	Role           string  `json:"role"`
-	Actor          string  `json:"actor,omitempty" yaml:"actor,omitempty"`
-	Content        string  `json:"content"`
-	ToolName       *string `json:"toolName,omitempty"` // Optional tool name, can be nil
-	// When messages include file uploads the Attachments slice describes each
-	// uploaded asset (or generated/downloadable asset on assistant side).
-	Attachments Attachments     `json:"attachments,omitempty" yaml:"attachments,omitempty" sqlx:"-"`
-	Executions  []*plan.Outcome `json:"executions,omitempty" yaml:"executions,omitempty" sqlx:"-"`
-	CreatedAt   time.Time       `json:"createdAt" yaml:"createdAt"`
-
-	// Elicitation carries a structured schema-driven prompt when the assistant
-	// needs additional user input. When non-nil the UI can render an
-	// interactive form instead of plain text. It is omitted for all other
-	// message kinds.
-	Elicitation *plan.Elicitation `json:"elicitation,omitempty" yaml:"elicitation,omitempty"`
-
-	// CallbackURL is set when the message requires a user action through a
-	// dedicated REST callback (e.g. MCP elicitation). Empty for normal chat
-	// messages.
-	CallbackURL string `json:"callbackURL,omitempty" yaml:"callbackURL,omitempty"`
-
-	// Status indicates the resolution state of interactive MCP prompts.
-	// "open"   – waiting for user
-	// "done"   – accepted and finished
-	// "declined" – user declined
-	Status string `json:"status,omitempty" yaml:"status,omitempty"`
-
-	// Interaction contains details for an MCP user-interaction request (e.g.
-	// "open the following URL and confirm when done"). When non-nil the UI
-	// should render an approval card with a link and Accept/Decline buttons.
-	Interaction *UserInteraction `json:"interaction,omitempty" yaml:"interaction,omitempty"`
-
-	// PolicyApproval is non-nil when the system requires explicit user
-	// approval before executing a potentially sensitive action (e.g. running
-	// an external tool).  The UI should show the approval dialog when the
-	// message role == "policyapproval" and Status == "open".
-	PolicyApproval *PolicyApproval `json:"policyApproval,omitempty" yaml:"policyApproval,omitempty"`
-
-	Interim *int `json:"interim,omitempty" yaml:"interim,omitempty"` // 1 for interim messages, nil or 0 otherwise
-
-	// Usage reports token counts for model calls associated with this message (if any).
-	Usage *Usage `json:"usage,omitempty" yaml:"usage,omitempty"`
-}
-
-// Usage captures per-message token accounting when a model call is present.
-type Usage struct {
-	PromptTokens     int `json:"promptTokens,omitempty"`
-	CompletionTokens int `json:"completionTokens,omitempty"`
-	TotalTokens      int `json:"totalTokens,omitempty"`
 }
 
 // PolicyApproval captures the details of an approval request that needs an
