@@ -16,6 +16,7 @@ import (
 	modelcallw "github.com/viant/agently/pkg/agently/modelcall"
 	payloadw "github.com/viant/agently/pkg/agently/payload"
 	toolcallw "github.com/viant/agently/pkg/agently/toolcall"
+	turnw "github.com/viant/agently/pkg/agently/turn"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 )
@@ -56,6 +57,9 @@ func (ss *Service) init(ctx context.Context, dao *datly.Service) error {
 		return err
 	}
 	if _, err := toolcallw.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := turnw.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
 	return nil
@@ -209,6 +213,27 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 	out := &toolcallw.Output{}
 	_, err := s.dao.Operate(ctx,
 		datly.WithPath(contract.NewPath(http.MethodPatch, toolcallw.PathURI)),
+		datly.WithInput(input),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return err
+	}
+	if len(out.Violations) > 0 {
+		return errors.New(out.Violations[0].Message)
+	}
+	return nil
+}
+
+func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) error {
+	if s == nil || s.dao == nil || turn == nil {
+		return nil
+	}
+	tr := (*turnw.Turn)(turn)
+	input := &turnw.Input{Turns: []*turnw.Turn{tr}}
+	out := &turnw.Output{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath(http.MethodPatch, turnw.PathURI)),
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)
