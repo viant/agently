@@ -5,16 +5,7 @@ import (
 	"unsafe"
 
 	agconv "github.com/viant/agently/pkg/agently/conversation"
-
-	"github.com/viant/agently/pkg/agently/conversation"
-	"github.com/viant/agently/pkg/agently/conversation/write"
 )
-
-type Input conversation.ConversationInput
-
-type MutableConversation write.Conversation
-
-type Conversation conversation.ConversationView
 
 func (c *Conversation) GetTranscript() Transcript {
 	if c.Transcript == nil {

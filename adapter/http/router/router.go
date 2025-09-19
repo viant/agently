@@ -3,29 +3,20 @@ package router
 import (
 	"context"
 	"net/http"
-	"os"
 
 	"github.com/viant/afs"
 	fsadapter "github.com/viant/afs/adapter/http"
-	"github.com/viant/agently/deployment/ui"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
-
 	chat "github.com/viant/agently/adapter/http"
 	"github.com/viant/agently/adapter/http/filebrowser"
 	toolhttp "github.com/viant/agently/adapter/http/tool"
 	"github.com/viant/agently/adapter/http/workflow"
-
-	"strings"
+	"github.com/viant/agently/deployment/ui"
 
 	"github.com/viant/agently/adapter/http/router/metadata"
 	"github.com/viant/agently/adapter/http/workspace"
 	"github.com/viant/agently/cmd/service"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
-	daofactory "github.com/viant/agently/internal/dao/factory"
-	d "github.com/viant/agently/internal/domain"
-	dstore "github.com/viant/agently/internal/domain/adapter"
 	fluxorpol "github.com/viant/fluxor/policy"
 )
 
@@ -36,11 +27,9 @@ import (
 func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxorpol.Policy) http.Handler {
 	mux := http.NewServeMux()
 
-	store := newStore(context.Background())
 	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation(),
 		chat.WithPolicies(toolPol, fluxPol),
 		chat.WithApprovalService(exec.ApprovalService()),
-		chat.WithStore(store),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
 
@@ -74,29 +63,11 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 		w.WriteHeader(http.StatusNotFound)
 	})
 
-	// Kick off background sync that surfaces fluxor approval requests as chat
-	// messages so that web users can approve/reject tool executions.
+	// Kick off background sync that surfaces fluxor approval requests as chat messages
 	ctx := context.Background()
 	chat.StartApprovalBridge(ctx, exec, exec.Conversation())
 
 	return chat.WithCORS(mux)
 }
 
-func newStore(ctx context.Context) d.Store {
-	driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
-	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
-	if driver != "" && dsn != "" {
-		if dao, err := datly.New(ctx); err == nil {
-			_ = dao.AddConnectors(ctx, view.NewConnector("agently", driver, dsn))
-			if apis, _ := daofactory.New(ctx, daofactory.DAOSQL, dao); apis != nil {
-				store := dstore.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload)
-				return store
-			}
-		}
-	}
-	if apis, _ := daofactory.New(ctx, daofactory.DAOInMemory, nil); apis != nil {
-		store := dstore.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload)
-		return store
-	}
-	return nil
-}
+// newStore removed — chat service now uses conversation client directly

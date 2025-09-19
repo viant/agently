@@ -159,10 +159,10 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 }
 
 func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMessage) error {
-	if s == nil || s.dao == nil || message == nil || *message == nil {
+	if s == nil || s.dao == nil || message == nil {
 		return nil
 	}
-	mm := (*messagew.Message)(*message)
+	mm := (*messagew.Message)(message)
 	input := &messagew.Input{Messages: []*messagew.Message{mm}}
 	out := &messagew.Output{}
 	_, err := s.dao.Operate(ctx,

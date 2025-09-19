@@ -16,9 +16,6 @@ import (
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
 	authctx "github.com/viant/agently/internal/auth"
-	convread "github.com/viant/agently/internal/dao/conversation/read"
-	plread "github.com/viant/agently/internal/dao/payload/read"
-	d "github.com/viant/agently/internal/domain"
 	implconv "github.com/viant/agently/internal/service/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	msgwrite "github.com/viant/agently/pkg/agently/message"
@@ -29,7 +26,6 @@ import (
 
 // Service exposes message retrieval independent of HTTP concerns.
 type Service struct {
-	store      d.Store
 	mgr        *conversation.Manager
 	toolPolicy *tool.Policy
 	fluxPolicy *fluxpol.Policy
@@ -42,8 +38,8 @@ type Service struct {
 	turnsByConv   map[string][]string             // convID -> []turnID
 }
 
-func NewService(store d.Store) *Service {
-	svc := &Service{store: store}
+func NewService() *Service {
+	svc := &Service{}
 	if dao, err := implconv.NewDatly(context.Background()); err == nil {
 		if cli, err := implconv.New(context.Background(), dao); err == nil {
 			svc.convClient = cli
@@ -102,19 +98,18 @@ type PostRequest struct {
 // PreflightPost validates minimal conditions before accepting a post.
 // It ensures an agent can be determined either from request or conversation defaults.
 func (s *Service) PreflightPost(ctx context.Context, conversationID string, req PostRequest) error {
-	if s == nil || s.store == nil {
-		return nil
-	}
 	if strings.TrimSpace(req.Agent) != "" {
 		return nil
 	}
 	// Check conversation has AgentName
-	if cv, err := s.store.Conversations().Get(ctx, conversationID); err == nil {
+	if s.convClient != nil {
+		cv, err := s.convClient.GetConversation(ctx, conversationID)
+		if err != nil {
+			return err
+		}
 		if cv != nil && cv.AgentName != nil && strings.TrimSpace(*cv.AgentName) != "" {
 			return nil
 		}
-	} else {
-		return err
 	}
 	return fmt.Errorf("agent is required")
 }
@@ -290,9 +285,6 @@ type ConversationSummary struct {
 
 // CreateConversation persists a new conversation using DAO store.
 func (s *Service) CreateConversation(ctx context.Context, in CreateConversationRequest) (*CreateConversationResponse, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("store not initialised")
-	}
 	id := uuid.NewString()
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
@@ -339,7 +331,7 @@ func (s *Service) CreateConversation(ctx context.Context, in CreateConversationR
 			}
 		}
 	}
-	if _, err := s.store.Conversations().Patch(ctx, cw); err != nil {
+	if err := s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(cw)); err != nil {
 		return nil, fmt.Errorf("failed to persist conversation: %w", err)
 	}
 	return &CreateConversationResponse{ID: id, Title: title, CreatedAt: createdAt.Format(time.RFC3339), Model: in.Model, Agent: in.Agent, Tools: in.Tools}, nil
@@ -347,10 +339,7 @@ func (s *Service) CreateConversation(ctx context.Context, in CreateConversationR
 
 // GetConversation returns id + title by conversation id.
 func (s *Service) GetConversation(ctx context.Context, id string) (*ConversationSummary, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("store not initialised")
-	}
-	cv, err := s.store.Conversations().Get(ctx, id)
+	cv, err := s.convClient.GetConversation(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -366,25 +355,7 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*Conversation
 
 // ListConversations returns all conversation summaries.
 func (s *Service) ListConversations(ctx context.Context) ([]ConversationSummary, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("store not initialised")
-	}
-	opts := []convread.ConversationInputOption{convread.WithArchived(0, 1)}
-	// Authorize list: show user's own OR public
-	if ui := authctx.User(ctx); ui != nil {
-		uid := strings.TrimSpace(ui.Subject)
-		if uid == "" {
-			uid = strings.TrimSpace(ui.Email)
-		}
-		if uid != "" {
-			opts = append(opts, convread.WithCreatedByUserID(uid))
-			opts = append(opts, convread.WithVisibility(convw.VisibilityPublic))
-		}
-	} else {
-		// No user context: default to public only
-		opts = append(opts, convread.WithVisibility(convw.VisibilityPublic))
-	}
-	rows, err := s.store.Conversations().List(ctx, opts...)
+	rows, err := s.convClient.GetConversations(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -438,7 +409,8 @@ func (s *Service) Approve(ctx context.Context, messageID, action, reason string)
 		newStatus = "done"
 	}
 
-	_, _ = s.store.Messages().Patch(ctx, &msgwrite.Message{Id: messageID, Status: newStatus, Has: &msgwrite.MessageHas{Status: true}})
+	m := &msgwrite.Message{Id: messageID, Status: newStatus, Has: &msgwrite.MessageHas{Status: true}}
+	_ = s.convClient.PatchMessage(ctx, (*apiconv.MutableMessage)(m))
 
 	if s.approval != nil {
 		_, _ = s.approval.Decide(ctx, messageID, approved, reason)
@@ -457,7 +429,8 @@ func (s *Service) Elicit(ctx context.Context, messageID, action string, payload 
 	if action == "accept" {
 		status = "done"
 	}
-	_, _ = s.store.Messages().Patch(ctx, &msgwrite.Message{Id: messageID, Status: status, Has: &msgwrite.MessageHas{Status: true}})
+	m := &msgwrite.Message{Id: messageID, Status: status, Has: &msgwrite.MessageHas{Status: true}}
+	_ = s.convClient.PatchMessage(ctx, (*apiconv.MutableMessage)(m))
 	if ch, ok := mcpclient.Waiter(messageID); ok {
 		ch <- &schema.ElicitResult{Action: schema.ElicitResultAction(action), Content: payload}
 	}
@@ -471,23 +444,19 @@ var (
 
 // GetPayload returns raw payload bytes and a content-type. It does not return metadata.
 func (s *Service) GetPayload(ctx context.Context, id string) ([]byte, string, error) {
-	if s == nil || s.store == nil || strings.TrimSpace(id) == "" {
+	if s == nil || strings.TrimSpace(id) == "" {
 		return nil, "", ErrNotFound
 	}
-	rows, err := s.store.Payloads().List(ctx, plread.WithID(id))
-	if err != nil {
-		return nil, "", err
-	}
-	if len(rows) == 0 || rows[0] == nil {
+	p, err := s.convClient.GetPayload(ctx, id)
+	if err != nil || p == nil {
 		return nil, "", ErrNotFound
 	}
-	v := rows[0]
-	if v.InlineBody == nil || len(*v.InlineBody) == 0 {
+	if p.InlineBody == nil || len(*p.InlineBody) == 0 {
 		return nil, "", ErrNoContent
 	}
-	ctype := v.MimeType
+	ctype := p.MimeType
 	if strings.TrimSpace(ctype) == "" {
 		ctype = "application/octet-stream"
 	}
-	return *v.InlineBody, ctype, nil
+	return *p.InlineBody, ctype, nil
 }

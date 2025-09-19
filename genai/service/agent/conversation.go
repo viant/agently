@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	apiconv "github.com/viant/agently/client/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
@@ -150,7 +151,11 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		}
 	}
 	if needsPatch {
-		if _, err := s.store.Conversations().Patch(ctx, patch); err != nil {
+		if s.convClient == nil {
+			return fmt.Errorf("conversation client not configured")
+		}
+		mc := convw.Conversation(*patch)
+		if err := s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(&mc)); err != nil {
 			if !exists {
 				return fmt.Errorf("failed to create conversation: %w", err)
 			}
@@ -190,7 +195,11 @@ func (s *Service) updatedConversationContext(ctx context.Context, convID string,
 		w := &convw.Conversation{Has: &convw.ConversationHas{}}
 		w.SetId(convID)
 		w.SetMetadata(string(b))
-		if _, err := s.store.Conversations().Patch(ctx, w); err != nil {
+		if s.convClient == nil {
+			return fmt.Errorf("conversation client not configured")
+		}
+		mw := convw.Conversation(*w)
+		if err := s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw)); err != nil {
 			return fmt.Errorf("failed to persist conversation context: %w", err)
 		}
 	} else {

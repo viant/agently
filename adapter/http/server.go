@@ -25,7 +25,6 @@ import (
 	"github.com/viant/fluxor/service/approval"
 
 	"github.com/viant/agently/internal/auth"
-	d "github.com/viant/agently/internal/domain"
 )
 
 // Server wraps a conversation manager and exposes minimal REST endpoints:
@@ -47,8 +46,7 @@ type Server struct {
 	mu      sync.Mutex
 	cancels map[string][]context.CancelFunc // convID -> cancel funcs for in-flight turns
 
-	// Optional domain store for v1 compatibility (reads from domain instead of memory when enabled)
-	store d.Store
+	// Store removed; using conversation client via chat service
 }
 
 // ServerOption customises HTTP server behaviour.
@@ -70,7 +68,7 @@ func WithPolicies(tp *tool.Policy, fp *fluxpol.Policy) ServerOption {
 // WithStore injects a domain.Store so that v1 endpoints can read from DAO-backed store
 // when AGENTLY_V1_DOMAIN=1 is set. When store is nil or the flag is not set, legacy memory
 // reads remain in effect.
-func WithStore(st d.Store) ServerOption { return func(s *Server) { s.store = st } }
+// WithStore removed; chat service no longer depends on domain.Store
 
 // registerCancel stores cancel so that the /terminate endpoint can abort the
 // running turn for the given conversation.
@@ -138,12 +136,10 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 			o(s)
 		}
 	}
-	if s.store != nil {
-		s.chatSvc = chat.NewService(s.store)
-		s.chatSvc.AttachManager(mgr, s.toolPolicy, s.fluxPolicy)
-		if s.pendingApproval != nil {
-			s.chatSvc.AttachApproval(s.pendingApproval)
-		}
+	s.chatSvc = chat.NewService()
+	s.chatSvc.AttachManager(mgr, s.toolPolicy, s.fluxPolicy)
+	if s.pendingApproval != nil {
+		s.chatSvc.AttachApproval(s.pendingApproval)
 	}
 	mux := http.NewServeMux()
 

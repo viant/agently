@@ -21,9 +21,6 @@ import (
 	"github.com/viant/agently/genai/service/augmenter"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
-	daofactory "github.com/viant/agently/internal/dao/factory"
-	domain "github.com/viant/agently/internal/domain"
-	storeadapter "github.com/viant/agently/internal/domain/adapter"
 	domainrec "github.com/viant/agently/internal/domain/recorder"
 	"github.com/viant/agently/internal/finder/oauth"
 	"github.com/viant/agently/internal/hotswap"
@@ -36,8 +33,6 @@ import (
 	"github.com/viant/fluxor/service/meta"
 	"github.com/viant/scy"
 
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
 	"github.com/viant/fluxor-mcp/mcp"
 )
 
@@ -202,8 +197,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	if e.orchestration != nil {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
-	store := e.ensureStore()
-	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.recorder, store, &e.config.Default)
+	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.recorder, &e.config.Default)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
 
@@ -254,25 +248,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	// Actions is modified in-place; no return value needed.
 }
 
-func (e *Service) ensureStore() domain.Store {
-	var store domain.Store
-	driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
-	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
-	if driver != "" && dsn != "" {
-		if dao, err := datly.New(context.Background()); err == nil {
-			_ = dao.AddConnectors(context.Background(), view.NewConnector("agently", driver, dsn))
-			if apis, _ := daofactory.New(context.Background(), daofactory.DAOSQL, dao); apis != nil {
-				store = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload)
-			}
-		}
-	}
-	if store == nil {
-		if apis, _ := daofactory.New(context.Background(), daofactory.DAOInMemory, nil); apis != nil {
-			store = storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload)
-		}
-	}
-	return store
-}
+// ensureStore removed — executor uses clients via services directly
 
 func (e *Service) NewContext(ctx context.Context) context.Context {
 	if e.orchestration != nil {
