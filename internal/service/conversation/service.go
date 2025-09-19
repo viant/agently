@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unsafe"
 
-	api "github.com/viant/agently/client/conversation"
+	convcli "github.com/viant/agently/client/conversation"
 	daopayload "github.com/viant/agently/internal/dao/payload"
 	payloadread "github.com/viant/agently/internal/dao/payload/read"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
@@ -61,7 +61,7 @@ func (ss *Service) init(ctx context.Context, dao *datly.Service) error {
 	return nil
 }
 
-func (s *Service) PatchConversations(ctx context.Context, conversations *api.MutableConversation) error {
+func (s *Service) PatchConversations(ctx context.Context, conversations *convcli.MutableConversation) error {
 	conv := []*convw.Conversation{(*convw.Conversation)(conversations)}
 	input := &convw.Input{Conversations: conv}
 	out := &convw.Output{}
@@ -80,25 +80,25 @@ func (s *Service) PatchConversations(ctx context.Context, conversations *api.Mut
 }
 
 // GetConversations implements conversation.API using the generated component and returns SDK Conversation.
-func (s *Service) GetConversations(ctx context.Context) ([]*api.Conversation, error) {
-	inSDK := api.Input{IncludeTranscript: false, Has: &agconv.ConversationInputHas{IncludeTranscript: true}}
+func (s *Service) GetConversations(ctx context.Context) ([]*convcli.Conversation, error) {
+	inSDK := convcli.Input{IncludeTranscript: false, Has: &agconv.ConversationInputHas{IncludeTranscript: true}}
 	// Map SDK input to generated input
 	in := agconv.ConversationInput(inSDK)
 	out := &agconv.ConversationOutput{}
 	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(agconv.ConversationsPathURI), datly.WithInput(&in)); err != nil {
 		return nil, err
 	}
-	result := *(*[]*api.Conversation)(unsafe.Pointer(&out.Data))
+	result := *(*[]*convcli.Conversation)(unsafe.Pointer(&out.Data))
 	return result, nil
 }
 
 // GetConversation implements conversation.API using the generated component and returns SDK Conversation.
-func (s *Service) GetConversation(ctx context.Context, id string, options ...api.Option) (*api.Conversation, error) {
+func (s *Service) GetConversation(ctx context.Context, id string, options ...convcli.Option) (*convcli.Conversation, error) {
 	if s == nil || s.dao == nil {
 		return nil, nil
 	}
 	// Build SDK input via options
-	inSDK := api.Input{Id: id, Has: &agconv.ConversationInputHas{Id: true}}
+	inSDK := convcli.Input{Id: id, Has: &agconv.ConversationInputHas{Id: true}}
 	for _, opt := range options {
 		if opt != nil {
 			opt(&inSDK)
@@ -116,11 +116,11 @@ func (s *Service) GetConversation(ctx context.Context, id string, options ...api
 		return nil, nil
 	}
 	// Cast generated to SDK type
-	conv := api.Conversation(*out.Data[0])
+	conv := convcli.Conversation(*out.Data[0])
 	return &conv, nil
 }
 
-func (s *Service) GetPayload(ctx context.Context, id string) (*api.Payload, error) {
+func (s *Service) GetPayload(ctx context.Context, id string) (*convcli.Payload, error) {
 	if s == nil || s.dao == nil {
 		return nil, nil
 	}
@@ -132,11 +132,11 @@ func (s *Service) GetPayload(ctx context.Context, id string) (*api.Payload, erro
 	if len(out.Data) == 0 {
 		return nil, nil
 	}
-	res := api.Payload(*out.Data[0])
+	res := convcli.Payload(*out.Data[0])
 	return &res, nil
 }
 
-func (s *Service) PatchPayload(ctx context.Context, payload *api.MutablePayload) error {
+func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayload) error {
 	if s == nil || s.dao == nil || payload == nil {
 		return nil
 	}
@@ -158,7 +158,7 @@ func (s *Service) PatchPayload(ctx context.Context, payload *api.MutablePayload)
 	return nil
 }
 
-func (s *Service) PatchMessage(ctx context.Context, message *api.MutableMessage) error {
+func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMessage) error {
 	if s == nil || s.dao == nil || message == nil || *message == nil {
 		return nil
 	}
@@ -179,7 +179,7 @@ func (s *Service) PatchMessage(ctx context.Context, message *api.MutableMessage)
 	return nil
 }
 
-func (s *Service) PatchModelCall(ctx context.Context, modelCall *api.MutableModelCall) error {
+func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.MutableModelCall) error {
 	if s == nil || s.dao == nil || modelCall == nil {
 		return nil
 	}
@@ -200,7 +200,7 @@ func (s *Service) PatchModelCall(ctx context.Context, modelCall *api.MutableMode
 	return nil
 }
 
-func (s *Service) PatchToolCall(ctx context.Context, toolCall *api.MutableToolCall) error {
+func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableToolCall) error {
 	if s == nil || s.dao == nil || toolCall == nil {
 		return nil
 	}

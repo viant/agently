@@ -10,7 +10,7 @@ import (
 	"github.com/viant/fluxor/service/approval"
 )
 
-type API interface {
+type Client interface {
 	AttachManager(mgr *conversation.Manager, tp *tool.Policy, fp *policy.Policy)
 	AttachApproval(svc approval.Service)
 	Get(ctx context.Context, req GetRequest) (*GetResponse, error)

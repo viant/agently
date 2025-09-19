@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-type API interface {
+type Client interface {
 	GetConversation(ctx context.Context, id string, options ...Option) (*Conversation, error)
 	GetConversations(ctx context.Context) ([]*Conversation, error)
 	PatchConversations(ctx context.Context, conversations *MutableConversation) error
