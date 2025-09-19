@@ -182,11 +182,11 @@ func (e *Service) Runtime() *fluxor.Runtime {
 func (e *Service) registerServices(actions *extension.Actions) {
 	// Register orchestration actions: plan, execute and finalize
 	enricher := augmenter.New(e.embedderFinder)
-	e.llmCore = core.New(e.modelFinder, e.tools, e.recorder)
+	e.llmCore = core.New(e.modelFinder, e.tools, nil)
 
 	// Inject recorder (and keep tracer if needed later) into core so streaming execution records tool calls.
 	if e.llmCore != nil {
-		e.llmCore.SetRecorder(e.recorder)
+		// Supply conversation client when ready (set later by agent service init)
 	}
 	actions.Register(enricher)
 	actions.Register(e.llmCore)

@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/viant/afs"
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/tool"
-	domainrec "github.com/viant/agently/internal/domain/recorder"
 	"github.com/viant/fluxor/model/types"
 )
 
@@ -19,7 +19,7 @@ type Service struct {
 	llmFinder    llm.Finder
 	modelMatcher llm.Matcher
 	fs           afs.Service
-	recorder     domainrec.Recorder
+	convClient   apiconv.Client
 }
 
 func (s *Service) ModelFinder() llm.Finder {
@@ -67,9 +67,9 @@ func (s *Service) Method(name string) (types.Executable, error) {
 }
 
 // New creates a new extractor service
-func New(finder llm.Finder, registry tool.Registry, recorder domainrec.Recorder) *Service {
+func New(finder llm.Finder, registry tool.Registry, convClient apiconv.Client) *Service {
 	matcher, _ := finder.(llm.Matcher)
-	return &Service{llmFinder: finder, registry: registry, recorder: recorder, fs: afs.New(), modelMatcher: matcher}
+	return &Service{llmFinder: finder, registry: registry, convClient: convClient, fs: afs.New(), modelMatcher: matcher}
 }
 
 // ModelImplements reports whether a given model supports a feature.
@@ -85,4 +85,4 @@ func (s *Service) ModelImplements(ctx context.Context, modelName, feature string
 	return model.Implements(feature)
 }
 
-func (s *Service) SetRecorder(r domainrec.Recorder) { s.recorder = r }
+func (s *Service) SetConversationClient(c apiconv.Client) { s.convClient = c }

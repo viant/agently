@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
@@ -15,13 +16,12 @@ import (
 	"github.com/viant/agently/genai/service/core/stream"
 	executil "github.com/viant/agently/genai/service/shared/executil"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/agently/internal/domain/recorder"
 )
 
 type Service struct {
-	llm      *core2.Service
-	registry tool.Registry
-	recorder recorder.Recorder
+	llm        *core2.Service
+	registry   tool.Registry
+	convClient apiconv.Client
 }
 
 func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
@@ -29,7 +29,10 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 
 	var wg sync.WaitGroup
 	nextStepIdx := 0
-	streamId := s.registerStreamPlannerHandler(aPlan, &wg, &nextStepIdx, genOutput)
+	// use cancelable ctx so tool errors can stop streaming early
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	streamId, stepErrCh := s.registerStreamPlannerHandler(aPlan, &wg, &nextStepIdx, genOutput, cancel)
 	canStream, err := s.canStream(ctx, genInput)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if model can stream: %w", err)
@@ -41,6 +44,14 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			return nil, fmt.Errorf("failed to stream: %w", err)
 		}
 		wg.Wait()
+		// propagate first tool error if any
+		select {
+		case toolErr := <-stepErrCh:
+			if toolErr != nil {
+				return nil, fmt.Errorf("tool execution failed: %w", toolErr)
+			}
+		default:
+		}
 		s.synthesizeFinalResponse(genOutput)
 		//TODO if strem has not emit tool call but JSON (either eliciation or plan extract and act)
 
@@ -56,6 +67,14 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 				return nil, fmt.Errorf("failed to stream plan steps: %w", err)
 			}
 			wg.Wait()
+			// propagate first tool error if any
+			select {
+			case toolErr := <-stepErrCh:
+				if toolErr != nil {
+					return nil, fmt.Errorf("tool execution failed: %w", toolErr)
+				}
+			default:
+			}
 		}
 	}
 
@@ -100,9 +119,10 @@ func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) 
 	return doStream, nil
 }
 
-func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) string {
+func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput, cancel context.CancelFunc) (string, <-chan error) {
 	var mux sync.Mutex
-	return stream.Register(func(ctx context.Context, event *llm.StreamEvent) error {
+	stepErrCh := make(chan error, 1)
+	id := stream.Register(func(ctx context.Context, event *llm.StreamEvent) error {
 		if event == nil || event.Response == nil || len(event.Response.Choices) == 0 {
 			if event != nil {
 				return event.Err
@@ -133,11 +153,20 @@ func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGr
 			go func() {
 				defer wg.Done()
 				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args}
-				_, _, _ = executil.RunTool(ctx, s.registry, stepInfo, s.recorder)
+				_, _, err := executil.ExecuteToolStep(ctx, s.registry, stepInfo, s.convClient)
+				if err != nil {
+					// capture first error and cancel upstream streaming
+					select {
+					case stepErrCh <- err:
+						cancel()
+					default:
+					}
+				}
 			}()
 		}
 		return nil
 	})
+	return id, stepErrCh
 }
 
 func (s *Service) extendPlanFromResponse(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) (bool, error) {
@@ -235,10 +264,10 @@ func (s *Service) synthesizeFinalResponse(genOutput *core2.GenerateOutput) {
 	}
 }
 
-func New(service *core2.Service, registry tool.Registry, recorder recorder.Recorder) *Service {
+func New(service *core2.Service, registry tool.Registry, convClient apiconv.Client) *Service {
 	return &Service{
-		llm:      service,
-		registry: registry,
-		recorder: recorder,
+		llm:        service,
+		registry:   registry,
+		convClient: convClient,
 	}
 }

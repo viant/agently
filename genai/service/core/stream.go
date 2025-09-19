@@ -49,7 +49,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	}
 	// Attach finish barrier so final message waits for model-call persistence.
 	ctx, _ = modelcallctx.WithFinishBarrier(ctx)
-	ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
+	ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
 
 	streamCh, err := streamer.Stream(ctx, req)
 	if err != nil {

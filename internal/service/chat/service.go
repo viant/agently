@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	mcpclient "github.com/viant/agently/adapter/mcp"
 	apiconv "github.com/viant/agently/client/conversation"
+	convcli "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/conversation"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
@@ -84,6 +85,17 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 		return nil, err
 	}
 	return &GetResponse{Conversation: conv}, nil
+}
+
+// Passthroughs to conversation client for write operations.
+func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMessage) error {
+	return s.convClient.PatchMessage(ctx, message)
+}
+func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableToolCall) error {
+	return s.convClient.PatchToolCall(ctx, toolCall)
+}
+func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayload) error {
+	return s.convClient.PatchPayload(ctx, payload)
 }
 
 // PostRequest defines inputs to submit a user message.

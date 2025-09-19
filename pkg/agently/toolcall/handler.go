@@ -24,7 +24,7 @@ func (h *Handler) Exec(ctx context.Context, sess handler.Session) (interface{}, 
 	}
 	if len(out.Violations) > 0 {
 		out.setError(fmt.Errorf("failed validation"))
-		return out, response.NewError(http.StatusBadRequest, "bad request")
+		return out, response.NewError(http.StatusBadRequest, "bad request: "+out.Violations[0].Message)
 	}
 	return out, nil
 }

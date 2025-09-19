@@ -128,7 +128,7 @@ func (s *Service) generate(ctx context.Context, in, out interface{}) error {
 
 func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) error {
 
-	ctx = modelcallctx.WithRecorderObserver(ctx, s.recorder)
+	ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
 	request, model, err := s.prepareGenerateRequest(ctx, input)
 	if err != nil {
 		return err

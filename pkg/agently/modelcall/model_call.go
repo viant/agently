@@ -11,6 +11,8 @@ type ModelCall struct {
 	Model                              string        `sqlx:"model" validate:"required"`
 	ModelKind                          string        `sqlx:"model_kind" validate:"required"`
 	Status                             string        `sqlx:"status" validate:"required"`
+	ErrorCode                          *string       `sqlx:"error_code" json:",omitempty"`
+	ErrorMessage                       *string       `sqlx:"error_message" json:",omitempty"`
 	PromptTokens                       *int          `sqlx:"prompt_tokens" json:",omitempty"`
 	PromptCachedTokens                 *int          `sqlx:"prompt_cached_tokens" json:",omitempty"`
 	CompletionTokens                   *int          `sqlx:"completion_tokens" json:",omitempty"`
@@ -43,6 +45,8 @@ type ModelCallHas struct {
 	Provider                           bool
 	Model                              bool
 	ModelKind                          bool
+	ErrorCode                          bool
+	ErrorMessage                       bool
 	PromptTokens                       bool
 	PromptCachedTokens                 bool
 	CompletionTokens                   bool
@@ -84,3 +88,58 @@ func (m *ModelCall) SetStreamPayloadID(v string) {
 	m.ensureHas()
 	m.Has.StreamPayloadID = true
 }
+
+// Added convenience setters to avoid manual Has management across call sites.
+func (m *ModelCall) SetTurnID(v string) { m.TurnID = &v; m.ensureHas(); m.Has.TurnID = true }
+func (m *ModelCall) SetStartedAt(v time.Time) {
+	m.StartedAt = &v
+	m.ensureHas()
+	m.Has.StartedAt = true
+}
+func (m *ModelCall) SetCompletedAt(v time.Time) {
+	m.CompletedAt = &v
+	m.ensureHas()
+	m.Has.CompletedAt = true
+}
+func (m *ModelCall) SetPromptTokens(v int) {
+	m.PromptTokens = &v
+	m.ensureHas()
+	m.Has.PromptTokens = true
+}
+func (m *ModelCall) SetCompletionTokens(v int) {
+	m.CompletionTokens = &v
+	m.ensureHas()
+	m.Has.CompletionTokens = true
+}
+func (m *ModelCall) SetTotalTokens(v int) {
+	m.TotalTokens = &v
+	m.ensureHas()
+	m.Has.TotalTokens = true
+}
+func (m *ModelCall) SetRequestPayloadID(v string) {
+	m.RequestPayloadID = &v
+	m.ensureHas()
+	m.Has.RequestPayloadID = true
+}
+func (m *ModelCall) SetResponsePayloadID(v string) {
+	m.ResponsePayloadID = &v
+	m.ensureHas()
+	m.Has.ResponsePayloadID = true
+}
+func (m *ModelCall) SetProviderRequestPayloadID(v string) {
+	m.ProviderRequestPayloadID = &v
+	m.ensureHas()
+	m.Has.ProviderRequestPayloadID = true
+}
+func (m *ModelCall) SetProviderResponsePayloadID(v string) {
+	m.ProviderResponsePayloadID = &v
+	m.ensureHas()
+	m.Has.ProviderResponsePayloadID = true
+}
+func (m *ModelCall) SetErrorMessage(v string) {
+	m.ErrorMessage = &v
+	m.ensureHas()
+	m.Has.ErrorMessage = true
+}
+func (m *ModelCall) SetErrorCode(v string) { m.ErrorCode = &v; m.ensureHas(); m.Has.ErrorCode = true }
+func (m *ModelCall) SetCacheHit(v int)     { m.CacheHit = &v; m.ensureHas(); m.Has.CacheHit = true }
