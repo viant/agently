@@ -74,7 +74,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		convID = uuid.New().String()
 		input.ConversationID = convID
 	}
-	if s.convAPI == nil {
+	if s.convClient == nil {
 		return fmt.Errorf("conversation API not configured")
 	}
 	var (
@@ -83,7 +83,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		metadata     *string
 		exists       bool
 	)
-	aConversation, err := s.convAPI.GetConversation(ctx, convID)
+	aConversation, err := s.convClient.GetConversation(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("failed to load conversation: %w", err)
 	}
@@ -165,11 +165,11 @@ func (s *Service) updatedConversationContext(ctx context.Context, convID string,
 	if convID == "" || len(qi.Context) == 0 {
 		return nil
 	}
-	if s.convAPI == nil {
+	if s.convClient == nil {
 		return fmt.Errorf("conversation API not configured")
 	}
 	var metaSrc string
-	cv, err := s.convAPI.GetConversation(ctx, convID)
+	cv, err := s.convClient.GetConversation(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("failed to load conversation: %w", err)
 	}
