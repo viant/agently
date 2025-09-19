@@ -19,8 +19,6 @@ import (
 
 // Query executes a query against an agent.
 func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) error {
-
-	fmt.Println("Query - stared")
 	// Ensure conversation exists and reuse stored defaults (agent/model/tools)
 	if err := s.ensureConversation(ctx, input); err != nil {
 		return err
@@ -118,18 +116,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		}
 	}
 	output.Usage = agg
-
-	fmt.Println("Query - ended")
-
 	return nil
 }
 
 func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutput *QueryOutput) error {
-
-	fmt.Println("runPlanLoop - started")
-	defer func() {
-		fmt.Println("runPlanLoop - end")
-	}()
 	var err error
 	for {
 		binding, bErr := s.BuildBinding(ctx, input)

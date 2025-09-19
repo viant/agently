@@ -1,9 +1,6 @@
 package plan
 
 import (
-	"encoding/json"
-	"time"
-
 	"github.com/google/uuid"
 )
 
@@ -13,32 +10,6 @@ type Plan struct {
 	Intention   string       `yaml:"intention,omitempty" json:"intention,omitempty"`     // Optional summary of the user’s goal
 	Steps       Steps        `yaml:"steps" json:"steps"`                                 // Ordered list of steps to execute
 	Elicitation *Elicitation `yaml:"elicitation,omitempty" json:"elicitation,omitempty"` // Optional elicitation details if user input is needed
-}
-
-type Outcome struct {
-	ID    string         `yaml:"id,omitempty" json:"id,omitempty"`
-	Steps []*StepOutcome `yaml:"steps" json:"steps"`
-}
-
-type StepOutcome struct {
-	ID       string                 `yaml:"id,omitempty" json:"id,omitempty"`
-	Name     string                 `yaml:"name,omitempty" json:"name,omitempty"`
-	Reason   string                 `yaml:"reason,omitempty" json:"reason,omitempty"`
-	Request  json.RawMessage        `yaml:"request,omitempty" json:"request,omitempty"`
-	Response json.RawMessage        `yaml:"response,omitempty" json:"response,omitempty"`
-	Elicited map[string]interface{} `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
-	// Success mirrors tool call outcome
-	Success   bool       `yaml:"success,omitempty" json:"success,omitempty"`
-	Error     string     `yaml:"error,omitempty" json:"error,omitempty"`
-	Elapsed   string     `yaml:"elapsed,omitempty" json:"elapsed,omitempty"`
-	StartedAt *time.Time `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
-	EndedAt   *time.Time `yaml:"endedAt,omitempty" json:"endedAt,omitempty"`
-	// Optional payload identifiers for lazy resolution on the client side.
-	RequestPayloadID          *string `yaml:"requestPayloadId,omitempty" json:"requestPayloadId,omitempty"`
-	ResponsePayloadID         *string `yaml:"responsePayloadId,omitempty" json:"responsePayloadId,omitempty"`
-	StreamPayloadID           *string `yaml:"streamPayloadId,omitempty" json:"streamPayloadId,omitempty"`
-	ProviderRequestPayloadID  *string `yaml:"providerRequestPayloadId,omitempty" json:"providerRequestPayloadId,omitempty"`
-	ProviderResponsePayloadID *string `yaml:"providerResponsePayloadId,omitempty" json:"providerResponsePayloadId,omitempty"`
 }
 
 func New() *Plan {

@@ -68,14 +68,6 @@ func TurnMetaFromContext(ctx context.Context) (TurnMeta, bool) {
 	return TurnMeta{}, false
 }
 
-// PolicyApproval captures the details of an approval request that needs an
-// explicit Accept/Reject decision by the user.
-type PolicyApproval struct {
-	Tool   string                 `json:"tool" yaml:"tool"`                     // tool/function name such as "system.exec"
-	Args   map[string]interface{} `json:"args,omitempty" yaml:"args,omitempty"` // flattened argument map
-	Reason string                 `json:"reason,omitempty" yaml:"reason,omitempty"`
-}
-
 // UserInteraction represents a structured prompt created via the MCP
 // user-interaction feature.
 type UserInteraction struct {
