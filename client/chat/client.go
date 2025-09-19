@@ -5,7 +5,6 @@ import (
 
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/tool"
-	internal "github.com/viant/agently/internal/service/chat"
 	"github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
 )
@@ -25,13 +24,3 @@ type Client interface {
 	Elicit(ctx context.Context, messageID, action string, payload map[string]interface{}) error
 	GetPayload(ctx context.Context, id string) ([]byte, string, error)
 }
-
-// Public aliases to internal request/response types to avoid leaking internal package in user code.
-type (
-	GetRequest                 = internal.GetRequest
-	GetResponse                = internal.GetResponse
-	PostRequest                = internal.PostRequest
-	CreateConversationRequest  = internal.CreateConversationRequest
-	CreateConversationResponse = internal.CreateConversationResponse
-	ConversationSummary        = internal.ConversationSummary
-)

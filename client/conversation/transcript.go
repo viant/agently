@@ -5,12 +5,7 @@ import (
 	"unsafe"
 
 	"github.com/viant/agently/genai/prompt"
-	"github.com/viant/agently/pkg/agently/conversation"
 )
-
-type Turn conversation.TranscriptView
-
-type Transcript []*Turn
 
 func (t *Turn) GetMessages() Messages {
 	return *(*Messages)(unsafe.Pointer(&t.Message))

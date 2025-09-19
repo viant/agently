@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/service/core"
@@ -83,7 +84,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		w := &convw.Conversation{Has: &convw.ConversationHas{}}
 		w.SetId(turn.ConversationID)
 		w.SetDefaultModel(output.Model)
-		_, _ = s.store.Conversations().Patch(ctx, w)
+		if s.convClient != nil {
+			mw := convw.Conversation(*w)
+			_ = s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw))
+		}
 	}
 
 	if output.Plan.Elicitation != nil {
