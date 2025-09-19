@@ -1,9 +1,11 @@
 package conversation
 
 import (
+	"path"
 	"strings"
 	"unsafe"
 
+	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/prompt"
 )
 
@@ -32,7 +34,7 @@ func (t *Transcript) History(query string) []*prompt.Message {
 
 	if n := len(normalized); n > 0 && query != "" {
 		last := normalized[n-1]
-		if last != nil && last.Content != nil && strings.EqualFold(strings.TrimSpace(last.Role), "user") &&
+		if last != nil && last.Content != nil && strings.EqualFold(strings.TrimSpace(last.Role), string(llm.RoleUser)) &&
 			strings.TrimSpace(*last.Content) == strings.TrimSpace(query) {
 			normalized = normalized[:n-1]
 		}
@@ -45,7 +47,35 @@ func (t *Transcript) History(query string) []*prompt.Message {
 		if v.Content != nil {
 			content = *v.Content
 		}
-		result = append(result, &prompt.Message{Role: v.Role, Content: content})
+		// Collect attachments associated to this base message (joined via parent_message_id)
+		var atts []*prompt.Attachment
+		if v.Attachment != nil && len(v.Attachment) > 0 {
+			for _, av := range v.Attachment {
+				if av == nil {
+					continue
+				}
+				var data []byte
+				if av.InlineBody != nil {
+					data = []byte(*av.InlineBody)
+				}
+				name := ""
+				if av.Uri != nil && *av.Uri != "" {
+					name = path.Base(*av.Uri)
+				}
+				atts = append(atts, &prompt.Attachment{
+					Name: name,
+					URI: func() string {
+						if av.Uri != nil {
+							return *av.Uri
+						}
+						return ""
+					}(),
+					Mime: av.MimeType,
+					Data: data,
+				})
+			}
+		}
+		result = append(result, &prompt.Message{Role: v.Role, Content: content, Attachment: atts})
 	}
 	return result
 }

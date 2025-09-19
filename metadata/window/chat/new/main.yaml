@@ -42,6 +42,10 @@ view:
         chat:
           dataSourceRef: messages
           height: 75vh
+          showUpload: true
+          upload:
+            endpoint: agentlyAPI
+            path: upload
           disableInputOnLoading: false
           toolbar:
             dataSourceRef: messages
@@ -75,8 +79,6 @@ view:
                 - name: agent
                   in: form
                   location: conversations.agent
-            - event: onUpload
-              handler: chat.upload
             - event: onAbort
               handler: chat.abortConversation
 on:

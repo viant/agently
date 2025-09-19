@@ -207,25 +207,25 @@ type Usage struct {
 // NewUserMessage creates a new message with the "user" role.
 // NewUserMessage creates a new message with the "user" role.
 func NewUserMessage(content string) Message {
-	return newTextMessage(RoleUser, content)
+	return NewTextMessage(RoleUser, content)
 }
 
 // NewSystemMessage creates a new message with the "system" role.
 // NewSystemMessage creates a new message with the "system" role.
 func NewSystemMessage(content string) Message {
-	return newTextMessage(RoleSystem, content)
+	return NewTextMessage(RoleSystem, content)
 }
 
 // NewAssistantMessage creates a new message with the "assistant" role.
 // NewAssistantMessage creates a new message with the "assistant" role.
 func NewAssistantMessage(content string) Message {
-	return newTextMessage(RoleAssistant, content)
+	return NewTextMessage(RoleAssistant, content)
 }
 
 // NewToolMessage creates a new message with the "tool" role.
 // NewToolMessage creates a new message with the "tool" role.
 func NewToolMessage(name, content string) Message {
-	msg := newTextMessage(RoleTool, content)
+	msg := NewTextMessage(RoleTool, content)
 	msg.Name = name
 	return msg
 }
@@ -236,7 +236,7 @@ func NewToolResultMessage(call ToolCall) Message {
 	if content == "" && call.Error != "" {
 		content = "Error:" + call.Error
 	}
-	msg := newTextMessage(RoleTool, content)
+	msg := NewTextMessage(RoleTool, content)
 	msg.Name = call.Name
 	msg.ToolCallId = call.ID
 	return msg
@@ -311,8 +311,17 @@ func NewUserMessageWithBinary(data []byte, mimeType, prompt string) Message {
 	return Message{Role: RoleUser, Items: items}
 }
 
-// newTextMessage creates a text-only message for the given role.
-func newTextMessage(role MessageRole, content string) Message {
+// NewMessageWithBinary creates a message that includes binary data and optional text prompt.
+func NewMessageWithBinary(role MessageRole, data []byte, mimeType, content string) Message {
+	items := []ContentItem{NewBinaryContent(data, mimeType)}
+	if content != "" {
+		items = append(items, NewTextContent(content))
+	}
+	return Message{Role: role, Items: items}
+}
+
+// NewTextMessage creates a text-only message for the given role.
+func NewTextMessage(role MessageRole, content string) Message {
 	textItem := NewTextContent(content)
 	return Message{
 		Role:    role,

@@ -13,7 +13,8 @@
 #set($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
 
 
-SELECT conversation.*
+SELECT conversation.*,
+cast(attachment.inline_body, []byte)
 FROM (
     SELECT t.*, '' AS stage FROM conversation t WHERE (id = $Id OR "" = $Id)
 ) conversation
@@ -22,8 +23,12 @@ JOIN  (
   ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
 ) transcript ON transcript.conversation_id = conversation.id
 JOIN (
-    SELECT * FROM message
+    SELECT * FROM message WHERE payload_id IS NULL
 ) message ON message.turn_id = transcript.id
+JOIN (
+ SELECT p.*, m.parent_message_id FROM message m
+ JOIN call_payload p ON m.payload_id = p.id
+) attachment ON attachment.parent_message_id = message.id
 JOIN (
    SELECT t.*
  FROM model_call t

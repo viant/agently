@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"path"
 	"strings"
 
 	"github.com/viant/agently/genai/llm"
@@ -20,9 +19,7 @@ type GenerateInput struct {
 
 	Prompt  *prompt.Prompt
 	Binding *prompt.Binding
-
-	Attachment []*Attachment
-	Message    []llm.Message
+	Message []llm.Message
 }
 
 // GenerateOutput represents output from extraction
@@ -63,30 +60,23 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 	if err := i.Prompt.Init(ctx); err != nil {
 		return err
 	}
-	expanded, err := i.Prompt.Generate(ctx, i.Binding)
+	currentPrompt, err := i.Prompt.Generate(ctx, i.Binding)
 	if err != nil {
 		return fmt.Errorf("failed to prompt: %w", err)
 	}
-	// Deduplicate: if the last history entry is already the same user content,
-	// skip appending another user message to avoid duplication between
-	// transcript and prompt.
-	shouldAppend := true
+
 	if i.Binding != nil && len(i.Binding.History.Messages) > 0 {
-		msgs := i.Binding.History.Messages
-		for k := len(msgs) - 1; k >= 0; k-- {
-			m := msgs[k]
-			if m == nil || strings.TrimSpace(m.Content) == "" {
-				continue
+		messages := i.Binding.History.Messages
+		for k := 0; k < len(messages); k++ {
+			m := messages[k]
+			llmMessage := llm.NewTextMessage(llm.MessageRole(m.Role), m.Content)
+			i.Message = append(i.Message, llmMessage)
+			for _, attachment := range m.Attachment {
+				i.Message = append(i.Message,
+					llm.NewMessageWithBinary(llm.MessageRole(m.Role), attachment.Data, attachment.MIMEType(), attachment.Content))
 			}
-			if strings.EqualFold(strings.TrimSpace(m.Role), string(llm.RoleUser)) &&
-				strings.TrimSpace(m.Content) == strings.TrimSpace(expanded) {
-				shouldAppend = false
-			}
-			break
 		}
-	}
-	if shouldAppend {
-		i.Message = append(i.Message, llm.NewUserMessage(expanded))
+
 	}
 
 	if tools := i.Binding.Tools; len(tools.Signatures) > 0 {
@@ -99,6 +89,13 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		}
 	}
 
+	i.Message = append(i.Message, llm.NewUserMessage(currentPrompt))
+	attachments := i.Binding.Task.Attachments
+	for _, attachment := range attachments {
+		i.Message = append(i.Message,
+			llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Content))
+
+	}
 	return nil
 }
 
@@ -180,33 +177,20 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 
 	input.MatchModelIfNeeded(s.modelMatcher)
 
-	if err := input.Init(ctx); err != nil {
-		return nil, nil, fmt.Errorf("failed to init generate input: %w", err)
-	}
-	if err := input.Validate(ctx); err != nil {
-		return nil, nil, err
+	if input.Binding == nil {
+		input.Binding = &prompt.Binding{}
 	}
 
 	model, err := s.llmFinder.Find(ctx, input.Model)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to find model: %w", err)
 	}
-	if input.Binding == nil {
-		input.Binding = &prompt.Binding{}
-	}
 	s.updateFlags(input, model)
-
-	// Append attachments only when the model reports multimodal capability.
-	if len(input.Attachment) > 0 {
-		if input.Binding != nil && input.Binding.Flags.IsMultimodal {
-			for _, attachment := range input.Attachment {
-				input.Message = append(input.Message,
-					llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Content))
-			}
-		} else {
-			// Provide user-visible feedback when attachments are ignored.
-			fmt.Println("[warning] attachments ignored: selected model is not multimodal")
-		}
+	if err := input.Init(ctx); err != nil {
+		return nil, nil, fmt.Errorf("failed to init generate input: %w", err)
+	}
+	if err := input.Validate(ctx); err != nil {
+		return nil, nil, err
 	}
 
 	request := &llm.GenerateRequest{
@@ -222,53 +206,50 @@ func (s *Service) updateFlags(input *GenerateInput, model llm.Model) {
 	input.Binding.Flags.IsMultimodal = model.Implements(base.IsMultimodal)
 }
 
-type Attachment struct {
-	Name    string
-	Mime    string
-	Content string
-	Data    []byte
-}
-
-func (a *Attachment) MIMEType() string {
-	if a.Mime != "" {
-		return a.Mime
-	}
-	// Handle empty Name case
-	if a.Name == "" {
-		return "application/octet-Stream"
-	}
-	ext := strings.ToLower(strings.TrimPrefix(path.Ext(a.Name), "."))
-	switch ext {
-	case "jpg", "jpeg":
-		return "image/jpeg"
-	case "png":
-		return "image/png"
-	case "gif":
-		return "image/gif"
-	case "pdf":
-		return "application/pdf"
-	case "txt":
-		return "text/plain"
-	case "md":
-		return "text/markdown"
-	case "csv":
-		return "text/csv"
-	case "json":
-		return "application/json"
-	case "xml":
-		return "application/xml"
-	case "html":
-		return "text/html"
-	case "yaml", "yml":
-		return "application/x-yaml"
-	case "zip":
-		return "application/zip"
-	case "tar":
-		return "application/x-tar"
-	case "mp3":
-		return "audio/mpeg"
-	case "mp4":
-		return "video/mp4"
-	}
-	return "application/octet-Stream"
-}
+//
+//func attachmentMIME(a *prompt.Attachment) string {
+//	if a == nil {
+//		return "application/octet-Stream"
+//	}
+//	if strings.TrimSpace(a.Mime) != "" {
+//		return a.Mime
+//	}
+//	name := strings.TrimSpace(a.Name)
+//	if name == "" {
+//		return "application/octet-Stream"
+//	}
+//	ext := strings.ToLower(strings.TrimPrefix(path.Ext(name), "."))
+//	switch ext {
+//	case "jpg", "jpeg":
+//		return "image/jpeg"
+//	case "png":
+//		return "image/png"
+//	case "gif":
+//		return "image/gif"
+//	case "pdf":
+//		return "application/pdf"
+//	case "txt":
+//		return "text/plain"
+//	case "md":
+//		return "text/markdown"
+//	case "csv":
+//		return "text/csv"
+//	case "json":
+//		return "application/json"
+//	case "xml":
+//		return "application/xml"
+//	case "html":
+//		return "text/html"
+//	case "yaml", "yml":
+//		return "application/x-yaml"
+//	case "zip":
+//		return "application/zip"
+//	case "tar":
+//		return "application/x-tar"
+//	case "mp3":
+//		return "audio/mpeg"
+//	case "mp4":
+//		return "video/mp4"
+//	}
+//	return "application/octet-Stream"
+//}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,7 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	convcli "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/conversation"
+	promptpkg "github.com/viant/agently/genai/prompt"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
 	authctx "github.com/viant/agently/internal/auth"
@@ -105,6 +108,18 @@ type PostRequest struct {
 	Model   string                 `json:"model,omitempty"`
 	Tools   []string               `json:"tools,omitempty"`
 	Context map[string]interface{} `json:"context,omitempty"`
+	// Attachments carries staged upload descriptors returned by Forge upload endpoint.
+	// Each item must include at least name and uri (relative to storage root), optionally size, stagingFolder, mime.
+	Attachments []UploadedAttachment `json:"attachments,omitempty"`
+}
+
+// UploadedAttachment mirrors Forge upload response structure.
+type UploadedAttachment struct {
+	Name          string `json:"name"`
+	Size          int    `json:"size,omitempty"`
+	StagingFolder string `json:"stagingFolder,omitempty"`
+	URI           string `json:"uri"`
+	Mime          string `json:"mime,omitempty"`
 }
 
 // PreflightPost validates minimal conditions before accepting a post.
@@ -160,6 +175,44 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		runCtx, cancel := context.WithCancel(base)
 		s.registerCancel(conversationID, msgID, cancel)
 		defer s.completeCancel(conversationID, msgID, cancel)
+
+		// Convert staged uploads into attachments (read + cleanup)
+		if len(req.Attachments) > 0 {
+			storageRoot := "adapter/var/data"
+			// build list and folders to cleanup
+			folders := map[string]struct{}{}
+			for _, a := range req.Attachments {
+				uri := strings.TrimSpace(a.URI)
+				if uri == "" {
+					continue
+				}
+				// prevent path traversal
+				clean := strings.TrimPrefix(uri, "/")
+				full := filepath.Join(storageRoot, filepath.Clean(clean))
+				data, err := os.ReadFile(full)
+				if err != nil {
+					continue
+				}
+				att := &promptpkg.Attachment{
+					Name:    a.Name,
+					URI:     uri,
+					Mime:    a.Mime,
+					Content: "",
+					Data:    data,
+				}
+				input.Attachments = append(input.Attachments, att)
+				// best-effort delete file
+				_ = os.Remove(full)
+				if folder := strings.TrimSpace(a.StagingFolder); folder != "" {
+					folders[folder] = struct{}{}
+				}
+			}
+			// cleanup empty folders best-effort
+			for folder := range folders {
+				clean := strings.TrimPrefix(folder, "/")
+				_ = os.Remove(filepath.Join(storageRoot, filepath.Clean(clean)))
+			}
+		}
 
 		// Propagate conversation ID and policies
 		runCtx = conversation.WithID(runCtx, conversationID)

@@ -1,1 +1,1 @@
-SELECT * FROM message
+SELECT * FROM message WHERE payload_id IS NULL

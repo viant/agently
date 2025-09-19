@@ -1,6 +1,9 @@
 package prompt
 
 import (
+	"path"
+	"strings"
+
 	"github.com/viant/agently/genai/llm"
 )
 
@@ -31,9 +34,19 @@ type (
 	}
 
 	Message struct {
-		Role     string `yaml:"role,omitempty" json:"role,omitempty"`
-		MimeType string `yaml:"mimeType,omitempty" json:"mimeType,omitempty"`
-		Content  string `yaml:"content,omitempty" json:"content,omitempty"`
+		Role       string        `yaml:"role,omitempty" json:"role,omitempty"`
+		MimeType   string        `yaml:"mimeType,omitempty" json:"mimeType,omitempty"`
+		Content    string        `yaml:"content,omitempty" json:"content,omitempty"`
+		Attachment []*Attachment `yaml:"attachment,omitempty" json:"attachment,omitempty"`
+	}
+
+	Attachment struct {
+		Name          string `yaml:"name,omitempty" json:"name,omitempty"`
+		URI           string `yaml:"uri,omitempty" json:"uri,omitempty"`
+		StagingFolder string `yaml:"stagingFolder,omitempty" json:"stagingFolder,omitempty"`
+		Mime          string `yaml:"mime,omitempty" json:"mime,omitempty"`
+		Content       string `yaml:"content,omitempty" json:"content,omitempty"`
+		Data          []byte `yaml:"data,omitempty" json:"data,omitempty"`
 	}
 
 	History struct {
@@ -41,7 +54,8 @@ type (
 	}
 
 	Task struct {
-		Prompt string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+		Prompt      string        `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+		Attachments []*Attachment `yaml:"attachments,omitempty" json:"attachments,omitempty"`
 	}
 
 	Meta struct {
@@ -86,4 +100,56 @@ func (b *Binding) Data() map[string]interface{} {
 		}
 	}
 	return context
+}
+
+func (a *Attachment) Type() string {
+	mimeType := a.MIMEType()
+	if index := strings.LastIndex(mimeType, "/"); index != -1 {
+		mimeType = mimeType[index+1:]
+	}
+	return mimeType
+}
+
+func (a *Attachment) MIMEType() string {
+	if a.Mime != "" {
+		return a.Mime
+	}
+	// Handle empty Name case
+	if a.Name == "" {
+		return "application/octet-Stream"
+	}
+	ext := strings.ToLower(strings.TrimPrefix(path.Ext(a.Name), "."))
+	switch ext {
+	case "jpg", "jpeg":
+		return "image/jpeg"
+	case "png":
+		return "image/png"
+	case "gif":
+		return "image/gif"
+	case "pdf":
+		return "application/pdf"
+	case "txt":
+		return "text/plain"
+	case "md":
+		return "text/markdown"
+	case "csv":
+		return "text/csv"
+	case "json":
+		return "application/json"
+	case "xml":
+		return "application/xml"
+	case "html":
+		return "text/html"
+	case "yaml", "yml":
+		return "application/x-yaml"
+	case "zip":
+		return "application/zip"
+	case "tar":
+		return "application/x-tar"
+	case "mp3":
+		return "audio/mpeg"
+	case "mp4":
+		return "video/mp4"
+	}
+	return "application/octet-Stream"
 }
