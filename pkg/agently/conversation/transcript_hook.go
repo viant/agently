@@ -33,6 +33,15 @@ func (t *TranscriptView) OnRelation(ctx context.Context) {
 			}
 			return mi.CreatedAt.Before(mj.CreatedAt)
 		})
+
+		for _, m := range t.Message {
+			if m.ModelCall != nil {
+				m.Status = &m.ModelCall.Status
+			}
+			if m.ToolCall != nil {
+				m.Status = &m.ToolCall.Status
+			}
+		}
 	}
 	// Compute stage for this turn
 	t.Stage = computeTurnStage(t)

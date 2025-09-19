@@ -15,7 +15,7 @@
 
 SELECT conversation.*
 FROM (
-    SELECT t.*, '' AS stage FROM conversation t WHERE id = $Id
+    SELECT t.*, '' AS stage FROM conversation t WHERE (id = $Id OR "" = $Id)
 ) conversation
 JOIN  (
   SELECT t.*, '' AS stage FROM turn t
