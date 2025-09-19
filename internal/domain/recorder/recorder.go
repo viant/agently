@@ -9,21 +9,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	convcli "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/io/redact"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	authctx "github.com/viant/agently/internal/auth"
-	"github.com/viant/agently/internal/dao/factory"
-	daofactory "github.com/viant/agently/internal/dao/factory"
-	d "github.com/viant/agently/internal/domain"
-	storeadapter "github.com/viant/agently/internal/domain/adapter"
+	convimpl "github.com/viant/agently/internal/service/conversation"
 	msgw "github.com/viant/agently/pkg/agently/message"
 	mcw "github.com/viant/agently/pkg/agently/modelcall"
 	plw "github.com/viant/agently/pkg/agently/payload"
 	tcw "github.com/viant/agently/pkg/agently/toolcall"
 	turnw "github.com/viant/agently/pkg/agently/turn"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
 )
 
 type Mode string
@@ -111,8 +107,8 @@ var _ ModelCallRecorder = (*Store)(nil)
 var _ Recorder = (*Store)(nil)
 
 type Store struct {
-	mode  Mode
-	store d.Store
+	mode Mode
+	conv convcli.Client
 }
 
 func (w *Store) RecordMessage(ctx context.Context, m memory.Message) error {
@@ -181,7 +177,7 @@ func (w *Store) RecordMessage(ctx context.Context, m memory.Message) error {
 		}
 	}
 
-	if _, err := w.store.Messages().Patch(ctx, rec); err != nil {
+	if err := w.conv.PatchMessage(ctx, (*convcli.MutableMessage)(rec)); err != nil {
 		return fmt.Errorf("record message: patch message: %w", err)
 	}
 	return nil
@@ -198,7 +194,7 @@ func (w *Store) StartTurn(ctx context.Context, conversationID, turnID string, at
 	if !at.IsZero() {
 		rec.SetCreatedAt(at)
 	}
-	if _, err := w.store.Turns().Start(ctx, rec); err != nil {
+	if err := w.conv.PatchTurn(ctx, (*convcli.MutableTurn)(rec)); err != nil {
 		return err
 	}
 	return nil
@@ -208,7 +204,7 @@ func (w *Store) UpdateTurn(ctx context.Context, turnID, status string) error {
 	rec := &turnw.Turn{Has: &turnw.TurnHas{}}
 	rec.SetId(turnID)
 	rec.SetStatus(status)
-	if err := w.store.Turns().Update(ctx, rec); err != nil {
+	if err := w.conv.PatchTurn(ctx, (*convcli.MutableTurn)(rec)); err != nil {
 		return err
 	}
 	return nil
@@ -253,7 +249,7 @@ func (w *Store) persistToolRequestPayload(ctx context.Context, request map[strin
 		pw.SetStorage("inline")
 		pw.SetInlineBody(sb)
 		pw.SetCompression("none")
-		if _, err = w.store.Payloads().Patch(ctx, pw); err == nil {
+		if err = w.conv.PatchPayload(ctx, (*convcli.MutablePayload)(pw)); err == nil {
 			reqID = id
 		}
 	}
@@ -272,7 +268,7 @@ func (w *Store) persistToolResponsePayload(ctx context.Context, response interfa
 		pw.SetStorage("inline")
 		pw.SetInlineBody(sb)
 		pw.SetCompression("none")
-		if _, err = w.store.Payloads().Patch(ctx, pw); err == nil {
+		if err = w.conv.PatchPayload(ctx, (*convcli.MutablePayload)(pw)); err == nil {
 			resID = id
 		}
 	}
@@ -386,7 +382,7 @@ func (w *Store) FinishToolCall(ctx context.Context, upd ToolCallUpdate) error {
 			return perr
 		}
 	}
-	if err := w.store.Operations().RecordToolCall(ctx, tw); err != nil {
+	if err := w.conv.PatchToolCall(ctx, (*convcli.MutableToolCall)(tw)); err != nil {
 		return err
 	}
 	return nil
@@ -432,7 +428,7 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) error 
 		payload.SetStorage("inline")
 		payload.SetInlineBody(b)
 		payload.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx2, payload); err != nil {
+		if err := w.conv.PatchPayload(ctx2, (*convcli.MutablePayload)(payload)); err != nil {
 			return err
 		} else {
 			// attach to write model directly
@@ -454,7 +450,7 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) error 
 		payload.SetStorage("inline")
 		payload.SetInlineBody(b)
 		payload.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx2, payload); err == nil {
+		if err := w.conv.PatchPayload(ctx2, (*convcli.MutablePayload)(payload)); err == nil {
 			modelCAll.ProviderRequestPayloadID = &id
 			if modelCAll.Has == nil {
 				modelCAll.Has = &mcw.ModelCallHas{}
@@ -465,7 +461,7 @@ func (w *Store) StartModelCall(ctx context.Context, start ModelCallStart) error 
 		}
 	}
 
-	if err := w.store.Operations().RecordModelCall(ctx2, modelCAll); err != nil {
+	if err := w.conv.PatchModelCall(ctx2, (*convcli.MutableModelCall)(modelCAll)); err != nil {
 		return err
 	}
 
@@ -496,7 +492,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) err
 		payload.SetStorage("inline")
 		payload.SetInlineBody(b)
 		payload.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx2, payload); err != nil {
+		if err := w.conv.PatchPayload(ctx2, (*convcli.MutablePayload)(payload)); err != nil {
 			return err
 		} else {
 			// attach to write model directly
@@ -518,7 +514,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) err
 		payload.SetStorage("inline")
 		payload.SetInlineBody(b)
 		payload.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx2, payload); err == nil {
+		if err := w.conv.PatchPayload(ctx2, (*convcli.MutablePayload)(payload)); err == nil {
 			modelCall.ProviderResponsePayloadID = &id
 			if modelCall.Has == nil {
 				modelCall.Has = &mcw.ModelCallHas{}
@@ -545,7 +541,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) err
 		payload.SetStorage("inline")
 		payload.SetInlineBody(sb)
 		payload.SetCompression("none")
-		if _, err := w.store.Payloads().Patch(ctx2, payload); err == nil {
+		if err := w.conv.PatchPayload(ctx2, (*convcli.MutablePayload)(payload)); err == nil {
 			modelCall.StreamPayloadID = &id
 			if modelCall.Has == nil {
 				modelCall.Has = &mcw.ModelCallHas{}
@@ -650,7 +646,7 @@ func (w *Store) FinishModelCall(ctx context.Context, finish ModelCallFinish) err
 		modelCall.CompletionRejectedPredictionTokens = cRejPred
 		modelCall.Has.CompletionRejectedPredictionTokens = true
 	}
-	if err := w.store.Operations().RecordModelCall(ctx2, modelCall); err != nil {
+	if err := w.conv.PatchModelCall(ctx2, (*convcli.MutableModelCall)(modelCall)); err != nil {
 		return err
 	}
 
@@ -663,7 +659,7 @@ func (w *Store) AppendStreamChunk(ctx context.Context, payloadID string, chunk [
 	if strings.TrimSpace(payloadID) == "" || len(chunk) == 0 {
 		return nil
 	}
-	pv, err := w.store.Payloads().Get(ctx2, payloadID)
+	pv, err := w.conv.GetPayload(ctx2, payloadID)
 	if err != nil {
 		return err
 	}
@@ -679,7 +675,7 @@ func (w *Store) AppendStreamChunk(ctx context.Context, payloadID string, chunk [
 	rec.SetStorage("inline")
 	rec.SetInlineBody(next)
 	rec.SetCompression("none")
-	if _, err := w.store.Payloads().Patch(ctx2, rec); err != nil {
+	if err := w.conv.PatchPayload(ctx2, (*convcli.MutablePayload)(rec)); err != nil {
 		return err
 	}
 	return nil
@@ -712,30 +708,16 @@ func New(ctx context.Context) Writer {
 	if mode == ModeOff {
 		return &Store{mode: ModeOff}
 	}
-
-	var apis *factory.API
-	driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
-	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
-
-	// Prefer SQL-backed DAOs whenever a connector is configured, regardless of mode
-	if driver != "" && dsn != "" {
-		if dao, err := datly.New(ctx); err == nil {
-			err = dao.AddConnectors(ctx, view.NewConnector("agently", driver, dsn))
-			if err == nil {
-				apis, _ = daofactory.New(ctx, daofactory.DAOSQL, dao)
-			}
-		}
-	}
-
-	if apis == nil {
-		apis, _ = daofactory.New(ctx, daofactory.DAOInMemory, nil)
-	}
-
-	if apis == nil {
+	// Build conversation client from environment
+	dao, err := convimpl.NewDatlyServiceFromEnv(ctx)
+	if err != nil {
 		return &Store{mode: ModeOff}
 	}
-	st := storeadapter.New(apis.Conversation, apis.Message, apis.Turn, apis.ModelCall, apis.ToolCall, apis.Payload)
-	return &Store{mode: mode, store: st}
+	conv, err := convimpl.New(ctx, dao)
+	if err != nil {
+		return &Store{mode: ModeOff}
+	}
+	return &Store{mode: mode, conv: conv}
 }
 
 func strp(s string) *string {
