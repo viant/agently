@@ -60,7 +60,13 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		ctx = tool.WithPolicy(ctx, pol)
 	}
 
-	if err := s.recorder.StartTurn(ctx, turn.ConversationID, turn.TurnID, time.Now()); err != nil {
+	// Start turn via conversation client
+	turnRec := apiconv.NewTurn()
+	turnRec.SetId(turn.TurnID)
+	turnRec.SetConversationID(turn.ConversationID)
+	turnRec.SetStatus("running")
+	turnRec.SetCreatedAt(time.Now())
+	if err := s.convClient.PatchTurn(ctx, turnRec); err != nil {
 		return err
 	}
 	_, err := s.addMessage(ctx, turn.ConversationID, "user", "", input.Query, turn.ParentMessageID, "")
@@ -72,7 +78,11 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err != nil {
 		status = "failed"
 	}
-	updateErr := s.recorder.UpdateTurn(ctx, turn.TurnID, status)
+	// Update turn status via conversation client
+	updTurn := apiconv.NewTurn()
+	updTurn.SetId(turn.TurnID)
+	updTurn.SetStatus(status)
+	updateErr := s.convClient.PatchTurn(ctx, updTurn)
 	if err != nil {
 		return err
 	}
@@ -171,13 +181,31 @@ func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, 
 	if id == "" {
 		id = uuid.New().String()
 	}
-	msg := memory.Message{ID: id, ParentID: parentId, Role: role, Actor: actor, Content: content, ConversationID: convID}
-	if s.recorder != nil {
-		if err := s.recorder.RecordMessage(ctx, msg); err != nil {
-			return "", err
-		}
+	// Persist via conversation client
+	m := apiconv.NewMessage()
+	m.SetId(id)
+	m.SetConversationID(convID)
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
+		m.SetTurnID(turn.TurnID)
 	}
-	return msg.ID, nil
+	if strings.TrimSpace(parentId) != "" {
+		m.SetParentMessageID(parentId)
+	}
+	if strings.TrimSpace(role) != "" {
+		m.SetRole(role)
+	}
+	// default to text message type
+	m.SetType("text")
+	if strings.TrimSpace(actor) != "" {
+		m.SetCreatedByUserID(actor)
+	}
+	if strings.TrimSpace(content) != "" {
+		m.SetContent(content)
+	}
+	if err := s.convClient.PatchMessage(ctx, m); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 // mergeInlineJSONIntoContext copies JSON object fields from qi.Query into qi.Context (non-destructive).

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/io/elicitation/refiner"
 	"github.com/viant/agently/genai/memory"
@@ -32,5 +33,19 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 		Elicitation:    elic,
 		CreatedAt:      time.Now(),
 	}
-	return s.recorder.RecordMessage(ctx, msg)
+	// Persist elicitation assistant message via conversation client
+	m := apiconv.NewMessage()
+	m.SetId(msg.ID)
+	m.SetConversationID(convID)
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
+		m.SetTurnID(turn.TurnID)
+	}
+	m.SetParentMessageID(messageID)
+	m.SetRole("assistant")
+	m.SetType("text")
+	if strings.TrimSpace(elic.Message) != "" {
+		m.SetContent(elic.Message)
+	}
+	// Elicitation is serialized in message content above
+	return s.convClient.PatchMessage(ctx, m)
 }

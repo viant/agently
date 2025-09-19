@@ -16,14 +16,9 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 		if mc == nil {
 			continue
 		}
-		if mc.Has == nil {
-			mc.Has = &ModelCallHas{}
-		}
 		if _, exists := i.CurByID[mc.MessageID]; !exists {
 			if mc.CacheHit == nil {
-				zero := 0
-				mc.CacheHit = &zero
-				mc.Has.CacheHit = true
+				mc.SetCacheHit(0)
 			}
 		}
 	}

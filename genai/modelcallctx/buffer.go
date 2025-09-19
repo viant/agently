@@ -21,6 +21,7 @@ type Info struct {
 	StartedAt    time.Time
 	CompletedAt  time.Time
 	Err          string
+	ErrorCode    string
 	FinishReason string
 	Cost         *float64
 }

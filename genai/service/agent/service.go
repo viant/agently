@@ -55,15 +55,14 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	recorder recorder.Recorder,
 	defaults *config.Defaults, opts ...Option) *Service {
 	srv := &Service{
-		defaults:     defaults,
-		llm:          llm,
-		agentFinder:  agentFinder,
-		augmenter:    augmenter,
-		recorder:     recorder,
-		registry:     registry,
-		runtime:      runtime,
-		orchestrator: orchestrator.New(llm, registry, recorder),
-		fs:           afs.New(),
+		defaults:    defaults,
+		llm:         llm,
+		agentFinder: agentFinder,
+		augmenter:   augmenter,
+		recorder:    recorder,
+		registry:    registry,
+		runtime:     runtime,
+		fs:          afs.New(),
 	}
 
 	for _, o := range opts {
@@ -75,6 +74,14 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 			srv.convClient = cli
 		}
 	}
+	// Wire core and orchestrator with conversation client
+	if srv.convClient != nil && srv.llm != nil {
+		srv.llm.SetConversationClient(srv.convClient)
+		srv.orchestrator = orchestrator.New(llm, registry, srv.convClient)
+	}
+
+	// Initialize orchestrator with conversation client
+	srv.orchestrator = orchestrator.New(llm, registry, srv.convClient)
 
 	return srv
 }

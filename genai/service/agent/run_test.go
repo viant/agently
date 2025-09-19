@@ -141,7 +141,7 @@ func TestService_Query_DataDriven(t *testing.T) {
 
 			// LLM core with fake finder/model
 			finder := &fakeFinder{model: &fakeModel{content: tc.modelContent}}
-			coreSvc := core.New(finder, nil, rec)
+			coreSvc := core.New(finder, nil, nil)
 
 			// Ensure embedding model is set to bypass augmentation path when no knowledge is defined
 			if tc.input != nil && tc.input.EmbeddingModel == "" {
@@ -191,27 +191,6 @@ func TestService_Query_DataDriven(t *testing.T) {
 // noopRecorder implements recorder.Recorder with no-ops for unit testing.
 type noopRecorder struct{}
 
-func (n *noopRecorder) AppendStreamChunk(ctx context.Context, payloadID string, chunk []byte) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (n *noopRecorder) RecordMessage(ctx context.Context, m memory.Message) error { return nil }
-func (n *noopRecorder) StartTurn(ctx context.Context, conversationID, turnID string, at time.Time) error {
-	return nil
-}
-func (n *noopRecorder) UpdateTurn(ctx context.Context, turnID, status string) error { return nil }
-func (n *noopRecorder) StartToolCall(ctx context.Context, start recpkg.ToolCallStart) error {
-	return nil
-}
-func (n *noopRecorder) FinishToolCall(ctx context.Context, upd recpkg.ToolCallUpdate) error {
-	return nil
-}
-func (n *noopRecorder) StartModelCall(ctx context.Context, start recpkg.ModelCallStart) error {
-	return nil
-}
-func (n *noopRecorder) FinishModelCall(ctx context.Context, finish recpkg.ModelCallFinish) error {
-	return nil
-}
+// noopRecorder retained for compatibility; no methods.
 func (n *noopRecorder) RecordUsageTotals(ctx context.Context, conversationID string, input, output, embed int) {
 }

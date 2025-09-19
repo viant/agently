@@ -151,6 +151,8 @@ CREATE TABLE model_call
     prompt_hash                           TEXT,
     response_snapshot                     TEXT,
     response_ref                          TEXT,
+    error_code                            TEXT,
+    error_message                         TEXT,
     finish_reason                         TEXT,
     prompt_tokens                         BIGINT,
     prompt_cached_tokens                  BIGINT,
