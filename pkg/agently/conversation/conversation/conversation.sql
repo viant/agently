@@ -1,1 +1,1 @@
-( SELECT t.*, '' AS stage FROM conversation t WHERE id = $criteria.AppendBinding($Unsafe.Id) )
+( SELECT t.*, '' AS stage FROM conversation t WHERE (id = $criteria.AppendBinding($Unsafe.Id) OR "" = $criteria.AppendBinding($Unsafe.Id)) )
