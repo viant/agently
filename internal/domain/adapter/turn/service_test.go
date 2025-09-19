@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	turmem "github.com/viant/agently/internal/dao/turn/impl/memory"
 	read "github.com/viant/agently/internal/dao/turn/read"
-	write "github.com/viant/agently/internal/dao/turn/write"
+	write "github.com/viant/agently/pkg/agently/turn"
 )
 
 func toGraph(rows []*read.TurnView) []map[string]interface{} {

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	api "github.com/viant/agently/internal/dao/turn"
 	read "github.com/viant/agently/internal/dao/turn/read"
-	write "github.com/viant/agently/internal/dao/turn/write"
+	write "github.com/viant/agently/pkg/agently/turn"
 )
 
 func TestMemoryTurn_List_DataDriven(t *testing.T) {

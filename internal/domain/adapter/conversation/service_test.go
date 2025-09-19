@@ -10,7 +10,6 @@ import (
 	convmem "github.com/viant/agently/internal/dao/conversation/impl/memory"
 	convread "github.com/viant/agently/internal/dao/conversation/read"
 	convwrite "github.com/viant/agently/internal/dao/conversation/write"
-	usemem "github.com/viant/agently/internal/dao/usage/impl/memory"
 )
 
 // Helper to marshal selected fields for stable comparison.
@@ -101,8 +100,7 @@ func TestService_DataDriven(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			convDAO := convmem.New()
-			usageDAO := usemem.New()
-			svc := New(convDAO, usageDAO)
+			svc := New(convDAO)
 
 			if len(tc.seed) > 0 {
 				if _, err := svc.Patch(ctx, tc.seed...); !assert.NoError(t, err) {

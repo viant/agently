@@ -45,6 +45,10 @@ pipeline:
         - echo 'starting ${metadb} backup'
         - docker exec  -i mysql_agently  mysqldump  -uroot -p${mydb.password} agently > ${repoPath}/e2e/database/agently/agently.sql
 
+  sleep:
+    action: nop
+    description: Sleep before applyAgentlySchema
+    sleepTimeMs: 10000
 
   applyAgentlySchema:
     action: exec:run

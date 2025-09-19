@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/viant/agently/internal/dao/message/write"
 	"github.com/viant/agently/internal/testutil/dbtest"
+	write "github.com/viant/agently/pkg/agently/message"
 )
 
 type msgExpected struct {

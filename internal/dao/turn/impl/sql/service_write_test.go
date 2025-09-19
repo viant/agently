@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	w "github.com/viant/agently/internal/dao/turn/write"
 	"github.com/viant/agently/internal/testutil/dbtest"
+	w "github.com/viant/agently/pkg/agently/turn"
 )
 
 type turnExpected struct {

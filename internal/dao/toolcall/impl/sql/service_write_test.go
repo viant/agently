@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	w "github.com/viant/agently/internal/dao/toolcall/write"
 	"github.com/viant/agently/internal/testutil/dbtest"
+	w "github.com/viant/agently/pkg/agently/toolcall"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
 	_ "modernc.org/sqlite"
