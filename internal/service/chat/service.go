@@ -35,7 +35,7 @@ type Service struct {
 	fluxPolicy *fluxpol.Policy
 	approval   approval.Service
 
-	convAPI apiconv.API
+	convAPI apiconv.Client
 
 	mu            sync.Mutex
 	cancelsByTurn map[string][]context.CancelFunc // key: user turn id (message id)

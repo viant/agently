@@ -37,9 +37,9 @@ type GetResponse struct {
 }
 
 // Service is a thin wrapper around API to support request/response types.
-type Service struct{ api API }
+type Service struct{ api Client }
 
-func NewService(api API) *Service { return &Service{api: api} }
+func NewService(api Client) *Service { return &Service{api: api} }
 
 // Get fetches a conversation based on the request fields.
 func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error) {

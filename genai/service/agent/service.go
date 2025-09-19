@@ -42,8 +42,8 @@ type Service struct {
 	store    domain.Store
 	defaults *config.Defaults
 
-	// convAPI is a shared conversation API instance used to fetch transcript/usage.
-	convAPI apiconv.API
+	// convAPI is a shared conversation client used to fetch transcript/usage.
+	convAPI apiconv.Client
 }
 
 // SetRuntime sets the fluxor runtime for orchestration
@@ -84,7 +84,7 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 }
 
 // WithConversationAPI injects a shared conversation API instance.
-func WithConversationAPI(api apiconv.API) Option {
+func WithConversationAPI(api apiconv.Client) Option {
 	return func(s *Service) { s.convAPI = api }
 }
 
