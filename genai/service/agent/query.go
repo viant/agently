@@ -5,7 +5,7 @@ import (
 
 	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/service/core"
+	"github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/usage"
 	"github.com/viant/fluxor/model/types"
 )
@@ -17,24 +17,21 @@ type QueryInput struct {
 	ConversationID string `json:"conversationId,omitempty"`
 	// Optional client-supplied identifier for the user message. When empty the
 	// service will generate a UUID.
-	MessageID       string          `json:"messageId,omitempty"`
-	AgentName       string          `json:"agentName"`       // Path to the agent configuration
-	Agent           *agentmdl.Agent `json:"agent"`           // Agent to use (alternative to AgentName)
-	Query           string          `json:"query"`           // The query to submit
-	MaxResponseSize int             `json:"maxResponseSize"` // Maximum size of the response in bytes
-	MaxDocuments    int             `json:"maxDocuments"`    // Maximum number of documents to retrieve
-	IncludeFile     bool            `json:"includeFile"`     // Whether to include complete file content
-	EmbeddingModel  string          `json:"embeddingModel"`  // Find to use for embeddings
+	MessageID   string               `json:"messageId,omitempty"`
+	AgentName   string               `json:"agentName"` // Path to the agent configuration
+	Agent       *agentmdl.Agent      `json:"agent"`     // Agent to use (alternative to AgentName)
+	Query       string               `json:"query"`     // The query to submit
+	Attachments []*prompt.Attachment `json:"attachments,omitempty"`
+
+	MaxResponseSize int    `json:"maxResponseSize"` // Maximum size of the response in bytes
+	MaxDocuments    int    `json:"maxDocuments"`    // Maximum number of documents to retrieve
+	IncludeFile     bool   `json:"includeFile"`     // Whether to include complete file content
+	EmbeddingModel  string `json:"embeddingModel"`  // Find to use for embeddings
 
 	// Optional runtime overrides (single-turn)
 	ModelOverride string                 `json:"model,omitempty"` // llm model name
 	ToolsAllowed  []string               `json:"tools,omitempty"` // allow-list for tools (empty = default)
 	Context       map[string]interface{} `json:"context,omitempty"`
-
-	// Attachments carries optional user-provided assets (e.g. images) to be
-	// included in the LLM request alongside the text prompt for this turn.
-	// Each attachment is added as a separate user message item.
-	Attachments []*core.Attachment `json:"attachments,omitempty"`
 
 	// ElicitationMode controls how missing-input requests are handled.
 	//   "user"   – always forward to end-user (current default)

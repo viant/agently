@@ -7,13 +7,6 @@ Context:
 {{.Context}}
 {{- end}}
 
-{{- if gt (len .History.Messages) 0 }}
-Conversation History:
-{{- range .History.Messages }}
-- [{{.Role}}] {{.Content}}
-{{- end}}
-End of Conversation History.
-{{- end}}
 
 {{- if gt (len .Documents.Items) 0 }}
 Relevant Documents:

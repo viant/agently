@@ -18,6 +18,8 @@ import (
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
 	fluxorpol "github.com/viant/fluxor/policy"
+	fhandlers "github.com/viant/forge/backend/handlers"
+	ffile "github.com/viant/forge/backend/service/file"
 )
 
 // New constructs an http.Handler that combines chat API and workspace CRUD API.
@@ -44,6 +46,14 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 
 	// Preferred path
 	mux.HandleFunc("/v1/workspace/metadata", metadata.NewAgently(exec))
+
+	// Forge file upload/list/download endpoints for chat attachments
+	// Storage root relative to repo: adapter/var/data (ensure exists and writable)
+	fs := ffile.New("adapter/var/data")
+	mux.HandleFunc("/upload", fhandlers.UploadHandler(fs))
+	fb := fhandlers.NewFileBrowser(fs)
+	mux.HandleFunc("/download", fb.DownloadHandler)
+	mux.HandleFunc("/list", fb.ListHandler)
 
 	fileSystem := fsadapter.New(afs.New(), "embed://localhost", &ui.FS)
 	fileServer := http.FileServer(fileSystem)

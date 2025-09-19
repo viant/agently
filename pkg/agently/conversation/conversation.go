@@ -99,25 +99,49 @@ type TranscriptView struct {
 }
 
 type MessageView struct {
-	Id              string         `sqlx:"id"`
-	ConversationId  string         `sqlx:"conversation_id"`
-	TurnId          *string        `sqlx:"turn_id"`
-	Sequence        *int           `sqlx:"sequence"`
-	CreatedAt       time.Time      `sqlx:"created_at"`
-	CreatedByUserId *string        `sqlx:"created_by_user_id"`
-	Status          *string        `sqlx:"status"`
-	Role            string         `sqlx:"role"`
-	Type            string         `sqlx:"type"`
-	Content         *string        `sqlx:"content"`
-	ContextSummary  *string        `sqlx:"context_summary"`
-	Tags            *string        `sqlx:"tags"`
-	Interim         int            `sqlx:"interim"`
-	ElicitationId   *string        `sqlx:"elicitation_id"`
-	ParentMessageId *string        `sqlx:"parent_message_id"`
-	SupersededBy    *string        `sqlx:"superseded_by"`
-	ToolName        *string        `sqlx:"tool_name"`
-	ModelCall       *ModelCallView `view:",table=model_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/model_call.sql"`
-	ToolCall        *ToolCallView  `view:",table=tool_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
+	Id              string            `sqlx:"id"`
+	ConversationId  string            `sqlx:"conversation_id"`
+	TurnId          *string           `sqlx:"turn_id"`
+	Sequence        *int              `sqlx:"sequence"`
+	CreatedAt       time.Time         `sqlx:"created_at"`
+	CreatedByUserId *string           `sqlx:"created_by_user_id"`
+	Status          *string           `sqlx:"status"`
+	Role            string            `sqlx:"role"`
+	Type            string            `sqlx:"type"`
+	Content         *string           `sqlx:"content"`
+	ContextSummary  *string           `sqlx:"context_summary"`
+	Tags            *string           `sqlx:"tags"`
+	Interim         int               `sqlx:"interim"`
+	ElicitationId   *string           `sqlx:"elicitation_id"`
+	ParentMessageId *string           `sqlx:"parent_message_id"`
+	SupersededBy    *string           `sqlx:"superseded_by"`
+	PayloadId       *string           `sqlx:"payload_id"`
+	ToolName        *string           `sqlx:"tool_name"`
+	Attachment      []*AttachmentView `view:",table=message" on:"Id:id=ParentMessageId:m.parent_message_id" sql:"uri=conversation/attachment.sql"`
+	ModelCall       *ModelCallView    `view:",table=model_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/model_call.sql"`
+	ToolCall        *ToolCallView     `view:",table=tool_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
+}
+
+type AttachmentView struct {
+	ParentMessageId        *string   `sqlx:"parent_message_id"`
+	Id                     string    `sqlx:"id"`
+	TenantId               *string   `sqlx:"tenant_id"`
+	Kind                   string    `sqlx:"kind"`
+	Subtype                *string   `sqlx:"subtype"`
+	MimeType               string    `sqlx:"mime_type"`
+	SizeBytes              int       `sqlx:"size_bytes"`
+	Digest                 *string   `sqlx:"digest"`
+	Storage                string    `sqlx:"storage"`
+	InlineBody             *[]uint8  `sqlx:"inline_body"`
+	Uri                    *string   `sqlx:"uri"`
+	Compression            string    `sqlx:"compression"`
+	EncryptionKmsKeyId     *string   `sqlx:"encryption_kms_key_id"`
+	RedactionPolicyVersion *string   `sqlx:"redaction_policy_version"`
+	Redacted               int       `sqlx:"redacted"`
+	CreatedAt              time.Time `sqlx:"created_at"`
+	SchemaRef              *string   `sqlx:"schema_ref"`
+	Preview                *string   `sqlx:"preview"`
+	Tags                   *string   `sqlx:"tags"`
 }
 
 type ModelCallView struct {
@@ -131,6 +155,8 @@ type ModelCallView struct {
 	PromptHash                         *string              `sqlx:"prompt_hash"`
 	ResponseSnapshot                   *string              `sqlx:"response_snapshot"`
 	ResponseRef                        *string              `sqlx:"response_ref"`
+	ErrorCode                          *string              `sqlx:"error_code"`
+	ErrorMessage                       *string              `sqlx:"error_message"`
 	FinishReason                       *string              `sqlx:"finish_reason"`
 	PromptTokens                       *int                 `sqlx:"prompt_tokens"`
 	PromptCachedTokens                 *int                 `sqlx:"prompt_cached_tokens"`
@@ -231,7 +257,6 @@ type ModelView struct {
 }
 
 var ConversationPathURI = "/v1/api/agently/conversation/{id}"
-var ConversationsPathURI = "/v1/api/agently/conversation/"
 
 func DefineConversationComponent(ctx context.Context, srv *datly.Service) error {
 	aComponent, err := repository.NewComponent(
@@ -252,21 +277,4 @@ func DefineConversationComponent(ctx context.Context, srv *datly.Service) error 
 
 func (i *ConversationInput) EmbedFS() *embed.FS {
 	return &ConversationFS
-}
-
-func DefineConversationsComponent(ctx context.Context, srv *datly.Service) error {
-	aComponent, err := repository.NewComponent(
-		contract.NewPath("GET", ConversationsPathURI),
-		repository.WithResource(srv.Resource()),
-		repository.WithContract(
-			reflect.TypeOf(ConversationInput{}),
-			reflect.TypeOf(ConversationOutput{}), &ConversationFS, view.WithConnectorRef("agently")))
-
-	if err != nil {
-		return fmt.Errorf("failed to create Conversation component: %w", err)
-	}
-	if err := srv.AddComponent(ctx, aComponent); err != nil {
-		return fmt.Errorf("failed to add Conversation component: %w", err)
-	}
-	return nil
 }

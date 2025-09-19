@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/viant/agently/genai/llm"
@@ -14,7 +15,7 @@ var modelTemperature = map[string]float64{
 }
 
 // ToRequest converts an llm.ChatRequest to a Request
-func ToRequest(request *llm.GenerateRequest) *Request {
+func ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	// Create the request with default values
 	req := &Request{}
 
@@ -137,11 +138,15 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 				case llm.ContentTypeBinary:
 					// Best effort: if binary looks like an image, convert to data-URL image
 					if strings.HasPrefix(item.MimeType, "image/") && item.Data != "" {
+
+						//index := strings.LastIndex(item.MimeType, "/")
 						contentItem.Type = "image_url"
 						// item.Data is expected to be base64-encoded already when coming from llm.NewBinaryContent
 						dataURL := "data:" + item.MimeType + ";base64," + item.Data
 						contentItem.ImageURL = &ImageURL{URL: dataURL}
+						//contentItem. = item.MimeType[index+1:]
 					} else {
+						return nil, fmt.Errorf("unsupported media type: %s", item.MimeType)
 						// Unsupported binary for OpenAI chat – skip by leaving zero-value contentItem
 					}
 				}
@@ -219,7 +224,7 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 		req.Messages[i] = message
 	}
 
-	return req
+	return req, nil
 }
 
 // ToLLMSResponse converts a Response to an llm.ChatResponse

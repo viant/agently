@@ -75,35 +75,7 @@ CREATE TABLE turn
 
 CREATE INDEX idx_turn_conversation ON turn (conversation_id);
 
-CREATE TABLE `message`
-(
-    id                 VARCHAR(255) PRIMARY KEY,
-    conversation_id    VARCHAR(255) NOT NULL,
-    turn_id            VARCHAR(255),
-    sequence           BIGINT,
-    created_at         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_by_user_id VARCHAR(255),
-    status             VARCHAR(255),
-    role               VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'control')),
-    `type`             VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control')),
-    content            MEDIUMTEXT,
-    context_summary    TEXT,
-    tags               TEXT,
-    interim            BIGINT       NOT NULL DEFAULT 0 CHECK (interim IN (0, 1)),
-    elicitation_id     VARCHAR(255),
-    parent_message_id  VARCHAR(255),
-    superseded_by      VARCHAR(255),
-    -- legacy column to remain compatible with older readers
-    tool_name          TEXT,
 
-    CONSTRAINT fk_message_conversation
-        FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE,
-    CONSTRAINT fk_message_turn
-        FOREIGN KEY (turn_id) REFERENCES turn (id) ON DELETE SET NULL
-);
-
-CREATE UNIQUE INDEX idx_message_turn_seq ON `message` (turn_id, sequence);
-CREATE INDEX idx_msg_conv_created ON `message` (conversation_id, created_at DESC);
 
 CREATE TABLE call_payload
 (
@@ -136,6 +108,40 @@ CREATE TABLE call_payload
 
 CREATE INDEX idx_payload_tenant_kind ON call_payload (tenant_id, kind, created_at);
 CREATE INDEX idx_payload_digest ON call_payload (digest);
+
+
+CREATE TABLE `message`
+(
+    id                 VARCHAR(255) PRIMARY KEY,
+    conversation_id    VARCHAR(255) NOT NULL,
+    turn_id            VARCHAR(255),
+    sequence           BIGINT,
+    created_at         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id VARCHAR(255),
+    status             VARCHAR(255),
+    role               VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'control')),
+    `type`             VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control')),
+    content            MEDIUMTEXT,
+    context_summary    TEXT,
+    tags               TEXT,
+    interim            BIGINT       NOT NULL DEFAULT 0 CHECK (interim IN (0, 1)),
+    elicitation_id     VARCHAR(255),
+    parent_message_id  VARCHAR(255),
+    superseded_by      VARCHAR(255),
+    payload_id         VARCHAR(255),
+    -- legacy column to remain compatible with older readers
+    tool_name          TEXT,
+
+    CONSTRAINT fk_message_conversation
+        FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE,
+    CONSTRAINT fk_message_turn
+        FOREIGN KEY (turn_id) REFERENCES turn (id) ON DELETE SET NULL,
+    CONSTRAINT fk_message_payload
+        FOREIGN KEY (payload_id) REFERENCES call_payload (id) ON DELETE SET NULL
+);
+
+CREATE UNIQUE INDEX idx_message_turn_seq ON `message` (turn_id, sequence);
+CREATE INDEX idx_msg_conv_created ON `message` (conversation_id, created_at DESC);
 
 CREATE TABLE model_call
 (

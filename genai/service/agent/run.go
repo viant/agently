@@ -71,6 +71,51 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err != nil {
 		return fmt.Errorf("failed to add message: %w", err)
 	}
+
+	// Persist attachment messages (payload + message linked to user message)
+	if len(input.Attachments) > 0 {
+		for _, att := range input.Attachments {
+			if att == nil || len(att.Data) == 0 {
+				continue
+			}
+			// 1) Create attachment message first (without payload)
+			mid := uuid.New().String()
+			m := apiconv.NewMessage()
+			m.SetId(mid)
+			m.SetConversationID(turn.ConversationID)
+			m.SetTurnID(turn.TurnID)
+			m.SetParentMessageID(turn.ParentMessageID)
+			m.SetRole("user")
+			m.SetType("control")
+			if strings.TrimSpace(att.Name) != "" {
+				m.SetContent(att.Name)
+			}
+			if err := s.convClient.PatchMessage(ctx, m); err != nil {
+				return fmt.Errorf("failed to persist attachment message: %w", err)
+			}
+
+			// 2) Create payload for attachment content
+			pid := uuid.New().String()
+			pw := apiconv.NewPayload()
+			pw.SetId(pid)
+			pw.SetKind("model_request")
+			pw.SetMimeType(att.MIMEType())
+			pw.SetSizeBytes(len(att.Data))
+			pw.SetStorage("inline")
+			pw.SetInlineBody(att.Data)
+			if err := s.convClient.PatchPayload(ctx, pw); err != nil {
+				return fmt.Errorf("failed to persist attachment payload: %w", err)
+			}
+
+			// 3) Patch message to link payload_id
+			link := apiconv.NewMessage()
+			link.SetId(mid)
+			link.SetPayloadID(pid)
+			if err := s.convClient.PatchMessage(ctx, link); err != nil {
+				return fmt.Errorf("failed to link attachment payload to message: %w", err)
+			}
+		}
+	}
 	err = s.runPlanLoop(ctx, input, output)
 	status := "succeeded"
 	if err != nil {
@@ -137,8 +182,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			SystemPrompt:   input.Agent.SystemPrompt,
 			Binding:        binding,
 			ModelSelection: modelSelection,
-			Attachment:     input.Attachments,
 		}
+
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
 		if aPlan != nil {

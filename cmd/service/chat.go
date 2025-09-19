@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 
 	"github.com/viant/agently/genai/agent/plan"
+	promptpkg "github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/service/agent"
-	"github.com/viant/agently/genai/service/core"
 
 	"time"
 
@@ -31,7 +31,7 @@ type ChatRequest struct {
 
 	// Attachments are optional assets to include in this turn (e.g. images).
 	// They are forwarded to the underlying LLM request as user content items.
-	Attachments []*core.Attachment
+	Attachments []*promptpkg.Attachment
 }
 
 type ChatResponse struct {

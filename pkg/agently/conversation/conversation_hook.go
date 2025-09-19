@@ -2,8 +2,15 @@ package conversation
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/viant/datly"
+	"github.com/viant/datly/repository"
+	"github.com/viant/datly/repository/contract"
+	"github.com/viant/datly/view"
 )
 
 func (c *ConversationView) OnRelation(ctx context.Context) {
@@ -93,4 +100,23 @@ DONE:
 		// We had some messages but no running signals
 		return StageDone
 	}
+}
+
+var ConversationsPathURI = "/v1/api/agently/conversation/"
+
+func DefineConversationsComponent(ctx context.Context, srv *datly.Service) error {
+	aComponent, err := repository.NewComponent(
+		contract.NewPath("GET", ConversationsPathURI),
+		repository.WithResource(srv.Resource()),
+		repository.WithContract(
+			reflect.TypeOf(ConversationInput{}),
+			reflect.TypeOf(ConversationOutput{}), &ConversationFS, view.WithConnectorRef("agently")))
+
+	if err != nil {
+		return fmt.Errorf("failed to create Conversation component: %w", err)
+	}
+	if err := srv.AddComponent(ctx, aComponent); err != nil {
+		return fmt.Errorf("failed to add Conversation component: %w", err)
+	}
+	return nil
 }

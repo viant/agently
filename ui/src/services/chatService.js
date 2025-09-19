@@ -669,6 +669,17 @@ export async function submitMessage(props) {
         const body = {
             content: message.content,
         }
+        // Collect Forge-uploaded attachments from message
+        const msgAtts = Array.isArray(message?.attachments) ? message.attachments : [];
+        if (msgAtts.length > 0) {
+            body.attachments = msgAtts.map(a => ({
+                name: a?.name,
+                size: a?.size,
+                stagingFolder: a?.stagingFolder || a?.folder,
+                uri: a?.uri,
+                mime: a?.mime || a?.type,
+            })).filter(x => x && x.uri);
+        }
 
         if (parameters && parameters.model) {
             body.model = parameters.model;

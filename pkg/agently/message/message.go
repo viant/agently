@@ -5,24 +5,26 @@ import "time"
 var PackageName = "message/write"
 
 type Message struct {
-	Id              string      `sqlx:"id,primaryKey" validate:"required"`
-	ConversationID  string      `sqlx:"conversation_id" validate:"required"`
-	TurnID          *string     `sqlx:"turn_id" json:",omitempty"`
-	Sequence        *int        `sqlx:"sequence" json:",omitempty"`
-	CreatedAt       *time.Time  `sqlx:"created_at" json:",omitempty"`
-	CreatedByUserID *string     `sqlx:"created_by_user_id" json:",omitempty"`
-	Role            string      `sqlx:"role" validate:"required"`
-	Status          string      `sqlx:"status" `
-	Type            string      `sqlx:"type" validate:"required"`
-	Content         string      `sqlx:"content"`
-	ContextSummary  *string     `sqlx:"context_summary" json:",omitempty"`
-	Tags            *string     `sqlx:"tags" json:",omitempty"`
-	Interim         *int        `sqlx:"interim" json:",omitempty"`
-	ElicitationID   *string     `sqlx:"elicitation_id" json:",omitempty"`
-	ParentMessageID *string     `sqlx:"parent_message_id" json:",omitempty"`
-	SupersededBy    *string     `sqlx:"superseded_by" json:",omitempty"`
-	ToolName        *string     `sqlx:"tool_name" json:",omitempty"`
-	Has             *MessageHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	Id              string     `sqlx:"id,primaryKey" validate:"required"`
+	ConversationID  string     `sqlx:"conversation_id" validate:"required"`
+	TurnID          *string    `sqlx:"turn_id" json:",omitempty"`
+	Sequence        *int       `sqlx:"sequence" json:",omitempty"`
+	CreatedAt       *time.Time `sqlx:"created_at" json:",omitempty"`
+	CreatedByUserID *string    `sqlx:"created_by_user_id" json:",omitempty"`
+	Role            string     `sqlx:"role" validate:"required"`
+	Status          string     `sqlx:"status" `
+	Type            string     `sqlx:"type" validate:"required"`
+	Content         string     `sqlx:"content"`
+	ContextSummary  *string    `sqlx:"context_summary" json:",omitempty"`
+	Tags            *string    `sqlx:"tags" json:",omitempty"`
+	Interim         *int       `sqlx:"interim" json:",omitempty"`
+	ElicitationID   *string    `sqlx:"elicitation_id" json:",omitempty"`
+	ParentMessageID *string    `sqlx:"parent_message_id" json:",omitempty"`
+	SupersededBy    *string    `sqlx:"superseded_by" json:",omitempty"`
+	ToolName        *string    `sqlx:"tool_name" json:",omitempty"`
+	// PayloadID optionally links a message to an uploaded/staged payload (attachment).
+	PayloadID *string     `sqlx:"payload_id" json:",omitempty"`
+	Has       *MessageHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type MessageHas struct {
@@ -43,6 +45,7 @@ type MessageHas struct {
 	ParentMessageID bool
 	SupersededBy    bool
 	ToolName        bool
+	PayloadID       bool
 }
 
 func (m *Message) ensureHas() {
@@ -64,10 +67,11 @@ func (m *Message) SetCreatedByUserID(v string) {
 	m.ensureHas()
 	m.Has.CreatedByUserID = true
 }
-func (m *Message) SetRole(v string)     { m.Role = v; m.ensureHas(); m.Has.Role = true }
-func (m *Message) SetType(v string)     { m.Type = v; m.ensureHas(); m.Has.Type = true }
-func (m *Message) SetContent(v string)  { m.Content = v; m.ensureHas(); m.Has.Content = true }
-func (m *Message) SetToolName(v string) { m.ToolName = &v; m.ensureHas(); m.Has.ToolName = true }
+func (m *Message) SetRole(v string)      { m.Role = v; m.ensureHas(); m.Has.Role = true }
+func (m *Message) SetType(v string)      { m.Type = v; m.ensureHas(); m.Has.Type = true }
+func (m *Message) SetContent(v string)   { m.Content = v; m.ensureHas(); m.Has.Content = true }
+func (m *Message) SetToolName(v string)  { m.ToolName = &v; m.ensureHas(); m.Has.ToolName = true }
+func (m *Message) SetPayloadID(v string) { m.PayloadID = &v; m.ensureHas(); m.Has.PayloadID = true }
 func (m *Message) SetParentMessageID(v string) {
 	m.ParentMessageID = &v
 	m.ensureHas()
