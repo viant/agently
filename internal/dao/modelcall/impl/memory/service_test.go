@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	api "github.com/viant/agently/internal/dao/modelcall"
 	read "github.com/viant/agently/internal/dao/modelcall/read"
-	write "github.com/viant/agently/internal/dao/modelcall/write"
+	write "github.com/viant/agently/pkg/agently/modelcall"
 	"time"
 )
 

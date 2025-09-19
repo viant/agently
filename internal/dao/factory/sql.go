@@ -11,7 +11,6 @@ import (
 	plsql "github.com/viant/agently/internal/dao/payload/impl/sql"
 	tcsql "github.com/viant/agently/internal/dao/toolcall/impl/sql"
 	turnsql "github.com/viant/agently/internal/dao/turn/impl/sql"
-	usagesql "github.com/viant/agently/internal/dao/usage/impl/sql"
 	"github.com/viant/datly"
 )
 
@@ -24,7 +23,6 @@ func newSQL(ctx context.Context, dao *datly.Service) (*API, error) {
 	_ = tcsql.Register(ctx, dao)
 	_ = plsql.Register(ctx, dao)
 	_ = turnsql.Register(ctx, dao)
-	_ = usagesql.Register(ctx, dao)
 	_ = convsql.Register(ctx, dao)
 	return &API{
 		Conversation: convsql.New(ctx, dao),
@@ -33,6 +31,5 @@ func newSQL(ctx context.Context, dao *datly.Service) (*API, error) {
 		ToolCall:     tcsql.New(ctx, dao),
 		Payload:      plsql.New(ctx, dao),
 		Turn:         turnsql.New(ctx, dao),
-		Usage:        usagesql.New(ctx, dao),
 	}, nil
 }

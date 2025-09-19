@@ -18,7 +18,7 @@ require (
 	github.com/viant/embedius v0.2.1
 	github.com/viant/fluxor v0.1.24
 	github.com/viant/fluxor-mcp v0.1.13
-	github.com/viant/forge v0.2.9-0.20250917153655-692173a5e028
+	github.com/viant/forge v0.2.9-0.20250918185537-786d402eea28
 	github.com/viant/jsonrpc v0.8.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.5.2
