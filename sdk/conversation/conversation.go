@@ -5,7 +5,10 @@ import (
 	"unsafe"
 
 	"github.com/viant/agently/pkg/agently/conversation"
+	"github.com/viant/agently/pkg/agently/conversation/write"
 )
+
+type MutableConversation write.Conversation
 
 type Conversation conversation.ConversationView
 

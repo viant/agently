@@ -6,8 +6,8 @@ import (
 
 	convdao "github.com/viant/agently/internal/dao/conversation"
 	convread "github.com/viant/agently/internal/dao/conversation/read"
-	convwrite "github.com/viant/agently/internal/dao/conversation/write"
 	d "github.com/viant/agently/internal/domain"
+	convwrite "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 // Service adapts conversation DAO APIs to the domain.Conversations interface.

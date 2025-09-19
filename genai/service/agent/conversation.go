@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	convw "github.com/viant/agently/internal/dao/conversation/write"
+	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 // ConversationMetadata is a typed representation of conversation metadata.
