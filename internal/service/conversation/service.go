@@ -8,13 +8,12 @@ import (
 	"unsafe"
 
 	convcli "github.com/viant/agently/client/conversation"
-	daopayload "github.com/viant/agently/internal/dao/payload"
-	payloadread "github.com/viant/agently/internal/dao/payload/read"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	messagew "github.com/viant/agently/pkg/agently/message"
 	modelcallw "github.com/viant/agently/pkg/agently/modelcall"
 	payloadw "github.com/viant/agently/pkg/agently/payload"
+	payloadread "github.com/viant/agently/pkg/agently/payload/read"
 	toolcallw "github.com/viant/agently/pkg/agently/toolcall"
 	turnw "github.com/viant/agently/pkg/agently/turn"
 	"github.com/viant/datly"
@@ -47,9 +46,6 @@ func (ss *Service) init(ctx context.Context, dao *datly.Service) error {
 	if _, err := convw.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
-	if err := daopayload.DefineComponent(ctx, dao); err != nil {
-		return err
-	}
 	if _, err := messagew.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
@@ -60,6 +56,9 @@ func (ss *Service) init(ctx context.Context, dao *datly.Service) error {
 		return err
 	}
 	if _, err := turnw.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := payloadw.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
 	return nil
