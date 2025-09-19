@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
-
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	mcpclient "github.com/viant/agently/adapter/mcp"
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/conversation"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
@@ -19,10 +19,9 @@ import (
 	convread "github.com/viant/agently/internal/dao/conversation/read"
 	plread "github.com/viant/agently/internal/dao/payload/read"
 	d "github.com/viant/agently/internal/domain"
+	implconv "github.com/viant/agently/internal/service/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	msgwrite "github.com/viant/agently/pkg/agently/message"
-	apiconv "github.com/viant/agently/sdk/conversation"
-	implconv "github.com/viant/agently/sdk/conversation/impl"
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/mcp-protocol/schema"
@@ -140,11 +139,9 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		MessageID:      msgID,
 	}
 
-	fmt.Println("starting")
 	// Launch asynchronous processing to avoid blocking HTTP caller.
 	go func(parent context.Context) {
 		// Detach from HTTP cancellation but preserve auth and policies.
-		// Start from background and reattach values explicitly.
 		base := context.Background()
 		// Preserve auth bearer and user info if present
 		if ui := authctx.User(parent); ui != nil {

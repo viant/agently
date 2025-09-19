@@ -4,9 +4,13 @@ import (
 	"context"
 	"unsafe"
 
+	agconv "github.com/viant/agently/pkg/agently/conversation"
+
 	"github.com/viant/agently/pkg/agently/conversation"
 	"github.com/viant/agently/pkg/agently/conversation/write"
 )
+
+type Input conversation.ConversationInput
 
 type MutableConversation write.Conversation
 
@@ -57,4 +61,37 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 		return nil, err
 	}
 	return &GetResponse{Conversation: conv}, nil
+}
+
+type Option func(input *Input)
+
+// WithSince sets the optional since parameter controlling transcript filtering.
+func WithSince(since string) Option {
+	return func(input *Input) {
+		input.Since = since
+		if input.Has == nil {
+			input.Has = &agconv.ConversationInputHas{}
+		}
+		input.Has.Since = true
+	}
+}
+
+func WithIncludeToolCall(include bool) Option {
+	return func(input *Input) {
+		input.IncludeToolCall = include
+		if input.Has == nil {
+			input.Has = &agconv.ConversationInputHas{}
+		}
+		input.Has.IncludeToolCall = true
+	}
+}
+
+func WithIncludeModelCall(include bool) Option {
+	return func(input *Input) {
+		input.IncludeModelCal = include
+		if input.Has == nil {
+			input.Has = &agconv.ConversationInputHas{}
+		}
+		input.Has.IncludeModelCal = true
+	}
 }

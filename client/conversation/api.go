@@ -2,8 +2,6 @@ package conversation
 
 import (
 	"context"
-
-	"github.com/viant/agently/pkg/agently/conversation"
 )
 
 type API interface {
@@ -16,5 +14,3 @@ type API interface {
 	PatchModelCall(ctx context.Context, modelCall *MutableModelCall) error
 	PatchToolCall(ctx context.Context, toolCall *MutableToolCall) error
 }
-
-type Input conversation.ConversationInput

@@ -1,4 +1,4 @@
-package impl
+package conversation
 
 import (
 	"context"
@@ -30,3 +30,6 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 	}
 	return dao, nil
 }
+
+// Backward-compatible helper name used elsewhere in the repo.
+func NewDatlyServiceFromEnv(ctx context.Context) (*datly.Service, error) { return NewDatly(ctx) }

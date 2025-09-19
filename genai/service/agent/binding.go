@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/llm"
 	base "github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
 	padapter "github.com/viant/agently/genai/prompt/adapter"
-	apiconv "github.com/viant/agently/sdk/conversation"
 )
 
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.Binding, error) {
