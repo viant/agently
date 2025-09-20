@@ -10,12 +10,13 @@ import (
 	convcli "github.com/viant/agently/client/conversation"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
-	messagew "github.com/viant/agently/pkg/agently/message"
-	modelcallw "github.com/viant/agently/pkg/agently/modelcall"
-	payloadw "github.com/viant/agently/pkg/agently/payload"
+	messageread "github.com/viant/agently/pkg/agently/message/read"
+	"github.com/viant/agently/pkg/agently/message/write"
+	write2 "github.com/viant/agently/pkg/agently/modelcall/write"
 	payloadread "github.com/viant/agently/pkg/agently/payload/read"
-	toolcallw "github.com/viant/agently/pkg/agently/toolcall"
-	turnw "github.com/viant/agently/pkg/agently/turn"
+	write3 "github.com/viant/agently/pkg/agently/payload/write"
+	write4 "github.com/viant/agently/pkg/agently/toolcall/write"
+	write5 "github.com/viant/agently/pkg/agently/turn/write"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 )
@@ -36,29 +37,32 @@ func New(ctx context.Context, dao *datly.Service) (*Service, error) {
 	return srv, nil
 }
 
-func (ss *Service) init(ctx context.Context, dao *datly.Service) error {
+func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 	if err := agconv.DefineConversationComponent(ctx, dao); err != nil {
 		return err
 	}
 	if err := agconv.DefineConversationsComponent(ctx, dao); err != nil {
 		return err
 	}
+	if err := messageread.DefineMessageComponent(ctx, dao); err != nil {
+		return err
+	}
 	if _, err := convw.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
-	if _, err := messagew.DefineComponent(ctx, dao); err != nil {
+	if _, err := write.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
-	if _, err := modelcallw.DefineComponent(ctx, dao); err != nil {
+	if _, err := write2.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
-	if _, err := toolcallw.DefineComponent(ctx, dao); err != nil {
+	if _, err := write4.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
-	if _, err := turnw.DefineComponent(ctx, dao); err != nil {
+	if _, err := write5.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
-	if _, err := payloadw.DefineComponent(ctx, dao); err != nil {
+	if _, err := write3.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
 	return nil
@@ -144,11 +148,11 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 		return nil
 	}
 	// MutablePayload is an alias of pkg/agently/payload.Payload
-	pw := (*payloadw.Payload)(payload)
-	input := &payloadw.Input{Payloads: []*payloadw.Payload{pw}}
-	out := &payloadw.Output{}
+	pw := (*write3.Payload)(payload)
+	input := &write3.Input{Payloads: []*write3.Payload{pw}}
+	out := &write3.Output{}
 	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, payloadw.PathURI)),
+		datly.WithPath(contract.NewPath(http.MethodPatch, write3.PathURI)),
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)
@@ -161,15 +165,31 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 	return nil
 }
 
+func (s *Service) GetMessage(ctx context.Context, id string) (*convcli.Message, error) {
+	if s == nil || s.dao == nil {
+		return nil, nil
+	}
+	in := messageread.MessageInput{Id: id, Has: &messageread.MessageInputHas{Id: true}}
+	out := &messageread.MessageOutput{}
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(messageread.MessagePathURI), datly.WithInput(&in)); err != nil {
+		return nil, err
+	}
+	if len(out.Data) == 0 {
+		return nil, nil
+	}
+	res := convcli.Message(*out.Data[0])
+	return &res, nil
+}
+
 func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMessage) error {
 	if s == nil || s.dao == nil || message == nil {
 		return nil
 	}
-	mm := (*messagew.Message)(message)
-	input := &messagew.Input{Messages: []*messagew.Message{mm}}
-	out := &messagew.Output{}
+	mm := (*write.Message)(message)
+	input := &write.Input{Messages: []*write.Message{mm}}
+	out := &write.Output{}
 	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, messagew.PathURI)),
+		datly.WithPath(contract.NewPath(http.MethodPatch, write.PathURI)),
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)
@@ -186,11 +206,11 @@ func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.Mutable
 	if s == nil || s.dao == nil || modelCall == nil {
 		return nil
 	}
-	mc := (*modelcallw.ModelCall)(modelCall)
-	input := &modelcallw.Input{ModelCalls: []*modelcallw.ModelCall{mc}}
-	out := &modelcallw.Output{}
+	mc := (*write2.ModelCall)(modelCall)
+	input := &write2.Input{ModelCalls: []*write2.ModelCall{mc}}
+	out := &write2.Output{}
 	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, modelcallw.PathURI)),
+		datly.WithPath(contract.NewPath(http.MethodPatch, write2.PathURI)),
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)
@@ -207,11 +227,11 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 	if s == nil || s.dao == nil || toolCall == nil {
 		return nil
 	}
-	tc := (*toolcallw.ToolCall)(toolCall)
-	input := &toolcallw.Input{ToolCalls: []*toolcallw.ToolCall{tc}}
-	out := &toolcallw.Output{}
+	tc := (*write4.ToolCall)(toolCall)
+	input := &write4.Input{ToolCalls: []*write4.ToolCall{tc}}
+	out := &write4.Output{}
 	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, toolcallw.PathURI)),
+		datly.WithPath(contract.NewPath(http.MethodPatch, write4.PathURI)),
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)
@@ -228,11 +248,11 @@ func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) erro
 	if s == nil || s.dao == nil || turn == nil {
 		return nil
 	}
-	tr := (*turnw.Turn)(turn)
-	input := &turnw.Input{Turns: []*turnw.Turn{tr}}
-	out := &turnw.Output{}
+	tr := (*write5.Turn)(turn)
+	input := &write5.Input{Turns: []*write5.Turn{tr}}
+	out := &write5.Output{}
 	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, turnw.PathURI)),
+		datly.WithPath(contract.NewPath(http.MethodPatch, write5.PathURI)),
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)

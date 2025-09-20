@@ -3,12 +3,12 @@ package conversation
 import (
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
-	msgw "github.com/viant/agently/pkg/agently/message"
-	mcall "github.com/viant/agently/pkg/agently/modelcall"
-	payloadw "github.com/viant/agently/pkg/agently/payload"
+	msgw "github.com/viant/agently/pkg/agently/message/write"
+	mcall "github.com/viant/agently/pkg/agently/modelcall/write"
 	payloadread "github.com/viant/agently/pkg/agently/payload/read"
-	toolcall "github.com/viant/agently/pkg/agently/toolcall"
-	turnw "github.com/viant/agently/pkg/agently/turn"
+	payloadw "github.com/viant/agently/pkg/agently/payload/write"
+	toolcall "github.com/viant/agently/pkg/agently/toolcall/write"
+	turnw "github.com/viant/agently/pkg/agently/turn/write"
 )
 
 type (

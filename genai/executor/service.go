@@ -10,6 +10,7 @@ import (
 	"time"
 
 	clientmcp "github.com/viant/agently/adapter/mcp"
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/embedder"
@@ -38,6 +39,7 @@ import (
 type Service struct {
 	config         *Config
 	clientHandler  *clientmcp.Client
+	convClient     apiconv.Client
 	modelFinder    llm.Finder
 	modelMatcher   llm.Matcher
 	embedderFinder embedder.Finder
@@ -180,7 +182,8 @@ func (e *Service) Runtime() *fluxor.Runtime {
 func (e *Service) registerServices(actions *extension.Actions) {
 	// Register orchestration actions: plan, execute and finalize
 	enricher := augmenter.New(e.embedderFinder)
-	e.llmCore = core.New(e.modelFinder, e.tools, nil)
+
+	e.llmCore = core.New(e.modelFinder, e.tools, e.convClient)
 
 	// Inject recorder (and keep tracer if needed later) into core so streaming execution records tool calls.
 	if e.llmCore != nil {
@@ -195,7 +198,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	if e.orchestration != nil {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
-	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, &e.config.Default)
+	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, &e.config.Default, e.convClient)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
 

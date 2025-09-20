@@ -46,6 +46,7 @@ view:
           upload:
             endpoint: agentlyAPI
             path: upload
+          uploadField: files
           disableInputOnLoading: false
           toolbar:
             dataSourceRef: messages
@@ -79,6 +80,8 @@ view:
                 - name: agent
                   in: form
                   location: conversations.agent
+            - event: onUpload
+              handler: chat.onUpload
             - event: onAbort
               handler: chat.abortConversation
 on:

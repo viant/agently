@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/viant/agently/client/conversation/factory"
 	"github.com/viant/agently/cmd/service"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/conversation"
+	"github.com/viant/agently/genai/executor"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/tool"
 )
@@ -116,7 +118,11 @@ func (c *ChatCmd) Execute(_ []string) error {
 			Data:    data,
 		})
 	}
-
+	convClient, err := factory.NewFromEnv(context.Background())
+	if err != nil {
+		return err
+	}
+	registerExecOption(executor.WithConversionClient(convClient))
 	// Build executor and service --------------------------------------------
 	svcExec := executorSingleton()
 

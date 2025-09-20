@@ -11,6 +11,7 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
+	"github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
@@ -78,41 +79,8 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			if att == nil || len(att.Data) == 0 {
 				continue
 			}
-			// 1) Create attachment message first (without payload)
-			mid := uuid.New().String()
-			m := apiconv.NewMessage()
-			m.SetId(mid)
-			m.SetConversationID(turn.ConversationID)
-			m.SetTurnID(turn.TurnID)
-			m.SetParentMessageID(turn.ParentMessageID)
-			m.SetRole("user")
-			m.SetType("control")
-			if strings.TrimSpace(att.Name) != "" {
-				m.SetContent(att.Name)
-			}
-			if err := s.convClient.PatchMessage(ctx, m); err != nil {
-				return fmt.Errorf("failed to persist attachment message: %w", err)
-			}
-
-			// 2) Create payload for attachment content
-			pid := uuid.New().String()
-			pw := apiconv.NewPayload()
-			pw.SetId(pid)
-			pw.SetKind("model_request")
-			pw.SetMimeType(att.MIMEType())
-			pw.SetSizeBytes(len(att.Data))
-			pw.SetStorage("inline")
-			pw.SetInlineBody(att.Data)
-			if err := s.convClient.PatchPayload(ctx, pw); err != nil {
-				return fmt.Errorf("failed to persist attachment payload: %w", err)
-			}
-
-			// 3) Patch message to link payload_id
-			link := apiconv.NewMessage()
-			link.SetId(mid)
-			link.SetPayloadID(pid)
-			if err := s.convClient.PatchMessage(ctx, link); err != nil {
-				return fmt.Errorf("failed to link attachment payload to message: %w", err)
+			if err = s.addAttachment(ctx, turn, att); err != nil {
+				return err
 			}
 		}
 	}
@@ -161,6 +129,45 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		}
 	}
 	output.Usage = agg
+	return nil
+}
+
+func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *prompt.Attachment) error {
+	// 1) Create attachment message first (without payload)
+	messageID := uuid.New().String()
+	msg := apiconv.NewMessage()
+	msg.SetId(messageID)
+	msg.SetConversationID(turn.ConversationID)
+	msg.SetTurnID(turn.TurnID)
+	msg.SetParentMessageID(turn.ParentMessageID)
+	msg.SetRole("user")
+	msg.SetType("control")
+	if strings.TrimSpace(att.Name) != "" {
+		msg.SetContent(att.Name)
+	}
+	if err := s.convClient.PatchMessage(ctx, msg); err != nil {
+		return fmt.Errorf("failed to persist attachment message: %w", err)
+	}
+
+	// 2) Create payload for attachment content
+	pid := uuid.New().String()
+	payload := apiconv.NewPayload()
+	payload.SetId(pid)
+	payload.SetKind("model_request")
+	payload.SetMimeType(att.MIMEType())
+	payload.SetSizeBytes(len(att.Data))
+	payload.SetStorage("inline")
+	payload.SetInlineBody(att.Data)
+	if err := s.convClient.PatchPayload(ctx, payload); err != nil {
+		return fmt.Errorf("failed to persist attachment payload: %w", err)
+	}
+
+	link := apiconv.NewMessage()
+	link.SetId(messageID)
+	link.SetPayloadID(pid)
+	if err := s.convClient.PatchMessage(ctx, link); err != nil {
+		return fmt.Errorf("failed to link attachment payload to message: %w", err)
+	}
 	return nil
 }
 

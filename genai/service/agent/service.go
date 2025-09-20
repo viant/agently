@@ -50,7 +50,10 @@ func (s *Service) SetRuntime(rt *fluxor.Runtime) {
 // New creates a new agent service instance with the given tool registry and fluxor runtime
 func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Service, registry tool.Registry,
 	runtime *fluxor.Runtime,
-	defaults *config.Defaults, opts ...Option) *Service {
+	defaults *config.Defaults,
+	convClient apiconv.Client,
+
+	opts ...Option) *Service {
 	srv := &Service{
 		defaults:    defaults,
 		llm:         llm,
@@ -58,6 +61,7 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 		augmenter:   augmenter,
 		registry:    registry,
 		runtime:     runtime,
+		convClient:  convClient,
 		fs:          afs.New(),
 	}
 
@@ -80,11 +84,6 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	srv.orchestrator = orchestrator.New(llm, registry, srv.convClient)
 
 	return srv
-}
-
-// WithConversationAPI injects a shared conversation API instance.
-func WithConversationClient(cli apiconv.Client) Option {
-	return func(s *Service) { s.convClient = cli }
 }
 
 // Name returns the service name

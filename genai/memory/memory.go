@@ -75,17 +75,6 @@ type UserInteraction struct {
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 }
 
-type Attachments []Attachment
-
-// Attachment describes a file linked to the message.
-type Attachment struct {
-	Name string `json:"name,omitempty" yaml:"name"`
-	URL  string `json:"url,omitempty"  yaml:"url"`
-	Size int64  `json:"size,omitempty" yaml:"size"` // bytes
-	// MediaType allows UI to decide how to display or download.
-	MediaType string `json:"mediaType,omitempty" yaml:"mediaType,omitempty"`
-}
-
 // EmbedFunc defines a function that creates embeddings for given texts.
 // It should return one embedding per input text.
 type EmbedFunc func(ctx context.Context, texts []string) ([][]float32, error)

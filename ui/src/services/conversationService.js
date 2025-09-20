@@ -38,7 +38,7 @@ export async function ensureConversation({ context }) {
         convID = data?.id;
         
         if (!convID) {
-            console.error('Failed to obtain conversation id');
+            log.error('Failed to obtain conversation id');
             return null;
         }
 
@@ -73,3 +73,5 @@ export async function newConversation({context}) {
     saveSettings({context})
 
 }
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');

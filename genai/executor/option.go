@@ -4,6 +4,7 @@ import (
 	"io"
 
 	atool "github.com/viant/agently/adapter/tool"
+	"github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/io/elicitation"
 	modelprovider "github.com/viant/agently/genai/llm/provider"
@@ -64,6 +65,12 @@ func WithMetaService(metaService *meta.Service) Option {
 			s.config = &Config{}
 		}
 		s.config.metaService = metaService
+	}
+}
+
+func WithConversionClient(client conversation.Client) Option {
+	return func(s *Service) {
+		s.convClient = client
 	}
 }
 

@@ -70,7 +70,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 }
 
 func (s *Service) buildTaskBinding(input *QueryInput) prompt.Task {
-	return prompt.Task{Prompt: input.Query}
+	return prompt.Task{Prompt: input.Query, Attachments: input.Attachments}
 }
 
 // buildHistory derives history from a provided conversation (if non-nil),
