@@ -20,7 +20,7 @@ export function addTool({ context }) {
     const agentsCtx = context?.Context('agents');
 
     if (!toolsCtx || !agentsCtx) {
-        console.error('toolService.addTool – missing dataSource context');
+        log.error('toolService.addTool – missing dataSource context');
         return false;
     }
     const agentsHandlers = agentsCtx.handlers.dataSource;
@@ -28,7 +28,7 @@ export function addTool({ context }) {
     const rowIndex = agentSel.rowIndex;
     const agent      = agentSel.selected;
     if (rowIndex === -1 || !agentSel.selected) {
-        console.warn('toolService.addTool – no agent selected');
+        log.warn('toolService.addTool – no agent selected');
         return false;
     }
     const agentCollection = agentsHandlers.peekCollection();
@@ -39,7 +39,7 @@ export function addTool({ context }) {
     const pattern   = formData?.pattern?.trim() || '';
     const name      = formData?.definition?.name?.trim() || '';
     if (!pattern && !name) {
-        console.warn('toolService.addTool – pattern or name required');
+        log.warn('toolService.addTool – pattern or name required');
         return false;
     }
 
@@ -73,7 +73,7 @@ export function deleteTool({ context }) {
     const agentsCtx = context?.Context('agents');
 
     if (!toolsCtx || !agentsCtx) {
-        console.error('toolService.deleteTool – missing dataSource context');
+        log.error('toolService.deleteTool – missing dataSource context');
         return false;
     }
 
@@ -82,14 +82,14 @@ export function deleteTool({ context }) {
     const sel            = toolsHandlers.peekSelection();
     const rowIndex       = sel?.rowIndex ?? -1;
     if (rowIndex === -1) {
-        console.warn('toolService.deleteTool – nothing selected');
+        log.warn('toolService.deleteTool – nothing selected');
         return false;
     }
     const agentSel = agentsHandlers.peekSelection();
     const agentRowIndex = agentSel.rowIndex;
     const agent      = agentSel.selected;
     if (agentRowIndex === -1 || !agentSel.selected) {
-        console.warn('toolService.addTool – no agent selected');
+        log.warn('toolService.addTool – no agent selected');
         return false;
     }
     const agentCollection = agentsHandlers.peekCollection();
@@ -104,3 +104,5 @@ export function deleteTool({ context }) {
 
 
 export const toolService = { addTool, deleteTool };
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');

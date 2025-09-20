@@ -3,7 +3,7 @@ import { Icon } from '@blueprintjs/core';
 import { format as formatDate } from 'date-fns';
 
 export default function HTMLTableBubble({message, context}) {
-    try { console.log('[chat][render] HTMLTableBubble', { id: message?.id, role: message?.role, ts: Date.now() }); } catch(_) {}
+    log.debug('[chat][render] HTMLTableBubble', { id: message?.id, role: message?.role, ts: Date.now() });
     const avatarColour = 'var(--blue4)';
     const bubbleClass = 'chat-bubble chat-user';
 
@@ -25,3 +25,5 @@ export default function HTMLTableBubble({message, context}) {
         </div>
     );
 }
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');

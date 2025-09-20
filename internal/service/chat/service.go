@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	mcpclient "github.com/viant/agently/adapter/mcp"
 	apiconv "github.com/viant/agently/client/conversation"
-	convcli "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/conversation"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	agentpkg "github.com/viant/agently/genai/service/agent"
@@ -22,9 +23,10 @@ import (
 	authctx "github.com/viant/agently/internal/auth"
 	implconv "github.com/viant/agently/internal/service/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
-	msgwrite "github.com/viant/agently/pkg/agently/message"
+	msgwrite "github.com/viant/agently/pkg/agently/message/write"
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
+	fservice "github.com/viant/forge/backend/service/file"
 	"github.com/viant/mcp-protocol/schema"
 )
 
@@ -36,6 +38,7 @@ type Service struct {
 	approval   approval.Service
 
 	convClient apiconv.Client
+	fileSvc    *fservice.Service
 
 	mu            sync.Mutex
 	cancelsByTurn map[string][]context.CancelFunc // key: user turn id (message id)
@@ -61,6 +64,10 @@ func (s *Service) AttachManager(mgr *conversation.Manager, tp *tool.Policy, fp *
 
 // AttachApproval configures the approval service bridge for policy decisions.
 func (s *Service) AttachApproval(svc approval.Service) { s.approval = svc }
+
+// AttachFileService wires the Forge file service instance so that attachment
+// reads can reuse the same staging root and resolution.
+func (s *Service) AttachFileService(fs *fservice.Service) { s.fileSvc = fs }
 
 // GetRequest defines inputs to fetch messages.
 type GetRequest struct {
@@ -88,17 +95,6 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 		return nil, err
 	}
 	return &GetResponse{Conversation: conv}, nil
-}
-
-// Passthroughs to conversation client for write operations.
-func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMessage) error {
-	return s.convClient.PatchMessage(ctx, message)
-}
-func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableToolCall) error {
-	return s.convClient.PatchToolCall(ctx, toolCall)
-}
-func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayload) error {
-	return s.convClient.PatchPayload(ctx, payload)
 }
 
 // PostRequest defines inputs to submit a user message.
@@ -177,42 +173,7 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		defer s.completeCancel(conversationID, msgID, cancel)
 
 		// Convert staged uploads into attachments (read + cleanup)
-		if len(req.Attachments) > 0 {
-			storageRoot := "adapter/var/data"
-			// build list and folders to cleanup
-			folders := map[string]struct{}{}
-			for _, a := range req.Attachments {
-				uri := strings.TrimSpace(a.URI)
-				if uri == "" {
-					continue
-				}
-				// prevent path traversal
-				clean := strings.TrimPrefix(uri, "/")
-				full := filepath.Join(storageRoot, filepath.Clean(clean))
-				data, err := os.ReadFile(full)
-				if err != nil {
-					continue
-				}
-				att := &promptpkg.Attachment{
-					Name:    a.Name,
-					URI:     uri,
-					Mime:    a.Mime,
-					Content: "",
-					Data:    data,
-				}
-				input.Attachments = append(input.Attachments, att)
-				// best-effort delete file
-				_ = os.Remove(full)
-				if folder := strings.TrimSpace(a.StagingFolder); folder != "" {
-					folders[folder] = struct{}{}
-				}
-			}
-			// cleanup empty folders best-effort
-			for folder := range folders {
-				clean := strings.TrimPrefix(folder, "/")
-				_ = os.Remove(filepath.Join(storageRoot, filepath.Clean(clean)))
-			}
-		}
+		s.enrichAttachmentIfNeeded(req, runCtx, input)
 
 		// Propagate conversation ID and policies
 		runCtx = conversation.WithID(runCtx, conversationID)
@@ -232,6 +193,54 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 	}(ctx)
 
 	return msgID, nil
+}
+
+func (s *Service) enrichAttachmentIfNeeded(req PostRequest, runCtx context.Context, input *agentpkg.QueryInput) error {
+	if len(req.Attachments) == 0 {
+		return nil
+	}
+	// build list and folders to cleanup
+	folders := map[string]struct{}{}
+	for _, a := range req.Attachments {
+		uri := strings.TrimSpace(a.URI)
+		if uri == "" {
+			continue
+		}
+		data, err := s.fileSvc.Download(runCtx, a.URI)
+		if err != nil {
+			return fmt.Errorf("download attachment: %w", err)
+		}
+
+		if a.StagingFolder == "" {
+			a.StagingFolder, _ = path.Split(uri)
+		}
+		name := strings.TrimSpace(a.Name)
+		// Determine MIME: prefer provided, else sniff content, else extension (built-in)
+		mimeType := strings.TrimSpace(a.Mime)
+		if mimeType == "" {
+			mimeType = mime.TypeByExtension(filepath.Ext(a.Name))
+		}
+		att := &promptpkg.Attachment{
+			Name:    name,
+			URI:     uri,
+			Mime:    mimeType,
+			Content: "",
+			Data:    data,
+		}
+		input.Attachments = append(input.Attachments, att)
+		// best-effort delete file
+		// best-effort cleanup is handled by file service lifecycle
+		if folder := strings.TrimSpace(a.StagingFolder); folder != "" {
+			folders[folder] = struct{}{}
+		}
+	}
+	// cleanup empty folders best-effort
+	for folder := range folders {
+		clean := strings.TrimPrefix(folder, "/")
+		_ = os.Remove(filepath.Clean(clean))
+	}
+
+	return nil
 }
 
 // Cancel aborts all in-flight turns for the given conversation; returns true if any were cancelled.

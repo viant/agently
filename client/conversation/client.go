@@ -11,6 +11,7 @@ type Client interface {
 	GetPayload(ctx context.Context, id string) (*Payload, error)
 	PatchPayload(ctx context.Context, payload *MutablePayload) error
 	PatchMessage(ctx context.Context, message *MutableMessage) error
+	GetMessage(ctx context.Context, id string) (*Message, error)
 	PatchModelCall(ctx context.Context, modelCall *MutableModelCall) error
 	PatchToolCall(ctx context.Context, toolCall *MutableToolCall) error
 	PatchTurn(ctx context.Context, turn *MutableTurn) error

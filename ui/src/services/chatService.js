@@ -3,6 +3,8 @@
 // App clean and focused on composition.
 
 import {endpoints} from '../endpoint';
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');
 import {FormRenderer} from 'forge';
 import MCPForm from '../components/MCPForm.jsx';
 import MCPInteraction from '../components/MCPInteraction.jsx';
@@ -16,6 +18,9 @@ import {ensureConversation, newConversation} from './conversationService';
 import SummaryNote from '../components/chat/SummaryNote.jsx';
 import {setStage} from '../utils/stageBus.js';
 import {setComposerBusy} from '../utils/composerBus.js';
+
+// Module-level stash for uploads to avoid relying on mutable message object
+let pendingUploads = [];
 
 // -------------------------------
 // Window lifecycle helpers
@@ -81,7 +86,7 @@ export async function onInit({context}) {
                         const params = {...(cur.parameters || {}), convID, since: ''};
                         const next = {...cur, parameters: params, fetch: true};
                         if (typeof inSig.set === 'function') inSig.set(next); else inSig.value = next;
-                        console.log('[chat][signals] set messages.input (initial fetch)', next);
+                        log.debug('[chat][signals] set messages.input (initial fetch)', next);
                     }
                 } catch (_) {
                 }
@@ -190,10 +195,10 @@ async function dsTick({context}) {
             }
             console.timeEnd(`[chat][poll][silent] since=${since}`);
         } catch (e) {
-            console.warn('dsTick poll error', e);
+            log.warn('dsTick poll error', e);
         }
     } catch (e) {
-        console.warn('dsTick error', e);
+        log.warn('dsTick error', e);
     }
 }
 
@@ -362,7 +367,7 @@ function installMessagesDebugHooks(context) {
                 }
             }
             if (len !== lastLen || loading !== lastLoading) {
-                console.log('[chat][signals] messages', {len, loading, ts: Date.now()});
+                log.debug('[chat][signals] messages', {len, loading, ts: Date.now()});
                 lastLen = len;
                 lastLoading = loading;
             }
@@ -379,17 +384,17 @@ function installMessagesDebugHooks(context) {
     const origPost = conn.post?.bind(conn);
     if (origGet) {
         conn.get = async (opts) => {
-            console.log('[chat][connector][GET] messages', opts);
+            log.debug('[chat][connector][GET] messages', opts);
             const res = await origGet(opts);
-            console.log('[chat][connector][GET][done] messages', {status: res?.status, keys: Object.keys(res || {})});
+            log.debug('[chat][connector][GET][done] messages', {status: res?.status, keys: Object.keys(res || {})});
             return res;
         };
     }
     if (origPost) {
         conn.post = async (opts) => {
-            console.log('[chat][connector][POST] messages', opts);
+            log.debug('[chat][connector][POST] messages', opts);
             const res = await origPost(opts);
-            console.log('[chat][connector][POST][done] messages', {
+            log.debug('[chat][connector][POST][done] messages', {
                 status: res?.status,
                 dataKeys: Object.keys(res?.data || {})
             });
@@ -422,10 +427,10 @@ function installMessagesDebugHooks(context) {
 
 function selectFolder(props) {
     const {context, selected} = props;
-    console.log('selectFolder 1', context)
+    log.debug('selectFolder 1', context)
 
     context.handlers.dialog.commit()
-    console.log('selectFolder', props)
+    log.debug('selectFolder', props)
 }
 
 // --------------------------- Debug helpers ------------------------------
@@ -435,9 +440,9 @@ export function debugHistoryOpen({context}) {
         const convCtx = context.Context('history') || context.Context('conversations');
         const selected = convCtx?.handlers?.dataSource?.peekSelection?.()?.selected || {};
         const id = selected?.id;
-        console.log('[chat][history] open click at', Date.now(), 'convId:', id, 'row:', selected);
+        log.debug('[chat][history] open click at', Date.now(), 'convId:', id, 'row:', selected);
     } catch (e) {
-        console.log('[chat][history] open click log error', e);
+        log.debug('[chat][history] open click log error', e);
     }
 }
 
@@ -445,9 +450,9 @@ export function debugHistorySelection({context}) {
     try {
         const convCtx = context.Context('history') || context.Context('conversations');
         const sel = convCtx?.handlers?.dataSource?.peekSelection?.();
-        console.log('[chat][history] selection', Date.now(), sel);
+        log.debug('[chat][history] selection', Date.now(), sel);
     } catch (e) {
-        console.log('[chat][history] selection log error', e);
+        log.debug('[chat][history] selection log error', e);
     }
 }
 
@@ -461,9 +466,9 @@ export function debugMessagesLoaded({context, response}) {
             const list = Array.isArray(t?.Message) ? t.Message : (Array.isArray(t?.message) ? t.message : []);
             messages += list.length;
         }
-        console.log('[chat][messagesDS] onSuccess at', Date.now(), 'turns:', turns, 'messages:', messages);
+        log.debug('[chat][messagesDS] onSuccess at', Date.now(), 'turns:', turns, 'messages:', messages);
     } catch (e) {
-        console.log('[chat][messagesDS] onSuccess log error', e);
+        log.debug('[chat][messagesDS] onSuccess log error', e);
     }
 }
 
@@ -476,7 +481,7 @@ export function debugMessagesError({context, error}) {
             const coerced = String(error?.message || error);
             ctrl.value = {...prev, error: coerced, loading: false};
         }
-        console.log('[chat][messagesDS] onError at', Date.now(), error);
+        log.debug('[chat][messagesDS] onError at', Date.now(), error);
     } catch (e) {
         // ignore
     }
@@ -494,7 +499,7 @@ export function hydrateMessagesCollection({context}) {
         if (curr.length < snap.length) {
             collSig.value = [...snap];
             try {
-                console.log('[chat] hydrateMessagesCollection: restored snapshot', {
+                log.debug('[chat] hydrateMessagesCollection: restored snapshot', {
                     before: curr.length,
                     after: snap.length
                 });
@@ -649,7 +654,7 @@ function formatOptions(tools) {
  */
 export async function submitMessage(props) {
     const {context, message, parameters} = props;
-    console.log('submitMessage', props)
+    log.debug('[chat] submitMessage props', props);
 
     const messagesContext = context.Context('messages');
     const messagesAPI = messagesContext.connector;
@@ -669,16 +674,38 @@ export async function submitMessage(props) {
         const body = {
             content: message.content,
         }
-        // Collect Forge-uploaded attachments from message
+        // Collect Forge-uploaded attachments from message (support multiple shapes) and form level
+        try {
+            log.debug('[chat] draft message attachments', message?.attachments);
+            log.debug('[chat] draft message files', message?.files);
+        } catch(_) {}
         const msgAtts = Array.isArray(message?.attachments) ? message.attachments : [];
-        if (msgAtts.length > 0) {
-            body.attachments = msgAtts.map(a => ({
-                name: a?.name,
-                size: a?.size,
-                stagingFolder: a?.stagingFolder || a?.folder,
-                uri: a?.uri,
-                mime: a?.mime || a?.type,
-            })).filter(x => x && x.uri);
+        const msgFiles = Array.isArray(message?.files) ? message.files : [];
+        // Also check DS form data as Forge Chat may store files under uploadField (we set uploadField: 'files')
+        let formFiles = [];
+        try {
+            const formData = messagesContext?.handlers?.dataSource?.peekFormData?.()?.values
+                || messagesContext?.handlers?.dataSource?.peekFormData?.();
+            log.debug('[chat] peekFormData values', formData);
+            if (Array.isArray(formData?.files)) formFiles = formData.files;
+            else if (Array.isArray(formData?.upload)) formFiles = formData.upload;
+        } catch (_) {}
+        log.debug('[chat] pendingUploads (pre-merge)', pendingUploads);
+        const allAtts = [...pendingUploads, ...msgAtts, ...msgFiles, ...formFiles];
+        log.debug('[chat] collected attachments (raw)', allAtts);
+        if (allAtts.length > 0) {
+            body.attachments = allAtts.map(a => {
+                const src = a?.data || a; // sometimes nested under data
+                const uri = src?.uri || src?.url || src?.path || src?.href;
+                const folder = src?.stagingFolder || src?.folder || src?.staging || src?.dir;
+                const mime = src?.mime || src?.type || src?.contentType;
+                const name = src?.name || (typeof uri === 'string' ? uri.split('/').pop() : undefined);
+                const size = src?.size || src?.length || src?.bytes;
+                return { name, size, stagingFolder: folder, uri, mime };
+            }).filter(x => x && x.uri);
+            // reset the stash after consuming
+            pendingUploads = [];
+            log.debug('[chat] body.attachments', body.attachments);
         }
 
         if (parameters && parameters.model) {
@@ -693,10 +720,11 @@ export async function submitMessage(props) {
             inputParameters: {convID},
             body: body
         });
+        log.debug('[chat] post message response', postResp);
 
         const messageId = postResp?.data?.id;
         if (!messageId) {
-            console.error('Message accepted but no id returned', postResp);
+            log.error('Message accepted but no id returned', postResp);
             return;
         }
 
@@ -717,7 +745,7 @@ export async function submitMessage(props) {
         }
 
     } catch (error) {
-        console.error('submitMessage error:', error);
+        log.error('submitMessage error', error);
         messagesContext?.handlers?.dataSource?.setError(error);
     } finally {
         try {
@@ -735,6 +763,52 @@ export async function upload() {
 }
 
 /**
+ * Receives upload results from Forge chat and attaches them to the pending message.
+ * @param {Object} props
+ * @param {Object} props.message - mutable draft message object (Forge provides)
+ * @param {Array|Object} props.result - upload result(s)
+ */
+export async function onUpload(props) {
+    try {
+        const { message } = props || {};
+        const exec = props?.execution || {};
+        const result = props?.result;
+        // Forge variants: execution.result | execution.output | execution.data | props.result | props.files | props.data
+        let list = exec.result || exec.output || exec.data || result || props?.files || props?.data;
+        if (list && !Array.isArray(list)) {
+            // Some backends return single object or wrap under {data: {...}}
+            list = list.files || list.data || [list];
+        }
+        log.debug('[chat] onUpload raw props', props);
+        log.debug('[chat] onUpload normalized list', list);
+        if (!list || list.length === 0) return;
+        const normalized = list.map(a => {
+            const src = a?.data || a;
+            const uri = src?.uri || src?.url || src?.path || src?.href;
+            const folder = src?.stagingFolder || src?.folder || src?.staging || src?.dir;
+            const mime = src?.mime || src?.type || src?.contentType;
+            const name = src?.name || (typeof uri === 'string' ? uri.split('/').pop() : undefined);
+            const size = src?.size || src?.length || src?.bytes;
+            return { name, size, stagingFolder: folder, uri, mime };
+        }).filter(x => x && x.uri);
+        log.debug('[chat] onUpload normalized attachments', normalized);
+        if (!normalized.length) return;
+        // Update composer message when provided
+        if (message) {
+            if (!Array.isArray(message.attachments)) message.attachments = [];
+            message.attachments.push(...normalized);
+            log.debug('[chat] message.attachments after onUpload', message.attachments);
+        }
+        // Also stash globally to ensure submit picks them up
+        pendingUploads.push(...normalized);
+        log.debug('[chat] pendingUploads after onUpload', pendingUploads);
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        log.warn('chat.onUpload: failed to attach uploads', e);
+    }
+}
+
+/**
  * Aborts the currently running assistant turn by calling backend terminate
  * endpoint. Wired to chat.onAbort event so the Forge chat component shows the
  * Abort/Stop button while streaming.
@@ -744,7 +818,7 @@ export async function upload() {
 export async function abortConversation(props) {
     const {context} = props || {};
     if (!context || typeof context.Context !== 'function') {
-        console.warn('chatService.abortConversation: invalid context');
+        log.warn('chatService.abortConversation: invalid context');
         return false;
     }
 
@@ -755,7 +829,7 @@ export async function abortConversation(props) {
             convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id;
 
         if (!convID) {
-            console.warn('chatService.abortConversation – no active conversation');
+            log.warn('chatService.abortConversation – no active conversation');
             return false;
         }
 
@@ -769,7 +843,7 @@ export async function abortConversation(props) {
 
         return true;
     } catch (err) {
-        console.error('chatService.abortConversation error:', err);
+        log.error('chatService.abortConversation error', err);
         // Show error in UI if possible.
         const convCtx = context.Context('conversations');
         convCtx?.handlers?.setError?.(err);
@@ -784,10 +858,6 @@ export async function abortConversation(props) {
  * @param {Array} incoming - Incoming messages to merge
  */
 function mergeMessages(messagesContext, incoming) {
-    try {
-        console.log('[chat] mergeMessages:incoming', Array.isArray(incoming) ? incoming.length : 0);
-    } catch (_) {
-    }
     const collSig = messagesContext.signals?.collection;
     if (!collSig || !Array.isArray(incoming) || !incoming.length) {
         return;
@@ -870,10 +940,6 @@ function mergeMessages(messagesContext, incoming) {
             messagesContext._snapshot = [...next];
         } catch (_) {
         }
-        try {
-            console.log('[chat] mergeMessages:applied', {before, after: next.length});
-        } catch (_) {
-        }
         // Do not mutate the messages DataSource form here; changing form values
         // can reset the chat composer input and cause focus flicker.
     }
@@ -924,11 +990,8 @@ function deepEqualShallow(a, b) {
 // for generic polling logic (open chat follow-up fetches).
 export function receiveMessages(messagesContext, data, sinceId = '') {
     if (!Array.isArray(data) || data.length === 0) return;
-    try {
-        const convId = data?.[0]?.conversationId;
-        console.log('[chat] receiveMessages', {count: data.length, sinceId, convId});
-    } catch (_) {
-    }
+    const convId = data?.[0]?.conversationId;
+    log.debug('[chat] receiveMessages', {count: data.length, sinceId, convId});
     // Prefer merging fully – including the sinceId boundary – so that enriched
     // rows (with executions/usage) update the existing optimistic/plain row.
     mergeMessages(messagesContext, data);
@@ -1050,13 +1113,13 @@ function onMetaLoaded(args) {
 // the collection path is left untouched and onSuccess can map to the form.
 function onFetchMeta(args) {
     const {collection = []} = args;
-    console.log('[settings] onFetchMeta', collection);
+    log.debug('[settings] onFetchMeta', collection);
 
     const updated = collection.map(data => {
 
         const agentInfo = data.agentInfo || {};
 
-        console.log('agentInfo', agentInfo)
+        log.debug('agentInfo', agentInfo)
 
 
         const agentsRaw = Array.isArray(data?.agents)

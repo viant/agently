@@ -25,6 +25,7 @@ import (
 	"github.com/viant/fluxor/service/approval"
 
 	"github.com/viant/agently/internal/auth"
+	fservice "github.com/viant/forge/backend/service/file"
 )
 
 // Server wraps a conversation manager and exposes minimal REST endpoints:
@@ -42,6 +43,7 @@ type Server struct {
 	fluxPolicy      *fluxpol.Policy
 	chatSvc         *chat.Service
 	pendingApproval approval.Service
+	fileSvc         *fservice.Service
 
 	mu      sync.Mutex
 	cancels map[string][]context.CancelFunc // convID -> cancel funcs for in-flight turns
@@ -128,6 +130,14 @@ func WithApprovalService(svc approval.Service) ServerOption {
 	return func(s *Server) { s.pendingApproval = svc }
 }
 
+// WithFileService injects the Forge file service so chat service can reuse
+// the same staging and storage resolution for reading uploaded attachments.
+func WithFileService(fs *fservice.Service) ServerOption {
+	return func(s *Server) {
+		s.fileSvc = fs
+	}
+}
+
 // NewServer returns an http.Handler with routes bound.
 func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	s := &Server{mgr: mgr}
@@ -140,6 +150,9 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	s.chatSvc.AttachManager(mgr, s.toolPolicy, s.fluxPolicy)
 	if s.pendingApproval != nil {
 		s.chatSvc.AttachApproval(s.pendingApproval)
+	}
+	if s.fileSvc != nil {
+		s.chatSvc.AttachFileService(s.fileSvc)
 	}
 	mux := http.NewServeMux()
 

@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"net/http"
+	"os"
 
 	"github.com/viant/afs"
 	fsadapter "github.com/viant/afs/adapter/http"
@@ -19,7 +20,7 @@ import (
 	"github.com/viant/agently/genai/tool"
 	fluxorpol "github.com/viant/fluxor/policy"
 	fhandlers "github.com/viant/forge/backend/handlers"
-	ffile "github.com/viant/forge/backend/service/file"
+	fservice "github.com/viant/forge/backend/service/file"
 )
 
 // New constructs an http.Handler that combines chat API and workspace CRUD API.
@@ -29,9 +30,13 @@ import (
 func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxorpol.Policy) http.Handler {
 	mux := http.NewServeMux()
 
+	// Forge file service singleton (reused for upload handlers and chat service)
+	fs := fservice.New(os.TempDir())
+
 	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation(),
 		chat.WithPolicies(toolPol, fluxPol),
 		chat.WithApprovalService(exec.ApprovalService()),
+		chat.WithFileService(fs),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
 
@@ -48,8 +53,6 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	mux.HandleFunc("/v1/workspace/metadata", metadata.NewAgently(exec))
 
 	// Forge file upload/list/download endpoints for chat attachments
-	// Storage root relative to repo: adapter/var/data (ensure exists and writable)
-	fs := ffile.New("adapter/var/data")
 	mux.HandleFunc("/upload", fhandlers.UploadHandler(fs))
 	fb := fhandlers.NewFileBrowser(fs)
 	mux.HandleFunc("/download", fb.DownloadHandler)

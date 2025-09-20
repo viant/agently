@@ -17,7 +17,7 @@
 export async function saveServer({ context }) {
     const serversCtx = context?.Context('servers');
     if (!serversCtx) {
-        console.error('mcpService.saveServer: servers context not found');
+        log.error('mcpService.saveServer: servers context not found');
         return false;
     }
 
@@ -28,17 +28,17 @@ export async function saveServer({ context }) {
     // DataSource is in table-only mode.
     const formData = handlers?.getFormData?.() || handlers?.getSelection?.()?.selected;
     if (!formData) {
-        console.warn('mcpService.saveServer: no form data');
+        log.warn('mcpService.saveServer: no form data');
         return false;
     }
 
     const name = formData?.name;
     if (!name) {
-        console.error('mcpService.saveServer: name field is required');
+        log.error('mcpService.saveServer: name field is required');
         return false;
     }
 
-    console.log('mcpService.saveServer', name);
+    log.debug('mcpService.saveServer', { name });
 
     handlers?.setLoading?.(true);
     try {
@@ -46,10 +46,10 @@ export async function saveServer({ context }) {
             inputParameters: { name },
             body: { ...formData },
         });
-        console.log('PUT', resp);
+        log.debug('PUT', resp);
         return resp;
     } catch (err) {
-        console.error('mcpService.saveServer error:', err);
+        log.error('mcpService.saveServer error', err);
         handlers?.setError?.(err);
         return false;
     } finally {
@@ -60,3 +60,5 @@ export async function saveServer({ context }) {
 export const mcpService = {
     saveServer,
 };
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');

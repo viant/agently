@@ -23,7 +23,7 @@ import { registerEventAdapter } from 'forge/runtime/binding';
             fsContext.handlers.dataSource.getCollection();
         } catch (e) {
             /* eslint-disable-next-line no-console */
-            console.warn('file widget – unable to prime fs dataSource', e);
+            log.warn('file widget – unable to prime fs dataSource', e);
         }
 
         const { window } = context.handlers;
@@ -51,7 +51,7 @@ import { registerEventAdapter } from 'forge/runtime/binding';
             }
         } catch (e) {
             /* eslint-disable-next-line no-console */
-            console.error('file widget – dialog failed', e);
+            log.error('file widget – dialog failed', e);
         }
     };
 
@@ -94,3 +94,5 @@ registerEventAdapter('file', {
         adapter.set(v);
     },
 });
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');

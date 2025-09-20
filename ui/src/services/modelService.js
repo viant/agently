@@ -6,7 +6,7 @@ export async function saveModel({ context } ) {
 
     const modelsCtx = context?.Context('models');
     if (!modelsCtx) {
-        console.error('modelService.saveModel: models context not found');
+        log.error('modelService.saveModel: models context not found');
         return false;
     }
 
@@ -15,7 +15,7 @@ export async function saveModel({ context } ) {
 
     const formData = handlers?.getFormData?.() || handlers?.getSelection?.()?.selected;
     if (!formData) {
-        console.warn('modelService.saveModel: no form data');
+        log.warn('modelService.saveModel: no form data');
         return false;
     }
 
@@ -24,10 +24,10 @@ export async function saveModel({ context } ) {
         formData.meta  = JSON.parse(formData.meta);
     }
 
-    console.log('modelService.saveModel', id);
+    log.debug('modelService.saveModel', { id });
 
     handlers?.setLoading?.(true);
-    console.log('ID', id, formData)
+    log.debug('ID', { id, formData })
     try {
         let resp;
             // Existing model – PUT /id to update
@@ -35,13 +35,13 @@ export async function saveModel({ context } ) {
                 inputParameters: { id },
                 body: { ...formData },
             });
-            console.log('PUT', resp);
-        return resp;
-    } catch (err) {
-        console.error('modelService.saveModel error:', err);
-        handlers?.setError?.(err);
-        return false;
-    } finally {
+            log.debug('PUT', resp);
+            return resp;
+        } catch (err) {
+            log.error('modelService.saveModel error', err);
+            handlers?.setError?.(err);
+            return false;
+        } finally {
         handlers?.setLoading?.(false);
     }
 }
@@ -50,3 +50,5 @@ export async function saveModel({ context } ) {
 export const modelService = {
     saveModel
 };
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');

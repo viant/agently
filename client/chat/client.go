@@ -3,7 +3,6 @@ package chat
 import (
 	"context"
 
-	conv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor/policy"
@@ -24,9 +23,4 @@ type Client interface {
 	Approve(ctx context.Context, messageID, action, reason string) error
 	Elicit(ctx context.Context, messageID, action string, payload map[string]interface{}) error
 	GetPayload(ctx context.Context, id string) ([]byte, string, error)
-
-	// Convenience passthroughs to conversation client for mutations
-	PatchMessage(ctx context.Context, message *conv.MutableMessage) error
-	PatchToolCall(ctx context.Context, toolCall *conv.MutableToolCall) error
-	PatchPayload(ctx context.Context, payload *conv.MutablePayload) error
 }

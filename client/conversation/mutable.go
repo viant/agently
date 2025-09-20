@@ -2,11 +2,11 @@ package conversation
 
 import (
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
-	msgw "github.com/viant/agently/pkg/agently/message"
-	mcall "github.com/viant/agently/pkg/agently/modelcall"
-	payloadw "github.com/viant/agently/pkg/agently/payload"
-	toolcall "github.com/viant/agently/pkg/agently/toolcall"
-	turnw "github.com/viant/agently/pkg/agently/turn"
+	msgw "github.com/viant/agently/pkg/agently/message/write"
+	mcall "github.com/viant/agently/pkg/agently/modelcall/write"
+	payloadw "github.com/viant/agently/pkg/agently/payload/write"
+	toolcall "github.com/viant/agently/pkg/agently/toolcall/write"
+	turnw "github.com/viant/agently/pkg/agently/turn/write"
 )
 
 // NewConversation allocates a mutable conversation with Has populated.

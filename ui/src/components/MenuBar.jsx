@@ -42,7 +42,7 @@ const MenuBar = ({toggleNavigation}) => {
         const fetchMenuDefinitions = async () => {
              if (isAuthenticated && jwtToken) {
                 // Fetch menu definitions using jwtToken
-                console.log('Fetching menu definitions with token:', jwtToken.id_token);
+                log.debug('Fetching menu definitions with token', { token: jwtToken.id_token });
             }
         };
         fetchMenuDefinitions();
@@ -50,7 +50,7 @@ const MenuBar = ({toggleNavigation}) => {
 
     const handleWindowClick = (e, win) => {
         e.preventDefault();
-        console.log('handleWindowClick', win);
+        log.debug('handleWindowClick', win);
         if (win.inTab !== false) {
             // Tabbed window
             selectedTabId.value = win.windowId;
@@ -73,7 +73,7 @@ const MenuBar = ({toggleNavigation}) => {
     });
 
 
-    console.log('windowsList', windowsList)
+    log.debug('windowsList', windowsList)
     const buildWindowsMenu = () => (
         <Menu>
             {windowsList.map((win) => (
@@ -139,3 +139,5 @@ const MenuBar = ({toggleNavigation}) => {
 };
 
 export default MenuBar;
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');

@@ -15,7 +15,7 @@ export function onInit({ context }) {
         // Start 1-second polling loop using existing chat.startPolling helper
         const chatService = context.services?.chat;
         if (!chatService?.startPolling) {
-            console.warn('workflowConversation.onInit – chat.startPolling not found');
+            log.warn('workflowConversation.onInit – chat.startPolling not found');
             return;
         }
 
@@ -28,7 +28,7 @@ export function onInit({ context }) {
             chatService.startPolling({ context });
         }, 1000);
     } catch (err) {
-        console.error('workflowConversation.onInit error:', err);
+        log.error('workflowConversation.onInit error', err);
     }
 }
 
@@ -40,3 +40,5 @@ export function onDestroy({ context }) {
 }
 
 export const workflowConversationService = { onInit, onDestroy };
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');
