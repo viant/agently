@@ -67,12 +67,11 @@ type PayloadView struct {
 	Tags                   *string    `sqlx:"tags"`
 }
 
-var PathBase = "/v2/api/agently/payload"
-var PathByTenant = "/v2/api/agently/tenant/{tenantId}/payload"
+var PayloadURI = "/v2/api/agently/payload"
 
 func DefineComponent(ctx context.Context, srv *datly.Service) error {
 	base, err := repository.NewComponent(
-		contract.NewPath("GET", PathBase),
+		contract.NewPath("GET", PayloadURI),
 		repository.WithResource(srv.Resource()),
 		repository.WithContract(reflect.TypeOf(Input{}), reflect.TypeOf(Output{}), &FS, view.WithConnectorRef("agently")),
 	)
@@ -81,18 +80,6 @@ func DefineComponent(ctx context.Context, srv *datly.Service) error {
 	}
 	if err := srv.AddComponent(ctx, base); err != nil {
 		return fmt.Errorf("failed to add payload base: %w", err)
-	}
-
-	byTenant, err := repository.NewComponent(
-		contract.NewPath("GET", PathByTenant),
-		repository.WithResource(srv.Resource()),
-		repository.WithContract(reflect.TypeOf(Input{}), reflect.TypeOf(Output{}), &FS, view.WithConnectorRef("agently")),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create payload by-tenant component: %w", err)
-	}
-	if err := srv.AddComponent(ctx, byTenant); err != nil {
-		return fmt.Errorf("failed to add payload by-tenant: %w", err)
 	}
 	return nil
 }

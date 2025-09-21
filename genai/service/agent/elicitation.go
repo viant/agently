@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -24,18 +26,30 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 	}
 
 	// Persist elicitation assistant message via conversation client
-	m := apiconv.NewMessage()
-	m.SetId(uuid.New().String())
-	m.SetConversationID(convID)
+	msg := apiconv.NewMessage()
+	msg.SetId(uuid.New().String())
+	msg.SetConversationID(convID)
 	if turn, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
-		m.SetTurnID(turn.TurnID)
+		msg.SetTurnID(turn.TurnID)
 	}
-	m.SetParentMessageID(messageID)
-	m.SetRole("assistant")
-	m.SetType("text")
-	if strings.TrimSpace(elic.Message) != "" {
-		m.SetContent(elic.Message)
+	msg.SetElicitationID(elic.ElicitationId)
+	msg.SetParentMessageID(messageID)
+	msg.SetRole("assistant")
+	msg.SetType("text")
+	raw, err := json.Marshal(elic)
+	if err != nil {
+		return fmt.Errorf("recordAssistantElicitation: failed to marshal elic: %v", err)
 	}
+	if len(raw) > 0 {
+		msg.SetContent(string(raw))
+	} else {
+		msg.SetContent(msg.Content)
+	}
+
 	// Elicitation is serialized in message content above
-	return s.convClient.PatchMessage(ctx, m)
+	err = s.convClient.PatchMessage(ctx, msg)
+	if err != nil {
+		return fmt.Errorf("recordAssistantElicitation: failed to patch message: %v", err)
+	}
+	return nil
 }

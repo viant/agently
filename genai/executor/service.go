@@ -10,6 +10,7 @@ import (
 	"time"
 
 	clientmcp "github.com/viant/agently/adapter/mcp"
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/conversation"
@@ -69,6 +70,9 @@ type Service struct {
 
 	fluxorOptions []fluxor.Option
 	orchestration *mcp.Service // shared fluxor-mcp service instance
+
+	// optional per-conversation MCP manager (injected via option)
+	mcpMgr *mcpmgr.Manager
 }
 
 // registerAgentTools exposes every agent with toolExport.expose==true as a

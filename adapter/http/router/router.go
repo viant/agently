@@ -11,6 +11,7 @@ import (
 	"github.com/viant/agently/adapter/http/filebrowser"
 	toolhttp "github.com/viant/agently/adapter/http/tool"
 	"github.com/viant/agently/adapter/http/workflow"
+	mcprouter "github.com/viant/agently/adapter/mcp/router"
 	"github.com/viant/agently/deployment/ui"
 
 	"github.com/viant/agently/adapter/http/router/metadata"
@@ -27,7 +28,7 @@ import (
 //
 // Chat endpoints are mounted under /v1/api/… (see adapter/http/server.go).
 // Workspace endpoints under /v1/workspace/… (see adapter/http/workspace).
-func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxorpol.Policy) http.Handler {
+func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxorpol.Policy, mcpR *mcprouter.Router) http.Handler {
 	mux := http.NewServeMux()
 
 	// Forge file service singleton (reused for upload handlers and chat service)
@@ -37,6 +38,7 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 		chat.WithPolicies(toolPol, fluxPol),
 		chat.WithApprovalService(exec.ApprovalService()),
 		chat.WithFileService(fs),
+		chat.WithMCPRouter(mcpR),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
 

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"github.com/viant/agently/adapter/mcp/router"
 	awaitreg "github.com/viant/agently/genai/awaitreg"
 	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/service/core"
@@ -41,4 +42,9 @@ func WithLLMCore(c *core.Service) Option {
 // WithURLOpener overrides the function used to open browser.
 func WithURLOpener(fn func(string) error) Option {
 	return func(c *Client) { c.openURLFn = fn }
+}
+
+// WithRouter registers a global elicitation router used when no Awaiters are provided.
+func WithRouter(r *router.Router) Option {
+	return func(c *Client) { c.router = r }
 }

@@ -11,12 +11,12 @@ import (
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	messageread "github.com/viant/agently/pkg/agently/message/read"
-	"github.com/viant/agently/pkg/agently/message/write"
-	write2 "github.com/viant/agently/pkg/agently/modelcall/write"
+	msgwrite "github.com/viant/agently/pkg/agently/message/write"
+	modelcallwrite "github.com/viant/agently/pkg/agently/modelcall/write"
 	payloadread "github.com/viant/agently/pkg/agently/payload/read"
-	write3 "github.com/viant/agently/pkg/agently/payload/write"
-	write4 "github.com/viant/agently/pkg/agently/toolcall/write"
-	write5 "github.com/viant/agently/pkg/agently/turn/write"
+	payloadwrite "github.com/viant/agently/pkg/agently/payload/write"
+	toolcallwrite "github.com/viant/agently/pkg/agently/toolcall/write"
+	turnwrite "github.com/viant/agently/pkg/agently/turn/write"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 )
@@ -47,22 +47,26 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 	if err := messageread.DefineMessageComponent(ctx, dao); err != nil {
 		return err
 	}
+	if err := payloadread.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+
 	if _, err := convw.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
-	if _, err := write.DefineComponent(ctx, dao); err != nil {
+	if _, err := msgwrite.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
-	if _, err := write2.DefineComponent(ctx, dao); err != nil {
+	if _, err := modelcallwrite.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
-	if _, err := write4.DefineComponent(ctx, dao); err != nil {
+	if _, err := toolcallwrite.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
-	if _, err := write5.DefineComponent(ctx, dao); err != nil {
+	if _, err := turnwrite.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
-	if _, err := write3.DefineComponent(ctx, dao); err != nil {
+	if _, err := payloadwrite.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
 	return nil
@@ -133,7 +137,7 @@ func (s *Service) GetPayload(ctx context.Context, id string) (*convcli.Payload, 
 	}
 	in := payloadread.Input{Id: id, Has: &payloadread.Has{Id: true}}
 	out := &payloadread.Output{}
-	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(payloadread.PathBase), datly.WithInput(&in)); err != nil {
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(payloadread.PayloadURI), datly.WithInput(&in)); err != nil {
 		return nil, err
 	}
 	if len(out.Data) == 0 {
@@ -148,11 +152,11 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 		return nil
 	}
 	// MutablePayload is an alias of pkg/agently/payload.Payload
-	pw := (*write3.Payload)(payload)
-	input := &write3.Input{Payloads: []*write3.Payload{pw}}
-	out := &write3.Output{}
+	pw := (*payloadwrite.Payload)(payload)
+	input := &payloadwrite.Input{Payloads: []*payloadwrite.Payload{pw}}
+	out := &payloadwrite.Output{}
 	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, write3.PathURI)),
+		datly.WithPath(contract.NewPath(http.MethodPatch, payloadwrite.PathURI)),
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)
@@ -185,11 +189,11 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 	if s == nil || s.dao == nil || message == nil {
 		return nil
 	}
-	mm := (*write.Message)(message)
-	input := &write.Input{Messages: []*write.Message{mm}}
-	out := &write.Output{}
+	mm := (*msgwrite.Message)(message)
+	input := &msgwrite.Input{Messages: []*msgwrite.Message{mm}}
+	out := &msgwrite.Output{}
 	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, write.PathURI)),
+		datly.WithPath(contract.NewPath(http.MethodPatch, msgwrite.PathURI)),
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)
@@ -206,11 +210,11 @@ func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.Mutable
 	if s == nil || s.dao == nil || modelCall == nil {
 		return nil
 	}
-	mc := (*write2.ModelCall)(modelCall)
-	input := &write2.Input{ModelCalls: []*write2.ModelCall{mc}}
-	out := &write2.Output{}
+	mc := (*modelcallwrite.ModelCall)(modelCall)
+	input := &modelcallwrite.Input{ModelCalls: []*modelcallwrite.ModelCall{mc}}
+	out := &modelcallwrite.Output{}
 	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, write2.PathURI)),
+		datly.WithPath(contract.NewPath(http.MethodPatch, modelcallwrite.PathURI)),
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)
@@ -227,11 +231,11 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 	if s == nil || s.dao == nil || toolCall == nil {
 		return nil
 	}
-	tc := (*write4.ToolCall)(toolCall)
-	input := &write4.Input{ToolCalls: []*write4.ToolCall{tc}}
-	out := &write4.Output{}
+	tc := (*toolcallwrite.ToolCall)(toolCall)
+	input := &toolcallwrite.Input{ToolCalls: []*toolcallwrite.ToolCall{tc}}
+	out := &toolcallwrite.Output{}
 	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, write4.PathURI)),
+		datly.WithPath(contract.NewPath(http.MethodPatch, toolcallwrite.PathURI)),
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)
@@ -248,11 +252,11 @@ func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) erro
 	if s == nil || s.dao == nil || turn == nil {
 		return nil
 	}
-	tr := (*write5.Turn)(turn)
-	input := &write5.Input{Turns: []*write5.Turn{tr}}
-	out := &write5.Output{}
+	tr := (*turnwrite.Turn)(turn)
+	input := &turnwrite.Input{Turns: []*turnwrite.Turn{tr}}
+	out := &turnwrite.Output{}
 	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, write5.PathURI)),
+		datly.WithPath(contract.NewPath(http.MethodPatch, turnwrite.PathURI)),
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)
