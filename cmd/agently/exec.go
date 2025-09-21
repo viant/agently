@@ -8,7 +8,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/viant/agently/cmd/service"
+	apiconv "github.com/viant/agently/genai/conversation"
+	"github.com/viant/agently/genai/memory"
 	"github.com/viant/fluxor-mcp/mcp/tool"
 )
 
@@ -74,6 +77,16 @@ func (c *ExecCmd) Execute(_ []string) error {
 	ctx, cancel = context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// Create a synthetic conversation id so per-conversation MCP clients and
+	// elicitation routing work consistently for ad-hoc exec as well.
+	convID := uuid.New().String()
+	turn := memory.TurnMeta{
+		ConversationID:  convID,
+		ParentMessageID: uuid.New().String(),
+		TurnID:          uuid.New().String(),
+	}
+	ctx = apiconv.WithID(ctx, convID)
+	ctx = memory.WithTurnMeta(ctx, turn)
 	canonical := tool.Canonical(c.Name)
 	resp, err := svc.ExecuteTool(ctx, service.ToolRequest{
 		Name:    canonical,

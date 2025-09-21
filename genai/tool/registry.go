@@ -2,8 +2,9 @@ package tool
 
 import (
 	"context"
-	"github.com/viant/agently/genai/llm"
 	"io"
+
+	"github.com/viant/agently/genai/llm"
 )
 
 // ---------------------------------------------------------------------------

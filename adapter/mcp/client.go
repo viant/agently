@@ -48,6 +48,10 @@ type Client struct {
 	awaiters   *awaitreg.Registry
 	llmCore    *core2.Service
 	// waiter registries are shared for elicitation and interaction
+	router interface {
+		Register(uint64, string, chan *schema.ElicitResult)
+		Remove(uint64, string)
+	}
 }
 
 func (*Client) LastRequestID() jsonrpc.RequestId {
@@ -116,47 +120,18 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 		}, nil
 	}
 
-	msgID := uuid.New().String()
-
-	//TODO refactor/rethink - make sure that  message is tied to respective conversaton id (in case many user/many conversation at the same time)
-	//history := c.history
-	//if history != nil {
-	//
-	//	owner, err := history.LatestMessage(ctx)
-	//	if err != nil {
-	//		return nil, jsonrpc.NewInternalError(err.Error(), nil)
-	//	}
-	//
-	//	parentID := owner.ParentID
-	//	if parentID == "" {
-	//		parentID = owner.ID
-	//	}
-	//
-	//	_ = history.AddMessage(ctx, memory.Message{
-	//		ID:             msgID,
-	//		ParentID:       parentID,
-	//		ConversationID: owner.ConversationID,
-	//		Role:           "mcpelicitation",
-	//		Content:        params.Message,
-	//		Elicitation: func() *elicitationSchema.Elicitation {
-	//			// Refine schema before persisting so that UI sees improved version.
-	//			refiner.Refine(&params.RequestedSchema)
-	//			return &elicitationSchema.Elicitation{ElicitRequestParams: params}
-	//		}(),
-	//		CallbackURL: "/elicitation/" + msgID,
-	//		Status:      "open",
-	//	})
-	//}
-
-	// Register waiter and block
+	// No awaiters: register typed-id waiter with optional router scoped by conversation id.
 	ch := make(chan *schema.ElicitResult, 1)
-	waiterRegistry.Store(msgID, ch)
+	convID := conversation.ID(ctx)
+	if c.router != nil {
+		// best-effort: register in conv-scoped router
+		c.router.Register(request.Id, convID, ch)
+		defer c.router.Remove(request.Id, convID)
+	}
 	select {
 	case res := <-ch:
-		waiterRegistry.Delete(msgID)
 		return res, nil
 	case <-ctx.Done():
-		waiterRegistry.Delete(msgID)
 		return nil, jsonrpc.NewInternalError("elicitation cancelled", nil)
 	}
 }

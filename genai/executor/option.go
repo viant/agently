@@ -3,6 +3,7 @@ package executor
 import (
 	"io"
 
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	atool "github.com/viant/agently/adapter/tool"
 	"github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
@@ -54,6 +55,11 @@ func WithToolDebugLogger(w io.Writer) Option {
 		if s.tools == nil && s.orchestration != nil {
 			s.tools = atool.New(s.orchestration)
 			s.tools.SetDebugLogger(w)
+			if s.mcpMgr != nil {
+				if r, ok := s.tools.(*atool.Registry); ok {
+					r.WithManager(s.mcpMgr)
+				}
+			}
 		}
 	}
 }
@@ -105,6 +111,12 @@ func WithAgents(agents ...*agent.Agent) Option {
 func WithTools(tools tool.Registry) Option {
 	return func(s *Service) {
 		s.tools = tools
+		// If an MCP manager was provided earlier, attach to adapter/tool registry when possible.
+		if s.mcpMgr != nil {
+			if r, ok := s.tools.(*atool.Registry); ok {
+				r.WithManager(s.mcpMgr)
+			}
+		}
 	}
 }
 
@@ -114,5 +126,19 @@ func WithTools(tools tool.Registry) Option {
 func WithoutHotSwap() Option {
 	return func(s *Service) {
 		s.hotSwapDisabled = true
+	}
+}
+
+// WithMCPManager attaches a per-conversation MCP client manager so that tool
+// executions can inject the appropriate client/token at call time.
+func WithMCPManager(m *mcpmgr.Manager) Option {
+	return func(s *Service) {
+		s.mcpMgr = m
+		// If tools already constructed and is the adapter/tool registry, attach now.
+		if s.tools != nil {
+			if r, ok := s.tools.(*atool.Registry); ok {
+				r.WithManager(m)
+			}
+		}
 	}
 }

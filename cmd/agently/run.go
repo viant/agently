@@ -17,10 +17,6 @@ type RunCmd struct {
 	Location  string `short:"l" long:"location" description:"agent definition path"`
 	InputFile string `short:"i" long:"input"    description:"JSON file with QueryInput (stdin if empty)"`
 	Policy    string `long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
-	LLMLog    string `long:"llm-log" description:"file to append raw LLM traffic"`
-	ToolLog   string `long:"tool-log" description:"file to append debug logs for each tool call"`
-	TaskLog   string `long:"task-log" description:"file to append per-task Fluxor executor log"`
-	UberLog   string `long:"log" description:"unified log (LLM, TOOL, TASK)" default:"agently.log"`
 }
 
 func (r *RunCmd) Execute(_ []string) error {

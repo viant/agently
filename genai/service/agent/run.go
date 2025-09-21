@@ -15,6 +15,7 @@ import (
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
+	authctx "github.com/viant/agently/internal/auth"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
@@ -36,6 +37,25 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 	if input.EmbeddingModel == "" {
 		input.EmbeddingModel = s.defaults.Embedder
+	}
+
+	// Bridge auth token from QueryInput.Context when provided (non-HTTP callers).
+	if input != nil && input.Context != nil {
+		// Accept common keys: authorization (may include "Bearer "), authToken, token, bearer
+		if v, ok := input.Context["authorization"].(string); ok && strings.TrimSpace(v) != "" {
+			if tok := authctx.ExtractBearer(v); tok != "" {
+				ctx = authctx.WithBearer(ctx, tok)
+			}
+		}
+		if v, ok := input.Context["authToken"].(string); ok && strings.TrimSpace(v) != "" {
+			ctx = authctx.WithBearer(ctx, v)
+		}
+		if v, ok := input.Context["token"].(string); ok && strings.TrimSpace(v) != "" {
+			ctx = authctx.WithBearer(ctx, v)
+		}
+		if v, ok := input.Context["bearer"].(string); ok && strings.TrimSpace(v) != "" {
+			ctx = authctx.WithBearer(ctx, v)
+		}
 	}
 
 	// Conversation already ensured above (fills AgentName/Model/Tools when missing)

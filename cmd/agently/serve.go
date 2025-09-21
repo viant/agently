@@ -11,8 +11,13 @@ import (
 	"time"
 
 	"github.com/viant/agently/adapter/http/router"
+	mcpclienthandler "github.com/viant/agently/adapter/mcp"
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
+	mcprouter "github.com/viant/agently/adapter/mcp/router"
 	"github.com/viant/agently/cmd/service"
+	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
+	protoclient "github.com/viant/mcp-protocol/client"
 )
 
 // ServeCmd starts the embedded HTTP server.
@@ -27,6 +32,16 @@ type ServeCmd struct {
 }
 
 func (s *ServeCmd) Execute(_ []string) error {
+	// Construct shared MCP router and per-conversation manager before executor init
+	r := mcprouter.New()
+	prov := mcpmgr.NewRepoProvider()
+	// Ensure per-conversation MCP clients are created with the Router wired in
+	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
+		return mcpclienthandler.NewClient(mcpclienthandler.WithRouter(r))
+	}))
+	// Inject manager into executor options so tool registry can use it
+	registerExecOption(executor.WithMCPManager(mgr))
+
 	exec := executorSingleton()
 	if !exec.IsStarted() {
 		exec.Start(context.Background())
@@ -49,7 +64,11 @@ func (s *ServeCmd) Execute(_ []string) error {
 	// prompts are wired up. CLI sub-commands (chat, run, …) still attach the
 	// interactive approval loop when needed.
 
-	handler := router.New(exec, svc, toolPol, fluxPol)
+	// Start manager reaper to clean up idle MCP clients automatically.
+	reapStop := mgr.StartReaper(context.Background(), 0) // interval defaults to ttl/2
+	defer reapStop()
+
+	handler := router.New(exec, svc, toolPol, fluxPol, r)
 
 	srv := &http.Server{
 		Addr:    s.Addr,
