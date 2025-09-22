@@ -26,9 +26,9 @@ func main() {
 
 	//	os.Args = []string{"", "exec", "-n=sqlkit-dbSetConnection", "-i={}"}
 
-	//os.Args = []string{"", "chat", "-q=how many table in my ci_ads db?", "-c=251451ae-3e0b-6d47-89e6-6c32e42edb18"}
+	os.Args = []string{"", "chat", "-q=how many table in my ci_ads db?", "-c=251451ae-3e0b-6d47-89e6-6c32e42edb18"}
 
-	os.Args = []string{"", "serve"}
+	//os.Args = []string{"", "serve"}
 	agently.RunWithCommands(os.Args[1:])
 
 	//agently.RunWithCommands(os.Args[1:])

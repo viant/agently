@@ -4,9 +4,8 @@ import (
 	"github.com/viant/agently/adapter/mcp/router"
 	apiconv "github.com/viant/agently/client/conversation"
 	awaitreg "github.com/viant/agently/genai/awaitreg"
-	"github.com/viant/agently/genai/io/elicitation"
+	elic "github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/genai/service/core"
-	elicsvc "github.com/viant/agently/genai/service/elicitation"
 	"github.com/viant/mcp-protocol/schema"
 )
 
@@ -15,7 +14,7 @@ type Option func(*Client)
 
 // WithAwaiters sets the interactive prompt handler used by orchestrating code
 // whenever the server sends an "elicitation" request that needs user input.
-func WithAwaiter(f func() elicitation.Awaiter) Option {
+func WithAwaiter(f func() elic.Awaiter) Option {
 	return func(cl *Client) {
 		if f == nil {
 			return
@@ -73,7 +72,7 @@ func WithConversationClient(cli apiconv.Client) Option {
 	return func(c *Client) {
 		c.convClient = cli
 		if cli != nil {
-			c.elicition = elicsvc.New(cli)
+			c.elicition = elic.New(cli)
 		}
 	}
 }

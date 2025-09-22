@@ -85,7 +85,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	turnRec.SetConversationID(turn.ConversationID)
 	turnRec.SetStatus("running")
 	turnRec.SetCreatedAt(time.Now())
-	if err := s.convClient.PatchTurn(ctx, turnRec); err != nil {
+	if err := s.conversation.PatchTurn(ctx, turnRec); err != nil {
 		return err
 	}
 	_, err := s.addMessage(ctx, turn.ConversationID, "user", "", input.Query, turn.ParentMessageID, "")
@@ -116,7 +116,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err != nil {
 		updTurn.SetErrorMessage(err.Error())
 	}
-	updateErr := s.convClient.PatchTurn(ctx, updTurn)
+	updateErr := s.conversation.PatchTurn(ctx, updTurn)
 	if err != nil {
 		return err
 	}
@@ -128,9 +128,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		w := &convw.Conversation{Has: &convw.ConversationHas{}}
 		w.SetId(turn.ConversationID)
 		w.SetDefaultModel(output.Model)
-		if s.convClient != nil {
+		if s.conversation != nil {
 			mw := convw.Conversation(*w)
-			_ = s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw))
+			_ = s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw))
 		}
 	}
 
@@ -168,7 +168,7 @@ func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *
 	if strings.TrimSpace(att.Name) != "" {
 		msg.SetContent(att.Name)
 	}
-	if err := s.convClient.PatchMessage(ctx, msg); err != nil {
+	if err := s.conversation.PatchMessage(ctx, msg); err != nil {
 		return fmt.Errorf("failed to persist attachment message: %w", err)
 	}
 
@@ -181,14 +181,14 @@ func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *
 	payload.SetSizeBytes(len(att.Data))
 	payload.SetStorage("inline")
 	payload.SetInlineBody(att.Data)
-	if err := s.convClient.PatchPayload(ctx, payload); err != nil {
+	if err := s.conversation.PatchPayload(ctx, payload); err != nil {
 		return fmt.Errorf("failed to persist attachment payload: %w", err)
 	}
 
 	link := apiconv.NewMessage()
 	link.SetId(messageID)
 	link.SetPayloadID(pid)
-	if err := s.convClient.PatchMessage(ctx, link); err != nil {
+	if err := s.conversation.PatchMessage(ctx, link); err != nil {
 		return fmt.Errorf("failed to link attachment payload to message: %w", err)
 	}
 	return nil
@@ -267,7 +267,7 @@ func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, 
 	if strings.TrimSpace(content) != "" {
 		m.SetContent(content)
 	}
-	if err := s.convClient.PatchMessage(ctx, m); err != nil {
+	if err := s.conversation.PatchMessage(ctx, m); err != nil {
 		return "", err
 	}
 	return id, nil

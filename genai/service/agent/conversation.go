@@ -75,7 +75,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		convID = uuid.New().String()
 		input.ConversationID = convID
 	}
-	if s.convClient == nil {
+	if s.conversation == nil {
 		return fmt.Errorf("conversation API not configured")
 	}
 	var (
@@ -84,7 +84,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		metadata     *string
 		exists       bool
 	)
-	aConversation, err := s.convClient.GetConversation(ctx, convID)
+	aConversation, err := s.conversation.GetConversation(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("failed to load conversation: %w", err)
 	}
@@ -151,11 +151,11 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		}
 	}
 	if needsPatch {
-		if s.convClient == nil {
+		if s.conversation == nil {
 			return fmt.Errorf("conversation client not configured")
 		}
 		mc := convw.Conversation(*patch)
-		if err := s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(&mc)); err != nil {
+		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mc)); err != nil {
 			if !exists {
 				return fmt.Errorf("failed to create conversation: %w", err)
 			}
@@ -170,11 +170,11 @@ func (s *Service) updatedConversationContext(ctx context.Context, convID string,
 	if convID == "" || len(qi.Context) == 0 {
 		return nil
 	}
-	if s.convClient == nil {
+	if s.conversation == nil {
 		return fmt.Errorf("conversation API not configured")
 	}
 	var metaSrc string
-	cv, err := s.convClient.GetConversation(ctx, convID)
+	cv, err := s.conversation.GetConversation(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("failed to load conversation: %w", err)
 	}
@@ -195,11 +195,11 @@ func (s *Service) updatedConversationContext(ctx context.Context, convID string,
 		w := &convw.Conversation{Has: &convw.ConversationHas{}}
 		w.SetId(convID)
 		w.SetMetadata(string(b))
-		if s.convClient == nil {
+		if s.conversation == nil {
 			return fmt.Errorf("conversation client not configured")
 		}
 		mw := convw.Conversation(*w)
-		if err := s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw)); err != nil {
+		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw)); err != nil {
 			return fmt.Errorf("failed to persist conversation context: %w", err)
 		}
 	} else {

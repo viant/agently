@@ -19,10 +19,10 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	b := &prompt.Binding{}
 	b.Task = s.buildTaskBinding(input)
 	// Fetch conversation transcript once and reuse; bubble up errors
-	if s.convClient == nil {
+	if s.conversation == nil {
 		return nil, fmt.Errorf("conversation API not configured")
 	}
-	conv, err := s.convClient.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
+	conv, err := s.conversation.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
 	if err != nil {
 		return nil, err
 	}

@@ -7,7 +7,7 @@ import (
 	atool "github.com/viant/agently/adapter/tool"
 	"github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
-	"github.com/viant/agently/genai/io/elicitation"
+	"github.com/viant/agently/genai/elicitation"
 	modelprovider "github.com/viant/agently/genai/llm/provider"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor"
