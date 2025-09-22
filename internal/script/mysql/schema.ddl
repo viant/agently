@@ -60,6 +60,7 @@ CREATE TABLE turn
     status                  VARCHAR(255) NOT NULL CHECK (status IN
                                                          ('pending', 'running', 'waiting_for_user', 'succeeded',
                                                           'failed', 'canceled')),
+    error_message TEXT,
     started_by_message_id   VARCHAR(255),
     retry_of                VARCHAR(255),
     agent_id_used           VARCHAR(255),
