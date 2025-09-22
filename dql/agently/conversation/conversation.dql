@@ -16,16 +16,17 @@
 SELECT conversation.*,
 cast(attachment.inline_body, []byte)
 FROM (
-    SELECT t.*, '' AS stage FROM conversation t WHERE (id = $Id OR "" = $Id)
+    SELECT t.*,
+          (SELECT id
+           FROM turn
+           WHERE conversation_id = t.id
+           ORDER BY created_at DESC
+           LIMIT 1) AS last_turn_id,
+    '' AS stage FROM conversation t WHERE (id = $Id OR "" = $Id)
 ) conversation
     JOIN  (
  SELECT
       t.*,
-      (SELECT id
-       FROM turn
-       WHERE conversation_id = t.id
-       ORDER BY created_at DESC
-       LIMIT 1) AS last_turn_id,
       '' AS stage
        FROM turn t
       ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
