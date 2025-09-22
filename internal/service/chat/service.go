@@ -470,17 +470,17 @@ func (s *Service) Approve(ctx context.Context, messageID, action, reason string)
 	case "cancel":
 		// Acknowledge without persisting or forwarding.
 		return nil
-	case "accept", "approve", "approved", "yes", "y", "decline", "deny", "reject", "no", "n":
+	case "accept", "accepted", "approve", "approved", "yes", "y", "decline", "denied", "deny", "reject", "rejected", "no", "n":
 		// proceed
 	default:
 		return fmt.Errorf("invalid action")
 	}
 
 	// Map to status and approved flag
-	approved := action == "accept" || action == "approve" || action == "approved" || action == "yes" || action == "y"
-	newStatus := "declined"
+	approved := action == "accept" || action == "accepted" || action == "approve" || action == "approved" || action == "yes" || action == "y"
+	newStatus := "rejected"
 	if approved {
-		newStatus = "done"
+		newStatus = "accepted"
 	}
 
 	m := &msgwrite.Message{Id: messageID, Status: newStatus, Has: &msgwrite.MessageHas{Status: true}}
@@ -499,9 +499,15 @@ func (s *Service) Elicit(ctx context.Context, messageID, action string, payload 
 	if action == "" {
 		return fmt.Errorf("action is required")
 	}
-	status := "declined"
-	if action == "accept" {
-		status = "done"
+	// normalise to accepted/rejected/cancel
+	status := "rejected"
+	switch action {
+	case "accept", "accepted", "approve", "approved", "yes", "y":
+		status = "accepted"
+	case "cancel", "canceled", "cancelled":
+		status = "cancel"
+	default:
+		status = "rejected"
 	}
 	m := &msgwrite.Message{Id: messageID, Status: status, Has: &msgwrite.MessageHas{Status: true}}
 	_ = s.convClient.PatchMessage(ctx, (*apiconv.MutableMessage)(m))

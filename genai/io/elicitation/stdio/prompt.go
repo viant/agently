@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/viant/agently/genai/agent/plan"
@@ -71,7 +72,11 @@ func Prompt(ctx context.Context, w io.Writer, r io.Reader, p *plan.Elicitation) 
 	scanner := bufio.NewScanner(r)
 	payload := make(map[string]any)
 
-	orderedProps := s.propertyOrder()
+	// Prefer UI order hints (x-ui-order) from the refined schema when present.
+	orderedProps := uiOrder(p.RequestedSchema.Properties)
+	if len(orderedProps) == 0 {
+		orderedProps = s.propertyOrder()
+	}
 
 	for _, propName := range orderedProps {
 		prop := s.Properties[propName]
@@ -256,6 +261,60 @@ func (s *rawSchema) propertyOrder() []string {
 		}
 	}
 	return order
+}
+
+// uiOrder returns property names sorted by x-ui-order when present.
+// It expects a map[string]any where each property may include an "x-ui-order"
+// numeric hint.
+func uiOrder(props map[string]interface{}) []string {
+	if len(props) == 0 {
+		return nil
+	}
+	type item struct {
+		name  string
+		order int
+	}
+	items := make([]item, 0, len(props))
+	hasOrder := false
+	const big = int(^uint(0)>>1) / 2 // large positive sentinel
+	for name, v := range props {
+		ord := big
+		if m, ok := v.(map[string]interface{}); ok {
+			if val, ok2 := m["x-ui-order"]; ok2 {
+				switch t := val.(type) {
+				case float64:
+					ord = int(t)
+					hasOrder = true
+				case int:
+					ord = t
+					hasOrder = true
+				case int64:
+					ord = int(t)
+					hasOrder = true
+				case json.Number:
+					if iv, err := t.Int64(); err == nil {
+						ord = int(iv)
+						hasOrder = true
+					}
+				}
+			}
+		}
+		items = append(items, item{name: name, order: ord})
+	}
+	if !hasOrder {
+		return nil
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].order == items[j].order {
+			return items[i].name < items[j].name
+		}
+		return items[i].order < items[j].order
+	})
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = it.name
+	}
+	return out
 }
 
 func contains(ss []string, s string) bool {

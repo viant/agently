@@ -25,7 +25,11 @@ func (t *Turn) ToolCalls() Messages {
 
 func (t *Transcript) History(query string) []*prompt.Message {
 	normalized := t.Filter(func(v *Message) bool {
-		if v == nil || v.Type == "control" || v.IsInterim() || v.Content == nil || *v.Content == "" {
+		if v == nil || v.IsInterim() || v.Content == nil || *v.Content == "" {
+			return false
+		}
+		// Only include regular chat text; exclude elicitation/status/tool/etc.
+		if strings.ToLower(strings.TrimSpace(v.Type)) != "text" {
 			return false
 		}
 		role := strings.ToLower(strings.TrimSpace(v.Role))

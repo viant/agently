@@ -43,7 +43,6 @@ CREATE TABLE conversation
     archived               BIGINT       NOT NULL DEFAULT 0,
     deleted_at             TIMESTAMP    NULL     DEFAULT NULL,
     last_message_at        TIMESTAMP    NULL     DEFAULT NULL,
-    last_turn_id           VARCHAR(255),
     message_count          BIGINT       NOT NULL DEFAULT 0,
     turn_count             BIGINT       NOT NULL DEFAULT 0,
     retention_ttl_days     BIGINT,

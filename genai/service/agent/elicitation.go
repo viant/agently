@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/io/elicitation/refiner"
 	"github.com/viant/agently/genai/memory"
 )
 
@@ -18,8 +17,10 @@ func (s *Service) recordAssistantElicitation(ctx context.Context, convID string,
 		return nil
 	}
 
-	// Refine schema for better UX.
-	refiner.Refine(&elic.RequestedSchema)
+	// Refine schema for better UX using injected service.
+	if s.refinerSvc != nil {
+		s.refinerSvc.RefineRequestedSchema(&elic.RequestedSchema)
+	}
 	// Ensure elicitationId is present for client correlation.
 	if strings.TrimSpace(elic.ElicitationId) == "" {
 		elic.ElicitationId = uuid.New().String()

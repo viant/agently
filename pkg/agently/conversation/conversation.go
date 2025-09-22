@@ -73,7 +73,6 @@ type ConversationView struct {
 	Archived             int               `sqlx:"archived"`
 	DeletedAt            *time.Time        `sqlx:"deleted_at"`
 	LastMessageAt        *time.Time        `sqlx:"last_message_at"`
-	LastTurnId           *string           `sqlx:"last_turn_id"`
 	MessageCount         int               `sqlx:"message_count"`
 	TurnCount            int               `sqlx:"turn_count"`
 	RetentionTtlDays     *int              `sqlx:"retention_ttl_days"`
@@ -83,6 +82,7 @@ type ConversationView struct {
 }
 
 type TranscriptView struct {
+	LastTurnId            *string        `sqlx:"last_turn_id"`
 	Stage                 string         `sqlx:"stage"`
 	Id                    string         `sqlx:"id"`
 	ConversationId        string         `sqlx:"conversation_id"`

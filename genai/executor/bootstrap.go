@@ -82,7 +82,15 @@ func (e *Service) init(ctx context.Context) error {
 		return fmt.Errorf("failed to register agent tools: %w", err)
 	}
 	if e.tools == nil {
-		e.tools = tool.New(e.orchestration)
+		if e.mcpMgr == nil {
+			panic(1)
+			return fmt.Errorf("executor: mcp manager not configured for tool registry")
+		}
+		reg, err := tool.New(e.orchestration, e.mcpMgr)
+		if err != nil {
+			return err
+		}
+		e.tools = reg
 	}
 
 	// ------------------------------------------------------------------

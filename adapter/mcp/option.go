@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"github.com/viant/agently/adapter/mcp/router"
+	apiconv "github.com/viant/agently/client/conversation"
 	awaitreg "github.com/viant/agently/genai/awaitreg"
 	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/service/core"
+	"github.com/viant/mcp-protocol/schema"
 )
 
 // Option configures the customised client.
@@ -12,10 +14,6 @@ type Option func(*Client)
 
 // WithAwaiters sets the interactive prompt handler used by orchestrating code
 // whenever the server sends an "elicitation" request that needs user input.
-// WithAwaiter is a backward-compatibility helper that accepts a factory function
-// and internally creates an Awaiters registry. Existing call-sites that passed
-// only a constructor (func() Awaiter) can keep using this option whilst the
-// implementation migrates towards the registry pattern.
 func WithAwaiter(f func() elicitation.Awaiter) Option {
 	return func(cl *Client) {
 		if f == nil {
@@ -48,3 +46,22 @@ func WithURLOpener(fn func(string) error) Option {
 func WithRouter(r *router.Router) Option {
 	return func(c *Client) { c.router = r }
 }
+
+// WithRefinerService injects a refiner service applied to incoming elicitation requests.
+func WithRefinerService(svc interface {
+	RefineRequestedSchema(rs *schema.ElicitRequestParamsRequestedSchema)
+}) Option {
+	return func(c *Client) {
+		// wrap via function closure in Elicit – store via a tiny adapter
+		cRefine := func(rs *schema.ElicitRequestParamsRequestedSchema) {
+			if svc != nil {
+				svc.RefineRequestedSchema(rs)
+			}
+		}
+		// monkey-patch by replacing default preset call via a local hook
+		c.onRefine = cRefine
+	}
+}
+
+// WithConversationClient injects conversation client to persist elicitation messages (pollable by web UI).
+func WithConversationClient(cli apiconv.Client) Option { return func(c *Client) { c.convClient = cli } }
