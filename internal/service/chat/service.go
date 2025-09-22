@@ -189,7 +189,17 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 			runCtx = fluxpol.WithPolicy(runCtx, s.fluxPolicy)
 		}
 		// Execute agentic flow; turn/message persistence handled by agent recorder.
-		_, _ = s.mgr.Accept(runCtx, input)
+		_, err := s.mgr.Accept(runCtx, input)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to process message: 	%v\n", err)
+			if s.convClient != nil {
+				tUpd := apiconv.NewTurn()
+				tUpd.SetId(msgID)
+				tUpd.SetStatus("failed")
+				tUpd.SetErrorMessage(err.Error())
+				_ = s.convClient.PatchTurn(runCtx, tUpd)
+			}
+		}
 	}(ctx)
 
 	return msgID, nil

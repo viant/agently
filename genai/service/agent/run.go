@@ -109,10 +109,13 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err != nil {
 		status = "failed"
 	}
-	// Update turn status via conversation client
+	// Update turn status (and error message on failure) via conversation client
 	updTurn := apiconv.NewTurn()
 	updTurn.SetId(turn.TurnID)
 	updTurn.SetStatus(status)
+	if err != nil {
+		updTurn.SetErrorMessage(err.Error())
+	}
 	updateErr := s.convClient.PatchTurn(ctx, updTurn)
 	if err != nil {
 		return err

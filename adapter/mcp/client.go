@@ -6,12 +6,11 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 
 	awaitreg "github.com/viant/agently/genai/awaitreg"
 	"github.com/viant/agently/genai/conversation"
 	presetrefiner "github.com/viant/agently/genai/io/elicitation/refiner"
-	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
 	core2 "github.com/viant/agently/genai/service/core"
 
@@ -24,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
+	elicitation "github.com/viant/agently/genai/service/elicitation"
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
@@ -59,6 +59,7 @@ type Client struct {
 	convID     string
 	onRefine   func(rs *schema.ElicitRequestParamsRequestedSchema)
 	convClient apiconv.Client
+	elicition  *elicitation.Service
 }
 
 func (*Client) LastRequestID() jsonrpc.RequestId {
@@ -118,7 +119,9 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 		convID = conversation.ID(ctx)
 	}
 	// Persist elicitation message so UIs can render it.
-	c.persistElicitationMessage(ctx, &params)
+	if err := c.persistElicitationMessage(ctx, &params); err != nil {
+		return nil, jsonrpc.NewInternalError(fmt.Sprintf("failed to persist elicitation: %v", err), nil)
+	}
 	// best-effort: register in conv-scoped router
 	if c.router != nil {
 		c.router.Register(request.Id, convID, ch)
@@ -148,11 +151,15 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 
 	select {
 	case res := <-ch:
-		// Best-effort persistence so polling UIs can reflect acceptance/decline and payload.
-		if res != nil {
-			c.postElicitationResult(ctx, params.ElicitationId, res)
-			c.postElicitationStatus(ctx, params.ElicitationId, string(res.Action))
-			c.updateElicitationStatus(ctx, params.ElicitationId, string(res.Action))
+		if res == nil {
+			return nil, jsonrpc.NewInternalError("nil elicitation result", nil)
+		}
+		// Persist result and update status – bubble up any failure.
+		if err := c.postElicitationResult(ctx, params.ElicitationId, res); err != nil {
+			return nil, jsonrpc.NewInternalError(fmt.Sprintf("persist elicitation result: %v", err), nil)
+		}
+		if err := c.updateElicitationStatus(ctx, params.ElicitationId, string(res.Action)); err != nil {
+			return nil, jsonrpc.NewInternalError(fmt.Sprintf("update elicitation status: %v", err), nil)
 		}
 		return res, nil
 	case <-ctx.Done():
@@ -206,53 +213,27 @@ func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedReques
 
 // persistElicitationMessage best-effort persists an assistant message with
 // elicitation payload so that poll-based UIs can display it while awaiting user action.
-func (c *Client) persistElicitationMessage(ctx context.Context, params *schema.ElicitRequestParams) {
-	if c.convClient == nil || params == nil {
-		return
-	}
+func (c *Client) persistElicitationMessage(ctx context.Context, params *schema.ElicitRequestParams) error {
 	if strings.TrimSpace(c.convID) == "" {
-		return
+		return fmt.Errorf("convID is required")
 	}
-	// Ensure elicitation ID present
 	if strings.TrimSpace(params.ElicitationId) == "" {
 		params.ElicitationId = uuid.New().String()
 	}
 	payload := &elicitationSchema.Elicitation{ElicitRequestParams: *params}
-	raw, _ := json.Marshal(payload)
-
-	msg := apiconv.NewMessage()
-	msg.SetId(uuid.New().String())
-	msg.SetConversationID(c.convID)
-	// Attach turn id so Web transcript (turn-scoped) can include this message.
-	// Prefer TurnMeta from context; otherwise fall back to conversation.LastTurnId.
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-		if id := strings.TrimSpace(tm.TurnID); id != "" {
-			msg.SetTurnID(id)
-		}
+	// Record as tool-role elicitation (type=elicitation, status=pending), linked to current turn via context.
+	if c.elicition != nil {
+		return c.elicition.Record(ctx, c.convID, "tool", "", payload)
 	}
-	if msg.TurnID == nil {
-		if cv, err := c.convClient.GetConversation(ctx, c.convID); err == nil && cv != nil && cv.LastTurnId != nil {
-			msg.SetTurnID(*cv.LastTurnId)
-		}
-	}
-	msg.SetElicitationID(params.ElicitationId)
-	msg.SetRole("assistant")
-	// Mark as elicitation so it is not treated as regular assistant text in history.
-	msg.SetType("elicitation")
-	msg.SetContent(string(raw))
-	// Mark status so Web can surface pending prompts.
-	msg.Status = "pending"
-	if msg.Has != nil {
-		msg.Has.Status = true
-	}
-	_ = c.convClient.PatchMessage(ctx, msg)
+	// Fallback (should not happen when convClient is set)
+	return fmt.Errorf("elicitation service not initialized")
 }
 
 // postElicitationStatus emits a small status message linked to the elicitation
 // so that Web/CLI UIs can visualise the resolution.
-func (c *Client) postElicitationStatus(ctx context.Context, elicitationID, status string) {
+func (c *Client) postElicitationStatus(ctx context.Context, elicitationID, status string) error {
 	if c.convClient == nil || strings.TrimSpace(c.convID) == "" || strings.TrimSpace(elicitationID) == "" {
-		return
+		return fmt.Errorf("convClient/convID/elicitationID required")
 	}
 	// normalise to accepted/rejected/cancel
 	st := strings.ToLower(strings.TrimSpace(status))
@@ -289,52 +270,43 @@ func (c *Client) postElicitationStatus(ctx context.Context, elicitationID, statu
 			}
 		}
 	}
-	msg.SetRole("system")
-	msg.SetType("elicitation_status")
 	msg.SetContent(st)
-	_ = c.convClient.PatchMessage(ctx, msg)
+	if err := c.convClient.PatchMessage(ctx, msg); err != nil {
+		return err
+	}
+	return nil
 }
 
 // postElicitationResult persists the resolved elicitation payload so that UIs
 // and potential resume logic can consume it from storage.
-func (c *Client) postElicitationResult(ctx context.Context, elicitationID string, res *schema.ElicitResult) {
+func (c *Client) postElicitationResult(ctx context.Context, elicitationID string, res *schema.ElicitResult) error {
 	if c.convClient == nil || strings.TrimSpace(c.convID) == "" || strings.TrimSpace(elicitationID) == "" || res == nil {
-		return
+		return fmt.Errorf("convClient/convID/elicitationID/result required")
 	}
-	raw, _ := json.Marshal(res.Content)
-	msg := apiconv.NewMessage()
-	msg.SetId(uuid.New().String())
-	msg.SetConversationID(c.convID)
-	msg.SetElicitationID(elicitationID)
-	// Link to original turn when possible
-	if cv, err := c.convClient.GetConversation(ctx, c.convID); err == nil && cv != nil {
-		for _, turn := range cv.GetTranscript() {
-			if turn == nil {
-				continue
-			}
-			for _, m := range turn.GetMessages() {
-				if m == nil || m.ElicitationId == nil {
-					continue
-				}
-				if strings.TrimSpace(*m.ElicitationId) == strings.TrimSpace(elicitationID) {
-					if turnId := strings.TrimSpace(turn.Id); turnId != "" {
-						msg.SetTurnID(turnId)
-					}
-					break
-				}
-			}
+	orig, err := c.convClient.GetMessageByElicitation(ctx, c.convID, elicitationID)
+	if err != nil || orig == nil {
+		if err != nil {
+			return err
 		}
+		return fmt.Errorf("elicitation message not found")
 	}
-	msg.SetRole("system")
-	msg.SetType("elicitation_result")
-	msg.SetContent(string(raw))
-	_ = c.convClient.PatchMessage(ctx, msg)
+	role := strings.ToLower(strings.TrimSpace(orig.Role))
+	if role == "assistant" {
+		if c.elicition == nil {
+			return fmt.Errorf("elicitation service not initialised")
+		}
+		return c.elicition.AddUserResponseMessage(ctx, c.convID, elicitation.Deref(orig.TurnId), orig.Id, res.Content)
+	}
+	if c.elicition == nil {
+		return fmt.Errorf("elicitation service not initialised")
+	}
+	return c.elicition.StoreToolResponse(ctx, c.convID, elicitationID, res.Content)
 }
 
 // updateElicitationStatus patches the original elicitation message status based on action.
-func (c *Client) updateElicitationStatus(ctx context.Context, elicitationID, action string) {
+func (c *Client) updateElicitationStatus(ctx context.Context, elicitationID, action string) error {
 	if c.convClient == nil || strings.TrimSpace(c.convID) == "" || strings.TrimSpace(elicitationID) == "" {
-		return
+		return fmt.Errorf("convClient/convID/elicitationID required")
 	}
 	st := strings.ToLower(strings.TrimSpace(action))
 	switch st {
@@ -347,31 +319,10 @@ func (c *Client) updateElicitationStatus(ctx context.Context, elicitationID, act
 	default:
 		st = "rejected"
 	}
-	// Find the message by conversation + elicitation id
-	conv, err := c.convClient.GetConversation(ctx, c.convID)
-	if err != nil || conv == nil {
-		return
+	if c.elicition == nil {
+		return fmt.Errorf("elicitation service not initialised")
 	}
-	for _, turn := range conv.GetTranscript() {
-		if turn == nil {
-			continue
-		}
-		for _, m := range turn.GetMessages() {
-			if m == nil || m.ElicitationId == nil {
-				continue
-			}
-			if strings.TrimSpace(*m.ElicitationId) == strings.TrimSpace(elicitationID) {
-				upd := apiconv.NewMessage()
-				upd.SetId(m.Id)
-				upd.Status = st
-				if upd.Has != nil {
-					upd.Has.Status = true
-				}
-				_ = c.convClient.PatchMessage(ctx, upd)
-				return
-			}
-		}
-	}
+	return c.elicition.UpdateStatus(ctx, c.convID, elicitationID, action)
 }
 
 func (c *Client) asErr(e error) *jsonrpc.Error {

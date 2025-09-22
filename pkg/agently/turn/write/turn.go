@@ -17,6 +17,7 @@ type Turn struct {
 	ModelOverrideProvider *string    `sqlx:"model_override_provider" json:",omitempty"`
 	ModelOverride         *string    `sqlx:"model_override" json:",omitempty"`
 	ModelParamsOverride   *string    `sqlx:"model_params_override" json:",omitempty"`
+	ErrorMessage          *string    `sqlx:"error_message" json:",omitempty"`
 	Has                   *TurnHas   `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
@@ -32,6 +33,7 @@ type TurnHas struct {
 	ModelOverrideProvider bool
 	ModelOverride         bool
 	ModelParamsOverride   bool
+	ErrorMessage          bool
 }
 
 func (t *Turn) SetId(v string) { t.Id = v; ensureHas(&t.Has); t.Has.Id = true }
@@ -72,6 +74,11 @@ func (t *Turn) SetModelParamsOverride(v string) {
 	t.ModelParamsOverride = &v
 	ensureHas(&t.Has)
 	t.Has.ModelParamsOverride = true
+}
+func (t *Turn) SetErrorMessage(v string) {
+	t.ErrorMessage = &v
+	ensureHas(&t.Has)
+	t.Has.ErrorMessage = true
 }
 
 type TurnSlice []*Turn
