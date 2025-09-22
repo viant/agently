@@ -53,11 +53,10 @@ func WithConfig(config *Config) Option {
 func WithToolDebugLogger(w io.Writer) Option {
 	return func(s *Service) {
 		if s.tools == nil && s.orchestration != nil {
-			s.tools = atool.New(s.orchestration)
-			s.tools.SetDebugLogger(w)
 			if s.mcpMgr != nil {
-				if r, ok := s.tools.(*atool.Registry); ok {
-					r.WithManager(s.mcpMgr)
+				if reg, err := atool.New(s.orchestration, s.mcpMgr); err == nil {
+					reg.SetDebugLogger(w)
+					s.tools = reg
 				}
 			}
 		}
@@ -111,12 +110,6 @@ func WithAgents(agents ...*agent.Agent) Option {
 func WithTools(tools tool.Registry) Option {
 	return func(s *Service) {
 		s.tools = tools
-		// If an MCP manager was provided earlier, attach to adapter/tool registry when possible.
-		if s.mcpMgr != nil {
-			if r, ok := s.tools.(*atool.Registry); ok {
-				r.WithManager(s.mcpMgr)
-			}
-		}
 	}
 }
 
@@ -134,11 +127,6 @@ func WithoutHotSwap() Option {
 func WithMCPManager(m *mcpmgr.Manager) Option {
 	return func(s *Service) {
 		s.mcpMgr = m
-		// If tools already constructed and is the adapter/tool registry, attach now.
-		if s.tools != nil {
-			if r, ok := s.tools.(*atool.Registry); ok {
-				r.WithManager(m)
-			}
-		}
+		// Tools will be created with manager when needed (see WithToolDebugLogger or explicit WithTools).
 	}
 }

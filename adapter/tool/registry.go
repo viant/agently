@@ -38,15 +38,19 @@ type Registry struct {
 
 // New creates a registry bound to the given orchestration service.
 // The pointer must not be nil.
-func New(svc *mcpservice.Service) *Registry {
+func New(svc *mcpservice.Service, mgr *manager.Manager) (*Registry, error) {
 	if svc == nil {
-		panic("adapter/tool: nil mcp.Service passed to registry.New")
+		return nil, fmt.Errorf("adapter/tool: nil mcp.Service passed to registry.New")
+	}
+	if mgr == nil {
+		return nil, fmt.Errorf("adapter/tool: nil mcp manager passed to registry.New")
 	}
 	return &Registry{
 		svc:         svc,
 		virtualDefs: map[string]llm.ToolDefinition{},
 		virtualExec: map[string]gtool.Handler{},
-	}
+		mgr:         mgr,
+	}, nil
 }
 
 // WithManager attaches a per-conversation MCP manager used to inject the
@@ -219,21 +223,18 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		fmt.Fprintf(r.debugWriter, "[adapter/tool] call %s args=%v (mcp)\n", name, args)
 	}
 
-	// Inject per-conversation MCP client and token into context for proxy.
-	if r.mgr != nil {
-		convID := conversation.ID(ctx)
-		// Infer server (service name) from tool name using fluxor-mcp naming.
-		server := mcptool.Name(mcptool.Canonical(name)).Service()
-		if server != "" && convID != "" {
-			if cli, err := r.mgr.Get(ctx, convID, server); err == nil && cli != nil {
-				ctx = mcontext.WithClient(ctx, cli)
-				// Optionally attach token from context if present (HTTP layer).
-				if tok := authctx.Bearer(ctx); tok != "" {
-					ctx = mcontext.WithAuthToken(ctx, tok)
-				}
-				// Update last-used timestamp after the call completes.
-				defer r.mgr.Touch(convID, server)
+	convID := conversation.ID(ctx)
+	// Infer server (service name) from tool name using fluxor-mcp naming.
+	server := mcptool.Name(mcptool.Canonical(name)).Service()
+	if server != "" && convID != "" {
+		if cli, err := r.mgr.Get(ctx, convID, server); err == nil && cli != nil {
+			ctx = mcontext.WithClient(ctx, cli)
+			// Optionally attach token from context if present (HTTP layer).
+			if tok := authctx.Bearer(ctx); tok != "" {
+				ctx = mcontext.WithAuthToken(ctx, tok)
 			}
+			// Update last-used timestamp after the call completes.
+			defer r.mgr.Touch(convID, server)
 		}
 	}
 

@@ -13,13 +13,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	mcpclienthandler "github.com/viant/agently/adapter/mcp"
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
+	mcprouter "github.com/viant/agently/adapter/mcp/router"
 	"github.com/viant/agently/client/conversation/factory"
 	"github.com/viant/agently/cmd/service"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/executor"
+	elicitationpkg "github.com/viant/agently/genai/io/elicitation"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/tool"
+	protoclient "github.com/viant/mcp-protocol/client"
 )
 
 // ChatCmd handles interactive/chat queries.
@@ -123,6 +128,21 @@ func (c *ChatCmd) Execute(_ []string) error {
 		return err
 	}
 	registerExecOption(executor.WithConversionClient(convClient))
+
+	// Ensure per-conversation MCP manager is available for chat tool calls.
+	// Use an interactive awaiter so elicitation is resolved inline on CLI.
+	prov := mcpmgr.NewRepoProvider()
+	r := mcprouter.New()
+	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
+		return mcpclienthandler.NewClient(
+			mcpclienthandler.WithAwaiter(func() elicitationpkg.Awaiter { return newStdinAwaiter() }),
+			mcpclienthandler.WithConversationClient(convClient),
+			mcpclienthandler.WithRouter(r),
+			// Disable client auto-open; awaiter offers explicit [o]pen.
+			mcpclienthandler.WithURLOpener(nil),
+		)
+	}))
+	registerExecOption(executor.WithMCPManager(mgr))
 	// Build executor and service --------------------------------------------
 	svcExec := executorSingleton()
 

@@ -14,6 +14,7 @@ import (
 	mcpclienthandler "github.com/viant/agently/adapter/mcp"
 	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	mcprouter "github.com/viant/agently/adapter/mcp/router"
+	convfactory "github.com/viant/agently/client/conversation/factory"
 	"github.com/viant/agently/cmd/service"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
@@ -35,12 +36,28 @@ func (s *ServeCmd) Execute(_ []string) error {
 	// Construct shared MCP router and per-conversation manager before executor init
 	r := mcprouter.New()
 	prov := mcpmgr.NewRepoProvider()
+
+	// Build conversation client from environment (Datly), so MCP client can persist
+	// elicitation messages/results for the Web UI to poll.
+	convClient, _ := convfactory.NewFromEnv(context.Background())
 	// Ensure per-conversation MCP clients are created with the Router wired in
+	// Inject a workspace-driven refiner service for consistent UX across HTTP
+	// and CLI. The default workspace preset refiner is used by the client when
+	// no service is supplied; passing it explicitly keeps behaviour predictable
+	// if future defaults change.
+	// NOTE: For now, we rely on the internal default preset refiner; so no explicit WithRefinerService here.
 	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
-		return mcpclienthandler.NewClient(mcpclienthandler.WithRouter(r))
+		return mcpclienthandler.NewClient(
+			mcpclienthandler.WithRouter(r),
+			mcpclienthandler.WithConversationClient(convClient),
+		)
 	}))
 	// Inject manager into executor options so tool registry can use it
 	registerExecOption(executor.WithMCPManager(mgr))
+	// Also supply conversation client to executor so orchestration can persist messages/tool events.
+	if convClient != nil {
+		registerExecOption(executor.WithConversionClient(convClient))
+	}
 
 	exec := executorSingleton()
 	if !exec.IsStarted() {

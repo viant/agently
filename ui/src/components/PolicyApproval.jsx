@@ -7,6 +7,7 @@ import { joinURL } from '../utils/url';
 /**
  * PolicyApproval – Dialog for policy approval prompts (role == "policyapproval").
  * Allows the user to Accept, Decline, or Cancel execution of a tool.
+ * Backend normalises status to one of: "accepted", "rejected", "cancel".
  */
 export default function PolicyApproval({ message, context }) {
   if (!message || !message.policyApproval) return null;

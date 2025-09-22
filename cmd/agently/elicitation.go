@@ -1,6 +1,7 @@
 package agently
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"github.com/viant/agently/genai/agent/plan"
@@ -32,20 +33,50 @@ func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitati
 	if req != nil {
 		url := strings.TrimSpace(req.Url)
 		if url != "" {
-			// Inform the user once per unique URL.
+			// Out-of-band interaction: print URL and offer to open; default is immediate accept
 			if _, done := openedURLs[url]; !done {
 				openedURLs[url] = struct{}{}
-				fmt.Fprintf(os.Stdout, "\nThe workflow requests additional information. Please follow the link below, complete the form and paste the resulting JSON here.\nURL: %s\n", url)
-				// Best-effort attempt to open the browser (non-blocking).
-				_ = launchBrowser(url)
-			} else {
-				// Still remind the user of the URL but skip auto-open.
-				fmt.Fprintf(os.Stdout, "\nPlease provide the JSON from previously opened URL: %s\n", url)
+			}
+			fmt.Fprintf(os.Stdout, "\nThe workflow requests additional information.\nURL: %s\n", url)
+
+			reader := bufio.NewReader(os.Stdin)
+			for {
+				fmt.Fprint(os.Stdout, "Open URL and accept? [o]pen, [a]ccept, [r]eject (default: a): ")
+				line, _ := reader.ReadString('\n')
+				sel := strings.ToLower(strings.TrimSpace(line))
+				if sel == "" || sel == "a" || sel == "accept" {
+					return &plan.ElicitResult{Action: plan.ElicitResultActionAccept}, nil
+				}
+				if sel == "o" || sel == "open" {
+					_ = launchBrowser(url)
+					return &plan.ElicitResult{Action: plan.ElicitResultActionAccept}, nil
+				}
+				if sel == "r" || sel == "reject" || sel == "decline" {
+					return &plan.ElicitResult{Action: plan.ElicitResultActionDecline}, nil
+				}
+				fmt.Fprintln(os.Stdout, "Invalid choice. Please enter o, a, or r.")
 			}
 		}
 	}
 	var w io.Writer = os.Stdout // ensure stdout flushing
-	return stdio.Prompt(ctx, w, os.Stdin, req)
+	res, err := stdio.Prompt(ctx, w, os.Stdin, req)
+	if err != nil {
+		return nil, err
+	}
+	// Confirm submission after fields are collected.
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Fprint(os.Stdout, "Submit collected details? [a]ccept, [r]eject (default: a): ")
+		line, _ := reader.ReadString('\n')
+		sel := strings.ToLower(strings.TrimSpace(line))
+		if sel == "" || sel == "a" || sel == "accept" {
+			return res, nil
+		}
+		if sel == "r" || sel == "reject" || sel == "decline" {
+			return &plan.ElicitResult{Action: plan.ElicitResultActionDecline}, nil
+		}
+		fmt.Fprintln(os.Stdout, "Invalid choice. Please enter a or r.")
+	}
 }
 
 // newStdinAwaiter is a helper for neat option wiring.

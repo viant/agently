@@ -37,7 +37,6 @@ CREATE TABLE conversation
     archived               INTEGER   NOT NULL DEFAULT 0,
     deleted_at             TIMESTAMP,
     last_message_at        TIMESTAMP,
-    last_turn_id           TEXT,
     message_count          INTEGER   NOT NULL DEFAULT 0,
     turn_count             INTEGER   NOT NULL DEFAULT 0,
     retention_ttl_days     INTEGER,

@@ -10,6 +10,7 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/executor/config"
+	elicref "github.com/viant/agently/genai/io/elicitation/refiner"
 	"github.com/viant/agently/genai/service/agent/orchestrator"
 	"github.com/viant/agently/genai/service/augmenter"
 	"github.com/viant/agently/genai/service/core"
@@ -40,11 +41,20 @@ type Service struct {
 
 	// convClient is a shared conversation client used to fetch transcript/usage.
 	convClient apiconv.Client
+
+	// refinerSvc refines elicitation schemas for improved UX (ordering, widgets, defaults).
+	refinerSvc elicref.Service
 }
 
 // SetRuntime sets the fluxor runtime for orchestration
 func (s *Service) SetRuntime(rt *fluxor.Runtime) {
 	s.runtime = rt
+}
+
+// WithElicitationRefiner injects a refiner service used to enhance elicitation
+// schemas before they are presented to the user.
+func WithElicitationRefiner(r elicref.Service) Option {
+	return func(s *Service) { s.refinerSvc = r }
 }
 
 // New creates a new agent service instance with the given tool registry and fluxor runtime
@@ -67,6 +77,10 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 
 	for _, o := range opts {
 		o(srv)
+	}
+	// Default elicitation refiner when none provided: use workspace preset refiner.
+	if srv.refinerSvc == nil {
+		srv.refinerSvc = elicref.DefaultService{}
 	}
 	// Instantiate conversation API once; ignore errors to preserve backward compatibility
 	if dao, err := implconv.NewDatly(context.Background()); err == nil {

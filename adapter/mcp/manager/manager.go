@@ -77,7 +77,12 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	if handler == nil {
 		handler = func() protoclient.Handler { return nil }
 	}
-	cli, err := mcp.NewClient(handler(), opts)
+	h := handler()
+	// If handler supports setting conversation id, assign it.
+	if ca, ok := h.(interface{ SetConversationID(string) }); ok {
+		ca.SetConversationID(convID)
+	}
+	cli, err := mcp.NewClient(h, opts)
 	if err != nil {
 		return nil, err
 	}

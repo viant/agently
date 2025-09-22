@@ -9,10 +9,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	mcpclienthandler "github.com/viant/agently/adapter/mcp"
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
+	mcprouter "github.com/viant/agently/adapter/mcp/router"
 	"github.com/viant/agently/cmd/service"
 	apiconv "github.com/viant/agently/genai/conversation"
+	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/fluxor-mcp/mcp/tool"
+	protoclient "github.com/viant/mcp-protocol/client"
 )
 
 // ExecCmd executes a registered tool via the Agently executor. It mirrors the
@@ -30,6 +35,20 @@ func (c *ExecCmd) Execute(_ []string) error {
 	if c.Inline != "" && c.File != "" {
 		return fmt.Errorf("-i/--input and -f/--file are mutually exclusive")
 	}
+
+	// Ensure per-conversation MCP manager is available for this ad-hoc exec path.
+	// Use a stdin awaiter so elicitation can be completed interactively.
+	prov := mcpmgr.NewRepoProvider()
+	r := mcprouter.New()
+	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
+		return mcpclienthandler.NewClient(
+			mcpclienthandler.WithAwaiter(newStdinAwaiter),
+			mcpclienthandler.WithRouter(r),
+			// Disable client auto-open; awaiter offers explicit [o]pen.
+			mcpclienthandler.WithURLOpener(nil),
+		)
+	}))
+	registerExecOption(executor.WithMCPManager(mgr))
 
 	execSvc := executorSingleton()
 	svc := service.New(execSvc, service.Options{})
