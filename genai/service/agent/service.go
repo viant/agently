@@ -14,6 +14,7 @@ import (
 	"github.com/viant/agently/genai/service/agent/orchestrator"
 	"github.com/viant/agently/genai/service/augmenter"
 	"github.com/viant/agently/genai/service/core"
+	elicitation "github.com/viant/agently/genai/service/elicitation"
 	"github.com/viant/agently/genai/tool"
 	implconv "github.com/viant/agently/internal/service/conversation"
 	"github.com/viant/fluxor"
@@ -44,6 +45,8 @@ type Service struct {
 
 	// refinerSvc refines elicitation schemas for improved UX (ordering, widgets, defaults).
 	refinerSvc elicref.Service
+
+	elicition *elicitation.Service
 }
 
 // SetRuntime sets the fluxor runtime for orchestration
@@ -96,6 +99,12 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 
 	// Initialize orchestrator with conversation client
 	srv.orchestrator = orchestrator.New(llm, registry, srv.convClient)
+
+	// Initialize shared elicitation util holder
+	if srv.convClient != nil {
+		// Pass the same refiner into elicitation service so all refinements are centralized
+		srv.elicition = elicitation.New(srv.convClient, elicitation.WithRefiner(srv.refinerSvc))
+	}
 
 	return srv
 }

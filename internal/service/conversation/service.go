@@ -47,6 +47,9 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 	if err := messageread.DefineMessageComponent(ctx, dao); err != nil {
 		return err
 	}
+	if err := messageread.DefineMessageByElicitationComponent(ctx, dao); err != nil {
+		return err
+	}
 	if err := payloadread.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
@@ -105,9 +108,6 @@ func (s *Service) GetConversations(ctx context.Context) ([]*convcli.Conversation
 
 // GetConversation implements conversation.API using the generated component and returns SDK Conversation.
 func (s *Service) GetConversation(ctx context.Context, id string, options ...convcli.Option) (*convcli.Conversation, error) {
-	if s == nil || s.dao == nil {
-		return nil, nil
-	}
 	// Build SDK input via options
 	inSDK := convcli.Input{Id: id, Has: &agconv.ConversationInputHas{Id: true}}
 	for _, opt := range options {
@@ -176,6 +176,23 @@ func (s *Service) GetMessage(ctx context.Context, id string) (*convcli.Message, 
 	in := messageread.MessageInput{Id: id, Has: &messageread.MessageInputHas{Id: true}}
 	out := &messageread.MessageOutput{}
 	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(messageread.MessagePathURI), datly.WithInput(&in)); err != nil {
+		return nil, err
+	}
+	if len(out.Data) == 0 {
+		return nil, nil
+	}
+	res := convcli.Message(*out.Data[0])
+	return &res, nil
+}
+
+func (s *Service) GetMessageByElicitation(ctx context.Context, conversationID, elicitationID string) (*convcli.Message, error) {
+	if s == nil || s.dao == nil {
+		return nil, nil
+	}
+	in := messageread.MessageByElicitationInput{ConversationId: conversationID, ElicitationId: elicitationID}
+	out := &messageread.MessageByElicitationOutput{}
+	uri := messageread.MessageByElicitationPathURI
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(&in)); err != nil {
 		return nil, err
 	}
 	if len(out.Data) == 0 {

@@ -6,6 +6,7 @@ import (
 	awaitreg "github.com/viant/agently/genai/awaitreg"
 	"github.com/viant/agently/genai/io/elicitation"
 	"github.com/viant/agently/genai/service/core"
+	elicsvc "github.com/viant/agently/genai/service/elicitation"
 	"github.com/viant/mcp-protocol/schema"
 )
 
@@ -60,8 +61,19 @@ func WithRefinerService(svc interface {
 		}
 		// monkey-patch by replacing default preset call via a local hook
 		c.onRefine = cRefine
+		// Also configure elicitation service if present
+		if c.elicition != nil && svc != nil {
+			c.elicition.SetRefiner(svc)
+		}
 	}
 }
 
 // WithConversationClient injects conversation client to persist elicitation messages (pollable by web UI).
-func WithConversationClient(cli apiconv.Client) Option { return func(c *Client) { c.convClient = cli } }
+func WithConversationClient(cli apiconv.Client) Option {
+	return func(c *Client) {
+		c.convClient = cli
+		if cli != nil {
+			c.elicition = elicsvc.New(cli)
+		}
+	}
+}
