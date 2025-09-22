@@ -14,7 +14,6 @@ import (
 
 	"sync"
 
-	"github.com/google/uuid"
 	elicitationSchema "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
 
