@@ -10,7 +10,6 @@ import (
 
 	awaitreg "github.com/viant/agently/genai/awaitreg"
 	"github.com/viant/agently/genai/conversation"
-	presetrefiner "github.com/viant/agently/genai/io/elicitation/refiner"
 	"github.com/viant/agently/genai/prompt"
 	core2 "github.com/viant/agently/genai/service/core"
 
@@ -23,7 +22,8 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
-	elicitation "github.com/viant/agently/genai/service/elicitation"
+	elicitation "github.com/viant/agently/genai/elicitation"
+	presetrefiner "github.com/viant/agently/genai/elicitation/refiner"
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
@@ -104,12 +104,14 @@ func (c *Client) ListRoots(ctx context.Context, p *jsonrpc.TypedRequest[*schema.
 }
 
 func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*schema.ElicitRequest]) (*schema.ElicitResult, *jsonrpc.Error) {
-	// Work on a copy so refiners do not mutate transport payload and always
-	// apply the workspace preset refiner (ordering, widgets, defaults).
+	// Work on a copy and refine the schema for better UX prior to prompting.
 	params := request.Request.Params
-	if c.onRefine != nil {
+	if c.elicition != nil {
+		c.elicition.RefineRequestedSchema(&params.RequestedSchema)
+	} else if c.onRefine != nil {
 		c.onRefine(&params.RequestedSchema)
 	} else {
+		// Fallback to preset for safety if service not initialised
 		presetrefiner.Refine(&params.RequestedSchema)
 	}
 	// Persist & register typed-id waiter with optional router scoped by conversation id.
@@ -295,7 +297,7 @@ func (c *Client) postElicitationResult(ctx context.Context, elicitationID string
 		if c.elicition == nil {
 			return fmt.Errorf("elicitation service not initialised")
 		}
-		return c.elicition.AddUserResponseMessage(ctx, c.convID, elicitation.Deref(orig.TurnId), orig.Id, res.Content)
+		return c.elicition.AddUserResponseMessage(ctx, c.convID, conv.Dereference[string](orig.TurnId), orig.Id, res.Content)
 	}
 	if c.elicition == nil {
 		return fmt.Errorf("elicitation service not initialised")

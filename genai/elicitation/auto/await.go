@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/io/elicitation"
+	"github.com/viant/agently/genai/elicitation"
 	mcpproto "github.com/viant/mcp-protocol/schema"
 )
 

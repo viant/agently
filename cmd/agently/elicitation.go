@@ -5,8 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/io/elicitation"
-	"github.com/viant/agently/genai/io/elicitation/stdio"
+	"github.com/viant/agently/genai/elicitation"
 	"io"
 	"os"
 	"os/exec"
@@ -59,7 +58,7 @@ func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitati
 		}
 	}
 	var w io.Writer = os.Stdout // ensure stdout flushing
-	res, err := stdio.Prompt(ctx, w, os.Stdin, req)
+	res, err := elicitation.Prompt(ctx, w, os.Stdin, req)
 	if err != nil {
 		return nil, err
 	}

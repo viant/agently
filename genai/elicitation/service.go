@@ -1,5 +1,7 @@
 package elicitation
 
+// moved from genai/service/elicitation
+
 import (
 	"context"
 	"encoding/json"
@@ -9,13 +11,11 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent/plan"
-	presetrefiner "github.com/viant/agently/genai/io/elicitation/refiner"
+	presetrefiner "github.com/viant/agently/genai/elicitation/refiner"
 	"github.com/viant/agently/genai/memory"
-	"github.com/viant/agently/internal/conv"
 	"github.com/viant/mcp-protocol/schema"
 )
 
-// Refiner is a minimal interface for schema refinement.
 type Refiner interface {
 	RefineRequestedSchema(rs *schema.ElicitRequestParamsRequestedSchema)
 }
@@ -24,11 +24,9 @@ type Service struct {
 	client  apiconv.Client
 	refiner Refiner
 }
-
 type Option func(*Service)
 
 func WithRefiner(r Refiner) Option { return func(s *Service) { s.refiner = r } }
-
 func New(client apiconv.Client, opts ...Option) *Service {
 	s := &Service{client: client}
 	for _, o := range opts {
@@ -38,40 +36,26 @@ func New(client apiconv.Client, opts ...Option) *Service {
 	}
 	return s
 }
-
-// SetRefiner allows late injection of a refiner.
 func (s *Service) SetRefiner(r Refiner) { s.refiner = r }
-
-// NormalizeAction maps various inputs to accepted/rejected/cancel.
-func (Service) NormalizeAction(action string) string {
-	st := strings.ToLower(strings.TrimSpace(action))
-	switch st {
-	case "accept", "accepted", "approve", "approved", "yes", "y":
-		return "accepted"
-	case "cancel", "canceled", "cancelled":
-		return "cancel"
-	case "decline", "declined", "reject", "rejected", "no", "n":
-		fallthrough
-	default:
-		return "rejected"
+func (s *Service) RefineRequestedSchema(rs *schema.ElicitRequestParamsRequestedSchema) {
+	if rs == nil {
+		return
 	}
+	if s != nil && s.refiner != nil {
+		s.refiner.RefineRequestedSchema(rs)
+		return
+	}
+	presetrefiner.Refine(rs)
 }
 
-// Record creates an elicitation message with type=elicitation and status=pending.
-// role should typically be "assistant" (LLM) or "tool".
 func (s *Service) Record(ctx context.Context, convID, role, parentMessageID string, elic *plan.Elicitation) error {
 	if s.client == nil || strings.TrimSpace(convID) == "" || elic == nil {
 		return fmt.Errorf("invalid input")
 	}
-	// Refine schema for better UX.
-	if s.refiner != nil {
-		s.refiner.RefineRequestedSchema(&elic.RequestedSchema)
-	} else {
-		presetrefiner.Refine(&elic.RequestedSchema)
-	}
 	if strings.TrimSpace(elic.ElicitationId) == "" {
 		elic.ElicitationId = uuid.New().String()
 	}
+	s.RefineRequestedSchema(&elic.RequestedSchema)
 	raw, _ := json.Marshal(elic)
 	msg := apiconv.NewMessage()
 	msg.SetId(uuid.New().String())
@@ -84,7 +68,7 @@ func (s *Service) Record(ctx context.Context, convID, role, parentMessageID stri
 		msg.SetParentMessageID(parentMessageID)
 	}
 	msg.SetRole(role)
-	msg.SetType("elicitation")
+	msg.SetType("control")
 	msg.Status = "pending"
 	if msg.Has != nil {
 		msg.Has.Status = true
@@ -92,15 +76,17 @@ func (s *Service) Record(ctx context.Context, convID, role, parentMessageID stri
 	if len(raw) > 0 {
 		msg.SetContent(string(raw))
 	}
-	return s.client.PatchMessage(ctx, msg)
+	if err := s.client.PatchMessage(ctx, msg); err != nil {
+		return err
+	}
+	return nil
 }
 
-// UpdateStatus updates the original elicitation message status in place.
 func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, action string) error {
 	if s.client == nil || strings.TrimSpace(convID) == "" || strings.TrimSpace(elicitationID) == "" {
 		return fmt.Errorf("invalid input")
 	}
-	st := s.NormalizeAction(action)
+	st := NormalizeAction(action)
 	msg, err := s.client.GetMessageByElicitation(ctx, convID, elicitationID)
 	if err != nil {
 		return err
@@ -117,7 +103,6 @@ func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, actio
 	return s.client.PatchMessage(ctx, upd)
 }
 
-// StoreToolResponse stores the payload as an inline call_payload and links it to the original message.
 func (s *Service) StoreToolResponse(ctx context.Context, convID, elicitationID string, payload map[string]interface{}) error {
 	if s.client == nil || strings.TrimSpace(convID) == "" || strings.TrimSpace(elicitationID) == "" {
 		return fmt.Errorf("invalid input")
@@ -147,7 +132,6 @@ func (s *Service) StoreToolResponse(ctx context.Context, convID, elicitationID s
 	return s.client.PatchMessage(ctx, upd)
 }
 
-// AddUserResponseMessage adds a user text message with the JSON payload for LLM history.
 func (s *Service) AddUserResponseMessage(ctx context.Context, convID, turnID, parentMessageID string, payload map[string]interface{}) error {
 	if s.client == nil || strings.TrimSpace(convID) == "" {
 		return fmt.Errorf("invalid input")
@@ -168,5 +152,16 @@ func (s *Service) AddUserResponseMessage(ctx context.Context, convID, turnID, pa
 	return s.client.PatchMessage(ctx, m)
 }
 
-// Deref is a small helper to dereference optional fields.
-func Deref(s *string) string { return conv.Dereference[string](s) }
+func NormalizeAction(action string) string {
+	st := strings.ToLower(strings.TrimSpace(action))
+	switch st {
+	case "accept", "accepted", "approve", "approved", "yes", "y":
+		return "accepted"
+	case "cancel", "canceled", "cancelled":
+		return "cancel"
+	case "decline", "declined", "reject", "rejected", "no", "n":
+		fallthrough
+	default:
+		return "rejected"
+	}
+}
