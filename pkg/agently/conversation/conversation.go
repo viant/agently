@@ -50,6 +50,7 @@ type ConversationOutput struct {
 }
 
 type ConversationView struct {
+	LastTurnId           *string           `sqlx:"last_turn_id"`
 	Stage                string            `sqlx:"stage"`
 	Id                   string            `sqlx:"id"`
 	Summary              *string           `sqlx:"summary"`
@@ -82,7 +83,6 @@ type ConversationView struct {
 }
 
 type TranscriptView struct {
-	LastTurnId            *string        `sqlx:"last_turn_id"`
 	Stage                 string         `sqlx:"stage"`
 	Id                    string         `sqlx:"id"`
 	ConversationId        string         `sqlx:"conversation_id"`
