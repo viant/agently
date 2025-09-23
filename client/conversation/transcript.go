@@ -60,7 +60,7 @@ func (t *Transcript) History(query string) []*prompt.Message {
 				userData = string(*v.Elicitation.InlineBody)
 			}
 			if userData == "" {
-				userData = fmt.Sprintf("elicitation status: %v", v.Status)
+				userData = fmt.Sprintf("elicitation status: %v", *v.Status)
 			}
 			content = userData
 		}
