@@ -77,6 +77,10 @@ const (
 	RoleTool      MessageRole = "tool"
 )
 
+func (m MessageRole) String() string {
+	return string(m)
+}
+
 // Message is a generic message suitable for multiple content items and types.
 type Message struct {
 	// Role of the sender (user, assistant, system, etc.)

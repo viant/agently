@@ -83,7 +83,8 @@ CREATE TABLE message
     elicitation_id     TEXT,
     parent_message_id  TEXT,
     superseded_by      TEXT,
-    payload_id         TEXT    REFERENCES call_payload (id) ON DELETE SET NULL,
+    attachment_payload_id  TEXT REFERENCES call_payload (id) ON DELETE SET NULL,
+    elicitation_payload_id TEXT REFERENCES call_payload (id) ON DELETE SET NULL,
     -- legacy column to remain compatible with older readers
     tool_name          TEXT
 );

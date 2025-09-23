@@ -10,7 +10,7 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
 	elicitation "github.com/viant/agently/genai/elicitation"
-	elicref "github.com/viant/agently/genai/elicitation/refiner"
+	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/service/agent/orchestrator"
 	"github.com/viant/agently/genai/service/augmenter"
@@ -43,10 +43,10 @@ type Service struct {
 	// conversation is a shared conversation client used to fetch transcript/usage.
 	conversation apiconv.Client
 
-	// refiner refines elicitation schemas for improved UX (ordering, widgets, defaults).
-	refiner elicref.Service
-
 	elicitation *elicitation.Service
+	// Backward-compatible fields for wiring; passed into elicitation service
+	elicRouter     elicrouter.ElicitationRouter
+	awaiterFactory func() elicitation.Awaiter
 }
 
 // SetRuntime sets the fluxor runtime for orchestration
@@ -54,10 +54,17 @@ func (s *Service) SetRuntime(rt *fluxor.Runtime) {
 	s.runtime = rt
 }
 
-// WithElicitationRefiner injects a refiner service used to enhance elicitation
-// schemas before they are presented to the user.
-func WithElicitationRefiner(r elicref.Service) Option {
-	return func(s *Service) { s.refiner = r }
+// WithElicitationRouter injects a router to coordinate elicitation waits
+// for assistant-originated prompts. When set, the agent will register a
+// waiter and block until the HTTP/UI handler completes the elicitation.
+func WithElicitationRouter(r elicrouter.ElicitationRouter) Option {
+	return func(s *Service) { s.elicRouter = r }
+}
+
+// WithNewElicitationAwaiter configures a local awaiter used to resolve
+// assistant-originated elicitations in interactive environments (CLI).
+func WithNewElicitationAwaiter(newAwaiter func() elicitation.Awaiter) Option {
+	return func(s *Service) { s.awaiterFactory = newAwaiter }
 }
 
 // New creates a new agent service instance with the given tool registry and fluxor runtime
@@ -81,10 +88,6 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	for _, o := range opts {
 		o(srv)
 	}
-	// Default elicitation refiner when none provided: use workspace preset refiner.
-	if srv.refiner == nil {
-		srv.refiner = elicref.DefaultService{}
-	}
 	// Instantiate conversation API once; ignore errors to preserve backward compatibility
 	if dao, err := implconv.NewDatly(context.Background()); err == nil {
 		if cli, err := implconv.New(context.Background(), dao); err == nil {
@@ -99,12 +102,7 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 
 	// Initialize orchestrator with conversation client
 	srv.orchestrator = orchestrator.New(llm, registry, srv.conversation)
-
-	// Initialize shared elicitation util holder
-	if srv.conversation != nil {
-		// Pass the same refiner into elicitation service so all refinements are centralized
-		srv.elicitation = elicitation.New(srv.conversation, elicitation.WithRefiner(srv.refiner))
-	}
+	srv.elicitation = elicitation.New(srv.conversation, nil, srv.elicRouter, srv.awaiterFactory)
 
 	return srv
 }

@@ -12,8 +12,10 @@ import (
 	mcpclienthandler "github.com/viant/agently/adapter/mcp"
 	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	mcprouter "github.com/viant/agently/adapter/mcp/router"
+	convfactory "github.com/viant/agently/client/conversation/factory"
 	"github.com/viant/agently/cmd/service"
 	apiconv "github.com/viant/agently/genai/conversation"
+	elicitation "github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/fluxor-mcp/mcp/tool"
@@ -40,13 +42,15 @@ func (c *ExecCmd) Execute(_ []string) error {
 	// Use a stdin awaiter so elicitation can be completed interactively.
 	prov := mcpmgr.NewRepoProvider()
 	r := mcprouter.New()
+	// Build conversation client from env for persistence
+	convClient, err := convfactory.NewFromEnv(context.Background())
+	if err != nil {
+		return err
+	}
 	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
-		return mcpclienthandler.NewClient(
-			mcpclienthandler.WithAwaiter(newStdinAwaiter),
-			mcpclienthandler.WithRouter(r),
-			// Disable client auto-open; awaiter offers explicit [o]pen.
-			mcpclienthandler.WithURLOpener(nil),
-		)
+		// Elicitation service for tool elicitations, share router; attach stdin awaiter
+		el := elicitation.New(convClient, nil, r, newStdinAwaiter)
+		return mcpclienthandler.NewClient(el, convClient, nil)
 	}))
 	registerExecOption(executor.WithMCPManager(mgr))
 

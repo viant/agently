@@ -128,7 +128,8 @@ CREATE TABLE `message`
     elicitation_id     VARCHAR(255),
     parent_message_id  VARCHAR(255),
     superseded_by      VARCHAR(255),
-    payload_id         VARCHAR(255),
+    attachment_payload_id  VARCHAR(255),
+    elicitation_payload_id VARCHAR(255),
     -- legacy column to remain compatible with older readers
     tool_name          TEXT,
 
@@ -136,8 +137,10 @@ CREATE TABLE `message`
         FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE,
     CONSTRAINT fk_message_turn
         FOREIGN KEY (turn_id) REFERENCES turn (id) ON DELETE SET NULL,
-    CONSTRAINT fk_message_payload
-        FOREIGN KEY (payload_id) REFERENCES call_payload (id) ON DELETE SET NULL
+    CONSTRAINT fk_message_attachment_payload
+        FOREIGN KEY (attachment_payload_id) REFERENCES call_payload (id) ON DELETE SET NULL,
+    CONSTRAINT fk_message_elicitation_payload
+        FOREIGN KEY (elicitation_payload_id) REFERENCES call_payload (id) ON DELETE SET NULL
 );
 
 CREATE UNIQUE INDEX idx_message_turn_seq ON `message` (turn_id, sequence);

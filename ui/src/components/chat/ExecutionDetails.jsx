@@ -33,6 +33,14 @@ const COLUMNS_BASE = [
         on: [ { event: "onClick", handler: "exec.openRequest" } ],
     },
     {
+        id: "providerRequest",
+        name: "Prov. Req",
+        width: 90,
+        type: "button",
+        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.providerRequestPayloadId' },
+        on: [ { event: "onClick", handler: "exec.openProviderRequest" } ],
+    },
+    {
         id: "response",
         name: "Response",
         width: 80,
@@ -41,12 +49,28 @@ const COLUMNS_BASE = [
         on: [ { event: "onClick", handler: "exec.openResponse" } ],
     },
     {
+        id: "providerResponse",
+        name: "Prov. Resp",
+        width: 90,
+        type: "button",
+        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.providerResponsePayloadId' },
+        on: [ { event: "onClick", handler: "exec.openProviderResponse" } ],
+    },
+    {
         id: "stream",
         name: "Stream",
         width: 80,
         type: "button",
         cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.streamPayloadId' },
         on: [ { event: "onClick", handler: "exec.openStream" } ],
+    },
+    {
+        id: "elicitation",
+        name: "Elicitation",
+        width: 100,
+        type: "button",
+        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.elicitationPayloadId' },
+        on: [ { event: "onClick", handler: "exec.openElicitation" } ],
     },
 ];
 
@@ -93,10 +117,16 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
                 return ({ row }) => viewPart('request', row);
             case "exec.openResponse":
                 return ({ row }) => viewPart('response', row);
+            case "exec.openProviderRequest":
+                return ({ row }) => viewPart('providerRequest', row);
+            case "exec.openProviderResponse":
+                return ({ row }) => viewPart('providerResponse', row);
             case "dataSource.toggleSelection":
                 return ({ rowIndex }) => toggleSelection({ rowIndex });
             case "dataSource.isSelected":
                 return ({ rowIndex }) => selectionSig.peek().selection?.some((s)=>s.rowIndex===rowIndex);
+            case "exec.openElicitation":
+                return ({ row }) => viewPart('elicitation', row);
             default:
                 return parentContext?.lookupHandler ? parentContext.lookupHandler(id) : () => {};
         }
@@ -128,27 +158,37 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
 
 function flattenExecutions(executions = []) {
     if (!executions) return [];
-    // Show only model/tool steps in the table (hide interim/control or bubble message steps)
-    const allowed = new Set([ 'thinking', 'tool_call' ]);
+    // Show model/tool steps and completed elicitations in the table
+    const allowed = new Set([ 'thinking', 'tool_call', 'elicitation' ]);
     return executions.flatMap(exe => (exe.steps || [])
         .filter(s => allowed.has(String(s?.reason || '').toLowerCase()))
-        .map(s => ({
-            traceId:  s.traceId,
-            state:    s.endedAt || s.success !== undefined ? (s.success ? "✔︎" : "✖︎") : "⏳",
-            name:     s.name,
-            reason:   '', // suppress reason text to avoid duplication; show only name + status
-            success:  s.success === undefined ? "pending" : (s.success ? "success" : "error"),
-            elapsed:  s.elapsed,
-            // include request/response refs so the viewer can lazy-load payloads
-            request:  s.request,
-            response: s.response,
-            // pass through payload IDs from step exactly as presented
-            requestPayloadId: s.requestPayloadId,
-            responsePayloadId: s.responsePayloadId,
-            streamPayloadId: s.streamPayloadId,
-            providerRequestPayloadId: s.providerRequestPayloadId,
-            providerResponsePayloadId: s.providerResponsePayloadId,
-        }))
+        .map(s => {
+            const hasBool = typeof s.successBool === 'boolean';
+            const successBool = hasBool ? s.successBool : (typeof s.success === 'boolean' ? s.success : undefined);
+            const statusText = (s.statusText || (successBool === undefined ? 'pending' : (successBool ? 'success' : 'error'))).toLowerCase();
+            // Derive icon: accepted ✔︎, rejected ✖︎, cancel ⏸︎, pending ⏳
+            const icon = statusText === 'accepted' ? '✔︎' : statusText === 'rejected' ? '✖︎' : statusText === 'cancel' ? '⏸︎' : '⏳';
+            // Name annotation for elicitation origin (assistant/tool)
+            const isElic = String(s?.reason || '').toLowerCase() === 'elicitation';
+            const annotatedName = isElic && s.originRole ? `${s.name} (${s.originRole})` : s.name;
+            return {
+                traceId:  s.traceId,
+                state:    icon,
+                name:     annotatedName,
+                reason:   '',
+                success:  statusText,
+                elapsed:  s.elapsed,
+                // include request/response refs so the viewer can lazy-load payloads
+                request:  s.request,
+                response: s.response,
+                // pass through payload IDs from step exactly as presented
+                requestPayloadId: s.requestPayloadId,
+                responsePayloadId: s.responsePayloadId,
+                streamPayloadId: s.streamPayloadId,
+                providerRequestPayloadId: s.providerRequestPayloadId,
+                providerResponsePayloadId: s.providerResponsePayloadId,
+            };
+        })
     );
 }
 
@@ -166,17 +206,23 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
 
     const viewPart = async (part, row) => {
         try {
-            const title = part === 'request' ? 'Request' : (part === 'stream' ? 'Stream' : 'Response');
+            const title = part === 'request' ? 'Request' : part === 'providerRequest' ? 'Provider Request' : part === 'providerResponse' ? 'Provider Response' : (part === 'elicitation' ? 'Elicitation' : (part === 'stream' ? 'Stream' : 'Response'));
             if (!useForgeDialog) {
                 setDialog({ title, payload: null, loading: true });
             }
             // Use only the provided payload ID fields
             // Prefer provider-specific payloads when available
             const pid = part === 'request'
-                ? (row.providerRequestPayloadId || row.requestPayloadId)
-                : part === 'response'
-                    ? (row.providerResponsePayloadId || row.responsePayloadId)
-                    : row.streamPayloadId;
+                ? (row.requestPayloadId)
+                : part === 'providerRequest'
+                    ? (row.providerRequestPayloadId)
+                    : part === 'response'
+                        ? (row.responsePayloadId)
+                        : part === 'providerResponse'
+                            ? (row.providerResponsePayloadId)
+                            : part === 'elicitation'
+                                ? (row.elicitationPayloadId)
+                                : row.streamPayloadId;
             let url;
             if (!pid) { setDialog({ title, payload: '(no payload)' }); return; }
             // Build absolute or relative URL robustly

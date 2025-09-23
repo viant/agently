@@ -88,6 +88,7 @@ type TranscriptView struct {
 	ConversationId        string         `sqlx:"conversation_id"`
 	CreatedAt             time.Time      `sqlx:"created_at"`
 	Status                string         `sqlx:"status"`
+	ErrorMessage          *string        `sqlx:"error_message"`
 	StartedByMessageId    *string        `sqlx:"started_by_message_id"`
 	RetryOf               *string        `sqlx:"retry_of"`
 	AgentIdUsed           *string        `sqlx:"agent_id_used"`
@@ -99,49 +100,43 @@ type TranscriptView struct {
 }
 
 type MessageView struct {
-	Id              string            `sqlx:"id"`
-	ConversationId  string            `sqlx:"conversation_id"`
-	TurnId          *string           `sqlx:"turn_id"`
-	Sequence        *int              `sqlx:"sequence"`
-	CreatedAt       time.Time         `sqlx:"created_at"`
-	CreatedByUserId *string           `sqlx:"created_by_user_id"`
-	Status          *string           `sqlx:"status"`
-	Role            string            `sqlx:"role"`
-	Type            string            `sqlx:"type"`
-	Content         *string           `sqlx:"content"`
-	ContextSummary  *string           `sqlx:"context_summary"`
-	Tags            *string           `sqlx:"tags"`
-	Interim         int               `sqlx:"interim"`
-	ElicitationId   *string           `sqlx:"elicitation_id"`
-	ParentMessageId *string           `sqlx:"parent_message_id"`
-	SupersededBy    *string           `sqlx:"superseded_by"`
-	PayloadId       *string           `sqlx:"payload_id"`
-	ToolName        *string           `sqlx:"tool_name"`
-	Attachment      []*AttachmentView `view:",table=message" on:"Id:id=ParentMessageId:m.parent_message_id" sql:"uri=conversation/attachment.sql"`
-	ModelCall       *ModelCallView    `view:",table=model_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/model_call.sql"`
-	ToolCall        *ToolCallView     `view:",table=tool_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
+	Id                   string            `sqlx:"id"`
+	ConversationId       string            `sqlx:"conversation_id"`
+	TurnId               *string           `sqlx:"turn_id"`
+	Sequence             *int              `sqlx:"sequence"`
+	CreatedAt            time.Time         `sqlx:"created_at"`
+	CreatedByUserId      *string           `sqlx:"created_by_user_id"`
+	Status               *string           `sqlx:"status"`
+	Role                 string            `sqlx:"role"`
+	Type                 string            `sqlx:"type"`
+	Content              *string           `sqlx:"content"`
+	ContextSummary       *string           `sqlx:"context_summary"`
+	Tags                 *string           `sqlx:"tags"`
+	Interim              int               `sqlx:"interim"`
+	ElicitationId        *string           `sqlx:"elicitation_id"`
+	ParentMessageId      *string           `sqlx:"parent_message_id"`
+	SupersededBy         *string           `sqlx:"superseded_by"`
+	AttachmentPayloadId  *string           `sqlx:"attachment_payload_id"`
+	ElicitationPayloadId *string           `sqlx:"elicitation_payload_id"`
+	ToolName             *string           `sqlx:"tool_name"`
+	Elicitation          *ElicitationView  `view:",table=message" on:"Id:id=MessageId:m.id" sql:"uri=conversation/elicitation.sql"`
+	Attachment           []*AttachmentView `view:",table=message" on:"Id:id=ParentMessageId:m.parent_message_id" sql:"uri=conversation/attachment.sql"`
+	ModelCall            *ModelCallView    `view:",table=model_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/model_call.sql"`
+	ToolCall             *ToolCallView     `view:",table=tool_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
+}
+
+type ElicitationView struct {
+	InlineBody  *string `sqlx:"inline_body"`
+	Compression *string `sqlx:"compression"`
+	MessageId   string  `sqlx:"message_id" source:"id"`
 }
 
 type AttachmentView struct {
-	ParentMessageId        *string   `sqlx:"parent_message_id"`
-	Id                     string    `sqlx:"id"`
-	TenantId               *string   `sqlx:"tenant_id"`
-	Kind                   string    `sqlx:"kind"`
-	Subtype                *string   `sqlx:"subtype"`
-	MimeType               string    `sqlx:"mime_type"`
-	SizeBytes              int       `sqlx:"size_bytes"`
-	Digest                 *string   `sqlx:"digest"`
-	Storage                string    `sqlx:"storage"`
-	InlineBody             *[]uint8  `sqlx:"inline_body"`
-	Uri                    *string   `sqlx:"uri"`
-	Compression            string    `sqlx:"compression"`
-	EncryptionKmsKeyId     *string   `sqlx:"encryption_kms_key_id"`
-	RedactionPolicyVersion *string   `sqlx:"redaction_policy_version"`
-	Redacted               int       `sqlx:"redacted"`
-	CreatedAt              time.Time `sqlx:"created_at"`
-	SchemaRef              *string   `sqlx:"schema_ref"`
-	Preview                *string   `sqlx:"preview"`
-	Tags                   *string   `sqlx:"tags"`
+	InlineBody      *[]uint8 `sqlx:"inline_body"`
+	Compression     string   `sqlx:"compression"`
+	Uri             *string  `sqlx:"uri"`
+	MimeType        string   `sqlx:"mime_type"`
+	ParentMessageId *string  `sqlx:"parent_message_id"`
 }
 
 type ModelCallView struct {

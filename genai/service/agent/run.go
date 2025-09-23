@@ -134,23 +134,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		}
 	}
 
-	if output.Plan.Elicitation != nil {
-		// Wait for model-call persistence so payload ids are ready
-		modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
-		if err := s.recordAssistantElicitation(ctx, turn.ConversationID, turn.ParentMessageID, output.Plan.Elicitation); err != nil {
-			return err
-		}
-	} else if strings.TrimSpace(output.Content) != "" {
-		// Persist final assistant text using the shared message ID
-		modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
-		msgID := memory.ModelMessageIDFromContext(ctx)
-		if msgID == "" {
-			msgID = output.MessageID
-		}
-		if _, err := s.addMessage(ctx, turn.ConversationID, "assistant", "", output.Content, msgID, turn.ParentMessageID); err != nil {
-			return err
-		}
-	}
+	// Elicitation and final content persistence are handled inside runPlanLoop now
 	output.Usage = agg
 	return nil
 }
@@ -187,7 +171,7 @@ func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *
 
 	link := apiconv.NewMessage()
 	link.SetId(messageID)
-	link.SetPayloadID(pid)
+	link.SetAttachmentPayloadID(pid)
 	if err := s.conversation.PatchMessage(ctx, link); err != nil {
 		return fmt.Errorf("failed to link attachment payload to message: %w", err)
 	}
@@ -196,6 +180,12 @@ func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *
 
 func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutput *QueryOutput) error {
 	var err error
+
+	turn, ok := memory.TurnMetaFromContext(ctx)
+	if !ok {
+		return fmt.Errorf("failed to get turn meta")
+	}
+
 	for {
 		binding, bErr := s.BuildBinding(ctx, input)
 		if bErr != nil {
@@ -216,28 +206,58 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
-		if aPlan != nil {
-			queryOutput.Plan = aPlan
-			if aPlan.Elicitation != nil {
-				queryOutput.Elicitation = aPlan.Elicitation
-				break
-			}
-			if aPlan.IsEmpty() {
-				queryOutput.Content = genOutput.Content
-				break
-			}
-		}
 		if pErr != nil {
-			err = pErr
-			break
+			return pErr
 		}
 		if aPlan == nil {
-			err = fmt.Errorf("unable to generate plan")
-			break
+			return fmt.Errorf("unable to generate plan")
 		}
+		queryOutput.Plan = aPlan
+
+		// Handle elicitation inside the loop as a single-turn interaction.
+		if aPlan.Elicitation != nil {
+			_, status, _, err := s.elicitation.Elicit(ctx, &turn, "assistant", aPlan.Elicitation)
+			if err != nil {
+				return err
+			}
+			if status != "accepted" {
+				// User declined/cancelled; finish turn without additional content
+				return nil
+			}
+			// Continue loop with updated binding (which should include payload/user response)
+			continue
+		}
+
+		// No elicitation: plan either completed with final content or produced tool calls.
+		if aPlan.IsEmpty() {
+			// Persist final assistant text using the shared message ID
+			if strings.TrimSpace(genOutput.Content) != "" {
+				modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
+				msgID := memory.ModelMessageIDFromContext(ctx)
+				if msgID == "" {
+					msgID = genOutput.MessageID
+				}
+				var parentID, convID string
+				if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+					parentID = tm.ParentMessageID
+					convID = tm.ConversationID
+				}
+				if _, err := s.addMessage(ctx, convID, "assistant", "", genOutput.Content, msgID, parentID); err != nil {
+					return err
+				}
+			}
+			queryOutput.Content = genOutput.Content
+			return nil
+		}
+		// Otherwise, continue loop to allow the orchestrator to perform next step
 	}
 	return err
 }
+
+// waitForElicitation registers a waiter on the elicitation router and optionally
+// spawns a local awaiter to resolve the elicitation in interactive environments.
+// It returns true when the elicitation was accepted.
+// waitForElicitation was inlined into elicitation.Service.Wait
 
 func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, id string, parentId string) (string, error) {
 	if strings.TrimSpace(content) == "" {

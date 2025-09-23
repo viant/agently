@@ -1,9 +1,6 @@
 package agent
 
 import (
-	"sync"
-	"text/template"
-
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/prompt"
@@ -46,11 +43,6 @@ type (
 
 		// ToolExport controls automatic exposure of this agent as a virtual tool
 		ToolExport *ToolExport `yaml:"toolExport,omitempty" json:"toolExport,omitempty"`
-
-		// cached compiled go template for prompt (if Prompt is static)
-		parsedTemplate *template.Template `yaml:"-" json:"-"`
-		once           sync.Once          `yaml:"-" json:"-"`
-		parseErr       error              `yaml:"-" json:"-"`
 	}
 
 	// ToolExport defines optional settings to expose an agent as a runtime tool.
@@ -64,64 +56,4 @@ type (
 
 func (a *Agent) Validate() error {
 	return nil
-}
-
-// GeneratePrompt generates a prompt from the agent's template using provided query and enrichment data
-func (a *Agent) GeneratePrompt(query string, enrichment string) (string, error) {
-	//panic("deprecated ")
-	//if a.Content == "" {
-	//	// Use default template if not specified
-	//	return a.generateDefaultPrompt(query, enrichment), nil
-	//}
-	//
-	//// Try to use velty template engine first
-	//promptText, err := a.generateVeltyPrompt(query, enrichment)
-	//if err == nil {
-	//	return promptText, nil
-	//}
-	//
-	//// Fall back to text/template if velty fails
-	//return a.generateGoTemplatePrompt(query, enrichment)
-	panic("deprecated ")
-}
-
-// generateVeltyPrompt uses velty engine to process the template
-func (a *Agent) generateVeltyPrompt(query string, enrichment string) (string, error) {
-	//vars := map[string]interface{}{
-	//	"Find":       a,
-	//	"Query":      query,
-	//	"Enrichment": enrichment,
-	//}
-	//return templating.Expand(a.Content, vars)
-	panic("deprecated ")
-}
-
-// generateGoTemplatePrompt uses Go's text/template to process the template
-func (a *Agent) generateGoTemplatePrompt(query string, enrichment string) (string, error) {
-	//// lazily compile template once
-	//a.once.Do(func() {
-	//	a.parsedTemplate, a.parseErr = template.New("prompt").Parse(a.Content)
-	//})
-	//if a.parseErr != nil {
-	//	return "", a.parseErr
-	//}
-	//
-	//data := map[string]interface{}{
-	//	"Find":       a,
-	//	"Query":      query,
-	//	"Enrichment": enrichment,
-	//}
-	//
-	//var buf bytes.Buffer
-	//if err := a.parsedTemplate.Execute(&buf, data); err != nil {
-	//	return "", err
-	//}
-	//
-	//return buf.String(), nil
-	panic("deprecated ")
-}
-
-// generateDefaultPrompt creates a simple default prompt if no template is provided
-func (a *Agent) generateDefaultPrompt(query string, enrichment string) string {
-	panic("deprecated ")
 }

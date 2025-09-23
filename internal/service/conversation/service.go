@@ -203,9 +203,6 @@ func (s *Service) GetMessageByElicitation(ctx context.Context, conversationID, e
 }
 
 func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMessage) error {
-	if s == nil || s.dao == nil || message == nil {
-		return nil
-	}
 	mm := (*msgwrite.Message)(message)
 	input := &msgwrite.Input{Messages: []*msgwrite.Message{mm}}
 	out := &msgwrite.Output{}

@@ -498,8 +498,11 @@ func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
 	if src.Has.ToolName {
 		dst.ToolName = src.ToolName
 	}
-	if src.Has.PayloadID {
-		dst.PayloadId = src.PayloadID
+	if src.Has.AttachmentPayloadID {
+		dst.AttachmentPayloadId = src.AttachmentPayloadID
+	}
+	if src.Has.ElicitationPayloadID {
+		dst.ElicitationPayloadId = src.ElicitationPayloadID
 	}
 }
 

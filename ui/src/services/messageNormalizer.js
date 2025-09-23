@@ -44,7 +44,7 @@ export function isSimpleTextSchema(schema) {
 // Determines whether an assistant message should be handled as an interactive
 // form elicitation as opposed to a plain text bubble.
 const isAssistantElicitation = (message) => {
-    if (message.role !== 'assistant') return false;
+    if (message.elicitationId === '') return false;
     const schema = message.elicitation?.requestedSchema;
     if (!schema) return false;
     // Skip simple single-field text questions – they don’t need the form UI.
@@ -84,8 +84,8 @@ export function classifyMessage(message) {
     // renderer and therefore disappear from the visible chat once the user
     // has responded and the backend marked them as done/declined.
 
-    if (message.role === 'mcpelicitation' && message.status === 'open') {
-        return 'mcpelicitation';
+    if (message.role === 'elicition' && message.status === 'open') {
+        return 'elicition';
     }
 
     if (message.role === 'mcpuserinteraction' && message.status === 'open') {
@@ -103,10 +103,13 @@ export function classifyMessage(message) {
     // Assistant elicitations that qualify as simple text questions
     // (see isSimpleTextSchema) are downgraded to regular bubbles so they
     // appear visually like a normal question without an embedded form.
-    if (message.elicitation?.requestedSchema) {
-        // Always render schema-based form when elicitation is present
-        return 'form';
+    // Prefer modal ElicitionForm when callbackURL is provided; accept both 'open' and 'pending' status as active.
+    if (message.elicitation?.requestedSchema && typeof message.callbackURL === 'string' && message.callbackURL) {
+        const st = String(message.status || '').toLowerCase();
+        if (st === 'open' || st === 'pending') return 'elicition';
     }
+    // Fallback to inline form when elicitation present without a callback URL.
+    if (message.elicitation?.requestedSchema) return 'form';
 
     return 'bubble';
 }

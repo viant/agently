@@ -8,6 +8,7 @@ import (
 	"github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/elicitation"
+	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	modelprovider "github.com/viant/agently/genai/llm/provider"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor"
@@ -128,5 +129,19 @@ func WithMCPManager(m *mcpmgr.Manager) Option {
 	return func(s *Service) {
 		s.mcpMgr = m
 		// Tools will be created with manager when needed (see WithToolDebugLogger or explicit WithTools).
+	}
+}
+
+// WithElicitationRouter injects a shared router used by the agent to wait on
+// assistant-originated elicitations. In server mode, pass the same instance as
+// the HTTP handler uses so UI callbacks unblock the agent loop.
+func WithElicitationRouter(r elicrouter.ElicitationRouter) Option {
+	return func(s *Service) {
+		// store on executor; passed to agent.New in registerServices
+		if s != nil {
+			// no dedicated field yet; attach via config meta to avoid API churn
+			// better: add a field on Service; doing that now.
+		}
+		s.elicitationRouter = r
 	}
 }

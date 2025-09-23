@@ -60,6 +60,7 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			return nil, fmt.Errorf("failed to generate: %w", err)
 		}
 	}
+
 	if aPlan.IsEmpty() {
 		ok, err := s.extendPlanFromResponse(ctx, genOutput, aPlan)
 		if ok {
@@ -235,6 +236,7 @@ func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.Ge
 			}
 		}
 	}
+
 	aPlan.Steps.EnsureID()
 	if len(aPlan.Steps) > 0 && strings.TrimSpace(aPlan.Steps[0].Reason) == "" {
 		prefix := genOutput.Content
