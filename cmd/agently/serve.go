@@ -13,9 +13,10 @@ import (
 	"github.com/viant/agently/adapter/http/router"
 	mcpclienthandler "github.com/viant/agently/adapter/mcp"
 	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
-	mcprouter "github.com/viant/agently/adapter/mcp/router"
 	convfactory "github.com/viant/agently/client/conversation/factory"
 	"github.com/viant/agently/cmd/service"
+	elicitationpkg "github.com/viant/agently/genai/elicitation"
+	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
 	protoclient "github.com/viant/mcp-protocol/client"
@@ -34,7 +35,7 @@ type ServeCmd struct {
 
 func (s *ServeCmd) Execute(_ []string) error {
 	// Construct shared MCP router and per-conversation manager before executor init
-	r := mcprouter.New()
+	r := elicrouter.New()
 	prov := mcpmgr.NewRepoProvider()
 
 	// Build conversation client from environment (Datly), so MCP client can persist
@@ -47,13 +48,16 @@ func (s *ServeCmd) Execute(_ []string) error {
 	// if future defaults change.
 	// NOTE: For now, we rely on the internal default preset refiner; so no explicit WithRefinerService here.
 	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
-		return mcpclienthandler.NewClient(
-			mcpclienthandler.WithRouter(r),
-			mcpclienthandler.WithConversationClient(convClient),
-		)
+		el := elicitationpkg.New(convClient, nil, r, nil)
+		return mcpclienthandler.NewClient(el, convClient, nil)
 	}))
 	// Inject manager into executor options so tool registry can use it
 	registerExecOption(executor.WithMCPManager(mgr))
+	// Share the same elicitation router with the agent so LLM-originated
+	// elicitations block and resume via the same channel as tool elicitations.
+	registerExecOption(executor.WithElicitationRouter(r))
+	// Ensure awaiterFactory is non-nil to satisfy runtime requirements; server uses UI, so no-op awaiter.
+	registerExecOption(executor.WithNewElicitationAwaiter(elicitationpkg.NoopAwaiterFactory()))
 	// Also supply conversation client to executor so orchestration can persist messages/tool events.
 	if convClient != nil {
 		registerExecOption(executor.WithConversionClient(convClient))

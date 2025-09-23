@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 
-	awaitreg "github.com/viant/agently/genai/awaitreg"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/prompt"
 	core2 "github.com/viant/agently/genai/service/core"
@@ -17,13 +16,13 @@ import (
 
 	elicitationSchema "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
 
 	"strings"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	elicitation "github.com/viant/agently/genai/elicitation"
-	presetrefiner "github.com/viant/agently/genai/elicitation/refiner"
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
@@ -46,20 +45,13 @@ func Waiter(id string) (chan *schema.ElicitResult, bool) {
 
 // Client adapts MCP operations to local execution.
 type Client struct {
-	core       *core2.Service
-	openURLFn  func(string) error
-	implements map[string]bool
-	awaiters   *awaitreg.Registry
-	llmCore    *core2.Service
-	// waiter registries are shared for elicitation and interaction
-	router interface {
-		Register(uint64, string, chan *schema.ElicitResult)
-		Remove(uint64, string)
-	}
-	convID     string
-	onRefine   func(rs *schema.ElicitRequestParamsRequestedSchema)
-	convClient apiconv.Client
-	elicition  *elicitation.Service
+	core        *core2.Service
+	openURLFn   func(string) error
+	implements  map[string]bool
+	llmCore     *core2.Service
+	convID      string
+	convClient  apiconv.Client
+	elicitation *elicitation.Service
 }
 
 func (*Client) LastRequestID() jsonrpc.RequestId {
@@ -104,69 +96,21 @@ func (c *Client) ListRoots(ctx context.Context, p *jsonrpc.TypedRequest[*schema.
 }
 
 func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*schema.ElicitRequest]) (*schema.ElicitResult, *jsonrpc.Error) {
-	// Work on a copy and refine the schema for better UX prior to prompting.
+	// Refine, persist, then delegate wait to the elicitation service
 	params := request.Request.Params
-	if c.elicition != nil {
-		c.elicition.RefineRequestedSchema(&params.RequestedSchema)
-	} else if c.onRefine != nil {
-		c.onRefine(&params.RequestedSchema)
-	} else {
-		// Fallback to preset for safety if service not initialised
-		presetrefiner.Refine(&params.RequestedSchema)
-	}
-	// Persist & register typed-id waiter with optional router scoped by conversation id.
-	ch := make(chan *schema.ElicitResult, 1)
+	c.elicitation.RefineRequestedSchema(&params.RequestedSchema)
 	convID := c.convID
 	if strings.TrimSpace(convID) == "" {
 		convID = conversation.ID(ctx)
 	}
-	// Persist elicitation message so UIs can render it.
-	if err := c.persistElicitationMessage(ctx, &params); err != nil {
+	if err := c.persistElicitationMessage(ctx, &params, request.Id); err != nil {
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("failed to persist elicitation: %v", err), nil)
 	}
-	// best-effort: register in conv-scoped router
-	if c.router != nil {
-		c.router.Register(request.Id, convID, ch)
-		defer c.router.Remove(request.Id, convID)
+	status, payload, err := c.elicitation.Wait(ctx, convID, params.ElicitationId)
+	if err != nil {
+		return nil, jsonrpc.NewInternalError(fmt.Sprintf("elicitation wait failed: %v", err), nil)
 	}
-	// If awaiters configured (CLI), prompt in background and submit via channel
-	if c.awaiters != nil {
-		localReq := &elicitationSchema.Elicitation{ElicitRequestParams: params}
-		if strings.TrimSpace(params.Url) != "" && c.openURLFn != nil {
-			_ = c.openURLFn(params.Url)
-		}
-		aw := c.awaiters.Ensure(convID)
-		go func() {
-			res, err := aw.AwaitElicitation(ctx, localReq)
-			var out *schema.ElicitResult
-			if err != nil {
-				out = &schema.ElicitResult{Action: schema.ElicitResultAction("decline")}
-			} else {
-				out = &schema.ElicitResult{Action: schema.ElicitResultAction(res.Action), Content: res.Payload}
-			}
-			select {
-			case ch <- out:
-			default:
-			}
-		}()
-	}
-
-	select {
-	case res := <-ch:
-		if res == nil {
-			return nil, jsonrpc.NewInternalError("nil elicitation result", nil)
-		}
-		// Persist result and update status – bubble up any failure.
-		if err := c.postElicitationResult(ctx, params.ElicitationId, res); err != nil {
-			return nil, jsonrpc.NewInternalError(fmt.Sprintf("persist elicitation result: %v", err), nil)
-		}
-		if err := c.updateElicitationStatus(ctx, params.ElicitationId, string(res.Action)); err != nil {
-			return nil, jsonrpc.NewInternalError(fmt.Sprintf("update elicitation status: %v", err), nil)
-		}
-		return res, nil
-	case <-ctx.Done():
-		return nil, jsonrpc.NewInternalError("elicitation cancelled", nil)
-	}
+	return &schema.ElicitResult{Action: schema.ElicitResultAction(status), Content: payload}, nil
 }
 
 func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedRequest[*schema.CreateMessageRequest]) (*schema.CreateMessageResult, *jsonrpc.Error) {
@@ -215,7 +159,7 @@ func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedReques
 
 // persistElicitationMessage best-effort persists an assistant message with
 // elicitation payload so that poll-based UIs can display it while awaiting user action.
-func (c *Client) persistElicitationMessage(ctx context.Context, params *schema.ElicitRequestParams) error {
+func (c *Client) persistElicitationMessage(ctx context.Context, params *schema.ElicitRequestParams, rpcID uint64) error {
 	if strings.TrimSpace(c.convID) == "" {
 		return fmt.Errorf("convID is required")
 	}
@@ -223,9 +167,13 @@ func (c *Client) persistElicitationMessage(ctx context.Context, params *schema.E
 		params.ElicitationId = uuid.New().String()
 	}
 	payload := &elicitationSchema.Elicitation{ElicitRequestParams: *params}
+	// Provide a direct callback URL using conversation + elicitationId for unified posting.
+	payload.CallbackURL = fmt.Sprintf("/v1/api/conversations/%s/elicitation/%s", c.convID, params.ElicitationId)
 	// Record as tool-role elicitation (type=elicitation, status=pending), linked to current turn via context.
-	if c.elicition != nil {
-		return c.elicition.Record(ctx, c.convID, "tool", "", payload)
+	if c.elicitation != nil {
+		tm := &memory.TurnMeta{ConversationID: c.convID}
+		_, err := c.elicitation.Record(ctx, tm, "tool", payload)
+		return err
 	}
 	// Fallback (should not happen when convClient is set)
 	return fmt.Errorf("elicitation service not initialized")
@@ -237,18 +185,7 @@ func (c *Client) postElicitationStatus(ctx context.Context, elicitationID, statu
 	if c.convClient == nil || strings.TrimSpace(c.convID) == "" || strings.TrimSpace(elicitationID) == "" {
 		return fmt.Errorf("convClient/convID/elicitationID required")
 	}
-	// normalise to accepted/rejected/cancel
-	st := strings.ToLower(strings.TrimSpace(status))
-	switch st {
-	case "accept", "accepted", "approve", "approved", "yes", "y":
-		st = "accepted"
-	case "decline", "declined", "reject", "rejected", "no", "n":
-		st = "rejected"
-	case "cancel", "canceled", "cancelled":
-		st = "cancel"
-	default:
-		// leave as-is but lowercased
-	}
+	st := elicitation.NormalizeAction(status)
 	msg := apiconv.NewMessage()
 	msg.SetId(uuid.New().String())
 	msg.SetConversationID(c.convID)
@@ -292,17 +229,10 @@ func (c *Client) postElicitationResult(ctx context.Context, elicitationID string
 		}
 		return fmt.Errorf("elicitation message not found")
 	}
-	role := strings.ToLower(strings.TrimSpace(orig.Role))
-	if role == "assistant" {
-		if c.elicition == nil {
-			return fmt.Errorf("elicitation service not initialised")
-		}
-		return c.elicition.AddUserResponseMessage(ctx, c.convID, conv.Dereference[string](orig.TurnId), orig.Id, res.Content)
-	}
-	if c.elicition == nil {
+	if c.elicitation == nil {
 		return fmt.Errorf("elicitation service not initialised")
 	}
-	return c.elicition.StoreToolResponse(ctx, c.convID, elicitationID, res.Content)
+	return c.elicitation.StorePayload(ctx, c.convID, elicitationID, res.Content)
 }
 
 // updateElicitationStatus patches the original elicitation message status based on action.
@@ -310,21 +240,11 @@ func (c *Client) updateElicitationStatus(ctx context.Context, elicitationID, act
 	if c.convClient == nil || strings.TrimSpace(c.convID) == "" || strings.TrimSpace(elicitationID) == "" {
 		return fmt.Errorf("convClient/convID/elicitationID required")
 	}
-	st := strings.ToLower(strings.TrimSpace(action))
-	switch st {
-	case "accept", "accepted", "approve", "approved", "yes", "y":
-		st = "accepted"
-	case "decline", "declined", "reject", "rejected", "no", "n":
-		st = "rejected"
-	case "cancel", "canceled", "cancelled":
-		st = "cancel"
-	default:
-		st = "rejected"
-	}
-	if c.elicition == nil {
+	_ = elicitation.NormalizeAction(action)
+	if c.elicitation == nil {
 		return fmt.Errorf("elicitation service not initialised")
 	}
-	return c.elicition.UpdateStatus(ctx, c.convID, elicitationID, action)
+	return c.elicitation.UpdateStatus(ctx, c.convID, elicitationID, action)
 }
 
 func (c *Client) asErr(e error) *jsonrpc.Error {
@@ -349,14 +269,20 @@ func (c *Client) ProtocolVersion() string {
 
 // Option type remains in option.go
 
-// NewClient returns a ready client.
-func NewClient(opts ...Option) *Client {
+// NewClient returns a ready client with explicit dependencies.
+// - el: elicitation service (required)
+// - conv: conversation client used for direct updates (required)
+// - newAwaiter: factory for interactive prompts in CLI; pass nil for server mode
+// - openURL: override URL opener; pass nil to use default or to disable
+func NewClient(el *elicitation.Service, conv apiconv.Client, openURL func(string) error) *Client {
 	c := &Client{
-		openURLFn:  defaultOpenURL,
-		implements: make(map[string]bool),
+		openURLFn:   defaultOpenURL,
+		implements:  make(map[string]bool),
+		elicitation: el,
+		convClient:  conv,
 	}
-	for _, o := range opts {
-		o(c)
+	if openURL != nil {
+		c.openURLFn = openURL
 	}
 	return c
 }

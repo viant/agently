@@ -44,7 +44,7 @@ func New(helper HelperFunc, cfg Config) *Awaiter {
 		cfg.MaxRounds = 1
 	}
 	if cfg.Timeout <= 0 {
-		cfg.Timeout = 20 * time.Second
+		cfg.Timeout = 10 * time.Minute
 	}
 	return &Awaiter{helper: helper, cfg: cfg}
 }

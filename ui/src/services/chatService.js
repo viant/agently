@@ -6,7 +6,7 @@ import {endpoints} from '../endpoint';
 import { getLogger, ForgeLog } from 'forge/utils/logger';
 const log = getLogger('agently');
 import {FormRenderer} from 'forge';
-import MCPForm from '../components/MCPForm.jsx';
+import ElicitionForm from '../components/ElicitionForm.jsx';
 import MCPInteraction from '../components/MCPInteraction.jsx';
 import PolicyApproval from '../components/PolicyApproval.jsx';
 import {poll} from './utils/apiUtils';
@@ -276,8 +276,38 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const tc = m?.toolCall || m?.ToolCall;
             const s1 = buildThinkingStepFromModelCall(mc);
             const s2 = buildToolStepFromToolCall(tc);
+            // Elicitation completion step when control message has non-pending status
+            let s3 = null;
+            const roleLower2 = String(m.role || m.Role || '').toLowerCase();
+            const typeLower2 = String(m.type || m.Type || '').toLowerCase();
+            const status2 = String(m.status || m.Status || '').toLowerCase();
+            const payloadId = m.payloadId || m.PayloadId;
+            if (typeLower2 === 'control' && (roleLower2 === 'assistant' || roleLower2 === 'tool')) {
+                // parse elicitation content to confirm presence
+                let hasElic = false;
+                try {
+                    const maybe = typeof (m.content || m.Content) === 'string' ? JSON.parse(m.content || m.Content || '') : (m.content || m.Content);
+                    hasElic = !!(maybe && typeof maybe === 'object' && (maybe.requestedSchema || maybe.elicitationId));
+                } catch(_) {}
+                if (hasElic && status2 && status2 !== 'pending') {
+                    const created = m?.createdAt || m?.CreatedAt;
+                    s3 = {
+                        id: (m.id || m.Id || '') + '/elicitation',
+                        name: 'elicitation',
+                        reason: 'elicitation',
+                        successBool: status2 === 'accepted',
+                        statusText: status2,
+                        originRole: roleLower2,
+                        startedAt: created,
+                        endedAt: created,
+                        responsePayloadId: payloadId,
+                        elicitationPayloadId: payloadId,
+                    };
+                }
+            }
             if (s1) steps.push({...s1, elapsed: computeElapsed(s1)});
             if (s2) steps.push({...s2, elapsed: computeElapsed(s2)});
+            if (s3) steps.push({...s3, elapsed: computeElapsed(s3)});
         }
 
         // Sort steps by timestamp (prefer startedAt, fallback endedAt)
@@ -289,7 +319,9 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             return da - db;
         });
 
-        // 2) Build visible chat rows (user/assistant non-interim, skip call-only entries)
+        // 2) Build visible chat rows:
+        //    - user/assistant messages (non-interim, skip call-only entries)
+        //    - plus control elicitations (assistant or tool) so the form/modal can render
         const turnRows = [];
         for (const m of messages) {
             const roleLower = String(m.role || m.Role || '').toLowerCase();
@@ -297,17 +329,45 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const hasCall = !!(m?.toolCall || m?.ToolCall || m?.modelCall || m?.ModelCall);
             if (isInterim) continue;
             if (hasCall) continue; // call content is represented in steps
-            if (roleLower !== 'user' && roleLower !== 'assistant') continue;
 
             const id = m.id || m.Id;
             const createdAt = toISOSafe(m.createdAt || m.CreatedAt);
             const turnIdRef = m.turnId || m.TurnId || turnId;
 
+            // Try to detect elicitation payload embedded as JSON content on control messages
+            let elic = m.elicitation || m.Elicitation;
+            let callbackURL = m.callbackURL || m.CallbackURL;
+            // Inspect content for serialized elicitation
+            if (!elic) {
+                try {
+                    const maybe = typeof (m.content || m.Content) === 'string' ? JSON.parse(m.content || m.Content || '') : (m.content || m.Content);
+                    if (maybe && typeof maybe === 'object' && (maybe.requestedSchema || maybe.elicitationId)) {
+                        elic = {
+                            elicitationId: maybe.elicitationId,
+                            message: maybe.message || maybe.prompt || '',
+                            requestedSchema: maybe.requestedSchema || {},
+                        };
+                        if (!callbackURL && typeof maybe.callbackURL === 'string') {
+                            callbackURL = maybe.callbackURL;
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            const isControlElicitation = (String(m.type || m.Type || '').toLowerCase() === 'control') && !!elic;
+
+            // Only include regular rows for user/assistant OR control elicitations (assistant/tool)
+            if (!isControlElicitation && roleLower !== 'user' && roleLower !== 'assistant') continue;
+
+            const status = m.status || m.Status || '';
+            // Render only pending elicitations
+            if (isControlElicitation && String(status).toLowerCase() !== 'pending') continue;
+
             // Row usage derived from model call only when attached to this row later; leave null here.
             turnRows.push({
                 id,
                 conversationId: m.conversationId || m.ConversationId,
-                role: roleLower,
+                role: isControlElicitation ? roleLower : roleLower,
                 content: m.content || m.Content || '',
                 createdAt,
                 toolName: m.toolName || m.ToolName,
@@ -315,7 +375,9 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 parentId: turnIdRef,
                 executions: [],
                 usage: null,
-                elicitation: m.elicitation || m.Elicitation,
+                status,
+                elicitation: elic,
+                callbackURL,
             });
         }
 
@@ -1069,7 +1131,7 @@ export const chatService = {
     renderers: {
         execution: ExecutionBubble,
         form: FormRenderer,
-        mcpelicitation: MCPForm,
+        elicition: ElicitionForm,
         mcpuserinteraction: MCPInteraction,
         policyapproval: PolicyApproval,
         htmltable: HTMLTableBubble,

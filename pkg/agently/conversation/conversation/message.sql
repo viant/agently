@@ -1,1 +1,1 @@
-SELECT * FROM message WHERE payload_id IS NULL
+SELECT * FROM message WHERE attachment_payload_id IS NULL

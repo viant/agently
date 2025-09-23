@@ -5,11 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/genai/embedder/provider/base"
 	"io"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/viant/agently/genai/embedder/provider/base"
 )
 
 // Client represents an OpenAI API client for embeddings
@@ -25,7 +26,7 @@ func NewClient(apiKey, model string, options ...ClientOption) *Client {
 	client := &Client{
 		Config: base.Config{
 			HTTPClient: &http.Client{
-				Timeout: 30 * time.Second,
+				Timeout: 60 * time.Second,
 			},
 			BaseURL: openAIEndpoint,
 			Model:   model,

@@ -134,15 +134,13 @@ func (c *ChatCmd) Execute(_ []string) error {
 	prov := mcpmgr.NewRepoProvider()
 	r := mcprouter.New()
 	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
-		return mcpclienthandler.NewClient(
-			mcpclienthandler.WithAwaiter(func() elicitationpkg.Awaiter { return newStdinAwaiter() }),
-			mcpclienthandler.WithConversationClient(convClient),
-			mcpclienthandler.WithRouter(r),
-			// Disable client auto-open; awaiter offers explicit [o]pen.
-			mcpclienthandler.WithURLOpener(nil),
-		)
+		el := elicitationpkg.New(convClient, nil, r, func() elicitationpkg.Awaiter { return newStdinAwaiter() })
+		// Disable client auto-open
+		return mcpclienthandler.NewClient(el, convClient, nil)
 	}))
 	registerExecOption(executor.WithMCPManager(mgr))
+	// Also pass router to agent so assistant-originated elicitations integrate with the same flow
+	registerExecOption(executor.WithElicitationRouter(r))
 	// Build executor and service --------------------------------------------
 	svcExec := executorSingleton()
 

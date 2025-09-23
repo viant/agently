@@ -23,6 +23,12 @@ import (
 // reconstruct it from the sub-fields.
 type Elicitation struct {
 	mcpproto.ElicitRequestParams `json:",inline"`
+	// CallbackURL is a server-relative URL that the UI can POST to
+	// with a body {action, payload} to resolve this elicitation.
+	// It is optional and, when present, preferred over generic
+	// form submission so both LLM- and tool-initiated prompts share
+	// a unified posting contract.
+	CallbackURL string `json:"callbackURL,omitempty"`
 }
 
 // IsEmpty reports whether the elicitation is effectively empty (i.e. there is

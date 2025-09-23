@@ -22,30 +22,33 @@ type Message struct {
 	ParentMessageID *string    `sqlx:"parent_message_id" json:",omitempty"`
 	SupersededBy    *string    `sqlx:"superseded_by" json:",omitempty"`
 	ToolName        *string    `sqlx:"tool_name" json:",omitempty"`
-	// PayloadID optionally links a message to an uploaded/staged payload (attachment).
-	PayloadID *string     `sqlx:"payload_id" json:",omitempty"`
-	Has       *MessageHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	// AttachmentPayloadID links a message to an uploaded/staged attachment payload.
+	AttachmentPayloadID *string `sqlx:"attachment_payload_id" json:",omitempty"`
+	// ElicitationPayloadID links a message to an elicitation response payload.
+	ElicitationPayloadID *string     `sqlx:"elicitation_payload_id" json:",omitempty"`
+	Has                  *MessageHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type MessageHas struct {
-	Id              bool
-	ConversationID  bool
-	TurnID          bool
-	Sequence        bool
-	CreatedAt       bool
-	CreatedByUserID bool
-	Role            bool
-	Status          bool
-	Type            bool
-	Content         bool
-	ContextSummary  bool
-	Tags            bool
-	Interim         bool
-	ElicitationID   bool
-	ParentMessageID bool
-	SupersededBy    bool
-	ToolName        bool
-	PayloadID       bool
+	Id                   bool
+	ConversationID       bool
+	TurnID               bool
+	Sequence             bool
+	CreatedAt            bool
+	CreatedByUserID      bool
+	Role                 bool
+	Status               bool
+	Type                 bool
+	Content              bool
+	ContextSummary       bool
+	Tags                 bool
+	Interim              bool
+	ElicitationID        bool
+	ParentMessageID      bool
+	SupersededBy         bool
+	ToolName             bool
+	AttachmentPayloadID  bool
+	ElicitationPayloadID bool
 }
 
 func (m *Message) ensureHas() {
@@ -67,11 +70,21 @@ func (m *Message) SetCreatedByUserID(v string) {
 	m.ensureHas()
 	m.Has.CreatedByUserID = true
 }
-func (m *Message) SetRole(v string)      { m.Role = v; m.ensureHas(); m.Has.Role = true }
-func (m *Message) SetType(v string)      { m.Type = v; m.ensureHas(); m.Has.Type = true }
-func (m *Message) SetContent(v string)   { m.Content = v; m.ensureHas(); m.Has.Content = true }
-func (m *Message) SetToolName(v string)  { m.ToolName = &v; m.ensureHas(); m.Has.ToolName = true }
-func (m *Message) SetPayloadID(v string) { m.PayloadID = &v; m.ensureHas(); m.Has.PayloadID = true }
+func (m *Message) SetRole(v string)     { m.Role = v; m.ensureHas(); m.Has.Role = true }
+func (m *Message) SetStatus(v string)   { m.Status = v; m.ensureHas(); m.Has.Status = true }
+func (m *Message) SetType(v string)     { m.Type = v; m.ensureHas(); m.Has.Type = true }
+func (m *Message) SetContent(v string)  { m.Content = v; m.ensureHas(); m.Has.Content = true }
+func (m *Message) SetToolName(v string) { m.ToolName = &v; m.ensureHas(); m.Has.ToolName = true }
+func (m *Message) SetAttachmentPayloadID(v string) {
+	m.AttachmentPayloadID = &v
+	m.ensureHas()
+	m.Has.AttachmentPayloadID = true
+}
+func (m *Message) SetElicitationPayloadID(v string) {
+	m.ElicitationPayloadID = &v
+	m.ensureHas()
+	m.Has.ElicitationPayloadID = true
+}
 func (m *Message) SetParentMessageID(v string) {
 	m.ParentMessageID = &v
 	m.ensureHas()

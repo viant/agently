@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"fmt"
 	"path"
 	"strings"
 	"unsafe"
@@ -43,13 +44,25 @@ func (t *Transcript) History(query string) []*prompt.Message {
 			normalized = normalized[:n-1]
 		}
 	}
-	normalized.SortedByCreatedAt(true)
 
 	var result []*prompt.Message
 	for _, v := range normalized {
+
+		role := v.Role
 		content := ""
 		if v.Content != nil {
 			content = *v.Content
+		}
+		if v.Elicitation != nil {
+			role = llm.RoleUser.String()
+			userData := ""
+			if v.Elicitation.InlineBody != nil {
+				userData = string(*v.Elicitation.InlineBody)
+			}
+			if userData == "" {
+				userData = fmt.Sprintf("elicitation status: %v", v.Status)
+			}
+			content = userData
 		}
 		// Collect attachments associated to this base message (joined via parent_message_id)
 		var atts []*prompt.Attachment
@@ -78,8 +91,9 @@ func (t *Transcript) History(query string) []*prompt.Message {
 					Data: data,
 				})
 			}
+
 		}
-		result = append(result, &prompt.Message{Role: v.Role, Content: content, Attachment: atts})
+		result = append(result, &prompt.Message{Role: role, Content: content, Attachment: atts})
 	}
 	return result
 }

@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +14,9 @@ import (
 	"errors"
 
 	"github.com/viant/agently/adapter/http/ui"
-	mcprouter "github.com/viant/agently/adapter/mcp/router"
+	apiconv "github.com/viant/agently/client/conversation"
+	"github.com/viant/agently/genai/elicitation"
+	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/mcp-protocol/schema"
 
 	"github.com/viant/agently/genai/conversation"
@@ -48,7 +49,7 @@ type Server struct {
 	pendingApproval approval.Service
 	fileSvc         *fservice.Service
 
-	mcpRouter *mcprouter.Router
+	mcpRouter elicrouter.ElicitationRouter
 
 	mu      sync.Mutex
 	cancels map[string][]context.CancelFunc // convID -> cancel funcs for in-flight turns
@@ -144,7 +145,9 @@ func WithFileService(fs *fservice.Service) ServerOption {
 }
 
 // WithMCPRouter attaches an elicitation router to route MCP prompts back to the correct conversation.
-func WithMCPRouter(r *mcprouter.Router) ServerOption { return func(s *Server) { s.mcpRouter = r } }
+func WithMCPRouter(r elicrouter.ElicitationRouter) ServerOption {
+	return func(s *Server) { s.mcpRouter = r }
+}
 
 // NewServer returns an http.Handler with routes bound.
 func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
@@ -159,9 +162,7 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	if s.pendingApproval != nil {
 		s.chatSvc.AttachApproval(s.pendingApproval)
 	}
-	if s.fileSvc != nil {
-		s.chatSvc.AttachFileService(s.fileSvc)
-	}
+	s.chatSvc.AttachFileService(s.fileSvc)
 	mux := http.NewServeMux()
 
 	// ------------------------------------------------------------------
@@ -198,16 +199,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	uiHandler := ui.NewEmbeddedHandler(uiRoot, &metadata.FS)
 	mux.Handle("/v1/api/agently/forge/", http.StripPrefix("/v1/api/agently/forge", uiHandler))
 
-	// Elicitation callback (MCP interactive)
-	mux.HandleFunc("POST /v1/api/elicitation/{msgId}", func(w http.ResponseWriter, r *http.Request) {
-		s.handleElicitationCallback(w, r, r.PathValue("msgId"))
-	})
-
 	// Conversation-scoped elicitation callback (preferred)
 	mux.HandleFunc("POST /v1/api/conversations/{id}/elicitation/{elicId}", func(w http.ResponseWriter, r *http.Request) {
 		convID := r.PathValue("id")
 		elicID := r.PathValue("elicId")
-		s.handleMcpElicitationCallback(w, r, convID, elicID)
+		s.handleElicitationCallback(w, r, convID, elicID)
 	})
 
 	// ResponsePayload fetch (lazy request/response bodies)
@@ -446,44 +442,8 @@ func (s *Server) dispatchConversationSubroutes(w http.ResponseWriter, r *http.Re
 	}
 }
 
-// handleGetUsage removed – usage route no longer exposed.
-
-// handleElicitationCallback processes POST /v1/api/elicitation/{msgID} to
-// accept or decline MCP elicitation prompts.
-func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Request, messageID string) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		Action  string                 `json:"action"`
-		Payload map[string]interface{} `json:"payload,omitempty"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		encode(w, http.StatusBadRequest, nil, err)
-		return
-	}
-	if s.chatSvc == nil {
-		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
-		return
-	}
-	if err := s.chatSvc.Elicit(r.Context(), messageID, req.Action, req.Payload); err != nil {
-		if strings.Contains(err.Error(), "action is required") {
-			encode(w, http.StatusBadRequest, nil, err)
-			return
-		}
-		if strings.Contains(err.Error(), "interaction message not found") {
-			encode(w, http.StatusNotFound, nil, err)
-			return
-		}
-		encode(w, http.StatusInternalServerError, nil, err)
-		return
-	}
-	encode(w, http.StatusNoContent, nil, nil)
-}
-
-// handleMcpElicitationCallback accepts/declines an MCP elicitation for a specific conversation.
-func (s *Server) handleMcpElicitationCallback(w http.ResponseWriter, r *http.Request, convID, elicID string) {
+// handleElicitationCallback accepts/declines an MCP elicitation for a specific conversation.
+func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Request, convID, elicID string) {
 	if r.Method != http.MethodPost {
 		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
 		return
@@ -492,10 +452,7 @@ func (s *Server) handleMcpElicitationCallback(w http.ResponseWriter, r *http.Req
 		encode(w, http.StatusBadRequest, nil, fmt.Errorf("conversation and elicitation id required"))
 		return
 	}
-	if s.mcpRouter == nil {
-		encode(w, http.StatusPreconditionFailed, nil, fmt.Errorf("mcp router not initialised"))
-		return
-	}
+
 	var req struct {
 		Action  string                 `json:"action"`
 		Payload map[string]interface{} `json:"payload,omitempty"`
@@ -504,19 +461,41 @@ func (s *Server) handleMcpElicitationCallback(w http.ResponseWriter, r *http.Req
 		encode(w, http.StatusBadRequest, nil, err)
 		return
 	}
+
 	if strings.TrimSpace(req.Action) == "" {
 		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"))
 		return
 	}
-	id, err := strconv.ParseUint(elicID, 10, 64)
-	if err != nil {
-		encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid elicitation id"))
+	// Persist status and payload/user message based on role
+	// Lookup original elicitation message by (convID, elicitationId)
+	if s.chatSvc == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
-	ok := s.mcpRouter.AcceptForConversation(id, convID, &schema.ElicitResult{Action: schema.ElicitResultAction(req.Action), Content: req.Payload})
-	if !ok {
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("elicitation not found"))
+	// Normalize to accepted/rejected/cancel using shared helper
+	status := elicitation.NormalizeAction(req.Action)
+
+	// Fetch elicitation message so we know role/turn/message id
+	elMsg, err := s.chatSvc.ConversationClient().GetMessageByElicitation(r.Context(), convID, elicID)
+	if err != nil || elMsg == nil {
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("elicitation message not found"))
 		return
+	}
+	// Update status in place (best-effort)
+	stMsg := apiconv.NewMessage()
+	stMsg.SetId(elMsg.Id)
+	stMsg.SetStatus(status)
+	_ = s.chatSvc.ConversationClient().PatchMessage(r.Context(), stMsg)
+
+	// On accepted: persist payload by linking to the elicitation message (both assistant and tool)
+	if status == "accepted" && req.Payload != nil {
+		_ = elicitation.StorePayload(r.Context(), s.chatSvc.ConversationClient(), convID, elicID, req.Payload)
+	}
+
+	// Notify any waiting MCP client via router keyed by elicitationId
+	// Notify waiters via router
+	if s.mcpRouter != nil {
+		_ = s.mcpRouter.AcceptByElicitation(convID, elicID, &schema.ElicitResult{Action: schema.ElicitResultAction(status), Content: req.Payload})
 	}
 	encode(w, http.StatusNoContent, nil, nil)
 }

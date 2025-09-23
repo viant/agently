@@ -11,8 +11,8 @@ import (
 	"github.com/viant/agently/adapter/http/filebrowser"
 	toolhttp "github.com/viant/agently/adapter/http/tool"
 	"github.com/viant/agently/adapter/http/workflow"
-	mcprouter "github.com/viant/agently/adapter/mcp/router"
 	"github.com/viant/agently/deployment/ui"
+	elicrouter "github.com/viant/agently/genai/elicitation/router"
 
 	"github.com/viant/agently/adapter/http/router/metadata"
 	"github.com/viant/agently/adapter/http/workspace"
@@ -28,7 +28,7 @@ import (
 //
 // Chat endpoints are mounted under /v1/api/… (see adapter/http/server.go).
 // Workspace endpoints under /v1/workspace/… (see adapter/http/workspace).
-func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxorpol.Policy, mcpR *mcprouter.Router) http.Handler {
+func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxorpol.Policy, mcpR elicrouter.ElicitationRouter) http.Handler {
 	mux := http.NewServeMux()
 
 	// Forge file service singleton (reused for upload handlers and chat service)

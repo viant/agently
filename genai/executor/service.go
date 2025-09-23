@@ -32,6 +32,7 @@ import (
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/fluxor/service/event"
 	"github.com/viant/fluxor/service/meta"
+	"github.com/viant/mcp-protocol/schema"
 	"github.com/viant/scy"
 
 	"github.com/viant/fluxor-mcp/mcp"
@@ -73,6 +74,13 @@ type Service struct {
 
 	// optional per-conversation MCP manager (injected via option)
 	mcpMgr *mcpmgr.Manager
+
+	// shared elicitation router (assistant wait path)
+	elicitationRouter interface {
+		RegisterByElicitationID(string, string, chan *schema.ElicitResult)
+		RemoveByElicitation(string, string)
+		AcceptByElicitation(string, string, *schema.ElicitResult) bool
+	}
 }
 
 // registerAgentTools exposes every agent with toolExport.expose==true as a
@@ -202,7 +210,21 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	if e.orchestration != nil {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
-	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, &e.config.Default, e.convClient)
+	agentSvc := agent2.New(
+		e.llmCore, e.agentFinder, enricher, e.tools, runtime, &e.config.Default, e.convClient,
+		// Inject elicitation router for LLM waits
+		func(s *agent2.Service) {
+			if e.elicitationRouter != nil {
+				agent2.WithElicitationRouter(e.elicitationRouter)(s)
+			}
+		},
+		// Inject interactive awaiter (CLI) so assistant elicitations can resolve without UI
+		func(s *agent2.Service) {
+			if e.newAwaiter != nil {
+				agent2.WithNewElicitationAwaiter(e.newAwaiter)(s)
+			}
+		},
+	)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
 

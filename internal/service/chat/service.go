@@ -17,6 +17,7 @@ import (
 	mcpclient "github.com/viant/agently/adapter/mcp"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/conversation"
+	"github.com/viant/agently/genai/elicitation"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
@@ -40,6 +41,8 @@ type Service struct {
 	convClient apiconv.Client
 	fileSvc    *fservice.Service
 
+	elicitation *elicitation.Service
+
 	mu            sync.Mutex
 	cancelsByTurn map[string][]context.CancelFunc // key: user turn id (message id)
 	turnsByConv   map[string][]string             // convID -> []turnID
@@ -54,6 +57,19 @@ func NewService() *Service {
 	}
 	return svc
 }
+
+// AttachElicitationService wires the elicitation service to avoid ad-hoc constructions.
+func (s *Service) AttachElicitationService(es *elicitation.Service) { s.elicitation = es }
+func (s *Service) ElicitationService() *elicitation.Service         { return s.elicitation }
+
+// ResumeElicitation triggers agent processing for a conversation after an
+// elicitation has been accepted and payload stored. It starts a new turn and
+// lets the agent continue based on the updated conversation state.
+// ResumeElicitation removed – resumption is coordinated by the agent loop via router wait.
+
+// ConversationClient exposes the underlying conversation client for handlers that need
+// fine-grained operations without adding more methods to this service.
+func (s *Service) ConversationClient() apiconv.Client { return s.convClient }
 
 // AttachManager configures the conversation manager and optional default policies.
 func (s *Service) AttachManager(mgr *conversation.Manager, tp *tool.Policy, fp *fluxpol.Policy) {
@@ -509,18 +525,21 @@ func (s *Service) Elicit(ctx context.Context, messageID, action string, payload 
 	if action == "" {
 		return fmt.Errorf("action is required")
 	}
-	// normalise to accepted/rejected/cancel
-	status := "rejected"
-	switch action {
-	case "accept", "accepted", "approve", "approved", "yes", "y":
-		status = "accepted"
-	case "cancel", "canceled", "cancelled":
-		status = "cancel"
-	default:
-		status = "rejected"
+	// normalize using shared helper
+	status := elicitation.NormalizeAction(action)
+	// Update status first (best-effort)
+	_ = s.convClient.PatchMessage(ctx, (*apiconv.MutableMessage)(&msgwrite.Message{Id: messageID, Status: status, Has: &msgwrite.MessageHas{Status: true}}))
+
+	// Best-effort: fetch the elicitation message to decide how to persist the result
+	elMsg, _ := s.convClient.GetMessage(ctx, messageID)
+	if elMsg != nil && status == "accepted" && payload != nil {
+		// Persist payload linked to the elicitation message itself (assistant and tool)
+		if elMsg.ElicitationId != nil && strings.TrimSpace(*elMsg.ElicitationId) != "" {
+			_ = elicitation.StorePayload(ctx, s.convClient, elMsg.ConversationId, *elMsg.ElicitationId, payload)
+		}
 	}
-	m := &msgwrite.Message{Id: messageID, Status: status, Has: &msgwrite.MessageHas{Status: true}}
-	_ = s.convClient.PatchMessage(ctx, (*apiconv.MutableMessage)(m))
+
+	// Deliver to any MCP waiter (tool-originated elicitation handled via router endpoint)
 	if ch, ok := mcpclient.Waiter(messageID); ok {
 		ch <- &schema.ElicitResult{Action: schema.ElicitResultAction(action), Content: payload}
 	}

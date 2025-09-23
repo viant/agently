@@ -76,7 +76,6 @@ func (s *Service) buildTaskBinding(input *QueryInput) prompt.Task {
 // buildHistory derives history from a provided conversation (if non-nil),
 // otherwise falls back to DAO transcript for compatibility.
 func (s *Service) buildHistory(ctx context.Context, input *QueryInput, conv *apiconv.Conversation) (prompt.History, error) {
-
 	var h prompt.History
 	if conv == nil {
 		return h, nil
