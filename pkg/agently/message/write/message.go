@@ -10,6 +10,7 @@ type Message struct {
 	TurnID          *string    `sqlx:"turn_id" json:",omitempty"`
 	Sequence        *int       `sqlx:"sequence" json:",omitempty"`
 	CreatedAt       *time.Time `sqlx:"created_at" json:",omitempty"`
+	UpdatedAt       *time.Time `sqlx:"updated_at" json:",omitempty"`
 	CreatedByUserID *string    `sqlx:"created_by_user_id" json:",omitempty"`
 	Role            string     `sqlx:"role" validate:"required"`
 	Status          string     `sqlx:"status" `
@@ -35,6 +36,7 @@ type MessageHas struct {
 	TurnID               bool
 	Sequence             bool
 	CreatedAt            bool
+	UpdatedAt            bool
 	CreatedByUserID      bool
 	Role                 bool
 	Status               bool
@@ -65,6 +67,7 @@ func (m *Message) SetConversationID(v string) {
 func (m *Message) SetTurnID(v string)       { m.TurnID = &v; m.ensureHas(); m.Has.TurnID = true }
 func (m *Message) SetSequence(v int)        { m.Sequence = &v; m.ensureHas(); m.Has.Sequence = true }
 func (m *Message) SetCreatedAt(v time.Time) { m.CreatedAt = &v; m.ensureHas(); m.Has.CreatedAt = true }
+func (m *Message) SetUpdatedAt(v time.Time) { m.UpdatedAt = &v; m.ensureHas(); m.Has.UpdatedAt = true }
 func (m *Message) SetCreatedByUserID(v string) {
 	m.CreatedByUserID = &v
 	m.ensureHas()

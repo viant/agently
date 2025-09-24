@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 	"unicode/utf8"
 
 	"github.com/viant/xdatly/handler"
@@ -65,6 +66,7 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 				return err
 			}
 		} else {
+			rec.SetUpdatedAt(time.Now().UTC())
 			if err = sql.Update("message", rec); err != nil {
 				return err
 			}
