@@ -35,7 +35,7 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 
 	// Create interim assistant message to capture request payload in transcript
 	if turn.ConversationID != "" {
-		if err := o.patchInterimRequestMessage(ctx, turn.ConversationID, turn.TurnID, turn.ParentMessageID, msgID, info.Payload); err != nil {
+		if err := o.patchInterimRequestMessage(ctx, turn, msgID, info.Payload); err != nil {
 			return ctx, err
 		}
 	}
@@ -142,22 +142,16 @@ func WithRecorderObserver(ctx context.Context, client apiconv.Client) context.Co
 }
 
 // patchInterimRequestMessage creates an interim assistant message capturing the request payload.
-func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, conversationID, turnID, parentMsgID, msgID string, payload []byte) error {
+func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn memory.TurnMeta, msgID string, payload []byte) error {
 	one := 1
 	msg := apiconv.NewMessage()
 	msg.SetId(msgID)
-	msg.SetConversationID(conversationID)
-	if strings.TrimSpace(turnID) != "" {
-		msg.SetTurnID(turnID)
-	}
-	if parentMsgID != "" {
-		msg.SetParentMessageID(parentMsgID)
-	}
+	msg.SetConversationID(turn.ConversationID)
+	msg.SetTurnID(turn.TurnID)
+	msg.SetParentMessageID(turn.ParentMessageID)
 	msg.SetRole("assistant")
 	msg.SetType("text")
-	msg.SetContent(string(payload))
-	msg.Interim = &one
-	msg.Has.Interim = true
+	msg.SetInterim(one)
 	msg.Has.Content = true
 	return o.client.PatchMessage(ctx, msg)
 }
@@ -167,8 +161,7 @@ func (o *recorderObserver) patchInterimFlag(ctx context.Context, msgID string) e
 	interim := 1
 	msg := apiconv.NewMessage()
 	msg.SetId(msgID)
-	msg.Interim = &interim
-	msg.Has.Interim = true
+	msg.SetInterim(interim)
 	return o.client.PatchMessage(ctx, msg)
 }
 

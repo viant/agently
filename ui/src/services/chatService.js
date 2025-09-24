@@ -346,10 +346,14 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                             elicitationId: maybe.elicitationId,
                             message: maybe.message || maybe.prompt || '',
                             requestedSchema: maybe.requestedSchema || {},
+                            url: maybe.url || '',
+                            mode: maybe.mode || '',
                         };
                         if (!callbackURL && typeof maybe.callbackURL === 'string') {
                             callbackURL = maybe.callbackURL;
                         }
+                        // Debug: log detection of control elicitation
+                        try { console.debug('[ElicitationDetect]', {id, role: roleLower, status: m.status || m.Status, mode: elic.mode, url: elic.url, hasSchema: !!elic.requestedSchema}); } catch(_) {}
                     }
                 } catch (_) {}
             }
@@ -364,7 +368,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             if (isControlElicitation && String(status).toLowerCase() !== 'pending') continue;
 
             // Row usage derived from model call only when attached to this row later; leave null here.
-            turnRows.push({
+            const row = {
                 id,
                 conversationId: m.conversationId || m.ConversationId,
                 role: isControlElicitation ? roleLower : roleLower,
@@ -378,7 +382,9 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 status,
                 elicitation: elic,
                 callbackURL,
-            });
+            };
+            try { console.debug('[ChatRow]', row); } catch(_) {}
+            turnRows.push(row);
         }
 
         // 3) Attach steps to a single carrier message in the same turn (prefer first user)

@@ -1,12 +1,10 @@
 package conversation
 
 import (
-	"fmt"
 	"path"
 	"strings"
 	"unsafe"
 
-	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/prompt"
 )
 
@@ -24,7 +22,7 @@ func (t *Turn) ToolCalls() Messages {
 	return filtered
 }
 
-func (t *Transcript) History(query string) []*prompt.Message {
+func (t *Transcript) History() []*prompt.Message {
 	normalized := t.Filter(func(v *Message) bool {
 		if v == nil || v.IsInterim() || v.Content == nil || *v.Content == "" {
 			return false
@@ -37,14 +35,6 @@ func (t *Transcript) History(query string) []*prompt.Message {
 		return role == "user" || role == "assistant"
 	})
 
-	if n := len(normalized); n > 0 && query != "" {
-		last := normalized[n-1]
-		if last != nil && last.Content != nil && strings.EqualFold(strings.TrimSpace(last.Role), string(llm.RoleUser)) &&
-			strings.TrimSpace(*last.Content) == strings.TrimSpace(query) {
-			normalized = normalized[:n-1]
-		}
-	}
-
 	var result []*prompt.Message
 	for _, v := range normalized {
 
@@ -53,19 +43,8 @@ func (t *Transcript) History(query string) []*prompt.Message {
 		if v.Content != nil {
 			content = *v.Content
 		}
-		if v.Elicitation != nil {
-			role = llm.RoleUser.String()
-			userData := ""
-			if v.Elicitation.InlineBody != nil {
-				userData = string(*v.Elicitation.InlineBody)
-			}
-			if userData == "" {
-				userData = fmt.Sprintf("elicitation status: %v", *v.Status)
-			}
-			content = userData
-		}
 		// Collect attachments associated to this base message (joined via parent_message_id)
-		var atts []*prompt.Attachment
+		var attachments []*prompt.Attachment
 		if v.Attachment != nil && len(v.Attachment) > 0 {
 			for _, av := range v.Attachment {
 				if av == nil {
@@ -79,7 +58,7 @@ func (t *Transcript) History(query string) []*prompt.Message {
 				if av.Uri != nil && *av.Uri != "" {
 					name = path.Base(*av.Uri)
 				}
-				atts = append(atts, &prompt.Attachment{
+				attachments = append(attachments, &prompt.Attachment{
 					Name: name,
 					URI: func() string {
 						if av.Uri != nil {
@@ -93,7 +72,7 @@ func (t *Transcript) History(query string) []*prompt.Message {
 			}
 
 		}
-		result = append(result, &prompt.Message{Role: role, Content: content, Attachment: atts})
+		result = append(result, &prompt.Message{Role: role, Content: content, Attachment: attachments})
 	}
 	return result
 }

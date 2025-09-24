@@ -24,9 +24,7 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 			m.SetCreatedAt(now)
 			// ensure non-null default fields
 			if m.Interim == nil {
-				zero := 0
-				m.Interim = &zero
-				m.Has.Interim = true
+				m.SetInterim(0)
 			}
 		}
 	}
