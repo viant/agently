@@ -17,7 +17,7 @@ require (
 	github.com/viant/datly v0.20.15-0.20250915182301-c672e99e1072
 	github.com/viant/embedius v0.2.1
 	github.com/viant/fluxor v0.3.9
-	github.com/viant/fluxor-mcp v0.1.15
+	github.com/viant/fluxor-mcp v0.1.16
 	github.com/viant/forge v0.2.9
 	github.com/viant/jsonrpc v0.9.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
