@@ -49,9 +49,10 @@ func (s *Service) Name() string {
 func (s *Service) Methods() types.Signatures {
 	return []types.Signature{
 		{
-			Name:   "generate",
-			Input:  reflect.TypeOf(&GenerateInput{}),
-			Output: reflect.TypeOf(&GenerateOutput{}),
+			Name:     "generate",
+			Internal: true,
+			Input:    reflect.TypeOf(&GenerateInput{}),
+			Output:   reflect.TypeOf(&GenerateOutput{}),
 		},
 	}
 }

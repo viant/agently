@@ -127,7 +127,9 @@ function flattenExecutions(executions = []) {
             const hasBool = typeof s.successBool === 'boolean';
             const successBool = hasBool ? s.successBool : (typeof s.success === 'boolean' ? s.success : undefined);
             const statusText = (s.statusText || (successBool === undefined ? 'pending' : (successBool ? 'completed' : 'error'))).toLowerCase();
-            const icon = reason === 'thinking' ? '🧠' : (reason === 'tool_call' ? '🛠️' : '⌨️');
+            const baseIcon = reason === 'thinking' ? '🧠' : (reason === 'tool_call' ? '🛠️' : '⌨️');
+            const hasError = !!(s.error || s.errorCode);
+            const icon = hasError ? (baseIcon + '❗') : baseIcon;
             const annotatedName = reason === 'elicitation' && s.originRole ? `${s.name} (${s.originRole})` : (s.name || reason);
             return {
                 icon,
@@ -143,7 +145,9 @@ function flattenExecutions(executions = []) {
                 _provider: s.provider,
                 _model: s.model,
                 _finishReason: s.finishReason,
+                _errorCode: s.errorCode,
                 _error: s.error,
+                _attempt: s.attempt,
                 _startedAt: s.startedAt,
                 _endedAt: s.endedAt,
                 _toolName: s.toolName || s.name,
@@ -311,7 +315,8 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                                     )}
                                 </div>
                                 {r._finishReason && <div><strong>Finish Reason:</strong> {r._finishReason}</div>}
-                                {r._error && <div style={{color: 'red'}}><strong>Error:</strong> {String(r._error)}</div>}
+                                {r._errorCode && <div><strong>Error Code:</strong> {String(r._errorCode)}</div>}
+                                {r._error && <div style={{color: 'red'}}><strong>Error Message:</strong> {String(r._error)}</div>}
                                 <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                                     <div style={{ display: 'flex', gap: 8 }}>
                                         <button className="bp4-button bp4-small" disabled={!r.requestPayloadId} onClick={() => viewPart('request', r)}>Open Request</button>
@@ -332,7 +337,9 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                         return (
                             <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <div><strong>Tool:</strong> {r._toolName || r.name}</div>
-                                {r._error && <div style={{color: 'red'}}><strong>Error:</strong> {String(r._error)}</div>}
+                                {typeof r._attempt === 'number' && <div><strong>Attempt:</strong> {r._attempt}</div>}
+                                {r._errorCode && <div><strong>Error Code:</strong> {String(r._errorCode)}</div>}
+                                {r._error && <div style={{color: 'red'}}><strong>Error Message:</strong> {String(r._error)}</div>}
                                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                                     <button className="bp4-button bp4-small" disabled={!r.requestPayloadId} onClick={() => viewPart('request', r)}>Open Request</button>
                                     <button className="bp4-button bp4-small" disabled={!r.responsePayloadId} onClick={() => viewPart('response', r)}>Open Response</button>

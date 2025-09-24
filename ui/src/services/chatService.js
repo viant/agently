@@ -213,6 +213,7 @@ function buildThinkingStepFromModelCall(mc) {
         provider: mc.provider || mc.Provider,
         model: mc.model || mc.Model,
         finishReason: mc.finishReason || mc.FinishReason,
+        errorCode: mc.errorCode || mc.ErrorCode,
         reason: 'thinking',
         success: status === 'completed',
         statusText: status,
@@ -245,6 +246,8 @@ function buildToolStepFromToolCall(tc) {
         success: status === 'completed',
         statusText: status,
         error: tc.errorMessage || tc.ErrorMessage || '',
+        errorCode: tc.errorCode || tc.ErrorCode,
+        attempt: typeof (tc.attempt ?? tc.Attempt) === 'number' ? (tc.attempt ?? tc.Attempt) : undefined,
         startedAt: tc.startedAt || tc.StartedAt,
         endedAt: tc.completedAt || tc.CompletedAt,
         requestPayloadId: tc.requestPayloadId || tc.RequestPayloadId,
@@ -281,6 +284,8 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
     let recentElicitationStep = null;
     for (const turn of transcript) {
         const turnId = turn?.id || turn?.Id;
+        const turnStatus = String(turn?.status || turn?.Status || '').toLowerCase();
+        const turnError = (turn?.errorMessage || turn?.ErrorMessage || '') + '';
         const messages = Array.isArray(turn?.message) ? turn.message
             : Array.isArray(turn?.Message) ? turn.Message : [];
 
@@ -333,6 +338,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 } catch(_) {}
                 if (elic) {
                     const created = m?.createdAt || m?.CreatedAt;
+                    const updated = m?.updatedAt || m?.UpdatedAt || created;
                     const isLast = (m.id || m.Id) === globalLastMsgId;
                     // For assistant: include unless it is last AND pending; for tool: include always (step timeline)
                     const includeNow = (roleLower2 === 'assistant') ? (!isLast || (status2 && status2 !== 'pending')) : true;
@@ -345,7 +351,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                             statusText: status2 || 'pending',
                             originRole: roleLower2,
                             startedAt: created,
-                            endedAt: created,
+                            endedAt: updated,
                             responsePayloadId: payloadId,
                             elicitationPayloadId: payloadId,
                             elicitation: {
@@ -505,6 +511,22 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
         }
 
         for (const r of turnRows) rows.push(r);
+
+        // 4) If the turn has failed, add a dedicated error bubble so the user sees it immediately
+        if ((turnStatus === 'failed' || (turnError && turnError.trim() !== '')) && turnId) {
+            rows.push({
+                id: `${turnId}/error`,
+                conversationId: turn?.conversationId || turn?.ConversationId,
+                role: 'assistant',
+                content: `Error: ${turnError || 'turn failed'}`,
+                createdAt: toISOSafe(turn?.createdAt || turn?.CreatedAt),
+                turnId: turnId,
+                parentId: turnId,
+                status: 'failed',
+                executions: [],
+                usage: null,
+            });
+        }
     }
     return rows;
 }
