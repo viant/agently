@@ -22,7 +22,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
-	elicitation "github.com/viant/agently/genai/elicitation"
+	"github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
@@ -169,82 +169,17 @@ func (c *Client) persistElicitationMessage(ctx context.Context, params *schema.E
 	payload := &elicitationSchema.Elicitation{ElicitRequestParams: *params}
 	// Provide a direct callback URL using conversation + elicitationId for unified posting.
 	payload.CallbackURL = fmt.Sprintf("/v1/api/conversations/%s/elicitation/%s", c.convID, params.ElicitationId)
-	// Record as tool-role elicitation (type=elicitation, status=pending), linked to current turn via context.
-	if c.elicitation != nil {
-		tm := &memory.TurnMeta{ConversationID: c.convID}
-		_, err := c.elicitation.Record(ctx, tm, "tool", payload)
-		return err
+	aConversation, err := c.convClient.GetConversation(ctx, c.convID)
+	if err != nil {
+		return fmt.Errorf("failed to get conversation: %v for elicitation, %v", err, params.ElicitationId)
 	}
-	// Fallback (should not happen when convClient is set)
-	return fmt.Errorf("elicitation service not initialized")
-}
-
-// postElicitationStatus emits a small status message linked to the elicitation
-// so that Web/CLI UIs can visualise the resolution.
-func (c *Client) postElicitationStatus(ctx context.Context, elicitationID, status string) error {
-	if c.convClient == nil || strings.TrimSpace(c.convID) == "" || strings.TrimSpace(elicitationID) == "" {
-		return fmt.Errorf("convClient/convID/elicitationID required")
+	turn := &memory.TurnMeta{ConversationID: c.convID}
+	if aConversation.LastTurnId != nil {
+		turn.TurnID = *aConversation.LastTurnId
+		turn.ParentMessageID = *aConversation.LastTurnId
 	}
-	st := elicitation.NormalizeAction(status)
-	msg := apiconv.NewMessage()
-	msg.SetId(uuid.New().String())
-	msg.SetConversationID(c.convID)
-	msg.SetElicitationID(elicitationID)
-	// Try to link to the same turn as the original elicitation message
-	if cv, err := c.convClient.GetConversation(ctx, c.convID); err == nil && cv != nil {
-		for _, turn := range cv.GetTranscript() {
-			if turn == nil {
-				continue
-			}
-			for _, m := range turn.GetMessages() {
-				if m == nil || m.ElicitationId == nil {
-					continue
-				}
-				if strings.TrimSpace(*m.ElicitationId) == strings.TrimSpace(elicitationID) {
-					if turnId := strings.TrimSpace(turn.Id); turnId != "" {
-						msg.SetTurnID(turnId)
-					}
-					break
-				}
-			}
-		}
-	}
-	msg.SetContent(st)
-	if err := c.convClient.PatchMessage(ctx, msg); err != nil {
-		return err
-	}
-	return nil
-}
-
-// postElicitationResult persists the resolved elicitation payload so that UIs
-// and potential resume logic can consume it from storage.
-func (c *Client) postElicitationResult(ctx context.Context, elicitationID string, res *schema.ElicitResult) error {
-	if c.convClient == nil || strings.TrimSpace(c.convID) == "" || strings.TrimSpace(elicitationID) == "" || res == nil {
-		return fmt.Errorf("convClient/convID/elicitationID/result required")
-	}
-	orig, err := c.convClient.GetMessageByElicitation(ctx, c.convID, elicitationID)
-	if err != nil || orig == nil {
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("elicitation message not found")
-	}
-	if c.elicitation == nil {
-		return fmt.Errorf("elicitation service not initialised")
-	}
-	return c.elicitation.StorePayload(ctx, c.convID, elicitationID, res.Content)
-}
-
-// updateElicitationStatus patches the original elicitation message status based on action.
-func (c *Client) updateElicitationStatus(ctx context.Context, elicitationID, action string) error {
-	if c.convClient == nil || strings.TrimSpace(c.convID) == "" || strings.TrimSpace(elicitationID) == "" {
-		return fmt.Errorf("convClient/convID/elicitationID required")
-	}
-	_ = elicitation.NormalizeAction(action)
-	if c.elicitation == nil {
-		return fmt.Errorf("elicitation service not initialised")
-	}
-	return c.elicitation.UpdateStatus(ctx, c.convID, elicitationID, action)
+	_, err = c.elicitation.Record(ctx, turn, "tool", payload)
+	return err
 }
 
 func (c *Client) asErr(e error) *jsonrpc.Error {

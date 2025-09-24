@@ -100,34 +100,34 @@ type TranscriptView struct {
 }
 
 type MessageView struct {
-	Id                   string            `sqlx:"id"`
-	ConversationId       string            `sqlx:"conversation_id"`
-	TurnId               *string           `sqlx:"turn_id"`
-	Sequence             *int              `sqlx:"sequence"`
-	CreatedAt            time.Time         `sqlx:"created_at"`
-	CreatedByUserId      *string           `sqlx:"created_by_user_id"`
-	Status               *string           `sqlx:"status"`
-	Role                 string            `sqlx:"role"`
-	Type                 string            `sqlx:"type"`
-	Content              *string           `sqlx:"content"`
-	ContextSummary       *string           `sqlx:"context_summary"`
-	Tags                 *string           `sqlx:"tags"`
-	Interim              int               `sqlx:"interim"`
-	ElicitationId        *string           `sqlx:"elicitation_id"`
-	ParentMessageId      *string           `sqlx:"parent_message_id"`
-	SupersededBy         *string           `sqlx:"superseded_by"`
-	AttachmentPayloadId  *string           `sqlx:"attachment_payload_id"`
-	ElicitationPayloadId *string           `sqlx:"elicitation_payload_id"`
-	ToolName             *string           `sqlx:"tool_name"`
-	Elicitation          *ElicitationView  `view:",table=message" on:"Id:id=MessageId:m.id" sql:"uri=conversation/elicitation.sql"`
-	Attachment           []*AttachmentView `view:",table=message" on:"Id:id=ParentMessageId:m.parent_message_id" sql:"uri=conversation/attachment.sql"`
-	ModelCall            *ModelCallView    `view:",table=model_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/model_call.sql"`
-	ToolCall             *ToolCallView     `view:",table=tool_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
+	Id                   string                   `sqlx:"id"`
+	ConversationId       string                   `sqlx:"conversation_id"`
+	TurnId               *string                  `sqlx:"turn_id"`
+	Sequence             *int                     `sqlx:"sequence"`
+	CreatedAt            time.Time                `sqlx:"created_at"`
+	CreatedByUserId      *string                  `sqlx:"created_by_user_id"`
+	Status               *string                  `sqlx:"status"`
+	Role                 string                   `sqlx:"role"`
+	Type                 string                   `sqlx:"type"`
+	Content              *string                  `sqlx:"content"`
+	ContextSummary       *string                  `sqlx:"context_summary"`
+	Tags                 *string                  `sqlx:"tags"`
+	Interim              int                      `sqlx:"interim"`
+	ElicitationId        *string                  `sqlx:"elicitation_id"`
+	ParentMessageId      *string                  `sqlx:"parent_message_id"`
+	SupersededBy         *string                  `sqlx:"superseded_by"`
+	AttachmentPayloadId  *string                  `sqlx:"attachment_payload_id"`
+	ElicitationPayloadId *string                  `sqlx:"elicitation_payload_id"`
+	ToolName             *string                  `sqlx:"tool_name"`
+	UserElicitationData  *UserElicitationDataView `view:",table=message" on:"Id:id=MessageId:m.id" sql:"uri=conversation/user_elicitation_data.sql"`
+	Attachment           []*AttachmentView        `view:",table=message" on:"Id:id=ParentMessageId:m.parent_message_id" sql:"uri=conversation/attachment.sql"`
+	ModelCall            *ModelCallView           `view:",table=model_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/model_call.sql"`
+	ToolCall             *ToolCallView            `view:",table=tool_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
 }
 
-type ElicitationView struct {
+type UserElicitationDataView struct {
 	InlineBody  *string `sqlx:"inline_body"`
-	Compression *string `sqlx:"compression"`
+	Compression string  `sqlx:"compression"`
 	MessageId   string  `sqlx:"message_id" source:"id"`
 }
 

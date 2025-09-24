@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/elicitation"
 	"io"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/elicitation"
 )
 
 // stdinAwaiter prompts the user on stdin/stdout whenever the runtime requests
@@ -32,28 +33,26 @@ func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitati
 	if req != nil {
 		url := strings.TrimSpace(req.Url)
 		if url != "" {
-			// Out-of-band interaction: print URL and offer to open; default is immediate accept
+			// Out-of-band interaction: print URL and offer to open; resolution happens via UI callback
 			if _, done := openedURLs[url]; !done {
 				openedURLs[url] = struct{}{}
 			}
-			fmt.Fprintf(os.Stdout, "\nThe workflow requests additional information.\nURL: %s\n", url)
+			fmt.Fprintf(os.Stdout, "\nAdditional input is required via browser.\nURL: %s\n", url)
 
 			reader := bufio.NewReader(os.Stdin)
 			for {
-				fmt.Fprint(os.Stdout, "Open URL and accept? [o]pen, [a]ccept, [r]eject (default: a): ")
+				fmt.Fprint(os.Stdout, "Open URL or decline? [o]pen, [d]ecline (default: o): ")
 				line, _ := reader.ReadString('\n')
 				sel := strings.ToLower(strings.TrimSpace(line))
-				if sel == "" || sel == "a" || sel == "accept" {
-					return &plan.ElicitResult{Action: plan.ElicitResultActionAccept}, nil
-				}
-				if sel == "o" || sel == "open" {
+				if sel == "" || sel == "o" || sel == "open" {
 					_ = launchBrowser(url)
+					// Do not resolve here; UI callback will resolve elicitation
 					return &plan.ElicitResult{Action: plan.ElicitResultActionAccept}, nil
 				}
-				if sel == "r" || sel == "reject" || sel == "decline" {
+				if sel == "d" || sel == "decline" || sel == "r" || sel == "reject" {
 					return &plan.ElicitResult{Action: plan.ElicitResultActionDecline}, nil
 				}
-				fmt.Fprintln(os.Stdout, "Invalid choice. Please enter o, a, or r.")
+				fmt.Fprintln(os.Stdout, "Invalid choice. Please enter o or d.")
 			}
 		}
 	}

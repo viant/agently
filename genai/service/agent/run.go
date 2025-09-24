@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
+	elact "github.com/viant/agently/genai/elicitation/action"
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/prompt"
@@ -220,7 +221,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			if err != nil {
 				return err
 			}
-			if status != "accepted" {
+			if elact.Normalize(status) != elact.Accept {
 				// User declined/cancelled; finish turn without additional content
 				return nil
 			}

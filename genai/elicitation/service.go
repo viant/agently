@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent/plan"
+	elact "github.com/viant/agently/genai/elicitation/action"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
@@ -63,19 +64,9 @@ func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string
 	msg := apiconv.NewMessage()
 	msg.SetId(uuid.New().String())
 	msg.SetConversationID(turn.ConversationID)
-	if strings.TrimSpace(turn.TurnID) != "" {
-		msg.SetTurnID(turn.TurnID)
-	}
+	msg.SetTurnID(turn.TurnID)
 	msg.SetElicitationID(elic.ElicitationId)
-	if msg.TurnID == nil {
-		if cv, err := s.client.GetConversation(ctx, turn.ConversationID); err == nil && cv != nil && cv.LastTurnId != nil && strings.TrimSpace(*cv.LastTurnId) != "" {
-			msg.SetTurnID(*cv.LastTurnId)
-		}
-	}
-	if strings.TrimSpace(turn.ParentMessageID) != "" {
-		msg.SetParentMessageID(turn.ParentMessageID)
-	}
-
+	msg.SetParentMessageID(turn.ParentMessageID)
 	msg.SetRole(role)
 	messageType := "control"
 	if role == llm.RoleAssistant.String() {
@@ -126,13 +117,13 @@ func (s *Service) Wait(ctx context.Context, convID, elicitationID string) (strin
 				return
 			}
 			// Persist when accepted and notify router
-			if strings.ToLower(string(res.Action)) == "accept" && res.Payload != nil {
+			if strings.ToLower(string(res.Action)) == elact.Accept && res.Payload != nil {
 				_ = s.StorePayload(ctx, convID, elicitationID, res.Payload)
-				_ = s.UpdateStatus(ctx, convID, elicitationID, "accepted")
+				_ = s.UpdateStatus(ctx, convID, elicitationID, elact.Accept)
 			} else {
-				_ = s.UpdateStatus(ctx, convID, elicitationID, "rejected")
+				_ = s.UpdateStatus(ctx, convID, elicitationID, elact.Decline)
 			}
-			out := &schema.ElicitResult{Action: schema.ElicitResultAction(res.Action), Content: res.Payload}
+			out := &schema.ElicitResult{Action: schema.ElicitResultAction(elact.Normalize(string(res.Action))), Content: res.Payload}
 			s.router.AcceptByElicitation(convID, elicitationID, out)
 		}()
 	}
@@ -142,10 +133,10 @@ func (s *Service) Wait(ctx context.Context, convID, elicitationID string) (strin
 		return "", nil, ctx.Err()
 	case res := <-ch:
 		if res == nil {
-			return "rejected", nil, nil
+			return elact.Decline, nil, nil
 		}
-		st := NormalizeAction(string(res.Action))
-		return st, res.Content, nil
+		act := elact.Normalize(string(res.Action))
+		return act, res.Content, nil
 	}
 }
 
@@ -167,7 +158,7 @@ func (s *Service) Elicit(ctx context.Context, turn *memory.TurnMeta, role string
 }
 
 func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, action string) error {
-	st := NormalizeAction(action)
+	st := elact.ToStatus(action)
 	msg, err := s.client.GetMessageByElicitation(ctx, convID, elicitationID)
 	if err != nil {
 		return err
@@ -182,36 +173,49 @@ func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, actio
 }
 
 func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string, payload map[string]interface{}) error {
-	return StorePayload(ctx, s.client, convID, elicitationID, payload)
+	msg, err := s.client.GetMessageByElicitation(ctx, convID, elicitationID)
+	if err != nil {
+		return err
+	}
+	if msg == nil {
+		return fmt.Errorf("elicitation message not found")
+	}
+	raw, _ := json.Marshal(payload)
+	pid := uuid.New().String()
+	p := apiconv.NewPayload()
+	p.SetId(pid)
+	p.SetKind("elicitation_response")
+	p.SetMimeType("application/json")
+	p.SetSizeBytes(len(raw))
+	p.SetStorage("inline")
+	p.SetInlineBody(raw)
+	if err := s.client.PatchPayload(ctx, p); err != nil {
+		return err
+	}
+	upd := apiconv.NewMessage()
+	upd.SetId(msg.Id)
+	upd.SetElicitationPayloadID(pid)
+	if msg.Role == llm.RoleAssistant.String() {
+		turn := memory.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
+		if err := s.AddUserResponseMessage(ctx, &turn, payload); err != nil {
+			return err
+		}
+	}
+	return s.client.PatchMessage(ctx, upd)
 }
 
-func (s *Service) AddUserResponseMessage(ctx context.Context, tm *memory.TurnMeta, payload map[string]interface{}) error {
+func (s *Service) AddUserResponseMessage(ctx context.Context, turn *memory.TurnMeta, payload map[string]interface{}) error {
 	raw, _ := json.Marshal(payload)
 	m := apiconv.NewMessage()
 	m.SetId(uuid.New().String())
-	m.SetConversationID(tm.ConversationID)
-	if strings.TrimSpace(tm.TurnID) != "" {
-		m.SetTurnID(tm.TurnID)
-	}
-	if strings.TrimSpace(tm.ParentMessageID) != "" {
-		m.SetParentMessageID(tm.ParentMessageID)
-	}
+	m.SetConversationID(turn.ConversationID)
+	m.SetTurnID(turn.TurnID)
+	m.SetParentMessageID(turn.ParentMessageID)
 	m.SetRole("user")
 	m.SetType("text")
 	m.SetContent(string(raw))
 	return s.client.PatchMessage(ctx, m)
 }
 
-func NormalizeAction(action string) string {
-	st := strings.ToLower(strings.TrimSpace(action))
-	switch st {
-	case "accept", "accepted", "approve", "approved", "yes", "y":
-		return "accepted"
-	case "cancel", "canceled", "cancelled":
-		return "cancel"
-	case "decline", "declined", "reject", "rejected", "no", "n":
-		fallthrough
-	default:
-		return "rejected"
-	}
-}
+// NormalizeAction is kept for backward compatibility; use action.Normalize.
+func NormalizeAction(a string) string { return elact.Normalize(a) }

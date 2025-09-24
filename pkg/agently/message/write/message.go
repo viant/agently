@@ -75,6 +75,7 @@ func (m *Message) SetStatus(v string)   { m.Status = v; m.ensureHas(); m.Has.Sta
 func (m *Message) SetType(v string)     { m.Type = v; m.ensureHas(); m.Has.Type = true }
 func (m *Message) SetContent(v string)  { m.Content = v; m.ensureHas(); m.Has.Content = true }
 func (m *Message) SetToolName(v string) { m.ToolName = &v; m.ensureHas(); m.Has.ToolName = true }
+func (m *Message) SetInterim(v int)     { m.Interim = &v; m.ensureHas(); m.Has.Interim = true }
 func (m *Message) SetAttachmentPayloadID(v string) {
 	m.AttachmentPayloadID = &v
 	m.ensureHas()

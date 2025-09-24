@@ -16,6 +16,7 @@ import (
 	"github.com/viant/agently/adapter/http/ui"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/elicitation"
+	elact "github.com/viant/agently/genai/elicitation/action"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/mcp-protocol/schema"
 
@@ -163,6 +164,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.chatSvc.AttachApproval(s.pendingApproval)
 	}
 	s.chatSvc.AttachFileService(s.fileSvc)
+	// Attach a shared elicitation service for persistence and waiting
+	if s.chatSvc != nil {
+		es := elicitation.New(s.chatSvc.ConversationClient(), nil, s.mcpRouter, nil)
+		s.chatSvc.AttachElicitationService(es)
+	}
 	mux := http.NewServeMux()
 
 	// ------------------------------------------------------------------
@@ -472,8 +478,9 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
-	// Normalize to accepted/rejected/cancel using shared helper
-	status := elicitation.NormalizeAction(req.Action)
+	// Normalize to MCP action, derive message status for storage
+	act := elicitation.NormalizeAction(req.Action)
+	status := elact.ToStatus(act)
 
 	// Fetch elicitation message so we know role/turn/message id
 	elMsg, err := s.chatSvc.ConversationClient().GetMessageByElicitation(r.Context(), convID, elicID)
@@ -488,14 +495,16 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 	_ = s.chatSvc.ConversationClient().PatchMessage(r.Context(), stMsg)
 
 	// On accepted: persist payload by linking to the elicitation message (both assistant and tool)
-	if status == "accepted" && req.Payload != nil {
-		_ = elicitation.StorePayload(r.Context(), s.chatSvc.ConversationClient(), convID, elicID, req.Payload)
+	if status == elact.StatusAccepted && req.Payload != nil {
+		if s.chatSvc != nil && s.chatSvc.ElicitationService() != nil {
+			_ = s.chatSvc.ElicitationService().StorePayload(r.Context(), convID, elicID, req.Payload)
+		}
 	}
 
 	// Notify any waiting MCP client via router keyed by elicitationId
 	// Notify waiters via router
 	if s.mcpRouter != nil {
-		_ = s.mcpRouter.AcceptByElicitation(convID, elicID, &schema.ElicitResult{Action: schema.ElicitResultAction(status), Content: req.Payload})
+		_ = s.mcpRouter.AcceptByElicitation(convID, elicID, &schema.ElicitResult{Action: schema.ElicitResultAction(act), Content: req.Payload})
 	}
 	encode(w, http.StatusNoContent, nil, nil)
 }

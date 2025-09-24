@@ -18,6 +18,7 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/elicitation"
+	elact "github.com/viant/agently/genai/elicitation/action"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
@@ -525,23 +526,26 @@ func (s *Service) Elicit(ctx context.Context, messageID, action string, payload 
 	if action == "" {
 		return fmt.Errorf("action is required")
 	}
-	// normalize using shared helper
-	status := elicitation.NormalizeAction(action)
+	// normalize MCP action then map to message status
+	act := elicitation.NormalizeAction(action)
+	status := elact.ToStatus(act)
 	// Update status first (best-effort)
 	_ = s.convClient.PatchMessage(ctx, (*apiconv.MutableMessage)(&msgwrite.Message{Id: messageID, Status: status, Has: &msgwrite.MessageHas{Status: true}}))
 
 	// Best-effort: fetch the elicitation message to decide how to persist the result
 	elMsg, _ := s.convClient.GetMessage(ctx, messageID)
-	if elMsg != nil && status == "accepted" && payload != nil {
+	if elMsg != nil && status == elact.StatusAccepted && payload != nil {
 		// Persist payload linked to the elicitation message itself (assistant and tool)
 		if elMsg.ElicitationId != nil && strings.TrimSpace(*elMsg.ElicitationId) != "" {
-			_ = elicitation.StorePayload(ctx, s.convClient, elMsg.ConversationId, *elMsg.ElicitationId, payload)
+			if s.elicitation != nil {
+				_ = s.elicitation.StorePayload(ctx, elMsg.ConversationId, *elMsg.ElicitationId, payload)
+			}
 		}
 	}
 
 	// Deliver to any MCP waiter (tool-originated elicitation handled via router endpoint)
 	if ch, ok := mcpclient.Waiter(messageID); ok {
-		ch <- &schema.ElicitResult{Action: schema.ElicitResultAction(action), Content: payload}
+		ch <- &schema.ElicitResult{Action: schema.ElicitResultAction(act), Content: payload}
 	}
 	return nil
 }
