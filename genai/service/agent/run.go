@@ -166,6 +166,9 @@ func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *
 	payload.SetSizeBytes(len(att.Data))
 	payload.SetStorage("inline")
 	payload.SetInlineBody(att.Data)
+	if strings.TrimSpace(att.URI) != "" {
+		payload.SetURI(att.URI)
+	}
 	if err := s.conversation.PatchPayload(ctx, payload); err != nil {
 		return fmt.Errorf("failed to persist attachment payload: %w", err)
 	}
