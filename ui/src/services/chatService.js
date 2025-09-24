@@ -206,14 +206,26 @@ async function dsTick({context}) {
 
 function buildThinkingStepFromModelCall(mc) {
     if (!mc) return null;
+    const status = String((mc.status || mc.Status || '')).toLowerCase();
     return {
         id: mc.messageId || mc.MessageId,
         name: mc.model || mc.Model,
+        provider: mc.provider || mc.Provider,
+        model: mc.model || mc.Model,
+        finishReason: mc.finishReason || mc.FinishReason,
         reason: 'thinking',
-        success: String((mc.status || mc.Status || '')).toLowerCase() === 'completed',
+        success: status === 'completed',
+        statusText: status,
         error: mc.errorMessage || mc.ErrorMessage || '',
         startedAt: mc.startedAt || mc.StartedAt,
         endedAt: mc.completedAt || mc.CompletedAt,
+        promptTokens: mc.promptTokens ?? mc.PromptTokens,
+        promptCachedTokens: mc.promptCachedTokens ?? mc.PromptCachedTokens,
+        promptAudioTokens: mc.promptAudioTokens ?? mc.PromptAudioTokens,
+        completionTokens: mc.completionTokens ?? mc.CompletionTokens,
+        completionReasoningTokens: mc.completionReasoningTokens ?? mc.CompletionReasoningTokens,
+        completionAudioTokens: mc.completionAudioTokens ?? mc.CompletionAudioTokens,
+        totalTokens: mc.totalTokens ?? mc.TotalTokens,
         requestPayloadId: mc.requestPayloadId || mc.RequestPayloadId,
         responsePayloadId: mc.responsePayloadId || mc.ResponsePayloadId,
         streamPayloadId: mc.streamPayloadId || mc.StreamPayloadId,
@@ -224,11 +236,14 @@ function buildThinkingStepFromModelCall(mc) {
 
 function buildToolStepFromToolCall(tc) {
     if (!tc) return null;
+    const status = String((tc.status || tc.Status || '')).toLowerCase();
     return {
         id: tc.opId || tc.OpId,
         name: tc.toolName || tc.ToolName,
+        toolName: tc.toolName || tc.ToolName,
         reason: 'tool_call',
-        success: String((tc.status || tc.Status || '')).toLowerCase() === 'completed',
+        success: status === 'completed',
+        statusText: status,
         error: tc.errorMessage || tc.ErrorMessage || '',
         startedAt: tc.startedAt || tc.StartedAt,
         endedAt: tc.completedAt || tc.CompletedAt,
@@ -251,13 +266,38 @@ function computeElapsed(step) {
 
 function mapTranscriptToRowsWithExecutions(transcript = []) {
     const rows = [];
+    // Determine the very last message id to decide whether to suppress the inline
+    // elicitation step (last message should open the form dialog instead of a step).
+    let globalLastMsgId = '';
+    try {
+        const lastTurn = transcript && transcript.length ? (transcript[transcript.length - 1]) : null;
+        const lastTurnMsgs = lastTurn ? (Array.isArray(lastTurn?.message) ? lastTurn.message : (Array.isArray(lastTurn?.Message) ? lastTurn.Message : [])) : [];
+        if (lastTurnMsgs.length) {
+            const lm = lastTurnMsgs[lastTurnMsgs.length - 1];
+            globalLastMsgId = lm?.id || lm?.Id || '';
+        }
+    } catch(_) {}
+    // Track most recent elicitation step across turns to catch user replies
+    let recentElicitationStep = null;
     for (const turn of transcript) {
         const turnId = turn?.id || turn?.Id;
         const messages = Array.isArray(turn?.message) ? turn.message
             : Array.isArray(turn?.Message) ? turn.Message : [];
 
+        // Gather elicitation inline user bodies in this turn for reliable suppression
+        const elicitationUserBodies = new Set();
+        try {
+            for (const m of messages) {
+                const body = m?.UserElicitationData?.InlineBody || m?.userElicitationData?.InlineBody;
+                if (typeof body === 'string' && body.trim()) {
+                    elicitationUserBodies.add(body.trim());
+                }
+            }
+        } catch(_) {}
+
         // 1) Build all execution steps in this turn (model/tool/interim)
         const steps = [];
+        let lastElicitationStep = null;
         for (const m of messages) {
             const isInterim = !!(m?.interim ?? m?.Interim);
             if (isInterim) {
@@ -276,33 +316,56 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const tc = m?.toolCall || m?.ToolCall;
             const s1 = buildThinkingStepFromModelCall(mc);
             const s2 = buildToolStepFromToolCall(tc);
-            // Elicitation completion step when control message has non-pending status
+            // Elicitation step – include except when it is the last message and still pending
             let s3 = null;
             const roleLower2 = String(m.role || m.Role || '').toLowerCase();
             const typeLower2 = String(m.type || m.Type || '').toLowerCase();
             const status2 = String(m.status || m.Status || '').toLowerCase();
-            const payloadId = m.payloadId || m.PayloadId;
-            if (typeLower2 === 'control' && (roleLower2 === 'assistant' || roleLower2 === 'tool')) {
-                // parse elicitation content to confirm presence
-                let hasElic = false;
+            const payloadId = m.elicitationPayloadId || m.ElicitationPayloadId || m.payloadId || m.PayloadId;
+            if (roleLower2 === 'assistant' || roleLower2 === 'tool') {
+                // parse elicitation content to confirm presence and capture schema/message
+                let elic = null;
                 try {
                     const maybe = typeof (m.content || m.Content) === 'string' ? JSON.parse(m.content || m.Content || '') : (m.content || m.Content);
-                    hasElic = !!(maybe && typeof maybe === 'object' && (maybe.requestedSchema || maybe.elicitationId));
+                    if (maybe && typeof maybe === 'object' && (maybe.requestedSchema || maybe.elicitationId)) {
+                        elic = maybe;
+                    }
                 } catch(_) {}
-                if (hasElic && status2 && status2 !== 'pending') {
+                if (elic) {
                     const created = m?.createdAt || m?.CreatedAt;
-                    s3 = {
-                        id: (m.id || m.Id || '') + '/elicitation',
-                        name: 'elicitation',
-                        reason: 'elicitation',
-                        successBool: status2 === 'accepted',
-                        statusText: status2,
-                        originRole: roleLower2,
-                        startedAt: created,
-                        endedAt: created,
-                        responsePayloadId: payloadId,
-                        elicitationPayloadId: payloadId,
-                    };
+                    const isLast = (m.id || m.Id) === globalLastMsgId;
+                    // For assistant: include unless it is last AND pending; for tool: include always (step timeline)
+                    const includeNow = (roleLower2 === 'assistant') ? (!isLast || (status2 && status2 !== 'pending')) : true;
+                    if (includeNow) {
+                        s3 = {
+                            id: (m.id || m.Id || '') + '/elicitation',
+                            name: 'elicitation',
+                            reason: 'elicitation',
+                            successBool: status2 === 'accepted',
+                            statusText: status2 || 'pending',
+                            originRole: roleLower2,
+                            startedAt: created,
+                            endedAt: created,
+                            responsePayloadId: payloadId,
+                            elicitationPayloadId: payloadId,
+                            elicitation: {
+                                message: elic.message || elic.prompt,
+                                requestedSchema: elic.requestedSchema,
+                                url: elic.url,
+                                callbackURL: elic.callbackURL || (m.callbackURL || m.CallbackURL),
+                                elicitationId: elic.elicitationId || elic.ElicitationId,
+                            },
+                        };
+                        // Best-effort inline user data carried by message
+                        try {
+                            const udataRaw = m?.UserElicitationData?.InlineBody || m?.userElicitationData?.InlineBody;
+                            if (udataRaw) {
+                                try { s3.userData = JSON.parse(udataRaw); } catch(_) { s3.userData = udataRaw; }
+                            }
+                        } catch(_) {}
+                        lastElicitationStep = s3;
+                        recentElicitationStep = s3;
+                    }
                 }
             }
             if (s1) steps.push({...s1, elapsed: computeElapsed(s1)});
@@ -327,8 +390,27 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const roleLower = String(m.role || m.Role || '').toLowerCase();
             const isInterim = !!(m?.interim ?? m?.Interim);
             const hasCall = !!(m?.toolCall || m?.ToolCall || m?.modelCall || m?.ModelCall);
+            let suppressBubble = false;
+            // Detect and attach a user reply to the most recent elicitation step within this turn
+            if (roleLower === 'user') {
+                try {
+                    const txt = m?.content || m?.Content || '';
+                    const maybe = typeof txt === 'string' && txt.trim().startsWith('{') ? JSON.parse(txt) : null;
+                    const target = lastElicitationStep || recentElicitationStep;
+                    if (maybe && target && !target.userData) {
+                        target.userData = maybe;
+                        try { target.replyMessageId = m.id || m.Id; } catch(_) {}
+                        suppressBubble = true;
+                    }
+                    // Also suppress when user content equals any elicitation inline body in this turn
+                    if (!suppressBubble && typeof txt === 'string' && elicitationUserBodies.has(txt.trim())) {
+                        suppressBubble = true;
+                    }
+                } catch(_) {}
+            }
             if (isInterim) continue;
             if (hasCall) continue; // call content is represented in steps
+            if (suppressBubble) continue; // answered elicitation → execution details only
 
             const id = m.id || m.Id;
             const createdAt = toISOSafe(m.createdAt || m.CreatedAt);
@@ -352,7 +434,6 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                         if (!callbackURL && typeof maybe.callbackURL === 'string') {
                             callbackURL = maybe.callbackURL;
                         }
-                        // Debug: log detection of control elicitation
                         try { console.debug('[ElicitationDetect]', {id, role: roleLower, status: m.status || m.Status, mode: elic.mode, url: elic.url, hasSchema: !!elic.requestedSchema}); } catch(_) {}
                     }
                 } catch (_) {}
@@ -360,26 +441,52 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
 
             const isControlElicitation = (String(m.type || m.Type || '').toLowerCase() === 'control') && !!elic;
 
-            // Only include regular rows for user/assistant OR control elicitations (assistant/tool)
-            if (!isControlElicitation && roleLower !== 'user' && roleLower !== 'assistant') continue;
-
             const status = m.status || m.Status || '';
-            // Render only pending elicitations
-            if (isControlElicitation && String(status).toLowerCase() !== 'pending') continue;
+            if (!isControlElicitation && roleLower !== 'user' && roleLower !== 'assistant') continue;
+            // Control elicitation visibility policy:
+            //  - assistant: mount dialog only when this message is the global last AND pending
+            //  - tool:      mount dialog on any pending occurrence
+            const isLast = (m.id || m.Id) === globalLastMsgId;
+            if (isControlElicitation) {
+                const st = String(status).toLowerCase();
+                if (roleLower === 'assistant') {
+                    if (!(isLast && st === 'pending')) {
+                        continue; // assistants’ non-last or resolved → execution details only
+                    }
+                } else if (roleLower === 'tool') {
+                    if (st !== 'pending') {
+                        continue; // resolved tool elicitations → details only
+                    }
+                } else {
+                    // Other roles: do not mount as dialog
+                    continue;
+                }
+            }
+            // Assistant elicitation carried in a text message (non-control):
+            // show only when last+pending; otherwise suppress bubble/modal entirely (execution-only).
+            if (!isControlElicitation && roleLower === 'assistant' && !!elic) {
+                const st = String(status).toLowerCase();
+                if (!(isLast && st === 'pending')) {
+                    continue;
+                }
+            }
 
             // Row usage derived from model call only when attached to this row later; leave null here.
             const row = {
                 id,
                 conversationId: m.conversationId || m.ConversationId,
-                role: isControlElicitation ? roleLower : roleLower,
-                content: m.content || m.Content || '',
+                // For any elicitation row we allow (assistant last+pending or tool pending), force synthetic role.
+                role: (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? 'elicition' : roleLower,
+                // Do not show any bubble content for elicitation rows; dialog carries the UI.
+                content: (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? '' : (m.content || m.Content || ''),
                 createdAt,
                 toolName: m.toolName || m.ToolName,
                 turnId: turnIdRef,
                 parentId: turnIdRef,
                 executions: [],
                 usage: null,
-                status,
+                // Normalize to "open" for elicitation so the dialog renderer reliably mounts
+                status: (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? 'open' : status,
                 elicitation: elic,
                 callbackURL,
             };
@@ -1060,9 +1167,32 @@ export function receiveMessages(messagesContext, data, sinceId = '') {
     if (!Array.isArray(data) || data.length === 0) return;
     const convId = data?.[0]?.conversationId;
     log.debug('[chat] receiveMessages', {count: data.length, sinceId, convId});
-    // Prefer merging fully – including the sinceId boundary – so that enriched
-    // rows (with executions/usage) update the existing optimistic/plain row.
+    // Merge incoming messages (append/update)
     mergeMessages(messagesContext, data);
+    // Purge any user reply bubbles that correspond to elicitation userData
+    try {
+        const hideIds = new Set();
+        for (const r of (data || [])) {
+            const exes = Array.isArray(r?.executions) ? r.executions : [];
+            for (const ex of exes) {
+                const steps = Array.isArray(ex?.steps) ? ex.steps : [];
+                for (const s of steps) {
+                    if (s && s.reason === 'elicitation' && s.userData && s.replyMessageId) {
+                        hideIds.add(s.replyMessageId);
+                    }
+                }
+            }
+        }
+        if (hideIds.size > 0) {
+            const collSig = messagesContext?.signals?.collection;
+            if (collSig && Array.isArray(collSig.value)) {
+                const before = collSig.value.length;
+                collSig.value = collSig.value.filter(row => !hideIds.has(row?.id));
+                const after = collSig.value.length;
+                try { log.debug('[chat] receiveMessages: purged elicitation reply bubbles', {removed: before - after}); } catch(_) {}
+            }
+        }
+    } catch(_) {}
 }
 
 // --------------------------- Usage computation ------------------------------
