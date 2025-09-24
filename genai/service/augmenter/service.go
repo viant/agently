@@ -47,9 +47,10 @@ const (
 func (s *Service) Methods() types.Signatures {
 	return []types.Signature{
 		{
-			Name:   augmentDocsMethod,
-			Input:  reflect.TypeOf(&AugmentDocsInput{}),
-			Output: reflect.TypeOf(&AugmentDocsOutput{}),
+			Name:     augmentDocsMethod,
+			Internal: true,
+			Input:    reflect.TypeOf(&AugmentDocsInput{}),
+			Output:   reflect.TypeOf(&AugmentDocsOutput{}),
 		},
 	}
 }

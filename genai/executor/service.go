@@ -91,6 +91,12 @@ func (e *Service) registerAgentTools() error {
 		return nil
 	}
 
+	// Allow disabling agent tool exposure via env flag to reduce tool surface.
+	// Default: disabled (only core/system/sqlkit tools visible via registry filter).
+	if strings.TrimSpace(os.Getenv("AGENTLY_EXPOSE_AGENT_TOOLS")) == "0" || os.Getenv("AGENTLY_EXPOSE_AGENT_TOOLS") == "" {
+		return nil
+	}
+
 	actions := e.orchestration.WorkflowService().Actions()
 
 	for _, ag := range e.config.Agent.Items {
@@ -201,10 +207,14 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	if e.llmCore != nil {
 		// Supply conversation client when ready (set later by agent service init)
 	}
-	actions.Register(enricher)
+	// Keep core action; gate augmenter/extractor registration via env to keep them internal by default
 	actions.Register(e.llmCore)
-	// capture actions for streaming and callbacks
-	actions.Register(extractor.New())
+	if strings.TrimSpace(os.Getenv("AGENTLY_REGISTER_AUGMENTER")) == "1" {
+		actions.Register(enricher)
+	}
+	if strings.TrimSpace(os.Getenv("AGENTLY_REGISTER_EXTRACTOR")) == "1" {
+		actions.Register(extractor.New())
+	}
 
 	var runtime *fluxor.Runtime
 	if e.orchestration != nil {
