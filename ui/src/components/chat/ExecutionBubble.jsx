@@ -54,7 +54,7 @@ export default function ExecutionBubble({ message: msg, context }) {
                         const steps = Array.isArray(msg.executions) && msg.executions[0] && Array.isArray(msg.executions[0].steps)
                             ? msg.executions[0].steps
                             : [];
-                        const allowed = new Set(['thinking', 'tool_call']);
+                        const allowed = new Set(['thinking', 'tool_call', 'elicitation']);
                         const totalCount = steps.filter(s => allowed.has(String(s?.reason || '').toLowerCase())).length;
                         const countLabel = String(totalCount);
                         return (

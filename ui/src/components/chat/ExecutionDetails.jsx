@@ -19,58 +19,17 @@ import {BasicTable} from "../../../../../forge/index.js";
 
 // Column template; dynamic handlers injected later
 const COLUMNS_BASE = [
-    { id: "state", name: "", width: 24, align: "center", minWidth: "24px", enforceColumnSize: false },
-    { id: "name",     name: "Name",     width: 120 },
-    { id: "reason",   name: "Reason",   flex: 2 },
-    { id: "success",  name: "Status",  width: 60 },
-    { id: "elapsed",  name: "Time",     width: 90 },
+    { id: "icon",    name: "",      width: 28, align: "center", minWidth: "28px", enforceColumnSize: false },
+    { id: "name",    name: "Name",  flex: 2 },
+    { id: "status",  name: "Status",  width: 90 },
+    { id: "elapsed", name: "Time",    width: 90 },
     {
-        id: "request",
-        name: "Request",
-        width: 80,
+        id: "detail",
+        name: "Detail",
+        width: 110,
         type: "button",
-        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.requestPayloadId' },
-        on: [ { event: "onClick", handler: "exec.openRequest" } ],
-    },
-    {
-        id: "providerRequest",
-        name: "Prov. Req",
-        width: 90,
-        type: "button",
-        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.providerRequestPayloadId' },
-        on: [ { event: "onClick", handler: "exec.openProviderRequest" } ],
-    },
-    {
-        id: "response",
-        name: "Response",
-        width: 80,
-        type: "button",
-        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.responsePayloadId' },
-        on: [ { event: "onClick", handler: "exec.openResponse" } ],
-    },
-    {
-        id: "providerResponse",
-        name: "Prov. Resp",
-        width: 90,
-        type: "button",
-        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.providerResponsePayloadId' },
-        on: [ { event: "onClick", handler: "exec.openProviderResponse" } ],
-    },
-    {
-        id: "stream",
-        name: "Stream",
-        width: 80,
-        type: "button",
-        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.streamPayloadId' },
-        on: [ { event: "onClick", handler: "exec.openStream" } ],
-    },
-    {
-        id: "elicitation",
-        name: "Elicitation",
-        width: 100,
-        type: "button",
-        cellProperties: { text: "view", minimal: true, small: true, disabledExpr: '!row.elicitationPayloadId' },
-        on: [ { event: "onClick", handler: "exec.openElicitation" } ],
+        cellProperties: { text: "details 🔍", minimal: true, small: true },
+        on: [ { event: "onClick", handler: "exec.openDetail" } ],
     },
 ];
 
@@ -127,6 +86,8 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
                 return ({ rowIndex }) => selectionSig.peek().selection?.some((s)=>s.rowIndex===rowIndex);
             case "exec.openElicitation":
                 return ({ row }) => viewPart('elicitation', row);
+            case "exec.openDetail":
+                return ({ row }) => openDialog('Details', { kind: 'detail', row });
             default:
                 return parentContext?.lookupHandler ? parentContext.lookupHandler(id) : () => {};
         }
@@ -158,43 +119,55 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
 
 function flattenExecutions(executions = []) {
     if (!executions) return [];
-    // Show model/tool steps and completed elicitations in the table
     const allowed = new Set([ 'thinking', 'tool_call', 'elicitation' ]);
-    return executions.flatMap(exe => (exe.steps || [])
+                return executions.flatMap(exe => (exe.steps || [])
         .filter(s => allowed.has(String(s?.reason || '').toLowerCase()))
         .map(s => {
+            const reason = String(s?.reason || '').toLowerCase();
             const hasBool = typeof s.successBool === 'boolean';
             const successBool = hasBool ? s.successBool : (typeof s.success === 'boolean' ? s.success : undefined);
-            const statusText = (s.statusText || (successBool === undefined ? 'pending' : (successBool ? 'success' : 'error'))).toLowerCase();
-            // Derive icon: accepted ✔︎, rejected ✖︎, cancel ⏸︎, pending ⏳
-            const icon = statusText === 'accepted' ? '✔︎' : statusText === 'rejected' ? '✖︎' : statusText === 'cancel' ? '⏸︎' : '⏳';
-            // Name annotation for elicitation origin (assistant/tool)
-            const isElic = String(s?.reason || '').toLowerCase() === 'elicitation';
-            const annotatedName = isElic && s.originRole ? `${s.name} (${s.originRole})` : s.name;
+            const statusText = (s.statusText || (successBool === undefined ? 'pending' : (successBool ? 'completed' : 'error'))).toLowerCase();
+            const icon = reason === 'thinking' ? '🧠' : (reason === 'tool_call' ? '🛠️' : '⌨️');
+            const annotatedName = reason === 'elicitation' && s.originRole ? `${s.name} (${s.originRole})` : (s.name || reason);
             return {
-                traceId:  s.traceId,
-                state:    icon,
-                name:     annotatedName,
-                reason:   '',
-                success:  statusText,
-                elapsed:  s.elapsed,
-                // include request/response refs so the viewer can lazy-load payloads
-                request:  s.request,
-                response: s.response,
-                // pass through payload IDs from step exactly as presented
+                icon,
+                name: annotatedName,
+                status: statusText,
+                elapsed: s.elapsed,
                 requestPayloadId: s.requestPayloadId,
                 responsePayloadId: s.responsePayloadId,
                 streamPayloadId: s.streamPayloadId,
                 providerRequestPayloadId: s.providerRequestPayloadId,
                 providerResponsePayloadId: s.providerResponsePayloadId,
+                _reason: reason,
+                _provider: s.provider,
+                _model: s.model,
+                _finishReason: s.finishReason,
+                _error: s.error,
+                _startedAt: s.startedAt,
+                _endedAt: s.endedAt,
+                _toolName: s.toolName || s.name,
+                _elicitation: s.elicitation,
+                _userData: s.userData,
+                _originRole: s.originRole,
+                _promptTokens: s.promptTokens,
+                _promptCachedTokens: s.promptCachedTokens,
+                _promptAudioTokens: s.promptAudioTokens,
+                _completionTokens: s.completionTokens,
+                _completionReasoningTokens: s.completionReasoningTokens,
+                _completionAudioTokens: s.completionAudioTokens,
+                _totalTokens: s.totalTokens,
+                elicitationPayloadId: s.elicitationPayloadId,
             };
-        })
-    );
+        }));
 }
 
 export default function ExecutionDetails({ executions = [], context, messageId, onError, useForgeDialog = false, resizable = false, useCodeMirror = false }) {
-    const [dialog, setDialog] = React.useState(null);
+    const [dialog, setDialog] = React.useState(null); // Details or generic payload viewer
+    const [payloadDialog, setPayloadDialog] = React.useState(null); // Secondary dialog for payloads when details is open
     const [dlgSize, setDlgSize] = React.useState({ width: 960, height: 640 });
+    const [dlgPos, setDlgPos] = React.useState({ left: 120, top: 80 });
+    const [payloadPos, setPayloadPos] = React.useState({ left: 160, top: 120 });
     const dataSourceId = `ds${messageId ?? ""}`;
     const rows = useMemo(() => flattenExecutions(executions), [executions]);
 
@@ -207,9 +180,8 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
     const viewPart = async (part, row) => {
         try {
             const title = part === 'request' ? 'Request' : part === 'providerRequest' ? 'Provider Request' : part === 'providerResponse' ? 'Provider Response' : (part === 'elicitation' ? 'Elicitation' : (part === 'stream' ? 'Stream' : 'Response'));
-            if (!useForgeDialog) {
-                setDialog({ title, payload: null, loading: true });
-            }
+            const setWhich = (dialog && dialog.kind && String(dialog.kind).startsWith('detail-')) ? setPayloadDialog : setDialog;
+            if (!useForgeDialog) setWhich({ title, payload: null, loading: true });
             // Use only the provided payload ID fields
             // Prefer provider-specific payloads when available
             const pid = part === 'request'
@@ -252,9 +224,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                         try { onError(e); } catch (_) {}
                     }
                     // continue to fetch and render inline below
-                    if (!useForgeDialog) {
-                        setDialog({ title, payload: null, loading: true });
-                    }
+                    if (!useForgeDialog) setWhich({ title, payload: null, loading: true });
                 }
             }
             const resp = await fetch(url, { credentials: 'same-origin' });
@@ -265,12 +235,13 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
             if (ct.includes('application/json')) {
                 try { payload = JSON.parse(text); } catch (_) {}
             }
-            setDialog({ title, payload, loading: false, contentType: ct, kind: part });
+            setWhich({ title, payload, loading: false, contentType: ct, kind: part });
         } catch (err) {
             if (typeof onError === 'function') {
                 try { onError(err); } catch (_) { /* ignore */ }
             }
-            setDialog({ title: 'Error', payload: String(err) });
+            const setWhich = (dialog && dialog.kind && String(dialog.kind).startsWith('detail-')) ? setPayloadDialog : setDialog;
+            setWhich({ title: 'Error', payload: String(err) });
         }
     };
 
@@ -282,6 +253,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                 if (id === 'exec.openRequest') return ({ row }) => viewPart('request', row);
                 if (id === 'exec.openResponse') return ({ row }) => viewPart('response', row);
                 if (id === 'exec.openStream') return ({ row }) => viewPart('stream', row);
+                if (id === 'exec.openDetail') return ({ row }) => setDialog({ title: 'Details', kind: `detail-${row._reason}`, row });
                 return originalLookup ? originalLookup(id) : () => {};
             };
             return ctx;
@@ -307,7 +279,98 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                     : { width: "60vw", minWidth: "60vw", minHeight: "60vh" }
                 }
             >
-                {dialog && (
+                {dialog && dialog.kind && String(dialog.kind).startsWith('detail-') && (() => {
+                    const r = dialog.row || {};
+                    const kind = String(dialog.kind).slice('detail-'.length);
+                    if (kind === 'thinking') {
+                        return (
+                            <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div><strong>Model:</strong> {r._model || r.name}</div>
+                                <div><strong>Provider:</strong> {r._provider || ''}</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                                    {typeof r._promptTokens === 'number' && (
+                                        <div><strong>Prompt Total</strong>: {r._promptTokens}</div>
+                                    )}
+                                    {typeof r._promptCachedTokens === 'number' && (
+                                        <div><strong>Cached</strong>: {r._promptCachedTokens}</div>
+                                    )}
+                                    {typeof r._promptAudioTokens === 'number' && (
+                                        <div><strong>Prompt Audio</strong>: {r._promptAudioTokens}</div>
+                                    )}
+                                    {typeof r._completionTokens === 'number' && (
+                                        <div><strong>Completion Total</strong>: {r._completionTokens}</div>
+                                    )}
+                                    {typeof r._completionReasoningTokens === 'number' && (
+                                        <div><strong>Completion Reasoning</strong>: {r._completionReasoningTokens}</div>
+                                    )}
+                                    {typeof r._completionAudioTokens === 'number' && (
+                                        <div><strong>Completion Audio</strong>: {r._completionAudioTokens}</div>
+                                    )}
+                                    {typeof r._totalTokens === 'number' && (
+                                        <div><strong>Total</strong>: {r._totalTokens}</div>
+                                    )}
+                                </div>
+                                {r._finishReason && <div><strong>Finish Reason:</strong> {r._finishReason}</div>}
+                                {r._error && <div style={{color: 'red'}}><strong>Error:</strong> {String(r._error)}</div>}
+                                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <button className="bp4-button bp4-small" disabled={!r.requestPayloadId} onClick={() => viewPart('request', r)}>Open Request</button>
+                                        <button className="bp4-button bp4-small" disabled={!r.providerRequestPayloadId} onClick={() => viewPart('providerRequest', r)}>Open Provider Request</button>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8, width: '100%', marginTop: 6 }}>
+                                        <button className="bp4-button bp4-small" disabled={!r.responsePayloadId} onClick={() => viewPart('response', r)}>Open Response</button>
+                                        <button className="bp4-button bp4-small" disabled={!r.providerResponsePayloadId} onClick={() => viewPart('providerResponse', r)}>Open Provider Response</button>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8, width: '100%', marginTop: 6 }}>
+                                        <button className="bp4-button bp4-small" disabled={!r.streamPayloadId} onClick={() => viewPart('stream', r)}>Open Stream</button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    }
+                    if (kind === 'tool_call') {
+                        return (
+                            <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div><strong>Tool:</strong> {r._toolName || r.name}</div>
+                                {r._error && <div style={{color: 'red'}}><strong>Error:</strong> {String(r._error)}</div>}
+                                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                    <button className="bp4-button bp4-small" disabled={!r.requestPayloadId} onClick={() => viewPart('request', r)}>Open Request</button>
+                                    <button className="bp4-button bp4-small" disabled={!r.responsePayloadId} onClick={() => viewPart('response', r)}>Open Response</button>
+                                </div>
+                            </div>
+                        );
+                    }
+                    if (kind === 'elicitation') {
+                        const schema = r?._elicitation?.requestedSchema;
+                        const prompt = r?._elicitation?.message;
+                        const url = r?._elicitation?.url;
+                        const hasPayload = !!r?.elicitationPayloadId;
+                        return (
+                            <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div><strong>Origin:</strong> {r._originRole === 'assistant' ? 'LLM' : (r._originRole || 'unknown')}</div>
+                                {prompt && <div><strong>Message:</strong> {prompt}</div>}
+                                {url && <div><strong>URL:</strong> <a href={url} target="_blank" rel="noopener noreferrer">{url}</a></div>}
+                                {schema && (
+                                    <div>
+                                        <div style={{marginBottom: 4}}><strong>Requested Schema:</strong></div>
+                                        <JsonViewer value={schema} useCodeMirror={useCodeMirror} height={'200px'} language={'json'} />
+                                    </div>
+                                )}
+                                {r?._userData && (
+                                    <div>
+                                        <div style={{marginBottom: 4}}><strong>User Data (inline):</strong></div>
+                                        <JsonViewer value={r._userData} useCodeMirror={useCodeMirror} height={'200px'} language={'json'} />
+                                    </div>
+                                )}
+                                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                    <button className="bp4-button bp4-small" disabled={!hasPayload} onClick={() => viewPart('elicitation', r)}>View Submitted Payload</button>
+                                </div>
+                            </div>
+                        );
+                    }
+                    return null;
+                })()}
+                {dialog && (!dialog.kind || !String(dialog.kind).startsWith('detail-')) && (
                     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 8, padding: 12, height: resizable ? 'calc(100% - 24px)' : 'auto', maxHeight: resizable ? 'none' : '70vh', paddingRight: resizable ? 20 : 12, paddingBottom: resizable ? 20 : 12 }}>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                             <button
@@ -391,6 +454,47 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                     </div>
                 )}
             </Dialog>
+
+            <Dialog
+                isOpen={!!payloadDialog}
+                onClose={() => setPayloadDialog(null)}
+                title={payloadDialog?.title || ""}
+                style={{ width: '70vw', minWidth: '60vw', minHeight: '60vh' }}
+            >
+                {payloadDialog && (
+                    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 8, padding: 12, maxHeight: '70vh' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="bp4-button bp4-small"
+                                onClick={async () => {
+                                    try {
+                                        const text = typeof payloadDialog.payload === 'string' ? payloadDialog.payload : JSON.stringify(payloadDialog.payload, null, 2);
+                                        await navigator.clipboard.writeText(text);
+                                    } catch (_) {}
+                                }}
+                            >Copy</button>
+                        </div>
+                        <div style={{ flex: 1, overflow: 'auto' }}>
+                            {payloadDialog.loading && <span>Loading …</span>}
+                            {!payloadDialog.loading && payloadDialog.payload !== null && (() => {
+                                const ct = (payloadDialog.contentType || '').toLowerCase();
+                                const isString = typeof payloadDialog.payload === 'string';
+                                const looksHTML = isString && /<\s*(table|thead|tbody|tr|td|th|div|span|p|html|body)\b/i.test(payloadDialog.payload);
+                                if (ct.includes('text/html') || looksHTML) {
+                                    return (
+                                        <div className="prose max-w-full" style={{ width: '100%', overflowX: 'auto' }} dangerouslySetInnerHTML={{ __html: String(payloadDialog.payload) }} />
+                                    );
+                                }
+                                const language = (payloadDialog.kind === 'stream' || (ct && !ct.includes('application/json'))) ? 'text' : 'json';
+                                return (
+                                    <JsonViewer value={payloadDialog.payload} useCodeMirror={useCodeMirror} height={'60vh'} language={language} />
+                                );
+                            })()}
+                        </div>
+                    </div>
+                )}
+            </Dialog>
         </>
     );
 }
@@ -423,6 +527,27 @@ function mapToolCall(row = {}) {
     const completed = call.completedAt ? new Date(call.completedAt) : null;
     const elapsed = (started && completed) ? ((completed - started) / 1000).toFixed(2) + 's' : '';
     const status = call.status || '';
+    const beginDrag = (kind, e) => {
+        try {
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const start = kind === 'payload' ? { ...payloadPos } : { ...dlgPos };
+            const onMove = (evt) => {
+                const dx = evt.clientX - startX;
+                const dy = evt.clientY - startY;
+                const next = { left: Math.max(0, start.left + dx), top: Math.max(0, start.top + dy) };
+                if (kind === 'payload') setPayloadPos(next); else setDlgPos(next);
+            };
+            const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+            e.preventDefault();
+        } catch(_) {}
+    };
+
     const success = status === 'completed' ? 'success' : (status ? 'error' : 'pending');
     return {
         state: completed ? '✔︎' : '⏳',
