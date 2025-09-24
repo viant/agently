@@ -41,6 +41,8 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 		chat.WithMCPRouter(mcpR),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
+	// Backward-compatible alias so callers using /v1/api/workspace/* keep working
+	mux.Handle("/v1/api/workspace/", http.StripPrefix("/v1/api/", workspace.NewHandler(svc)))
 
 	// Workflow run endpoint
 	mux.Handle("/v1/api/workflow/run", workflow.New(exec, svc))
