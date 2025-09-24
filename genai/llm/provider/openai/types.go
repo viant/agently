@@ -6,6 +6,7 @@ import (
 
 // Request represents the request structure for OpenAI API
 type Request struct {
+	Tools         []Tool         `json:"tools,omitempty"`
 	Model         string         `json:"model"`
 	Messages      []Message      `json:"messages"`
 	Temperature   *float64       `json:"temperature,omitempty"`
@@ -15,9 +16,9 @@ type Request struct {
 	Stream        bool           `json:"stream,omitempty"`
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	// Reasoning enables configuration of internal chain-of-thought reasoning features.
-	Reasoning  *llm.Reasoning `json:"reasoning,omitempty"`
-	Tools      []Tool         `json:"tools,omitempty"`
-	ToolChoice interface{}    `json:"tool_choice,omitempty"`
+	Reasoning *llm.Reasoning `json:"reasoning,omitempty"`
+
+	ToolChoice interface{} `json:"tool_choice,omitempty"`
 }
 
 // StreamOptions controls additional streaming behavior.

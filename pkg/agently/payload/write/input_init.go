@@ -57,9 +57,7 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 				p.InlineBody = nil
 				p.Has.InlineBody = true
 			case "inline":
-				// clear URI when storing inline
-				p.URI = nil
-				p.Has.URI = true
+				//Don't clear URI when storing inline, required for sorting attachments
 			}
 		}
 	}

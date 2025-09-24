@@ -72,12 +72,6 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 
 func (s *Service) buildTaskBinding(input *QueryInput, hist prompt.History) prompt.Task {
 	task := input.Query
-	if len(hist.Messages) > 0 {
-		msg := hist.Messages[len(hist.Messages)-1]
-		if msg.Role == "user" {
-			task = msg.Content
-		}
-	}
 	return prompt.Task{Prompt: task, Attachments: input.Attachments}
 }
 

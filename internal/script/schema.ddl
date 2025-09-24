@@ -72,6 +72,7 @@ CREATE TABLE message
     turn_id            TEXT      REFERENCES turn (id) ON DELETE SET NULL,
     sequence           INTEGER,
     created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at         TIMESTAMP,
     created_by_user_id TEXT,
     status             TEXT CHECK (status IS NULL OR status IN ('pending','accepted','rejected','cancel','open','summary','summarized')),
     role               TEXT      NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
@@ -115,8 +116,8 @@ CREATE TABLE call_payload
     schema_ref               TEXT,
     preview                  TEXT,
     tags                     TEXT,
-    CHECK ((storage = 'inline' AND inline_body IS NOT NULL AND uri IS NULL) OR
-           (storage = 'object' AND uri IS NOT NULL AND inline_body IS NULL))
+    CHECK ((storage = 'inline' AND inline_body IS NOT NULL) OR
+           (storage = 'object' AND inline_body IS NULL))
 );
 CREATE INDEX idx_payload_tenant_kind ON call_payload (tenant_id, kind, created_at);
 CREATE INDEX idx_payload_digest ON call_payload (digest);
