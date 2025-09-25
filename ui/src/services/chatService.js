@@ -286,6 +286,10 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
         const turnId = turn?.id || turn?.Id;
         const turnStatus = String(turn?.status || turn?.Status || '').toLowerCase();
         const turnError = (turn?.errorMessage || turn?.ErrorMessage || '') + '';
+        const turnCreatedAt = toISOSafe(turn?.createdAt || turn?.CreatedAt);
+        const turnUpdatedAt = toISOSafe(turn?.updatedAt || turn?.UpdatedAt || turn?.completedAt || turn?.CompletedAt || turn?.createdAt || turn?.CreatedAt);
+        const turnElapsedSecRaw = (turn?.elapsedInSec ?? turn?.ElapsedInSec);
+        const turnElapsedSec = (typeof turnElapsedSecRaw === 'number' && isFinite(turnElapsedSecRaw) && turnElapsedSecRaw >= 0) ? Math.floor(turnElapsedSecRaw) : undefined;
         const messages = Array.isArray(turn?.message) ? turn.message
             : Array.isArray(turn?.Message) ? turn.Message : [];
 
@@ -507,7 +511,15 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             // Compute usage from the thinking step model if available
             let usage = null;
             // No token fields on step; usage computed elsewhere in poll path; keep null here.
-            turnRows[carrierIdx] = {...turnRows[carrierIdx], executions: [{steps}], usage};
+            turnRows[carrierIdx] = {
+                ...turnRows[carrierIdx],
+                executions: [{steps}],
+                usage,
+                turnStatus,
+                turnCreatedAt,
+                turnUpdatedAt,
+                turnElapsedSec,
+            };
         }
 
         for (const r of turnRows) rows.push(r);

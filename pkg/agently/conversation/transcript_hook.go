@@ -12,7 +12,9 @@ func (t *TranscriptView) OnRelation(ctx context.Context) {
 	if t == nil {
 		return
 	}
+
 	if len(t.Message) > 1 {
+
 		// Stable sort to preserve original order for equal timestamps.
 		sort.SliceStable(t.Message, func(i, j int) bool {
 			mi, mj := t.Message[i], t.Message[j]
@@ -33,7 +35,9 @@ func (t *TranscriptView) OnRelation(ctx context.Context) {
 			}
 			return mi.CreatedAt.Before(mj.CreatedAt)
 		})
-
+		minTime := t.Message[0].CreatedAt
+		maxTime := t.Message[len(t.Message)-1].CreatedAt
+		t.ElapsedInSec = int(maxTime.Sub(minTime).Seconds())
 		for _, m := range t.Message {
 			if m.ModelCall != nil {
 				m.Status = &m.ModelCall.Status

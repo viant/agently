@@ -6,6 +6,16 @@ import { Icon } from "@blueprintjs/core";
 import { format as formatDate } from "date-fns";
 
 import ExecutionDetails from "./ExecutionDetails.jsx";
+import { setStage } from '../../utils/stageBus.js';
+
+// Inline styles for a subtle hourglass bobbing animation (horizontal/vertical)
+const hourglassStyles = `
+.hg-anim { display: inline-block; }
+@keyframes hg-bob-x { 0% { transform: translateX(0); } 50% { transform: translateX(2px); } 100% { transform: translateX(0); } }
+@keyframes hg-bob-y { 0% { transform: translateY(0); } 50% { transform: translateY(-1px); } 100% { transform: translateY(0); } }
+.hg-anim.h { animation: hg-bob-x 1s infinite ease-in-out; }
+.hg-anim.v { animation: hg-bob-y 1s infinite ease-in-out; }
+`;
 
 // ---------------------------------------------------------------------------
 // Minimal markdown → HTML renderer (copied from Forge)
@@ -57,10 +67,71 @@ export default function ExecutionBubble({ message: msg, context }) {
                         const allowed = new Set(['thinking', 'tool_call', 'elicitation']);
                         const totalCount = steps.filter(s => allowed.has(String(s?.reason || '').toLowerCase())).length;
                         const countLabel = String(totalCount);
+                        // Status + timer for the turn
+                        const turnStatus = (msg.turnStatus || '').toLowerCase();
+                        const isDone = turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted' || turnStatus === 'failed' || turnStatus === 'error';
+                        const isError = turnStatus === 'failed' || turnStatus === 'error';
+                        // Animated hourglass state
+                        const [tick, setTick] = React.useState(0);
+                        const [elapsed, setElapsed] = React.useState('');
+                        React.useEffect(() => {
+                            // If done and backend provides elapsedInSec, use it to freeze the final elapsed
+                            const providedSec = (typeof msg.turnElapsedSec === 'number' && isFinite(msg.turnElapsedSec) && msg.turnElapsedSec >= 0) ? Math.floor(msg.turnElapsedSec) : undefined;
+                            if (isDone && typeof providedSec === 'number') {
+                                const mm = String(Math.floor(providedSec / 60)).padStart(2, '0');
+                                const ss = String(providedSec % 60).padStart(2, '0');
+                                setElapsed(`${mm}:${ss}`);
+                                setTick(providedSec);
+                                return; // no interval
+                            }
+                            const start = msg.turnCreatedAt ? new Date(msg.turnCreatedAt) : (msg.createdAt ? new Date(msg.createdAt) : null);
+                            let endFixed = null;
+                            if (isDone) {
+                                endFixed = msg.turnUpdatedAt ? new Date(msg.turnUpdatedAt) : new Date();
+                            }
+                            function update() {
+                                try {
+                                    const now = endFixed || new Date();
+                                    if (!start || isNaN(start)) { setElapsed(''); return; }
+                                    const diff = Math.max(0, now - start);
+                                    const secs = Math.floor(diff / 1000);
+                                    setTick(secs);
+                                    const mm = String(Math.floor(secs / 60)).padStart(2, '0');
+                                    const ss = String(secs % 60).padStart(2, '0');
+                                    setElapsed(`${mm}:${ss}`);
+                                } catch(_) {}
+                            }
+                            update();
+                            if (isDone) return; // freeze when done
+                            const t = setInterval(update, 1000);
+                            return () => clearInterval(t);
+                        }, [msg.turnCreatedAt, msg.turnUpdatedAt, msg.createdAt, msg.turnElapsedSec, isDone]);
+                        // Update global stage based on turn status
+                        React.useEffect(() => {
+                            if (!turnStatus) return;
+                            if (turnStatus === 'running' || turnStatus === 'open' || turnStatus === 'pending') {
+                                setStage({phase: 'executing'});
+                            } else if (turnStatus === 'failed' || turnStatus === 'error') {
+                                setStage({phase: 'error'});
+                            } else {
+                                setStage({phase: 'done'});
+                            }
+                        }, [turnStatus]);
+                        // Render animated hourglass when running; ❗ on error; ✅ when done
+                        const Hourglass = () => {
+                            if (isError) return <span>❗</span>;
+                            if (isDone)  return <span>✅</span>;
+                            const glyph = (tick % 2 === 0) ? '⏳' : '⌛';
+                            const orientClass = (Math.floor(tick / 2) % 2 === 0) ? 'h' : 'v';
+                            return <span className={`hg-anim ${orientClass}`}>{glyph}</span>;
+                        };
+
                         return (
                         <details className="mt-2">
                             <summary className="cursor-pointer text-xs text-blue-500">
-                                Execution details ({countLabel})
+                                <style>{hourglassStyles}</style>
+                                <Hourglass />
+                                {' '}Execution details ({countLabel}) {elapsed ? `• ${elapsed}` : ''}
                             </summary>
                             <ExecutionDetails executions={msg.executions} context={context} messageId={msg.id} resizable useCodeMirror />
                         </details>

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"unsafe"
 
@@ -128,7 +129,9 @@ func (s *Service) GetConversation(ctx context.Context, id string, options ...con
 
 	if len(out.Data) == 0 {
 		noDataOutput, _ := json.Marshal(out)
-		fmt.Printf("failed to get conversation %v %v", id, string(noDataOutput))
+		in, _ := json.Marshal(in)
+		debug.PrintStack()
+		fmt.Printf("failed to get conversation %v\nin:%v\nout: %v", id, string(in), string(noDataOutput))
 		return nil, nil
 	}
 	// Cast generated to SDK type

@@ -14,7 +14,8 @@
 
 
 SELECT conversation.*,
-cast(attachment.inline_body, []byte)
+cast(attachment.inline_body as []byte),
+cast(transcript.elapsedInSec as int)
 FROM (
     SELECT t.*,
           (SELECT id
@@ -27,6 +28,7 @@ FROM (
     JOIN  (
  SELECT
       t.*,
+      0 elapsedInSec,
       '' AS stage
        FROM turn t
       ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}

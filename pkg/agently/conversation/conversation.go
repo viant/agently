@@ -83,6 +83,7 @@ type ConversationView struct {
 }
 
 type TranscriptView struct {
+	ElapsedInSec          int            `sqlx:"elapsedInSec"`
 	Stage                 string         `sqlx:"stage"`
 	Id                    string         `sqlx:"id"`
 	ConversationId        string         `sqlx:"conversation_id"`
@@ -100,26 +101,26 @@ type TranscriptView struct {
 }
 
 type MessageView struct {
-	AttachmentPayloadId  *string                  `sqlx:"attachment_payload_id"`
+	Id                   string                   `sqlx:"id"`
+	ConversationId       string                   `sqlx:"conversation_id"`
+	TurnId               *string                  `sqlx:"turn_id"`
+	Sequence             *int                     `sqlx:"sequence"`
+	CreatedAt            time.Time                `sqlx:"created_at"`
+	UpdatedAt            *time.Time               `sqlx:"updated_at"`
+	CreatedByUserId      *string                  `sqlx:"created_by_user_id"`
+	Status               *string                  `sqlx:"status"`
+	Role                 string                   `sqlx:"role"`
+	Type                 string                   `sqlx:"type"`
 	Content              *string                  `sqlx:"content"`
 	ContextSummary       *string                  `sqlx:"context_summary"`
-	ConversationId       string                   `sqlx:"conversation_id"`
-	CreatedAt            time.Time                `sqlx:"created_at"`
-	CreatedByUserId      *string                  `sqlx:"created_by_user_id"`
-	ElicitationId        *string                  `sqlx:"elicitation_id"`
-	ElicitationPayloadId *string                  `sqlx:"elicitation_payload_id"`
-	Id                   string                   `sqlx:"id"`
-	Interim              int                      `sqlx:"interim"`
-	ParentMessageId      *string                  `sqlx:"parent_message_id"`
-	Role                 string                   `sqlx:"role"`
-	Sequence             *int                     `sqlx:"sequence"`
-	Status               *string                  `sqlx:"status"`
-	SupersededBy         *string                  `sqlx:"superseded_by"`
 	Tags                 *string                  `sqlx:"tags"`
+	Interim              int                      `sqlx:"interim"`
+	ElicitationId        *string                  `sqlx:"elicitation_id"`
+	ParentMessageId      *string                  `sqlx:"parent_message_id"`
+	SupersededBy         *string                  `sqlx:"superseded_by"`
+	AttachmentPayloadId  *string                  `sqlx:"attachment_payload_id"`
+	ElicitationPayloadId *string                  `sqlx:"elicitation_payload_id"`
 	ToolName             *string                  `sqlx:"tool_name"`
-	TurnId               *string                  `sqlx:"turn_id"`
-	Type                 string                   `sqlx:"type"`
-	UpdatedAt            *time.Time               `sqlx:"updated_at"`
 	UserElicitationData  *UserElicitationDataView `view:",table=message" on:"Id:id=MessageId:m.id" sql:"uri=conversation/user_elicitation_data.sql"`
 	Attachment           []*AttachmentView        `view:",table=message" on:"Id:id=ParentMessageId:m.parent_message_id" sql:"uri=conversation/attachment.sql"`
 	ModelCall            *ModelCallView           `view:",table=model_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/model_call.sql"`
@@ -141,46 +142,46 @@ type AttachmentView struct {
 }
 
 type ModelCallView struct {
-	CacheHit                           int                  `sqlx:"cache_hit"`
-	CacheKey                           *string              `sqlx:"cache_key"`
-	CompletedAt                        *time.Time           `sqlx:"completed_at"`
-	CompletionAcceptedPredictionTokens *int                 `sqlx:"completion_accepted_prediction_tokens"`
-	CompletionAudioTokens              *int                 `sqlx:"completion_audio_tokens"`
-	CompletionReasoningTokens          *int                 `sqlx:"completion_reasoning_tokens"`
-	CompletionRejectedPredictionTokens *int                 `sqlx:"completion_rejected_prediction_tokens"`
-	CompletionTokens                   *int                 `sqlx:"completion_tokens"`
-	Cost                               *float64             `sqlx:"cost"`
+	MessageId                          string               `sqlx:"message_id"`
+	TurnId                             *string              `sqlx:"turn_id"`
+	Provider                           string               `sqlx:"provider"`
+	Model                              string               `sqlx:"model"`
+	ModelKind                          string               `sqlx:"model_kind"`
+	PromptSnapshot                     *string              `sqlx:"prompt_snapshot"`
+	PromptRef                          *string              `sqlx:"prompt_ref"`
+	PromptHash                         *string              `sqlx:"prompt_hash"`
+	ResponseSnapshot                   *string              `sqlx:"response_snapshot"`
+	ResponseRef                        *string              `sqlx:"response_ref"`
 	ErrorCode                          *string              `sqlx:"error_code"`
 	ErrorMessage                       *string              `sqlx:"error_message"`
 	FinishReason                       *string              `sqlx:"finish_reason"`
-	LatencyMs                          *int                 `sqlx:"latency_ms"`
-	MessageId                          string               `sqlx:"message_id"`
-	Model                              string               `sqlx:"model"`
-	ModelKind                          string               `sqlx:"model_kind"`
-	PromptAudioTokens                  *int                 `sqlx:"prompt_audio_tokens"`
-	PromptCachedTokens                 *int                 `sqlx:"prompt_cached_tokens"`
-	PromptHash                         *string              `sqlx:"prompt_hash"`
-	PromptRef                          *string              `sqlx:"prompt_ref"`
-	PromptSnapshot                     *string              `sqlx:"prompt_snapshot"`
 	PromptTokens                       *int                 `sqlx:"prompt_tokens"`
-	Provider                           string               `sqlx:"provider"`
-	ProviderRequestPayloadId           *string              `sqlx:"provider_request_payload_id"`
-	ProviderResponsePayloadId          *string              `sqlx:"provider_response_payload_id"`
-	Redacted                           int                  `sqlx:"redacted"`
-	RedactionPolicyVersion             *string              `sqlx:"redaction_policy_version"`
-	RequestPayloadId                   *string              `sqlx:"request_payload_id"`
-	ResponsePayloadId                  *string              `sqlx:"response_payload_id"`
-	ResponseRef                        *string              `sqlx:"response_ref"`
-	ResponseSnapshot                   *string              `sqlx:"response_snapshot"`
+	PromptCachedTokens                 *int                 `sqlx:"prompt_cached_tokens"`
+	CompletionTokens                   *int                 `sqlx:"completion_tokens"`
+	TotalTokens                        *int                 `sqlx:"total_tokens"`
+	PromptAudioTokens                  *int                 `sqlx:"prompt_audio_tokens"`
+	CompletionReasoningTokens          *int                 `sqlx:"completion_reasoning_tokens"`
+	CompletionAudioTokens              *int                 `sqlx:"completion_audio_tokens"`
+	CompletionAcceptedPredictionTokens *int                 `sqlx:"completion_accepted_prediction_tokens"`
+	CompletionRejectedPredictionTokens *int                 `sqlx:"completion_rejected_prediction_tokens"`
+	Status                             string               `sqlx:"status"`
+	StartedAt                          *time.Time           `sqlx:"started_at"`
+	CompletedAt                        *time.Time           `sqlx:"completed_at"`
+	LatencyMs                          *int                 `sqlx:"latency_ms"`
+	CacheHit                           int                  `sqlx:"cache_hit"`
+	CacheKey                           *string              `sqlx:"cache_key"`
+	Cost                               *float64             `sqlx:"cost"`
 	SafetyBlocked                      *int                 `sqlx:"safety_blocked"`
 	SafetyReasons                      *string              `sqlx:"safety_reasons"`
-	SpanId                             *string              `sqlx:"span_id"`
-	StartedAt                          *time.Time           `sqlx:"started_at"`
-	Status                             string               `sqlx:"status"`
-	StreamPayloadId                    *string              `sqlx:"stream_payload_id"`
-	TotalTokens                        *int                 `sqlx:"total_tokens"`
+	RedactionPolicyVersion             *string              `sqlx:"redaction_policy_version"`
+	Redacted                           int                  `sqlx:"redacted"`
 	TraceId                            *string              `sqlx:"trace_id"`
-	TurnId                             *string              `sqlx:"turn_id"`
+	SpanId                             *string              `sqlx:"span_id"`
+	RequestPayloadId                   *string              `sqlx:"request_payload_id"`
+	ResponsePayloadId                  *string              `sqlx:"response_payload_id"`
+	ProviderRequestPayloadId           *string              `sqlx:"provider_request_payload_id"`
+	ProviderResponsePayloadId          *string              `sqlx:"provider_response_payload_id"`
+	StreamPayloadId                    *string              `sqlx:"stream_payload_id"`
 	ModelCallRequestPayload            *ResponsePayloadView `view:",table=call_payload" on:"RequestPayloadId:request_payload_id=Id:id" sql:"uri=conversation/model_call_request_payload.sql"`
 	ModelCallProviderRequestPayload    *ResponsePayloadView `view:",table=call_payload" on:"ProviderRequestPayloadId:provider_request_payload_id=Id:id" sql:"uri=conversation/model_call_provider_request_payload.sql"`
 	ModelCallResponsePayload           *ResponsePayloadView `view:",table=call_payload" on:"ResponsePayloadId:response_payload_id=Id:id" sql:"uri=conversation/model_call_response_payload.sql"`
@@ -195,31 +196,31 @@ type ResponsePayloadView struct {
 }
 
 type ToolCallView struct {
+	MessageId         string               `sqlx:"message_id"`
+	TurnId            *string              `sqlx:"turn_id"`
+	OpId              string               `sqlx:"op_id"`
 	Attempt           int                  `sqlx:"attempt"`
+	ToolName          string               `sqlx:"tool_name"`
+	ToolKind          string               `sqlx:"tool_kind"`
 	CapabilityTags    *string              `sqlx:"capability_tags"`
-	CompletedAt       *time.Time           `sqlx:"completed_at"`
-	Cost              *float64             `sqlx:"cost"`
+	ResourceUris      *string              `sqlx:"resource_uris"`
+	Status            string               `sqlx:"status"`
+	RequestSnapshot   *string              `sqlx:"request_snapshot"`
+	RequestRef        *string              `sqlx:"request_ref"`
+	RequestHash       *string              `sqlx:"request_hash"`
+	ResponseSnapshot  *string              `sqlx:"response_snapshot"`
+	ResponseRef       *string              `sqlx:"response_ref"`
 	ErrorCode         *string              `sqlx:"error_code"`
 	ErrorMessage      *string              `sqlx:"error_message"`
-	LatencyMs         *int                 `sqlx:"latency_ms"`
-	MessageId         string               `sqlx:"message_id"`
-	OpId              string               `sqlx:"op_id"`
-	RequestHash       *string              `sqlx:"request_hash"`
-	RequestPayloadId  *string              `sqlx:"request_payload_id"`
-	RequestRef        *string              `sqlx:"request_ref"`
-	RequestSnapshot   *string              `sqlx:"request_snapshot"`
-	ResourceUris      *string              `sqlx:"resource_uris"`
-	ResponsePayloadId *string              `sqlx:"response_payload_id"`
-	ResponseRef       *string              `sqlx:"response_ref"`
-	ResponseSnapshot  *string              `sqlx:"response_snapshot"`
 	Retriable         *int                 `sqlx:"retriable"`
-	SpanId            *string              `sqlx:"span_id"`
 	StartedAt         *time.Time           `sqlx:"started_at"`
-	Status            string               `sqlx:"status"`
-	ToolKind          string               `sqlx:"tool_kind"`
-	ToolName          string               `sqlx:"tool_name"`
+	CompletedAt       *time.Time           `sqlx:"completed_at"`
+	LatencyMs         *int                 `sqlx:"latency_ms"`
+	Cost              *float64             `sqlx:"cost"`
 	TraceId           *string              `sqlx:"trace_id"`
-	TurnId            *string              `sqlx:"turn_id"`
+	SpanId            *string              `sqlx:"span_id"`
+	RequestPayloadId  *string              `sqlx:"request_payload_id"`
+	ResponsePayloadId *string              `sqlx:"response_payload_id"`
 	RequestPayload    *ResponsePayloadView `view:",table=call_payload" on:"RequestPayloadId:request_payload_id=Id:id" sql:"uri=conversation/request_payload.sql"`
 	ResponsePayload   *ResponsePayloadView `view:",table=call_payload" on:"ResponsePayloadId:response_payload_id=Id:id" sql:"uri=conversation/response_payload.sql"`
 }
