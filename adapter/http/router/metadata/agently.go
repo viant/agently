@@ -10,6 +10,11 @@ import (
 	"github.com/viant/agently/genai/llm"
 )
 
+type AgentInfo struct {
+	Tools []string `json:"tools"`
+	Model string   `json:"model"`
+}
+
 // AgentlyResponse is the aggregated workspace metadata payload.
 type AgentlyResponse struct {
 	Defaults struct {
@@ -20,9 +25,9 @@ type AgentlyResponse struct {
 	Agents []string `json:"agents"`
 	Tools  []string `json:"tools"`
 	Models []string `json:"models"`
-	// AgentTools lists matched tool names per agent using pattern matching
+	// AgentInfo lists matched tool names per agent using pattern matching
 	// rules derived from the agent's Tool configuration.
-	AgentTools map[string][]string `json:"agentTools,omitempty"`
+	AgentInfo map[string]*AgentInfo `json:"agentInfo,omitempty"`
 }
 
 // Aggregate builds an AgentlyResponse from executor config and tool definitions.
@@ -75,9 +80,9 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 	sort.Strings(out.Models)
 	sort.Strings(out.Tools)
 
-	// Build AgentTools mapping (matched tool names per agent)
+	// Build AgentInfo mapping (matched tool names per agent)
 	if cfg.Agent != nil && len(cfg.Agent.Items) > 0 && len(defs) > 0 {
-		out.AgentTools = make(map[string][]string)
+		out.AgentInfo = make(map[string]*AgentInfo)
 		// Precompute canon tool names
 		names := make([]string, 0, len(defs))
 		for _, d := range defs {
@@ -86,15 +91,13 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 			}
 			names = append(names, canon(d.Name))
 		}
+
 		for _, a := range cfg.Agent.Items {
 			if a == nil {
 				continue
 			}
-			agentName := strings.TrimSpace(a.Name)
-			if agentName == "" {
-				agentName = strings.TrimSpace(a.ID)
-			}
-			if agentName == "" {
+			agentID := strings.TrimSpace(a.ID)
+			if agentID == "" {
 				continue
 			}
 			// Build patterns from agent.Tool
@@ -128,11 +131,11 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 			}
 			sort.Strings(matched)
 			if len(matched) > 0 {
-				out.AgentTools[agentName] = matched
+				out.AgentInfo[agentID] = &AgentInfo{Tools: matched, Model: a.Model}
 			}
 		}
-		if len(out.AgentTools) == 0 {
-			out.AgentTools = nil // omit when empty
+		if len(out.AgentInfo) == 0 {
+			out.AgentInfo = nil // omit when empty
 		}
 	}
 
