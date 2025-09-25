@@ -1,0 +1,40 @@
+Update the current task plan with a clear explanation and concise steps.
+
+Inputs
+- name: "update_plan"
+- call_id: correlation id (optional)
+- arguments: stringified JSON object with fields:
+  {"explanation":"...","plan":[{"step":"...","status":"pending|in_progress|completed"}, ...]}
+
+Plan Item
+- step: short (≈5–7 words), one sentence.
+- status: pending | in_progress | completed.
+- rule: at most one step can be in_progress at any time.
+
+Behavior
+- Validates arguments JSON and statuses.
+- Echoes back call_id, explanation, and normalized plan.
+- Returns an error on invalid input (no partial updates).
+
+When To Use
+- Non-trivial, multi-step, or ambiguous work.
+- User explicitly requests TODOs/plan.
+- You generate new steps mid-task and want alignment.
+
+How To Update
+- Mark finished steps completed.
+- Set exactly one next step to in_progress.
+- You may complete multiple steps at once.
+- If everything is done, mark all completed.
+
+Don’ts
+- Don’t use for simple, single-step queries.
+- Don’t pad with filler or redundant steps.
+
+After Calling
+- Don’t repeat the full plan verbatim in your reply.
+- Summarize the change and highlight the next step.
+
+Example
+- arguments:
+  {"explanation":"High-level release plan","plan":[{"step":"Write release notes","status":"in_progress"},{"step":"Bump versions","status":"pending"},{"step":"Tag and publish","status":"pending"}]}
