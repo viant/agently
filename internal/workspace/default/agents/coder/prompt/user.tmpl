@@ -1,24 +1,17 @@
 {{- if .Context }}
 Context:
-{{.Context}}
-{{- end}}
+{{ .Context }}
 
 {{- if gt (len .Documents.Items) 0 }}
 Relevant Documents:
 {{- range .Documents.Items }}
-- {{.Title}} ({{.SourceURI}})
-{{.PageContent}}
-{{- end}}
+
+- {{ .Title }} ({{ .SourceURI }})
+{{- end }}
 End of Documents.
-{{- end}}
+{{- end }}
+{{- end }}
 
-{{- if and (not .Flags.CanUseTool) (gt (len .Tools.Executions) 0) }}
-Previous Tool Executions:
-{{- range .Tools.Executions }}
-- tool: {{.Name}} args: {{.Arguments}}{{if .Result}} => {{.Result}}{{end}}{{if .Error}} Error: {{.Error}}{{end}}
-{{- end}}
-End of Previous Tool Executions.
-{{- end}}
+Task:
+{{ .Task.Prompt }}
 
-User Query:
-{{.Task.Prompt}}

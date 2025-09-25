@@ -20,9 +20,10 @@ import {BasicTable} from "../../../../../forge/index.js";
 // Column template; dynamic handlers injected later
 const COLUMNS_BASE = [
     { id: "icon",    name: "",      width: 28, align: "center", minWidth: "28px", enforceColumnSize: false },
-    { id: "name",    name: "Name",  flex: 2 },
-    { id: "status",  name: "Status",  width: 90 },
-    { id: "elapsed", name: "Time",    width: 90 },
+    { id: "kind",    name: "Kind",   width: 60, align: "center", minWidth: "48px", enforceColumnSize: false },
+    { id: "name",    name: "Name",   flex: 2 },
+    { id: "status",  name: "Status", width: 90 },
+    { id: "elapsed", name: "Time",   width: 90 },
     {
         id: "detail",
         name: "Detail",
@@ -127,12 +128,15 @@ function flattenExecutions(executions = []) {
             const hasBool = typeof s.successBool === 'boolean';
             const successBool = hasBool ? s.successBool : (typeof s.success === 'boolean' ? s.success : undefined);
             const statusText = (s.statusText || (successBool === undefined ? 'pending' : (successBool ? 'completed' : 'error'))).toLowerCase();
-            const baseIcon = reason === 'thinking' ? '🧠' : (reason === 'tool_call' ? '🛠️' : '⌨️');
-            const hasError = !!(s.error || s.errorCode);
-            const icon = hasError ? (baseIcon + '❗') : baseIcon;
+            const hasError = !!(s.error || s.errorCode) || statusText === 'failed' || statusText === 'error';
+            // Status icon: hourglass if not completed, exclamation if error, ok otherwise
+            const icon = hasError ? '❗' : (statusText === 'completed' || statusText === 'accepted' ? '✅' : '⏳');
+            // Kind glyph: brain for model (thinking), tool for tool_call, keyboard for elicitation
+            const kindGlyph = reason === 'thinking' ? '🧠' : (reason === 'tool_call' ? '🛠️' : '⌨️');
             const annotatedName = reason === 'elicitation' && s.originRole ? `${s.name} (${s.originRole})` : (s.name || reason);
             return {
                 icon,
+                kind: kindGlyph,
                 name: annotatedName,
                 status: statusText,
                 elapsed: s.elapsed,
