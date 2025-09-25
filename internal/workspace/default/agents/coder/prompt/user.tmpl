@@ -1,12 +1,7 @@
-{{- if .CanPreventDuplicateToolCalls }}
-The previous function succeeded. Do NOT make an immediately consecutive call with the same arguments in this assistant reply; reuse its output instead.
-{{- end }}
-
 {{- if .Context }}
 Context:
 {{.Context}}
 {{- end}}
-
 
 {{- if gt (len .Documents.Items) 0 }}
 Relevant Documents:

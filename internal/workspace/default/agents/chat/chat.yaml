@@ -13,10 +13,16 @@ systemPrompt:
   uri: prompt/system.tmpl
 tool:
   - pattern: system/exec
-knowledge:
-  - url: knowledge/
 
 # General-purpose conversation agent is not exposed as a virtual tool
 toolExport:
   expose: false
   domains: [general]
+
+knowledge:
+  - inclusionMode: full
+    url: knowledge/
+
+systemKnowledge:
+  - inclusionMode: full
+    url: system_knowledge/
