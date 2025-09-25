@@ -15,14 +15,7 @@ explanation: short, high-level context for this update.
 - plan: ordered list of {step, status} items.
 
 Output
-- Echoes back the explanation and the normalized plan; returns an error on invalid input (e.g.,
-multiple in_progress, unknown statuses, missing fields).
+- Echoes back the explanation and the normalized plan; returns an error on invalid input (e.g., multiple in_progress, unknown statuses, missing fields).
 
-Example
-- explanation: "Implement recursive JSON support"
-- plan: [
-  {"step": "Analyze json/meta and marshaler", "status": "completed"},
-  {"step":
-"Patch struct meta recursion", "status": "in_progress"},
-  {"step": "Add marshal/unmarshal tests", "status": "pending"}
-]
+Example: “Call orchestration-updatePlan with: { explanation: 'Fix Settings preselected tools', plan: [{step:'Locate Settings load flow',status:'in_progress'},{step:'Patch tool binding',status:'pending'},{step:'Add focused
+test',status:'pending'}] }”
