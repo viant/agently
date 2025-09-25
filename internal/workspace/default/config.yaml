@@ -1,5 +1,5 @@
 default:
-  model: openai_o4-mini
+  model: gpt-5
   embedder: openai_text
   agent: chat
 models:
