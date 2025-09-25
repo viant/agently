@@ -22,6 +22,7 @@ import (
 	agent2 "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/service/augmenter"
 	"github.com/viant/agently/genai/service/core"
+	plan "github.com/viant/agently/genai/service/plan"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/internal/finder/oauth"
 	"github.com/viant/agently/internal/hotswap"
@@ -209,6 +210,8 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	}
 	// Keep core action; gate augmenter/extractor registration via env to keep them internal by default
 	actions.Register(e.llmCore)
+	// Register plan update service as MCP tool (core:updatePlan)
+	actions.Register(plan.New())
 	if strings.TrimSpace(os.Getenv("AGENTLY_REGISTER_AUGMENTER")) == "1" {
 		actions.Register(enricher)
 	}

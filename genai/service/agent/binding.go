@@ -25,6 +25,9 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if err != nil {
 		return nil, err
 	}
+	if conv == nil {
+		return nil, fmt.Errorf("conversation %v not found", input.ConversationID)
+	}
 	hist, err := s.buildHistory(ctx, conv)
 	if err != nil {
 		return nil, err
