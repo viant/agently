@@ -4,9 +4,24 @@ modelRef: openai_o3
 name: Coder
 orchestrationFlow: workflow/orchestration.yaml
 temperature: 0
+persona:
+  role: assistant
+  actor: Coder
+
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+
 tool:
   - pattern: system/exec
   - pattern: system/patch
+  - pattern: core
+
+# Expose as virtual tool so other planners can delegate coding tasks to it
+toolExport:
+  expose: true
+  domains: [coding]
 
 knowledge:
   - inclusionMode: full
@@ -24,7 +39,7 @@ elicitation:
       Workdir:
         type: string
         description: Working directory path
-        format: uri-reference
+        format: uri
         default: ${env.HOME}
     required:
       - Workdir

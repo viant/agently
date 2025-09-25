@@ -12,7 +12,7 @@ Context:
 Relevant Documents:
 {{- range .Documents.Items }}
 - {{.Title}} ({{.SourceURI}})
-  {{.PageContent}}
+{{.PageContent}}
 {{- end}}
 End of Documents.
 {{- end}}
@@ -27,4 +27,3 @@ End of Previous Tool Executions.
 
 User Query:
 {{.Task.Prompt}}
-
