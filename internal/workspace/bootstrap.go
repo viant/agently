@@ -29,6 +29,7 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindEmbedder, "openai_text.yaml"), "default/model/openai/embedder_text.yaml"},
 		{filepath.Join(KindModel, "openai_o4-mini.yaml"), "default/model/openai/o4-mini.yaml"},
 		{filepath.Join(KindModel, "openai_o3.yaml"), "default/model/openai/o3.yaml"},
+		{filepath.Join(KindModel, "openai_gpt-5.yaml"), "default/model/openai/gpt-5.yaml"},
 
 		{filepath.Join(KindModel, "bedrock_claude_3_7.yaml"), "default/model/bedrock/claude_3_7.yaml"},
 		{filepath.Join(KindModel, "vertexai_claude_opus_4.yaml"), "default/model/vertexai/claude_opus_4.yaml"},
