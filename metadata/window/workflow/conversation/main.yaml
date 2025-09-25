@@ -14,7 +14,7 @@ view:
       - id: conversationSection
         chat:
           dataSourceRef: messages
-          height: 75vh
+          height: 85vh
           tools: []           # no composer tools
           # Deliberately no onSubmit – composer hidden
           on:
