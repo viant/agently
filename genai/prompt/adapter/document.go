@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/tmc/langchaingo/schema"
@@ -12,6 +13,14 @@ import (
 // FromSchemaDocs converts search documents into prompt.Document items.
 func FromSchemaDocs(docs []schema.Document) []*prompt.Document {
 	out := make([]*prompt.Document, 0, len(docs))
+
+	// Ensure deterministic processing order: sort knowledge by URL
+	sort.SliceStable(docs, func(i, j int) bool {
+		sourceI := extractSource(docs[i].Metadata)
+		sourceJ := extractSource(docs[j].Metadata)
+		return sourceI < sourceJ
+	})
+
 	for _, d := range docs {
 		source := extractSource(d.Metadata)
 		title := baseName(source)

@@ -90,14 +90,6 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		}
 	}
 
-	attachments := i.Binding.Task.Attachments
-	sortAttachments(attachments)
-	for _, attachment := range attachments {
-		i.Message = append(i.Message,
-			llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Content))
-
-	}
-
 	i.Message = append(i.Message, llm.NewUserMessage(currentPrompt))
 	return nil
 }
