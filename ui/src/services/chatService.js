@@ -770,11 +770,13 @@ export function saveSettings(args) {
     const metaContext = context.Context('meta');
 
     const source = metaContext.handlers.dataSource.peekFormData();
-    const {agent, model, tools} = source
+    const {agent, model, tool} = source
+
+    console.log('saveSettings --- ', source)
     const convContext = context.Context('conversations');
     const convDataSource = convContext?.handlers?.dataSource;
     const current = convDataSource.peekFormData()
-    convDataSource.setFormData?.({values: {...current, agent, model, tools}});
+    convDataSource.setFormData?.({values: {...current, agent, model, tools:tool}});
 }
 
 // Applies meta.agentTools mapping to the conversations.tools field when agent changes
@@ -1330,14 +1332,28 @@ function onMetaLoaded(args) {
     if (!ds) return;
     const current = ds.peekFormData?.() || {};
     const {defaults} = data
-    ds.setFormData?.({
-        values: {
-            ...current,
-            agent: defaults.agent || '',
-            model: defaults.model || '',
-            agentInfo: data.agentInfo || {},
-        }
-    });
+    const values = {
+        ...current,
+        agent: defaults.agent || '',
+        model: defaults.model || '',
+        // Pre-select tools allowed for the default agent so the Settings
+        // dialog shows an accurate initial state when opened before any
+        // user interaction.
+        //
+        // The mapping comes from meta.agentInfo where each agent entry may
+        // declare a list of tools it can execute. When a new chat window
+        // is opened we want those tools pre-selected, however this field
+        // was previously omitted which caused the Settings dialog to show
+        // an empty tools list.
+
+        tool: (data.agentInfo && data.agentInfo[defaults.agent]
+            && Array.isArray(data.agentInfo[defaults.agent].tools))
+            ? data.agentInfo[defaults.agent].tools
+            : [],
+        agentInfo: data.agentInfo || {},
+    }
+    console.log('setting values:', values)
+    ds.setFormData?.({values});
 
 }
 
@@ -1382,7 +1398,10 @@ function onFetchMeta(args) {
                 value: String(v),
                 label: String(v)
             })),
-            tool: agentInfo[data.defaults.agent]?.tools
+            // Default selection of tools for the default agent. Use plural
+            // property name to stay consistent with the rest of the code
+            // base (saveSettings, conversationService, etc.).
+            tool: agentInfo[data.defaults.agent]?.tools || []
         };
     });
     return updated;
