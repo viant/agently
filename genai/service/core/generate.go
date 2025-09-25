@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/viant/agently/genai/llm"
@@ -69,14 +70,14 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		messages := i.Binding.History.Messages
 		for k := 0; k < len(messages); k++ {
 			m := messages[k]
-			llmMessage := llm.NewTextMessage(llm.MessageRole(m.Role), m.Content)
-			i.Message = append(i.Message, llmMessage)
+			sortAttachments(m.Attachment)
 			for _, attachment := range m.Attachment {
 				i.Message = append(i.Message,
 					llm.NewMessageWithBinary(llm.MessageRole(m.Role), attachment.Data, attachment.MIMEType(), attachment.Content))
 			}
+			llmMessage := llm.NewTextMessage(llm.MessageRole(m.Role), m.Content)
+			i.Message = append(i.Message, llmMessage)
 		}
-
 	}
 
 	if tools := i.Binding.Tools; len(tools.Signatures) > 0 {
@@ -89,14 +90,28 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		}
 	}
 
-	i.Message = append(i.Message, llm.NewUserMessage(currentPrompt))
 	attachments := i.Binding.Task.Attachments
+	sortAttachments(attachments)
 	for _, attachment := range attachments {
 		i.Message = append(i.Message,
 			llm.NewUserMessageWithBinary(attachment.Data, attachment.MIMEType(), attachment.Content))
 
 	}
+
+	i.Message = append(i.Message, llm.NewUserMessage(currentPrompt))
 	return nil
+}
+
+func sortAttachments(attachments []*prompt.Attachment) {
+	sort.Slice(attachments, func(i, j int) bool {
+		if attachments[i] == nil || attachments[j] == nil {
+			return false
+		}
+		if strings.Compare(attachments[i].URI, attachments[j].URI) < 0 {
+			return true
+		}
+		return false
+	})
 }
 
 func (i *GenerateInput) Validate(ctx context.Context) error {

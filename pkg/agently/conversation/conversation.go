@@ -119,6 +119,7 @@ type MessageView struct {
 	ToolName             *string                  `sqlx:"tool_name"`
 	TurnId               *string                  `sqlx:"turn_id"`
 	Type                 string                   `sqlx:"type"`
+	UpdatedAt            *time.Time               `sqlx:"updated_at"`
 	UserElicitationData  *UserElicitationDataView `view:",table=message" on:"Id:id=MessageId:m.id" sql:"uri=conversation/user_elicitation_data.sql"`
 	Attachment           []*AttachmentView        `view:",table=message" on:"Id:id=ParentMessageId:m.parent_message_id" sql:"uri=conversation/attachment.sql"`
 	ModelCall            *ModelCallView           `view:",table=model_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/model_call.sql"`
