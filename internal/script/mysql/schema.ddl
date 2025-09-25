@@ -117,6 +117,7 @@ CREATE TABLE `message`
     turn_id            VARCHAR(255),
     sequence           BIGINT,
     created_at         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at         TIMESTAMP,
     created_by_user_id VARCHAR(255),
     status             VARCHAR(255) CHECK (status IS NULL OR status IN ('', 'pending','accepted','rejected','cancel','open','summary','summarized')),
     role               VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
