@@ -3,11 +3,11 @@ package plan
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"sync"
 
+	"github.com/google/uuid"
 	convctx "github.com/viant/agently/genai/conversation"
 	mem "github.com/viant/agently/genai/memory"
 	"github.com/viant/fluxor/model/types"
@@ -22,28 +22,23 @@ type Service struct {
 func (s *Service) Name() string { return "orchestration" }
 
 // UpdatePlanInput matches the MCP tool-call arguments envelope.
-// Example:
-//
-//	{
-//	  "name": "update_plan",
-//	  "call_id": "call_123",
-//	  "arguments": "{\"explanation\":\"High-level release plan\",\"plan\":[{\"step\":\"Write release notes\",\"status\":\"in_progress\"},{\"step\":\"Bump versions\",\"status\":\"pending\"},{\"step\":\"Tag and publish\",\"status\":\"pending\"}]}"
-//	}
 type UpdatePlanInput struct {
-	Name      string `json:"name,omitempty"`
-	CallID    string `json:"call_id,omitempty"`
-	Arguments string `json:"arguments"`
+	CallID string `json:"call_id,omitempty"`
+	// Explanation: optional, short context for this update
+	Explanation string `json:"explanation,omitempty"`
+	// Plan: ordered list of steps, exactly one may be in_progress
+	Plan []PlanItem `json:"plan"`
 }
 
 // PlanItem represents a single step entry.
 type PlanItem struct {
 	Step   string `json:"step"`
-	Status string `json:"status"`
+	Status string `json:"status"  choice:"pending" choice:"in_progress"  choice:"completed"`
 }
 
 // UpdatePlanPayload is the JSON object stringified in UpdatePlanInput.Arguments.
 type UpdatePlanPayload struct {
-	Explanation string     `json:"explanation,omitempty"`
+	Explanation string     `json:"explanation"`
 	Plan        []PlanItem `json:"plan"`
 }
 
@@ -86,13 +81,15 @@ func (s *Service) updatePlan(ctx context.Context, in, out interface{}) error {
 		return types.NewInvalidOutputError(out)
 	}
 
-	if input.Arguments == "" {
-		return fmt.Errorf("arguments must be a non-empty JSON string")
+	if input.CallID == "" {
+		input.CallID = uuid.New().String()
 	}
-
 	var payload UpdatePlanPayload
-	if err := json.Unmarshal([]byte(input.Arguments), &payload); err != nil {
-		return fmt.Errorf("invalid arguments JSON: %w", err)
+	switch {
+	case len(input.Plan) > 0 || input.Explanation != "":
+		payload = UpdatePlanPayload{Explanation: input.Explanation, Plan: input.Plan}
+	default:
+		return fmt.Errorf("missing required parameters: provide 'plan' (and optional 'explanation')")
 	}
 
 	// Validate plan: allow only known statuses and at most one in_progress

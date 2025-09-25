@@ -3,7 +3,7 @@ id: coder
 modelRef: openai_gpt-5
 name: Coder
 orchestrationFlow: workflow/orchestration.yaml
-temperature: 0
+temperature: 0.2
 persona:
   role: assistant
   actor: Coder
@@ -14,9 +14,9 @@ systemPrompt:
   uri: prompt/system.tmpl
 
 tool:
-  - pattern: system/exec
+  - pattern: orchestration
   - pattern: system/patch
-  - pattern: core
+  - pattern: system/exec
 
 # Expose as virtual tool so other planners can delegate coding tasks to it
 toolExport:

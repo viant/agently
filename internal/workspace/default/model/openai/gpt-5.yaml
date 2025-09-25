@@ -1,4 +1,4 @@
-id: gpt-5
+id: openai_gpt-5
 name: gpt-5 (OpenAI)
 description: OpenAI gpt-5 model
 intelligence: 0.95

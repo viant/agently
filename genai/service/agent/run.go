@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	elact "github.com/viant/agently/genai/elicitation/action"
+	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/prompt"
@@ -222,6 +223,15 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			SystemPrompt:   input.Agent.SystemPrompt,
 			Binding:        binding,
 			ModelSelection: modelSelection,
+		}
+
+		// Propagate agent-level temperature to per-request options if not explicitly set.
+		// Keep any existing options provided via model selection.
+		if genInput.Options == nil {
+			genInput.Options = &llm.Options{}
+		}
+		if genInput.Options.Temperature == 0 && input.Agent.Temperature != 0 {
+			genInput.Options.Temperature = input.Agent.Temperature
 		}
 
 		genOutput := &core.GenerateOutput{}
