@@ -23,7 +23,7 @@ type Client struct {
 func NewClient(apiKey, model string, options ...ClientOption) *Client {
 	client := &Client{
 		Config: basecfg.Config{
-			HTTPClient: &http.Client{Timeout: 90 * time.Second}, //TODO: make it configurable
+			HTTPClient: &http.Client{Timeout: 15 * time.Minute}, //TODO: make it configurable
 			BaseURL:    openAIEndpoint,
 			Model:      model,
 		},

@@ -68,6 +68,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if input.MessageID == "" {
 		input.MessageID = uuid.New().String()
 	}
+
 	ctx, agg := usage.WithAggregator(ctx)
 	turn := memory.TurnMeta{
 		ConversationID:  input.ConversationID,
@@ -104,6 +105,14 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 				return err
 			}
 		}
+	}
+	// Validate initial context against agent's elicitation schema and resolve when needed.
+	if proceed, vErr := s.ensureInitialElicitation(ctx, input); vErr != nil {
+		return vErr
+	} else if !proceed {
+		// Context elicitation was declined; stop processing the turn.
+		output.Usage = agg
+		return nil
 	}
 	err = s.runPlanLoop(ctx, input, output)
 	status := "succeeded"
