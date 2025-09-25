@@ -184,3 +184,4 @@ require (
 )
 
 replace github.com/viant/datly => ../datly
+replace github.com/viant/fluxor => ../fluxor
