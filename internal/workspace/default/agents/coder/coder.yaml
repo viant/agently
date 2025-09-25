@@ -1,6 +1,6 @@
 description: Coder agent
 id: coder
-modelRef: openai_o3
+modelRef: openai_gpt-5
 name: Coder
 orchestrationFlow: workflow/orchestration.yaml
 temperature: 0
