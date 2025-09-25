@@ -1,6 +1,6 @@
 description: Default conversational agent1
 id: chat
-modelRef: openai_o3
+modelRef: openai_gpt-5
 name: Chat
 orchestrationFlow: workflow/orchestration.yaml
 temperature: 0
