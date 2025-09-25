@@ -41,7 +41,7 @@ view:
       - id: conversationSection
         chat:
           dataSourceRef: messages
-          height: 85vh
+          height: 75vh
           showUpload: true
           upload:
             endpoint: agentlyAPI
