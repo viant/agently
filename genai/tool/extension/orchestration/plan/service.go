@@ -19,7 +19,7 @@ type Service struct {
 }
 
 // Name implements types.Service and identifies this Fluxor service.
-func (s *Service) Name() string { return "core" }
+func (s *Service) Name() string { return "orchestration" }
 
 // UpdatePlanInput matches the MCP tool-call arguments envelope.
 // Example:
@@ -54,7 +54,7 @@ type UpdatePlanOutput struct {
 	Plan        []PlanItem `json:"plan"`
 }
 
-//go:embed description.txt
+//go:embed update_plan.md
 var description string
 
 // Methods implements types.Service.

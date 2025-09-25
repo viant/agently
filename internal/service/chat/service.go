@@ -10,13 +10,13 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	mcpclient "github.com/viant/agently/adapter/mcp"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/conversation"
+	cancels "github.com/viant/agently/genai/conversation/cancel"
 	"github.com/viant/agently/genai/elicitation"
 	elact "github.com/viant/agently/genai/elicitation/action"
 	promptpkg "github.com/viant/agently/genai/prompt"
@@ -43,14 +43,11 @@ type Service struct {
 	fileSvc    *fservice.Service
 
 	elicitation *elicitation.Service
-
-	mu            sync.Mutex
-	cancelsByTurn map[string][]context.CancelFunc // key: user turn id (message id)
-	turnsByConv   map[string][]string             // convID -> []turnID
+	reg         cancels.Registry
 }
 
 func NewService() *Service {
-	svc := &Service{}
+	svc := &Service{reg: cancels.Default()}
 	if dao, err := implconv.NewDatly(context.Background()); err == nil {
 		if cli, err := implconv.New(context.Background(), dao); err == nil {
 			svc.convClient = cli
@@ -186,8 +183,12 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 			base = authctx.WithBearer(base, tok)
 		}
 		runCtx, cancel := context.WithCancel(base)
-		s.registerCancel(conversationID, msgID, cancel)
-		defer s.completeCancel(conversationID, msgID, cancel)
+		if s.reg != nil {
+			s.reg.Register(conversationID, msgID, cancel)
+			defer s.reg.Complete(conversationID, msgID, cancel)
+		} else {
+			defer cancel()
+		}
 
 		// Convert staged uploads into attachments (read + cleanup)
 		s.enrichAttachmentIfNeeded(req, runCtx, input)
@@ -272,87 +273,18 @@ func (s *Service) enrichAttachmentIfNeeded(req PostRequest, runCtx context.Conte
 
 // Cancel aborts all in-flight turns for the given conversation; returns true if any were cancelled.
 func (s *Service) Cancel(conversationID string) bool {
-	if s == nil {
+	if s == nil || s.reg == nil {
 		return false
 	}
-	cancels := s.popCancelsByConversation(conversationID)
-	for _, c := range cancels {
-		if c != nil {
-			c()
-		}
-	}
-	return len(cancels) > 0
-}
-
-func (s *Service) registerCancel(convID, turnID string, cancel context.CancelFunc) {
-	if cancel == nil || strings.TrimSpace(turnID) == "" {
-		return
-	}
-	s.mu.Lock()
-	if s.cancelsByTurn == nil {
-		s.cancelsByTurn = map[string][]context.CancelFunc{}
-	}
-	s.cancelsByTurn[turnID] = append(s.cancelsByTurn[turnID], cancel)
-	if strings.TrimSpace(convID) != "" {
-		if s.turnsByConv == nil {
-			s.turnsByConv = map[string][]string{}
-		}
-		s.turnsByConv[convID] = append(s.turnsByConv[convID], turnID)
-	}
-	s.mu.Unlock()
-}
-
-func (s *Service) completeCancel(convID, turnID string, cancel context.CancelFunc) {
-	s.mu.Lock()
-	if s.cancelsByTurn != nil {
-		list := s.cancelsByTurn[turnID]
-		for i, c := range list {
-			if fmt.Sprintf("%p", c) == fmt.Sprintf("%p", cancel) {
-				list = append(list[:i], list[i+1:]...)
-				break
-			}
-		}
-		if len(list) == 0 {
-			delete(s.cancelsByTurn, turnID)
-		} else {
-			s.cancelsByTurn[turnID] = list
-		}
-	}
-	s.mu.Unlock()
+	return s.reg.CancelConversation(conversationID)
 }
 
 // CancelTurn aborts a specific user turn (keyed by messageId) if running.
 func (s *Service) CancelTurn(turnID string) bool {
-	s.mu.Lock()
-	var list []context.CancelFunc
-	if s.cancelsByTurn != nil {
-		list = s.cancelsByTurn[turnID]
-		delete(s.cancelsByTurn, turnID)
+	if s == nil || s.reg == nil {
+		return false
 	}
-	s.mu.Unlock()
-	for _, c := range list {
-		if c != nil {
-			c()
-		}
-	}
-	return len(list) > 0
-}
-
-func (s *Service) popCancelsByConversation(convID string) []context.CancelFunc {
-	s.mu.Lock()
-	var result []context.CancelFunc
-	if s.turnsByConv != nil && s.cancelsByTurn != nil {
-		turns := s.turnsByConv[convID]
-		delete(s.turnsByConv, convID)
-		for _, tID := range turns {
-			if list, ok := s.cancelsByTurn[tID]; ok {
-				result = append(result, list...)
-				delete(s.cancelsByTurn, tID)
-			}
-		}
-	}
-	s.mu.Unlock()
-	return result
+	return s.reg.CancelTurn(turnID)
 }
 
 // --------------------------

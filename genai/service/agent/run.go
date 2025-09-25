@@ -76,6 +76,19 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		ParentMessageID: input.MessageID,
 	}
 	ctx = memory.WithTurnMeta(ctx, turn)
+
+	// Establish a single authoritative cancel for the turn and register it
+	// when a registry is available. Errors never cancel the context; only
+	// external callers (e.g., cancel endpoint) invoke this cancel.
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+	if s.cancelReg != nil {
+		s.cancelReg.Register(turn.ConversationID, turn.TurnID, cancel)
+		defer s.cancelReg.Complete(turn.ConversationID, turn.TurnID, cancel)
+	} else {
+		// Ensure resources are released even when no registry is present.
+		defer cancel()
+	}
 	if len(input.ToolsAllowed) > 0 {
 		pol := &tool.Policy{Mode: tool.ModeAuto, AllowList: input.ToolsAllowed}
 		ctx = tool.WithPolicy(ctx, pol)
@@ -106,14 +119,8 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			}
 		}
 	}
-	// Validate initial context against agent's elicitation schema and resolve when needed.
-	if proceed, vErr := s.ensureInitialElicitation(ctx, input); vErr != nil {
-		return vErr
-	} else if !proceed {
-		// Context elicitation was declined; stop processing the turn.
-		output.Usage = agg
-		return nil
-	}
+	// No pre-execution elicitation. Templates can instruct LLM to elicit details
+	// using binding.Elicitation. Orchestrator handles assistant-originated elicitations.
 	err = s.runPlanLoop(ctx, input, output)
 	status := "succeeded"
 	if err != nil {
