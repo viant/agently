@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
@@ -29,10 +30,8 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 
 	var wg sync.WaitGroup
 	nextStepIdx := 0
-	// use cancelable ctx so tool errors can stop streaming early
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	streamId, stepErrCh := s.registerStreamPlannerHandler(aPlan, &wg, &nextStepIdx, genOutput, cancel)
+	// Do not create child cancels here; errors must not cancel context.
+	streamId, stepErrCh := s.registerStreamPlannerHandler(aPlan, &wg, &nextStepIdx, genOutput)
 	canStream, err := s.canStream(ctx, genInput)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if model can stream: %w", err)
@@ -120,10 +119,14 @@ func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) 
 	return doStream, nil
 }
 
-func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput, cancel context.CancelFunc) (string, <-chan error) {
+func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) (string, <-chan error) {
 	var mux sync.Mutex
 	stepErrCh := make(chan error, 1)
+	var stopped atomic.Bool
 	id := stream.Register(func(ctx context.Context, event *llm.StreamEvent) error {
+		if stopped.Load() {
+			return nil
+		}
 		if event == nil || event.Response == nil || len(event.Response.Choices) == 0 {
 			if event != nil {
 				return event.Err
@@ -156,10 +159,10 @@ func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGr
 				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args}
 				_, _, err := executil.ExecuteToolStep(ctx, s.registry, stepInfo, s.convClient)
 				if err != nil {
-					// capture first error and cancel upstream streaming
+					// capture first error and stop reacting to further events
 					select {
 					case stepErrCh <- err:
-						cancel()
+						stopped.Store(true)
 					default:
 					}
 				}

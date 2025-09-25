@@ -2,7 +2,9 @@ package conversation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"unsafe"
@@ -123,7 +125,10 @@ func (s *Service) GetConversation(ctx context.Context, id string, options ...con
 	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(&in)); err != nil {
 		return nil, err
 	}
+
 	if len(out.Data) == 0 {
+		noDataOutput, _ := json.Marshal(out)
+		fmt.Printf("failed to get conversation %v %v", id, string(noDataOutput))
 		return nil, nil
 	}
 	// Cast generated to SDK type

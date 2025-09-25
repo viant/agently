@@ -62,18 +62,42 @@ func (a *Awaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitation) (
 	prompt := buildPrompt(req)
 
 	for round := 0; round < a.cfg.MaxRounds; round++ {
-		tctx, cancel := context.WithTimeout(ctx, a.cfg.Timeout)
-		reply, err := a.helper(tctx, a.cfg.HelperAgent, prompt)
-		cancel()
-		if err != nil {
-			continue // retry when budget left
+		// Run helper without deriving a child cancel; bound wait with a timer.
+		type result struct {
+			reply string
+			err   error
 		}
-		payload, ok := extractJSON(reply)
-		if !ok {
+		ch := make(chan result, 1)
+		go func() {
+			r, err := a.helper(ctx, a.cfg.HelperAgent, prompt)
+			// Non-blocking send to avoid goroutine leak on timeout path.
+			select {
+			case ch <- result{reply: r, err: err}:
+			default:
+			}
+		}()
+
+		var to <-chan time.Time
+		if a.cfg.Timeout > 0 {
+			to = time.After(a.cfg.Timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-to:
+			// Timeout this round; continue to next round if available.
 			continue
-		}
-		if validPayload(payload, &req.RequestedSchema) {
-			return &plan.ElicitResult{Action: plan.ElicitResultActionAccept, Payload: payload}, nil
+		case res := <-ch:
+			if res.err != nil {
+				continue
+			}
+			payload, ok := extractJSON(res.reply)
+			if !ok {
+				continue
+			}
+			if validPayload(payload, &req.RequestedSchema) {
+				return &plan.ElicitResult{Action: plan.ElicitResultActionAccept, Payload: payload}, nil
+			}
 		}
 	}
 	return &plan.ElicitResult{Action: plan.ElicitResultActionDecline}, nil

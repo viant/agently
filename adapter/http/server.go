@@ -52,9 +52,6 @@ type Server struct {
 
 	mcpRouter elicrouter.ElicitationRouter
 
-	mu      sync.Mutex
-	cancels map[string][]context.CancelFunc // convID -> cancel funcs for in-flight turns
-
 	// Store removed; using conversation client via chat service
 }
 
@@ -78,56 +75,6 @@ func WithPolicies(tp *tool.Policy, fp *fluxpol.Policy) ServerOption {
 // when AGENTLY_V1_DOMAIN=1 is set. When store is nil or the flag is not set, legacy memory
 // reads remain in effect.
 // WithStore removed; chat service no longer depends on domain.Store
-
-// registerCancel stores cancel so that the /terminate endpoint can abort the
-// running turn for the given conversation.
-func (s *Server) registerCancel(convID string, cancel context.CancelFunc) {
-	if s == nil || convID == "" || cancel == nil {
-		return
-	}
-	s.mu.Lock()
-	if s.cancels == nil {
-		s.cancels = make(map[string][]context.CancelFunc)
-	}
-	s.cancels[convID] = append(s.cancels[convID], cancel)
-	s.mu.Unlock()
-}
-
-// completeCancel removes cancel from registry so memory does not leak.
-func (s *Server) completeCancel(convID string, cancel context.CancelFunc) {
-	if s == nil || convID == "" || cancel == nil {
-		return
-	}
-	s.mu.Lock()
-	list := s.cancels[convID]
-	for i, c := range list {
-		if fmt.Sprintf("%p", c) == fmt.Sprintf("%p", cancel) { // naive identity compare
-			list = append(list[:i], list[i+1:]...)
-			break
-		}
-	}
-	if len(list) == 0 {
-		delete(s.cancels, convID)
-	} else {
-		s.cancels[convID] = list
-	}
-	s.mu.Unlock()
-}
-
-// cancelConversation aborts all in-flight turns for convID.
-func (s *Server) cancelConversation(convID string) bool {
-	s.mu.Lock()
-	cancels := s.cancels[convID]
-	delete(s.cancels, convID)
-	s.mu.Unlock()
-
-	for _, cancel := range cancels {
-		if cancel != nil {
-			cancel()
-		}
-	}
-	return len(cancels) > 0
-}
 
 // WithApprovalService injects the Fluxor approval service so that the HTTP
 // callback handler can forward Accept/Decline decisions to the workflow

@@ -72,6 +72,20 @@ type (
 		Documents       Documents              `yaml:"documents,omitempty" json:"documents,omitempty"`
 		Flags           Flags                  `yaml:"flags,omitempty" json:"flags,omitempty"`
 		Context         map[string]interface{} `yaml:"context,omitempty" json:"context,omitempty"`
+		// Elicitation contains a generic, prompt-friendly view of agent-required inputs
+		// so templates can instruct the LLM to elicit missing data when necessary.
+		Elicitation Elicitation `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
+	}
+
+	// Elicitation is a generic holder for required-input prompts used by templates.
+	// It intentionally avoids coupling to agent plan types.
+	Elicitation struct {
+		Required bool                   `yaml:"required,omitempty" json:"required,omitempty"`
+		Missing  []string               `yaml:"missing,omitempty" json:"missing,omitempty"`
+		Message  string                 `yaml:"message,omitempty" json:"message,omitempty"`
+		Schema   map[string]interface{} `yaml:"schema,omitempty" json:"schema,omitempty"`
+		// SchemaJSON is a pre-serialized JSON of Schema for templates without JSON helpers
+		SchemaJSON string `yaml:"schemaJSON,omitempty" json:"schemaJSON,omitempty"`
 	}
 )
 
@@ -91,6 +105,7 @@ func (b *Binding) Data() map[string]interface{} {
 		"Meta":            &b.Meta,
 		"Context":         &b.Context,
 		"SystemDocuments": &b.SystemDocuments,
+		"Elicitation":     &b.Elicitation,
 	}
 
 	// Flatten selected keys from Context into top-level for convenience
