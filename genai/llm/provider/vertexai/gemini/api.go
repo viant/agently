@@ -12,7 +12,10 @@ import (
 
 	"github.com/viant/agently/genai/llm/provider/base"
 
+	"time"
+
 	"github.com/viant/agently/genai/llm"
+	mcbuf "github.com/viant/agently/genai/modelcallctx"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -21,6 +24,8 @@ func (c *Client) Implements(feature string) bool {
 		return true
 	case base.CanStream:
 		return c.canStream()
+	case base.IsMultimodal:
+		return true
 	}
 	return false
 }
@@ -109,6 +114,19 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	// Observer start
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			ctx = newCtx
+		} else {
+			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+		}
+	}
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
@@ -139,6 +157,15 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	llmsResp := ToLLMSResponse(&apiResp)
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
+	}
+	if observer != nil {
+		info := mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage, LLMResponse: llmsResp}
+		if llmsResp != nil && len(llmsResp.Choices) > 0 {
+			info.FinishReason = llmsResp.Choices[0].FinishReason
+		}
+		if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
+			return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+		}
 	}
 	return llmsResp, nil
 }
@@ -184,18 +211,64 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		return nil, fmt.Errorf("Gemini stream error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	events := make(chan llm.StreamEvent)
+	out := make(chan llm.StreamEvent)
+	observer := mcbuf.ObserverFromContext(ctx)
 	go func() {
 		defer resp.Body.Close()
-		defer close(events)
+		defer close(out)
 		_ = resp.Header.Get("Content-Type")
 		agg := newGeminiAggregator(c.Model, c.UsageListener)
+		// buffer final response so we can notify observer before publishing it
+		bufCh := make(chan llm.StreamEvent)
+		var lastLR *llm.GenerateResponse
+		emit := func(lr *llm.GenerateResponse) {
+			if lr != nil {
+				out <- llm.StreamEvent{Response: lr}
+			}
+		}
+		endObserver := func(final *llm.GenerateResponse) {
+			if observer != nil {
+				var respJSON []byte
+				var finishReason string
+				if final != nil {
+					respJSON, _ = json.Marshal(final)
+					if len(final.Choices) > 0 {
+						finishReason = final.Choices[0].FinishReason
+					}
+				} else if lastLR != nil {
+					respJSON, _ = json.Marshal(lastLR)
+					if len(lastLR.Choices) > 0 {
+						finishReason = lastLR.Choices[0].FinishReason
+					}
+				}
+				if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: agg.usage, FinishReason: finishReason, LLMResponse: func() *llm.GenerateResponse {
+					if final != nil {
+						return final
+					}
+					return lastLR
+				}()}); obErr != nil {
+					out <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+					return
+				}
+			}
+		}
+		go func() {
+			for ev := range bufCh {
+				if ev.Response != nil {
+					lastLR = ev.Response
+				}
+				out <- ev
+			}
+		}()
 		// Gemini uses application/json streams; decode with JSON decoder.
-		c.streamJSON(resp.Body, events, agg)
-		// drain any leftover on disconnect
-		agg.emitRemainder(events)
+		c.streamJSON(resp.Body, bufCh, agg, observer, ctx)
+		close(bufCh)
+		// Prepare remainder as final response without emitting yet
+		final := agg.emitRemainderResponse()
+		endObserver(final)
+		emit(final)
 	}()
-	return events, nil
+	return out, nil
 }
 
 // geminiAggregator accumulates per-candidate content/tool calls and emits only when finished.
@@ -288,9 +361,9 @@ func (a *geminiAggregator) emitFinished(events chan<- llm.StreamEvent) {
 }
 
 // emitRemainder flushes any non-finished candidates on stream end, using STOP finish reason.
-func (a *geminiAggregator) emitRemainder(events chan<- llm.StreamEvent) {
+func (a *geminiAggregator) emitRemainderResponse() *llm.GenerateResponse {
 	if len(a.text) == 0 && len(a.tools) == 0 {
-		return
+		return nil
 	}
 	out := &llm.GenerateResponse{Model: a.model}
 	for idx, b := range a.text {
@@ -308,8 +381,9 @@ func (a *geminiAggregator) emitRemainder(events chan<- llm.StreamEvent) {
 		out.Usage = a.usage
 	}
 	if len(out.Choices) > 0 {
-		events <- llm.StreamEvent{Response: out}
+		return out
 	}
+	return nil
 }
 
 func (c *Client) emitPayloadAggregate(payload string, events chan<- llm.StreamEvent, agg *geminiAggregator) {
@@ -341,7 +415,7 @@ func (c *Client) emitPayloadAggregate(payload string, events chan<- llm.StreamEv
 // streamJSON handles application/json streams. It supports:
 // - a single JSON array where each element is a Response
 // - multiple top-level JSON objects (sequential), separated by whitespace
-func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *geminiAggregator) {
+func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *geminiAggregator, observer mcbuf.Observer, ctx context.Context) {
 	br := bufio.NewReader(r)
 	isSpace := func(b byte) bool { return b == ' ' || b == '\n' || b == '\r' || b == '\t' }
 	for {
@@ -397,6 +471,26 @@ func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *gem
 					return
 				}
 				agg.addResponse(&obj)
+				// emit raw and text deltas to observer when present
+				if observer != nil {
+					if b, err := json.Marshal(&obj); err == nil {
+						b = append(b, '\n')
+						if obErr := observer.OnStreamDelta(ctx, b); obErr != nil {
+							events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+							return
+						}
+					}
+					for _, cand := range obj.Candidates {
+						for _, p := range cand.Content.Parts {
+							if p.Text != "" {
+								if obErr := observer.OnStreamDelta(ctx, []byte(p.Text)); obErr != nil {
+									events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+									return
+								}
+							}
+						}
+					}
+				}
 				agg.emitFinished(events)
 			}
 			// consume closing ']'
@@ -412,6 +506,25 @@ func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *gem
 				return
 			}
 			agg.addResponse(&obj)
+			if observer != nil {
+				if b, err := json.Marshal(&obj); err == nil {
+					b = append(b, '\n')
+					if obErr := observer.OnStreamDelta(ctx, b); obErr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+						return
+					}
+				}
+				for _, cand := range obj.Candidates {
+					for _, p := range cand.Content.Parts {
+						if p.Text != "" {
+							if obErr := observer.OnStreamDelta(ctx, []byte(p.Text)); obErr != nil {
+								events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+								return
+							}
+						}
+					}
+				}
+			}
 			agg.emitFinished(events)
 		default:
 			// Unexpected leading byte; return an error to surface malformed stream

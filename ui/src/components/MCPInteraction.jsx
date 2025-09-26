@@ -10,7 +10,7 @@ import { joinURL } from '../utils/url';
  * the description and provides Accept / Reject / Cancel actions:
  *   • Accept   – opens the provided URL in a new browser tab and notifies
  *                the backend (action="accept").
- *   • Reject   – notifies backend with action="decline".
+ *   • Reject   – notifies backend with action="decline" (stored as "rejected").
  *   • Cancel   – notifies backend with action="cancel" (no decision).
  *
  * The component removes itself from the local chat collection once the

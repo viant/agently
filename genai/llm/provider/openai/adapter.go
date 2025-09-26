@@ -1,6 +1,9 @@
 package openai
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/viant/agently/genai/llm"
 )
 
@@ -12,8 +15,8 @@ var modelTemperature = map[string]float64{
 }
 
 // ToRequest converts an llm.ChatRequest to a Request
-func ToRequest(request *llm.GenerateRequest) *Request {
-	// Create the request with default values
+func ToRequest(request *llm.GenerateRequest) (*Request, error) {
+	// Create the request with defaults
 	req := &Request{}
 
 	// Set options if provided
@@ -45,9 +48,10 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 		// Enable streaming if requested
 		req.Stream = request.Options.Stream
 		// Propagate reasoning summary if requested on supported models
-		if r := request.Options.Reasoning; r != nil && r.Summary == "auto" {
+		if r := request.Options.Reasoning; r != nil {
 			switch req.Model {
-			case "o3", "o4-mini", "codex-mini-latest":
+			case "o3", "o4-mini", "codex-mini-latest",
+				"gpt-4.1", "gpt-4.1-mini", "gpt-5", "o3-mini":
 				req.Reasoning = r
 			}
 		}
@@ -57,7 +61,7 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 			req.Tools = make([]Tool, len(request.Options.Tools))
 			for i, tool := range request.Options.Tools {
 				req.Tools[i] = Tool{
-					Type: tool.Type,
+					Type: "function",
 					Function: ToolDefinition{
 						Name:        tool.Definition.Name,
 						Description: tool.Definition.Description,
@@ -66,6 +70,11 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 					},
 				}
 			}
+		}
+
+		// Honor parallel tool calls option (agent-configurable, provider-supported)
+		if request.Options.ParallelToolCalls {
+			req.ParallelToolCalls = true
 		}
 
 		// Convert tool choice if provided
@@ -131,6 +140,20 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 							}
 						}
 					}
+				case llm.ContentTypeBinary:
+					// Best effort: if binary looks like an image, convert to data-URL image
+					if strings.HasPrefix(item.MimeType, "image/") && item.Data != "" {
+
+						//index := strings.LastIndex(item.MimeType, "/")
+						contentItem.Type = "image_url"
+						// item.Data is expected to be base64-encoded already when coming from llm.NewBinaryContent
+						dataURL := "data:" + item.MimeType + ";base64," + item.Data
+						contentItem.ImageURL = &ImageURL{URL: dataURL}
+						//contentItem. = item.MimeType[index+1:]
+					} else {
+						return nil, fmt.Errorf("unsupported media type: %s", item.MimeType)
+						// Unsupported binary for OpenAI chat – skip by leaving zero-value contentItem
+					}
 				}
 
 				contentItems[j] = contentItem
@@ -193,9 +216,10 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 			for j, toolCall := range msg.ToolCalls {
 				message.ToolCalls[j] = ToolCall{
 					ID:   toolCall.ID,
-					Type: toolCall.Type,
+					Type: "function",
+
 					Function: FunctionCall{
-						Name:      toolCall.Function.Name,
+						Name:      toolCall.Name,
 						Arguments: toolCall.Function.Arguments,
 					},
 				}
@@ -205,7 +229,7 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 		req.Messages[i] = message
 	}
 
-	return req
+	return req, nil
 }
 
 // ToLLMSResponse converts a Response to an llm.ChatResponse
@@ -336,12 +360,32 @@ func ToLLMSResponse(resp *Response) *llm.GenerateResponse {
 		llmsResp.Choices[i] = llmsChoice
 	}
 
-	// Convert usage
-	llmsResp.Usage = &llm.Usage{
+	// Convert usage including detailed fields when available
+	u := &llm.Usage{
 		PromptTokens:     resp.Usage.PromptTokens,
 		CompletionTokens: resp.Usage.CompletionTokens,
 		TotalTokens:      resp.Usage.TotalTokens,
 	}
+	// Map prompt details
+	u.PromptCachedTokens = resp.Usage.PromptTokensDetails.CachedTokens
+	if resp.Usage.PromptTokensDetails.AudioTokens > 0 {
+		u.PromptAudioTokens = resp.Usage.PromptTokensDetails.AudioTokens
+	}
+	// Map completion details
+	if resp.Usage.CompletionTokensDetails.ReasoningTokens > 0 {
+		u.ReasoningTokens = resp.Usage.CompletionTokensDetails.ReasoningTokens
+		u.CompletionReasoningTokens = resp.Usage.CompletionTokensDetails.ReasoningTokens
+	}
+	if resp.Usage.CompletionTokensDetails.AudioTokens > 0 {
+		u.CompletionAudioTokens = resp.Usage.CompletionTokensDetails.AudioTokens
+		// Keep legacy aggregate when single source available
+		if u.AudioTokens == 0 {
+			u.AudioTokens = resp.Usage.CompletionTokensDetails.AudioTokens
+		}
+	}
+	u.AcceptedPredictionTokens = resp.Usage.CompletionTokensDetails.AcceptedPredictionTokens
+	u.RejectedPredictionTokens = resp.Usage.CompletionTokensDetails.RejectedPredictionTokens
+	llmsResp.Usage = u
 
 	return llmsResp
 }

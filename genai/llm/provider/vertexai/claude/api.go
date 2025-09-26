@@ -10,8 +10,11 @@ import (
 	"net/http"
 	"strings"
 
+	"time"
+
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
+	mcbuf "github.com/viant/agently/genai/modelcallctx"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -20,6 +23,8 @@ func (c *Client) Implements(feature string) bool {
 		return true
 	case base.CanStream:
 		return c.canStream()
+	case base.IsMultimodal:
+		return true
 	}
 	return false
 }
@@ -73,7 +78,20 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	// Create the URL
 	apiURL := c.GetEndpointURL()
 	var resp *http.Response
+	observer := mcbuf.ObserverFromContext(ctx)
 	for i := 0; i < max(1, c.MaxRetries); i++ {
+		// Observer start
+		if observer != nil {
+			var genReqJSON []byte
+			if request != nil {
+				genReqJSON, _ = json.Marshal(request)
+			}
+			if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+				ctx = newCtx
+			} else {
+				return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+			}
+		}
 		resp, err = c.sendRequest(ctx, apiURL, data)
 		if err != nil {
 			return nil, err
@@ -112,6 +130,15 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 			c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
 		}
+		if observer != nil {
+			info := mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage, LLMResponse: llmsResp}
+			if llmsResp != nil && len(llmsResp.Choices) > 0 {
+				info.FinishReason = llmsResp.Choices[0].FinishReason
+			}
+			if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
+				return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+			}
+		}
 		return llmsResp, nil
 	}
 
@@ -125,6 +152,16 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	llmsResp := ToLLMSResponse(&apiResp)
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(request.Options.Model, llmsResp.Usage)
+	}
+	if observer != nil {
+		info := mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Usage: llmsResp.Usage, LLMResponse: llmsResp}
+		if len(llmsResp.Choices) > 0 {
+			info.FinishReason = llmsResp.Choices[0].FinishReason
+		}
+
+		if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
+			return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+		}
 	}
 	return llmsResp, nil
 }
@@ -178,6 +215,18 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	apiURL := c.GetEndpointURL()
 	events := make(chan llm.StreamEvent)
 
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			ctx = newCtx
+		} else {
+			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+		}
+	}
 	resp, err := c.sendRequest(ctx, apiURL, data)
 	if err != nil {
 		events <- llm.StreamEvent{Err: err}
@@ -200,6 +249,13 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		finishReason := ""
 		var usage *llm.Usage
 		var promptTokens, completionTokens int
+		ended := false
+		emit := func(lr *llm.GenerateResponse) {
+			if lr != nil {
+				events <- llm.StreamEvent{Response: lr}
+			}
+		}
+		// endObserverOnce removed; directly call OnCallEnd when final response is assembled.
 
 		emitToolsIfAny := func() {
 			idxs := make([]int, 0, len(tools))
@@ -232,6 +288,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model}
 			events <- llm.StreamEvent{Response: lr}
 		}
+		var lastLR *llm.GenerateResponse
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.TrimSpace(line) == "" {
@@ -246,6 +303,12 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if payload == "" {
 				continue
+			}
+			if observer != nil {
+				if obErr := observer.OnStreamDelta(ctx, []byte(payload+"\n")); obErr != nil {
+					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+					return
+				}
 			}
 			var evt Response
 			if err := json.Unmarshal([]byte(payload), &evt); err != nil {
@@ -263,6 +326,12 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				if evt.Delta != nil {
 					if evt.Delta.Text != "" {
 						aggText.WriteString(evt.Delta.Text)
+						if observer != nil {
+							if obErr := observer.OnStreamDelta(ctx, []byte(evt.Delta.Text)); obErr != nil {
+								events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+								return
+							}
+						}
 					}
 					if evt.Delta.PartialJSON != "" {
 						if ta, ok := tools[evt.Index]; ok {
@@ -314,7 +383,16 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					msg.ToolCalls = calls
 				}
 				lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model, Usage: usage}
-				events <- llm.StreamEvent{Response: lr}
+				if observer != nil {
+					respJSON, _ := json.Marshal(lr)
+					if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason, LLMResponse: lr}); obErr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+						return
+					}
+					ended = true
+				}
+				emit(lr)
+				lastLR = lr
 			case "message_start":
 				// read prompt tokens from nested message.usage if available
 				type msgStart struct {
@@ -338,6 +416,20 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		}
 		if err := scanner.Err(); err != nil {
 			events <- llm.StreamEvent{Err: fmt.Errorf("stream read error: %w", err)}
+		}
+		if !ended && observer != nil {
+			var respJSON []byte
+			var finishReason string
+			if lastLR != nil {
+				respJSON, _ = json.Marshal(lastLR)
+				if len(lastLR.Choices) > 0 {
+					finishReason = lastLR.Choices[0].FinishReason
+				}
+			}
+			if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Usage: usage, FinishReason: finishReason, LLMResponse: lastLR}); obErr != nil {
+				events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+				return
+			}
 		}
 	}()
 	return events, nil
@@ -377,7 +469,7 @@ func handleStreamingResponse(respBytes []byte) (*llm.GenerateResponse, error) {
 		if resp.Type == "message_delta" && resp.Delta != nil && resp.Delta.Type == "text_delta" {
 			fullText += resp.Delta.Text
 		} else if resp.Type == "message_stop" {
-			// End of the stream
+			// EndedAt of the stream
 			break
 		} else if resp.Type == "error" && resp.Error != nil {
 			return nil, fmt.Errorf("Claude API streaming error: %s", resp.Error.Message)

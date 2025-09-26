@@ -12,19 +12,18 @@ import "net/http"
 // functional-options defined in this package operate on Config and therefore can
 // be reused by all providers, eliminating the previous boiler-plate.
 type Config struct {
-    // BaseURL is the root URL of the remote embedding service (e.g. https://api.openai.com).
-    BaseURL string
+	// BaseURL is the root URL of the remote embedding service (e.g. https://api.openai.com).
+	BaseURL string
 
-    // HTTPClient performs the underlying HTTP calls.  When nil the provider
-    // should fall back to *http.DefaultClient* or create its own with sensible
-    // timeout.
-    HTTPClient *http.Client
+	// HTTPClient performs the underlying HTTP calls.  When nil the provider
+	// should fall back to *http.DefaultClient* or create its own with sensible
+	// timeout.
+	HTTPClient *http.Client
 
-    // Model identifies the embedding model (e.g. "text-embedding-3-small") to
-    // be used by the provider.  The concrete provider may fall back to its own
-    // default if Model is left empty.
-    Model string
-
+	// Model identifies the embedding model (e.g. "text-embedding-3-small") to
+	// be used by the provider.  The concrete provider may fall back to its own
+	// default if Model is left empty.
+	Model string
 }
 
 // ClientOption mutates Config.  Each provider may alias this type so that its
@@ -34,29 +33,29 @@ type ClientOption func(*Config)
 
 // WithBaseURL overrides the default endpoint URL.
 func WithBaseURL(baseURL string) ClientOption {
-    return func(c *Config) {
-        if baseURL != "" {
-            c.BaseURL = baseURL
-        }
-    }
+	return func(c *Config) {
+		if baseURL != "" {
+			c.BaseURL = baseURL
+		}
+	}
 }
 
 // WithHTTPClient injects a custom *http.Client* (for timeouts, transport, …).
 func WithHTTPClient(httpClient *http.Client) ClientOption {
-    return func(c *Config) {
-        if httpClient != nil {
-            c.HTTPClient = httpClient
-        }
-    }
+	return func(c *Config) {
+		if httpClient != nil {
+			c.HTTPClient = httpClient
+		}
+	}
 }
 
 // WithModel sets/overrides the model name.
 func WithModel(model string) ClientOption {
-    return func(c *Config) {
-        if model != "" {
-            c.Model = model
-        }
-    }
+	return func(c *Config) {
+		if model != "" {
+			c.Model = model
+		}
+	}
 }
 
 // WithUsageListener registers a callback that will be triggered every time the

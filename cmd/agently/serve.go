@@ -11,14 +11,15 @@ import (
 	"time"
 
 	"github.com/viant/agently/adapter/http/router"
-	"github.com/viant/agently/genai/tool"
-	"github.com/viant/agently/service"
-
-	// Logging & workflow listener
+	mcpclienthandler "github.com/viant/agently/adapter/mcp"
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
+	convfactory "github.com/viant/agently/client/conversation/factory"
+	"github.com/viant/agently/cmd/service"
+	elicitationpkg "github.com/viant/agently/genai/elicitation"
+	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/executor"
-	elog "github.com/viant/agently/internal/log"
-	"github.com/viant/fluxor"
-	fluxexec "github.com/viant/fluxor/service/executor"
+	"github.com/viant/agently/genai/tool"
+	protoclient "github.com/viant/mcp-protocol/client"
 )
 
 // ServeCmd starts the embedded HTTP server.
@@ -33,34 +34,38 @@ type ServeCmd struct {
 }
 
 func (s *ServeCmd) Execute(_ []string) error {
+	// Construct shared MCP router and per-conversation manager before executor init
+	r := elicrouter.New()
+	prov := mcpmgr.NewRepoProvider()
+
+	// Build conversation client from environment (Datly), so MCP client can persist
+	// elicitation messages/results for the Web UI to poll.
+	convClient, _ := convfactory.NewFromEnv(context.Background())
+	// Ensure per-conversation MCP clients are created with the Router wired in
+	// Inject a workspace-driven refiner service for consistent UX across HTTP
+	// and CLI. The default workspace preset refiner is used by the client when
+	// no service is supplied; passing it explicitly keeps behaviour predictable
+	// if future defaults change.
+	// NOTE: For now, we rely on the internal default preset refiner; so no explicit WithRefinerService here.
+	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
+		el := elicitationpkg.New(convClient, nil, r, nil)
+		return mcpclienthandler.NewClient(el, convClient, nil)
+	}))
+	// Inject manager into executor options so tool registry can use it
+	registerExecOption(executor.WithMCPManager(mgr))
+	// Share the same elicitation router with the agent so LLM-originated
+	// elicitations block and resume via the same channel as tool elicitations.
+	registerExecOption(executor.WithElicitationRouter(r))
+	// Ensure awaiterFactory is non-nil to satisfy runtime requirements; server uses UI, so no-op awaiter.
+	registerExecOption(executor.WithNewElicitationAwaiter(elicitationpkg.NoopAwaiterFactory()))
+	// Also supply conversation client to executor so orchestration can persist messages/tool events.
+	if convClient != nil {
+		registerExecOption(executor.WithConversionClient(convClient))
+	}
+
 	exec := executorSingleton()
 	if !exec.IsStarted() {
 		exec.Start(context.Background())
-	}
-
-	// ------------------------------------------------------------------
-	// Optional unified log writer (agently.log by default)
-	// ------------------------------------------------------------------
-
-	var logWriter *os.File
-	if s.Log == "" {
-		s.Log = "agently.log"
-	}
-	if lf, err := os.OpenFile(s.Log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
-		logWriter = lf
-		// Subscribe to relevant event types.
-		elog.FileSink(logWriter, elog.LLMInput, elog.LLMOutput, elog.TaskInput, elog.TaskOutput)
-
-		// Attach Fluxor task listener so that each task is encoded as JSON to
-		// the same sink.
-		registerExecOption(executor.WithWorkflowOptions(
-			fluxor.WithExecutorOptions(
-				fluxexec.WithListener(newJSONTaskListener()),
-			),
-		))
-	} else {
-		// Logging is best-effort; continue if the file cannot be opened.
-		log.Printf("warning: unable to open log file %s: %v", s.Log, err)
 	}
 
 	svc := service.New(exec, service.Options{})
@@ -80,7 +85,11 @@ func (s *ServeCmd) Execute(_ []string) error {
 	// prompts are wired up. CLI sub-commands (chat, run, …) still attach the
 	// interactive approval loop when needed.
 
-	handler := router.New(exec, svc, toolPol, fluxPol)
+	// Start manager reaper to clean up idle MCP clients automatically.
+	reapStop := mgr.StartReaper(context.Background(), 0) // interval defaults to ttl/2
+	defer reapStop()
+
+	handler := router.New(exec, svc, toolPol, fluxPol, r)
 
 	srv := &http.Server{
 		Addr:    s.Addr,
@@ -103,7 +112,7 @@ func (s *ServeCmd) Execute(_ []string) error {
 	select {
 	case sig := <-sigCh:
 		log.Printf("Received %s, initiating graceful shutdown", sig)
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 		_ = srv.Shutdown(ctx)
 		exec.Shutdown(ctx)

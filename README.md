@@ -160,6 +160,90 @@ You can now use natural language to query your database through Agently!
 
 ## Usage
 
+For the current status and plan of the Domain/DAO unification, see `docs/domain-unification.md`.
+
+Recorder (domain write facade)
+--------------------------------
+
+- The domain write surface is exposed as `internal/domain/recorder` (Recorder).
+- Recorder composes smaller, focused interfaces:
+  - Enablement: `Enabled()` mode gate (off|shadow|full via `AGENTLY_DOMAIN_MODE`).
+  - MessageRecorder: `RecordMessage(...)`.
+  - TurnRecorder: `RecordTurnStart(...)`, `RecordTurnUpdate(...)`.
+  - ModelCallRecorder: `RecordModelCall(...)` – accepts DAO write `modelcall/write.ModelCall` fields (via helper), creates payloads, persists, and passes payload IDs.
+  - ToolCallRecorder: `RecordToolCall(...)` – same pattern for tools.
+  - UsageRecorder: `RecordUsageTotals(...)`.
+- Exec uses the aggregated `Recorder`; narrower interfaces can be used where only one facet is needed.
+
+Operations (DAO-first)
+----------------------
+
+- Low-level operations persistence and reads live under `internal/domain/adapter/operations`.
+- Write signatures accept DAO write structs and payload IDs:
+  - `RecordModelCall(ctx, *modelcall/write.ModelCall, requestPayloadID, responsePayloadID string)`
+  - `RecordToolCall(ctx, *toolcall/write.ToolCall, requestPayloadID, responsePayloadID string)`
+- Reads are exposed in v2 HTTP as DAO read views (see below).
+
+HTTP v2 quick examples (DAO views)
+----------------------------------
+
+List transcript (message rows with embedded model/tool where present):
+
+```bash
+curl -s "http://localhost:8080/v2/api/agently/conversation/CONV_ID/transcript?includeModelCalls=1&includeToolCalls=1&payloadLevel=preview" | jq
+```
+
+List operations grouped by kind (message):
+
+```bash
+curl -s "http://localhost:8080/v2/api/agently/messages/MESSAGE_ID/operations" | jq
+# {
+#   "status": "ok",
+#   "data": {
+#     "modelCalls": [ { ... ModelCallView ... } ],
+#     "toolCalls":  [ { ... ToolCallView  ... } ]
+#   }
+# }
+```
+
+List operations grouped by kind (turn):
+
+```bash
+curl -s "http://localhost:8080/v2/api/agently/turns/TURN_ID/operations" | jq
+```
+
+Notes:
+- Model and tool call views include `finishReason`, `latency_ms`, and optional `cost`.
+- Tool call views include `status` and `error_message` when available.
+- Payload snapshots are fetched via `/v2/api/agently/payload/{id}`; transcript returns `payload/read.PayloadView` with preview/inline based on query options.
+
+### Configuration (environment variables)
+
+- `AGENTLY_DOMAIN_MODE`: controls domain persistence integration
+  - `off` (default): legacy in-memory only; no domain writes
+  - `shadow`: write to domain (DAO) and keep legacy reads
+  - `full`: reserved for future (Phase 2+); read/write via domain
+
+- `AGENTLY_V1_DOMAIN`: v1 compatibility layer for reads
+  - `1`: v1 endpoints (e.g., `/v1/api/conversations/{id}/messages`) read from domain store when available
+  - (unset): v1 endpoints read from in-memory history
+
+- `AGENTLY_DB_DRIVER` and `AGENTLY_DB_DSN`: enable SQL-backed v2 API
+  - When both are set, the server builds a `datly` connector named `agently` and wires a SQL-backed domain store for `/v2/api/agently/...` endpoints.
+  - Examples:
+    - SQLite: `AGENTLY_DB_DRIVER=sqlite`, `AGENTLY_DB_DSN=file:/path/to/db.sqlite?cache=shared`
+    - Postgres: `AGENTLY_DB_DRIVER=postgres`, `AGENTLY_DB_DSN=postgres://user:pass@host:5432/db?sslmode=disable`
+  - When unset, v2 defaults to an in-memory DAO store.
+
+- `AGENTLY_REDACT_KEYS`: comma-separated list of JSON keys to scrub from request/response payload snapshots before persistence
+  - Default: `api_key,apikey,authorization,auth,password,passwd,secret,token,bearer,client_secret`
+  - Example: `AGENTLY_REDACT_KEYS=apiKey,Authorization,password`
+
+- `AGENTLY_POLICY`: default tool policy for the server
+  - `auto` (default), `ask`, `deny`
+
+Note: When `shadow` mode is enabled, the system writes to the domain store (DAO) but continues to read from legacy in-memory endpoints unless `AGENTLY_V1_DOMAIN=1` is set or v2 endpoints are used.
+
 ### Command Line Interface
 
 Agently provides a command-line interface for interacting with agents:

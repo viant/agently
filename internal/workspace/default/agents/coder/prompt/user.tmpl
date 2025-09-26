@@ -1,0 +1,17 @@
+{{- if .Context }}
+Context:
+{{ .Context }}
+
+{{- if gt (len .Documents.Items) 0 }}
+Relevant Documents:
+{{- range .Documents.Items }}
+
+- {{ .Title }} ({{ .SourceURI }})
+{{- end }}
+End of Documents.
+{{- end }}
+{{- end }}
+
+Task:
+{{ .Task.Prompt }}
+

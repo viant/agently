@@ -1,27 +1,18 @@
 namespace: Chat
 
-# Dialogs available from this window
 dialogs:
   - $import('dialog/settings.yaml')
   - $import('dialog/fileBrowser.yaml')
-  - $import('dialog/usage.yaml')
 
 # Window that displays a single conversation chat view (no conversation list).
 
 view:
   content:
     containers:
-      - id: modelsLoader
-        dataSourceRef: models
-        fetchData: true
-      - id: agentsLoader
-        dataSourceRef: agents
-        fetchData: true
-      - id: toolsLoader
-        dataSourceRef: tools
-        fetchData: true
-      - id: usageLoader
-        dataSourceRef: usage
+      # Removed agents/models/tools loaders – use aggregated metadata
+
+      - id: metaLoader
+        dataSourceRef: meta
         fetchData: true
 
       - id: header
@@ -50,7 +41,16 @@ view:
       - id: conversationSection
         chat:
           dataSourceRef: messages
-          height: 75vh
+          height: 80vh
+          abortVisible:
+            dataSourceRef: conversations
+            selector: running
+          # Abort button shown when DS is loading (running)
+          showUpload: true
+          upload:
+            endpoint: agentlyAPI
+            path: upload
+          uploadField: files
           toolbar:
             dataSourceRef: messages
             items:
@@ -58,7 +58,6 @@ view:
                 icon: plus
                 enabled: true
                 align: left
-                #label: "New chat"
                 on:
                   - event: onClick
                     handler: chat.newConversation
@@ -66,21 +65,13 @@ view:
                     handler: dataSource.isSelected
               - id: settings
                 icon: cog
-               #label: Settings
                 enabled: true
                 align: right
                 on:
                   - event: onClick
                     handler: window.openDialog
                     args: [ 'settings' ]
-              - id: usageInfo
-                icon: timeline-area-chart
-                enabled: true
-                align: right
-                on:
-                  - event: onClick
-                    handler: window.openDialog
-                    args: [ 'usageDetails' ]
+              # Removed usage dialog trigger
 
           on:
             - event: onSubmit
@@ -93,7 +84,7 @@ view:
                   in: form
                   location: conversations.agent
             - event: onUpload
-              handler: chat.upload
+              handler: chat.onUpload
             - event: onAbort
               handler: chat.abortConversation
 on:
@@ -104,11 +95,6 @@ on:
 
 dataSource:
   conversations: $import('../conversations/datasource/conversations.yaml')
-  messages: $import('../conversations/datasource/messages.yaml')
-  models: $import('../../model/datasource/models.yaml')
-  agents: $import('../../agent/datasource/agents.yaml')
-  tools: $import('../../tool/datasource/tools.yaml')
+  messages: $import('datasource/messages.yaml')
   meta: $import('datasource/meta.yaml')
-  usage: $import('../conversations/datasource/usage.yaml')
-  usagePerModel: $import('../conversations/datasource/usage_model.yaml')
   fs: $import('../../filebrowser/datasource/fileBrowser.yaml')

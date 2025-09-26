@@ -8,7 +8,7 @@ export async function runSelected(prop) {
 
     const wfCtx = context?.Context('workflows');
     if (!wfCtx) {
-        console.error('workflowRunnerService.runSelected – workflows context not found');
+        log.error('workflowRunnerService.runSelected – workflows context not found');
         return false;
     }
 
@@ -26,7 +26,7 @@ export async function runSelected(prop) {
             inputObj = { ...data };
         }
     } catch (err) {
-        console.error('Invalid input parameters:', err);
+        log.error('Invalid input parameters', err);
     }
 
     const api = wfCtx.connector;
@@ -53,7 +53,7 @@ export async function runSelected(prop) {
 
         return true;
     } catch (err) {
-        console.error('workflowRunnerService.runSelected error:', err);
+        log.error('workflowRunnerService.runSelected error', err);
         wfCtx.handlers?.setError?.(err);
         return false;
     } finally {
@@ -62,3 +62,5 @@ export async function runSelected(prop) {
 }
 
 export const workflowRunnerService = { runSelected };
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');

@@ -31,7 +31,7 @@ export default function SummaryNote({ message }) {
                 <div className="avatar" style={{ background: avatarColour }}>
                     <Icon icon="document" color="var(--black)" size={12} />
                 </div>
-                <details className="chat-bubble chat-bot" data-ts={formatDate(new Date(message.createdAt), 'HH:mm')}
+                <details className="chat-bubble chat-bot" data-ts={(function(){ try { const d = new Date(message.createdAt); return isNaN(d) ? '' : formatDate(d, 'HH:mm'); } catch(_) { return ''; } })()}
                          style={{ maxWidth: '60vw' }}>
                     <summary className="cursor-pointer text-xs text-blue-500">
                         Conversation summary – {preview}{message.content.length > 120 ? '…' : ''}

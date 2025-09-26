@@ -1,6 +1,6 @@
 module github.com/viant/agently
 
-go 1.24.1
+go 1.24.3
 
 toolchain go1.24.4
 
@@ -14,21 +14,21 @@ require (
 	github.com/tmc/langchaingo v0.1.14-0.20250213044659-d3e43b632176
 	github.com/viant/afs v1.26.3
 	github.com/viant/afsc v1.9.1
-	github.com/viant/datly v0.20.3-0.20250603020319-686480698d56
+	github.com/viant/datly v0.20.16-0.20250924215533-c5404492eaf7
 	github.com/viant/embedius v0.2.1
-	github.com/viant/fluxor v0.1.24
-	github.com/viant/fluxor-mcp v0.1.13
-	github.com/viant/forge v0.2.7-0.20250708220613-1b8a2f4e75ac
-	github.com/viant/jsonrpc v0.8.0
+	github.com/viant/fluxor v0.3.14
+	github.com/viant/fluxor-mcp v0.1.17
+	github.com/viant/forge v0.2.10
+	github.com/viant/jsonrpc v0.9.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.5.2
+	github.com/viant/mcp v0.6.0
 	github.com/viant/mcp-protocol v0.5.7
 	github.com/viant/scy v0.25.3
 	github.com/viant/structology v0.7.1 // indirect
 	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85
 	github.com/viant/x v0.3.0 // indirect
-	github.com/viant/xdatly/handler v0.0.0-20250418144853-029d9a05ae20
-	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20 // indirect
+	github.com/viant/xdatly/handler v0.0.0-20250806192028-819cadf93282
+	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect -- replaced with internal stub, see below
 	github.com/yuin/goldmark v1.7.8
 	gopkg.in/yaml.v3 v3.0.1
@@ -37,8 +37,11 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3
 	github.com/fsnotify/fsnotify v1.4.7
-	github.com/mattn/go-sqlite3 v1.14.17
+	github.com/go-sql-driver/mysql v1.7.1
+	github.com/viant/sqlx v0.19.0
+	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
 	golang.org/x/oauth2 v0.30.0
+	modernc.org/sqlite v1.18.1
 )
 
 require (
@@ -56,6 +59,7 @@ require (
 	github.com/MicahParks/keyfunc v1.9.0 // indirect
 	github.com/aerospike/aerospike-client-go v4.5.2+incompatible // indirect
 	github.com/aerospike/aerospike-client-go/v6 v6.15.1 // indirect
+	github.com/aws/aws-lambda-go v1.31.0 // indirect
 	github.com/aws/aws-sdk-go v1.51.23 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.2 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.26 // indirect
@@ -82,7 +86,6 @@ require (
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-sql-driver/mysql v1.7.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
@@ -111,29 +114,28 @@ require (
 	github.com/richardlehane/msoleps v1.0.3 // indirect
 	github.com/sourcegraph/go-diff v0.7.0 // indirect
 	github.com/viant/aerospike v0.2.11-0.20241108195857-ed524b97800d // indirect
-	github.com/viant/bigquery v0.4.1 // indirect
+	github.com/viant/bigquery v0.5.1 // indirect
 	github.com/viant/bindly v0.1.0 // indirect
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/cloudless v1.12.0 // indirect
 	github.com/viant/dyndb v0.1.4-0.20221214043424-27654ab6ed9c // indirect
 	github.com/viant/firebase v0.1.1 // indirect
 	github.com/viant/gds v0.4.5 // indirect
-	github.com/viant/gmetric v0.3.1-0.20230405233616-cc90deee60c4 // indirect
+	github.com/viant/gmetric v0.3.2 // indirect
 	github.com/viant/godiff v0.4.1 // indirect
 	github.com/viant/gosh v0.2.2 // indirect
 	github.com/viant/govalidator v0.3.1 // indirect
 	github.com/viant/igo v0.2.0 // indirect
+	github.com/viant/mcp-sqlkit v0.1.1-0.20250926210652-c41a7569af5b // indirect
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlparser v0.8.1 // indirect
-	github.com/viant/sqlx v0.17.4 // indirect
 	github.com/viant/structql v0.5.2 // indirect
-	github.com/viant/tagly v0.2.1-0.20240521205717-55de744e893c // indirect
+	github.com/viant/tagly v0.2.2 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
 	github.com/viant/vec v0.2.4-0.20250304201558-76d42a0819d7 // indirect
-	github.com/viant/xdatly v0.5.4-0.20250418144853-029d9a05ae20 // indirect
+	github.com/viant/xdatly v0.5.4-0.20250806192028-819cadf93282 // indirect
 	github.com/viant/xdatly/extension v0.0.0-20231013204918-ecf3c2edf259 // indirect
-	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.1 // indirect
 	github.com/viant/xreflect v0.7.3 // indirect
@@ -168,7 +170,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20240604185151-ef581f913117 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240604185151-ef581f913117 // indirect
 	google.golang.org/grpc v1.64.0 // indirect
-	google.golang.org/protobuf v1.34.1 // indirect
+	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	lukechampine.com/uint128 v1.2.0 // indirect
@@ -178,7 +180,6 @@ require (
 	modernc.org/mathutil v1.5.0 // indirect
 	modernc.org/memory v1.2.1 // indirect
 	modernc.org/opt v0.1.3 // indirect
-	modernc.org/sqlite v1.18.1 // indirect
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
 )

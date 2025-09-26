@@ -13,11 +13,12 @@ selectors:
   data: data
 
 uniqueKey:
-  - field: CreatedAt
+  - field: id
 
 on:
   - event: onSuccess
-    handler: signal.emit
-    args:
-      - globalStage
-      - "{{response.stage}}"
+    handler: chat.hydrateMessagesCollection
+  - event: onSuccess
+    handler: chat.debugMessagesLoaded
+  - event: onError
+    handler: chat.debugMessagesError

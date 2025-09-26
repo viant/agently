@@ -3,21 +3,28 @@ package executor
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"time"
+
 	clientmcp "github.com/viant/agently/adapter/mcp"
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
+	convctx "github.com/viant/agently/genai/convctx"
 	"github.com/viant/agently/genai/conversation"
+	"github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/genai/embedder"
 	"github.com/viant/agently/genai/executor/agenttool"
-	llmagent "github.com/viant/agently/genai/extension/fluxor/llm/agent"
-	"github.com/viant/agently/genai/extension/fluxor/llm/augmenter"
-	"github.com/viant/agently/genai/extension/fluxor/llm/core"
-	"github.com/viant/agently/genai/extension/fluxor/llm/exec"
-	"github.com/viant/agently/genai/extension/fluxor/llm/history"
-	"github.com/viant/agently/genai/extension/fluxor/output/extractor"
-	"github.com/viant/agently/genai/io/elicitation"
+	"github.com/viant/agently/genai/io/extractor"
 	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/genai/memory"
+	agent2 "github.com/viant/agently/genai/service/agent"
+	"github.com/viant/agently/genai/service/augmenter"
+	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
+	plan "github.com/viant/agently/genai/tool/extension/orchestration/plan"
 	"github.com/viant/agently/internal/finder/oauth"
 	"github.com/viant/agently/internal/hotswap"
 	"github.com/viant/agently/internal/loader/oauth"
@@ -27,13 +34,8 @@ import (
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/fluxor/service/event"
 	"github.com/viant/fluxor/service/meta"
+	"github.com/viant/mcp-protocol/schema"
 	"github.com/viant/scy"
-	"io"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync/atomic"
-	"time"
 
 	"github.com/viant/fluxor-mcp/mcp"
 )
@@ -41,15 +43,14 @@ import (
 type Service struct {
 	config         *Config
 	clientHandler  *clientmcp.Client
+	convClient     apiconv.Client
 	modelFinder    llm.Finder
 	modelMatcher   llm.Matcher
 	embedderFinder embedder.Finder
 	agentFinder    agent.Finder
 	tools          tool.Registry
 
-	history        memory.History
-	executionStore *memory.ExecutionStore
-	llmCore        *core.Service
+	llmCore *core.Service
 
 	// newAwaiter receives interactive user prompts when the runtime
 	// encounters a schema-based elicitation request. When non-nil it is injected
@@ -58,7 +59,7 @@ type Service struct {
 	newAwaiter func() elicitation.Awaiter `json:"-"`
 
 	augmenter    *augmenter.Service
-	agentService *llmagent.Service
+	agentService *agent2.Service
 	convManager  *conversation.Manager
 	metaService  *meta.Service
 	started      int32
@@ -70,13 +71,18 @@ type Service struct {
 	hotSwap         *hotswap.Manager
 	hotSwapDisabled bool
 
-	// hotSwap manages live reload of workspace resources (agents, models, etc.)
-
-	llmLogger       io.Writer `json:"-"`
-	fluxorLogWriter io.Writer `json:"-"`
-
 	fluxorOptions []fluxor.Option
 	orchestration *mcp.Service // shared fluxor-mcp service instance
+
+	// optional per-conversation MCP manager (injected via option)
+	mcpMgr *mcpmgr.Manager
+
+	// shared elicitation router (assistant wait path)
+	elicitationRouter interface {
+		RegisterByElicitationID(string, string, chan *schema.ElicitResult)
+		RemoveByElicitation(string, string)
+		AcceptByElicitation(string, string, *schema.ElicitResult) bool
+	}
 }
 
 // registerAgentTools exposes every agent with toolExport.expose==true as a
@@ -84,6 +90,12 @@ type Service struct {
 // be invoked after e.orchestration is initialised.
 func (e *Service) registerAgentTools() error {
 	if e.orchestration == nil {
+		return nil
+	}
+
+	// Allow disabling agent tool exposure via env flag to reduce tool surface.
+	// Default: disabled (only core/system/sqlkit tools visible via registry filter).
+	if strings.TrimSpace(os.Getenv("AGENTLY_EXPOSE_AGENT_TOOLS")) == "0" || os.Getenv("AGENTLY_EXPOSE_AGENT_TOOLS") == "" {
 		return nil
 	}
 
@@ -149,12 +161,13 @@ func (e *Service) ExecuteTool(ctx context.Context, name string, args map[string]
 		defer cancel()
 	}
 
-	res, err := e.tools.Execute(ctx, name, args)
+	reg := tool.WithConversation(e.tools, convctx.ID(ctx))
+	res, err := reg.Execute(ctx, name, args)
 	return res, err
 }
 
 // AgentService returns the registered llmagent service
-func (e *Service) AgentService() *llmagent.Service {
+func (e *Service) AgentService() *agent2.Service {
 	return e.agentService
 }
 
@@ -187,42 +200,56 @@ func (e *Service) Runtime() *fluxor.Runtime {
 	return nil
 }
 
+// RegistryForConversation returns a Registry that is scoped to the provided
+// conversation ID. Execute calls performed through the returned registry carry
+// the conversation identifier in context so adapters can resolve per-conv
+// resources (e.g., MCP clients, auth tokens).
+func (e *Service) RegistryForConversation(convID string) tool.Registry {
+	return tool.WithConversation(e.tools, convID)
+}
+
 func (e *Service) registerServices(actions *extension.Actions) {
 	// Register orchestration actions: plan, execute and finalize
-	defaultModel := e.config.Default.Model
 	enricher := augmenter.New(e.embedderFinder)
-	e.llmCore = core.New(e.modelFinder, e.tools, defaultModel)
 
-	if e.llmLogger != nil {
-		e.llmCore.SetLogger(e.llmLogger)
+	e.llmCore = core.New(e.modelFinder, e.tools, e.convClient)
+
+	// Inject recorder (and keep tracer if needed later) into core so streaming execution records tool calls.
+	if e.llmCore != nil {
+		// Supply conversation client when ready (set later by agent service init)
 	}
-
-	actions.Register(exec.New(e.llmCore, e.tools, defaultModel, e.ApprovalService(), e.executionStore))
-	actions.Register(enricher)
+	// Keep core action; gate augmenter/extractor registration via env to keep them internal by default
 	actions.Register(e.llmCore)
-	// capture actions for streaming and callbacks
-	actions.Register(extractor.New())
+	// Register plan update service as MCP tool (core:updatePlan)
+	actions.Register(plan.New())
+	if strings.TrimSpace(os.Getenv("AGENTLY_REGISTER_AUGMENTER")) == "1" {
+		actions.Register(enricher)
+	}
+	if strings.TrimSpace(os.Getenv("AGENTLY_REGISTER_EXTRACTOR")) == "1" {
+		actions.Register(extractor.New())
+	}
 
 	var runtime *fluxor.Runtime
 	if e.orchestration != nil {
 		runtime = e.orchestration.WorkflowRuntime()
 	}
-	agentOpts := []llmagent.Option{}
-	if sp := strings.TrimSpace(e.config.Default.SummaryPrompt); sp != "" {
-		agentOpts = append(agentOpts, llmagent.WithSummaryPrompt(sp))
-	}
-	if sm := strings.TrimSpace(e.config.Default.SummaryModel); sm != "" {
-		agentOpts = append(agentOpts, llmagent.WithSummaryModel(sm))
-	}
-	if ln := e.config.Default.SummaryLastN; ln > 0 {
-		agentOpts = append(agentOpts, llmagent.WithSummaryLastN(ln))
-	}
-	agentSvc := llmagent.New(e.llmCore, e.agentFinder, enricher, e.tools, runtime, e.history, e.executionStore, &e.config.Default, agentOpts...)
+	agentSvc := agent2.New(
+		e.llmCore, e.agentFinder, enricher, e.tools, runtime, &e.config.Default, e.convClient,
+		// Inject elicitation router for LLM waits
+		func(s *agent2.Service) {
+			if e.elicitationRouter != nil {
+				agent2.WithElicitationRouter(e.elicitationRouter)(s)
+			}
+		},
+		// Inject interactive awaiter (CLI) so assistant elicitations can resolve without UI
+		func(s *agent2.Service) {
+			if e.newAwaiter != nil {
+				agent2.WithNewElicitationAwaiter(e.newAwaiter)(s)
+			}
+		},
+	)
 	actions.Register(agentSvc)
 	e.agentService = agentSvc
-
-	// Register history utility service
-	actions.Register(history.New(e.history, e.llmCore))
 
 	// Configure runagent defaults derived from executor config.
 	// The run executable is now part of agent.Service; configure via its options above.
@@ -259,26 +286,19 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	}
 
 	// Initialise shared conversation manager for multi-turn interactions
-	convHandler := func(ctx context.Context, in *llmagent.QueryInput, out *llmagent.QueryOutput) error {
+	convHandler := func(ctx context.Context, in *agent2.QueryInput, out *agent2.QueryOutput) error {
 		exec, err := agentSvc.Method("query")
 		if err != nil {
 			return err
 		}
 		return exec(ctx, in, out)
 	}
-	// Attach shared in-memory stores for token usage and live stage tracking.
-	usageStore := memory.NewUsageStore()
-	stageStore := memory.NewStageStore()
 
-	e.convManager = conversation.New(
-		e.history,
-		e.executionStore,
-		convHandler,
-		conversation.WithUsageStore(usageStore),
-		conversation.WithStageStore(stageStore),
-	)
+	e.convManager = conversation.New(convHandler)
 	// Actions is modified in-place; no return value needed.
 }
+
+// ensureStore removed — executor uses clients via services directly
 
 func (e *Service) NewContext(ctx context.Context) context.Context {
 	if e.orchestration != nil {
@@ -306,11 +326,6 @@ func (e *Service) ApprovalService() approval.Service {
 // Conversation returns the shared conversation manager initialised by the service.
 func (e *Service) Conversation() *conversation.Manager {
 	return e.convManager
-}
-
-// ExecutionStore returns the shared executoin store
-func (e *Service) ExecutionStore() *memory.ExecutionStore {
-	return e.executionStore
 }
 
 // LLMCore returns the underlying llm/core service instance (mainly for
@@ -347,7 +362,7 @@ func New(ctx context.Context, options ...Option) (*Service, error) {
 		return nil, err
 	}
 
-	// Start HotSwap when enabled --------------------------------------
+	// StartedAt HotSwap when enabled --------------------------------------
 	if !ret.hotSwapDisabled {
 		ret.initialiseHotSwap()
 	}

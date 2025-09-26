@@ -8,10 +8,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/agently/adapter/mcp/manager"
 	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/convctx"
+	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/llm"
 	gtool "github.com/viant/agently/genai/tool"
+	authctx "github.com/viant/agently/internal/auth"
 	mcpservice "github.com/viant/fluxor-mcp/mcp"
+	mcontext "github.com/viant/fluxor-mcp/mcp/context"
+	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
 )
 
 // Registry bridges an individual fluxor-mcp Service instance to the generic
@@ -24,20 +30,33 @@ type Registry struct {
 	// virtual tool overlay (id → definition)
 	virtualDefs map[string]llm.ToolDefinition
 	virtualExec map[string]gtool.Handler
+
+	// Optional per-conversation MCP client manager. When set, Execute will
+	// inject the appropriate client and auth token into context so that the
+	// underlying proxy can use them.
+	mgr *manager.Manager
 }
 
 // New creates a registry bound to the given orchestration service.
 // The pointer must not be nil.
-func New(svc *mcpservice.Service) *Registry {
+func New(svc *mcpservice.Service, mgr *manager.Manager) (*Registry, error) {
 	if svc == nil {
-		panic("adapter/tool: nil mcp.Service passed to registry.New")
+		return nil, fmt.Errorf("adapter/tool: nil mcp.Service passed to registry.New")
+	}
+	if mgr == nil {
+		return nil, fmt.Errorf("adapter/tool: nil mcp manager passed to registry.New")
 	}
 	return &Registry{
 		svc:         svc,
 		virtualDefs: map[string]llm.ToolDefinition{},
 		virtualExec: map[string]gtool.Handler{},
-	}
+		mgr:         mgr,
+	}, nil
 }
+
+// WithManager attaches a per-conversation MCP manager used to inject the
+// appropriate client and auth token into the context at call-time.
+func (r *Registry) WithManager(m *manager.Manager) *Registry { r.mgr = m; return r }
 
 // InjectVirtualAgentTools registers synthetic tool definitions that delegate
 // execution to another agent. It must be called once during bootstrap *after*
@@ -203,6 +222,26 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	}
 	if r.debugWriter != nil {
 		fmt.Fprintf(r.debugWriter, "[adapter/tool] call %s args=%v (mcp)\n", name, args)
+	}
+
+	// Support both legacy conversation.ID and the new convctx.ID to avoid
+	// import cycles while still propagating the identifier.
+	convID := convctx.ID(ctx)
+	if convID == "" {
+		convID = conversation.ID(ctx)
+	}
+	// Infer server (service name) from tool name using fluxor-mcp naming.
+	server := mcptool.Name(mcptool.Canonical(name)).Service()
+	if server != "" && convID != "" {
+		if cli, err := r.mgr.Get(ctx, convID, server); err == nil && cli != nil {
+			ctx = mcontext.WithClient(ctx, cli)
+			// Optionally attach token from context if present (HTTP layer).
+			if tok := authctx.Bearer(ctx); tok != "" {
+				ctx = mcontext.WithAuthToken(ctx, tok)
+			}
+			// Update last-used timestamp after the call completes.
+			defer r.mgr.Touch(convID, server)
+		}
 	}
 
 	// Let the orchestration engine choose its own timeout based on context.

@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/viant/agently/cmd/service"
 	repoiface "github.com/viant/agently/internal/repository"
-	"github.com/viant/agently/service"
 )
 
 // WorkspaceCmd groups workspace sub-commands.

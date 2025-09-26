@@ -6,21 +6,26 @@ package mcp
 
 import (
 	"context"
-	awaitreg "github.com/viant/agently/genai/awaitreg"
+	"fmt"
+
 	"github.com/viant/agently/genai/conversation"
-	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/prompt"
+	core2 "github.com/viant/agently/genai/service/core"
+
 	"sync"
 
-	"github.com/google/uuid"
 	elicitationSchema "github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/elicitation/refiner"
-	"github.com/viant/agently/genai/extension/fluxor/llm/core"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
 
+	"strings"
+
+	"github.com/google/uuid"
+	apiconv "github.com/viant/agently/client/conversation"
+	"github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
-	"strings"
 )
 
 var waiterRegistry sync.Map // msgID -> chan *schema.ElicitResult
@@ -40,13 +45,13 @@ func Waiter(id string) (chan *schema.ElicitResult, bool) {
 
 // Client adapts MCP operations to local execution.
 type Client struct {
-	core       *core.Service
-	openURLFn  func(string) error
-	implements map[string]bool
-	awaiters   *awaitreg.Registry
-	llmCore    *core.Service
-	history    memory.History // optional fallback when ctx lacks history
-	// waiter registries are shared for elicitation and interaction
+	core        *core2.Service
+	openURLFn   func(string) error
+	implements  map[string]bool
+	llmCore     *core2.Service
+	convID      string
+	convClient  apiconv.Client
+	elicitation *elicitation.Service
 }
 
 func (*Client) LastRequestID() jsonrpc.RequestId {
@@ -91,77 +96,21 @@ func (c *Client) ListRoots(ctx context.Context, p *jsonrpc.TypedRequest[*schema.
 }
 
 func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*schema.ElicitRequest]) (*schema.ElicitResult, *jsonrpc.Error) {
+	// Refine, persist, then delegate wait to the elicitation service
 	params := request.Request.Params
-	if c.awaiters != nil {
-		localReq := &elicitationSchema.Elicitation{ElicitRequestParams: params}
-
-		// Handle out-of-band URL prompt: try to open browser before invoking
-		// Awaiter so the user can fill the form.
-		if strings.TrimSpace(params.Url) != "" && c.openURLFn != nil {
-			_ = c.openURLFn(params.Url)
-		}
-
-		aw := c.awaiters.Ensure(conversation.ID(ctx))
-
-		res, err := aw.AwaitElicitation(ctx, localReq)
-		if err != nil {
-			return nil, jsonrpc.NewInternalError(err.Error(), nil)
-		}
-
-		// Map back to MCP result ------------------------------------
-		return &schema.ElicitResult{
-			Action:  schema.ElicitResultAction(res.Action),
-			Content: res.Payload,
-		}, nil
+	c.elicitation.RefineRequestedSchema(&params.RequestedSchema)
+	convID := c.convID
+	if strings.TrimSpace(convID) == "" {
+		convID = conversation.ID(ctx)
 	}
-	// ------------------------------------------------------------------
-	// No local awaiters – persist message and block until HTTP callback
-	// resolves it through waiterRegistry (web UI scenario).
-	// ------------------------------------------------------------------
-	// ------------------------------------------------------------------
-	// Generate synthetic message ID so that HTTP callback can reference it
-	msgID := uuid.New().String()
-
-	history := c.history
-	if history != nil {
-
-		owner, err := history.LatestMessage(ctx)
-		if err != nil {
-			return nil, jsonrpc.NewInternalError(err.Error(), nil)
-		}
-
-		parentID := owner.ParentID
-		if parentID == "" {
-			parentID = owner.ID
-		}
-
-		_ = history.AddMessage(ctx, memory.Message{
-			ID:             msgID,
-			ParentID:       parentID,
-			ConversationID: owner.ConversationID,
-			Role:           "mcpelicitation",
-			Content:        params.Message,
-			Elicitation: func() *elicitationSchema.Elicitation {
-				// Refine schema before persisting so that UI sees improved version.
-				refiner.Refine(&params.RequestedSchema)
-				return &elicitationSchema.Elicitation{ElicitRequestParams: params}
-			}(),
-			CallbackURL: "/elicitation/" + msgID,
-			Status:      "open",
-		})
+	if err := c.persistElicitationMessage(ctx, &params, request.Id); err != nil {
+		return nil, jsonrpc.NewInternalError(fmt.Sprintf("failed to persist elicitation: %v", err), nil)
 	}
-
-	// Register waiter and block
-	ch := make(chan *schema.ElicitResult, 1)
-	waiterRegistry.Store(msgID, ch)
-	select {
-	case res := <-ch:
-		waiterRegistry.Delete(msgID)
-		return res, nil
-	case <-ctx.Done():
-		waiterRegistry.Delete(msgID)
-		return nil, jsonrpc.NewInternalError("elicitation cancelled", nil)
+	status, payload, err := c.elicitation.Wait(ctx, convID, params.ElicitationId)
+	if err != nil {
+		return nil, jsonrpc.NewInternalError(fmt.Sprintf("elicitation wait failed: %v", err), nil)
 	}
+	return &schema.ElicitResult{Action: schema.ElicitResultAction(status), Content: payload}, nil
 }
 
 func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedRequest[*schema.CreateMessageRequest]) (*schema.CreateMessageResult, *jsonrpc.Error) {
@@ -173,14 +122,16 @@ func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedReques
 	}
 	p := &request.Request.Params
 	// Use last message as prompt, earlier messages ignored in MVP.
-	var prompt string
+	var promptText string
 	if len(p.Messages) > 0 {
-		prompt = p.Messages[len(p.Messages)-1].Content.Text // assuming text field
+		promptText = p.Messages[len(p.Messages)-1].Content.Text // assuming text field
 	}
-	in := &core.GenerateInput{
-		Preferences:  llm.NewModelPreferences(llm.WithPreferences(p.ModelPreferences)),
-		Prompt:       prompt,
-		SystemPrompt: conv.Dereference[string](p.SystemPrompt),
+	in := &core2.GenerateInput{
+		ModelSelection: llm.ModelSelection{
+			Preferences: llm.NewModelPreferences(llm.WithPreferences(p.ModelPreferences)),
+		},
+		Prompt:       &prompt.Prompt{Text: promptText},
+		SystemPrompt: &prompt.Prompt{Text: conv.Dereference[string](p.SystemPrompt)},
 	}
 	if p.MaxTokens > 0 || p.Temperature != nil || len(p.StopSequences) > 0 {
 		in.Options = &llm.Options{
@@ -190,7 +141,7 @@ func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedReques
 		}
 	}
 
-	var out core.GenerateOutput
+	var out core2.GenerateOutput
 	if err := c.core.Generate(ctx, in, &out); err != nil {
 		return nil, jsonrpc.NewInternalError(err.Error(), nil)
 	}
@@ -204,6 +155,31 @@ func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedReques
 		},
 	}
 	return result, nil
+}
+
+// persistElicitationMessage best-effort persists an assistant message with
+// elicitation payload so that poll-based UIs can display it while awaiting user action.
+func (c *Client) persistElicitationMessage(ctx context.Context, params *schema.ElicitRequestParams, rpcID uint64) error {
+	if strings.TrimSpace(c.convID) == "" {
+		return fmt.Errorf("convID is required")
+	}
+	if strings.TrimSpace(params.ElicitationId) == "" {
+		params.ElicitationId = uuid.New().String()
+	}
+	payload := &elicitationSchema.Elicitation{ElicitRequestParams: *params}
+	// Provide a direct callback URL using conversation + elicitationId for unified posting.
+	payload.CallbackURL = fmt.Sprintf("/v1/api/conversations/%s/elicitation/%s", c.convID, params.ElicitationId)
+	aConversation, err := c.convClient.GetConversation(ctx, c.convID)
+	if err != nil {
+		return fmt.Errorf("failed to get conversation: %v for elicitation, %v", err, params.ElicitationId)
+	}
+	turn := &memory.TurnMeta{ConversationID: c.convID}
+	if aConversation.LastTurnId != nil {
+		turn.TurnID = *aConversation.LastTurnId
+		turn.ParentMessageID = *aConversation.LastTurnId
+	}
+	_, err = c.elicitation.Record(ctx, turn, "tool", payload)
+	return err
 }
 
 func (c *Client) asErr(e error) *jsonrpc.Error {
@@ -228,14 +204,23 @@ func (c *Client) ProtocolVersion() string {
 
 // Option type remains in option.go
 
-// NewClient returns a ready client.
-func NewClient(opts ...Option) *Client {
+// NewClient returns a ready client with explicit dependencies.
+// - el: elicitation service (required)
+// - conv: conversation client used for direct updates (required)
+// - newAwaiter: factory for interactive prompts in CLI; pass nil for server mode
+// - openURL: override URL opener; pass nil to use default or to disable
+func NewClient(el *elicitation.Service, conv apiconv.Client, openURL func(string) error) *Client {
 	c := &Client{
-		openURLFn:  defaultOpenURL,
-		implements: make(map[string]bool),
+		openURLFn:   defaultOpenURL,
+		implements:  make(map[string]bool),
+		elicitation: el,
+		convClient:  conv,
 	}
-	for _, o := range opts {
-		o(c)
+	if openURL != nil {
+		c.openURLFn = openURL
 	}
 	return c
 }
+
+// SetConversationID assigns conversation id used for conv-scoped elicitation routing.
+func (c *Client) SetConversationID(id string) { c.convID = id }

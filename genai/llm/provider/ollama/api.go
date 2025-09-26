@@ -6,9 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/genai/llm"
 	"io"
 	"net/http"
+	"strings"
+	"time"
+
+	"github.com/viant/agently/genai/llm"
+	mcbuf "github.com/viant/agently/genai/modelcallctx"
 )
 
 func (c *Client) Implements(feature string) bool {
@@ -41,6 +45,19 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	// Observer start
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			ctx = newCtx
+		} else {
+			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+		}
+	}
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
@@ -53,8 +70,6 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
-
-	defer resp.Body.Close()
 
 	reader := bufio.NewReader(resp.Body)
 	apiResp := &Response{}
@@ -95,6 +110,22 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if c.UsageListener != nil && llmsResp.Usage != nil && llmsResp.Usage.TotalTokens > 0 {
 		c.UsageListener.OnUsage(req.Model, llmsResp.Usage)
 	}
+	if observer != nil {
+		// We don't have the raw concatenated resp at this point; marshal the API response.
+		if b, _ := json.Marshal(apiResp); len(b) > 0 {
+			info := mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: b, CompletedAt: time.Now(), Usage: llmsResp.Usage, LLMResponse: llmsResp}
+			if llmsResp != nil && len(llmsResp.Choices) > 0 {
+				info.FinishReason = llmsResp.Choices[0].FinishReason
+			}
+			if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
+				return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+			}
+		} else {
+			if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", CompletedAt: time.Now(), Usage: llmsResp.Usage}); obErr != nil {
+				return nil, fmt.Errorf("observer OnCallEnd failed: %w", obErr)
+			}
+		}
+	}
 	return llmsResp, nil
 }
 
@@ -119,6 +150,18 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			ctx = newCtx
+		} else {
+			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+		}
+	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -128,18 +171,65 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	go func() {
 		defer resp.Body.Close()
 		reader := bufio.NewReader(resp.Body)
+		ended := false
+		emit := func(lr *llm.GenerateResponse) {
+			if lr != nil {
+				events <- llm.StreamEvent{Response: lr}
+			}
+		}
+		endObserverOnce := func(lr *llm.GenerateResponse) {
+			if ended {
+				return
+			}
+			if observer != nil {
+				respJSON, _ := json.Marshal(lr)
+				var finish string
+				if lr != nil && len(lr.Choices) > 0 {
+					finish = lr.Choices[0].FinishReason
+				}
+				if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finish}); obErr != nil {
+					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+					return
+				}
+				ended = true
+			}
+		}
+		var lastLR *llm.GenerateResponse
 		for {
 			line, err := reader.ReadBytes('\n')
 			if len(line) > 0 {
+				if observer != nil {
+					// append raw line for full fidelity
+					if obErr := observer.OnStreamDelta(ctx, line); obErr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+						break
+					}
+				}
 				var chunk Response
 				if err := json.Unmarshal(line, &chunk); err != nil {
 					events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream chunk: %w", err)}
 					break
 				}
-				events <- llm.StreamEvent{Response: ToLLMSResponse(&chunk)}
+				lr := ToLLMSResponse(&chunk)
+				lastLR = lr
+				// Emit delta to observer when plain text is present
+				if observer != nil {
+					// Extract plain text content from first choice
+					if lr != nil && len(lr.Choices) > 0 {
+						if txt := strings.TrimSpace(lr.Choices[0].Message.Content); txt != "" {
+							if obErr := observer.OnStreamDelta(ctx, []byte(txt)); obErr != nil {
+								events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
+								break
+							}
+						}
+					}
+				}
 				if chunk.Done {
+					endObserverOnce(lr)
+					emit(lr)
 					break
 				}
+				emit(lr)
 			}
 			if err != nil {
 				if err == io.EOF {
@@ -150,6 +240,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			}
 		}
 		close(events)
+		if !ended {
+			endObserverOnce(lastLR)
+		}
 	}()
 	return events, nil
 }

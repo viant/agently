@@ -10,6 +10,9 @@
  * @param {Function} options.cancelled - Function that returns true if polling should be cancelled
  * @returns {Promise<*>} - The data when condition is met or null if max attempts reached
  */
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');
+
 export async function poll(requestFn, conditionFn, {
     maxAttempts = 900,
     intervalMs = 1000,
@@ -24,7 +27,7 @@ export async function poll(requestFn, conditionFn, {
                 return data;
             }
         } catch (err) {
-            console.warn('Poll error:', err);
+            log.warn('Poll error', err);
         }
 
         await sleep(intervalMs);
@@ -55,7 +58,7 @@ export async function fetchJSON(url, options) {
     try {
         return JSON.parse(text);
     } catch (e) {
-        console.warn('fetchJSON: invalid JSON response', e);
+        log.warn('fetchJSON: invalid JSON response', e);
         return null;
     }
 }

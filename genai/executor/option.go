@@ -1,16 +1,19 @@
 package executor
 
 import (
+	"io"
+
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	atool "github.com/viant/agently/adapter/tool"
+	"github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
-	"github.com/viant/agently/genai/io/elicitation"
+	"github.com/viant/agently/genai/elicitation"
+	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	modelprovider "github.com/viant/agently/genai/llm/provider"
-	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor"
 	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
 	"github.com/viant/fluxor/service/meta"
-	"io"
 )
 
 type Option func(config *Service)
@@ -45,31 +48,18 @@ func WithConfig(config *Config) Option {
 	}
 }
 
-// WithLLMLogger redirects all LLM prompt/response traffic captured by the core
-// LLM service to the supplied writer. Passing nil disables logging.
-func WithLLMLogger(w io.Writer) Option {
-	return func(s *Service) {
-		s.llmLogger = w
-	}
-}
-
-// WithFluxorActivityLogger writes every executed Fluxor task (as seen by the
-// executor listener) to the supplied writer in JSON. Passing nil disables
-// logging.
-func WithFluxorActivityLogger(w io.Writer) Option {
-	return func(s *Service) {
-		s.fluxorLogWriter = w
-	}
-}
-
 // WithToolDebugLogger enables debug logging for every atool call executed via
 // the executor's atool registry. Each invocation is written to the supplied
 // writer. Passing nil disables logging.
 func WithToolDebugLogger(w io.Writer) Option {
 	return func(s *Service) {
 		if s.tools == nil && s.orchestration != nil {
-			s.tools = atool.New(s.orchestration)
-			s.tools.SetDebugLogger(w)
+			if s.mcpMgr != nil {
+				if reg, err := atool.New(s.orchestration, s.mcpMgr); err == nil {
+					reg.SetDebugLogger(w)
+					s.tools = reg
+				}
+			}
 		}
 	}
 }
@@ -81,6 +71,12 @@ func WithMetaService(metaService *meta.Service) Option {
 			s.config = &Config{}
 		}
 		s.config.metaService = metaService
+	}
+}
+
+func WithConversionClient(client conversation.Client) Option {
+	return func(s *Service) {
+		s.convClient = client
 	}
 }
 
@@ -118,25 +114,34 @@ func WithTools(tools tool.Registry) Option {
 	}
 }
 
-// WithHistory injects a custom conversation history implementation.
-func WithHistory(store memory.History) Option {
-	return func(s *Service) {
-		s.history = store
-	}
-}
-
-// WithToolRetries sets the default retry count for atool execution steps.
-func WithToolRetries(maxRetries int) Option {
-	return func(s *Service) {
-		s.config.ToolRetries = maxRetries
-	}
-}
-
 // WithoutHotSwap disables automatic workspace hot-reload. Use this option for
 // deterministic production runs where configuration should not change while
 // the process is running.
 func WithoutHotSwap() Option {
 	return func(s *Service) {
 		s.hotSwapDisabled = true
+	}
+}
+
+// WithMCPManager attaches a per-conversation MCP client manager so that tool
+// executions can inject the appropriate client/token at call time.
+func WithMCPManager(m *mcpmgr.Manager) Option {
+	return func(s *Service) {
+		s.mcpMgr = m
+		// Tools will be created with manager when needed (see WithToolDebugLogger or explicit WithTools).
+	}
+}
+
+// WithElicitationRouter injects a shared router used by the agent to wait on
+// assistant-originated elicitations. In server mode, pass the same instance as
+// the HTTP handler uses so UI callbacks unblock the agent loop.
+func WithElicitationRouter(r elicrouter.ElicitationRouter) Option {
+	return func(s *Service) {
+		// store on executor; passed to agent.New in registerServices
+		if s != nil {
+			// no dedicated field yet; attach via config meta to avoid API churn
+			// better: add a field on Service; doing that now.
+		}
+		s.elicitationRouter = r
 	}
 }

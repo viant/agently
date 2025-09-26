@@ -1,5 +1,5 @@
 default:
-  model: openai_o4-mini
+  model: openai_gpt-5
   embedder: openai_text
   agent: chat
 models:
@@ -11,3 +11,4 @@ agents:
 services:
   - system/exec
   - system/patch
+  - printer/print

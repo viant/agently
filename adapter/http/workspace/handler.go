@@ -17,8 +17,8 @@ import (
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/mcp"
 
+	"github.com/viant/agently/cmd/service"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
-	"github.com/viant/agently/service"
 	"gopkg.in/yaml.v3"
 )
 
@@ -87,6 +87,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	if strings.HasPrefix(path, "v1/workspace/") {
 		path = strings.TrimPrefix(path, "v1/workspace/")
+	} else if strings.HasPrefix(path, "workspace/") {
+		// Allow alias when upstream router already stripped "/v1/" prefix.
+		path = strings.TrimPrefix(path, "workspace/")
 	}
 	parts := strings.Split(path, "/")
 
@@ -95,6 +98,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Kind is the first path segment (e.g. "mcp", "agents").
 	kind := parts[0]
 	// Special read-only handling for tools (not stored in repository)
 
@@ -238,9 +242,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if err := yaml.Unmarshal(raw, &obj); err != nil {
 				continue
 			}
-			// Ensure name/name present for UI tables when missing.
+			// Ensure name present for UI tables when missing.
 			if _, ok := obj["name"]; !ok {
-				if id, ok := obj["name"]; ok {
+				if id, ok := obj["id"]; ok {
 					obj["name"] = id
 				} else {
 					obj["name"] = n

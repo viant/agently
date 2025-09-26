@@ -1,0 +1,111 @@
+/* {"URI":"/{id}"} */
+
+
+
+#set($_ = $Status<?>(output/status))
+#set($_ = $Data<?>(output/view))
+#set($_ = $Metrics<?>(output/metrics))
+
+#set($_ = $Id<string>(path/id))
+#set($_ = $Since<string>(query/since).WithPredicate(0,'expr','created_at >= (SELECT created_at FROM turn WHERE id = ?)'))
+#set($_ = $IncludeTranscript<bool>(query/includeTranscript).Value('true').WithPredicate(0, 'expr', '?'))
+#set($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
+#set($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
+
+
+SELECT conversation.*,
+cast(attachment.inline_body as []byte),
+cast(transcript.elapsedInSec as int)
+FROM (
+    SELECT t.*,
+          (SELECT id
+           FROM turn
+           WHERE conversation_id = t.id
+           ORDER BY created_at DESC
+           LIMIT 1) AS last_turn_id,
+    '' AS stage FROM conversation t WHERE (id = $Id OR "" = $Id)
+) conversation
+    JOIN  (
+ SELECT
+      t.*,
+      0 elapsedInSec,
+      '' AS stage
+       FROM turn t
+      ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+    ) transcript ON transcript.conversation_id = conversation.id
+JOIN (
+    SELECT * FROM message WHERE attachment_payload_id IS NULL
+) message ON message.turn_id = transcript.id
+JOIN (
+ SELECT inline_body, compression, m.id as message_id FROM message m
+ JOIN call_payload p ON m.elicitation_payload_id = p.id
+) userElicitationData ON userElicitationData.message_id = message.id AND 1=1
+JOIN (
+ SELECT inline_body, compression, uri,mime_type, m.parent_message_id FROM message m
+ JOIN call_payload p ON m.attachment_payload_id = p.id
+) attachment ON attachment.parent_message_id = message.id
+JOIN (
+   SELECT t.*
+ FROM model_call t
+) modelCall ON modelCall.message_id = message.id AND  1 = 1
+JOIN (
+   SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+) modelCallRequestPayload ON modelCallRequestPayload.id = modelCall.request_payload_id AND  1 = 1
+JOIN (
+   SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+) modelCallProviderRequestPayload ON modelCallProviderRequestPayload.id = modelCall.provider_request_payload_id AND  1 = 1
+JOIN (
+   SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+) modelCallResponsePayload ON modelCallResponsePayload.id = modelCall.response_payload_id AND  1 = 1
+
+JOIN (
+   SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+) modelCallProviderResponsePayload ON modelCallProviderResponsePayload.id = modelCall.provider_response_payload_id AND  1 = 1
+JOIN (
+   SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+) modelCallStreamPayload ON modelCallStreamPayload.id = modelCall.stream_payload_id AND  1 = 1
+JOIN (
+   SELECT t.*
+ FROM tool_call t
+) toolCall ON toolCall.message_id = message.id AND  1 = 1
+JOIN (
+   SELECT id, inline_body, compression FROM call_payload${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")} 
+) requestPayload ON requestPayload.id = toolCall.request_payload_id AND  1 = 1
+JOIN (
+   SELECT id, inline_body, compression FROM call_payload${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")}
+) responsePayload ON responsePayload.id = toolCall.response_payload_id AND  1 = 1
+JOIN (
+  SELECT 
+    m.conversation_id AS conversation_id,
+    SUM(COALESCE(mc.prompt_tokens, 0))                                  AS prompt_tokens,
+    SUM(COALESCE(mc.prompt_cached_tokens, 0))                           AS prompt_cached_tokens,
+    SUM(COALESCE(mc.prompt_audio_tokens, 0))                            AS prompt_audio_tokens,
+    SUM(COALESCE(mc.completion_tokens, 0))                               AS completion_tokens,
+    SUM(COALESCE(mc.completion_reasoning_tokens, 0))                    AS completion_reasoning_tokens,
+    SUM(COALESCE(mc.completion_audio_tokens, 0))                         AS completion_audio_tokens,
+    SUM(COALESCE(mc.completion_accepted_prediction_tokens, 0))          AS completion_accepted_prediction_tokens,
+    SUM(COALESCE(mc.completion_rejected_prediction_tokens, 0))          AS completion_rejected_prediction_tokens,
+    SUM(COALESCE(mc.total_tokens, 0))                                    AS total_tokens
+  FROM model_call mc
+  JOIN message m ON m.id = mc.message_id
+  $View.ParentJoinOn("WHERE","m.conversation_id")
+  GROUP BY m.conversation_id
+) usage ON usage.conversation_id = conversation.id AND  1 = 1
+JOIN (
+  SELECT
+    m.conversation_id AS conversation_id,
+    mc.model,
+    SUM(COALESCE(mc.prompt_tokens, 0))                                  AS prompt_tokens,
+    SUM(COALESCE(mc.prompt_cached_tokens, 0))                           AS prompt_cached_tokens,
+    SUM(COALESCE(mc.prompt_audio_tokens, 0))                            AS prompt_audio_tokens,
+    SUM(COALESCE(mc.completion_tokens, 0))                               AS completion_tokens,
+    SUM(COALESCE(mc.completion_reasoning_tokens, 0))                    AS completion_reasoning_tokens,
+    SUM(COALESCE(mc.completion_audio_tokens, 0))                         AS completion_audio_tokens,
+    SUM(COALESCE(mc.completion_accepted_prediction_tokens, 0))          AS completion_accepted_prediction_tokens,
+    SUM(COALESCE(mc.completion_rejected_prediction_tokens, 0))          AS completion_rejected_prediction_tokens,
+    SUM(COALESCE(mc.total_tokens, 0))                                    AS total_tokens
+  FROM model_call mc
+  JOIN message m ON m.id = mc.message_id
+  $View.ParentJoinOn("WHERE","m.conversation_id")
+  GROUP BY m.conversation_id, mc.model
+) model ON usage.conversation_id = model.conversation_id

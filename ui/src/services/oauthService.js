@@ -12,7 +12,7 @@
 export async function saveOauth({ context }) {
     const oauthCtx = context?.Context('oauth');
     if (!oauthCtx) {
-        console.error('oauthService.saveOauth: oauth context not found');
+        log.error('oauthService.saveOauth: oauth context not found');
         return false;
     }
 
@@ -21,13 +21,13 @@ export async function saveOauth({ context }) {
 
     const formData = handlers?.getFormData?.() || handlers?.getSelection?.()?.selected;
     if (!formData) {
-        console.warn('oauthService.saveOauth: no form data');
+        log.warn('oauthService.saveOauth: no form data');
         return false;
     }
 
     const name = formData?.name;
     if (!name) {
-        console.error('oauthService.saveOauth: name field is required');
+        log.error('oauthService.saveOauth: name field is required');
         return false;
     }
 
@@ -39,7 +39,7 @@ export async function saveOauth({ context }) {
         });
         return resp;
     } catch (err) {
-        console.error('oauthService.saveOauth error:', err);
+        log.error('oauthService.saveOauth error', err);
         handlers?.setError?.(err);
         return false;
     } finally {
@@ -50,3 +50,5 @@ export async function saveOauth({ context }) {
 export const oauthService = {
     saveOauth,
 };
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');

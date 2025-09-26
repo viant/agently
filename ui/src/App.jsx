@@ -49,6 +49,8 @@ const services = {
   oauth: oauthService,
 };
 
+
+
 // We no longer pass a plain object as `authContext`. Instead we use a proper
 // React context implemented in `AuthContext.jsx`.  `AuthProvider` supplies a
 // mock value so that the rest of the application – and the underlying `forge`

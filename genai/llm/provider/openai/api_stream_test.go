@@ -93,3 +93,68 @@ func TestStream_ToolCalls_Aggregation(t *testing.T) {
 		})
 	}
 }
+
+// Data-driven test: final usage-only chunk should not emit empty choices.
+func TestStream_UsageOnlyFinalChunk_NoEmptyChoicesEmission(t *testing.T) {
+	testCases := []struct {
+		description string
+		lines       []string
+		expected    *llm.GenerateResponse
+	}{
+		{
+			description: "accumulate content; stop; usage-only final",
+			lines: []string{
+				// content deltas
+				`data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}`,
+				`data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}`,
+				// finish
+				`data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+				// final usage-only event (OpenAI behavior)
+				`data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`,
+				`data: [DONE]`,
+			},
+			expected: &llm.GenerateResponse{Choices: []llm.Choice{{
+				Index:        0,
+				FinishReason: "stop",
+				Message:      llm.Message{Role: llm.RoleAssistant, Content: "Hello world"},
+			}}, Usage: &llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}, Model: "o4-mini-2025-04-16"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			body := strings.Join(tc.lines, "\n")
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/chat/completions" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, body)
+			}))
+			defer srv.Close()
+
+			c := &Client{APIKey: "test"}
+			c.BaseURL = srv.URL
+			c.HTTPClient = srv.Client()
+			c.Model = "o4-mini-2025-04-16"
+
+			req := &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("say hi")}}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			ch, err := c.Stream(ctx, req)
+			if err != nil {
+				t.Fatalf("Stream error: %v", err)
+			}
+
+			var actual *llm.GenerateResponse
+			for ev := range ch {
+				if ev.Err != nil {
+					t.Fatalf("streaming error: %v", ev.Err)
+				}
+				actual = ev.Response
+			}
+			assert.EqualValues(t, tc.expected, actual)
+		})
+	}
+}

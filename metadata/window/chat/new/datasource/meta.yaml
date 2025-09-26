@@ -1,5 +1,13 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/metadata/defaults
+  uri: /v1/workspace/metadata
   method: GET
 
+selectors:
+  data: data
+
+on:
+  - event: onFetch
+    handler: chat.onFetchMeta
+  - event: onSuccess
+    handler: chat.onMetaLoaded

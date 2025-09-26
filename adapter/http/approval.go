@@ -2,15 +2,12 @@ package http
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/viant/agently/genai/conversation"
 	execsvc "github.com/viant/agently/genai/executor"
-	"github.com/viant/agently/genai/memory"
 
 	"github.com/viant/fluxor/service/approval"
 )
@@ -26,6 +23,7 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 		return
 	}
 
+	//TODO fix ME - I'm broken
 	go func() {
 		// Wait for approval service to become ready (executor boot is async)
 		var svc approval.Service
@@ -42,14 +40,14 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 		}
 
 		// Helper to unmarshal args RawMessage -> map[string]interface{}
-		parseArgs := func(raw json.RawMessage) map[string]interface{} {
-			if len(raw) == 0 {
-				return nil
-			}
-			var out map[string]interface{}
-			_ = json.Unmarshal(raw, &out)
-			return out
-		}
+		//parseArgs := func(raw json.RawMessage) map[string]interface{} {
+		//	if len(raw) == 0 {
+		//		return nil
+		//	}
+		//	var out map[string]interface{}
+		//	_ = json.Unmarshal(raw, &out)
+		//	return out
+		//}
 
 		// Map to remember which conversation owns a given request ID so that
 		// we can quickly update the corresponding message on decision.
@@ -96,14 +94,16 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 					}
 				}
 
-				if convID == "" {
-					// As a fallback pick the latest active conversation so that the
-					// user still receives the approval prompt even if we cannot
-					// attribute it perfectly.
-					if msg, err := mgr.History().LatestMessage(ctx); err == nil && msg != nil {
-						convID = msg.ConversationID
-					}
-				}
+				//newStatus := "declined"
+				//if dec.Approved {
+				//	newStatus = "done"
+				//}
+				//_ = mgr.History().UpdateMessage(ctx, dec.ID, func(m *memory.Message) {
+				//	m.Status = newStatus
+				//	if m.PolicyApproval != nil {
+				//		m.PolicyApproval.Reason = dec.Reason
+				//	}
+				//})
 
 				if convID == "" {
 					// Ultimately still unknown – drop the prompt.
@@ -112,33 +112,24 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 				}
 
 				// Determine parentId so the UI poll (parentId=…) sees the prompt.
-				parentID := ""
-				if lastMsg, err := mgr.History().LatestMessage(ctx); err == nil && lastMsg != nil {
-					parentID = lastMsg.ID
-					if lastMsg.ParentID != "" {
-						parentID = lastMsg.ParentID
-					}
-				}
-				m := memory.Message{
-					ID:             req.ID,
-					ParentID:       parentID,
-					ConversationID: convID,
-					Role:           "policyapproval",
-					Status:         "open",
-					PolicyApproval: &memory.PolicyApproval{
-						Tool:   req.Action,
-						Args:   parseArgs(req.Args),
-						Reason: "",
-					},
-					// Relative callback path (the Forge UI prefixes /v1/api automatically).
-					CallbackURL: "approval/" + req.ID,
-				}
+				//parentID := ""
 
-				if err := mgr.History().AddMessage(ctx, m); err != nil {
-					log.Printf("approval bridge add message error: %v", err)
-				} else {
-					id2conv[req.ID] = convID
-				}
+				//m := memory.Message{
+				//	ID:             req.ID,
+				//	ParentID:       parentID,
+				//	ConversationID: convID,
+				//	Role:           "policyapproval",
+				//	Status:         "open",
+				//	PolicyApproval: &memory.PolicyApproval{
+				//		Tool:   req.Action,
+				//		Args:   parseArgs(req.Args),
+				//		Reason: "",
+				//	},
+				//	// Relative callback path (the Forge UI prefixes /v1/api automatically).
+				//	CallbackURL: "approval/" + req.ID,
+				//}
+
+				id2conv[req.ID] = convID
 
 			case approval.TopicDecisionCreated, approval.LegacyTopicDecisionNew:
 				dec, ok := evt.Data.(*approval.Decision)
@@ -148,36 +139,19 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 				}
 
 				convID := id2conv[dec.ID]
-				if convID == "" {
-					// Fallback: iterate conversations to find one that has message with that ID.
-					convs, _ := mgr.List(ctx)
-					for _, cid := range convs {
-						msgs, _ := mgr.Messages(ctx, cid, "")
-						for _, mm := range msgs {
-							if mm.ID == dec.ID {
-								convID = cid
-								id2conv[dec.ID] = cid
-								break
-							}
-						}
-						if convID != "" {
-							break
-						}
-					}
-				}
 
 				fmt.Println("convID:", convID)
 				if convID != "" {
-					newStatus := "declined"
-					if dec.Approved {
-						newStatus = "done"
-					}
-					_ = mgr.History().UpdateMessage(ctx, dec.ID, func(m *memory.Message) {
-						m.Status = newStatus
-						if m.PolicyApproval != nil {
-							m.PolicyApproval.Reason = dec.Reason
-						}
-					})
+					//newStatus := "declined"
+					//if dec.Approved {
+					//	newStatus = "done"
+					//}
+					//_ = mgr.History().UpdateMessage(ctx, dec.ID, func(m *memory.Message) {
+					//	m.Status = newStatus
+					//	if m.PolicyApproval != nil {
+					//		m.PolicyApproval.Reason = dec.Reason
+					//	}
+					//})
 				}
 
 			}

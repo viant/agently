@@ -3,6 +3,8 @@ package llm
 import (
 	"encoding/base64"
 	"encoding/json"
+	"time"
+
 	"github.com/google/uuid"
 )
 
@@ -75,6 +77,10 @@ const (
 	RoleTool      MessageRole = "tool"
 )
 
+func (m MessageRole) String() string {
+	return string(m)
+}
+
 // Message is a generic message suitable for multiple content items and types.
 type Message struct {
 	// Role of the sender (user, assistant, system, etc.)
@@ -120,6 +126,19 @@ type ToolCall struct {
 	// Legacy fields for backward compatibility
 	Type     string       `json:"type,omitempty"`
 	Function FunctionCall `json:"function,omitempty"`
+
+	Result string `json:"result,omitempty"`
+	//Error tool call error
+	Error string `json:"error,omitempty"`
+}
+
+type CallSpan struct {
+	StartedAt time.Time `json:"startedat"`
+	EndedAt   time.Time `json:"endedat"`
+}
+
+func (c *CallSpan) SetEnd(t time.Time) {
+	c.EndedAt = t
 }
 
 // GenerateRequest represents a request to a chat-based LLM.
@@ -168,37 +187,60 @@ type Usage struct {
 
 	// ContextTokens is the list of token IDs used in the model context (Ollama-specific).
 	ContextTokens []int `json:"context_tokens,omitempty"`
+
+	CachedTokens int `json:"cached_tokens,omitempty"`
+
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
+
+	AudioTokens int `json:"audio_tokens,omitempty"`
+
+	// Provider-detailed usage (OpenAI-compatible)
+	// Prompt-level cached tokens (from prompt_tokens_details.cached_tokens)
+	PromptCachedTokens int `json:"prompt_cached_tokens,omitempty"`
+	// Prompt-level audio tokens (from prompt_tokens_details.audio_tokens)
+	PromptAudioTokens int `json:"prompt_audio_tokens,omitempty"`
+	// Completion-level reasoning tokens (from completion_tokens_details.reasoning_tokens)
+	CompletionReasoningTokens int `json:"completion_reasoning_tokens,omitempty"`
+	// Completion-level audio tokens (from completion_tokens_details.audio_tokens)
+	CompletionAudioTokens int `json:"completion_audio_tokens,omitempty"`
+	// Speculative decoding accepted/rejected prediction tokens
+	AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
+	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
 }
 
 // NewUserMessage creates a new message with the "user" role.
 // NewUserMessage creates a new message with the "user" role.
 func NewUserMessage(content string) Message {
-	return newTextMessage(RoleUser, content)
+	return NewTextMessage(RoleUser, content)
 }
 
 // NewSystemMessage creates a new message with the "system" role.
 // NewSystemMessage creates a new message with the "system" role.
 func NewSystemMessage(content string) Message {
-	return newTextMessage(RoleSystem, content)
+	return NewTextMessage(RoleSystem, content)
 }
 
 // NewAssistantMessage creates a new message with the "assistant" role.
 // NewAssistantMessage creates a new message with the "assistant" role.
 func NewAssistantMessage(content string) Message {
-	return newTextMessage(RoleAssistant, content)
+	return NewTextMessage(RoleAssistant, content)
 }
 
 // NewToolMessage creates a new message with the "tool" role.
 // NewToolMessage creates a new message with the "tool" role.
 func NewToolMessage(name, content string) Message {
-	msg := newTextMessage(RoleTool, content)
+	msg := NewTextMessage(RoleTool, content)
 	msg.Name = name
 	return msg
 }
 
 // NewToolResultMessage creates a tool role message with the given tool call's ID and result content.
-func NewToolResultMessage(call ToolCall, content string) Message {
-	msg := newTextMessage(RoleTool, content)
+func NewToolResultMessage(call ToolCall) Message {
+	content := call.Result
+	if content == "" && call.Error != "" {
+		content = "Error:" + call.Error
+	}
+	msg := NewTextMessage(RoleTool, content)
 	msg.Name = call.Name
 	msg.ToolCallId = call.ID
 	return msg
@@ -273,8 +315,17 @@ func NewUserMessageWithBinary(data []byte, mimeType, prompt string) Message {
 	return Message{Role: RoleUser, Items: items}
 }
 
-// newTextMessage creates a text-only message for the given role.
-func newTextMessage(role MessageRole, content string) Message {
+// NewMessageWithBinary creates a message that includes binary data and optional text prompt.
+func NewMessageWithBinary(role MessageRole, data []byte, mimeType, content string) Message {
+	items := []ContentItem{NewBinaryContent(data, mimeType)}
+	if content != "" {
+		items = append(items, NewTextContent(content))
+	}
+	return Message{Role: role, Items: items}
+}
+
+// NewTextMessage creates a text-only message for the given role.
+func NewTextMessage(role MessageRole, content string) Message {
 	textItem := NewTextContent(content)
 	return Message{
 		Role:    role,
@@ -294,7 +345,7 @@ func NewFunctionCall(name string, args map[string]interface{}) FunctionCall {
 
 // NewToolCall creates a ToolCall with the given function name and arguments.
 // An ID is generated automatically and legacy fields are populated for backward compatibility.
-func NewToolCall(id string, name string, args map[string]interface{}) ToolCall {
+func NewToolCall(id string, name string, args map[string]interface{}, result string) ToolCall {
 	if id == "" {
 		id = uuid.NewString()
 	}
@@ -310,6 +361,7 @@ func NewToolCall(id string, name string, args map[string]interface{}) ToolCall {
 		Arguments: copied,
 		Type:      "function",
 		Function:  fc,
+		Result:    result,
 	}
 }
 

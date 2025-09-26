@@ -6,21 +6,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"mime"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	mcpclienthandler "github.com/viant/agently/adapter/mcp"
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
+	mcprouter "github.com/viant/agently/adapter/mcp/router"
+	"github.com/viant/agently/client/conversation/factory"
+	"github.com/viant/agently/cmd/service"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/conversation"
+	elicitationpkg "github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/genai/executor"
+	promptpkg "github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/agently/service"
-	"github.com/viant/fluxor"
-	fluxexec "github.com/viant/fluxor/service/executor"
-
-	elog "github.com/viant/agently/internal/log"
+	protoclient "github.com/viant/mcp-protocol/client"
 )
 
 // ChatCmd handles interactive/chat queries.
@@ -29,17 +33,17 @@ type ChatCmd struct {
 	Query     string `short:"q" long:"query"    description:"user query"`
 	ConvID    string `short:"c" long:"conv"     description:"conversation ID (optional)"`
 	Policy    string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
-	LLMLog    string `short:"l" long:"llm-log" description:"file to append raw LLM traffic"`
 	ResetLogs bool   `long:"reset-logs" description:"truncate/clean log files before each run"  `
 	Timeout   int    `short:"t" long:"timeout" description:"timeout in seconds for the agent response (0=none)" `
-	ToolLog   string `long:"tool-log" description:"file to append debug logs for each tool call"`
-	TaskLog   string `long:"task-log" description:"file to append per-task Fluxor executor log"`
-	Log       string `long:"log" description:"unified log (LLM, TOOL, TASK)" default:"agently.log"`
 
 	// Arbitrary JSON payload that will be forwarded to the agent as contextual
 	// information. It can be supplied either as an inline JSON string or as
 	// @<path> pointing to a file containing the JSON document.
 	Context string `long:"context" description:"inline JSON object or @file with context data"`
+
+	// Attach allows adding one or more files to the LLM request. Repeatable.
+	// Format: <path>[::caption]
+	Attach []string `long:"attach" description:"file to attach (repeatable). Format: <path>[::caption]"`
 }
 
 // cliInteractionHandler satisfies service.InteractionHandler by prompting the
@@ -95,101 +99,48 @@ func (c *ChatCmd) Execute(_ []string) error {
 		}
 	}
 
-	// Reset logs if requested ------------------------------------------------------
-	if c.ResetLogs {
-		if c.LLMLog != "" {
-			_ = os.Remove(c.LLMLog)
+	// Parse --attach flags into binary attachments
+	var attachments []*promptpkg.Attachment
+	for _, spec := range c.Attach {
+		spec = strings.TrimSpace(spec)
+		if spec == "" {
+			continue
 		}
-		if c.ToolLog != "" {
-			_ = os.Remove(c.ToolLog)
+		var pathPart, prompt string
+		parts := strings.SplitN(spec, "::", 2)
+		pathPart = parts[0]
+		if len(parts) == 2 {
+			prompt = parts[1]
 		}
-		if c.TaskLog != "" {
-			_ = os.Remove(c.TaskLog)
+		data, err := os.ReadFile(pathPart)
+		if err != nil {
+			return fmt.Errorf("read attachment %q: %w", pathPart, err)
 		}
-		if c.Log != "" {
-			_ = os.Remove(c.Log)
-		}
+		attachments = append(attachments, &promptpkg.Attachment{
+			Name:    filepath.Base(pathPart),
+			Mime:    mime.TypeByExtension(filepath.Ext(pathPart)),
+			Content: prompt,
+			Data:    data,
+		})
 	}
+	convClient, err := factory.NewFromEnv(context.Background())
+	if err != nil {
+		return err
+	}
+	registerExecOption(executor.WithConversionClient(convClient))
 
-	// Prepare optional log writers ------------------------------------------------
-	logOpenFlags := os.O_CREATE | os.O_WRONLY
-	if !c.ResetLogs {
-		logOpenFlags |= os.O_APPEND
-	} else {
-		logOpenFlags |= os.O_TRUNC
-	}
-
-	// Uber log writer ------------------------------------------------------
-	var log io.Writer
-	if c.Log == "" {
-		c.Log = "agently.log"
-	}
-	if w, err := os.OpenFile(c.Log, logOpenFlags, 0644); err == nil {
-		log = w
-	} else {
-		fmt.Printf("warning: unable to open uber log file %s: %v\n", c.Log, err)
-	}
-
-	if log != nil {
-		elog.FileSink(log,
-			elog.LLMInput, elog.LLMOutput,
-			elog.TaskInput, elog.TaskOutput,
-			elog.TaskWhen,
-		)
-		registerExecOption(executor.WithWorkflowOptions(
-			fluxor.WithExecutorOptions(
-				fluxexec.WithListener(newJSONTaskListener()),
-			),
-		))
-	}
-
-	{
-		var llmWriters []io.Writer
-		if c.LLMLog != "" {
-			if w, err := os.OpenFile(c.LLMLog, logOpenFlags, 0644); err == nil {
-				llmWriters = append(llmWriters, w)
-			} else {
-				fmt.Printf("warning: unable to open llm log file %s: %v\n", c.LLMLog, err)
-			}
-		}
-		if len(llmWriters) > 0 {
-			registerExecOption(executor.WithLLMLogger(io.MultiWriter(llmWriters...)))
-		}
-	}
-
-	{
-		var toolWriters []io.Writer
-		if c.ToolLog != "" {
-			if w, err := os.OpenFile(c.ToolLog, logOpenFlags, 0644); err == nil {
-				toolWriters = append(toolWriters, w)
-			} else {
-				fmt.Printf("warning: unable to open tool log file %s: %v\n", c.ToolLog, err)
-			}
-		}
-		if len(toolWriters) > 0 {
-			registerExecOption(executor.WithToolDebugLogger(io.MultiWriter(toolWriters...)))
-		}
-	}
-
-	{
-		var taskWriters []io.Writer
-		if c.TaskLog != "" {
-			if w, err := os.OpenFile(c.TaskLog, logOpenFlags, 0644); err == nil {
-				taskWriters = append(taskWriters, w)
-			} else {
-				fmt.Printf("warning: unable to open task log file %s: %v\n", c.TaskLog, err)
-			}
-		}
-		if len(taskWriters) > 0 {
-			listener := newJSONTaskListener(taskWriters...)
-			registerExecOption(executor.WithWorkflowOptions(
-				fluxor.WithExecutorOptions(
-					fluxexec.WithListener(listener),
-				),
-			))
-		}
-	}
-
+	// Ensure per-conversation MCP manager is available for chat tool calls.
+	// Use an interactive awaiter so elicitation is resolved inline on CLI.
+	prov := mcpmgr.NewRepoProvider()
+	r := mcprouter.New()
+	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
+		el := elicitationpkg.New(convClient, nil, r, func() elicitationpkg.Awaiter { return newStdinAwaiter() })
+		// Disable client auto-open
+		return mcpclienthandler.NewClient(el, convClient, nil)
+	}))
+	registerExecOption(executor.WithMCPManager(mgr))
+	// Also pass router to agent so assistant-originated elicitations integrate with the same flow
+	registerExecOption(executor.WithElicitationRouter(r))
 	// Build executor and service --------------------------------------------
 	svcExec := executorSingleton()
 
@@ -206,6 +157,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 	svc := service.New(svcExec, serviceOpts)
 
 	convID := c.ConvID
+	sentAttachments := false
 
 	callChat := func(userQuery string) error {
 		ctx := tool.WithPolicy(ctxBase, toolPol)
@@ -216,13 +168,19 @@ func (c *ChatCmd) Execute(_ []string) error {
 			convID = uuid.NewString()
 		}
 		ctx = conversation.WithID(ctx, convID)
-		resp, err := svc.Chat(ctx, service.ChatRequest{
+		req := service.ChatRequest{
 			ConversationID: convID,
 			AgentPath:      c.AgentName,
 			Query:          userQuery,
 			Context:        contextData,
 			Timeout:        time.Duration(c.Timeout) * time.Second,
-		})
+		}
+		if !sentAttachments && len(attachments) > 0 {
+			req.Attachments = attachments
+			sentAttachments = true
+		}
+
+		resp, err := svc.Chat(ctx, req)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				fmt.Println("[no response] - timeout")

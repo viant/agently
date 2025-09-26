@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"context"
+
 	"github.com/google/uuid"
+	"github.com/viant/agently/cmd/service"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/memory"
-	"github.com/viant/agently/service"
 )
 
 // runRequest is the expected JSON payload for POST /v1/api/workflow/run.
@@ -41,12 +42,7 @@ func New(exec *execsvc.Service, svc *service.Service) http.Handler {
 
 		convID := uuid.New().String()
 
-		// Ensure conversation exists in history so UI can fetch immediately.
-		if hist := exec.Conversation().History(); hist != nil {
-			if hs, ok := hist.(*memory.HistoryStore); ok {
-				hs.EnsureConversation(convID)
-			}
-		}
+		// HistoryStore removed – domain recorder ensures persistence.
 
 		// Kick off workflow in background – fire & forget.
 		go func() {

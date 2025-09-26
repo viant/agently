@@ -120,25 +120,38 @@ func TestNewUserMessageWithImage(t *testing.T) {
 
 func TestNewToolResultMessage(t *testing.T) {
 	cases := []struct {
-		desc    string
-		call    ToolCall
-		content string
+		desc        string
+		call        ToolCall
+		expectedTxt string
 	}{
 		{
-			desc:    "basic tool result",
-			call:    NewToolCall("id-123", "toolName", map[string]interface{}{"foo": "bar"}),
-			content: "result text",
+			desc: "basic tool result",
+			call: func() ToolCall {
+				c := NewToolCall("id-123", "toolName", map[string]interface{}{"foo": "bar"})
+				c.Result = "result text"
+				return c
+			}(),
+			expectedTxt: "result text",
+		},
+		{
+			desc: "error tool result",
+			call: func() ToolCall {
+				c := NewToolCall("id-456", "toolErr", map[string]interface{}{"foo": "bar"})
+				c.Error = "boom"
+				return c
+			}(),
+			expectedTxt: "Error:boom",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.desc, func(t *testing.T) {
-			msg := NewToolResultMessage(tc.call, tc.content)
+			msg := NewToolResultMessage(tc.call)
 			assert.EqualValues(t, RoleTool, msg.Role)
 			assert.EqualValues(t, tc.call.Name, msg.Name)
 			assert.EqualValues(t, tc.call.ID, msg.ToolCallId)
 			assert.Len(t, msg.Items, 1)
-			assert.EqualValues(t, tc.content, msg.Items[0].Data)
-			assert.EqualValues(t, tc.content, msg.Content)
+			assert.EqualValues(t, tc.expectedTxt, msg.Items[0].Data)
+			assert.EqualValues(t, tc.expectedTxt, msg.Content)
 		})
 	}
 }
