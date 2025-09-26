@@ -219,3 +219,36 @@ func (s *Service) AddUserResponseMessage(ctx context.Context, turn *memory.TurnM
 
 // NormalizeAction is kept for backward compatibility; use action.Normalize.
 func NormalizeAction(a string) string { return elact.Normalize(a) }
+
+// HandleCallback processes an elicitation decision end-to-end:
+// - normalizes the action
+// - updates message status
+// - stores payload (when accepted)
+// - notifies any registered router waiter
+func (s *Service) HandleCallback(ctx context.Context, convID, elicitationID, action string, payload map[string]interface{}) error {
+	// Deprecated: prefer Resolve
+	return s.Resolve(ctx, convID, elicitationID, action, payload)
+}
+
+// Resolve processes an elicitation decision end-to-end:
+// - normalizes the action
+// - updates message status
+// - stores payload (when accepted)
+// - notifies any registered router waiter
+func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action string, payload map[string]interface{}) error {
+	if strings.TrimSpace(convID) == "" || strings.TrimSpace(elicitationID) == "" {
+		return fmt.Errorf("conversation and elicitation id required")
+	}
+	act := elact.Normalize(action)
+	if err := s.UpdateStatus(ctx, convID, elicitationID, act); err != nil {
+		return err
+	}
+	if elact.ToStatus(act) == elact.StatusAccepted && payload != nil {
+		if err := s.StorePayload(ctx, convID, elicitationID, payload); err != nil {
+			return err
+		}
+	}
+	out := &schema.ElicitResult{Action: schema.ElicitResultAction(act), Content: payload}
+	s.router.AcceptByElicitation(convID, elicitationID, out)
+	return nil
+}

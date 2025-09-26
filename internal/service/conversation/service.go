@@ -2,11 +2,8 @@ package conversation
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"runtime/debug"
 	"strings"
 	"unsafe"
 
@@ -128,10 +125,7 @@ func (s *Service) GetConversation(ctx context.Context, id string, options ...con
 	}
 
 	if len(out.Data) == 0 {
-		noDataOutput, _ := json.Marshal(out)
-		in, _ := json.Marshal(in)
-		debug.PrintStack()
-		fmt.Printf("failed to get conversation %v\nin:%v\nout: %v", id, string(in), string(noDataOutput))
+		// No conversation found; mirror API behavior by returning nil without logging.
 		return nil, nil
 	}
 	// Cast generated to SDK type

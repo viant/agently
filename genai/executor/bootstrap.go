@@ -11,6 +11,7 @@ import (
 	"github.com/viant/agently/adapter/tool"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/elicitation"
+	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
 	agentrepo "github.com/viant/agently/internal/repository/agent"
@@ -234,6 +235,10 @@ func (e *Service) initMcp() {
 	}
 
 	if e.clientHandler == nil {
+		// Ensure router is not nil for elicitation service
+		if e.elicitationRouter == nil {
+			e.elicitationRouter = elicrouter.New()
+		}
 		// Build elicitation service for MCP client; provide router and optional interactive awaiter
 		el := elicitation.New(e.convClient, nil, e.elicitationRouter, e.newAwaiter)
 		e.clientHandler = clientmcp.NewClient(el, e.convClient, nil)

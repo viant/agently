@@ -19,6 +19,21 @@ func Refine(rs *schema.ElicitRequestParamsRequestedSchema) {
 		if _, has := prop["type"]; !has {
 			prop["type"] = "string"
 		}
+		// Ensure sensible defaults and UI hints per type
+		if t, _ := prop["type"].(string); t == "array" {
+			// Default empty array instead of object to avoid UI initializing to {}
+			if _, has := prop["default"]; !has {
+				prop["default"] = []any{}
+			}
+			// When items are strings, prefer a tags-style widget for better UX
+			if it, ok := prop["items"].(map[string]any); ok {
+				if itType, _ := it["type"].(string); itType == "string" {
+					if _, has := prop["x-ui-widget"]; !has {
+						prop["x-ui-widget"] = "tags"
+					}
+				}
+			}
+		}
 		if _, has := prop["format"]; !has {
 			hint := strings.ToLower(convToString(prop["title"]) + " " + convToString(prop["description"]))
 			if strings.Contains(hint, "yyyy-mm-dd") || strings.Contains(hint, "yyyy/mm/dd") {
