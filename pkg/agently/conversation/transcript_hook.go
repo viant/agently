@@ -56,17 +56,27 @@ func computeTurnStage(t *TranscriptView) string {
 	if t == nil || len(t.Message) == 0 {
 		return StageWaiting
 	}
+	// If turn itself is canceled, treat as completed
+	if strings.EqualFold(strings.TrimSpace(t.Status), "canceled") {
+		return StageDone
+	}
 	lastRole := ""
 	lastAssistantElic := false
 	lastToolRunning := false
 	lastToolFailed := false
 	lastModelRunning := false
+	lastAssistantCanceled := false
 
-	// Iterate messages backwards to find the latest non-interim one
+	// Iterate messages backwards to find cancellation or the latest non-interim one
 	for i := len(t.Message) - 1; i >= 0; i-- {
 		m := t.Message[i]
 		if m == nil {
 			continue
+		}
+		// If the latest assistant message is explicitly canceled (even interim), drop to waiting
+		if strings.EqualFold(strings.TrimSpace(m.Role), "assistant") && m.Status != nil && strings.EqualFold(strings.TrimSpace(*m.Status), "canceled") {
+			lastAssistantCanceled = true
+			break
 		}
 		if m.Interim != 0 {
 			continue
@@ -97,6 +107,8 @@ func computeTurnStage(t *TranscriptView) string {
 	}
 
 	switch {
+	case lastAssistantCanceled:
+		return StageDone
 	case lastToolRunning:
 		return StageExecuting
 	case lastAssistantElic:

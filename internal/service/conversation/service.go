@@ -9,6 +9,7 @@ import (
 
 	convcli "github.com/viant/agently/client/conversation"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
+	convdel "github.com/viant/agently/pkg/agently/conversation/delete"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	messageread "github.com/viant/agently/pkg/agently/message/read"
 	msgwrite "github.com/viant/agently/pkg/agently/message/write"
@@ -70,6 +71,9 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 		return err
 	}
 	if _, err := payloadwrite.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := convdel.DefineComponent(ctx, dao); err != nil {
 		return err
 	}
 	return nil
@@ -274,6 +278,27 @@ func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) erro
 	_, err := s.dao.Operate(ctx,
 		datly.WithPath(contract.NewPath(http.MethodPatch, turnwrite.PathURI)),
 		datly.WithInput(input),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return err
+	}
+	if len(out.Violations) > 0 {
+		return errors.New(out.Violations[0].Message)
+	}
+	return nil
+}
+
+// DeleteConversation removes a conversation by id. Dependent rows are removed via DB FKs (ON DELETE CASCADE).
+func (s *Service) DeleteConversation(ctx context.Context, id string) error {
+	if s == nil || s.dao == nil || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	in := &convdel.Input{Ids: []string{id}}
+	out := &convdel.Output{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath(http.MethodDelete, convdel.PathURI)),
+		datly.WithInput(in),
 		datly.WithOutput(out),
 	)
 	if err != nil {

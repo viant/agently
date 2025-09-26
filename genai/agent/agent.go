@@ -14,6 +14,13 @@ type (
 		URL string `yaml:"url,omitempty" json:"url,omitempty"`
 	}
 
+	// ToolCallExposure controls how tool calls are exposed back to the LLM prompt
+	// and templates. Supported modes:
+	// - "turn": include only tool calls from the current turn
+	// - "conversation": include tool calls from the whole conversation
+	// - "semantic": reserved for future use (provider-native tool semantics)
+	ToolCallExposure string
+
 	// Agent represents an agent
 	Agent struct {
 		Identity `yaml:",inline" json:",inline"`
@@ -29,6 +36,9 @@ type (
 		SystemPrompt    *prompt.Prompt `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
 		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
 		Tool            []*llm.Tool    `yaml:"tool,omitempty" json:"tool,omitempty"`
+
+		// ToolCallExposure defines how tool calls are exposed to the LLM
+		ToolCallExposure ToolCallExposure `yaml:"toolCallExposure,omitempty" json:"toolCallExposure,omitempty"`
 
 		// Elicitation optionally defines required context schema that must be
 		// satisfied before the agent can execute its workflow. When provided, the

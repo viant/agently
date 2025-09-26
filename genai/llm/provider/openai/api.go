@@ -132,6 +132,10 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	c.HTTPClient.Timeout = 10 * time.Minute
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
+		// Ensure model-call is finalized for cancellation/error cases
+		if observer != nil {
+			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", CompletedAt: time.Now(), Err: err.Error()})
+		}
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -141,6 +145,9 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		if observer != nil {
+			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Err: fmt.Sprintf("status %d", resp.StatusCode)})
+		}
 		return nil, fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, respBytes)
 	}
 	lr, perr := c.parseGenerateResponse(req.Model, respBytes)
@@ -264,6 +271,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
+		if observer != nil {
+			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", CompletedAt: time.Now(), Err: err.Error()})
+		}
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	events := make(chan llm.StreamEvent)

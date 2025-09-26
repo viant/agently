@@ -57,25 +57,41 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 	span.SetEnd(time.Now())
 
-	// 5) Persist response payload
-	respID, respErr := persistResponsePayload(ctx, conv, toolResult)
+	// 5) Persist response payload (use background when canceled to avoid DB write cancellation)
+	persistCtx := ctx
+	if ctx.Err() == context.Canceled {
+		persistCtx = context.Background()
+	}
+	respID, respErr := persistResponsePayload(persistCtx, conv, toolResult)
 	if respErr != nil {
 		errs = append(errs, fmt.Errorf("persist response payload: %w", respErr))
 	}
 
 	// 6) Update tool message with result content
-	if uErr := updateToolMessageContent(ctx, conv, toolMsgID, toolResult); uErr != nil {
+	if uErr := updateToolMessageContent(persistCtx, conv, toolMsgID, toolResult); uErr != nil {
 		errs = append(errs, fmt.Errorf("update tool message: %w", uErr))
 	}
 
 	// 7) Finish tool call (record error message when present)
 	status := "completed"
 	var errMsg string
+	// Detect cancellation originating from context
 	if execErr != nil {
-		status = "failed"
-		errMsg = execErr.Error()
+		if errors.Is(execErr, context.Canceled) || ctx.Err() == context.Canceled {
+			status = "canceled"
+		} else {
+			status = "failed"
+			errMsg = execErr.Error()
+		}
+	} else if ctx.Err() == context.Canceled {
+		status = "canceled"
 	}
-	if cErr := completeToolCall(ctx, conv, toolMsgID, status, span.EndedAt, respID, errMsg); cErr != nil {
+	// Use background for final write when terminated to avoid canceled ctx
+	finCtx := ctx
+	if status == "canceled" {
+		finCtx = context.Background()
+	}
+	if cErr := completeToolCall(finCtx, conv, toolMsgID, status, span.EndedAt, respID, errMsg); cErr != nil {
 		errs = append(errs, fmt.Errorf("complete tool call: %w", cErr))
 	}
 

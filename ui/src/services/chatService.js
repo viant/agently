@@ -53,6 +53,26 @@ const initialFetchDoneByConv = new Set();
 export async function onInit({context}) {
 
     try {
+        // Prevent DS loading from disabling composer or showing Abort during initial fetch
+        context.resources = context.resources || {};
+        context.resources.suppressMessagesLoading = true;
+        try {
+            const msgCtx = context.Context('messages');
+            const ctrlSig = msgCtx?.signals?.control;
+            if (ctrlSig) {
+                const prev = (typeof ctrlSig.peek === 'function') ? (ctrlSig.peek() || {}) : (ctrlSig.value || {});
+                ctrlSig.value = {...prev, loading: false};
+                // eslint-disable-next-line no-console
+                console.debug('[chat][init] suppressMessagesLoading=true; control.loading=false');
+            }
+            // Also ensure conversations form has running=false initially
+            try {
+                const convCtx = context.Context('conversations');
+                convCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'running' }, value: false });
+                console.debug('[chat][init] conversations.running=false');
+            } catch(_) {}
+        } catch(_) {}
+
         const convCtx = context.Context('conversations');
         const handlers = convCtx?.handlers?.dataSource;
         const start = Date.now();
@@ -926,6 +946,13 @@ export async function submitMessage(props) {
             body.agent = parameters.agent;
         }
 
+        // Mark conversation running so UI can show Abort based on data-driven selector
+        try {
+            const convCtx = context.Context('conversations');
+            convCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'running' }, value: true });
+            console.debug('[chat][submit] conversations.running=true');
+        } catch(_) {}
+
         // Post user message
         const postResp = await messagesAPI.post({
             inputParameters: {convID},
@@ -990,8 +1017,6 @@ export async function onUpload(props) {
             // Some backends return single object or wrap under {data: {...}}
             list = list.files || list.data || [list];
         }
-        log.debug('[chat] onUpload raw props', props);
-        log.debug('[chat] onUpload normalized list', list);
         if (!list || list.length === 0) return;
         const normalized = list.map(a => {
             const src = a?.data || a;
@@ -1002,17 +1027,14 @@ export async function onUpload(props) {
             const size = src?.size || src?.length || src?.bytes;
             return { name, size, stagingFolder: folder, uri, mime };
         }).filter(x => x && x.uri);
-        log.debug('[chat] onUpload normalized attachments', normalized);
         if (!normalized.length) return;
         // Update composer message when provided
         if (message) {
             if (!Array.isArray(message.attachments)) message.attachments = [];
             message.attachments.push(...normalized);
-            log.debug('[chat] message.attachments after onUpload', message.attachments);
         }
         // Also stash globally to ensure submit picks them up
         pendingUploads.push(...normalized);
-        log.debug('[chat] pendingUploads after onUpload', pendingUploads);
     } catch (e) {
         // eslint-disable-next-line no-console
         log.warn('chat.onUpload: failed to attach uploads', e);
@@ -1035,7 +1057,6 @@ export async function abortConversation(props) {
 
     try {
         const convCtx = context.Context('conversations');
-        const convAPI = convCtx?.connector;
         const convID = convCtx?.handlers?.dataSource?.peekFormData?.()?.id ||
             convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id;
 
@@ -1044,20 +1065,79 @@ export async function abortConversation(props) {
             return false;
         }
 
-        await convAPI.post({
-            uri: `/v1/api/conversations/${encodeURIComponent(convID)}/terminate`,
-            inputParameters: {id: convID},
-        });
-
-        // Optimistic stage update; backend will publish final stage via polling.
-        setStage({phase: 'aborted'});
-
+        // Build absolute URL using configured agentlyAPI endpoint
+        const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+        const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/terminate`;
+        const resp = await fetch(url, { method: 'POST' });
+        let payload = null;
+        try {
+            // 204 → no body; guard parsing
+            const text = await resp.text();
+            if (text) payload = JSON.parse(text);
+        } catch (_) {}
+        const statusStr = resp.ok ? 'ok' : String(resp.status || 'error');
+        // Update running only when termination succeeded (cancelled=true)
+        const cancelled = !!(payload && payload.data && payload.data.cancelled);
+        if (cancelled) {
+            setStage({phase: 'terminated'});
+            try {
+                const convCtx2 = context.Context('conversations');
+                convCtx2?.handlers?.dataSource?.setFormField?.({ item: { id: 'running' }, value: false });
+            } catch(_) {}
+        }
         return true;
     } catch (err) {
         log.error('chatService.abortConversation error', err);
         // Show error in UI if possible.
         const convCtx = context.Context('conversations');
         convCtx?.handlers?.setError?.(err);
+        return false;
+    }
+}
+
+/**
+ * Deletes the selected conversation from the history list and refreshes the datasource.
+ */
+export async function deleteConversation({context}) {
+    try {
+        const historyCtx = context?.Context('history') || context?.Context('conversations');
+        const ds = historyCtx?.handlers?.dataSource;
+        const sel = ds?.peekSelection?.();
+        const id = sel?.selected?.id || ds?.peekFormData?.()?.id;
+        if (!id) {
+            log.warn('chatService.deleteConversation – no conversation selected');
+            return false;
+        }
+        const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+        const url = `${base}/v1/api/conversations/${encodeURIComponent(id)}`;
+        const resp = await fetch(url, { method: 'DELETE' });
+        if (!resp.ok && resp.status !== 204) {
+            const text = await resp.text();
+            throw new Error(text || `delete failed: ${resp.status}`);
+        }
+        // Refresh the history browser table only using DS handlers
+        try {
+            ds?.resetSelection?.();
+            ds?.fetchCollection?.();
+        } catch(_) {}
+        // If this conversation is open in messages, clear it locally
+        try {
+            const convCtx = context.Context('conversations');
+            const convHandlers = convCtx?.handlers?.dataSource;
+            const form = convHandlers?.peekFormData?.() || {};
+            if (form.id === id) {
+                convHandlers?.setFormData?.({values: {id: ''}});
+                const messagesCtx = context.Context('messages');
+                const msgHandlers = messagesCtx?.handlers?.dataSource;
+                msgHandlers?.setCollection?.([]);
+                msgHandlers?.resetSelection?.();
+                // Trigger a DS-driven refresh to propagate cleared state
+                try { msgHandlers?.fetchCollection?.(); } catch(_) {}
+            }
+        } catch (_) {}
+        return true;
+    } catch (err) {
+        log.error('chatService.deleteConversation error', err);
         return false;
     }
 }
@@ -1280,6 +1360,8 @@ function computeUsageFromMessages(messages = [], conversationId = '') {
 export const chatService = {
     submitMessage,
     upload,
+    abortConversation,
+    deleteConversation,
     onInit,
     onDestroy,
     onMetaLoaded,
@@ -1361,15 +1443,8 @@ function onMetaLoaded(args) {
 // the collection path is left untouched and onSuccess can map to the form.
 function onFetchMeta(args) {
     const {collection = []} = args;
-    log.debug('[settings] onFetchMeta', collection);
-
     const updated = collection.map(data => {
-
-        const agentInfo = data.agentInfo || {};
-
-        log.debug('agentInfo', agentInfo)
-
-
+       const agentInfo = data.agentInfo || {};
         const agentsRaw = Array.isArray(data?.agents)
             ? data.agents
             : (data?.agentInfo ? Object.keys(data.agentInfo) : []);

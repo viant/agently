@@ -10,7 +10,7 @@ import (
 	"github.com/viant/afs"
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
-	"github.com/viant/agently/genai/agent"
+	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/prompt"
@@ -25,7 +25,7 @@ import (
 
 // Ensure Service implements interfaces.Loader so that changes are caught by
 // the compiler.
-var _ agent.Loader = (*Service)(nil)
+var _ agentmdl.Loader = (*Service)(nil)
 
 const (
 	defaultExtension = ".yaml"
@@ -34,18 +34,18 @@ const (
 // Service provides agent data access operations
 type Service struct {
 	metaService *meta.Service
-	agents      shared.Map[string, *agent.Agent] //[ url ] -> [ agent]
+	agents      shared.Map[string, *agentmdl.Agent] //[ url ] -> [ agent]
 
 	defaultExtension string
 }
 
 // LoadAgents loads an agents from the specified URL
-func (s *Service) LoadAgents(ctx context.Context, URL string) ([]*agent.Agent, error) {
+func (s *Service) LoadAgents(ctx context.Context, URL string) ([]*agentmdl.Agent, error) {
 	candidates, err := s.metaService.List(ctx, URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agent from %s: %w", URL, err)
 	}
-	var result []*agent.Agent
+	var result []*agentmdl.Agent
 	for _, candidate := range candidates {
 		anAgent, err := s.Load(ctx, candidate)
 		if err != nil {
@@ -57,10 +57,10 @@ func (s *Service) LoadAgents(ctx context.Context, URL string) ([]*agent.Agent, e
 
 }
 
-func (s *Service) List() []*agent.Agent {
-	result := make([]*agent.Agent, 0)
+func (s *Service) List() []*agentmdl.Agent {
+	result := make([]*agentmdl.Agent, 0)
 	s.agents.Range(
-		func(key string, value *agent.Agent) bool {
+		func(key string, value *agentmdl.Agent) bool {
 			result = append(result, value)
 			return true
 		})
@@ -68,12 +68,12 @@ func (s *Service) List() []*agent.Agent {
 }
 
 // Add adds an agent to the service
-func (s *Service) Add(name string, agent *agent.Agent) {
+func (s *Service) Add(name string, agent *agentmdl.Agent) {
 	s.agents.Set(name, agent)
 }
 
 // Lookup looks up an agent by name
-func (s *Service) Lookup(ctx context.Context, name string) (*agent.Agent, error) {
+func (s *Service) Lookup(ctx context.Context, name string) (*agentmdl.Agent, error) {
 	anAgent, ok := s.agents.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found", name)
@@ -82,7 +82,7 @@ func (s *Service) Lookup(ctx context.Context, name string) (*agent.Agent, error)
 }
 
 // Load loads an agent from the specified URL
-func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agent.Agent, error) {
+func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Agent, error) {
 	// Resolve relative name (e.g. "chat") to a workspace file path.
 	// All other workspace kinds store definitions flat as
 	//   <kind>/<name>.yaml
@@ -114,8 +114,8 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agent.Agent
 		return nil, fmt.Errorf("failed to load agent from %s: %w", URL, err)
 	}
 
-	anAgent := &agent.Agent{
-		Source: &agent.Source{
+	anAgent := &agentmdl.Agent{
+		Source: &agentmdl.Source{
 			URL: URL,
 		},
 	}
@@ -165,7 +165,7 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agent.Agent
 
 // resolvePromptURIs updates agent Prompt/SystemPrompt URI when relative by
 // resolving them against the agent source URL directory.
-func (s *Service) resolvePromptURIs(a *agent.Agent) {
+func (s *Service) resolvePromptURIs(a *agentmdl.Agent) {
 	if a == nil || a.Source == nil || strings.TrimSpace(a.Source.URL) == "" {
 		return
 	}
@@ -187,7 +187,7 @@ func (s *Service) resolvePromptURIs(a *agent.Agent) {
 }
 
 // parseAgent parses agent properties from a YAML node
-func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
+func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 	rootNode := node
 	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
 		rootNode = (*yml.Node)(node.Content[0])
@@ -336,6 +336,11 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 				}
 				agent.Persona = &p
 			}
+		case "toolexposure", "toolcallexposure":
+			// Accept scalar values: turn | conversation | semantic
+			if valueNode.Kind == yaml.ScalarNode {
+				agent.ToolCallExposure = agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(valueNode.Value)))
+			}
 		}
 		return nil
 	})
@@ -428,12 +433,12 @@ func inferPromptEngine(p *prompt.Prompt) {
 }
 
 // parseKnowledge parses a knowledge entry from a YAML node
-func parseKnowledge(node *yml.Node) (*agent.Knowledge, error) {
+func parseKnowledge(node *yml.Node) (*agentmdl.Knowledge, error) {
 	if node.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("knowledge node should be a mapping")
 	}
 
-	knowledge := &agent.Knowledge{}
+	knowledge := &agentmdl.Knowledge{}
 
 	err := node.Pairs(func(key string, valueNode *yml.Node) error {
 		lowerKey := strings.ToLower(key)
@@ -517,7 +522,7 @@ func New(opts ...Option) *Service {
 	ret := &Service{
 		metaService:      meta.New(afs.New(), ""),
 		defaultExtension: defaultExtension,
-		agents:           shared.NewMap[string, *agent.Agent](),
+		agents:           shared.NewMap[string, *agentmdl.Agent](),
 	}
 	for _, opt := range opts {
 		opt(ret)

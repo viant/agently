@@ -54,7 +54,12 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		}
 		b.Flags.CanUseTool = s.llm != nil && s.llm.ModelImplements(ctx, model, base.CanUseTools)
 	}
-	if execs, err := s.buildToolExecutions(ctx, input, conv); err != nil {
+	// Tool executions exposure controlled by agent.ToolCallExposure; default to "turn"
+	exposure := agent.ToolCallExposure("turn")
+	if input.Agent != nil && strings.TrimSpace(string(input.Agent.ToolCallExposure)) != "" {
+		exposure = input.Agent.ToolCallExposure
+	}
+	if execs, err := s.buildToolExecutions(ctx, input, conv, exposure); err != nil {
 		return nil, err
 	} else if len(execs) > 0 {
 		b.Tools.Executions = execs
@@ -122,45 +127,63 @@ func (s *Service) buildHistory(ctx context.Context, conv *apiconv.Conversation) 
 }
 
 // buildToolExecutions extracts tool calls from the provided conversation transcript for the current turn.
-func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, conv *apiconv.Conversation) ([]*llm.ToolCall, error) {
+func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, conv *apiconv.Conversation, exposure agent.ToolCallExposure) ([]*llm.ToolCall, error) {
 	turnMeta, ok := memory.TurnMetaFromContext(ctx)
 	if !ok || strings.TrimSpace(turnMeta.TurnID) == "" {
 		return nil, nil
 	}
 	transcript := conv.GetTranscript()
-	// Find current turn
-	var aTurn *apiconv.Turn
-	for _, t := range transcript {
-		if t != nil && t.Id == turnMeta.TurnID {
-			aTurn = t
-			break
+	buildFromTurn := func(t *apiconv.Turn) []*llm.ToolCall {
+		var out []*llm.ToolCall
+		if t == nil {
+			return out
 		}
-	}
-	if aTurn == nil {
-		return nil, nil
-	}
-	// Build tool calls from messages in current turn
-	var out []*llm.ToolCall
-	for _, m := range aTurn.ToolCalls() {
-		args := map[string]interface{}{}
-		// Prefer request payload (inline body JSON) for arguments
-		if m.ToolCall.RequestPayload != nil && m.ToolCall.RequestPayload.InlineBody != nil {
-			raw := strings.TrimSpace(*m.ToolCall.RequestPayload.InlineBody)
-			if raw != "" {
-				var parsed map[string]interface{}
-				if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
-					args = parsed
+		for _, m := range t.ToolCalls() {
+			args := map[string]interface{}{}
+			// Prefer request payload (inline body JSON) for arguments
+			if m.ToolCall.RequestPayload != nil && m.ToolCall.RequestPayload.InlineBody != nil {
+				raw := strings.TrimSpace(*m.ToolCall.RequestPayload.InlineBody)
+				if raw != "" {
+					var parsed map[string]interface{}
+					if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+						args = parsed
+					}
 				}
 			}
+			result := ""
+			if m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
+				result = strings.TrimSpace(*m.ToolCall.ResponsePayload.InlineBody)
+			}
+			tc := llm.NewToolCall(m.ToolCall.OpId, m.ToolCall.ToolName, args, result)
+			out = append(out, &tc)
 		}
-		result := ""
-		if m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
-			result = strings.TrimSpace(*m.ToolCall.ResponsePayload.InlineBody)
-		}
-		tc := llm.NewToolCall(m.ToolCall.OpId, m.ToolCall.ToolName, args, result)
-		out = append(out, &tc)
+		return out
 	}
-	return out, nil
+
+	switch strings.ToLower(string(exposure)) {
+	case "conversation":
+		var out []*llm.ToolCall
+		for _, t := range transcript {
+			out = append(out, buildFromTurn(t)...)
+		}
+		return out, nil
+	case "turn", "":
+		// Find current turn only
+		var aTurn *apiconv.Turn
+		for _, t := range transcript {
+			if t != nil && t.Id == turnMeta.TurnID {
+				aTurn = t
+				break
+			}
+		}
+		if aTurn == nil {
+			return nil, nil
+		}
+		return buildFromTurn(aTurn), nil
+	default:
+		// Unrecognised/semantic: do not include tool calls for now
+		return nil, nil
+	}
 }
 
 func (s *Service) buildToolSignatures(input *QueryInput) ([]*llm.ToolDefinition, bool, error) {

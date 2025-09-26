@@ -16,4 +16,5 @@ type Client interface {
 	PatchModelCall(ctx context.Context, modelCall *MutableModelCall) error
 	PatchToolCall(ctx context.Context, toolCall *MutableToolCall) error
 	PatchTurn(ctx context.Context, turn *MutableTurn) error
+	DeleteConversation(ctx context.Context, id string) error
 }
