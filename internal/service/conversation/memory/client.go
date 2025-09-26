@@ -43,6 +43,8 @@ func (c *Client) GetConversations(_ context.Context) ([]*convcli.Conversation, e
 	out := make([]*convcli.Conversation, 0, len(c.conversations))
 	for _, v := range c.conversations {
 		cp := cloneConversationView(v)
+		// Compute aggregated usage across entire conversation (not filtered)
+		cp.Usage = c.aggregateUsage(v.Id)
 		// Remove transcript for list view
 		cp.Transcript = nil
 		out = append(out, toClientConversation(cp))
@@ -72,12 +74,129 @@ func (c *Client) GetConversation(_ context.Context, id string, options ...convcl
 	// Build input from options
 	in := buildInput(id, options)
 
-	// Clone and filter conversation according to options
+	// Clone first; aggregate usage against full conversation (not subject to since filter)
 	cp := cloneConversationView(conv)
+	cp.Usage = c.aggregateUsage(id)
 	applySinceFilter(cp, &in)
 	applyIncludeFlags(cp, &in)
 
 	return toClientConversation(cp), nil
+}
+
+// aggregateUsage builds a UsageView equivalent to SQL aggregation for a conversation.
+func (c *Client) aggregateUsage(conversationID string) *agconv.UsageView {
+	if strings.TrimSpace(conversationID) == "" {
+		return nil
+	}
+	// Accumulate totals and per-model stats
+	type acc struct {
+		pt, pct, pat, ct, crt, cat, capt, crpt, tt int
+	}
+	totals := acc{}
+	byModel := map[string]*acc{}
+
+	// Walk message index for matching conversation
+	for _, m := range c.messages {
+		if m == nil || m.ConversationId != conversationID || m.ModelCall == nil {
+			continue
+		}
+		mc := m.ModelCall
+		// Helper: fetch or create model accumulator
+		get := func(model string) *acc {
+			if v, ok := byModel[model]; ok {
+				return v
+			}
+			v := &acc{}
+			byModel[model] = v
+			return v
+		}
+		mac := get(mc.Model)
+
+		v := func(p *int) int {
+			if p != nil {
+				return *p
+			}
+			return 0
+		}
+
+		// Prompt
+		x := v(mc.PromptTokens)
+		totals.pt += x
+		mac.pt += x
+		x = v(mc.PromptCachedTokens)
+		totals.pct += x
+		mac.pct += x
+		x = v(mc.PromptAudioTokens)
+		totals.pat += x
+		mac.pat += x
+
+		// Completion
+		x = v(mc.CompletionTokens)
+		totals.ct += x
+		mac.ct += x
+		x = v(mc.CompletionReasoningTokens)
+		totals.crt += x
+		mac.crt += x
+		x = v(mc.CompletionAudioTokens)
+		totals.cat += x
+		mac.cat += x
+		x = v(mc.CompletionAcceptedPredictionTokens)
+		totals.capt += x
+		mac.capt += x
+		x = v(mc.CompletionRejectedPredictionTokens)
+		totals.crpt += x
+		mac.crpt += x
+
+		// Total
+		x = v(mc.TotalTokens)
+		totals.tt += x
+		mac.tt += x
+	}
+
+	// No model calls → mirror SQL behavior (no row)
+	if len(byModel) == 0 && totals.pt == 0 && totals.ct == 0 && totals.tt == 0 && totals.pct == 0 && totals.pat == 0 && totals.crt == 0 && totals.cat == 0 && totals.capt == 0 && totals.crpt == 0 {
+		return nil
+	}
+
+	pint := func(i int) *int { v := i; return &v }
+
+	// Build usage view with per-model breakdown (stable order by model)
+	models := make([]*agconv.ModelView, 0, len(byModel))
+	keys := make([]string, 0, len(byModel))
+	for k := range byModel {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		a := byModel[k]
+		models = append(models, &agconv.ModelView{
+			ConversationId:                     conversationID,
+			Model:                              k,
+			PromptTokens:                       pint(a.pt),
+			PromptCachedTokens:                 pint(a.pct),
+			PromptAudioTokens:                  pint(a.pat),
+			CompletionTokens:                   pint(a.ct),
+			CompletionReasoningTokens:          pint(a.crt),
+			CompletionAudioTokens:              pint(a.cat),
+			CompletionAcceptedPredictionTokens: pint(a.capt),
+			CompletionRejectedPredictionTokens: pint(a.crpt),
+			TotalTokens:                        pint(a.tt),
+		})
+	}
+
+	return &agconv.UsageView{
+		ConversationId:                     conversationID,
+		PromptTokens:                       pint(totals.pt),
+		PromptCachedTokens:                 pint(totals.pct),
+		PromptAudioTokens:                  pint(totals.pat),
+		CompletionTokens:                   pint(totals.ct),
+		CompletionReasoningTokens:          pint(totals.crt),
+		CompletionAudioTokens:              pint(totals.cat),
+		CompletionAcceptedPredictionTokens: pint(totals.capt),
+		CompletionRejectedPredictionTokens: pint(totals.crpt),
+		TotalTokens:                        pint(totals.tt),
+		Model:                              models,
+	}
 }
 
 // PatchConversations upserts conversations and merges fields according to Has flags.
@@ -135,6 +254,30 @@ func (c *Client) GetMessage(_ context.Context, id string) (*convcli.Message, err
 		return nil, nil
 	}
 	return toClientMessage(copyMessage(m)), nil
+}
+
+// GetMessageByElicitation returns a message matching the given conversation and elicitation IDs.
+func (c *Client) GetMessageByElicitation(_ context.Context, conversationID, elicitationID string) (*convcli.Message, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	conv, ok := c.conversations[conversationID]
+	if !ok || conv == nil || conv.Transcript == nil {
+		return nil, nil
+	}
+	for _, t := range conv.Transcript {
+		if t == nil || t.Message == nil {
+			continue
+		}
+		for _, m := range t.Message {
+			if m == nil || m.ElicitationId == nil {
+				continue
+			}
+			if *m.ElicitationId == elicitationID {
+				return toClientMessage(copyMessage(m)), nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 // PatchMessage upserts a message and places it into its conversation/turn transcript.

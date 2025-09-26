@@ -48,6 +48,34 @@ export default function ElicitionForm({message, context}) {
             return {};
         }
     }, [requestedSchema]);
+
+    // Prepare schema to fix array/object defaults so form controls are editable
+    const preparedSchema = useMemo(() => {
+        try {
+            if (!requestedSchema || typeof requestedSchema !== 'object') return requestedSchema;
+            const clone = JSON.parse(JSON.stringify(requestedSchema));
+            const props = (clone.properties = clone.properties || {});
+            Object.keys(props).forEach((key) => {
+                const p = props[key];
+                if (!p || typeof p !== 'object') return;
+                const t = (p.type || '').toLowerCase();
+                if (t === 'array') {
+                    if (p.default === undefined) p.default = [];
+                    const it = p.items || {};
+                    const itType = (it.type || '').toLowerCase();
+                    if (itType === 'string' && !p['x-ui-widget']) {
+                        p['x-ui-widget'] = 'tags';
+                    }
+                } else if (t === 'object') {
+                    if (p.default === undefined) p.default = {};
+                }
+                props[key] = p;
+            });
+            return clone;
+        } catch(_) {
+            return requestedSchema;
+        }
+    }, [requestedSchema]);
     // no-op
 
     const closeLocal = () => {
@@ -87,6 +115,32 @@ export default function ElicitionForm({message, context}) {
 
     const wrapperId = `elic-form-${id}`;
     const hasSchemaProps = !!(requestedSchema && requestedSchema.properties && Object.keys(requestedSchema.properties).length > 0);
+    const simpleArrayKey = useMemo(() => {
+        try {
+            if (!hasSchemaProps) return null;
+            const keys = Object.keys(requestedSchema.properties || {});
+            if (keys.length !== 1) return null;
+            const k = keys[0];
+            const p = requestedSchema.properties[k] || {};
+            if ((p.type || '').toLowerCase() !== 'array') return null;
+            const it = p.items || {};
+            if ((it.type || '').toLowerCase() !== 'string') return null;
+            return k;
+        } catch(_) { return null; }
+    }, [requestedSchema, hasSchemaProps]);
+    const isSingleArrayStringSchema = !!simpleArrayKey;
+    const [arrayInput, setArrayInput] = useState(() => {
+        try {
+            if (!simpleArrayKey) return '';
+            const d = defaultsPayload[simpleArrayKey];
+            if (Array.isArray(d)) return d.join(', ');
+            return '';
+        } catch(_) { return ''; }
+    });
+    const parseArrayInput = (s) => (s || '')
+        .split(/[,\n]/)
+        .map(v => (v||'').trim())
+        .filter(v => v.length > 0);
     const isOOB = (mode === 'oob') || (!!url && !hasSchemaProps);
     try { console.debug('[ElicitionForm:init]', {id, mode, url, callbackURL, hasSchemaProps, isOOB}); } catch(_) {}
     const pickBoundValues = () => {
@@ -213,11 +267,12 @@ export default function ElicitionForm({message, context}) {
                 )}
 
                 {/* Inline JSON schema mode */}
-                {hasSchemaProps && (
+                {hasSchemaProps && !isSingleArrayStringSchema && (
                     <div id={wrapperId}>
                         <SchemaBasedForm
                             showSubmit={false}
-                            schema={requestedSchema}
+                            schema={preparedSchema}
+                            data={defaultsPayload}
                             dataBinding={`window.state.answers.${id}`}
                             transport="post"
                             onChange={(payload) => setFormValues(normalizeValues(payload))}
@@ -228,6 +283,17 @@ export default function ElicitionForm({message, context}) {
                         />
                     </div>
 
+                )}
+                {isSingleArrayStringSchema && (
+                    <div style={{marginTop: 8}}>
+                        <label htmlFor={`arr-${id}`} style={{display:'block', fontWeight:600}}>
+                            {(simpleArrayKey || 'Items').charAt(0).toUpperCase() + (simpleArrayKey || 'Items').slice(1)}
+                        </label>
+                        <textarea id={`arr-${id}`} rows={3} style={{width:'100%'}}
+                                  placeholder="Enter comma or newline separated values"
+                                  value={arrayInput}
+                                  onChange={e => setArrayInput(e.target.value)} />
+                    </div>
                 )}
 
                 {error && <p style={{color: 'red', marginTop: 8}}>{error}</p>}
@@ -249,12 +315,19 @@ export default function ElicitionForm({message, context}) {
                         Open
                       </Button>
                     ) : (
-                      hasSchemaProps ? (
+                      hasSchemaProps && !isSingleArrayStringSchema ? (
                         <Button intent="primary" onClick={triggerInnerSubmit} disabled={submitting}>
                           Submit
                         </Button>
                       ) : (
-                        <Button intent="primary" onClick={() => post('accept', {})} disabled={submitting}>
+                        <Button intent="primary" onClick={() => {
+                            if (isSingleArrayStringSchema) {
+                                const payload = { [simpleArrayKey]: parseArrayInput(arrayInput) };
+                                post('accept', payload);
+                            } else {
+                                post('accept', {});
+                            }
+                        }} disabled={submitting}>
                           Accept
                         </Button>
                       )

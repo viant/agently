@@ -14,11 +14,8 @@ import (
 	"errors"
 
 	"github.com/viant/agently/adapter/http/ui"
-	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/elicitation"
-	elact "github.com/viant/agently/genai/elicitation/action"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
-	"github.com/viant/mcp-protocol/schema"
 
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/tool"
@@ -104,6 +101,10 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		if o != nil {
 			o(s)
 		}
+	}
+	// Ensure elicitation router is always configured
+	if s.mcpRouter == nil {
+		s.mcpRouter = elicrouter.New()
 	}
 	s.chatSvc = chat.NewService()
 	s.chatSvc.AttachManager(mgr, s.toolPolicy, s.fluxPolicy)
@@ -419,39 +420,24 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 		encode(w, http.StatusBadRequest, nil, fmt.Errorf("action is required"))
 		return
 	}
-	// Persist status and payload/user message based on role
-	// Lookup original elicitation message by (convID, elicitationId)
 	if s.chatSvc == nil {
 		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
-	// Normalize to MCP action, derive message status for storage
-	act := elicitation.NormalizeAction(req.Action)
-	status := elact.ToStatus(act)
-
-	// Fetch elicitation message so we know role/turn/message id
-	elMsg, err := s.chatSvc.ConversationClient().GetMessageByElicitation(r.Context(), convID, elicID)
-	if err != nil || elMsg == nil {
-		encode(w, http.StatusNotFound, nil, fmt.Errorf("elicitation message not found"))
+	// Use elicitation service for status, payload and router notification
+	eliciationService := s.chatSvc.ElicitationService()
+	if eliciationService == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("elicitation service not initialised"))
 		return
 	}
-	// Update status in place (best-effort)
-	stMsg := apiconv.NewMessage()
-	stMsg.SetId(elMsg.Id)
-	stMsg.SetStatus(status)
-	_ = s.chatSvc.ConversationClient().PatchMessage(r.Context(), stMsg)
-
-	// On accepted: persist payload by linking to the elicitation message (both assistant and tool)
-	if status == elact.StatusAccepted && req.Payload != nil {
-		if s.chatSvc != nil && s.chatSvc.ElicitationService() != nil {
-			_ = s.chatSvc.ElicitationService().StorePayload(r.Context(), convID, elicID, req.Payload)
+	if err := eliciationService.Resolve(r.Context(), convID, elicID, req.Action, req.Payload); err != nil {
+		// Map not found to 404; everything else bubbles as 500
+		if strings.Contains(err.Error(), "elicitation message not found") {
+			encode(w, http.StatusNotFound, nil, err)
+			return
 		}
-	}
-
-	// Notify any waiting MCP client via router keyed by elicitationId
-	// Notify waiters via router
-	if s.mcpRouter != nil {
-		_ = s.mcpRouter.AcceptByElicitation(convID, elicID, &schema.ElicitResult{Action: schema.ElicitResultAction(act), Content: req.Payload})
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
 	}
 	encode(w, http.StatusNoContent, nil, nil)
 }

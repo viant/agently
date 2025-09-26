@@ -13,12 +13,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	mcpclient "github.com/viant/agently/adapter/mcp"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/conversation"
 	cancels "github.com/viant/agently/genai/conversation/cancel"
 	"github.com/viant/agently/genai/elicitation"
-	elact "github.com/viant/agently/genai/elicitation/action"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/tool"
@@ -29,7 +27,6 @@ import (
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
 	fservice "github.com/viant/forge/backend/service/file"
-	"github.com/viant/mcp-protocol/schema"
 )
 
 // Service exposes message retrieval independent of HTTP concerns.
@@ -458,26 +455,19 @@ func (s *Service) Elicit(ctx context.Context, messageID, action string, payload 
 	if action == "" {
 		return fmt.Errorf("action is required")
 	}
-	// normalize MCP action then map to message status
-	act := elicitation.NormalizeAction(action)
-	status := elact.ToStatus(act)
-	// Update status first (best-effort)
-	_ = s.convClient.PatchMessage(ctx, (*apiconv.MutableMessage)(&msgwrite.Message{Id: messageID, Status: status, Has: &msgwrite.MessageHas{Status: true}}))
-
-	// Best-effort: fetch the elicitation message to decide how to persist the result
-	elMsg, _ := s.convClient.GetMessage(ctx, messageID)
-	if elMsg != nil && status == elact.StatusAccepted && payload != nil {
-		// Persist payload linked to the elicitation message itself (assistant and tool)
-		if elMsg.ElicitationId != nil && strings.TrimSpace(*elMsg.ElicitationId) != "" {
-			if s.elicitation != nil {
-				_ = s.elicitation.StorePayload(ctx, elMsg.ConversationId, *elMsg.ElicitationId, payload)
-			}
-		}
+	if s == nil || s.convClient == nil || s.elicitation == nil {
+		return fmt.Errorf("elicitation service not configured")
 	}
-
-	// Deliver to any MCP waiter (tool-originated elicitation handled via router endpoint)
-	if ch, ok := mcpclient.Waiter(messageID); ok {
-		ch <- &schema.ElicitResult{Action: schema.ElicitResultAction(act), Content: payload}
+	elicitationMsg, err := s.convClient.GetMessage(ctx, messageID)
+	if err != nil {
+		return err
+	}
+	if elicitationMsg == nil {
+		return fmt.Errorf("elicitation message not found")
+	}
+	// Always resolve via elicitation service; it patches status in all cases and stores payload when accepted
+	if err := s.elicitation.Resolve(ctx, elicitationMsg.ConversationId, *elicitationMsg.ElicitationId, action, payload); err != nil {
+		return err
 	}
 	return nil
 }
