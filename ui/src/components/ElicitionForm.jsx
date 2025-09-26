@@ -141,7 +141,8 @@ export default function ElicitionForm({message, context}) {
         .split(/[,\n]/)
         .map(v => (v||'').trim())
         .filter(v => v.length > 0);
-    const isOOB = (mode === 'oob') || (!!url && !hasSchemaProps);
+    const isWebOnly = (mode === 'webonly');
+    const isOOB = (mode === 'oob') || isWebOnly || (!!url && !hasSchemaProps);
     try { console.debug('[ElicitionForm:init]', {id, mode, url, callbackURL, hasSchemaProps, isOOB}); } catch(_) {}
     const pickBoundValues = () => {
         try {
@@ -319,9 +320,16 @@ export default function ElicitionForm({message, context}) {
                       </Button>
                     )}
                     {isOOB ? (
-                      <Button intent="primary" onClick={() => { if (url) { window.open(url, '_blank', 'noopener,noreferrer'); } post('accept', {}); }} disabled={submitting}>
-                        Open
-                      </Button>
+                      <>
+                        <Button intent="primary" onClick={() => { if (url) { window.open(url, '_blank', 'noopener,noreferrer'); } post('accept', {}); }} disabled={submitting} style={{marginRight: 8}}>
+                          Open
+                        </Button>
+                        {isWebOnly && (
+                          <Button onClick={() => post('accept', {})} disabled={submitting} style={{marginRight: 8}}>
+                            OK
+                          </Button>
+                        )}
+                      </>
                     ) : (
                       hasSchemaProps && !isSingleArrayStringSchema ? (
                         <Button intent="primary" onClick={triggerInnerSubmit} disabled={submitting}>
