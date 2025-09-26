@@ -3,7 +3,7 @@ id: coder
 modelRef: openai_gpt-5
 name: Coder
 orchestrationFlow: workflow/orchestration.yaml
-temperature: 0.2
+temperature: 1
 persona:
   role: assistant
   actor: Coder
