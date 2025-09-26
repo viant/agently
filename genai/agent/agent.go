@@ -37,6 +37,11 @@ type (
 		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
 		Tool            []*llm.Tool    `yaml:"tool,omitempty" json:"tool,omitempty"`
 
+		// ParallelToolCalls requests providers that support it to execute
+		// multiple tool calls in parallel within a single reasoning step.
+		// Honored only when the selected model implements the feature.
+		ParallelToolCalls bool `yaml:"parallelToolCalls,omitempty" json:"parallelToolCalls,omitempty"`
+
 		// ToolCallExposure defines how tool calls are exposed to the LLM
 		ToolCallExposure ToolCallExposure `yaml:"toolCallExposure,omitempty" json:"toolCallExposure,omitempty"`
 

@@ -211,6 +211,16 @@ func (s *Service) updateFlags(input *GenerateInput, model llm.Model) {
 	input.Binding.Flags.CanUseTool = model.Implements(base.CanUseTools)
 	input.Binding.Flags.CanStream = model.Implements(base.CanStream)
 	input.Binding.Flags.IsMultimodal = model.Implements(base.IsMultimodal)
+
+	// Gate parallel tool-calls option based on provider/model support.
+	// If the agent config requested parallel tool calls but the model
+	// doesn’t implement the capability, force-disable it to avoid
+	// sending unsupported fields downstream.
+	if input.Options != nil && input.Options.ParallelToolCalls {
+		if !model.Implements(base.CanExecToolsInParallel) {
+			input.Options.ParallelToolCalls = false
+		}
+	}
 }
 
 //
