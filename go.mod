@@ -1,6 +1,6 @@
 module github.com/viant/agently
 
-go 1.24.1
+go 1.24.3
 
 toolchain go1.24.4
 
@@ -17,7 +17,7 @@ require (
 	github.com/viant/datly v0.20.16-0.20250924215533-c5404492eaf7
 	github.com/viant/embedius v0.2.1
 	github.com/viant/fluxor v0.3.14
-	github.com/viant/fluxor-mcp v0.1.16
+	github.com/viant/fluxor-mcp v0.1.17
 	github.com/viant/forge v0.2.10
 	github.com/viant/jsonrpc v0.9.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
@@ -37,6 +37,8 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3
 	github.com/fsnotify/fsnotify v1.4.7
+	github.com/go-sql-driver/mysql v1.7.1
+	github.com/viant/sqlx v0.17.8
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
 	golang.org/x/oauth2 v0.30.0
 	modernc.org/sqlite v1.18.1
@@ -84,7 +86,6 @@ require (
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-sql-driver/mysql v1.7.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
@@ -113,7 +114,7 @@ require (
 	github.com/richardlehane/msoleps v1.0.3 // indirect
 	github.com/sourcegraph/go-diff v0.7.0 // indirect
 	github.com/viant/aerospike v0.2.11-0.20241108195857-ed524b97800d // indirect
-	github.com/viant/bigquery v0.4.1 // indirect
+	github.com/viant/bigquery v0.5.1 // indirect
 	github.com/viant/bindly v0.1.0 // indirect
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/cloudless v1.12.0 // indirect
@@ -125,10 +126,10 @@ require (
 	github.com/viant/gosh v0.2.2 // indirect
 	github.com/viant/govalidator v0.3.1 // indirect
 	github.com/viant/igo v0.2.0 // indirect
+	github.com/viant/mcp-sqlkit v0.1.1-0.20250926210652-c41a7569af5b // indirect
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlparser v0.8.1 // indirect
-	github.com/viant/sqlx v0.17.8 // indirect
 	github.com/viant/structql v0.5.2 // indirect
 	github.com/viant/tagly v0.2.2 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
@@ -169,7 +170,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20240604185151-ef581f913117 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240604185151-ef581f913117 // indirect
 	google.golang.org/grpc v1.64.0 // indirect
-	google.golang.org/protobuf v1.34.1 // indirect
+	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	lukechampine.com/uint128 v1.2.0 // indirect
@@ -181,9 +182,4 @@ require (
 	modernc.org/opt v0.1.3 // indirect
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
-)
-
-
-replace (
-	github.com/viant/fluxor-mcp => ../fluxor-mcp
 )
