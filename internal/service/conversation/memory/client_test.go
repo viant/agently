@@ -194,6 +194,47 @@ func TestClient_GetConversations_ListSummary(t *testing.T) {
 	assert.EqualValues(t, expected, items)
 }
 
+func TestClient_DeleteConversation_DataDriven(t *testing.T) {
+	ctx := context.Background()
+	c := mem.New()
+
+	// Seed conversation with a message
+	conv := convcli.NewConversation()
+	conv.SetId("c-del")
+	conv.SetAgentName("agentB")
+	conv.SetCreatedAt(time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC))
+	assert.NoError(t, c.PatchConversations(ctx, conv))
+
+	turn := &turnw.Turn{Has: &turnw.TurnHas{}}
+	turn.SetId("t-del")
+	turn.SetConversationID("c-del")
+	turn.SetStatus("ok")
+	assert.NoError(t, c.PatchTurn(ctx, (*convcli.MutableTurn)(turn)))
+
+	m := &msgw.Message{Has: &msgw.MessageHas{}}
+	m.SetId("m-del")
+	m.SetConversationID("c-del")
+	m.SetTurnID("t-del")
+	m.SetRole("user")
+	m.SetType("text")
+	m.SetContent("bye")
+	m.SetCreatedAt(time.Date(2025, 2, 1, 1, 0, 0, 0, time.UTC))
+	assert.NoError(t, c.PatchMessage(ctx, (*convcli.MutableMessage)(m)))
+
+	// Delete and verify
+	assert.NoError(t, c.DeleteConversation(ctx, "c-del"))
+
+	// Get by id should return nil
+	got, err := c.GetConversation(ctx, "c-del")
+	assert.NoError(t, err)
+	assert.EqualValues(t, (*convcli.Conversation)(nil), got)
+
+	// List should not include the deleted conversation
+	items, err := c.GetConversations(ctx)
+	assert.NoError(t, err)
+	assert.EqualValues(t, []*convcli.Conversation{}, items)
+}
+
 // Helpers for building expected data
 func ptrS(s string) *string { return &s }
 

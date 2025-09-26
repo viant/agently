@@ -3,4 +3,10 @@ items:
   - id: refresh
     icon: refresh
     align: left
+  - id: delete
+    icon: delete
+    align: left
+    on:
+      - event: onClick
+        handler: chat.deleteConversation
 # Additional toolbar items could be added here in the future

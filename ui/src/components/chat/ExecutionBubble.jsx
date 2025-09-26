@@ -69,7 +69,7 @@ export default function ExecutionBubble({ message: msg, context }) {
                         const countLabel = String(totalCount);
                         // Status + timer for the turn
                         const turnStatus = (msg.turnStatus || '').toLowerCase();
-                        const isDone = turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted' || turnStatus === 'failed' || turnStatus === 'error';
+                        const isDone = turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted' || turnStatus === 'failed' || turnStatus === 'error' || turnStatus === 'canceled';
                         const isError = turnStatus === 'failed' || turnStatus === 'error';
                         // Animated hourglass state
                         const [tick, setTick] = React.useState(0);
@@ -109,13 +109,45 @@ export default function ExecutionBubble({ message: msg, context }) {
                         // Update global stage based on turn status
                         React.useEffect(() => {
                             if (!turnStatus) return;
-                            if (turnStatus === 'running' || turnStatus === 'open' || turnStatus === 'pending') {
+                            // Update global stage
+                            const isRunning = (turnStatus === 'running' || turnStatus === 'open' || turnStatus === 'pending' || turnStatus === 'thinking');
+                            const isDoneOk = (turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted');
+                            const isErrored = (turnStatus === 'failed' || turnStatus === 'error');
+                            try { console.debug('[chat][turn]', {turnStatus, isRunning, isDoneOk, isErrored}); } catch(_) {}
+                            if (isRunning) {
                                 setStage({phase: 'executing'});
-                            } else if (turnStatus === 'failed' || turnStatus === 'error') {
+                            } else if (isErrored) {
                                 setStage({phase: 'error'});
                             } else {
                                 setStage({phase: 'done'});
                             }
+                            // Nudge messages DS loading flag so Forge Chat shows Abort button while running
+                            try {
+                                const msgCtx = context?.Context?.('messages');
+                                const ctrlSig = msgCtx?.signals?.control;
+                                if (ctrlSig) {
+                                    const prev = (typeof ctrlSig.peek === 'function') ? (ctrlSig.peek() || {}) : (ctrlSig.value || {});
+                                    if (isRunning) {
+                                        try { console.debug('[chat][ds][control] set loading=true (running)', {prev}); } catch(_) {}
+                                        ctrlSig.value = {...prev, loading: true};
+                                    } else if (isDoneOk || isErrored) {
+                                        try { console.debug('[chat][ds][control] set loading=false (finished)', {prev}); } catch(_) {}
+                                        ctrlSig.value = {...prev, loading: false};
+                                    }
+                                }
+                            } catch(_) { /* ignore */ }
+
+                            // Also update conversations form running flag to drive data-driven abort visibility
+                            try {
+                                const convCtx = context?.Context?.('conversations');
+                                if (convCtx?.handlers?.dataSource?.setFormField) {
+                                    const value = isRunning ? true : (isDoneOk || isErrored) ? false : undefined;
+                                    if (value !== undefined) {
+                                        convCtx.handlers.dataSource.setFormField({ item: { id: 'running' }, value });
+                                        try { console.debug('[chat][conv] set running', { value }); } catch(_) {}
+                                    }
+                                }
+                            } catch(_) { /* ignore */ }
                         }, [turnStatus]);
                         // Render animated hourglass when running; ❗ on error; ✅ when done
                         const Hourglass = () => {

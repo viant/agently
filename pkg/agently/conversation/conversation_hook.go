@@ -41,6 +41,7 @@ func computeStage(c *ConversationView) string {
 	lastToolRunning := false
 	lastToolFailed := false
 	lastModelRunning := false
+	lastAssistantCanceled := false
 
 	// Iterate turns backwards, then messages backwards within the turn
 	for ti := len(c.Transcript) - 1; ti >= 0; ti-- {
@@ -48,12 +49,21 @@ func computeStage(c *ConversationView) string {
 		if t == nil || len(t.Message) == 0 {
 			continue
 		}
+		// If entire turn was canceled, treat conversation as completed
+		if strings.EqualFold(strings.TrimSpace(t.Status), "canceled") {
+			return StageDone
+		}
 		for mi := len(t.Message) - 1; mi >= 0; mi-- {
 			m := t.Message[mi]
 			if m == nil {
 				continue
 			}
-			// Skip interim entries
+			// If latest assistant message is canceled (even interim), drop to waiting
+			if strings.EqualFold(strings.TrimSpace(m.Role), "assistant") && m.Status != nil && strings.EqualFold(strings.TrimSpace(*m.Status), "canceled") {
+				lastAssistantCanceled = true
+				goto DONE
+			}
+			// Skip interim entries for other evaluations
 			if m.Interim != 0 {
 				continue
 			}
@@ -86,6 +96,8 @@ func computeStage(c *ConversationView) string {
 	}
 DONE:
 	switch {
+	case lastAssistantCanceled:
+		return StageDone
 	case lastToolRunning:
 		return StageExecuting
 	case lastAssistantElic:

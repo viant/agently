@@ -20,7 +20,7 @@ import {BasicTable} from "../../../../../forge/index.js";
 // Column template; dynamic handlers injected later
 const COLUMNS_BASE = [
     { id: "icon",    name: "",      width: 28, align: "center", minWidth: "28px", enforceColumnSize: false },
-    { id: "kind",    name: "Kind",   width: 60, align: "center", minWidth: "48px", enforceColumnSize: false },
+    { id: "kind",    name: "Kind",   width: 40, align: "center", minWidth: "68px" },
     { id: "name",    name: "Name",   flex: 2 },
     { id: "status",  name: "Status", width: 90 },
     { id: "elapsed", name: "Time",   width: 90 },

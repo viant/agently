@@ -36,6 +36,24 @@ func New() *Client {
 	}
 }
 
+// DeleteConversation removes a conversation and its dependent messages in-memory.
+func (c *Client) DeleteConversation(_ context.Context, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Remove messages belonging to the conversation
+	for mid, mv := range c.messages {
+		if mv != nil && mv.ConversationId == id {
+			delete(c.messages, mid)
+		}
+	}
+	// Remove conversation entry
+	delete(c.conversations, id)
+	return nil
+}
+
 // GetConversations returns all conversations without transcript for summary.
 func (c *Client) GetConversations(_ context.Context) ([]*convcli.Conversation, error) {
 	c.mu.RLock()

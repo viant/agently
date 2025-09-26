@@ -77,11 +77,19 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) error {
 
 	// Finish model call with response/providerResponse and stream payload
 	status := "completed"
-	if strings.TrimSpace(info.Err) != "" {
+	// Treat context cancellation as terminated
+	if ctx.Err() == context.Canceled {
+		status = "canceled"
+	} else if strings.TrimSpace(info.Err) != "" {
 		status = "failed"
 	}
 
-	if err := o.finishModelCall(ctx, msgID, status, info, streamTxt); err != nil {
+	// Use background context for persistence when terminated to avoid cancellation issues
+	finCtx := ctx
+	if status == "canceled" {
+		finCtx = context.Background()
+	}
+	if err := o.finishModelCall(finCtx, msgID, status, info, streamTxt); err != nil {
 		return err
 	}
 	return nil
