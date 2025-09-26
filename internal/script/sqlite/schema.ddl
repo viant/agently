@@ -74,7 +74,7 @@ CREATE TABLE message
     created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at         TIMESTAMP,
     created_by_user_id TEXT,
-    status             TEXT CHECK (status IS NULL OR status IN ('pending','accepted','rejected','cancel','open','summary','summarized')),
+    status             TEXT CHECK (status IS NULL OR status IN ('', 'pending','accepted','rejected','cancel','open','summary','summarized')),
     role               TEXT      NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
     type               TEXT      NOT NULL DEFAULT 'text' CHECK (type IN ('text', 'tool_op',  'control')),
     content            TEXT,

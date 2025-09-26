@@ -13,6 +13,7 @@ import (
 	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
+	convctx "github.com/viant/agently/genai/convctx"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/genai/embedder"
@@ -160,7 +161,8 @@ func (e *Service) ExecuteTool(ctx context.Context, name string, args map[string]
 		defer cancel()
 	}
 
-	res, err := e.tools.Execute(ctx, name, args)
+	reg := tool.WithConversation(e.tools, convctx.ID(ctx))
+	res, err := reg.Execute(ctx, name, args)
 	return res, err
 }
 
@@ -196,6 +198,14 @@ func (e *Service) Runtime() *fluxor.Runtime {
 		return e.orchestration.WorkflowRuntime()
 	}
 	return nil
+}
+
+// RegistryForConversation returns a Registry that is scoped to the provided
+// conversation ID. Execute calls performed through the returned registry carry
+// the conversation identifier in context so adapters can resolve per-conv
+// resources (e.g., MCP clients, auth tokens).
+func (e *Service) RegistryForConversation(convID string) tool.Registry {
+	return tool.WithConversation(e.tools, convID)
 }
 
 func (e *Service) registerServices(actions *extension.Actions) {
