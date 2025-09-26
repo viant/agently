@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	urlpkg "net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -33,11 +34,15 @@ func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitati
 	if req != nil {
 		url := strings.TrimSpace(req.Url)
 		if url != "" {
-			// Out-of-band interaction: print URL and offer to open; resolution happens via UI callback
+			// Out-of-band interaction: present domain only, offer to open full URL; resolution happens via UI callback
 			if _, done := openedURLs[url]; !done {
 				openedURLs[url] = struct{}{}
 			}
-			fmt.Fprintf(os.Stdout, "\nAdditional input is required via browser.\nURL: %s\n", url)
+			present := url
+			if u, err := urlpkg.Parse(url); err == nil && u.Host != "" {
+				present = u.Host
+			}
+			fmt.Fprintf(os.Stdout, "\nAdditional input is required via browser.\nOpen: %s\n", present)
 
 			reader := bufio.NewReader(os.Stdin)
 			for {
