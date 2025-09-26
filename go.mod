@@ -36,9 +36,7 @@ require (
 
 require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3
-	github.com/fsnotify/fsnotify v1.4.7
-	github.com/go-sql-driver/mysql v1.7.1
-	github.com/viant/sqlx v0.19.0
+	github.com/fsnotify/fsnotify v1.6.0
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
 	golang.org/x/oauth2 v0.30.0
 	modernc.org/sqlite v1.18.1
@@ -86,6 +84,7 @@ require (
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-sql-driver/mysql v1.7.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
@@ -106,6 +105,9 @@ require (
 	github.com/mazznoer/csscolorparser v0.1.3 // indirect
 	github.com/minio/highwayhash v1.0.3 // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
+	github.com/nxadm/tail v1.4.11 // indirect
+	github.com/onsi/ginkgo/v2 v2.23.3 // indirect
+	github.com/onsi/gomega v1.37.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
@@ -126,10 +128,10 @@ require (
 	github.com/viant/gosh v0.2.2 // indirect
 	github.com/viant/govalidator v0.3.1 // indirect
 	github.com/viant/igo v0.2.0 // indirect
-	github.com/viant/mcp-sqlkit v0.1.1-0.20250926210652-c41a7569af5b // indirect
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlparser v0.8.1 // indirect
+	github.com/viant/sqlx v0.19.0 // indirect
 	github.com/viant/structql v0.5.2 // indirect
 	github.com/viant/tagly v0.2.2 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
@@ -171,7 +173,6 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240604185151-ef581f913117 // indirect
 	google.golang.org/grpc v1.64.0 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
-	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	lukechampine.com/uint128 v1.2.0 // indirect
 	modernc.org/cc/v3 v3.36.3 // indirect
