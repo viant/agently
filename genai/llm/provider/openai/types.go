@@ -19,7 +19,7 @@ type Request struct {
 	Reasoning *llm.Reasoning `json:"reasoning,omitempty"`
 
 	ToolChoice        interface{} `json:"tool_choice,omitempty"`
-	ParallelToolCalls bool        `json:"parallel_tool_calls"`
+	ParallelToolCalls bool        `json:"parallel_tool_calls,omitempty"`
 }
 
 // StreamOptions controls additional streaming behavior.
