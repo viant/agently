@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	sqlitesvc "github.com/viant/agently/internal/service/sqlite"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
 )
@@ -20,9 +21,15 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 
 	driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
 	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
-	if driver == "" || dsn == "" {
-		// No SQL configured; return service as-is.
-		return dao, nil
+	if dsn == "" {
+		// Fallback to local SQLite under $AGENTLY_ROOT/db/agently.db
+		root := strings.TrimSpace(os.Getenv("AGENTLY_ROOT"))
+		sqlite := sqlitesvc.New(root)
+		var err error
+		if dsn, err = sqlite.Ensure(ctx); err != nil {
+			return nil, err
+		}
+		driver = "sqlite"
 	}
 
 	if err := dao.AddConnectors(ctx, view.NewConnector("agently", driver, dsn)); err != nil {
