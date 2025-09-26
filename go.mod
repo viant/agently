@@ -38,7 +38,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3
 	github.com/fsnotify/fsnotify v1.4.7
 	github.com/go-sql-driver/mysql v1.7.1
-	github.com/viant/sqlx v0.17.8
+	github.com/viant/sqlx v0.19.0
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
 	golang.org/x/oauth2 v0.30.0
 	modernc.org/sqlite v1.18.1
