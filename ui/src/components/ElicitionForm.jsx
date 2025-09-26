@@ -258,13 +258,21 @@ export default function ElicitionForm({message, context}) {
                 {/* Use the built-in form submit controls to capture values reliably */}
                 {prompt && <p style={{marginBottom: 12}}>{prompt}</p>}
                 {/* Out-of-band URL mode */}
-                {url && (
-                    <div style={{marginBottom: 12}}>
-                        <a href={url} target="_blank" rel="noopener noreferrer">
-                            {url}
-                        </a>
-                    </div>
-                )}
+                {url && (() => {
+                    let display = url;
+                    try {
+                        const u = new URL(url);
+                        display = u.host; // present domain only
+                    } catch (_) {}
+                    return (
+                        <div style={{marginBottom: 12}}>
+                            <span style={{marginRight: 6}}>Open in browser:</span>
+                            <a href={url} target="_blank" rel="noopener noreferrer">
+                                {display}
+                            </a>
+                        </div>
+                    );
+                })()}
 
                 {/* Inline JSON schema mode */}
                 {hasSchemaProps && !isSingleArrayStringSchema && (
@@ -311,7 +319,7 @@ export default function ElicitionForm({message, context}) {
                       </Button>
                     )}
                     {isOOB ? (
-                      <Button intent="primary" onClick={() => { try { console.debug('[ElicitionForm:oob:open]', {id, url}); } catch(_) {}; if (url) { window.open(url, '_blank', 'noopener,noreferrer'); } post('accept', {}); }} disabled={submitting}>
+                      <Button intent="primary" onClick={() => { if (url) { window.open(url, '_blank', 'noopener,noreferrer'); } post('accept', {}); }} disabled={submitting}>
                         Open
                       </Button>
                     ) : (
