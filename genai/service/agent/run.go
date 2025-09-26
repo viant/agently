@@ -259,6 +259,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if genInput.Options.Temperature == 0 && input.Agent.Temperature != 0 {
 			genInput.Options.Temperature = input.Agent.Temperature
 		}
+		// Carry agent-level parallel tool-calls preference; capability gating
+		// happens later in core.updateFlags based on provider/model support.
+		genInput.Options.ParallelToolCalls = input.Agent.ParallelToolCalls
 
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)

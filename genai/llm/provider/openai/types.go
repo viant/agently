@@ -18,7 +18,8 @@ type Request struct {
 	// Reasoning enables configuration of internal chain-of-thought reasoning features.
 	Reasoning *llm.Reasoning `json:"reasoning,omitempty"`
 
-	ToolChoice interface{} `json:"tool_choice,omitempty"`
+	ToolChoice        interface{} `json:"tool_choice,omitempty"`
+	ParallelToolCalls bool        `json:"parallel_tool_calls"`
 }
 
 // StreamOptions controls additional streaming behavior.
