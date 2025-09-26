@@ -41,13 +41,16 @@ view:
       - id: conversationSection
         chat:
           dataSourceRef: messages
-          height: 75vh
+          height: 80vh
+          abortVisible:
+            dataSourceRef: conversations
+            selector: running
+          # Abort button shown when DS is loading (running)
           showUpload: true
           upload:
             endpoint: agentlyAPI
             path: upload
           uploadField: files
-          disableInputOnLoading: false
           toolbar:
             dataSourceRef: messages
             items:

@@ -2,6 +2,16 @@
 import React from 'react';
 import {useStage} from '../utils/stageBus';
 
+// Subtle pulsing glow to accentuate terminated/aborted state
+const pulseStyles = `
+@keyframes pulse-glow {
+  0%   { text-shadow: 0 0 0 rgba(255, 0, 0, 0.0); }
+  50%  { text-shadow: 0 0 8px rgba(255, 0, 0, 0.65); }
+  100% { text-shadow: 0 0 0 rgba(255, 0, 0, 0.0); }
+}
+.glow-pulse { animation: pulse-glow 1.4s ease-in-out infinite; }
+`;
+
 const phaseMap = {
     waiting:  {icon: '⏳', label: 'Waiting for input…'},
     thinking: {icon: '🤔', label: 'Assistant thinking…'},
@@ -10,6 +20,8 @@ const phaseMap = {
     done:     {icon: '✅', label: 'Done'},
     error:    {icon: '❌', label: 'Error'},
     ready:    {icon: '🟢', label: 'Ready'},
+    terminated:{icon: '🛑', label: 'Terminated'},
+    aborted:  {icon: '🛑', label: 'Terminated'}, // backward-compat mapping
 };
 
 export default function StatusBar() {
@@ -29,10 +41,14 @@ export default function StatusBar() {
         }
     }
 
+    const isTerminated = (stage.phase === 'terminated' || stage.phase === 'aborted');
+    const extraStyle = isTerminated ? { color: 'var(--red3)' } : {};
     return (
         <div className="status-bar" style={{padding: '4px 8px', fontSize: '0.9em'}}>
-            <span style={{marginRight: 6}}>{map.icon}</span>
-            <span>{text}</span>
+            {/* Inject animation CSS locally */}
+            {isTerminated && <style>{pulseStyles}</style>}
+            <span className={isTerminated ? 'glow-pulse' : ''} style={{marginRight: 6, ...extraStyle}}>{map.icon}</span>
+            <span className={isTerminated ? 'glow-pulse' : ''} style={extraStyle}>{text}</span>
         </div>
     );
 }

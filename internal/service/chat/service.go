@@ -206,13 +206,18 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		// Execute agentic flow; turn/message persistence handled by agent recorder.
 		_, err := s.mgr.Accept(runCtx, input)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to process message: 	%v\n", err)
 			if s.convClient != nil {
 				tUpd := apiconv.NewTurn()
 				tUpd.SetId(msgID)
-				tUpd.SetStatus("failed")
-				tUpd.SetErrorMessage(err.Error())
-				_ = s.convClient.PatchTurn(runCtx, tUpd)
+				if errors.Is(err, context.Canceled) {
+					// Persist canceled using background context; avoid writing with canceled ctx
+					tUpd.SetStatus("canceled")
+					_ = s.convClient.PatchTurn(context.Background(), tUpd)
+				} else {
+					tUpd.SetStatus("failed")
+					tUpd.SetErrorMessage(err.Error())
+					_ = s.convClient.PatchTurn(runCtx, tUpd)
+				}
 			}
 		}
 	}(ctx)
@@ -403,6 +408,21 @@ func (s *Service) ListConversations(ctx context.Context) ([]ConversationSummary,
 	return out, nil
 }
 
+// DeleteConversation removes a conversation and cascades to dependent rows via DB FKs.
+// It delegates to the underlying conversation client implementation.
+func (s *Service) DeleteConversation(ctx context.Context, id string) error {
+	if s == nil || s.convClient == nil || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	type deleter interface {
+		DeleteConversation(context.Context, string) error
+	}
+	if d, ok := s.convClient.(deleter); ok {
+		return d.DeleteConversation(ctx, id)
+	}
+	return fmt.Errorf("delete not supported")
+}
+
 // humanTimestamp formats a friendly timestamp used for default conversation titles.
 func humanTimestamp(t time.Time) string {
 	day := t.Day()
@@ -494,4 +514,69 @@ func (s *Service) GetPayload(ctx context.Context, id string) ([]byte, string, er
 		ctype = "application/octet-stream"
 	}
 	return *p.InlineBody, ctype, nil
+}
+
+// ---- Status helpers (implements chat.Client) ----
+
+// SetTurnStatus patches a turn status. Use context.Background() when invoked from cancel path.
+func (s *Service) SetTurnStatus(ctx context.Context, turnID, status string, errorMessage ...string) error {
+	if s == nil || s.convClient == nil || strings.TrimSpace(turnID) == "" || strings.TrimSpace(status) == "" {
+		return nil
+	}
+	upd := apiconv.NewTurn()
+	upd.SetId(turnID)
+	upd.SetStatus(status)
+	if len(errorMessage) > 0 && strings.TrimSpace(errorMessage[0]) != "" {
+		upd.SetErrorMessage(errorMessage[0])
+	}
+	return s.convClient.PatchTurn(ctx, upd)
+}
+
+// SetMessageStatus patches a message status.
+func (s *Service) SetMessageStatus(ctx context.Context, messageID, status string) error {
+	if s == nil || s.convClient == nil || strings.TrimSpace(messageID) == "" || strings.TrimSpace(status) == "" {
+		return nil
+	}
+	upd := apiconv.NewMessage()
+	upd.SetId(messageID)
+	upd.SetStatus(status)
+	return s.convClient.PatchMessage(ctx, upd)
+}
+
+// SetConversationStatus updates the latest turn in a conversation.
+func (s *Service) SetConversationStatus(ctx context.Context, conversationID, status string) error {
+	if s == nil || s.convClient == nil || strings.TrimSpace(conversationID) == "" || strings.TrimSpace(status) == "" {
+		return nil
+	}
+	conv, err := s.convClient.GetConversation(ctx, conversationID)
+	if err != nil || conv == nil {
+		return err
+	}
+	tr := conv.GetTranscript()
+	if len(tr) == 0 || tr[len(tr)-1] == nil {
+		return nil
+	}
+	last := tr[len(tr)-1]
+	// 1) Update turn status first
+	if err := s.SetTurnStatus(ctx, last.Id, status); err != nil {
+		return err
+	}
+	// 2) Best-effort: update last assistant interim/message status to mirror termination
+	//    (helps downstream stage derivation when DB view considers message status)
+	msgs := last.Message
+	for i := len(msgs) - 1; i >= 0; i-- { // scan backwards to catch latest assistant
+		m := msgs[i]
+		if m == nil {
+			continue
+		}
+		role := strings.ToLower(m.Role)
+		if role == "assistant" {
+			// guard: id must be present
+			if strings.TrimSpace(m.Id) != "" {
+				_ = s.SetMessageStatus(ctx, m.Id, status)
+			}
+			break
+		}
+	}
+	return nil
 }
