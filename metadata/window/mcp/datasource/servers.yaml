@@ -1,9 +1,9 @@
 service:
-  endpoint: agentlyAPI
-  uri: /v1/workspace/mcp
+  endpoint: appAPI
+  uri: /workspace/mcp
   method: GET
   put:
-    uri: /v1/workspace/mcp/{name}
+    uri: /workspace/mcp/{name}
 
 selectors:
   data: data

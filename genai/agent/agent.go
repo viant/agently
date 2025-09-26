@@ -1,13 +1,9 @@
 package agent
 
 import (
-	"bytes"
-	"sync"
-	"text/template"
-
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/internal/templating"
+	"github.com/viant/agently/genai/prompt"
 )
 
 type (
@@ -18,23 +14,36 @@ type (
 		URL string `yaml:"url,omitempty" json:"url,omitempty"`
 	}
 
+	// ToolCallExposure controls how tool calls are exposed back to the LLM prompt
+	// and templates. Supported modes:
+	// - "turn": include only tool calls from the current turn
+	// - "conversation": include tool calls from the whole conversation
+	// - "semantic": reserved for future use (provider-native tool semantics)
+	ToolCallExposure string
+
 	// Agent represents an agent
 	Agent struct {
-		Identity    `yaml:",inline" json:",inline"`
-		Source      *Source `yaml:"source,omitempty" json:"source,omitempty"`           // Source of the agent
-		Model       string  `yaml:"modelRef,omitempty" json:"model,omitempty"`          // Language model configuration
-		Temperature float64 `yaml:"temperature,omitempty" json:"temperature,omitempty"` // Temperature
-		Description string  `yaml:"description,omitempty" json:"description,omitempty"` // Description of the agent
-		Prompt      string  `yaml:"prompt,omitempty" json:"prompt,omitempty"`           // Prompt template
+		Identity `yaml:",inline" json:",inline"`
+		Source   *Source `yaml:"source,omitempty" json:"source,omitempty"` // Source of the agent
 
-		Tool []*llm.Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
+		llm.ModelSelection `yaml:",inline" json:",inline"`
 
-		// Agent's knowledge base (optional)
-		Knowledge       []*Knowledge `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
-		SystemKnowledge []*Knowledge `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
+		Temperature float64        `yaml:"temperature,omitempty" json:"temperature,omitempty"` // Temperature
+		Description string         `yaml:"description,omitempty" json:"description,omitempty"` // Description of the agent
+		Prompt      *prompt.Prompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`           // Prompt template
+		Knowledge   []*Knowledge   `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
 
-		// OrchestrationFlow optional path/URL to override default workflow graph.
-		OrchestrationFlow string `yaml:"orchestrationFlow,omitempty" json:"orchestrationFlow,omitempty"`
+		SystemPrompt    *prompt.Prompt `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
+		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
+		Tool            []*llm.Tool    `yaml:"tool,omitempty" json:"tool,omitempty"`
+
+		// ParallelToolCalls requests providers that support it to execute
+		// multiple tool calls in parallel within a single reasoning step.
+		// Honored only when the selected model implements the feature.
+		ParallelToolCalls bool `yaml:"parallelToolCalls,omitempty" json:"parallelToolCalls,omitempty"`
+
+		// ToolCallExposure defines how tool calls are exposed to the LLM
+		ToolCallExposure ToolCallExposure `yaml:"toolCallExposure,omitempty" json:"toolCallExposure,omitempty"`
 
 		// Elicitation optionally defines required context schema that must be
 		// satisfied before the agent can execute its workflow. When provided, the
@@ -45,15 +54,10 @@ type (
 
 		// Persona defines the default conversational persona the agent uses when
 		// sending messages. When nil the role defaults to "assistant".
-		Persona *Persona `yaml:"persona,omitempty" json:"persona,omitempty"`
+		Persona *prompt.Persona `yaml:"persona,omitempty" json:"persona,omitempty"`
 
 		// ToolExport controls automatic exposure of this agent as a virtual tool
 		ToolExport *ToolExport `yaml:"toolExport,omitempty" json:"toolExport,omitempty"`
-
-		// cached compiled go template for prompt (if Prompt is static)
-		parsedTemplate *template.Template `yaml:"-" json:"-"`
-		once           sync.Once          `yaml:"-" json:"-"`
-		parseErr       error              `yaml:"-" json:"-"`
 	}
 
 	// ToolExport defines optional settings to expose an agent as a runtime tool.
@@ -67,82 +71,4 @@ type (
 
 func (a *Agent) Validate() error {
 	return nil
-}
-
-// GeneratePrompt generates a prompt from the agent's template using provided query and enrichment data
-func (a *Agent) GeneratePrompt(query string, enrichment string) (string, error) {
-	if a.Prompt == "" {
-		// Use default template if not specified
-		return a.generateDefaultPrompt(query, enrichment), nil
-	}
-
-	// Try to use velty template engine first
-	promptText, err := a.generateVeltyPrompt(query, enrichment)
-	if err == nil {
-		return promptText, nil
-	}
-
-	// Fall back to text/template if velty fails
-	return a.generateGoTemplatePrompt(query, enrichment)
-}
-
-// generateVeltyPrompt uses velty engine to process the template
-func (a *Agent) generateVeltyPrompt(query string, enrichment string) (string, error) {
-	vars := map[string]interface{}{
-		"Find":       a,
-		"Query":      query,
-		"Enrichment": enrichment,
-	}
-	return templating.Expand(a.Prompt, vars)
-}
-
-// generateGoTemplatePrompt uses Go's text/template to process the template
-func (a *Agent) generateGoTemplatePrompt(query string, enrichment string) (string, error) {
-	// lazily compile template once
-	a.once.Do(func() {
-		a.parsedTemplate, a.parseErr = template.New("prompt").Parse(a.Prompt)
-	})
-	if a.parseErr != nil {
-		return "", a.parseErr
-	}
-
-	data := map[string]interface{}{
-		"Find":       a,
-		"Query":      query,
-		"Enrichment": enrichment,
-	}
-
-	var buf bytes.Buffer
-	if err := a.parsedTemplate.Execute(&buf, data); err != nil {
-		return "", err
-	}
-
-	return buf.String(), nil
-}
-
-// generateDefaultPrompt creates a simple default prompt if no template is provided
-func (a *Agent) generateDefaultPrompt(query string, enrichment string) string {
-	var buf bytes.Buffer
-
-	buf.WriteString("You are ")
-	if a.Name != "" {
-		buf.WriteString(a.Name)
-	} else {
-		buf.WriteString("an AI assistant")
-	}
-
-	if a.Description != "" {
-		buf.WriteString(", ")
-		buf.WriteString(a.Description)
-	}
-
-	buf.WriteString("\n\n")
-
-	if enrichment != "" {
-		buf.WriteString("Document details:\n")
-		buf.WriteString(enrichment)
-		buf.WriteString("\n\n")
-	}
-
-	return buf.String()
 }

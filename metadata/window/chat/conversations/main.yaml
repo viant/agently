@@ -10,7 +10,9 @@ view:
       - id: conversationSection
         chat:
           dataSourceRef: messages
-          tools: ["search", "code"]
+          abortVisible:
+            dataSourceRef: conversations
+            selector: running
           on:
             - event: onSubmit
               handler: chat.submitMessage

@@ -2,12 +2,18 @@ package llm
 
 import "github.com/viant/mcp-protocol/schema"
 
+type ModelSelection struct {
+	Model       string            `yaml:"model,omitempty" json:"model,omitempty"`
+	Preferences *ModelPreferences `yaml:"modelPreferences,omitempty" json:"modelPreferences,omitempty"`
+	Options     *Options          `yaml:"options,omitempty" json:"options,omitempty"`
+}
+
 // ModelPreferences expresses caller priorities (0..1) + optional name hints.
 type ModelPreferences struct {
-	IntelligencePriority float64
-	SpeedPriority        float64
-	CostPriority         float64
-	Hints                []string
+	IntelligencePriority float64  `yaml:"intelligencePriority,omitempty" json:"intelligencePriority,omitempty"`
+	SpeedPriority        float64  `yaml:"speedPriority,omitempty" json:"speedPriority,omitempty"`
+	CostPriority         float64  `yaml:"costPriority,omitempty" json:"costPriority,omitempty"`
+	Hints                []string `yaml:"hints,omitempty" json:"hints,omitempty"`
 }
 
 // ModelPreferencesOption // is a functional option for ModelPreferences.

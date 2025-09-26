@@ -6,6 +6,7 @@ import (
 
 // Request represents the request structure for OpenAI API
 type Request struct {
+	Tools         []Tool         `json:"tools,omitempty"`
 	Model         string         `json:"model"`
 	Messages      []Message      `json:"messages"`
 	Temperature   *float64       `json:"temperature,omitempty"`
@@ -15,9 +16,10 @@ type Request struct {
 	Stream        bool           `json:"stream,omitempty"`
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	// Reasoning enables configuration of internal chain-of-thought reasoning features.
-	Reasoning  *llm.Reasoning `json:"reasoning,omitempty"`
-	Tools      []Tool         `json:"tools,omitempty"`
-	ToolChoice interface{}    `json:"tool_choice,omitempty"`
+	Reasoning *llm.Reasoning `json:"reasoning,omitempty"`
+
+	ToolChoice        interface{} `json:"tool_choice,omitempty"`
+	ParallelToolCalls bool        `json:"parallel_tool_calls,omitempty"`
 }
 
 // StreamOptions controls additional streaming behavior.
@@ -94,9 +96,19 @@ type Choice struct {
 
 // Usage represents token usage information in the OpenAI API response
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	PromptTokensDetails struct {
+		CachedTokens int `json:"cached_tokens"`
+		AudioTokens  int `json:"audio_tokens"`
+	} `json:"prompt_tokens_details"`
+	CompletionTokensDetails struct {
+		ReasoningTokens          int `json:"reasoning_tokens"`
+		AudioTokens              int `json:"audio_tokens"`
+		AcceptedPredictionTokens int `json:"accepted_prediction_tokens"`
+		RejectedPredictionTokens int `json:"rejected_prediction_tokens"`
+	} `json:"completion_tokens_details"`
 }
 
 // Streaming chunk types (SSE) -------------------------------------------------

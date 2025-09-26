@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/viant/agently/service"
+	"github.com/viant/agently/cmd/service"
 )
 
 // TestServeHTTP validates path handling for various tool names. It relies on

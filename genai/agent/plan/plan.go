@@ -1,7 +1,6 @@
 package plan
 
 import (
-	"encoding/json"
 	"github.com/google/uuid"
 )
 
@@ -11,27 +10,6 @@ type Plan struct {
 	Intention   string       `yaml:"intention,omitempty" json:"intention,omitempty"`     // Optional summary of the user’s goal
 	Steps       Steps        `yaml:"steps" json:"steps"`                                 // Ordered list of steps to execute
 	Elicitation *Elicitation `yaml:"elicitation,omitempty" json:"elicitation,omitempty"` // Optional elicitation details if user input is needed
-}
-
-type Outcome struct {
-	ID    string         `yaml:"id,omitempty" json:"id,omitempty"`
-	Steps []*StepOutcome `yaml:"steps" json:"steps"`
-}
-
-type StepOutcome struct {
-	ID       string                 `yaml:"id,omitempty" json:"id,omitempty"`
-	TraceID  int                    `yaml:"traceId,omitempty" json:"traceId,omitempty"`
-	Tool     string                 `yaml:"tool,omitempty" json:"tool,omitempty"`
-	Reason   string                 `yaml:"reason,omitempty" json:"reason,omitempty"`
-	Request  json.RawMessage        `yaml:"request,omitempty" json:"request,omitempty"`
-	Response json.RawMessage        `yaml:"response,omitempty" json:"response,omitempty"`
-	Elicited map[string]interface{} `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
-	// Success mirrors tool call outcome
-	Success   bool   `yaml:"success,omitempty" json:"success,omitempty"`
-	Error     string `yaml:"error,omitempty" json:"error,omitempty"`
-	Elapsed   string `yaml:"elapsed,omitempty" json:"elapsed,omitempty"`
-	StartedAt string `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
-	EndedAt   string `yaml:"endedAt,omitempty" json:"endedAt,omitempty"`
 }
 
 func New() *Plan {
@@ -57,9 +35,18 @@ func (p *Plan) IsEmpty() bool {
 		return true
 	}
 	for _, step := range p.Steps {
-		if step.Name != "" && (step.Elicitation == nil || step.Elicitation.IsEmpty()) {
+		if step.Name == "" && (step.Elicitation == nil || step.Elicitation.IsEmpty()) {
 			return true
 		}
 	}
 	return false
+}
+
+func (s Steps) Find(id string) *Step {
+	for i, step := range s {
+		if step.ID == id {
+			return &s[i]
+		}
+	}
+	return nil
 }

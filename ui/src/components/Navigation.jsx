@@ -42,7 +42,7 @@ const Navigation = () => {
     // Handle navigation for leaf nodes
     const handleNavigation = (config) => {
         const {windowKey, windowTitle, windowData} = config;
-        console.log('Adding window:', config, windowKey, windowData);
+        log.debug('Adding window', { config, windowKey, windowData });
         let title = windowTitle || windowKey;
         addWindow(title, null, windowKey, windowData);
     };
@@ -65,7 +65,7 @@ const Navigation = () => {
             // If node is a leaf with windowKey, open window
             handleNavigation(nodeData);
         } else {
-            console.warn('No windowKey defined for node:', nodeData);
+            log.warn('No windowKey defined for node', nodeData);
         }
     };
 
@@ -94,7 +94,7 @@ const Navigation = () => {
     const buildTreeData = (nodes) => {
 
 
-        console.log('buildTreeData', nodes);
+        log.debug('buildTreeData', nodes);
         return nodes.map((node) => ({
             id: node.id,
             label: node.id === 'search' ? (
@@ -134,3 +134,5 @@ const Navigation = () => {
 };
 
 export default Navigation;
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');

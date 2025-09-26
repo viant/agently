@@ -2,42 +2,39 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"log"
+	"path/filepath"
+	"strings"
+
 	clientmcp "github.com/viant/agently/adapter/mcp"
 	"github.com/viant/agently/adapter/tool"
 	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/elicitation"
+	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
-	"github.com/viant/agently/genai/memory"
-	convdao "github.com/viant/agently/internal/dao/conversation"
 	agentrepo "github.com/viant/agently/internal/repository/agent"
 	embedderrepo "github.com/viant/agently/internal/repository/embedder"
 	modelrepo "github.com/viant/agently/internal/repository/model"
-	"log"
 
 	"github.com/viant/afs"
 	mcprepo "github.com/viant/agently/internal/repository/mcp"
+	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/datly/view"
 	"github.com/viant/fluxor"
 	mcpsvc "github.com/viant/fluxor-mcp/mcp"
 	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
-	"github.com/viant/fluxor/model/graph"
-	"github.com/viant/fluxor/runtime/execution"
 	"github.com/viant/mcp"
 	"gopkg.in/yaml.v3"
 
 	texecutor "github.com/viant/fluxor/service/executor"
-	"strings"
 	// Helpers for exposing agents as Fluxor services
 	//	"github.com/viant/agently/genai/executor/agenttool"
 )
 
 // init prepares the Service for handling requests.
 func (e *Service) init(ctx context.Context) error {
-	if err := e.initHistory(ctx); err != nil {
-		return err
-	}
 
 	// ------------------------------------------------------------------
 	// Step 1: defaults & validation
@@ -46,11 +43,6 @@ func (e *Service) init(ctx context.Context) error {
 	if err := e.config.Validate(); err != nil {
 		return err
 	}
-
-	// ------------------------------------------------------------------
-	// Step 2: auxiliary stores (history, …)
-	// ------------------------------------------------------------------
-	e.executionStore = memory.NewExecutionStore()
 
 	// ------------------------------------------------------------------
 	// Step 3: orchestration service (single source of truth for workflows & tools)
@@ -65,36 +57,10 @@ func (e *Service) init(ctx context.Context) error {
 	// Collect additional fluxor options that Agently requires.
 	wfOptions := append(e.fluxorOptions,
 		fluxor.WithMetaService(e.config.Meta()),
+		fluxor.WithExecutorOptions(
+			texecutor.WithApprovalSkipPrefixes("llm/"),
+		),
 		fluxor.WithRootTaskNodeName("stage"))
-	// ------------------------------------------------------------------
-	// Debug hooks and executor listener
-	// ------------------------------------------------------------------
-
-	if e.fluxorLogWriter != nil {
-		listener := func(task *graph.Task, exec *execution.Execution) {
-			if task == nil {
-				return
-			}
-			entry := map[string]interface{}{
-				"task":   task,
-				"input":  exec.Input,
-				"output": exec.Output,
-				"error":  exec.Error,
-			}
-			if data, err := json.Marshal(entry); err == nil {
-				_, _ = e.fluxorLogWriter.Write(append(data, '\n'))
-			}
-		}
-
-		wfOptions = append(wfOptions, fluxor.WithExecutorOptions(
-			texecutor.WithListener(listener),
-			texecutor.WithApprovalSkipPrefixes("llm/"),
-		))
-	} else {
-		wfOptions = append(wfOptions, fluxor.WithExecutorOptions(
-			texecutor.WithApprovalSkipPrefixes("llm/"),
-		))
-	}
 
 	// Build orchestration (fluxor-mcp) service instance
 	orchestration, err := mcpsvc.New(ctx,
@@ -118,7 +84,15 @@ func (e *Service) init(ctx context.Context) error {
 		return fmt.Errorf("failed to register agent tools: %w", err)
 	}
 	if e.tools == nil {
-		e.tools = tool.New(e.orchestration)
+		if e.mcpMgr == nil {
+			panic(1)
+			return fmt.Errorf("executor: mcp manager not configured for tool registry")
+		}
+		reg, err := tool.New(e.orchestration, e.mcpMgr)
+		if err != nil {
+			return err
+		}
+		e.tools = reg
 	}
 
 	// ------------------------------------------------------------------
@@ -136,6 +110,11 @@ func (e *Service) initDefaults(ctx context.Context) {
 	if e.config == nil {
 		e.config = &Config{}
 	}
+
+	// Load default workspace config.yaml when no explicit config was supplied.
+	// This makes CLI/HTTP entry-points that construct executor.Service directly
+	// respect $AGENTLY_ROOT/ag/config.yaml without going through instance.Init.
+	e.loadWorkspaceConfigIfEmpty(ctx)
 	e.initModel()
 	e.initEmbedders()
 	e.initAgent(ctx)
@@ -145,14 +124,56 @@ func (e *Service) initDefaults(ctx context.Context) {
 		finder := e.config.DefaultModelFinder()
 		e.modelFinder = finder
 		e.modelMatcher = finder.Matcher()
-		if agent := e.config.Agent; agent != nil && len(agent.Items) > 0 && e.config.Default.Model == "" {
-			e.config.Default.Model = agent.Items[0].Model // use first agent's model as default
-		}
 	}
 	if e.embedderFinder == nil {
 		e.embedderFinder = e.config.DefaultEmbedderFinder()
 	}
 
+}
+
+// loadWorkspaceConfigIfEmpty attempts to load $AGENTLY_ROOT/config.yaml (or the
+// Config.BaseURL root) into e.config when the current config appears empty.
+func (e *Service) loadWorkspaceConfigIfEmpty(ctx context.Context) {
+	// consider config empty when all groups are nil and no base/dao/services set
+	isEmpty := func(c *Config) bool {
+		if c == nil {
+			return true
+		}
+		if strings.TrimSpace(c.BaseURL) != "" { // has explicit base
+			return false
+		}
+		if c.Agent != nil || c.Model != nil || c.Embedder != nil || c.MCP != nil || c.DAOConnector != nil {
+			return false
+		}
+		if len(c.Services) > 0 {
+			return false
+		}
+		// Defaults may be zero-value; we don't try to introspect deeply
+		return true
+	}
+	if !isEmpty(e.config) {
+		return
+	}
+
+	base := e.config.BaseURL
+	if strings.TrimSpace(base) == "" {
+		base = workspace.Root()
+	}
+	cfgPath := filepath.Join(base, "config.yaml")
+	fs := afs.New()
+	if ok, _ := fs.Exists(ctx, cfgPath); !ok {
+		return
+	}
+	data, err := fs.DownloadWithURL(ctx, cfgPath)
+	if err != nil {
+		return
+	}
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return
+	}
+	// Replace the empty config with loaded one.
+	e.config = &cfg
 }
 
 func (e *Service) initModel() {
@@ -214,15 +235,13 @@ func (e *Service) initMcp() {
 	}
 
 	if e.clientHandler == nil {
-		var opts []clientmcp.Option
-		opts = append(opts, clientmcp.WithLLMCore(e.llmCore))
-		if e.newAwaiter != nil {
-			opts = append(opts, clientmcp.WithAwaiter(e.newAwaiter))
+		// Ensure router is not nil for elicitation service
+		if e.elicitationRouter == nil {
+			e.elicitationRouter = elicrouter.New()
 		}
-		if e.history != nil {
-			opts = append(opts, clientmcp.WithHistory(e.history))
-		}
-		e.clientHandler = clientmcp.NewClient(opts...)
+		// Build elicitation service for MCP client; provide router and optional interactive awaiter
+		el := elicitation.New(e.convClient, nil, e.elicitationRouter, e.newAwaiter)
+		e.clientHandler = clientmcp.NewClient(el, e.convClient, nil)
 	}
 	repo := mcprepo.New(afs.New())
 	if names, err := repo.List(context.Background()); err != nil {
@@ -286,34 +305,6 @@ func (e *Service) initAgent(ctx context.Context) {
 			}
 		}
 	}
-}
-
-// initHistory initialises a conversation history store. When a DAO connector
-// is configured, a DB-backed implementation is used, otherwise an in-memory
-// store is created.
-func (e *Service) initHistory(ctx context.Context) error {
-	if e.history != nil {
-		return nil
-	}
-
-	daoCfg, err := e.loadDAOConfig(ctx)
-	if err != nil {
-		return err
-	}
-
-	if daoCfg != nil {
-		connector := view.NewConnector(daoCfg.Name, daoCfg.Driver, daoCfg.DSN)
-		daoSvc, err := convdao.New(ctx, connector)
-		if err != nil {
-			return fmt.Errorf("failed to initialise conversation DAO: %w", err)
-		}
-		e.history = daoSvc
-		return nil
-	}
-
-	// fall back to in-memory implementation
-	e.history = memory.NewHistoryStore()
-	return nil
 }
 
 // loadDAOConfig loads DAO connector config from inline value or from external

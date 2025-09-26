@@ -1,4 +1,6 @@
 /* eslint no-console: ["error", { allow: ["warn", "error", "log"] }] */
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');
 
 // toolRunnerService executes a selected tool against the backend REST API
 // exposed at POST /v1/api/tools/{name} and streams the result back to the
@@ -6,13 +8,13 @@
 
 export async function runSelected(prop) {
 
-    console.log('toolRunnerService.runSelected', prop);
+    log.debug('toolRunnerService.runSelected', { prop });
     const { context, data, setFormState } = prop;
 
     const toolContext = context?.Context('tools')
     const sel    =toolContext?.handlers?.dataSource?.peekSelection();
     if (!sel?.selected) {
-        console.warn('toolRunnerService.runSelected – no tool selected');
+        log.warn('toolRunnerService.runSelected – no tool selected');
         return false;
     }
 
@@ -27,16 +29,16 @@ export async function runSelected(prop) {
             inputParameters: { toolName: name },
             body: data,
         });
-        console.log('tool call', resp);
+        log.debug('tool call', resp);
         const body =  resp.data
         const result = body?.Result
-        console.log('tool call', body);
+        log.debug('tool call', body);
         handlers.dataSource.setFormField({item: {"id":"result"}, value:result})
 
 
         return resp;
     } catch (err) {
-        console.error('oauthService.saveOauth error:', err);
+        log.error('oauthService.saveOauth error', err);
         toolContext.handlers?.setError?.(err);
         return false;
     } finally {

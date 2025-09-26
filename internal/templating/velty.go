@@ -1,6 +1,8 @@
 package templating
 
 import (
+	"reflect"
+
 	"github.com/viant/velty"
 )
 
@@ -12,7 +14,7 @@ func Expand(tmpl string, vars map[string]interface{}) (string, error) {
 	planner := velty.New()
 	// Define variables for compilation
 	for k, v := range vars {
-		if err := planner.DefineVariable(k, v); err != nil {
+		if err := planner.DefineVariable(k, unwrapPtr(v)); err != nil {
 			return "", err
 		}
 	}
@@ -23,7 +25,7 @@ func Expand(tmpl string, vars map[string]interface{}) (string, error) {
 	state := newState()
 	// Populate values for execution
 	for k, v := range vars {
-		if err := state.SetValue(k, v); err != nil {
+		if err := state.SetValue(k, unwrapPtr(v)); err != nil {
 			return "", err
 		}
 	}
@@ -31,4 +33,15 @@ func Expand(tmpl string, vars map[string]interface{}) (string, error) {
 		return "", err
 	}
 	return string(state.Buffer.Bytes()), nil
+}
+
+// unwrapPtr returns the value pointed to by v when v is a non-nil pointer;
+// otherwise it returns v unchanged. This helps align velty variable definitions
+// and assignments with concrete struct types instead of pointers.
+func unwrapPtr(v interface{}) interface{} {
+	rv := reflect.ValueOf(v)
+	if rv.IsValid() && rv.Kind() == reflect.Ptr && !rv.IsNil() {
+		return rv.Elem().Interface()
+	}
+	return v
 }

@@ -1,1 +1,0 @@
-? SELECT ARRAY_AGG(Id) AS Values FROM  `/Message` LIMIT 1

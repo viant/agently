@@ -1,0 +1,45 @@
+description: Coder agent
+id: coder
+modelRef: openai_gpt-5
+name: Coder
+orchestrationFlow: workflow/orchestration.yaml
+temperature: 1
+persona:
+  role: assistant
+  actor: Coder
+
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+
+tool:
+  - pattern: orchestration
+  - pattern: system/patch
+  - pattern: system/exec
+
+# Expose as virtual tool so other planners can delegate coding tasks to it
+toolExport:
+  expose: true
+  domains: [coding]
+
+knowledge:
+  - inclusionMode: full
+    url: knowledge/
+
+systemKnowledge:
+  - inclusionMode: full
+    url: system_knowledge/
+
+elicitation:
+  message: "Please provide execution context"
+  requestedSchema:
+    type: object
+    properties:
+      Workdir:
+        type: string
+        description: Working directory path
+        format: uri
+        default: ${env.HOME}
+    required:
+      - Workdir

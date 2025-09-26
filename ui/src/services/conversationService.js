@@ -1,5 +1,8 @@
 // Conversation management service
 
+import {data} from "autoprefixer";
+import {saveSettings} from "./chatService.js";
+
 /**
  * Ensures a conversation exists, creating a new one if necessary
  * @param {Object} options - Options object
@@ -30,21 +33,30 @@ export async function ensureConversation({ context }) {
             body.tools = toolsRaw.trim();
         }
 
-        const resp = await conversationAPI.post({body});
-        const data = resp?.data || {};
+        const resp = await conversationAPI.post({ body });
+        const data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp;
         convID = data?.id;
         
         if (!convID) {
-            console.error('Failed to obtain conversation id');
+            log.error('Failed to obtain conversation id');
             return null;
         }
 
-        const input = conversationContext.signals?.input || {};
-        const collection = conversationContext.signals?.collection || {};
-        collection.value = [{ ...data }];
-        input.value = { ...input.peek(), filter: { id: convID } };
-        conversionHandlers.setFormData({ ...data });
-        conversionHandlers.setSelected({ selected: { ...data }, rowIndex: 0 });
+        try {
+            const inputSig = conversationContext.signals?.input;
+            const collSig  = conversationContext.signals?.collection;
+            if (Array.isArray(collSig?.value)) {
+                collSig.value = [{ ...data }];
+            } else if (collSig) {
+                collSig.value = [{ ...data }];
+            }
+            if (inputSig) {
+                const cur = (typeof inputSig.peek === 'function') ? (inputSig.peek() || {}) : (inputSig.value || {});
+                inputSig.value = { ...cur, filter: { id: convID } };
+            }
+        } catch(_) {}
+        try { conversionHandlers.setFormData({ values: { ...data } }); } catch(_) {}
+        try { conversionHandlers.setSelected({ selected: { ...data }, rowIndex: 0 }); } catch(_) {}
     }
     
     return convID;
@@ -52,6 +64,14 @@ export async function ensureConversation({ context }) {
 
 
 export async function newConversation({context}) {
-    const conversations = context.Context('conversations');
-    conversations.handlers.dataSource.setSelection({args: {rowIndex: -1}})
+    const msgCtx = context.Context('messages');
+    msgCtx.handlers.dataSource.handleAddNew()
+    msgCtx.handlers.dataSource.setCollection([])
+
+    const convContext = context.Context('conversations');
+    convContext.handlers.dataSource.setSelection({args: {rowIndex: -1}})
+    saveSettings({context})
+
 }
+import { getLogger, ForgeLog } from 'forge/utils/logger';
+const log = getLogger('agently');

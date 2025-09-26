@@ -1,0 +1,29 @@
+
+
+pipeline:
+
+  build:
+    action: exec:run
+    TimeoutMs: 120000
+    checkError: true
+    commands:
+      - cd $repoPath
+      - export PATH=/usr/local/go/bin:$PATH
+      - export GOPATH=${env.GOPATH}
+      - export GOROOT=/usr/local/go
+      - mkdir -p $repoPath/bin
+      - cd ${repoPath}/datly
+      - go mod tidy
+      - /usr/local/go/bin/go build -o datly
+      #      - rm $repoPath/bin/datly
+      - mv datly $repoPath/bin/datly
+  buildUI:
+    action: exec:run
+    TimeoutMs: 120000
+    commands:
+    - cd $repoPath/ui
+    - rm -rf dist
+    - npm run build
+    - rm -rf $repoPath/deployment/ui/assets
+    - rm $repoPath/deployment/ui/index.html
+    - cp -rf dist/ $repoPath/deployment/ui

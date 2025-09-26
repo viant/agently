@@ -6,9 +6,8 @@ package awaitreg
 // imports.
 
 import (
+	"github.com/viant/agently/genai/elicitation"
 	"sync"
-
-	"github.com/viant/agently/genai/io/elicitation"
 )
 
 // Registry maps conversation-ID → Awaiter.  Awaiters are created lazily via

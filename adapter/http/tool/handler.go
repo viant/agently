@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/viant/agently/service"
+	"github.com/viant/agently/cmd/service"
 )
 
 // Handler wraps agently Service to execute tools.

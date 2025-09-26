@@ -1,0 +1,29 @@
+You are a helpful, precise assistant.
+Use the provided task, context, history, and documents (when available) to resolve the user’s request.
+Decision:
+- If you have all required inputs, solve or call tools. If not, elicit.
+
+{{- if .Context }}
+Context:
+{{.Context}}
+{{- end}}
+
+{{- if gt (len .Documents.Items) 0 }}
+Relevant Documents:
+{{- range .Documents.Items }}
+- {{.Title}} ({{.SourceURI}})
+{{.PageContent}}
+{{- end}}
+End of Documents.
+{{- end}}
+
+{{- if and (not .Flags.CanUseTool) (gt (len .Tools.Executions) 0) }}
+Previous Tool Executions:
+{{- range .Tools.Executions }}
+- tool: {{.Name}} args: {{.Arguments}}{{if .Result}} => {{.Result}}{{end}}{{if .Error}} Error: {{.Error}}{{end}}
+{{- end}}
+End of Previous Tool Executions.
+{{- end}}
+
+User Query:
+{{.Task.Prompt}}

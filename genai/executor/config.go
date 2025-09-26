@@ -5,16 +5,15 @@ import (
 	"github.com/viant/agently/genai/agent"
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
 	"github.com/viant/agently/genai/executor/config"
+	llmprovider "github.com/viant/agently/genai/llm/provider"
 	agentfinder "github.com/viant/agently/internal/finder/agent"
 	embedderfinder "github.com/viant/agently/internal/finder/embedder"
+	modelfinder "github.com/viant/agently/internal/finder/model"
 	agentloader "github.com/viant/agently/internal/loader/agent"
 	embedderlloader "github.com/viant/agently/internal/loader/embedder"
+	modelloader "github.com/viant/agently/internal/loader/model"
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/fluxor/service/meta"
-
-	llmprovider "github.com/viant/agently/genai/llm/provider"
-	modelfinder "github.com/viant/agently/internal/finder/model"
-	modelloader "github.com/viant/agently/internal/loader/model"
 
 	"github.com/viant/agently/internal/loader/fs"
 	"github.com/viant/datly/view"
@@ -30,8 +29,6 @@ type Config struct {
 	MCP          *mcpcfg.Group[*mcp.ClientOptions]       `yaml:"mcp" json:"mcp"`
 	DAOConnector *view.DBConfig                          `yaml:"daoConfig" json:"daoConfig" `
 	Default      config.Defaults                         `yaml:"default" json:"default"`
-
-	ToolRetries int
 	//
 	metaService *meta.Service
 	Services    []string `yaml:"services" json:"services"`

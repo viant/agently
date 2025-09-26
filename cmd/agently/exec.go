@@ -4,11 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently/service"
-	"github.com/viant/fluxor-mcp/mcp/tool"
 	"io"
 	"os"
 	"time"
+
+	"github.com/google/uuid"
+	mcpclienthandler "github.com/viant/agently/adapter/mcp"
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
+	mcprouter "github.com/viant/agently/adapter/mcp/router"
+	convfactory "github.com/viant/agently/client/conversation/factory"
+	"github.com/viant/agently/cmd/service"
+	apiconv "github.com/viant/agently/genai/conversation"
+	elicitation "github.com/viant/agently/genai/elicitation"
+	"github.com/viant/agently/genai/executor"
+	"github.com/viant/agently/genai/memory"
+	"github.com/viant/fluxor-mcp/mcp/tool"
+	protoclient "github.com/viant/mcp-protocol/client"
 )
 
 // ExecCmd executes a registered tool via the Agently executor. It mirrors the
@@ -26,6 +37,22 @@ func (c *ExecCmd) Execute(_ []string) error {
 	if c.Inline != "" && c.File != "" {
 		return fmt.Errorf("-i/--input and -f/--file are mutually exclusive")
 	}
+
+	// Ensure per-conversation MCP manager is available for this ad-hoc exec path.
+	// Use a stdin awaiter so elicitation can be completed interactively.
+	prov := mcpmgr.NewRepoProvider()
+	r := mcprouter.New()
+	// Build conversation client from env for persistence
+	convClient, err := convfactory.NewFromEnv(context.Background())
+	if err != nil {
+		return err
+	}
+	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
+		// Elicitation service for tool elicitations, share router; attach stdin awaiter
+		el := elicitation.New(convClient, nil, r, newStdinAwaiter)
+		return mcpclienthandler.NewClient(el, convClient, nil)
+	}))
+	registerExecOption(executor.WithMCPManager(mgr))
 
 	execSvc := executorSingleton()
 	svc := service.New(execSvc, service.Options{})
@@ -68,10 +95,21 @@ func (c *ExecCmd) Execute(_ []string) error {
 	if timeout <= 0 {
 		timeout = 15 * time.Minute
 	}
+
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// Create a synthetic conversation id so per-conversation MCP clients and
+	// elicitation routing work consistently for ad-hoc exec as well.
+	convID := uuid.New().String()
+	turn := memory.TurnMeta{
+		ConversationID:  convID,
+		ParentMessageID: uuid.New().String(),
+		TurnID:          uuid.New().String(),
+	}
+	ctx = apiconv.WithID(ctx, convID)
+	ctx = memory.WithTurnMeta(ctx, turn)
 	canonical := tool.Canonical(c.Name)
 	resp, err := svc.ExecuteTool(ctx, service.ToolRequest{
 		Name:    canonical,

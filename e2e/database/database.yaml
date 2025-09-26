@@ -1,0 +1,69 @@
+pipeline:
+
+  buildSchema:
+    when: "$HasResource('${repoPath}/e2e/database/agently/agently.sql'):false"
+    fetchSchema:
+      action: storage:copy
+      source:
+        URL: ${repoPath}/internal/script/mysql/schema.ddl
+      dest:
+        URL: ${repoPath}/e2e/database/agently/script/schema.ddl
+
+
+    initializeAgently:
+      action: dsunit:init
+      description: register data store db with mysql dsn
+      datastore: agently
+      config:
+        driver: mysql
+        dsn: '${dbIP.user}:${dbIP.password}@tcp(${dbIP.mysql}:${dbPort.mysql})/agently?parseTime=true'
+        credentials: $mysqlCred
+      admin:
+        datastore: mysql
+        ping: true
+        config:
+          driver: mysql
+          dsn: '${dbIP.user}:${dbIP.password}@tcp(${dbIP.mysql}:${dbPort.mysql})/[dbname]?parseTime=true'
+          credentials: $mysqlCred
+      scripts:
+        - URL: ${repoPath}/e2e/database/agently/script/init.ddl
+        - URL: ${repoPath}/e2e/database/agently/script/schema.ddl
+
+    dumpMysqlSchemaDB:
+      target: $target
+      action: exec:run
+      checkError: true
+      init:
+        dbname: agently
+      systemPaths:
+        - /usr/local/mysql/bin/
+        - /usr/local/bin/
+        - /usr/bin
+      secrets:
+        mydb: $mysqlCred
+      commands:
+        - echo 'starting ${metadb} backup'
+        - docker exec  -i mysql_agently  mysqldump  -uroot -p${mydb.password} agently > ${repoPath}/e2e/database/agently/agently.sql
+
+  sleep:
+    action: nop
+    description: Sleep before applyAgentlySchema
+    sleepTimeMs: 10000
+
+  applyAgentlySchema:
+    action: exec:run
+    target: $target
+    checkErrors: true
+    checkError: true
+    init:
+      dbname: agently
+    systemPaths:
+      - /usr/local/mysql/bin/
+      - /usr/local/bin
+      - /usr/bin
+    secrets:
+      mydb: $mysqlCred
+    commands:
+      - echo 'starting 'agently' schema load'
+      - docker exec  -i mysql_agently  mysql -uroot -p${mydb.password}  < ${repoPath}/e2e/database/agently/script/init.ddl
+      - docker exec  -i mysql_agently  mysql -uroot -p${mydb.password} agently < ${repoPath}/e2e/database/agently/agently.sql

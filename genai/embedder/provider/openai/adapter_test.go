@@ -57,11 +57,11 @@ func TestAdaptRequest(t *testing.T) {
 
 func TestAdaptResponse(t *testing.T) {
 	testCases := []struct {
-		name           string
-		response       *Response
-		model          string
+		name            string
+		response        *Response
+		model           string
 		expectedVectors [][]float32
-		expectedTokens int
+		expectedTokens  int
 	}{
 		{
 			name: "normal response",
@@ -103,9 +103,9 @@ func TestAdaptResponse(t *testing.T) {
 					TotalTokens:  0,
 				},
 			},
-			model:          "default-model",
+			model:           "default-model",
 			expectedVectors: [][]float32{},
-			expectedTokens: 0,
+			expectedTokens:  0,
 		},
 	}
 

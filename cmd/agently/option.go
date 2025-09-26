@@ -13,7 +13,7 @@ type Options struct {
 	ModelSwitch *ModelSwitchCmd `command:"model-switch" description:"Switch agent default model"`
 	ModelReset  *ModelResetCmd  `command:"model-reset" description:"Clear agent model override"`
 	Workspace   *WorkspaceCmd   `command:"ws" description:"Workspace CRUD operations"`
-	Serve       *ServeCmd       `command:"serve" description:"Start HTTP server"`
+	Serve       *ServeCmd       `command:"serve" description:"StartedAt HTTP server"`
 	MCP         *McpCmd         `command:"mcp" description:"Manage MCP servers"`
 }
 

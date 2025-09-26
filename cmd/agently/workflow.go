@@ -9,10 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/agently/cmd/service"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/agently/service"
-
-	elog "github.com/viant/agently/internal/log"
 )
 
 // WorkflowCmd executes a Fluxor workflow graph directly.
@@ -25,8 +23,6 @@ type WorkflowCmd struct {
 
 	Timeout int    `long:"timeout" description:"timeout in seconds (0 = no timeout)"`
 	Policy  string `long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
-
-	Log string `long:"log" description:"append raw workflow output to this file"`
 }
 
 func (w *WorkflowCmd) readInput() (interface{}, error) {
@@ -64,14 +60,6 @@ func (w *WorkflowCmd) Execute(_ []string) error {
 	input, err := w.readInput()
 	if err != nil {
 		return fmt.Errorf("failed to read input: %w", err)
-	}
-
-	// Log file (optional)
-	if w.Log != "" {
-		lf, err := os.OpenFile(w.Log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err == nil {
-			elog.FileSink(lf, elog.TaskInput, elog.TaskOutput, elog.TaskWhen)
-		}
 	}
 
 	execSvc := executorSingleton()

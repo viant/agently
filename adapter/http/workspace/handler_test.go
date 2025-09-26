@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/viant/agently/service"
+	"github.com/viant/agently/cmd/service"
 	"gopkg.in/yaml.v3"
 )
 

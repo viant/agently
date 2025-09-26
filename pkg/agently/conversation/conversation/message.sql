@@ -1,0 +1,1 @@
+SELECT * FROM message WHERE attachment_payload_id IS NULL

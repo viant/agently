@@ -3,9 +3,7 @@ package agently
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"strings"
@@ -15,36 +13,9 @@ import (
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/executor/instance"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/fluxor/model/graph"
 	fluxpol "github.com/viant/fluxor/policy"
-	"github.com/viant/fluxor/runtime/execution"
 	"github.com/viant/fluxor/service/approval"
-	fluxexec "github.com/viant/fluxor/service/executor"
-
-	elog "github.com/viant/agently/internal/log"
 )
-
-// prefixWriter adds a static prefix at the beginning of every Write call.
-type prefixWriter struct {
-	w      io.Writer
-	prefix []byte
-}
-
-func newPrefixWriter(w io.Writer, prefix string) io.Writer {
-	return &prefixWriter{w: w, prefix: []byte(prefix)}
-}
-
-func (p *prefixWriter) Write(b []byte) (int, error) {
-	if p.w == nil {
-		return 0, nil
-	}
-	if len(p.prefix) > 0 {
-		if _, err := p.w.Write(p.prefix); err != nil {
-			return 0, err
-		}
-	}
-	return p.w.Write(b)
-}
 
 var (
 	cfgMu   sync.RWMutex
@@ -236,37 +207,4 @@ func withFluxorPolicy(ctx context.Context, pol *fluxpol.Policy) context.Context 
 		return ctx
 	}
 	return fluxpol.WithPolicy(ctx, pol)
-}
-
-// newJSONTaskListener returns a Fluxor executor listener that dumps each task
-// with input/output as compact JSON to the supplied writer (one line per task).
-func newJSONTaskListener(writers ...io.Writer) fluxexec.Listener {
-	return func(task *graph.Task, exec *execution.Execution) {
-		if task == nil {
-			return
-		}
-		// Emit task input/output events
-		elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskInput, Payload: map[string]interface{}{"task": task, "input": exec.Input}})
-		elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskOutput, Payload: map[string]interface{}{"task": task, "output": exec.Output}})
-		if exec.Error != "" {
-			elog.Publish(elog.Event{Time: time.Now(), EventType: elog.TaskOutput, Payload: map[string]interface{}{"task": task, "error": exec.Error}})
-		}
-		rec := map[string]interface{}{
-			"task":   task,
-			"input":  exec.Input,
-			"output": exec.Output,
-			"error":  exec.Error,
-		}
-		data, err := json.Marshal(rec)
-		if err != nil {
-			return
-		}
-		data = append(data, '\n')
-		for _, w := range writers {
-			if w == nil {
-				continue
-			}
-			_, _ = w.Write(data)
-		}
-	}
 }
