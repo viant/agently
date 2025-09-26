@@ -11,5 +11,6 @@ import (
 )
 
 func main() {
+
 	agently.RunWithCommands(os.Args[1:])
 }
