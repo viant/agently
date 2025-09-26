@@ -14,11 +14,11 @@ require (
 	github.com/tmc/langchaingo v0.1.14-0.20250213044659-d3e43b632176
 	github.com/viant/afs v1.26.3
 	github.com/viant/afsc v1.9.1
-	github.com/viant/datly v0.20.15-0.20250915182301-c672e99e1072
+	github.com/viant/datly v0.20.16-0.20250924215533-c5404492eaf7
 	github.com/viant/embedius v0.2.1
 	github.com/viant/fluxor v0.3.14
 	github.com/viant/fluxor-mcp v0.1.16
-	github.com/viant/forge v0.2.9
+	github.com/viant/forge v0.2.10
 	github.com/viant/jsonrpc v0.9.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.6.0
@@ -39,6 +39,7 @@ require (
 	github.com/fsnotify/fsnotify v1.4.7
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
 	golang.org/x/oauth2 v0.30.0
+	modernc.org/sqlite v1.18.1
 )
 
 require (
@@ -178,11 +179,6 @@ require (
 	modernc.org/mathutil v1.5.0 // indirect
 	modernc.org/memory v1.2.1 // indirect
 	modernc.org/opt v0.1.3 // indirect
-	modernc.org/sqlite v1.18.1 // indirect
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
 )
-
-replace github.com/viant/datly => ../datly
-
-replace github.com/viant/fluxor => ../fluxor

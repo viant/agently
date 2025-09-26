@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -83,12 +84,25 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// external callers (e.g., cancel endpoint) invoke this cancel.
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
+	// Wrap cancel to persist a terminal status using a non-cancellable context,
+	// so DB updates are not blocked by the cancellation signal.
+	wrappedCancel := func() {
+		// Cancel the running operations first
+		cancel()
+		// Best-effort status update to "canceled"
+		if s.conversation != nil {
+			upd := apiconv.NewTurn()
+			upd.SetId(turn.TurnID)
+			upd.SetStatus("canceled")
+			_ = s.conversation.PatchTurn(context.Background(), upd)
+		}
+	}
 	if s.cancelReg != nil {
-		s.cancelReg.Register(turn.ConversationID, turn.TurnID, cancel)
-		defer s.cancelReg.Complete(turn.ConversationID, turn.TurnID, cancel)
+		s.cancelReg.Register(turn.ConversationID, turn.TurnID, wrappedCancel)
+		defer s.cancelReg.Complete(turn.ConversationID, turn.TurnID, wrappedCancel)
 	} else {
 		// Ensure resources are released even when no registry is present.
-		defer cancel()
+		defer wrappedCancel()
 	}
 	if len(input.ToolsAllowed) > 0 {
 		pol := &tool.Policy{Mode: tool.ModeAuto, AllowList: input.ToolsAllowed}
@@ -125,16 +139,28 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	err = s.runPlanLoop(ctx, input, output)
 	status := "succeeded"
 	if err != nil {
-		status = "failed"
+		if errors.Is(err, context.Canceled) {
+			status = "canceled"
+		} else {
+			status = "failed"
+		}
 	}
 	// Update turn status (and error message on failure) via conversation client
+	var emsg string
+	if err != nil && !errors.Is(err, context.Canceled) {
+		emsg = err.Error()
+	}
+	patchCtx := ctx
+	if status == "canceled" {
+		patchCtx = context.Background()
+	}
 	updTurn := apiconv.NewTurn()
 	updTurn.SetId(turn.TurnID)
 	updTurn.SetStatus(status)
-	if err != nil {
-		updTurn.SetErrorMessage(err.Error())
+	if emsg != "" {
+		updTurn.SetErrorMessage(emsg)
 	}
-	updateErr := s.conversation.PatchTurn(ctx, updTurn)
+	updateErr := s.conversation.PatchTurn(patchCtx, updTurn)
 	if err != nil {
 		return err
 	}

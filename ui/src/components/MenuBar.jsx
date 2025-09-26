@@ -115,13 +115,6 @@ const MenuBar = ({toggleNavigation}) => {
             </Navbar.Group>
             {isAuthenticated && (
                 <Navbar.Group align={Alignment.RIGHT}>
-                    <InputGroup
-                        className="bp4-round"
-                        leftIcon="search"
-                        placeholder="Global Search..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                    />
                     <Popover
                         content={
                             <Menu>

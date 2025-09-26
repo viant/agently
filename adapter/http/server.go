@@ -128,6 +128,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	mux.HandleFunc("GET /v1/api/conversations", s.handleConversations)      // list conversations
 	mux.HandleFunc("GET /v1/api/conversations/{id}", s.handleConversations) // get conversation by id
 
+	// Delete conversation (cascades via DB FKs)
+	mux.HandleFunc("DELETE /v1/api/conversations/{id}", func(w http.ResponseWriter, r *http.Request) {
+		s.handleDeleteConversation(w, r, r.PathValue("id"))
+	})
+
 	// Conversation messages collection & item
 	mux.HandleFunc("POST /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		s.handlePostMessage(w, r, r.PathValue("id"))
@@ -524,8 +529,14 @@ func (s *Server) handleTerminateConversation(w http.ResponseWriter, r *http.Requ
 	}
 
 	cancelled := false
-	if s.chatSvc != nil {
-		cancelled = s.chatSvc.Cancel(convID)
+	if s.chatSvc == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
+		return
+	}
+	cancelled = s.chatSvc.Cancel(convID)
+	if err := s.chatSvc.SetConversationStatus(context.Background(), convID, "canceled"); err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
 	}
 
 	status := http.StatusAccepted
@@ -534,6 +545,28 @@ func (s *Server) handleTerminateConversation(w http.ResponseWriter, r *http.Requ
 	}
 
 	encode(w, status, map[string]any{"cancelled": cancelled}, nil)
+}
+
+// handleDeleteConversation processes DELETE /v1/api/conversations/{id}
+// and removes the conversation; dependent rows are removed via DB FK cascade.
+func (s *Server) handleDeleteConversation(w http.ResponseWriter, r *http.Request, convID string) {
+	if r.Method != http.MethodDelete {
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
+		return
+	}
+	if strings.TrimSpace(convID) == "" {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("conversation id required"))
+		return
+	}
+	if s.chatSvc == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
+		return
+	}
+	if err := s.chatSvc.DeleteConversation(r.Context(), convID); err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+	encode(w, http.StatusNoContent, nil, nil)
 }
 
 // ListenAndServe Simple helper to start the server (blocks).

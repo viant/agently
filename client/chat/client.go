@@ -20,7 +20,12 @@ type Client interface {
 	CreateConversation(ctx context.Context, in CreateConversationRequest) (*CreateConversationResponse, error)
 	GetConversation(ctx context.Context, id string) (*ConversationSummary, error)
 	ListConversations(ctx context.Context) ([]ConversationSummary, error)
+	DeleteConversation(ctx context.Context, id string) error
 	Approve(ctx context.Context, messageID, action, reason string) error
 	Elicit(ctx context.Context, messageID, action string, payload map[string]interface{}) error
 	GetPayload(ctx context.Context, id string) ([]byte, string, error)
+
+	SetTurnStatus(ctx context.Context, turnID, status string, errorMessage ...string) error
+	SetMessageStatus(ctx context.Context, messageID, status string) error
+	SetConversationStatus(ctx context.Context, conversationID, status string) error
 }
