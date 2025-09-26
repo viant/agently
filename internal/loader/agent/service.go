@@ -248,6 +248,17 @@ func (s *Service) parseAgent(node *yml.Node, agent *agent.Agent) error {
 			if valueNode.Kind == yaml.ScalarNode {
 				agent.Description = valueNode.Value
 			}
+		case "paralleltoolcalls":
+			if valueNode.Kind == yaml.ScalarNode {
+				val := valueNode.Interface()
+				switch actual := val.(type) {
+				case bool:
+					agent.ParallelToolCalls = actual
+				case string:
+					lv := strings.ToLower(strings.TrimSpace(actual))
+					agent.ParallelToolCalls = lv == "true"
+				}
+			}
 		case "knowledge":
 			if valueNode.Kind == yaml.SequenceNode {
 				for _, itemNode := range valueNode.Content {

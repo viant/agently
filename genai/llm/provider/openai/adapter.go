@@ -16,7 +16,7 @@ var modelTemperature = map[string]float64{
 
 // ToRequest converts an llm.ChatRequest to a Request
 func ToRequest(request *llm.GenerateRequest) (*Request, error) {
-	// Create the request with default values
+	// Create the request with defaults
 	req := &Request{}
 
 	// Set options if provided
@@ -70,6 +70,11 @@ func ToRequest(request *llm.GenerateRequest) (*Request, error) {
 					},
 				}
 			}
+		}
+
+		// Honor parallel tool calls option (agent-configurable, provider-supported)
+		if request.Options.ParallelToolCalls {
+			req.ParallelToolCalls = true
 		}
 
 		// Convert tool choice if provided
