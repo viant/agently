@@ -30,6 +30,11 @@ type (
 		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
 		Tool            []*llm.Tool    `yaml:"tool,omitempty" json:"tool,omitempty"`
 
+		// ParallelToolCalls requests providers that support it to execute
+		// multiple tool calls in parallel within a single reasoning step.
+		// Honored only when the selected model implements the feature.
+		ParallelToolCalls bool `yaml:"parallelToolCalls,omitempty" json:"parallelToolCalls,omitempty"`
+
 		// Elicitation optionally defines required context schema that must be
 		// satisfied before the agent can execute its workflow. When provided, the
 		// runtime checks incoming QueryInput.Context against the schema and, if

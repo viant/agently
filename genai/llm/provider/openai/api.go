@@ -75,6 +75,8 @@ func (c *Client) Implements(feature string) bool {
 		return true
 	case base.IsMultimodal:
 		return c.canMultimodal()
+	case base.CanExecToolsInParallel:
+		return true
 	}
 	return false
 }
