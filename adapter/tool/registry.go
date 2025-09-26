@@ -10,6 +10,7 @@ import (
 
 	"github.com/viant/agently/adapter/mcp/manager"
 	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/convctx"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/llm"
 	gtool "github.com/viant/agently/genai/tool"
@@ -223,7 +224,12 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		fmt.Fprintf(r.debugWriter, "[adapter/tool] call %s args=%v (mcp)\n", name, args)
 	}
 
-	convID := conversation.ID(ctx)
+	// Support both legacy conversation.ID and the new convctx.ID to avoid
+	// import cycles while still propagating the identifier.
+	convID := convctx.ID(ctx)
+	if convID == "" {
+		convID = conversation.ID(ctx)
+	}
 	// Infer server (service name) from tool name using fluxor-mcp naming.
 	server := mcptool.Name(mcptool.Canonical(name)).Service()
 	if server != "" && convID != "" {

@@ -31,7 +31,9 @@ func (s *Service) Ensure(ctx context.Context) (string, error) { // ctx kept for 
 	if err := os.MkdirAll(dbDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create db dir: %w", err)
 	}
-	dsn := filepath.Join(dbDir, "agently.db")
+	dbFile := filepath.Join(dbDir, "agently.db")
+	// Use SQLite URI with pragmas to improve concurrency and avoid SQLITE_BUSY
+	dsn := "file:" + dbFile + "?cache=shared&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -39,10 +41,19 @@ func (s *Service) Ensure(ctx context.Context) (string, error) { // ctx kept for 
 	}
 	defer db.Close()
 
+	// Best-effort apply pragmas (journal_mode persisted at DB level; busy_timeout per-conn)
+	_, _ = db.ExecContext(ctx, "PRAGMA journal_mode=WAL")
+	_, _ = db.ExecContext(ctx, "PRAGMA busy_timeout=5000")
+	_, _ = db.ExecContext(ctx, "PRAGMA synchronous=NORMAL")
+
 	// Check if schema is already present
 	var name string
 	err = db.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation'").Scan(&name)
 	if err == nil && name == "conversation" {
+		// Existing DB found: apply lightweight migrations for known schema diffs.
+		if mErr := migrateIfNeeded(ctx, db); mErr != nil {
+			return "", mErr
+		}
 		return dsn, nil
 	}
 	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "no rows") {
@@ -91,4 +102,35 @@ func (s *Service) Ensure(ctx context.Context) (string, error) { // ctx kept for 
 		return "", err
 	}
 	return dsn, nil
+}
+
+// migrateIfNeeded applies minimal forward-compatible migrations for prior DBs.
+func migrateIfNeeded(ctx context.Context, db *sql.DB) error {
+	// 1) Ensure model_call.status column exists (older schema missed it)
+	hasStatus := false
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info(model_call)")
+	if err == nil {
+		defer rows.Close()
+		var (
+			cid         int
+			name, ctype string
+			notnull, pk int
+			dflt        interface{}
+		)
+		for rows.Next() {
+			if scanErr := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); scanErr == nil {
+				if strings.EqualFold(name, "status") {
+					hasStatus = true
+					break
+				}
+			}
+		}
+		_ = rows.Err()
+	}
+	if !hasStatus {
+		if _, err := db.ExecContext(ctx, "ALTER TABLE model_call ADD COLUMN status TEXT"); err != nil {
+			return fmt.Errorf("migrate: add model_call.status failed: %w", err)
+		}
+	}
+	return nil
 }

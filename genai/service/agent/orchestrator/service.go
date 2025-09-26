@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent/plan"
+	convctx "github.com/viant/agently/genai/convctx"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	core2 "github.com/viant/agently/genai/service/core"
@@ -30,8 +31,10 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 
 	var wg sync.WaitGroup
 	nextStepIdx := 0
+	// Bind registry to current conversation (if any) so tool.Execute receives ctx with convID.
+	reg := tool.WithConversation(s.registry, convctx.ID(ctx))
 	// Do not create child cancels here; errors must not cancel context.
-	streamId, stepErrCh := s.registerStreamPlannerHandler(aPlan, &wg, &nextStepIdx, genOutput)
+	streamId, stepErrCh := s.registerStreamPlannerHandler(ctx, reg, aPlan, &wg, &nextStepIdx, genOutput)
 	canStream, err := s.canStream(ctx, genInput)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if model can stream: %w", err)
@@ -119,7 +122,7 @@ func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) 
 	return doStream, nil
 }
 
-func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) (string, <-chan error) {
+func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) (string, <-chan error) {
 	var mux sync.Mutex
 	stepErrCh := make(chan error, 1)
 	var stopped atomic.Bool
@@ -157,7 +160,7 @@ func (s *Service) registerStreamPlannerHandler(aPlan *plan.Plan, wg *sync.WaitGr
 			go func() {
 				defer wg.Done()
 				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args}
-				_, _, err := executil.ExecuteToolStep(ctx, s.registry, stepInfo, s.convClient)
+				_, _, err := executil.ExecuteToolStep(ctx, reg, stepInfo, s.convClient)
 				if err != nil {
 					// capture first error and stop reacting to further events
 					select {
