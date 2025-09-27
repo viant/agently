@@ -27,38 +27,17 @@ func (c *ListToolsCmd) Execute(_ []string) error {
 	// Initialise executor & obtain tool definitions in one go.
 	svc := executorSingleton()
 
-	if c.Name != "" {
-		canonical := tool2.Canonical(c.Name)
-		tool, err := svc.Orchestration().LookupTool(canonical)
-		if err != nil {
-			return fmt.Errorf("tool %q not found", c.Name)
-		}
-		llmTool := llm.ToolDefinitionFromMcpTool(&tool.Metadata)
-		return c.printToolDefinition(llmTool)
-	}
-
+	// Load the full catalogue once for list/JSON output and fallback lookup.
 	defs := svc.LLMCore().ToolDefinitions()
 
-	if len(defs) == 0 {
-		fmt.Println("no tools registered")
-		return nil
-	}
-
-	// ------------------------------------------------------------------
-	// Narrow down to specific tool (if requested)
-	// ------------------------------------------------------------------
+	// Name-specific output
 	if c.Name != "" {
-		for _, d := range defs {
-			if d.Name == c.Name {
-				return c.printToolDefinition(&d)
-			}
+		// First try orchestration registry (canonical form)
+		if tool, err := svc.Orchestration().LookupTool(tool2.Canonical(c.Name)); err == nil {
+			llmTool := llm.ToolDefinitionFromMcpTool(&tool.Metadata)
+			return c.printToolDefinition(llmTool)
 		}
-		return fmt.Errorf("tool %q not found", c.Name)
-	}
-	// ------------------------------------------------------------------
-	// Narrow down to specific tool (if requested)
-	// ------------------------------------------------------------------
-	if c.Name != "" {
+		// Fallback to LLM core definitions by name
 		for _, d := range defs {
 			if d.Name == c.Name {
 				return c.printToolDefinition(&d)
@@ -67,12 +46,15 @@ func (c *ListToolsCmd) Execute(_ []string) error {
 		return fmt.Errorf("tool %q not found", c.Name)
 	}
 
-	// ------------------------------------------------------------------
 	// Full catalogue (list or JSON)
-	// ------------------------------------------------------------------
 	if c.JSON {
 		data, _ := json.MarshalIndent(defs, "", "  ")
 		fmt.Println(string(data))
+		return nil
+	}
+
+	if len(defs) == 0 {
+		fmt.Println("no tools registered")
 		return nil
 	}
 
