@@ -2,18 +2,20 @@ package service
 
 import (
 	"context"
+	"os"
+	"sync"
+
 	afs "github.com/viant/afs"
 	execpkg "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/llm"
 	agentrepo "github.com/viant/agently/internal/repository/agent"
+	extrepo "github.com/viant/agently/internal/repository/extension"
 	mcprepo "github.com/viant/agently/internal/repository/mcp"
 	modelrepo "github.com/viant/agently/internal/repository/model"
 	oauthrepo "github.com/viant/agently/internal/repository/oauth"
 	workflowrepo "github.com/viant/agently/internal/repository/workflow"
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/scy"
-	"os"
-	"sync"
 )
 
 // Options configures behaviour of Service.
@@ -27,12 +29,13 @@ type Service struct {
 	exec *execpkg.Service
 	opts Options
 
-	once    sync.Once
-	mRepo   *modelrepo.Repository
-	aRepo   *agentrepo.Repository
-	wRepo   *workflowrepo.Repository
-	mcpRepo *mcprepo.Repository
-	oRepo   *oauthrepo.Repository
+	once     sync.Once
+	mRepo    *modelrepo.Repository
+	aRepo    *agentrepo.Repository
+	wRepo    *workflowrepo.Repository
+	mcpRepo  *mcprepo.Repository
+	oRepo    *oauthrepo.Repository
+	feedRepo *extrepo.Repository
 	// tools are dynamic – no repository, expose via executor.
 }
 
@@ -73,6 +76,7 @@ func (s *Service) initRepos() {
 		s.mcpRepo = mcprepo.New(fs)
 
 		s.oRepo = oauthrepo.New(fs, scy.New())
+		s.feedRepo = extrepo.New(fs)
 	})
 }
 
@@ -81,6 +85,7 @@ func (s *Service) ModelRepo() *modelrepo.Repository { s.initRepos(); return s.mR
 func (s *Service) AgentRepo() *agentrepo.Repository { s.initRepos(); return s.aRepo }
 func (s *Service) OAuthRepo() *oauthrepo.Repository { s.initRepos(); return s.oRepo }
 func (s *Service) MCPRepo() *mcprepo.Repository     { s.initRepos(); return s.mcpRepo }
+func (s *Service) FeednRepo() *extrepo.Repository   { s.initRepos(); return s.feedRepo }
 
 // ToolDefinitions returns available tool definitions (read-only) gathered from the executor’s registry.
 func (s *Service) ToolDefinitions() []llm.ToolDefinition {

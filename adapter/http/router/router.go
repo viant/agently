@@ -19,10 +19,25 @@ import (
 	"github.com/viant/agently/cmd/service"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
+	invk "github.com/viant/agently/pkg/agently/tool/invoker"
 	fluxorpol "github.com/viant/fluxor/policy"
 	fhandlers "github.com/viant/forge/backend/handlers"
 	fservice "github.com/viant/forge/backend/service/file"
 )
+
+// execInvoker provides a conversation-scoped invoker backed by executor.
+type execInvoker struct{ exec *execsvc.Service }
+
+var _ invk.Invoker = (*execInvoker)(nil)
+
+// Invoke executes a tool by service/method in the current conversation context.
+func (e *execInvoker) Invoke(ctx context.Context, service, method string, args map[string]interface{}) (interface{}, error) {
+	name := service
+	if method != "" {
+		name = service + "/" + method
+	}
+	return e.exec.ExecuteTool(ctx, name, args, 0)
+}
 
 // New constructs an http.Handler that combines chat API and workspace CRUD API.
 //
@@ -34,11 +49,15 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	// Forge file service singleton (reused for upload handlers and chat service)
 	fs := fservice.New(os.TempDir())
 
+	cfg := exec.Config()
 	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation(),
 		chat.WithPolicies(toolPol, fluxPol),
 		chat.WithApprovalService(exec.ApprovalService()),
 		chat.WithFileService(fs),
 		chat.WithMCPRouter(mcpR),
+		chat.WithCore(exec.LLMCore()),
+		chat.WithDefaults(&cfg.Default),
+		chat.WithInvoker(&execInvoker{exec: exec}),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
 	// Backward-compatible alias so callers using /v1/api/workspace/* keep working

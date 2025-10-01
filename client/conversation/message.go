@@ -11,6 +11,13 @@ func (m *Message) IsInterim() bool {
 	return false
 }
 
+func (m *Message) IsCompacted() bool {
+	if m == nil {
+		return false
+	}
+	return m.Compacted != nil && *m.Compacted == 1
+}
+
 type Messages []*Message
 
 // SortByCreatedAt sorts the messages in-place by CreatedAt.

@@ -18,10 +18,12 @@ import (
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 
 	"github.com/viant/agently/genai/conversation"
+	execcfg "github.com/viant/agently/genai/executor/config"
+	corellm "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
-
 	chat "github.com/viant/agently/internal/service/chat"
 	"github.com/viant/agently/metadata"
+	invk "github.com/viant/agently/pkg/agently/tool/invoker"
 
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
@@ -50,6 +52,10 @@ type Server struct {
 	mcpRouter elicrouter.ElicitationRouter
 
 	// Store removed; using conversation client via chat service
+
+	invoker  invk.Invoker
+	core     *corellm.Service
+	defaults *execcfg.Defaults
 }
 
 // ServerOption customises HTTP server behaviour.
@@ -89,10 +95,19 @@ func WithFileService(fs *fservice.Service) ServerOption {
 	}
 }
 
+// WithInvoker attaches a tool invoker used by transcript extensions with source=invoke.
+func WithInvoker(inv invk.Invoker) ServerOption { return func(s *Server) { s.invoker = inv } }
+
 // WithMCPRouter attaches an elicitation router to route MCP prompts back to the correct conversation.
 func WithMCPRouter(r elicrouter.ElicitationRouter) ServerOption {
 	return func(s *Server) { s.mcpRouter = r }
 }
+
+// WithCore attaches the LLM core service so Chat can call core.Generate directly.
+func WithCore(c *corellm.Service) ServerOption { return func(s *Server) { s.core = c } }
+
+// WithDefaults passes summary defaults (model/prompt/lastN) to chat service.
+func WithDefaults(d *execcfg.Defaults) ServerOption { return func(s *Server) { s.defaults = d } }
 
 // NewServer returns an http.Handler with routes bound.
 func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
@@ -112,6 +127,12 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.chatSvc.AttachApproval(s.pendingApproval)
 	}
 	s.chatSvc.AttachFileService(s.fileSvc)
+	if s.core != nil {
+		s.chatSvc.AttachCore(s.core)
+	}
+	if s.defaults != nil {
+		s.chatSvc.AttachDefaults(s.defaults)
+	}
 	// Attach a shared elicitation service for persistence and waiting
 	if s.chatSvc != nil {
 		es := elicitation.New(s.chatSvc.ConversationClient(), nil, s.mcpRouter, nil)
@@ -148,6 +169,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	// Terminate/cancel current turn – best-effort cancellation of running workflow.
 	mux.HandleFunc("POST /v1/api/conversations/{id}/terminate", func(w http.ResponseWriter, r *http.Request) {
 		s.handleTerminateConversation(w, r, r.PathValue("id"))
+	})
+
+	// Compact conversation: generate summary and flag prior messages as compacted
+	mux.HandleFunc("POST /v1/api/conversations/{id}/compact", func(w http.ResponseWriter, r *http.Request) {
+		s.handleCompactConversation(w, r, r.PathValue("id"))
 	})
 
 	// ------------------------------------------------------------------
@@ -330,12 +356,29 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	}
 	sinceId := strings.TrimSpace(r.URL.Query().Get("since"))
 	includeModelCallPayload := strings.TrimSpace(r.URL.Query().Get("includeModelCallPayload"))
-	resp, err := s.chatSvc.Get(r.Context(), chat.GetRequest{ConversationID: convID, SinceID: sinceId, IncludeModelCallPayload: includeModelCallPayload == "1"})
+
+	// First fetch (or only when extensions are not requested)
+	baseCtx := r.Context()
+	if s.invoker != nil {
+		baseCtx = invk.With(baseCtx, s.invoker)
+	}
+
+	// Resolve applicable extensions via chat service (moves heavy logic out of handler)
+	toolSpec, err := s.chatSvc.MatchToolFeedSpec(baseCtx, convID, sinceId)
+	log.Printf("[messages] resolved %d toolSpec", len(toolSpec))
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
-	encode(w, http.StatusOK, resp.Conversation, nil)
+	// Second fetch with ToolExtensions populated so transcript hook can compute executions
+	opts := chat.GetRequest{ConversationID: convID, SinceID: sinceId, IncludeModelCallPayload: includeModelCallPayload == "1", IncludeToolCall: true, ToolExtensions: toolSpec}
+	log.Printf("[messages] conversation=%s applying extensions=%d and refetching", convID, len(toolSpec))
+	second, err := s.chatSvc.Get(baseCtx, opts)
+	if err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+	encode(w, http.StatusOK, second.Conversation, nil)
 }
 
 // handleGetPayload serves payload content or metadata for a given payload id.
@@ -567,6 +610,29 @@ func (s *Server) handleDeleteConversation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	encode(w, http.StatusNoContent, nil, nil)
+}
+
+// handleCompactConversation processes POST /v1/api/conversations/{id}/compact
+// and triggers server-side compaction: inserts an assistant summary message and
+// flags prior messages as compacted. Returns 202 on success.
+func (s *Server) handleCompactConversation(w http.ResponseWriter, r *http.Request, convID string) {
+	if r.Method != http.MethodPost {
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
+		return
+	}
+	if strings.TrimSpace(convID) == "" {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("conversation id required"))
+		return
+	}
+	if s.chatSvc == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
+		return
+	}
+	if err := s.chatSvc.Compact(r.Context(), convID); err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+	encode(w, http.StatusAccepted, map[string]any{"compacted": true}, nil)
 }
 
 // ListenAndServe Simple helper to start the server (blocks).

@@ -68,6 +68,7 @@ CREATE INDEX idx_turn_conversation ON turn (conversation_id);
 CREATE TABLE message
 (
     id                 TEXT PRIMARY KEY,
+    compacted          INTEGER   CHECK (compacted IN (0, 1)),
     conversation_id    TEXT      NOT NULL REFERENCES conversation (id) ON DELETE CASCADE,
     turn_id            TEXT      REFERENCES turn (id) ON DELETE SET NULL,
     sequence           INTEGER,

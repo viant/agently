@@ -24,13 +24,15 @@ import (
 	"github.com/viant/agently/genai/service/augmenter"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
-	plan "github.com/viant/agently/genai/tool/extension/orchestration/plan"
+	plan "github.com/viant/agently/genai/tool/service/orchestration/plan"
+	extfinder "github.com/viant/agently/internal/finder/extension"
 	"github.com/viant/agently/internal/finder/oauth"
 	"github.com/viant/agently/internal/hotswap"
 	"github.com/viant/agently/internal/loader/oauth"
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/fluxor"
 	"github.com/viant/fluxor/extension"
+	"github.com/viant/fluxor/model/types"
 	"github.com/viant/fluxor/service/approval"
 	"github.com/viant/fluxor/service/event"
 	"github.com/viant/fluxor/service/meta"
@@ -50,6 +52,8 @@ type Service struct {
 	agentFinder    agent.Finder
 	tools          tool.Registry
 
+	services map[string]types.Service
+
 	llmCore *core.Service
 
 	// newAwaiter receives interactive user prompts when the runtime
@@ -63,6 +67,9 @@ type Service struct {
 	convManager  *conversation.Manager
 	metaService  *meta.Service
 	started      int32
+
+	// FeedSpec extension metadata finder (workspace-driven)
+	extFinder *extfinder.Finder
 
 	// oauth credentials finder
 	oauthFinder *oauthfinder.Finder
@@ -222,6 +229,7 @@ func (e *Service) registerServices(actions *extension.Actions) {
 	actions.Register(e.llmCore)
 	// Register plan update service as MCP tool (core:updatePlan)
 	actions.Register(plan.New())
+
 	if strings.TrimSpace(os.Getenv("AGENTLY_REGISTER_AUGMENTER")) == "1" {
 		actions.Register(enricher)
 	}
@@ -341,9 +349,18 @@ func (e *Service) Config() *Config {
 	return e.config
 }
 
+// FindToolMetadata returns ordered tool metadata (workspace extensions) that
+// match the provided service/method combination. When none match it returns nil.
+func (e *Service) FindToolMetadata(service, method string) []*tool.FeedSpec {
+	if e == nil || e.extFinder == nil {
+		return nil
+	}
+	return e.extFinder.FindMatches(service, method)
+}
+
 // New creates a new executor service
 func New(ctx context.Context, options ...Option) (*Service, error) {
-	ret := &Service{config: &Config{}}
+	ret := &Service{config: &Config{}, services: make(map[string]types.Service)}
 	for _, opt := range options {
 		opt(ret)
 	}

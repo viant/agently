@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"github.com/viant/agently/genai/tool"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
 	"github.com/viant/datly/repository/contract"
@@ -27,11 +28,12 @@ func init() {
 var ConversationFS embed.FS
 
 type ConversationInput struct {
-	Id                string                `parameter:",kind=path,in=id"`
-	Since             string                `parameter:",kind=query,in=since" predicate:"expr,group=0,created_at >= (SELECT created_at FROM turn WHERE id = ?)"`
-	IncludeTranscript bool                  `parameter:",kind=query,in=includeTranscript" predicate:"expr,group=0,?" value:"true"`
+	Id                string                `parameter:",kind=path,in=id" predicate:"equal,group=0,t,id"`
+	Since             string                `parameter:",kind=query,in=since" predicate:"expr,group=1,created_at >= (SELECT created_at FROM turn WHERE id = ?)"`
+	IncludeTranscript bool                  `parameter:",kind=query,in=includeTranscript" predicate:"expr,group=1,?" value:"true"`
 	IncludeModelCal   bool                  `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"false"`
 	IncludeToolCall   bool                  `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"false"`
+	FeedSpec          []*tool.FeedSpec      `parameter:",kind=transient,in=extension"`
 	Has               *ConversationInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
@@ -41,6 +43,7 @@ type ConversationInputHas struct {
 	IncludeTranscript bool
 	IncludeModelCal   bool
 	IncludeToolCall   bool
+	FeedSpec          bool
 }
 
 type ConversationOutput struct {
@@ -85,6 +88,7 @@ type ConversationView struct {
 type TranscriptView struct {
 	ElapsedInSec          int            `sqlx:"elapsedInSec"`
 	Stage                 string         `sqlx:"stage"`
+	ToolFeed              []*tool.Feed   `sqlx:"-"`
 	Id                    string         `sqlx:"id"`
 	ConversationId        string         `sqlx:"conversation_id"`
 	CreatedAt             time.Time      `sqlx:"created_at"`
@@ -104,6 +108,7 @@ type MessageView struct {
 	Id                   string                   `sqlx:"id"`
 	ConversationId       string                   `sqlx:"conversation_id"`
 	TurnId               *string                  `sqlx:"turn_id"`
+	Compacted            *int                     `sqlx:"compacted"`
 	Sequence             *int                     `sqlx:"sequence"`
 	CreatedAt            time.Time                `sqlx:"created_at"`
 	UpdatedAt            *time.Time               `sqlx:"updated_at"`

@@ -6,16 +6,21 @@
 #set($_ = $Data<?>(output/view))
 #set($_ = $Metrics<?>(output/metrics))
 
-#set($_ = $Id<string>(path/id))
-#set($_ = $Since<string>(query/since).WithPredicate(0,'expr','created_at >= (SELECT created_at FROM turn WHERE id = ?)'))
-#set($_ = $IncludeTranscript<bool>(query/includeTranscript).Value('true').WithPredicate(0, 'expr', '?'))
+#set($_ = $Id<string>(path/id).WithPredicate(0, 'equal','t', 'id'))
+#set($_ = $Since<string>(query/since).WithPredicate(1,'expr','created_at >= (SELECT created_at FROM turn WHERE id = ?)'))
+#set($_ = $IncludeTranscript<bool>(query/includeTranscript).Value('true').WithPredicate(1, 'expr', '?'))
 #set($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
 #set($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
+#set($_ = $FeedSpec<[]*tool.FeedSpec>(transient/extension))
+
+
 
 
 SELECT conversation.*,
 cast(attachment.inline_body as []byte),
-cast(transcript.elapsedInSec as int)
+cast(transcript.elapsedInSec as int),
+cast(transcript.toolFeed AS []*tool.Feed),
+tag(transcript.toolFeed, 'sqlx:"-"')
 FROM (
     SELECT t.*,
           (SELECT id
@@ -23,15 +28,17 @@ FROM (
            WHERE conversation_id = t.id
            ORDER BY created_at DESC
            LIMIT 1) AS last_turn_id,
-    '' AS stage FROM conversation t WHERE (id = $Id OR "" = $Id)
+    '' AS stage FROM conversation t
+     ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
 ) conversation
     JOIN  (
  SELECT
       t.*,
       0 elapsedInSec,
-      '' AS stage
+      '' AS stage,
+      '' AS toolFeed
        FROM turn t
-      ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+      ${predicate.Builder().CombineOr($predicate.FilterGroup(1, "AND")).Build("WHERE")}
     ) transcript ON transcript.conversation_id = conversation.id
 JOIN (
     SELECT * FROM message WHERE attachment_payload_id IS NULL

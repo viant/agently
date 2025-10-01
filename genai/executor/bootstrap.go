@@ -14,9 +14,11 @@ import (
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
+	"github.com/viant/agently/genai/tool/proxy"
 	agentrepo "github.com/viant/agently/internal/repository/agent"
 	embedderrepo "github.com/viant/agently/internal/repository/embedder"
 	modelrepo "github.com/viant/agently/internal/repository/model"
+	"github.com/viant/fluxor/model/types"
 
 	"github.com/viant/afs"
 	mcprepo "github.com/viant/agently/internal/repository/mcp"
@@ -56,6 +58,11 @@ func (e *Service) init(ctx context.Context) error {
 
 	// Collect additional fluxor options that Agently requires.
 	wfOptions := append(e.fluxorOptions,
+		fluxor.WithServiceProxy(func(base types.Service) types.Service {
+			ret := proxy.New(base, e.convClient)
+			e.services[base.Name()] = ret
+			return ret
+		}),
 		fluxor.WithMetaService(e.config.Meta()),
 		fluxor.WithExecutorOptions(
 			texecutor.WithApprovalSkipPrefixes("llm/"),
@@ -85,7 +92,6 @@ func (e *Service) init(ctx context.Context) error {
 	}
 	if e.tools == nil {
 		if e.mcpMgr == nil {
-			panic(1)
 			return fmt.Errorf("executor: mcp manager not configured for tool registry")
 		}
 		reg, err := tool.New(e.orchestration, e.mcpMgr)

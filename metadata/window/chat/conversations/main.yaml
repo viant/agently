@@ -10,12 +10,15 @@ view:
       - id: conversationSection
         chat:
           dataSourceRef: messages
+          showSettings: true
           abortVisible:
             dataSourceRef: conversations
             selector: running
           on:
             - event: onSubmit
               handler: chat.submitMessage
+            - event: onSettings
+              handler: chat.onSettings
             - event: onUpload
               handler: chat.upload
             - event: onAbort
