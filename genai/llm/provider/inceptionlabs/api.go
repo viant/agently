@@ -30,7 +30,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	}
 
 	// Convert llms.ChatRequest to Request
-	req, err := openai.ToRequest(request)
+	req, err := ToRequest(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert to llm.Request: %w", err)
 	}

@@ -1,23 +1,13 @@
-package openai
+package inceptionlabs
 
 import (
-	"context"
-	"encoding/base64"
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
-	"github.com/viant/afs/option/content"
-	"github.com/viant/afs/storage"
-	"github.com/viant/afsc/openai/assets"
-	"github.com/viant/agently/internal/shared"
-
-	openai "github.com/openai/openai-go/v3"
 	"github.com/viant/agently/genai/llm"
-	authctx "github.com/viant/agently/internal/auth"
 )
 
+// TODO warning - this file is almost identical to openai/adapter.go
 var modelTemperature = map[string]float64{
 	"o4-mini": 1.0,
 	"o1-mini": 1.0,
@@ -26,7 +16,7 @@ var modelTemperature = map[string]float64{
 }
 
 // ToRequest converts an llm.ChatRequest to a Request
-func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
+func ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	// Create the request with defaults
 	req := &Request{}
 
@@ -108,42 +98,6 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		}
 	}
 
-	// Attachment delivery preference: default to "ref" when unspecified
-	attachMode := "unknownAttachMode"
-	agentName := "unknownAgent"
-
-	var ttlSec int64
-	if request != nil && request.Options != nil && request.Options.Metadata != nil {
-		if v, ok := request.Options.Metadata["attachMode"].(string); ok && strings.TrimSpace(v) != "" {
-			attachMode = strings.ToLower(strings.TrimSpace(v))
-		}
-		if v, ok := request.Options.Metadata["agentName"].(string); ok && strings.TrimSpace(v) != "" {
-			agentName = strings.ToLower(strings.TrimSpace(v))
-		}
-		if v, ok := request.Options.Metadata["attachmentTTLSec"]; ok {
-			switch t := v.(type) {
-			case int:
-				ttlSec = int64(t)
-			case int64:
-				ttlSec = t
-			case float64:
-				ttlSec = int64(t)
-			case string:
-				if n, err := strconv.ParseInt(strings.TrimSpace(t), 10, 64); err == nil {
-					ttlSec = n
-				}
-			}
-		}
-	}
-
-	if attachMode == "unknownAttachMode" {
-		return nil, fmt.Errorf("attachMode not specified in options.metadata")
-	}
-
-	if agentName == "unknownAgent" {
-		return nil, fmt.Errorf("agentName not specified in options.metadata")
-	}
-
 	// Convert messages
 	req.Messages = make([]Message, len(request.Messages))
 	for i, msg := range request.Messages {
@@ -188,44 +142,21 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 						}
 					}
 				case llm.ContentTypeBinary:
-					if attachMode == "inline" {
-						if strings.HasPrefix(item.MimeType, "image/") && item.Data != "" {
-							// For images, inline as data URL to support vision (OpenAI expects image_url)
-							contentItem.Type = "image_url"
-							dataURL := "data:" + item.MimeType + ";base64," + item.Data
-							contentItem.ImageURL = &ImageURL{URL: dataURL}
-						} else if strings.EqualFold(item.MimeType, "application/pdf") && item.Data != "" {
-							contentItem.Type = "file"
-							contentItem.File = &File{
-								FileName: item.Name,
-								FileData: "data:" + item.MimeType + ";base64," + item.Data,
-							}
-							//return nil, fmt.Errorf("unsupported binary content item (mimeType: %v)", item.MimeType)
-						} else { //TODO return error
-							contentItem.Type = "file"
-							contentItem.File = &File{
-								FileName: item.Name,
-								FileData: "data:" + item.MimeType + ";base64," + item.Data,
-							}
-						}
-					} else { // TODO only for pdf, return error otherwise
-						if strings.HasPrefix(item.MimeType, "image/") && item.Data != "" {
-							// For images, inline as data URL to support vision (OpenAI expects image_url)
-							contentItem.Type = "image_url"
-							dataURL := "data:" + item.MimeType + ";base64," + item.Data
-							contentItem.ImageURL = &ImageURL{URL: dataURL}
-						} else { // TODO return error if not pdf
-							fileID, err := c.uploadFielAndGetID(context.Background(), item.Data, item.Name, agentName, ttlSec)
-							if err != nil {
-								return nil, fmt.Errorf("failed to upload PDF content item: %w", err)
-							}
-							contentItem.Type = "file"
-							//contentItem.File = &File{FileID: fileID, FileName: item.Name} TODO can't put file name
-							contentItem.File = &File{FileID: fileID}
-						}
+					// Best effort: if binary looks like an image, convert to data-URL image
+					if strings.HasPrefix(item.MimeType, "image/") && item.Data != "" {
+
+						//index := strings.LastIndex(item.MimeType, "/")
+						contentItem.Type = "image_url"
+						// item.Data is expected to be base64-encoded already when coming from llm.NewBinaryContent
+						dataURL := "data:" + item.MimeType + ";base64," + item.Data
+						contentItem.ImageURL = &ImageURL{URL: dataURL}
+						//contentItem. = item.MimeType[index+1:]
+					} else {
+						return nil, fmt.Errorf("unsupported media type: %s", item.MimeType)
+						// Unsupported binary for OpenAI chat – skip by leaving zero-value contentItem
 					}
-					//return nil, fmt.Errorf("unsupported binary content item (mimeType: %v)", item.MimeType)
 				}
+
 				contentItems[j] = contentItem
 			}
 			message.Content = contentItems
@@ -300,74 +231,6 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	}
 
 	return req, nil
-}
-
-// uploadFielAndGetID uploads a base64-encoded PDF to OpenAI assets and returns its file_id.
-func (c *Client) uploadFielAndGetID(ctx context.Context, base64Data string, name string, agentName string, ttlSec int64) (string, error) {
-	// TODO detect duplicates, user
-
-	var attachmentTTLSec int64 = ttlSec
-	// Apply provider default TTL (86400 sec = 1 day) when not specified
-	if attachmentTTLSec <= 0 {
-		attachmentTTLSec = 86400
-	}
-
-	data, err := base64.StdEncoding.DecodeString(base64Data)
-	if err != nil {
-		return "", err
-
-	}
-
-	user := ""
-	if ui := authctx.User(ctx); ui != nil {
-		user = strings.TrimSpace(ui.Subject)
-		if user == "" {
-			user = strings.TrimSpace(ui.Email)
-		}
-	}
-
-	if user == "" {
-		user, err = shared.PrefixHostIP()
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to determine host ip prefix: %w", err)
-	}
-
-	filename := fmt.Sprintf("agently/%s/%s/%s/%s", user, agentName, c.Model, name)
-	dest := "openai://assets/" + filename
-	// Build options with optional TTL
-	var opts []storage.Option
-	opts = append(opts, &content.Meta{Values: map[string]string{"purpose": string(openai.FilePurposeUserData)}})
-	// Always include TTL (provider default baked above)
-	opts = append(opts, &openai.FileNewParamsExpiresAfter{Seconds: attachmentTTLSec})
-
-	if err := c.storageMgr.Upload(ctx, dest, 0644, strings.NewReader(string(data)), opts...); err != nil {
-		return "", err
-	}
-
-	// Find created file id by listing (with small retries)
-	var fileID string
-	for attempt := 0; attempt < 2 && fileID == ""; attempt++ {
-		files, err := c.storageMgr.List(ctx, "openai://assets/")
-		if err != nil {
-			return "", err
-		}
-		for _, f := range files {
-			if f.Name() == filename {
-				if af, ok := f.Sys().(assets.File); ok {
-					fileID = af.ID
-					break
-				}
-			}
-		}
-		if fileID == "" {
-			time.Sleep(250 * time.Millisecond)
-		}
-	}
-	if fileID == "" {
-		return "", fmt.Errorf("uploaded file id not found")
-	}
-	return fileID, nil
 }
 
 // ToLLMSResponse converts a Response to an llm.ChatResponse

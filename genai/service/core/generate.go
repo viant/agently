@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"sort"
 	"strings"
@@ -18,9 +19,10 @@ type GenerateInput struct {
 	llm.ModelSelection
 	SystemPrompt *prompt.Prompt
 
-	Prompt  *prompt.Prompt
-	Binding *prompt.Binding
-	Message []llm.Message
+	Prompt    *prompt.Prompt
+	Binding   *prompt.Binding
+	Message   []llm.Message
+	AgentName string
 }
 
 // GenerateOutput represents output from extraction
@@ -73,7 +75,7 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 			sortAttachments(m.Attachment)
 			for _, attachment := range m.Attachment {
 				i.Message = append(i.Message,
-					llm.NewMessageWithBinary(llm.MessageRole(m.Role), attachment.Data, attachment.MIMEType(), attachment.Content))
+					llm.NewMessageWithBinary(llm.MessageRole(m.Role), attachment.Data, attachment.MIMEType(), attachment.Content, attachment.Name))
 			}
 			llmMessage := llm.NewTextMessage(llm.MessageRole(m.Role), m.Content)
 			i.Message = append(i.Message, llmMessage)
@@ -200,6 +202,11 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		return nil, nil, err
 	}
 
+	// Enforce provider capability and per-conversation attachment limits
+	if err := s.enforceAttachmentPolicy(ctx, input, model); err != nil {
+		return nil, nil, err
+	}
+
 	request := &llm.GenerateRequest{
 		Messages: input.Message,
 		Options:  input.Options,
@@ -221,6 +228,81 @@ func (s *Service) updateFlags(input *GenerateInput, model llm.Model) {
 			input.Options.ParallelToolCalls = false
 		}
 	}
+}
+
+// enforceAttachmentPolicy removes or limits binary content items based on
+// model multimodal capability and provider-specific per-conversation caps.
+func (s *Service) enforceAttachmentPolicy(ctx context.Context, input *GenerateInput, model llm.Model) error {
+	if input == nil || len(input.Message) == 0 {
+		return nil
+	}
+	// 1) Drop all binaries when not multimodal
+	isMM := input.Binding != nil && input.Binding.Flags.IsMultimodal
+	convID := ""
+	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+		convID = tm.ConversationID
+	}
+
+	// 2) Provider-specific limit
+	// Use provider-reported default if any (currently 0 in core; agent layer enforces caps)
+	var limit int64 = s.ProviderAttachmentLimit(model)
+
+	used := int64(0)
+	if convID != "" && s.attachUsage != nil {
+		used = s.attachUsage[convID]
+	}
+
+	var keptBytes int64
+	filtered := make([]llm.Message, 0, len(input.Message))
+	for _, m := range input.Message {
+		if len(m.Items) == 0 {
+			filtered = append(filtered, m)
+			continue
+		}
+		newItems := make([]llm.ContentItem, 0, len(m.Items))
+		for _, it := range m.Items {
+			if it.Type != llm.ContentTypeBinary {
+				newItems = append(newItems, it)
+				continue
+			}
+			if !isMM {
+				// Skip all binaries when model not multimodal
+				continue
+			}
+			// Estimate raw size for base64
+			rawSize := int64(0)
+			if it.Source == llm.SourceBase64 && it.Data != "" {
+				// base64 decoded length approximation
+				if dec, err := base64.StdEncoding.DecodeString(it.Data); err == nil {
+					rawSize = int64(len(dec))
+				}
+			}
+			if limit > 0 {
+				remain := limit - used - keptBytes
+				if remain <= 0 || (rawSize > 0 && rawSize > remain) {
+					continue
+				}
+			}
+			newItems = append(newItems, it)
+			keptBytes += rawSize
+		}
+		// Keep message if any item left or it had a text Content
+		if len(newItems) > 0 || strings.TrimSpace(m.Content) != "" {
+			m.Items = newItems
+			filtered = append(filtered, m)
+		}
+	}
+	if convID != "" && s.attachUsage != nil && keptBytes > 0 {
+		s.attachUsage[convID] = used + keptBytes
+	}
+	input.Message = filtered
+	// User-facing warnings
+	if !isMM {
+		fmt.Println("[warning] attachments ignored: selected model is not multimodal")
+	} else if limit > 0 && keptBytes < 0 {
+		fmt.Println("[warning] attachment limit reached; some files were skipped")
+	}
+	return nil
 }
 
 //

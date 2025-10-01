@@ -1,8 +1,10 @@
-package openai
+package inceptionlabs
 
 import (
 	"github.com/viant/agently/genai/llm"
 )
+
+// TODO warning - this file is almost identical to openai/adapter.go
 
 // Request represents the request structure for OpenAI API
 type Request struct {
@@ -32,13 +34,6 @@ type ContentItem struct {
 	Type     string    `json:"type"`
 	Text     string    `json:"text,omitempty"`
 	ImageURL *ImageURL `json:"image_url,omitempty"`
-	File     *File     `json:"file,omitempty"`
-}
-
-type File struct {
-	FileID   string `json:"file_id,omitempty"`
-	FileName string `json:"filename,omitempty"`
-	FileData string `json:"file_data,omitempty"`
 }
 
 // ImageURL represents an image referenced by URL for the OpenAI API

@@ -106,6 +106,15 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 	if metadata != nil && strings.TrimSpace(*metadata) != "" {
 		_ = json.Unmarshal([]byte(*metadata), &meta)
 	}
+	// Initialize attachment usage from metadata if available
+	if raw, ok := meta.Extra["attachments"]; ok && s.llm != nil {
+		var aux struct {
+			Bytes int64 `json:"bytes"`
+		}
+		if err := json.Unmarshal(raw, &aux); err == nil && aux.Bytes > 0 {
+			s.llm.SetAttachmentUsage(convID, aux.Bytes)
+		}
+	}
 	if len(input.ToolsAllowed) == 0 {
 		if len(meta.Tools) > 0 {
 			input.ToolsAllowed = append([]string(nil), meta.Tools...)
@@ -163,6 +172,40 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		}
 	}
 	return nil
+}
+
+// updateAttachmentUsageMetadata merges/updates conversation metadata with attachments bytes
+func (s *Service) updateAttachmentUsageMetadata(ctx context.Context, convID string, used int64) error {
+	if s.conversation == nil || strings.TrimSpace(convID) == "" {
+		return nil
+	}
+	cv, err := s.conversation.GetConversation(ctx, convID)
+	if err != nil {
+		return err
+	}
+	var meta ConversationMetadata
+	if cv != nil && cv.Metadata != nil && strings.TrimSpace(*cv.Metadata) != "" {
+		_ = json.Unmarshal([]byte(*cv.Metadata), &meta)
+	}
+	// preserve existing extra keys, update attachments
+	if meta.Extra == nil {
+		meta.Extra = map[string]json.RawMessage{}
+	}
+	attObj := struct {
+		Bytes int64 `json:"bytes"`
+	}{Bytes: used}
+	if b, err := json.Marshal(attObj); err == nil {
+		meta.Extra["attachments"] = b
+	}
+	mb, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	w := &convw.Conversation{Has: &convw.ConversationHas{}}
+	w.SetId(convID)
+	w.SetMetadata(string(mb))
+	mw := convw.Conversation(*w)
+	return s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw))
 }
 
 // updatedConversationContext saves qi.Context to conversation metadata (or history meta) after validation.

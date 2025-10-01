@@ -58,6 +58,12 @@ type (
 
 		// ToolExport controls automatic exposure of this agent as a virtual tool
 		ToolExport *ToolExport `yaml:"toolExport,omitempty" json:"toolExport,omitempty"`
+
+		// AttachmentLimitBytes caps cumulative attachments size per conversation for this agent.
+		// When zero, a provider default may apply (e.g., OpenAI 32MiB) or no cap if provider has none.
+		AttachmentLimitBytes int64  `yaml:"attachmentLimitBytes,omitempty" json:"attachmentLimitBytes,omitempty"`
+		AttachMode           string `yaml:"attachMode,omitempty" json:"attachMode,omitempty"` // "ref" | "inline"
+		AttachmentTTLSec     int64  `yaml:"attachmentTTLSec,omitempty" json:"attachmentTTLSec,omitempty"`
 	}
 
 	// ToolExport defines optional settings to expose an agent as a runtime tool.

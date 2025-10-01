@@ -125,13 +125,49 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 	// Persist attachment messages (payload + message linked to user message)
 	if len(input.Attachments) > 0 {
+		// Enforce provider-specific cap before persisting (so DB doesn't store over-cap files)
+		modelName := ""
+		if input.Agent != nil {
+			modelName = input.Agent.Model
+		}
+		model, _ := s.llm.ModelFinder().Find(ctx, modelName)
+		// Agent-configured limit takes precedence; otherwise provider default (e.g. OpenAI 32MiB)
+		var limit int64
+		if input.Agent != nil && input.Agent.AttachmentLimitBytes > 0 {
+			limit = input.Agent.AttachmentLimitBytes
+		} else {
+			limit = s.llm.ProviderAttachmentLimit(model)
+		}
+		used := s.llm.AttachmentUsage(turn.ConversationID)
+		var appended int64
 		for _, att := range input.Attachments {
 			if att == nil || len(att.Data) == 0 {
 				continue
 			}
+			if limit > 0 {
+				remain := limit - used - appended
+				size := int64(len(att.Data))
+				if remain <= 0 || size > remain {
+					name := strings.TrimSpace(att.Name)
+					if name == "" {
+						name = "(unnamed)"
+					}
+
+					limMB := float64(limit) / (1024.0 * 1024.0)
+					usedMB := float64(used+appended) / (1024.0 * 1024.0)
+					curMB := float64(size) / (1024.0 * 1024.0)
+					return fmt.Errorf("attachments exceed agent cap: limit %.3f MB, used %.3f MB, current (%s) %.3f MB", limMB, usedMB, name, curMB)
+				}
+			}
 			if err = s.addAttachment(ctx, turn, att); err != nil {
 				return err
 			}
+			appended += int64(len(att.Data))
+		}
+		if appended > 0 {
+			s.llm.SetAttachmentUsage(turn.ConversationID, used+appended)
+			// Persist usage into conversation metadata for cross-process continuity
+			_ = s.updateAttachmentUsageMetadata(ctx, turn.ConversationID, used+appended)
 		}
 	}
 	// No pre-execution elicitation. Templates can instruct LLM to elicit details
@@ -249,6 +285,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			SystemPrompt:   input.Agent.SystemPrompt,
 			Binding:        binding,
 			ModelSelection: modelSelection,
+			AgentName:      input.AgentName,
 		}
 
 		// Propagate agent-level temperature to per-request options if not explicitly set.
@@ -262,6 +299,24 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		// Carry agent-level parallel tool-calls preference; capability gating
 		// happens later in core.updateFlags based on provider/model support.
 		genInput.Options.ParallelToolCalls = input.Agent.ParallelToolCalls
+		// Pass attach mode as metadata so providers can honor ref vs inline.
+		if genInput.Options.Metadata == nil {
+			genInput.Options.Metadata = map[string]interface{}{}
+		}
+		mode := strings.TrimSpace(strings.ToLower(input.Agent.AttachMode))
+		if mode == "" {
+			mode = "ref"
+		}
+		genInput.Options.Metadata["attachMode"] = mode
+		// Provide agent name for storage scoping in provider adapters
+		if input.Agent != nil && strings.TrimSpace(input.Agent.Name) != "" {
+			genInput.Options.Metadata["agentName"] = input.Agent.Name
+		}
+		// Optional TTL for attachments (in seconds)
+		if input.Agent.AttachmentTTLSec > 0 {
+			genInput.Options.Metadata["attachmentTTLSec"] = input.Agent.AttachmentTTLSec
+		}
+		genInput.Options.Metadata["agentName"] = input.AgentName
 
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)

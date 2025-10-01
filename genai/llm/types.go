@@ -34,6 +34,8 @@ const (
 
 // ContentItem is a universal representation of any content asset in the message.
 type ContentItem struct {
+	Name string `json:"name,omitempty"`
+
 	// Type indicates the type of the content.
 	Type ContentType `json:"type"`
 
@@ -296,9 +298,10 @@ func NewImageContent(imageURL string, detail string) ContentItem {
 }
 
 // NewBinaryContent creates a new binary content item from raw data.
-func NewBinaryContent(data []byte, mimeType string) ContentItem {
+func NewBinaryContent(data []byte, mimeType, name string) ContentItem {
 	encoded := base64.StdEncoding.EncodeToString(data)
 	return ContentItem{
+		Name:     name,
 		Type:     ContentTypeBinary,
 		Source:   SourceBase64,
 		Data:     encoded,
@@ -307,8 +310,8 @@ func NewBinaryContent(data []byte, mimeType string) ContentItem {
 }
 
 // NewUserMessageWithBinary creates a new user message that includes binary data and optional text prompt.
-func NewUserMessageWithBinary(data []byte, mimeType, prompt string) Message {
-	items := []ContentItem{NewBinaryContent(data, mimeType)}
+func NewUserMessageWithBinary(data []byte, mimeType, prompt, name string) Message {
+	items := []ContentItem{NewBinaryContent(data, mimeType, name)}
 	if prompt != "" {
 		items = append(items, NewTextContent(prompt))
 	}
@@ -316,8 +319,8 @@ func NewUserMessageWithBinary(data []byte, mimeType, prompt string) Message {
 }
 
 // NewMessageWithBinary creates a message that includes binary data and optional text prompt.
-func NewMessageWithBinary(role MessageRole, data []byte, mimeType, content string) Message {
-	items := []ContentItem{NewBinaryContent(data, mimeType)}
+func NewMessageWithBinary(role MessageRole, data []byte, mimeType, content, name string) Message {
+	items := []ContentItem{NewBinaryContent(data, mimeType, name)}
 	if content != "" {
 		items = append(items, NewTextContent(content))
 	}
