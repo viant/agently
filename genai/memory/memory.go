@@ -8,9 +8,8 @@ import (
 // via context so that downstream services (e.g. tool-execution tracing) can
 // associate side-effects with the correct conversation without changing every
 // function signature.
-type conversationID string
 
-var ConversationIDKey = conversationID("conversationID")
+var ConversationIDKey = "conversationID"
 
 func ConversationIDFromContext(ctx context.Context) string {
 	value := ctx.Value(ConversationIDKey)

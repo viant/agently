@@ -13,11 +13,13 @@ import (
 	"github.com/viant/agently/genai/convctx"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
 	gtool "github.com/viant/agently/genai/tool"
 	authctx "github.com/viant/agently/internal/auth"
 	mcpservice "github.com/viant/fluxor-mcp/mcp"
 	mcontext "github.com/viant/fluxor-mcp/mcp/context"
 	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
+	"github.com/viant/fluxor/model/types"
 )
 
 // Registry bridges an individual fluxor-mcp Service instance to the generic
@@ -244,6 +246,10 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		}
 	}
 
+	execContext := map[string]any{
+		memory.ConversationIDKey: convID,
+	}
+	ctx = context.WithValue(ctx, types.ExecutionContextKey, execContext)
 	// Let the orchestration engine choose its own timeout based on context.
 	res, err := r.svc.ExecuteTool(ctx, name, args, time.Duration(15)*time.Minute)
 	if err != nil && r.debugWriter != nil {

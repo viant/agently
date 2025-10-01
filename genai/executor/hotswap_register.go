@@ -8,6 +8,7 @@ import (
 
 	agentfinder "github.com/viant/agently/internal/finder/agent"
 	embedfinder "github.com/viant/agently/internal/finder/embedder"
+	extfinder "github.com/viant/agently/internal/finder/extension"
 	modelfinder "github.com/viant/agently/internal/finder/model"
 
 	agentloader "github.com/viant/agently/internal/loader/agent"
@@ -19,6 +20,7 @@ import (
 	llmprovider "github.com/viant/agently/genai/llm/provider"
 
 	"github.com/viant/afs"
+	extrepo "github.com/viant/agently/internal/repository/extension"
 	workflowrepo "github.com/viant/agently/internal/repository/workflow"
 	"github.com/viant/agently/internal/workspace"
 
@@ -60,6 +62,23 @@ func (e *Service) initialiseHotSwap() {
 
 	if e.config != nil && e.config.MCP != nil {
 		mgr.Register(workspace.KindMCP, hotswap.NewMCPAdaptor(e.config.MCP))
+	}
+
+	// Extensions (Tool Metadata) adaptor -------------------------------
+	{
+		repo := extrepo.New(afs.New())
+		finder := extfinder.New()
+		// Preload existing definitions
+		if names, err := repo.List(context.Background()); err == nil {
+			for _, n := range names {
+				if rec, err := repo.Load(context.Background(), n); err == nil && rec != nil {
+					finder.Add(n, rec)
+				}
+			}
+		}
+		// Expose on executor for lookups
+		e.extFinder = finder
+		mgr.Register(workspace.KindFeeds, hotswap.NewExtensionAdaptor(repo, finder))
 	}
 
 	// Workflow adaptor ---------------------------------------------------

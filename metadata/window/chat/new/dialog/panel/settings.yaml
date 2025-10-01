@@ -4,6 +4,25 @@ layout:
   labelPosition: left
   columns: 2
 items:
+  - id: showExecutionDetails
+    label: Show Execution
+    type: toggle
+    columnSpan: 2
+    on:
+      - event: onSelection
+        handler: chat.toggleExecDetails
+      - event: onChange
+        handler: chat.toggleExecDetails
+
+  - id: showToolFeed
+    label: Show Tool Feed
+    type: toggle
+    columnSpan: 2
+    on:
+      - event: onSelection
+        handler: chat.toggleToolFeed
+      - event: onChange
+        handler: chat.toggleToolFeed
   - id: agent
     label: Agent
     type: select
@@ -17,8 +36,6 @@ items:
     on:
       - event: onSelection
         handler: chat.selectModel
-
-
 
   - id: tool
     label: Tools

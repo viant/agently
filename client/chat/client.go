@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/viant/agently/genai/conversation"
+	core "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
@@ -11,6 +12,7 @@ import (
 
 type Client interface {
 	AttachManager(mgr *conversation.Manager, tp *tool.Policy, fp *policy.Policy)
+	AttachCore(core *core.Service)
 	AttachApproval(svc approval.Service)
 	Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 	PreflightPost(ctx context.Context, conversationID string, req PostRequest) error
@@ -28,4 +30,7 @@ type Client interface {
 	SetTurnStatus(ctx context.Context, turnID, status string, errorMessage ...string) error
 	SetMessageStatus(ctx context.Context, messageID, status string) error
 	SetConversationStatus(ctx context.Context, conversationID, status string) error
+
+	// Generate exposes the low-level LLM core Generate bypassing agentic enrichment.
+	Generate(ctx context.Context, input *core.GenerateInput) (*core.GenerateOutput, error)
 }

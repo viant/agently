@@ -1,6 +1,7 @@
 SELECT
       t.*,
       0 elapsedInSec,
-      '' AS stage
+      '' AS stage,
+      '' AS toolFeed
        FROM turn t
-      ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+      ${predicate.Builder().CombineOr($predicate.FilterGroup(1, "AND")).Build("WHERE")}

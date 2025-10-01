@@ -13,11 +13,13 @@ import {poll} from './utils/apiUtils';
 import {classifyMessage, normalizeMessages, isSimpleTextSchema} from './messageNormalizer';
 
 import ExecutionBubble from '../components/chat/ExecutionBubble.jsx';
+import ToolFeed from '../components/chat/ToolFeed.jsx';
 import HTMLTableBubble from '../components/chat/HTMLTableBubble.jsx';
 import {ensureConversation, newConversation} from './conversationService';
 import SummaryNote from '../components/chat/SummaryNote.jsx';
 import {setStage} from '../utils/stageBus.js';
 import {setComposerBusy} from '../utils/composerBus.js';
+import { setExecutionDetailsEnabled, setToolFeedEnabled, getExecutionDetailsEnabled, getToolFeedEnabled } from '../utils/execFeedBus.js';
 
 // Module-level stash for uploads to avoid relying on mutable message object
 let pendingUploads = [];
@@ -292,6 +294,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
     // Determine the very last message id to decide whether to suppress the inline
     // elicitation step (last message should open the form dialog instead of a step).
     let globalLastMsgId = '';
+    let globalLastTurnId = '';
     try {
         const lastTurn = transcript && transcript.length ? (transcript[transcript.length - 1]) : null;
         const lastTurnMsgs = lastTurn ? (Array.isArray(lastTurn?.message) ? lastTurn.message : (Array.isArray(lastTurn?.Message) ? lastTurn.Message : [])) : [];
@@ -299,11 +302,13 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const lm = lastTurnMsgs[lastTurnMsgs.length - 1];
             globalLastMsgId = lm?.id || lm?.Id || '';
         }
+        globalLastTurnId = lastTurn?.id || lastTurn?.Id || '';
     } catch(_) {}
     // Track most recent elicitation step across turns to catch user replies
     let recentElicitationStep = null;
     for (const turn of transcript) {
         const turnId = turn?.id || turn?.Id;
+        const isLastTurn = !!globalLastTurnId && (turnId === globalLastTurnId);
         const turnStatus = String(turn?.status || turn?.Status || '').toLowerCase();
         const turnError = (turn?.errorMessage || turn?.ErrorMessage || '') + '';
         const turnCreatedAt = toISOSafe(turn?.createdAt || turn?.CreatedAt);
@@ -531,18 +536,28 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             // Compute usage from the thinking step model if available
             let usage = null;
             // No token fields on step; usage computed elsewhere in poll path; keep null here.
+            // Also attach ToolExecution so ExecutionBubble can render ToolFeed inline without DS/meta changes.
+            const toolExec = Array.isArray(turn?.ToolExecution) ? turn.ToolExecution
+                : Array.isArray(turn?.toolExecution) ? turn.toolExecution
+                : Array.isArray(turn?.ToolFeed) ? turn.ToolFeed
+                : Array.isArray(turn?.toolFeed) ? turn.toolFeed : [];
+            try { console.debug('[chat][turn][toolExec]', { turnId, count: Array.isArray(toolExec) ? toolExec.length : 0 }); } catch(_) {}
             turnRows[carrierIdx] = {
                 ...turnRows[carrierIdx],
                 executions: [{steps}],
+                toolExecutions: toolExec,
                 usage,
                 turnStatus,
                 turnCreatedAt,
                 turnUpdatedAt,
                 turnElapsedSec,
+                isLastTurn,
             };
         }
 
         for (const r of turnRows) rows.push(r);
+
+        // Note: No separate ToolFeed row push; ExecutionBubble will render ToolFeed inline when toolExecutions attached.
 
         // 4) If the turn has failed, add a dedicated error bubble so the user sees it immediately
         if ((turnStatus === 'failed' || (turnError && turnError.trim() !== '')) && turnId) {
@@ -756,6 +771,10 @@ export function onFetchMessages(props) {
             prev = Array.isArray(msgCtx?.signals?.collection?.peek?.()) ? msgCtx.signals.collection.peek() : [];
         } catch (_) {
         }
+        // Purge legacy toolfeed rows now that ToolFeed renders inline under ExecutionBubble
+        try {
+            prev = (prev || []).filter(r => !(r && (r.toolFeed === true || String(r?.id || '').endsWith('/toolfeed'))));
+        } catch(_) {}
         const seen = new Set((prev || []).map(r => r && r.id).filter(Boolean));
         const merged = [...prev];
         for (const r of built) {
@@ -790,13 +809,15 @@ export function saveSettings(args) {
     const metaContext = context.Context('meta');
 
     const source = metaContext.handlers.dataSource.peekFormData();
-    const {agent, model, tool} = source
+    const {agent, model, tool, showExecutionDetails, showToolFeed} = source
 
     console.log('saveSettings --- ', source)
     const convContext = context.Context('conversations');
     const convDataSource = convContext?.handlers?.dataSource;
     const current = convDataSource.peekFormData()
     convDataSource.setFormData?.({values: {...current, agent, model, tools:tool}});
+    try { setExecutionDetailsEnabled(!!showExecutionDetails); } catch(_) {}
+    try { setToolFeedEnabled(!!showToolFeed); } catch(_) {}
 }
 
 // Applies meta.agentTools mapping to the conversations.tools field when agent changes
@@ -814,6 +835,54 @@ export function selectAgent(args) {
 export function selectModel(args) {
     const {context, selected} = args
     context.handlers.dataSource.setFormField({item: {id: 'model'}, value: selected});
+}
+
+// Initialize settings dialog fields on open
+export function prepareSettings(args) {
+    const { context } = args || {};
+    try {
+        const metaCtx = context?.Context?.('meta');
+        const execEnabled = getExecutionDetailsEnabled();
+        const feedEnabled = getToolFeedEnabled();
+        metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'showExecutionDetails' }, value: !!execEnabled });
+        metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'showToolFeed' }, value: !!feedEnabled });
+    } catch(_) {}
+}
+
+// Toggle Execution details visibility
+export function toggleExecDetails(args) {
+    try {
+        const { context, selected, value } = args || {};
+        let enabled;
+        if (typeof selected === 'boolean') enabled = selected;
+        else if (typeof value === 'boolean') enabled = value;
+        else enabled = !!context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.()?.showExecutionDetails;
+        setExecutionDetailsEnabled(!!enabled);
+    } catch(_) {}
+}
+
+// Toggle Tool feed visibility
+export function toggleToolFeed(args) {
+    try {
+        const { context, selected, value } = args || {};
+        let enabled;
+        if (typeof selected === 'boolean') enabled = selected;
+        else if (typeof value === 'boolean') enabled = value;
+        else enabled = !!context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.()?.showToolFeed;
+        setToolFeedEnabled(!!enabled);
+    } catch(_) {}
+}
+
+// Open settings dialog via composer settings icon
+export async function onSettings(args) {
+    const { context } = args || {};
+    try { prepareSettings({ context }); } catch(_) {}
+    try {
+        await context?.handlers?.window?.openDialog?.({ execution: { args: ['settings'] } });
+    } catch(_) {
+        // Fallback to dialog.open event route
+        try { await context?.handlers?.dialog?.open?.({ id: 'settings' }); } catch(_) {}
+    }
 }
 
 
@@ -1096,6 +1165,72 @@ export async function abortConversation(props) {
 }
 
 /**
+ * Compacts the current conversation by calling backend compaction endpoint.
+ * Adds a summary message and flags prior messages as compacted (server-side).
+ */
+export async function compactConversation(props) {
+    const { context } = props || {};
+    if (!context || typeof context.Context !== 'function') {
+        log.warn('chatService.compactConversation: invalid context');
+        return false;
+    }
+    try {
+        const convCtx = context.Context('conversations');
+        const convID = convCtx?.handlers?.dataSource?.peekFormData?.()?.id ||
+            convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id;
+        if (!convID) {
+            log.warn('chatService.compactConversation – no active conversation');
+            return false;
+        }
+        // Set stage to compacting
+        try { setStage({ phase: 'compacting' }); } catch(_) {}
+        const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+        const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/compact`;
+        const resp = await fetch(url, { method: 'POST' });
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            throw new Error(text || `HTTP ${resp.status}`);
+        }
+        // Refresh messages to pick up summary/flags
+        try {
+            const msgCtx = context.Context('messages');
+            const inSig = msgCtx?.signals?.input;
+            if (inSig) {
+                const cur = (typeof inSig.peek === 'function') ? (inSig.peek() || {}) : (inSig.value || {});
+                const params = { ...(cur.parameters || {}), convID, since: '' };
+                const next = { ...cur, parameters: params, fetch: true };
+                if (typeof inSig.set === 'function') inSig.set(next); else inSig.value = next;
+            } else {
+                await msgCtx?.handlers?.dataSource?.getCollection?.();
+            }
+        } catch (_) {}
+        try { setStage({ phase: 'done' }); } catch(_) {}
+        return true;
+    } catch (e) {
+        log.error('compactConversation error', e);
+        try { setStage({ phase: 'error' }); } catch(_) {}
+        // surface as DS error so UI shows banner
+        try { context?.Context('messages')?.handlers?.dataSource?.setError?.(e); } catch(_) {}
+        return false;
+    }
+}
+
+// Toolbar readonly predicate: return true to disable Compact when fewer than 2 messages
+export function compactReadonly(args) {
+    try {
+        const { context } = args || {};
+        const msgCtx = context?.Context?.('messages');
+        const coll = (typeof msgCtx?.signals?.collection?.peek === 'function')
+            ? (msgCtx.signals.collection.peek() || [])
+            : (msgCtx?.handlers?.dataSource?.peekCollection?.() || []);
+        const count = Array.isArray(coll) ? coll.length : 0;
+        return count < 2;
+    } catch (_) {
+        return true;
+    }
+}
+
+/**
  * Deletes the selected conversation from the history list and refreshes the datasource.
  */
 export async function deleteConversation({context}) {
@@ -1361,13 +1496,19 @@ export const chatService = {
     submitMessage,
     upload,
     abortConversation,
+    compactConversation,
+    compactReadonly,
     deleteConversation,
     onInit,
     onDestroy,
     onMetaLoaded,
     onFetchMeta,
+    onSettings,
 
     saveSettings,
+    prepareSettings,
+    toggleExecDetails,
+    toggleToolFeed,
     debugHistoryOpen,
     debugHistorySelection,
     debugMessagesLoaded,

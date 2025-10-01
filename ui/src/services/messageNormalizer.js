@@ -74,8 +74,10 @@ export function classifyMessage(message) {
     if (message.status === 'summary') {
         return 'summary';
     }
+    // ToolFeed renders inline under Execution bubble; do not classify separate rows.
     // Domain-specific: show execution bubble when available
     if (Array.isArray(message.executions) && message.executions.length > 0) {
+        try { console.debug('[chat][classify] execution', message?.id); } catch(_) {}
         return 'execution';
     }
     // Detect interactive MCP prompts that should be rendered with a dedicated

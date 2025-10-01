@@ -60,7 +60,7 @@ CREATE TABLE turn
     status                  VARCHAR(255) NOT NULL CHECK (status IN
                                                          ('pending', 'running', 'waiting_for_user', 'succeeded',
                                                           'failed', 'canceled')),
-    error_message TEXT,
+    error_message           TEXT,
     started_by_message_id   VARCHAR(255),
     retry_of                VARCHAR(255),
     agent_id_used           VARCHAR(255),
@@ -84,7 +84,8 @@ CREATE TABLE call_payload
     kind                     VARCHAR(255) NOT NULL CHECK (kind IN
                                                           ('model_request', 'model_response', 'provider_request',
                                                            'provider_response', 'model_stream', 'tool_request',
-                                                           'tool_response', 'elicitation_request', 'elicitation_response')),
+                                                           'tool_response', 'elicitation_request',
+                                                           'elicitation_response')),
     subtype                  TEXT,
     mime_type                TEXT         NOT NULL,
     size_bytes               BIGINT       NOT NULL,
@@ -101,7 +102,7 @@ CREATE TABLE call_payload
     preview                  TEXT,
     tags                     TEXT,
     CHECK (
-        (storage = 'inline' AND inline_body IS NOT NULL ) OR
+        (storage = 'inline' AND inline_body IS NOT NULL) OR
         (storage = 'object' AND inline_body IS NULL)
         )
 );
@@ -112,27 +113,30 @@ CREATE INDEX idx_payload_digest ON call_payload (digest);
 
 CREATE TABLE `message`
 (
-    id                 VARCHAR(255) PRIMARY KEY,
-    conversation_id    VARCHAR(255) NOT NULL,
-    turn_id            VARCHAR(255),
-    sequence           BIGINT,
-    created_at         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at         TIMESTAMP,
-    created_by_user_id VARCHAR(255),
-    status             VARCHAR(255) CHECK (status IS NULL OR status IN ('', 'pending','accepted','rejected','cancel','open','summary','summarized')),
-    role               VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
-    `type`             VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control')),
-    content            MEDIUMTEXT,
-    context_summary    TEXT,
-    tags               TEXT,
-    interim            BIGINT       NOT NULL DEFAULT 0 CHECK (interim IN (0, 1)),
-    elicitation_id     VARCHAR(255),
-    parent_message_id  VARCHAR(255),
-    superseded_by      VARCHAR(255),
+    id                     VARCHAR(255) PRIMARY KEY,
+    conversation_id        VARCHAR(255) NOT NULL,
+    turn_id                VARCHAR(255),
+    compacted              TINYINT      NULL,
+    sequence               BIGINT,
+    created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at             TIMESTAMP,
+    created_by_user_id     VARCHAR(255),
+    status                 VARCHAR(255) CHECK (status IS NULL OR status IN
+                                                                 ('', 'pending', 'accepted', 'rejected', 'cancel',
+                                                                  'open', 'summary', 'summarized')),
+    role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
+    `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control')),
+    content                MEDIUMTEXT,
+    context_summary        TEXT,
+    tags                   TEXT,
+    interim                BIGINT       NOT NULL DEFAULT 0 CHECK (interim IN (0, 1)),
+    elicitation_id         VARCHAR(255),
+    parent_message_id      VARCHAR(255),
+    superseded_by          VARCHAR(255),
     attachment_payload_id  VARCHAR(255),
     elicitation_payload_id VARCHAR(255),
     -- legacy column to remain compatible with older readers
-    tool_name          TEXT,
+    tool_name              TEXT,
 
     CONSTRAINT fk_message_conversation
         FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE,

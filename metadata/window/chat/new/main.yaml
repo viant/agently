@@ -42,6 +42,7 @@ view:
         chat:
           dataSourceRef: messages
           height: 80vh
+          showSettings: true
           abortVisible:
             dataSourceRef: conversations
             selector: running
@@ -56,6 +57,10 @@ view:
             items:
               - id: newConv
                 icon: plus
+                label: New Chat
+                properties:
+                  title: Start a new conversation
+                tooltip: Start a new conversation
                 enabled: true
                 align: left
                 on:
@@ -63,14 +68,19 @@ view:
                     handler: chat.newConversation
                   - event: onReadonly
                     handler: dataSource.isSelected
-              - id: settings
-                icon: cog
+              - id: compact
+                icon: collapse-all
+                label: Compact
+                properties:
+                  title: Summarize and compact prior messages
+                tooltip: Summarize and compact prior messages
                 enabled: true
-                align: right
+                align: left
                 on:
                   - event: onClick
-                    handler: window.openDialog
-                    args: [ 'settings' ]
+                    handler: chat.compactConversation
+                  - event: onReadonly
+                    handler: chat.compactReadonly
               # Removed usage dialog trigger
 
           on:
@@ -83,6 +93,8 @@ view:
                 - name: agent
                   in: form
                   location: conversations.agent
+            - event: onSettings
+              handler: chat.onSettings
             - event: onUpload
               handler: chat.onUpload
             - event: onAbort

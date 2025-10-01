@@ -13,17 +13,24 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/viant/afs"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/conversation"
 	cancels "github.com/viant/agently/genai/conversation/cancel"
 	"github.com/viant/agently/genai/elicitation"
+	execcfg "github.com/viant/agently/genai/executor/config"
+	"github.com/viant/agently/genai/llm"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	agentpkg "github.com/viant/agently/genai/service/agent"
+	corellm "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
 	authctx "github.com/viant/agently/internal/auth"
+	extrepo "github.com/viant/agently/internal/repository/extension"
 	implconv "github.com/viant/agently/internal/service/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	msgwrite "github.com/viant/agently/pkg/agently/message/write"
+	toolfeed "github.com/viant/agently/pkg/agently/tool"
+	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
 	fservice "github.com/viant/forge/backend/service/file"
@@ -41,6 +48,27 @@ type Service struct {
 
 	elicitation *elicitation.Service
 	reg         cancels.Registry
+
+	core     *corellm.Service
+	defaults *execcfg.Defaults
+}
+
+// API defines the minimal interface the HTTP layer depends on. It allows
+// substituting the concrete chat service with a mock or alternative impl
+// without coupling the handler to the struct type.
+type API interface {
+	// Wiring hooks (used during server bootstrap)
+	AttachManager(mgr *conversation.Manager, tp *tool.Policy, fp *fluxpol.Policy)
+	AttachApproval(svc approval.Service)
+	AttachFileService(fs *fservice.Service)
+	AttachElicitationService(es *elicitation.Service)
+	AttachCore(core *corellm.Service)
+	AttachDefaults(d *execcfg.Defaults)
+
+	// Core operations
+	Get(ctx context.Context, req GetRequest) (*GetResponse, error)
+	MatchToolFeedSpec(ctx context.Context, conversationID, sinceID string) ([]*toolfeed.FeedSpec, error)
+	Generate(ctx context.Context, input *corellm.GenerateInput) (*corellm.GenerateOutput, error)
 }
 
 func NewService() *Service {
@@ -79,12 +107,16 @@ func (s *Service) AttachApproval(svc approval.Service) { s.approval = svc }
 // AttachFileService wires the Forge file service instance so that attachment
 // reads can reuse the same staging root and resolution.
 func (s *Service) AttachFileService(fs *fservice.Service) { s.fileSvc = fs }
+func (s *Service) AttachCore(core *corellm.Service)       { s.core = core }
+func (s *Service) AttachDefaults(d *execcfg.Defaults)     { s.defaults = d }
 
 // GetRequest defines inputs to fetch messages.
 type GetRequest struct {
 	ConversationID          string
 	IncludeModelCallPayload bool
 	SinceID                 string // optional: inclusive slice starting from this message id
+	IncludeToolCall         bool
+	ToolExtensions          []*toolfeed.FeedSpec
 }
 
 // GetResponse carries the rich conversation view for the given request.
@@ -101,11 +133,95 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 	if req.IncludeModelCallPayload {
 		opts = append(opts, apiconv.WithIncludeModelCall(true))
 	}
+	if req.IncludeToolCall {
+		opts = append(opts, apiconv.WithIncludeToolCall(true))
+	}
+	if len(req.ToolExtensions) > 0 {
+		opts = append(opts, apiconv.WithToolFeedSpec(req.ToolExtensions))
+	}
 	conv, err := s.convClient.GetConversation(ctx, req.ConversationID, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return &GetResponse{Conversation: conv}, nil
+}
+
+// Generate exposes low-level core LLM generate bypassing agentic enrichment.
+func (s *Service) Generate(ctx context.Context, input *corellm.GenerateInput) (*corellm.GenerateOutput, error) {
+	if s == nil || s.core == nil || input == nil {
+		return &corellm.GenerateOutput{}, nil
+	}
+	var out corellm.GenerateOutput
+	if err := s.core.Generate(ctx, input, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ResolveToolExtensions computes applicable ToolExtensions for a conversation
+// by inspecting observed tool calls and matching them against workspace
+// extensions. When no tools are observed it includes any extensions with
+// activation.kind==tool_call so that the hook can invoke them live.
+func (s *Service) MatchToolFeedSpec(ctx context.Context, conversationID, sinceID string) ([]*toolfeed.FeedSpec, error) {
+	if s == nil || s.convClient == nil {
+		return nil, nil
+	}
+	// Fetch minimal conversation view including tool calls
+	var opts []apiconv.Option
+	if strings.TrimSpace(sinceID) != "" {
+		opts = append(opts, apiconv.WithSince(sinceID))
+	}
+	opts = append(opts, apiconv.WithIncludeToolCall(true))
+	conv, err := s.convClient.GetConversation(ctx, conversationID, opts...)
+	if err != nil || conv == nil {
+		return nil, err
+	}
+	// Collect observed tool names
+	services := map[string]struct{}{}
+	if tr := conv.GetTranscript(); tr != nil {
+		for _, name := range tr.UniqueToolNames() {
+			services[name] = struct{}{}
+		}
+	}
+	repo := extrepo.New(afs.New())
+	seen := map[string]struct{}{}
+	var result []*toolfeed.FeedSpec
+	// Match by observed tools
+	for service := range services {
+		canonical := mcptool.Canonical(service)
+		name := mcptool.Name(canonical)
+		svc := name.Service()
+		method := name.Method()
+
+		matched, _ := repo.FindMatches(ctx, svc, method)
+		for _, e := range matched {
+			if _, ok := seen[e.ID]; ok {
+				continue
+			}
+			seen[e.ID] = struct{}{}
+			result = append(result, (*toolfeed.FeedSpec)(e))
+		}
+	}
+
+	// When no tools observed, include tool_call extensions explicitly
+	if len(services) == 0 {
+		if names, err := repo.List(ctx); err == nil {
+			for _, n := range names {
+				rec, err := repo.Load(ctx, n)
+				if err != nil || rec == nil {
+					continue
+				}
+				if strings.EqualFold(strings.TrimSpace(rec.Activation.Kind), "tool_call") {
+					if _, ok := seen[rec.ID]; ok {
+						continue
+					}
+					seen[rec.ID] = struct{}{}
+					result = append(result, (*toolfeed.FeedSpec)(rec))
+				}
+			}
+		}
+	}
+	return result, nil
 }
 
 // PostRequest defines inputs to submit a user message.
@@ -579,4 +695,238 @@ func (s *Service) SetConversationStatus(ctx context.Context, conversationID, sta
 		}
 	}
 	return nil
+}
+
+// Compact creates a summary message and flags prior messages as compacted (excluding elicitation I/O).
+func (s *Service) Compact(ctx context.Context, conversationID string) error {
+	if s == nil || s.convClient == nil || strings.TrimSpace(conversationID) == "" {
+		return nil
+	}
+	conv, err := s.convClient.GetConversation(ctx, conversationID)
+	if err != nil || conv == nil {
+		return err
+	}
+	tr := conv.GetTranscript()
+	// Try LLM-generated summary via manager first
+	var msgID string
+	if s.mgr != nil {
+		if id, lerr := s.compactGenerateSummaryLLM(ctx, conv); lerr == nil && strings.TrimSpace(id) != "" {
+			msgID = id
+		}
+	}
+	if strings.TrimSpace(msgID) == "" {
+		summary := s.compactBuildSummary(tr)
+		id, ierr := s.compactInsertSummary(ctx, conversationID, summary)
+		if ierr != nil {
+			return ierr
+		}
+		msgID = id
+	}
+	s.compactFlagPrior(ctx, tr, msgID)
+	return nil
+}
+
+// compactBuildSummary collects labelled user/assistant snippets (newest→oldest, limited) and reverses them.
+func (s *Service) compactBuildSummary(tr apiconv.Transcript) string {
+	const maxSnippets = 16
+	var out []string
+	for ti := len(tr) - 1; ti >= 0 && len(out) < maxSnippets; ti-- {
+		t := tr[ti]
+		if t == nil || len(t.Message) == 0 {
+			continue
+		}
+		for mi := len(t.Message) - 1; mi >= 0 && len(out) < maxSnippets; mi-- {
+			m := t.Message[mi]
+			if m == nil || m.Interim != 0 {
+				continue
+			}
+			if m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
+				continue
+			}
+			role := strings.ToLower(strings.TrimSpace(m.Role))
+			if role != "user" && role != "assistant" {
+				continue
+			}
+			if m.Content == nil {
+				continue
+			}
+			c := strings.TrimSpace(*m.Content)
+			if c == "" {
+				continue
+			}
+			label := "User"
+			if role == "assistant" {
+				label = "Assistant"
+			}
+			out = append(out, label+": "+c)
+		}
+	}
+	if len(out) == 0 {
+		return "Conversation summary (auto-generated)."
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return strings.Join(out, "\n\n")
+}
+
+// compactInsertSummary writes a single assistant summary message and returns its id.
+func (s *Service) compactInsertSummary(ctx context.Context, conversationID, summary string) (string, error) {
+	msgID := uuid.NewString()
+	mm := apiconv.NewMessage()
+	mm.SetId(msgID)
+	mm.SetConversationID(conversationID)
+	mm.SetRole("assistant")
+	mm.SetType("text")
+	mm.SetStatus("summary")
+	mm.SetContent(summary)
+	return msgID, s.convClient.PatchMessage(ctx, mm)
+}
+
+// compactFlagPrior sets compacted=1 on all prior messages except elicitation and excludeMsgID.
+func (s *Service) compactFlagPrior(ctx context.Context, tr apiconv.Transcript, excludeMsgID string) {
+	for _, t := range tr {
+		if t == nil || len(t.Message) == 0 {
+			continue
+		}
+		for _, m := range t.Message {
+			if m == nil {
+				continue
+			}
+			if strings.TrimSpace(m.Id) == strings.TrimSpace(excludeMsgID) {
+				continue
+			}
+			if m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
+				continue
+			}
+			upd := apiconv.NewMessage()
+			upd.SetId(m.Id)
+			upd.SetCompacted(1)
+			_ = s.convClient.PatchMessage(ctx, upd)
+		}
+	}
+}
+
+// compactGenerateSummaryLLM performs a one-off LLM turn to summarize the conversation and returns the assistant message id.
+func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.Conversation) (string, error) {
+	if s == nil || conv == nil {
+		return "", fmt.Errorf("llm unavailable")
+	}
+	// Prefer direct core.Generate to bypass agent enrichment
+	if s.core != nil {
+		tr := conv.GetTranscript()
+		latest := s.compactLatestMessageID(tr)
+		var msgs []llm.Message
+		// Determine slice size from defaults
+		maxN := 30
+		if s.defaults != nil && s.defaults.SummaryLastN > 0 {
+			maxN = s.defaults.SummaryLastN
+		}
+		count := 0
+		for ti := len(tr) - 1; ti >= 0 && count < maxN; ti-- {
+			t := tr[ti]
+			if t == nil || len(t.Message) == 0 {
+				continue
+			}
+			for mi := len(t.Message) - 1; mi >= 0 && count < maxN; mi-- {
+				m := t.Message[mi]
+				if m == nil || m.Interim != 0 {
+					continue
+				}
+				if strings.TrimSpace(m.Id) == strings.TrimSpace(latest) {
+					continue
+				}
+				if m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
+					continue
+				}
+				role := strings.ToLower(strings.TrimSpace(m.Role))
+				if role != "user" && role != "assistant" {
+					continue
+				}
+				if m.Content == nil || strings.TrimSpace(*m.Content) == "" {
+					continue
+				}
+				msgs = append(msgs, llm.NewTextMessage(llm.MessageRole(role), *m.Content))
+				count++
+			}
+		}
+		instruction := "Summarize key points to continue the discussion. Be concise (<=6 bullets), include goals/decisions/next steps, avoid logs/quotes. Exclude the latest message."
+		if s.defaults != nil && strings.TrimSpace(s.defaults.SummaryPrompt) != "" {
+			instruction = strings.TrimSpace(s.defaults.SummaryPrompt)
+		}
+		msgs = append(msgs, llm.NewUserMessage(instruction))
+		model := ""
+		if s.defaults != nil && strings.TrimSpace(s.defaults.SummaryModel) != "" {
+			model = strings.TrimSpace(s.defaults.SummaryModel)
+		} else if conv.DefaultModel != nil && strings.TrimSpace(*conv.DefaultModel) != "" {
+			model = strings.TrimSpace(*conv.DefaultModel)
+		}
+		in := &corellm.GenerateInput{ModelSelection: llm.ModelSelection{Model: model}, Message: msgs}
+		var out corellm.GenerateOutput
+		if err := s.core.Generate(ctx, in, &out); err != nil {
+			return "", err
+		}
+		content := strings.TrimSpace(out.Content)
+		if content == "" {
+			return "", fmt.Errorf("empty summary")
+		}
+		id, ierr := s.compactInsertSummary(ctx, conv.Id, content)
+		if ierr != nil {
+			return "", ierr
+		}
+		return id, nil
+	}
+	// Fallback to agent manager Accept path
+	if s.mgr == nil {
+		return "", fmt.Errorf("llm unavailable")
+	}
+	agent := "chat"
+	if conv.AgentName != nil && strings.TrimSpace(*conv.AgentName) != "" {
+		agent = strings.TrimSpace(*conv.AgentName)
+	}
+	prompt := "Summarize the conversation so far into key points to support continuing the discussion.\n- Be concise (<= 6 bullets) and actionable.\n- Include user goals, decisions, and pending next steps.\n- Avoid long quotes/logs; describe results briefly.\n- Exclude the latest user or assistant message from the summary; summarize prior context only.\n"
+	in2 := &agentpkg.QueryInput{ConversationID: conv.Id, Query: prompt, AgentName: agent, ToolsAllowed: []string{}}
+	if _, err := s.mgr.Accept(ctx, in2); err != nil {
+		return "", err
+	}
+	updated, err := s.convClient.GetConversation(ctx, conv.Id)
+	if err != nil || updated == nil {
+		return "", err
+	}
+	tr2 := updated.GetTranscript()
+	if len(tr2) == 0 || tr2[len(tr2)-1] == nil {
+		return "", fmt.Errorf("no turn created")
+	}
+	last := tr2[len(tr2)-1]
+	for i := len(last.Message) - 1; i >= 0; i-- {
+		m := last.Message[i]
+		if m == nil || m.Interim != 0 {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(m.Role)) == "assistant" && strings.TrimSpace(m.Id) != "" {
+			_ = s.SetMessageStatus(ctx, m.Id, "summary")
+			return m.Id, nil
+		}
+	}
+	return "", fmt.Errorf("assistant summary not found")
+}
+
+// compactLatestMessageID returns the newest non-interim message id in the transcript (or empty when none).
+func (s *Service) compactLatestMessageID(tr apiconv.Transcript) string {
+	for ti := len(tr) - 1; ti >= 0; ti-- {
+		t := tr[ti]
+		if t == nil || len(t.Message) == 0 {
+			continue
+		}
+		for mi := len(t.Message) - 1; mi >= 0; mi-- {
+			m := t.Message[mi]
+			if m == nil || m.Interim != 0 {
+				continue
+			}
+			if id := strings.TrimSpace(m.Id); id != "" {
+				return id
+			}
+		}
+	}
+	return ""
 }

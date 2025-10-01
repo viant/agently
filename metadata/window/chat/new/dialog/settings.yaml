@@ -2,9 +2,9 @@ title: Settings
 id: settings
 content: $import('panel/settings.yaml')
 
-#on:
-#  - event: onOpen
-#    handler: chat.prepareSettings
+on:
+  - event: onOpen
+    handler: chat.prepareSettings
 
 
 

@@ -32,6 +32,7 @@ const (
 	KindWorkflow = "workflows"
 	KindTool     = "tools"
 	KindOAuth    = "oauth"
+	KindFeeds    = "feeds"
 )
 
 // Root returns the absolute path to the Agently root directory.
