@@ -20,6 +20,9 @@ type Service struct {
 	modelMatcher llm.Matcher
 	fs           afs.Service
 	convClient   apiconv.Client
+
+	// attachment usage accumulator per conversation (bytes)
+	attachUsage map[string]int64
 }
 
 func (s *Service) ModelFinder() llm.Finder {
@@ -70,7 +73,37 @@ func (s *Service) Method(name string) (types.Executable, error) {
 // New creates a new extractor service
 func New(finder llm.Finder, registry tool.Registry, convClient apiconv.Client) *Service {
 	matcher, _ := finder.(llm.Matcher)
-	return &Service{llmFinder: finder, registry: registry, convClient: convClient, fs: afs.New(), modelMatcher: matcher}
+	return &Service{llmFinder: finder, registry: registry, convClient: convClient, fs: afs.New(), modelMatcher: matcher, attachUsage: map[string]int64{}}
+}
+
+// AttachmentUsage returns cumulative attachment bytes recorded for a conversation.
+func (s *Service) AttachmentUsage(convID string) int64 {
+	if s == nil || s.attachUsage == nil || strings.TrimSpace(convID) == "" {
+		return 0
+	}
+	return s.attachUsage[convID]
+}
+
+// SetAttachmentUsage sets cumulative attachment bytes for a conversation.
+func (s *Service) SetAttachmentUsage(convID string, used int64) {
+	if s == nil || strings.TrimSpace(convID) == "" {
+		return
+	}
+	if s.attachUsage == nil {
+		s.attachUsage = map[string]int64{}
+	}
+	s.attachUsage[convID] = used
+}
+
+// ProviderAttachmentLimit returns the provider-configured attachment cap for the given model.
+// Zero means unlimited/not enforced by this provider.
+func (s *Service) ProviderAttachmentLimit(model llm.Model) int64 {
+	if model == nil {
+		return 0
+	}
+	// Default OpenAI limit when applicable: avoid importing client types; assume limit applied upstream via Agent.
+	// Returning 0 keeps core enforcement neutral; agent layer enforces and persists within cap.
+	return 0
 }
 
 // ModelImplements reports whether a given model supports a feature.

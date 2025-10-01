@@ -248,6 +248,59 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			if valueNode.Kind == yaml.ScalarNode {
 				agent.Description = valueNode.Value
 			}
+		case "attachmentttlsec":
+			if valueNode.Kind == yaml.ScalarNode {
+				v := valueNode.Interface()
+				switch actual := v.(type) {
+				case int:
+					agent.AttachmentTTLSec = int64(actual)
+				case int64:
+					agent.AttachmentTTLSec = actual
+				case float64:
+					agent.AttachmentTTLSec = int64(actual)
+				case string:
+					if n, err := parseInt64(actual); err == nil {
+						agent.AttachmentTTLSec = n
+					}
+				}
+			}
+		case "attachmentlimitbytes":
+			if valueNode.Kind == yaml.ScalarNode {
+				v := valueNode.Interface()
+				switch actual := v.(type) {
+				case int:
+					agent.AttachmentLimitBytes = int64(actual)
+				case int64:
+					agent.AttachmentLimitBytes = actual
+				case float64:
+					agent.AttachmentLimitBytes = int64(actual)
+				case string:
+					lv := strings.TrimSpace(strings.ToLower(actual))
+					if strings.HasSuffix(lv, "mb") {
+						if n, err := parseInt64(strings.TrimSuffix(lv, "mb")); err == nil {
+							agent.AttachmentLimitBytes = n * 1024 * 1024
+						}
+					} else if n, err := parseInt64(lv); err == nil {
+						agent.AttachmentLimitBytes = n
+					}
+				}
+			}
+		case "attachmentlimitmb":
+			if valueNode.Kind == yaml.ScalarNode {
+				v := valueNode.Interface()
+				switch actual := v.(type) {
+				case int:
+					agent.AttachmentLimitBytes = int64(actual) * 1024 * 1024
+				case int64:
+					agent.AttachmentLimitBytes = actual * 1024 * 1024
+				case float64:
+					agent.AttachmentLimitBytes = int64(actual * 1024 * 1024)
+				case string:
+					if n, err := parseInt64(actual); err == nil {
+						agent.AttachmentLimitBytes = n * 1024 * 1024
+					}
+				}
+			}
 		case "paralleltoolcalls":
 			if valueNode.Kind == yaml.ScalarNode {
 				val := valueNode.Interface()
@@ -352,9 +405,29 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			if valueNode.Kind == yaml.ScalarNode {
 				agent.ToolCallExposure = agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(valueNode.Value)))
 			}
+		case "attachmode":
+			if valueNode.Kind == yaml.ScalarNode {
+				mode := strings.ToLower(strings.TrimSpace(valueNode.Value))
+				switch mode {
+				case "ref", "inline":
+					agent.AttachMode = mode
+				default:
+					agent.AttachMode = "ref"
+				}
+			}
 		}
 		return nil
 	})
+}
+
+// parseInt64 parses an integer from string, trimming spaces; returns error on failure.
+func parseInt64(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	var n int64
+	var err error
+	// yaml already converts numeric scalars to int/float, but we support strings too
+	_, err = fmt.Sscan(s, &n)
+	return n, err
 }
 
 func (s *Service) getPrompt(valueNode *yml.Node) (*prompt.Prompt, error) {

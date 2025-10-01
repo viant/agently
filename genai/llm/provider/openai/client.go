@@ -5,6 +5,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/viant/afs/storage"
+	afsco "github.com/viant/afsc/openai"
+	"github.com/viant/afsc/openai/assets"
 	basecfg "github.com/viant/agently/genai/llm/provider/base"
 )
 
@@ -17,6 +20,7 @@ type Client struct {
 	// respective field unset.
 	MaxTokens   int
 	Temperature *float64
+	storageMgr  storage.Manager
 }
 
 // NewClient creates a new OpenAI client with the given API key and model
@@ -27,7 +31,8 @@ func NewClient(apiKey, model string, options ...ClientOption) *Client {
 			BaseURL:    openAIEndpoint,
 			Model:      model,
 		},
-		APIKey: apiKey,
+		APIKey:     apiKey,
+		storageMgr: nil,
 	}
 
 	// Apply options
@@ -38,6 +43,8 @@ func NewClient(apiKey, model string, options ...ClientOption) *Client {
 	if client.APIKey == "" {
 		client.APIKey = os.Getenv("OPENAI_API_KEY")
 	}
+
+	client.storageMgr = afsco.New(assets.NewConfig(client.APIKey))
 
 	return client
 }
