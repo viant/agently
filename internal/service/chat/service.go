@@ -788,10 +788,10 @@ func (s *Service) compactMessagePriorMessageID(ctx context.Context, transcript a
 // compactGenerateSummaryLLM performs a one-off LLM turn to summarize the conversation and returns the assistant message id.
 func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.Conversation) (string, error) {
 	tr := conv.GetTranscript()
-	agentId := conv.AgentId
-	if agentId == "" && conv.AgentName != nil {
-		agentId = *conv.AgentName
+	if conv.AgentName == nil {
+		return "", fmt.Errorf("agent name is missing in covnersation: %v", conv.Id)
 	}
+	agentId := *conv.AgentName
 	anAgent, err := s.agentFinder.Find(ctx, agentId)
 	if err != nil {
 		return "", fmt.Errorf("failed to  find agent: %v %w", conv.AgentId, err)
