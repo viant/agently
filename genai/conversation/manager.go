@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	convctx "github.com/viant/agently/genai/convctx"
+	"github.com/viant/agently/genai/memory"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 )
 
@@ -76,8 +76,7 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 	// Store the ID under both legacy (conversation) and new (convctx)
 	// context keys so that all downstream code can retrieve it without
 	// import cycles.
-	ctx = EnsureID(ctx, input.ConversationID)
-	ctx = convctx.EnsureID(ctx, input.ConversationID)
+	ctx = memory.WithConversationID(ctx, input.ConversationID)
 	var output agentpkg.QueryOutput
 	if err := m.handler(ctx, input, &output); err != nil {
 		return nil, err

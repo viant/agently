@@ -99,3 +99,17 @@ func WithToolFeedSpec(ext []*tool.FeedSpec) Option {
 		input.Has.FeedSpec = true
 	}
 }
+
+// WithScheduledEq applies coalesce(t.scheduled,0) = value (0 or 1).
+func WithScheduledEq(value int) Option {
+	return func(input *Input) {
+		input.Scheduled = value
+		if input.Has == nil {
+			input.Has = &agconv.ConversationInputHas{}
+		}
+		input.Has.Scheduled = true
+	}
+}
+
+// WithScheduledOnly is a convenience for WithScheduledEq(1).
+func WithScheduledOnly() Option { return WithScheduledEq(1) }

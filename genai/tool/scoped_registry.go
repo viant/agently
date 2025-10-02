@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 
-	"github.com/viant/agently/genai/convctx"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
 )
 
 // scopedRegistry is a lightweight wrapper that binds a tool.Registry to a
@@ -50,7 +50,9 @@ func (s *scopedRegistry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 // underlying registry.
 func (s *scopedRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	if s.convID != "" {
-		ctx = convctx.EnsureID(ctx, s.convID)
+		if memory.ModelMessageIDFromContext(ctx) == "" {
+			ctx = memory.WithConversationID(ctx, s.convID)
+		}
 	}
 	return s.inner.Execute(ctx, name, args)
 }

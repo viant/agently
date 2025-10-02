@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent/plan"
-	convctx "github.com/viant/agently/genai/convctx"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
+	"github.com/viant/agently/genai/memory"
 	core2 "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/service/core/stream"
 	executil "github.com/viant/agently/genai/service/shared/executil"
@@ -31,8 +31,8 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 
 	var wg sync.WaitGroup
 	nextStepIdx := 0
-	// Bind registry to current conversation (if any) so tool.Execute receives ctx with convID.
-	reg := tool.WithConversation(s.registry, convctx.ID(ctx))
+	// Binding registry to current conversation (if any) so tool.Execute receives ctx with convID.
+	reg := tool.WithConversation(s.registry, memory.ConversationIDFromContext(ctx))
 	// Do not create child cancels here; errors must not cancel context.
 	streamId, stepErrCh := s.registerStreamPlannerHandler(ctx, reg, aPlan, &wg, &nextStepIdx, genOutput)
 	canStream, err := s.canStream(ctx, genInput)

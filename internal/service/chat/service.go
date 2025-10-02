@@ -20,6 +20,7 @@ import (
 	"github.com/viant/agently/genai/elicitation"
 	execcfg "github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	corellm "github.com/viant/agently/genai/service/core"
@@ -72,6 +73,7 @@ type API interface {
 }
 
 func NewService() *Service {
+	// Legacy constructor: keep silent auto-wiring for backwards compatibility.
 	svc := &Service{reg: cancels.Default()}
 	if dao, err := implconv.NewDatly(context.Background()); err == nil {
 		if cli, err := implconv.New(context.Background(), dao); err == nil {
@@ -79,6 +81,22 @@ func NewService() *Service {
 		}
 	}
 	return svc
+}
+
+// NewServiceFromEnv wires conversation client using environment configuration.
+// Returns an error when conversation client cannot be initialized so that
+// callers can fail fast instead of starting partially configured services.
+func NewServiceFromEnv(ctx context.Context) (*Service, error) {
+	dao, err := implconv.NewDatly(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init datly: %w", err)
+	}
+	cli, err := implconv.New(ctx, dao)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init conversation client: %w", err)
+	}
+	svc := &Service{reg: cancels.Default(), convClient: cli}
+	return svc, nil
 }
 
 // AttachElicitationService wires the elicitation service to avoid ad-hoc constructions.
@@ -126,6 +144,7 @@ type GetResponse struct {
 
 // Get fetches a conversation using the rich transcript API.
 func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error) {
+	// Service invariant: endpoints are only registered when convClient is configured.
 	var opts []apiconv.Option
 	if id := strings.TrimSpace(req.SinceID); id != "" {
 		opts = append(opts, apiconv.WithSince(id))
@@ -270,8 +289,9 @@ func defaultLocation(loc string) string { return strings.TrimSpace(loc) }
 // Post accepts a user message and triggers asynchronous processing via manager.
 // Returns generated message ID that can be used to track status.
 func (s *Service) Post(ctx context.Context, conversationID string, req PostRequest) (string, error) {
-	if s == nil || s.mgr == nil {
-		return "", nil
+
+	if conversationID == "" {
+		return "", fmt.Errorf("conversationID is required")
 	}
 	msgID := uuid.New().String()
 	input := &agentpkg.QueryInput{
@@ -302,25 +322,25 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		} else {
 			defer cancel()
 		}
-
 		// Convert staged uploads into attachments (read + cleanup)
-		s.enrichAttachmentIfNeeded(req, runCtx, input)
-
-		// Propagate conversation ID and policies
-		runCtx = conversation.WithID(runCtx, conversationID)
-		if s.toolPolicy != nil {
-			runCtx = tool.WithPolicy(runCtx, s.toolPolicy)
-		} else {
-			runCtx = tool.WithPolicy(runCtx, &tool.Policy{Mode: tool.ModeAuto})
+		err := s.enrichAttachmentIfNeeded(req, runCtx, input)
+		if err == nil {
+			// Propagate conversation ID and policies
+			runCtx = memory.WithConversationID(runCtx, conversationID)
+			if s.toolPolicy != nil {
+				runCtx = tool.WithPolicy(runCtx, s.toolPolicy)
+			} else {
+				runCtx = tool.WithPolicy(runCtx, &tool.Policy{Mode: tool.ModeAuto})
+			}
+			if pol := tool.FromContext(parent); pol != nil {
+				runCtx = tool.WithPolicy(runCtx, pol)
+			}
+			if s.fluxPolicy != nil {
+				runCtx = fluxpol.WithPolicy(runCtx, s.fluxPolicy)
+			}
+			// Execute agentic flow; turn/message persistence handled by agent recorder.
+			_, err = s.mgr.Accept(runCtx, input)
 		}
-		if pol := tool.FromContext(parent); pol != nil {
-			runCtx = tool.WithPolicy(runCtx, pol)
-		}
-		if s.fluxPolicy != nil {
-			runCtx = fluxpol.WithPolicy(runCtx, s.fluxPolicy)
-		}
-		// Execute agentic flow; turn/message persistence handled by agent recorder.
-		_, err := s.mgr.Accept(runCtx, input)
 		if err != nil {
 			if s.convClient != nil {
 				tUpd := apiconv.NewTurn()

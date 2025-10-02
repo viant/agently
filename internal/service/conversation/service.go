@@ -99,7 +99,9 @@ func (s *Service) PatchConversations(ctx context.Context, conversations *convcli
 
 // GetConversations implements conversation.API using the generated component and returns SDK Conversation.
 func (s *Service) GetConversations(ctx context.Context) ([]*convcli.Conversation, error) {
-	inSDK := convcli.Input{IncludeTranscript: false, Has: &agconv.ConversationInputHas{IncludeTranscript: true}}
+	// Default: filter to non-scheduled conversations only via Scheduled=0
+	val := 0
+	inSDK := convcli.Input{IncludeTranscript: false, Scheduled: val, Has: &agconv.ConversationInputHas{IncludeTranscript: true, Scheduled: true}}
 	// Map SDK input to generated input
 	in := agconv.ConversationInput(inSDK)
 	out := &agconv.ConversationOutput{}

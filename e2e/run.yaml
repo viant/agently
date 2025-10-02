@@ -40,9 +40,11 @@ pipeline:
         - rm -rf repo/
 
     transcript:
-      acl:
-        action: run
-        request: '@rule/transcript'
+      action: run
+      request: '@rule/transcript'
+    schedule:
+      action: run
+      request: '@rule/schedule'
 
 
 #

@@ -67,22 +67,59 @@
       type: text
 
 # -----------------------------------------------------------------------------
-# Prompt template
+# Prompts – user and system prompts (URI-based)
 # -----------------------------------------------------------------------------
-- id: prompt
-  title: Prompt
+- id: prompts
+  title: Prompts
   layout:
     orientation: horizontal
-    columns: 1
+    columns: 2
     labelPosition: top
   items:
-    - id: prompt
-      label: Prompt Template
-      type: textarea
+    - id: prompt.uri
+      label: Prompt (URI)
+      type: text
       columnSpan: 1
-      properties:
-        rows: 6
-        cols: 100
+    - id: systemPrompt.uri
+      label: System Prompt (URI)
+      type: text
+      columnSpan: 1
+
+# -----------------------------------------------------------------------------
+# Persona – assistant identity
+# -----------------------------------------------------------------------------
+- id: persona
+  title: Persona
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  items:
+    - id: persona.actor
+      label: Actor
+      type: text
+    - id: persona.role
+      label: Role
+      type: text
+
+# -----------------------------------------------------------------------------
+# Elicitation – optional interactive input schema
+# -----------------------------------------------------------------------------
+- id: elicitation
+  title: Elicitation
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  items:
+    - id: elicitation.message
+      label: Message
+      type: text
+      columnSpan: 2
+    - id: elicitation.requestedSchema
+      label: Requested Schema
+      type: object
+      columnSpan: 2
 
 - id: tools
   title: Tools
@@ -103,3 +140,29 @@
   title: Knowledge
   dataSourceRef: agentKnowledge
   table: $import('table/knowledge.yaml')
+
+# -----------------------------------------------------------------------------
+# System Knowledge – additional static resources
+# -----------------------------------------------------------------------------
+- id: systemKnowledge
+  title: System Knowledge
+  dataSourceRef: agentSystemKnowledge
+  table: $import('table/knowledge.yaml')
+
+# -----------------------------------------------------------------------------
+# Tool Export – domains and exposure
+# -----------------------------------------------------------------------------
+- id: toolExport
+  title: Tool Export
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  items:
+    - id: toolExport.expose
+      label: Expose Tools Publicly
+      type: switch
+    - id: toolExport
+      label: Tool Export (advanced)
+      type: object
+      columnSpan: 2

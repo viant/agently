@@ -27,3 +27,4 @@ dataSource:
   agents: $import('datasource/agents.yaml')
   agentTools: $import('datasource/tools.yaml')
   agentKnowledge: $import('datasource/knowledge.yaml')
+  agentSystemKnowledge: $import('datasource/system_knowledge.yaml')

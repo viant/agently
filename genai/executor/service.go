@@ -13,13 +13,13 @@ import (
 	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
-	convctx "github.com/viant/agently/genai/convctx"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/genai/embedder"
 	"github.com/viant/agently/genai/executor/agenttool"
 	"github.com/viant/agently/genai/io/extractor"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
 	agent2 "github.com/viant/agently/genai/service/agent"
 	"github.com/viant/agently/genai/service/augmenter"
 	"github.com/viant/agently/genai/service/core"
@@ -168,7 +168,7 @@ func (e *Service) ExecuteTool(ctx context.Context, name string, args map[string]
 		defer cancel()
 	}
 
-	reg := tool.WithConversation(e.tools, convctx.ID(ctx))
+	reg := tool.WithConversation(e.tools, memory.ConversationIDFromContext(ctx))
 	res, err := reg.Execute(ctx, name, args)
 	return res, err
 }

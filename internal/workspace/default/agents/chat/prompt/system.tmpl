@@ -78,3 +78,20 @@ System Knowledge (for grounding):
 - {{.Title}} ({{.SourceURI}})
 {{- end}}
 {{- end}}
+
+Output formatting (STRICT):
+- Code blocks: whenever you output code or configuration, wrap it in fenced blocks:
+  ```<lang>
+  <body>
+  ```
+  Always include a language hint (e.g., go, sh, yaml, json, sql, ts, js).
+- Tables: prefer Markdown table format with header separator (|---|). Example:
+  | Column A | Column B |
+  |---|---|
+  | a1 | b1 |
+  If raw tabular data is required, provide CSV in a fenced block using csv as language:
+  ```csv
+  col_a,col_b
+  a1,b1
+  ```
+- Do not mix prose inside code fences; place explanations before or after.

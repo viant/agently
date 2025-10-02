@@ -177,7 +177,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 
 // prepareChatRequest converts a generic request and applies client/model defaults.
 func (c *Client) prepareChatRequest(request *llm.GenerateRequest) (*Request, error) {
-	req, err := ToRequest(request)
+	req, err := c.ToRequest(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert to llm.Request: %w", err)
 	}

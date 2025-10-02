@@ -1,0 +1,10 @@
+pipeline:
+  translate:
+    action: exec:run
+    TimeoutMs: 120000
+    checkError: true
+    commands:
+      - cd $repoPath
+      - $repoPath/bin/datly gen -o=get -u=agently/scheduler/schedule      -s='dql/agently/scheduler/schedule/schedule.dql' $datlyOptions
+      - $repoPath/bin/datly gen -o=get -u=agently/scheduler/run      -s='dql/agently/scheduler/run/run.dql' $datlyOptions
+

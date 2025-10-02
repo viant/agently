@@ -1,0 +1,16 @@
+/* {"URI":"/{id}"} */
+
+
+
+#set($_ = $Status<?>(output/status))
+#set($_ = $Data<?>(output/view))
+#set($_ = $Metrics<?>(output/metrics))
+
+#set($_ = $Id<string>(path/id).WithPredicate(0, 'equal','t', 'id'))
+#set($_ = $Since<string>(query/since).WithPredicate(1,'expr','created_at >= (SELECT created_at FROM turn WHERE id = ?)'))
+
+SELECT run.*
+FROM (
+    SELECT t.*  FROM schedule_run t
+     ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+) run

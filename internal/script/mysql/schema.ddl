@@ -46,7 +46,19 @@ CREATE TABLE conversation
     message_count          BIGINT       NOT NULL DEFAULT 0,
     turn_count             BIGINT       NOT NULL DEFAULT 0,
     retention_ttl_days     BIGINT,
-    expires_at             TIMESTAMP    NULL     DEFAULT NULL
+    expires_at             TIMESTAMP    NULL     DEFAULT NULL,
+
+    -- scheduling annotations
+    scheduled              TINYINT      NULL CHECK (scheduled IN (0,1)),
+    schedule_id            VARCHAR(255) NULL,
+    schedule_run_id        VARCHAR(255) NULL,
+    schedule_kind          VARCHAR(32)  NULL,
+    schedule_timezone      VARCHAR(64)  NULL,
+    schedule_cron_expr     VARCHAR(255) NULL,
+
+    -- client attribution
+    created_ip             VARCHAR(45),
+    last_ip                VARCHAR(45)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_0900_ai_ci;
@@ -121,6 +133,7 @@ CREATE TABLE `message`
     created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP,
     created_by_user_id     VARCHAR(255),
+    client_ip              VARCHAR(45),
     status                 VARCHAR(255) CHECK (status IS NULL OR status IN
                                                                  ('', 'pending', 'accepted', 'rejected', 'cancel',
                                                                   'open', 'summary', 'summarized')),
@@ -150,6 +163,24 @@ CREATE TABLE `message`
 
 CREATE UNIQUE INDEX idx_message_turn_seq ON `message` (turn_id, sequence);
 CREATE INDEX idx_msg_conv_created ON `message` (conversation_id, created_at DESC);
+-- IP audit indexes
+CREATE INDEX idx_conv_created_ip ON conversation (created_ip);
+CREATE INDEX idx_conv_last_ip    ON conversation (last_ip);
+CREATE INDEX idx_msg_client_ip   ON `message` (client_ip);
+
+-- Users table for identity and schedule UX state
+CREATE TABLE app_user (
+    id                                   VARCHAR(255) PRIMARY KEY,
+    subject                              VARCHAR(255) UNIQUE,
+    display_name                         VARCHAR(255),
+    email                                VARCHAR(255),
+    created_at                           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                           TIMESTAMP    NULL DEFAULT NULL,
+    last_seen_schedule_conversation_id   VARCHAR(255) NULL,
+    CONSTRAINT fk_user_last_seen_conv FOREIGN KEY (last_seen_schedule_conversation_id) REFERENCES conversation(id) ON DELETE SET NULL
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+CREATE UNIQUE INDEX idx_user_subject ON app_user(subject);
 
 CREATE TABLE model_call
 (
@@ -258,3 +289,64 @@ CREATE UNIQUE INDEX idx_tool_op_attempt ON tool_call (turn_id, op_id, attempt);
 CREATE INDEX idx_tool_call_status ON tool_call (status);
 CREATE INDEX idx_tool_call_name ON tool_call (tool_name);
 CREATE INDEX idx_tool_call_op ON tool_call (turn_id, op_id);
+
+
+CREATE TABLE IF NOT EXISTS schedule (
+                                        id                    VARCHAR(255) PRIMARY KEY,
+                                        name                  VARCHAR(255) NOT NULL UNIQUE,
+                                        description           TEXT,
+
+    -- Target agent / model
+                                        agent_ref             VARCHAR(255) NOT NULL,
+                                        model_override        VARCHAR(255),
+
+    -- Enable/disable + time window
+                                        enabled               TINYINT      NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+                                        start_at              TIMESTAMP    NULL DEFAULT NULL,
+                                        end_at                TIMESTAMP    NULL DEFAULT NULL,
+
+    -- Frequency
+                                        schedule_type         VARCHAR(32)  NOT NULL DEFAULT 'cron' CHECK (schedule_type IN ('cron','interval')),
+                                        cron_expr             VARCHAR(255),
+                                        interval_seconds      BIGINT,
+                                        timezone              VARCHAR(64)  NOT NULL DEFAULT 'UTC',
+
+    -- Task payload (predefined user task)
+                                        task_prompt_uri       TEXT,
+                                        task_prompt           MEDIUMTEXT,
+
+    -- Optional orchestration workflow (reserved)
+
+    -- Bookkeeping
+                                        next_run_at           TIMESTAMP    NULL DEFAULT NULL,
+                                        last_run_at           TIMESTAMP    NULL DEFAULT NULL,
+                                        last_status           VARCHAR(32),
+                                        last_error            TEXT,
+                                        created_at            TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                        updated_at            TIMESTAMP    NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE INDEX idx_schedule_enabled_next ON schedule(enabled, next_run_at);
+
+-- Per-run audit trail
+CREATE TABLE IF NOT EXISTS schedule_run (
+                                            id                     VARCHAR(255) PRIMARY KEY,
+                                            schedule_id            VARCHAR(255) NOT NULL,
+                                            created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                            status                 VARCHAR(32)  NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','prechecking','skipped','running','succeeded','failed')),
+                                            error_message          TEXT,
+
+                                            precondition_ran_at    TIMESTAMP    NULL DEFAULT NULL,
+                                            precondition_passed    TINYINT      NULL CHECK (precondition_passed IN (0,1)),
+                                            precondition_result    MEDIUMTEXT,
+
+                                            conversation_id        VARCHAR(255) NULL,
+                                            conversation_kind      VARCHAR(32)  NOT NULL DEFAULT 'scheduled' CHECK (conversation_kind IN ('scheduled','precondition')),
+                                            started_at             TIMESTAMP    NULL DEFAULT NULL,
+                                            completed_at           TIMESTAMP    NULL DEFAULT NULL,
+
+                                            CONSTRAINT fk_run_schedule FOREIGN KEY (schedule_id) REFERENCES schedule(id) ON DELETE CASCADE,
+                                            CONSTRAINT fk_run_conversation FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE INDEX idx_run_schedule_status ON schedule_run(schedule_id, status);

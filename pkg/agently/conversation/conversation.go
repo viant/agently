@@ -33,6 +33,7 @@ type ConversationInput struct {
 	IncludeTranscript bool                  `parameter:",kind=query,in=includeTranscript" predicate:"expr,group=1,?" value:"true"`
 	IncludeModelCal   bool                  `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"false"`
 	IncludeToolCall   bool                  `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"false"`
+	Scheduled         int                   `parameter:",kind=query,in=scheduled" predicate:"expr,group=0,t.scheduled = ?"`
 	FeedSpec          []*tool.FeedSpec      `parameter:",kind=transient,in=extension"`
 	Has               *ConversationInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
@@ -43,6 +44,7 @@ type ConversationInputHas struct {
 	IncludeTranscript bool
 	IncludeModelCal   bool
 	IncludeToolCall   bool
+	Scheduled         bool
 	FeedSpec          bool
 }
 
@@ -81,6 +83,14 @@ type ConversationView struct {
 	TurnCount            int               `sqlx:"turn_count"`
 	RetentionTtlDays     *int              `sqlx:"retention_ttl_days"`
 	ExpiresAt            *time.Time        `sqlx:"expires_at"`
+	Scheduled            *int              `sqlx:"scheduled"`
+	ScheduleId           *string           `sqlx:"schedule_id"`
+	ScheduleRunId        *string           `sqlx:"schedule_run_id"`
+	ScheduleKind         *string           `sqlx:"schedule_kind"`
+	ScheduleTimezone     *string           `sqlx:"schedule_timezone"`
+	ScheduleCronExpr     *string           `sqlx:"schedule_cron_expr"`
+	CreatedIp            *string           `sqlx:"created_ip"`
+	LastIp               *string           `sqlx:"last_ip"`
 	Transcript           []*TranscriptView `view:",table=turn" on:"Id:id=ConversationId:conversation_id" sql:"uri=conversation/transcript.sql"`
 	Usage                *UsageView        `view:",table=model_call" on:"Id:id=ConversationId:m.conversation_id" sql:"uri=conversation/usage.sql"`
 }
@@ -113,6 +123,7 @@ type MessageView struct {
 	CreatedAt            time.Time                `sqlx:"created_at"`
 	UpdatedAt            *time.Time               `sqlx:"updated_at"`
 	CreatedByUserId      *string                  `sqlx:"created_by_user_id"`
+	ClientIp             *string                  `sqlx:"client_ip"`
 	Status               *string                  `sqlx:"status"`
 	Role                 string                   `sqlx:"role"`
 	Type                 string                   `sqlx:"type"`

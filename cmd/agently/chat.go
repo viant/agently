@@ -19,9 +19,9 @@ import (
 	"github.com/viant/agently/client/conversation/factory"
 	"github.com/viant/agently/cmd/service"
 	"github.com/viant/agently/genai/agent/plan"
-	"github.com/viant/agently/genai/conversation"
 	elicitationpkg "github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/genai/executor"
+	"github.com/viant/agently/genai/memory"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/tool"
 	protoclient "github.com/viant/mcp-protocol/client"
@@ -167,7 +167,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 		if convID == "" {
 			convID = uuid.NewString()
 		}
-		ctx = conversation.WithID(ctx, convID)
+		ctx = memory.WithConversationID(ctx, convID)
 		req := service.ChatRequest{
 			ConversationID: convID,
 			AgentPath:      c.AgentName,

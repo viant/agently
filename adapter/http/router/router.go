@@ -7,18 +7,20 @@ import (
 
 	"github.com/viant/afs"
 	fsadapter "github.com/viant/afs/adapter/http"
-	chat "github.com/viant/agently/adapter/http"
+	chatserver "github.com/viant/agently/adapter/http"
 	"github.com/viant/agently/adapter/http/filebrowser"
 	toolhttp "github.com/viant/agently/adapter/http/tool"
 	"github.com/viant/agently/adapter/http/workflow"
 	"github.com/viant/agently/deployment/ui"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
+	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
 
 	"github.com/viant/agently/adapter/http/router/metadata"
 	"github.com/viant/agently/adapter/http/workspace"
 	"github.com/viant/agently/cmd/service"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
+	chatsvc "github.com/viant/agently/internal/service/chat"
 	invk "github.com/viant/agently/pkg/agently/tool/invoker"
 	fluxorpol "github.com/viant/fluxor/policy"
 	fhandlers "github.com/viant/forge/backend/handlers"
@@ -36,28 +38,36 @@ func (e *execInvoker) Invoke(ctx context.Context, service, method string, args m
 	if method != "" {
 		name = service + "/" + method
 	}
-	return e.exec.ExecuteTool(ctx, name, args, 0)
+	cName := mcptool.Canonical(name)
+	return e.exec.ExecuteTool(ctx, cName, args, 0)
 }
 
 // New constructs an http.Handler that combines chat API and workspace CRUD API.
 //
 // Chat endpoints are mounted under /v1/api/… (see adapter/http/server.go).
 // Workspace endpoints under /v1/workspace/… (see adapter/http/workspace).
-func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxorpol.Policy, mcpR elicrouter.ElicitationRouter) http.Handler {
+func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxorpol.Policy, mcpR elicrouter.ElicitationRouter) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	// Forge file service singleton (reused for upload handlers and chat service)
 	fs := fservice.New(os.TempDir())
 
 	cfg := exec.Config()
-	mux.Handle("/v1/api/", chat.NewServer(exec.Conversation(),
-		chat.WithPolicies(toolPol, fluxPol),
-		chat.WithApprovalService(exec.ApprovalService()),
-		chat.WithFileService(fs),
-		chat.WithMCPRouter(mcpR),
-		chat.WithCore(exec.LLMCore()),
-		chat.WithDefaults(&cfg.Default),
-		chat.WithInvoker(&execInvoker{exec: exec}),
+	// Build chat service with env and propagate errors to caller to prevent start
+	chatSvc, err := chatsvc.NewServiceFromEnv(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	mux.Handle("/v1/api/", chatserver.NewServer(exec.Conversation(),
+		chatserver.WithPolicies(toolPol, fluxPol),
+		chatserver.WithApprovalService(exec.ApprovalService()),
+		chatserver.WithFileService(fs),
+		chatserver.WithMCPRouter(mcpR),
+		chatserver.WithCore(exec.LLMCore()),
+		chatserver.WithDefaults(&cfg.Default),
+		chatserver.WithInvoker(&execInvoker{exec: exec}),
+		chatserver.WithChatService(chatSvc),
 	))
 	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
 	// Backward-compatible alias so callers using /v1/api/workspace/* keep working
@@ -101,9 +111,9 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 
 	// Kick off background sync that surfaces fluxor approval requests as chat messages
 	ctx := context.Background()
-	chat.StartApprovalBridge(ctx, exec, exec.Conversation())
+	chatserver.StartApprovalBridge(ctx, exec, exec.Conversation())
 
-	return chat.WithCORS(mux)
+	return chatserver.WithCORS(mux), nil
 }
 
 // newStore removed — chat service now uses conversation client directly
