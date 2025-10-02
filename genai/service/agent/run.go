@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	elact "github.com/viant/agently/genai/elicitation/action"
-	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/prompt"
@@ -287,37 +286,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			ModelSelection: modelSelection,
 			AgentName:      input.AgentName,
 		}
-
-		// Propagate agent-level temperature to per-request options if not explicitly set.
-		// Keep any existing options provided via model selection.
-		if genInput.Options == nil {
-			genInput.Options = &llm.Options{}
-		}
-		if genInput.Options.Temperature == 0 && input.Agent.Temperature != 0 {
-			genInput.Options.Temperature = input.Agent.Temperature
-		}
-		// Carry agent-level parallel tool-calls preference; capability gating
-		// happens later in core.updateFlags based on provider/model support.
-		genInput.Options.ParallelToolCalls = input.Agent.ParallelToolCalls
-		// Pass attach mode as metadata so providers can honor ref vs inline.
-		if genInput.Options.Metadata == nil {
-			genInput.Options.Metadata = map[string]interface{}{}
-		}
-		mode := strings.TrimSpace(strings.ToLower(input.Agent.AttachMode))
-		if mode == "" {
-			mode = "ref"
-		}
-		genInput.Options.Metadata["attachMode"] = mode
-		// Provide agent name for storage scoping in provider adapters
-		if input.Agent != nil && strings.TrimSpace(input.Agent.Name) != "" {
-			genInput.Options.Metadata["agentName"] = input.Agent.Name
-		}
-		// Optional TTL for attachments (in seconds)
-		if input.Agent.AttachmentTTLSec > 0 {
-			genInput.Options.Metadata["attachmentTTLSec"] = input.Agent.AttachmentTTLSec
-		}
-		genInput.Options.Metadata["agentName"] = input.AgentName
-
+		EnsureGenerateOptions(genInput, input.Agent)
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
 		if pErr != nil {

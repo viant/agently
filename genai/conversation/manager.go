@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	agentdef "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/memory"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 )
@@ -22,8 +23,9 @@ type QueryHandler func(ctx context.Context, input *agentpkg.QueryInput, output *
 // The goal is to decouple I/O adapters (CLI, REST, WebSocket, …) from the
 // underlying agent orchestration so that they only need to call Accept().
 type Manager struct {
-	handler QueryHandler
-	idGen   func() string
+	handler  QueryHandler
+	idGen    func() string
+	resolver AgentResolver
 }
 
 // Option allows to customise Manager behaviour.
@@ -50,6 +52,22 @@ func New(handler QueryHandler, opts ...Option) *Manager {
 		o(m)
 	}
 	return m
+}
+
+// AgentResolver resolves agent definitions by name during runtime.
+type AgentResolver func(ctx context.Context, name string) (*agentdef.Agent, error)
+
+// WithAgentResolver installs a resolver used by ResolveAgent.
+func WithAgentResolver(r AgentResolver) Option {
+	return func(m *Manager) { m.resolver = r }
+}
+
+// ResolveAgent returns the Agent configuration for the provided name using the resolver when set.
+func (m *Manager) ResolveAgent(ctx context.Context, name string) (*agentdef.Agent, error) {
+	if m == nil || m.resolver == nil {
+		return nil, errors.New("agent resolver is not configured")
+	}
+	return m.resolver(ctx, name)
 }
 
 // Accept processes a user query within a conversation.

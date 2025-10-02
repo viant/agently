@@ -54,6 +54,10 @@ type Service struct {
 	cancelReg cancels.Registry
 }
 
+func (s *Service) Finder() agent.Finder {
+	return s.agentFinder
+}
+
 // SetRuntime sets the fluxor runtime for orchestration
 func (s *Service) SetRuntime(rt *fluxor.Runtime) {
 	s.runtime = rt

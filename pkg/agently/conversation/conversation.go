@@ -68,7 +68,7 @@ type ConversationView struct {
 	UpdatedAt            *time.Time        `sqlx:"updated_at"`
 	CreatedByUserId      *string           `sqlx:"created_by_user_id"`
 	TenantId             *string           `sqlx:"tenant_id"`
-	AgentId              *string           `sqlx:"agent_id"`
+	AgentId              string            `sqlx:"agent_id"`
 	AgentConfigId        *string           `sqlx:"agent_config_id"`
 	DefaultModelProvider *string           `sqlx:"default_model_provider"`
 	DefaultModel         *string           `sqlx:"default_model"`

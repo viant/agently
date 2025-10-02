@@ -64,6 +64,7 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 		chatserver.WithApprovalService(exec.ApprovalService()),
 		chatserver.WithFileService(fs),
 		chatserver.WithMCPRouter(mcpR),
+		chatserver.WithAgentFinder(exec.AgentService().Finder()),
 		chatserver.WithCore(exec.LLMCore()),
 		chatserver.WithDefaults(&cfg.Default),
 		chatserver.WithInvoker(&execInvoker{exec: exec}),
