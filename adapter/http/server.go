@@ -14,6 +14,7 @@ import (
 	"errors"
 
 	"github.com/viant/agently/adapter/http/ui"
+	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/elicitation"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/memory"
@@ -49,8 +50,8 @@ type Server struct {
 	chatSvc         *chat.Service
 	pendingApproval approval.Service
 	fileSvc         *fservice.Service
-
-	mcpRouter elicrouter.ElicitationRouter
+	agentFinder     agent.Finder
+	mcpRouter       elicrouter.ElicitationRouter
 
 	// Store removed; using conversation client via chat service
 
@@ -96,6 +97,13 @@ func WithFileService(fs *fservice.Service) ServerOption {
 	}
 }
 
+// WithAgentFinder returns with agent finder
+func WithAgentFinder(finder agent.Finder) ServerOption {
+	return func(s *Server) {
+		s.agentFinder = finder
+	}
+}
+
 // WithChatService injects a preconfigured chat service. When provided,
 // NewServer will not attempt to auto-initialize chat from env.
 func WithChatService(c *chat.Service) ServerOption {
@@ -132,6 +140,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	if s.chatSvc == nil {
 		s.chatSvc = chat.NewService()
 	}
+
+	if s.agentFinder != nil {
+		s.chatSvc.AttacheAgentFinder(s.agentFinder)
+	}
+
 	s.chatSvc.AttachManager(mgr, s.toolPolicy, s.fluxPolicy)
 	if s.pendingApproval != nil {
 		s.chatSvc.AttachApproval(s.pendingApproval)
@@ -143,6 +156,7 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	if s.defaults != nil {
 		s.chatSvc.AttachDefaults(s.defaults)
 	}
+
 	// Attach a shared elicitation service for persistence and waiting
 	if s.chatSvc != nil {
 		es := elicitation.New(s.chatSvc.ConversationClient(), nil, s.mcpRouter, nil)
