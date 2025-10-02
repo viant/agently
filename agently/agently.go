@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	//os.Setenv("AGENTLY_ROOT", "/Users/awitas/go/src/github.com/viant/agently/ag")
-	//os.Args = []string{"", "serve"}
+	os.Setenv("AGENTLY_ROOT", "/Users/awitas/go/src/github.com/viant/agently/ag")
+	os.Args = []string{"", "serve"}
 	agently.RunWithCommands(os.Args[1:])
 }
