@@ -16,6 +16,7 @@ import (
 	"github.com/viant/agently/adapter/http/ui"
 	"github.com/viant/agently/genai/elicitation"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
+	"github.com/viant/agently/genai/memory"
 
 	"github.com/viant/agently/genai/conversation"
 	execcfg "github.com/viant/agently/genai/executor/config"
@@ -95,6 +96,12 @@ func WithFileService(fs *fservice.Service) ServerOption {
 	}
 }
 
+// WithChatService injects a preconfigured chat service. When provided,
+// NewServer will not attempt to auto-initialize chat from env.
+func WithChatService(c *chat.Service) ServerOption {
+	return func(s *Server) { s.chatSvc = c }
+}
+
 // WithInvoker attaches a tool invoker used by transcript extensions with source=invoke.
 func WithInvoker(inv invk.Invoker) ServerOption { return func(s *Server) { s.invoker = inv } }
 
@@ -121,7 +128,10 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	if s.mcpRouter == nil {
 		s.mcpRouter = elicrouter.New()
 	}
-	s.chatSvc = chat.NewService()
+	// Initialize chat service when not injected by caller (legacy behaviour).
+	if s.chatSvc == nil {
+		s.chatSvc = chat.NewService()
+	}
 	s.chatSvc.AttachManager(mgr, s.toolPolicy, s.fluxPolicy)
 	if s.pendingApproval != nil {
 		s.chatSvc.AttachApproval(s.pendingApproval)
@@ -142,26 +152,29 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 
 	// ------------------------------------------------------------------
 	// Chat API (Go 1.22+ pattern based routing)
+	// Register only when conversation client is configured; otherwise
+	// skip endpoints to avoid nil dereferences at runtime.
 	// ------------------------------------------------------------------
+	if s.chatSvc != nil && s.chatSvc.ConversationClient() != nil {
+		// Conversations collection
+		mux.HandleFunc("POST /v1/api/conversations", s.handleConversations)     // create new conversation
+		mux.HandleFunc("GET /v1/api/conversations", s.handleConversations)      // list conversations
+		mux.HandleFunc("GET /v1/api/conversations/{id}", s.handleConversations) // get conversation by id
 
-	// Conversations collection
-	mux.HandleFunc("POST /v1/api/conversations", s.handleConversations)     // create new conversation
-	mux.HandleFunc("GET /v1/api/conversations", s.handleConversations)      // list conversations
-	mux.HandleFunc("GET /v1/api/conversations/{id}", s.handleConversations) // get conversation by id
+		// Delete conversation (cascades via DB FKs)
+		mux.HandleFunc("DELETE /v1/api/conversations/{id}", func(w http.ResponseWriter, r *http.Request) {
+			s.handleDeleteConversation(w, r, r.PathValue("id"))
+		})
 
-	// Delete conversation (cascades via DB FKs)
-	mux.HandleFunc("DELETE /v1/api/conversations/{id}", func(w http.ResponseWriter, r *http.Request) {
-		s.handleDeleteConversation(w, r, r.PathValue("id"))
-	})
+		// Conversation messages collection & item
+		mux.HandleFunc("POST /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
+			s.handlePostMessage(w, r, r.PathValue("id"))
+		})
 
-	// Conversation messages collection & item
-	mux.HandleFunc("POST /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
-		s.handlePostMessage(w, r, r.PathValue("id"))
-	})
-
-	mux.HandleFunc("GET /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
-		s.handleGetMessages(w, r, r.PathValue("id"))
-	})
+		mux.HandleFunc("GET /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
+			s.handleGetMessages(w, r, r.PathValue("id"))
+		})
+	}
 
 	// Usage statistics
 	// Usage endpoint removed; usage is computed client-side from messages.
@@ -362,23 +375,22 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	if s.invoker != nil {
 		baseCtx = invk.With(baseCtx, s.invoker)
 	}
+	baseCtx = memory.WithConversationID(baseCtx, convID)
 
 	// Resolve applicable extensions via chat service (moves heavy logic out of handler)
 	toolSpec, err := s.chatSvc.MatchToolFeedSpec(baseCtx, convID, sinceId)
-	log.Printf("[messages] resolved %d toolSpec", len(toolSpec))
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
 	// Second fetch with ToolExtensions populated so transcript hook can compute executions
 	opts := chat.GetRequest{ConversationID: convID, SinceID: sinceId, IncludeModelCallPayload: includeModelCallPayload == "1", IncludeToolCall: true, ToolExtensions: toolSpec}
-	log.Printf("[messages] conversation=%s applying extensions=%d and refetching", convID, len(toolSpec))
-	second, err := s.chatSvc.Get(baseCtx, opts)
+	conv, err := s.chatSvc.Get(baseCtx, opts)
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
-	encode(w, http.StatusOK, second.Conversation, nil)
+	encode(w, http.StatusOK, conv.Conversation, nil)
 }
 
 // handleGetPayload serves payload content or metadata for a given payload id.

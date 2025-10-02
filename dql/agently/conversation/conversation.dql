@@ -11,6 +11,7 @@
 #set($_ = $IncludeTranscript<bool>(query/includeTranscript).Value('true').WithPredicate(1, 'expr', '?'))
 #set($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
 #set($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
+#set($_ = $Scheduled<int>(query/scheduled).WithPredicate(0, 'expr', 't.scheduled = ?'))
 #set($_ = $FeedSpec<[]*tool.FeedSpec>(transient/extension))
 
 

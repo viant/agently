@@ -6,18 +6,13 @@ import { Icon } from "@blueprintjs/core";
 import { format as formatDate } from "date-fns";
 
 import ExecutionDetails from "./ExecutionDetails.jsx";
+import CollapsibleCard from "./CollapsibleCard.jsx";
 import ToolFeed from "./ToolFeed.jsx";
 import { setStage } from '../../utils/stageBus.js';
+import CodeFenceRenderer from '../CodeFenceRenderer.jsx';
 import { useExecVisibility } from '../../utils/execFeedBus.js';
 
-// Inline styles for a subtle hourglass bobbing animation (horizontal/vertical)
-const hourglassStyles = `
-.hg-anim { display: inline-block; }
-@keyframes hg-bob-x { 0% { transform: translateX(0); } 50% { transform: translateX(2px); } 100% { transform: translateX(0); } }
-@keyframes hg-bob-y { 0% { transform: translateY(0); } 50% { transform: translateY(-1px); } 100% { transform: translateY(0); } }
-.hg-anim.h { animation: hg-bob-x 1s infinite ease-in-out; }
-.hg-anim.v { animation: hg-bob-y 1s infinite ease-in-out; }
-`;
+// (removed hourglass animation; using a clock icon instead)
 
 // ---------------------------------------------------------------------------
 // Minimal markdown → HTML renderer (copied from Forge)
@@ -48,7 +43,10 @@ export default function ExecutionBubble({ message: msg, context }) {
         : msg.role === "assistant" ? "var(--light-gray4)"
         : "var(--orange3)";
 
-    const iconName = msg.role === "assistant" ? "chat" : msg.role === "tool" ? "wrench" : "person";
+    // Use clock for execution; keep original for others
+    const iconName = msg.role === "execution"
+        ? "time"
+        : (msg.role === "assistant" ? "chat" : (msg.role === "tool" ? "wrench" : "person"));
 
     const bubbleClass = (msg.role === "user"   ? "chat-bubble chat-user"
                       : msg.role === "assistant" ? "chat-bubble chat-bot"
@@ -56,26 +54,18 @@ export default function ExecutionBubble({ message: msg, context }) {
 
     return (
         <div className={`chat-row ${msg.role}`}> {/* alignment flex row */}
-            <div style={{ display: "flex", alignItems: "flex-start" }}>
-                <div className="avatar" style={{ background: avatarColour }}>
+            <div style={{ display: "flex", alignItems: "center" }}>
+                <div className="avatar" style={{ background: avatarColour, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Icon icon={iconName} color="var(--black)" size={12} />
                 </div>
                 <div className={bubbleClass} data-ts={(function(){ try { const d = new Date(msg.createdAt); return isNaN(d) ? '' : formatDate(d, 'HH:mm'); } catch(_) { return ''; } })()}> 
-                    <div className="prose max-w-full text-sm" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                    <CodeFenceRenderer text={msg.content || ''} />
 
                     {showExecution && (
                         <ExecutionTurnDetails msg={msg} context={context} />
                     )}
 
-                    {showToolFeed && Array.isArray(msg.toolExecutions) && msg.toolExecutions.length > 0 && (
-                        <details className="mt-2" open={!!msg.isLastTurn}>
-                            <summary className="cursor-pointer text-xs text-blue-500">
-                                🧩 Tool feed ({msg.toolExecutions.length})
-                            </summary>
-                            <ToolFeed executions={msg.toolExecutions} turnId={msg.turnId} context={context} />
-                        </details>
-                    )}
-                    {/* Tool feed (extensions) bubble attaches per-turn; rendered when classifier adds a toolfeed row */}
+                    {/* Tool feed moved to its own card (ToolFeedBubble). */}
                 </div>
             </div>
         </div>
@@ -170,23 +160,25 @@ function ExecutionTurnDetails({ msg, context }) {
         } catch(_) { /* ignore */ }
     }, [turnStatus]);
 
-    const Hourglass = () => {
-        if (isError) return <span>❗</span>;
-        if (isDone)  return <span>✅</span>;
-        const glyph = (tick % 2 === 0) ? '⏳' : '⌛';
-        const orientClass = (Math.floor(tick / 2) % 2 === 0) ? 'h' : 'v';
-        return <span className={`hg-anim ${orientClass}`}>{glyph}</span>;
-    };
+    // header uses a clock icon via CollapsibleCard
 
     return (
-        <details className="mt-2">
-            <summary className="cursor-pointer text-xs text-blue-500">
-                <style>{hourglassStyles}</style>
-                <Hourglass />
-                {' '}Execution details ({countLabel}) {elapsed ? `• ${elapsed}` : ''}
-            </summary>
-            <ExecutionDetails executions={msg.executions} context={context} messageId={msg.id} resizable useCodeMirror />
-        </details>
+        <div style={{ marginTop: 8 }}>
+            <div style={{ width: '80vw' }}>
+            <CollapsibleCard
+                title={`Execution details (${countLabel})${elapsed ? ` • ${elapsed}` : ''}`}
+                icon="time"
+                defaultOpen={false}
+                width="100%"
+                intent={isError ? 'danger' : (isDone ? 'success' : 'primary')}
+                right={null}
+            >
+                <div style={{ width: '100%', overflowX: 'auto' }}>
+                    <ExecutionDetails executions={msg.executions} context={context} messageId={msg.id} resizable useCodeMirror />
+                </div>
+            </CollapsibleCard>
+            </div>
+        </div>
     );
 }
 import { getLogger, ForgeLog } from 'forge/utils/logger';

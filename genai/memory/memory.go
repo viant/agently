@@ -4,21 +4,6 @@ import (
 	"context"
 )
 
-// ConversationIDKey is used to propagate the current conversation identifier
-// via context so that downstream services (e.g. tool-execution tracing) can
-// associate side-effects with the correct conversation without changing every
-// function signature.
-
-var ConversationIDKey = "conversationID"
-
-func ConversationIDFromContext(ctx context.Context) string {
-	value := ctx.Value(ConversationIDKey)
-	if value == nil {
-		return ""
-	}
-	return value.(string)
-}
-
 // ModelMessageIDKey carries the message id to which the current model call should attach.
 type modelMessageIDKey string
 
@@ -65,13 +50,6 @@ func TurnMetaFromContext(ctx context.Context) (TurnMeta, bool) {
 		}
 	}
 	return TurnMeta{}, false
-}
-
-// UserInteraction represents a structured prompt created via the MCP
-// user-interaction feature.
-type UserInteraction struct {
-	URL         string `json:"url" yaml:"url"`
-	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 }
 
 // EmbedFunc defines a function that creates embeddings for given texts.

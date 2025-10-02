@@ -14,7 +14,6 @@ import (
 	mcprouter "github.com/viant/agently/adapter/mcp/router"
 	convfactory "github.com/viant/agently/client/conversation/factory"
 	"github.com/viant/agently/cmd/service"
-	apiconv "github.com/viant/agently/genai/conversation"
 	elicitation "github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/memory"
@@ -108,7 +107,7 @@ func (c *ExecCmd) Execute(_ []string) error {
 		ParentMessageID: uuid.New().String(),
 		TurnID:          uuid.New().String(),
 	}
-	ctx = apiconv.WithID(ctx, convID)
+	ctx = memory.WithConversationID(ctx, convID)
 	ctx = memory.WithTurnMeta(ctx, turn)
 	canonical := tool.Canonical(c.Name)
 	resp, err := svc.ExecuteTool(ctx, service.ToolRequest{

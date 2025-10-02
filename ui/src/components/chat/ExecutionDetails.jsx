@@ -22,12 +22,12 @@ const COLUMNS_BASE = [
     { id: "icon",    name: "",      width: 28, align: "center", minWidth: "28px", enforceColumnSize: false },
     { id: "kind",    name: "Kind",   width: 40, align: "center", minWidth: "68px" },
     { id: "name",    name: "Name",   flex: 2 },
-    { id: "status",  name: "Status", width: 90 },
-    { id: "elapsed", name: "Time",   width: 90 },
+    { id: "status",  name: "Status", width: 60 },
+    { id: "elapsed", name: "Time",   width: 60 },
     {
         id: "detail",
         name: "Detail",
-        width: 110,
+        width: 70,
         type: "button",
         cellProperties: { text: "details 🔍", minimal: true, small: true },
         on: [ { event: "onClick", handler: "exec.openDetail" } ],
@@ -273,7 +273,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
         <>
             <Basic
                 context={execContext}
-                container={{ id: `exec-${messageId}`, table: { enforceColumnSize: false, fullWidth: true } }}
+                container={{ id: `exec-${messageId}`, table: { enforceColumnSize: false, fullWidth: false } }}
                 columns={COLUMNS_BASE}
             />
 

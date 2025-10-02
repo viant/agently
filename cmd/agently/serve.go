@@ -89,7 +89,10 @@ func (s *ServeCmd) Execute(_ []string) error {
 	reapStop := mgr.StartReaper(context.Background(), 0) // interval defaults to ttl/2
 	defer reapStop()
 
-	handler := router.New(exec, svc, toolPol, fluxPol, r)
+	handler, err := router.New(exec, svc, toolPol, fluxPol, r)
+	if err != nil {
+		return err
+	}
 
 	srv := &http.Server{
 		Addr:    s.Addr,

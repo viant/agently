@@ -10,6 +10,26 @@ export default defineConfig(({mode}) => {
     const prodEnv = {AUTH_URL: '/', DATA_URL: '/', APPSERVER_URL: '/', ...env}
     return {
         base: '/',
+        resolve: {
+            // Prevent duplicated instances when using linked/local packages (e.g., forge)
+            dedupe: [
+                'react',
+                'react-dom',
+                '@uiw/react-codemirror',
+                '@codemirror/state',
+                '@codemirror/view',
+                '@codemirror/language',
+                '@codemirror/highlight',
+            ],
+            alias: {
+                '@uiw/react-codemirror': resolve(__dirname, 'node_modules/@uiw/react-codemirror'),
+                '@codemirror/state': resolve(__dirname, 'node_modules/@codemirror/state'),
+                '@codemirror/view': resolve(__dirname, 'node_modules/@codemirror/view'),
+                '@codemirror/language': resolve(__dirname, 'node_modules/@codemirror/language'),
+                '@codemirror/highlight': resolve(__dirname, 'node_modules/@codemirror/highlight'),
+            }
+        },
+        // Keep default module resolution; forge package is resolved by workspace
         define: {
             'process.env': env,
             global: 'window'
@@ -58,4 +78,3 @@ export default defineConfig(({mode}) => {
         }
     }
 })
-

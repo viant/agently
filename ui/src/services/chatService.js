@@ -3,7 +3,8 @@
 // App clean and focused on composition.
 
 import {endpoints} from '../endpoint';
-import { getLogger, ForgeLog } from 'forge/utils/logger';
+import {getLogger, ForgeLog} from 'forge/utils/logger';
+
 const log = getLogger('agently');
 import {FormRenderer} from 'forge';
 import ElicitionForm from '../components/ElicitionForm.jsx';
@@ -13,13 +14,19 @@ import {poll} from './utils/apiUtils';
 import {classifyMessage, normalizeMessages, isSimpleTextSchema} from './messageNormalizer';
 
 import ExecutionBubble from '../components/chat/ExecutionBubble.jsx';
+import ToolFeedBubble from '../components/chat/ToolFeedBubble.jsx';
 import ToolFeed from '../components/chat/ToolFeed.jsx';
 import HTMLTableBubble from '../components/chat/HTMLTableBubble.jsx';
 import {ensureConversation, newConversation} from './conversationService';
 import SummaryNote from '../components/chat/SummaryNote.jsx';
 import {setStage} from '../utils/stageBus.js';
 import {setComposerBusy} from '../utils/composerBus.js';
-import { setExecutionDetailsEnabled, setToolFeedEnabled, getExecutionDetailsEnabled, getToolFeedEnabled } from '../utils/execFeedBus.js';
+import {
+    setExecutionDetailsEnabled,
+    setToolFeedEnabled,
+    getExecutionDetailsEnabled,
+    getToolFeedEnabled
+} from '../utils/execFeedBus.js';
 
 // Module-level stash for uploads to avoid relying on mutable message object
 let pendingUploads = [];
@@ -70,10 +77,12 @@ export async function onInit({context}) {
             // Also ensure conversations form has running=false initially
             try {
                 const convCtx = context.Context('conversations');
-                convCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'running' }, value: false });
+                convCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'running'}, value: false});
                 console.debug('[chat][init] conversations.running=false');
-            } catch(_) {}
-        } catch(_) {}
+            } catch (_) {
+            }
+        } catch (_) {
+        }
 
         const convCtx = context.Context('conversations');
         const handlers = convCtx?.handlers?.dataSource;
@@ -166,7 +175,6 @@ async function dsTick({context}) {
         }
 
 
-
         if (!since && coll.length) {
             since = coll[coll.length - 1]?.id || '';
         }
@@ -191,7 +199,6 @@ async function dsTick({context}) {
             if (convStage) {
                 setStage({phase: String(convStage)});
             }
-
 
 
             const transcript = Array.isArray(conv?.transcript) ? conv.transcript
@@ -303,7 +310,8 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             globalLastMsgId = lm?.id || lm?.Id || '';
         }
         globalLastTurnId = lastTurn?.id || lastTurn?.Id || '';
-    } catch(_) {}
+    } catch (_) {
+    }
     // Track most recent elicitation step across turns to catch user replies
     let recentElicitationStep = null;
     for (const turn of transcript) {
@@ -327,7 +335,8 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                     elicitationUserBodies.add(body.trim());
                 }
             }
-        } catch(_) {}
+        } catch (_) {
+        }
 
         // 1) Build all execution steps in this turn (model/tool/interim)
         const steps = [];
@@ -364,7 +373,8 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                     if (maybe && typeof maybe === 'object' && (maybe.requestedSchema || maybe.elicitationId)) {
                         elic = maybe;
                     }
-                } catch(_) {}
+                } catch (_) {
+                }
                 if (elic) {
                     const created = m?.createdAt || m?.CreatedAt;
                     const updated = m?.updatedAt || m?.UpdatedAt || created;
@@ -395,9 +405,14 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                         try {
                             const udataRaw = m?.UserElicitationData?.InlineBody || m?.userElicitationData?.InlineBody;
                             if (udataRaw) {
-                                try { s3.userData = JSON.parse(udataRaw); } catch(_) { s3.userData = udataRaw; }
+                                try {
+                                    s3.userData = JSON.parse(udataRaw);
+                                } catch (_) {
+                                    s3.userData = udataRaw;
+                                }
                             }
-                        } catch(_) {}
+                        } catch (_) {
+                        }
                         lastElicitationStep = s3;
                         recentElicitationStep = s3;
                     }
@@ -434,14 +449,18 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                     const target = lastElicitationStep || recentElicitationStep;
                     if (maybe && target && !target.userData) {
                         target.userData = maybe;
-                        try { target.replyMessageId = m.id || m.Id; } catch(_) {}
+                        try {
+                            target.replyMessageId = m.id || m.Id;
+                        } catch (_) {
+                        }
                         suppressBubble = true;
                     }
                     // Also suppress when user content equals any elicitation inline body in this turn
                     if (!suppressBubble && typeof txt === 'string' && elicitationUserBodies.has(txt.trim())) {
                         suppressBubble = true;
                     }
-                } catch(_) {}
+                } catch (_) {
+                }
             }
             if (isInterim) continue;
             if (hasCall) continue; // call content is represented in steps
@@ -469,9 +488,20 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                         if (!callbackURL && typeof maybe.callbackURL === 'string') {
                             callbackURL = maybe.callbackURL;
                         }
-                        try { console.debug('[ElicitationDetect]', {id, role: roleLower, status: m.status || m.Status, mode: elic.mode, url: elic.url, hasSchema: !!elic.requestedSchema}); } catch(_) {}
+                        try {
+                            console.debug('[ElicitationDetect]', {
+                                id,
+                                role: roleLower,
+                                status: m.status || m.Status,
+                                mode: elic.mode,
+                                url: elic.url,
+                                hasSchema: !!elic.requestedSchema
+                            });
+                        } catch (_) {
+                        }
                     }
-                } catch (_) {}
+                } catch (_) {
+                }
             }
 
             const isControlElicitation = (String(m.type || m.Type || '').toLowerCase() === 'control') && !!elic;
@@ -525,7 +555,10 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 elicitation: elic,
                 callbackURL,
             };
-            try { console.debug('[ChatRow]', row); } catch(_) {}
+            try {
+                console.debug('[ChatRow]', row);
+            } catch (_) {
+            }
             turnRows.push(row);
         }
 
@@ -536,16 +569,17 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             // Compute usage from the thinking step model if available
             let usage = null;
             // No token fields on step; usage computed elsewhere in poll path; keep null here.
-            // Also attach ToolExecution so ExecutionBubble can render ToolFeed inline without DS/meta changes.
+            // Also attach ToolExecution for a dedicated ToolFeed bubble row
             const toolExec = Array.isArray(turn?.ToolExecution) ? turn.ToolExecution
                 : Array.isArray(turn?.toolExecution) ? turn.toolExecution
-                : Array.isArray(turn?.ToolFeed) ? turn.ToolFeed
-                : Array.isArray(turn?.toolFeed) ? turn.toolFeed : [];
-            try { console.debug('[chat][turn][toolExec]', { turnId, count: Array.isArray(toolExec) ? toolExec.length : 0 }); } catch(_) {}
+                    : Array.isArray(turn?.ToolFeed) ? turn.ToolFeed
+                        : Array.isArray(turn?.toolFeed) ? turn.toolFeed : [];
+            try {
+                console.debug('[chat][turn][toolExec]', {turnId, count: Array.isArray(toolExec) ? toolExec.length : 0});
+            } catch (_) {
+            }
             turnRows[carrierIdx] = {
                 ...turnRows[carrierIdx],
-                executions: [{steps}],
-                toolExecutions: toolExec,
                 usage,
                 turnStatus,
                 turnCreatedAt,
@@ -553,11 +587,55 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 turnElapsedSec,
                 isLastTurn,
             };
+            // Build separate rows but delay pushing until we reorder the turn display
+            const execRow = {
+                id: `${turnId}/execution`,
+                conversationId: turn?.conversationId || turn?.ConversationId,
+                role: 'execution',
+                content: '',
+                createdAt: toISOSafe(turn?.createdAt || turn?.CreatedAt),
+                turnId: turnId,
+                parentId: turnId,
+                status: turnStatus,
+                executions: [{steps}],
+                turnStatus,
+                turnCreatedAt,
+                turnUpdatedAt,
+                turnElapsedSec,
+                isLastTurn,
+            };
+            const toolRow = (Array.isArray(toolExec) && toolExec.length > 0 && turnId) ? {
+                id: `${turnId}/toolfeed`,
+                conversationId: turn?.conversationId || turn?.ConversationId,
+                role: 'tool',
+                content: '',
+                createdAt: toISOSafe(turn?.createdAt || turn?.CreatedAt),
+                turnId: turnId,
+                parentId: turnId,
+                status: 'succeeded',
+                toolExecutions: toolExec,
+                toolFeed: true,
+            } : null;
+
+            // Reorder within turn: user → execution → tool feed → others (assistant/elicition)
+            const userRows = turnRows.filter(r => r && r.role === 'user');
+            const otherRows = turnRows.filter(r => !userRows.includes(r));
+            // Push user rows first (usually one)
+            for (const r of userRows) rows.push(r);
+            // Then execution details
+            rows.push(execRow);
+            // Then tool feed (if any)
+            if (toolRow) rows.push(toolRow);
+            // Finally the remaining rows (assistant/elicition/etc)
+            for (const r of otherRows) rows.push(r);
+            // Continue to error bubble handling below if applicable
+            continue;
         }
 
+        // No execution steps – just push turn rows as-is
         for (const r of turnRows) rows.push(r);
 
-        // Note: No separate ToolFeed row push; ExecutionBubble will render ToolFeed inline when toolExecutions attached.
+        // Separate ToolFeed row is pushed above.
 
         // 4) If the turn has failed, add a dedicated error bubble so the user sees it immediately
         if ((turnStatus === 'failed' || (turnError && turnError.trim() !== '')) && turnId) {
@@ -772,9 +850,7 @@ export function onFetchMessages(props) {
         } catch (_) {
         }
         // Purge legacy toolfeed rows now that ToolFeed renders inline under ExecutionBubble
-        try {
-            prev = (prev || []).filter(r => !(r && (r.toolFeed === true || String(r?.id || '').endsWith('/toolfeed'))));
-        } catch(_) {}
+        // Keep dedicated ToolFeed rows; do not purge
         const seen = new Set((prev || []).map(r => r && r.id).filter(Boolean));
         const merged = [...prev];
         for (const r of built) {
@@ -815,9 +891,15 @@ export function saveSettings(args) {
     const convContext = context.Context('conversations');
     const convDataSource = convContext?.handlers?.dataSource;
     const current = convDataSource.peekFormData()
-    convDataSource.setFormData?.({values: {...current, agent, model, tools:tool}});
-    try { setExecutionDetailsEnabled(!!showExecutionDetails); } catch(_) {}
-    try { setToolFeedEnabled(!!showToolFeed); } catch(_) {}
+    convDataSource.setFormData?.({values: {...current, agent, model, tools: tool}});
+    try {
+        setExecutionDetailsEnabled(!!showExecutionDetails);
+    } catch (_) {
+    }
+    try {
+        setToolFeedEnabled(!!showToolFeed);
+    } catch (_) {
+    }
 }
 
 // Applies meta.agentTools mapping to the conversations.tools field when agent changes
@@ -839,49 +921,58 @@ export function selectModel(args) {
 
 // Initialize settings dialog fields on open
 export function prepareSettings(args) {
-    const { context } = args || {};
+    const {context} = args || {};
     try {
         const metaCtx = context?.Context?.('meta');
         const execEnabled = getExecutionDetailsEnabled();
         const feedEnabled = getToolFeedEnabled();
-        metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'showExecutionDetails' }, value: !!execEnabled });
-        metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'showToolFeed' }, value: !!feedEnabled });
-    } catch(_) {}
+        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'showExecutionDetails'}, value: !!execEnabled});
+        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'showToolFeed'}, value: !!feedEnabled});
+    } catch (_) {
+    }
 }
 
 // Toggle Execution details visibility
 export function toggleExecDetails(args) {
     try {
-        const { context, selected, value } = args || {};
+        const {context, selected, value} = args || {};
         let enabled;
         if (typeof selected === 'boolean') enabled = selected;
         else if (typeof value === 'boolean') enabled = value;
         else enabled = !!context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.()?.showExecutionDetails;
         setExecutionDetailsEnabled(!!enabled);
-    } catch(_) {}
+    } catch (_) {
+    }
 }
 
 // Toggle Tool feed visibility
 export function toggleToolFeed(args) {
     try {
-        const { context, selected, value } = args || {};
+        const {context, selected, value} = args || {};
         let enabled;
         if (typeof selected === 'boolean') enabled = selected;
         else if (typeof value === 'boolean') enabled = value;
         else enabled = !!context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.()?.showToolFeed;
         setToolFeedEnabled(!!enabled);
-    } catch(_) {}
+    } catch (_) {
+    }
 }
 
 // Open settings dialog via composer settings icon
 export async function onSettings(args) {
-    const { context } = args || {};
-    try { prepareSettings({ context }); } catch(_) {}
+    const {context} = args || {};
     try {
-        await context?.handlers?.window?.openDialog?.({ execution: { args: ['settings'] } });
-    } catch(_) {
+        prepareSettings({context});
+    } catch (_) {
+    }
+    try {
+        await context?.handlers?.window?.openDialog?.({execution: {args: ['settings']}});
+    } catch (_) {
         // Fallback to dialog.open event route
-        try { await context?.handlers?.dialog?.open?.({ id: 'settings' }); } catch(_) {}
+        try {
+            await context?.handlers?.dialog?.open?.({id: 'settings'});
+        } catch (_) {
+        }
     }
 }
 
@@ -978,7 +1069,8 @@ export async function submitMessage(props) {
         try {
             log.debug('[chat] draft message attachments', message?.attachments);
             log.debug('[chat] draft message files', message?.files);
-        } catch(_) {}
+        } catch (_) {
+        }
         const msgAtts = Array.isArray(message?.attachments) ? message.attachments : [];
         const msgFiles = Array.isArray(message?.files) ? message.files : [];
         // Also check DS form data as Forge Chat may store files under uploadField (we set uploadField: 'files')
@@ -989,7 +1081,8 @@ export async function submitMessage(props) {
             log.debug('[chat] peekFormData values', formData);
             if (Array.isArray(formData?.files)) formFiles = formData.files;
             else if (Array.isArray(formData?.upload)) formFiles = formData.upload;
-        } catch (_) {}
+        } catch (_) {
+        }
         log.debug('[chat] pendingUploads (pre-merge)', pendingUploads);
         const allAtts = [...pendingUploads, ...msgAtts, ...msgFiles, ...formFiles];
         log.debug('[chat] collected attachments (raw)', allAtts);
@@ -1001,7 +1094,7 @@ export async function submitMessage(props) {
                 const mime = src?.mime || src?.type || src?.contentType;
                 const name = src?.name || (typeof uri === 'string' ? uri.split('/').pop() : undefined);
                 const size = src?.size || src?.length || src?.bytes;
-                return { name, size, stagingFolder: folder, uri, mime };
+                return {name, size, stagingFolder: folder, uri, mime};
             }).filter(x => x && x.uri);
             // reset the stash after consuming
             pendingUploads = [];
@@ -1018,9 +1111,10 @@ export async function submitMessage(props) {
         // Mark conversation running so UI can show Abort based on data-driven selector
         try {
             const convCtx = context.Context('conversations');
-            convCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'running' }, value: true });
+            convCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'running'}, value: true});
             console.debug('[chat][submit] conversations.running=true');
-        } catch(_) {}
+        } catch (_) {
+        }
 
         // Post user message
         const postResp = await messagesAPI.post({
@@ -1077,7 +1171,7 @@ export async function upload() {
  */
 export async function onUpload(props) {
     try {
-        const { message } = props || {};
+        const {message} = props || {};
         const exec = props?.execution || {};
         const result = props?.result;
         // Forge variants: execution.result | execution.output | execution.data | props.result | props.files | props.data
@@ -1094,7 +1188,7 @@ export async function onUpload(props) {
             const mime = src?.mime || src?.type || src?.contentType;
             const name = src?.name || (typeof uri === 'string' ? uri.split('/').pop() : undefined);
             const size = src?.size || src?.length || src?.bytes;
-            return { name, size, stagingFolder: folder, uri, mime };
+            return {name, size, stagingFolder: folder, uri, mime};
         }).filter(x => x && x.uri);
         if (!normalized.length) return;
         // Update composer message when provided
@@ -1137,13 +1231,14 @@ export async function abortConversation(props) {
         // Build absolute URL using configured agentlyAPI endpoint
         const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
         const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/terminate`;
-        const resp = await fetch(url, { method: 'POST' });
+        const resp = await fetch(url, {method: 'POST'});
         let payload = null;
         try {
             // 204 → no body; guard parsing
             const text = await resp.text();
             if (text) payload = JSON.parse(text);
-        } catch (_) {}
+        } catch (_) {
+        }
         const statusStr = resp.ok ? 'ok' : String(resp.status || 'error');
         // Update running only when termination succeeded (cancelled=true)
         const cancelled = !!(payload && payload.data && payload.data.cancelled);
@@ -1151,8 +1246,9 @@ export async function abortConversation(props) {
             setStage({phase: 'terminated'});
             try {
                 const convCtx2 = context.Context('conversations');
-                convCtx2?.handlers?.dataSource?.setFormField?.({ item: { id: 'running' }, value: false });
-            } catch(_) {}
+                convCtx2?.handlers?.dataSource?.setFormField?.({item: {id: 'running'}, value: false});
+            } catch (_) {
+            }
         }
         return true;
     } catch (err) {
@@ -1169,7 +1265,7 @@ export async function abortConversation(props) {
  * Adds a summary message and flags prior messages as compacted (server-side).
  */
 export async function compactConversation(props) {
-    const { context } = props || {};
+    const {context} = props || {};
     if (!context || typeof context.Context !== 'function') {
         log.warn('chatService.compactConversation: invalid context');
         return false;
@@ -1183,10 +1279,13 @@ export async function compactConversation(props) {
             return false;
         }
         // Set stage to compacting
-        try { setStage({ phase: 'compacting' }); } catch(_) {}
+        try {
+            setStage({phase: 'compacting'});
+        } catch (_) {
+        }
         const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
         const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/compact`;
-        const resp = await fetch(url, { method: 'POST' });
+        const resp = await fetch(url, {method: 'POST'});
         if (!resp.ok) {
             const text = await resp.text().catch(() => '');
             throw new Error(text || `HTTP ${resp.status}`);
@@ -1197,20 +1296,30 @@ export async function compactConversation(props) {
             const inSig = msgCtx?.signals?.input;
             if (inSig) {
                 const cur = (typeof inSig.peek === 'function') ? (inSig.peek() || {}) : (inSig.value || {});
-                const params = { ...(cur.parameters || {}), convID, since: '' };
-                const next = { ...cur, parameters: params, fetch: true };
+                const params = {...(cur.parameters || {}), convID, since: ''};
+                const next = {...cur, parameters: params, fetch: true};
                 if (typeof inSig.set === 'function') inSig.set(next); else inSig.value = next;
             } else {
                 await msgCtx?.handlers?.dataSource?.getCollection?.();
             }
-        } catch (_) {}
-        try { setStage({ phase: 'done' }); } catch(_) {}
+        } catch (_) {
+        }
+        try {
+            setStage({phase: 'done'});
+        } catch (_) {
+        }
         return true;
     } catch (e) {
         log.error('compactConversation error', e);
-        try { setStage({ phase: 'error' }); } catch(_) {}
+        try {
+            setStage({phase: 'error'});
+        } catch (_) {
+        }
         // surface as DS error so UI shows banner
-        try { context?.Context('messages')?.handlers?.dataSource?.setError?.(e); } catch(_) {}
+        try {
+            context?.Context('messages')?.handlers?.dataSource?.setError?.(e);
+        } catch (_) {
+        }
         return false;
     }
 }
@@ -1218,7 +1327,7 @@ export async function compactConversation(props) {
 // Toolbar readonly predicate: return true to disable Compact when fewer than 2 messages
 export function compactReadonly(args) {
     try {
-        const { context } = args || {};
+        const {context} = args || {};
         const msgCtx = context?.Context?.('messages');
         const coll = (typeof msgCtx?.signals?.collection?.peek === 'function')
             ? (msgCtx.signals.collection.peek() || [])
@@ -1245,7 +1354,7 @@ export async function deleteConversation({context}) {
         }
         const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
         const url = `${base}/v1/api/conversations/${encodeURIComponent(id)}`;
-        const resp = await fetch(url, { method: 'DELETE' });
+        const resp = await fetch(url, {method: 'DELETE'});
         if (!resp.ok && resp.status !== 204) {
             const text = await resp.text();
             throw new Error(text || `delete failed: ${resp.status}`);
@@ -1254,7 +1363,8 @@ export async function deleteConversation({context}) {
         try {
             ds?.resetSelection?.();
             ds?.fetchCollection?.();
-        } catch(_) {}
+        } catch (_) {
+        }
         // If this conversation is open in messages, clear it locally
         try {
             const convCtx = context.Context('conversations');
@@ -1267,9 +1377,13 @@ export async function deleteConversation({context}) {
                 msgHandlers?.setCollection?.([]);
                 msgHandlers?.resetSelection?.();
                 // Trigger a DS-driven refresh to propagate cleared state
-                try { msgHandlers?.fetchCollection?.(); } catch(_) {}
+                try {
+                    msgHandlers?.fetchCollection?.();
+                } catch (_) {
+                }
             }
-        } catch (_) {}
+        } catch (_) {
+        }
         return true;
     } catch (err) {
         log.error('chatService.deleteConversation error', err);
@@ -1336,7 +1450,23 @@ function mergeMessages(messagesContext, incoming) {
             if (!addedBase.createdAt) {
                 addedBase.createdAt = new Date().toISOString();
             }
-            current.push(addedBase);
+
+            // Special placement for per-turn Tool Feed: insert right after the execution row
+            if (addedBase.toolFeed && addedBase.turnId) {
+                const turnId = addedBase.turnId;
+                const execId = `${turnId}/execution`;
+                const execIdx = current.findIndex((m) => m && m.id === execId);
+                if (execIdx >= 0) {
+                    current.splice(execIdx + 1, 0, addedBase);
+                } else {
+                    // Fallback: insert before first assistant row of the same turn if present
+                    const beforeAssistIdx = current.findIndex((m) => m && (m.parentId === turnId || m.turnId === turnId) && (m.role === 'assistant' || m.role === 'elicition'));
+                    if (beforeAssistIdx >= 0) current.splice(beforeAssistIdx, 0, addedBase);
+                    else current.push(addedBase);
+                }
+            } else {
+                current.push(addedBase);
+            }
             changed = true;
         }
     });
@@ -1440,10 +1570,14 @@ export function receiveMessages(messagesContext, data, sinceId = '') {
                 const before = collSig.value.length;
                 collSig.value = collSig.value.filter(row => !hideIds.has(row?.id));
                 const after = collSig.value.length;
-                try { log.debug('[chat] receiveMessages: purged elicitation reply bubbles', {removed: before - after}); } catch(_) {}
+                try {
+                    log.debug('[chat] receiveMessages: purged elicitation reply bubbles', {removed: before - after});
+                } catch (_) {
+                }
             }
         }
-    } catch(_) {}
+    } catch (_) {
+    }
 }
 
 // --------------------------- Usage computation ------------------------------
@@ -1489,6 +1623,28 @@ function computeUsageFromMessages(messages = [], conversationId = '') {
 }
 
 
+// Returns a Blueprint.js icon name for a task status.
+// Supported statuses: pending, in_progress, completed
+export function taskStatusIcon(props) {
+    const statusRaw = props?.status ?? props?.row?.status ?? props?.row?.Status ?? '';
+    try {
+        const status = String(statusRaw).toLowerCase();
+        if (status === 'completed' || status === 'succeeded' || status === 'done' || status === 'accepted') {
+            return 'tick';
+        }
+        if (status === 'in_progress' || status === 'running' || status === 'processing') {
+            return 'play';
+        }
+        if (status === 'pending' || status === 'open' || status === 'queued' || status === 'waiting') {
+            return 'time';
+        }
+        // Fallback neutral indicator
+        return 'dot';
+    } catch (_) {
+        return 'dot';
+    }
+}
+
 /**
  * Chat service for handling chat interactions
  */
@@ -1504,7 +1660,7 @@ export const chatService = {
     onMetaLoaded,
     onFetchMeta,
     onSettings,
-
+    taskStatusIcon,
     saveSettings,
     prepareSettings,
     toggleExecDetails,
@@ -1524,7 +1680,9 @@ export const chatService = {
     // DS event handlers
     onFetchMessages,
     renderers: {
+        bubble: HTMLTableBubble,
         execution: ExecutionBubble,
+        toolfeed: ToolFeedBubble,
         form: FormRenderer,
         elicition: ElicitionForm,
         mcpuserinteraction: MCPInteraction,
@@ -1585,7 +1743,7 @@ function onMetaLoaded(args) {
 function onFetchMeta(args) {
     const {collection = []} = args;
     const updated = collection.map(data => {
-       const agentInfo = data.agentInfo || {};
+        const agentInfo = data.agentInfo || {};
         const agentsRaw = Array.isArray(data?.agents)
             ? data.agents
             : (data?.agentInfo ? Object.keys(data.agentInfo) : []);

@@ -3,6 +3,7 @@
 import React from 'react';
 import { Icon } from '@blueprintjs/core';
 import { format as formatDate } from 'date-fns';
+import CodeFenceRenderer from '../CodeFenceRenderer.jsx';
 
 // Minimal markdown → HTML renderer identical to ExecutionBubble copy.
 function renderMarkdown(md = '') {
@@ -36,7 +37,9 @@ export default function SummaryNote({ message }) {
                     <summary className="cursor-pointer text-xs text-blue-500">
                         Conversation summary – {preview}{message.content.length > 120 ? '…' : ''}
                     </summary>
-                    <div className="prose max-w-full text-sm mt-2" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+                    <div className="mt-2">
+                        <CodeFenceRenderer text={message.content || ''} />
+                    </div>
                 </details>
             </div>
         </div>

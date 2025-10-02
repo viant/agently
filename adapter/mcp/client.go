@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/prompt"
 	core2 "github.com/viant/agently/genai/service/core"
 
@@ -101,7 +100,7 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 	c.elicitation.RefineRequestedSchema(&params.RequestedSchema)
 	convID := c.convID
 	if strings.TrimSpace(convID) == "" {
-		convID = conversation.ID(ctx)
+		convID = memory.ConversationIDFromContext(ctx)
 	}
 	if err := c.persistElicitationMessage(ctx, &params, request.Id); err != nil {
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("failed to persist elicitation: %v", err), nil)

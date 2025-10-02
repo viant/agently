@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	convctx "github.com/viant/agently/genai/conversation"
 	mem "github.com/viant/agently/genai/memory"
 	"github.com/viant/fluxor/model/types"
 )
@@ -112,10 +111,8 @@ func (s *Service) updatePlan(ctx context.Context, in, out interface{}) error {
 	}
 
 	// Persist plan keyed by turn ID when available; otherwise by conversation ID.
-	convID := convctx.ID(ctx)
-	if convID == "" {
-		convID = mem.ConversationIDFromContext(ctx)
-	}
+	// Resolve conversation ID solely via memory context helpers to avoid import cycles
+	convID := mem.ConversationIDFromContext(ctx)
 	s.mu.Lock()
 	s.byConv[convID] = payload
 	s.mu.Unlock()

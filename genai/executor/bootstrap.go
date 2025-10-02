@@ -17,6 +17,7 @@ import (
 	"github.com/viant/agently/genai/tool/proxy"
 	agentrepo "github.com/viant/agently/internal/repository/agent"
 	embedderrepo "github.com/viant/agently/internal/repository/embedder"
+	extrepo "github.com/viant/agently/internal/repository/extension"
 	modelrepo "github.com/viant/agently/internal/repository/model"
 	"github.com/viant/fluxor/model/types"
 
@@ -43,6 +44,11 @@ func (e *Service) init(ctx context.Context) error {
 	// ------------------------------------------------------------------
 	e.initDefaults(ctx)
 	if err := e.config.Validate(); err != nil {
+		return err
+	}
+
+	// Validate extension feeds strictly: abort startup when any feed is invalid.
+	if err := e.validateExtensions(ctx); err != nil {
 		return err
 	}
 
@@ -107,6 +113,27 @@ func (e *Service) init(ctx context.Context) error {
 	actions := orchestration.WorkflowService().Actions()
 	e.registerServices(actions)
 
+	return nil
+}
+
+// validateExtensions loads all feed specs from the workspace and fails when any
+// definition cannot be parsed. This enforces early, explicit failures instead of
+// silent skips later during request handling.
+func (e *Service) validateExtensions(ctx context.Context) error {
+	repo := extrepo.New(afs.New())
+	names, err := repo.List(ctx)
+	if err != nil {
+		return fmt.Errorf("feeds: list failed: %w", err)
+	}
+	var bad []string
+	for _, n := range names {
+		if _, err := repo.Load(ctx, n); err != nil {
+			bad = append(bad, fmt.Sprintf("%s: %v", n, err))
+		}
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("feeds: invalid definitions: %s", strings.Join(bad, "; "))
+	}
 	return nil
 }
 
