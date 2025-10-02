@@ -25,7 +25,7 @@ export default function ToolFeedBubble({ message: msg, context }) {
             <CollapsibleCard
               title={`Tool Feed (${executions.length})`}
               icon="applications"
-              defaultOpen={false}
+              defaultOpen={!!msg.isLastTurn}
               width="100%"
               intent="primary"
             >

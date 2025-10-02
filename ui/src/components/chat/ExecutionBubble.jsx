@@ -168,7 +168,7 @@ function ExecutionTurnDetails({ msg, context }) {
             <CollapsibleCard
                 title={`Execution details (${countLabel})${elapsed ? ` • ${elapsed}` : ''}`}
                 icon="time"
-                defaultOpen={false}
+                defaultOpen={!!msg.isLastTurn}
                 width="100%"
                 intent={isError ? 'danger' : (isDone ? 'success' : 'primary')}
                 right={null}

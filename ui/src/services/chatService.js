@@ -615,6 +615,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 status: 'succeeded',
                 toolExecutions: toolExec,
                 toolFeed: true,
+                isLastTurn,
             } : null;
 
             // Reorder within turn: user → execution → tool feed → others (assistant/elicition)

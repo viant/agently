@@ -1,0 +1,8 @@
+dataSourceRef: agents
+uniqueKey:
+  - field: url
+
+selectors:
+  data: systemKnowledge
+
+selectionMode: single
