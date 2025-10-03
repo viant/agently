@@ -72,7 +72,7 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 				payload = actual
 				resp := map[string]interface{}{}
 				if json.Unmarshal([]byte(actual), &resp) == nil {
-					if resp["status"] == "noFound" {
+					if _, ok := resp["status"]; ok && len(resp) == 1 { //no actual data
 						continue
 					}
 				}

@@ -196,7 +196,7 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 	if strings.TrimSpace(info.ModelKind) != "" {
 		mc.SetModelKind(info.ModelKind)
 	}
-	mc.SetStatus("queued")
+	mc.SetStatus("thinking")
 	t := o.start.StartedAt
 	mc.SetStartedAt(t)
 
