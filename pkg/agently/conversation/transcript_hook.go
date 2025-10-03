@@ -24,7 +24,6 @@ func (t *TranscriptView) filterInvokedToolFeed() {
 // Ensure messages are ordered by CreatedAt ascending (oldest first) and compute Turn stage.
 func (t *TranscriptView) OnRelation(ctx context.Context) {
 
-	isLast := t.IsLast
 	// Normalize messages when present to ensure deterministic order and elapsed time
 	if len(t.Message) > 0 {
 		t.normalizeMessages()
@@ -32,7 +31,7 @@ func (t *TranscriptView) OnRelation(ctx context.Context) {
 	// Always attempt to compute tool executions. For activation.kind==tool_call
 	// we may still want to invoke even when there are no recorded tool calls.
 	var err error
-	t.ToolFeed, err = t.computeToolFeed(ctx, isLast)
+	t.ToolFeed, err = t.computeToolFeed(ctx)
 	if err != nil {
 		fmt.Printf("failed to compute tool feed: %v\n", err)
 	}

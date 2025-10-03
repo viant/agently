@@ -20,7 +20,7 @@ import (
 
 // computeToolFeed computes ToolFeed for a transcript turn using configured FeedSpec.
 // It supports activation.kind history/tool_call and scope all/last.
-func (t *TranscriptView) computeToolFeed(ctx context.Context, isLast bool) ([]*tool.Feed, error) {
+func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, error) {
 	input := InputFromContext(ctx)
 	if len(input.FeedSpec) == 0 {
 		return nil, nil
@@ -53,7 +53,7 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context, isLast bool) ([]*t
 		if _, ok := toolCallsByName[key]; ok {
 			continue
 		}
-		if feed.ShallInvokeTool() && isLast { //invoke one per match
+		if feed.ShallInvokeTool() { //invoke one per match
 			inv := invoker.From(ctx)
 			if inv == nil {
 				return nil, fmt.Errorf("tool service was emtpy")

@@ -99,7 +99,6 @@ type TranscriptView struct {
 	ElapsedInSec          int            `sqlx:"elapsedInSec"`
 	Stage                 string         `sqlx:"stage"`
 	ToolFeed              []*tool.Feed   `sqlx:"-"`
-	IsLast                bool           `sqlx:"isLast"`
 	Id                    string         `sqlx:"id"`
 	ConversationId        string         `sqlx:"conversation_id"`
 	CreatedAt             time.Time      `sqlx:"created_at"`
