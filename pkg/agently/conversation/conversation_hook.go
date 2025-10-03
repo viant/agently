@@ -29,7 +29,7 @@ func (c *ConversationView) OnRelation(ctx context.Context) {
 	})
 
 	for i := 0; i < len(c.Transcript)-2; i++ {
-		c.Transcript[len(c.Transcript)-1].filterInvokedToolFeed()
+		c.Transcript[i].filterInvokedToolFeed()
 	}
 	// Compute live stage based on latest transcript signals
 	c.Stage = computeStage(c)

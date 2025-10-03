@@ -67,10 +67,10 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		errs = append(errs, fmt.Errorf("persist response payload: %w", respErr))
 	}
 
-	// 6) Update tool message with result content
-	if uErr := updateToolMessageContent(persistCtx, conv, toolMsgID, toolResult); uErr != nil {
-		errs = append(errs, fmt.Errorf("update tool message: %w", uErr))
-	}
+	// 6) Update tool message with result content - why duplication of content gere
+	//if uErr := updateToolMessageContent(persistCtx, conv, toolMsgID, toolResult); uErr != nil {
+	//	errs = append(errs, fmt.Errorf("update tool message: %w", uErr))
+	//}
 
 	// 7) Finish tool call (record error message when present)
 	status := "completed"

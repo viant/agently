@@ -208,7 +208,7 @@ CREATE TABLE model_call
     completion_audio_tokens               BIGINT,
     completion_accepted_prediction_tokens BIGINT,
     completion_rejected_prediction_tokens BIGINT,
-    status                                VARCHAR(255) NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'canceled')),
+    status                                VARCHAR(255) NOT NULL CHECK (status IN ('queued', 'streaming','running', 'completed', 'failed', 'canceled')),
     started_at                            TIMESTAMP    NULL     DEFAULT NULL,
     completed_at                          TIMESTAMP    NULL     DEFAULT NULL,
     latency_ms                            BIGINT,
