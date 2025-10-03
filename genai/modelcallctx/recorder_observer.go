@@ -111,18 +111,29 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 			id = uuid.New().String()
 		}
 		o.streamPayloadID = id
+
 	}
+
+	msgID := memory.ModelMessageIDFromContext(ctx)
+
 	var cur []byte
-	if pv, err := o.client.GetPayload(ctx, id); err == nil && pv != nil && pv.InlineBody != nil {
+	pv, err := o.client.GetPayload(ctx, id)
+	if err == nil && pv != nil && pv.InlineBody != nil {
 		cur = *pv.InlineBody
 	}
+	if pv == nil {
+		modelCall := apiconv.NewModelCall()
+		modelCall.SetMessageID(msgID)
+		modelCall.SetStatus("streaming")
+		o.client.PatchModelCall(ctx, modelCall)
+	}
+
 	next := append(cur, data...)
 	if _, err := o.upsertInlinePayload(ctx, id, "model_stream", "text/plain", next); err != nil {
 		return err
 	}
 	// Link stream payload to model call upon first successful upsert to satisfy FK early.
 	if !o.streamLinked {
-		msgID := memory.ModelMessageIDFromContext(ctx)
 		if strings.TrimSpace(msgID) != "" {
 			upd := apiconv.NewModelCall()
 			upd.SetMessageID(msgID)

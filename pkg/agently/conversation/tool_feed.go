@@ -144,6 +144,15 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context, isLast bool) ([]*t
 	sort.SliceStable(result, func(i, j int) bool {
 		return strings.Compare(result[i].ID, result[j].ID) < 0
 	})
+
+	for _, m := range t.Message {
+		if m.ToolCall == nil {
+			continue
+		}
+		//reduce output size - we already have tool feed
+		m.ToolCall.ResponsePayload = nil
+		m.ToolCall.RequestPayload = nil
+	}
 	return result, nil
 }
 
