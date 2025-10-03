@@ -39,7 +39,6 @@ export default function CodeFenceRenderer({ text = '' }) {
 
   // 0) If content is already HTML (<pre>, <code>, <table>), render it as-is
   if (/^</.test(trimmed) && /<(pre|code|table)\b/i.test(trimmed)) {
-    try { console.debug('[CodeFenceRenderer] html-detected'); } catch(_) {}
     // eslint-disable-next-line react/no-danger
     return (
       <div style={{ width: '60vw', overflowX: 'auto' }}>
@@ -54,13 +53,6 @@ export default function CodeFenceRenderer({ text = '' }) {
   let m;
   let idx = 0;
   let fenceCount = 0;
-  try {
-    const fenceTriples = (textNorm.match(/```/g) || []).length;
-    // eslint-disable-next-line no-console
-    console.debug('[CodeFenceRenderer] render start', { textLength: textNorm.length, backtickTriples: fenceTriples, hasTicks: textNorm.includes('```'), firstTick: textNorm.indexOf('```') });
-    const sample = textNorm.slice(0, 160).replace(/`/g, 'ˋ');
-    console.debug('[CodeFenceRenderer] sample(0..160)', sample);
-  } catch (_) {}
   while ((m = pattern.exec(textNorm)) !== null) {
     const [full, langRaw, body] = m;
     const start = m.index;
@@ -68,17 +60,9 @@ export default function CodeFenceRenderer({ text = '' }) {
     if (start > lastIndex) {
       const plain = textNorm.slice(lastIndex, start);
       out.push(<MinimalText key={`t-${idx++}`} text={plain} />);
-      try {
-        // eslint-disable-next-line no-console
-        console.debug('[CodeFenceRenderer] prose segment', { from: lastIndex, to: start, length: (plain || '').length });
-      } catch (_) {}
     }
     const lang = languageHint(langRaw);
     fenceCount += 1;
-    try {
-      // eslint-disable-next-line no-console
-      console.debug('[CodeFenceRenderer] fence', { index: fenceCount, lang, start, end, bodyLength: (body || '').length });
-    } catch (_) {}
     out.push(
       <div key={`e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
         <CodeBlock value={body} language={lang} height={'auto'} />
@@ -91,7 +75,6 @@ export default function CodeFenceRenderer({ text = '' }) {
     // 0a) Manual splitter on triple backticks if present
     const split = textNorm.split('```');
     if (split.length > 1) {
-      try { console.debug('[CodeFenceRenderer] manual-split', { parts: split.length }); } catch(_) {}
       for (let i = 0; i < split.length; i++) {
         const chunk = split[i];
         if (i % 2 === 0) {
@@ -114,7 +97,6 @@ export default function CodeFenceRenderer({ text = '' }) {
           );
         }
       }
-      try { console.debug('[CodeFenceRenderer] manual-split used', { fences: fenceCount }); } catch(_) {}
       return <div style={{ width: '60vw', overflowX: 'auto' }}>{out}</div>;
     }
     // 0b) Heuristic: language label on first line followed by code-like body
@@ -123,7 +105,6 @@ export default function CodeFenceRenderer({ text = '' }) {
       const lang = languageHint(langLabelMatch[1]);
       const body = langLabelMatch[2] || '';
       fenceCount = 1;
-      try { console.debug('[CodeFenceRenderer] heuristic-lang fence', { lang, bodyLength: body.length }); } catch(_) {}
       return (
         <div style={{ width: '60vw', overflowX: 'auto' }}>
           <div style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
@@ -141,7 +122,6 @@ export default function CodeFenceRenderer({ text = '' }) {
         const before = textNorm.slice(0, anyLang.index);
         const body = anyLang[3] || '';
         fenceCount = 1;
-        try { console.debug('[CodeFenceRenderer] heuristic-anywhere fence', { lang, beforeLen: before.length, bodyLength: body.length }); } catch(_) {}
         const parts = [];
         if (before.trim()) {
           parts.push(<MinimalText key={`pre-${idx++}`} text={before} />);
@@ -167,7 +147,6 @@ export default function CodeFenceRenderer({ text = '' }) {
         out.push(<MinimalText key={`t-${idx++}`} text={plain} />);
       }
       fenceCount += 1;
-      try { console.debug('[CodeFenceRenderer] fence-fallback', { index: fenceCount, start, end, bodyLength: (body || '').length }); } catch (_) {}
       out.push(
         <div key={`e2-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
           <CodeBlock value={body} language={'plaintext'} height={'auto'} />
@@ -180,21 +159,12 @@ export default function CodeFenceRenderer({ text = '' }) {
       if (lastIndex < textNorm.length) {
         out.push(<MinimalText key={`t2-${idx++}`} text={textNorm.slice(lastIndex)} />);
       }
-      try { console.debug('[CodeFenceRenderer] fallback used', { fences: fenceCount }); } catch (_) {}
       return <div style={{ width: '60vw', overflowX: 'auto' }}>{out}</div>;
     }
   }
   if (lastIndex < textNorm.length) {
     out.push(<MinimalText key={`t-${idx++}`} text={textNorm.slice(lastIndex)} />);
-    try {
-      // eslint-disable-next-line no-console
-      console.debug('[CodeFenceRenderer] trailing prose', { from: lastIndex, to: textNorm.length, length: textNorm.length - lastIndex });
-    } catch (_) {}
   }
-  try {
-    // eslint-disable-next-line no-console
-    console.debug('[CodeFenceRenderer] render done', { fences: fenceCount });
-  } catch (_) {}
   // If we rendered at least one fence, wrap in a wider container to expand the bubble.
   if (fenceCount > 0) {
     return <div style={{ width: '60vw', overflowX: 'auto' }}>{out}</div>;

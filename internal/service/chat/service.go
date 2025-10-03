@@ -182,6 +182,32 @@ func (s *Service) Generate(ctx context.Context, input *corellm.GenerateInput) (*
 	return &out, nil
 }
 
+// PrepareToolContext enriches args with conversation context (conversationId, lastTurnId)
+// and returns a context carrying the conversationId for downstream services.
+// convID must be non-empty.
+func (s *Service) PrepareToolContext(ctx context.Context, convID string, args map[string]interface{}) (context.Context, map[string]interface{}, error) {
+	if strings.TrimSpace(convID) == "" {
+		return ctx, nil, fmt.Errorf("conversation id is required")
+	}
+	// Enrich context with conversation id
+	ctx = memory.WithConversationID(ctx, convID)
+
+	// Best-effort resolve last turn id
+	lastTurnID := ""
+	if s != nil && s.convClient != nil {
+		if conv, err := s.convClient.GetConversation(ctx, convID); err == nil && conv != nil {
+			lastTurnID = *conv.LastTurnId
+		}
+	}
+	ctx = memory.WithConversationID(ctx, convID)
+	ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID:  convID,
+		TurnID:          lastTurnID,
+		ParentMessageID: lastTurnID,
+	})
+	return ctx, args, nil
+}
+
 // ResolveToolExtensions computes applicable ToolExtensions for a conversation
 // by inspecting observed tool calls and matching them against workspace
 // extensions. When no tools are observed it includes any extensions with
@@ -761,7 +787,7 @@ func (s *Service) insertSummaryMessage(ctx context.Context, conversationID, summ
 	return msgID, s.convClient.PatchMessage(ctx, mm)
 }
 
-// compactMessagePriorMessageID sets compacted=1 on all prior messages except elicitation and excludeMsgID.
+// compactMessagePriorMessageID sets archived=1 on all prior messages except elicitation and excludeMsgID.
 func (s *Service) compactMessagePriorMessageID(ctx context.Context, transcript apiconv.Transcript, excludeMsgID string) {
 	for _, t := range transcript {
 		if t == nil || len(t.Message) == 0 {
@@ -779,7 +805,7 @@ func (s *Service) compactMessagePriorMessageID(ctx context.Context, transcript a
 			}
 			upd := apiconv.NewMessage()
 			upd.SetId(m.Id)
-			upd.SetCompacted(1)
+			upd.SetArchived(1)
 			_ = s.convClient.PatchMessage(ctx, upd)
 		}
 	}

@@ -17,6 +17,8 @@ type Feed struct {
 
 	// DataSources defines UI data sources
 	DataSources map[string]*types.DataSource `yaml:"dataSources,omitempty" json:"dataSources,omitempty"`
+
+	Invoked bool `json:"-" yaml:"-"`
 }
 
 // Source identifies the tool that produced the output observed by the rule.

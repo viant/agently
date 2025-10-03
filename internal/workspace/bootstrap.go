@@ -26,6 +26,10 @@ func EnsureDefault(fs afs.Service) {
 	}{
 		{"config.yaml", "default/config.yaml"},
 
+		{filepath.Join(KindFeeds, "changes.yaml"), "default/feeds/changes.yaml"},
+		{filepath.Join(KindFeeds, "plan.yaml"), "default/feeds/plan.yaml"},
+		{filepath.Join(KindFeeds, "terminal.yaml"), "terminal.yaml"},
+
 		{filepath.Join(KindEmbedder, "openai_text.yaml"), "default/model/openai/embedder_text.yaml"},
 		{filepath.Join(KindModel, "openai_o4-mini.yaml"), "default/model/openai/o4-mini.yaml"},
 		{filepath.Join(KindModel, "openai_o3.yaml"), "default/model/openai/o3.yaml"},

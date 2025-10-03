@@ -71,14 +71,11 @@ export async function onInit({context}) {
             if (ctrlSig) {
                 const prev = (typeof ctrlSig.peek === 'function') ? (ctrlSig.peek() || {}) : (ctrlSig.value || {});
                 ctrlSig.value = {...prev, loading: false};
-                // eslint-disable-next-line no-console
-                console.debug('[chat][init] suppressMessagesLoading=true; control.loading=false');
             }
             // Also ensure conversations form has running=false initially
             try {
                 const convCtx = context.Context('conversations');
                 convCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'running'}, value: false});
-                console.debug('[chat][init] conversations.running=false');
             } catch (_) {
             }
         } catch (_) {
@@ -192,7 +189,6 @@ async function dsTick({context}) {
         // Perform a silent poll via connector to avoid toggling DS loading and flicker
         try {
             const api = messagesCtx.connector;
-            console.time(`[chat][poll][silent] since=${since}`);
             const json = await api.get({inputParameters: {convID, since}});
             const conv = json && (json.data ?? json.Data ?? json.conversation ?? json.Conversation ?? json);
             const convStage = conv?.stage || conv?.Stage;
@@ -222,7 +218,6 @@ async function dsTick({context}) {
             if (newestTurnId) {
                 context.resources.messagesLastTurnId = newestTurnId;
             }
-            console.timeEnd(`[chat][poll][silent] since=${since}`);
         } catch (e) {
             log.warn('dsTick poll error', e);
         }
@@ -488,17 +483,6 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                         if (!callbackURL && typeof maybe.callbackURL === 'string') {
                             callbackURL = maybe.callbackURL;
                         }
-                        try {
-                            console.debug('[ElicitationDetect]', {
-                                id,
-                                role: roleLower,
-                                status: m.status || m.Status,
-                                mode: elic.mode,
-                                url: elic.url,
-                                hasSchema: !!elic.requestedSchema
-                            });
-                        } catch (_) {
-                        }
                     }
                 } catch (_) {
                 }
@@ -555,10 +539,6 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 elicitation: elic,
                 callbackURL,
             };
-            try {
-                console.debug('[ChatRow]', row);
-            } catch (_) {
-            }
             turnRows.push(row);
         }
 
@@ -574,10 +554,6 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 : Array.isArray(turn?.toolExecution) ? turn.toolExecution
                     : Array.isArray(turn?.ToolFeed) ? turn.ToolFeed
                         : Array.isArray(turn?.toolFeed) ? turn.toolFeed : [];
-            try {
-                console.debug('[chat][turn][toolExec]', {turnId, count: Array.isArray(toolExec) ? toolExec.length : 0});
-            } catch (_) {
-            }
             turnRows[carrierIdx] = {
                 ...turnRows[carrierIdx],
                 usage,
@@ -750,8 +726,6 @@ function installMessagesDebugHooks(context) {
 
 function selectFolder(props) {
     const {context, selected} = props;
-    log.debug('selectFolder 1', context)
-
     context.handlers.dialog.commit()
     log.debug('selectFolder', props)
 }
@@ -1263,7 +1237,7 @@ export async function abortConversation(props) {
 
 /**
  * Compacts the current conversation by calling backend compaction endpoint.
- * Adds a summary message and flags prior messages as compacted (server-side).
+ * Adds a summary message and flags prior messages as archived (server-side).
  */
 export async function compactConversation(props) {
     const {context} = props || {};
@@ -1646,6 +1620,251 @@ export function taskStatusIcon(props) {
     }
 }
 
+export async function onChangedFileSelect(props) {
+    try {
+        console.log('onChangedFileSelect starting', props)
+        const {context, item, node, diff} = props || {};
+        const rec = item || node || {};
+
+        const pick = (obj, names) => {
+            for (const n of names) {
+                const v = obj && obj[n];
+                if (typeof v === 'string' && v.trim()) return v.trim();
+            }
+            return '';
+        };
+        const tryNested = (obj, names) => {
+            const v = pick(obj, names);
+            if (v) return v;
+            for (const k of ['data', 'row', 'record', 'value', 'payload']) {
+                const inner = obj && obj[k];
+                if (inner && typeof inner === 'object') {
+                    const vv = pick(inner, names);
+                    if (vv) return vv;
+                }
+            }
+            return '';
+        };
+
+        // 1) Prefer explicit top-level props first
+        let uri = pick(props || {}, ['uri', 'url']);
+        // For previous version, only accept explicit origUri/origUrl; do not derive.
+        let origUri = pick(props || {}, ['origUri', 'origUrl']);
+        // 2) Fall back to item/node payloads (direct fields only)
+        if (!uri) uri = pick(rec || {}, ['uri', 'url', 'path', 'href', 'Uri', 'URL']);
+        if (!origUri) origUri = pick(rec || {}, ['origUri', 'origUrl']);
+
+        const title = rec?.name || rec?.file || (typeof uri === 'string' ? uri.split('/').pop() : 'Changed File');
+
+        try {
+            console.log('[changedFile][select]', {
+                recKeys: Object.keys(rec || {}),
+                top: {uri: props?.uri, url: props?.url, origUri: props?.origUri, origUrl: props?.origUrl},
+                uri,
+                origUri
+            });
+        } catch (_) {
+        }
+
+        const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+
+        async function fetchText(u, label) {
+            if (!u) return '';
+            const url = `${base}/v1/workspace/file-browser/download?uri=${encodeURIComponent(u)}`;
+            try {
+                console.log('[changedFile][fetch:start]', {label, url, raw: u});
+            } catch (_) {
+            }
+            const t0 = Date.now();
+            let resp;
+            try {
+                resp = await fetch(url, {credentials: 'same-origin'});
+            } catch (e) {
+                try {
+                    console.warn('[changedFile][fetch:error]', {label, url, error: String(e)});
+                } catch (_) {
+                }
+                return '';
+            }
+            const dt = Date.now() - t0;
+            try {
+                console.log('[changedFile][fetch:done]', {label, status: resp?.status, ms: dt});
+            } catch (_) {
+            }
+            if (!resp.ok) return '';
+            return await resp.text();
+        }
+
+        // Open dialog in loading state immediately
+        try {
+            const mod = await import('../utils/dialogBus.js');
+            mod.openCodeDiffDialog({
+                title,
+                hasPrev: !!origUri,
+                loading: true,
+                currentUri: uri || '',
+                prevUri: origUri || ''
+            });
+        } catch (_) {
+        }
+
+        const fetches = [fetchText(uri, 'current')];
+        const includePrev = !!origUri;
+        if (includePrev) fetches.push(fetchText(origUri, 'prev'));
+        const results = await Promise.allSettled(fetches);
+        const currentText = results[0]?.status === 'fulfilled' ? results[0].value : '';
+        const prevText = includePrev && results[1]?.status === 'fulfilled' ? results[1].value : '';
+        const diffText = typeof diff === 'string' ? diff : (rec?.diff || '');
+
+        // Update dialog content
+        try {
+            const mod = await import('../utils/dialogBus.js');
+            mod.updateCodeDiffDialog({
+                current: currentText,
+                prev: prevText,
+                diff: diffText,
+                hasPrev: !!prevText,
+                loading: false
+            });
+        } catch (_) {
+        }
+    } catch (e) {
+        try {
+            console.error('[changedFile][handler:error]', e);
+        } catch (_) {
+        }
+    }
+    return true
+}
+
+export function prepareChangeFiles(props) {
+    const {collection, context} = props
+    const {dataSource} = context
+    const {dataSourceRef} = dataSource
+    const patentCtx  = context.Context(dataSourceRef)
+    const form =patentCtx.handlers.dataSource.peekFormData()
+    const {workdir} = form
+    return prepareFileTree({workdir, collection})
+}
+
+
+export function prepareFileTree({ workdir, collection = [] }) {
+    const norm = (p) => String(p || '').replace(/\\/g, '/');
+    const wd = norm(workdir).replace(/\/+$/, '');
+
+    const baseTail = (() => {
+        // help fallback matching if path doesn't start with workdir
+        const parts = wd.split('/').filter(Boolean);
+        // last 2 segments (e.g., "viant/tagly") work well for repos
+        return parts.slice(-2).join('/');
+    })();
+
+    const relativize = (p) => {
+        let s = norm(p);
+        if (!s) return '';
+        if (wd && (s === wd || s.startsWith(wd + '/'))) {
+            return s.slice(wd.length).replace(/^\/+/, '');
+        }
+        const idx = s.indexOf('/' + baseTail + '/');
+        if (idx !== -1) {
+            return s.slice(idx + baseTail.length + 2); // +2 for two slashes around baseTail
+        }
+        // last fallback: strip leading slash
+        return s.replace(/^\/+/, '');
+    };
+
+    const partsOf = (rel) => rel.split('/').filter(Boolean);
+
+    // index by relative path
+    const byPath = new Map();
+
+    const ensureFolder = (pathParts) => {
+        let acc = '';
+        for (let i = 0; i < pathParts.length; i++) {
+            const seg = pathParts[i];
+            acc = acc ? `${acc}/${seg}` : seg;
+            if (!byPath.has(acc)) {
+                byPath.set(acc, {
+                    uri: `/${acc}`,
+                    name: seg,
+                    isFolder: true,
+                    isExpanded: true,
+                    icon:  'folder-open',
+                    childNodes: [],
+                    parentPath: acc.includes('/') ? acc.slice(0, acc.lastIndexOf('/')) : '',
+                });
+            }
+        }
+    };
+
+    const ensureFile = (folderParts, fileName, meta) => {
+        const folderPath = folderParts.join('/');
+        const full = folderPath ? `${folderPath}/${fileName}` : fileName;
+        if (!byPath.has(full)) {
+            byPath.set(full, {
+                uri: `/${full}`,
+                name: fileName,
+                isFolder: false,
+                childNodes: [],
+                parentPath: folderPath || '',
+                ...meta,
+            });
+        }
+    };
+
+    // Ingest collection
+    for (const item of collection) {
+        const full = relativize(item.url || item.uri);
+        if (!full) continue;
+
+        const meta = {
+            kind: item.kind,
+            diff: item.diff,
+            uri: norm(item.url),
+            url: item.url,
+            origUrl: norm(item.origUrl),
+        };
+
+        const parts = partsOf(full);
+        if (parts.length === 0) continue;
+
+        const folderParts = parts.slice(0, -1);
+        const fileName = parts[parts.length - 1];
+
+        if (folderParts.length) ensureFolder(folderParts);
+        ensureFile(folderParts, fileName, meta);
+    }
+
+    // Link parents
+    for (const node of byPath.values()) {
+        if (node.parentPath && byPath.has(node.parentPath)) {
+            byPath.get(node.parentPath).childNodes.push(node);
+        }
+    }
+
+    // Sort children: folders first, then files, by name
+    const sortChildren = (arr) => {
+        arr.sort((a, b) => {
+            if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+            return a.name.localeCompare(b.name);
+        });
+    };
+
+    for (const node of byPath.values()) {
+        if (node.childNodes?.length) sortChildren(node.childNodes);
+    }
+
+    // Collect roots
+    const roots = [];
+    for (const node of byPath.values()) {
+        if (!node.parentPath) roots.push(node);
+    }
+    sortChildren(roots);
+
+    return roots;
+}
+
+
 /**
  * Chat service for handling chat interactions
  */
@@ -1656,6 +1875,7 @@ export const chatService = {
     compactConversation,
     compactReadonly,
     deleteConversation,
+    onChangedFileSelect,
     onInit,
     onDestroy,
     onMetaLoaded,
@@ -1670,6 +1890,43 @@ export const chatService = {
     debugHistorySelection,
     debugMessagesLoaded,
     debugMessagesError,
+    prepareChangeFiles,
+    runPatchCommit: async (props) => await (async function (p) {
+        const {context} = p || {};
+        try {
+            const convCtx = context?.Context?.('conversations');
+            const convID = convCtx?.handlers?.dataSource?.peekFormData?.()?.id || convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id;
+            if (!convID) return false;
+            const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+            const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/tools/run`;
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({service: 'system/patch', method: 'commit', args: {}})
+            });
+            return resp.ok;
+        } catch (_) {
+            return false;
+        }
+    })(props),
+    runPatchRollback: async (props) => await (async function (p) {
+        const {context} = p || {};
+        try {
+            const convCtx = context?.Context?.('conversations');
+            const convID = convCtx?.handlers?.dataSource?.peekFormData?.()?.id || convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id;
+            if (!convID) return false;
+            const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+            const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/tools/run`;
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({service: 'system/patch', method: 'rollback', args: {}})
+            });
+            return resp.ok;
+        } catch (_) {
+            return false;
+        }
+    })(props),
     // selectAgent no longer needed in new chat window; keep for compatibility where used
     selectAgent,
     selectModel,

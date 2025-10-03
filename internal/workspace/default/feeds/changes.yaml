@@ -1,0 +1,64 @@
+id: changes
+match:
+  service: system/patch
+  method: apply
+activation:
+  kind: tool_call
+  service: system/patch
+  method: snapshot
+
+
+dataSource:
+  snapshot:
+    source: output
+
+  changes:
+    dataSourceRef: snapshot
+    uniqueKey:
+      - field: changes
+    selectors:
+      data: changes
+
+
+ui:
+  containers:
+    - id: changes
+      title: Changes
+      dataSourceRef: changes
+      fileBrowser:
+        title: Browser
+        style:
+          height: 20vh
+        on:
+          - event: onFileSelect
+            handler: chat.onChangedFileSelect
+          - event: onPrepareTreeData
+            handler: chat.prepareChangeFiles
+    - id: toolbar
+      dataSourceRef: snapshot
+      toolbar:
+        style:
+          marginTop: 12px
+        items:
+          - id: revert
+            label: rever
+            icon: undo
+            align: right
+            on:
+              - event: onClick
+                handler: chat.runPatchRollback
+
+          - id: apply
+            label: apply
+            icon: confirm
+            align: right
+            on:
+              - event: onClick
+                handler: chat.runPatchCommit
+#          on:
+#            - event: onReadonly
+#              handler: dataSource.noSelection
+#            - event: onClick
+#              handler: window.openDialog
+#              args:
+#                - runWorkflowDialog

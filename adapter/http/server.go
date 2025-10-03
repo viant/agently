@@ -198,6 +198,11 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.handleTerminateConversation(w, r, r.PathValue("id"))
 	})
 
+	// Run MCP tool in the context of a conversation (enrich args with conv context)
+	mux.HandleFunc("POST /v1/api/conversations/{id}/tools/run", func(w http.ResponseWriter, r *http.Request) {
+		s.handleRunTool(w, r, r.PathValue("id"))
+	})
+
 	// Compact conversation: generate summary and flag prior messages as compacted
 	mux.HandleFunc("POST /v1/api/conversations/{id}/compact", func(w http.ResponseWriter, r *http.Request) {
 		s.handleCompactConversation(w, r, r.PathValue("id"))
@@ -465,9 +470,67 @@ func (s *Server) dispatchConversationSubroutes(w http.ResponseWriter, r *http.Re
 	case "messages":
 		// Pass remaining parts (after "messages") to specialised handler
 		s.handleConversationMessages(w, r, convID, parts[2:])
+	case "tools":
+		// POST /v1/api/conversations/{id}/tools/run
+		if len(parts) >= 3 && parts[2] == "run" {
+			s.handleRunTool(w, r, convID)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+// handleRunTool executes an MCP tool in the context of a conversation.
+// POST body: { "service": "system/patch", "method": "commit", "args": { ... } }
+func (s *Server) handleRunTool(w http.ResponseWriter, r *http.Request, convID string) {
+	if r.Method != http.MethodPost {
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
+		return
+	}
+	if strings.TrimSpace(convID) == "" {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("conversation id required"))
+		return
+	}
+	if s.invoker == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("tool invoker not configured"))
+		return
+	}
+	var body struct {
+		Service string                 `json:"service"`
+		Method  string                 `json:"method"`
+		Args    map[string]interface{} `json:"args"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		encode(w, http.StatusBadRequest, nil, err)
+		return
+	}
+	if strings.TrimSpace(body.Service) == "" {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("service is required"))
+		return
+	}
+
+	// Build context and enrich args via chat service helper
+	ctx := s.withAuthFromRequest(r)
+	if s.chatSvc == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
+		return
+	}
+	var err error
+	ctx, body.Args, err = s.chatSvc.PrepareToolContext(ctx, convID, body.Args)
+	if err != nil {
+		encode(w, http.StatusBadRequest, nil, err)
+		return
+	}
+
+	// Invoke tool via invoker
+	out, err := s.invoker.Invoke(ctx, body.Service, body.Method, body.Args)
+	if err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+	encode(w, http.StatusOK, out, nil)
 }
 
 // handleElicitationCallback accepts/declines an MCP elicitation for a specific conversation.

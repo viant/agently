@@ -6,7 +6,7 @@ var PackageName = "message/write"
 
 type Message struct {
 	Id              string     `sqlx:"id,primaryKey" validate:"required"`
-	Compacted       *int       `sqlx:"compacted" json:",omitempty"`
+	Archived        *int       `sqlx:"archived" json:",omitempty"`
 	ConversationID  string     `sqlx:"conversation_id" validate:"required"`
 	TurnID          *string    `sqlx:"turn_id" json:",omitempty"`
 	Sequence        *int       `sqlx:"sequence" json:",omitempty"`
@@ -33,7 +33,7 @@ type Message struct {
 
 type MessageHas struct {
 	Id                   bool
-	Compacted            bool
+	Archived             bool
 	ConversationID       bool
 	TurnID               bool
 	Sequence             bool
@@ -60,8 +60,8 @@ func (m *Message) ensureHas() {
 		m.Has = &MessageHas{}
 	}
 }
-func (m *Message) SetId(v string)     { m.Id = v; m.ensureHas(); m.Has.Id = true }
-func (m *Message) SetCompacted(v int) { m.Compacted = &v; m.ensureHas(); m.Has.Compacted = true }
+func (m *Message) SetId(v string)    { m.Id = v; m.ensureHas(); m.Has.Id = true }
+func (m *Message) SetArchived(v int) { m.Archived = &v; m.ensureHas(); m.Has.Archived = true }
 func (m *Message) SetConversationID(v string) {
 	m.ConversationID = v
 	m.ensureHas()

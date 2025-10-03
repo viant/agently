@@ -11,11 +11,11 @@ func (m *Message) IsInterim() bool {
 	return false
 }
 
-func (m *Message) IsCompacted() bool {
+func (m *Message) IsArchived() bool {
 	if m == nil {
 		return false
 	}
-	return m.Compacted != nil && *m.Compacted == 1
+	return m.Archived != nil && *m.Archived == 1
 }
 
 type Messages []*Message

@@ -5,14 +5,26 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/viant/agently/genai/tool"
 )
+
+func (t *TranscriptView) filterInvokedToolFeed() {
+	var cloned = make([]*tool.Feed, 0, len(t.ToolFeed))
+	for _, feed := range t.ToolFeed {
+		if feed.Invoked {
+			continue
+		}
+		cloned = append(cloned, feed)
+	}
+	t.ToolFeed = cloned
+}
 
 // OnRelation is invoked after related records are loaded.
 // Ensure messages are ordered by CreatedAt ascending (oldest first) and compute Turn stage.
 func (t *TranscriptView) OnRelation(ctx context.Context) {
-	if t == nil {
-		return
-	}
+
+	isLast := t.IsLast
 	// Normalize messages when present to ensure deterministic order and elapsed time
 	if len(t.Message) > 0 {
 		t.normalizeMessages()
@@ -20,17 +32,12 @@ func (t *TranscriptView) OnRelation(ctx context.Context) {
 	// Always attempt to compute tool executions. For activation.kind==tool_call
 	// we may still want to invoke even when there are no recorded tool calls.
 	var err error
-	t.ToolFeed, err = t.computeToolFeed(ctx)
+	t.ToolFeed, err = t.computeToolFeed(ctx, isLast)
 	if err != nil {
 		fmt.Printf("failed to compute tool feed: %v\n", err)
 	}
 	// Compute stage for this turn
 	t.Stage = computeTurnStage(t)
-}
-
-func (t *TranscriptView) updateToolFeedOld(ctx context.Context) {
-	// deprecated: kept temporarily for reference; no-op
-	t.ToolFeed = nil
 }
 
 func (t *TranscriptView) normalizeMessages() {

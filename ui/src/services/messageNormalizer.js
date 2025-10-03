@@ -80,7 +80,6 @@ export function classifyMessage(message) {
     }
     // Domain-specific: show execution bubble when available
     if ((message.role === 'execution') || message.executionCard === true) {
-        try { console.debug('[chat][classify] execution', message?.id); } catch(_) {}
         return 'execution';
     }
     // Detect interactive MCP prompts that should be rendered with a dedicated

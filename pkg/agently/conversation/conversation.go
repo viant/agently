@@ -99,6 +99,7 @@ type TranscriptView struct {
 	ElapsedInSec          int            `sqlx:"elapsedInSec"`
 	Stage                 string         `sqlx:"stage"`
 	ToolFeed              []*tool.Feed   `sqlx:"-"`
+	IsLast                bool           `sqlx:"isLast"`
 	Id                    string         `sqlx:"id"`
 	ConversationId        string         `sqlx:"conversation_id"`
 	CreatedAt             time.Time      `sqlx:"created_at"`
@@ -118,7 +119,7 @@ type MessageView struct {
 	Id                   string                   `sqlx:"id"`
 	ConversationId       string                   `sqlx:"conversation_id"`
 	TurnId               *string                  `sqlx:"turn_id"`
-	Compacted            *int                     `sqlx:"compacted"`
+	Archived             *int                     `sqlx:"archived"`
 	Sequence             *int                     `sqlx:"sequence"`
 	CreatedAt            time.Time                `sqlx:"created_at"`
 	UpdatedAt            *time.Time               `sqlx:"updated_at"`

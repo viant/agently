@@ -27,6 +27,10 @@ func (c *ConversationView) OnRelation(ctx context.Context) {
 		}
 		return mi.CreatedAt.Before(mj.CreatedAt)
 	})
+
+	for i := 0; i < len(c.Transcript)-2; i++ {
+		c.Transcript[len(c.Transcript)-1].filterInvokedToolFeed()
+	}
 	// Compute live stage based on latest transcript signals
 	c.Stage = computeStage(c)
 }

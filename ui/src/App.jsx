@@ -23,6 +23,7 @@ import { toolRunnerService } from './services/toolRunnerService.js';
 import { workflowRunnerService } from './services/workflowRunnerService.js';
 import { workflowConversationService } from './services/workflowConversationService.js';
 import { oauthService } from './services/oauthService.js';
+import CodeDiffDialog from './components/CodeDiffDialog.jsx';
 
 const router = createBrowserRouter([
     {
@@ -68,7 +69,10 @@ function App() {
         services={services}
         authContext={authContext}
       >
-        <RouterProvider router={router} />
+        <>
+          <RouterProvider router={router} />
+          <CodeDiffDialog />
+        </>
       </SettingProvider>
     </AuthProvider>
   );
