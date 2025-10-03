@@ -16,7 +16,7 @@ require (
 	github.com/viant/afsc v1.12.0
 	github.com/viant/datly v0.20.16-0.20250924215533-c5404492eaf7
 	github.com/viant/embedius v0.2.1
-	github.com/viant/fluxor v0.4.2
+	github.com/viant/fluxor v0.4.3
 	github.com/viant/fluxor-mcp v0.1.17
 	github.com/viant/forge v0.2.14
 	github.com/viant/jsonrpc v0.9.0
