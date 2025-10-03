@@ -21,9 +21,9 @@ dataSource:
 
 
 ui:
+  title: Changes
   containers:
     - id: changes
-      title: Changes
       dataSourceRef: changes
       fileBrowser:
         title: Browser
@@ -55,10 +55,3 @@ ui:
             on:
               - event: onClick
                 handler: chat.runPatchCommit
-#          on:
-#            - event: onReadonly
-#              handler: dataSource.noSelection
-#            - event: onClick
-#              handler: window.openDialog
-#              args:
-#                - runWorkflowDialog
