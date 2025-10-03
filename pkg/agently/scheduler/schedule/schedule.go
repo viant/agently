@@ -42,29 +42,26 @@ type ScheduleOutput struct {
 }
 
 type ScheduleView struct {
-	Id                    string     `sqlx:"id"`
-	Name                  string     `sqlx:"name"`
-	Description           *string    `sqlx:"description"`
-	AgentRef              string     `sqlx:"agent_ref"`
-	ModelOverride         *string    `sqlx:"model_override"`
-	Enabled               int        `sqlx:"enabled"`
-	StartAt               *time.Time `sqlx:"start_at"`
-	EndAt                 *time.Time `sqlx:"end_at"`
-	ScheduleType          string     `sqlx:"schedule_type"`
-	CronExpr              *string    `sqlx:"cron_expr"`
-	IntervalSeconds       *int       `sqlx:"interval_seconds"`
-	Timezone              string     `sqlx:"timezone"`
-	TaskPromptUri         *string    `sqlx:"task_prompt_uri"`
-	TaskPrompt            *string    `sqlx:"task_prompt"`
-	PreconditionEnabled   int        `sqlx:"precondition_enabled"`
-	PreconditionPromptUri *string    `sqlx:"precondition_prompt_uri"`
-	PreconditionPrompt    *string    `sqlx:"precondition_prompt"`
-	NextRunAt             *time.Time `sqlx:"next_run_at"`
-	LastRunAt             *time.Time `sqlx:"last_run_at"`
-	LastStatus            *string    `sqlx:"last_status"`
-	LastError             *string    `sqlx:"last_error"`
-	CreatedAt             time.Time  `sqlx:"created_at"`
-	UpdatedAt             *time.Time `sqlx:"updated_at"`
+	Id              string     `sqlx:"id"`
+	Name            string     `sqlx:"name"`
+	Description     *string    `sqlx:"description"`
+	AgentRef        string     `sqlx:"agent_ref"`
+	ModelOverride   *string    `sqlx:"model_override"`
+	Enabled         int        `sqlx:"enabled"`
+	StartAt         *time.Time `sqlx:"start_at"`
+	EndAt           *time.Time `sqlx:"end_at"`
+	ScheduleType    string     `sqlx:"schedule_type"`
+	CronExpr        *string    `sqlx:"cron_expr"`
+	IntervalSeconds *int       `sqlx:"interval_seconds"`
+	Timezone        string     `sqlx:"timezone"`
+	TaskPromptUri   *string    `sqlx:"task_prompt_uri"`
+	TaskPrompt      *string    `sqlx:"task_prompt"`
+	NextRunAt       *time.Time `sqlx:"next_run_at"`
+	LastRunAt       *time.Time `sqlx:"last_run_at"`
+	LastStatus      *string    `sqlx:"last_status"`
+	LastError       *string    `sqlx:"last_error"`
+	CreatedAt       time.Time  `sqlx:"created_at"`
+	UpdatedAt       *time.Time `sqlx:"updated_at"`
 }
 
 var SchedulePathURI = "/v1/api/agently/scheduler/schedule/{id}"

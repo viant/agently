@@ -16,12 +16,11 @@ import (
 	"github.com/viant/agently/pkg/agently/tool/invoker"
 	selres "github.com/viant/agently/pkg/agently/tool/resolver"
 	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
-	ftypes "github.com/viant/forge/backend/types"
 )
 
 // computeToolFeed computes ToolFeed for a transcript turn using configured FeedSpec.
 // It supports activation.kind history/tool_call and scope all/last.
-func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, error) {
+func (t *TranscriptView) computeToolFeed(ctx context.Context, isLast bool) ([]*tool.Feed, error) {
 	input := InputFromContext(ctx)
 	if len(input.FeedSpec) == 0 {
 		return nil, nil
@@ -54,7 +53,7 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 		if _, ok := toolCallsByName[key]; ok {
 			continue
 		}
-		if feed.ShallInvokeTool() { //invoke one per match
+		if feed.ShallInvokeTool() && isLast { //invoke one per match
 			inv := invoker.From(ctx)
 			if inv == nil {
 				return nil, fmt.Errorf("tool service was emtpy")
@@ -63,14 +62,28 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 			if method == "" {
 				method = key.Method()
 			}
-			out, err := inv.Invoke(ctx, key.Service(), method, feed.Activation.Args)
+			output, err := inv.Invoke(ctx, key.Service(), method, feed.Activation.Args)
 			if err != nil {
 				return nil, fmt.Errorf("failed to invoke feed: %v", err)
 			}
+			var payload string
+			switch actual := output.(type) {
+			case string:
+				payload = actual
+				resp := map[string]interface{}{}
+				if json.Unmarshal([]byte(actual), &resp) == nil {
+					if resp["status"] == "noFound" {
+						continue
+					}
+				}
+			default:
+				d, _ := json.Marshal(actual)
+				payload = string(d)
+			}
 			call := &ToolCallView{ToolName: toolName, ResponsePayload: &ResponsePayloadView{}, RequestPayload: &ResponsePayloadView{}}
-			output, _ := dataToString(out)
-			call.ResponsePayload.InlineBody = &output
-			call.RequestPayload.InlineBody = &output
+			call.ResponsePayload.InlineBody = &payload
+			emptyBody := ""
+			call.RequestPayload.InlineBody = &emptyBody
 			toolCallsByName[key] = append(toolCallsByName[key], call)
 		}
 
@@ -163,12 +176,4 @@ func hashSuffixFromTurnID(id string) string {
 	// Use signed base-10 for readability; cast from uint64
 	v := int64(h.Sum64())
 	return "-" + strconv.FormatInt(v, 10)
-}
-
-// selectorOf returns the data selector for a forge DataSource when present.
-func selectorOf(ds *ftypes.DataSource) string {
-	if ds == nil || ds.Selectors == nil {
-		return ""
-	}
-	return strings.TrimSpace(ds.Selectors.Data)
 }

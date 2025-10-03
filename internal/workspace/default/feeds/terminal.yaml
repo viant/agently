@@ -1,0 +1,24 @@
+id: terminal
+match:
+  service: system/exec
+  method: execute
+
+activation:
+  kind: history
+
+
+dataSource:
+  commands:
+    uniqueKey:
+      - field: input
+      - field: output
+    source: output.commands
+
+
+ui:
+  id: commands
+  title: Terminal
+  terminal:
+    dataSourceRef: commands
+    height: 25
+    autoScroll: true

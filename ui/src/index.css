@@ -105,3 +105,17 @@ label.label-data {
 /* Chat components                                                             */
 /* -------------------------------------------------------------------------- */
 
+/* Code diff dialog: make CodeMirror scrollable within allocated space */
+.code-diff-editor {
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.code-diff-editor .cm-editor {
+    height: 100%;
+}
+.code-diff-editor .cm-scroller {
+    height: 100%;
+    overflow: auto;
+}

@@ -1,0 +1,50 @@
+id: plan
+match:
+  service: orchestration
+  method: updatePlan
+activation:
+  kind: history
+  scope: last
+
+
+dataSource:
+  planInfo:
+    source: output
+
+  planDetail:
+    dataSourceRef: planInfo
+    uniqueKey:
+      - field: step
+    selectors:
+      data: plan
+
+
+
+ui:
+  title: Plan
+  containers:
+  - id: header
+    dataSourceRef: planInfo
+    items:
+      - id: explanation
+        dataBind: explanation
+        dataSourceRef: planInfo
+        type: label
+  - id: planTable
+    type: table
+    dataSourceRef: planDetail
+    table:
+      columns:
+        - id: completed
+          name: ' '
+          type: icon
+          width: 10
+          on:
+            - event: onValue
+              handler: chat.taskStatusIcon
+        - id: status
+          name: Status
+          width: 30
+        - id: step
+          name: Step
+          width: 200

@@ -21,7 +21,8 @@ SELECT conversation.*,
 cast(attachment.inline_body as []byte),
 cast(transcript.elapsedInSec as int),
 cast(transcript.toolFeed AS []*tool.Feed),
-tag(transcript.toolFeed, 'sqlx:"-"')
+tag(transcript.toolFeed, 'sqlx:"-"'),
+cast(transcript.isLast, bool)
 FROM (
     SELECT t.*,
           (SELECT id
@@ -37,7 +38,8 @@ FROM (
       t.*,
       0 elapsedInSec,
       '' AS stage,
-      '' AS toolFeed
+      '' AS toolFeed,
+      0 AS isLast
        FROM turn t
       ${predicate.Builder().CombineOr($predicate.FilterGroup(1, "AND")).Build("WHERE")}
     ) transcript ON transcript.conversation_id = conversation.id

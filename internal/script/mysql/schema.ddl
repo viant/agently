@@ -128,7 +128,7 @@ CREATE TABLE `message`
     id                     VARCHAR(255) PRIMARY KEY,
     conversation_id        VARCHAR(255) NOT NULL,
     turn_id                VARCHAR(255),
-    compacted              TINYINT      NULL,
+    archived               TINYINT      NULL,
     sequence               BIGINT,
     created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP,

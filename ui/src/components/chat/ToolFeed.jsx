@@ -33,7 +33,6 @@ function wireFeedSignals(exe, windowContext) {
   const dsMap = exe.dataSources || {};
   const rootName = String(exe?.dataFeed?.name || '').trim();
   const rootData = exe?.dataFeed?.data;
-  try { console.debug('[toolfeed][wire] feed', { id: exe?.id || exe?.ID, rootName, hasRootData: !!rootData, dsKeys: Object.keys(dsMap) }); } catch(_) {}
   const computed = {};
   if (rootName) computed[rootName] = asArray(rootData);
 
@@ -71,7 +70,6 @@ function wireFeedSignals(exe, windowContext) {
     const dsId = toDsId(name);
     const sig = getCollectionSignal(dsId);
     sig.value = Array.isArray(data) ? data : asArray(data);
-    try { console.debug('[toolfeed][signal:set]', { name, dsId, rows: Array.isArray(sig?.value) ? sig.value.length : 0 }); } catch(_) {}
     try { const ctrl = getControlSignal(dsId); if (ctrl?.set) ctrl.set({ ...(ctrl.peek?.() || {}), loading: false }); else if (ctrl) ctrl.value = { ...(ctrl.value || {}), loading: false }; } catch(_) {}
     // If the DS has exactly one element, publish it to form signal as the current form/model
     try {
@@ -79,7 +77,6 @@ function wireFeedSignals(exe, windowContext) {
       if (arr.length === 1) {
         const formSig = getFormSignal(dsId);
         formSig.value = arr[0];
-        console.debug('[toolfeed][signal:form]', { name, dsId, keys: Object.keys(arr[0] || {}) });
       }
     } catch(_) {}
     wired++;
@@ -89,7 +86,6 @@ function wireFeedSignals(exe, windowContext) {
     const dsId = toDsId(rootName);
     const selSig = getSelectionSignal(dsId, { selected: null, rowIndex: -1 });
     selSig.value = { selected: computed[rootName][0], rowIndex: 0 };
-    try { console.debug('[toolfeed][signal:select]', { name: rootName, dsId, rowIndex: 0 }); } catch(_) {}
   }
   return wired;
 }
@@ -101,7 +97,6 @@ export default function ToolFeed({ executions = [], turnId = '', context }) {
   useEffect(() => {
     let total = 0;
     for (const exe of feeds) total += wireFeedSignals(exe, context);
-    try { console.debug('[toolfeed][signals] wired', { totalSignals: total, feedCount: feeds.length }); } catch(_) {}
     // Defer container render until after wiring completes
     setReady(true);
   }, [feeds]);
@@ -141,7 +136,6 @@ export default function ToolFeed({ executions = [], turnId = '', context }) {
       ? { ...ui, dataSources: dsNormalized }
       : { dataSources: dsNormalized, ...(ui || {}) };
     const title = ui?.title || exe?.title || feedId;
-    try { console.debug('[toolfeed][tab]', { feedId, title, ui: uiWithDS }); } catch(_) {}
     return { key: feedId, title, ui: uiWithDS };
   }), [feeds]);
 
@@ -172,8 +166,6 @@ export default function ToolFeed({ executions = [], turnId = '', context }) {
             handlers: safeHandlers,
             tableSettingKey: (id) => `tf-${t.key}-${id}`,
           };
-          try { console.debug('[toolfeed][metadata]', { tab: t.key, dsKeys: Object.keys(context?.metadata?.dataSource || {}) }); } catch(_) {}
-          try { console.debug('[toolfeed][render]', { tab: t.key, hasUI: !!t.ui, ui: t.ui }); } catch(_) {}
           return (
             <Tab id={t.key} key={t.key} title={t.title} panel={
               <div style={{ paddingTop: 8 }}>
