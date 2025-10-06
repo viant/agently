@@ -11,7 +11,6 @@ import (
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
 	agentmdl "github.com/viant/agently/genai/agent"
-	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/internal/shared"
@@ -122,6 +121,10 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 	// Parse the YAML into our agent model
 	if err := s.parseAgent((*yml.Node)(&node), anAgent); err != nil {
 		return nil, fmt.Errorf("failed to parse agent from %s: %w", URL, err)
+	}
+	// Validate parsed agent
+	if err := anAgent.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid agent %s: %w", URL, err)
 	}
 
 	// Set agent name based on URL if not set
@@ -382,16 +385,6 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					return fmt.Errorf("unsupported YAML node for tool entry: kind=%d", itemNode.Kind)
 				}
 			}
-		case "elicitation":
-			// Accept mapping that follows plan.Elicitation schema.
-			if valueNode.Kind != yaml.MappingNode {
-				return fmt.Errorf("elicitation must be a mapping")
-			}
-			var elic plan.Elicitation
-			if err := (*yaml.Node)(valueNode).Decode(&elic.ElicitRequestParams); err != nil {
-				return fmt.Errorf("invalid elicitation definition: %w", err)
-			}
-			agent.Elicitation = &elic
 		case "persona":
 			if valueNode.Kind == yaml.MappingNode {
 				var p prompt.Persona
@@ -414,6 +407,54 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				default:
 					agent.AttachMode = "ref"
 				}
+			}
+		case "chains":
+			if valueNode.Kind != yaml.SequenceNode {
+				return fmt.Errorf("chains must be a sequence")
+			}
+			for _, item := range valueNode.Content {
+				if item == nil || item.Kind != yaml.MappingNode {
+					return fmt.Errorf("invalid chain entry; expected mapping")
+				}
+				var c agentmdl.Chain
+				if err := (*yaml.Node)(item).Decode(&c); err != nil {
+					return fmt.Errorf("invalid chain definition: %w", err)
+				}
+				// Support scalar query by normalizing to prompt.Prompt{text: ...}
+				if c.Query == nil {
+					// search for 'query' key in the mapping
+					for i := 0; i+1 < len(item.Content); i += 2 {
+						k := strings.ToLower(strings.TrimSpace(item.Content[i].Value))
+						if k == "query" {
+							v := item.Content[i+1]
+							if v.Kind == yaml.ScalarNode {
+								c.Query = &prompt.Prompt{Text: v.Value}
+							}
+							break
+						}
+					}
+				}
+				// Defaults
+				if strings.TrimSpace(c.Mode) == "" {
+					c.Mode = "sync"
+				}
+				if strings.TrimSpace(c.Conversation) == "" {
+					c.Conversation = "link" // default to child/linked workflow
+				}
+				// Validate enums
+				switch strings.ToLower(strings.TrimSpace(c.Mode)) {
+				case "sync", "async":
+				case "": // unreachable due to default above
+				default:
+					return fmt.Errorf("invalid chain.mode: %s", c.Mode)
+				}
+				switch strings.ToLower(strings.TrimSpace(c.Conversation)) {
+				case "reuse", "link":
+				case "": // defaulted above
+				default:
+					return fmt.Errorf("invalid chain.conversation: %s", c.Conversation)
+				}
+				agent.Chains = append(agent.Chains, &c)
 			}
 		}
 		return nil

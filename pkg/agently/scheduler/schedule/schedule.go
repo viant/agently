@@ -35,6 +35,8 @@ type ScheduleInputHas struct {
 	Id bool
 }
 
+type ScheduleListInput struct{}
+
 type ScheduleOutput struct {
 	response.Status `parameter:",kind=output,in=status" json:",omitempty"`
 	Data            []*ScheduleView  `parameter:",kind=output,in=view" view:"schedule,batch=10000,relationalConcurrency=1" sql:"uri=schedule/schedule.sql"`

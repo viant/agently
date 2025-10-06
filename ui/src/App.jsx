@@ -14,6 +14,7 @@ import './widget/fileWidgetRegister.jsx';
 // Import your configurations
 import {endpoints} from './endpoint';
 import {connectorConfig} from "./connector.js";
+import './setupFetchCredentials';
 import { chatService } from './services/chatService.js';
 import { modelService } from './services/modelService.js';
 import { mcpService } from './services/mcpService.js';
@@ -23,6 +24,8 @@ import { toolRunnerService } from './services/toolRunnerService.js';
 import { workflowRunnerService } from './services/workflowRunnerService.js';
 import { workflowConversationService } from './services/workflowConversationService.js';
 import { oauthService } from './services/oauthService.js';
+import { scheduleService } from './services/scheduleService.js';
+import { preferencesService } from './services/preferencesService.js';
 import CodeDiffDialog from './components/CodeDiffDialog.jsx';
 
 const router = createBrowserRouter([
@@ -48,6 +51,8 @@ const services = {
   workflowRunner: workflowRunnerService,
   workflowConversation: workflowConversationService,
   oauth: oauthService,
+  schedule: scheduleService,
+  preferences: preferencesService,
 };
 
 

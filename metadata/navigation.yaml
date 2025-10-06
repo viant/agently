@@ -58,9 +58,17 @@
       windowKey: oauth
       windowTitle: OAuth
 
-# ------------------------------------------------------------------
-# Tools – auto discover via MCP service
-# ------------------------------------------------------------------
+
+- id: schedules
+  label: Schedules
+  icon: time
+  childNodes:
+    - id: list
+      label: Catalogue
+      icon: list
+      windowKey: schedule
+      windowTitle: Schedules
+
 
 - id: tools
   label: Tools

@@ -21,7 +21,6 @@ CREATE TABLE conversation
     id                     VARCHAR(255) PRIMARY KEY,
     -- legacy-friendly columns
     summary                TEXT,
-    agent_name             TEXT,
     last_activity          TIMESTAMP    NULL     DEFAULT NULL,
     usage_input_tokens     BIGINT                DEFAULT 0,
     usage_output_tokens    BIGINT                DEFAULT 0,
@@ -38,6 +37,8 @@ CREATE TABLE conversation
     default_model          TEXT,
     default_model_params   TEXT,
     title                  TEXT,
+    conversation_parent_id       VARCHAR(255),
+    conversation_parent_turn_id  VARCHAR(255),
     metadata               TEXT,
     visibility             VARCHAR(255) NOT NULL DEFAULT 'private',
     archived               BIGINT       NOT NULL DEFAULT 0,
@@ -169,18 +170,29 @@ CREATE INDEX idx_conv_last_ip    ON conversation (last_ip);
 CREATE INDEX idx_msg_client_ip   ON `message` (client_ip);
 
 -- Users table for identity and schedule UX state
-CREATE TABLE app_user (
+CREATE TABLE users (
     id                                   VARCHAR(255) PRIMARY KEY,
-    subject                              VARCHAR(255) UNIQUE,
+    username                             VARCHAR(255) NOT NULL UNIQUE,
     display_name                         VARCHAR(255),
     email                                VARCHAR(255),
+    provider                             VARCHAR(255) NOT NULL DEFAULT 'local',
+    subject                              VARCHAR(255),
+    hash_ip                              VARCHAR(255),
+    timezone                             VARCHAR(64)  NOT NULL DEFAULT 'UTC',
+    default_agent_ref                    VARCHAR(255),
+    default_model_ref                    VARCHAR(255),
+    default_embedder_ref                 VARCHAR(255),
+    settings                             TEXT,
+    disabled                             BIGINT       NOT NULL DEFAULT 0,
     created_at                           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                           TIMESTAMP    NULL DEFAULT NULL,
     last_seen_schedule_conversation_id   VARCHAR(255) NULL,
     CONSTRAINT fk_user_last_seen_conv FOREIGN KEY (last_seen_schedule_conversation_id) REFERENCES conversation(id) ON DELETE SET NULL
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
-CREATE UNIQUE INDEX idx_user_subject ON app_user(subject);
+-- Unique subject per provider (NULL subject allowed for local)
+CREATE UNIQUE INDEX ux_users_provider_subject ON users(provider, subject);
+CREATE INDEX ix_users_hash_ip ON users(hash_ip);
 
 CREATE TABLE model_call
 (
@@ -350,3 +362,14 @@ CREATE TABLE IF NOT EXISTS schedule_run (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE INDEX idx_run_schedule_status ON schedule_run(schedule_id, status);
+
+-- OAuth tokens per user (server-side, encrypted). Stores serialized scy/auth.Token as enc_token.
+CREATE TABLE IF NOT EXISTS user_oauth_token (
+  user_id     VARCHAR(255) NOT NULL,
+  provider    VARCHAR(128) NOT NULL,
+  enc_token   TEXT         NOT NULL,
+  created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMP    NULL DEFAULT NULL,
+  PRIMARY KEY (user_id, provider),
+  CONSTRAINT fk_uot_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

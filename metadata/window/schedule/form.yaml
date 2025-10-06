@@ -1,0 +1,105 @@
+- id: basics
+  title: Basics
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  style:
+    maxWidth: 980px
+    margin: 0
+  items:
+    - id: id
+      label: ID
+      type: text
+      properties:
+        readOnly: true
+    - id: name
+      label: Name
+      type: text
+    - id: description
+      label: Description
+      type: textarea
+      columnSpan: 2
+      properties:
+        rows: 2
+
+- id: targeting
+  title: Targeting
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  style:
+    maxWidth: 980px
+    margin: 0
+  items:
+    - id: agentRef
+      label: Agent Ref
+      type: text
+    - id: modelOverride
+      label: Model Override
+      type: text
+
+- id: schedule
+  title: Schedule
+  layout:
+    orientation: horizontal
+    columns: 3
+    labelPosition: top
+  style:
+    maxWidth: 980px
+    margin: 0
+  items:
+    - id: enabled
+      label: Enabled
+      type: checkbox
+    - id: scheduleType
+      label: Type
+      type: select
+      options:
+        - value: cron
+          label: Cron
+        - value: interval
+          label: Interval
+    - id: timezone
+      label: Timezone
+      type: text
+    - id: cronExpr
+      label: Cron Expression
+      type: text
+      columnSpan: 3
+    - id: intervalSeconds
+      label: Interval Seconds
+      type: number
+    - id: startAt
+      label: Start At (UTC)
+      type: datetime
+    - id: endAt
+      label: End At (UTC)
+      type: datetime
+
+- id: task
+  title: Task
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  style:
+    maxWidth: 980px
+    margin: 0
+  items:
+    - id: taskPromptUri
+      label: Task Prompt (URI)
+      type: text
+      columnSpan: 2
+    - id: taskPrompt
+      label: Task Prompt (Inline)
+      type: textarea
+      columnSpan: 2
+      properties:
+        rows: 4
+
+- id: runs
+  title: Runs
+  dataSourceRef: runs
+  table: $import('table/runs.yaml')

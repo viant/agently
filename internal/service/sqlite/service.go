@@ -50,10 +50,6 @@ func (s *Service) Ensure(ctx context.Context) (string, error) { // ctx kept for 
 	var name string
 	err = db.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation'").Scan(&name)
 	if err == nil && name == "conversation" {
-		// Existing DB found: apply lightweight migrations for known schema diffs.
-		if mErr := migrateIfNeeded(ctx, db); mErr != nil {
-			return "", mErr
-		}
 		return dsn, nil
 	}
 	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "no rows") {
@@ -102,35 +98,4 @@ func (s *Service) Ensure(ctx context.Context) (string, error) { // ctx kept for 
 		return "", err
 	}
 	return dsn, nil
-}
-
-// migrateIfNeeded applies minimal forward-compatible migrations for prior DBs.
-func migrateIfNeeded(ctx context.Context, db *sql.DB) error {
-	// 1) Ensure model_call.status column exists (older schema missed it)
-	hasStatus := false
-	rows, err := db.QueryContext(ctx, "PRAGMA table_info(model_call)")
-	if err == nil {
-		defer rows.Close()
-		var (
-			cid         int
-			name, ctype string
-			notnull, pk int
-			dflt        interface{}
-		)
-		for rows.Next() {
-			if scanErr := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); scanErr == nil {
-				if strings.EqualFold(name, "status") {
-					hasStatus = true
-					break
-				}
-			}
-		}
-		_ = rows.Err()
-	}
-	if !hasStatus {
-		if _, err := db.ExecContext(ctx, "ALTER TABLE model_call ADD COLUMN status TEXT"); err != nil {
-			return fmt.Errorf("migrate: add model_call.status failed: %w", err)
-		}
-	}
-	return nil
 }

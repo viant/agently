@@ -54,8 +54,8 @@ func New(handler QueryHandler, opts ...Option) *Manager {
 	return m
 }
 
-// AgentResolver resolves agent definitions by name during runtime.
-type AgentResolver func(ctx context.Context, name string) (*agentdef.Agent, error)
+// AgentResolver resolves agent definitions by ID during runtime.
+type AgentResolver func(ctx context.Context, id string) (*agentdef.Agent, error)
 
 // WithAgentResolver installs a resolver used by ResolveAgent.
 func WithAgentResolver(r AgentResolver) Option {
@@ -63,11 +63,11 @@ func WithAgentResolver(r AgentResolver) Option {
 }
 
 // ResolveAgent returns the Agent configuration for the provided name using the resolver when set.
-func (m *Manager) ResolveAgent(ctx context.Context, name string) (*agentdef.Agent, error) {
+func (m *Manager) ResolveAgent(ctx context.Context, id string) (*agentdef.Agent, error) {
 	if m == nil || m.resolver == nil {
 		return nil, errors.New("agent resolver is not configured")
 	}
-	return m.resolver(ctx, name)
+	return m.resolver(ctx, id)
 }
 
 // Accept processes a user query within a conversation.

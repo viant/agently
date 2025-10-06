@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sort"
@@ -8,6 +9,9 @@ import (
 
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/llm"
+	authctx "github.com/viant/agently/internal/auth"
+	convdao "github.com/viant/agently/internal/service/conversation"
+	usersvc "github.com/viant/agently/internal/service/user"
 )
 
 type AgentInfo struct {
@@ -147,7 +151,7 @@ func canon(s string) string { return strings.ReplaceAll(strings.TrimSpace(s), "/
 // NewAgently returns an http.HandlerFunc that writes aggregated workspace
 // metadata including defaults, agents, tools and models.
 func NewAgently(exec *execsvc.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		cfg := exec.Config()
 		if cfg == nil {
 			http.Error(w, ErrNilConfig.Error(), http.StatusInternalServerError)
@@ -161,6 +165,25 @@ func NewAgently(exec *execsvc.Service) http.HandlerFunc {
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		// Override defaults with user preferences when available
+		// Best-effort: if anything fails, keep workspace defaults.
+		if uname := strings.TrimSpace(authctx.EffectiveUserID(r.Context())); uname != "" {
+			if dao, derr := convdao.NewDatly(context.Background()); derr == nil {
+				if us, uerr := usersvc.New(context.Background(), dao); uerr == nil {
+					if u, ferr := us.FindByUsername(context.Background(), uname); ferr == nil && u != nil {
+						if u.DefaultAgentRef != nil && strings.TrimSpace(*u.DefaultAgentRef) != "" {
+							resp.Defaults.Agent = strings.TrimSpace(*u.DefaultAgentRef)
+						}
+						if u.DefaultModelRef != nil && strings.TrimSpace(*u.DefaultModelRef) != "" {
+							resp.Defaults.Model = strings.TrimSpace(*u.DefaultModelRef)
+						}
+						if u.DefaultEmbedderRef != nil && strings.TrimSpace(*u.DefaultEmbedderRef) != "" {
+							resp.Defaults.Embedder = strings.TrimSpace(*u.DefaultEmbedderRef)
+						}
+					}
+				}
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(struct {

@@ -9,7 +9,7 @@ of the hooks (workspace, loaders, memory, LLM provider, tools, …).
 ┌─────────────────────────────────────────┐
 │ 1. Client / CLI issues a request        │
 └─────────────────────────────────────────┘
-                │  (query, conversation-id, agent-name)
+                │  (query, conversation-id, agent-id)
                 ▼
 ┌─────────────────────────────────────────┐
 │ 2. Executor initialises                │

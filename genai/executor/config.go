@@ -6,6 +6,7 @@ import (
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
 	"github.com/viant/agently/genai/executor/config"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
+	authcfg "github.com/viant/agently/internal/auth"
 	agentfinder "github.com/viant/agently/internal/finder/agent"
 	embedderfinder "github.com/viant/agently/internal/finder/embedder"
 	modelfinder "github.com/viant/agently/internal/finder/model"
@@ -29,6 +30,7 @@ type Config struct {
 	MCP          *mcpcfg.Group[*mcp.ClientOptions]       `yaml:"mcp" json:"mcp"`
 	DAOConnector *view.DBConfig                          `yaml:"daoConfig" json:"daoConfig" `
 	Default      config.Defaults                         `yaml:"default" json:"default"`
+	Auth         *authcfg.Config                         `yaml:"auth" json:"auth"`
 	//
 	metaService *meta.Service
 	Services    []string `yaml:"services" json:"services"`

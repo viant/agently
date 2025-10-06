@@ -18,13 +18,26 @@ func WithCORS(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Always set the CORS headers so that they are present on both the
-		// pre-flight response and the actual response.
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// Reflect the Origin to support credentialed requests (cookies) from dev hosts
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin, Access-Control-Request-Headers, Access-Control-Request-Method")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		} else {
+			// Fallback for non-CORS requests
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+		// Methods and headers
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		reqHeaders := r.Header.Get("Access-Control-Request-Headers")
+		if reqHeaders == "" {
+			reqHeaders = "Content-Type, Authorization"
+		}
+		w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
+		// Optional: cache preflight
+		w.Header().Set("Access-Control-Max-Age", "600")
 
-		// Handle pre-flight request directly.
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return

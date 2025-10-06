@@ -4,6 +4,7 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/internal/overlay"
 	"github.com/viant/mcp-protocol/schema"
+	"strings"
 )
 
 // enrichSchema merges the first matching overlay into base. It returns base
@@ -15,6 +16,8 @@ func enrichSchema(base map[string]any) map[string]any {
 
 	propsAny, ok := base["properties"]
 	if !ok {
+		// Still normalise defaults/types at root level if present
+		fixSchemaNode(base)
 		return base
 	}
 
@@ -28,6 +31,8 @@ func enrichSchema(base map[string]any) map[string]any {
 		cloneProps[k] = v
 	}
 
+	// Always fix nodes prior to applying overlay so UI widgets behave nicely
+	fixSchemaNode(base)
 	for _, ov := range overlay.All() {
 		if len(ov.Match.Fields) > 0 && !overlay.FieldsMatch(cloneProps, ov.Match.Fields, false) {
 			continue
@@ -36,6 +41,7 @@ func enrichSchema(base map[string]any) map[string]any {
 		clone["type"] = "object"
 		clone["properties"] = cloneProps
 		ov.Apply(cloneProps)
+		fixSchemaNode(clone)
 		return clone
 	}
 	return base
@@ -72,4 +78,51 @@ func (s *Service) EnrichedToolDefinitions() []llm.ToolDefinition {
 	out := make([]llm.ToolDefinition, len(base))
 	copy(out, base)
 	return s.enriched(out)
+}
+
+// fixSchemaNode recursively normalises a JSON schema node so Forge SchemaBasedForm
+// renders editable controls:
+//   - ensure object defaults to {}
+//   - ensure array defaults to []
+//   - when array< string >, add x-ui-widget: tags for nicer UX
+func fixSchemaNode(n map[string]any) {
+	if n == nil {
+		return
+	}
+	t, _ := n["type"].(string)
+	t = strings.ToLower(strings.TrimSpace(t))
+	if t == "object" {
+		if _, ok := n["default"]; !ok {
+			n["default"] = map[string]any{}
+		}
+		if props, ok := n["properties"].(map[string]any); ok {
+			for k, v := range props {
+				if child, ok := v.(map[string]any); ok {
+					fixSchemaNode(child)
+					props[k] = child
+				}
+			}
+		}
+	} else if t == "array" {
+		if _, ok := n["default"]; !ok {
+			n["default"] = []any{}
+		} else {
+			// If mis-specified as object, coerce to [] for editability
+			switch n["default"].(type) {
+			case map[string]any:
+				n["default"] = []any{}
+			}
+		}
+		// Improve UX for string arrays
+		if items, ok := n["items"].(map[string]any); ok {
+			if itType, _ := items["type"].(string); strings.ToLower(strings.TrimSpace(itType)) == "string" {
+				if _, ok := n["x-ui-widget"]; !ok {
+					n["x-ui-widget"] = "tags"
+				}
+			} else {
+				fixSchemaNode(items)
+				n["items"] = items
+			}
+		}
+	}
 }

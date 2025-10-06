@@ -1,7 +1,7 @@
 import React, {useState, useEffect} from 'react';
 import {Tree, InputGroup, Spinner} from '@blueprintjs/core';
-import {useDataConnector} from 'forge/hooks';
 import {useSetting, addWindow} from 'forge/core';
+import {endpoints} from '../endpoint';
 
 
 const Navigation = () => {
@@ -11,29 +11,42 @@ const Navigation = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [treeData, setTreeData] = useState([]);
     const {connectorConfig = {}, useAuth} = useSetting();
-    const {authStates, defaultAuthProvider} = useAuth();
+    const {authStates, defaultAuthProvider, profile, ready} = useAuth();
     const jwtToken = authStates?.[defaultAuthProvider]?.jwtToken;
 
     const config = connectorConfig.navigation
     if (!config) {
         throw new Error("No connectorConfig.navigation found")
     }
-    // Initialize DataConnector
-    const connector = useDataConnector(config);
+    // Helper to build API URL with the configured base
+    const apiBase = (endpoints?.appAPI?.baseURL || '').replace(/\/+$/, '');
+    const apiURL = (p) => {
+        const raw = String(p || '').replace(/^\/+/, '');
+        const hasApiInBase = /\/v1\/api\/?$/.test(apiBase);
+        const path = hasApiInBase && raw.startsWith('v1/api/') ? raw.replace(/^v1\/api\//, '') : raw;
+        return `${apiBase}/${path}`;
+    };
 
 
     // Fetch navigation data on mount
     useEffect(() => {
-        if (jwtToken && !hasFetched) {
+        // Fetch once when authenticated (cookie or bearer)
+        if (!hasFetched && ready && (profile || jwtToken)) {
             setLoading(true);
-            connector.get({}).then((response) => {
-                const initialTreeData = buildTreeData(response.data);
-                setTreeData(initialTreeData);
-                setHasFetched(true);
-                setLoading(false);
-            });
+            const url = apiURL('/v1/api/agently/forge/navigation');
+            const headers = jwtToken ? { Authorization: `Bearer ${jwtToken.id_token || jwtToken}` } : {};
+            fetch(url, { credentials: 'include', headers })
+                .then(async (resp) => {
+                    const json = await resp.json().catch(() => ({}));
+                    const items = json?.data || [];
+                    const initialTreeData = buildTreeData(items);
+                    setTreeData(initialTreeData);
+                    setHasFetched(true);
+                })
+                .catch((e) => { log.error('navigation fetch failed', e?.message || e); })
+                .finally(() => setLoading(false));
         }
-    }, [jwtToken, hasFetched]);
+    }, [ready, profile, jwtToken, hasFetched]);
 
     if (loading) {
         return <Spinner/>;

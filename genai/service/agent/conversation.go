@@ -80,7 +80,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 	}
 	var (
 		defaultModel *string
-		agentName    *string
+		agentIDPtr   *string
 		metadata     *string
 		exists       bool
 	)
@@ -90,7 +90,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 	}
 	if exists = aConversation != nil; exists {
 		defaultModel = aConversation.DefaultModel
-		agentName = aConversation.AgentName
+		agentIDPtr = aConversation.AgentId
 		metadata = aConversation.Metadata
 	}
 
@@ -121,15 +121,15 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		}
 	}
 
-	chosenAgent := ""
-	if strings.TrimSpace(input.AgentName) != "" {
-		chosenAgent = input.AgentName
-	} else if input.Agent != nil && strings.TrimSpace(input.Agent.Name) != "" {
-		chosenAgent = input.Agent.Name
+	chosenAgentID := ""
+	if strings.TrimSpace(input.AgentID) != "" {
+		chosenAgentID = input.AgentID
+	} else if input.Agent != nil && strings.TrimSpace(input.Agent.ID) != "" {
+		chosenAgentID = input.Agent.ID
 	}
-	if chosenAgent == "" {
-		if agentName != nil && strings.TrimSpace(*agentName) != "" {
-			input.AgentName = *agentName
+	if chosenAgentID == "" {
+		if agentIDPtr != nil && strings.TrimSpace(*agentIDPtr) != "" {
+			input.AgentID = *agentIDPtr
 		}
 	}
 
@@ -146,10 +146,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		patch.SetDefaultModel(strings.TrimSpace(input.ModelOverride))
 		needsPatch = true
 	}
-	if chosenAgent != "" { // set agent name when provided
-		patch.SetAgentName(chosenAgent)
-		needsPatch = true
-	}
+	// Intentionally do not patch agent name; conversation stores agent_id separately.
 	if len(input.ToolsAllowed) > 0 { // update tools metadata only when provided
 		meta.Tools = append([]string(nil), input.ToolsAllowed...)
 		if b, err := json.Marshal(meta); err == nil {

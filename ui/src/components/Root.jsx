@@ -5,10 +5,13 @@ import StatusBar from './StatusBar';
 import {Outlet} from 'react-router-dom';
 import {HotkeysProvider} from '@blueprintjs/core';
 import {WindowManager} from "forge/components";
+import { useSetting } from 'forge/core';
+import SignIn from './SignIn';
 
 const Root = () => {
     const [isNavigationOpen, setIsNavigationOpen] = useState(true);
-    const [isAuthenticated, setIsAuthenticated] = useState(true);
+    const { useAuth } = useSetting();
+    const { profile, ready } = useAuth();
 
     const toggleNavigation = () => {
         setIsNavigationOpen((prev) => !prev);
@@ -26,26 +29,15 @@ const Root = () => {
                     className="app-container"
                     style={{display: 'flex', flex: 1, overflow: 'hidden'}}
                 >
-
-
-                    {isAuthenticated && isNavigationOpen && <Navigation/>}
-                    <div
-                        className="main-content"
-                        style={{
-                            flex: 1,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                        }}
-                    >
-                        {isAuthenticated ? (
-                            <>
-                                <Outlet/>
-                                <WindowManager/>
-                            </>
+                    {profile && isNavigationOpen && <Navigation/>}
+                    <div className="main-content" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                        {profile ? (
+                          <>
+                            <Outlet/>
+                            <WindowManager/>
+                          </>
                         ) : (
-                          <>no auth</>
+                          <SignIn/>
                         )}
                     </div>
                 </div>

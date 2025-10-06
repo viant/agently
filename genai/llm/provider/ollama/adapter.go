@@ -3,6 +3,7 @@ package ollama
 import (
 	"context"
 	"github.com/viant/agently/genai/llm"
+	"strings"
 )
 
 // ToRequest converts an llm.ChatRequest to an Ollama API Request
@@ -51,7 +52,11 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest, model string) 
 		// Add role prefix
 		switch msg.Role {
 		case llm.RoleUser:
-			prompt += "Human: " + msg.Content + "\n"
+			userContent := msg.Content
+			if strings.TrimSpace(msg.Name) != "" {
+				userContent = msg.Name + ":" + userContent
+			}
+			prompt += "Human: " + userContent + "\n"
 		case llm.RoleAssistant:
 			prompt += "Assistant: " + msg.Content + "\n"
 		}

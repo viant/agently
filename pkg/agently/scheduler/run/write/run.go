@@ -21,6 +21,10 @@ type Run struct {
 	Has                *RunHas    `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
+// Runs is a helper slice type referenced by datly `dataType` tags
+// to drive structql markers for the Runs collection in Input.
+type Runs []Run
+
 type RunHas struct {
 	Id, ScheduleId, CreatedAt, UpdatedAt                      bool
 	Status, ErrorMessage                                      bool

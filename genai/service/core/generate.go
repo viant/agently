@@ -19,10 +19,12 @@ type GenerateInput struct {
 	llm.ModelSelection
 	SystemPrompt *prompt.Prompt
 
-	Prompt    *prompt.Prompt
-	Binding   *prompt.Binding
-	Message   []llm.Message
-	AgentName string
+	Prompt  *prompt.Prompt
+	Binding *prompt.Binding
+	Message []llm.Message
+	// Participant identities for multi-user/agent attribution
+	UserID  string `yaml:"userID" json:"userID"`
+	AgentID string `yaml:"agentID" json:"agentID"`
 }
 
 // GenerateOutput represents output from extraction
@@ -87,12 +89,21 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 			i.Options.Tools = append(i.Options.Tools, llm.Tool{Ref: "", Definition: *tool})
 		}
 		for _, call := range tools.Executions {
-			i.Message = append(i.Message, llm.NewAssistantMessageWithToolCalls(*call))
+			msg := llm.NewAssistantMessageWithToolCalls(*call)
+			if strings.TrimSpace(i.AgentID) != "" {
+				msg.Name = i.AgentID
+			}
+			i.Message = append(i.Message, msg)
 			i.Message = append(i.Message, llm.NewToolResultMessage(*call))
 		}
 	}
 
-	i.Message = append(i.Message, llm.NewUserMessage(currentPrompt))
+	// Append current user prompt with attributed name when available
+	userMsg := llm.NewUserMessage(currentPrompt)
+	if strings.TrimSpace(i.UserID) != "" {
+		userMsg.Name = i.UserID
+	}
+	i.Message = append(i.Message, userMsg)
 	return nil
 }
 
@@ -109,6 +120,9 @@ func sortAttachments(attachments []*prompt.Attachment) {
 }
 
 func (i *GenerateInput) Validate(ctx context.Context) error {
+	if strings.TrimSpace(i.UserID) == "" {
+		return fmt.Errorf("userId is required")
+	}
 	if i.Model == "" {
 		return fmt.Errorf("model is required")
 	}

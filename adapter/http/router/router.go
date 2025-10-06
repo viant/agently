@@ -8,20 +8,30 @@ import (
 	"github.com/viant/afs"
 	fsadapter "github.com/viant/afs/adapter/http"
 	chatserver "github.com/viant/agently/adapter/http"
+	authhttp "github.com/viant/agently/adapter/http/auth"
 	"github.com/viant/agently/adapter/http/filebrowser"
+	schedulerhttp "github.com/viant/agently/adapter/http/scheduler"
 	toolhttp "github.com/viant/agently/adapter/http/tool"
 	"github.com/viant/agently/adapter/http/workflow"
 	"github.com/viant/agently/deployment/ui"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
+	schstore "github.com/viant/agently/internal/service/scheduler/store"
 	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
 
+	mw "github.com/viant/agently/adapter/http/middleware"
 	"github.com/viant/agently/adapter/http/router/metadata"
+	userpref "github.com/viant/agently/adapter/http/userpref"
 	"github.com/viant/agently/adapter/http/workspace"
 	"github.com/viant/agently/cmd/service"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
+	iauth "github.com/viant/agently/internal/auth"
 	chatsvc "github.com/viant/agently/internal/service/chat"
+	convdao "github.com/viant/agently/internal/service/conversation"
 	invk "github.com/viant/agently/pkg/agently/tool/invoker"
+	useroauthtoken "github.com/viant/agently/pkg/agently/user_oauth_token"
+	useroauthtokenintread "github.com/viant/agently/pkg/agently/user_oauth_token/internalread"
+	useroauthtokenintwrite "github.com/viant/agently/pkg/agently/user_oauth_token/internalwrite"
 	fluxorpol "github.com/viant/fluxor/policy"
 	fhandlers "github.com/viant/forge/backend/handlers"
 	fservice "github.com/viant/forge/backend/service/file"
@@ -59,6 +69,33 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 		return nil, err
 	}
 
+	// defer chat server mount until after we build DAO and authCfg
+	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
+	// Backward-compatible alias so callers using /v1/api/workspace/* keep working
+	mux.Handle("/v1/api/workspace/", http.StripPrefix("/v1/api/", workspace.NewHandler(svc)))
+
+	// Workflow run endpoint
+
+	// Single datly initialization for http handlers needing DAO
+	dao, err := convdao.NewDatly(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	mux.Handle("/v1/api/workflow/run", workflow.New(exec, svc))
+
+	// Auth endpoints (local login, me, logout) – using shared DAO and shared session manager
+	// Use auth config from workspace config (single source of truth)
+	authCfg := cfg.Auth
+	if authCfg == nil {
+		authCfg = &iauth.Config{}
+	}
+	sess := iauth.NewManager(authCfg)
+	if ah, err := authhttp.NewWithDatlyAndConfigExt(dao, sess, authCfg, cfg.Default.Model, cfg.Default.Agent, cfg.Default.Embedder); err == nil {
+		mux.Handle("/v1/api/auth/", ah)
+	}
+
+	// Mount chat API now that dao/authCfg are available
 	mux.Handle("/v1/api/", chatserver.NewServer(exec.Conversation(),
 		chatserver.WithPolicies(toolPol, fluxPol),
 		chatserver.WithApprovalService(exec.ApprovalService()),
@@ -69,13 +106,39 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 		chatserver.WithDefaults(&cfg.Default),
 		chatserver.WithInvoker(&execInvoker{exec: exec}),
 		chatserver.WithChatService(chatSvc),
+		chatserver.WithAuthConfig(authCfg),
+		chatserver.WithDAO(dao),
 	))
-	mux.Handle("/v1/workspace/", workspace.NewHandler(svc))
-	// Backward-compatible alias so callers using /v1/api/workspace/* keep working
-	mux.Handle("/v1/api/workspace/", http.StripPrefix("/v1/api/", workspace.NewHandler(svc)))
 
-	// Workflow run endpoint
-	mux.Handle("/v1/api/workflow/run", workflow.New(exec, svc))
+	// Scheduler endpoints – build client from DAO and inject into handler
+	client, err := schstore.New(context.Background(), dao)
+	if err != nil {
+		return nil, err
+	}
+	if sch, err := schedulerhttp.NewWithClient(client); err == nil {
+		registerSchedulerRoutes(mux, sch)
+	} else {
+		return nil, err
+	}
+
+	// Internal token components (read/masked + patch) – used by token store via dao.Operate only.
+	if err := useroauthtoken.DefineComponent(context.Background(), dao); err != nil {
+		return nil, err
+	}
+	if _, err := useroauthtokenintwrite.DefineComponent(context.Background(), dao); err != nil {
+		return nil, err
+	}
+	if err := useroauthtokenintread.DefineComponent(context.Background(), dao); err != nil {
+		return nil, err
+	}
+
+	// User preferences endpoint (/v1/api/me/preferences)
+	if uph, err := userpref.Handler(); err == nil {
+		mux.Handle("/v1/api/me/preferences", uph)
+	}
+
+	// Admin-only token list (provider + updated_at), guarded by AGENTLY_ADMINS
+	// Admin list disabled for now to simplify build; can be re-enabled with ops guard
 
 	// Ad-hoc tool execution
 	mux.Handle("/v1/api/tools/", http.StripPrefix("/v1/api/tools", toolhttp.New(svc)))
@@ -114,7 +177,19 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	ctx := context.Background()
 	chatserver.StartApprovalBridge(ctx, exec, exec.Conversation())
 
-	return chatserver.WithCORS(mux), nil
+	// Wrap with Protect middleware when auth enabled
+	// Attach auth config to request context for middleware claim checks
+	handlerWithCtx := mw.WithAuthConfig(mux, authCfg)
+	protected := mw.Protect(authCfg, sess)(handlerWithCtx)
+	return chatserver.WithCORS(protected), nil
 }
 
 // newStore removed — chat service now uses conversation client directly
+
+// registerSchedulerRoutes mounts all scheduler-related endpoints using a single handler.
+// This avoids duplicating registration code and ensures patterns remain consistent.
+func registerSchedulerRoutes(mux *http.ServeMux, h http.Handler) {
+	mux.Handle("/v1/api/agently/scheduler/", h)
+	mux.Handle("/v1/api/agently/schedule", h)
+	mux.Handle("/v1/api/agently/schedule-run", h)
+}

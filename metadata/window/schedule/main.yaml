@@ -1,0 +1,24 @@
+namespace: Schedules
+
+view:
+  content:
+    layout:
+      orientation: vertical
+      rows: 2
+
+    containers:
+      - id: schedulesTable
+        title: Schedules
+        dataSourceRef: schedules
+        table: $import('table/schedules.yaml')
+
+      - id: details
+        dataSourceRef: schedules
+        tabs:
+          vertical: false
+        containers: $import('form.yaml')
+
+dataSource:
+  schedules: $import('datasource/schedules.yaml')
+  runs:      $import('datasource/runs.yaml')
+

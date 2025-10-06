@@ -33,4 +33,8 @@ type Client interface {
 
 	// Generate exposes the low-level LLM core Generate bypassing agentic enrichment.
 	Generate(ctx context.Context, input *core.GenerateInput) (*core.GenerateOutput, error)
+
+	// Query executes an agentic turn synchronously with the provided input.
+	// Returns the final content and metadata captured by the agent service.
+	Query(ctx context.Context, input *QueryInput) (*QueryOutput, error)
 }

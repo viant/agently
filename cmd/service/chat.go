@@ -61,7 +61,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 	turn := func(ctx context.Context, convID, query string) (*agent.QueryOutput, string, error) {
 		input := &agent.QueryInput{
 			ConversationID: convID,
-			AgentName:      req.AgentPath,
+			AgentID:        req.AgentPath,
 			Query:          query,
 			Context:        req.Context,
 			Attachments:    req.Attachments,

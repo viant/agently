@@ -1,0 +1,14 @@
+columns:
+  - id: id
+    name: Run ID
+  - id: status
+    name: Status
+  - id: created_at
+    name: Created
+  - id: started_at
+    name: Started
+  - id: completed_at
+    name: Completed
+  - id: error_message
+    name: Error
+

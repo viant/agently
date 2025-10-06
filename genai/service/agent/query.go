@@ -14,13 +14,15 @@ import (
 type QueryInput struct {
 	// ConversationID is an optional identifier for the conversation session.
 	// If provided, conversation history will be tracked and reused.
-	ConversationID string `json:"conversationId,omitempty"`
+	ConversationID       string `json:"conversationId,omitempty"`
+	ParentConversationID string `json:"parentConversationId,omitempty"`
 	// Optional client-supplied identifier for the user message. When empty the
 	// service will generate a UUID.
 	MessageID   string               `json:"messageId,omitempty"`
-	AgentName   string               `json:"agentName"` // Path to the agent configuration
-	Agent       *agentmdl.Agent      `json:"agent"`     // Agent to use (alternative to AgentName)
-	Query       string               `json:"query"`     // The query to submit
+	AgentID     string               `json:"agentId"` // Agent ID to use
+	UserId      string               `json:"userId"`
+	Agent       *agentmdl.Agent      `json:"agent"` // Agent to use (alternative to agentId)
+	Query       string               `json:"query"` // The query to submit
 	Attachments []*prompt.Attachment `json:"attachments,omitempty"`
 
 	MaxResponseSize int    `json:"maxResponseSize"` // Maximum size of the response in bytes

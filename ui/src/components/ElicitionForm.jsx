@@ -61,6 +61,8 @@ export default function ElicitionForm({message, context}) {
                 const t = (p.type || '').toLowerCase();
                 if (t === 'array') {
                     if (p.default === undefined) p.default = [];
+                    // Coerce mis-specified defaults like {} to [] to allow typing
+                    if (p.default && !Array.isArray(p.default)) p.default = [];
                     const it = p.items || {};
                     const itType = (it.type || '').toLowerCase();
                     if (itType === 'string' && !p['x-ui-widget']) {

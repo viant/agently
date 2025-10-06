@@ -359,7 +359,7 @@ Example (Fluxor task):
 ```
 action: llm/agent:run
 input:
-  agentName: designer
+  agentId: designer
   query: "Initial feature brief"
   queryTemplate: |
     Design this feature based on:\n

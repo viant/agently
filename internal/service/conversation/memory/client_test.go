@@ -29,7 +29,7 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 	conv := convcli.NewConversation()
 	conv.SetId("c1")
 	conv.SetCreatedAt(t0)
-	conv.SetAgentName("agentA")
+	conv.SetAgentId("agentA")
 	conv.SetTitle("A title")
 	assert.NoError(t, c.PatchConversations(ctx, conv))
 
@@ -109,7 +109,7 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 	// Build expected base conversation using agconv then cast to client type
 	agBase := &agconv.ConversationView{
 		Id:         "c1",
-		AgentName:  ptrS("agentA"),
+		AgentId:    ptrS("agentA"),
 		Title:      ptrS("A title"),
 		Visibility: "",
 		CreatedAt:  t0,
@@ -173,7 +173,7 @@ func TestClient_GetConversations_ListSummary(t *testing.T) {
 
 	conv := convcli.NewConversation()
 	conv.SetId("c1")
-	conv.SetAgentName("agentA")
+	conv.SetAgentId("agentA")
 	conv.SetCreatedAt(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	assert.NoError(t, c.PatchConversations(ctx, conv))
 
@@ -188,7 +188,7 @@ func TestClient_GetConversations_ListSummary(t *testing.T) {
 	assert.NoError(t, err)
 	expected := []*convcli.Conversation{{
 		Id:        "c1",
-		AgentName: ptrS("agentA"),
+		AgentId:   ptrS("agentA"),
 		CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 	}}
 	assert.EqualValues(t, expected, items)
@@ -201,7 +201,7 @@ func TestClient_DeleteConversation_DataDriven(t *testing.T) {
 	// Seed conversation with a message
 	conv := convcli.NewConversation()
 	conv.SetId("c-del")
-	conv.SetAgentName("agentB")
+	conv.SetAgentId("agentB")
 	conv.SetCreatedAt(time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC))
 	assert.NoError(t, c.PatchConversations(ctx, conv))
 
