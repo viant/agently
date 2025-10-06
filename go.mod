@@ -17,7 +17,7 @@ require (
 	github.com/viant/datly v0.20.16-0.20250924215533-c5404492eaf7
 	github.com/viant/embedius v0.2.1
 	github.com/viant/fluxor v0.4.3
-	github.com/viant/fluxor-mcp v0.1.17
+	github.com/viant/fluxor-mcp v0.2.0
 	github.com/viant/forge v0.2.14
 	github.com/viant/jsonrpc v0.9.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
@@ -37,6 +37,7 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.32.2
 	github.com/fsnotify/fsnotify v1.6.0
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/minio/highwayhash v1.0.3
 	github.com/openai/openai-go/v3 v3.0.0
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
@@ -106,7 +107,6 @@ require (
 	github.com/go-sql-driver/mysql v1.7.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
-	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
@@ -211,7 +211,3 @@ require (
 	modernc.org/token v1.0.0 // indirect
 )
 
-
-replace (
-	github.com/viant/datly => ../datly
-)
