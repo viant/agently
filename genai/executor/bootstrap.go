@@ -264,7 +264,7 @@ func (e *Service) initEmbedders() {
 func (e *Service) initMcp() {
 	// Merge MCP repo entries -----------------------------
 	if e.config.MCP == nil {
-		e.config.MCP = &mcpcfg.Group[*mcp.ClientOptions]{}
+		e.config.MCP = &mcpcfg.Group[*mcpcfg.MCPClient]{}
 	}
 
 	if e.clientHandler == nil {
@@ -300,7 +300,7 @@ func (e *Service) initMcp() {
 			if dup {
 				continue
 			}
-			var clone mcp.ClientOptions
+			var clone mcpcfg.MCPClient
 			if b, err := yaml.Marshal(opt); err == nil {
 				_ = yaml.Unmarshal(b, &clone)
 				e.config.MCP.Items = append(e.config.MCP.Items, &clone)

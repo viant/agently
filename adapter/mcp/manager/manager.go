@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
 	"github.com/viant/mcp"
 	protoclient "github.com/viant/mcp-protocol/client"
 	mcpclient "github.com/viant/mcp/client"
@@ -13,7 +14,7 @@ import (
 
 // Provider returns client options for a given MCP server name.
 type Provider interface {
-	Options(ctx context.Context, serverName string) (*mcp.ClientOptions, error)
+	Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error)
 }
 
 // Option configures Manager.
@@ -82,7 +83,7 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	if ca, ok := h.(interface{ SetConversationID(string) }); ok {
 		ca.SetConversationID(convID)
 	}
-	cli, err := mcp.NewClient(h, opts)
+	cli, err := mcp.NewClient(h, opts.ClientOptions)
 	if err != nil {
 		return nil, err
 	}

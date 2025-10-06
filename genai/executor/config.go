@@ -19,7 +19,6 @@ import (
 	"github.com/viant/agently/internal/loader/fs"
 	"github.com/viant/datly/view"
 	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
-	"github.com/viant/mcp"
 )
 
 type Config struct {
@@ -27,7 +26,7 @@ type Config struct {
 	Agent        *mcpcfg.Group[*agent.Agent]             `yaml:"agents" json:"agents"`
 	Model        *mcpcfg.Group[*llmprovider.Config]      `yaml:"models" json:"models"`
 	Embedder     *mcpcfg.Group[*embedderprovider.Config] `yaml:"embedders" json:"embedders" `
-	MCP          *mcpcfg.Group[*mcp.ClientOptions]       `yaml:"mcp" json:"mcp"`
+	MCP          *mcpcfg.Group[*mcpcfg.MCPClient]        `yaml:"mcp" json:"mcp"`
 	DAOConnector *view.DBConfig                          `yaml:"daoConfig" json:"daoConfig" `
 	Default      config.Defaults                         `yaml:"default" json:"default"`
 	Auth         *authcfg.Config                         `yaml:"auth" json:"auth"`
