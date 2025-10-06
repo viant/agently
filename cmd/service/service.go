@@ -46,15 +46,15 @@ func New(exec *execpkg.Service, opts Options) *Service {
 }
 
 // SwitchModel sets the default modelRef for a given agent configuration.
-func (s *Service) SwitchModel(ctx context.Context, agentName, modelName string) error {
+func (s *Service) SwitchModel(ctx context.Context, agentId, modelName string) error {
 	s.initRepos()
-	return s.aRepo.SwitchModel(ctx, agentName, modelName)
+	return s.aRepo.SwitchModel(ctx, agentId, modelName)
 }
 
 // ResetModel clears modelRef so the agent uses executor default.
-func (s *Service) ResetModel(ctx context.Context, agentName string) error {
+func (s *Service) ResetModel(ctx context.Context, agentId string) error {
 	s.initRepos()
-	return s.aRepo.ResetModel(ctx, agentName)
+	return s.aRepo.ResetModel(ctx, agentId)
 }
 
 // lazy init repos

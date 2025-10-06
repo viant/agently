@@ -1,0 +1,18 @@
+service:
+  endpoint: agentlyAPI
+  # Runs for selected schedule id
+  uri: /v1/api/agently/scheduler/run/{id}
+  method: GET
+
+parameters:
+  - name: id
+    kind: path
+    in: dataSource
+    location: schedules.id
+
+selectors:
+  data: data
+
+uniqueKey:
+  - field: id
+

@@ -559,8 +559,14 @@ func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableCo
 	if src.Has.Summary {
 		dst.Summary = src.Summary
 	}
-	if src.Has.AgentName {
-		dst.AgentName = &src.AgentName
+	if src.Has.AgentId {
+		dst.AgentId = &src.AgentId
+	}
+	if src.Has.ConversationParentId {
+		dst.ConversationParentId = &src.ConversationParentId
+	}
+	if src.Has.ConversationParentTurnId {
+		dst.ConversationParentTurnId = &src.ConversationParentTurnId
 	}
 	if src.Has.Title {
 		dst.Title = src.Title

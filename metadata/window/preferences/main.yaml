@@ -1,0 +1,57 @@
+namespace: Preferences
+
+view:
+  content:
+    containers:
+      - id: prefsToolbar
+        toolbar:
+          items:
+            - id: savePrefs
+              icon: floppy-disk
+              label: Save
+              align: left
+              on:
+                - event: onClick
+                  handler: preferences.savePreferences
+      - id: prefs
+        dataSourceRef: me
+        fetchData: true
+        layout:
+          orientation: vertical
+          columns: 2
+          labelPosition: top
+          gap: 6
+        items:
+          - id: displayName
+            type: input
+            label: Display name
+            span: 1
+          - id: timezone
+            type: input
+            label: Timezone
+            span: 1
+          - id: defaultAgentRef
+            type: input
+            label: Default agent
+            span: 1
+          - id: defaultModelRef
+            type: input
+            label: Default model
+            span: 1
+          - id: defaultEmbedderRef
+            type: input
+            label: Default embedder
+            span: 2
+
+on:
+  - event: onInit
+    handler: preferences.loadPreferences
+
+dataSource:
+  me:
+    service:
+      endpoint: agentlyAPI
+      uri: /v1/api/me/preferences
+      method: GET
+    selectors:
+      data: data

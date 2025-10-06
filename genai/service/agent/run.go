@@ -21,6 +21,8 @@ import (
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
+// executeChains filters, evaluates and dispatches chains declared on the parent agent.
+
 // Query executes a query against an agent.
 func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) error {
 	// Ensure conversation exists and reuse stored defaults (agent/model/tools)
@@ -60,7 +62,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		}
 	}
 
-	// Conversation already ensured above (fills AgentName/Model/Tools when missing)
+	// Conversation already ensured above (fills AgentID/Model/Tools when missing)
 	output.ConversationID = input.ConversationID
 	s.tryMergePromptIntoContext(input)
 	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
@@ -117,7 +119,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.conversation.PatchTurn(ctx, turnRec); err != nil {
 		return err
 	}
-	_, err := s.addMessage(ctx, turn.ConversationID, "user", "", input.Query, turn.ParentMessageID, "")
+	_, err := s.addMessage(ctx, turn.ConversationID, "user", input.UserId, input.Query, turn.ParentMessageID, "")
 	if err != nil {
 		return fmt.Errorf("failed to add message: %w", err)
 	}
@@ -215,6 +217,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 	// Elicitation and final content persistence are handled inside runPlanLoop now
 	output.Usage = agg
+
+	// Execute post-turn chains (best-effort) based on final status.
+	// For sync mode with onError=propagate, errors bubble up; otherwise they are handled per policy.
+	if execErr := s.executeChains(ctx, input, output, status); execErr != nil {
+		return execErr
+	}
 	return nil
 }
 
@@ -284,7 +292,11 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			SystemPrompt:   input.Agent.SystemPrompt,
 			Binding:        binding,
 			ModelSelection: modelSelection,
-			AgentName:      input.AgentName,
+		}
+		// Attribute participants for multi-user/agent naming in LLM messages
+		genInput.UserID = strings.TrimSpace(input.UserId)
+		if input.Agent != nil {
+			genInput.AgentID = strings.TrimSpace(input.Agent.ID)
 		}
 		EnsureGenerateOptions(genInput, input.Agent)
 		genOutput := &core.GenerateOutput{}
@@ -325,7 +337,14 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					parentID = tm.ParentMessageID
 					convID = tm.ConversationID
 				}
-				if _, err := s.addMessage(ctx, convID, "assistant", "", genOutput.Content, msgID, parentID); err != nil {
+				// Attribute assistant message to the agent ID for history and UI display
+				actor := ""
+				if input != nil && input.Agent != nil && strings.TrimSpace(input.Agent.ID) != "" {
+					actor = strings.TrimSpace(input.Agent.ID)
+				} else if input != nil && strings.TrimSpace(input.AgentID) != "" {
+					actor = strings.TrimSpace(input.AgentID)
+				}
+				if _, err := s.addMessage(ctx, convID, "assistant", actor, genOutput.Content, msgID, parentID); err != nil {
 					return err
 				}
 			}

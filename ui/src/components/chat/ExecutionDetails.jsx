@@ -235,7 +235,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                     if (!useForgeDialog) setWhich({ title, payload: null, loading: true });
                 }
             }
-            const resp = await fetch(url, { credentials: 'same-origin' });
+            const resp = await fetch(url, { credentials: 'include' });
             if (!resp.ok) throw new Error(`${resp.status}`);
             const ct = resp.headers.get('content-type') || '';
             const text = await resp.text();

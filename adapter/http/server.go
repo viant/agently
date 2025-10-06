@@ -26,6 +26,7 @@ import (
 	chat "github.com/viant/agently/internal/service/chat"
 	"github.com/viant/agently/metadata"
 	invk "github.com/viant/agently/pkg/agently/tool/invoker"
+	"github.com/viant/datly"
 
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
@@ -58,6 +59,10 @@ type Server struct {
 	invoker  invk.Invoker
 	core     *corellm.Service
 	defaults *execcfg.Defaults
+
+	// Optional auth + dao for token refresh
+	authCfg *auth.Config
+	dao     *datly.Service
 }
 
 // ServerOption customises HTTP server behaviour.
@@ -123,6 +128,12 @@ func WithCore(c *corellm.Service) ServerOption { return func(s *Server) { s.core
 
 // WithDefaults passes summary defaults (model/prompt/lastN) to chat service.
 func WithDefaults(d *execcfg.Defaults) ServerOption { return func(s *Server) { s.defaults = d } }
+
+// WithAuthConfig passes auth configuration for BFF token refresh.
+func WithAuthConfig(cfg *auth.Config) ServerOption { return func(s *Server) { s.authCfg = cfg } }
+
+// WithDAO passes a shared datly service so the server can read user ids.
+func WithDAO(dao *datly.Service) ServerOption { return func(s *Server) { s.dao = dao } }
 
 // NewServer returns an http.Handler with routes bound.
 func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
@@ -636,6 +647,32 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 		return
 	}
 	ctx := s.withAuthFromRequest(r)
+	// Refresh access token for MCP/tools when BFF configured
+	if s.authCfg != nil && s.authCfg.OAuth != nil && s.dao != nil {
+		// derive user id from user service best-effort
+		info := auth.User(ctx)
+		uname := ""
+		if info != nil {
+			uname = strings.TrimSpace(info.Subject)
+			if uname == "" {
+				uname = strings.TrimSpace(info.Email)
+			}
+		}
+		if uname != "" {
+			if s.chatSvc != nil {
+				if uid, err := s.chatSvc.UserByUsername(ctx, uname); err == nil && strings.TrimSpace(uid) != "" {
+					store := auth.NewTokenStoreDAO(s.chatSvc.DAO(), s.authCfg.OAuth.Client.ConfigURL)
+					prov := s.authCfg.OAuth.Name
+					if strings.TrimSpace(prov) == "" {
+						prov = "oauth"
+					}
+					if access, _, err := store.EnsureAccessToken(ctx, uid, prov, s.authCfg.OAuth.Client.ConfigURL); err == nil && strings.TrimSpace(access) != "" {
+						ctx = auth.WithBearer(ctx, access)
+					}
+				}
+			}
+		}
+	}
 	id, err := s.chatSvc.Post(ctx, convID, req)
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
@@ -735,14 +772,21 @@ func ListenAndServe(addr string, mgr *conversation.Manager) error {
 // identity and enriches the request context so downstream services can persist
 // user info without direct HTTP coupling.
 func (s *Server) withAuthFromRequest(r *http.Request) context.Context {
-	ctx := context.Background()
+	// Start with existing request context to preserve middleware-provided identity
+	ctx := r.Context()
 	authz := r.Header.Get("Authorization")
 	if strings.TrimSpace(authz) == "" {
-		// No auth header; set default anonymous user for flow testing
+		// If middleware provided identity (cookie session), keep it; else use anonymous
+		if info := auth.User(ctx); info != nil && (strings.TrimSpace(info.Subject) != "" || strings.TrimSpace(info.Email) != "") {
+			return ctx
+		}
 		return auth.WithUserInfo(ctx, &auth.UserInfo{Subject: "anonymous"})
 	}
 	token := auth.ExtractBearer(authz)
 	if token == "" {
+		if info := auth.User(ctx); info != nil && (strings.TrimSpace(info.Subject) != "" || strings.TrimSpace(info.Email) != "") {
+			return ctx
+		}
 		return auth.WithUserInfo(ctx, &auth.UserInfo{Subject: "anonymous"})
 	}
 	ctx = auth.WithBearer(ctx, token)

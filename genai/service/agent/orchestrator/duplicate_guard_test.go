@@ -129,20 +129,20 @@ func TestDuplicateGuard_ConsecutiveCalls(t *testing.T) {
 				},
 				{
 					Name:      "sqlkit-query",
-					Args:      map[string]interface{}{"query": "SELECT * FROM users"},
+					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "some error",
 					wantBlock: false,
 				},
 				{
 					Name:      "sqlkit-query",
-					Args:      map[string]interface{}{"query": "SELECT * FROM users"},
+					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "some error",
 					wantBlock: true, // Third consecutive identical call should be blocked
 				},
 
 				{
 					Name:      "sqlkit-query",
-					Args:      map[string]interface{}{"query": "SELECT * FROM users"},
+					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "some error",
 					wantBlock: true, // Fourth consecutive identical call should be blocked
 				},
@@ -153,13 +153,13 @@ func TestDuplicateGuard_ConsecutiveCalls(t *testing.T) {
 			sequence: []call{
 				{
 					Name:      "sqlkit-query",
-					Args:      map[string]interface{}{"query": "SELECT * FROM users"},
+					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "some error",
 					wantBlock: false,
 				},
 				{
 					Name:      "sqlkit-query",
-					Args:      map[string]interface{}{"query": "SELECT * FROM users"},
+					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "some error",
 					wantBlock: false,
 				},
@@ -171,7 +171,7 @@ func TestDuplicateGuard_ConsecutiveCalls(t *testing.T) {
 				},
 				{
 					Name:      "sqlkit-query",
-					Args:      map[string]interface{}{"query": "SELECT * FROM users"},
+					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "some error",
 					wantBlock: false, // Counter should reset
 				},
@@ -182,19 +182,19 @@ func TestDuplicateGuard_ConsecutiveCalls(t *testing.T) {
 			sequence: []call{
 				{
 					Name:      "sqlkit-query",
-					Args:      map[string]interface{}{"query": "SELECT * FROM users"},
+					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "some error",
 					wantBlock: false,
 				},
 				{
 					Name:      "sqlkit-query",
-					Args:      map[string]interface{}{"query": "SELECT * FROM users"},
+					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "",
 					wantBlock: false, // Second consecutive identical shouldn't be blocked when error occurred for same call before
 				},
 				{
 					Name:      "sqlkit-query",
-					Args:      map[string]interface{}{"query": "SELECT * FROM users"},
+					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "",
 					wantBlock: true, // Third consecutive identical call should be blocked
 				},
@@ -206,13 +206,13 @@ func TestDuplicateGuard_ConsecutiveCalls(t *testing.T) {
 				},
 				{
 					Name:      "sqlkit-query",
-					Args:      map[string]interface{}{"query": "SELECT * FROM users"},
+					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "",
 					wantBlock: false, // First call shouldn't be blocked
 				},
 				{
 					Name:      "sqlkit-query",
-					Args:      map[string]interface{}{"query": "SELECT * FROM users"},
+					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "",
 					wantBlock: true, // Second consecutive identical call should be blocked
 				},

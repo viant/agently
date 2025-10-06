@@ -110,15 +110,15 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 
 	// Attachment delivery preference: default to "ref" when unspecified
 	attachMode := "unknownAttachMode"
-	agentName := "unknownAgent"
+	agentID := "unknownAgent"
 
 	var ttlSec int64
 	if request != nil && request.Options != nil && request.Options.Metadata != nil {
 		if v, ok := request.Options.Metadata["attachMode"].(string); ok && strings.TrimSpace(v) != "" {
 			attachMode = strings.ToLower(strings.TrimSpace(v))
 		}
-		if v, ok := request.Options.Metadata["agentName"].(string); ok && strings.TrimSpace(v) != "" {
-			agentName = strings.ToLower(strings.TrimSpace(v))
+		if v, ok := request.Options.Metadata["agentId"].(string); ok && strings.TrimSpace(v) != "" {
+			agentID = strings.ToLower(strings.TrimSpace(v))
 		}
 		if v, ok := request.Options.Metadata["attachmentTTLSec"]; ok {
 			switch t := v.(type) {
@@ -140,8 +140,8 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		return nil, fmt.Errorf("attachMode not specified in options.metadata")
 	}
 
-	if agentName == "unknownAgent" {
-		return nil, fmt.Errorf("agentName not specified in options.metadata")
+	if agentID == "unknownAgent" {
+		return nil, fmt.Errorf("agentId not specified in options.metadata")
 	}
 
 	// Convert messages
@@ -149,7 +149,10 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	for i, msg := range request.Messages {
 		message := Message{
 			Role: string(msg.Role),
-			Name: msg.Name,
+		}
+		// Propagate speaker name only for user/assistant roles
+		if msg.Role == llm.RoleUser || msg.Role == llm.RoleAssistant {
+			message.Name = msg.Name
 		}
 
 		// Handle content based on priority: Items > ContentItems > Result
@@ -215,7 +218,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 							dataURL := "data:" + item.MimeType + ";base64," + item.Data
 							contentItem.ImageURL = &ImageURL{URL: dataURL}
 						} else { // TODO return error if not pdf
-							fileID, err := c.uploadFielAndGetID(context.Background(), item.Data, item.Name, agentName, ttlSec)
+							fileID, err := c.uploadFielAndGetID(context.Background(), item.Data, item.Name, agentID, ttlSec)
 							if err != nil {
 								return nil, fmt.Errorf("failed to upload PDF content item: %w", err)
 							}
@@ -303,7 +306,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 }
 
 // uploadFielAndGetID uploads a base64-encoded PDF to OpenAI assets and returns its file_id.
-func (c *Client) uploadFielAndGetID(ctx context.Context, base64Data string, name string, agentName string, ttlSec int64) (string, error) {
+func (c *Client) uploadFielAndGetID(ctx context.Context, base64Data string, name string, agentID string, ttlSec int64) (string, error) {
 	// TODO detect duplicates, user
 
 	var attachmentTTLSec int64 = ttlSec
@@ -333,7 +336,7 @@ func (c *Client) uploadFielAndGetID(ctx context.Context, base64Data string, name
 		return "", fmt.Errorf("failed to determine host ip prefix: %w", err)
 	}
 
-	filename := fmt.Sprintf("agently/%s/%s/%s/%s", user, agentName, c.Model, name)
+	filename := fmt.Sprintf("agently/%s/%s/%s/%s", user, agentID, c.Model, name)
 	dest := "openai://assets/" + filename
 	// Build options with optional TTL
 	var opts []storage.Option

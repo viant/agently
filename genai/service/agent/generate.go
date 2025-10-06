@@ -30,7 +30,8 @@ func EnsureGenerateOptions(i *core.GenerateInput, agent *agent.Agent) {
 		mode = "ref"
 	}
 	i.Options.Metadata["attachMode"] = mode
-	i.Options.Metadata["agentName"] = agent.Name
+	// Use agentId for provider-side scoping (uploads, telemetry). Agent name is reserved for prompt identity only.
+	i.Options.Metadata["agentId"] = agent.ID
 	// Optional TTL for attachments (in seconds)
 	if agent.AttachmentTTLSec > 0 {
 		i.Options.Metadata["attachmentTTLSec"] = agent.AttachmentTTLSec

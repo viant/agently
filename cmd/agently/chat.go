@@ -29,7 +29,7 @@ import (
 
 // ChatCmd handles interactive/chat queries.
 type ChatCmd struct {
-	AgentName string `short:"a" long:"agent-name" description:"agent name"`
+	AgentID   string `short:"a" long:"agent-id" description:"agent id"`
 	Query     string `short:"q" long:"query"    description:"user query"`
 	ConvID    string `short:"c" long:"conv"     description:"conversation ID (optional)"`
 	Policy    string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
@@ -74,8 +74,8 @@ func (cliInteractionHandler) Accept(ctx context.Context, el *plan.Elicitation) (
 
 func (c *ChatCmd) Execute(_ []string) error {
 	// Fallbacks -------------------------------------------------------
-	if c.AgentName == "" {
-		c.AgentName = "chat" // default agent shipped with embedded config
+	if c.AgentID == "" {
+		c.AgentID = "chat" // default agent id shipped with embedded config
 	}
 
 	// -----------------------------------------------------------------
@@ -170,7 +170,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 		ctx = memory.WithConversationID(ctx, convID)
 		req := service.ChatRequest{
 			ConversationID: convID,
-			AgentPath:      c.AgentName,
+			AgentPath:      c.AgentID,
 			Query:          userQuery,
 			Context:        contextData,
 			Timeout:        time.Duration(c.Timeout) * time.Second,

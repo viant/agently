@@ -139,7 +139,7 @@ func (s *Service) GetSchedules(ctx context.Context) ([]*schcli.Schedule, error) 
 		return nil, nil
 	}
 	out := &schedulepkg.ScheduleOutput{}
-	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(schedulepkg.SchedulePathListURI), datly.WithInput(&schedulepkg.ScheduleInput{})); err != nil {
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(schedulepkg.SchedulePathListURI), datly.WithInput(&schedulepkg.ScheduleListInput{})); err != nil {
 		return nil, err
 	}
 	res := make([]*schcli.Schedule, 0, len(out.Data))

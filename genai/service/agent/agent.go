@@ -8,8 +8,8 @@ import (
 // ensureAgent populates qi.Agent (using finder when needed) and echoes it on
 // qo.Agent for caller convenience.
 func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
-	if qi.Agent == nil && qi.AgentName != "" {
-		a, err := s.agentFinder.Find(ctx, qi.AgentName)
+	if qi.Agent == nil && qi.AgentID != "" {
+		a, err := s.agentFinder.Find(ctx, qi.AgentID)
 		if err != nil {
 			return fmt.Errorf("failed to load agent: %w", err)
 		}

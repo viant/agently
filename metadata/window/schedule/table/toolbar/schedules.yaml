@@ -1,0 +1,18 @@
+items:
+  - id: refresh
+    icon: refresh
+    align: left
+
+  - id: addNew
+    icon: new-object
+    align: left
+    on:
+      - event: onClick
+        handler: dataSource.handleAddNew
+
+  - id: save
+    icon: floppy-disk
+    align: left
+    on:
+      - event: onClick
+        handler: schedule.saveSchedule

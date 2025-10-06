@@ -30,7 +30,7 @@ func TestManager_UsageStoreIntegration(t *testing.T) {
 	store := memory.NewUsageStore()
 	mgr := New(memory.NewHistoryStore(), nil, handlerWithUsage(agg), WithUsageStore(store))
 
-	in := &agentpkg.QueryInput{ConversationID: "conv1", AgentName: "dummy", Query: "hi"}
+	in := &agentpkg.QueryInput{ConversationID: "conv1", AgentID: "dummy", Query: "hi"}
 	_, err := mgr.Accept(context.Background(), in)
 	assert.NoError(t, err)
 

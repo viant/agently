@@ -76,36 +76,6 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		return nil, err
 	}
 	b.Context = input.Context
-
-	// Populate elicitation holder for templates to conditionally instruct LLM
-	if input.Agent != nil && input.Agent.Elicitation != nil {
-		// Shallow schema projection for templates
-		schema := map[string]interface{}{}
-		rs := input.Agent.Elicitation.RequestedSchema
-		if strings.TrimSpace(rs.Type) != "" {
-			schema["type"] = rs.Type
-		}
-		if len(rs.Properties) > 0 {
-			schema["properties"] = rs.Properties
-		}
-		if len(rs.Required) > 0 {
-			schema["required"] = rs.Required
-		}
-		miss := missingRequired(input.Agent.Elicitation, input.Context)
-		schemaJSON := ""
-		if len(schema) > 0 {
-			if raw, err := json.Marshal(schema); err == nil {
-				schemaJSON = string(raw)
-			}
-		}
-		b.Elicitation = prompt.Elicitation{
-			Required:   len(miss) > 0,
-			Missing:    miss,
-			Message:    input.Agent.Elicitation.Message,
-			Schema:     schema,
-			SchemaJSON: schemaJSON,
-		}
-	}
 	return b, nil
 }
 

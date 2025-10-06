@@ -35,7 +35,7 @@ func (r *RunCmd) Execute(_ []string) error {
 		return fmt.Errorf("decode input: %w", err)
 	}
 	if r.Location != "" {
-		q.AgentName = r.Location
+		q.AgentID = r.Location
 	}
 
 	svc := executorSingleton()

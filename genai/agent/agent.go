@@ -1,7 +1,9 @@
 package agent
 
 import (
-	"github.com/viant/agently/genai/agent/plan"
+	"fmt"
+	"strings"
+
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/prompt"
 )
@@ -45,13 +47,6 @@ type (
 		// ToolCallExposure defines how tool calls are exposed to the LLM
 		ToolCallExposure ToolCallExposure `yaml:"toolCallExposure,omitempty" json:"toolCallExposure,omitempty"`
 
-		// Elicitation optionally defines required context schema that must be
-		// satisfied before the agent can execute its workflow. When provided, the
-		// runtime checks incoming QueryInput.Context against the schema and, if
-		// required properties are missing, responds with an elicitation request
-		// to gather the missing data from the caller.
-		Elicitation *plan.Elicitation `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
-
 		// Persona defines the default conversational persona the agent uses when
 		// sending messages. When nil the role defaults to "assistant".
 		Persona *prompt.Persona `yaml:"persona,omitempty" json:"persona,omitempty"`
@@ -64,6 +59,9 @@ type (
 		AttachmentLimitBytes int64  `yaml:"attachmentLimitBytes,omitempty" json:"attachmentLimitBytes,omitempty"`
 		AttachMode           string `yaml:"attachMode,omitempty" json:"attachMode,omitempty"` // "ref" | "inline"
 		AttachmentTTLSec     int64  `yaml:"attachmentTTLSec,omitempty" json:"attachmentTTLSec,omitempty"`
+
+		// Chains defines post-turn follow-ups executed after a turn finishes.
+		Chains []*Chain `yaml:"chains,omitempty" json:"chains,omitempty"`
 	}
 
 	// ToolExport defines optional settings to expose an agent as a runtime tool.
@@ -73,8 +71,56 @@ type (
 		Method  string   `yaml:"method,omitempty" json:"method,omitempty"`   // Method name (default agent.id)
 		Domains []string `yaml:"domains,omitempty" json:"domains,omitempty"` // Allowed parent domains
 	}
+
+	// Chain defines a single post-turn follow-up.
+	Chain struct {
+		On           string         `yaml:"on,omitempty" json:"on,omitempty"`                     // succeeded|failed|canceled|*
+		Target       ChainTarget    `yaml:"target" json:"target"`                                 // required: agent to invoke
+		Mode         string         `yaml:"mode,omitempty" json:"mode,omitempty"`                 // async|sync|queue (default sync)
+		Conversation string         `yaml:"conversation,omitempty" json:"conversation,omitempty"` // reuse|link (default link)
+		Query        *prompt.Prompt `yaml:"query,omitempty" json:"query,omitempty"`               // templated query/payload
+		When         string         `yaml:"when,omitempty" json:"when,omitempty"`                 // optional condition
+		Publish      *ChainPublish  `yaml:"publish,omitempty" json:"publish,omitempty"`           // optional publish settings
+		OnError      string         `yaml:"onError,omitempty" json:"onError,omitempty"`           // ignore|message|propagate
+		Limits       *ChainLimits   `yaml:"limits,omitempty" json:"limits,omitempty"`             // guard-rails
+	}
+
+	ChainTarget struct {
+		AgentID string `yaml:"agentId" json:"agentId"`
+	}
+
+	ChainPublish struct {
+		Role         string `yaml:"role,omitempty" json:"role,omitempty"`                 // assistant|user|system|tool|none
+		Name         string `yaml:"name,omitempty" json:"name,omitempty"`                 // attribution handle
+		Type         string `yaml:"type,omitempty" json:"type,omitempty"`                 // text|control
+		Parent       string `yaml:"parent,omitempty" json:"parent,omitempty"`             // same_turn|last_user|none
+		AutoNextTurn bool   `yaml:"autoNextTurn,omitempty" json:"autoNextTurn,omitempty"` // only with role=user
+	}
+
+	ChainLimits struct {
+		MaxDepth  int    `yaml:"maxDepth,omitempty" json:"maxDepth,omitempty"`
+		DedupeKey string `yaml:"dedupeKey,omitempty" json:"dedupeKey,omitempty"`
+	}
 )
 
 func (a *Agent) Validate() error {
+	if a == nil {
+		return fmt.Errorf("agent is nil")
+	}
+	// Validate chains: target.agentId must be non-empty when chains are declared
+	for i, c := range a.Chains {
+		if c == nil {
+			continue
+		}
+		if strings.TrimSpace(c.Target.AgentID) == "" {
+			return fmt.Errorf("invalid chain[%d]: target.agentId is required", i)
+		}
+		if m := strings.ToLower(strings.TrimSpace(c.Mode)); m != "" && m != "sync" && m != "async" {
+			return fmt.Errorf("invalid chain[%d]: mode must be sync or async", i)
+		}
+		if conv := strings.ToLower(strings.TrimSpace(c.Conversation)); conv != "" && conv != "reuse" && conv != "link" {
+			return fmt.Errorf("invalid chain[%d]: conversation must be reuse or link", i)
+		}
+	}
 	return nil
 }

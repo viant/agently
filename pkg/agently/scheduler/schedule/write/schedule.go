@@ -28,6 +28,10 @@ type Schedule struct {
 	Has             *ScheduleHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
+// Schedules is a helper slice type referenced by datly `dataType` tags
+// to drive structql markers for the Schedules collection in Input.
+type Schedules []Schedule
+
 type ScheduleHas struct {
 	Id, Name, Description, AgentRef, ModelOverride bool
 	Enabled, StartAt, EndAt, ScheduleType          bool

@@ -11,21 +11,23 @@ type Conversations struct {
 }
 
 type Conversation struct {
-	Id                   string     `sqlx:"id,primaryKey" validate:"required"`
-	Summary              *string    `sqlx:"summary" json:",omitempty"`
-	AgentName            string     `sqlx:"agent_name" `
-	Title                *string    `sqlx:"title" json:",omitempty"`
-	Visibility           *string    `sqlx:"visibility" json:",omitempty"`
-	CreatedAt            *time.Time `sqlx:"created_at" json:",omitempty"`
-	LastActivity         *time.Time `sqlx:"last_activity" json:",omitempty"`
-	UsageInputTokens     int        `sqlx:"usage_input_tokens" json:",omitempty"`
-	UsageOutputTokens    int        `sqlx:"usage_output_tokens" json:",omitempty"`
-	UsageEmbeddingTokens int        `sqlx:"usage_embedding_tokens" json:",omitempty"`
-	CreatedByUserID      *string    `sqlx:"created_by_user_id" json:",omitempty"`
-	DefaultModelProvider *string    `sqlx:"default_model_provider" json:",omitempty"`
-	DefaultModel         *string    `sqlx:"default_model" json:",omitempty"`
-	DefaultModelParams   *string    `sqlx:"default_model_params" json:",omitempty"`
-	Metadata             *string    `sqlx:"metadata" json:",omitempty"`
+	Id                       string     `sqlx:"id,primaryKey" validate:"required"`
+	Summary                  *string    `sqlx:"summary" json:",omitempty"`
+	AgentId                  string     `sqlx:"agent_id" `
+	Title                    *string    `sqlx:"title" json:",omitempty"`
+	ConversationParentId     string     `sqlx:"conversation_parent_id" `
+	ConversationParentTurnId string     `sqlx:"conversation_parent_turn_id" `
+	Visibility               *string    `sqlx:"visibility" json:",omitempty"`
+	CreatedAt                *time.Time `sqlx:"created_at" json:",omitempty"`
+	LastActivity             *time.Time `sqlx:"last_activity" json:",omitempty"`
+	UsageInputTokens         int        `sqlx:"usage_input_tokens" json:",omitempty"`
+	UsageOutputTokens        int        `sqlx:"usage_output_tokens" json:",omitempty"`
+	UsageEmbeddingTokens     int        `sqlx:"usage_embedding_tokens" json:",omitempty"`
+	CreatedByUserID          *string    `sqlx:"created_by_user_id" json:",omitempty"`
+	DefaultModelProvider     *string    `sqlx:"default_model_provider" json:",omitempty"`
+	DefaultModel             *string    `sqlx:"default_model" json:",omitempty"`
+	DefaultModelParams       *string    `sqlx:"default_model_params" json:",omitempty"`
+	Metadata                 *string    `sqlx:"metadata" json:",omitempty"`
 	// Scheduling annotations for discriminating scheduled conversations
 	Scheduled        int              `sqlx:"scheduled" json:",omitempty"`
 	ScheduleId       *string          `sqlx:"schedule_id" json:",omitempty"`
@@ -37,27 +39,29 @@ type Conversation struct {
 }
 
 type ConversationHas struct {
-	Id                   bool
-	Summary              bool
-	AgentName            bool
-	Title                bool
-	Visibility           bool
-	CreatedAt            bool
-	LastActivity         bool
-	UsageInputTokens     bool
-	UsageOutputTokens    bool
-	UsageEmbeddingTokens bool
-	CreatedByUserID      bool
-	DefaultModelProvider bool
-	DefaultModel         bool
-	DefaultModelParams   bool
-	Metadata             bool
-	Scheduled            bool
-	ScheduleId           bool
-	ScheduleRunId        bool
-	ScheduleKind         bool
-	ScheduleTimezone     bool
-	ScheduleCronExpr     bool
+	Id                       bool
+	Summary                  bool
+	AgentId                  bool
+	ConversationParentId     bool
+	ConversationParentTurnId bool
+	Title                    bool
+	Visibility               bool
+	CreatedAt                bool
+	LastActivity             bool
+	UsageInputTokens         bool
+	UsageOutputTokens        bool
+	UsageEmbeddingTokens     bool
+	CreatedByUserID          bool
+	DefaultModelProvider     bool
+	DefaultModel             bool
+	DefaultModelParams       bool
+	Metadata                 bool
+	Scheduled                bool
+	ScheduleId               bool
+	ScheduleRunId            bool
+	ScheduleKind             bool
+	ScheduleTimezone         bool
+	ScheduleCronExpr         bool
 }
 
 func (c *Conversation) SetId(value string) {
@@ -70,9 +74,19 @@ func (c *Conversation) SetSummary(value string) {
 	c.Has.Summary = true
 }
 
-func (c *Conversation) SetAgentName(value string) {
-	c.AgentName = value
-	c.Has.AgentName = true
+func (c *Conversation) SetAgentId(value string) {
+	c.AgentId = value
+	c.Has.AgentId = true
+}
+
+func (c *Conversation) SetConversationParentId(value string) {
+	c.ConversationParentId = value
+	c.Has.ConversationParentId = true
+}
+
+func (c *Conversation) SetConversationParentTurnId(value string) {
+	c.ConversationParentTurnId = value
+	c.Has.ConversationParentTurnId = true
 }
 
 func (c *Conversation) SetTitle(value string) {

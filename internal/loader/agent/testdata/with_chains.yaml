@@ -1,0 +1,21 @@
+id: agent-chain-demo
+name: Chain Demo
+model: gpt-4o
+chains:
+  - on: succeeded
+    target:
+      agentId: summarizer
+    # mode omitted -> default async
+    # conversation omitted -> default link (child)
+    query:
+      text: |
+        Summarize the assistant reply: {{ .Output.Content }}
+    publish:
+      role: assistant
+  - on: failed
+    target:
+      agentId: notifier
+    mode: sync
+    conversation: reuse
+    when: '{{ ne .Output.Content "" }}'
+    onError: message

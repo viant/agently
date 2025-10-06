@@ -18,7 +18,7 @@ func DefineScheduleListComponent(ctx context.Context, srv *datly.Service) error 
 		contract.NewPath("GET", SchedulePathListURI),
 		repository.WithResource(srv.Resource()),
 		repository.WithContract(
-			reflect.TypeOf(ScheduleInput{}),
+			reflect.TypeOf(ScheduleListInput{}),
 			reflect.TypeOf(ScheduleOutput{}), &ScheduleFS, view.WithConnectorRef("agently")))
 
 	if err != nil {

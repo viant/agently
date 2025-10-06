@@ -36,6 +36,20 @@ func TestService_Load(t *testing.T) {
 			expectedJSON: `{"id":"agent-123","name":"Database tester Agent","icon":"https://example.com/icon.png","source":{"url":"embed:///testdata/tester.yaml"},"model":"o1","temperature":0.7,"description":"An example agent for demonstration purposes.","knowledge":[{"match":{"Inclusions":["*.md"]},"url":"embed://localhost/testdata/knowledge"}]}`,
 		},
 		{
+			name: "Agent with chains",
+			url:  "with_chains.yaml",
+			expectedJSON: `{
+			  "id":"agent-chain-demo",
+			  "name":"Chain Demo",
+			  "source":{"url":"embed:///testdata/with_chains.yaml"},
+			  "model":"gpt-4o",
+            "chains":[
+                {"on":"succeeded","target":{"agentId":"summarizer"},"mode":"sync","conversation":"link","query":{"text":"Summarize the assistant reply: {{ .Output.Content }}"},"publish":{"role":"assistant"}},
+			    {"on":"failed","target":{"agentId":"notifier"},"mode":"sync","conversation":"reuse","when":"{{ ne .Output.Content \"\" }}","onError":"message"}
+			  ]
+			}`,
+		},
+		{
 			name:        "Invalid URL",
 			url:         "nonexistent.yaml",
 			expectedErr: true,

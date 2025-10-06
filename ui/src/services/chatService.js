@@ -158,10 +158,8 @@ async function dsTick({context}) {
         if (!messagesCtx) {
             return;
         }
-        const ctrl = messagesCtx.signals?.control;
-        if (ctrl?.peek?.()?.loading) {
-            return;
-        }
+        // Do not block polling while a turn is running; background updates rely on polling.
+        // Any visual spinner suppression is handled separately via setLoading wrapper.
         const coll = Array.isArray(messagesCtx.signals?.collection?.value) ? messagesCtx.signals.collection.value : [];
         let since = '';
         for (let i = coll.length - 1; i >= 0; i--) {
@@ -203,6 +201,28 @@ async function dsTick({context}) {
             if (rows.length) {
                 receiveMessages(messagesCtx, rows, since);
             }
+            // Derive running/finished state from the last turn to keep Abort button accurate
+            try {
+                const lastTurn = Array.isArray(transcript) && transcript.length ? transcript[transcript.length - 1] : null;
+                const turnStatus = String(lastTurn?.status || lastTurn?.Status || '').toLowerCase();
+                const isRunning = (turnStatus === 'running' || turnStatus === 'open' || turnStatus === 'pending' || turnStatus === 'thinking' || turnStatus === 'processing');
+                const isFinished = (!!turnStatus && !isRunning);
+                const ctrlSig = messagesCtx?.signals?.control;
+                if (ctrlSig) {
+                    const prev = (typeof ctrlSig.peek === 'function') ? (ctrlSig.peek() || {}) : (ctrlSig.value || {});
+                    const loading = !!isRunning;
+                    if (prev.loading !== loading) {
+                        ctrlSig.value = {...prev, loading};
+                    }
+                }
+                const convCtx = context.Context('conversations');
+                if (convCtx?.handlers?.dataSource?.setFormField) {
+                    convCtx.handlers.dataSource.setFormField({ item: { id: 'running' }, value: !!isRunning });
+                }
+                if (isFinished && turnStatus) {
+                    setStage({phase: (turnStatus === 'failed' || turnStatus === 'error') ? 'error' : 'done'});
+                }
+            } catch(_) {}
             // Update noop/backoff signals
             let newestTurnId = '';
             for (let i = transcript.length - 1; i >= 0; i--) {
@@ -526,6 +546,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 conversationId: m.conversationId || m.ConversationId,
                 // For any elicitation row we allow (assistant last+pending or tool pending), force synthetic role.
                 role: (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? 'elicition' : roleLower,
+                name: (m.createdByUserId || m.CreatedByUserId || ''),
                 // Do not show any bubble content for elicitation rows; dialog carries the UI.
                 content: (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? '' : (m.content || m.Content || ''),
                 createdAt,
@@ -959,11 +980,11 @@ function getSelectedAgent(context) {
     return conv.agent || '';
 }
 
-function getAgentPatterns(context, agentName) {
+function getAgentPatterns(context, agentId) {
     const agentContext = context.Context('agents');
     let agents = agentContext?.handlers?.dataSource?.peekCollection?.() || [];
 
-    const agent = agents.find(a => a?.name === agentName || a?.id === agentName);
+    const agent = agents.find(a => a?.id === agentId || a?.name === agentId);
 
     if (!agent?.tool || !Array.isArray(agent.tool)) {
         return [];
@@ -1123,6 +1144,11 @@ export async function submitMessage(props) {
     } catch (error) {
         log.error('submitMessage error', error);
         messagesContext?.handlers?.dataSource?.setError(error);
+        try {
+            const convCtx = context.Context('conversations');
+            convCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'running'}, value: false});
+        } catch (_) {}
+        try { setStage({phase: 'error'}); } catch (_) {}
     } finally {
         try {
             setComposerBusy(false);
@@ -1206,7 +1232,7 @@ export async function abortConversation(props) {
         // Build absolute URL using configured agentlyAPI endpoint
         const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
         const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/terminate`;
-        const resp = await fetch(url, {method: 'POST'});
+        const resp = await fetch(url, {method: 'POST', credentials: 'include'});
         let payload = null;
         try {
             // 204 → no body; guard parsing
@@ -1260,7 +1286,7 @@ export async function compactConversation(props) {
         }
         const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
         const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/compact`;
-        const resp = await fetch(url, {method: 'POST'});
+        const resp = await fetch(url, {method: 'POST', credentials: 'include'});
         if (!resp.ok) {
             const text = await resp.text().catch(() => '');
             throw new Error(text || `HTTP ${resp.status}`);
@@ -1329,7 +1355,7 @@ export async function deleteConversation({context}) {
         }
         const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
         const url = `${base}/v1/api/conversations/${encodeURIComponent(id)}`;
-        const resp = await fetch(url, {method: 'DELETE'});
+        const resp = await fetch(url, {method: 'DELETE', credentials: 'include'});
         if (!resp.ok && resp.status !== 204) {
             const text = await resp.text();
             throw new Error(text || `delete failed: ${resp.status}`);
@@ -1678,7 +1704,7 @@ export async function onChangedFileSelect(props) {
             const t0 = Date.now();
             let resp;
             try {
-                resp = await fetch(url, {credentials: 'same-origin'});
+                resp = await fetch(url, {credentials: 'include'});
             } catch (e) {
                 try {
                     console.warn('[changedFile][fetch:error]', {label, url, error: String(e)});
@@ -1901,6 +1927,7 @@ export const chatService = {
             const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/tools/run`;
             const resp = await fetch(url, {
                 method: 'POST',
+                credentials: 'include',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({service: 'system/patch', method: 'commit', args: {}})
             });
@@ -1919,6 +1946,7 @@ export const chatService = {
             const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/tools/run`;
             const resp = await fetch(url, {
                 method: 'POST',
+                credentials: 'include',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({service: 'system/patch', method: 'rollback', args: {}})
             });

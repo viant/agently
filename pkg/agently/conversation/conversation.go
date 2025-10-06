@@ -55,44 +55,46 @@ type ConversationOutput struct {
 }
 
 type ConversationView struct {
-	LastTurnId           *string           `sqlx:"last_turn_id"`
-	Stage                string            `sqlx:"stage"`
-	Id                   string            `sqlx:"id"`
-	Summary              *string           `sqlx:"summary"`
-	AgentName            *string           `sqlx:"agent_name"`
-	LastActivity         *time.Time        `sqlx:"last_activity"`
-	UsageInputTokens     *int              `sqlx:"usage_input_tokens"`
-	UsageOutputTokens    *int              `sqlx:"usage_output_tokens"`
-	UsageEmbeddingTokens *int              `sqlx:"usage_embedding_tokens"`
-	CreatedAt            time.Time         `sqlx:"created_at"`
-	UpdatedAt            *time.Time        `sqlx:"updated_at"`
-	CreatedByUserId      *string           `sqlx:"created_by_user_id"`
-	TenantId             *string           `sqlx:"tenant_id"`
-	AgentId              *string           `sqlx:"agent_id"`
-	AgentConfigId        *string           `sqlx:"agent_config_id"`
-	DefaultModelProvider *string           `sqlx:"default_model_provider"`
-	DefaultModel         *string           `sqlx:"default_model"`
-	DefaultModelParams   *string           `sqlx:"default_model_params"`
-	Title                *string           `sqlx:"title"`
-	Metadata             *string           `sqlx:"metadata"`
-	Visibility           string            `sqlx:"visibility"`
-	Archived             int               `sqlx:"archived"`
-	DeletedAt            *time.Time        `sqlx:"deleted_at"`
-	LastMessageAt        *time.Time        `sqlx:"last_message_at"`
-	MessageCount         int               `sqlx:"message_count"`
-	TurnCount            int               `sqlx:"turn_count"`
-	RetentionTtlDays     *int              `sqlx:"retention_ttl_days"`
-	ExpiresAt            *time.Time        `sqlx:"expires_at"`
-	Scheduled            *int              `sqlx:"scheduled"`
-	ScheduleId           *string           `sqlx:"schedule_id"`
-	ScheduleRunId        *string           `sqlx:"schedule_run_id"`
-	ScheduleKind         *string           `sqlx:"schedule_kind"`
-	ScheduleTimezone     *string           `sqlx:"schedule_timezone"`
-	ScheduleCronExpr     *string           `sqlx:"schedule_cron_expr"`
-	CreatedIp            *string           `sqlx:"created_ip"`
-	LastIp               *string           `sqlx:"last_ip"`
-	Transcript           []*TranscriptView `view:",table=turn" on:"Id:id=ConversationId:conversation_id" sql:"uri=conversation/transcript.sql"`
-	Usage                *UsageView        `view:",table=model_call" on:"Id:id=ConversationId:m.conversation_id" sql:"uri=conversation/usage.sql"`
+	LastTurnId *string `sqlx:"last_turn_id"`
+	Stage      string  `sqlx:"stage"`
+	Id         string  `sqlx:"id"`
+	Summary    *string `sqlx:"summary"`
+	// AgentName removed; use AgentId
+	LastActivity             *time.Time        `sqlx:"last_activity"`
+	UsageInputTokens         *int              `sqlx:"usage_input_tokens"`
+	UsageOutputTokens        *int              `sqlx:"usage_output_tokens"`
+	UsageEmbeddingTokens     *int              `sqlx:"usage_embedding_tokens"`
+	CreatedAt                time.Time         `sqlx:"created_at"`
+	UpdatedAt                *time.Time        `sqlx:"updated_at"`
+	CreatedByUserId          *string           `sqlx:"created_by_user_id"`
+	TenantId                 *string           `sqlx:"tenant_id"`
+	AgentId                  *string           `sqlx:"agent_id"`
+	ConversationParentId     *string           `sqlx:"conversation_parent_id"`
+	ConversationParentTurnId *string           `sqlx:"conversation_parent_turn_id"`
+	AgentConfigId            *string           `sqlx:"agent_config_id"`
+	DefaultModelProvider     *string           `sqlx:"default_model_provider"`
+	DefaultModel             *string           `sqlx:"default_model"`
+	DefaultModelParams       *string           `sqlx:"default_model_params"`
+	Title                    *string           `sqlx:"title"`
+	Metadata                 *string           `sqlx:"metadata"`
+	Visibility               string            `sqlx:"visibility"`
+	Archived                 int               `sqlx:"archived"`
+	DeletedAt                *time.Time        `sqlx:"deleted_at"`
+	LastMessageAt            *time.Time        `sqlx:"last_message_at"`
+	MessageCount             int               `sqlx:"message_count"`
+	TurnCount                int               `sqlx:"turn_count"`
+	RetentionTtlDays         *int              `sqlx:"retention_ttl_days"`
+	ExpiresAt                *time.Time        `sqlx:"expires_at"`
+	Scheduled                *int              `sqlx:"scheduled"`
+	ScheduleId               *string           `sqlx:"schedule_id"`
+	ScheduleRunId            *string           `sqlx:"schedule_run_id"`
+	ScheduleKind             *string           `sqlx:"schedule_kind"`
+	ScheduleTimezone         *string           `sqlx:"schedule_timezone"`
+	ScheduleCronExpr         *string           `sqlx:"schedule_cron_expr"`
+	CreatedIp                *string           `sqlx:"created_ip"`
+	LastIp                   *string           `sqlx:"last_ip"`
+	Transcript               []*TranscriptView `view:",table=turn" on:"Id:id=ConversationId:conversation_id" sql:"uri=conversation/transcript.sql"`
+	Usage                    *UsageView        `view:",table=model_call" on:"Id:id=ConversationId:m.conversation_id" sql:"uri=conversation/usage.sql"`
 }
 
 type TranscriptView struct {

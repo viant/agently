@@ -21,8 +21,8 @@ import (
 // HelperFunc abstracts the call to an LLM agent so we don’t import higher
 // layers and avoid cycles.
 //
-//	helper(ctx, agentName, prompt) → raw assistant reply or error.
-type HelperFunc func(ctx context.Context, agentName, prompt string) (string, error)
+//	helper(ctx, agentId, prompt) → raw assistant reply or error.
+type HelperFunc func(ctx context.Context, agentId, prompt string) (string, error)
 
 // Config controls retries and timeouts.
 type Config struct {

@@ -88,11 +88,11 @@ type Message struct {
 	// Role of the sender (user, assistant, system, etc.)
 	Role MessageRole `json:"role"`
 
-	// Items contains multiple, diverse content assets.
-	Items []ContentItem `json:"items,omitempty"`
-
 	// Name is the optional sender/tool name.
 	Name string `json:"name,omitempty"`
+
+	// Items contains multiple, diverse content assets.
+	Items []ContentItem `json:"items,omitempty"`
 
 	// ToolCalls represents structured function/tool calls.
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`

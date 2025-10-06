@@ -12,3 +12,16 @@ services:
   - system/exec
   - system/patch
   - printer/print
+auth:
+  enabled: true
+  cookieName: agently_session
+  ipHashKey: "dev-hmac-salt"     # any non-empty string; rotate later
+  trustedProxies: ["127.0.0.1/32"]
+  defaultUsername: devuser       # triggers silent local login from the UI
+  local:
+   enabled: true
+
+#  oauth:
+#    mode: bff
+#    client:
+#      configURL: idp_viant.enc|blowfish://default

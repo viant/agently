@@ -30,9 +30,11 @@ import (
 	authctx "github.com/viant/agently/internal/auth"
 	extrepo "github.com/viant/agently/internal/repository/extension"
 	implconv "github.com/viant/agently/internal/service/conversation"
+	usersvc "github.com/viant/agently/internal/service/user"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	msgwrite "github.com/viant/agently/pkg/agently/message/write"
 	toolfeed "github.com/viant/agently/pkg/agently/tool"
+	"github.com/viant/datly"
 	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
 	fluxpol "github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
@@ -55,6 +57,9 @@ type Service struct {
 
 	core     *corellm.Service
 	defaults *execcfg.Defaults
+	// Optional: user preferences loader
+	users *usersvc.Service
+	dao   *datly.Service
 }
 
 //// API defines the minimal interface the HTTP layer depends on. It allows
@@ -98,7 +103,12 @@ func NewServiceFromEnv(ctx context.Context) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init conversation client: %w", err)
 	}
-	svc := &Service{reg: cancels.Default(), convClient: cli}
+	// Try to wire user preferences service (best-effort)
+	var users *usersvc.Service
+	if u, uerr := usersvc.New(ctx, dao); uerr == nil {
+		users = u
+	}
+	svc := &Service{reg: cancels.Default(), convClient: cli, users: users, dao: dao}
 	return svc, nil
 }
 
@@ -132,6 +142,42 @@ func (s *Service) AttachCore(core *corellm.Service)       { s.core = core }
 func (s *Service) AttachDefaults(d *execcfg.Defaults)     { s.defaults = d }
 
 func (s *Service) AttacheAgentFinder(agentFinder agent.Finder) { s.agentFinder = agentFinder }
+
+// DAO returns the underlying datly service when available.
+func (s *Service) DAO() *datly.Service { return s.dao }
+
+// UserByUsername returns user id when available.
+func (s *Service) UserByUsername(ctx context.Context, username string) (string, error) {
+	if s.users == nil {
+		return "", fmt.Errorf("user service not initialised")
+	}
+	v, err := s.users.FindByUsername(ctx, username)
+	if err != nil {
+		return "", err
+	}
+	if v == nil {
+		return "", fmt.Errorf("user not found")
+	}
+	return v.Id, nil
+}
+
+// Query executes a synchronous agent turn using the configured conversation manager.
+// It bubbles up any errors from downstream services without printing.
+func (s *Service) Query(ctx context.Context, input *agentpkg.QueryInput) (*agentpkg.QueryOutput, error) {
+	if s == nil || s.mgr == nil {
+		return nil, fmt.Errorf("conversation manager is not configured")
+	}
+	if input == nil {
+		return nil, fmt.Errorf("input is nil")
+	}
+	// If a default tool policy is configured and none is present in the context,
+	// attach it to guide tool execution behaviour. Do not override existing.
+	if s.toolPolicy != nil && tool.FromContext(ctx) == nil {
+		ctx = tool.WithPolicy(ctx, s.toolPolicy)
+	}
+	// Delegate to Manager.Accept which ensures conversation id and runs the agent flow.
+	return s.mgr.Accept(ctx, input)
+}
 
 // GetRequest defines inputs to fetch messages.
 type GetRequest struct {
@@ -301,13 +347,13 @@ func (s *Service) PreflightPost(ctx context.Context, conversationID string, req 
 	if strings.TrimSpace(req.Agent) != "" {
 		return nil
 	}
-	// Check conversation has AgentName
+	// Check conversation has AgentId
 	if s.convClient != nil {
 		cv, err := s.convClient.GetConversation(ctx, conversationID)
 		if err != nil {
 			return err
 		}
-		if cv != nil && cv.AgentName != nil && strings.TrimSpace(*cv.AgentName) != "" {
+		if cv != nil && cv.AgentId != nil && strings.TrimSpace(*cv.AgentId) != "" {
 			return nil
 		}
 	}
@@ -328,11 +374,27 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 	input := &agentpkg.QueryInput{
 		ConversationID: conversationID,
 		Query:          req.Content,
-		AgentName:      defaultLocation(req.Agent),
+		AgentID:        defaultLocation(req.Agent),
 		ModelOverride:  req.Model,
 		ToolsAllowed:   req.Tools,
 		Context:        req.Context,
 		MessageID:      msgID,
+	}
+
+	// Apply user preferences for default agent/model when not provided and when available
+	if s.users != nil {
+		// Resolve username from auth context (we store username in Subject for cookie sessions)
+		uname := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+		if uname != "" {
+			if u, err := s.users.FindByUsername(ctx, uname); err == nil && u != nil {
+				if strings.TrimSpace(input.AgentID) == "" && u.DefaultAgentRef != nil && strings.TrimSpace(*u.DefaultAgentRef) != "" {
+					input.AgentID = strings.TrimSpace(*u.DefaultAgentRef)
+				}
+				if strings.TrimSpace(input.ModelOverride) == "" && u.DefaultModelRef != nil && strings.TrimSpace(*u.DefaultModelRef) != "" {
+					input.ModelOverride = strings.TrimSpace(*u.DefaultModelRef)
+				}
+			}
+		}
 	}
 
 	// Launch asynchronous processing to avoid blocking HTTP caller.
@@ -368,6 +430,21 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 			}
 			if s.fluxPolicy != nil {
 				runCtx = fluxpol.WithPolicy(runCtx, s.fluxPolicy)
+			}
+			// Populate userId for attribution when missing, using auth context
+			if strings.TrimSpace(input.UserId) == "" {
+				if ui := authctx.User(runCtx); ui != nil {
+					user := strings.TrimSpace(ui.Subject)
+					if user == "" {
+						user = strings.TrimSpace(ui.Email)
+					}
+					if user != "" {
+						input.UserId = user
+					}
+				}
+				if strings.TrimSpace(input.UserId) == "" {
+					input.UserId = "anonymous"
+				}
 			}
 			// Execute agentic flow; turn/message persistence handled by agent recorder.
 			_, err = s.mgr.Accept(runCtx, input)
@@ -513,7 +590,7 @@ func (s *Service) CreateConversation(ctx context.Context, in CreateConversationR
 		cw.SetVisibility(strings.TrimSpace(in.Visibility))
 	}
 	if s := strings.TrimSpace(in.Agent); s != "" {
-		cw.SetAgentName(s)
+		cw.SetAgentId(s)
 	}
 	if s := strings.TrimSpace(in.Model); s != "" {
 		cw.SetDefaultModel(s)
@@ -814,10 +891,10 @@ func (s *Service) compactMessagePriorMessageID(ctx context.Context, transcript a
 // compactGenerateSummaryLLM performs a one-off LLM turn to summarize the conversation and returns the assistant message id.
 func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.Conversation) (string, error) {
 	tr := conv.GetTranscript()
-	if conv.AgentName == nil {
-		return "", fmt.Errorf("agent name is missing in covnersation: %v", conv.Id)
+	if conv.AgentId == nil {
+		return "", fmt.Errorf("agent id is missing in conversation: %v", conv.Id)
 	}
-	agentId := *conv.AgentName
+	agentId := *conv.AgentId
 	anAgent, err := s.agentFinder.Find(ctx, agentId)
 	if err != nil {
 		return "", fmt.Errorf("failed to  find agent: %v %w", conv.AgentId, err)

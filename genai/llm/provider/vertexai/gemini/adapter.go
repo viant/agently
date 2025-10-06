@@ -258,6 +258,9 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 					if text == "" {
 						text = item.Text
 					}
+					if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Name) != "" {
+						text = msg.Name + ":" + text
+					}
 					content.Parts = append(content.Parts, Part{
 						Text: text,
 					})
@@ -476,8 +479,12 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 			}
 		} else if msg.Content != "" {
 			// Use simple string content for backward compatibility
+			text := msg.Content
+			if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Name) != "" {
+				text = msg.Name + ":" + text
+			}
 			content.Parts = append(content.Parts, Part{
-				Text: msg.Content,
+				Text: text,
 			})
 		}
 

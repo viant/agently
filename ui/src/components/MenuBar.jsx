@@ -14,6 +14,7 @@ import {
   selectedTabId,
   bringFloatingWindowToFront,
   useSetting,
+  addWindow,
 } from 'forge/core';
 
 
@@ -28,25 +29,18 @@ import logo from '../viant-logo.png'; // Import the logo image
 
 const MenuBar = ({toggleNavigation}) => {
     const navigate = useNavigate();
-    const [isAuthenticated, setIsAuthenticated] = useState(true);
     const {useAuth} = useSetting();
-    const {authStates, defaultAuthProvider} = useAuth();
-    const jwtToken = authStates?.[defaultAuthProvider]?.jwtToken;
+    const auth = useAuth();
+    const { authStates, defaultAuthProvider, providers = [], profile, ready, loginBFF, loginSPAWithToken, logout } = auth || {};
+    const isAuthenticated = !!profile;
+    const displayName = profile?.displayName || profile?.username || 'User';
     // No local chat drawer state.
     // No local history drawer anymore.
     const [searchQuery, setSearchQuery] = useState('');
     const [windowsList, setWindowList] = useState(activeWindows.value || []);
 
     // Fetch menu definitions after authentication
-    useEffect(() => {
-        const fetchMenuDefinitions = async () => {
-             if (isAuthenticated && jwtToken) {
-                // Fetch menu definitions using jwtToken
-                log.debug('Fetching menu definitions with token', { token: jwtToken.id_token });
-            }
-        };
-        fetchMenuDefinitions();
-    }, []);
+    useEffect(() => { /* reserved for future menu fetches */ }, []);
 
     const handleWindowClick = (e, win) => {
         e.preventDefault();
@@ -113,20 +107,21 @@ const MenuBar = ({toggleNavigation}) => {
                     </>
                 )}
             </Navbar.Group>
-            {isAuthenticated && (
+            {isAuthenticated ? (
                 <Navbar.Group align={Alignment.RIGHT}>
                     <Popover
                         content={
                             <Menu>
-                                <MenuItem text="Logout" onClick={() => logout()}/>
+                                <MenuItem text="Preferences" onClick={() => addWindow('Preferences', null, 'preferences', {})}/>
+                                <MenuItem text="Logout" onClick={() => logout && logout()}/>
                             </Menu>
                         }
                         position="bottom-right"
                     >
-                        <Button icon="user" minimal title="User Account"/>
+                        <Button icon="user" minimal>{displayName}</Button>
                     </Popover>
                 </Navbar.Group>
-            )}
+            ) : null}
         </Navbar>
     );
 };

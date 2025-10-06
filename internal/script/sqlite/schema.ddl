@@ -15,7 +15,6 @@ CREATE TABLE conversation
     id                     TEXT PRIMARY KEY,
     -- legacy-friendly columns
     summary                TEXT,
-    agent_name             TEXT,
     last_activity          TIMESTAMP,
     usage_input_tokens     INT                DEFAULT 0,
     usage_output_tokens    INT                DEFAULT 0,
@@ -32,6 +31,8 @@ CREATE TABLE conversation
     default_model          TEXT,
     default_model_params   TEXT,
     title                  TEXT,
+    conversation_parent_id       TEXT,
+    conversation_parent_turn_id  TEXT,
     metadata               TEXT,
     visibility             TEXT      NOT NULL DEFAULT 'private',
     archived               INTEGER   NOT NULL DEFAULT 0,
@@ -112,17 +113,7 @@ CREATE INDEX idx_conv_created_ip ON conversation (created_ip);
 CREATE INDEX idx_conv_last_ip    ON conversation (last_ip);
 CREATE INDEX idx_msg_client_ip   ON message (client_ip);
 
--- Users table for identity and schedule UX state
-CREATE TABLE app_user (
-    id                                   TEXT PRIMARY KEY,
-    subject                              TEXT UNIQUE,
-    display_name                         TEXT,
-    email                                TEXT,
-    created_at                           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at                           TIMESTAMP,
-    last_seen_schedule_conversation_id   TEXT REFERENCES conversation(id) ON DELETE SET NULL
-);
-CREATE UNIQUE INDEX idx_user_subject ON app_user(subject);
+-- Removed app_user table; consolidated into singular 'user'
 
 CREATE TABLE call_payload
 (
@@ -295,3 +286,36 @@ CREATE TABLE IF NOT EXISTS schedule_run (
     );
 
 CREATE INDEX IF NOT EXISTS idx_run_schedule_status ON schedule_run(schedule_id, status);
+
+
+CREATE TABLE IF NOT EXISTS users (
+  id                 TEXT PRIMARY KEY,
+  username           TEXT NOT NULL UNIQUE,
+  display_name       TEXT,
+  email              TEXT,
+  provider           TEXT NOT NULL DEFAULT 'local',
+  subject            TEXT,
+  hash_ip            TEXT,
+  timezone           TEXT NOT NULL DEFAULT 'UTC',
+  default_agent_ref  TEXT,
+  default_model_ref  TEXT,
+  default_embedder_ref TEXT,
+  settings           TEXT,
+  disabled           INTEGER NOT NULL DEFAULT 0,
+  created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at         DATETIME
+);
+
+-- Unique subject per provider (NULL subject allowed for local)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_users_provider_subject ON users(provider, subject);
+CREATE INDEX IF NOT EXISTS ix_users_hash_ip ON users(hash_ip);
+
+-- OAuth tokens per user (server-side, encrypted). Stores serialized scy/auth.Token as enc_token.
+CREATE TABLE IF NOT EXISTS user_oauth_token (
+  user_id     TEXT      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider    TEXT      NOT NULL,
+  enc_token   TEXT      NOT NULL,
+  created_at  DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME,
+  PRIMARY KEY (user_id, provider)
+);

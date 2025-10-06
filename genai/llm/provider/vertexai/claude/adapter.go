@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/llm"
+	"strings"
 )
 
 // ToRequest converts a generic llm.GenerateRequest into a provider specific
@@ -143,9 +144,13 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		for _, item := range msg.Items {
 			switch item.Type {
 			case llm.ContentTypeText:
+				text := item.Text
+				if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Name) != "" {
+					text = msg.Name + ":" + text
+				}
 				claudeMsg.Content = append(claudeMsg.Content, ContentBlock{
 					Type: "text",
-					Text: item.Text,
+					Text: text,
 				})
 			case llm.ContentTypeImage:
 				cblock, err := handleImageContent(ctx, fs, item)
@@ -159,9 +164,13 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		}
 
 		if len(claudeMsg.Content) == 0 && msg.Content != "" {
+			text := msg.Content
+			if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Name) != "" {
+				text = msg.Name + ":" + text
+			}
 			claudeMsg.Content = append(claudeMsg.Content, ContentBlock{
 				Type: "text",
-				Text: msg.Content,
+				Text: text,
 			})
 		}
 
