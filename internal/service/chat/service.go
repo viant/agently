@@ -937,7 +937,6 @@ func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.C
 		return "", fmt.Errorf("failed to  find agent: %v %w", conv.AgentId, err)
 	}
 
-	//latest := s.compactLatestMessageID(tr)
 	var msgs []llm.Message
 	// Determine slice size from defaults
 	maxN := 50
@@ -955,9 +954,6 @@ func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.C
 			if m == nil || m.Interim != 0 {
 				continue
 			}
-			//if strings.TrimSpace(m.Id) == strings.TrimSpace(latest) {
-			//	continue
-			//}
 			if m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
 				continue
 			}
@@ -1009,24 +1005,4 @@ func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.C
 		return "", ierr
 	}
 	return id, nil
-}
-
-// compactLatestMessageID returns the newest non-interim message id in the transcript (or empty when none).
-func (s *Service) compactLatestMessageID(tr apiconv.Transcript) string {
-	for ti := len(tr) - 1; ti >= 0; ti-- {
-		t := tr[ti]
-		if t == nil || len(t.Message) == 0 {
-			continue
-		}
-		for mi := len(t.Message) - 1; mi >= 0; mi-- {
-			m := t.Message[mi]
-			if m == nil || m.Interim != 0 {
-				continue
-			}
-			if id := strings.TrimSpace(m.Id); id != "" {
-				return id
-			}
-		}
-	}
-	return ""
 }
