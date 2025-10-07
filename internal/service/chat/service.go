@@ -830,10 +830,22 @@ func (s *Service) Compact(ctx context.Context, conversationID string) error {
 	if s == nil || s.convClient == nil || strings.TrimSpace(conversationID) == "" {
 		return nil
 	}
+
 	conv, err := s.convClient.GetConversation(ctx, conversationID)
 	if err != nil {
-		return fmt.Errorf("failed to  conversation: %v %w", conversationID, err)
+		return fmt.Errorf("failed to get conversation: %v %w", conversationID, err)
 	}
+
+	if conv.Status != nil && (*conv.Status == "compacting" || *conv.Status == "compacted") {
+		return nil
+	}
+
+	status := "compacting"
+	err = s.setConversationStatus(ctx, conversationID, status)
+	if err != nil {
+		return err
+	}
+
 	ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{ConversationID: conversationID, TurnID: *conv.LastTurnId, ParentMessageID: *conv.LastTurnId})
 	transcript := conv.GetTranscript()
 	// Try LLM-generated summary via manager first
@@ -842,6 +854,28 @@ func (s *Service) Compact(ctx context.Context, conversationID string) error {
 		return fmt.Errorf("failed to  compact summary message: %v %w", conversationID, err)
 	}
 	s.compactMessagePriorMessageID(ctx, transcript, summaryMessageID)
+
+	status = "compacted"
+	err = s.setConversationStatus(ctx, conversationID, status)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Service) setConversationStatus(ctx context.Context, conversationID string, status string) error {
+	patch := &convw.Conversation{Has: &convw.ConversationHas{}}
+	patch.SetId(conversationID)
+	patch.SetStatus(&status)
+
+	if s.convClient == nil {
+		return fmt.Errorf("conversation client not configured")
+	}
+	mc := convw.Conversation(*patch)
+	if err := s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(&mc)); err != nil {
+		return fmt.Errorf("failed to update conversation: %w", err)
+	}
 	return nil
 }
 
@@ -934,7 +968,7 @@ func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.C
 			count++
 		}
 	}
-	instruction := "Summarize key points to continue the discussion. Be concise (<=6 bullets), include goals/decisions/next steps, avoid logs/quotes. Exclude the latest message."
+	instruction := "Summarize key points to continue the discussion. Don't comment and analyze, just summarize. Be concise (<=6 bullets), include goals/decisions/next steps, avoid logs/quotes. Exclude the latest message."
 	if s.defaults != nil && strings.TrimSpace(s.defaults.SummaryPrompt) != "" {
 		instruction = strings.TrimSpace(s.defaults.SummaryPrompt)
 	}
@@ -949,8 +983,10 @@ func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.C
 
 	in := &corellm.GenerateInput{ModelSelection: llm.ModelSelection{Model: model}, Message: msgs}
 	var out corellm.GenerateOutput
+
+	agentsrv.EnsureGenerateOptions(ctx, in, anAgent)
 	in.Options.Mode = "compact"
-	agentsrv.EnsureGenerateOptions(in, anAgent)
+
 	if err := s.core.Generate(ctx, in, &out); err != nil {
 		return "", err
 	}

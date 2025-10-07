@@ -47,6 +47,8 @@ func computeStage(c *ConversationView) string {
 	lastModelRunning := false
 	lastAssistantCanceled := false
 
+	compacting := c.Status != nil && *c.Status == "compacting"
+
 	// Iterate turns backwards, then messages backwards within the turn
 	for ti := len(c.Transcript) - 1; ti >= 0; ti-- {
 		t := c.Transcript[ti]
@@ -68,7 +70,7 @@ func computeStage(c *ConversationView) string {
 				goto DONE
 			}
 			// Skip interim entries for other evaluations
-			if m.Interim != 0 {
+			if m.Interim != 0 && !compacting {
 				continue
 			}
 			r := strings.ToLower(strings.TrimSpace(m.Role))

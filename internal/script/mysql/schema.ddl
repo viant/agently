@@ -48,6 +48,7 @@ CREATE TABLE conversation
     turn_count             BIGINT       NOT NULL DEFAULT 0,
     retention_ttl_days     BIGINT,
     expires_at             TIMESTAMP    NULL     DEFAULT NULL,
+    status                 VARCHAR(255) CHECK (status IS NULL OR status IN ('', 'compacting', 'compacted')),
 
     -- scheduling annotations
     scheduled              TINYINT      NULL CHECK (scheduled IN (0,1)),

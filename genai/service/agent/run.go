@@ -79,11 +79,14 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// No pre-execution elicitation. Templates can instruct LLM to elicit details
 	// using binding.Elicitation. Orchestrator handles assistant-originated elicitations.
 	status, err := s.runPlanAndStatus(ctx, input, output)
-	// Update turn status (and error message on failure) via conversation client
-	var emsg string
+
 	if err != nil && !errors.Is(err, context.Canceled) {
-		emsg = err.Error()
+		return fmt.Errorf("execution of query function failed (context canceled): %w", err)
 	}
+	if err != nil {
+		return fmt.Errorf("execution of query function failed: %w", err)
+	}
+
 	if err := s.finalizeTurn(ctx, turn, status, err); err != nil {
 		return err
 	}
@@ -174,7 +177,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			genInput.AgentID = strings.TrimSpace(input.Agent.ID)
 		}
 		genInput.Options.Mode = "plan"
-		EnsureGenerateOptions(genInput, input.Agent)
+		EnsureGenerateOptions(ctx, genInput, input.Agent)
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
 		if pErr != nil {

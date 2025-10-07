@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"errors"
@@ -59,6 +60,10 @@ type Server struct {
 	invoker  invk.Invoker
 	core     *corellm.Service
 	defaults *execcfg.Defaults
+
+	// Non-blocking compaction guard per conversation
+	compactGuardMu sync.Mutex
+	compactGuards  map[string]*int32
 
 	// Optional auth + dao for token refresh
 	authCfg *auth.Config
@@ -138,6 +143,7 @@ func WithDAO(dao *datly.Service) ServerOption { return func(s *Server) { s.dao =
 // NewServer returns an http.Handler with routes bound.
 func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	s := &Server{mgr: mgr}
+	s.compactGuards = make(map[string]*int32)
 	for _, o := range opts {
 		if o != nil {
 			o(s)
@@ -754,7 +760,34 @@ func (s *Server) handleCompactConversation(w http.ResponseWriter, r *http.Reques
 		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
-	if err := s.chatSvc.Compact(r.Context(), convID); err != nil {
+	// Non-blocking de-duplication via atomic guard per conversation.
+	s.compactGuardMu.Lock()
+	g := s.compactGuards[convID]
+	if g == nil {
+		var v int32
+		g = &v
+		s.compactGuards[convID] = g
+	}
+	s.compactGuardMu.Unlock()
+
+	if !atomic.CompareAndSwapInt32(g, 0, 1) {
+		// Another compaction in progress; treat as success (idempotent)
+		encode(w, http.StatusAccepted, map[string]any{"compacted": true}, nil)
+		return
+	}
+	defer atomic.StoreInt32(g, 0)
+
+	// Preserve auth/user context (like POST message flow) so downstream can attribute userId
+	ctx := s.withAuthFromRequest(r)
+	// Debug: print user id derived from auth context
+	if ui := auth.User(ctx); ui != nil {
+		uname := strings.TrimSpace(ui.Subject)
+		if uname == "" {
+			uname = strings.TrimSpace(ui.Email)
+		}
+	}
+
+	if err := s.chatSvc.Compact(ctx, convID); err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}
