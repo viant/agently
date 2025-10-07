@@ -35,6 +35,7 @@ type Conversation struct {
 	ScheduleKind     *string          `sqlx:"schedule_kind" json:",omitempty"`
 	ScheduleTimezone *string          `sqlx:"schedule_timezone" json:",omitempty"`
 	ScheduleCronExpr *string          `sqlx:"schedule_cron_expr" json:",omitempty"`
+	Status           *string          `sqlx:"status" json:",omitempty"`
 	Has              *ConversationHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
@@ -62,11 +63,17 @@ type ConversationHas struct {
 	ScheduleKind             bool
 	ScheduleTimezone         bool
 	ScheduleCronExpr         bool
+	Status                   bool
 }
 
 func (c *Conversation) SetId(value string) {
 	c.Id = value
 	c.Has.Id = true
+}
+
+func (c *Conversation) SetStatus(value *string) {
+	c.Status = value
+	c.Has.Status = true
 }
 
 func (c *Conversation) SetSummary(value string) {

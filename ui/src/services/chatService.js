@@ -219,9 +219,7 @@ async function dsTick({context}) {
                 if (convCtx?.handlers?.dataSource?.setFormField) {
                     convCtx.handlers.dataSource.setFormField({ item: { id: 'running' }, value: !!isRunning });
                 }
-                if (isFinished && turnStatus) {
-                    setStage({phase: (turnStatus === 'failed' || turnStatus === 'error') ? 'error' : 'done'});
-                }
+
             } catch(_) {}
             // Update noop/backoff signals
             let newestTurnId = '';

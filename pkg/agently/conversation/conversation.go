@@ -84,6 +84,7 @@ type ConversationView struct {
 	TurnCount                int               `sqlx:"turn_count"`
 	RetentionTtlDays         *int              `sqlx:"retention_ttl_days"`
 	ExpiresAt                *time.Time        `sqlx:"expires_at"`
+	Status                   *string           `sqlx:"status"`
 	Scheduled                *int              `sqlx:"scheduled"`
 	ScheduleId               *string           `sqlx:"schedule_id"`
 	ScheduleRunId            *string           `sqlx:"schedule_run_id"`

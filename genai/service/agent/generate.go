@@ -1,14 +1,16 @@
 package agent
 
 import (
+	"context"
 	"strings"
 
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/service/core"
+	"github.com/viant/agently/internal/auth"
 )
 
-func EnsureGenerateOptions(i *core.GenerateInput, agent *agent.Agent) {
+func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *agent.Agent) {
 	// Propagate agent-level temperature to per-request options if not explicitly set.
 	// Keep any existing options provided via model selection.
 	if i.Options == nil {
@@ -36,4 +38,13 @@ func EnsureGenerateOptions(i *core.GenerateInput, agent *agent.Agent) {
 	if agent.AttachmentTTLSec > 0 {
 		i.Options.Metadata["attachmentTTLSec"] = agent.AttachmentTTLSec
 	}
+
+	if ui := auth.User(ctx); ui != nil {
+		uname := strings.TrimSpace(ui.Subject)
+		if uname == "" {
+			uname = strings.TrimSpace(ui.Email)
+		}
+		i.UserID = uname
+	}
+
 }

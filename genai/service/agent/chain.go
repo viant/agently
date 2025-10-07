@@ -273,7 +273,7 @@ func (s *Service) evalChainWhen(ctx context.Context, parent ChainContext, spec *
 		in.Model = model
 	}
 	in.Options.Mode = "chain"
-	EnsureGenerateOptions(in, parent.Agent)
+	EnsureGenerateOptions(ctx, in, parent.Agent)
 	var out core.GenerateOutput
 
 	if err := s.llm.Generate(ctx, in, &out); err != nil {
