@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +41,9 @@ import (
 	"github.com/viant/fluxor/service/approval"
 	fservice "github.com/viant/forge/backend/service/file"
 )
+
+//go:embed compact.md
+var compactInstruction string
 
 // Service exposes message retrieval independent of HTTP concerns.
 type Service struct {
@@ -933,7 +937,7 @@ func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.C
 		return "", fmt.Errorf("failed to  find agent: %v %w", conv.AgentId, err)
 	}
 
-	latest := s.compactLatestMessageID(tr)
+	//latest := s.compactLatestMessageID(tr)
 	var msgs []llm.Message
 	// Determine slice size from defaults
 	maxN := 50
@@ -951,9 +955,9 @@ func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.C
 			if m == nil || m.Interim != 0 {
 				continue
 			}
-			if strings.TrimSpace(m.Id) == strings.TrimSpace(latest) {
-				continue
-			}
+			//if strings.TrimSpace(m.Id) == strings.TrimSpace(latest) {
+			//	continue
+			//}
 			if m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
 				continue
 			}
@@ -968,11 +972,17 @@ func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.C
 			count++
 		}
 	}
-	instruction := "Summarize key points to continue the discussion. Don't comment and analyze, just summarize. Be concise (<=6 bullets), include goals/decisions/next steps, avoid logs/quotes. Exclude the latest message."
-	if s.defaults != nil && strings.TrimSpace(s.defaults.SummaryPrompt) != "" {
-		instruction = strings.TrimSpace(s.defaults.SummaryPrompt)
+
+	// Reverse to chronological order
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
-	msgs = append(msgs, llm.NewUserMessage(instruction))
+
+	//compactInstruction := "Summarize key points to continue the discussion. Don't comment and analyze, just summarize. Be concise (<=6 bullets), include goals/decisions/next steps, avoid logs/quotes. Exclude the latest message."
+	if s.defaults != nil && strings.TrimSpace(s.defaults.SummaryPrompt) != "" {
+		compactInstruction = strings.TrimSpace(s.defaults.SummaryPrompt)
+	}
+	msgs = append(msgs, llm.NewUserMessage(compactInstruction))
 	model := ""
 
 	if s.defaults != nil && strings.TrimSpace(s.defaults.SummaryModel) != "" {
