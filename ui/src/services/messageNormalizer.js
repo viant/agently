@@ -161,6 +161,19 @@ export function normalizeMessages(raw = []) {
             copy.role = String(copy.role).toLowerCase();
         }
 
+        // Normalize common id fields for downstream consumers
+        try {
+            if (!copy.id && msg.Id) copy.id = msg.Id;
+            if (!copy.turnId && (msg.turnId || msg.TurnId)) copy.turnId = msg.turnId || msg.TurnId;
+            if (!copy.conversationId && (msg.conversationId || msg.ConversationId)) copy.conversationId = msg.conversationId || msg.ConversationId;
+            // Chain/linked conversation label
+            if (msg.linkedConversationId || msg.LinkedConversationId) {
+                copy.linkedConversationId = msg.linkedConversationId || msg.LinkedConversationId;
+            }
+            if (!copy.createdByUserId && (msg.createdByUserId || msg.CreatedByUserId)) copy.createdByUserId = msg.createdByUserId || msg.CreatedByUserId;
+            if (msg.mode || msg.Mode) copy.mode = msg.mode || msg.Mode;
+        } catch (_) { /* ignore */ }
+
         // Assistant elicitation: when content is a JSON string/object with
         // { elicitationId, message, requestedSchema }
         if (copy.role === 'assistant') {

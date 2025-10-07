@@ -109,7 +109,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	}
 
 	// Attachment delivery preference: default to "ref" when unspecified
-	attachMode := "unknownAttachMode"
+	attachMode := "inline"
 	agentID := "unknownAgent"
 
 	var ttlSec int64

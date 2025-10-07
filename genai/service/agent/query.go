@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 
 	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
@@ -65,4 +66,14 @@ func (s *Service) query(ctx context.Context, input interface{}, output interface
 		return types.NewInvalidOutputError(output)
 	}
 	return s.Query(ctx, queryInput, queryOutput)
+}
+
+func (i *QueryInput) Actor() string {
+	actor := ""
+	if i != nil && i.Agent != nil && strings.TrimSpace(i.Agent.ID) != "" {
+		actor = strings.TrimSpace(i.Agent.ID)
+	} else if i != nil && strings.TrimSpace(i.AgentID) != "" {
+		actor = strings.TrimSpace(i.AgentID)
+	}
+	return actor
 }

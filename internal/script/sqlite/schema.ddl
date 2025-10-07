@@ -90,7 +90,8 @@ CREATE TABLE message
     created_by_user_id TEXT,
     client_ip          TEXT,
     status             TEXT CHECK (status IS NULL OR status IN ('', 'pending','accepted','rejected','cancel','open','summary','summarized')),
-    role               TEXT      NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
+    mode               TEXT,
+    role               TEXT      NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
     type               TEXT      NOT NULL DEFAULT 'text' CHECK (type IN ('text', 'tool_op',  'control')),
     content            TEXT,
     context_summary    TEXT,
@@ -99,6 +100,7 @@ CREATE TABLE message
     elicitation_id     TEXT,
     parent_message_id  TEXT,
     superseded_by      TEXT,
+    linked_conversation_id  TEXT,
     attachment_payload_id  TEXT REFERENCES call_payload (id) ON DELETE SET NULL,
     elicitation_payload_id TEXT REFERENCES call_payload (id) ON DELETE SET NULL,
     -- legacy column to remain compatible with older readers

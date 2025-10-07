@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	elact "github.com/viant/agently/genai/elicitation/action"
+	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/prompt"
@@ -74,6 +75,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 	ctx, agg := usage.WithAggregator(ctx)
 	turn := memory.TurnMeta{
+		Assistant:       input.Agent.ID,
 		ConversationID:  input.ConversationID,
 		TurnID:          input.MessageID,
 		ParentMessageID: input.MessageID,
@@ -119,7 +121,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.conversation.PatchTurn(ctx, turnRec); err != nil {
 		return err
 	}
-	_, err := s.addMessage(ctx, turn.ConversationID, "user", input.UserId, input.Query, turn.ParentMessageID, "")
+	_, err := s.addMessage(ctx, &turn, "user", input.UserId, input.Query, "task", turn.TurnID)
 	if err != nil {
 		return fmt.Errorf("failed to add message: %w", err)
 	}
@@ -217,29 +219,32 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 	// Elicitation and final content persistence are handled inside runPlanLoop now
 	output.Usage = agg
-
-	// Execute post-turn chains (best-effort) based on final status.
-	// For sync mode with onError=propagate, errors bubble up; otherwise they are handled per policy.
-	if execErr := s.executeChains(ctx, input, output, status); execErr != nil {
+	chainContext := NewChainContext(input, output, &turn)
+	if s.conversation != nil && strings.TrimSpace(input.ConversationID) != "" {
+		if conv, err := s.conversation.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true)); err == nil {
+			chainContext.Conversation = conv
+		}
+	}
+	if execErr := s.executeChains(ctx, chainContext, status); execErr != nil {
 		return execErr
 	}
 	return nil
 }
 
+// loopControls captures continuation flags from Context.chain.loop
+
 func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *prompt.Attachment) error {
 	// 1) Create attachment message first (without payload)
 	messageID := uuid.New().String()
-	msg := apiconv.NewMessage()
-	msg.SetId(messageID)
-	msg.SetConversationID(turn.ConversationID)
-	msg.SetTurnID(turn.TurnID)
-	msg.SetParentMessageID(turn.ParentMessageID)
-	msg.SetRole("user")
-	msg.SetType("control")
-	if strings.TrimSpace(att.Name) != "" {
-		msg.SetContent(att.Name)
+	opts := []apiconv.MessageOption{
+		apiconv.WithId(messageID),
+		apiconv.WithRole("user"),
+		apiconv.WithType("control"),
 	}
-	if err := s.conversation.PatchMessage(ctx, msg); err != nil {
+	if strings.TrimSpace(att.Name) != "" {
+		opts = append(opts, apiconv.WithContent(att.Name))
+	}
+	if _, err := apiconv.AddMessage(ctx, s.conversation, &turn, opts...); err != nil {
 		return fmt.Errorf("failed to persist attachment message: %w", err)
 	}
 
@@ -285,6 +290,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if input.ModelOverride != "" {
 			modelSelection.Model = input.ModelOverride
 		}
+		if modelSelection.Options == nil {
+			modelSelection.Options = &llm.Options{}
+		}
 		queryOutput.Model = modelSelection.Model
 		queryOutput.Agent = input.Agent
 		genInput := &core.GenerateInput{
@@ -298,6 +306,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if input.Agent != nil {
 			genInput.AgentID = strings.TrimSpace(input.Agent.ID)
 		}
+		genInput.Options.Mode = "plan"
 		EnsureGenerateOptions(genInput, input.Agent)
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
@@ -332,19 +341,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				if msgID == "" {
 					msgID = genOutput.MessageID
 				}
-				var parentID, convID string
-				if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-					parentID = tm.ParentMessageID
-					convID = tm.ConversationID
-				}
 				// Attribute assistant message to the agent ID for history and UI display
-				actor := ""
-				if input != nil && input.Agent != nil && strings.TrimSpace(input.Agent.ID) != "" {
-					actor = strings.TrimSpace(input.Agent.ID)
-				} else if input != nil && strings.TrimSpace(input.AgentID) != "" {
-					actor = strings.TrimSpace(input.AgentID)
-				}
-				if _, err := s.addMessage(ctx, convID, "assistant", actor, genOutput.Content, msgID, parentID); err != nil {
+				actor := input.Actor()
+				if _, err := s.addMessage(ctx, &turn, "assistant", actor, genOutput.Content, "plan", msgID); err != nil {
 					return err
 				}
 			}
@@ -361,38 +360,21 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 // It returns true when the elicitation was accepted.
 // waitForElicitation was inlined into elicitation.Service.Wait
 
-func (s *Service) addMessage(ctx context.Context, convID, role, actor, content, id string, parentId string) (string, error) {
+func (s *Service) addMessage(ctx context.Context, turn *memory.TurnMeta, role, actor, content, mode, id string) (string, error) {
 	if strings.TrimSpace(content) == "" {
 		return "", nil
 	}
-	if id == "" {
-		id = uuid.New().String()
+	// Delegate to centralized helper, preserving existing semantics
+	opts := []apiconv.MessageOption{
+		apiconv.WithRole(role),
+		apiconv.WithCreatedByUserID(actor),
+		apiconv.WithContent(content),
+		apiconv.WithMode(mode),
 	}
-	// Persist via conversation client
-	m := apiconv.NewMessage()
-	m.SetId(id)
-	m.SetConversationID(convID)
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
-		m.SetTurnID(turn.TurnID)
+	if strings.TrimSpace(id) != "" {
+		opts = append(opts, apiconv.WithId(id))
 	}
-	if strings.TrimSpace(parentId) != "" {
-		m.SetParentMessageID(parentId)
-	}
-	if strings.TrimSpace(role) != "" {
-		m.SetRole(role)
-	}
-	// default to text message type
-	m.SetType("text")
-	if strings.TrimSpace(actor) != "" {
-		m.SetCreatedByUserID(actor)
-	}
-	if strings.TrimSpace(content) != "" {
-		m.SetContent(content)
-	}
-	if err := s.conversation.PatchMessage(ctx, m); err != nil {
-		return "", err
-	}
-	return id, nil
+	return apiconv.AddMessage(ctx, s.conversation, turn, opts...)
 }
 
 // mergeInlineJSONIntoContext copies JSON object fields from qi.Query into qi.Context (non-destructive).

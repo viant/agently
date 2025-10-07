@@ -173,7 +173,7 @@ func (s *Service) resolvePromptURIs(a *agentmdl.Agent) {
 		return
 	}
 	base, _ := url.Split(a.Source.URL, file.Scheme)
-	fix := func(p *prompt.Prompt) {
+	resolvePath := func(p *prompt.Prompt) {
 		if p == nil {
 			return
 		}
@@ -185,8 +185,16 @@ func (s *Service) resolvePromptURIs(a *agentmdl.Agent) {
 			p.URI = url.Join(base, u)
 		}
 	}
-	fix(a.Prompt)
-	fix(a.SystemPrompt)
+	resolvePath(a.Prompt)
+	resolvePath(a.SystemPrompt)
+	for _, chain := range a.Chains {
+		if query := chain.Query; query != nil && query.URI != "" {
+			resolvePath(query)
+			if when := chain.When; when != nil && when.Query != nil && when.Query.URI != "" {
+				resolvePath(when.Query)
+			}
+		}
+	}
 }
 
 // parseAgent parses agent properties from a YAML node

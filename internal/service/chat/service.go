@@ -852,16 +852,15 @@ func (s *Service) insertSummaryMessage(ctx context.Context, conversationID, summ
 		return "", errors.New("no turn meta")
 	}
 	msgID := uuid.NewString()
-	mm := apiconv.NewMessage()
-	mm.SetId(msgID)
-	mm.SetTurnID(turn.TurnID)
-	mm.SetParentMessageID(turn.ParentMessageID)
-	mm.SetConversationID(conversationID)
-	mm.SetRole("assistant")
-	mm.SetType("text")
-	mm.SetStatus("summary")
-	mm.SetContent(summary)
-	return msgID, s.convClient.PatchMessage(ctx, mm)
+	id, err := apiconv.AddMessage(ctx, s.convClient, &turn,
+		apiconv.WithId(msgID),
+		apiconv.WithConversationID(conversationID),
+		apiconv.WithRole("assistant"),
+		apiconv.WithType("text"),
+		apiconv.WithStatus("summary"),
+		apiconv.WithContent(summary),
+	)
+	return id, err
 }
 
 // compactMessagePriorMessageID sets archived=1 on all prior messages except elicitation and excludeMsgID.
@@ -950,6 +949,7 @@ func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.C
 
 	in := &corellm.GenerateInput{ModelSelection: llm.ModelSelection{Model: model}, Message: msgs}
 	var out corellm.GenerateOutput
+	in.Options.Mode = "compact"
 	agentsrv.EnsureGenerateOptions(in, anAgent)
 	if err := s.core.Generate(ctx, in, &out); err != nil {
 		return "", err

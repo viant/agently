@@ -22,8 +22,14 @@ func (t *Turn) ToolCalls() Messages {
 	return filtered
 }
 
-func (t *Transcript) History() []*prompt.Message {
-	normalized := t.Filter(func(v *Message) bool {
+func (t *Transcript) History(minimal bool) []*prompt.Message {
+
+	transcript := *t
+	if minimal {
+		transcript = transcript[len(transcript)-1:]
+	}
+
+	normalized := transcript.Filter(func(v *Message) bool {
 		if v == nil || v.IsArchived() || v.IsInterim() || v.Content == nil || *v.Content == "" {
 			return false
 		}

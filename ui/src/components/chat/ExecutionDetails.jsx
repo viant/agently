@@ -22,6 +22,9 @@ const COLUMNS_BASE = [
     { id: "icon",    name: "",      width: 28, align: "center", minWidth: "28px", enforceColumnSize: false },
     { id: "kind",    name: "Kind",   width: 40, align: "center", minWidth: "68px" },
     { id: "name",    name: "Name",   flex: 2 },
+    { id: "mode",    name: "Mode",   width: 80 },
+    { id: "actor",   name: "Actor",  width: 140 },
+    { id: "chain",   name: "Chain",  width: 200 },
     { id: "status",  name: "Status", width: 60 },
     { id: "elapsed", name: "Time",   width: 60 },
     {
@@ -137,7 +140,10 @@ function flattenExecutions(executions = []) {
             return {
                 icon,
                 kind: kindGlyph,
+                mode: s.mode || '',
                 name: annotatedName,
+                actor: s.createdByUserId || '',
+                chain: s.linkedConversationId || '',
                 status: statusText,
                 elapsed: s.elapsed,
                 requestPayloadId: s.requestPayloadId,
@@ -148,6 +154,9 @@ function flattenExecutions(executions = []) {
                 _reason: reason,
                 _provider: s.provider,
                 _model: s.model,
+                _mode: s.mode,
+                _createdByUserId: s.createdByUserId,
+                _linkedConversationId: s.linkedConversationId,
                 _finishReason: s.finishReason,
                 _errorCode: s.errorCode,
                 _error: s.error,
@@ -295,6 +304,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                             <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <div><strong>Model:</strong> {r._model || r.name}</div>
                                 <div><strong>Provider:</strong> {r._provider || ''}</div>
+                                {r._createdByUserId && <div><strong>Actor:</strong> {r._createdByUserId}</div>}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
                                     {typeof r._promptTokens === 'number' && (
                                         <div><strong>Prompt Total</strong>: {r._promptTokens}</div>
@@ -341,6 +351,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                         return (
                             <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <div><strong>Tool:</strong> {r._toolName || r.name}</div>
+                                {r._createdByUserId && <div><strong>Actor:</strong> {r._createdByUserId}</div>}
                                 {typeof r._attempt === 'number' && <div><strong>Attempt:</strong> {r._attempt}</div>}
                                 {r._errorCode && <div><strong>Error Code:</strong> {String(r._errorCode)}</div>}
                                 {r._error && <div style={{color: 'red'}}><strong>Error Message:</strong> {String(r._error)}</div>}
@@ -359,6 +370,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                         return (
                             <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <div><strong>Origin:</strong> {r._originRole === 'assistant' ? 'LLM' : (r._originRole || 'unknown')}</div>
+                                {r._createdByUserId && <div><strong>Actor:</strong> {r._createdByUserId}</div>}
                                 {prompt && <div><strong>Message:</strong> {prompt}</div>}
                                 {url && <div><strong>URL:</strong> <a href={url} target="_blank" rel="noopener noreferrer">{url}</a></div>}
                                 {schema && (

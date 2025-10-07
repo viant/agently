@@ -35,7 +35,7 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 
 	// Create interim assistant message to capture request payload in transcript
 	if turn.ConversationID != "" {
-		if err := o.patchInterimRequestMessage(ctx, turn, msgID, info.Payload); err != nil {
+		if err := o.patchInterimRequestMessage(ctx, turn, msgID, info.Payload, info.LLMRequest.Options.Mode); err != nil {
 			return ctx, err
 		}
 	}
@@ -161,18 +161,16 @@ func WithRecorderObserver(ctx context.Context, client apiconv.Client) context.Co
 }
 
 // patchInterimRequestMessage creates an interim assistant message capturing the request payload.
-func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn memory.TurnMeta, msgID string, payload []byte) error {
-	one := 1
-	msg := apiconv.NewMessage()
-	msg.SetId(msgID)
-	msg.SetConversationID(turn.ConversationID)
-	msg.SetTurnID(turn.TurnID)
-	msg.SetParentMessageID(turn.ParentMessageID)
-	msg.SetRole("assistant")
-	msg.SetType("text")
-	msg.SetInterim(one)
-	msg.Has.Content = true
-	return o.client.PatchMessage(ctx, msg)
+func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn memory.TurnMeta, msgID string, payload []byte, mode string) error {
+	_, err := apiconv.AddMessage(ctx, o.client, &turn,
+		apiconv.WithId(msgID),
+		apiconv.WithMode(mode),
+		apiconv.WithRole("assistant"),
+		apiconv.WithType("text"),
+		apiconv.WithCreatedByUserID(turn.Assistant),
+		apiconv.WithInterim(1),
+	)
+	return err
 }
 
 // patchInterimFlag marks an existing message as interim.

@@ -15,6 +15,7 @@ type Info struct {
 	RequestJSON  []byte
 	ResponseJSON []byte
 	Payload      []byte
+	LLMRequest   *llm.GenerateRequest
 	LLMResponse  *llm.GenerateResponse
 	StreamText   string
 	Usage        *llm.Usage

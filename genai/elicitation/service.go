@@ -61,30 +61,22 @@ func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string
 		elic.CallbackURL = fmt.Sprintf("/v1/api/conversations/%s/elicitation/%s", turn.ConversationID, elic.ElicitationId)
 	}
 	raw, _ := json.Marshal(elic)
-	msg := apiconv.NewMessage()
-	msg.SetId(uuid.New().String())
-	msg.SetConversationID(turn.ConversationID)
-	msg.SetTurnID(turn.TurnID)
-	msg.SetElicitationID(elic.ElicitationId)
-	msg.SetParentMessageID(turn.ParentMessageID)
-	msg.SetRole(role)
 	messageType := "control"
 	if role == llm.RoleAssistant.String() {
 		messageType = "text"
 	}
-
-	msg.SetType(messageType)
-	msg.Status = "pending"
-	if msg.Has != nil {
-		msg.Has.Status = true
-	}
-	if len(raw) > 0 {
-		msg.SetContent(string(raw))
-	}
-	if err := s.client.PatchMessage(ctx, msg); err != nil {
+	id, err := apiconv.AddMessage(ctx, s.client, turn,
+		apiconv.WithId(uuid.New().String()),
+		apiconv.WithRole(role),
+		apiconv.WithType(messageType),
+		apiconv.WithElicitationID(elic.ElicitationId),
+		apiconv.WithStatus("pending"),
+		apiconv.WithContent(string(raw)),
+	)
+	if err != nil {
 		return "", err
 	}
-	return msg.Id, nil
+	return id, nil
 }
 
 // Wait blocks until an elicitation is accepted/declined via router/UI or optional local awaiter.
@@ -206,15 +198,13 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 
 func (s *Service) AddUserResponseMessage(ctx context.Context, turn *memory.TurnMeta, payload map[string]interface{}) error {
 	raw, _ := json.Marshal(payload)
-	m := apiconv.NewMessage()
-	m.SetId(uuid.New().String())
-	m.SetConversationID(turn.ConversationID)
-	m.SetTurnID(turn.TurnID)
-	m.SetParentMessageID(turn.ParentMessageID)
-	m.SetRole("user")
-	m.SetType("text")
-	m.SetContent(string(raw))
-	return s.client.PatchMessage(ctx, m)
+	_, err := apiconv.AddMessage(ctx, s.client, turn,
+		apiconv.WithId(uuid.New().String()),
+		apiconv.WithRole("user"),
+		apiconv.WithType("text"),
+		apiconv.WithContent(string(raw)),
+	)
+	return err
 }
 
 // NormalizeAction is kept for backward compatibility; use action.Normalize.

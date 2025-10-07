@@ -1,8 +1,6 @@
 module github.com/viant/agently
 
-go 1.24.3
-
-toolchain go1.24.4
+go 1.25.1
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.32.2
@@ -148,7 +146,7 @@ require (
 	github.com/viant/gds v0.4.5 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
 	github.com/viant/godiff v0.4.1 // indirect
-	github.com/viant/gosh v0.2.2 // indirect
+	github.com/viant/gosh v0.2.3 // indirect
 	github.com/viant/govalidator v0.3.1 // indirect
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/parsly v0.3.3 // indirect
@@ -159,7 +157,7 @@ require (
 	github.com/viant/tagly v0.2.2 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
 	github.com/viant/vec v0.2.4-0.20250304201558-76d42a0819d7 // indirect
-	github.com/viant/xdatly v0.5.4-0.20250806192028-819cadf93282 // indirect
+	github.com/viant/xdatly v0.5.4-0.20251006174150-7838eec1e841 // indirect
 	github.com/viant/xdatly/extension v0.0.0-20231013204918-ecf3c2edf259 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.1 // indirect

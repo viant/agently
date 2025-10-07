@@ -86,7 +86,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 			if request != nil {
 				genReqJSON, _ = json.Marshal(request)
 			}
-			if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", LLMRequest: request, Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
 				ctx = newCtx
 			} else {
 				return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
@@ -221,7 +221,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
-		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "vertex/claude", LLMRequest: request, Model: c.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
 			ctx = newCtx
 		} else {
 			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
