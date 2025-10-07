@@ -88,7 +88,7 @@ func (s *Service) executeChains(ctx context.Context, parent ChainContext, status
 		if on != "" && on != "*" && on != strings.ToLower(status) {
 			continue
 		}
-		ok, err := s.evalChainWhen(ctx, parent, ch.When)
+		shouldRunChain, err := s.evalChainWhen(ctx, parent, ch.When)
 		if err != nil {
 			switch strings.ToLower(strings.TrimSpace(ch.OnError)) {
 			case "propagate":
@@ -104,7 +104,7 @@ func (s *Service) executeChains(ctx context.Context, parent ChainContext, status
 			cm := parent.Context["chain"].(map[string]interface{})
 			cm["status"] = status
 			whenCtx := map[string]interface{}{
-				"decision": ok,
+				"decision": shouldRunChain,
 			}
 			if ch.When != nil {
 				whenCtx["expect"] = ch.When.Expect
@@ -114,7 +114,7 @@ func (s *Service) executeChains(ctx context.Context, parent ChainContext, status
 			}
 			cm["when"] = whenCtx
 		}
-		if !ok {
+		if !shouldRunChain {
 			continue
 		}
 		policy := s.normalizePolicy(ch.Conversation)
@@ -439,6 +439,7 @@ func (s *Service) buildChildInputFromParent(parent ChainContext, ch *agentmdl.Ch
 func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *agentmdl.Chain, parent *ChainContext, usedAutoNext *bool) error {
 
 	if chain.Publish != nil {
+
 		s.addMessage(ctx, parent.ParentTurn, "chain", "", "chaining", "", "")
 	}
 
