@@ -79,10 +79,11 @@ type (
 		Mode         string         `yaml:"mode,omitempty" json:"mode,omitempty"`                 // async|sync|queue (default sync)
 		Conversation string         `yaml:"conversation,omitempty" json:"conversation,omitempty"` // reuse|link (default link)
 		Query        *prompt.Prompt `yaml:"query,omitempty" json:"query,omitempty"`               // templated query/payload
-		When         string         `yaml:"when,omitempty" json:"when,omitempty"`                 // optional condition
-		Publish      *ChainPublish  `yaml:"publish,omitempty" json:"publish,omitempty"`           // optional publish settings
-		OnError      string         `yaml:"onError,omitempty" json:"onError,omitempty"`           // ignore|message|propagate
-		Limits       *ChainLimits   `yaml:"limits,omitempty" json:"limits,omitempty"`             // guard-rails
+		When         *WhenSpec      `yaml:"when,omitempty" json:"when,omitempty"`                 // optional condition
+
+		Publish *ChainPublish `yaml:"publish,omitempty" json:"publish,omitempty"` // optional publish settings
+		OnError string        `yaml:"onError,omitempty" json:"onError,omitempty"` // ignore|message|propagate
+		Limits  *ChainLimits  `yaml:"limits,omitempty" json:"limits,omitempty"`   // guard-rails
 	}
 
 	ChainTarget struct {
@@ -102,6 +103,23 @@ type (
 		DedupeKey string `yaml:"dedupeKey,omitempty" json:"dedupeKey,omitempty"`
 	}
 )
+
+// WhenSpec specifies a conditional gate for executing a chain. Evaluate Expr first; if empty and Query present,
+// run an LLM prompt and extract a boolean using Expect.
+type WhenSpec struct {
+	Expr   string         `yaml:"expr,omitempty" json:"expr,omitempty"`
+	Query  *prompt.Prompt `yaml:"query,omitempty" json:"query,omitempty"`
+	Model  string         `yaml:"model,omitempty" json:"model,omitempty"`
+	Expect *WhenExpect    `yaml:"expect,omitempty" json:"expect,omitempty"`
+}
+
+// WhenExpect describes how to extract a boolean from an LLM response.
+// Supported kinds: boolean (default), regex, jsonpath (basic $.field).
+type WhenExpect struct {
+	Kind    string `yaml:"kind,omitempty" json:"kind,omitempty"`
+	Pattern string `yaml:"pattern,omitempty" json:"pattern,omitempty"`
+	Path    string `yaml:"path,omitempty" json:"path,omitempty"`
+}
 
 func (a *Agent) Validate() error {
 	if a == nil {

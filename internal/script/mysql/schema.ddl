@@ -138,7 +138,8 @@ CREATE TABLE `message`
     status                 VARCHAR(255) CHECK (status IS NULL OR status IN
                                                                  ('', 'pending', 'accepted', 'rejected', 'cancel',
                                                                   'open', 'summary', 'summarized')),
-    role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
+    mode                   VARCHAR(255),
+    role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
     `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control')),
     content                MEDIUMTEXT,
     context_summary        TEXT,
@@ -147,6 +148,7 @@ CREATE TABLE `message`
     elicitation_id         VARCHAR(255),
     parent_message_id      VARCHAR(255),
     superseded_by          VARCHAR(255),
+    linked_conversation_id VARCHAR(255),
     attachment_payload_id  VARCHAR(255),
     elicitation_payload_id VARCHAR(255),
     -- legacy column to remain compatible with older readers

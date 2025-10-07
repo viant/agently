@@ -6,45 +6,81 @@ import (
 	"fmt"
 	"strings"
 
+	"regexp"
+
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	agentmdl "github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
-	"github.com/viant/agently/genai/usage"
+	"github.com/viant/agently/genai/service/core"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 // chainBinding is a minimal data holder exposed to chain query/when templates.
-type chainBinding struct {
-	Output struct {
-		Content   string
-		Model     string
-		MessageID string
-		// Error message when parent failed; empty otherwise
-		Error string
-	}
-	Usage        *usage.Aggregator
+// ChainContext carries parent state and transcript to execute chain logic.
+type ChainContext struct {
+	Agent        *agentmdl.Agent
+	Conversation *apiconv.Conversation
 	Context      map[string]interface{}
-	Agent        struct{ ID, Name string }
-	Turn         struct{ ConversationID, TurnID, ParentMessageID, Status string }
-	Conversation struct{ ID, DefaultModel string }
+	UserID       string
+	ParentTurn   *memory.TurnMeta
+	Output       struct{ Content, Model, MessageID, Error string }
+}
+
+// NewChainContext builds a ChainContext from the current turn context,
+// parent input and output. Conversation can be attached by the caller.
+func NewChainContext(in *QueryInput, out *QueryOutput, turn *memory.TurnMeta) ChainContext {
+	var cc ChainContext
+	if in != nil {
+		cc.Agent = in.Agent
+		cc.Context = in.Context
+		cc.UserID = in.UserId
+	}
+
+	cc.ParentTurn = turn
+
+	if out != nil {
+		cc.Output.Content = out.Content
+		cc.Output.Model = out.Model
+		cc.Output.MessageID = out.MessageID
+	}
+	return cc
 }
 
 // executeChains filters, evaluates and dispatches chains declared on the parent agent.
-func (s *Service) executeChains(ctx context.Context, parentIn *QueryInput, parentOut *QueryOutput, status string) error {
-	if parentIn == nil || parentIn.Agent == nil || len(parentIn.Agent.Chains) == 0 {
+func (s *Service) executeChains(ctx context.Context, parent ChainContext, status string) error {
+	if parent.Agent == nil || len(parent.Agent.Chains) == 0 {
 		return nil
 	}
-	// Skip chaining when this is a continuation turn to avoid loops unless explicitly allowed
-	if v, ok := parentIn.Context["chain.resume"].(bool); ok && v {
-		return nil
+	// Always evaluate chains each turn; auto-next is still bounded
+	// Reset per-turn counters unless this is an auto-next continuation turn
+	isResume := false
+	if v, ok := parent.Context["chain.resume"].(bool); ok && v {
+		isResume = true
 	}
-	bind := s.buildChainBinding(ctx, parentIn, parentOut, status)
+	if !isResume {
+		if parent.Context != nil {
+			delete(parent.Context, "chain.depth")
+		}
+		// Reset per-conversation dedupe marks for chains
+		if parent.Conversation != nil {
+			_ = s.resetChainDedupe(ctx, parent.Conversation.Id)
+		}
+	}
+	// Stamp status into context
+	if parent.Context != nil {
+		if _, ok := parent.Context["chain"]; !ok {
+			parent.Context["chain"] = map[string]interface{}{}
+		}
+		cm := parent.Context["chain"].(map[string]interface{})
+		cm["status"] = status
+	}
 
 	// Iterate chains in declaration order
 	usedAutoNext := false
-	for _, ch := range parentIn.Agent.Chains {
+	for _, ch := range parent.Agent.Chains {
 		if ch == nil {
 			continue
 		}
@@ -52,35 +88,51 @@ func (s *Service) executeChains(ctx context.Context, parentIn *QueryInput, paren
 		if on != "" && on != "*" && on != strings.ToLower(status) {
 			continue
 		}
-		ok, wErr := s.evalChainWhen(ctx, bind, ch.When)
-		if wErr != nil {
+		ok, err := s.evalChainWhen(ctx, parent, ch.When)
+		if err != nil {
 			switch strings.ToLower(strings.TrimSpace(ch.OnError)) {
 			case "propagate":
-				return fmt.Errorf("chain when error: %w", wErr)
-			case "message":
-				_, _ = s.addMessage(ctx, parentIn.ConversationID, "assistant", "", fmt.Sprintf("chain when-eval error: %v", wErr), "", bind.Turn.TurnID)
+				return fmt.Errorf("chain when error: %w", err)
 			}
 			continue
+		}
+		// Stamp minimal evaluation context
+		if parent.Context != nil {
+			if _, ok := parent.Context["chain"]; !ok {
+				parent.Context["chain"] = map[string]interface{}{}
+			}
+			cm := parent.Context["chain"].(map[string]interface{})
+			cm["status"] = status
+			whenCtx := map[string]interface{}{
+				"decision": ok,
+			}
+			if ch.When != nil {
+				whenCtx["expect"] = ch.When.Expect
+			}
+			if ch.When != nil && strings.TrimSpace(ch.When.Model) != "" {
+				whenCtx["model"] = strings.TrimSpace(ch.When.Model)
+			}
+			cm["when"] = whenCtx
 		}
 		if !ok {
 			continue
 		}
 		policy := s.normalizePolicy(ch.Conversation)
-		destConvID, err := s.ensureChildConversationIfNeeded(ctx, parentIn.ConversationID, bind.Turn.TurnID, policy)
+		destConvID, err := s.ensureChildConversationIfNeeded(ctx, parent.ParentTurn, policy)
 		if err != nil {
 			return err
 		}
-		childIn := s.buildChildInput(parentIn, ch, on, destConvID, bind)
+		childIn := s.buildChildInputFromParent(parent, ch, on, destConvID)
 
 		runSync := strings.EqualFold(strings.TrimSpace(ch.Mode), "sync") || strings.TrimSpace(ch.Mode) == ""
 		if runSync {
-			if err := s.runChainSync(ctx, childIn, ch, parentIn, &bind, &usedAutoNext); err != nil {
+			if err = s.runChainSync(ctx, childIn, ch, &parent, &usedAutoNext); err != nil {
 				return err
 			}
 			continue
 		}
 		// async
-		s.runChainAsync(ctx, childIn, ch, parentIn, &bind)
+		s.runChainAsync(ctx, childIn, ch, &parent)
 	}
 	return nil
 }
@@ -144,67 +196,191 @@ func (s *Service) seenAndMarkChainDedupe(ctx context.Context, convID, key string
 	return false, s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&w))
 }
 
-// --- helpers ---
-
-func (s *Service) buildChainBinding(ctx context.Context, parentIn *QueryInput, parentOut *QueryOutput, status string) chainBinding {
-	var bind chainBinding
-	bind.Output.Content = parentOut.Content
-	bind.Output.Model = parentOut.Model
-	bind.Output.MessageID = parentOut.MessageID
-	if strings.EqualFold(status, "failed") {
-		bind.Output.Error = ""
+// resetChainDedupe clears per-conversation chain dedupe markers.
+func (s *Service) resetChainDedupe(ctx context.Context, convID string) error {
+	if s.conversation == nil || strings.TrimSpace(convID) == "" {
+		return nil
 	}
-	bind.Usage = parentOut.Usage
-	if parentIn != nil && parentIn.Agent != nil {
-		bind.Agent.ID = parentIn.Agent.ID
-		bind.Agent.Name = parentIn.Agent.Name
+	cv, err := s.conversation.GetConversation(ctx, convID)
+	if err != nil || cv == nil {
+		return err
 	}
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-		bind.Turn.ConversationID = tm.ConversationID
-		bind.Turn.TurnID = tm.TurnID
-		bind.Turn.ParentMessageID = tm.ParentMessageID
-	} else if parentIn != nil {
-		bind.Turn.ConversationID = parentIn.ConversationID
+	var meta ConversationMetadata
+	if cv.Metadata != nil && strings.TrimSpace(*cv.Metadata) != "" {
+		_ = json.Unmarshal([]byte(*cv.Metadata), &meta)
 	}
-	bind.Turn.Status = status
-	if parentIn != nil {
-		bind.Conversation.ID = parentIn.ConversationID
-		bind.Context = map[string]interface{}{}
-		for k, v := range parentIn.Context {
-			bind.Context[k] = v
-		}
+	if meta.Extra == nil {
+		meta.Extra = map[string]json.RawMessage{}
 	}
-	return bind
+	empty, _ := json.Marshal([]string{})
+	meta.Extra["chainSeen"] = empty
+	mbytes, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	w := convw.Conversation{Has: &convw.ConversationHas{}}
+	w.SetId(convID)
+	w.SetMetadata(string(mbytes))
+	return s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&w))
 }
 
-func (s *Service) evalChainWhen(ctx context.Context, bind chainBinding, expr string) (bool, error) {
-	if strings.TrimSpace(expr) == "" {
+// buildChainBindingFromParent deprecated; superseded by buildPromptBindingFromParent.
+
+func (s *Service) evalChainWhen(ctx context.Context, parent ChainContext, spec *agentmdl.WhenSpec) (bool, error) {
+	if spec == nil {
 		return true, nil
 	}
-	p := &prompt.Prompt{Text: expr}
-	b := &prompt.Binding{Context: map[string]interface{}{
-		"Output":       bind.Output,
-		"Usage":        bind.Usage,
-		"Context":      bind.Context,
-		"Agent":        bind.Agent,
-		"Turn":         bind.Turn,
-		"Conversation": bind.Conversation,
-	}}
-	expanded, err := p.Generate(ctx, b)
+	b := s.buildPromptBindingFromParent(ctx, parent, true)
+
+	// Expr path
+	if strings.TrimSpace(spec.Expr) != "" {
+		p := &prompt.Prompt{Text: spec.Expr}
+		expanded, err := p.Generate(ctx, b)
+		if err != nil {
+			return false, err
+		}
+		sval := strings.TrimSpace(strings.ToLower(expanded))
+		switch sval {
+		case "", "false", "0", "no", "off":
+			return false, nil
+		case "true", "1", "yes", "on":
+			return true, nil
+		}
+		if f, perr := parseFloatSafe(sval); perr == nil {
+			return f != 0.0, nil
+		}
+		return true, nil
+	}
+	// LLM path
+	if spec.Query == nil {
+		return true, nil
+	}
+	// Build a minimal binding and attach last user/assistant only
+	// Record interim user message with expanded query
+	if err := spec.Query.Init(ctx); err != nil {
+		return false, fmt.Errorf("when query init: %w", err)
+	}
+	expandedUser, err := spec.Query.Generate(ctx, b)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("when query generate: %w", err)
 	}
-	sval := strings.TrimSpace(strings.ToLower(expanded))
-	switch sval {
-	case "", "false", "0", "no", "off":
+	expandedUser = strings.TrimSpace(expandedUser)
+	in := &core.GenerateInput{Prompt: spec.Query, Binding: b,
+		UserID:         parent.UserID,
+		ModelSelection: llm.ModelSelection{Options: &llm.Options{}},
+	}
+	if model := resolveWhenModel(spec, parent); model != "" {
+		in.Model = model
+	}
+	in.Options.Mode = "chain"
+	EnsureGenerateOptions(in, parent.Agent)
+	var out core.GenerateOutput
+
+	if err := s.llm.Generate(ctx, in, &out); err != nil {
+		return false, fmt.Errorf("llm generate: %w", err)
+	}
+	resp := strings.TrimSpace(out.Content)
+	// Expect evaluation
+	kind := "boolean"
+	if spec.Expect != nil && strings.TrimSpace(spec.Expect.Kind) != "" {
+		kind = strings.ToLower(strings.TrimSpace(spec.Expect.Kind))
+	}
+	switch kind {
+	case "regex":
+		if spec.Expect == nil || strings.TrimSpace(spec.Expect.Pattern) == "" {
+			return false, nil
+		}
+		re, err := regexp.Compile(spec.Expect.Pattern)
+		if err != nil {
+			return false, err
+		}
+		return re.MatchString(resp), nil
+	case "jsonpath":
+		if spec.Expect == nil || strings.TrimSpace(spec.Expect.Path) == "" {
+			return false, nil
+		}
+		var obj interface{}
+		if err := json.Unmarshal([]byte(resp), &obj); err != nil {
+			return false, err
+		}
+		// minimal $.field support
+		p := strings.TrimSpace(spec.Expect.Path)
+		if strings.HasPrefix(p, "$.") {
+			key := strings.TrimPrefix(p, "$.")
+			if m, ok := obj.(map[string]interface{}); ok {
+				v := m[key]
+				switch t := v.(type) {
+				case bool:
+					return t, nil
+				case string:
+					s := strings.ToLower(strings.TrimSpace(t))
+					return s == "true" || s == "1" || s == "yes" || s == "on", nil
+				case float64:
+					return t != 0, nil
+				default:
+					return v != nil, nil
+				}
+			}
+		}
 		return false, nil
-	case "true", "1", "yes", "on":
+	default: // boolean
+		sval := strings.ToLower(resp)
+		sval = strings.TrimSpace(sval)
+		switch sval {
+		case "", "false", "0", "no", "off":
+			return false, nil
+		case "true", "1", "yes", "on":
+			return true, nil
+		}
+		if f, perr := parseFloatSafe(sval); perr == nil {
+			return f != 0.0, nil
+		}
 		return true, nil
 	}
-	if f, perr := parseFloatSafe(sval); perr == nil {
-		return f != 0.0, nil
+}
+
+// resolveWhenModel returns the model to use for WhenSpec evaluation.
+// Priority: WhenSpec.Model > parent turn Output.Model > conversation default > agent model.
+func resolveWhenModel(spec *agentmdl.WhenSpec, parent ChainContext) string {
+	if spec != nil {
+		if m := strings.TrimSpace(spec.Model); m != "" {
+			return m
+		}
 	}
-	return true, nil
+	if m := strings.TrimSpace(parent.Output.Model); m != "" {
+		return m
+	}
+	if parent.Conversation != nil && parent.Conversation.DefaultModel != nil {
+		if m := strings.TrimSpace(*parent.Conversation.DefaultModel); m != "" {
+			return m
+		}
+	}
+	if parent.Agent != nil {
+		if m := strings.TrimSpace(parent.Agent.Model); m != "" {
+			return m
+		}
+	}
+	return ""
+}
+
+// buildPromptBindingFromParent builds a compact prompt.Binding from ChainContext.
+// When minimal is true, only last user/assistant are attached to History.
+func (s *Service) buildPromptBindingFromParent(ctx context.Context, parent ChainContext, lastTurnOnly bool) *prompt.Binding {
+	b := &prompt.Binding{Context: map[string]interface{}{}}
+	// Provide a compact context map including Inner Context and light meta
+	b.Context = map[string]interface{}{
+		"Context":      parent.Context,
+		"Output":       parent.Output,
+		"Agent":        struct{ ID, Name string }{ID: strings.TrimSpace(parent.Agent.ID), Name: strings.TrimSpace(parent.Agent.Name)},
+		"Turn":         struct{ ConversationID, TurnID, ParentMessageID, Status string }{ConversationID: parent.Conversation.Id, TurnID: parent.ParentTurn.TurnID, ParentMessageID: parent.ParentTurn.ParentMessageID, Status: ""},
+		"Conversation": struct{ ID, DefaultModel string }{ID: parent.Conversation.Id},
+	}
+	// Attach minimal history
+	if parent.Conversation != nil {
+		transcript := parent.Conversation.GetTranscript()
+		b.History.Messages = transcript.History(lastTurnOnly)
+	}
+	return b
 }
 
 func (s *Service) normalizePolicy(policy string) string {
@@ -215,19 +391,17 @@ func (s *Service) normalizePolicy(policy string) string {
 	return p
 }
 
-func (s *Service) ensureChildConversationIfNeeded(ctx context.Context, parentConvID, parentTurnID, policy string) (string, error) {
+func (s *Service) ensureChildConversationIfNeeded(ctx context.Context, parentTurn *memory.TurnMeta, policy string) (string, error) {
 	if policy != "link" {
-		return parentConvID, nil
+		return parentTurn.ConversationID, nil
 	}
 	destConvID := uuid.New().String()
 	if s.conversation != nil {
 		w := convw.Conversation{Has: &convw.ConversationHas{}}
 		w.SetId(destConvID)
 		w.SetVisibility(convw.VisibilityPublic)
-		w.SetConversationParentId(parentConvID)
-		if strings.TrimSpace(parentTurnID) != "" {
-			w.SetConversationParentTurnId(parentTurnID)
-		}
+		w.SetConversationParentId(parentTurn.ConversationID)
+		w.SetConversationParentTurnId(parentTurn.TurnID)
 		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&w)); err != nil {
 			return "", err
 		}
@@ -235,31 +409,24 @@ func (s *Service) ensureChildConversationIfNeeded(ctx context.Context, parentCon
 	return destConvID, nil
 }
 
-func (s *Service) buildChildInput(parentIn *QueryInput, ch *agentmdl.Chain, on string, destConvID string, bind chainBinding) *QueryInput {
+func (s *Service) buildChildInputFromParent(parent ChainContext, ch *agentmdl.Chain, on string, destConvID string) *QueryInput {
 	childIn := &QueryInput{
 		ConversationID: destConvID,
 		AgentID:        ch.Target.AgentID,
-		UserId:         parentIn.UserId,
+		UserId:         parent.UserID,
 		Context:        map[string]interface{}{},
 	}
-	for k, v := range parentIn.Context {
+	for k, v := range parent.Context {
 		childIn.Context[k] = v
 	}
 	childIn.Context["chain"] = map[string]interface{}{
 		"on":                   on,
 		"targetAgentId":        ch.Target.AgentID,
 		"policy":               s.normalizePolicy(ch.Conversation),
-		"parentConversationId": parentIn.ConversationID,
+		"parentConversationId": parent.Conversation.Id,
 	}
 	if ch.Query != nil {
-		b := &prompt.Binding{Context: map[string]interface{}{
-			"Output":       bind.Output,
-			"Usage":        bind.Usage,
-			"Context":      bind.Context,
-			"Agent":        bind.Agent,
-			"Turn":         bind.Turn,
-			"Conversation": bind.Conversation,
-		}}
+		b := s.buildPromptBindingFromParent(context.Background(), parent, false)
 		if err := ch.Query.Init(context.Background()); err == nil {
 			if q, err := ch.Query.Generate(context.Background(), b); err == nil {
 				childIn.Query = q
@@ -269,34 +436,31 @@ func (s *Service) buildChildInput(parentIn *QueryInput, ch *agentmdl.Chain, on s
 	return childIn
 }
 
-func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, ch *agentmdl.Chain, parentIn *QueryInput, bind *chainBinding, usedAutoNext *bool) error {
-	var childOut QueryOutput
-	if err := s.Query(ctx, childIn, &childOut); err != nil {
-		switch strings.ToLower(strings.TrimSpace(ch.OnError)) {
-		case "propagate":
+func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *agentmdl.Chain, parent *ChainContext, usedAutoNext *bool) error {
+
+	if chain.Publish != nil {
+		s.addMessage(ctx, parent.ParentTurn, "chain", "", "chaining", "", "")
+	}
+
+	content, role, err := s.fetchChainOutput(ctx, childIn, chain)
+	if err != nil {
+		if strings.ToLower(strings.TrimSpace(chain.OnError)) == "propagate" {
 			return fmt.Errorf("chain target error: %w", err)
-		case "message":
-			_, _ = s.addMessage(ctx, parentIn.ConversationID, "assistant", "", fmt.Sprintf("chain error: %v", err), "", bind.Turn.TurnID)
 		}
 		return nil
 	}
-	content := strings.TrimSpace(childOut.Content)
-	if content == "" {
+	if strings.TrimSpace(content) == "" {
 		return nil
-	}
-	role := strings.ToLower(strings.TrimSpace(ch.Publish.Role))
-	if role == "" {
-		role = "assistant"
 	}
 	// Continuation gate
-	auto := ch.Publish != nil && ch.Publish.AutoNextTurn && role == "user" && !*usedAutoNext
+	auto := chain.Publish != nil && chain.Publish.AutoNextTurn && role == "user" && !*usedAutoNext
 	if auto {
 		maxDepth := 10
-		if ch.Limits != nil && ch.Limits.MaxDepth > 0 {
-			maxDepth = ch.Limits.MaxDepth
+		if chain.Limits != nil && chain.Limits.MaxDepth > 0 {
+			maxDepth = chain.Limits.MaxDepth
 		}
 		depth := 0
-		if v, ok := parentIn.Context["chain.depth"]; ok {
+		if v, ok := parent.Context["chain.depth"]; ok {
 			switch t := v.(type) {
 			case int:
 				depth = t
@@ -305,21 +469,14 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, ch *age
 			}
 		}
 		// Dedupe
-		if ch.Limits != nil && strings.TrimSpace(ch.Limits.DedupeKey) != "" {
-			key := strings.TrimSpace(ch.Limits.DedupeKey)
+		if chain.Limits != nil && strings.TrimSpace(chain.Limits.DedupeKey) != "" {
+			key := strings.TrimSpace(chain.Limits.DedupeKey)
 			p := &prompt.Prompt{Text: key}
-			b := &prompt.Binding{Context: map[string]interface{}{
-				"Output":       bind.Output,
-				"Usage":        bind.Usage,
-				"Context":      bind.Context,
-				"Agent":        bind.Agent,
-				"Turn":         bind.Turn,
-				"Conversation": bind.Conversation,
-			}}
+			b := s.buildPromptBindingFromParent(ctx, *parent, false)
 			if exp, err := p.Generate(ctx, b); err == nil {
 				dedupeKey := strings.TrimSpace(exp)
 				if dedupeKey != "" {
-					if seen, _ := s.seenAndMarkChainDedupe(ctx, parentIn.ConversationID, dedupeKey); seen {
+					if seen, _ := s.seenAndMarkChainDedupe(ctx, parent.Conversation.Id, dedupeKey); seen {
 						auto = false
 					}
 				}
@@ -328,22 +485,19 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, ch *age
 		if auto && depth < maxDepth {
 			// Continue parent as new user turn
 			next := &QueryInput{
-				ConversationID: parentIn.ConversationID,
-				AgentID:        parentIn.Agent.ID,
-				UserId:         strings.TrimSpace(ch.Publish.Name),
+				ConversationID: parent.Conversation.Id,
+				AgentID:        parent.Agent.ID,
+				UserId:         strings.TrimSpace(chain.Publish.Name),
 				Query:          content,
 				Context:        map[string]interface{}{},
 			}
-			if next.UserId == "" {
-				next.UserId = parentIn.UserId
-			}
-			for k, v := range parentIn.Context {
+			for k, v := range parent.Context {
 				next.Context[k] = v
 			}
 			next.Context["chain.resume"] = true
 			next.Context["chain.depth"] = depth + 1
-			next.Context["chain.parentTurnId"] = bind.Turn.TurnID
-			next.Context["chain.targetAgentId"] = ch.Target.AgentID
+			next.Context["chain.parentTurnId"] = parent.ParentTurn.TurnID
+			next.Context["chain.targetAgentId"] = chain.Target.AgentID
 			var out QueryOutput
 			if err := s.Query(ctx, next, &out); err != nil {
 				return fmt.Errorf("continuation error: %w", err)
@@ -353,50 +507,59 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, ch *age
 		}
 	}
 	// Publish-only fallback
-	s.publishToParent(ctx, parentIn, bind, role, ch, content)
+	s.publishToParent(ctx, parent, role, chain, content)
 	return nil
 }
 
-func (s *Service) runChainAsync(ctx context.Context, childIn *QueryInput, ch *agentmdl.Chain, parentIn *QueryInput, bind *chainBinding) {
+func (s *Service) runChainAsync(ctx context.Context, childIn *QueryInput, chian *agentmdl.Chain, parent *ChainContext) {
 	go func(parentCtx context.Context, in *QueryInput) {
 		base := context.Background()
-		var out QueryOutput
-		if err := s.Query(base, in, &out); err != nil {
-			if strings.ToLower(strings.TrimSpace(ch.OnError)) == "message" {
-				_, _ = s.addMessage(parentCtx, parentIn.ConversationID, "assistant", "", fmt.Sprintf("chain error: %v", err), "", bind.Turn.TurnID)
+		content, role, err := s.fetchChainOutput(base, in, chian)
+		if err != nil {
+			if strings.ToLower(strings.TrimSpace(chian.OnError)) == "message" {
+				_, _ = s.addMessage(parentCtx, parent.ParentTurn, "assistant", "chain", "", "", "")
 			}
 			return
 		}
-		content := strings.TrimSpace(out.Content)
-		if content == "" {
+		if strings.TrimSpace(content) == "" {
 			return
 		}
-		role := strings.ToLower(strings.TrimSpace(ch.Publish.Role))
-		if role == "" {
-			role = "assistant"
-		}
-		s.publishToParent(parentCtx, parentIn, bind, role, ch, content)
+		s.publishToParent(parentCtx, parent, role, chian, content)
 	}(ctx, childIn)
 }
 
-func (s *Service) publishToParent(ctx context.Context, parentIn *QueryInput, bind *chainBinding, role string, ch *agentmdl.Chain, content string) {
+// fetchChainOutput executes a child chain query and returns trimmed content and resolved role.
+// It centralizes shared logic for sync/async chain execution without applying error policies.
+func (s *Service) fetchChainOutput(ctx context.Context, in *QueryInput, ch *agentmdl.Chain) (string, string, error) {
+	var out QueryOutput
+	if err := s.Query(ctx, in, &out); err != nil {
+		return "", "", err
+	}
+	content := strings.TrimSpace(out.Content)
+	role := "assistant"
+	if ch != nil && ch.Publish != nil && ch.Publish.Role != "" {
+		role = strings.ToLower(strings.TrimSpace(ch.Publish.Role))
+		if role == "" {
+			role = "assistant"
+		}
+	}
+	return content, role, nil
+}
+
+func (s *Service) publishToParent(ctx context.Context, parent *ChainContext, role string, ch *agentmdl.Chain, content string) {
 	parentSel := strings.ToLower(strings.TrimSpace(ch.Publish.Parent))
 	if parentSel == "" {
 		parentSel = "last_user"
 	}
-	parentID := ""
+	aTurn := parent.ParentTurn
 	switch parentSel {
-	case "same_turn":
-		parentID = bind.Turn.TurnID
-	case "last_user":
-		parentID = bind.Turn.ParentMessageID
+	case "new_turn":
+	//TODO create a new turn
+	default:
 	}
 	actor := ""
 	if role == "user" {
 		actor = strings.TrimSpace(ch.Publish.Name)
-		if actor == "" {
-			actor = parentIn.UserId
-		}
 	}
-	_, _ = s.addMessage(ctx, parentIn.ConversationID, role, actor, content, "", parentID)
+	_, _ = s.addMessage(ctx, aTurn, role, actor, content, "chain", "")
 }

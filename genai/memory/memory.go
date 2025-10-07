@@ -21,6 +21,7 @@ func ModelMessageIDFromContext(ctx context.Context) string {
 // Prefer passing a single TurnMeta instead of scattering separate keys.
 type TurnMeta struct {
 	TurnID          string
+	Assistant       string
 	ConversationID  string
 	ParentMessageID string // last user message id (or tool message when parenting final)
 }

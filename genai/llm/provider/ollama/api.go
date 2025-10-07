@@ -52,7 +52,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
-		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", RequestJSON: data, LLMRequest: request, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
 			ctx = newCtx
 		} else {
 			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
@@ -156,7 +156,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
-		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", Model: req.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "ollama", LLMRequest: request, Model: req.Model, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
 			ctx = newCtx
 		} else {
 			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)

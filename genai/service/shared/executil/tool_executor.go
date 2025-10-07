@@ -105,22 +105,16 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 // createToolMessage persists a new tool message and returns its ID.
 func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.TurnMeta, startedAt time.Time) (string, error) {
 	toolMsgID := uuid.New().String()
-	msg := apiconv.NewMessage()
-	msg.SetId(toolMsgID)
-	msg.SetConversationID(turn.ConversationID)
-	if turn.TurnID != "" {
-		msg.SetTurnID(turn.TurnID)
-	}
-	if turn.ParentMessageID != "" {
-		msg.SetParentMessageID(turn.ParentMessageID)
-	}
-	msg.SetRole("tool")
-	msg.SetType("tool_op")
-	msg.SetCreatedAt(startedAt)
-	if err := conv.PatchMessage(ctx, msg); err != nil {
+	id, err := apiconv.AddMessage(ctx, conv, &turn,
+		apiconv.WithId(toolMsgID),
+		apiconv.WithRole("tool"),
+		apiconv.WithType("tool_op"),
+		apiconv.WithCreatedAt(startedAt),
+	)
+	if err != nil {
 		return "", fmt.Errorf("persist tool message: %w", err)
 	}
-	return toolMsgID, nil
+	return id, nil
 }
 
 // initToolCall initializes and persists a new tool call in a 'running' state for the given tool message.

@@ -11,6 +11,8 @@ import (
 	"github.com/viant/datly/view"
 )
 
+type ScheduleListInput struct{}
+
 const SchedulePathListURI = "/v1/api/agently/scheduler/schedule/"
 
 func DefineScheduleListComponent(ctx context.Context, srv *datly.Service) error {

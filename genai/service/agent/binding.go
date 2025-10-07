@@ -92,7 +92,7 @@ func (s *Service) buildHistory(ctx context.Context, conv *apiconv.Conversation) 
 		return h, nil
 	}
 	transcript := conv.GetTranscript()
-	h.Messages = transcript.History()
+	h.Messages = transcript.History(false)
 	return h, nil
 }
 

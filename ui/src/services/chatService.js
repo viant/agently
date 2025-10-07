@@ -433,9 +433,13 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                     }
                 }
             }
-            if (s1) steps.push({...s1, elapsed: computeElapsed(s1)});
-            if (s2) steps.push({...s2, elapsed: computeElapsed(s2)});
-            if (s3) steps.push({...s3, elapsed: computeElapsed(s3)});
+            // Attach chain/link context & actor from message level when present
+            const linkedConvId = m.linkedConversationId || m.LinkedConversationId || null;
+            const createdByUserId = m.createdByUserId || m.CreatedByUserId || null;
+            const mode = m.mode || m.Mode || null;
+            if (s1) steps.push({...s1, linkedConversationId: linkedConvId, createdByUserId, mode, elapsed: computeElapsed(s1)});
+            if (s2) steps.push({...s2, linkedConversationId: linkedConvId, createdByUserId, mode, elapsed: computeElapsed(s2)});
+            if (s3) steps.push({...s3, linkedConversationId: linkedConvId, createdByUserId, mode, elapsed: computeElapsed(s3)});
         }
 
         // Sort steps by timestamp (prefer startedAt, fallback endedAt)

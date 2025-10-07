@@ -55,11 +55,10 @@ type ConversationOutput struct {
 }
 
 type ConversationView struct {
-	LastTurnId *string `sqlx:"last_turn_id"`
-	Stage      string  `sqlx:"stage"`
-	Id         string  `sqlx:"id"`
-	Summary    *string `sqlx:"summary"`
-	// AgentName removed; use AgentId
+	LastTurnId               *string           `sqlx:"last_turn_id"`
+	Stage                    string            `sqlx:"stage"`
+	Id                       string            `sqlx:"id"`
+	Summary                  *string           `sqlx:"summary"`
 	LastActivity             *time.Time        `sqlx:"last_activity"`
 	UsageInputTokens         *int              `sqlx:"usage_input_tokens"`
 	UsageOutputTokens        *int              `sqlx:"usage_output_tokens"`
@@ -69,13 +68,13 @@ type ConversationView struct {
 	CreatedByUserId          *string           `sqlx:"created_by_user_id"`
 	TenantId                 *string           `sqlx:"tenant_id"`
 	AgentId                  *string           `sqlx:"agent_id"`
-	ConversationParentId     *string           `sqlx:"conversation_parent_id"`
-	ConversationParentTurnId *string           `sqlx:"conversation_parent_turn_id"`
 	AgentConfigId            *string           `sqlx:"agent_config_id"`
 	DefaultModelProvider     *string           `sqlx:"default_model_provider"`
 	DefaultModel             *string           `sqlx:"default_model"`
 	DefaultModelParams       *string           `sqlx:"default_model_params"`
 	Title                    *string           `sqlx:"title"`
+	ConversationParentId     *string           `sqlx:"conversation_parent_id"`
+	ConversationParentTurnId *string           `sqlx:"conversation_parent_turn_id"`
 	Metadata                 *string           `sqlx:"metadata"`
 	Visibility               string            `sqlx:"visibility"`
 	Archived                 int               `sqlx:"archived"`
@@ -127,6 +126,7 @@ type MessageView struct {
 	CreatedByUserId      *string                  `sqlx:"created_by_user_id"`
 	ClientIp             *string                  `sqlx:"client_ip"`
 	Status               *string                  `sqlx:"status"`
+	Mode                 *string                  `sqlx:"mode"`
 	Role                 string                   `sqlx:"role"`
 	Type                 string                   `sqlx:"type"`
 	Content              *string                  `sqlx:"content"`
@@ -136,6 +136,7 @@ type MessageView struct {
 	ElicitationId        *string                  `sqlx:"elicitation_id"`
 	ParentMessageId      *string                  `sqlx:"parent_message_id"`
 	SupersededBy         *string                  `sqlx:"superseded_by"`
+	LinkedConversationId *string                  `sqlx:"linked_conversation_id"`
 	AttachmentPayloadId  *string                  `sqlx:"attachment_payload_id"`
 	ElicitationPayloadId *string                  `sqlx:"elicitation_payload_id"`
 	ToolName             *string                  `sqlx:"tool_name"`

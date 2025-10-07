@@ -67,6 +67,8 @@ type Options struct {
 	// Stream enables streaming responses.
 	Stream bool `json:"stream,omitempty" yaml:"stream,omitempty"`
 
+	Mode string `json:"mode,omitempty" yaml:"mode,omitempty"`
+
 	// ParallelToolCalls requests the provider to execute multiple tool calls
 	// in parallel within a single reasoning step, when supported by the model.
 	// This is honored by providers that implement base.CanExecToolsInParallel

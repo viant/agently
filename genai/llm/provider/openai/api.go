@@ -124,7 +124,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
-		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", LLMRequest: request, RequestJSON: payload, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
 			ctx = newCtx
 		} else {
 			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
@@ -265,7 +265,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
-		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", RequestJSON: payload, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, LLMRequest: request, ModelKind: "chat", RequestJSON: payload, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
 			ctx = newCtx
 		} else {
 			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
