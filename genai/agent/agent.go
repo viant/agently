@@ -74,12 +74,13 @@ type (
 
 	// Chain defines a single post-turn follow-up.
 	Chain struct {
-		On           string         `yaml:"on,omitempty" json:"on,omitempty"`                     // succeeded|failed|canceled|*
-		Target       ChainTarget    `yaml:"target" json:"target"`                                 // required: agent to invoke
-		Mode         string         `yaml:"mode,omitempty" json:"mode,omitempty"`                 // async|sync|queue (default sync)
-		Conversation string         `yaml:"conversation,omitempty" json:"conversation,omitempty"` // reuse|link (default link)
-		Query        *prompt.Prompt `yaml:"query,omitempty" json:"query,omitempty"`               // templated query/payload
-		When         *WhenSpec      `yaml:"when,omitempty" json:"when,omitempty"`                 // optional condition
+		On           string      `yaml:"on,omitempty" json:"on,omitempty"`                     // succeeded|failed|canceled|*
+		Target       ChainTarget `yaml:"target" json:"target"`                                 // required: agent to invoke
+		Mode         string      `yaml:"mode,omitempty" json:"mode,omitempty"`                 // async|sync (default sync)
+		Conversation string      `yaml:"conversation,omitempty" json:"conversation,omitempty"` // reuse|link (default link)
+		When         *WhenSpec   `yaml:"when,omitempty" json:"when,omitempty"`                 // optional condition
+
+		Query *prompt.Prompt `yaml:"query,omitempty" json:"query,omitempty"` // templated query/payload
 
 		Publish *ChainPublish `yaml:"publish,omitempty" json:"publish,omitempty"` // optional publish settings
 		OnError string        `yaml:"onError,omitempty" json:"onError,omitempty"` // ignore|message|propagate

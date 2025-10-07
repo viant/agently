@@ -26,42 +26,15 @@ import (
 
 // Query executes a query against an agent.
 func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) error {
-	// Ensure conversation exists and reuse stored defaults (agent/model/tools)
-	if err := s.ensureConversation(ctx, input); err != nil {
+	if err := s.ensureEnvironment(ctx, input); err != nil {
 		return err
 	}
-
-	// Ensure agent is loaded (may be sourced from conversation when not provided)
-	if err := s.ensureAgent(ctx, input); err != nil {
-		return err
-	}
-
 	if input == nil || input.Agent == nil {
 		return fmt.Errorf("invalid input: agent is required")
 	}
 
-	if input.EmbeddingModel == "" {
-		input.EmbeddingModel = s.defaults.Embedder
-	}
-
 	// Bridge auth token from QueryInput.Context when provided (non-HTTP callers).
-	if input != nil && input.Context != nil {
-		// Accept common keys: authorization (may include "Bearer "), authToken, token, bearer
-		if v, ok := input.Context["authorization"].(string); ok && strings.TrimSpace(v) != "" {
-			if tok := authctx.ExtractBearer(v); tok != "" {
-				ctx = authctx.WithBearer(ctx, tok)
-			}
-		}
-		if v, ok := input.Context["authToken"].(string); ok && strings.TrimSpace(v) != "" {
-			ctx = authctx.WithBearer(ctx, v)
-		}
-		if v, ok := input.Context["token"].(string); ok && strings.TrimSpace(v) != "" {
-			ctx = authctx.WithBearer(ctx, v)
-		}
-		if v, ok := input.Context["bearer"].(string); ok && strings.TrimSpace(v) != "" {
-			ctx = authctx.WithBearer(ctx, v)
-		}
-	}
+	ctx = s.bindAuthFromInputContext(ctx, input)
 
 	// Conversation already ensured above (fills AgentID/Model/Tools when missing)
 	output.ConversationID = input.ConversationID
@@ -82,151 +55,45 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	ctx = memory.WithTurnMeta(ctx, turn)
 
-	// Establish a single authoritative cancel for the turn and register it
-	// when a registry is available. Errors never cancel the context; only
-	// external callers (e.g., cancel endpoint) invoke this cancel.
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-	// Wrap cancel to persist a terminal status using a non-cancellable context,
-	// so DB updates are not blocked by the cancellation signal.
-	wrappedCancel := func() {
-		// Cancel the running operations first
-		cancel()
-		// Best-effort status update to "canceled"
-		if s.conversation != nil {
-			upd := apiconv.NewTurn()
-			upd.SetId(turn.TurnID)
-			upd.SetStatus("canceled")
-			_ = s.conversation.PatchTurn(context.Background(), upd)
-		}
-	}
-	if s.cancelReg != nil {
-		s.cancelReg.Register(turn.ConversationID, turn.TurnID, wrappedCancel)
-		defer s.cancelReg.Complete(turn.ConversationID, turn.TurnID, wrappedCancel)
-	} else {
-		// Ensure resources are released even when no registry is present.
-		defer wrappedCancel()
-	}
+	// Establish authoritative cancel and register it if available
+	var cancel func()
+	ctx, cancel = s.registerTurnCancel(ctx, turn)
+	defer cancel()
 	if len(input.ToolsAllowed) > 0 {
 		pol := &tool.Policy{Mode: tool.ModeAuto, AllowList: input.ToolsAllowed}
 		ctx = tool.WithPolicy(ctx, pol)
 	}
 
-	// Start turn via conversation client
-	turnRec := apiconv.NewTurn()
-	turnRec.SetId(turn.TurnID)
-	turnRec.SetConversationID(turn.ConversationID)
-	turnRec.SetStatus("running")
-	turnRec.SetCreatedAt(time.Now())
-	if err := s.conversation.PatchTurn(ctx, turnRec); err != nil {
+	// Start turn and persist initial user message
+	if err := s.startTurn(ctx, turn); err != nil {
 		return err
 	}
-	_, err := s.addMessage(ctx, &turn, "user", input.UserId, input.Query, "task", turn.TurnID)
-	if err != nil {
-		return fmt.Errorf("failed to add message: %w", err)
+	if err := s.addInitialUserMessage(ctx, &turn, input); err != nil {
+		return err
 	}
 
-	// Persist attachment messages (payload + message linked to user message)
-	if len(input.Attachments) > 0 {
-		// Enforce provider-specific cap before persisting (so DB doesn't store over-cap files)
-		modelName := ""
-		if input.Agent != nil {
-			modelName = input.Agent.Model
-		}
-		model, _ := s.llm.ModelFinder().Find(ctx, modelName)
-		// Agent-configured limit takes precedence; otherwise provider default (e.g. OpenAI 32MiB)
-		var limit int64
-		if input.Agent != nil && input.Agent.AttachmentLimitBytes > 0 {
-			limit = input.Agent.AttachmentLimitBytes
-		} else {
-			limit = s.llm.ProviderAttachmentLimit(model)
-		}
-		used := s.llm.AttachmentUsage(turn.ConversationID)
-		var appended int64
-		for _, att := range input.Attachments {
-			if att == nil || len(att.Data) == 0 {
-				continue
-			}
-			if limit > 0 {
-				remain := limit - used - appended
-				size := int64(len(att.Data))
-				if remain <= 0 || size > remain {
-					name := strings.TrimSpace(att.Name)
-					if name == "" {
-						name = "(unnamed)"
-					}
-
-					limMB := float64(limit) / (1024.0 * 1024.0)
-					usedMB := float64(used+appended) / (1024.0 * 1024.0)
-					curMB := float64(size) / (1024.0 * 1024.0)
-					return fmt.Errorf("attachments exceed agent cap: limit %.3f MB, used %.3f MB, current (%s) %.3f MB", limMB, usedMB, name, curMB)
-				}
-			}
-			if err = s.addAttachment(ctx, turn, att); err != nil {
-				return err
-			}
-			appended += int64(len(att.Data))
-		}
-		if appended > 0 {
-			s.llm.SetAttachmentUsage(turn.ConversationID, used+appended)
-			// Persist usage into conversation metadata for cross-process continuity
-			_ = s.updateAttachmentUsageMetadata(ctx, turn.ConversationID, used+appended)
-		}
+	// Persist attachments if any
+	if err := s.processAttachments(ctx, turn, input); err != nil {
+		return err
 	}
 	// No pre-execution elicitation. Templates can instruct LLM to elicit details
 	// using binding.Elicitation. Orchestrator handles assistant-originated elicitations.
-	err = s.runPlanLoop(ctx, input, output)
-	status := "succeeded"
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			status = "canceled"
-		} else {
-			status = "failed"
-		}
-	}
+	status, err := s.runPlanAndStatus(ctx, input, output)
 	// Update turn status (and error message on failure) via conversation client
 	var emsg string
 	if err != nil && !errors.Is(err, context.Canceled) {
 		emsg = err.Error()
 	}
-	patchCtx := ctx
-	if status == "canceled" {
-		patchCtx = context.Background()
-	}
-	updTurn := apiconv.NewTurn()
-	updTurn.SetId(turn.TurnID)
-	updTurn.SetStatus(status)
-	if emsg != "" {
-		updTurn.SetErrorMessage(emsg)
-	}
-	updateErr := s.conversation.PatchTurn(patchCtx, updTurn)
-	if err != nil {
+	if err := s.finalizeTurn(ctx, turn, status, err); err != nil {
 		return err
 	}
-	if updateErr != nil {
-		return updateErr
-	}
 	// Persist/refresh conversation default model with the actually used model this turn
-	if strings.TrimSpace(output.Model) != "" {
-		w := &convw.Conversation{Has: &convw.ConversationHas{}}
-		w.SetId(turn.ConversationID)
-		w.SetDefaultModel(output.Model)
-		if s.conversation != nil {
-			mw := convw.Conversation(*w)
-			_ = s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw))
-		}
-	}
+	_ = s.updateDefaultModel(ctx, turn, output)
 
 	// Elicitation and final content persistence are handled inside runPlanLoop now
 	output.Usage = agg
-	chainContext := NewChainContext(input, output, &turn)
-	if s.conversation != nil && strings.TrimSpace(input.ConversationID) != "" {
-		if conv, err := s.conversation.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true)); err == nil {
-			chainContext.Conversation = conv
-		}
-	}
-	if execErr := s.executeChains(ctx, chainContext, status); execErr != nil {
-		return execErr
+	if err := s.executeChainsAfter(ctx, input, output, turn, status); err != nil {
+		return err
 	}
 	return nil
 }
@@ -393,4 +260,186 @@ func (s *Service) tryMergePromptIntoContext(input *QueryInput) {
 			}
 		}
 	}
+}
+
+// ensureEnvironment ensures conversation and agent are initialized and sets defaults.
+func (s *Service) ensureEnvironment(ctx context.Context, input *QueryInput) error {
+	if err := s.ensureConversation(ctx, input); err != nil {
+		return err
+	}
+	if err := s.ensureAgent(ctx, input); err != nil {
+		return err
+	}
+	if input.EmbeddingModel == "" {
+		input.EmbeddingModel = s.defaults.Embedder
+	}
+	return nil
+}
+
+// bindAuthFromInputContext extracts bearer tokens from input.Context and attaches to ctx.
+func (s *Service) bindAuthFromInputContext(ctx context.Context, input *QueryInput) context.Context {
+	if input == nil || input.Context == nil {
+		return ctx
+	}
+	if v, ok := input.Context["authorization"].(string); ok && strings.TrimSpace(v) != "" {
+		if tok := authctx.ExtractBearer(v); tok != "" {
+			ctx = authctx.WithBearer(ctx, tok)
+		}
+	}
+	if v, ok := input.Context["authToken"].(string); ok && strings.TrimSpace(v) != "" {
+		ctx = authctx.WithBearer(ctx, v)
+	}
+	if v, ok := input.Context["token"].(string); ok && strings.TrimSpace(v) != "" {
+		ctx = authctx.WithBearer(ctx, v)
+	}
+	if v, ok := input.Context["bearer"].(string); ok && strings.TrimSpace(v) != "" {
+		ctx = authctx.WithBearer(ctx, v)
+	}
+	return ctx
+}
+
+func (s *Service) buildTurnMeta(input *QueryInput) memory.TurnMeta {
+	return memory.TurnMeta{Assistant: input.Agent.ID, ConversationID: input.ConversationID, TurnID: input.MessageID, ParentMessageID: input.MessageID}
+}
+
+// registerTurnCancel returns a derived context and a deferred cancel wrapper that patches status=canceled.
+func (s *Service) registerTurnCancel(ctx context.Context, turn memory.TurnMeta) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	wrappedCancel := func() {
+		cancel()
+		if s.conversation != nil {
+			upd := apiconv.NewTurn()
+			upd.SetId(turn.TurnID)
+			upd.SetStatus("canceled")
+			_ = s.conversation.PatchTurn(context.Background(), upd)
+		}
+	}
+	if s.cancelReg != nil {
+		s.cancelReg.Register(turn.ConversationID, turn.TurnID, wrappedCancel)
+		return ctx, func() { s.cancelReg.Complete(turn.ConversationID, turn.TurnID, wrappedCancel) }
+	}
+	return ctx, wrappedCancel
+}
+
+func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
+	rec := apiconv.NewTurn()
+	rec.SetId(turn.TurnID)
+	rec.SetConversationID(turn.ConversationID)
+	rec.SetStatus("running")
+	rec.SetCreatedAt(time.Now())
+	return s.conversation.PatchTurn(ctx, rec)
+}
+
+func (s *Service) addInitialUserMessage(ctx context.Context, turn *memory.TurnMeta, input *QueryInput) error {
+	_, err := s.addMessage(ctx, turn, "user", input.UserId, input.Query, "task", turn.TurnID)
+	if err != nil {
+		return fmt.Errorf("failed to add message: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) processAttachments(ctx context.Context, turn memory.TurnMeta, input *QueryInput) error {
+	if len(input.Attachments) == 0 {
+		return nil
+	}
+	modelName := ""
+	if input.ModelOverride != "" {
+		modelName = input.ModelOverride
+	} else if input.Agent != nil {
+		modelName = input.Agent.Model
+	}
+	model, _ := s.llm.ModelFinder().Find(ctx, modelName)
+	var limit int64
+	if input.Agent != nil && input.Agent.AttachmentLimitBytes > 0 {
+		limit = input.Agent.AttachmentLimitBytes
+	} else {
+		limit = s.llm.ProviderAttachmentLimit(model)
+	}
+	used := s.llm.AttachmentUsage(turn.ConversationID)
+	var appended int64
+	for _, att := range input.Attachments {
+		if att == nil || len(att.Data) == 0 {
+			continue
+		}
+		if limit > 0 {
+			remain := limit - used - appended
+			size := int64(len(att.Data))
+			if remain <= 0 || size > remain {
+				name := strings.TrimSpace(att.Name)
+				if name == "" {
+					name = "(unnamed)"
+				}
+				limMB := float64(limit) / (1024.0 * 1024.0)
+				usedMB := float64(used+appended) / (1024.0 * 1024.0)
+				curMB := float64(size) / (1024.0 * 1024.0)
+				return fmt.Errorf("attachments exceed agent cap: limit %.3f MB, used %.3f MB, current (%s) %.3f MB", limMB, usedMB, name, curMB)
+			}
+		}
+		if err := s.addAttachment(ctx, turn, att); err != nil {
+			return err
+		}
+		appended += int64(len(att.Data))
+	}
+	if appended > 0 {
+		s.llm.SetAttachmentUsage(turn.ConversationID, used+appended)
+		_ = s.updateAttachmentUsageMetadata(ctx, turn.ConversationID, used+appended)
+	}
+	return nil
+}
+
+func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, output *QueryOutput) (string, error) {
+	if err := s.runPlanLoop(ctx, input, output); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return "canceled", err
+		}
+		return "failed", err
+	}
+	return "succeeded", nil
+}
+
+func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status string, runErr error) error {
+	var emsg string
+	if runErr != nil && !errors.Is(runErr, context.Canceled) {
+		emsg = runErr.Error()
+	}
+	patchCtx := ctx
+	if status == "canceled" {
+		patchCtx = context.Background()
+	}
+	upd := apiconv.NewTurn()
+	upd.SetId(turn.TurnID)
+	upd.SetStatus(status)
+	if emsg != "" {
+		upd.SetErrorMessage(emsg)
+	}
+	if err := s.conversation.PatchTurn(patchCtx, upd); runErr != nil {
+		return runErr
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) updateDefaultModel(ctx context.Context, turn memory.TurnMeta, output *QueryOutput) error {
+	if strings.TrimSpace(output.Model) == "" {
+		return nil
+	}
+	w := &convw.Conversation{Has: &convw.ConversationHas{}}
+	w.SetId(turn.ConversationID)
+	w.SetDefaultModel(output.Model)
+	if s.conversation != nil {
+		mw := convw.Conversation(*w)
+		_ = s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw))
+	}
+	return nil
+}
+
+func (s *Service) executeChainsAfter(ctx context.Context, input *QueryInput, output *QueryOutput, turn memory.TurnMeta, status string) error {
+	cc := NewChainContext(input, output, &turn)
+	if s.conversation != nil && strings.TrimSpace(input.ConversationID) != "" {
+		if conv, err := s.conversation.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true)); err == nil {
+			cc.Conversation = conv
+		}
+	}
+	return s.executeChains(ctx, cc, status)
 }
