@@ -177,7 +177,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			genInput.AgentID = strings.TrimSpace(input.Agent.ID)
 		}
 		genInput.Options.Mode = "plan"
-		EnsureGenerateOptions(ctx, genInput, input.Agent)
+		EnsureGenerateOptions(genInput, input.Agent)
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
 		if pErr != nil {

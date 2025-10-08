@@ -12,7 +12,7 @@ require (
 	github.com/tmc/langchaingo v0.1.14-0.20250213044659-d3e43b632176
 	github.com/viant/afs v1.26.3
 	github.com/viant/afsc v1.12.0
-	github.com/viant/datly v0.20.16-0.20250924215533-c5404492eaf7
+	github.com/viant/datly v0.20.16-0.20251007151701-217831c16c85
 	github.com/viant/embedius v0.2.1
 	github.com/viant/fluxor v0.4.3
 	github.com/viant/fluxor-mcp v0.2.0
@@ -25,7 +25,7 @@ require (
 	github.com/viant/structology v0.7.1 // indirect
 	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85
 	github.com/viant/x v0.3.0 // indirect
-	github.com/viant/xdatly/handler v0.0.0-20250806192028-819cadf93282
+	github.com/viant/xdatly/handler v0.0.0-20251006174948-cb34263ae8aa
 	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect -- replaced with internal stub, see below
 	github.com/yuin/goldmark v1.7.8
@@ -157,7 +157,7 @@ require (
 	github.com/viant/tagly v0.2.2 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
 	github.com/viant/vec v0.2.4-0.20250304201558-76d42a0819d7 // indirect
-	github.com/viant/xdatly v0.5.4-0.20251006174150-7838eec1e841 // indirect
+	github.com/viant/xdatly v0.5.4-0.20251006174948-cb34263ae8aa // indirect
 	github.com/viant/xdatly/extension v0.0.0-20231013204918-ecf3c2edf259 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.1 // indirect
@@ -207,4 +207,9 @@ require (
 	modernc.org/opt v0.1.3 // indirect
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
+)
+
+replace (
+	github.com/viant/datly => ../datly
+	github.com/viant/forge => ../forge
 )

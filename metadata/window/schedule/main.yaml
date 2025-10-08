@@ -10,6 +10,7 @@ view:
       - id: schedulesTable
         title: Schedules
         dataSourceRef: schedules
+        fetchData: true
         table: $import('table/schedules.yaml')
 
       - id: details
@@ -21,4 +22,31 @@ view:
 dataSource:
   schedules: $import('datasource/schedules.yaml')
   runs:      $import('datasource/runs.yaml')
+  agentsLov: $import('../agent/datasource/agents.yaml')
+  modelsLov: $import('../model/datasource/models.yaml')
 
+dialogs:
+  - id: agentLov
+    title: Select Agent
+    dataSourceRef: agentsLov
+    on:
+      - event: onOpen
+        handler: schedule.applyLookupFilter
+    content:
+      fetchData: true
+      table:
+        columns:
+          - id: name
+            name: Agent Name
+
+  - id: modelLov
+    title: Select Model
+    dataSourceRef: modelsLov
+    content:
+      fetchData: true
+      table:
+        columns:
+          - id: id
+            name: Model ID
+          - id: options.provider
+            name: Provider

@@ -68,6 +68,11 @@
       icon: list
       windowKey: schedule
       windowTitle: Schedules
+    - id: history
+      label: History
+      icon: history
+      windowKey: schedule/history
+      windowTitle: Schedule Conversations
 
 
 - id: tools

@@ -28,3 +28,27 @@ dataSource:
   agentTools: $import('datasource/tools.yaml')
   agentKnowledge: $import('datasource/knowledge.yaml')
   agentSystemKnowledge: $import('datasource/system_knowledge.yaml')
+  agentChains: $import('datasource/chains.yaml')
+  modelsLov: $import('../model/datasource/models.yaml')
+
+dialogs:
+  - id: modelLov
+    title: Select Model
+    dataSourceRef: modelsLov
+    content:
+      fetchData: true
+      table:
+        columns:
+          - id: id
+            name: Model ID
+          - id: options.provider
+            name: Provider
+  - id: agentLov
+    title: Select Agent
+    dataSourceRef: agents
+    content:
+      fetchData: true
+      table:
+        columns:
+          - id: name
+            name: Agent Name

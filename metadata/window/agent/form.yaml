@@ -16,6 +16,14 @@
       label: Name
       type: text
 
+    # Persona inline in Basics (moved from separate tab)
+    - id: persona.actor
+      label: Actor
+      type: text
+    - id: persona.role
+      label: Role
+      type: text
+
     - id: description
       label: Description
       type: textarea
@@ -35,9 +43,22 @@
     columns: 2
     labelPosition: top
   items:
-    - id: modelRef
-      label: Model Ref
+    - id: model
+      label: Model
       type: text
+      properties:
+        style:
+          backgroundColor: '#f0fff4'
+          borderColor: '#c6f6d5'
+      lookup:
+        dialogId: modelLov
+        size:
+          width: '70%'
+          height: '70%'
+        title: Select Model
+        outputs:
+          - name: model
+            location: id
 
     - id: temperature
       label: Temperature
@@ -47,24 +68,21 @@
         max: 1
         step: 0.01
 
-    - id: orchestrationFlow
-      label: Orchestration Flow (URL / Path)
-      type: text
+    - id: toolCallExposure
+      label: Tool Call Exposure
+      type: select
+      options:
+        - value: turn
+          label: Current Turn
+        - value: conversation
+          label: Whole Conversation
+
+    - id: parallelToolCalls
+      label: Parallel Tool Calls
+      type: checkbox
       columnSpan: 2
 
-# -----------------------------------------------------------------------------
-# Source – optional source code or URL
-# -----------------------------------------------------------------------------
-- id: source
-  title: Source
-  layout:
-    orientation: horizontal
-    columns: 1
-    labelPosition: top
-  items:
-    - id: source.url
-      label: Source URL
-      type: text
+# (Source tab removed – not exposed in UI)
 
 # -----------------------------------------------------------------------------
 # Prompts – user and system prompts (URI-based)
@@ -85,41 +103,34 @@
       type: text
       columnSpan: 1
 
-# -----------------------------------------------------------------------------
-# Persona – assistant identity
-# -----------------------------------------------------------------------------
-- id: persona
-  title: Persona
-  layout:
-    orientation: horizontal
-    columns: 2
-    labelPosition: top
-  items:
-    - id: persona.actor
-      label: Actor
-      type: text
-    - id: persona.role
-      label: Role
-      type: text
+# (Persona tab removed – fields moved to Basics)
 
 # -----------------------------------------------------------------------------
-# Elicitation – optional interactive input schema
+# Attachments – limits and delivery mode
 # -----------------------------------------------------------------------------
-- id: elicitation
-  title: Elicitation
+- id: attachments
+  title: Attachments
   layout:
     orientation: horizontal
-    columns: 2
+    columns: 3
     labelPosition: top
   items:
-    - id: elicitation.message
-      label: Message
-      type: text
-      columnSpan: 2
-    - id: elicitation.requestedSchema
-      label: Requested Schema
-      type: object
-      columnSpan: 2
+    - id: attachmentLimitBytes
+      label: Limit (bytes)
+      type: number
+    - id: attachMode
+      label: Attach Mode
+      type: select
+      options:
+        - value: ref
+          label: Reference
+        - value: inline
+          label: Inline
+    - id: attachmentTTLSec
+      label: TTL (seconds)
+      type: number
+
+# (Elicitation removed – no longer part of agent model)
 
 - id: tools
   title: Tools
@@ -136,18 +147,41 @@
       items: $import('form/tool_item.yaml')
 
 
+- id: chain
+  title: Chain
+  layout:
+    orientation: vertical
+  containers:
+    - id: chainsTable
+      title: Chains
+      dataSourceRef: agentChains
+      sizing:
+        height:
+          size: 55
+          unit: '%'
+      table: $import('table/chains.yaml')
+    - id: chainEditor
+      title: Edit Chain
+      dataSourceRef: agentChains
+      tabs:
+        vertical: false
+      containers: $import('form/chain_tabs.yaml')
+
+
 - id: knowledge
   title: Knowledge
-  dataSourceRef: agentKnowledge
-  table: $import('table/knowledge.yaml')
-
-# -----------------------------------------------------------------------------
-# System Knowledge – additional static resources
-# -----------------------------------------------------------------------------
-- id: systemKnowledge
-  title: System Knowledge
-  dataSourceRef: agentSystemKnowledge
-  table: $import('table/knowledge.yaml')
+  layout:
+    orientation: horizontal
+    columns: 2
+  containers:
+    - id: userKnowledge
+      title: User Knowledge
+      dataSourceRef: agentKnowledge
+      table: $import('table/knowledge.yaml')
+    - id: sysKnowledge
+      title: System Knowledge
+      dataSourceRef: agentSystemKnowledge
+      table: $import('table/knowledge.yaml')
 
 # -----------------------------------------------------------------------------
 # Tool Export – domains and exposure

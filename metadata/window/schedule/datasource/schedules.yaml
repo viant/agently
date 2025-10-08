@@ -12,7 +12,3 @@ selectors:
 
 uniqueKey:
   - field: id
-
-on:
-  - event: onFetch
-    handler: schedule.onFetchSchedules

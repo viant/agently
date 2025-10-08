@@ -9,7 +9,8 @@
 #set($_ = $Id<string>(path/id).WithPredicate(0, 'equal','t', 'id'))
 
 
-SELECT schedule.*
+SELECT schedule.*,
+cast(schedule.enabled as bool)
 FROM (
     SELECT t.*  FROM schedule t
      ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}

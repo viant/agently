@@ -7,9 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"strings"
-
-	"github.com/google/uuid"
 	"github.com/viant/xdatly/handler"
 	"github.com/viant/xdatly/handler/response"
 )
@@ -39,21 +36,7 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 	if err := in.Init(ctx, sess, out); err != nil {
 		return err
 	}
-	// Ensure IDs for new schedules prior to validation
-	for _, rec := range in.Schedules {
-		if rec == nil {
-			continue
-		}
-		if strings.TrimSpace(rec.Id) == "" {
-			rec.SetId(uuid.NewString())
-			if rec.Timezone == "" {
-				rec.Timezone = "UTC"
-			}
-			if rec.Enabled == nil {
-				rec.SetEnabled(0)
-			}
-		}
-	}
+
 	out.Data = in.Schedules
 	if err := in.Validate(ctx, sess, out); err != nil || len(out.Violations) > 0 {
 		return err

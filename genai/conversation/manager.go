@@ -91,7 +91,7 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 		input.ConversationID = m.idGen()
 	}
 
-	// Store the ID under both legacy (conversation) and new (convctx)
+	// store the ID under both legacy (conversation) and new (convctx)
 	// context keys so that all downstream code can retrieve it without
 	// import cycles.
 	ctx = memory.WithConversationID(ctx, input.ConversationID)

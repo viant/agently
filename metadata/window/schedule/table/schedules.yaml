@@ -1,18 +1,10 @@
 columns:
-  - id: id
-    name: ID
   - id: name
     name: Name
   - id: agentRef
     name: Agent
   - id: scheduleType
     name: Type
-  - id: cronExpr
-    name: Cron
-  - id: intervalSeconds
-    name: Interval (s)
-  - id: timezone
-    name: Timezone
   - id: enabled
     name: Enabled
   - id: nextRunAt

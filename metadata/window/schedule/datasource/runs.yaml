@@ -4,15 +4,15 @@ service:
   uri: /v1/api/agently/scheduler/run/{id}
   method: GET
 
+# Bind path parameter {id} from the parent schedules selection using new Parameter API
 parameters:
-  - name: id
-    kind: path
-    in: dataSource
-    location: schedules.id
+  - from: schedules:selection
+    to:   :path
+    name: id
+    location: id
 
 selectors:
   data: data
 
 uniqueKey:
   - field: id
-
