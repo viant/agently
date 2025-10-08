@@ -47,7 +47,7 @@ type ScheduleView struct {
 	Description     *string    `sqlx:"description"`
 	AgentRef        string     `sqlx:"agent_ref"`
 	ModelOverride   *string    `sqlx:"model_override"`
-	Enabled         int        `sqlx:"enabled"`
+	Enabled         bool       `sqlx:"enabled"`
 	StartAt         *time.Time `sqlx:"start_at"`
 	EndAt           *time.Time `sqlx:"end_at"`
 	ScheduleType    string     `sqlx:"schedule_type"`

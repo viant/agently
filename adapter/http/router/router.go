@@ -15,6 +15,7 @@ import (
 	"github.com/viant/agently/adapter/http/workflow"
 	"github.com/viant/agently/deployment/ui"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
+	schsvc "github.com/viant/agently/internal/service/scheduler"
 	schstore "github.com/viant/agently/internal/service/scheduler/store"
 	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
 
@@ -115,7 +116,12 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	if err != nil {
 		return nil, err
 	}
-	if sch, err := schedulerhttp.NewWithClient(client); err == nil {
+	// Orchestration service reusing the shared chat service
+	orch, err := schsvc.New(client, chatSvc)
+	if err != nil {
+		return nil, err
+	}
+	if sch, err := schedulerhttp.NewHandler(dao, client, orch); err == nil {
 		registerSchedulerRoutes(mux, sch)
 	} else {
 		return nil, err
@@ -192,4 +198,6 @@ func registerSchedulerRoutes(mux *http.ServeMux, h http.Handler) {
 	mux.Handle("/v1/api/agently/scheduler/", h)
 	mux.Handle("/v1/api/agently/schedule", h)
 	mux.Handle("/v1/api/agently/schedule-run", h)
+	mux.Handle("/v1/api/agently/scheduler/run-now/", h)
+	mux.Handle("/v1/api/agently/schedule-run-now", h)
 }

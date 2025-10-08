@@ -12,6 +12,10 @@
 #set($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
 #set($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
 #set($_ = $Scheduled<int>(query/scheduled).WithPredicate(0, 'expr', 't.scheduled = ?'))
+#set($_ = $ScheduleId<string>(query/scheduleId).WithPredicate(0, 'expr', 't.schedule_id = ?'))
+
+#set($_ = $ScheduleRunId<string>(query/scheduleRunId).WithPredicate(0, 'expr', 't.schedule_run_id = ?'))
+#set($_ = $HasScheduleId<bool>(query/hasScheduleId).WithPredicate(0, 'expr', 't.schedule_id IS NOT NULL'))
 #set($_ = $FeedSpec<[]*tool.FeedSpec>(transient/extension))
 
 

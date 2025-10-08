@@ -3,6 +3,36 @@ items:
     icon: refresh
     align: left
 
+  - id: run
+    icon: play
+    align: right
+    on:
+      - event: onReadonly
+        handler: dataSource.noSelection
+      - event: onClick
+        handler: schedule.runSelected
+
+  - id: history
+    icon: history
+    align: right
+    on:
+      - event: onReadonly
+        handler: dataSource.noSelection
+      - event: onClick
+        handler: window.openWindow
+        args:
+          - chat/history
+          - Schedule History
+        parameters:
+          - name: parameters.scheduled
+            to: history:input
+            from: :literal
+            value: 1
+          - name: parameters.scheduleId
+            to: history:input
+            from: :selection
+            location: id
+
   - id: addNew
     icon: new-object
     align: left

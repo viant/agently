@@ -12,6 +12,7 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	schapi "github.com/viant/agently/client/scheduler"
 	schcli "github.com/viant/agently/client/scheduler/store"
+	"github.com/viant/agently/internal/codec"
 	chatimpl "github.com/viant/agently/internal/service/chat"
 	convintern "github.com/viant/agently/internal/service/conversation"
 	schedstore "github.com/viant/agently/internal/service/scheduler/store"
@@ -67,13 +68,13 @@ func NewFromEnv(ctx context.Context) (schapi.Client, error) {
 // No setters: dependencies are provided via constructor to ensure invariants.
 
 // ListSchedules returns all schedules.
-func (s *Service) ListSchedules(ctx context.Context) ([]*schapi.Schedule, error) {
-	return s.sch.GetSchedules(ctx)
+func (s *Service) ListSchedules(ctx context.Context, session ...codec.SessionOption) ([]*schapi.Schedule, error) {
+	return s.sch.GetSchedules(ctx, session...)
 }
 
 // GetSchedule returns a schedule by id or nil if not found.
-func (s *Service) GetSchedule(ctx context.Context, id string) (*schapi.Schedule, error) {
-	return s.sch.GetSchedule(ctx, id)
+func (s *Service) GetSchedule(ctx context.Context, id string, session ...codec.SessionOption) (*schapi.Schedule, error) {
+	return s.sch.GetSchedule(ctx, id, session...)
 }
 
 // Schedule creates or updates a schedule (generic upsert via Has flags).
@@ -163,11 +164,63 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		if err != nil {
 			return err
 		}
-		// Mark run as started when task is posted
-		in.SetStatus("started")
+		// Mark run as running when task is posted
+		in.SetStatus("running")
 		in.SetStartedAt(time.Now().UTC())
 	}
-	return s.sch.PatchRun(ctx, in)
+	// Persist initial state
+	if err := s.sch.PatchRun(ctx, in); err != nil {
+		return err
+	}
+	// Fire-and-forget watcher to mark completion based on conversation progress
+	if in.ConversationId != nil && strings.TrimSpace(*in.ConversationId) != "" {
+		go s.watchRunCompletion(context.Background(), strings.TrimSpace(in.Id), schID, strings.TrimSpace(*in.ConversationId))
+	}
+	return nil
+}
+
+// watchRunCompletion polls conversation stage until completion and updates the run status.
+func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, conversationID string) {
+	if s == nil || s.conv == nil || s.sch == nil {
+		return
+	}
+	deadline := time.Now().Add(10 * time.Minute)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			conv, err := s.conv.GetConversation(context.Background(), conversationID)
+			if err != nil || conv == nil {
+				continue
+			}
+			stage := strings.ToLower(strings.TrimSpace(conv.Stage))
+			// Running stages
+			if stage == "executing" || stage == "thinking" || stage == "eliciting" || stage == "waiting" {
+				continue
+			}
+			// Decide final status
+			status := "succeeded"
+			if stage == "error" || stage == "failed" || stage == "canceled" {
+				if stage == "canceled" {
+					status = "skipped"
+				} else {
+					status = "failed"
+				}
+			}
+			upd := &schapi.MutableRun{}
+			upd.SetId(runID)
+			upd.SetScheduleId(scheduleID)
+			upd.SetStatus(status)
+			done := time.Now().UTC()
+			upd.SetCompletedAt(done)
+			// Best-effort patch; exit regardless of error to avoid loops
+			_ = s.sch.PatchRun(context.Background(), upd)
+			return
+		}
+	}
 }
 
 func strPtrValue(p *string) string {
@@ -178,8 +231,8 @@ func strPtrValue(p *string) string {
 }
 
 // GetRuns lists runs for a schedule, optionally filtered by since id.
-func (s *Service) GetRuns(ctx context.Context, scheduleID, since string) ([]*schapi.Run, error) {
-	return s.sch.GetRuns(ctx, scheduleID, since)
+func (s *Service) GetRuns(ctx context.Context, scheduleID, since string, session ...codec.SessionOption) ([]*schapi.Run, error) {
+	return s.sch.GetRuns(ctx, scheduleID, since, session...)
 }
 
 // RunDue lists schedules, checks if due, and triggers runs while avoiding duplicates.
@@ -195,7 +248,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 	now := time.Now().UTC()
 	started := 0
 	for _, sc := range rows {
-		if sc == nil || sc.Enabled == 0 {
+		if sc == nil || !sc.Enabled {
 			continue
 		}
 		// Determine due
@@ -251,7 +304,8 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			}
 			if r.CompletedAt == nil {
 				st := strings.ToLower(strings.TrimSpace(r.Status))
-				if st != "failed" && st != "skipped" && st != "completed" {
+				// Treat failed, skipped, and succeeded as non-active terminal states
+				if st != "failed" && st != "skipped" && st != "succeeded" {
 					active = true
 					break
 				}
@@ -264,7 +318,8 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 		run := &schapi.MutableRun{}
 		run.SetId(uuid.NewString())
 		run.SetScheduleId(sc.Id)
-		run.SetStatus("scheduled")
+		// Insert as pending; transitions to running when task is posted
+		run.SetStatus("pending")
 		if err := s.Run(ctx, run); err != nil {
 			return started, err
 		}

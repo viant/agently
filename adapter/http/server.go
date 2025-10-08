@@ -55,7 +55,7 @@ type Server struct {
 	agentFinder     agent.Finder
 	mcpRouter       elicrouter.ElicitationRouter
 
-	// Store removed; using conversation client via chat service
+	// store removed; using conversation client via chat service
 
 	invoker  invk.Invoker
 	core     *corellm.Service
@@ -86,10 +86,10 @@ func WithPolicies(tp *tool.Policy, fp *fluxpol.Policy) ServerOption {
 	}
 }
 
-// WithStore injects a domain.Store so that v1 endpoints can read from DAO-backed store
+// WithStore injects a domain.store so that v1 endpoints can read from DAO-backed store
 // when AGENTLY_V1_DOMAIN=1 is set. When store is nil or the flag is not set, legacy memory
 // reads remain in effect.
-// WithStore removed; chat service no longer depends on domain.Store
+// WithStore removed; chat service no longer depends on domain.store
 
 // WithApprovalService injects the Fluxor approval service so that the HTTP
 // callback handler can forward Accept/Decline decisions to the workflow

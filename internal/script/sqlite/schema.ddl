@@ -245,7 +245,7 @@ CREATE TABLE IF NOT EXISTS schedule (
     end_at                TIMESTAMP NULL,
 
     -- Frequency
-    schedule_type         TEXT      NOT NULL DEFAULT 'cron' CHECK (schedule_type IN ('cron','interval')),
+    schedule_type         TEXT      NOT NULL DEFAULT 'cron' CHECK (schedule_type IN ('adhoc','cron','interval')),
     cron_expr             TEXT,                      -- when schedule_type = 'cron'
     interval_seconds      INTEGER,                   -- when schedule_type = 'interval'
     timezone              TEXT      NOT NULL DEFAULT 'UTC',
@@ -273,6 +273,7 @@ CREATE TABLE IF NOT EXISTS schedule_run (
                                             id                     TEXT PRIMARY KEY,
                                             schedule_id            TEXT      NOT NULL REFERENCES schedule(id) ON DELETE CASCADE,
     created_at             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at             TIMESTAMP,
     status                 TEXT      NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','prechecking','skipped','running','succeeded','failed')),
     error_message          TEXT,
 

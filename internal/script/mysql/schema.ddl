@@ -321,7 +321,7 @@ CREATE TABLE IF NOT EXISTS schedule (
                                         end_at                TIMESTAMP    NULL DEFAULT NULL,
 
     -- Frequency
-                                        schedule_type         VARCHAR(32)  NOT NULL DEFAULT 'cron' CHECK (schedule_type IN ('cron','interval')),
+                                        schedule_type         VARCHAR(32)  NOT NULL DEFAULT 'cron' CHECK (schedule_type IN ('adhoc','cron','interval')),
                                         cron_expr             VARCHAR(255),
                                         interval_seconds      BIGINT,
                                         timezone              VARCHAR(64)  NOT NULL DEFAULT 'UTC',
@@ -348,6 +348,7 @@ CREATE TABLE IF NOT EXISTS schedule_run (
                                             id                     VARCHAR(255) PRIMARY KEY,
                                             schedule_id            VARCHAR(255) NOT NULL,
                                             created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                            updated_at             TIMESTAMP    NULL DEFAULT NULL,
                                             status                 VARCHAR(32)  NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','prechecking','skipped','running','succeeded','failed')),
                                             error_message          TEXT,
 

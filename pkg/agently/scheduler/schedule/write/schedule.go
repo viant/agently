@@ -10,7 +10,7 @@ type Schedule struct {
 	Description     *string      `sqlx:"description" json:",omitempty"`
 	AgentRef        string       `sqlx:"agent_ref" validate:"required"`
 	ModelOverride   *string      `sqlx:"model_override" json:",omitempty"`
-	Enabled         *int         `sqlx:"enabled" json:",omitempty"`
+	Enabled         bool         `sqlx:"enabled" `
 	StartAt         *time.Time   `sqlx:"start_at" json:",omitempty"`
 	EndAt           *time.Time   `sqlx:"end_at" json:",omitempty"`
 	ScheduleType    string       `sqlx:"schedule_type" validate:"required"`
@@ -33,12 +33,26 @@ type Schedule struct {
 type Schedules []Schedule
 
 type ScheduleHas struct {
-	Id, Name, Description, AgentRef, ModelOverride bool
-	Enabled, StartAt, EndAt, ScheduleType          bool
-	CronExpr, IntervalSeconds, Timezone            bool
-	TaskPromptUri, TaskPrompt                      bool
-	NextRunAt, LastRunAt, LastStatus, LastError    bool
-	CreatedAt, UpdatedAt                           bool
+	Id              bool
+	Name            bool
+	Description     bool
+	AgentRef        bool
+	ModelOverride   bool
+	Enabled         bool
+	StartAt         bool
+	EndAt           bool
+	ScheduleType    bool
+	CronExpr        bool
+	IntervalSeconds bool
+	Timezone        bool
+	TaskPromptUri   bool
+	TaskPrompt      bool
+	NextRunAt       bool
+	LastRunAt       bool
+	LastStatus      bool
+	LastError       bool
+	CreatedAt       bool
+	UpdatedAt       bool
 }
 
 func (m *Schedule) ensureHas() {
@@ -59,7 +73,7 @@ func (m *Schedule) SetModelOverride(v string) {
 	m.ensureHas()
 	m.Has.ModelOverride = true
 }
-func (m *Schedule) SetEnabled(v int)       { m.Enabled = &v; m.ensureHas(); m.Has.Enabled = true }
+func (m *Schedule) SetEnabled(v bool)      { m.Enabled = v; m.ensureHas(); m.Has.Enabled = true }
 func (m *Schedule) SetStartAt(v time.Time) { m.StartAt = &v; m.ensureHas(); m.Has.StartAt = true }
 func (m *Schedule) SetEndAt(v time.Time)   { m.EndAt = &v; m.ensureHas(); m.Has.EndAt = true }
 func (m *Schedule) SetScheduleType(v string) {

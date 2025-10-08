@@ -362,7 +362,7 @@ func (s *Service) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 			_ = s.users.UpdatePreferencesByUsername(r.Context(), username, nil, nil, da, dm, de)
 		}
 	}
-	// Store session with tokens (server-side only)
+	// store session with tokens (server-side only)
 	accessToken := token.AccessToken
 	refreshToken := token.RefreshToken
 	s.sess.CreateWithTokens(w, username, accessToken, refreshToken, idTokenStr, token.Expiry)

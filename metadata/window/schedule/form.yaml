@@ -2,7 +2,7 @@
   title: Basics
   layout:
     orientation: horizontal
-    columns: 2
+    columns: 3
     labelPosition: top
   style:
     maxWidth: 980px
@@ -11,20 +11,64 @@
     - id: id
       label: ID
       type: text
+      columnSpan: 2
       properties:
         readOnly: true
+        leftIcon: key
     - id: name
       label: Name
       type: text
+      columnSpan: 2
+      properties:
+        placeholder: Enter schedule name
     - id: description
       label: Description
       type: textarea
       columnSpan: 2
       properties:
-        rows: 2
+        rows: 4
+        cols: 80
 
 - id: targeting
   title: Targeting
+  layout:
+    labelPosition: top
+  style:
+    maxWidth: 980px
+    margin: 0
+  items:
+    - id: agentRef
+      label: Agent
+      type: text
+      properties:
+        style:
+          backgroundColor: '#f0fff4'   # pastel green background
+          borderColor: '#c6f6d5'       # subtle green border
+      lookup:
+        dialogId: agentLov           # prefer Forge Dialog (built-in footer)
+        size:
+          width: '70%'
+          height: '70%'
+        title: Select Agent
+        intent: success
+        outputs:
+          - name: agentRef
+            location: id
+    - id: modelOverride
+      label: Model
+      type: text
+      lookup:
+        dialogId: modelLov
+        size:
+          width: '70%'
+          height: '70%'
+        title: Select Model
+        outputs:
+          - name: modelOverride
+            location: options.model
+
+- id: schedule
+  title: Schedule
   layout:
     orientation: horizontal
     columns: 2
@@ -33,50 +77,43 @@
     maxWidth: 980px
     margin: 0
   items:
-    - id: agentRef
-      label: Agent Ref
-      type: text
-    - id: modelOverride
-      label: Model Override
-      type: text
-
-- id: schedule
-  title: Schedule
-  layout:
-    orientation: horizontal
-    columns: 3
-    labelPosition: top
-  style:
-    maxWidth: 980px
-    margin: 0
-  items:
     - id: enabled
       label: Enabled
       type: checkbox
-    - id: scheduleType
-      label: Type
-      type: select
-      options:
-        - value: cron
-          label: Cron
-        - value: interval
-          label: Interval
     - id: timezone
       label: Timezone
       type: text
-    - id: cronExpr
-      label: Cron Expression
-      type: text
-      columnSpan: 3
-    - id: intervalSeconds
-      label: Interval Seconds
-      type: number
     - id: startAt
       label: Start At (UTC)
       type: datetime
     - id: endAt
       label: End At (UTC)
       type: datetime
+    - id: scheduleType
+      label: Type
+      type: select
+      columnSpan: 2
+      options:
+        - value: cron
+          label: Cron
+        - value: interval
+          label: Interval
+
+    - id: cronExpr
+      label: Cron Expression
+      type: text
+      columnSpan: 2
+      on:
+        - event: onVisible
+          handler: schedule.showIfCron
+    - id: intervalSeconds
+      label: Interval Seconds
+      type: number
+      columnSpan: 2
+      on:
+        - event: onVisible
+          handler: schedule.showIfInterval
+
 
 - id: task
   title: Task
@@ -98,6 +135,7 @@
       columnSpan: 2
       properties:
         rows: 4
+        cols: 80
 
 - id: runs
   title: Runs

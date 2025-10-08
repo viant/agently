@@ -34,6 +34,9 @@ type ConversationInput struct {
 	IncludeModelCal   bool                  `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"false"`
 	IncludeToolCall   bool                  `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"false"`
 	Scheduled         int                   `parameter:",kind=query,in=scheduled" predicate:"expr,group=0,t.scheduled = ?"`
+	ScheduleId        string                `parameter:",kind=query,in=scheduleId" predicate:"expr,group=0,t.schedule_id = ?"`
+	ScheduleRunId     string                `parameter:",kind=query,in=scheduleRunId" predicate:"expr,group=0,t.schedule_run_id = ?"`
+	HasScheduleId     bool                  `parameter:",kind=query,in=hasScheduleId" predicate:"expr,group=0,t.schedule_id IS NOT NULL"`
 	FeedSpec          []*tool.FeedSpec      `parameter:",kind=transient,in=extension"`
 	Has               *ConversationInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
@@ -45,6 +48,9 @@ type ConversationInputHas struct {
 	IncludeModelCal   bool
 	IncludeToolCall   bool
 	Scheduled         bool
+	ScheduleId        bool
+	ScheduleRunId     bool
+	HasScheduleId     bool
 	FeedSpec          bool
 }
 

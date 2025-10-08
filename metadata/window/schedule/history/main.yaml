@@ -1,0 +1,29 @@
+namespace: ScheduleConversations
+
+view:
+  content:
+    containers:
+      - id: scheduleConversations
+        title: Schedule Conversations
+        dataSourceRef: conversations
+        fetchData: true
+        table: $import('../../chat/history/table/history.yaml')
+
+dataSource:
+  conversations:
+    service:
+      endpoint: agentlyAPI
+      uri: /v1/api/conversations
+      method: GET
+    # Always filter to conversations linked to any schedule (schedule_id IS NOT NULL)
+    parameters:
+      - from: const
+        to: :query
+        name: hasScheduleId
+        location: "true"
+    selectors:
+      data: data
+    uniqueKey:
+      - field: id
+    selectionMode: single
+

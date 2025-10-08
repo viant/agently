@@ -79,6 +79,29 @@
         step: 0.05
 
 # ----------------------------------------------------------------------------
+# Pricing – token prices per 1K tokens
+# ----------------------------------------------------------------------------
+- id: pricing
+  title: Pricing
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  items:
+    - id: options.inputTokenPrice
+      label: Input (per 1K)
+      type: number
+      properties:
+        min: 0
+        step: 0.00001
+    - id: options.outputTokenPrice
+      label: Output (per 1K)
+      type: number
+      properties:
+        min: 0
+        step: 0.00001
+
+# ----------------------------------------------------------------------------
 # Generation parameters – Options struct fields ------------------------------
 # ----------------------------------------------------------------------------
 - id: generation
