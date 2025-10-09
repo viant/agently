@@ -80,7 +80,7 @@ func (s *Service) GetSchedule(ctx context.Context, id string, session ...codec.S
 	return out.Data[0], nil
 }
 
-func (s *Service) GetRuns(ctx context.Context, scheduleID, since string, session ...codec.SessionOption) ([]*runpkg.RunView, error) {
+func (s *Service) GetRuns(ctx context.Context, scheduleID, since string, session ...codec.SessionOption) (*runpkg.RunOutput, error) {
 	if s == nil || s.dao == nil {
 		return nil, nil
 	}
@@ -98,7 +98,7 @@ func (s *Service) GetRuns(ctx context.Context, scheduleID, since string, session
 	if _, err := s.dao.Operate(ctx, opts...); err != nil {
 		return nil, err
 	}
-	return out.Data, nil
+	return out, nil
 }
 
 func (s *Service) PatchSchedule(ctx context.Context, schedule *schedwrite.Schedule) error {
@@ -163,7 +163,7 @@ func (s *Service) PatchRuns(ctx context.Context, in *runwrite.Input, extra ...da
 	return out, nil
 }
 
-func (s *Service) GetSchedules(ctx context.Context, session ...codec.SessionOption) ([]*schedulepkg.ScheduleView, error) {
+func (s *Service) GetSchedules(ctx context.Context, session ...codec.SessionOption) (*schedulepkg.ScheduleOutput, error) {
 	if s == nil || s.dao == nil {
 		return nil, nil
 	}
@@ -175,7 +175,7 @@ func (s *Service) GetSchedules(ctx context.Context, session ...codec.SessionOpti
 	if _, err := s.dao.Operate(ctx, opts...); err != nil {
 		return nil, err
 	}
-	return out.Data, nil
+	return out, nil
 }
 
 // ReadSchedules executes the schedule list component with input and returns full component output

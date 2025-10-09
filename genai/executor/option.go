@@ -5,7 +5,7 @@ import (
 
 	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	atool "github.com/viant/agently/adapter/tool"
-	"github.com/viant/agently/client/conversation"
+	chstore "github.com/viant/agently/client/chat/store"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/elicitation"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
@@ -74,7 +74,7 @@ func WithMetaService(metaService *meta.Service) Option {
 	}
 }
 
-func WithConversionClient(client conversation.Client) Option {
+func WithConversionClient(client chstore.Client) Option {
 	return func(s *Service) {
 		s.convClient = client
 	}

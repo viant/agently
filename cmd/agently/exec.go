@@ -12,11 +12,12 @@ import (
 	mcpclienthandler "github.com/viant/agently/adapter/mcp"
 	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	mcprouter "github.com/viant/agently/adapter/mcp/router"
-	convfactory "github.com/viant/agently/client/conversation/factory"
+	chstorefactory "github.com/viant/agently/client/chat/store/factory"
 	"github.com/viant/agently/cmd/service"
 	elicitation "github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/memory"
+	convimpl "github.com/viant/agently/internal/service/conversation"
 	"github.com/viant/fluxor-mcp/mcp/tool"
 	protoclient "github.com/viant/mcp-protocol/client"
 )
@@ -42,7 +43,11 @@ func (c *ExecCmd) Execute(_ []string) error {
 	prov := mcpmgr.NewRepoProvider()
 	r := mcprouter.New()
 	// Build conversation client from env for persistence
-	convClient, err := convfactory.NewFromEnv(context.Background())
+	dao, err := convimpl.NewDatly(context.Background())
+	if err != nil {
+		return err
+	}
+	convClient, err := chstorefactory.New(context.Background(), dao)
 	if err != nil {
 		return err
 	}

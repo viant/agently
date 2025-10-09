@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	apiconv "github.com/viant/agently/client/conversation"
+	chat "github.com/viant/agently/client/chat"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/llm"
 	base "github.com/viant/agently/genai/llm/provider/base"
@@ -21,7 +21,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if s.conversation == nil {
 		return nil, fmt.Errorf("conversation API not configured")
 	}
-	conv, err := s.conversation.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
+	conv, err := s.conversation.GetConversation(ctx, input.ConversationID, chat.WithIncludeToolCall(true))
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		return nil, fmt.Errorf("conversation %v not found", input.ConversationID)
 	}
 
-	hist, err := s.buildHistory(ctx, conv)
+	hist, err := s.buildHistory(ctx, chat.WrapConversation(conv))
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if input.Agent != nil && strings.TrimSpace(string(input.Agent.ToolCallExposure)) != "" {
 		exposure = input.Agent.ToolCallExposure
 	}
-	if execs, err := s.buildToolExecutions(ctx, input, conv, exposure); err != nil {
+	if execs, err := s.buildToolExecutions(ctx, input, chat.WrapConversation(conv), exposure); err != nil {
 		return nil, err
 	} else if len(execs) > 0 {
 		b.Tools.Executions = execs
@@ -86,7 +86,7 @@ func (s *Service) buildTaskBinding(input *QueryInput, hist prompt.History) promp
 
 // buildHistory derives history from a provided conversation (if non-nil),
 // otherwise falls back to DAO transcript for compatibility.
-func (s *Service) buildHistory(ctx context.Context, conv *apiconv.Conversation) (prompt.History, error) {
+func (s *Service) buildHistory(ctx context.Context, conv *chat.Conversation) (prompt.History, error) {
 	var h prompt.History
 	if conv == nil {
 		return h, nil
@@ -97,18 +97,21 @@ func (s *Service) buildHistory(ctx context.Context, conv *apiconv.Conversation) 
 }
 
 // buildToolExecutions extracts tool calls from the provided conversation transcript for the current turn.
-func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, conv *apiconv.Conversation, exposure agent.ToolCallExposure) ([]*llm.ToolCall, error) {
+func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, conv *chat.Conversation, exposure agent.ToolCallExposure) ([]*llm.ToolCall, error) {
 	turnMeta, ok := memory.TurnMetaFromContext(ctx)
 	if !ok || strings.TrimSpace(turnMeta.TurnID) == "" {
 		return nil, nil
 	}
 	transcript := conv.GetTranscript()
-	buildFromTurn := func(t *apiconv.Turn) []*llm.ToolCall {
+	buildFromTurn := func(t *chat.Turn) []*llm.ToolCall {
 		var out []*llm.ToolCall
 		if t == nil {
 			return out
 		}
-		for _, m := range t.ToolCalls() {
+		for _, m := range t.GetMessages() {
+			if m == nil || m.ToolCall == nil {
+				continue
+			}
 			args := map[string]interface{}{}
 			// Prefer request payload (inline body JSON) for arguments
 			if m.ToolCall.RequestPayload != nil && m.ToolCall.RequestPayload.InlineBody != nil {
@@ -139,7 +142,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		return out, nil
 	case "turn", "":
 		// Find current turn only
-		var aTurn *apiconv.Turn
+		var aTurn *chat.Turn
 		for _, t := range transcript {
 			if t != nil && t.Id == turnMeta.TurnID {
 				aTurn = t

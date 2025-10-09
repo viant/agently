@@ -9,7 +9,7 @@ import (
 	"regexp"
 
 	"github.com/google/uuid"
-	apiconv "github.com/viant/agently/client/conversation"
+	chat "github.com/viant/agently/client/chat"
 	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
@@ -22,7 +22,7 @@ import (
 // ChainContext carries parent state and transcript to execute chain logic.
 type ChainContext struct {
 	Agent        *agentmdl.Agent
-	Conversation *apiconv.Conversation
+	Conversation *chat.Conversation
 	Context      map[string]interface{}
 	UserID       string
 	ParentTurn   *memory.TurnMeta
@@ -193,7 +193,7 @@ func (s *Service) seenAndMarkChainDedupe(ctx context.Context, convID, key string
 	w := convw.Conversation{Has: &convw.ConversationHas{}}
 	w.SetId(convID)
 	w.SetMetadata(string(mbytes))
-	return false, s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&w))
+	return false, s.conversation.PatchConversations(ctx, (*chat.MutableConversation)(&w))
 }
 
 // resetChainDedupe clears per-conversation chain dedupe markers.
@@ -221,7 +221,7 @@ func (s *Service) resetChainDedupe(ctx context.Context, convID string) error {
 	w := convw.Conversation{Has: &convw.ConversationHas{}}
 	w.SetId(convID)
 	w.SetMetadata(string(mbytes))
-	return s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&w))
+	return s.conversation.PatchConversations(ctx, (*chat.MutableConversation)(&w))
 }
 
 // buildChainBindingFromParent deprecated; superseded by buildPromptBindingFromParent.
@@ -402,7 +402,7 @@ func (s *Service) ensureChildConversationIfNeeded(ctx context.Context, parentTur
 		w.SetVisibility(convw.VisibilityPublic)
 		w.SetConversationParentId(parentTurn.ConversationID)
 		w.SetConversationParentTurnId(parentTurn.TurnID)
-		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&w)); err != nil {
+		if err := s.conversation.PatchConversations(ctx, (*chat.MutableConversation)(&w)); err != nil {
 			return "", err
 		}
 	}

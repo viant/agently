@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	apiconv "github.com/viant/agently/client/conversation"
+	chat "github.com/viant/agently/client/chat"
 	elact "github.com/viant/agently/genai/elicitation/action"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
@@ -106,21 +106,21 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *prompt.Attachment) error {
 	// 1) Create attachment message first (without payload)
 	messageID := uuid.New().String()
-	opts := []apiconv.MessageOption{
-		apiconv.WithId(messageID),
-		apiconv.WithRole("user"),
-		apiconv.WithType("control"),
+	opts := []chat.MessageOption{
+		chat.WithId(messageID),
+		chat.WithRole("user"),
+		chat.WithType("control"),
 	}
 	if strings.TrimSpace(att.Name) != "" {
-		opts = append(opts, apiconv.WithContent(att.Name))
+		opts = append(opts, chat.WithContent(att.Name))
 	}
-	if _, err := apiconv.AddMessage(ctx, s.conversation, &turn, opts...); err != nil {
+	if _, err := chat.AddMessage(ctx, s.conversation, &turn, opts...); err != nil {
 		return fmt.Errorf("failed to persist attachment message: %w", err)
 	}
 
 	// 2) Create payload for attachment content
 	pid := uuid.New().String()
-	payload := apiconv.NewPayload()
+	payload := chat.NewPayload()
 	payload.SetId(pid)
 	payload.SetKind("model_request")
 	payload.SetMimeType(att.MIMEType())
@@ -134,7 +134,7 @@ func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *
 		return fmt.Errorf("failed to persist attachment payload: %w", err)
 	}
 
-	link := apiconv.NewMessage()
+	link := chat.NewMessage()
 	link.SetId(messageID)
 	link.SetAttachmentPayloadID(pid)
 	if err := s.conversation.PatchMessage(ctx, link); err != nil {
@@ -177,7 +177,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			genInput.AgentID = strings.TrimSpace(input.Agent.ID)
 		}
 		genInput.Options.Mode = "plan"
-		EnsureGenerateOptions(genInput, input.Agent)
+		EnsureGenerateOptions(ctx, genInput, input.Agent)
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
 		if pErr != nil {
@@ -235,16 +235,16 @@ func (s *Service) addMessage(ctx context.Context, turn *memory.TurnMeta, role, a
 		return "", nil
 	}
 	// Delegate to centralized helper, preserving existing semantics
-	opts := []apiconv.MessageOption{
-		apiconv.WithRole(role),
-		apiconv.WithCreatedByUserID(actor),
-		apiconv.WithContent(content),
-		apiconv.WithMode(mode),
+	opts := []chat.MessageOption{
+		chat.WithRole(role),
+		chat.WithCreatedByUserID(actor),
+		chat.WithContent(content),
+		chat.WithMode(mode),
 	}
 	if strings.TrimSpace(id) != "" {
-		opts = append(opts, apiconv.WithId(id))
+		opts = append(opts, chat.WithId(id))
 	}
-	return apiconv.AddMessage(ctx, s.conversation, turn, opts...)
+	return chat.AddMessage(ctx, s.conversation, turn, opts...)
 }
 
 // mergeInlineJSONIntoContext copies JSON object fields from qi.Query into qi.Context (non-destructive).
@@ -311,7 +311,7 @@ func (s *Service) registerTurnCancel(ctx context.Context, turn memory.TurnMeta) 
 	wrappedCancel := func() {
 		cancel()
 		if s.conversation != nil {
-			upd := apiconv.NewTurn()
+			upd := chat.NewTurn()
 			upd.SetId(turn.TurnID)
 			upd.SetStatus("canceled")
 			_ = s.conversation.PatchTurn(context.Background(), upd)
@@ -325,7 +325,7 @@ func (s *Service) registerTurnCancel(ctx context.Context, turn memory.TurnMeta) 
 }
 
 func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
-	rec := apiconv.NewTurn()
+	rec := chat.NewTurn()
 	rec.SetId(turn.TurnID)
 	rec.SetConversationID(turn.ConversationID)
 	rec.SetStatus("running")
@@ -409,7 +409,7 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 	if status == "canceled" {
 		patchCtx = context.Background()
 	}
-	upd := apiconv.NewTurn()
+	upd := chat.NewTurn()
 	upd.SetId(turn.TurnID)
 	upd.SetStatus(status)
 	if emsg != "" {
@@ -432,7 +432,7 @@ func (s *Service) updateDefaultModel(ctx context.Context, turn memory.TurnMeta, 
 	w.SetDefaultModel(output.Model)
 	if s.conversation != nil {
 		mw := convw.Conversation(*w)
-		_ = s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw))
+		_ = s.conversation.PatchConversations(ctx, (*chat.MutableConversation)(&mw))
 	}
 	return nil
 }
@@ -440,8 +440,8 @@ func (s *Service) updateDefaultModel(ctx context.Context, turn memory.TurnMeta, 
 func (s *Service) executeChainsAfter(ctx context.Context, input *QueryInput, output *QueryOutput, turn memory.TurnMeta, status string) error {
 	cc := NewChainContext(input, output, &turn)
 	if s.conversation != nil && strings.TrimSpace(input.ConversationID) != "" {
-		if conv, err := s.conversation.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true)); err == nil {
-			cc.Conversation = conv
+		if conv, err := s.conversation.GetConversation(ctx, input.ConversationID, chat.WithIncludeToolCall(true)); err == nil {
+			cc.Conversation = chat.WrapConversation(conv)
 		}
 	}
 	return s.executeChains(ctx, cc, status)

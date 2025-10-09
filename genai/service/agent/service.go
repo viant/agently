@@ -7,7 +7,8 @@ import (
 	"strings"
 
 	"github.com/viant/afs"
-	apiconv "github.com/viant/agently/client/conversation"
+	chstore "github.com/viant/agently/client/chat/store"
+	chstorefactory "github.com/viant/agently/client/chat/store/factory"
 	"github.com/viant/agently/genai/agent"
 	cancels "github.com/viant/agently/genai/conversation/cancel"
 	elicitation "github.com/viant/agently/genai/elicitation"
@@ -42,7 +43,7 @@ type Service struct {
 	defaults *config.Defaults
 
 	// conversation is a shared conversation client used to fetch transcript/usage.
-	conversation apiconv.Client
+	conversation chstore.Client
 
 	elicitation *elicitation.Service
 	// Backward-compatible fields for wiring; passed into elicitation service
@@ -86,7 +87,7 @@ func WithCancelRegistry(reg cancels.Registry) Option {
 func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Service, registry tool.Registry,
 	runtime *fluxor.Runtime,
 	defaults *config.Defaults,
-	convClient apiconv.Client,
+	convClient chstore.Client,
 
 	opts ...Option) *Service {
 	srv := &Service{
@@ -104,9 +105,9 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	for _, o := range opts {
 		o(srv)
 	}
-	// Instantiate conversation API once; ignore errors to preserve backward compatibility
+	// Instantiate chat store client from DAO; ignore errors to preserve backward compatibility
 	if dao, err := implconv.NewDatly(context.Background()); err == nil {
-		if cli, err := implconv.New(context.Background(), dao); err == nil {
+		if cli, err := chstorefactory.New(context.Background(), dao); err == nil {
 			srv.conversation = cli
 		}
 	}

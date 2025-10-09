@@ -19,7 +19,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 CREATE TABLE conversation
 (
     id                     VARCHAR(255) PRIMARY KEY,
-    -- legacy-friendly columns
+        -- legacy-friendly columns
     summary                TEXT,
     last_activity          TIMESTAMP    NULL     DEFAULT NULL,
     usage_input_tokens     BIGINT                DEFAULT 0,

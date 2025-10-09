@@ -12,10 +12,10 @@ import (
 )
 
 type Client interface {
-	// Reads
-	GetSchedules(ctx context.Context, session ...codec.SessionOption) ([]*schedulepkg.ScheduleView, error)
+	// Reads: list returns Output; single returns View
+	GetSchedules(ctx context.Context, session ...codec.SessionOption) (*schedulepkg.ScheduleOutput, error)
 	GetSchedule(ctx context.Context, id string, session ...codec.SessionOption) (*schedulepkg.ScheduleView, error)
-	GetRuns(ctx context.Context, scheduleID string, since string, session ...codec.SessionOption) ([]*runpkg.RunView, error)
+	GetRuns(ctx context.Context, scheduleID string, since string, session ...codec.SessionOption) (*runpkg.RunOutput, error)
 
 	// Component-shaped reads (input -> output)
 	ReadSchedules(ctx context.Context, in *schedulepkg.ScheduleListInput, session []codec.SessionOption, extra ...datly.OperateOption) (*schedulepkg.ScheduleOutput, error)

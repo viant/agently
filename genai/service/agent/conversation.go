@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	apiconv "github.com/viant/agently/client/conversation"
+	chat "github.com/viant/agently/client/chat"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
@@ -161,7 +161,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 			return fmt.Errorf("conversation client not configured")
 		}
 		mc := convw.Conversation(*patch)
-		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mc)); err != nil {
+		if err := s.conversation.PatchConversations(ctx, (*chat.MutableConversation)(&mc)); err != nil {
 			if !exists {
 				return fmt.Errorf("failed to create conversation: %w", err)
 			}
@@ -202,7 +202,7 @@ func (s *Service) updateAttachmentUsageMetadata(ctx context.Context, convID stri
 	w.SetId(convID)
 	w.SetMetadata(string(mb))
 	mw := convw.Conversation(*w)
-	return s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw))
+	return s.conversation.PatchConversations(ctx, (*chat.MutableConversation)(&mw))
 }
 
 // updatedConversationContext saves qi.Context to conversation metadata (or history meta) after validation.
@@ -239,7 +239,7 @@ func (s *Service) updatedConversationContext(ctx context.Context, convID string,
 			return fmt.Errorf("conversation client not configured")
 		}
 		mw := convw.Conversation(*w)
-		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw)); err != nil {
+		if err := s.conversation.PatchConversations(ctx, (*chat.MutableConversation)(&mw)); err != nil {
 			return fmt.Errorf("failed to persist conversation context: %w", err)
 		}
 	} else {

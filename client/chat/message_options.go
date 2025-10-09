@@ -1,8 +1,6 @@
-package conversation
+package chat
 
-import (
-	"time"
-)
+import "time"
 
 // MessageOption configures a MutableMessage prior to persistence.
 type MessageOption func(m *MutableMessage)

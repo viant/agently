@@ -20,7 +20,7 @@ import (
 	"sync"
 	"unsafe"
 
-	convcli "github.com/viant/agently/client/conversation"
+	chstore "github.com/viant/agently/client/chat/store"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/fluxor/model/types"
 )
@@ -31,13 +31,13 @@ type Proxy struct {
 	base         types.Service // prototype: provides Name/Methods and default exec
 	services     map[string]map[string]types.Service
 	mu           sync.RWMutex // guards services map
-	conversation convcli.Client
+	conversation chstore.Client
 }
 
 // New constructs a conversation-scoped proxy around the provided base service.
 // The base service supplies Name() and Methods(). Executions are dispatched to
 // a per-conversation service built on first use via the supplied Factory.
-func New(base types.Service, conversation convcli.Client) types.Service {
+func New(base types.Service, conversation chstore.Client) types.Service {
 	return &Proxy{base: base, services: make(map[string]map[string]types.Service), conversation: conversation}
 }
 

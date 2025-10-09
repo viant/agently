@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	apiconv "github.com/viant/agently/client/conversation"
+	chat "github.com/viant/agently/client/chat"
+	chstore "github.com/viant/agently/client/chat/store"
 	"github.com/viant/agently/genai/memory"
 )
 
 // recorderObserver writes model-call data directly using conversation client.
 type recorderObserver struct {
-	client          apiconv.Client
+	client          chstore.Client
 	start           Info
 	hasBeg          bool
 	acc             strings.Builder
@@ -122,7 +123,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 		cur = *pv.InlineBody
 	}
 	if pv == nil {
-		modelCall := apiconv.NewModelCall()
+		modelCall := chat.NewModelCall()
 		modelCall.SetMessageID(msgID)
 		modelCall.SetStatus("streaming")
 		o.client.PatchModelCall(ctx, modelCall)
@@ -135,7 +136,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 	// Link stream payload to model call upon first successful upsert to satisfy FK early.
 	if !o.streamLinked {
 		if strings.TrimSpace(msgID) != "" {
-			upd := apiconv.NewModelCall()
+			upd := chat.NewModelCall()
 			upd.SetMessageID(msgID)
 			upd.SetStreamPayloadID(id)
 			if err := o.client.PatchModelCall(ctx, upd); err != nil {
@@ -148,7 +149,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 }
 
 // WithRecorderObserver injects a recorder-backed Observer into context.
-func WithRecorderObserver(ctx context.Context, client apiconv.Client) context.Context {
+func WithRecorderObserver(ctx context.Context, client chstore.Client) context.Context {
 	_, ok := memory.TurnMetaFromContext(ctx) //ensure turn is in context
 	if !ok {
 		ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{
@@ -162,13 +163,13 @@ func WithRecorderObserver(ctx context.Context, client apiconv.Client) context.Co
 
 // patchInterimRequestMessage creates an interim assistant message capturing the request payload.
 func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn memory.TurnMeta, msgID string, payload []byte, mode string) error {
-	_, err := apiconv.AddMessage(ctx, o.client, &turn,
-		apiconv.WithId(msgID),
-		apiconv.WithMode(mode),
-		apiconv.WithRole("assistant"),
-		apiconv.WithType("text"),
-		apiconv.WithCreatedByUserID(turn.Assistant),
-		apiconv.WithInterim(1),
+	_, err := chat.AddMessage(ctx, o.client, &turn,
+		chat.WithId(msgID),
+		chat.WithMode(mode),
+		chat.WithRole("assistant"),
+		chat.WithType("text"),
+		chat.WithCreatedByUserID(turn.Assistant),
+		chat.WithInterim(1),
 	)
 	return err
 }
@@ -176,7 +177,7 @@ func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn 
 // patchInterimFlag marks an existing message as interim.
 func (o *recorderObserver) patchInterimFlag(ctx context.Context, msgID string) error {
 	interim := 1
-	msg := apiconv.NewMessage()
+	msg := chat.NewMessage()
 	msg.SetId(msgID)
 	msg.SetInterim(interim)
 	return o.client.PatchMessage(ctx, msg)
@@ -184,7 +185,7 @@ func (o *recorderObserver) patchInterimFlag(ctx context.Context, msgID string) e
 
 // beginModelCall persists the initial model call and associated request payloads.
 func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, turn memory.TurnMeta, info Info) error {
-	mc := apiconv.NewModelCall()
+	mc := chat.NewModelCall()
 	mc.SetMessageID(msgID)
 	if turn.TurnID != "" {
 		mc.SetTurnID(turn.TurnID)
@@ -221,7 +222,7 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 
 // finishModelCall persists final model call updates, including response payloads and usage.
 func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status string, info Info, streamTxt string) error {
-	upd := apiconv.NewModelCall()
+	upd := chat.NewModelCall()
 	upd.SetMessageID(msgID)
 	upd.SetStatus(status)
 	if strings.TrimSpace(info.Err) != "" {
@@ -283,7 +284,7 @@ func (o *recorderObserver) upsertInlinePayload(ctx context.Context, id, kind, mi
 	if strings.TrimSpace(id) == "" {
 		id = uuid.New().String()
 	}
-	pw := apiconv.NewPayload()
+	pw := chat.NewPayload()
 	pw.SetId(id)
 	pw.SetKind(kind)
 	pw.SetMimeType(mime)

@@ -9,7 +9,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	apiconv "github.com/viant/agently/client/conversation"
+	chat "github.com/viant/agently/client/chat"
+	chstore "github.com/viant/agently/client/chat/store"
 	"github.com/viant/agently/genai/agent/plan"
 	elact "github.com/viant/agently/genai/elicitation/action"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
@@ -23,7 +24,7 @@ type Refiner interface {
 }
 
 type Service struct {
-	client         apiconv.Client
+	client         chstore.Client
 	refiner        Refiner
 	router         elicrouter.ElicitationRouter
 	awaiterFactory func() Awaiter
@@ -32,7 +33,7 @@ type Service struct {
 // New constructs the elicitation service with all collaborators.
 // The refiner is defaulted to a workspace preset implementation when nil.
 // Router and awaiter factory must be supplied by the caller to ensure proper wiring.
-func New(client apiconv.Client, refiner Refiner, router elicrouter.ElicitationRouter, awaiterFactory func() Awaiter) *Service {
+func New(client chstore.Client, refiner Refiner, router elicrouter.ElicitationRouter, awaiterFactory func() Awaiter) *Service {
 	if refiner == nil {
 		refiner = DefaultRefiner{}
 	}
@@ -65,13 +66,13 @@ func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string
 	if role == llm.RoleAssistant.String() {
 		messageType = "text"
 	}
-	id, err := apiconv.AddMessage(ctx, s.client, turn,
-		apiconv.WithId(uuid.New().String()),
-		apiconv.WithRole(role),
-		apiconv.WithType(messageType),
-		apiconv.WithElicitationID(elic.ElicitationId),
-		apiconv.WithStatus("pending"),
-		apiconv.WithContent(string(raw)),
+	id, err := chat.AddMessage(ctx, s.client, turn,
+		chat.WithId(uuid.New().String()),
+		chat.WithRole(role),
+		chat.WithType(messageType),
+		chat.WithElicitationID(elic.ElicitationId),
+		chat.WithStatus("pending"),
+		chat.WithContent(string(raw)),
 	)
 	if err != nil {
 		return "", err
@@ -158,7 +159,7 @@ func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, actio
 	if msg == nil {
 		return fmt.Errorf("elicitation message not found")
 	}
-	upd := apiconv.NewMessage()
+	upd := chat.NewMessage()
 	upd.SetId(msg.Id)
 	upd.SetStatus(st)
 	return s.client.PatchMessage(ctx, upd)
@@ -174,7 +175,7 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 	}
 	raw, _ := json.Marshal(payload)
 	pid := uuid.New().String()
-	p := apiconv.NewPayload()
+	p := chat.NewPayload()
 	p.SetId(pid)
 	p.SetKind("elicitation_response")
 	p.SetMimeType("application/json")
@@ -184,7 +185,7 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 	if err := s.client.PatchPayload(ctx, p); err != nil {
 		return err
 	}
-	upd := apiconv.NewMessage()
+	upd := chat.NewMessage()
 	upd.SetId(msg.Id)
 	upd.SetElicitationPayloadID(pid)
 	if msg.Role == llm.RoleAssistant.String() {
@@ -198,11 +199,11 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 
 func (s *Service) AddUserResponseMessage(ctx context.Context, turn *memory.TurnMeta, payload map[string]interface{}) error {
 	raw, _ := json.Marshal(payload)
-	_, err := apiconv.AddMessage(ctx, s.client, turn,
-		apiconv.WithId(uuid.New().String()),
-		apiconv.WithRole("user"),
-		apiconv.WithType("text"),
-		apiconv.WithContent(string(raw)),
+	_, err := chat.AddMessage(ctx, s.client, turn,
+		chat.WithId(uuid.New().String()),
+		chat.WithRole("user"),
+		chat.WithType("text"),
+		chat.WithContent(string(raw)),
 	)
 	return err
 }

@@ -20,6 +20,9 @@ import (
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/memory"
 
+	chatrouter "github.com/viant/agently/adapter/http/chat"
+	chatapi "github.com/viant/agently/client/chat"
+	chstorefactory "github.com/viant/agently/client/chat/store/factory"
 	"github.com/viant/agently/genai/conversation"
 	execcfg "github.com/viant/agently/genai/executor/config"
 	corellm "github.com/viant/agently/genai/service/core"
@@ -176,36 +179,40 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 
 	// Attach a shared elicitation service for persistence and waiting
 	if s.chatSvc != nil {
-		es := elicitation.New(s.chatSvc.ConversationClient(), nil, s.mcpRouter, nil)
+		// router-based callbacks use DAO-backed handlers; client passed as nil
+		es := elicitation.New(nil, nil, s.mcpRouter, nil)
 		s.chatSvc.AttachElicitationService(es)
 	}
 	mux := http.NewServeMux()
 
-	// ------------------------------------------------------------------
-	// Chat API (Go 1.22+ pattern based routing)
-	// Register only when conversation client is configured; otherwise
-	// skip endpoints to avoid nil dereferences at runtime.
-	// ------------------------------------------------------------------
-	if s.chatSvc != nil && s.chatSvc.ConversationClient() != nil {
-		// Conversations collection
-		mux.HandleFunc("POST /v1/api/conversations", s.handleConversations)     // create new conversation
-		mux.HandleFunc("GET /v1/api/conversations", s.handleConversations)      // list conversations
-		mux.HandleFunc("GET /v1/api/conversations/{id}", s.handleConversations) // get conversation by id
-
-		// Delete conversation (cascades via DB FKs)
-		mux.HandleFunc("DELETE /v1/api/conversations/{id}", func(w http.ResponseWriter, r *http.Request) {
-			s.handleDeleteConversation(w, r, r.PathValue("id"))
-		})
-
-		// Conversation messages collection & item
-		mux.HandleFunc("POST /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
-			s.handlePostMessage(w, r, r.PathValue("id"))
-		})
-
-		mux.HandleFunc("GET /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
-			s.handleGetMessages(w, r, r.PathValue("id"))
-		})
+	fmt.Println(s.dao)
+	// Register chat components via Datly Router (component URIs)
+	if s.dao != nil {
+		// Build chat store backed by conversation Datly components
+		store, err := chstorefactory.New(context.Background(), s.dao)
+		if err == nil && store != nil {
+			svc := chatrouter.Service{Store: store}
+			chatRouter := datly.NewRouter[chatrouter.Service](s.dao, svc)
+			// register minimal conversation routes (list, get, patch)
+			err = chatrouter.Register(context.Background(), s.dao, chatRouter)
+			if err != nil {
+				panic(err)
+			}
+			mux.Handle("/v1/api/agently/conversation/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _ = chatRouter.Run(w, r) }))
+			mux.Handle("/v1/api/agently/conversation", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _ = chatRouter.Run(w, r) }))
+		}
 	}
+
+	// Legacy chat endpoints (BFF): conversations + messages
+	// Collections and single-item handlers
+	mux.HandleFunc("POST /v1/api/conversations", s.handleConversations)
+	mux.HandleFunc("GET /v1/api/conversations", s.handleConversations)
+	mux.HandleFunc("GET /v1/api/conversations/{id}", s.handleConversations)
+	mux.HandleFunc("DELETE /v1/api/conversations/{id}", func(w http.ResponseWriter, r *http.Request) {
+		s.handleDeleteConversation(w, r, r.PathValue("id"))
+	})
+	// Subroutes under a conversation (messages/tools/...)
+	mux.HandleFunc("/v1/api/conversations/", s.dispatchConversationSubroutes)
 
 	// Usage statistics
 	// Usage endpoint removed; usage is computed client-side from messages.
@@ -331,7 +338,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodPost:
-		var req chat.CreateConversationRequest
+		var req chatapi.CreateConversationRequest
 		if r.Body != nil {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
 				// ignore invalid body; return best-effort error below
@@ -356,7 +363,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 				encode(w, http.StatusNotFound, nil, fmt.Errorf("conversation not found"))
 				return
 			}
-			encode(w, http.StatusOK, []chat.ConversationSummary{*cv}, nil)
+			encode(w, http.StatusOK, []chatapi.ConversationSummary{*cv}, nil)
 			return
 		}
 		list, err := s.chatSvc.ListConversations(s.withAuthFromRequest(r))
@@ -420,7 +427,7 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		return
 	}
 	// Second fetch with ToolExtensions populated so transcript hook can compute executions
-	opts := chat.GetRequest{ConversationID: convID, SinceID: sinceId, IncludeModelCallPayload: includeModelCallPayload == "1", IncludeToolCall: true, ToolExtensions: toolSpec}
+	opts := chatapi.GetRequest{ConversationID: convID, SinceID: sinceId, IncludeModelCallPayload: includeModelCallPayload == "1", IncludeToolCall: true, ToolExtensions: toolSpec}
 	conv, err := s.chatSvc.Get(baseCtx, opts)
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
@@ -642,7 +649,7 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
-	var req chat.PostRequest
+	var req chatapi.PostRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		encode(w, http.StatusBadRequest, nil, err)
 		return

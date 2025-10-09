@@ -15,7 +15,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/viant/afs"
-	apiconv "github.com/viant/agently/client/conversation"
+	chapi "github.com/viant/agently/client/chat"
+	chatcli "github.com/viant/agently/client/chat"
+	chstore "github.com/viant/agently/client/chat/store"
+	chstorefactory "github.com/viant/agently/client/chat/store/factory"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/conversation"
 	cancels "github.com/viant/agently/genai/conversation/cancel"
@@ -32,6 +35,7 @@ import (
 	extrepo "github.com/viant/agently/internal/repository/extension"
 	implconv "github.com/viant/agently/internal/service/conversation"
 	usersvc "github.com/viant/agently/internal/service/user"
+	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	msgwrite "github.com/viant/agently/pkg/agently/message/write"
 	toolfeed "github.com/viant/agently/pkg/agently/tool"
@@ -52,7 +56,7 @@ type Service struct {
 	fluxPolicy *fluxpol.Policy
 	approval   approval.Service
 
-	convClient apiconv.Client
+	convClient chstore.Client
 	fileSvc    *fservice.Service
 
 	elicitation *elicitation.Service
@@ -65,6 +69,8 @@ type Service struct {
 	users *usersvc.Service
 	dao   *datly.Service
 }
+
+//
 
 //// API defines the minimal interface the HTTP layer depends on. It allows
 //// substituting the concrete chat service with a mock or alternative impl
@@ -88,7 +94,7 @@ func NewService() *Service {
 	// Legacy constructor: keep silent auto-wiring for backwards compatibility.
 	svc := &Service{reg: cancels.Default()}
 	if dao, err := implconv.NewDatly(context.Background()); err == nil {
-		if cli, err := implconv.New(context.Background(), dao); err == nil {
+		if cli, err := chstorefactory.New(context.Background(), dao); err == nil {
 			svc.convClient = cli
 		}
 	}
@@ -103,9 +109,9 @@ func NewServiceFromEnv(ctx context.Context) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init datly: %w", err)
 	}
-	cli, err := implconv.New(ctx, dao)
+	cli, err := chstorefactory.New(ctx, dao)
 	if err != nil {
-		return nil, fmt.Errorf("failed to init conversation client: %w", err)
+		return nil, fmt.Errorf("failed to init chat store client: %w", err)
 	}
 	// Try to wire user preferences service (best-effort)
 	var users *usersvc.Service
@@ -116,6 +122,8 @@ func NewServiceFromEnv(ctx context.Context) (*Service, error) {
 	return svc, nil
 }
 
+// no indirection required
+
 // AttachElicitationService wires the elicitation service to avoid ad-hoc constructions.
 func (s *Service) AttachElicitationService(es *elicitation.Service) { s.elicitation = es }
 func (s *Service) ElicitationService() *elicitation.Service         { return s.elicitation }
@@ -125,9 +133,7 @@ func (s *Service) ElicitationService() *elicitation.Service         { return s.e
 // lets the agent continue based on the updated conversation state.
 // ResumeElicitation removed – resumption is coordinated by the agent loop via router wait.
 
-// ConversationClient exposes the underlying conversation client for handlers that need
-// fine-grained operations without adding more methods to this service.
-func (s *Service) ConversationClient() apiconv.Client { return s.convClient }
+// ConversationClient removed: use chat store client through Service.convClient
 
 // AttachManager configures the conversation manager and optional default policies.
 func (s *Service) AttachManager(mgr *conversation.Manager, tp *tool.Policy, fp *fluxpol.Policy) {
@@ -183,41 +189,27 @@ func (s *Service) Query(ctx context.Context, input *agentpkg.QueryInput) (*agent
 	return s.mgr.Accept(ctx, input)
 }
 
-// GetRequest defines inputs to fetch messages.
-type GetRequest struct {
-	ConversationID          string
-	IncludeModelCallPayload bool
-	SinceID                 string // optional: inclusive slice starting from this message id
-	IncludeToolCall         bool
-	ToolExtensions          []*toolfeed.FeedSpec
-}
-
-// GetResponse carries the rich conversation view for the given request.
-type GetResponse struct {
-	Conversation *apiconv.Conversation
-}
-
 // Get fetches a conversation using the rich transcript API.
-func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error) {
+func (s *Service) Get(ctx context.Context, req chapi.GetRequest) (*chapi.GetResponse, error) {
 	// Service invariant: endpoints are only registered when convClient is configured.
-	var opts []apiconv.Option
+	var opts []chapi.Option
 	if id := strings.TrimSpace(req.SinceID); id != "" {
-		opts = append(opts, apiconv.WithSince(id))
+		opts = append(opts, chapi.WithSince(id))
 	}
 	if req.IncludeModelCallPayload {
-		opts = append(opts, apiconv.WithIncludeModelCall(true))
+		opts = append(opts, chapi.WithIncludeModelCall(true))
 	}
 	if req.IncludeToolCall {
-		opts = append(opts, apiconv.WithIncludeToolCall(true))
+		opts = append(opts, chapi.WithIncludeToolCall(true))
 	}
 	if len(req.ToolExtensions) > 0 {
-		opts = append(opts, apiconv.WithToolFeedSpec(req.ToolExtensions))
+		opts = append(opts, chapi.WithToolFeedSpec(req.ToolExtensions))
 	}
 	conv, err := s.convClient.GetConversation(ctx, req.ConversationID, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return &GetResponse{Conversation: conv}, nil
+	return &chapi.GetResponse{Conversation: conv}, nil
 }
 
 // Generate exposes low-level core LLM generate bypassing agentic enrichment.
@@ -245,8 +237,10 @@ func (s *Service) PrepareToolContext(ctx context.Context, convID string, args ma
 	// Best-effort resolve last turn id
 	lastTurnID := ""
 	if s != nil && s.convClient != nil {
-		if conv, err := s.convClient.GetConversation(ctx, convID); err == nil && conv != nil {
-			lastTurnID = *conv.LastTurnId
+		if gv, err := s.convClient.GetConversation(ctx, convID); err == nil && gv != nil {
+			if gv.LastTurnId != nil {
+				lastTurnID = *gv.LastTurnId
+			}
 		}
 	}
 	ctx = memory.WithConversationID(ctx, convID)
@@ -267,19 +261,19 @@ func (s *Service) MatchToolFeedSpec(ctx context.Context, conversationID, sinceID
 		return nil, nil
 	}
 	// Fetch minimal conversation view including tool calls
-	var opts []apiconv.Option
+	var opts []chatcli.Option
 	if strings.TrimSpace(sinceID) != "" {
-		opts = append(opts, apiconv.WithSince(sinceID))
+		opts = append(opts, chatcli.WithSince(sinceID))
 	}
-	opts = append(opts, apiconv.WithIncludeToolCall(true))
+	opts = append(opts, chatcli.WithIncludeToolCall(true))
 	conv, err := s.convClient.GetConversation(ctx, conversationID, opts...)
 	if err != nil || conv == nil {
 		return nil, err
 	}
 	// Collect observed tool names
 	services := map[string]struct{}{}
-	if tr := conv.GetTranscript(); tr != nil {
-		for _, name := range tr.UniqueToolNames() {
+	if tr := conv.Transcript; tr != nil {
+		for _, name := range uniqueToolNames(tr) {
 			services[name] = struct{}{}
 		}
 	}
@@ -325,29 +319,9 @@ func (s *Service) MatchToolFeedSpec(ctx context.Context, conversationID, sinceID
 }
 
 // PostRequest defines inputs to submit a user message.
-type PostRequest struct {
-	Content string                 `json:"content"`
-	Agent   string                 `json:"agent,omitempty"`
-	Model   string                 `json:"model,omitempty"`
-	Tools   []string               `json:"tools,omitempty"`
-	Context map[string]interface{} `json:"context,omitempty"`
-	// Attachments carries staged upload descriptors returned by Forge upload endpoint.
-	// Each item must include at least name and uri (relative to storage root), optionally size, stagingFolder, mime.
-	Attachments []UploadedAttachment `json:"attachments,omitempty"`
-}
-
-// UploadedAttachment mirrors Forge upload response structure.
-type UploadedAttachment struct {
-	Name          string `json:"name"`
-	Size          int    `json:"size,omitempty"`
-	StagingFolder string `json:"stagingFolder,omitempty"`
-	URI           string `json:"uri"`
-	Mime          string `json:"mime,omitempty"`
-}
-
 // PreflightPost validates minimal conditions before accepting a post.
 // It ensures an agent can be determined either from request or conversation defaults.
-func (s *Service) PreflightPost(ctx context.Context, conversationID string, req PostRequest) error {
+func (s *Service) PreflightPost(ctx context.Context, conversationID string, req chapi.PostRequest) error {
 	if strings.TrimSpace(req.Agent) != "" {
 		return nil
 	}
@@ -369,7 +343,7 @@ func defaultLocation(loc string) string { return strings.TrimSpace(loc) }
 
 // Post accepts a user message and triggers asynchronous processing via manager.
 // Returns generated message ID that can be used to track status.
-func (s *Service) Post(ctx context.Context, conversationID string, req PostRequest) (string, error) {
+func (s *Service) Post(ctx context.Context, conversationID string, req chapi.PostRequest) (string, error) {
 
 	if conversationID == "" {
 		return "", fmt.Errorf("conversationID is required")
@@ -455,7 +429,7 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		}
 		if err != nil {
 			if s.convClient != nil {
-				tUpd := apiconv.NewTurn()
+				tUpd := chatcli.NewTurn()
 				tUpd.SetId(msgID)
 				if errors.Is(err, context.Canceled) {
 					// Persist canceled using background context; avoid writing with canceled ctx
@@ -473,7 +447,7 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 	return msgID, nil
 }
 
-func (s *Service) enrichAttachmentIfNeeded(req PostRequest, runCtx context.Context, input *agentpkg.QueryInput) error {
+func (s *Service) enrichAttachmentIfNeeded(req chapi.PostRequest, runCtx context.Context, input *agentpkg.QueryInput) error {
 	if len(req.Attachments) == 0 {
 		return nil
 	}
@@ -542,32 +516,8 @@ func (s *Service) CancelTurn(turnID string) bool {
 // --------------------------
 
 // CreateConversationRequest mirrors HTTP payload for POST /conversations.
-type CreateConversationRequest struct {
-	Model      string `json:"model"`
-	Agent      string `json:"agent"`
-	Tools      string `json:"tools"` // comma-separated
-	Title      string `json:"title"`
-	Visibility string `json:"visibility"`
-}
-
-// CreateConversationResponse echoes created entity details.
-type CreateConversationResponse struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	CreatedAt string `json:"createdAt"`
-	Model     string `json:"model,omitempty"`
-	Agent     string `json:"agent,omitempty"`
-	Tools     string `json:"tools,omitempty"`
-}
-
-// ConversationSummary lists id + title only.
-type ConversationSummary struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-}
-
 // CreateConversation persists a new conversation using DAO store.
-func (s *Service) CreateConversation(ctx context.Context, in CreateConversationRequest) (*CreateConversationResponse, error) {
+func (s *Service) CreateConversation(ctx context.Context, in chapi.CreateConversationRequest) (*chapi.CreateConversationResponse, error) {
 	id := uuid.NewString()
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
@@ -614,14 +564,14 @@ func (s *Service) CreateConversation(ctx context.Context, in CreateConversationR
 			}
 		}
 	}
-	if err := s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(cw)); err != nil {
+	if err := s.convClient.PatchConversations(ctx, (*chapi.MutableConversation)(cw)); err != nil {
 		return nil, fmt.Errorf("failed to persist conversation: %w", err)
 	}
-	return &CreateConversationResponse{ID: id, Title: title, CreatedAt: createdAt.Format(time.RFC3339), Model: in.Model, Agent: in.Agent, Tools: in.Tools}, nil
+	return &chapi.CreateConversationResponse{ID: id, Title: title, CreatedAt: createdAt.Format(time.RFC3339), Model: in.Model, Agent: in.Agent, Tools: in.Tools}, nil
 }
 
 // GetConversation returns id + title by conversation id.
-func (s *Service) GetConversation(ctx context.Context, id string) (*ConversationSummary, error) {
+func (s *Service) GetConversation(ctx context.Context, id string) (*chapi.ConversationSummary, error) {
 	cv, err := s.convClient.GetConversation(ctx, id)
 	if err != nil {
 		return nil, err
@@ -633,17 +583,17 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*Conversation
 	if cv.Title != nil && strings.TrimSpace(*cv.Title) != "" {
 		t = *cv.Title
 	}
-	return &ConversationSummary{ID: id, Title: t}, nil
+	return &chapi.ConversationSummary{ID: id, Title: t}, nil
 }
 
 // ListConversations returns all conversation summaries.
-func (s *Service) ListConversations(ctx context.Context) ([]ConversationSummary, error) {
-	rows, err := s.convClient.GetConversations(ctx)
+func (s *Service) ListConversations(ctx context.Context) ([]chapi.ConversationSummary, error) {
+	out, err := s.convClient.GetConversations(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]ConversationSummary, 0, len(rows))
-	for _, v := range rows {
+	result := make([]chapi.ConversationSummary, 0, len(out.Data))
+	for _, v := range out.Data {
 		if v == nil {
 			continue
 		}
@@ -651,9 +601,9 @@ func (s *Service) ListConversations(ctx context.Context) ([]ConversationSummary,
 		if v.Title != nil && strings.TrimSpace(*v.Title) != "" {
 			t = *v.Title
 		}
-		out = append(out, ConversationSummary{ID: v.Id, Title: t})
+		result = append(result, chapi.ConversationSummary{ID: v.Id, Title: t})
 	}
-	return out, nil
+	return result, nil
 }
 
 // DeleteConversation removes a conversation and cascades to dependent rows via DB FKs.
@@ -708,7 +658,7 @@ func (s *Service) Approve(ctx context.Context, messageID, action, reason string)
 	}
 
 	m := &msgwrite.Message{Id: messageID, Status: newStatus, Has: &msgwrite.MessageHas{Status: true}}
-	_ = s.convClient.PatchMessage(ctx, (*apiconv.MutableMessage)(m))
+	_ = s.convClient.PatchMessage(ctx, (*chatcli.MutableMessage)(m))
 
 	if s.approval != nil {
 		_, _ = s.approval.Decide(ctx, messageID, approved, reason)
@@ -771,7 +721,7 @@ func (s *Service) SetTurnStatus(ctx context.Context, turnID, status string, erro
 	if s == nil || s.convClient == nil || strings.TrimSpace(turnID) == "" || strings.TrimSpace(status) == "" {
 		return nil
 	}
-	upd := apiconv.NewTurn()
+	upd := chatcli.NewTurn()
 	upd.SetId(turnID)
 	upd.SetStatus(status)
 	if len(errorMessage) > 0 && strings.TrimSpace(errorMessage[0]) != "" {
@@ -785,7 +735,7 @@ func (s *Service) SetMessageStatus(ctx context.Context, messageID, status string
 	if s == nil || s.convClient == nil || strings.TrimSpace(messageID) == "" || strings.TrimSpace(status) == "" {
 		return nil
 	}
-	upd := apiconv.NewMessage()
+	upd := chatcli.NewMessage()
 	upd.SetId(messageID)
 	upd.SetStatus(status)
 	return s.convClient.PatchMessage(ctx, upd)
@@ -800,7 +750,7 @@ func (s *Service) SetConversationStatus(ctx context.Context, conversationID, sta
 	if err != nil || conv == nil {
 		return err
 	}
-	tr := conv.GetTranscript()
+	tr := conv.Transcript
 	if len(tr) == 0 || tr[len(tr)-1] == nil {
 		return nil
 	}
@@ -851,7 +801,7 @@ func (s *Service) Compact(ctx context.Context, conversationID string) error {
 	}
 
 	ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{ConversationID: conversationID, TurnID: *conv.LastTurnId, ParentMessageID: *conv.LastTurnId})
-	transcript := conv.GetTranscript()
+	transcript := conv.Transcript
 	// Try LLM-generated summary via manager first
 	summaryMessageID, err := s.compactGenerateSummaryLLM(ctx, conv)
 	if err != nil {
@@ -877,7 +827,7 @@ func (s *Service) setConversationStatus(ctx context.Context, conversationID stri
 		return fmt.Errorf("conversation client not configured")
 	}
 	mc := convw.Conversation(*patch)
-	if err := s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(&mc)); err != nil {
+	if err := s.convClient.PatchConversations(ctx, (*chatcli.MutableConversation)(&mc)); err != nil {
 		return fmt.Errorf("failed to update conversation: %w", err)
 	}
 	return nil
@@ -890,19 +840,19 @@ func (s *Service) insertSummaryMessage(ctx context.Context, conversationID, summ
 		return "", errors.New("no turn meta")
 	}
 	msgID := uuid.NewString()
-	id, err := apiconv.AddMessage(ctx, s.convClient, &turn,
-		apiconv.WithId(msgID),
-		apiconv.WithConversationID(conversationID),
-		apiconv.WithRole("assistant"),
-		apiconv.WithType("text"),
-		apiconv.WithStatus("summary"),
-		apiconv.WithContent(summary),
+	id, err := addMessage(ctx, s.convClient, &turn,
+		withId(msgID),
+		withConversationID(conversationID),
+		withRole("assistant"),
+		withType("text"),
+		withStatus("summary"),
+		withContent(summary),
 	)
 	return id, err
 }
 
 // compactMessagePriorMessageID sets archived=1 on all prior messages except elicitation and excludeMsgID.
-func (s *Service) compactMessagePriorMessageID(ctx context.Context, transcript apiconv.Transcript, excludeMsgID string) {
+func (s *Service) compactMessagePriorMessageID(ctx context.Context, transcript []*agconv.TranscriptView, excludeMsgID string) {
 	for _, t := range transcript {
 		if t == nil || len(t.Message) == 0 {
 			continue
@@ -917,7 +867,7 @@ func (s *Service) compactMessagePriorMessageID(ctx context.Context, transcript a
 			if m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
 				continue
 			}
-			upd := apiconv.NewMessage()
+			upd := chatcli.NewMessage()
 			upd.SetId(m.Id)
 			upd.SetArchived(1)
 			_ = s.convClient.PatchMessage(ctx, upd)
@@ -925,9 +875,78 @@ func (s *Service) compactMessagePriorMessageID(ctx context.Context, transcript a
 	}
 }
 
+// uniqueToolNames scans transcript and returns unique tool names in encounter order.
+func uniqueToolNames(tr []*agconv.TranscriptView) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, t := range tr {
+		if t == nil || len(t.Message) == 0 {
+			continue
+		}
+		for _, m := range t.Message {
+			if m == nil || m.ToolCall == nil {
+				continue
+			}
+			name := strings.TrimSpace(m.ToolCall.ToolName)
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// local addMessage helper using chat store client
+type msgOpt func(m *chatcli.MutableMessage)
+
+func withId(id string) msgOpt { return func(m *chatcli.MutableMessage) { m.SetId(id) } }
+func withConversationID(id string) msgOpt {
+	return func(m *chatcli.MutableMessage) { m.SetConversationID(id) }
+}
+func withRole(role string) msgOpt     { return func(m *chatcli.MutableMessage) { m.SetRole(role) } }
+func withType(typ string) msgOpt      { return func(m *chatcli.MutableMessage) { m.SetType(typ) } }
+func withStatus(status string) msgOpt { return func(m *chatcli.MutableMessage) { m.SetStatus(status) } }
+func withContent(content string) msgOpt {
+	return func(m *chatcli.MutableMessage) { m.SetContent(content) }
+}
+
+func addMessage(ctx context.Context, cl chstore.Client, turn *memory.TurnMeta, opts ...msgOpt) (string, error) {
+	if cl == nil || turn == nil {
+		return "", fmt.Errorf("invalid input")
+	}
+	m := chatcli.NewMessage()
+	if strings.TrimSpace(turn.ConversationID) != "" {
+		m.SetConversationID(turn.ConversationID)
+	}
+	if strings.TrimSpace(turn.TurnID) != "" {
+		m.SetTurnID(turn.TurnID)
+	}
+	if strings.TrimSpace(turn.ParentMessageID) != "" {
+		m.SetParentMessageID(turn.ParentMessageID)
+	}
+	m.SetType("text")
+	for _, opt := range opts {
+		if opt != nil {
+			opt(m)
+		}
+	}
+	if strings.TrimSpace(m.Id) == "" {
+		m.SetId(uuid.New().String())
+	}
+	if err := cl.PatchMessage(ctx, m); err != nil {
+		return "", err
+	}
+	return m.Id, nil
+}
+
 // compactGenerateSummaryLLM performs a one-off LLM turn to summarize the conversation and returns the assistant message id.
-func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.Conversation) (string, error) {
-	tr := conv.GetTranscript()
+func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *agconv.ConversationView) (string, error) {
+	tr := conv.Transcript
 	if conv.AgentId == nil {
 		return "", fmt.Errorf("agent id is missing in conversation: %v", conv.Id)
 	}

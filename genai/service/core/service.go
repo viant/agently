@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/viant/afs"
-	apiconv "github.com/viant/agently/client/conversation"
+	chstore "github.com/viant/agently/client/chat/store"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/fluxor/model/types"
@@ -19,7 +19,7 @@ type Service struct {
 	llmFinder    llm.Finder
 	modelMatcher llm.Matcher
 	fs           afs.Service
-	convClient   apiconv.Client
+	convClient   chstore.Client
 
 	// attachment usage accumulator per conversation (bytes)
 	attachUsage map[string]int64
@@ -71,7 +71,7 @@ func (s *Service) Method(name string) (types.Executable, error) {
 }
 
 // New creates a new extractor service
-func New(finder llm.Finder, registry tool.Registry, convClient apiconv.Client) *Service {
+func New(finder llm.Finder, registry tool.Registry, convClient chstore.Client) *Service {
 	matcher, _ := finder.(llm.Matcher)
 	return &Service{llmFinder: finder, registry: registry, convClient: convClient, fs: afs.New(), modelMatcher: matcher, attachUsage: map[string]int64{}}
 }
@@ -119,4 +119,4 @@ func (s *Service) ModelImplements(ctx context.Context, modelName, feature string
 	return model.Implements(feature)
 }
 
-func (s *Service) SetConversationClient(c apiconv.Client) { s.convClient = c }
+func (s *Service) SetConversationClient(c chstore.Client) { s.convClient = c }

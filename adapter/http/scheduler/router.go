@@ -23,7 +23,7 @@ type Service struct {
 	scheduler schapi.Client // optional; enables run-now
 }
 
-func registerRoutes(ctx context.Context, dao *datly.Service, router *datly.Router[Service]) error {
+func registerRoutes(ctx context.Context, router *datly.Router[Service]) error {
 	// GET schedule list
 	if err := router.Register(ctx, contract.NewPath(http.MethodGet, schedulepkg.SchedulePathListURI), func(ctx context.Context, svc Service, r *http.Request, injector hstate.Injector, extra ...datly.OperateOption) (interface{}, error) {
 		in := schedulepkg.ScheduleListInput{}
