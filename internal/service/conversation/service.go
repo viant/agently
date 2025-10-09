@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"unsafe"
 
 	convcli "github.com/viant/agently/client/conversation"
@@ -39,45 +40,62 @@ func New(ctx context.Context, dao *datly.Service) (*Service, error) {
 }
 
 func (s *Service) init(ctx context.Context, dao *datly.Service) error {
-	if err := agconv.DefineConversationComponent(ctx, dao); err != nil {
-		return err
-	}
-	if err := agconv.DefineConversationsComponent(ctx, dao); err != nil {
-		return err
-	}
-	if err := messageread.DefineMessageComponent(ctx, dao); err != nil {
-		return err
-	}
-	if err := messageread.DefineMessageByElicitationComponent(ctx, dao); err != nil {
-		return err
-	}
-	if err := payloadread.DefineComponent(ctx, dao); err != nil {
-		return err
-	}
+	var initErr error
+	componentsOnce.Do(func() {
+		if err := agconv.DefineConversationComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if err := agconv.DefineConversationsComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if err := messageread.DefineMessageComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if err := messageread.DefineMessageByElicitationComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if err := payloadread.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
 
-	if _, err := convw.DefineComponent(ctx, dao); err != nil {
-		return err
-	}
-	if _, err := msgwrite.DefineComponent(ctx, dao); err != nil {
-		return err
-	}
-	if _, err := modelcallwrite.DefineComponent(ctx, dao); err != nil {
-		return err
-	}
-	if _, err := toolcallwrite.DefineComponent(ctx, dao); err != nil {
-		return err
-	}
-	if _, err := turnwrite.DefineComponent(ctx, dao); err != nil {
-		return err
-	}
-	if _, err := payloadwrite.DefineComponent(ctx, dao); err != nil {
-		return err
-	}
-	if _, err := convdel.DefineComponent(ctx, dao); err != nil {
-		return err
-	}
-	return nil
+		if _, err := convw.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if _, err := msgwrite.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if _, err := modelcallwrite.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if _, err := toolcallwrite.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if _, err := turnwrite.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if _, err := payloadwrite.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if _, err := convdel.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+	})
+	return initErr
 }
+
+var componentsOnce sync.Once
 
 func (s *Service) PatchConversations(ctx context.Context, conversations *convcli.MutableConversation) error {
 	conv := []*convw.Conversation{(*convw.Conversation)(conversations)}
@@ -98,14 +116,15 @@ func (s *Service) PatchConversations(ctx context.Context, conversations *convcli
 }
 
 // GetConversations implements conversation.API using the generated component and returns SDK Conversation.
-func (s *Service) GetConversations(ctx context.Context) ([]*convcli.Conversation, error) {
+func (s *Service) GetConversations(ctx context.Context, input *convcli.Input) ([]*convcli.Conversation, error) {
 	// Default: filter to non-scheduled conversations only via Scheduled=0
-	val := 0
-	inSDK := convcli.Input{IncludeTranscript: false, Scheduled: val, Has: &agconv.ConversationInputHas{IncludeTranscript: true, Scheduled: true}}
-	// Map SDK input to generated input
-	in := agconv.ConversationInput(inSDK)
+	if input.Has == nil {
+		input.Has = &agconv.ConversationInputHas{}
+	}
+	input.IncludeTranscript = true
+	input.Has.IncludeTranscript = true
 	out := &agconv.ConversationOutput{}
-	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(agconv.ConversationsPathURI), datly.WithInput(&in)); err != nil {
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(agconv.ConversationsPathURI), datly.WithInput(input)); err != nil {
 		return nil, err
 	}
 	result := *(*[]*convcli.Conversation)(unsafe.Pointer(&out.Data))
@@ -240,6 +259,7 @@ func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.Mutable
 		datly.WithInput(input),
 		datly.WithOutput(out),
 	)
+
 	if err != nil {
 		return err
 	}
@@ -310,4 +330,11 @@ func (s *Service) DeleteConversation(ctx context.Context, id string) error {
 		return errors.New(out.Violations[0].Message)
 	}
 	return nil
+}
+
+// DeleteMessage removes a single message from a conversation.
+// Note: SQL/datastore component for message delete may not be defined in this build.
+// Return a clear error so callers can fall back to in-memory client when applicable.
+func (s *Service) DeleteMessage(ctx context.Context, conversationID, messageID string) error {
+	return errors.New("DeleteMessage not supported by SQL-backed conversation client in this build")
 }

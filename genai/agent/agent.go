@@ -35,6 +35,10 @@ type (
 		Prompt      *prompt.Prompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`           // Prompt template
 		Knowledge   []*Knowledge   `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
 
+		// AutoSummarize controls whether the conversation is automatically
+		// summarized/compacted after a turn (when supported by the runtime).
+		AutoSummarize *bool `yaml:"autoSummarize,omitempty" json:"autoSummarize,omitempty"`
+
 		SystemPrompt    *prompt.Prompt `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
 		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
 		Tool            []*llm.Tool    `yaml:"tool,omitempty" json:"tool,omitempty"`
@@ -76,7 +80,6 @@ type (
 	Chain struct {
 		On           string      `yaml:"on,omitempty" json:"on,omitempty"`                     // succeeded|failed|canceled|*
 		Target       ChainTarget `yaml:"target" json:"target"`                                 // required: agent to invoke
-		Mode         string      `yaml:"mode,omitempty" json:"mode,omitempty"`                 // async|sync (default sync)
 		Conversation string      `yaml:"conversation,omitempty" json:"conversation,omitempty"` // reuse|link (default link)
 		When         *WhenSpec   `yaml:"when,omitempty" json:"when,omitempty"`                 // optional condition
 
@@ -92,16 +95,14 @@ type (
 	}
 
 	ChainPublish struct {
-		Role         string `yaml:"role,omitempty" json:"role,omitempty"`                 // assistant|user|system|tool|none
-		Name         string `yaml:"name,omitempty" json:"name,omitempty"`                 // attribution handle
-		Type         string `yaml:"type,omitempty" json:"type,omitempty"`                 // text|control
-		Parent       string `yaml:"parent,omitempty" json:"parent,omitempty"`             // same_turn|last_user|none
-		AutoNextTurn bool   `yaml:"autoNextTurn,omitempty" json:"autoNextTurn,omitempty"` // only with role=user
+		Role   string `yaml:"role,omitempty" json:"role,omitempty"`     // assistant|user|system|tool|none
+		Name   string `yaml:"name,omitempty" json:"name,omitempty"`     // attribution handle
+		Type   string `yaml:"type,omitempty" json:"type,omitempty"`     // text|control
+		Parent string `yaml:"parent,omitempty" json:"parent,omitempty"` // same_turn|last_user|none
 	}
 
 	ChainLimits struct {
-		MaxDepth  int    `yaml:"maxDepth,omitempty" json:"maxDepth,omitempty"`
-		DedupeKey string `yaml:"dedupeKey,omitempty" json:"dedupeKey,omitempty"`
+		MaxDepth int `yaml:"maxDepth,omitempty" json:"maxDepth,omitempty"`
 	}
 )
 
@@ -134,12 +135,20 @@ func (a *Agent) Validate() error {
 		if strings.TrimSpace(c.Target.AgentID) == "" {
 			return fmt.Errorf("invalid chain[%d]: target.agentId is required", i)
 		}
-		if m := strings.ToLower(strings.TrimSpace(c.Mode)); m != "" && m != "sync" && m != "async" {
-			return fmt.Errorf("invalid chain[%d]: mode must be sync or async", i)
-		}
 		if conv := strings.ToLower(strings.TrimSpace(c.Conversation)); conv != "" && conv != "reuse" && conv != "link" {
 			return fmt.Errorf("invalid chain[%d]: conversation must be reuse or link", i)
 		}
 	}
 	return nil
+}
+
+func (a *Agent) HasAutoSummarizeDefinition() bool {
+	return a.AutoSummarize != nil
+}
+
+func (a *Agent) ShallAutoSummarize() bool {
+	if a.AutoSummarize == nil {
+		return false
+	}
+	return *a.AutoSummarize
 }

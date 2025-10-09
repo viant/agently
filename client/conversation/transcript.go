@@ -6,10 +6,15 @@ import (
 	"unsafe"
 
 	"github.com/viant/agently/genai/prompt"
+	"github.com/viant/agently/pkg/agently/conversation"
 )
 
 func (t *Turn) GetMessages() Messages {
 	return *(*Messages)(unsafe.Pointer(&t.Message))
+}
+
+func (t *Turn) SetMessages(msg Messages) {
+	t.Message = *(*[]*conversation.MessageView)(unsafe.Pointer(&msg))
 }
 
 func (t *Turn) ToolCalls() Messages {

@@ -40,7 +40,7 @@ func TestService_Load(t *testing.T) {
 			url:  "with_chains.yaml",
 			expectedJSON: `{
 			  "id":"agent-chain-demo",
-			  "name":"Chain Demo",
+			  "name":"chainLimits Demo",
 			  "source":{"url":"embed:///testdata/with_chains.yaml"},
 			  "model":"gpt-4o",
             "chains":[

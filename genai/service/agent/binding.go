@@ -25,17 +25,13 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if err != nil {
 		return nil, err
 	}
-	if conv == nil {
-		return nil, fmt.Errorf("conversation %v not found", input.ConversationID)
-	}
 
-	hist, err := s.buildHistory(ctx, conv)
+	err = s.BuildHistory(ctx, conv.GetTranscript(), b)
 	if err != nil {
 		return nil, err
 	}
-	b.History = hist
 
-	b.Task = s.buildTaskBinding(input, hist)
+	b.Task = s.buildTaskBinding(input)
 
 	sig, _, err := s.buildToolSignatures(input)
 	if err != nil {
@@ -79,19 +75,24 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	return b, nil
 }
 
-func (s *Service) buildTaskBinding(input *QueryInput, hist prompt.History) prompt.Task {
+func (s *Service) BuildHistory(ctx context.Context, transcript apiconv.Transcript, binding *prompt.Binding) error {
+	hist, err := s.buildHistory(ctx, transcript)
+	if err != nil {
+		return err
+	}
+	binding.History = hist
+	return nil
+}
+
+func (s *Service) buildTaskBinding(input *QueryInput) prompt.Task {
 	task := input.Query
 	return prompt.Task{Prompt: task, Attachments: input.Attachments}
 }
 
 // buildHistory derives history from a provided conversation (if non-nil),
 // otherwise falls back to DAO transcript for compatibility.
-func (s *Service) buildHistory(ctx context.Context, conv *apiconv.Conversation) (prompt.History, error) {
+func (s *Service) buildHistory(ctx context.Context, transcript apiconv.Transcript) (prompt.History, error) {
 	var h prompt.History
-	if conv == nil {
-		return h, nil
-	}
-	transcript := conv.GetTranscript()
 	h.Messages = transcript.History(false)
 	return h, nil
 }

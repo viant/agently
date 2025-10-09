@@ -7,15 +7,6 @@ columns:
     name: Provider
   - id: options.model
     name: Model
-  - id: intelligence
-    name: Intelligence
-  - id: speed
-    name: Speed
-  - id: options.maxTokens
-    name: Max Tokens
-  - id: options.inputTokenPrice
-    name: In/1K
-  - id: options.outputTokenPrice
-    name: Out/1K
+
 
 toolbar: $import('toolbar/models.yaml')

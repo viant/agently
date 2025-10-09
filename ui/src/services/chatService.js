@@ -433,11 +433,31 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             }
             // Attach chain/link context & actor from message level when present
             const linkedConvId = m.linkedConversationId || m.LinkedConversationId || null;
+            const linkedConvObj = m.linkedConversation || m.LinkedConversation || null;
             const createdByUserId = m.createdByUserId || m.CreatedByUserId || null;
             const mode = m.mode || m.Mode || null;
             if (s1) steps.push({...s1, linkedConversationId: linkedConvId, createdByUserId, mode, elapsed: computeElapsed(s1)});
             if (s2) steps.push({...s2, linkedConversationId: linkedConvId, createdByUserId, mode, elapsed: computeElapsed(s2)});
             if (s3) steps.push({...s3, linkedConversationId: linkedConvId, createdByUserId, mode, elapsed: computeElapsed(s3)});
+
+            // When a message explicitly links another conversation, add a dedicated "link" step
+            if (linkedConvId) {
+                const lcCreated = linkedConvObj?.createdAt || linkedConvObj?.CreatedAt || m?.createdAt || m?.CreatedAt;
+                const lcUpdated = linkedConvObj?.updatedAt || linkedConvObj?.UpdatedAt || lcCreated;
+                const lcStatus = String(linkedConvObj?.status || linkedConvObj?.Status || '').toLowerCase() || 'pending';
+                const sLink = {
+                    id: (m.id || m.Id || '') + '/link',
+                    name: 'link',
+                    reason: 'link',
+                    linkedConversationId: linkedConvId,
+                    createdByUserId,
+                    mode,
+                    startedAt: lcCreated,
+                    endedAt: lcUpdated,
+                    statusText: lcStatus,
+                };
+                steps.push({ ...sLink, elapsed: computeElapsed(sLink) });
+            }
         }
 
         // Sort steps by timestamp (prefer startedAt, fallback endedAt)
@@ -448,6 +468,8 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const db = tb ? new Date(tb).getTime() : 0;
             return da - db;
         });
+
+        // Keep error rendering in the table footer (ExecutionDetails) rather than as a step.
 
         // 2) Build visible chat rows:
         //    - user/assistant messages (non-interim, skip call-only entries)
@@ -598,6 +620,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 status: turnStatus,
                 executions: [{steps}],
                 turnStatus,
+                turnError,
                 turnCreatedAt,
                 turnUpdatedAt,
                 turnElapsedSec,

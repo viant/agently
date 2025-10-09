@@ -9,21 +9,21 @@ selectors:
 uniqueKey:
   - field: id
 
-parameters:
-  # Optional: only scheduled conversations
-  - name: scheduled
-    kind: query
-    in: dataSource
-    location: parameters.scheduled
-  # Optional: filter by schedule id
-  - name: scheduleId
-    kind: query
-    in: dataSource
-    location: parameters.scheduleId
-  # Optional: filter by schedule run id
-  - name: scheduleRunId
-    kind: query
-    in: dataSource
-    location: parameters.scheduleRunId
+#parameters:
+#  # Optional: only scheduled conversations
+#  - name: scheduled
+#    kind: query
+#    in: dataSource
+#    location: parameters.scheduled
+#  # Optional: filter by schedule id
+#  - name: scheduleId
+#    kind: query
+#    in: dataSource
+#    location: parameters.scheduleId
+#  # Optional: filter by schedule run id
+#  - name: scheduleRunId
+#    kind: query
+#    in: dataSource
+#    location: parameters.scheduleRunId
 
 selectionMode: single

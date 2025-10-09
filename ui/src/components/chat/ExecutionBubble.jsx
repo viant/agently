@@ -11,6 +11,7 @@ import ToolFeed from "./ToolFeed.jsx";
 import { setStage } from '../../utils/stageBus.js';
 import CodeFenceRenderer from '../CodeFenceRenderer.jsx';
 import { useExecVisibility } from '../../utils/execFeedBus.js';
+// no endpoints import here; backend-only delete is not exposed in UI
 
 // (removed hourglass animation; using a clock icon instead)
 
@@ -174,7 +175,15 @@ function ExecutionTurnDetails({ msg, context }) {
                 right={null}
             >
                 <div style={{ width: '100%', overflowX: 'auto' }}>
-                    <ExecutionDetails executions={msg.executions} context={context} messageId={msg.id} resizable useCodeMirror />
+                    <ExecutionDetails
+                        executions={msg.executions}
+                        context={context}
+                        messageId={msg.id}
+                        turnStatus={msg.turnStatus}
+                        turnError={msg.turnError}
+                        resizable
+                        useCodeMirror
+                    />
                 </div>
             </CollapsibleCard>
             </div>

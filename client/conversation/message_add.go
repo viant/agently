@@ -13,9 +13,9 @@ import (
 // AddMessage creates and persists a message attached to the given turn using the provided options.
 // It sets sensible defaults: id (uuid), conversation/turn/parent ids from turn, and type "text" unless overridden.
 // Returns the message id.
-func AddMessage(ctx context.Context, cl Client, turn *memory.TurnMeta, opts ...MessageOption) (string, error) {
+func AddMessage(ctx context.Context, cl Client, turn *memory.TurnMeta, opts ...MessageOption) (*MutableMessage, error) {
 	if cl == nil || turn == nil {
-		return "", ErrInvalidInput
+		return nil, ErrInvalidInput
 	}
 	m := NewMessage()
 	// Defaults from turn
@@ -46,18 +46,16 @@ func AddMessage(ctx context.Context, cl Client, turn *memory.TurnMeta, opts ...M
 		status := ""
 		patch := &convw.Conversation{Has: &convw.ConversationHas{}}
 		patch.SetId(m.ConversationID)
-		patch.SetStatus(&status)
-
-		mc := convw.Conversation(*patch)
-		if err := cl.PatchConversations(ctx, (*MutableConversation)(&mc)); err != nil {
-			return "", fmt.Errorf("failed to update conversation status: %w", err)
+		patch.SetStatus(status)
+		if err := cl.PatchConversations(ctx, patch); err != nil {
+			return nil, fmt.Errorf("failed to update conversation status: %w", err)
 		}
 	}
 
 	if err := cl.PatchMessage(ctx, m); err != nil {
-		return "", err
+		return nil, err
 	}
-	return m.Id, nil
+	return m, nil
 }
 
 // ErrInvalidInput is returned when required inputs are missing.

@@ -42,7 +42,7 @@ CREATE TABLE conversation
     turn_count             INTEGER   NOT NULL DEFAULT 0,
     retention_ttl_days     INTEGER,
     expires_at             TIMESTAMP,
-    status                 VARCHAR(255) CHECK (status IS NULL OR status IN ('', 'compacting', 'compacted')),
+    status                 VARCHAR(255),
 
     -- scheduling annotations
     scheduled              INTEGER   CHECK (scheduled IN (0,1)),
@@ -90,7 +90,7 @@ CREATE TABLE message
     updated_at         TIMESTAMP,
     created_by_user_id TEXT,
     client_ip          TEXT,
-    status             TEXT CHECK (status IS NULL OR status IN ('', 'pending','accepted','rejected','cancel','open','summary','summarized')),
+    status             TEXT CHECK (status IS NULL OR status IN ('', 'pending','accepted','rejected','cancel','open','summary','summarized', 'completed')),
     mode               TEXT,
     role               TEXT      NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
     type               TEXT      NOT NULL DEFAULT 'text' CHECK (type IN ('text', 'tool_op',  'control')),

@@ -24,7 +24,7 @@ const COLUMNS_BASE = [
     { id: "name",    name: "Name",   flex: 2 },
     { id: "mode",    name: "Mode",   width: 80 },
     { id: "actor",   name: "Actor",  width: 140 },
-    { id: "chain",   name: "Chain",  width: 200 },
+    { id: "chain",   name: "Chain",  width: 110, type: 'button', cellProperties: { text: 'Open', minimal: true, small: true }, on: [ { event: "onClick", handler: "exec.openLinkedConversation" }, { event: 'onVisible', handler: 'exec.isLinkRow' } ] },
     { id: "status",  name: "Status", width: 60 },
     { id: "elapsed", name: "Time",   width: 60 },
     {
@@ -92,6 +92,34 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
                 return ({ row }) => viewPart('elicitation', row);
             case "exec.openDetail":
                 return ({ row }) => openDialog('Details', { kind: 'detail', row });
+            case "exec.openLinkedConversation":
+                return async ({ row }) => {
+                    try {
+                        const linked = row?._linkedConversationId || row?.chain;
+                        if (!linked) {
+                            try { console.debug('[exec][link] no linkedConversationId on row', row); } catch(_) {}
+                            return;
+                        }
+                        const openWin = parentContext?.handlers?.window?.openWindow;
+                        if (typeof openWin === 'function') {
+                            const paramDefs = [
+                                // Legacy-style rows (resolver expects 'in' + DS name)
+                                { in: 'const', location: linked, to: 'conversations', name: 'input.id' },
+                                { in: 'const', location: linked, to: 'messages',      name: 'input.convID' },
+                            ];
+                            const opts = { modal: true, parameters: paramDefs, size: { width: '98%', height: '98%' }, x: '2%', y: '2%', footer: { hide: true } };
+                            const args = ['chat/new', 'Linked Chat', '', false, opts];
+                            try { console.debug('[exec][link] openWindow args', { args, paramDefs }); } catch(_) {}
+                            const res = await openWin({ execution: { args, parameters: paramDefs }, context: parentContext });
+                            try { console.debug('[exec][link] openWindow returned', res); } catch(_) {}
+                        } else if (typeof window !== 'undefined') {
+                            try { console.debug('[exec][link] openWindow not available, fallback to hash URL'); } catch(_) {}
+                            try { window.open(`#/chat/new?convID=${encodeURIComponent(linked)}`, '_blank'); } catch (_) {}
+                        }
+                    } catch (_) { /* ignore */ }
+                };
+            case "exec.isLinkRow":
+                return ({ row }) => !!(row && row._reason === 'link' && row._linkedConversationId);
             default:
                 return parentContext?.lookupHandler ? parentContext.lookupHandler(id) : () => {};
         }
@@ -123,8 +151,8 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
 
 function flattenExecutions(executions = []) {
     if (!executions) return [];
-    const allowed = new Set([ 'thinking', 'tool_call', 'elicitation' ]);
-                return executions.flatMap(exe => (exe.steps || [])
+    const allowed = new Set([ 'thinking', 'tool_call', 'elicitation', 'link', 'error' ]);
+    const rows = executions.flatMap(exe => (exe.steps || [])
         .filter(s => allowed.has(String(s?.reason || '').toLowerCase()))
         .map(s => {
             const reason = String(s?.reason || '').toLowerCase();
@@ -134,16 +162,25 @@ function flattenExecutions(executions = []) {
             const hasError = !!(s.error || s.errorCode) || statusText === 'failed' || statusText === 'error';
             // Status icon: hourglass if not completed, exclamation if error, ok otherwise
             const icon = hasError ? '❗' : (statusText === 'completed' || statusText === 'accepted' ? '✅' : '⏳');
-            // Kind glyph: brain for model (thinking), tool for tool_call, keyboard for elicitation
-            const kindGlyph = reason === 'thinking' ? '🧠' : (reason === 'tool_call' ? '🛠️' : '⌨️');
-            const annotatedName = reason === 'elicitation' && s.originRole ? `${s.name} (${s.originRole})` : (s.name || reason);
+            // Kind glyph: brain for model (thinking), tool for tool_call, keyboard for elicitation, link for link, warning for error
+            const kindGlyph = reason === 'thinking' ? '🧠'
+                : reason === 'tool_call' ? '🛠️'
+                : reason === 'link' ? '🔗'
+                : reason === 'error' ? '⚠️'
+                : '⌨️';
+            const annotatedName = reason === 'elicitation' && s.originRole
+                ? `${s.name} (${s.originRole})`
+                : reason === 'link' ? 'Chain Thread'
+                : reason === 'error' ? (s.error || 'Error')
+                : (s.name || reason);
+            const elapsedDisplay = reason === 'link' ? '🔗' : s.elapsed;
             return {
                 icon,
                 kind: kindGlyph,
                 mode: s.mode || '',
                 name: annotatedName,
                 actor: s.createdByUserId || '',
-                chain: s.linkedConversationId || '',
+                chain: (reason === 'link') ? 'Open' : '',
                 status: statusText,
                 elapsed: s.elapsed,
                 requestPayloadId: s.requestPayloadId,
@@ -177,9 +214,11 @@ function flattenExecutions(executions = []) {
                 elicitationPayloadId: s.elicitationPayloadId,
             };
         }));
+
+    return rows;
 }
 
-export default function ExecutionDetails({ executions = [], context, messageId, onError, useForgeDialog = false, resizable = false, useCodeMirror = false }) {
+export default function ExecutionDetails({ executions = [], context, messageId, turnStatus, turnError, onError, useForgeDialog = false, resizable = false, useCodeMirror = false }) {
     const [dialog, setDialog] = React.useState(null); // Details or generic payload viewer
     const [payloadDialog, setPayloadDialog] = React.useState(null); // Secondary dialog for payloads when details is open
     const [dlgSize, setDlgSize] = React.useState({ width: 960, height: 640 });
@@ -187,6 +226,23 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
     const [payloadPos, setPayloadPos] = React.useState({ left: 160, top: 120 });
     const dataSourceId = `ds${messageId ?? ""}`;
     const rows = useMemo(() => flattenExecutions(executions), [executions]);
+    // Derive a single turn-level error message (if any) to render as a table footer.
+    const errorFooter = React.useMemo(() => {
+        // 1) Prefer explicit error step message when present
+        const allSteps = (executions || []).flatMap(exe => exe.steps || []);
+        const errSteps = allSteps.filter(s => String(s?.reason || '').toLowerCase() === 'error' && (s?.error || s?.statusText === 'failed'));
+        if (errSteps.length) {
+            const last = errSteps[errSteps.length - 1];
+            const msg = String(last.error || last.statusText || 'failed');
+            if (msg.trim()) return msg.trim();
+        }
+        // 2) Fall back to the turn-level error when provided
+        if ((String(turnStatus || '').toLowerCase() === 'failed' || String(turnStatus || '').toLowerCase() === 'error') && turnError) {
+            const msg = String(turnError);
+            if (msg.trim()) return msg.trim();
+        }
+        return null;
+    }, [executions, turnStatus, turnError]);
 
     useEffect(() => {
         const sig = getCollectionSignal(dataSourceId);
@@ -270,7 +326,17 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                 if (id === 'exec.openRequest') return ({ row }) => viewPart('request', row);
                 if (id === 'exec.openResponse') return ({ row }) => viewPart('response', row);
                 if (id === 'exec.openStream') return ({ row }) => viewPart('stream', row);
-                if (id === 'exec.openDetail') return ({ row }) => setDialog({ title: 'Details', kind: `detail-${row._reason}`, row });
+                if (id === 'exec.openDetail') return async ({ row }) => {
+                    // For link rows, reuse the Details button to open the linked conversation
+                    if (row && row._reason === 'link') {
+                        const fn = ctx.lookupHandler('exec.openLinkedConversation');
+                        if (typeof fn === 'function') {
+                            try { await fn({ row }); } catch(_) {}
+                            return;
+                        }
+                    }
+                    setDialog({ title: 'Details', kind: `detail-${row._reason}`, row });
+                };
                 return originalLookup ? originalLookup(id) : () => {};
             };
             return ctx;
@@ -285,6 +351,25 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                 container={{ id: `exec-${messageId}`, table: { enforceColumnSize: false, fullWidth: false } }}
                 columns={COLUMNS_BASE}
             />
+
+            {errorFooter && (
+                <div style={{
+                    width: '100%',
+                    maxWidth: '80vw',
+                    borderTop: '1px solid var(--light-gray1)',
+                    background: 'rgba(205, 92, 92, 0.08)',
+                    padding: '6px 10px',
+                    marginTop: 4,
+                    color: 'var(--red3)',
+                    fontSize: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                }}>
+                    <span role="img" aria-label="error">⚠️</span>
+                    <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{errorFooter}</span>
+                </div>
+            )}
 
             <Dialog
                 isOpen={!!dialog}

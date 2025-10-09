@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/viant/agently/client/conversation"
 	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/prompt"
@@ -36,11 +37,16 @@ type QueryInput struct {
 	ToolsAllowed  []string               `json:"tools,omitempty"` // allow-list for tools (empty = default)
 	Context       map[string]interface{} `json:"context,omitempty"`
 
+	Transcript conversation.Transcript `json:"transcript,omitempty"`
+
 	// ElicitationMode controls how missing-input requests are handled.
-	//   "user"   – always forward to end-user (current default)
-	//   "agent"  – auto-fill using sub-agent; fail when unable
-	//   "hybrid" – try agent first; fall back to real user when needed.
 	ElicitationMode string `json:"elicitationMode,omitempty" yaml:"elicitationMode,omitempty"`
+
+	AutoSummarize *bool `json:"autoSummarize,omitempty"`
+
+	AllowedChains []string `json:"allowedChains,omitempty"` //
+
+	ToolCallExposure *agentmdl.ToolCallExposure `json:"toolCallExposure,omitempty"`
 }
 
 // QueryOutput represents the result of an agent knowledge query
@@ -76,4 +82,20 @@ func (i *QueryInput) Actor() string {
 		actor = strings.TrimSpace(i.AgentID)
 	}
 	return actor
+}
+
+func (i *QueryInput) ShallAutoSummarize() bool {
+	if i.Agent.HasAutoSummarizeDefinition() {
+		if !i.Agent.ShallAutoSummarize() {
+			return false
+		}
+	}
+	if i.AutoSummarize == nil {
+		return i.Agent.ShallAutoSummarize()
+	}
+	autoSummarize := false
+	if i.AutoSummarize != nil {
+		autoSummarize = *i.AutoSummarize
+	}
+	return autoSummarize
 }

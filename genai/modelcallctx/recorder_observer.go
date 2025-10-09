@@ -3,12 +3,14 @@ package modelcallctx
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
+	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 // recorderObserver writes model-call data directly using conversation client.
@@ -56,7 +58,7 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) error {
 	if !o.hasBeg { // tolerate missing start
 		o.start = Info{}
 	}
-	_, _ = memory.TurnMetaFromContext(ctx)
+	turn, _ := memory.TurnMetaFromContext(ctx)
 	// attach to message/turn from context
 	msgID := memory.ModelMessageIDFromContext(ctx)
 	if msgID == "" {
@@ -91,6 +93,9 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) error {
 	}
 	if err := o.finishModelCall(finCtx, msgID, status, info, streamTxt); err != nil {
 		return err
+	}
+	if err := o.client.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status)); err != nil {
+		return fmt.Errorf("failed to update conversation: %w", err)
 	}
 	return nil
 }
@@ -130,7 +135,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 
 	next := append(cur, data...)
 	if _, err := o.upsertInlinePayload(ctx, id, "model_stream", "text/plain", next); err != nil {
-		return err
+		return fmt.Errorf("failed to update model stream: %w", err)
 	}
 	// Link stream payload to model call upon first successful upsert to satisfy FK early.
 	if !o.streamLinked {
@@ -139,7 +144,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 			upd.SetMessageID(msgID)
 			upd.SetStreamPayloadID(id)
 			if err := o.client.PatchModelCall(ctx, upd); err != nil {
-				return err
+				return fmt.Errorf("failed to update model payload: %w", err)
 			}
 			o.streamLinked = true
 		}
@@ -182,6 +187,8 @@ func (o *recorderObserver) patchInterimFlag(ctx context.Context, msgID string) e
 	return o.client.PatchMessage(ctx, msg)
 }
 
+//298c12dc-d9d9-45d1-b340-09611803c940
+
 // beginModelCall persists the initial model call and associated request payloads.
 func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, turn memory.TurnMeta, info Info) error {
 	mc := apiconv.NewModelCall()
@@ -213,6 +220,9 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 			return err
 		}
 		mc.SetProviderRequestPayloadID(prID)
+	}
+	if err := o.client.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "thinking")); err != nil {
+		return fmt.Errorf("failed to update conversation: %w", err)
 	}
 	// Do not link stream payload at start to avoid FK violation.
 	// Stream payload link will be set after the payload is created (OnStreamDelta/OnCallEnd).

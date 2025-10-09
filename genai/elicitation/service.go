@@ -51,7 +51,7 @@ func (s *Service) RefineRequestedSchema(rs *schema.ElicitRequestParamsRequestedS
 }
 
 // Record persists an elicitation control message and returns its message id.
-func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string, elic *plan.Elicitation) (string, error) {
+func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string, elic *plan.Elicitation) (*apiconv.MutableMessage, error) {
 	if strings.TrimSpace(elic.ElicitationId) == "" {
 		elic.ElicitationId = uuid.New().String()
 	}
@@ -65,7 +65,7 @@ func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string
 	if role == llm.RoleAssistant.String() {
 		messageType = "text"
 	}
-	id, err := apiconv.AddMessage(ctx, s.client, turn,
+	msg, err := apiconv.AddMessage(ctx, s.client, turn,
 		apiconv.WithId(uuid.New().String()),
 		apiconv.WithRole(role),
 		apiconv.WithType(messageType),
@@ -74,9 +74,9 @@ func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string
 		apiconv.WithContent(string(raw)),
 	)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return id, nil
+	return msg, nil
 }
 
 // Wait blocks until an elicitation is accepted/declined via router/UI or optional local awaiter.
@@ -138,15 +138,47 @@ func (s *Service) Elicit(ctx context.Context, turn *memory.TurnMeta, role string
 	if req == nil || turn == nil {
 		return "", "", nil, fmt.Errorf("invalid input")
 	}
-	msgID, err := s.Record(ctx, turn, role, req)
+
+	msg, err := s.Record(ctx, turn, role, req)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", nil, fmt.Errorf("failed to record message: %w", err)
 	}
+	root := s.getRootConversation(ctx, turn.ConversationID)
+	if root != nil {
+		rootConversationMessage := *msg
+		rootConversationMessage.SetId(uuid.New().String())
+		if root.LastTurnId != nil {
+			rootConversationMessage.SetTurnID(*root.LastTurnId)
+			rootConversationMessage.SetConversationID(root.Id)
+		}
+		if err := s.client.PatchMessage(ctx, &rootConversationMessage); err != nil {
+			return "", "", nil, fmt.Errorf("failed to root record message: %w", err)
+		}
+
+		cloneMsg := apiconv.NewMessage()
+		cloneMsg.SetId(msg.Id)
+		cloneMsg.SetParentMessageID(rootConversationMessage.Id)
+		_ = s.client.PatchMessage(ctx, cloneMsg)
+	}
+
 	status, payload, err := s.Wait(ctx, turn.ConversationID, req.ElicitationId)
 	if err != nil {
-		return msgID, "", nil, err
+		return msg.Id, "", nil, err
 	}
-	return msgID, status, payload, nil
+	return msg.Id, status, payload, nil
+}
+
+func (s *Service) getRootConversation(ctx context.Context, conversationId string) *apiconv.Conversation {
+	var conv *apiconv.Conversation
+	if parent, err := s.client.GetConversation(ctx, conversationId); err == nil && parent != nil {
+		if parent.ConversationParentId != nil {
+			conv = parent
+			if ret := s.getRootConversation(ctx, *conv.ConversationParentId); ret != nil {
+				return ret
+			}
+		}
+	}
+	return conv
 }
 
 func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, action string) error {
@@ -161,7 +193,16 @@ func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, actio
 	upd := apiconv.NewMessage()
 	upd.SetId(msg.Id)
 	upd.SetStatus(st)
-	return s.client.PatchMessage(ctx, upd)
+	if err := s.client.PatchMessage(ctx, upd); err != nil {
+		return err
+	}
+	if msg.ParentMessageId != nil {
+		dep, err := s.client.GetMessage(ctx, *msg.ParentMessageId)
+		if err == nil {
+			return s.client.DeleteMessage(ctx, dep.ConversationId, dep.Id)
+		}
+	}
+	return nil
 }
 
 func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string, payload map[string]interface{}) error {
