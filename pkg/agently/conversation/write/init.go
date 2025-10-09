@@ -19,3 +19,12 @@ func DefineComponent(ctx context.Context, srv *datly.Service) (*repository.Compo
 			reflect.TypeOf(&Output{}),
 			&ConversationPostFS))
 }
+
+func DefinePostComponent(ctx context.Context, srv *datly.Service) (*repository.Component, error) {
+	return srv.AddHandler(ctx, contract.NewPath("POST", PathURI), &Handler{},
+		repository.WithResource(srv.Resource()),
+		repository.WithContract(
+			reflect.TypeOf(&Input{}),
+			reflect.TypeOf(&Output{}),
+			&ConversationPostFS))
+}

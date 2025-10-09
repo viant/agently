@@ -11,7 +11,7 @@ import (
 
 	clientmcp "github.com/viant/agently/adapter/mcp"
 	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
-	apiconv "github.com/viant/agently/client/conversation"
+	chstore "github.com/viant/agently/client/chat/store"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/elicitation"
@@ -45,7 +45,7 @@ import (
 type Service struct {
 	config         *Config
 	clientHandler  *clientmcp.Client
-	convClient     apiconv.Client
+	convClient     chstore.Client
 	modelFinder    llm.Finder
 	modelMatcher   llm.Matcher
 	embedderFinder embedder.Finder

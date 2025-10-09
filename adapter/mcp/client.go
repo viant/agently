@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	apiconv "github.com/viant/agently/client/conversation"
+	chstore "github.com/viant/agently/client/chat/store"
 	"github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/jsonrpc"
@@ -49,7 +49,7 @@ type Client struct {
 	implements  map[string]bool
 	llmCore     *core2.Service
 	convID      string
-	convClient  apiconv.Client
+	convClient  chstore.Client
 	elicitation *elicitation.Service
 }
 
@@ -208,7 +208,7 @@ func (c *Client) ProtocolVersion() string {
 // - conv: conversation client used for direct updates (required)
 // - newAwaiter: factory for interactive prompts in CLI; pass nil for server mode
 // - openURL: override URL opener; pass nil to use default or to disable
-func NewClient(el *elicitation.Service, conv apiconv.Client, openURL func(string) error) *Client {
+func NewClient(el *elicitation.Service, conv chstore.Client, openURL func(string) error) *Client {
 	c := &Client{
 		openURLFn:   defaultOpenURL,
 		implements:  make(map[string]bool),

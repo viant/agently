@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	apiconv "github.com/viant/agently/client/conversation"
+	chat "github.com/viant/agently/client/chat"
+	chstore "github.com/viant/agently/client/chat/store"
 	plan "github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
@@ -23,7 +24,7 @@ type StepInfo struct {
 
 // ExecuteToolStep runs a tool via the registry, records transcript, and updates traces.
 // Returns normalized plan.ToolCall, span and any combined error.
-func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv apiconv.Client) (plan.ToolCall, plan.CallSpan, error) {
+func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv chstore.Client) (plan.ToolCall, plan.CallSpan, error) {
 	span := plan.CallSpan{StartedAt: time.Now()}
 	errs := make([]error, 0, 6)
 
@@ -103,13 +104,13 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 }
 
 // createToolMessage persists a new tool message and returns its ID.
-func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.TurnMeta, startedAt time.Time) (string, error) {
+func createToolMessage(ctx context.Context, conv chstore.Client, turn memory.TurnMeta, startedAt time.Time) (string, error) {
 	toolMsgID := uuid.New().String()
-	id, err := apiconv.AddMessage(ctx, conv, &turn,
-		apiconv.WithId(toolMsgID),
-		apiconv.WithRole("tool"),
-		apiconv.WithType("tool_op"),
-		apiconv.WithCreatedAt(startedAt),
+	id, err := chat.AddMessage(ctx, conv, &turn,
+		chat.WithId(toolMsgID),
+		chat.WithRole("tool"),
+		chat.WithType("tool_op"),
+		chat.WithCreatedAt(startedAt),
 	)
 	if err != nil {
 		return "", fmt.Errorf("persist tool message: %w", err)
@@ -118,8 +119,8 @@ func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.Tur
 }
 
 // initToolCall initializes and persists a new tool call in a 'running' state for the given tool message.
-func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID string, turn memory.TurnMeta, toolName string, startedAt time.Time) error {
-	tc := apiconv.NewToolCall()
+func initToolCall(ctx context.Context, conv chstore.Client, toolMsgID, opID string, turn memory.TurnMeta, toolName string, startedAt time.Time) error {
+	tc := chat.NewToolCall()
 	tc.SetMessageID(toolMsgID)
 	if opID != "" {
 		tc.SetOpID(opID)
@@ -151,7 +152,7 @@ func executeTool(ctx context.Context, reg tool.Registry, step StepInfo) (plan.To
 }
 
 // persistRequestPayload stores tool request arguments and links them to the tool call.
-func persistRequestPayload(ctx context.Context, conv apiconv.Client, toolMsgID string, args map[string]interface{}) (string, error) {
+func persistRequestPayload(ctx context.Context, conv chstore.Client, toolMsgID string, args map[string]interface{}) (string, error) {
 	b, mErr := json.Marshal(args)
 	if mErr != nil {
 		return "", mErr
@@ -162,7 +163,7 @@ func persistRequestPayload(ctx context.Context, conv apiconv.Client, toolMsgID s
 		return "", pErr
 	}
 	// link payload to tool call
-	upd := apiconv.NewToolCall()
+	upd := chat.NewToolCall()
 	upd.SetMessageID(toolMsgID)
 	upd.RequestPayloadID = &reqID
 	upd.Has.RequestPayloadID = true
@@ -171,22 +172,22 @@ func persistRequestPayload(ctx context.Context, conv apiconv.Client, toolMsgID s
 }
 
 // persistResponsePayload stores tool response content and returns the payload ID.
-func persistResponsePayload(ctx context.Context, conv apiconv.Client, result string) (string, error) {
+func persistResponsePayload(ctx context.Context, conv chstore.Client, result string) (string, error) {
 	rb := []byte(result)
 	return createInlinePayload(ctx, conv, "tool_response", "text/plain", rb)
 }
 
 // updateToolMessageContent updates the tool message content with the given result.
-func updateToolMessageContent(ctx context.Context, conv apiconv.Client, toolMsgID string, content string) error {
-	updMsg := apiconv.NewMessage()
+func updateToolMessageContent(ctx context.Context, conv chstore.Client, toolMsgID string, content string) error {
+	updMsg := chat.NewMessage()
 	updMsg.SetId(toolMsgID)
 	updMsg.SetContent(content)
 	return conv.PatchMessage(ctx, updMsg)
 }
 
 // completeToolCall marks the tool call as finished and attaches the response payload and error message.
-func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, status string, completedAt time.Time, respPayloadID string, errMsg string) error {
-	updTC := apiconv.NewToolCall()
+func completeToolCall(ctx context.Context, conv chstore.Client, toolMsgID, status string, completedAt time.Time, respPayloadID string, errMsg string) error {
+	updTC := chat.NewToolCall()
 	updTC.SetMessageID(toolMsgID)
 	updTC.SetStatus(status)
 	done := completedAt
@@ -204,9 +205,9 @@ func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, statu
 }
 
 // createInlinePayload creates and persists an inline payload and returns its ID.
-func createInlinePayload(ctx context.Context, conv apiconv.Client, kind, mime string, body []byte) (string, error) {
+func createInlinePayload(ctx context.Context, conv chstore.Client, kind, mime string, body []byte) (string, error) {
 	pid := uuid.New().String()
-	p := apiconv.NewPayload()
+	p := chat.NewPayload()
 	p.SetId(pid)
 	p.SetKind(kind)
 	p.SetMimeType(mime)

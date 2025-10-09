@@ -27,7 +27,7 @@ func newWith(dao *datly.Service, svc Service) (http.Handler, error) {
 		return nil, fmt.Errorf("scheduler http: missing dao or store")
 	}
 	r := datly.NewRouter[Service](dao, svc)
-	if err := registerRoutes(context.Background(), dao, r); err != nil {
+	if err := registerRoutes(context.Background(), r); err != nil {
 		return nil, err
 	}
 	return &handler{dao: dao, router: r, service: svc}, nil

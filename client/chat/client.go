@@ -3,16 +3,11 @@ package chat
 import (
 	"context"
 
-	"github.com/viant/agently/genai/conversation"
-	core "github.com/viant/agently/genai/service/core"
-	"github.com/viant/agently/genai/tool"
-	"github.com/viant/fluxor/policy"
 	"github.com/viant/fluxor/service/approval"
 )
 
 type Client interface {
-	AttachManager(mgr *conversation.Manager, tp *tool.Policy, fp *policy.Policy)
-	AttachCore(core *core.Service)
+	// AttachManager removed from public client to avoid import cycles; use concrete service when needed.
 	AttachApproval(svc approval.Service)
 	Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 	PreflightPost(ctx context.Context, conversationID string, req PostRequest) error
@@ -30,11 +25,4 @@ type Client interface {
 	SetTurnStatus(ctx context.Context, turnID, status string, errorMessage ...string) error
 	SetMessageStatus(ctx context.Context, messageID, status string) error
 	SetConversationStatus(ctx context.Context, conversationID, status string) error
-
-	// Generate exposes the low-level LLM core Generate bypassing agentic enrichment.
-	Generate(ctx context.Context, input *core.GenerateInput) (*core.GenerateOutput, error)
-
-	// Query executes an agentic turn synchronously with the provided input.
-	// Returns the final content and metadata captured by the agent service.
-	Query(ctx context.Context, input *QueryInput) (*QueryOutput, error)
 }

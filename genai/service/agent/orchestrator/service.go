@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
-	apiconv "github.com/viant/agently/client/conversation"
+	chstore "github.com/viant/agently/client/chat/store"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
@@ -23,7 +23,7 @@ import (
 type Service struct {
 	llm        *core2.Service
 	registry   tool.Registry
-	convClient apiconv.Client
+	convClient chstore.Client
 }
 
 func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
@@ -272,7 +272,7 @@ func (s *Service) synthesizeFinalResponse(genOutput *core2.GenerateOutput) {
 	}
 }
 
-func New(service *core2.Service, registry tool.Registry, convClient apiconv.Client) *Service {
+func New(service *core2.Service, registry tool.Registry, convClient chstore.Client) *Service {
 	return &Service{
 		llm:        service,
 		registry:   registry,

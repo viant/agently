@@ -16,7 +16,7 @@ import (
 	mcpclienthandler "github.com/viant/agently/adapter/mcp"
 	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	mcprouter "github.com/viant/agently/adapter/mcp/router"
-	"github.com/viant/agently/client/conversation/factory"
+	chstorefactory "github.com/viant/agently/client/chat/store/factory"
 	"github.com/viant/agently/cmd/service"
 	"github.com/viant/agently/genai/agent/plan"
 	elicitationpkg "github.com/viant/agently/genai/elicitation"
@@ -24,6 +24,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/tool"
+	convimpl "github.com/viant/agently/internal/service/conversation"
 	protoclient "github.com/viant/mcp-protocol/client"
 )
 
@@ -123,7 +124,11 @@ func (c *ChatCmd) Execute(_ []string) error {
 			Data:    data,
 		})
 	}
-	convClient, err := factory.NewFromEnv(context.Background())
+	dao, err := convimpl.NewDatly(context.Background())
+	if err != nil {
+		return err
+	}
+	convClient, err := chstorefactory.New(context.Background(), dao)
 	if err != nil {
 		return err
 	}

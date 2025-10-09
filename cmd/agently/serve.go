@@ -13,12 +13,13 @@ import (
 	"github.com/viant/agently/adapter/http/router"
 	mcpclienthandler "github.com/viant/agently/adapter/mcp"
 	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
-	convfactory "github.com/viant/agently/client/conversation/factory"
+	chstorefactory "github.com/viant/agently/client/chat/store/factory"
 	"github.com/viant/agently/cmd/service"
 	elicitationpkg "github.com/viant/agently/genai/elicitation"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
+	convimpl "github.com/viant/agently/internal/service/conversation"
 	protoclient "github.com/viant/mcp-protocol/client"
 )
 
@@ -40,7 +41,8 @@ func (s *ServeCmd) Execute(_ []string) error {
 
 	// Build conversation client from environment (Datly), so MCP client can persist
 	// elicitation messages/results for the Web UI to poll.
-	convClient, _ := convfactory.NewFromEnv(context.Background())
+	dao, _ := convimpl.NewDatly(context.Background())
+	convClient, _ := chstorefactory.New(context.Background(), dao)
 	// Ensure per-conversation MCP clients are created with the Router wired in
 	// Inject a workspace-driven refiner service for consistent UX across HTTP
 	// and CLI. The default workspace preset refiner is used by the client when

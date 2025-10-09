@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	chatcli "github.com/viant/agently/client/chat"
-	apiconv "github.com/viant/agently/client/conversation"
+	chstore "github.com/viant/agently/client/chat/store"
 	schapi "github.com/viant/agently/client/scheduler"
 	schcli "github.com/viant/agently/client/scheduler/store"
 	"github.com/viant/agently/internal/codec"
@@ -27,7 +27,7 @@ import (
 type Service struct {
 	sch  schcli.Client
 	chat chatcli.Client
-	conv apiconv.Client
+	conv chstore.Client
 }
 
 // New constructs a scheduler service requiring both a schedule store client and a chat client.
@@ -58,8 +58,8 @@ func NewFromEnv(ctx context.Context) (schapi.Client, error) {
 		return nil, err
 	}
 	if s, ok := svc.(*Service); ok {
-		if conv, err := convintern.New(ctx, dao); err == nil {
-			s.conv = conv
+		if convSvc, err := convintern.New(ctx, dao); err == nil {
+			s.conv = convintern.NewStoreAdapter(convSvc)
 		}
 	}
 	return svc, nil
@@ -69,7 +69,18 @@ func NewFromEnv(ctx context.Context) (schapi.Client, error) {
 
 // ListSchedules returns all schedules.
 func (s *Service) ListSchedules(ctx context.Context, session ...codec.SessionOption) ([]*schapi.Schedule, error) {
-	return s.sch.GetSchedules(ctx, session...)
+	out, err := s.sch.GetSchedules(ctx, session...)
+	if err != nil || out == nil {
+		return nil, err
+	}
+	res := make([]*schapi.Schedule, 0, len(out.Data))
+	for _, v := range out.Data {
+		if v != nil {
+			vv := schapi.Schedule(*v)
+			res = append(res, &vv)
+		}
+	}
+	return res, nil
 }
 
 // GetSchedule returns a schedule by id or nil if not found.
@@ -125,16 +136,9 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 			return fmt.Errorf("failed to create conversation")
 		}
 		in.SetConversationId(resp.ID)
-		// Best-effort: annotate conversation with schedule linkage
-		// Try to obtain a conversation client if not provided
-		if s.conv == nil {
-			type chatConv interface{ ConversationClient() apiconv.Client }
-			if c, ok := s.chat.(chatConv); ok {
-				s.conv = c.ConversationClient()
-			}
-		}
+		// Best-effort: annotate conversation with schedule linkage when store is available
 		if s.conv != nil {
-			c := apiconv.NewConversation()
+			c := chatcli.NewConversation()
 			c.SetId(resp.ID)
 			c.SetScheduled(1)
 			c.SetScheduleId(schID)
@@ -232,7 +236,18 @@ func strPtrValue(p *string) string {
 
 // GetRuns lists runs for a schedule, optionally filtered by since id.
 func (s *Service) GetRuns(ctx context.Context, scheduleID, since string, session ...codec.SessionOption) ([]*schapi.Run, error) {
-	return s.sch.GetRuns(ctx, scheduleID, since, session...)
+	out, err := s.sch.GetRuns(ctx, scheduleID, since, session...)
+	if err != nil || out == nil {
+		return nil, err
+	}
+	res := make([]*schapi.Run, 0, len(out.Data))
+	for _, v := range out.Data {
+		if v != nil {
+			vv := schapi.Run(*v)
+			res = append(res, &vv)
+		}
+	}
+	return res, nil
 }
 
 // RunDue lists schedules, checks if due, and triggers runs while avoiding duplicates.
@@ -241,10 +256,11 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 	if s == nil || s.sch == nil || s.chat == nil {
 		return 0, fmt.Errorf("scheduler service not initialized")
 	}
-	rows, err := s.sch.GetSchedules(ctx)
+	out, err := s.sch.GetSchedules(ctx)
 	if err != nil {
 		return 0, err
 	}
+	rows := out.Data
 	now := time.Now().UTC()
 	started := 0
 	for _, sc := range rows {
@@ -293,10 +309,11 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 		}
 
 		// Avoid duplicate if there is any active run (not terminal)
-		runs, err := s.sch.GetRuns(ctx, sc.Id, "")
+		runOut, err := s.sch.GetRuns(ctx, sc.Id, "")
 		if err != nil {
 			return started, err
 		}
+		runs := runOut.Data
 		active := false
 		for _, r := range runs {
 			if r == nil {
