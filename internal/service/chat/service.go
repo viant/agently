@@ -90,6 +90,7 @@ func NewService() *Service {
 	if dao, err := implconv.NewDatly(context.Background()); err == nil {
 		if cli, err := implconv.New(context.Background(), dao); err == nil {
 			svc.convClient = cli
+			svc.dao = dao
 		}
 	}
 	return svc
@@ -114,6 +115,11 @@ func NewServiceFromEnv(ctx context.Context) (*Service, error) {
 	}
 	svc := &Service{reg: cancels.Default(), convClient: cli, users: users, dao: dao}
 	return svc, nil
+}
+
+// NewServiceWithClient constructs a chat service bound to a provided conversation client and shared datly.
+func NewServiceWithClient(cli apiconv.Client, dao *datly.Service) *Service {
+	return &Service{reg: cancels.Default(), convClient: cli, dao: dao}
 }
 
 // AttachElicitationService wires the elicitation service to avoid ad-hoc constructions.
@@ -230,6 +236,14 @@ func (s *Service) Generate(ctx context.Context, input *corellm.GenerateInput) (*
 		return nil, err
 	}
 	return &out, nil
+}
+
+// DeleteMessage removes a message from a conversation via the underlying client.
+func (s *Service) DeleteMessage(ctx context.Context, convID, messageID string) error {
+	if s == nil || s.convClient == nil {
+		return fmt.Errorf("conversation client is not configured")
+	}
+	return s.convClient.DeleteMessage(ctx, convID, messageID)
 }
 
 // PrepareToolContext enriches args with conversation context (conversationId, lastTurnId)
@@ -454,6 +468,7 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 			_, err = s.mgr.Accept(runCtx, input)
 		}
 		if err != nil {
+			fmt.Println("[ERROR]", err)
 			if s.convClient != nil {
 				tUpd := apiconv.NewTurn()
 				tUpd.SetId(msgID)
@@ -562,8 +577,9 @@ type CreateConversationResponse struct {
 
 // ConversationSummary lists id + title only.
 type ConversationSummary struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
+	ID      string  `json:"id"`
+	Title   string  `json:"title"`
+	Summary *string `json:"summary"`
 }
 
 // CreateConversation persists a new conversation using DAO store.
@@ -633,12 +649,12 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*Conversation
 	if cv.Title != nil && strings.TrimSpace(*cv.Title) != "" {
 		t = *cv.Title
 	}
-	return &ConversationSummary{ID: id, Title: t}, nil
+	return &ConversationSummary{ID: id, Title: t, Summary: cv.Summary}, nil
 }
 
 // ListConversations returns all conversation summaries.
-func (s *Service) ListConversations(ctx context.Context) ([]ConversationSummary, error) {
-	rows, err := s.convClient.GetConversations(ctx)
+func (s *Service) ListConversations(ctx context.Context, input *apiconv.Input) ([]ConversationSummary, error) {
+	rows, err := s.convClient.GetConversations(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -651,7 +667,7 @@ func (s *Service) ListConversations(ctx context.Context) ([]ConversationSummary,
 		if v.Title != nil && strings.TrimSpace(*v.Title) != "" {
 			t = *v.Title
 		}
-		out = append(out, ConversationSummary{ID: v.Id, Title: t})
+		out = append(out, ConversationSummary{ID: v.Id, Title: t, Summary: v.Summary})
 	}
 	return out, nil
 }
@@ -791,8 +807,8 @@ func (s *Service) SetMessageStatus(ctx context.Context, messageID, status string
 	return s.convClient.PatchMessage(ctx, upd)
 }
 
-// SetConversationStatus updates the latest turn in a conversation.
-func (s *Service) SetConversationStatus(ctx context.Context, conversationID, status string) error {
+// SetLastAssistentMessageStatus updates the latest turn in a conversation.
+func (s *Service) SetLastAssistentMessageStatus(ctx context.Context, conversationID, status string) error {
 	if s == nil || s.convClient == nil || strings.TrimSpace(conversationID) == "" || strings.TrimSpace(status) == "" {
 		return nil
 	}
@@ -845,7 +861,7 @@ func (s *Service) Compact(ctx context.Context, conversationID string) error {
 	}
 
 	status := "compacting"
-	err = s.setConversationStatus(ctx, conversationID, status)
+	err = s.SetConversationStatus(ctx, conversationID, status)
 	if err != nil {
 		return err
 	}
@@ -860,7 +876,7 @@ func (s *Service) Compact(ctx context.Context, conversationID string) error {
 	s.compactMessagePriorMessageID(ctx, transcript, summaryMessageID)
 
 	status = "compacted"
-	err = s.setConversationStatus(ctx, conversationID, status)
+	err = s.SetConversationStatus(ctx, conversationID, status)
 	if err != nil {
 		return err
 	}
@@ -868,16 +884,8 @@ func (s *Service) Compact(ctx context.Context, conversationID string) error {
 	return nil
 }
 
-func (s *Service) setConversationStatus(ctx context.Context, conversationID string, status string) error {
-	patch := &convw.Conversation{Has: &convw.ConversationHas{}}
-	patch.SetId(conversationID)
-	patch.SetStatus(&status)
-
-	if s.convClient == nil {
-		return fmt.Errorf("conversation client not configured")
-	}
-	mc := convw.Conversation(*patch)
-	if err := s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(&mc)); err != nil {
+func (s *Service) SetConversationStatus(ctx context.Context, conversationID string, status string) error {
+	if err := s.convClient.PatchConversations(ctx, convw.NewConversationStatus(conversationID, status)); err != nil {
 		return fmt.Errorf("failed to update conversation: %w", err)
 	}
 	return nil
@@ -890,7 +898,7 @@ func (s *Service) insertSummaryMessage(ctx context.Context, conversationID, summ
 		return "", errors.New("no turn meta")
 	}
 	msgID := uuid.NewString()
-	id, err := apiconv.AddMessage(ctx, s.convClient, &turn,
+	msg, err := apiconv.AddMessage(ctx, s.convClient, &turn,
 		apiconv.WithId(msgID),
 		apiconv.WithConversationID(conversationID),
 		apiconv.WithRole("assistant"),
@@ -898,7 +906,10 @@ func (s *Service) insertSummaryMessage(ctx context.Context, conversationID, summ
 		apiconv.WithStatus("summary"),
 		apiconv.WithContent(summary),
 	)
-	return id, err
+	if err != nil {
+		return "", err
+	}
+	return msg.Id, err
 }
 
 // compactMessagePriorMessageID sets archived=1 on all prior messages except elicitation and excludeMsgID.

@@ -120,6 +120,13 @@ DONE:
 	}
 }
 
+func (c *ConversationView) HasConversationParentId() bool {
+	if c.ConversationParentId == nil || *c.ConversationParentId == "" {
+		return false
+	}
+	return true
+}
+
 var ConversationsPathURI = "/v1/api/agently/conversation/"
 
 func DefineConversationsComponent(ctx context.Context, srv *datly.Service) error {

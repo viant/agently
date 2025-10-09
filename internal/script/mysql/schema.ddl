@@ -48,7 +48,7 @@ CREATE TABLE conversation
     turn_count             BIGINT       NOT NULL DEFAULT 0,
     retention_ttl_days     BIGINT,
     expires_at             TIMESTAMP    NULL     DEFAULT NULL,
-    status                 VARCHAR(255) CHECK (status IS NULL OR status IN ('', 'compacting', 'compacted')),
+    status                 VARCHAR(255),
 
     -- scheduling annotations
     scheduled              TINYINT      NULL CHECK (scheduled IN (0,1)),
@@ -138,7 +138,7 @@ CREATE TABLE `message`
     client_ip              VARCHAR(45),
     status                 VARCHAR(255) CHECK (status IS NULL OR status IN
                                                                  ('', 'pending', 'accepted', 'rejected', 'cancel',
-                                                                  'open', 'summary', 'summarized')),
+                                                                  'open', 'summary', 'summarized','completed')),
     mode                   VARCHAR(255),
     role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
     `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control')),

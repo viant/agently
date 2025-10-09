@@ -136,14 +136,6 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		}
 	}
 
-	if attachMode == "unknownAttachMode" {
-		return nil, fmt.Errorf("attachMode not specified in options.metadata")
-	}
-
-	if agentID == "unknownAgent" {
-		return nil, fmt.Errorf("agentId not specified in options.metadata")
-	}
-
 	// Convert messages
 	req.Messages = make([]Message, len(request.Messages))
 	for i, msg := range request.Messages {
@@ -218,7 +210,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 							dataURL := "data:" + item.MimeType + ";base64," + item.Data
 							contentItem.ImageURL = &ImageURL{URL: dataURL}
 						} else { // TODO return error if not pdf
-							fileID, err := c.uploadFielAndGetID(context.Background(), item.Data, item.Name, agentID, ttlSec)
+							fileID, err := c.uploadFiledAndGetID(context.Background(), item.Data, item.Name, agentID, ttlSec)
 							if err != nil {
 								return nil, fmt.Errorf("failed to upload PDF content item: %w", err)
 							}
@@ -305,8 +297,8 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	return req, nil
 }
 
-// uploadFielAndGetID uploads a base64-encoded PDF to OpenAI assets and returns its file_id.
-func (c *Client) uploadFielAndGetID(ctx context.Context, base64Data string, name string, agentID string, ttlSec int64) (string, error) {
+// uploadFiledAndGetID uploads a base64-encoded PDF to OpenAI assets and returns its file_id.
+func (c *Client) uploadFiledAndGetID(ctx context.Context, base64Data string, name string, agentID string, ttlSec int64) (string, error) {
 	// TODO detect duplicates, user
 
 	var attachmentTTLSec int64 = ttlSec

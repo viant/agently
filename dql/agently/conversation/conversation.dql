@@ -11,11 +11,14 @@
 #set($_ = $IncludeTranscript<bool>(query/includeTranscript).Value('true').WithPredicate(1, 'expr', '?'))
 #set($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
 #set($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
-#set($_ = $Scheduled<int>(query/scheduled).WithPredicate(0, 'expr', 't.scheduled = ?'))
-#set($_ = $ScheduleId<string>(query/scheduleId).WithPredicate(0, 'expr', 't.schedule_id = ?'))
 
+#set($_ = $ScheduleId<string>(query/scheduleId).WithPredicate(0, 'expr', 't.schedule_id = ?'))
 #set($_ = $ScheduleRunId<string>(query/scheduleRunId).WithPredicate(0, 'expr', 't.schedule_run_id = ?'))
 #set($_ = $HasScheduleId<bool>(query/hasScheduleId).WithPredicate(0, 'expr', 't.schedule_id IS NOT NULL'))
+
+#set($_ = $DefaultPredicate<bool>(const/value).Value('0').WithPredicate(0,'handler','*conversation.Filter'))
+
+
 #set($_ = $FeedSpec<[]*tool.FeedSpec>(transient/extension))
 
 
@@ -52,6 +55,9 @@ JOIN (
  SELECT inline_body, compression, m.id as message_id FROM message m
  JOIN call_payload p ON m.elicitation_payload_id = p.id
 ) userElicitationData ON userElicitationData.message_id = message.id AND 1=1
+JOIN (
+SELECT id, status, created_at, updated_at FROM conversation t
+) linkedConversation ON linkedConversation.id =  message.linked_conversation_id AND 1=1
 JOIN (
  SELECT inline_body, compression, uri,mime_type, m.parent_message_id FROM message m
  JOIN call_payload p ON m.attachment_payload_id = p.id

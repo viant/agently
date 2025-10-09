@@ -12,6 +12,7 @@ import (
 	plan "github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
+	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 // StepInfo carries the tool step data needed for execution.
@@ -94,7 +95,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if cErr := completeToolCall(finCtx, conv, toolMsgID, status, span.EndedAt, respID, errMsg); cErr != nil {
 		errs = append(errs, fmt.Errorf("complete tool call: %w", cErr))
 	}
-
+	_ = conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status))
 	var retErr error
 	if len(errs) > 0 {
 		retErr = errors.Join(errs...)
@@ -105,7 +106,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 // createToolMessage persists a new tool message and returns its ID.
 func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.TurnMeta, startedAt time.Time) (string, error) {
 	toolMsgID := uuid.New().String()
-	id, err := apiconv.AddMessage(ctx, conv, &turn,
+	msg, err := apiconv.AddMessage(ctx, conv, &turn,
 		apiconv.WithId(toolMsgID),
 		apiconv.WithRole("tool"),
 		apiconv.WithType("tool_op"),
@@ -114,7 +115,7 @@ func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.Tur
 	if err != nil {
 		return "", fmt.Errorf("persist tool message: %w", err)
 	}
-	return id, nil
+	return msg.Id, nil
 }
 
 // initToolCall initializes and persists a new tool call in a 'running' state for the given tool message.
@@ -131,11 +132,16 @@ func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID stri
 	tc.SetToolName(toolName)
 	tc.SetToolKind("general")
 	tc.SetStatus("running")
+
 	now := startedAt
 	tc.StartedAt = &now
 	tc.Has.StartedAt = true
 	if err := conv.PatchToolCall(ctx, tc); err != nil {
 		return fmt.Errorf("persist tool call start: %w", err)
+	}
+
+	if err := conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running")); err != nil {
+		return fmt.Errorf("failed to update conversation: %w", err)
 	}
 	return nil
 }

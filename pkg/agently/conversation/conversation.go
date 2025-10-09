@@ -33,10 +33,10 @@ type ConversationInput struct {
 	IncludeTranscript bool                  `parameter:",kind=query,in=includeTranscript" predicate:"expr,group=1,?" value:"true"`
 	IncludeModelCal   bool                  `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"false"`
 	IncludeToolCall   bool                  `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"false"`
-	Scheduled         int                   `parameter:",kind=query,in=scheduled" predicate:"expr,group=0,t.scheduled = ?"`
 	ScheduleId        string                `parameter:",kind=query,in=scheduleId" predicate:"expr,group=0,t.schedule_id = ?"`
 	ScheduleRunId     string                `parameter:",kind=query,in=scheduleRunId" predicate:"expr,group=0,t.schedule_run_id = ?"`
 	HasScheduleId     bool                  `parameter:",kind=query,in=hasScheduleId" predicate:"expr,group=0,t.schedule_id IS NOT NULL"`
+	DefaultPredicate  string                `parameter:",kind=const,in=value" predicate:"handler,group=0,*conversation.Filter" value:"0"`
 	FeedSpec          []*tool.FeedSpec      `parameter:",kind=transient,in=extension"`
 	Has               *ConversationInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
@@ -47,10 +47,10 @@ type ConversationInputHas struct {
 	IncludeTranscript bool
 	IncludeModelCal   bool
 	IncludeToolCall   bool
-	Scheduled         bool
 	ScheduleId        bool
 	ScheduleRunId     bool
 	HasScheduleId     bool
+	DefaultPredicate  bool
 	FeedSpec          bool
 }
 
@@ -148,6 +148,7 @@ type MessageView struct {
 	ElicitationPayloadId *string                  `sqlx:"elicitation_payload_id"`
 	ToolName             *string                  `sqlx:"tool_name"`
 	UserElicitationData  *UserElicitationDataView `view:",table=message" on:"Id:id=MessageId:m.id" sql:"uri=conversation/user_elicitation_data.sql"`
+	LinkedConversation   *LinkedConversationView  `view:",table=conversation" on:"LinkedConversationId:linked_conversation_id=Id:id" sql:"uri=conversation/linked_conversation.sql"`
 	Attachment           []*AttachmentView        `view:",table=message" on:"Id:id=ParentMessageId:m.parent_message_id" sql:"uri=conversation/attachment.sql"`
 	ModelCall            *ModelCallView           `view:",table=model_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/model_call.sql"`
 	ToolCall             *ToolCallView            `view:",table=tool_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
@@ -157,6 +158,13 @@ type UserElicitationDataView struct {
 	InlineBody  *string `sqlx:"inline_body"`
 	Compression string  `sqlx:"compression"`
 	MessageId   string  `sqlx:"message_id" source:"id"`
+}
+
+type LinkedConversationView struct {
+	Id        string     `sqlx:"id"`
+	Status    *string    `sqlx:"status"`
+	CreatedAt time.Time  `sqlx:"created_at"`
+	UpdatedAt *time.Time `sqlx:"updated_at"`
 }
 
 type AttachmentView struct {

@@ -74,6 +74,7 @@ export default function HTMLTableBubble({message, context}) {
                     <Icon icon={iconName} color="var(--black)" size={12}/>
                 </div>
                 <div className={bubbleClass} data-ts={(function(){ try { const d = new Date(message.createdAt); return isNaN(d) ? '' : formatDate(d, 'HH:mm'); } catch(_) { return ''; } })()}>
+                    {/* no per-message delete in UI */}
                     {/* Render HTML with CodeBlock replacement; for plain text, reuse CodeFenceRenderer */}
                     {(() => {
                         const content = String(message?.content || '');

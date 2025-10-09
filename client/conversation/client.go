@@ -6,7 +6,7 @@ import (
 
 type Client interface {
 	GetConversation(ctx context.Context, id string, options ...Option) (*Conversation, error)
-	GetConversations(ctx context.Context) ([]*Conversation, error)
+	GetConversations(ctx context.Context, input *Input) ([]*Conversation, error)
 	PatchConversations(ctx context.Context, conversations *MutableConversation) error
 	GetPayload(ctx context.Context, id string) (*Payload, error)
 	PatchPayload(ctx context.Context, payload *MutablePayload) error
@@ -17,4 +17,6 @@ type Client interface {
 	PatchToolCall(ctx context.Context, toolCall *MutableToolCall) error
 	PatchTurn(ctx context.Context, turn *MutableTurn) error
 	DeleteConversation(ctx context.Context, id string) error
+	// DeleteMessage removes a message from the conversation and internal indexes.
+	DeleteMessage(ctx context.Context, conversationID, messageID string) error
 }

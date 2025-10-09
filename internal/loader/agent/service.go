@@ -323,6 +323,19 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					agent.ParallelToolCalls = lv == "true"
 				}
 			}
+		case "autosummarize", "autosumarize":
+			// Support correct and common misspelling keys. Accept bool or string values.
+			if valueNode.Kind == yaml.ScalarNode {
+				val := valueNode.Interface()
+				switch actual := val.(type) {
+				case bool:
+					agent.AutoSummarize = &actual
+				case string:
+					lv := strings.ToLower(strings.TrimSpace(actual))
+					v := lv == "true" || lv == "yes" || lv == "on"
+					agent.AutoSummarize = &v
+				}
+			}
 		case "knowledge":
 			if valueNode.Kind == yaml.SequenceNode {
 				for _, itemNode := range valueNode.Content {
@@ -443,19 +456,10 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					}
 				}
 				// Defaults
-				if strings.TrimSpace(c.Mode) == "" {
-					c.Mode = "sync"
-				}
 				if strings.TrimSpace(c.Conversation) == "" {
 					c.Conversation = "link" // default to child/linked workflow
 				}
 				// Validate enums
-				switch strings.ToLower(strings.TrimSpace(c.Mode)) {
-				case "sync", "async":
-				case "": // unreachable due to default above
-				default:
-					return fmt.Errorf("invalid chain.mode: %s", c.Mode)
-				}
 				switch strings.ToLower(strings.TrimSpace(c.Conversation)) {
 				case "reuse", "link":
 				case "": // defaulted above

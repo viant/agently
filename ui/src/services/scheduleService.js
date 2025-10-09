@@ -139,7 +139,7 @@ export const scheduleService = {
       return false;
     }
     const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
-    const url = joinURL(base, `/v1/api/agently/scheduler/run-now`);
+    const url = joinURL(base, `/v1/api/agently/scheduler/run-now/`);
     ctx.handlers?.setLoading?.(true);
     try {
       const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scheduleId: id, status: 'pending' }), credentials: 'include' });

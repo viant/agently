@@ -19,6 +19,7 @@ import (
 	"github.com/viant/agently/genai/elicitation"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/memory"
+	agconv "github.com/viant/agently/pkg/agently/conversation"
 
 	"github.com/viant/agently/genai/conversation"
 	execcfg "github.com/viant/agently/genai/executor/config"
@@ -205,6 +206,13 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		mux.HandleFunc("GET /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 			s.handleGetMessages(w, r, r.PathValue("id"))
 		})
+
+		// Delete a message within a conversation
+		mux.HandleFunc("DELETE /v1/api/conversations/{id}/messages/{msgId}", func(w http.ResponseWriter, r *http.Request) {
+			convID := r.PathValue("id")
+			msgID := r.PathValue("msgId")
+			s.handleDeleteMessage(w, r, convID, msgID)
+		})
 	}
 
 	// Usage statistics
@@ -325,10 +333,6 @@ func humanTimestamp(t time.Time) string {
 
 // handleConversations supports POST to create new conversation id.
 func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
-	if s.chatSvc == nil {
-		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
-		return
-	}
 	switch r.Method {
 	case http.MethodPost:
 		var req chat.CreateConversationRequest
@@ -359,7 +363,17 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			encode(w, http.StatusOK, []chat.ConversationSummary{*cv}, nil)
 			return
 		}
-		list, err := s.chatSvc.ListConversations(s.withAuthFromRequest(r))
+
+		input := &agconv.ConversationInput{}
+
+		if component, _ := s.dao.Component(r.Context(), agconv.ConversationsPathURI); component != nil {
+			if injector, _ := s.dao.GetInjector(r, component); injector != nil {
+				injector.Bind(r.Context(), input)
+				fmt.Printf("injected:  %+v\n", input)
+			}
+		}
+
+		list, err := s.chatSvc.ListConversations(s.withAuthFromRequest(r), input)
 		if err != nil {
 			encode(w, http.StatusInternalServerError, nil, err)
 			return
@@ -427,6 +441,23 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		return
 	}
 	encode(w, http.StatusOK, conv.Conversation, nil)
+}
+
+// handleDeleteMessage deletes a specific message by id within a conversation.
+func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, convID, msgID string) {
+	if r.Method != http.MethodDelete {
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
+		return
+	}
+	if s.chatSvc == nil || s.chatSvc.ConversationClient() == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
+		return
+	}
+	if err := s.chatSvc.DeleteMessage(r.Context(), convID, msgID); err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+	encode(w, http.StatusOK, map[string]string{"id": msgID, "status": "deleted"}, nil)
 }
 
 // handleGetPayload serves payload content or metadata for a given payload id.
@@ -709,7 +740,7 @@ func (s *Server) handleTerminateConversation(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	cancelled = s.chatSvc.Cancel(convID)
-	if err := s.chatSvc.SetConversationStatus(context.Background(), convID, "canceled"); err != nil {
+	if err := s.chatSvc.SetLastAssistentMessageStatus(context.Background(), convID, "canceled"); err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}

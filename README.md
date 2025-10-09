@@ -107,7 +107,7 @@ Update your agent configuration to include the SQLKit tool:
 ```bash
 # Create or update the chat agent configuration
 mkdir -p $AGENTLY_ROOT/agents
-cat > $AGENTLY_ROOT/agents/chat.yaml << EOF
+cat > $AGENTLY_ROOT/agents/chatter.yaml << EOF
 description: Default conversational agent
 id: chat
 modelRef: openai_o4-mini

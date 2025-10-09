@@ -47,6 +47,7 @@ type RunView struct {
 	Id                 string     `sqlx:"id"`
 	ScheduleId         string     `sqlx:"schedule_id"`
 	CreatedAt          time.Time  `sqlx:"created_at"`
+	UpdatedAt          *time.Time `sqlx:"updated_at"`
 	Status             string     `sqlx:"status"`
 	ErrorMessage       *string    `sqlx:"error_message"`
 	PreconditionRanAt  *time.Time `sqlx:"precondition_ran_at"`

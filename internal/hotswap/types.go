@@ -18,7 +18,7 @@ const (
 // The HotSwapManager invokes Reload whenever a YAML file inside the
 // workspace is added, changed or deleted.
 //
-// name – base file name without extension (e.g. "chat" for chat.yaml)
+// name – base file name without extension (e.g. "chat" for chatter.yaml)
 // what – kind of change (AddOrUpdate/Delete).
 //
 // Implementations are expected to be thread-safe.

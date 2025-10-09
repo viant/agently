@@ -70,6 +70,9 @@ func (t *TranscriptView) normalizeMessages() {
 		if m.ToolCall != nil {
 			m.Status = &m.ToolCall.Status
 		}
+		if m.LinkedConversation != nil {
+			m.Status = m.LinkedConversation.Status
+		}
 	}
 }
 

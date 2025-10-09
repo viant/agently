@@ -19,6 +19,7 @@ type Conversation struct {
 	ConversationParentTurnId string     `sqlx:"conversation_parent_turn_id" `
 	Visibility               *string    `sqlx:"visibility" json:",omitempty"`
 	CreatedAt                *time.Time `sqlx:"created_at" json:",omitempty"`
+	UpdatedAt                *time.Time `sqlx:"updated_at" json:",omitempty"`
 	LastActivity             *time.Time `sqlx:"last_activity" json:",omitempty"`
 	UsageInputTokens         int        `sqlx:"usage_input_tokens" json:",omitempty"`
 	UsageOutputTokens        int        `sqlx:"usage_output_tokens" json:",omitempty"`
@@ -48,6 +49,7 @@ type ConversationHas struct {
 	Title                    bool
 	Visibility               bool
 	CreatedAt                bool
+	UpdatedAt                bool
 	LastActivity             bool
 	UsageInputTokens         bool
 	UsageOutputTokens        bool
@@ -66,13 +68,21 @@ type ConversationHas struct {
 	Status                   bool
 }
 
+func NewConversationStatus(id, status string) *Conversation {
+	ret := &Conversation{Has: &ConversationHas{}}
+	ret.SetStatus(status)
+	ret.SetId(id)
+	ret.SetUpdatedAt(time.Now())
+	return ret
+}
+
 func (c *Conversation) SetId(value string) {
 	c.Id = value
 	c.Has.Id = true
 }
 
-func (c *Conversation) SetStatus(value *string) {
-	c.Status = value
+func (c *Conversation) SetStatus(value string) {
+	c.Status = &value
 	c.Has.Status = true
 }
 
@@ -109,6 +119,11 @@ func (c *Conversation) SetVisibility(value string) {
 func (c *Conversation) SetCreatedAt(value time.Time) {
 	c.CreatedAt = &value
 	c.Has.CreatedAt = true
+}
+
+func (c *Conversation) SetUpdatedAt(value time.Time) {
+	c.UpdatedAt = &value
+	c.Has.UpdatedAt = true
 }
 
 func (c *Conversation) SetCreatedByUserID(value string) {

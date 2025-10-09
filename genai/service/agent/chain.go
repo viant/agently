@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
 
 	"regexp"
 
@@ -18,8 +20,49 @@ import (
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
-// chainBinding is a minimal data holder exposed to chain query/when templates.
-// ChainContext carries parent state and transcript to execute chain logic.
+type chainControl struct {
+	runs   map[string]int
+	limits map[string]*agentmdl.ChainLimits
+	sync.Mutex
+}
+
+func (c *chainControl) incrementRun(name string) {
+	c.Lock()
+	defer c.Unlock()
+	c.runs[name]++
+}
+
+func (c *chainControl) ensureChainLimit(name string, limit *agentmdl.ChainLimits) {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+	if _, ok := c.limits[name]; ok {
+		return
+	}
+	c.limits[name] = limit
+}
+
+func (c *chainControl) canRunChain(name string) bool {
+	c.Lock()
+	defer c.Unlock()
+	if _, ok := c.limits[name]; !ok {
+		return false
+	}
+	return c.runs[name] < c.limits[name].MaxDepth
+}
+
+type chainControlKeyType string
+
+var chainControlKey = chainControlKeyType("chainControl")
+
+func ensureChainControl(ctx context.Context) (*chainControl, context.Context) {
+	value := ctx.Value(chainControlKey)
+	if value == nil {
+		ret := &chainControl{runs: make(map[string]int), limits: make(map[string]*agentmdl.ChainLimits)}
+		return ret, context.WithValue(ctx, chainControlKey, ret)
+	}
+	return value.(*chainControl), ctx
+}
+
 type ChainContext struct {
 	Agent        *agentmdl.Agent
 	Conversation *apiconv.Conversation
@@ -54,34 +97,16 @@ func (s *Service) executeChains(ctx context.Context, parent ChainContext, status
 	if parent.Agent == nil || len(parent.Agent.Chains) == 0 {
 		return nil
 	}
-	// Always evaluate chains each turn; auto-next is still bounded
-	// Reset per-turn counters unless this is an auto-next continuation turn
-	isResume := false
-	if v, ok := parent.Context["chain.resume"].(bool); ok && v {
-		isResume = true
-	}
-	if !isResume {
-		if parent.Context != nil {
-			delete(parent.Context, "chain.depth")
-		}
-		// Reset per-conversation dedupe marks for chains
-		if parent.Conversation != nil {
-			_ = s.resetChainDedupe(ctx, parent.Conversation.Id)
-		}
-	}
-	// Stamp status into context
-	if parent.Context != nil {
-		if _, ok := parent.Context["chain"]; !ok {
-			parent.Context["chain"] = map[string]interface{}{}
-		}
-		cm := parent.Context["chain"].(map[string]interface{})
-		cm["status"] = status
-	}
 
-	// Iterate chains in declaration order
-	usedAutoNext := false
-	for _, ch := range parent.Agent.Chains {
+	controls, ctx := ensureChainControl(ctx)
+
+	for idx, ch := range parent.Agent.Chains {
 		if ch == nil {
+			continue
+		}
+		chainID := parent.ParentTurn.ConversationID + strconv.Itoa(idx) + ch.Target.AgentID
+		controls.ensureChainLimit(chainID, ch.Limits)
+		if !controls.canRunChain(chainID) {
 			continue
 		}
 		on := strings.TrimSpace(strings.ToLower(ch.On))
@@ -96,43 +121,19 @@ func (s *Service) executeChains(ctx context.Context, parent ChainContext, status
 			}
 			continue
 		}
-		// Stamp minimal evaluation context
-		if parent.Context != nil {
-			if _, ok := parent.Context["chain"]; !ok {
-				parent.Context["chain"] = map[string]interface{}{}
-			}
-			cm := parent.Context["chain"].(map[string]interface{})
-			cm["status"] = status
-			whenCtx := map[string]interface{}{
-				"decision": shouldRunChain,
-			}
-			if ch.When != nil {
-				whenCtx["expect"] = ch.When.Expect
-			}
-			if ch.When != nil && strings.TrimSpace(ch.When.Model) != "" {
-				whenCtx["model"] = strings.TrimSpace(ch.When.Model)
-			}
-			cm["when"] = whenCtx
-		}
 		if !shouldRunChain {
 			continue
 		}
+		controls.incrementRun(chainID)
 		policy := s.normalizePolicy(ch.Conversation)
-		destConvID, err := s.ensureChildConversationIfNeeded(ctx, parent.ParentTurn, policy)
+		chainConversationID, err := s.ensureChainConversation(ctx, parent, policy)
 		if err != nil {
 			return err
 		}
-		childIn := s.buildChildInputFromParent(parent, ch, on, destConvID)
-
-		runSync := strings.EqualFold(strings.TrimSpace(ch.Mode), "sync") || strings.TrimSpace(ch.Mode) == ""
-		if runSync {
-			if err = s.runChainSync(ctx, childIn, ch, &parent, &usedAutoNext); err != nil {
-				return err
-			}
-			continue
+		childIn := s.buildQueryInput(parent, ch, on, chainConversationID)
+		if err = s.runChainSync(ctx, childIn, ch, &parent); err != nil {
+			return err
 		}
-		// async
-		s.runChainAsync(ctx, childIn, ch, &parent)
 	}
 	return nil
 }
@@ -391,40 +392,73 @@ func (s *Service) normalizePolicy(policy string) string {
 	return p
 }
 
-func (s *Service) ensureChildConversationIfNeeded(ctx context.Context, parentTurn *memory.TurnMeta, policy string) (string, error) {
-	if policy != "link" {
-		return parentTurn.ConversationID, nil
-	}
-	destConvID := uuid.New().String()
-	if s.conversation != nil {
-		w := convw.Conversation{Has: &convw.ConversationHas{}}
-		w.SetId(destConvID)
-		w.SetVisibility(convw.VisibilityPublic)
-		w.SetConversationParentId(parentTurn.ConversationID)
-		w.SetConversationParentTurnId(parentTurn.TurnID)
-		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&w)); err != nil {
+func (s *Service) ensureChainConversation(ctx context.Context, chainCtx ChainContext, policy string) (string, error) {
+	parentTurn := chainCtx.ParentTurn
+
+	conversationID := parentTurn.ConversationID
+	if policy == "link" {
+		conversationID = uuid.New().String()
+
+		conversation := convw.Conversation{Has: &convw.ConversationHas{}}
+		conversation.SetId(conversationID)
+		conversation.SetStatus("")
+		conversation.SetVisibility(convw.VisibilityPublic)
+		conversation.SetConversationParentId(parentTurn.ConversationID)
+		conversation.SetConversationParentTurnId(parentTurn.TurnID)
+		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&conversation)); err != nil {
+			return "", fmt.Errorf("failed to create conversation: %w", err)
+		}
+		transcript := chainCtx.Conversation.GetTranscript().Last()
+		err := s.cloneContextMessages(ctx, transcript, conversationID)
+		if err != nil {
 			return "", err
 		}
 	}
-	return destConvID, nil
+	return conversationID, nil
 }
 
-func (s *Service) buildChildInputFromParent(parent ChainContext, ch *agentmdl.Chain, on string, destConvID string) *QueryInput {
+func (s *Service) cloneContextMessages(ctx context.Context, transcript apiconv.Transcript, conversationID string) error {
+	transcriptTurnID := uuid.New().String()
+	transcriptTurn := memory.TurnMeta{
+		ParentMessageID: transcriptTurnID,
+		TurnID:          transcriptTurnID,
+		ConversationID:  conversationID,
+	}
+	if 1 == 1 {
+		return nil
+	}
+
+	if err := s.startTurn(ctx, transcriptTurn); err != nil {
+		return fmt.Errorf("failed to start transcript: %w", err)
+	}
+	for _, message := range transcript[0].GetMessages() {
+		if message.Mode != nil && *message.Mode == "chain" {
+			continue
+		}
+		mutable := message.NewMutable()
+		mutable.SetId(uuid.New().String())
+		mutable.SetTurnID(transcriptTurn.TurnID)
+		mutable.SetConversationID(transcriptTurn.ConversationID)
+		mutable.SetParentMessageID(transcriptTurn.ParentMessageID)
+		if err := s.conversation.PatchMessage(ctx, mutable); err != nil {
+			return fmt.Errorf("failed to patch transcript message: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Service) buildQueryInput(parent ChainContext, ch *agentmdl.Chain, on string, chainConversationID string) *QueryInput {
 	childIn := &QueryInput{
-		ConversationID: destConvID,
-		AgentID:        ch.Target.AgentID,
-		UserId:         parent.UserID,
-		Context:        map[string]interface{}{},
+		ParentConversationID: parent.ParentTurn.ConversationID,
+		ConversationID:       chainConversationID,
+		AgentID:              ch.Target.AgentID,
+		UserId:               parent.UserID,
+		Context:              map[string]interface{}{},
 	}
 	for k, v := range parent.Context {
 		childIn.Context[k] = v
 	}
-	childIn.Context["chain"] = map[string]interface{}{
-		"on":                   on,
-		"targetAgentId":        ch.Target.AgentID,
-		"policy":               s.normalizePolicy(ch.Conversation),
-		"parentConversationId": parent.Conversation.Id,
-	}
+
 	if ch.Query != nil {
 		b := s.buildPromptBindingFromParent(context.Background(), parent, false)
 		if err := ch.Query.Init(context.Background()); err == nil {
@@ -436,14 +470,34 @@ func (s *Service) buildChildInputFromParent(parent ChainContext, ch *agentmdl.Ch
 	return childIn
 }
 
-func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *agentmdl.Chain, parent *ChainContext, usedAutoNext *bool) error {
-
-	if chain.Publish != nil {
-
-		s.addMessage(ctx, parent.ParentTurn, "chain", "", "chaining", "", "")
+func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *agentmdl.Chain, parent *ChainContext) error {
+	publish := chain.Publish
+	if publish == nil {
+		chain.Publish = &agentmdl.ChainPublish{
+			Role: "user",
+		}
+	}
+	role := chain.Publish.Role
+	if role == "" {
+		role = "assistant"
+	}
+	actor := chain.Publish.Name
+	if actor == "" {
+		actor = "chain"
 	}
 
-	content, role, err := s.fetchChainOutput(ctx, childIn, chain)
+	if _, err := apiconv.AddMessage(ctx, s.conversation, parent.ParentTurn,
+		apiconv.WithId(uuid.New().String()),
+		apiconv.WithRole(role),
+		apiconv.WithInterim(1),
+		apiconv.WithContent(""),
+		apiconv.WithCreatedByUserID(actor),
+		apiconv.WithMode("chain"),
+		apiconv.WithLinkedConversationID(childIn.ConversationID)); err != nil {
+		return err
+	}
+
+	content, err := s.fetchChainOutput(ctx, childIn, chain)
 	if err != nil {
 		if strings.ToLower(strings.TrimSpace(chain.OnError)) == "propagate" {
 			return fmt.Errorf("chain target error: %w", err)
@@ -453,114 +507,32 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 	if strings.TrimSpace(content) == "" {
 		return nil
 	}
-	// Continuation gate
-	auto := chain.Publish != nil && chain.Publish.AutoNextTurn && role == "user" && !*usedAutoNext
-	if auto {
-		maxDepth := 10
-		if chain.Limits != nil && chain.Limits.MaxDepth > 0 {
-			maxDepth = chain.Limits.MaxDepth
-		}
-		depth := 0
-		if v, ok := parent.Context["chain.depth"]; ok {
-			switch t := v.(type) {
-			case int:
-				depth = t
-			case float64:
-				depth = int(t)
-			}
-		}
-		// Dedupe
-		if chain.Limits != nil && strings.TrimSpace(chain.Limits.DedupeKey) != "" {
-			key := strings.TrimSpace(chain.Limits.DedupeKey)
-			p := &prompt.Prompt{Text: key}
-			b := s.buildPromptBindingFromParent(ctx, *parent, false)
-			if exp, err := p.Generate(ctx, b); err == nil {
-				dedupeKey := strings.TrimSpace(exp)
-				if dedupeKey != "" {
-					if seen, _ := s.seenAndMarkChainDedupe(ctx, parent.Conversation.Id, dedupeKey); seen {
-						auto = false
-					}
-				}
-			}
-		}
-		if auto && depth < maxDepth {
-			// Continue parent as new user turn
-			next := &QueryInput{
-				ConversationID: parent.Conversation.Id,
-				AgentID:        parent.Agent.ID,
-				UserId:         strings.TrimSpace(chain.Publish.Name),
-				Query:          content,
-				Context:        map[string]interface{}{},
-			}
-			for k, v := range parent.Context {
-				next.Context[k] = v
-			}
-			next.Context["chain.resume"] = true
-			next.Context["chain.depth"] = depth + 1
-			next.Context["chain.parentTurnId"] = parent.ParentTurn.TurnID
-			next.Context["chain.targetAgentId"] = chain.Target.AgentID
-			var out QueryOutput
-			if err := s.Query(ctx, next, &out); err != nil {
-				return fmt.Errorf("continuation error: %w", err)
-			}
-			*usedAutoNext = true
-			return nil
-		}
+	// Continue parent as new user turn
+	next := &QueryInput{
+		ConversationID: parent.Conversation.Id,
+		AgentID:        parent.Agent.ID,
+		UserId:         strings.TrimSpace(chain.Publish.Name),
+		Query:          content,
+		Context:        map[string]interface{}{},
 	}
-	// Publish-only fallback
-	s.publishToParent(ctx, parent, role, chain, content)
+	for k, v := range parent.Context {
+		next.Context[k] = v
+	}
+	var out QueryOutput
+	if err := s.Query(ctx, next, &out); err != nil {
+		return fmt.Errorf("continuation error: %w", err)
+	}
 	return nil
-}
 
-func (s *Service) runChainAsync(ctx context.Context, childIn *QueryInput, chian *agentmdl.Chain, parent *ChainContext) {
-	go func(parentCtx context.Context, in *QueryInput) {
-		base := context.Background()
-		content, role, err := s.fetchChainOutput(base, in, chian)
-		if err != nil {
-			if strings.ToLower(strings.TrimSpace(chian.OnError)) == "message" {
-				_, _ = s.addMessage(parentCtx, parent.ParentTurn, "assistant", "chain", "", "", "")
-			}
-			return
-		}
-		if strings.TrimSpace(content) == "" {
-			return
-		}
-		s.publishToParent(parentCtx, parent, role, chian, content)
-	}(ctx, childIn)
 }
 
 // fetchChainOutput executes a child chain query and returns trimmed content and resolved role.
 // It centralizes shared logic for sync/async chain execution without applying error policies.
-func (s *Service) fetchChainOutput(ctx context.Context, in *QueryInput, ch *agentmdl.Chain) (string, string, error) {
+func (s *Service) fetchChainOutput(ctx context.Context, in *QueryInput, ch *agentmdl.Chain) (string, error) {
 	var out QueryOutput
 	if err := s.Query(ctx, in, &out); err != nil {
-		return "", "", err
+		return "", fmt.Errorf("failed to run query %w", err)
 	}
 	content := strings.TrimSpace(out.Content)
-	role := "assistant"
-	if ch != nil && ch.Publish != nil && ch.Publish.Role != "" {
-		role = strings.ToLower(strings.TrimSpace(ch.Publish.Role))
-		if role == "" {
-			role = "assistant"
-		}
-	}
-	return content, role, nil
-}
-
-func (s *Service) publishToParent(ctx context.Context, parent *ChainContext, role string, ch *agentmdl.Chain, content string) {
-	parentSel := strings.ToLower(strings.TrimSpace(ch.Publish.Parent))
-	if parentSel == "" {
-		parentSel = "last_user"
-	}
-	aTurn := parent.ParentTurn
-	switch parentSel {
-	case "new_turn":
-	//TODO create a new turn
-	default:
-	}
-	actor := ""
-	if role == "user" {
-		actor = strings.TrimSpace(ch.Publish.Name)
-	}
-	_, _ = s.addMessage(ctx, aTurn, role, actor, content, "chain", "")
+	return content, nil
 }

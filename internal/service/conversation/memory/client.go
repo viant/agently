@@ -54,8 +54,35 @@ func (c *Client) DeleteConversation(_ context.Context, id string) error {
 	return nil
 }
 
+// DeleteMessage removes a message by id from indexes and the conversation transcript.
+func (c *Client) DeleteMessage(_ context.Context, conversationID, messageID string) error {
+	if strings.TrimSpace(messageID) == "" {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delete(c.messages, messageID)
+	if conv, ok := c.conversations[conversationID]; ok && conv != nil && conv.Transcript != nil {
+		for _, t := range conv.Transcript {
+			if t == nil || t.Message == nil {
+				continue
+			}
+			kept := t.Message[:0]
+			for _, m := range t.Message {
+				if m == nil || m.Id == messageID {
+					continue
+				}
+				kept = append(kept, m)
+			}
+			t.Message = kept
+		}
+	}
+	return nil
+}
+
 // GetConversations returns all conversations without transcript for summary.
-func (c *Client) GetConversations(_ context.Context) ([]*convcli.Conversation, error) {
+func (c *Client) GetConversations(_ context.Context, input *convcli.Input) ([]*convcli.Conversation, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	out := make([]*convcli.Conversation, 0, len(c.conversations))

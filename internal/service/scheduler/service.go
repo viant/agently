@@ -52,15 +52,18 @@ func NewFromEnv(ctx context.Context) (schapi.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	chat := chatimpl.NewService()
+	// Reuse the same dao and conversation client across chat + scheduler
+	conv, err := convintern.New(ctx, dao)
+	if err != nil {
+		return nil, err
+	}
+	chat := chatimpl.NewServiceWithClient(conv, dao)
 	svc, err := New(sch, chat)
 	if err != nil {
 		return nil, err
 	}
 	if s, ok := svc.(*Service); ok {
-		if conv, err := convintern.New(ctx, dao); err == nil {
-			s.conv = conv
-		}
+		s.conv = conv
 	}
 	return svc, nil
 }

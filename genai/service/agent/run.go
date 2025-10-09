@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,7 +69,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.startTurn(ctx, turn); err != nil {
 		return err
 	}
-	if err := s.addInitialUserMessage(ctx, &turn, input); err != nil {
+	if err := s.addUserMessage(ctx, &turn, input); err != nil {
 		return err
 	}
 
@@ -93,16 +94,26 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// Persist/refresh conversation default model with the actually used model this turn
 	_ = s.updateDefaultModel(ctx, turn, output)
 
+	conv, err := s.conversation.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
+	if err != nil {
+		return fmt.Errorf("cannot get conversation: %w", err)
+	}
 	// Elicitation and final content persistence are handled inside runPlanLoop now
 	output.Usage = agg
-	if err := s.executeChainsAfter(ctx, input, output, turn, status); err != nil {
+	if err := s.executeChainsAfter(ctx, input, output, turn, conv, status); err != nil {
 		return err
+	}
+	if conv.HasConversationParent() || conv.ScheduleId != nil {
+		return nil
+	}
+	err = s.summarizeIfNeeded(ctx, input, conv)
+	if err != nil {
+		return fmt.Errorf("failed summarizing: %w", err)
 	}
 	return nil
 }
 
 // loopControls captures continuation flags from Context.chain.loop
-
 func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *prompt.Attachment) error {
 	// 1) Create attachment message first (without payload)
 	messageID := uuid.New().String()
@@ -177,7 +188,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			genInput.AgentID = strings.TrimSpace(input.Agent.ID)
 		}
 		genInput.Options.Mode = "plan"
-		EnsureGenerateOptions(genInput, input.Agent)
+		EnsureGenerateOptions(ctx, genInput, input.Agent)
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
 		if pErr != nil {
@@ -231,10 +242,6 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 // waitForElicitation was inlined into elicitation.Service.Wait
 
 func (s *Service) addMessage(ctx context.Context, turn *memory.TurnMeta, role, actor, content, mode, id string) (string, error) {
-	if strings.TrimSpace(content) == "" {
-		return "", nil
-	}
-	// Delegate to centralized helper, preserving existing semantics
 	opts := []apiconv.MessageOption{
 		apiconv.WithRole(role),
 		apiconv.WithCreatedByUserID(actor),
@@ -244,7 +251,11 @@ func (s *Service) addMessage(ctx context.Context, turn *memory.TurnMeta, role, a
 	if strings.TrimSpace(id) != "" {
 		opts = append(opts, apiconv.WithId(id))
 	}
-	return apiconv.AddMessage(ctx, s.conversation, turn, opts...)
+	msg, err := apiconv.AddMessage(ctx, s.conversation, turn, opts...)
+	if err != nil {
+		return "", fmt.Errorf("failed to add message: %w", err)
+	}
+	return msg.Id, nil
 }
 
 // mergeInlineJSONIntoContext copies JSON object fields from qi.Query into qi.Context (non-destructive).
@@ -333,7 +344,7 @@ func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
 	return s.conversation.PatchTurn(ctx, rec)
 }
 
-func (s *Service) addInitialUserMessage(ctx context.Context, turn *memory.TurnMeta, input *QueryInput) error {
+func (s *Service) addUserMessage(ctx context.Context, turn *memory.TurnMeta, input *QueryInput) error {
 	_, err := s.addMessage(ctx, turn, "user", input.UserId, input.Query, "task", turn.TurnID)
 	if err != nil {
 		return fmt.Errorf("failed to add message: %w", err)
@@ -415,10 +426,14 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 	if emsg != "" {
 		upd.SetErrorMessage(emsg)
 	}
+
 	if err := s.conversation.PatchTurn(patchCtx, upd); runErr != nil {
 		return runErr
 	} else if err != nil {
 		return err
+	}
+	if err := s.conversation.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status)); err != nil {
+		return fmt.Errorf("failed to update conversation: %w", err)
 	}
 	return nil
 }
@@ -437,12 +452,8 @@ func (s *Service) updateDefaultModel(ctx context.Context, turn memory.TurnMeta, 
 	return nil
 }
 
-func (s *Service) executeChainsAfter(ctx context.Context, input *QueryInput, output *QueryOutput, turn memory.TurnMeta, status string) error {
+func (s *Service) executeChainsAfter(ctx context.Context, input *QueryInput, output *QueryOutput, turn memory.TurnMeta, conv *apiconv.Conversation, status string) error {
 	cc := NewChainContext(input, output, &turn)
-	if s.conversation != nil && strings.TrimSpace(input.ConversationID) != "" {
-		if conv, err := s.conversation.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true)); err == nil {
-			cc.Conversation = conv
-		}
-	}
+	cc.Conversation = conv
 	return s.executeChains(ctx, cc, status)
 }
