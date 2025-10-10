@@ -35,6 +35,7 @@ type ChatCmd struct {
 	Policy    string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
 	ResetLogs bool   `long:"reset-logs" description:"truncate/clean log files before each run"  `
 	Timeout   int    `short:"t" long:"timeout" description:"timeout in seconds for the agent response (0=none)" `
+	User      string `short:"u" long:"user" description:"user id for the chat" default:"devuser"`
 
 	// Arbitrary JSON payload that will be forwarded to the agent as contextual
 	// information. It can be supplied either as an inline JSON string or as
@@ -174,6 +175,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 			Query:          userQuery,
 			Context:        contextData,
 			Timeout:        time.Duration(c.Timeout) * time.Second,
+			UserId:         c.User,
 		}
 		if !sentAttachments && len(attachments) > 0 {
 			req.Attachments = attachments

@@ -18,6 +18,7 @@ type ChatRequest struct {
 	ConversationID string
 	AgentPath      string
 	Query          string
+	UserId         string
 
 	// Optional context object forwarded to QueryInput so that the agent can
 	// incorporate caller supplied metadata (e.g. project, user location, etc.).
@@ -63,6 +64,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 			ConversationID: convID,
 			AgentID:        req.AgentPath,
 			Query:          query,
+			UserId:         req.UserId,
 			Context:        req.Context,
 			Attachments:    req.Attachments,
 		}
