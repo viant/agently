@@ -369,7 +369,6 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		if component, _ := s.dao.Component(r.Context(), agconv.ConversationsPathURI); component != nil {
 			if injector, _ := s.dao.GetInjector(r, component); injector != nil {
 				injector.Bind(r.Context(), input)
-				fmt.Printf("injected:  %+v\n", input)
 			}
 		}
 
