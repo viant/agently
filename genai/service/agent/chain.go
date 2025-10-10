@@ -424,9 +424,9 @@ func (s *Service) cloneContextMessages(ctx context.Context, transcript apiconv.T
 		TurnID:          transcriptTurnID,
 		ConversationID:  conversationID,
 	}
-	if 1 == 1 {
-		return nil
-	}
+	//if 1 == 1 {
+	//	return nil
+	//}
 
 	if err := s.startTurn(ctx, transcriptTurn); err != nil {
 		return fmt.Errorf("failed to start transcript: %w", err)
