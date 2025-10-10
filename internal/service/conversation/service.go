@@ -12,6 +12,7 @@ import (
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convdel "github.com/viant/agently/pkg/agently/conversation/delete"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
+	msgdel "github.com/viant/agently/pkg/agently/message/delete"
 	messageread "github.com/viant/agently/pkg/agently/message/read"
 	msgwrite "github.com/viant/agently/pkg/agently/message/write"
 	modelcallwrite "github.com/viant/agently/pkg/agently/modelcall/write"
@@ -88,6 +89,10 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 			return
 		}
 		if _, err := convdel.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if _, err := msgdel.DefineComponent(ctx, dao); err != nil {
 			initErr = err
 			return
 		}
@@ -332,9 +337,33 @@ func (s *Service) DeleteConversation(ctx context.Context, id string) error {
 	return nil
 }
 
-// DeleteMessage removes a single message from a conversation.
-// Note: SQL/datastore component for message delete may not be defined in this build.
-// Return a clear error so callers can fall back to in-memory client when applicable.
+// DeleteMessage removes a single message from a conversation using the dedicated DELETE component.
 func (s *Service) DeleteMessage(ctx context.Context, conversationID, messageID string) error {
-	return errors.New("DeleteMessage not supported by SQL-backed conversation client in this build")
+	if s == nil || s.dao == nil || strings.TrimSpace(messageID) == "" {
+		return nil
+	}
+
+	// Optional safety check: if conversationID provided, verify the message belongs to it.
+	if strings.TrimSpace(conversationID) != "" {
+		if got, _ := s.GetMessage(ctx, messageID); got != nil && strings.TrimSpace(got.ConversationId) != "" {
+			if !strings.EqualFold(strings.TrimSpace(got.ConversationId), strings.TrimSpace(conversationID)) {
+				return errors.New("message does not belong to the specified conversation")
+			}
+		}
+	}
+
+	in := &msgdel.Input{Ids: []string{strings.TrimSpace(messageID)}}
+	out := &msgdel.Output{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath(http.MethodDelete, msgdel.PathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return err
+	}
+	if len(out.Violations) > 0 {
+		return errors.New(out.Violations[0].Message)
+	}
+	return nil
 }
