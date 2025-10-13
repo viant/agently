@@ -1388,6 +1388,53 @@ export function onChangeSelectedTools(args) {
     }
 }
 
+// Mirror Allowed Chains selection to Conversations form
+export function onChangeAllowedChains(args) {
+    try {
+        const { context, value, selected } = args || {};
+        const incoming = Array.isArray(value) ? value : (Array.isArray(selected) ? selected : []);
+        const convCtx = context?.Context?.('conversations');
+        convCtx?.handlers?.dataSource?.setSilentFormData?.({ values: { allowedChains: incoming } });
+        try { console.debug('[settings.allowedChains] mirrored to conversations form (silent)', incoming); } catch(_) {}
+    } catch (e) {
+        try { console.debug('[settings.allowedChains] onChange error', e); } catch (_) {}
+    }
+}
+
+// Mirror Chains Enabled toggle to Conversations form
+export function onChangeChainsEnabled(args) {
+    try {
+        const { context, value, selected, event } = args || {};
+        let incoming;
+        if (typeof selected === 'boolean') incoming = selected;
+        else if (typeof value === 'boolean') incoming = value;
+        else if (event && event.target) incoming = !!event.target.checked;
+        incoming = !!incoming;
+        const convCtx = context?.Context?.('conversations');
+        convCtx?.handlers?.dataSource?.setSilentFormData?.({ values: { chainsEnabled: incoming } });
+        try { console.debug('[settings.chainsEnabled] mirrored to conversations form (silent)', incoming); } catch(_) {}
+    } catch (e) {
+        try { console.debug('[settings.chainsEnabled] onChange error', e); } catch (_) {}
+    }
+}
+
+// Mirror Auto Summarize toggle to Conversations form
+export function onChangeAutoSummarize(args) {
+    try {
+        const { context, value, selected, event } = args || {};
+        let incoming;
+        if (typeof selected === 'boolean') incoming = selected;
+        else if (typeof value === 'boolean') incoming = value;
+        else if (event && event.target) incoming = !!event.target.checked;
+        incoming = !!incoming;
+        const convCtx = context?.Context?.('conversations');
+        convCtx?.handlers?.dataSource?.setSilentFormData?.({ values: { autoSummarize: incoming } });
+        try { console.debug('[settings.autoSummarize] mirrored to conversations form (silent)', incoming); } catch(_) {}
+    } catch (e) {
+        try { console.debug('[settings.autoSummarize] onChange error', e); } catch (_) {}
+    }
+}
+
 // Toggle Execution details visibility
 export function toggleExecDetails(args) {
     try {
@@ -2488,6 +2535,9 @@ export const chatService = {
     onFetchMessages,
     onChangeToolCallExposure,
     onChangeSelectedTools,
+    onChangeAllowedChains,
+    onChangeChainsEnabled,
+    onChangeAutoSummarize,
     renderers: {
         bubble: HTMLTableBubble,
         execution: ExecutionBubble,
