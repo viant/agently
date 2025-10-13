@@ -70,6 +70,9 @@ type ChainContext struct {
 	UserID       string
 	ParentTurn   *memory.TurnMeta
 	Output       struct{ Content, Model, MessageID, Error string }
+	// Per-request controls
+	AllowedChains []string
+	DisableChains bool
 }
 
 // NewChainContext builds a ChainContext from the current turn context,
@@ -80,6 +83,8 @@ func NewChainContext(in *QueryInput, out *QueryOutput, turn *memory.TurnMeta) Ch
 		cc.Agent = in.Agent
 		cc.Context = in.Context
 		cc.UserID = in.UserId
+		cc.AllowedChains = append(cc.AllowedChains, in.AllowedChains...)
+		cc.DisableChains = in.DisableChains
 	}
 
 	cc.ParentTurn = turn
@@ -98,7 +103,23 @@ func (s *Service) executeChains(ctx context.Context, parent ChainContext, status
 		return nil
 	}
 
+	// Global disable for this request
+	if parent.DisableChains {
+		return nil
+	}
+
 	controls, ctx := ensureChainControl(ctx)
+
+	// Build allow-list set if provided
+	allowSet := map[string]struct{}{}
+	if len(parent.AllowedChains) > 0 {
+		for _, v := range parent.AllowedChains {
+			v = strings.TrimSpace(strings.ToLower(v))
+			if v != "" {
+				allowSet[v] = struct{}{}
+			}
+		}
+	}
 
 	for idx, ch := range parent.Agent.Chains {
 		if ch == nil {
@@ -108,6 +129,13 @@ func (s *Service) executeChains(ctx context.Context, parent ChainContext, status
 		controls.ensureChainLimit(chainID, ch.Limits)
 		if !controls.canRunChain(chainID) {
 			continue
+		}
+		// Apply allow-list when present; match by target agentId (case-insensitive)
+		if len(allowSet) > 0 {
+			id := strings.TrimSpace(strings.ToLower(ch.Target.AgentID))
+			if _, ok := allowSet[id]; !ok {
+				continue
+			}
 		}
 		on := strings.TrimSpace(strings.ToLower(ch.On))
 		if on != "" && on != "*" && on != strings.ToLower(status) {

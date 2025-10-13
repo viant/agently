@@ -111,6 +111,12 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 		if err != nil {
 			return nil, fmt.Errorf("failed to augment with knowledge %s: %w", kn.URL, err)
 		}
+		// Limit to the top N matched assets per knowledge (default 5)
+		maxFiles := kn.EffectiveMaxFiles()
+		if maxFiles > 0 && len(augmenterOutput.Documents) > maxFiles {
+			augmenterOutput.Documents = augmenterOutput.Documents[:maxFiles]
+		}
+
 		allDocuments = augmenterOutput.LoadDocuments(ctx, s.fs)
 		// Stop if we've collected enough documents
 		if input.MaxDocuments > 0 && len(allDocuments) >= input.MaxDocuments {

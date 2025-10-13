@@ -64,6 +64,12 @@ type (
 		AttachMode           string `yaml:"attachMode,omitempty" json:"attachMode,omitempty"` // "ref" | "inline"
 		AttachmentTTLSec     int64  `yaml:"attachmentTTLSec,omitempty" json:"attachmentTTLSec,omitempty"`
 
+		// ToolAttachmentThresholdBytes sets the default threshold (bytes) to convert
+		// tool call results into PDF attachments for providers that support it.
+		// A per-request override can be provided via request options metadata key
+		// "toolAttachmentThresholdBytes".
+		ToolAttachmentThresholdBytes int64 `yaml:"toolAttachmentThresholdBytes,omitempty" json:"toolAttachmentThresholdBytes,omitempty"`
+
 		// Chains defines post-turn follow-ups executed after a turn finishes.
 		Chains []*Chain `yaml:"chains,omitempty" json:"chains,omitempty"`
 	}

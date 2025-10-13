@@ -39,6 +39,14 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 		i.Options.Metadata["attachmentTTLSec"] = agent.AttachmentTTLSec
 	}
 
+	// Default threshold (bytes) for converting large tool results to PDF attachments.
+	// Respect a per-request override if already set in metadata.
+	if agent.ToolAttachmentThresholdBytes > 0 {
+		if _, exists := i.Options.Metadata["toolAttachmentThresholdBytes"]; !exists {
+			i.Options.Metadata["toolAttachmentThresholdBytes"] = agent.ToolAttachmentThresholdBytes
+		}
+	}
+
 	if ui := auth.User(ctx); ui != nil {
 		uname := strings.TrimSpace(ui.Subject)
 		if uname == "" {

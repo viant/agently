@@ -14,6 +14,7 @@ import (
 	"github.com/viant/agently/internal/shared"
 
 	openai "github.com/openai/openai-go/v3"
+	genpdf "github.com/viant/agently/genai/io/pdf"
 	"github.com/viant/agently/genai/llm"
 	authctx "github.com/viant/agently/internal/auth"
 )
@@ -108,11 +109,12 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		}
 	}
 
-	// Attachment delivery preference: default to "ref" when unspecified
-	attachMode := "inline"
+	// Attachment preferences and limits
+	attachMode := "upload" // prefer upload for tool-result PDFs
 	agentID := "unknownAgent"
-
 	var ttlSec int64
+	// default threshold ~100kB for converting tool results to PDF attachments
+	var toolAttachThreshold int64 = 100 * 1024
 	if request != nil && request.Options != nil && request.Options.Metadata != nil {
 		if v, ok := request.Options.Metadata["attachMode"].(string); ok && strings.TrimSpace(v) != "" {
 			attachMode = strings.ToLower(strings.TrimSpace(v))
@@ -134,17 +136,90 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 				}
 			}
 		}
+		// Optional per-request override for tool result attachment threshold (bytes)
+		if v, ok := request.Options.Metadata["toolAttachmentThresholdBytes"]; ok {
+			switch t := v.(type) {
+			case int:
+				toolAttachThreshold = int64(t)
+			case int64:
+				toolAttachThreshold = t
+			case float64:
+				toolAttachThreshold = int64(t)
+			case string:
+				if n, err := strconv.ParseInt(strings.TrimSpace(t), 10, 64); err == nil {
+					toolAttachThreshold = n
+				}
+			}
+		}
 	}
 
 	// Convert messages
 	req.Messages = make([]Message, len(request.Messages))
-	for i, msg := range request.Messages {
+	for i, originalMsg := range request.Messages {
+		// Work on a local copy so we can transform tool messages if needed.
+		msg := originalMsg
 		message := Message{
 			Role: string(msg.Role),
 		}
 		// Propagate speaker name only for user/assistant roles
 		if msg.Role == llm.RoleUser || msg.Role == llm.RoleAssistant {
 			message.Name = msg.Name
+		}
+
+		// Optionally convert large tool results into PDF attachments
+		if msg.Role == llm.RoleTool {
+			// Aggregate text payload length from Items/Content/ContentItems
+			var textPayload string
+			if len(msg.Items) > 0 {
+				for _, it := range msg.Items {
+					if it.Type == llm.ContentTypeText && it.Data != "" {
+						textPayload += it.Data
+					} else if it.Type == llm.ContentTypeText && it.Text != "" {
+						textPayload += it.Text
+					}
+				}
+			} else if msg.Content != "" {
+				textPayload = msg.Content
+			} else if len(msg.ContentItems) > 0 {
+				for _, it := range msg.ContentItems {
+					if it.Type == llm.ContentTypeText && it.Data != "" {
+						textPayload += it.Data
+					} else if it.Type == llm.ContentTypeText && it.Text != "" {
+						textPayload += it.Text
+					}
+				}
+			}
+			if int64(len(textPayload)) > toolAttachThreshold {
+				// Build single-PDF attachment from text payload (for UI/logging purposes).
+				// NOTE: OpenAI chat/completions does not support 'file' content parts, so the
+				// adapter below will convert any non-image binary to a placeholder text.
+				title := fmt.Sprintf("Tool: %s", strings.TrimSpace(msg.Name))
+				if title == "Tool:" {
+					title = "Tool Result"
+				}
+				pdfBytes, err := genpdf.WriteText(context.Background(), title, textPayload)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create PDF attachment for tool result: %w", err)
+				}
+				name := sanitizeFileName(msg.Name)
+				if name == "" {
+					name = "tool-result"
+				}
+				name = fmt.Sprintf("%s-%d.pdf", name, time.Now().Unix())
+				encoded := base64.StdEncoding.EncodeToString(pdfBytes)
+				msg.Items = []llm.ContentItem{
+					{
+						Name:     name,
+						Type:     llm.ContentTypeBinary,
+						Source:   llm.SourceBase64,
+						Data:     encoded,
+						MimeType: "application/pdf",
+					},
+				}
+				// Replace legacy text with a stable placeholder to avoid token bloat.
+				msg.Content = ""
+				msg.ContentItems = nil
+			}
 		}
 
 		// Handle content based on priority: Items > ContentItems > Result
@@ -295,6 +370,32 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	}
 
 	return req, nil
+}
+
+// sanitizeFileName reduces a string to a safe filename token (alnum and '-')
+func sanitizeFileName(in string) string {
+	if in == "" {
+		return ""
+	}
+	in = strings.ToLower(strings.TrimSpace(in))
+	b := strings.Builder{}
+	for _, r := range in {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+		} else if r == ' ' || r == '_' || r == '/' || r == '\\' {
+			b.WriteRune('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// ToRequest is a convenience wrapper retained for backward-compatible tests.
+// It constructs a default client and adapts an llm.GenerateRequest to provider Request.
+// Errors are ignored in this wrapper; callers requiring error handling should use Client.ToRequest.
+func ToRequest(request *llm.GenerateRequest) *Request {
+	c := &Client{}
+	out, _ := c.ToRequest(request)
+	return out
 }
 
 // uploadFiledAndGetID uploads a base64-encoded PDF to OpenAI assets and returns its file_id.

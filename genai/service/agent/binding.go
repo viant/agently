@@ -50,9 +50,11 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		}
 		b.Flags.CanUseTool = s.llm != nil && s.llm.ModelImplements(ctx, model, base.CanUseTools)
 	}
-	// Tool executions exposure controlled by agent.ToolCallExposure; default to "turn"
+	// Tool executions exposure: default "turn"; allow QueryInput override; then agent setting.
 	exposure := agent.ToolCallExposure("turn")
-	if input.Agent != nil && strings.TrimSpace(string(input.Agent.ToolCallExposure)) != "" {
+	if input != nil && input.ToolCallExposure != nil && strings.TrimSpace(string(*input.ToolCallExposure)) != "" {
+		exposure = *input.ToolCallExposure
+	} else if input.Agent != nil && strings.TrimSpace(string(input.Agent.ToolCallExposure)) != "" {
 		exposure = input.Agent.ToolCallExposure
 	}
 	if execs, err := s.buildToolExecutions(ctx, input, conv, exposure); err != nil {

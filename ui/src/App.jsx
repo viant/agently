@@ -10,6 +10,8 @@ import {AuthProvider, AuthContext} from './AuthContext';
 
 // Custom Forge widgets (file / URI reference)
 import './widget/fileWidgetRegister.jsx';
+// Patch Forge radio event adapter to accept value
+import './widget/radioPatchRegister.jsx';
 
 // Import your configurations
 import {endpoints} from './endpoint';

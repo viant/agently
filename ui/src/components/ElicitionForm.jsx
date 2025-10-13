@@ -4,6 +4,7 @@ import {SchemaBasedForm} from 'forge/components';
 
 import {endpoints} from '../endpoint';
 import {joinURL} from '../utils/url';
+import { markElicitationShown } from '../utils/elicitationBus';
 
 
 /**
@@ -85,6 +86,7 @@ export default function ElicitionForm({message, context}) {
         if (collSig) {
             collSig.value = (collSig.value || []).filter((m) => m.id !== id);
         }
+        try { markElicitationShown(id, 2500); } catch (_) {}
     };
 
     const post = async (action, payload) => {
@@ -146,6 +148,7 @@ export default function ElicitionForm({message, context}) {
     const isWebOnly = (mode === 'webonly');
     const isOOB = (mode === 'oob') || isWebOnly || (!!url && !hasSchemaProps);
     try { console.debug('[ElicitionForm:init]', {id, mode, url, callbackURL, hasSchemaProps, isOOB}); } catch(_) {}
+    try { markElicitationShown(id, 2500); } catch (_) {}
     const pickBoundValues = () => {
         try {
             // Forge stores dataBinding under window.state.answers.{id}
@@ -270,9 +273,7 @@ export default function ElicitionForm({message, context}) {
                     return (
                         <div style={{marginBottom: 12}}>
                             <span style={{marginRight: 6}}>Open in browser:</span>
-                            <a href={url} target="_blank" rel="noopener noreferrer">
-                                {display}
-                            </a>
+                            <span style={{fontWeight: 600}}>{display}</span>
                         </div>
                     );
                 })()}
@@ -323,7 +324,7 @@ export default function ElicitionForm({message, context}) {
                     )}
                     {isOOB ? (
                       <>
-                        <Button intent="primary" onClick={() => { if (url) { window.open(url, '_blank', 'noopener,noreferrer'); } post('accept', {}); }} disabled={submitting} style={{marginRight: 8}}>
+                        <Button intent="primary" onClick={() => { try { markElicitationShown(id, 2500); } catch(_) {}; if (url) { window.open(url, '_blank', 'noopener,noreferrer'); } post('accept', {}); }} disabled={submitting} style={{marginRight: 8}}>
                           Open
                         </Button>
                         {isWebOnly && (

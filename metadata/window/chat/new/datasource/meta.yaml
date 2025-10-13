@@ -9,5 +9,4 @@ selectors:
 on:
   - event: onFetch
     handler: chat.onFetchMeta
-  - event: onSuccess
-    handler: chat.onMetaLoaded
+  # Note: avoid using hooks in service handlers; no onSuccess hook here

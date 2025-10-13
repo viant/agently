@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -174,6 +175,61 @@ func (s *Service) UpdatePreferencesByUsername(ctx context.Context, username stri
 	if defaultEmbedderRef != nil {
 		u.SetDefaultEmbedderRef(*defaultEmbedderRef)
 	}
+	now := time.Now().UTC()
+	u.SetUpdatedAt(now)
+	in := &userwrite.Input{Users: []*userwrite.User{u}}
+	out := &userwrite.Output{}
+	_, err = s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath("PATCH", userwrite.PathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out))
+	return err
+}
+
+// UpdateAgentSettingsByUsername merges per-agent settings into users.settings JSON for the given username.
+// The payload shape is expected as: { agentId: { tools: [], toolCallExposure: "turn|conversation", autoSummarize: bool, chainsEnabled: bool }, ... }
+func (s *Service) UpdateAgentSettingsByUsername(ctx context.Context, username string, agentPrefs map[string]map[string]interface{}) error {
+	if strings.TrimSpace(username) == "" {
+		return fmt.Errorf("username required")
+	}
+	if len(agentPrefs) == 0 {
+		return nil
+	}
+	v, err := s.FindByUsername(ctx, username)
+	if err != nil {
+		return err
+	}
+	if v == nil {
+		return fmt.Errorf("user not found")
+	}
+	// Parse existing settings JSON when present
+	var settings map[string]interface{}
+	if v.Settings != nil && strings.TrimSpace(*v.Settings) != "" {
+		_ = json.Unmarshal([]byte(*v.Settings), &settings)
+	}
+	if settings == nil {
+		settings = map[string]interface{}{}
+	}
+	// Merge into settings.agentPrefs
+	apRaw, _ := settings["agentPrefs"].(map[string]interface{})
+	if apRaw == nil {
+		apRaw = map[string]interface{}{}
+	}
+	for agentID, prefs := range agentPrefs {
+		if strings.TrimSpace(agentID) == "" || prefs == nil {
+			continue
+		}
+		apRaw[agentID] = prefs
+	}
+	settings["agentPrefs"] = apRaw
+	// Persist
+	b, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	u := &userwrite.User{}
+	u.SetId(v.Id)
+	u.SetSettings(string(b))
 	now := time.Now().UTC()
 	u.SetUpdatedAt(now)
 	in := &userwrite.Input{Users: []*userwrite.User{u}}

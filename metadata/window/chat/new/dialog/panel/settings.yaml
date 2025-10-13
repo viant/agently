@@ -1,13 +1,72 @@
 id: settingsForm
 dataSourceRef: meta
 layout:
-  labelPosition: left
-  columns: 2
+  kind: grid
+  labels:
+    mode: left
+  columns: 3
+  gap: 6
 items:
+  # Row 1 — Agent, Model, Tool Exposure
+  - id: agent
+    label: Agent
+    type: select
+    columnSpan: 1
+    on:
+      - event: onSelection
+        handler: chat.selectAgent
+      - event: onChange
+        handler: chat.selectAgent
+      - event: onItemSelect
+        handler: chat.selectAgent
+
+  - id: model
+    label: Model
+    type: select
+    columnSpan: 1
+    on:
+      - event: onSelection
+        handler: chat.selectModel
+      - event: onChange
+        handler: chat.selectModel
+      - event: onItemSelect
+        handler: chat.selectModel
+
+  - id: toolCallExposure
+    label: Tool Exposure
+    type: radio
+    columnSpan: 1
+    options:
+      - { value: turn, label: Per Turn }
+      - { value: conversation, label: Whole Conversation }
+    properties:
+      style:
+        marginTop: '0'
+        marginBottom: '0'
+    on:
+      - event: onChange
+        handler: chat.onChangeToolCallExposure
+
+  # Section label
+  - id: _label_agent_prefs
+    type: label
+    value: Agent Preferences
+    columnSpan: 3
+    properties:
+      style:
+        fontWeight: 600
+        marginTop: '4px'
+        marginBottom: '2px'
+
+  # Row 2 — View toggles + Auto Summarize
   - id: showExecutionDetails
     label: Show Execution
     type: toggle
-    columnSpan: 2
+    columnSpan: 1
+    properties:
+      style:
+        marginTop: '6px'
+        marginBottom: '0'
     on:
       - event: onSelection
         handler: chat.toggleExecDetails
@@ -17,28 +76,65 @@ items:
   - id: showToolFeed
     label: Show Tool Feed
     type: toggle
-    columnSpan: 2
+    columnSpan: 1
+    properties:
+      style:
+        marginTop: '6px'
+        marginBottom: '0'
     on:
       - event: onSelection
         handler: chat.toggleToolFeed
       - event: onChange
         handler: chat.toggleToolFeed
-  - id: agent
-    label: Agent
-    type: select
-    on:
-      - event: onSelection
-        handler: chat.selectAgent
 
-  - id: model
-    label: Model
-    type: select
-    on:
-      - event: onSelection
-        handler: chat.selectModel
+  - id: autoSummarize
+    label: Auto Summarize
+    type: toggle
+    columnSpan: 1
+    properties:
+      style:
+        marginTop: '6px'
+        marginBottom: '0'
 
+  # Row 3 — Chains controls
+  - id: chainsEnabled
+    label: Chains Enabled
+    type: toggle
+    columnSpan: 1
+    properties:
+      style:
+        marginTop: '6px'
+        marginBottom: '0'
+
+  - id: allowedChains
+    label: Allowed Chains
+    type: multiSelect
+    columnSpan: 2
+    properties:
+      placeholder: 'Select allowed chain targets (agent IDs)'
+      options: []
+
+  # Section label
+  - id: _label_tools
+    type: label
+    value: Tools
+    columnSpan: 3
+    properties:
+      style:
+        fontWeight: 600
+        marginTop: '8px'
+        marginBottom: '2px'
+
+  # Row 4 — Tools selector full width
   - id: tool
-    label: Tools
+    label: ''
     type: treeMultiSelect
+    columnSpan: 3
     properties:
       separator: '-'
+      searchable: false
+      style:
+        marginTop: '2px'
+    on:
+      - event: onChange
+        handler: chat.onChangeSelectedTools
