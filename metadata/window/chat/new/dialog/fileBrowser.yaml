@@ -1,5 +1,6 @@
 title: File Browser
 id: fileBrowser
+dataSourceRef: fs
 content: $import('panel/fileBrowser.yaml')
 
 # Make the dialog reasonably sized

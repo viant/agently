@@ -21,6 +21,7 @@ import {ensureConversation, newConversation} from './conversationService';
 import SummaryNote from '../components/chat/SummaryNote.jsx';
 import {setStage} from '../utils/stageBus.js';
 import {setComposerBusy} from '../utils/composerBus.js';
+import { isElicitationSuppressed, markElicitationShown } from '../utils/elicitationBus.js';
 import {
     setExecutionDetailsEnabled,
     setToolFeedEnabled,
@@ -142,6 +143,40 @@ export async function onInit({context}) {
         context.resources.chatTimer = setInterval(() => dsTick({context}), 1000);
     } catch (_) { /* ignore */
     }
+
+    // 5) Apply conversation defaults (agent/model) once metadata is available
+    try {
+        let tries = 0;
+        const applyDefaultsOnce = () => {
+            tries++;
+            try {
+                const metaCtx = context.Context('meta');
+                const metaCol = metaCtx?.handlers?.dataSource?.peekCollection?.() || [];
+                if (!Array.isArray(metaCol) || metaCol.length === 0) return false;
+                const data = metaCol[0] || {};
+                const defaults = data.defaults || {};
+                const defAgent = String(defaults.agent || '').toLowerCase();
+                const defModel = String(defaults.model || '');
+                const convCtx = context.Context('conversations');
+                const convDS = convCtx?.handlers?.dataSource;
+                if (!convDS) return true;
+                const cur = convDS.peekFormData?.() || {};
+                const next = { ...cur };
+                let changed = false;
+                if (!next.agent && defAgent) { next.agent = defAgent; changed = true; }
+                if (!next.model && defModel) { next.model = defModel; changed = true; }
+                if (changed) {
+                    convDS.setFormData?.({ values: next });
+                }
+                return true;
+            } catch (_) { return false; }
+        };
+        const t = setInterval(() => {
+            if (applyDefaultsOnce() || tries > 25) {
+                clearInterval(t);
+            }
+        }, 120);
+    } catch (_) { /* ignore */ }
 }
 
 // DS-driven refresh: computes since and invokes DS getCollection with input parameters
@@ -563,6 +598,11 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                     continue;
                 }
             }
+            // Suppress repeat mounts for the same elicitation id briefly to avoid flicker on fast polls
+            const thisId = m.id || m.Id;
+            if ((isControlElicitation || (roleLower === 'assistant' && !!elic)) && isElicitationSuppressed(thisId)) {
+                continue;
+            }
 
             // Row usage derived from model call only when attached to this row later; leave null here.
             const row = {
@@ -585,6 +625,10 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 callbackURL,
             };
             turnRows.push(row);
+            // Mark as shown so immediate re-fetch does not re-open the dialog right away
+            if (row.role === 'elicition') {
+                try { markElicitationShown(row.id, 2500); } catch(_) {}
+            }
         }
 
         // 3) Attach steps to a single carrier message in the same turn (prefer first user)
@@ -720,8 +764,42 @@ function installMessagesDebugHooks(context) {
         }
     };
     const t = setInterval(tick, 120);
-    context.resources = context.resources || {};
-    context.resources.messagesDebugTimer = t;
+        context.resources = context.resources || {};
+        context.resources.messagesDebugTimer = t;
+
+        // Wrap window.openDialog to guard undefined dialog ids that cause ViewDialog warnings
+        try {
+            const win = context?.handlers?.window;
+            if (win && typeof win.openDialog === 'function' && !win._safeWrapped) {
+                const origOpen = win.openDialog.bind(win);
+                win.openDialog = async (arg) => {
+                    try {
+                        // Allow either string id or { id } or { execution }
+                        if (typeof arg === 'string') {
+                            if (!arg || !String(arg).trim()) {
+                                console.warn('[chat][openDialog] ignored empty id');
+                                return;
+                            }
+                        } else if (typeof arg === 'object' && arg) {
+                            const hasId = typeof arg.id === 'string' && arg.id.trim() !== '';
+                            const hasExec = arg.execution && Array.isArray(arg.execution.args) && arg.execution.args.length > 0;
+                            if (!hasId && !hasExec) {
+                                console.warn('[chat][openDialog] ignored: missing id/execution', arg);
+                                return;
+                            }
+                        } else {
+                            console.warn('[chat][openDialog] ignored: invalid args');
+                            return;
+                        }
+                        return await origOpen(arg);
+                    } catch (e) {
+                        console.error('[chat][openDialog] error', e);
+                        throw e;
+                    }
+                };
+                win._safeWrapped = true;
+            }
+        } catch (_) {}
 
     // Wrap connector GET/POST to log DF activity
     const conn = messagesCtx.connector || {};
@@ -906,13 +984,9 @@ export function saveSettings(args) {
     const metaContext = context.Context('meta');
 
     const source = metaContext.handlers.dataSource.peekFormData();
-    const {agent, model, tool, showExecutionDetails, showToolFeed} = source
-
-    console.log('saveSettings --- ', source)
-    const convContext = context.Context('conversations');
-    const convDataSource = convContext?.handlers?.dataSource;
-    const current = convDataSource.peekFormData()
-    convDataSource.setFormData?.({values: {...current, agent, model, tools: tool}});
+    const {agent, model, tool, showExecutionDetails, showToolFeed, toolCallExposure, autoSummarize, chainsEnabled, allowedChains} = source
+    try { console.debug('[settings.saveSettings] form snapshot', { agent, model, toolCallExposure, autoSummarize, chainsEnabled, allowedChains }); } catch (_) {}
+    // Avoid updating conversations DS here (would invoke hooks). Preferences are persisted below.
     try {
         setExecutionDetailsEnabled(!!showExecutionDetails);
     } catch (_) {
@@ -921,16 +995,170 @@ export function saveSettings(args) {
         setToolFeedEnabled(!!showToolFeed);
     } catch (_) {
     }
+
+    // Persist per-agent preferences for the current user
+    try {
+        const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+        const prefs = {
+            agentPrefs: {
+                [agent]: {
+                    tools: Array.isArray(tool) ? tool : [],
+                    toolCallExposure: toolCallExposure || 'turn',
+                    autoSummarize: (typeof autoSummarize === 'boolean' ? autoSummarize : true),
+                    chainsEnabled: (typeof chainsEnabled === 'boolean' ? chainsEnabled : true),
+                    allowedChains: Array.isArray(allowedChains) ? allowedChains : [],
+                }
+            }
+        };
+        fetch(`${base}/v1/api/me/preferences`, {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(prefs)
+        }).then(()=>{ try { console.debug('[settings.saveSettings] preferences patched', prefs); } catch(_) {} }).catch((e)=>{ try { console.debug('[settings.saveSettings] patch error', e); } catch(_) {} });
+    } catch (_) {}
+
+    // Also propagate settings to conversations DS so new posts include them immediately
+    try {
+        const convCtx = context.Context('conversations');
+        const cds = convCtx?.handlers?.dataSource;
+        if (cds) {
+            const patch = {};
+            if (typeof toolCallExposure === 'string') patch.toolCallExposure = toolCallExposure;
+            if (typeof autoSummarize === 'boolean') patch.autoSummarize = autoSummarize;
+            if (typeof chainsEnabled === 'boolean') patch.chainsEnabled = chainsEnabled;
+            if (Array.isArray(allowedChains)) patch.allowedChains = allowedChains;
+            if (Array.isArray(tool)) patch.tools = tool;
+            if (typeof agent === 'string' && agent) patch.agent = String(agent).toLowerCase();
+            if (typeof model === 'string' && model) patch.model = model;
+            if (Object.keys(patch).length) {
+                cds.setSilentFormData?.({ values: patch });
+                try { console.debug('[settings.saveSettings] propagated to conversations form (silent)', patch); } catch(_) {}
+            }
+        }
+    } catch (_) {}
 }
 
 // Applies meta.agentTools mapping to the conversations.tools field when agent changes
 export function selectAgent(args) {
-    const {context, selected} = args
-    const form = context.handlers.dataSource.peekFormData()
-    const selectedTools = form.agentInfo[selected]?.tools || []
-    const selectedModel = form.agentInfo[selected]?.model || '';
-    context.handlers.dataSource.setFormField({item: {id: 'tool'}, value: selectedTools});
-    context.handlers.dataSource.setFormField({item: {id: 'model'}, value: selectedModel});
+    const {context} = args
+    const ds = context.handlers.dataSource;
+    const formBefore = ds.peekFormData();
+    // Try to resolve selection from args or the DS (the DS may update after our handler due to event chaining)
+    const sel = args && args.selected;
+    let candidate = undefined;
+    // 1) direct value/id
+    if (sel && typeof sel === 'object') {
+        candidate = sel.value ?? sel.id ?? sel.label;
+    }
+    // 2) top-level fields forwarded by EventAdapter
+    if (!candidate && (args.value !== undefined)) candidate = args.value;
+    if (!candidate && (args.event !== undefined)) candidate = args.event; // some packs put the string here
+    // 3) fallback to current DS value (useful when DS updates after this handler)
+    const tryApply = (k) => {
+        const key = String(k || '').toLowerCase();
+        const form = context.handlers.dataSource.peekFormData()
+        
+        if (!key) return;
+        // Ensure the select control reflects the new agent value
+        try {
+            ds.setFormField({ item: { id: 'agent' }, value: key });
+        } catch (_) {}
+        const selectedModel = form?.agentInfo?.[key]?.model || '';
+        // Prefer saved per-agent prefs when available; fallback to agent defaults
+        const prefs = (form?.agentPrefs && form.agentPrefs[key]) || {};
+        const toolsFromPrefs = Array.isArray(prefs.tools) ? prefs.tools : null;
+        const exposureFromPrefs = typeof prefs.toolCallExposure === 'string' ? prefs.toolCallExposure : undefined;
+        const autoSummFromPrefs = (typeof prefs.autoSummarize === 'boolean') ? prefs.autoSummarize : undefined;
+        const chainsEnabledFromPrefs = (typeof prefs.chainsEnabled === 'boolean') ? prefs.chainsEnabled : undefined;
+
+        const selectedTools = toolsFromPrefs || (form?.agentInfo?.[key]?.tools || []);
+        // Preserve existing tool selection if already present on the form
+        try {
+            const currentTools = ds.peekFormData()?.tool;
+            if (Array.isArray(currentTools) && currentTools.length > 0) {
+                console.debug('[settings.selectAgent] preserve tools selection', currentTools);
+            } else {
+                ds.setFormField({ item: { id: 'tool' }, value: selectedTools });
+            }
+        } catch (_) {
+            ds.setFormField({ item: { id: 'tool' }, value: selectedTools });
+        }
+        ds.setFormField({item: {id: 'model'}, value: selectedModel});
+        
+        // Tool exposure: preserve current if already set on form; otherwise prefer prefs or default
+        try {
+            const currentExposure = ds.peekFormData()?.toolCallExposure;
+            if (typeof currentExposure === 'string' && currentExposure) {
+                console.debug('[settings.selectAgent] preserve existing toolCallExposure', { key, currentExposure });
+            } else {
+                const exposureToApply = (exposureFromPrefs || 'turn');
+                ds.setFormField({ item: { id: 'toolCallExposure' }, value: exposureToApply });
+                console.debug('[settings.selectAgent] applied toolCallExposure', { key, exposureFromPrefs, applied: exposureToApply });
+            }
+        } catch (_) {
+            const exposureToApply = (exposureFromPrefs || 'turn');
+            ds.setFormField({ item: { id: 'toolCallExposure' }, value: exposureToApply });
+        }
+        // Preserve autoSummarize if already set; otherwise apply prefs when provided
+        try {
+            const currentAuto = ds.peekFormData()?.autoSummarize;
+            if (typeof currentAuto === 'boolean') {
+                // keep current
+            } else if (autoSummFromPrefs !== undefined) {
+                ds.setFormField({ item: { id: 'autoSummarize' }, value: autoSummFromPrefs });
+            }
+        } catch (_) { if (autoSummFromPrefs !== undefined) ds.setFormField({ item: { id: 'autoSummarize' }, value: autoSummFromPrefs }); }
+        // Show execution/tool feed toggles by default; enable chains by default unless prefs override
+        ds.setFormField({item: {id: 'showExecutionDetails'}, value: true});
+        ds.setFormField({item: {id: 'showToolFeed'}, value: true});
+        // Preserve chainsEnabled if already set; otherwise apply prefs/default
+        try {
+            const curChainsEnabled = ds.peekFormData()?.chainsEnabled;
+            if (typeof curChainsEnabled === 'boolean') {
+                // keep
+            } else {
+                ds.setFormField({ item: { id: 'chainsEnabled' }, value: (chainsEnabledFromPrefs !== undefined ? chainsEnabledFromPrefs : true) });
+            }
+        } catch (_) {
+            ds.setFormField({ item: { id: 'chainsEnabled' }, value: (chainsEnabledFromPrefs !== undefined ? chainsEnabledFromPrefs : true) });
+        }
+        // Populate Allowed Chains options based on agentChainTargets
+        const chains = (form?.agentChainTargets && form.agentChainTargets[key]) || [];
+        const opts = chains.map(v => ({ value: v, label: v }));
+        ds.setFormField({ item: { id: 'allowedChains' }, options: opts });
+        
+        // Also apply saved allowed chains if present in preferences
+        try {
+            const currentAllowed = ds.peekFormData()?.allowedChains;
+            if (Array.isArray(currentAllowed) && currentAllowed.length > 0) {
+                // keep current selection
+            } else if (Array.isArray(prefs.allowedChains)) {
+                ds.setFormField({ item: { id: 'allowedChains' }, value: prefs.allowedChains });
+            } else {
+                // Default to all available chains for the selected agent
+                ds.setFormField({ item: { id: 'allowedChains' }, value: chains });
+            }
+        } catch (_) {
+            if (Array.isArray(prefs.allowedChains)) {
+                ds.setFormField({ item: { id: 'allowedChains' }, value: prefs.allowedChains });
+            } else {
+                ds.setFormField({ item: { id: 'allowedChains' }, value: chains });
+            }
+        }
+    };
+
+    if (candidate) {
+        tryApply(candidate);
+        return;
+    }
+    // Defer to allow widget’s internal onChange to update DS first, then read the new DS value.
+    setTimeout(() => {
+        try {
+            const now = ds.peekFormData()?.agent;
+            tryApply(now);
+        } catch (_) {}
+    }, 0);
 }
 
 
@@ -945,11 +1173,218 @@ export function prepareSettings(args) {
     const {context} = args || {};
     try {
         const metaCtx = context?.Context?.('meta');
-        const execEnabled = getExecutionDetailsEnabled();
-        const feedEnabled = getToolFeedEnabled();
-        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'showExecutionDetails'}, value: !!execEnabled});
-        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'showToolFeed'}, value: !!feedEnabled});
+        console.debug('[settings.prepareSettings] meta form before', metaCtx?.handlers?.dataSource?.peekFormData?.());
+        // Seed visibility toggles from global bus so settings reopen preserves state
+        try {
+            const execOn = getExecutionDetailsEnabled();
+            const feedOn = getToolFeedEnabled();
+            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'showExecutionDetails' }, value: !!execOn });
+            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'showToolFeed' }, value: !!feedOn });
+            console.debug('[settings.prepareSettings] seeded exec/toolFeed from bus', { execOn, feedOn });
+        } catch (_) {}
+        // Initialize new settings with sensible defaults or carry over from conversations form
+        const convCtx = args?.context?.Context?.('conversations');
+        const convForm = convCtx?.handlers?.dataSource?.peekFormData?.() || {};
+        if (convForm.agent) {
+            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'agent' }, value: String(convForm.agent).toLowerCase() });
+            console.debug('[settings.prepareSettings] set meta.agent from conversation', String(convForm.agent).toLowerCase());
+        }
+        // If conversation already has tools selected, mirror them into settings form
+        if (Array.isArray(convForm.tools)) {
+            try {
+                metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'tool' }, value: convForm.tools });
+                console.debug('[settings.prepareSettings] init tools from conversation', convForm.tools);
+            } catch (_) {}
+        }
+        // Prefer cached agentPrefs (local) > conversation form > default when seeding tool exposure
+        try {
+            const mf = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
+            const agentId = String(mf.agent || convForm.agent || '').toLowerCase();
+            const cachedPref = mf?.agentPrefs && mf.agentPrefs[agentId] ? mf.agentPrefs[agentId].toolCallExposure : undefined;
+            const convExposure = (typeof convForm.toolCallExposure === 'string' && convForm.toolCallExposure) ? convForm.toolCallExposure : undefined;
+            const initialExposure = cachedPref || convExposure || 'turn';
+            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'toolCallExposure' }, value: initialExposure });
+            console.debug('[settings.prepareSettings] init toolCallExposure (prefs>conv>default)', { cachedPref, convExposure, initialExposure });
+        } catch(_) {}
+        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'autoSummarize'}, value: (typeof convForm.autoSummarize === 'boolean' ? convForm.autoSummarize : false)});
+        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'chainsEnabled'}, value: (typeof convForm.chainsEnabled === 'boolean' ? convForm.chainsEnabled : true)});
+        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'allowedChains'}, value: (Array.isArray(convForm.allowedChains) ? convForm.allowedChains : [])});
+        // Fetch user preferences to preload per-agent settings
+        (async () => {
+            try {
+                const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+                const resp = await fetch(`${base}/v1/api/me/preferences`, { credentials: 'include' });
+                const json = await resp.json().catch(() => ({}));
+                const agentPrefs = json?.data?.agentPrefs || {};
+                // Stash on meta form for quick access by selectAgent
+                metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'agentPrefs'}, value: agentPrefs});
+                // Determine selected agent and apply its prefs if any
+                const metaForm = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
+                const agentId = String(metaForm.agent || convForm.agent || '').toLowerCase();
+                console.debug('[settings.prepareSettings] agentId=', agentId, 'prefs keys=', Object.keys(agentPrefs||{}));
+                // Populate Allowed Chains options for current agent
+                try {
+                    const chains = (metaForm.agentChainTargets && metaForm.agentChainTargets[agentId]) || [];
+                    const opts = chains.map(v => ({ value: v, label: v }));
+                    metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'allowedChains' }, options: opts });
+                } catch(_) {}
+                const p = agentPrefs?.[agentId] || {};
+                if (p) {
+                    try {
+                        const currentTools = metaCtx?.handlers?.dataSource?.peekFormData?.()?.tool;
+                        if (Array.isArray(currentTools) && currentTools.length > 0) {
+                            console.debug('[settings.prepareSettings] preserve existing tools', currentTools);
+                        } else if (Array.isArray(p.tools)) {
+                            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'tool' }, value: p.tools });
+                            console.debug('[settings.prepareSettings] tools from prefs', p.tools);
+                        } else if (Array.isArray(metaForm?.agentInfo?.[agentId]?.tools)) {
+                            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'tool' }, value: metaForm.agentInfo[agentId].tools });
+                            console.debug('[settings.prepareSettings] tools from agentInfo', metaForm.agentInfo[agentId].tools);
+                        }
+                    } catch (_) {}
+                    if (typeof p.toolCallExposure === 'string') {
+                        // Do not override if user already changed the value after dialog open
+                        try {
+                            const current = metaCtx?.handlers?.dataSource?.peekFormData?.()?.toolCallExposure;
+                            const willApply = (current === undefined || current === null || String(current) === 'turn');
+                            try { console.debug('[settings.prepareSettings] prefs toolCallExposure candidate', { agentId, current, prefs: p.toolCallExposure, willApply }); } catch(_) {}
+                            if (willApply) {
+                                metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'toolCallExposure' }, value: p.toolCallExposure });
+                                try { console.debug('[settings.prepareSettings] applied toolCallExposure from prefs', p.toolCallExposure); } catch(_) {}
+                            }
+                        } catch (_) {
+                            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'toolCallExposure' }, value: p.toolCallExposure });
+                        }
+                    }
+                    if (typeof p.autoSummarize === 'boolean') {
+                        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'autoSummarize'}, value: p.autoSummarize});
+                    }
+                    if (typeof p.chainsEnabled === 'boolean') {
+                        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'chainsEnabled'}, value: p.chainsEnabled});
+                    }
+                    try {
+                        const currentAllowed = metaCtx?.handlers?.dataSource?.peekFormData?.()?.allowedChains;
+                        if (Array.isArray(currentAllowed) && currentAllowed.length > 0) {
+                            // preserve
+                        } else if (Array.isArray(p.allowedChains)) {
+                            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'allowedChains' }, value: p.allowedChains });
+                            console.debug('[settings.prepareSettings] allowedChains from prefs', p.allowedChains);
+                        }
+                    } catch (_) {}
+                }
+                // Fallback defaults when no prefs
+                if (!Array.isArray((metaCtx?.handlers?.dataSource?.peekFormData?.() || {}).tool)) {
+                    const defaultsTools = metaForm?.agentInfo?.[agentId]?.tools || [];
+                    metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'tool'}, value: defaultsTools});
+                    console.debug('[settings.prepareSettings] default tools applied', defaultsTools);
+                }
+                // After applying prefs, sync global visibility bus to DS values and stabilize tool exposure
+                try {
+                    const mf = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
+                    setExecutionDetailsEnabled(!!mf.showExecutionDetails);
+                    setToolFeedEnabled(!!mf.showToolFeed);
+                    console.debug('[settings.prepareSettings] sync exec/toolFeed visibility', { showExecutionDetails: !!mf.showExecutionDetails, showToolFeed: !!mf.showToolFeed });
+                    const stableExposure = (typeof mf.toolCallExposure === 'string' && mf.toolCallExposure) ? mf.toolCallExposure : (typeof p.toolCallExposure === 'string' ? p.toolCallExposure : undefined);
+                    if (stableExposure) {
+                        setTimeout(() => {
+                            try {
+                                metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'toolCallExposure' }, value: stableExposure });
+                                console.debug('[settings.prepareSettings] stabilized toolCallExposure after prefs', { stableExposure });
+                            } catch (_) {}
+                        }, 0);
+                        setTimeout(() => {
+                            try {
+                                const cur = metaCtx?.handlers?.dataSource?.peekFormData?.()?.toolCallExposure;
+                                if (cur !== stableExposure) {
+                                    metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'toolCallExposure' }, value: stableExposure });
+                                    console.debug('[settings.prepareSettings] re-stabilized toolCallExposure', { cur, stableExposure });
+                                }
+                            } catch (_) {}
+                        }, 120);
+                    }
+                } catch (_) {}
+            } catch (_) {}
+        })();
     } catch (_) {
+    }
+}
+
+// Debug handler: toolCallExposure radio change
+export function onChangeToolCallExposure(args) {
+    try {
+        const { context, value, selected, event } = args || {};
+        const incoming = selected ?? value ?? (typeof event === 'string' ? event : (event && event.target && event.target.value));
+        const ds = context?.handlers?.dataSource;
+        const before = ds?.peekFormData?.()?.toolCallExposure;
+        console.debug('[settings.toolCallExposure] onChange', { incoming, before, args });
+        // Mirror to conversation form immediately so reopening settings preserves the selection
+        try {
+            const convCtx = context?.Context?.('conversations');
+            const cds = convCtx?.handlers?.dataSource;
+            const prevConv = cds?.peekFormData?.() || {};
+            cds?.setSilentFormData?.({ values: { toolCallExposure: incoming } });
+            const afterConv = cds?.peekFormData?.()?.toolCallExposure;
+            console.debug('[settings.toolCallExposure] mirrored to conversations form (silent)', { beforeConv: prevConv.toolCallExposure, afterConv });
+        } catch (_) {}
+
+        // Persist per-agent preference on change so reopen is consistent
+        try {
+            const metaCtx = context?.Context?.('meta');
+            const metaForm = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
+            const agentId = String(metaForm.agent || context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.agent || '').toLowerCase();
+            if (agentId) {
+                const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+                const payload = {
+                    agentPrefs: {
+                        [agentId]: {
+                            tools: Array.isArray(metaForm.tool) ? metaForm.tool : [],
+                            toolCallExposure: incoming,
+                            autoSummarize: (typeof metaForm.autoSummarize === 'boolean' ? metaForm.autoSummarize : true),
+                            chainsEnabled: (typeof metaForm.chainsEnabled === 'boolean' ? metaForm.chainsEnabled : true),
+                            allowedChains: Array.isArray(metaForm.allowedChains) ? metaForm.allowedChains : [],
+                        }
+                    }
+                };
+                fetch(`${base}/v1/api/me/preferences`, {
+                    method: 'PATCH',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                }).then(() => {
+                    try { console.debug('[settings.toolCallExposure] prefs patched on change', { agentId, incoming, payload }); } catch(_) {}
+                    // Update local agentPrefs cache immediately to avoid flicker on next open
+                    try {
+                        const ap = (metaCtx?.handlers?.dataSource?.peekFormData?.()?.agentPrefs) || {};
+                        const next = { ...ap, [agentId]: { ...(ap[agentId] || {}), ...payload.agentPrefs[agentId] } };
+                        metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'agentPrefs' }, value: next });
+                        console.debug('[settings.toolCallExposure] updated local agentPrefs cache');
+                    } catch (_) {}
+                }).catch((e) => { try { console.debug('[settings.toolCallExposure] prefs patch failed', e); } catch(_) {} });
+            }
+        } catch (_) {}
+        // Let the widget apply the value via adapter; then peek again shortly
+        setTimeout(() => {
+            try {
+                const after = ds?.peekFormData?.()?.toolCallExposure;
+                console.debug('[settings.toolCallExposure] after adapter.set', { after });
+            } catch (_) {}
+        }, 0);
+    } catch (e) {
+        try { console.debug('[settings.toolCallExposure] onChange error', e); } catch (_) {}
+    }
+}
+
+// Mirror Tools selection from Settings to Conversations so new posts include them.
+export function onChangeSelectedTools(args) {
+    try {
+        const { context, value, selected } = args || {};
+        // treeMultiSelect emits an array value directly via event adapter
+        const incoming = Array.isArray(value) ? value : (Array.isArray(selected) ? selected : []);
+        const convCtx = context?.Context?.('conversations');
+        convCtx?.handlers?.dataSource?.setSilentFormData?.({ values: { tools: incoming } });
+        try { console.debug('[settings.tools] mirrored to conversations form (silent)', incoming); } catch(_) {}
+    } catch (e) {
+        try { console.debug('[settings.tools] onChange error', e); } catch (_) {}
     }
 }
 
@@ -986,15 +1421,24 @@ export async function onSettings(args) {
         prepareSettings({context});
     } catch (_) {
     }
+    // Open declarative dialog by id to avoid ViewDialog execution path
     try {
-        await context?.handlers?.window?.openDialog?.({execution: {args: ['settings']}});
-    } catch (_) {
-        // Fallback to dialog.open event route
-        try {
-            await context?.handlers?.dialog?.open?.({id: 'settings'});
-        } catch (_) {
+        const dlg = context?.handlers?.dialog;
+        const win = context?.handlers?.window;
+        if (dlg && typeof dlg.open === 'function') {
+            await dlg.open({ id: 'settings' });
+            return;
         }
-    }
+        if (win && typeof win.openDialog === 'function') {
+            try {
+                await win.openDialog('settings');
+                return;
+            } catch (e) {
+                await win.openDialog({ execution: { args: ['settings'] } });
+                return;
+            }
+        }
+    } catch (_) {}
 }
 
 
@@ -1128,6 +1572,58 @@ export async function submitMessage(props) {
         if (parameters && parameters.agent) {
             body.agent = parameters.agent;
         }
+
+        // Pull conversation-level settings to enrich the request
+        try {
+            const convCtx = context.Context('conversations');
+            const convForm = convCtx?.handlers?.dataSource?.peekFormData?.() || {};
+            const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+            const currentAgent = (body.agent || convForm.agent || metaForm.agent || '').toString().toLowerCase();
+            const currentModel = body.model || convForm.model || metaForm.model || '';
+            if (!body.agent && currentAgent) body.agent = currentAgent;
+            if (!body.model && currentModel) body.model = currentModel;
+
+            // Tools allow-list (optional)
+            if (Array.isArray(convForm.tools) && convForm.tools.length > 0) {
+                body.tools = convForm.tools;
+            } else if (Array.isArray(metaForm.tool) && metaForm.tool.length > 0) {
+                body.tools = metaForm.tool;
+            }
+
+            // Tool exposure – prefer conversations, then meta, else default 'turn'
+            const exposure = (typeof convForm.toolCallExposure === 'string' && convForm.toolCallExposure)
+                ? convForm.toolCallExposure
+                : (typeof metaForm.toolCallExposure === 'string' && metaForm.toolCallExposure) ? metaForm.toolCallExposure : 'turn';
+            body.toolCallExposure = exposure;
+
+            // Auto summarize – prefer conversations, then meta, default false
+            const autoSum = (typeof convForm.autoSummarize === 'boolean') ? convForm.autoSummarize
+                : (typeof metaForm.autoSummarize === 'boolean') ? metaForm.autoSummarize : false;
+            body.autoSummarize = autoSum;
+
+            // Chains enabled – prefer conversations, then meta, default true → disableChains inverse
+            const chainsEnabled = (typeof convForm.chainsEnabled === 'boolean') ? convForm.chainsEnabled
+                : (typeof metaForm.chainsEnabled === 'boolean') ? metaForm.chainsEnabled : true;
+            body.disableChains = !chainsEnabled;
+
+            // Allowed chains – prefer conversations value; else meta value; else derive from agent targets; always include as array
+            let allowed = [];
+            if (Array.isArray(convForm.allowedChains)) allowed = convForm.allowedChains;
+            else if (Array.isArray(metaForm.allowedChains)) allowed = metaForm.allowedChains;
+            else if (metaForm.agentChainTargets && currentAgent && Array.isArray(metaForm.agentChainTargets[currentAgent])) {
+                allowed = metaForm.agentChainTargets[currentAgent];
+            }
+            body.allowedChains = Array.isArray(allowed) ? allowed : [];
+
+            console.debug('[chat.submit] settings snapshot', {
+                agent: body.agent,
+                model: body.model,
+                toolCallExposure: body.toolCallExposure,
+                autoSummarize: body.autoSummarize,
+                disableChains: body.disableChains,
+                allowedChains: body.allowedChains,
+            });
+        } catch (e) { try { console.debug('[chat.submit] enrich settings error', e); } catch(_) {} }
 
         // Mark conversation running so UI can show Abort based on data-driven selector
         try {
@@ -1990,6 +2486,8 @@ export const chatService = {
     receiveMessages,
     // DS event handlers
     onFetchMessages,
+    onChangeToolCallExposure,
+    onChangeSelectedTools,
     renderers: {
         bubble: HTMLTableBubble,
         execution: ExecutionBubble,
@@ -2024,10 +2522,12 @@ function onMetaLoaded(args) {
     if (!ds) return;
     const current = ds.peekFormData?.() || {};
     const {defaults} = data
+    const defAgent = String(defaults.agent || '').toLowerCase();
+    const defModel = defaults.model || '';
     const values = {
         ...current,
-        agent: defaults.agent || '',
-        model: defaults.model || '',
+        agent: defAgent,
+        model: defModel,
         // Pre-select tools allowed for the default agent so the Settings
         // dialog shows an accurate initial state when opened before any
         // user interaction.
@@ -2038,13 +2538,13 @@ function onMetaLoaded(args) {
         // was previously omitted which caused the Settings dialog to show
         // an empty tools list.
 
-        tool: (data.agentInfo && data.agentInfo[defaults.agent]
-            && Array.isArray(data.agentInfo[defaults.agent].tools))
-            ? data.agentInfo[defaults.agent].tools
+        tool: (data.agentInfo && data.agentInfo[defAgent]
+            && Array.isArray(data.agentInfo[defAgent].tools))
+            ? data.agentInfo[defAgent].tools
             : [],
         agentInfo: data.agentInfo || {},
+        agentChainTargets: Object.fromEntries(Object.entries(data.agentInfo || {}).map(([k,v]) => [k, Array.isArray(v?.chains)? v.chains : []])),
     }
-    console.log('setting values:', values)
     ds.setFormData?.({values});
 
 }
@@ -2052,7 +2552,9 @@ function onMetaLoaded(args) {
 // Prevent DS from trying to assign object payload to a collection; return [] so
 // the collection path is left untouched and onSuccess can map to the form.
 function onFetchMeta(args) {
-    const {collection = []} = args;
+    const {collection = [], context} = args;
+    const metaCtx = context?.Context?.('meta');
+    const currentForm = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
     const updated = collection.map(data => {
         const agentInfo = data.agentInfo || {};
         const agentsRaw = Array.isArray(data?.agents)
@@ -2061,32 +2563,51 @@ function onFetchMeta(args) {
 
         const modelsRaw = Array.isArray(data?.models)
             ? data.models
-            : (defaults?.model ? [defaults.model] : []);
+            : (data?.defaults?.model ? [data.defaults.model] : []);
 
         const toolsRaw = Array.isArray(data?.tools) ? data.tools : [];
 
+        // TreeMultiSelect expects a flat option list and will build the tree
+        // by splitting the value with properties.separator. Keep options flat
+        // and let the widget handle grouping to avoid runtime errors.
+
+        const agentChainTargets = {};
+        Object.entries(agentInfo).forEach(([k,v]) => {
+            agentChainTargets[k] = Array.isArray(v?.chains) ? v.chains : [];
+        });
+        // Preserve current agent selection if present; otherwise use defaults
+        const curAgent = String(currentForm.agent || data.defaults.agent || '').toLowerCase();
+
+        const defaultAllowedChains = agentChainTargets[curAgent] || [];
         return {
             ...data,
             agentOptions: agentsRaw.map(v => ({
+                id: String(v).toLowerCase(),
                 value: String(v).toLowerCase(),
                 label: String(v)
             })),
-            agent: data.defaults.agent,
+            agent: curAgent,
 
             modelOptions: modelsRaw.map(v => ({
+                id: String(v),
                 value: String(v),
                 label: String(v)
             })),
             model: data.defaults.model,
 
-            toolOptions: toolsRaw.map(v => ({
-                value: String(v),
-                label: String(v)
-            })),
+            toolOptions: toolsRaw.map(v => ({ id: String(v), value: String(v), label: String(v) })),
             // Default selection of tools for the default agent. Use plural
             // property name to stay consistent with the rest of the code
             // base (saveSettings, conversationService, etc.).
-            tool: agentInfo[data.defaults.agent]?.tools || []
+            tool: agentInfo[curAgent]?.tools || [],
+            agentChainTargets,
+            // Dialog defaults (can be overridden by prefs/prepareSettings)
+            showExecutionDetails: true,
+            showToolFeed: true,
+            chainsEnabled: true,
+            // Do NOT set a default for toolCallExposure here; let prepareSettings seed from prefs or conversation
+            autoSummarize: (typeof currentForm.autoSummarize === 'boolean' ? currentForm.autoSummarize : false),
+            allowedChains: Array.isArray(currentForm.allowedChains) ? currentForm.allowedChains : defaultAllowedChains,
         };
     });
     return updated;

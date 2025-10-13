@@ -345,6 +345,11 @@ type PostRequest struct {
 	Model   string                 `json:"model,omitempty"`
 	Tools   []string               `json:"tools,omitempty"`
 	Context map[string]interface{} `json:"context,omitempty"`
+	// Optional single-turn overrides
+	ToolCallExposure *agent.ToolCallExposure `json:"toolCallExposure,omitempty"`
+	AutoSummarize    *bool                   `json:"autoSummarize,omitempty"`
+	DisableChains    bool                    `json:"disableChains,omitempty"`
+	AllowedChains    []string                `json:"allowedChains,omitempty"`
 	// Attachments carries staged upload descriptors returned by Forge upload endpoint.
 	// Each item must include at least name and uri (relative to storage root), optionally size, stagingFolder, mime.
 	Attachments []UploadedAttachment `json:"attachments,omitempty"`
@@ -397,6 +402,20 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		ToolsAllowed:   req.Tools,
 		Context:        req.Context,
 		MessageID:      msgID,
+	}
+
+	// Apply optional overrides from request
+	if req.ToolCallExposure != nil {
+		input.ToolCallExposure = req.ToolCallExposure
+	}
+	if req.AutoSummarize != nil {
+		input.AutoSummarize = req.AutoSummarize
+	}
+	if len(req.AllowedChains) > 0 {
+		input.AllowedChains = append([]string(nil), req.AllowedChains...)
+	}
+	if req.DisableChains {
+		input.DisableChains = true
 	}
 
 	// Apply user preferences for default agent/model when not provided and when available

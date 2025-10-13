@@ -23,15 +23,15 @@
       windowKey: agent
       windowTitle: Agents
 
-- id: workflows
-  label: Workflows
-  icon: flow-linear
-  childNodes:
-    - id: list
-      label: Catalogue
-      icon: list
-      windowKey: workflow
-      windowTitle: Workflows
+#- id: workflows
+#  label: Workflows
+#  icon: flow-linear
+#  childNodes:
+#    - id: list
+#      label: Catalogue
+#      icon: list
+#      windowKey: workflow
+#      windowTitle: Workflows
 
 - id: models
   label: Models

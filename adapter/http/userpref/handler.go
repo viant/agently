@@ -56,14 +56,24 @@ func Handler() (http.Handler, error) {
 				"defaultModelRef":    value(v.DefaultModelRef),
 				"defaultEmbedderRef": value(v.DefaultEmbedderRef),
 			}
+			// Include agentPrefs from settings JSON when present
+			if v.Settings != nil && strings.TrimSpace(*v.Settings) != "" {
+				var s map[string]any
+				if err := json.Unmarshal([]byte(*v.Settings), &s); err == nil {
+					if ap, ok := s["agentPrefs"]; ok {
+						data["agentPrefs"] = ap
+					}
+				}
+			}
 			_ = json.NewEncoder(w).Encode(apiResponse{Status: "ok", Data: data})
 		case http.MethodPatch:
 			var p struct {
-				DisplayName        *string `json:"displayName"`
-				Timezone           *string `json:"timezone"`
-				DefaultAgentRef    *string `json:"defaultAgentRef"`
-				DefaultModelRef    *string `json:"defaultModelRef"`
-				DefaultEmbedderRef *string `json:"defaultEmbedderRef"`
+				DisplayName        *string                           `json:"displayName"`
+				Timezone           *string                           `json:"timezone"`
+				DefaultAgentRef    *string                           `json:"defaultAgentRef"`
+				DefaultModelRef    *string                           `json:"defaultModelRef"`
+				DefaultEmbedderRef *string                           `json:"defaultEmbedderRef"`
+				AgentPrefs         map[string]map[string]interface{} `json:"agentPrefs"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 				w.WriteHeader(http.StatusBadRequest)
@@ -74,6 +84,13 @@ func Handler() (http.Handler, error) {
 				w.WriteHeader(http.StatusInternalServerError)
 				_ = json.NewEncoder(w).Encode(apiResponse{Status: "ERROR", Message: err.Error()})
 				return
+			}
+			if len(p.AgentPrefs) > 0 {
+				if err := us.UpdateAgentSettingsByUsername(r.Context(), uname, p.AgentPrefs); err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					_ = json.NewEncoder(w).Encode(apiResponse{Status: "ERROR", Message: err.Error()})
+					return
+				}
 			}
 			_ = json.NewEncoder(w).Encode(apiResponse{Status: "ok", Data: "updated"})
 		default:

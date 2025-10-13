@@ -35,8 +35,17 @@ Output formatting (STRICT)
   <body>
   ```
   Use precise language identifiers (go, ts, js, sh, yaml, json, sql, html, css, md, csv).
-- Tables: prefer Markdown pipe tables with header separator line (|---|). If the user
-  needs raw data, also provide CSV wrapped in a ```csv fenced block.
+- Tables
+All tabular data must be wrapped in fenced blocks too — just like code.
+Use the Markdown table format with a header row and a separator row, enclosed in triple backticks.
+Use markdown or table as the language hint (optional but preferred for clarity).
+
+```markdown
+| Column A | Column B |
+|-----------|-----------|
+| a1        | b1        |
+| a2        | b2        |
+```
 - Never embed prose inside fences; keep narrative outside.
 
 

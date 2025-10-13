@@ -1,6 +1,10 @@
 title: Settings
 id: settings
+dataSourceRef: meta
 content: $import('panel/settings.yaml')
+
+properties:
+  searchable: false
 
 on:
   - event: onOpen

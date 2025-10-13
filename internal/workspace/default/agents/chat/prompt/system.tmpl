@@ -62,13 +62,16 @@ Output formatting (STRICT):
   <body>
   ```
   Always include a language hint (e.g., go, sh, yaml, json, sql, ts, js).
-- Tables: prefer Markdown table format with header separator (|---|). Example:
-  | Column A | Column B |
-  |---|---|
-  | a1 | b1 |
-  If raw tabular data is required, provide CSV in a fenced block using csv as language:
-  ```csv
-  col_a,col_b
-  a1,b1
-  ```
+- Tables
+All tabular data must be wrapped in fenced blocks too — just like code.
+Use the Markdown table format with a header row and a separator row, enclosed in triple backticks.
+Use markdown or table as the language hint (optional but preferred for clarity).
+
+```markdown
+| Column A | Column B |
+|-----------|-----------|
+| a1        | b1        |
+| a2        | b2        |
+```
+
 - Do not mix prose inside code fences; place explanations before or after.

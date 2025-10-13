@@ -4,6 +4,8 @@
 
 import React from 'react';
 import CodeBlock from './CodeBlock.jsx';
+import { Button } from '@blueprintjs/core';
+import { Table as BpTable, Column as BpColumn, Cell as BpCell, ColumnHeaderCell as BpColumnHeaderCell } from '@blueprintjs/table';
 
 // Use Editor from forge/components directly (consistent with other imports like Chat).
 
@@ -30,6 +32,156 @@ function languageHint(lang = '') {
   if (v === 'ts') return 'typescript';
   if (v === 'yml') return 'yaml';
   return v;
+}
+
+// Detects GitHub-flavored Markdown pipe table in a fenced block body.
+function looksLikePipeTable(body = '') {
+  const lines = String(body || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length < 2) return false;
+  const header = lines[0];
+  const sep = lines[1];
+  if (!header.includes('|')) return false;
+  // Header row should have pipes separating columns
+  // Separator row should be composed of pipes, dashes and optional colons for alignment
+  const sepOk = /^\|?\s*[:\-]+(\s*\|\s*[:\-]+)+\s*\|?$/.test(sep);
+  if (!sepOk) return false;
+  return true;
+}
+
+// Parses a simple Markdown pipe table into { headers, rows }
+function parsePipeTable(body = '') {
+  const lines = String(body || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const headerLine = lines[0];
+  const sepLine = lines[1] || '';
+  const dataLines = lines.slice(2); // skip separator
+  const toCells = (line) => {
+    let s = line;
+    if (s.startsWith('|')) s = s.slice(1);
+    if (s.endsWith('|')) s = s.slice(0, -1);
+    return s.split('|').map(c => c.trim());
+  };
+  const headers = toCells(headerLine);
+  // Alignment detection from separator line per GFM tables
+  const parseAlign = (seg) => {
+    const x = (seg || '').trim();
+    const left = x.startsWith(':');
+    const right = x.endsWith(':');
+    if (left && right) return 'center';
+    if (right) return 'right';
+    if (left) return 'left';
+    return 'left';
+  };
+  const aligns = (() => {
+    let s = sepLine;
+    if (s.startsWith('|')) s = s.slice(1);
+    if (s.endsWith('|')) s = s.slice(0, -1);
+    const segs = s.split('|');
+    const arr = segs.map(parseAlign);
+    while (arr.length < headers.length) arr.push('left');
+    if (arr.length > headers.length) arr.length = headers.length;
+    return arr;
+  })();
+  const rows = dataLines.map(toCells).map(r => {
+    if (r.length < headers.length) {
+      return r.concat(Array(headers.length - r.length).fill(''));
+    } else if (r.length > headers.length) {
+      return r.slice(0, headers.length);
+    }
+    return r;
+  });
+  return { headers, rows, aligns };
+}
+
+function escapeHTMLCell(str = '') {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Renders a Markdown pipe table as a scrollable HTML table with basic styling.
+function renderPipeTable(body = '') {
+  if (!looksLikePipeTable(body)) return null;
+  const { headers, rows, aligns } = parsePipeTable(body);
+  // Estimate column widths by max cell length per column (clamped and normalized)
+  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+  const maxLens = headers.map((h, i) => {
+    let m = (h || '').length;
+    for (const r of rows) {
+      const c = (r[i] || '').length;
+      if (c > m) m = c;
+    }
+    return clamp(m, 4, 48);
+  });
+  const sum = maxLens.reduce((a, b) => a + b, 0) || headers.length;
+  const percents = maxLens.map(v => (v / sum) * 100);
+  const baseWidthPx = 720; // approx 60vw target
+  const colWidths = percents.map(p => Math.max(80, Math.round((p / 100) * baseWidthPx))); // min 80px per column
+
+  const columns = headers.map((header, ci) => {
+    const align = aligns[ci] || 'left';
+    const cellRenderer = (rowIndex) => (
+      <BpCell style={{ textAlign: align, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        {rows[rowIndex]?.[ci] ?? ''}
+      </BpCell>
+    );
+    const columnHeaderCellRenderer = () => (
+      <BpColumnHeaderCell name={header} />
+    );
+    return (
+      <BpColumn key={`col-${ci}`} cellRenderer={cellRenderer} columnHeaderCellRenderer={columnHeaderCellRenderer} />
+    );
+  });
+
+  const downloadCSV = () => {
+    try {
+      const escapeCell = (s = '') => {
+        const v = String(s ?? '');
+        if (/[",\n]/.test(v)) {
+          return '"' + v.replace(/"/g, '""') + '"';
+        }
+        return v;
+      };
+      const lines = [];
+      lines.push(headers.map(escapeCell).join(','));
+      for (const r of rows) {
+        lines.push((r || []).slice(0, headers.length).map(escapeCell).join(','));
+      }
+      const bom = '\ufeff'; // help Excel detect UTF-8
+      const csv = bom + lines.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `table-${ts}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (_) {}
+  };
+
+  return (
+    <div style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+      <div style={{ minWidth: Math.max(baseWidthPx, colWidths.reduce((a,b)=>a+b,0)) }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 6 }}>
+          <Button small minimal icon="download" onClick={downloadCSV} text="CSV" />
+        </div>
+        <BpTable
+          numRows={rows.length}
+          columnWidths={colWidths}
+          enableGhostCells={false}
+          enableRowHeader={false}
+          defaultRowHeight={28}
+        >
+          {columns}
+        </BpTable>
+      </div>
+    </div>
+  );
 }
 
 export default function CodeFenceRenderer({ text = '' }) {
@@ -63,11 +215,20 @@ export default function CodeFenceRenderer({ text = '' }) {
     }
     const lang = languageHint(langRaw);
     fenceCount += 1;
-    out.push(
-      <div key={`e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
-        <CodeBlock value={body} language={lang} height={'auto'} />
-      </div>
-    );
+    // If this fenced block looks like a Markdown pipe table, render as a scrollable HTML table
+    if ((lang === 'markdown' || lang === 'md' || lang === 'plaintext') && looksLikePipeTable(body)) {
+      out.push(
+        <div key={`table-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+          {renderPipeTable(body)}
+        </div>
+      );
+    } else {
+      out.push(
+        <div key={`e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
+          <CodeBlock value={body} language={lang} height={'auto'} />
+        </div>
+      );
+    }
     lastIndex = end;
   }
   // If no fences matched with language hints, try fallback (no explicit lang)
@@ -90,11 +251,19 @@ export default function CodeFenceRenderer({ text = '' }) {
             body = mLang[2] || '';
           }
           fenceCount += 1;
-          out.push(
-            <div key={`ms-e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
-              <CodeBlock value={body} language={lang} height={'auto'} />
-            </div>
-          );
+          if ((lang === 'markdown' || lang === 'md' || lang === 'plaintext') && looksLikePipeTable(body)) {
+            out.push(
+              <div key={`ms-table-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+                {renderPipeTable(body)}
+              </div>
+            );
+          } else {
+            out.push(
+              <div key={`ms-e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
+                <CodeBlock value={body} language={lang} height={'auto'} />
+              </div>
+            );
+          }
         }
       }
       return <div style={{ width: '60vw', overflowX: 'auto' }}>{out}</div>;
@@ -105,6 +274,13 @@ export default function CodeFenceRenderer({ text = '' }) {
       const lang = languageHint(langLabelMatch[1]);
       const body = langLabelMatch[2] || '';
       fenceCount = 1;
+      if ((lang === 'markdown' || lang === 'md' || lang === 'plaintext') && looksLikePipeTable(body)) {
+        return (
+          <div style={{ width: '60vw', overflowX: 'auto' }}>
+            {renderPipeTable(body)}
+          </div>
+        );
+      }
       return (
         <div style={{ width: '60vw', overflowX: 'auto' }}>
           <div style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
@@ -147,11 +323,19 @@ export default function CodeFenceRenderer({ text = '' }) {
         out.push(<MinimalText key={`t-${idx++}`} text={plain} />);
       }
       fenceCount += 1;
-      out.push(
-        <div key={`e2-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
-          <CodeBlock value={body} language={'plaintext'} height={'auto'} />
-        </div>
-      );
+      if (looksLikePipeTable(body)) {
+        out.push(
+          <div key={`table2-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+            {renderPipeTable(body)}
+          </div>
+        );
+      } else {
+        out.push(
+          <div key={`e2-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
+            <CodeBlock value={body} language={'plaintext'} height={'auto'} />
+          </div>
+        );
+      }
       lastIndex = end;
     }
     if (scanned) {

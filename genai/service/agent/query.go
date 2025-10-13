@@ -46,6 +46,8 @@ type QueryInput struct {
 
 	AllowedChains []string `json:"allowedChains,omitempty"` //
 
+	DisableChains bool `json:"disableChains,omitempty"`
+
 	ToolCallExposure *agentmdl.ToolCallExposure `json:"toolCallExposure,omitempty"`
 }
 

@@ -155,6 +155,8 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	// Preferred path
 	mux.HandleFunc("/v1/workspace/metadata", metadata.NewAgently(exec))
 
+	// MCP init/discovery endpoint: initialise client and return tools/prompts/resources
+
 	// Forge file upload/list/download endpoints for chat attachments
 	mux.HandleFunc("/upload", fhandlers.UploadHandler(fs))
 	fb := fhandlers.NewFileBrowser(fs)

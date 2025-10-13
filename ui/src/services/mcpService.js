@@ -62,3 +62,15 @@ export const mcpService = {
 };
 import { getLogger, ForgeLog } from 'forge/utils/logger';
 const log = getLogger('agently');
+
+/**
+ * Discover MCP server capabilities (Tools, Prompts, Resources).
+ *
+ * UI handler invoked by the "Discover" button in the MCP window. It attempts
+ * to resolve the selected server name and then populate three in-memory
+ * datasources: discoveryTools, discoveryPrompts, discoveryResources.
+ *
+ * Backend route is not yet defined; this function safely no-ops with a warning
+ * and clears existing discovery results to reflect a performed action.
+ */
+// (No discovery/init helpers – original behavior)

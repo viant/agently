@@ -15,8 +15,9 @@ import (
 )
 
 type AgentInfo struct {
-	Tools []string `json:"tools"`
-	Model string   `json:"model"`
+	Tools  []string `json:"tools"`
+	Model  string   `json:"model"`
+	Chains []string `json:"chains,omitempty"`
 }
 
 // AgentlyResponse is the aggregated workspace metadata payload.
@@ -119,7 +120,28 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				}
 				patterns = append(patterns, canon(pat))
 			}
-			if len(patterns) == 0 {
+			// Collect chain targets (agent ids)
+			var chainTargets []string
+			if len(a.Chains) > 0 {
+				seen := map[string]struct{}{}
+				for _, ch := range a.Chains {
+					if ch == nil || ch.Target.AgentID == "" {
+						continue
+					}
+					id := strings.TrimSpace(ch.Target.AgentID)
+					if id == "" {
+						continue
+					}
+					if _, ok := seen[id]; ok {
+						continue
+					}
+					seen[id] = struct{}{}
+					chainTargets = append(chainTargets, id)
+				}
+				sort.Strings(chainTargets)
+			}
+
+			if len(patterns) == 0 && len(chainTargets) == 0 {
 				continue
 			}
 			// Match tool names
@@ -134,8 +156,8 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				}
 			}
 			sort.Strings(matched)
-			if len(matched) > 0 {
-				out.AgentInfo[agentID] = &AgentInfo{Tools: matched, Model: a.Model}
+			if len(matched) > 0 || len(chainTargets) > 0 {
+				out.AgentInfo[agentID] = &AgentInfo{Tools: matched, Model: a.Model, Chains: chainTargets}
 			}
 		}
 		if len(out.AgentInfo) == 0 {
