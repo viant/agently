@@ -130,6 +130,31 @@
       label: TTL (seconds)
       type: number
 
+# -----------------------------------------------------------------------------
+# MCP Resources – discovery and inclusion rules
+# -----------------------------------------------------------------------------
+- id: mcpResources
+  title: MCP Resources
+  layout:
+    orientation: horizontal
+    columns: 3
+    labelPosition: top
+  items:
+    - id: mcpResources.enabled
+      label: Enable MCP Resources
+      type: switch
+    - id: mcpResources.maxFiles
+      label: Max Files
+      type: number
+    - id: mcpResources.trimPath
+      label: Trim Path
+      type: text
+    # Advanced editor to cover locations and match options
+    - id: mcpResources
+      label: MCP Resources (advanced)
+      type: object
+      columnSpan: 3
+
 # (Elicitation removed – no longer part of agent model)
 
 - id: tools

@@ -56,8 +56,9 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		i.Message = append(i.Message, llm.NewSystemMessage(expanded))
 	}
 
-	// Note: attachments are appended later in prepareGenerateRequest after
-	// model capabilities are known (IsMultimodal flag).
+	// Note: attachments are appended in two places:
+	// - from conversation history (persisted attachments) below
+	// - from the current task binding (ad-hoc attachments) before the user message
 
 	if i.Prompt == nil {
 		i.Prompt = &prompt.Prompt{}
@@ -81,6 +82,17 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 			}
 			llmMessage := llm.NewTextMessage(llm.MessageRole(m.Role), m.Content)
 			i.Message = append(i.Message, llmMessage)
+		}
+	}
+
+	// Include task-scoped attachments for this turn (if any) before the user prompt
+	if i.Binding != nil && len(i.Binding.Task.Attachments) > 0 {
+		sortAttachments(i.Binding.Task.Attachments)
+		for _, a := range i.Binding.Task.Attachments {
+			if a == nil {
+				continue
+			}
+			i.Message = append(i.Message, llm.NewMessageWithBinary(llm.RoleUser, a.Data, a.MIMEType(), a.Content, a.Name))
 		}
 	}
 

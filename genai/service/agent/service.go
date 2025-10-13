@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/viant/afs"
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
 	cancels "github.com/viant/agently/genai/conversation/cancel"
@@ -52,6 +53,9 @@ type Service struct {
 	// Optional cancel registry used to expose per-turn cancel functions to
 	// external actors (e.g., HTTP or UI) without creating multiple cancel scopes.
 	cancelReg cancels.Registry
+
+	// Optional MCP client manager to resolve resources via MCP servers.
+	mcpMgr *mcpmgr.Manager
 }
 
 func (s *Service) Finder() agent.Finder {
@@ -81,6 +85,9 @@ func WithNewElicitationAwaiter(newAwaiter func() elicitation.Awaiter) Option {
 func WithCancelRegistry(reg cancels.Registry) Option {
 	return func(s *Service) { s.cancelReg = reg }
 }
+
+// WithMCPManager attaches an MCP Manager to resolve resources via MCP servers.
+func WithMCPManager(m *mcpmgr.Manager) Option { return func(s *Service) { s.mcpMgr = m } }
 
 // New creates a new agent service instance with the given tool registry and fluxor runtime
 func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Service, registry tool.Registry,

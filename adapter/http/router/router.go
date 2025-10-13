@@ -132,7 +132,7 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 	// Uses a long-lived background context consistent with other background bridges.
 	{
 		wdCtx := context.Background()
-		_ = schsvc.StartWatchdog(wdCtx, orch, 30*time.Second)
+		_ = *schsvc.StartWatchdog(wdCtx, orch, 30time.Second)
 	}
 
 	// Internal token components (read/masked + patch) – used by token store via dao.Operate only.

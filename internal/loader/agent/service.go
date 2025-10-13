@@ -468,6 +468,88 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				}
 				agent.Chains = append(agent.Chains, &c)
 			}
+		case "mcpresources":
+			// Parse MCP resources configuration
+			if valueNode.Kind != yaml.MappingNode {
+				return fmt.Errorf("mcpResources must be a mapping")
+			}
+			var cfg agentmdl.MCPResources
+			// Defaults
+			cfg.MaxFiles = 5
+			if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+				switch strings.ToLower(strings.TrimSpace(k)) {
+				case "enabled":
+					if v.Kind == yaml.ScalarNode {
+						val := strings.ToLower(strings.TrimSpace(v.Value))
+						cfg.Enabled = val == "true" || val == "yes" || val == "on"
+					}
+				case "locations":
+					switch v.Kind {
+					case yaml.ScalarNode:
+						if s := strings.TrimSpace(v.Value); s != "" {
+							cfg.Locations = []string{s}
+						}
+					case yaml.SequenceNode:
+						for _, it := range v.Content {
+							if it != nil && it.Kind == yaml.ScalarNode && strings.TrimSpace(it.Value) != "" {
+								cfg.Locations = append(cfg.Locations, it.Value)
+							}
+						}
+					}
+				case "maxfiles":
+					if v.Kind == yaml.ScalarNode {
+						val := v.Interface()
+						switch actual := val.(type) {
+						case int:
+							cfg.MaxFiles = actual
+						case int64:
+							cfg.MaxFiles = int(actual)
+						case float64:
+							cfg.MaxFiles = int(actual)
+						case string:
+							if n, err := parseInt64(actual); err == nil {
+								cfg.MaxFiles = int(n)
+							}
+						}
+					}
+				case "trimpath":
+					if v.Kind == yaml.ScalarNode {
+						cfg.TrimPath = v.Value
+					}
+				case "match":
+					if v.Kind == yaml.MappingNode {
+						match := &option.Options{}
+						_ = v.Pairs(func(optKey string, optValue *yml.Node) error {
+							switch strings.ToLower(optKey) {
+							case "exclusions":
+								match.Exclusions = asStrings(optValue)
+							case "inclusions":
+								match.Inclusions = asStrings(optValue)
+							case "maxfilesize":
+								// accept int, int64, float64, string
+								switch v := optValue.Interface().(type) {
+								case int:
+									match.MaxFileSize = v
+								case int64:
+									match.MaxFileSize = int(v)
+								case float64:
+									match.MaxFileSize = int(v)
+								case string:
+									if n, err := parseInt64(v); err == nil {
+										match.MaxFileSize = int(n)
+									}
+								}
+							}
+							return nil
+						})
+						cfg.Match = match
+					}
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			agent.MCPResources = &cfg
 		}
 		return nil
 	})

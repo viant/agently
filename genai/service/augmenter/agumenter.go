@@ -3,11 +3,11 @@ package augmenter
 import (
 	"context"
 	"fmt"
-	"os"
 	"path"
 	"strings"
 
 	"github.com/tmc/langchaingo/embeddings"
+	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/embedius/indexer"
 	"github.com/viant/embedius/indexer/fs"
 	"github.com/viant/embedius/indexer/fs/splitter"
@@ -51,6 +51,8 @@ func NewDocsAugmenter(embeddingsModel string, embedder embeddings.Embedder, opti
 	baseURL := embeddingBaseURL()
 	matcher := matching.New(options...)
 	splitterFactory := splitter.NewFactory(4096)
+	// Register a basic PDF splitter to extract printable text before chunking.
+	splitterFactory.RegisterExtensionSplitter(".pdf", NewPDFSplitter(4096))
 	ret := &DocsAugmenter{
 		embedder:  embeddingsModel,
 		fsIndexer: fs.New(baseURL, embeddingsModel, matcher, splitterFactory),
@@ -60,10 +62,7 @@ func NewDocsAugmenter(embeddingsModel string, embedder embeddings.Embedder, opti
 	return ret
 }
 
-func embeddingBaseURL() string {
-	baseURL := path.Join(os.Getenv("HOME"), ".emb")
-	return baseURL
-}
+func embeddingBaseURL() string { return path.Join(workspace.Root(), "index") }
 
 func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) (*DocsAugmenter, error) {
 	key := Key(input.Model, input.Match)
