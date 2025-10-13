@@ -127,6 +127,13 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 		return nil, err
 	}
 
+	// Start schedule watchdog: periodically triggers due runs in background.
+	// Uses a long-lived background context consistent with other background bridges.
+	{
+		wdCtx := context.Background()
+		_ = schsvc.StartWatchdog(wdCtx, orch, 30*time.Second)
+	}
+
 	// Internal token components (read/masked + patch) – used by token store via dao.Operate only.
 	if err := useroauthtoken.DefineComponent(context.Background(), dao); err != nil {
 		return nil, err

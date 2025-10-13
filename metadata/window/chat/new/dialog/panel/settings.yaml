@@ -95,6 +95,9 @@ items:
       style:
         marginTop: '6px'
         marginBottom: '0'
+    on:
+      - event: onChange
+        handler: chat.onChangeAutoSummarize
 
   # Row 3 — Chains controls
   - id: chainsEnabled
@@ -105,6 +108,9 @@ items:
       style:
         marginTop: '6px'
         marginBottom: '0'
+    on:
+      - event: onChange
+        handler: chat.onChangeChainsEnabled
 
   - id: allowedChains
     label: Allowed Chains
@@ -113,6 +119,9 @@ items:
     properties:
       placeholder: 'Select allowed chain targets (agent IDs)'
       options: []
+    on:
+      - event: onChange
+        handler: chat.onChangeAllowedChains
 
   # Section label
   - id: _label_tools
