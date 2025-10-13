@@ -3,14 +3,11 @@ package agent
 import (
 	"context"
 	_ "embed"
-	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/pkg/agently/conversation"
@@ -86,23 +83,5 @@ func (s *Service) Summarize(ctx context.Context, conv *apiconv.Conversation) err
 	if err := s.conversation.PatchConversations(ctx, updatedConv); err != nil {
 		return fmt.Errorf("failed to update conversation: %w", err)
 	}
-
-	turn, ok := memory.TurnMetaFromContext(ctx)
-	if !ok {
-		return errors.New("no turn meta")
-	}
-	msgID := uuid.NewString()
-	_, err := apiconv.AddMessage(ctx, s.conversation, &turn,
-		apiconv.WithId(msgID),
-		apiconv.WithConversationID(conv.Id),
-		apiconv.WithRole("assistant"),
-		apiconv.WithType("text"),
-		apiconv.WithStatus("summary"),
-		apiconv.WithContent(body),
-	)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
