@@ -59,17 +59,8 @@ type (
 		// ToolExport controls automatic exposure of this agent as a virtual tool
 		ToolExport *ToolExport `yaml:"toolExport,omitempty" json:"toolExport,omitempty"`
 
-		// AttachmentLimitBytes caps cumulative attachments size per conversation for this agent.
-		// When zero, a provider default may apply (e.g., OpenAI 32MiB) or no cap if provider has none.
-		AttachmentLimitBytes int64  `yaml:"attachmentLimitBytes,omitempty" json:"attachmentLimitBytes,omitempty"`
-		AttachMode           string `yaml:"attachMode,omitempty" json:"attachMode,omitempty"` // "ref" | "inline"
-		AttachmentTTLSec     int64  `yaml:"attachmentTTLSec,omitempty" json:"attachmentTTLSec,omitempty"`
-
-		// ToolAttachmentThresholdBytes sets the default threshold (bytes) to convert
-		// tool call results into PDF attachments for providers that support it.
-		// A per-request override can be provided via request options metadata key
-		// "toolAttachmentThresholdBytes".
-		ToolAttachmentThresholdBytes int64 `yaml:"toolAttachmentThresholdBytes,omitempty" json:"toolAttachmentThresholdBytes,omitempty"`
+		// Attachment groups binary-attachment behavior
+		Attachment *Attachment `yaml:"attachment,omitempty" json:"attachment,omitempty"`
 
 		// Chains defines post-turn follow-ups executed after a turn finishes.
 		Chains []*Chain `yaml:"chains,omitempty" json:"chains,omitempty"`
@@ -129,6 +120,42 @@ type (
 		MaxDepth int `yaml:"maxDepth,omitempty" json:"maxDepth,omitempty"`
 	}
 )
+
+// Attachment configures binary attachment behavior for an agent.
+type Attachment struct {
+	// LimitBytes caps cumulative attachments size per conversation for this agent.
+	// When zero, a provider default may apply or no cap if provider has none.
+	LimitBytes int64 `yaml:"limitBytes,omitempty" json:"limitBytes,omitempty"`
+
+	// Mode controls delivery: "ref" or "inline"
+	Mode string `yaml:"mode,omitempty" json:"mode,omitempty"`
+
+	// TTLSec sets TTL for attachments in seconds.
+	TTLSec int64 `yaml:"ttlSec,omitempty" json:"ttlSec,omitempty"`
+
+	// ToolCallConversionThreshold sets default threshold (bytes) to convert
+	// tool call results into PDF attachments (provider-dependent).
+	ToolCallConversionThreshold int64 `yaml:"toolCallConversionThreshold,omitempty" json:"toolCallConversionThreshold,omitempty"`
+}
+
+// Init applies default values to the agent after it has been loaded from YAML.
+// It should be invoked by the loader to ensure a single place for defaults.
+func (a *Agent) Init() {
+	if a == nil {
+		return
+	}
+	// Ensure attachment block exists with sane defaults
+	if a.Attachment == nil {
+		a.Attachment = &Attachment{}
+	}
+	if a.Attachment.Mode == "" {
+		a.Attachment.Mode = "ref"
+	}
+	if a.Attachment.ToolCallConversionThreshold <= 0 {
+		// Default 100k threshold for tool-call → PDF conversion
+		a.Attachment.ToolCallConversionThreshold = 100_000
+	}
+}
 
 // WhenSpec specifies a conditional gate for executing a chain. Evaluate Expr first; if empty and Query present,
 // run an LLM prompt and extract a boolean using Expect.

@@ -115,10 +115,10 @@
     columns: 3
     labelPosition: top
   items:
-    - id: attachmentLimitBytes
+    - id: attachment.limitBytes
       label: Limit (bytes)
       type: number
-    - id: attachMode
+    - id: attachment.mode
       label: Attach Mode
       type: select
       options:
@@ -126,8 +126,11 @@
           label: Reference
         - value: inline
           label: Inline
-    - id: attachmentTTLSec
+    - id: attachment.ttlSec
       label: TTL (seconds)
+      type: number
+    - id: attachment.toolCallConversionThreshold
+      label: Tool Call -> PDF threshold (bytes)
       type: number
 
 # -----------------------------------------------------------------------------

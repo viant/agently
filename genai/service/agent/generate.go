@@ -27,25 +27,25 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 	if i.Options.Metadata == nil {
 		i.Options.Metadata = map[string]interface{}{}
 	}
-	mode := strings.TrimSpace(strings.ToLower(agent.AttachMode))
-	if mode == "" {
-		mode = "ref"
+	mode := "ref"
+	if agent.Attachment != nil {
+		if m := strings.TrimSpace(strings.ToLower(agent.Attachment.Mode)); m != "" {
+			mode = m
+		}
+		if agent.Attachment.TTLSec > 0 {
+			i.Options.Metadata["attachmentTTLSec"] = agent.Attachment.TTLSec
+		}
+		if agent.Attachment.ToolCallConversionThreshold > 0 {
+			if _, exists := i.Options.Metadata["toolAttachmentThresholdBytes"]; !exists {
+				i.Options.Metadata["toolAttachmentThresholdBytes"] = agent.Attachment.ToolCallConversionThreshold
+			}
+		}
 	}
+
+	// No additional defaults here; Agent.Init sets defaults in a single place
 	i.Options.Metadata["attachMode"] = mode
 	// Use agentId for provider-side scoping (uploads, telemetry). Agent name is reserved for prompt identity only.
 	i.Options.Metadata["agentId"] = agent.ID
-	// Optional TTL for attachments (in seconds)
-	if agent.AttachmentTTLSec > 0 {
-		i.Options.Metadata["attachmentTTLSec"] = agent.AttachmentTTLSec
-	}
-
-	// Default threshold (bytes) for converting large tool results to PDF attachments.
-	// Respect a per-request override if already set in metadata.
-	if agent.ToolAttachmentThresholdBytes > 0 {
-		if _, exists := i.Options.Metadata["toolAttachmentThresholdBytes"]; !exists {
-			i.Options.Metadata["toolAttachmentThresholdBytes"] = agent.ToolAttachmentThresholdBytes
-		}
-	}
 
 	if ui := auth.User(ctx); ui != nil {
 		uname := strings.TrimSpace(ui.Subject)
