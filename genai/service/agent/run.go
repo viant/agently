@@ -364,8 +364,8 @@ func (s *Service) processAttachments(ctx context.Context, turn memory.TurnMeta, 
 	}
 	model, _ := s.llm.ModelFinder().Find(ctx, modelName)
 	var limit int64
-	if input.Agent != nil && input.Agent.AttachmentLimitBytes > 0 {
-		limit = input.Agent.AttachmentLimitBytes
+	if input.Agent != nil && input.Agent.Attachment != nil && input.Agent.Attachment.LimitBytes > 0 {
+		limit = input.Agent.Attachment.LimitBytes
 	} else {
 		limit = s.llm.ProviderAttachmentLimit(model)
 	}

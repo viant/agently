@@ -122,6 +122,8 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 	if err := s.parseAgent((*yml.Node)(&node), anAgent); err != nil {
 		return nil, fmt.Errorf("failed to parse agent from %s: %w", URL, err)
 	}
+	// Apply defaults in a single place
+	anAgent.Init()
 	// Validate parsed agent
 	if err := anAgent.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid agent %s: %w", URL, err)
@@ -259,59 +261,6 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			if valueNode.Kind == yaml.ScalarNode {
 				agent.Description = valueNode.Value
 			}
-		case "attachmentttlsec":
-			if valueNode.Kind == yaml.ScalarNode {
-				v := valueNode.Interface()
-				switch actual := v.(type) {
-				case int:
-					agent.AttachmentTTLSec = int64(actual)
-				case int64:
-					agent.AttachmentTTLSec = actual
-				case float64:
-					agent.AttachmentTTLSec = int64(actual)
-				case string:
-					if n, err := parseInt64(actual); err == nil {
-						agent.AttachmentTTLSec = n
-					}
-				}
-			}
-		case "attachmentlimitbytes":
-			if valueNode.Kind == yaml.ScalarNode {
-				v := valueNode.Interface()
-				switch actual := v.(type) {
-				case int:
-					agent.AttachmentLimitBytes = int64(actual)
-				case int64:
-					agent.AttachmentLimitBytes = actual
-				case float64:
-					agent.AttachmentLimitBytes = int64(actual)
-				case string:
-					lv := strings.TrimSpace(strings.ToLower(actual))
-					if strings.HasSuffix(lv, "mb") {
-						if n, err := parseInt64(strings.TrimSuffix(lv, "mb")); err == nil {
-							agent.AttachmentLimitBytes = n * 1024 * 1024
-						}
-					} else if n, err := parseInt64(lv); err == nil {
-						agent.AttachmentLimitBytes = n
-					}
-				}
-			}
-		case "attachmentlimitmb":
-			if valueNode.Kind == yaml.ScalarNode {
-				v := valueNode.Interface()
-				switch actual := v.(type) {
-				case int:
-					agent.AttachmentLimitBytes = int64(actual) * 1024 * 1024
-				case int64:
-					agent.AttachmentLimitBytes = actual * 1024 * 1024
-				case float64:
-					agent.AttachmentLimitBytes = int64(actual * 1024 * 1024)
-				case string:
-					if n, err := parseInt64(actual); err == nil {
-						agent.AttachmentLimitBytes = n * 1024 * 1024
-					}
-				}
-			}
 		case "paralleltoolcalls":
 			if valueNode.Kind == yaml.ScalarNode {
 				val := valueNode.Interface()
@@ -419,16 +368,90 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			if valueNode.Kind == yaml.ScalarNode {
 				agent.ToolCallExposure = agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(valueNode.Value)))
 			}
-		case "attachmode":
-			if valueNode.Kind == yaml.ScalarNode {
-				mode := strings.ToLower(strings.TrimSpace(valueNode.Value))
-				switch mode {
-				case "ref", "inline":
-					agent.AttachMode = mode
-				default:
-					agent.AttachMode = "ref"
-				}
+		case "attachment":
+			if valueNode.Kind != yaml.MappingNode {
+				return fmt.Errorf("attachment must be a mapping")
 			}
+			var cfg agentmdl.Attachment
+			if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+				switch strings.ToLower(strings.TrimSpace(k)) {
+				case "limitbytes", "limitmb":
+					if v.Kind == yaml.ScalarNode {
+						val := v.Interface()
+						switch a := val.(type) {
+						case int:
+							cfg.LimitBytes = int64(a)
+							if strings.Contains(strings.ToLower(k), "mb") {
+								cfg.LimitBytes *= 1024 * 1024
+							}
+						case int64:
+							cfg.LimitBytes = a
+							if strings.Contains(strings.ToLower(k), "mb") {
+								cfg.LimitBytes *= 1024 * 1024
+							}
+						case float64:
+							cfg.LimitBytes = int64(a)
+							if strings.Contains(strings.ToLower(k), "mb") {
+								cfg.LimitBytes *= 1024 * 1024
+							}
+						case string:
+							lv := strings.TrimSpace(strings.ToLower(a))
+							mul := int64(1)
+							if strings.HasSuffix(lv, "mb") {
+								lv = strings.TrimSuffix(lv, "mb")
+								mul = 1024 * 1024
+							}
+							if n, err := parseInt64(lv); err == nil {
+								cfg.LimitBytes = n * mul
+							}
+						}
+					}
+				case "mode":
+					if v.Kind == yaml.ScalarNode {
+						m := strings.ToLower(strings.TrimSpace(v.Value))
+						if m != "inline" {
+							m = "ref"
+						}
+						cfg.Mode = m
+					}
+				case "ttlsec":
+					if v.Kind == yaml.ScalarNode {
+						val := v.Interface()
+						switch a := val.(type) {
+						case int:
+							cfg.TTLSec = int64(a)
+						case int64:
+							cfg.TTLSec = a
+						case float64:
+							cfg.TTLSec = int64(a)
+						case string:
+							if n, err := parseInt64(a); err == nil {
+								cfg.TTLSec = n
+							}
+						}
+					}
+				case "toolcallconversionthreshold":
+					if v.Kind == yaml.ScalarNode {
+						val := v.Interface()
+						switch a := val.(type) {
+						case int:
+							cfg.ToolCallConversionThreshold = int64(a)
+						case int64:
+							cfg.ToolCallConversionThreshold = a
+						case float64:
+							cfg.ToolCallConversionThreshold = int64(a)
+						case string:
+							if n, err := parseInt64(a); err == nil {
+								cfg.ToolCallConversionThreshold = n
+							}
+						}
+					}
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			agent.Attachment = &cfg
 		case "chains":
 			if valueNode.Kind != yaml.SequenceNode {
 				return fmt.Errorf("chains must be a sequence")
