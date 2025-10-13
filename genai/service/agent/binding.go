@@ -2,8 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	neturl "net/url"
+	"path"
 	"strings"
 
 	apiconv "github.com/viant/agently/client/conversation"
@@ -13,6 +16,8 @@ import (
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
 	padapter "github.com/viant/agently/genai/prompt/adapter"
+	"github.com/viant/agently/genai/service/augmenter"
+	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.Binding, error) {
@@ -74,7 +79,181 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		return nil, err
 	}
 	b.Context = input.Context
+
+	// Optionally add MCP/resource-based attachments selected via Embedius
+	if input != nil && input.Agent != nil && input.Agent.MCPResources != nil && input.Agent.MCPResources.Enabled {
+		if atts, err := s.buildMCPAttachments(ctx, input, input.Agent.MCPResources); err != nil {
+			return nil, err
+		} else if len(atts) > 0 {
+			// Append to task-scoped attachments so core generate can include them directly
+			if len(b.Task.Attachments) == 0 {
+				b.Task.Attachments = atts
+			} else {
+				b.Task.Attachments = append(b.Task.Attachments, atts...)
+			}
+		}
+	}
 	return b, nil
+}
+
+// buildMCPAttachments matches resources using Embedius and converts top-N results
+// into prompt attachments. Indexing is handled lazily by the augmenter service.
+func (s *Service) buildMCPAttachments(ctx context.Context, input *QueryInput, cfg *agent.MCPResources) ([]*prompt.Attachment, error) {
+	if input == nil || cfg == nil {
+		return nil, nil
+	}
+	// Require explicit embedding model and at least one location
+	if strings.TrimSpace(input.EmbeddingModel) == "" {
+		return nil, nil
+	}
+	locations := cfg.Locations
+	if len(locations) == 0 {
+		// No explicit locations provided; fall back to agent knowledge URLs
+		for _, kn := range input.Agent.Knowledge {
+			if kn != nil && strings.TrimSpace(kn.URL) != "" {
+				locations = append(locations, kn.URL)
+			}
+		}
+	}
+	if len(locations) == 0 {
+		return nil, nil
+	}
+
+	augIn := &augmenter.AugmentDocsInput{
+		Query:        input.Query,
+		Locations:    locations,
+		Match:        cfg.Match,
+		Model:        input.EmbeddingModel,
+		MaxDocuments: max(1, cfg.MaxFiles),
+		TrimPath:     cfg.TrimPath,
+	}
+	augOut := &augmenter.AugmentDocsOutput{}
+	if err := s.augmenter.AugmentDocs(ctx, augIn, augOut); err != nil {
+		return nil, fmt.Errorf("failed to build MCP attachments: %w", err)
+	}
+
+	// Load original file contents for selected documents and attach them
+	var atts []*prompt.Attachment
+	docs := augOut.LoadDocuments(ctx, s.fs)
+	for i, d := range docs {
+		if cfg.MaxFiles > 0 && i >= cfg.MaxFiles {
+			break
+		}
+		uri := extractSource(d.Metadata)
+		name := baseName(uri)
+		// Prefer fetching original bytes rather than using PageContent (text)
+		var data []byte
+		// Resolve via MCP when mcp URI and manager present
+		if strings.HasPrefix(uri, "mcp:") && s.mcpMgr != nil {
+			if resolved, err := s.fetchMCPResource(ctx, uri); err == nil && len(resolved) > 0 {
+				data = resolved
+			}
+		}
+		// Fallback to filesystem for non-MCP URIs
+		if len(data) == 0 && !strings.HasPrefix(uri, "mcp:") {
+			if raw, err := s.fs.DownloadWithURL(ctx, uri); err == nil && len(raw) > 0 {
+				data = raw
+			}
+		}
+		// Last resort: use loaded document content when bytes were unavailable
+		if len(data) == 0 {
+			data = []byte(d.PageContent)
+		}
+		atts = append(atts, &prompt.Attachment{Name: name, URI: uri, Data: data})
+	}
+	return atts, nil
+}
+
+func extractSource(meta map[string]any) string {
+	if meta == nil {
+		return ""
+	}
+	if v, ok := meta["path"]; ok {
+		if s, _ := v.(string); strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	if v, ok := meta["docId"]; ok {
+		if s, _ := v.(string); strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func baseName(uri string) string {
+	if uri == "" {
+		return ""
+	}
+	if b := path.Base(uri); b != "." && b != "/" {
+		return b
+	}
+	return uri
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// fetchMCPResource resolves an mcp resource URI via MCP client.
+func (s *Service) fetchMCPResource(ctx context.Context, source string) ([]byte, error) {
+	turn, ok := memory.TurnMetaFromContext(ctx)
+	if !ok || strings.TrimSpace(turn.ConversationID) == "" || s.mcpMgr == nil {
+		return nil, fmt.Errorf("missing conversation or mcp manager")
+	}
+	server, resURI := parseMCPSource(source)
+	if strings.TrimSpace(server) == "" || strings.TrimSpace(resURI) == "" {
+		return nil, fmt.Errorf("invalid mcp source: %s", source)
+	}
+	cli, err := s.mcpMgr.Get(ctx, turn.ConversationID, server)
+	if err != nil {
+		return nil, fmt.Errorf("mcp get: %w", err)
+	}
+	if _, err := cli.Initialize(ctx); err != nil {
+		return nil, fmt.Errorf("mcp init: %w", err)
+	}
+	res, err := cli.ReadResource(ctx, &mcpschema.ReadResourceRequestParams{Uri: resURI})
+	if err != nil {
+		return nil, fmt.Errorf("mcp read: %w", err)
+	}
+	var out []byte
+	for _, c := range res.Contents {
+		if c.Text != "" {
+			out = append(out, []byte(c.Text)...)
+			continue
+		}
+		if c.Blob != "" {
+			if dec, err := base64.StdEncoding.DecodeString(c.Blob); err == nil {
+				out = append(out, dec...)
+			}
+		}
+	}
+	return out, nil
+}
+
+// parseMCPSource supports mcp://server/path and mcp:server:/path formats.
+func parseMCPSource(src string) (server, uri string) {
+	if strings.HasPrefix(src, "mcp://") {
+		if u, err := neturl.Parse(src); err == nil {
+			server = u.Host
+			uri = u.EscapedPath()
+			if u.RawQuery != "" {
+				uri += "?" + u.RawQuery
+			}
+			return
+		}
+	}
+	raw := strings.TrimPrefix(src, "mcp:")
+	if i := strings.IndexByte(raw, ':'); i != -1 {
+		return raw[:i], raw[i+1:]
+	}
+	if j := strings.IndexByte(raw, '/'); j != -1 {
+		return raw[:j], raw[j:]
+	}
+	return "", ""
 }
 
 func (s *Service) BuildHistory(ctx context.Context, transcript apiconv.Transcript, binding *prompt.Binding) error {

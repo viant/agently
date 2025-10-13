@@ -6,6 +6,7 @@ import (
 
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/prompt"
+	"github.com/viant/embedius/matching/option"
 )
 
 type (
@@ -72,6 +73,23 @@ type (
 
 		// Chains defines post-turn follow-ups executed after a turn finishes.
 		Chains []*Chain `yaml:"chains,omitempty" json:"chains,omitempty"`
+
+		// MCPResources controls optional inclusion of MCP-accessible resources
+		// as binary attachments in the core LLM generate call. When enabled, the
+		// agent service will lazily index the specified locations with Embedius,
+		// select the top-N most relevant resources for the current query, and
+		// include them as attachments in the request.
+		MCPResources *MCPResources `yaml:"mcpResources,omitempty" json:"mcpResources,omitempty"`
+	}
+
+	// MCPResources defines matching and selection rules for attaching resources
+	// discovered via MCP (or generic locations) to the LLM request.
+	MCPResources struct {
+		Enabled   bool            `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+		Locations []string        `yaml:"locations,omitempty" json:"locations,omitempty"`
+		MaxFiles  int             `yaml:"maxFiles,omitempty" json:"maxFiles,omitempty"`
+		TrimPath  string          `yaml:"trimPath,omitempty" json:"trimPath,omitempty"`
+		Match     *option.Options `yaml:"match,omitempty" json:"match,omitempty"`
 	}
 
 	// ToolExport defines optional settings to expose an agent as a runtime tool.
