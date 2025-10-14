@@ -343,13 +343,13 @@ type PostRequest struct {
 	Content string                 `json:"content"`
 	Agent   string                 `json:"agent,omitempty"`
 	Model   string                 `json:"model,omitempty"`
-	Tools   []string               `json:"tools,omitempty"`
+	Tools   []string               `json:"tools"`
 	Context map[string]interface{} `json:"context,omitempty"`
 	// Optional single-turn overrides
 	ToolCallExposure *agent.ToolCallExposure `json:"toolCallExposure,omitempty"`
 	AutoSummarize    *bool                   `json:"autoSummarize,omitempty"`
 	DisableChains    bool                    `json:"disableChains,omitempty"`
-	AllowedChains    []string                `json:"allowedChains,omitempty"`
+	AllowedChains    []string                `json:"allowedChains"`
 	// Attachments carries staged upload descriptors returned by Forge upload endpoint.
 	// Each item must include at least name and uri (relative to storage root), optionally size, stagingFolder, mime.
 	Attachments []UploadedAttachment `json:"attachments,omitempty"`
@@ -400,6 +400,8 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		AgentID:        defaultLocation(req.Agent),
 		ModelOverride:  req.Model,
 		ToolsAllowed:   req.Tools,
+		AllowedChains:  req.AllowedChains,
+		AutoSummarize:  req.AutoSummarize,
 		Context:        req.Context,
 		MessageID:      msgID,
 	}
@@ -754,6 +756,7 @@ func (s *Service) Approve(ctx context.Context, messageID, action, reason string)
 // Elicit processes an elicitation decision (accept/decline/cancel) and forwards
 // the result to an MCP waiter if present.
 func (s *Service) Elicit(ctx context.Context, messageID, action string, payload map[string]interface{}) error {
+
 	action = strings.ToLower(strings.TrimSpace(action))
 	if action == "" {
 		return fmt.Errorf("action is required")

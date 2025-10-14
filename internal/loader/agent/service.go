@@ -285,6 +285,18 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					agent.AutoSummarize = &v
 				}
 			}
+		case "showexecutiondetails":
+			if valueNode.Kind == yaml.ScalarNode {
+				val := strings.ToLower(strings.TrimSpace(valueNode.Value))
+				b := val == "true" || val == "yes" || val == "on" || val == "1"
+				agent.ShowExecutionDetails = &b
+			}
+		case "showtoolfeed":
+			if valueNode.Kind == yaml.ScalarNode {
+				val := strings.ToLower(strings.TrimSpace(valueNode.Value))
+				b := val == "true" || val == "yes" || val == "on" || val == "1"
+				agent.ShowToolFeed = &b
+			}
 		case "knowledge":
 			if valueNode.Kind == yaml.SequenceNode {
 				for _, itemNode := range valueNode.Content {
@@ -576,6 +588,7 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 		}
 		return nil
 	})
+
 }
 
 // parseInt64 parses an integer from string, trimming spaces; returns error on failure.

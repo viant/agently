@@ -18,6 +18,13 @@ type AgentInfo struct {
 	Tools  []string `json:"tools"`
 	Model  string   `json:"model"`
 	Chains []string `json:"chains,omitempty"`
+	// UI defaults and capabilities
+	ToolCallExposure     string   `json:"toolCallExposure,omitempty"`
+	ShowExecutionDetails bool     `json:"showExecutionDetails,omitempty"`
+	ShowToolFeed         bool     `json:"showToolFeed,omitempty"`
+	AutoSummarize        bool     `json:"autoSummarize,omitempty"`
+	ChainsEnabled        bool     `json:"chainsEnabled,omitempty"`
+	AllowedChains        []string `json:"allowedChains,omitempty"`
 }
 
 // AgentlyResponse is the aggregated workspace metadata payload.
@@ -105,6 +112,7 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 			if agentID == "" {
 				continue
 			}
+			agentName := strings.TrimSpace(a.Name)
 			// Build patterns from agent.Tool
 			var patterns []string
 			for _, t := range a.Tool {
@@ -157,7 +165,40 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 			}
 			sort.Strings(matched)
 			if len(matched) > 0 || len(chainTargets) > 0 {
-				out.AgentInfo[agentID] = &AgentInfo{Tools: matched, Model: a.Model, Chains: chainTargets}
+				// Defaults per request
+				exposure := strings.TrimSpace(string(a.ToolCallExposure))
+				if exposure == "" {
+					exposure = "turn"
+				}
+				showExec := true
+				if a.ShowExecutionDetails != nil {
+					showExec = *a.ShowExecutionDetails
+				}
+				showFeed := true
+				if a.ShowToolFeed != nil {
+					showFeed = *a.ShowToolFeed
+				}
+				autoSum := true
+				if a.AutoSummarize != nil {
+					autoSum = *a.AutoSummarize
+				}
+				chainsEnabled := true
+
+				info := &AgentInfo{
+					Tools:                matched,
+					Model:                a.Model,
+					Chains:               chainTargets,
+					ToolCallExposure:     exposure,
+					ShowExecutionDetails: showExec,
+					ShowToolFeed:         showFeed,
+					AutoSummarize:        autoSum,
+					ChainsEnabled:        chainsEnabled,
+					AllowedChains:        append([]string(nil), chainTargets...),
+				}
+				out.AgentInfo[agentID] = info
+				if agentName != "" {
+					out.AgentInfo[strings.ToLower(agentName)] = info
+				}
 			}
 		}
 		if len(out.AgentInfo) == 0 {

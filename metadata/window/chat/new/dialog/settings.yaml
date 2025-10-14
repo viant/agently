@@ -1,14 +1,11 @@
 title: Settings
 id: settings
-dataSourceRef: meta
+dataSourceRef: settings
 content: $import('panel/settings.yaml')
 
 properties:
   searchable: false
 
-on:
-  - event: onOpen
-    handler: chat.prepareSettings
 
 
 

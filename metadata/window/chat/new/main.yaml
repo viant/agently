@@ -109,4 +109,5 @@ dataSource:
   conversations: $import('../conversations/datasource/conversations.yaml')
   messages: $import('datasource/messages.yaml')
   meta: $import('datasource/meta.yaml')
+  settings: $import('datasource/settings.yaml')
   fs: $import('../../filebrowser/datasource/fileBrowser.yaml')

@@ -115,7 +115,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 			s.llm.SetAttachmentUsage(convID, aux.Bytes)
 		}
 	}
-	if len(input.ToolsAllowed) == 0 {
+	if len(input.ToolsAllowed) == 0 && input.ToolsAllowed == nil {
 		if len(meta.Tools) > 0 {
 			input.ToolsAllowed = append([]string(nil), meta.Tools...)
 		}
