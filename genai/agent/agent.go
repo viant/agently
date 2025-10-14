@@ -40,6 +40,10 @@ type (
 		// summarized/compacted after a turn (when supported by the runtime).
 		AutoSummarize *bool `yaml:"autoSummarize,omitempty" json:"autoSummarize,omitempty"`
 
+		// UI defaults: whether to show execution details and tool feed in chat
+		ShowExecutionDetails *bool `yaml:"showExecutionDetails,omitempty" json:"showExecutionDetails,omitempty"`
+		ShowToolFeed         *bool `yaml:"showToolFeed,omitempty" json:"showToolFeed,omitempty"`
+
 		SystemPrompt    *prompt.Prompt `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
 		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
 		Tool            []*llm.Tool    `yaml:"tool,omitempty" json:"tool,omitempty"`
@@ -154,6 +158,15 @@ func (a *Agent) Init() {
 	if a.Attachment.ToolCallConversionThreshold <= 0 {
 		// Default 100k threshold for tool-call → PDF conversion
 		a.Attachment.ToolCallConversionThreshold = 100_000
+	}
+	// Defaults for UI flags – default to true when unspecified
+	if a.ShowExecutionDetails == nil {
+		v := true
+		a.ShowExecutionDetails = &v
+	}
+	if a.ShowToolFeed == nil {
+		v := true
+		a.ShowToolFeed = &v
 	}
 }
 

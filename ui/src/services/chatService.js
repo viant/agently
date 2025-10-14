@@ -21,7 +21,7 @@ import {ensureConversation, newConversation} from './conversationService';
 import SummaryNote from '../components/chat/SummaryNote.jsx';
 import {setStage} from '../utils/stageBus.js';
 import {setComposerBusy} from '../utils/composerBus.js';
-import { isElicitationSuppressed, markElicitationShown } from '../utils/elicitationBus.js';
+import {isElicitationSuppressed, markElicitationShown} from '../utils/elicitationBus.js';
 import {
     setExecutionDetailsEnabled,
     setToolFeedEnabled,
@@ -123,10 +123,10 @@ export async function onInit({context}) {
                     dsTick({context});
                 } catch (_) {
                 }
-                try {
-                    installMessagesDebugHooks(context);
-                } catch (_) {
-                }
+                // try {
+                //     installMessagesDebugHooks(context);
+                // } catch (_) {
+                // }
             } else if (Date.now() > deadline) {
                 clearInterval(timer);
             }
@@ -161,22 +161,31 @@ export async function onInit({context}) {
                 const convDS = convCtx?.handlers?.dataSource;
                 if (!convDS) return true;
                 const cur = convDS.peekFormData?.() || {};
-                const next = { ...cur };
+                const next = {...cur};
                 let changed = false;
-                if (!next.agent && defAgent) { next.agent = defAgent; changed = true; }
-                if (!next.model && defModel) { next.model = defModel; changed = true; }
+                if (!next.agent && defAgent) {
+                    next.agent = defAgent;
+                    changed = true;
+                }
+                if (!next.model && defModel) {
+                    next.model = defModel;
+                    changed = true;
+                }
                 if (changed) {
-                    convDS.setFormData?.({ values: next });
+                    convDS.setFormData?.({values: next});
                 }
                 return true;
-            } catch (_) { return false; }
+            } catch (_) {
+                return false;
+            }
         };
         const t = setInterval(() => {
             if (applyDefaultsOnce() || tries > 25) {
                 clearInterval(t);
             }
         }, 120);
-    } catch (_) { /* ignore */ }
+    } catch (_) { /* ignore */
+    }
 }
 
 // DS-driven refresh: computes since and invokes DS getCollection with input parameters
@@ -252,10 +261,11 @@ async function dsTick({context}) {
                 }
                 const convCtx = context.Context('conversations');
                 if (convCtx?.handlers?.dataSource?.setFormField) {
-                    convCtx.handlers.dataSource.setFormField({ item: { id: 'running' }, value: !!isRunning });
+                    convCtx.handlers.dataSource.setFormField({item: {id: 'running'}, value: !!isRunning});
                 }
 
-            } catch(_) {}
+            } catch (_) {
+            }
             // Update noop/backoff signals
             let newestTurnId = '';
             for (let i = transcript.length - 1; i >= 0; i--) {
@@ -471,9 +481,27 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const linkedConvObj = m.linkedConversation || m.LinkedConversation || null;
             const createdByUserId = m.createdByUserId || m.CreatedByUserId || null;
             const mode = m.mode || m.Mode || null;
-            if (s1) steps.push({...s1, linkedConversationId: linkedConvId, createdByUserId, mode, elapsed: computeElapsed(s1)});
-            if (s2) steps.push({...s2, linkedConversationId: linkedConvId, createdByUserId, mode, elapsed: computeElapsed(s2)});
-            if (s3) steps.push({...s3, linkedConversationId: linkedConvId, createdByUserId, mode, elapsed: computeElapsed(s3)});
+            if (s1) steps.push({
+                ...s1,
+                linkedConversationId: linkedConvId,
+                createdByUserId,
+                mode,
+                elapsed: computeElapsed(s1)
+            });
+            if (s2) steps.push({
+                ...s2,
+                linkedConversationId: linkedConvId,
+                createdByUserId,
+                mode,
+                elapsed: computeElapsed(s2)
+            });
+            if (s3) steps.push({
+                ...s3,
+                linkedConversationId: linkedConvId,
+                createdByUserId,
+                mode,
+                elapsed: computeElapsed(s3)
+            });
 
             // When a message explicitly links another conversation, add a dedicated "link" step
             if (linkedConvId) {
@@ -491,7 +519,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                     endedAt: lcUpdated,
                     statusText: lcStatus,
                 };
-                steps.push({ ...sLink, elapsed: computeElapsed(sLink) });
+                steps.push({...sLink, elapsed: computeElapsed(sLink)});
             }
         }
 
@@ -627,7 +655,10 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             turnRows.push(row);
             // Mark as shown so immediate re-fetch does not re-open the dialog right away
             if (row.role === 'elicition') {
-                try { markElicitationShown(row.id, 2500); } catch(_) {}
+                try {
+                    markElicitationShown(row.id, 2500);
+                } catch (_) {
+                }
             }
         }
 
@@ -723,130 +754,131 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
     return rows;
 }
 
-// ---------------------------------------------------------------------------
-// Debug helpers – instrument Forge DataSource signals & connector calls
-// ---------------------------------------------------------------------------
-function installMessagesDebugHooks(context) {
-    const messagesCtx = context?.Context?.('messages');
-    if (!messagesCtx || messagesCtx._debugInstalled) return;
-    messagesCtx._debugInstalled = true;
-
-    const collSig = messagesCtx?.signals?.collection;
-    const ctrlSig = messagesCtx?.signals?.control;
-    // Poll for changes in collection length/loading flag to detect external mutations
-    let lastLen = Array.isArray(collSig?.value) ? collSig.value.length : 0;
-    let lastLoading = !!ctrlSig?.peek?.()?.loading;
-    const tick = () => {
-        try {
-            const curr = Array.isArray(collSig?.value) ? collSig.value : [];
-            const len = curr.length;
-            const ctrlVal = ctrlSig?.peek?.() || {};
-            let loading = !!ctrlVal.loading;
-            const errVal = ctrlVal.error;
-            if (errVal && (typeof errVal === 'object')) {
-                // Coerce Error object to string so Chat error banner can render safely
-                const coerced = String(errVal.message || errVal.toString?.() || '');
-                ctrlSig.value = {...ctrlVal, error: coerced};
-            }
-            // Once we have any messages, suppress spinner on background polls.
-            if (len > 0) {
-                context.resources = context.resources || {};
-                if (!context.resources.suppressMessagesLoading) {
-                    context.resources.suppressMessagesLoading = true;
-                }
-            }
-            if (len !== lastLen || loading !== lastLoading) {
-                log.debug('[chat][signals] messages', {len, loading, ts: Date.now()});
-                lastLen = len;
-                lastLoading = loading;
-            }
-        } catch (_) {
-        }
-    };
-    const t = setInterval(tick, 120);
-        context.resources = context.resources || {};
-        context.resources.messagesDebugTimer = t;
-
-        // Wrap window.openDialog to guard undefined dialog ids that cause ViewDialog warnings
-        try {
-            const win = context?.handlers?.window;
-            if (win && typeof win.openDialog === 'function' && !win._safeWrapped) {
-                const origOpen = win.openDialog.bind(win);
-                win.openDialog = async (arg) => {
-                    try {
-                        // Allow either string id or { id } or { execution }
-                        if (typeof arg === 'string') {
-                            if (!arg || !String(arg).trim()) {
-                                console.warn('[chat][openDialog] ignored empty id');
-                                return;
-                            }
-                        } else if (typeof arg === 'object' && arg) {
-                            const hasId = typeof arg.id === 'string' && arg.id.trim() !== '';
-                            const hasExec = arg.execution && Array.isArray(arg.execution.args) && arg.execution.args.length > 0;
-                            if (!hasId && !hasExec) {
-                                console.warn('[chat][openDialog] ignored: missing id/execution', arg);
-                                return;
-                            }
-                        } else {
-                            console.warn('[chat][openDialog] ignored: invalid args');
-                            return;
-                        }
-                        return await origOpen(arg);
-                    } catch (e) {
-                        console.error('[chat][openDialog] error', e);
-                        throw e;
-                    }
-                };
-                win._safeWrapped = true;
-            }
-        } catch (_) {}
-
-    // Wrap connector GET/POST to log DF activity
-    const conn = messagesCtx.connector || {};
-    const origGet = conn.get?.bind(conn);
-    const origPost = conn.post?.bind(conn);
-    if (origGet) {
-        conn.get = async (opts) => {
-            log.debug('[chat][connector][GET] messages', opts);
-            const res = await origGet(opts);
-            log.debug('[chat][connector][GET][done] messages', {status: res?.status, keys: Object.keys(res || {})});
-            return res;
-        };
-    }
-    if (origPost) {
-        conn.post = async (opts) => {
-            log.debug('[chat][connector][POST] messages', opts);
-            const res = await origPost(opts);
-            log.debug('[chat][connector][POST][done] messages', {
-                status: res?.status,
-                dataKeys: Object.keys(res?.data || {})
-            });
-            return res;
-        };
-    }
-
-    // Suppress loading spinner flicker for background polling after initial load.
-    try {
-        const ds = messagesCtx?.handlers?.dataSource;
-        if (ds && typeof ds.setLoading === 'function' && !ds._setLoadingWrapped) {
-            const origSetLoading = ds.setLoading.bind(ds);
-            ds.setLoading = (flag) => {
-                // After initial data arrives, avoid toggling loading=true; only allow clearing to false.
-                const suppress = !!(context?.resources?.suppressMessagesLoading);
-                if (suppress) {
-                    if (!flag) {
-                        return origSetLoading(false);
-                    }
-                    // ignore true to prevent spinner flicker
-                    return;
-                }
-                return origSetLoading(flag);
-            };
-            ds._setLoadingWrapped = true;
-        }
-    } catch (_) {
-    }
-}
+// // ---------------------------------------------------------------------------
+// // Debug helpers – instrument Forge DataSource signals & connector calls
+// // ---------------------------------------------------------------------------
+// function installMessagesDebugHooks(context) {
+//     const messagesCtx = context?.Context?.('messages');
+//     if (!messagesCtx || messagesCtx._debugInstalled) return;
+//     messagesCtx._debugInstalled = true;
+//
+//     const collSig = messagesCtx?.signals?.collection;
+//     const ctrlSig = messagesCtx?.signals?.control;
+//     // Poll for changes in collection length/loading flag to detect external mutations
+//     let lastLen = Array.isArray(collSig?.value) ? collSig.value.length : 0;
+//     let lastLoading = !!ctrlSig?.peek?.()?.loading;
+//     const tick = () => {
+//         try {
+//             const curr = Array.isArray(collSig?.value) ? collSig.value : [];
+//             const len = curr.length;
+//             const ctrlVal = ctrlSig?.peek?.() || {};
+//             let loading = !!ctrlVal.loading;
+//             const errVal = ctrlVal.error;
+//             if (errVal && (typeof errVal === 'object')) {
+//                 // Coerce Error object to string so Chat error banner can render safely
+//                 const coerced = String(errVal.message || errVal.toString?.() || '');
+//                 ctrlSig.value = {...ctrlVal, error: coerced};
+//             }
+//             // Once we have any messages, suppress spinner on background polls.
+//             if (len > 0) {
+//                 context.resources = context.resources || {};
+//                 if (!context.resources.suppressMessagesLoading) {
+//                     context.resources.suppressMessagesLoading = true;
+//                 }
+//             }
+//             if (len !== lastLen || loading !== lastLoading) {
+//                 log.debug('[chat][signals] messages', {len, loading, ts: Date.now()});
+//                 lastLen = len;
+//                 lastLoading = loading;
+//             }
+//         } catch (_) {
+//         }
+//     };
+//     const t = setInterval(tick, 120);
+//     context.resources = context.resources || {};
+//     context.resources.messagesDebugTimer = t;
+//
+//     // Wrap window.openDialog to guard undefined dialog ids that cause ViewDialog warnings
+//     try {
+//         const win = context?.handlers?.window;
+//         if (win && typeof win.openDialog === 'function' && !win._safeWrapped) {
+//             const origOpen = win.openDialog.bind(win);
+//             win.openDialog = async (arg) => {
+//                 try {
+//                     // Allow either string id or { id } or { execution }
+//                     if (typeof arg === 'string') {
+//                         if (!arg || !String(arg).trim()) {
+//                             console.warn('[chat][openDialog] ignored empty id');
+//                             return;
+//                         }
+//                     } else if (typeof arg === 'object' && arg) {
+//                         const hasId = typeof arg.id === 'string' && arg.id.trim() !== '';
+//                         const hasExec = arg.execution && Array.isArray(arg.execution.args) && arg.execution.args.length > 0;
+//                         if (!hasId && !hasExec) {
+//                             console.warn('[chat][openDialog] ignored: missing id/execution', arg);
+//                             return;
+//                         }
+//                     } else {
+//                         console.warn('[chat][openDialog] ignored: invalid args');
+//                         return;
+//                     }
+//                     return await origOpen(arg);
+//                 } catch (e) {
+//                     console.error('[chat][openDialog] error', e);
+//                     throw e;
+//                 }
+//             };
+//             win._safeWrapped = true;
+//         }
+//     } catch (_) {
+//     }
+//
+//     // Wrap connector GET/POST to log DF activity
+//     const conn = messagesCtx.connector || {};
+//     const origGet = conn.get?.bind(conn);
+//     const origPost = conn.post?.bind(conn);
+//     if (origGet) {
+//         conn.get = async (opts) => {
+//             log.debug('[chat][connector][GET] messages', opts);
+//             const res = await origGet(opts);
+//             log.debug('[chat][connector][GET][done] messages', {status: res?.status, keys: Object.keys(res || {})});
+//             return res;
+//         };
+//     }
+//     if (origPost) {
+//         conn.post = async (opts) => {
+//             log.debug('[chat][connector][POST] messages', opts);
+//             const res = await origPost(opts);
+//             log.debug('[chat][connector][POST][done] messages', {
+//                 status: res?.status,
+//                 dataKeys: Object.keys(res?.data || {})
+//             });
+//             return res;
+//         };
+//     }
+//
+//     // Suppress loading spinner flicker for background polling after initial load.
+//     try {
+//         const ds = messagesCtx?.handlers?.dataSource;
+//         if (ds && typeof ds.setLoading === 'function' && !ds._setLoadingWrapped) {
+//             const origSetLoading = ds.setLoading.bind(ds);
+//             ds.setLoading = (flag) => {
+//                 // After initial data arrives, avoid toggling loading=true; only allow clearing to false.
+//                 const suppress = !!(context?.resources?.suppressMessagesLoading);
+//                 if (suppress) {
+//                     if (!flag) {
+//                         return origSetLoading(false);
+//                     }
+//                     // ignore true to prevent spinner flicker
+//                     return;
+//                 }
+//                 return origSetLoading(flag);
+//             };
+//             ds._setLoadingWrapped = true;
+//         }
+//     } catch (_) {
+//     }
+// }
 
 function selectFolder(props) {
     const {context, selected} = props;
@@ -908,30 +940,6 @@ export function debugMessagesError({context, error}) {
     }
 }
 
-// Ensure DS-driven refresh does not shrink the displayed collection by
-// restoring the last known full snapshot captured by the polling path.
-export function hydrateMessagesCollection({context}) {
-    try {
-        const messagesCtx = context.Context('messages');
-        const collSig = messagesCtx?.signals?.collection;
-        const snap = messagesCtx && messagesCtx._snapshot;
-        if (!collSig || !Array.isArray(snap) || snap.length === 0) return;
-        const curr = Array.isArray(collSig.value) ? collSig.value : [];
-        if (curr.length < snap.length) {
-            collSig.value = [...snap];
-            try {
-                log.debug('[chat] hydrateMessagesCollection: restored snapshot', {
-                    before: curr.length,
-                    after: snap.length
-                });
-            } catch (_) {
-            }
-        }
-    } catch (e) {
-        // ignore
-    }
-}
-
 // onFetch handler for messages DS: return [] so DS does not assign non-array
 // payloads to the collection. Merging happens in onSuccess (mergeFromResponse).
 // Transform transcript turns (collection) into flat message rows for Chat UI.
@@ -981,63 +989,39 @@ export function onDestroy({context}) {
 // Saves settings from the Settings dialog into the conversations form (in-memory)
 export function saveSettings(args) {
     const {context} = args
-    const metaContext = context.Context('meta');
+    const source = context.Context('meta').handlers.dataSource.peekFormData()
 
-    const source = metaContext.handlers.dataSource.peekFormData();
-    const {agent, model, tool, showExecutionDetails, showToolFeed, toolCallExposure, autoSummarize, chainsEnabled, allowedChains} = source
-    try { console.debug('[settings.saveSettings] form snapshot', { agent, model, toolCallExposure, autoSummarize, chainsEnabled, allowedChains }); } catch (_) {}
+    const {
+        agent,
+        model,
+        tool,
+        showExecutionDetails,
+        showToolFeed,
+        toolCallExposure,
+        autoSummarize,
+        chainsEnabled,
+        allowedChains
+    } = source
+
+
+    console.debug('[settings.saveSettings] form snapshot', {
+        source,
+        agent,
+        model,
+        tool,
+        toolCallExposure,
+        autoSummarize,
+        chainsEnabled,
+        allowedChains
+    });
     // Avoid updating conversations DS here (would invoke hooks). Preferences are persisted below.
-    try {
-        setExecutionDetailsEnabled(!!showExecutionDetails);
-    } catch (_) {
-    }
-    try {
-        setToolFeedEnabled(!!showToolFeed);
-    } catch (_) {
-    }
-
-    // Persist per-agent preferences for the current user
-    try {
-        const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
-        const prefs = {
-            agentPrefs: {
-                [agent]: {
-                    tools: Array.isArray(tool) ? tool : [],
-                    toolCallExposure: toolCallExposure || 'turn',
-                    autoSummarize: (typeof autoSummarize === 'boolean' ? autoSummarize : true),
-                    chainsEnabled: (typeof chainsEnabled === 'boolean' ? chainsEnabled : true),
-                    allowedChains: Array.isArray(allowedChains) ? allowedChains : [],
-                }
-            }
-        };
-        fetch(`${base}/v1/api/me/preferences`, {
-            method: 'PATCH',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(prefs)
-        }).then(()=>{ try { console.debug('[settings.saveSettings] preferences patched', prefs); } catch(_) {} }).catch((e)=>{ try { console.debug('[settings.saveSettings] patch error', e); } catch(_) {} });
-    } catch (_) {}
-
-    // Also propagate settings to conversations DS so new posts include them immediately
-    try {
-        const convCtx = context.Context('conversations');
-        const cds = convCtx?.handlers?.dataSource;
-        if (cds) {
-            const patch = {};
-            if (typeof toolCallExposure === 'string') patch.toolCallExposure = toolCallExposure;
-            if (typeof autoSummarize === 'boolean') patch.autoSummarize = autoSummarize;
-            if (typeof chainsEnabled === 'boolean') patch.chainsEnabled = chainsEnabled;
-            if (Array.isArray(allowedChains)) patch.allowedChains = allowedChains;
-            if (Array.isArray(tool)) patch.tools = tool;
-            if (typeof agent === 'string' && agent) patch.agent = String(agent).toLowerCase();
-            if (typeof model === 'string' && model) patch.model = model;
-            if (Object.keys(patch).length) {
-                cds.setSilentFormData?.({ values: patch });
-                try { console.debug('[settings.saveSettings] propagated to conversations form (silent)', patch); } catch(_) {}
-            }
-        }
-    } catch (_) {}
+    setExecutionDetailsEnabled(!!showExecutionDetails);
+    setToolFeedEnabled(!!showToolFeed);
+    const signals = context.Signals('conversations');
+    const patch = signals.form.peek()
+    signals.form.value = {...patch, ...source}
 }
+
 
 // Applies meta.agentTools mapping to the conversations.tools field when agent changes
 export function selectAgent(args) {
@@ -1046,6 +1030,8 @@ export function selectAgent(args) {
     const formBefore = ds.peekFormData();
     // Try to resolve selection from args or the DS (the DS may update after our handler due to event chaining)
     const sel = args && args.selected;
+
+
     let candidate = undefined;
     // 1) direct value/id
     if (sel && typeof sel === 'object') {
@@ -1054,111 +1040,31 @@ export function selectAgent(args) {
     // 2) top-level fields forwarded by EventAdapter
     if (!candidate && (args.value !== undefined)) candidate = args.value;
     if (!candidate && (args.event !== undefined)) candidate = args.event; // some packs put the string here
-    // 3) fallback to current DS value (useful when DS updates after this handler)
+
+
     const tryApply = (k) => {
         const key = String(k || '').toLowerCase();
         const form = context.handlers.dataSource.peekFormData()
-        
+
         if (!key) return;
         // Ensure the select control reflects the new agent value
         try {
-            ds.setFormField({ item: { id: 'agent' }, value: key });
-        } catch (_) {}
+            ds.setFormField({item: {id: 'agent'}, value: key});
+        } catch (_) {
+        }
+        const selectedTools = form?.agentInfo?.[key]?.tools || [];
         const selectedModel = form?.agentInfo?.[key]?.model || '';
-        // Prefer saved per-agent prefs when available; fallback to agent defaults
-        const prefs = (form?.agentPrefs && form.agentPrefs[key]) || {};
-        const toolsFromPrefs = Array.isArray(prefs.tools) ? prefs.tools : null;
-        const exposureFromPrefs = typeof prefs.toolCallExposure === 'string' ? prefs.toolCallExposure : undefined;
-        const autoSummFromPrefs = (typeof prefs.autoSummarize === 'boolean') ? prefs.autoSummarize : undefined;
-        const chainsEnabledFromPrefs = (typeof prefs.chainsEnabled === 'boolean') ? prefs.chainsEnabled : undefined;
-
-        const selectedTools = toolsFromPrefs || (form?.agentInfo?.[key]?.tools || []);
-        // Preserve existing tool selection if already present on the form
-        try {
-            const currentTools = ds.peekFormData()?.tool;
-            if (Array.isArray(currentTools) && currentTools.length > 0) {
-                console.debug('[settings.selectAgent] preserve tools selection', currentTools);
-            } else {
-                ds.setFormField({ item: { id: 'tool' }, value: selectedTools });
-            }
-        } catch (_) {
-            ds.setFormField({ item: { id: 'tool' }, value: selectedTools });
-        }
-        ds.setFormField({item: {id: 'model'}, value: selectedModel});
-        
-        // Tool exposure: preserve current if already set on form; otherwise prefer prefs or default
-        try {
-            const currentExposure = ds.peekFormData()?.toolCallExposure;
-            if (typeof currentExposure === 'string' && currentExposure) {
-                console.debug('[settings.selectAgent] preserve existing toolCallExposure', { key, currentExposure });
-            } else {
-                const exposureToApply = (exposureFromPrefs || 'turn');
-                ds.setFormField({ item: { id: 'toolCallExposure' }, value: exposureToApply });
-                console.debug('[settings.selectAgent] applied toolCallExposure', { key, exposureFromPrefs, applied: exposureToApply });
-            }
-        } catch (_) {
-            const exposureToApply = (exposureFromPrefs || 'turn');
-            ds.setFormField({ item: { id: 'toolCallExposure' }, value: exposureToApply });
-        }
-        // Preserve autoSummarize if already set; otherwise apply prefs when provided
-        try {
-            const currentAuto = ds.peekFormData()?.autoSummarize;
-            if (typeof currentAuto === 'boolean') {
-                // keep current
-            } else if (autoSummFromPrefs !== undefined) {
-                ds.setFormField({ item: { id: 'autoSummarize' }, value: autoSummFromPrefs });
-            }
-        } catch (_) { if (autoSummFromPrefs !== undefined) ds.setFormField({ item: { id: 'autoSummarize' }, value: autoSummFromPrefs }); }
-        // Show execution/tool feed toggles by default; enable chains by default unless prefs override
-        ds.setFormField({item: {id: 'showExecutionDetails'}, value: true});
-        ds.setFormField({item: {id: 'showToolFeed'}, value: true});
-        // Preserve chainsEnabled if already set; otherwise apply prefs/default
-        try {
-            const curChainsEnabled = ds.peekFormData()?.chainsEnabled;
-            if (typeof curChainsEnabled === 'boolean') {
-                // keep
-            } else {
-                ds.setFormField({ item: { id: 'chainsEnabled' }, value: (chainsEnabledFromPrefs !== undefined ? chainsEnabledFromPrefs : true) });
-            }
-        } catch (_) {
-            ds.setFormField({ item: { id: 'chainsEnabled' }, value: (chainsEnabledFromPrefs !== undefined ? chainsEnabledFromPrefs : true) });
-        }
-        // Populate Allowed Chains options based on agentChainTargets
-        const chains = (form?.agentChainTargets && form.agentChainTargets[key]) || [];
-        const opts = chains.map(v => ({ value: v, label: v }));
-        ds.setFormField({ item: { id: 'allowedChains' }, options: opts });
-        
-        // Also apply saved allowed chains if present in preferences
-        try {
-            const currentAllowed = ds.peekFormData()?.allowedChains;
-            if (Array.isArray(currentAllowed) && currentAllowed.length > 0) {
-                // keep current selection
-            } else if (Array.isArray(prefs.allowedChains)) {
-                ds.setFormField({ item: { id: 'allowedChains' }, value: prefs.allowedChains });
-            } else {
-                // Default to all available chains for the selected agent
-                ds.setFormField({ item: { id: 'allowedChains' }, value: chains });
-            }
-        } catch (_) {
-            if (Array.isArray(prefs.allowedChains)) {
-                ds.setFormField({ item: { id: 'allowedChains' }, value: prefs.allowedChains });
-            } else {
-                ds.setFormField({ item: { id: 'allowedChains' }, value: chains });
-            }
-        }
+        const agentValues = {...(form?.agentInfo?.[key] || {}), tool: selectedTools}
+        delete (agentValues['tools'])
+        const prev = ds.peekFormData()
+        ds.setFormData({values: {...prev, ...agentValues}})
     };
 
     if (candidate) {
         tryApply(candidate);
         return;
     }
-    // Defer to allow widget’s internal onChange to update DS first, then read the new DS value.
-    setTimeout(() => {
-        try {
-            const now = ds.peekFormData()?.agent;
-            tryApply(now);
-        } catch (_) {}
-    }, 0);
+
 }
 
 
@@ -1168,383 +1074,16 @@ export function selectModel(args) {
     context.handlers.dataSource.setFormField({item: {id: 'model'}, value: selected});
 }
 
-// Initialize settings dialog fields on open
-export function prepareSettings(args) {
-    const {context} = args || {};
-    try {
-        const metaCtx = context?.Context?.('meta');
-        console.debug('[settings.prepareSettings] meta form before', metaCtx?.handlers?.dataSource?.peekFormData?.());
-        // Seed visibility toggles from global bus so settings reopen preserves state
-        try {
-            const execOn = getExecutionDetailsEnabled();
-            const feedOn = getToolFeedEnabled();
-            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'showExecutionDetails' }, value: !!execOn });
-            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'showToolFeed' }, value: !!feedOn });
-            console.debug('[settings.prepareSettings] seeded exec/toolFeed from bus', { execOn, feedOn });
-        } catch (_) {}
-        // Initialize new settings with sensible defaults or carry over from conversations form
-        const convCtx = args?.context?.Context?.('conversations');
-        const convForm = convCtx?.handlers?.dataSource?.peekFormData?.() || {};
-        if (convForm.agent) {
-            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'agent' }, value: String(convForm.agent).toLowerCase() });
-            console.debug('[settings.prepareSettings] set meta.agent from conversation', String(convForm.agent).toLowerCase());
-        }
-        // If conversation already has tools selected, mirror them into settings form
-        if (Array.isArray(convForm.tools)) {
-            try {
-                metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'tool' }, value: convForm.tools });
-                console.debug('[settings.prepareSettings] init tools from conversation', convForm.tools);
-            } catch (_) {}
-        }
-        // Prefer cached agentPrefs (local) > conversation form > default when seeding tool exposure
-        try {
-            const mf = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
-            const agentId = String(mf.agent || convForm.agent || '').toLowerCase();
-            const cachedPref = mf?.agentPrefs && mf.agentPrefs[agentId] ? mf.agentPrefs[agentId].toolCallExposure : undefined;
-            const convExposure = (typeof convForm.toolCallExposure === 'string' && convForm.toolCallExposure) ? convForm.toolCallExposure : undefined;
-            const initialExposure = cachedPref || convExposure || 'turn';
-            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'toolCallExposure' }, value: initialExposure });
-            console.debug('[settings.prepareSettings] init toolCallExposure (prefs>conv>default)', { cachedPref, convExposure, initialExposure });
-        } catch(_) {}
-        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'autoSummarize'}, value: (typeof convForm.autoSummarize === 'boolean' ? convForm.autoSummarize : false)});
-        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'chainsEnabled'}, value: (typeof convForm.chainsEnabled === 'boolean' ? convForm.chainsEnabled : true)});
-        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'allowedChains'}, value: (Array.isArray(convForm.allowedChains) ? convForm.allowedChains : [])});
-        // Fetch user preferences to preload per-agent settings
-        (async () => {
-            try {
-                const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
-                const resp = await fetch(`${base}/v1/api/me/preferences`, { credentials: 'include' });
-                const json = await resp.json().catch(() => ({}));
-                const agentPrefs = json?.data?.agentPrefs || {};
-                // Stash on meta form for quick access by selectAgent
-                metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'agentPrefs'}, value: agentPrefs});
-                // Determine selected agent and apply its prefs if any
-                const metaForm = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
-                const agentId = String(metaForm.agent || convForm.agent || '').toLowerCase();
-                console.debug('[settings.prepareSettings] agentId=', agentId, 'prefs keys=', Object.keys(agentPrefs||{}));
-                // Populate Allowed Chains options for current agent
-                try {
-                    const chains = (metaForm.agentChainTargets && metaForm.agentChainTargets[agentId]) || [];
-                    const opts = chains.map(v => ({ value: v, label: v }));
-                    metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'allowedChains' }, options: opts });
-                } catch(_) {}
-                const p = agentPrefs?.[agentId] || {};
-                if (p) {
-                    try {
-                        const currentTools = metaCtx?.handlers?.dataSource?.peekFormData?.()?.tool;
-                        if (Array.isArray(currentTools) && currentTools.length > 0) {
-                            console.debug('[settings.prepareSettings] preserve existing tools', currentTools);
-                        } else if (Array.isArray(p.tools)) {
-                            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'tool' }, value: p.tools });
-                            console.debug('[settings.prepareSettings] tools from prefs', p.tools);
-                        } else if (Array.isArray(metaForm?.agentInfo?.[agentId]?.tools)) {
-                            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'tool' }, value: metaForm.agentInfo[agentId].tools });
-                            console.debug('[settings.prepareSettings] tools from agentInfo', metaForm.agentInfo[agentId].tools);
-                        }
-                    } catch (_) {}
-                    if (typeof p.toolCallExposure === 'string') {
-                        // Do not override if user already changed the value after dialog open
-                        try {
-                            const current = metaCtx?.handlers?.dataSource?.peekFormData?.()?.toolCallExposure;
-                            const willApply = (current === undefined || current === null || String(current) === 'turn');
-                            try { console.debug('[settings.prepareSettings] prefs toolCallExposure candidate', { agentId, current, prefs: p.toolCallExposure, willApply }); } catch(_) {}
-                            if (willApply) {
-                                metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'toolCallExposure' }, value: p.toolCallExposure });
-                                try { console.debug('[settings.prepareSettings] applied toolCallExposure from prefs', p.toolCallExposure); } catch(_) {}
-                            }
-                        } catch (_) {
-                            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'toolCallExposure' }, value: p.toolCallExposure });
-                        }
-                    }
-                    if (typeof p.autoSummarize === 'boolean') {
-                        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'autoSummarize'}, value: p.autoSummarize});
-                    }
-                    if (typeof p.chainsEnabled === 'boolean') {
-                        metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'chainsEnabled'}, value: p.chainsEnabled});
-                    }
-                    try {
-                        const currentAllowed = metaCtx?.handlers?.dataSource?.peekFormData?.()?.allowedChains;
-                        if (Array.isArray(currentAllowed) && currentAllowed.length > 0) {
-                            // preserve
-                        } else if (Array.isArray(p.allowedChains)) {
-                            metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'allowedChains' }, value: p.allowedChains });
-                            console.debug('[settings.prepareSettings] allowedChains from prefs', p.allowedChains);
-                        }
-                    } catch (_) {}
-                }
-                // Fallback defaults when no prefs
-                if (!Array.isArray((metaCtx?.handlers?.dataSource?.peekFormData?.() || {}).tool)) {
-                    const defaultsTools = metaForm?.agentInfo?.[agentId]?.tools || [];
-                    metaCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'tool'}, value: defaultsTools});
-                    console.debug('[settings.prepareSettings] default tools applied', defaultsTools);
-                }
-                // After applying prefs, sync global visibility bus to DS values and stabilize tool exposure
-                try {
-                    const mf = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
-                    setExecutionDetailsEnabled(!!mf.showExecutionDetails);
-                    setToolFeedEnabled(!!mf.showToolFeed);
-                    console.debug('[settings.prepareSettings] sync exec/toolFeed visibility', { showExecutionDetails: !!mf.showExecutionDetails, showToolFeed: !!mf.showToolFeed });
-                    const stableExposure = (typeof mf.toolCallExposure === 'string' && mf.toolCallExposure) ? mf.toolCallExposure : (typeof p.toolCallExposure === 'string' ? p.toolCallExposure : undefined);
-                    if (stableExposure) {
-                        setTimeout(() => {
-                            try {
-                                metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'toolCallExposure' }, value: stableExposure });
-                                console.debug('[settings.prepareSettings] stabilized toolCallExposure after prefs', { stableExposure });
-                            } catch (_) {}
-                        }, 0);
-                        setTimeout(() => {
-                            try {
-                                const cur = metaCtx?.handlers?.dataSource?.peekFormData?.()?.toolCallExposure;
-                                if (cur !== stableExposure) {
-                                    metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'toolCallExposure' }, value: stableExposure });
-                                    console.debug('[settings.prepareSettings] re-stabilized toolCallExposure', { cur, stableExposure });
-                                }
-                            } catch (_) {}
-                        }, 120);
-                    }
-                } catch (_) {}
-            } catch (_) {}
-        })();
-    } catch (_) {
-    }
-}
-
-// Debug handler: toolCallExposure radio change
-export function onChangeToolCallExposure(args) {
-    try {
-        const { context, value, selected, event } = args || {};
-        const incoming = selected ?? value ?? (typeof event === 'string' ? event : (event && event.target && event.target.value));
-        const ds = context?.handlers?.dataSource;
-        const before = ds?.peekFormData?.()?.toolCallExposure;
-        console.debug('[settings.toolCallExposure] onChange', { incoming, before, args });
-        // Mirror to conversation form immediately so reopening settings preserves the selection
-        try {
-            const convCtx = context?.Context?.('conversations');
-            const cds = convCtx?.handlers?.dataSource;
-            const prevConv = cds?.peekFormData?.() || {};
-            cds?.setSilentFormData?.({ values: { toolCallExposure: incoming } });
-            const afterConv = cds?.peekFormData?.()?.toolCallExposure;
-            console.debug('[settings.toolCallExposure] mirrored to conversations form (silent)', { beforeConv: prevConv.toolCallExposure, afterConv });
-        } catch (_) {}
-
-        // Persist per-agent preference on change so reopen is consistent
-        try {
-            const metaCtx = context?.Context?.('meta');
-            const metaForm = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
-            const agentId = String(metaForm.agent || context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.agent || '').toLowerCase();
-            if (agentId) {
-                const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
-                const payload = {
-                    agentPrefs: {
-                        [agentId]: {
-                            tools: Array.isArray(metaForm.tool) ? metaForm.tool : [],
-                            toolCallExposure: incoming,
-                            autoSummarize: (typeof metaForm.autoSummarize === 'boolean' ? metaForm.autoSummarize : true),
-                            chainsEnabled: (typeof metaForm.chainsEnabled === 'boolean' ? metaForm.chainsEnabled : true),
-                            allowedChains: Array.isArray(metaForm.allowedChains) ? metaForm.allowedChains : [],
-                        }
-                    }
-                };
-                fetch(`${base}/v1/api/me/preferences`, {
-                    method: 'PATCH',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                }).then(() => {
-                    try { console.debug('[settings.toolCallExposure] prefs patched on change', { agentId, incoming, payload }); } catch(_) {}
-                    // Update local agentPrefs cache immediately to avoid flicker on next open
-                    try {
-                        const ap = (metaCtx?.handlers?.dataSource?.peekFormData?.()?.agentPrefs) || {};
-                        const next = { ...ap, [agentId]: { ...(ap[agentId] || {}), ...payload.agentPrefs[agentId] } };
-                        metaCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'agentPrefs' }, value: next });
-                        console.debug('[settings.toolCallExposure] updated local agentPrefs cache');
-                    } catch (_) {}
-                }).catch((e) => { try { console.debug('[settings.toolCallExposure] prefs patch failed', e); } catch(_) {} });
-            }
-        } catch (_) {}
-        // Let the widget apply the value via adapter; then peek again shortly
-        setTimeout(() => {
-            try {
-                const after = ds?.peekFormData?.()?.toolCallExposure;
-                console.debug('[settings.toolCallExposure] after adapter.set', { after });
-            } catch (_) {}
-        }, 0);
-    } catch (e) {
-        try { console.debug('[settings.toolCallExposure] onChange error', e); } catch (_) {}
-    }
-}
-
-// Mirror Tools selection from Settings to Conversations so new posts include them.
-export function onChangeSelectedTools(args) {
-    try {
-        const { context, value, selected } = args || {};
-        // treeMultiSelect emits an array value directly via event adapter
-        const incoming = Array.isArray(value) ? value : (Array.isArray(selected) ? selected : []);
-        const convCtx = context?.Context?.('conversations');
-        convCtx?.handlers?.dataSource?.setSilentFormData?.({ values: { tools: incoming } });
-        try { console.debug('[settings.tools] mirrored to conversations form (silent)', incoming); } catch(_) {}
-    } catch (e) {
-        try { console.debug('[settings.tools] onChange error', e); } catch (_) {}
-    }
-}
-
-// Mirror Allowed Chains selection to Conversations form
-export function onChangeAllowedChains(args) {
-    try {
-        const { context, value, selected } = args || {};
-        const incoming = Array.isArray(value) ? value : (Array.isArray(selected) ? selected : []);
-        const convCtx = context?.Context?.('conversations');
-        convCtx?.handlers?.dataSource?.setSilentFormData?.({ values: { allowedChains: incoming } });
-        try { console.debug('[settings.allowedChains] mirrored to conversations form (silent)', incoming); } catch(_) {}
-    } catch (e) {
-        try { console.debug('[settings.allowedChains] onChange error', e); } catch (_) {}
-    }
-}
-
-// Mirror Chains Enabled toggle to Conversations form
-export function onChangeChainsEnabled(args) {
-    try {
-        const { context, value, selected, event } = args || {};
-        let incoming;
-        if (typeof selected === 'boolean') incoming = selected;
-        else if (typeof value === 'boolean') incoming = value;
-        else if (event && event.target) incoming = !!event.target.checked;
-        incoming = !!incoming;
-        const convCtx = context?.Context?.('conversations');
-        convCtx?.handlers?.dataSource?.setSilentFormData?.({ values: { chainsEnabled: incoming } });
-        try { console.debug('[settings.chainsEnabled] mirrored to conversations form (silent)', incoming); } catch(_) {}
-    } catch (e) {
-        try { console.debug('[settings.chainsEnabled] onChange error', e); } catch (_) {}
-    }
-}
-
-// Mirror Auto Summarize toggle to Conversations form
-export function onChangeAutoSummarize(args) {
-    try {
-        const { context, value, selected, event } = args || {};
-        let incoming;
-        if (typeof selected === 'boolean') incoming = selected;
-        else if (typeof value === 'boolean') incoming = value;
-        else if (event && event.target) incoming = !!event.target.checked;
-        incoming = !!incoming;
-        const convCtx = context?.Context?.('conversations');
-        convCtx?.handlers?.dataSource?.setSilentFormData?.({ values: { autoSummarize: incoming } });
-        try { console.debug('[settings.autoSummarize] mirrored to conversations form (silent)', incoming); } catch(_) {}
-    } catch (e) {
-        try { console.debug('[settings.autoSummarize] onChange error', e); } catch (_) {}
-    }
-}
-
-// Toggle Execution details visibility
-export function toggleExecDetails(args) {
-    try {
-        const {context, selected, value} = args || {};
-        let enabled;
-        if (typeof selected === 'boolean') enabled = selected;
-        else if (typeof value === 'boolean') enabled = value;
-        else enabled = !!context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.()?.showExecutionDetails;
-        setExecutionDetailsEnabled(!!enabled);
-    } catch (_) {
-    }
-}
-
-// Toggle Tool feed visibility
-export function toggleToolFeed(args) {
-    try {
-        const {context, selected, value} = args || {};
-        let enabled;
-        if (typeof selected === 'boolean') enabled = selected;
-        else if (typeof value === 'boolean') enabled = value;
-        else enabled = !!context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.()?.showToolFeed;
-        setToolFeedEnabled(!!enabled);
-    } catch (_) {
-    }
-}
 
 // Open settings dialog via composer settings icon
 export async function onSettings(args) {
     const {context} = args || {};
-    try {
-        prepareSettings({context});
-    } catch (_) {
-    }
-    // Open declarative dialog by id to avoid ViewDialog execution path
-    try {
-        const dlg = context?.handlers?.dialog;
-        const win = context?.handlers?.window;
-        if (dlg && typeof dlg.open === 'function') {
-            await dlg.open({ id: 'settings' });
-            return;
-        }
-        if (win && typeof win.openDialog === 'function') {
-            try {
-                await win.openDialog('settings');
-                return;
-            } catch (e) {
-                await win.openDialog({ execution: { args: ['settings'] } });
-                return;
-            }
-        }
-    } catch (_) {}
-}
-
-
-// --- Helpers ---
-
-function getSelectedAgent(context) {
-    const conv = context.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
-    return conv.agent || '';
-}
-
-function getAgentPatterns(context, agentId) {
-    const agentContext = context.Context('agents');
-    let agents = agentContext?.handlers?.dataSource?.peekCollection?.() || [];
-
-    const agent = agents.find(a => a?.id === agentId || a?.name === agentId);
-
-    if (!agent?.tool || !Array.isArray(agent.tool)) {
-        return [];
-    }
-    return agent.tool
-        .map(extractPattern)
-        .filter(Boolean)
-        .map(canonPattern);
-}
-
-function extractPattern(item) {
-    if (typeof item === 'string') return item;
-    return item.pattern || item.definition?.name || '';
-}
-
-function canonPattern(pattern) {
-    return pattern.replace(/\//g, '_');
-}
-
-// Return the full tool objects
-function getAllTools(context) {
-    return (context.Context?.('tools')?.handlers?.dataSource?.peekCollection?.() || [])
-        .filter(t => t && t.name)  // ensure valid
-        .map(t => ({name: t.name, description: t.description || '', id: t.id}));
-}
-
-// Filter the tools by your name-based patterns
-function filterToolsByPatterns(tools, patterns) {
-    const matches = tools.filter(tool =>
-        patterns.some(pat => pat === '*' || tool.name.startsWith(pat))
-    );
-    // dedupe by name and sort
-    const unique = Array.from(new Map(matches.map(t => [t.name, t])).values());
-    return unique.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-// Build the final options, including tooltip
-function formatOptions(tools) {
-    return tools.map(tool => ({
-        id: tool.name,
-        label: tool.name,
-        value: tool.name,
-        tooltip: tool.description
-    }));
+    const win = context?.handlers?.window;
+    const settingsCtx = context.Context('settings')
+    const f = settingsCtx.handlers.dataSource.peekFormData()
+    console.log('setings f', f)
+    await win.openDialog({execution: {args: ['settings']}});
+    return;
 }
 
 
@@ -1558,6 +1097,11 @@ function formatOptions(tools) {
 export async function submitMessage(props) {
     const {context, message, parameters} = props;
     log.debug('[chat] submitMessage props', props);
+
+
+    const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+
+    const {agent, model, tool, toolCallExposure, autoSummarize, disableChains, allowedChains=[]} = metaForm
 
     const messagesContext = context.Context('messages');
     const messagesAPI = messagesContext.connector;
@@ -1575,7 +1119,8 @@ export async function submitMessage(props) {
         }
 
         const body = {
-            content: message.content,
+            content: message.content,tools:tool,
+            agent, model, toolCallExposure, autoSummarize, disableChains, allowedChains,
         }
         // Collect Forge-uploaded attachments from message (support multiple shapes) and form level
         try {
@@ -1613,72 +1158,10 @@ export async function submitMessage(props) {
             log.debug('[chat] body.attachments', body.attachments);
         }
 
-        if (parameters && parameters.model) {
-            body.model = parameters.model;
-        }
-        if (parameters && parameters.agent) {
-            body.agent = parameters.agent;
-        }
 
-        // Pull conversation-level settings to enrich the request
-        try {
-            const convCtx = context.Context('conversations');
-            const convForm = convCtx?.handlers?.dataSource?.peekFormData?.() || {};
-            const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
-            const currentAgent = (body.agent || convForm.agent || metaForm.agent || '').toString().toLowerCase();
-            const currentModel = body.model || convForm.model || metaForm.model || '';
-            if (!body.agent && currentAgent) body.agent = currentAgent;
-            if (!body.model && currentModel) body.model = currentModel;
-
-            // Tools allow-list (optional)
-            if (Array.isArray(convForm.tools) && convForm.tools.length > 0) {
-                body.tools = convForm.tools;
-            } else if (Array.isArray(metaForm.tool) && metaForm.tool.length > 0) {
-                body.tools = metaForm.tool;
-            }
-
-            // Tool exposure – prefer conversations, then meta, else default 'turn'
-            const exposure = (typeof convForm.toolCallExposure === 'string' && convForm.toolCallExposure)
-                ? convForm.toolCallExposure
-                : (typeof metaForm.toolCallExposure === 'string' && metaForm.toolCallExposure) ? metaForm.toolCallExposure : 'turn';
-            body.toolCallExposure = exposure;
-
-            // Auto summarize – prefer conversations, then meta, default false
-            const autoSum = (typeof convForm.autoSummarize === 'boolean') ? convForm.autoSummarize
-                : (typeof metaForm.autoSummarize === 'boolean') ? metaForm.autoSummarize : false;
-            body.autoSummarize = autoSum;
-
-            // Chains enabled – prefer conversations, then meta, default true → disableChains inverse
-            const chainsEnabled = (typeof convForm.chainsEnabled === 'boolean') ? convForm.chainsEnabled
-                : (typeof metaForm.chainsEnabled === 'boolean') ? metaForm.chainsEnabled : true;
-            body.disableChains = !chainsEnabled;
-
-            // Allowed chains – prefer conversations value; else meta value; else derive from agent targets; always include as array
-            let allowed = [];
-            if (Array.isArray(convForm.allowedChains)) allowed = convForm.allowedChains;
-            else if (Array.isArray(metaForm.allowedChains)) allowed = metaForm.allowedChains;
-            else if (metaForm.agentChainTargets && currentAgent && Array.isArray(metaForm.agentChainTargets[currentAgent])) {
-                allowed = metaForm.agentChainTargets[currentAgent];
-            }
-            body.allowedChains = Array.isArray(allowed) ? allowed : [];
-
-            console.debug('[chat.submit] settings snapshot', {
-                agent: body.agent,
-                model: body.model,
-                toolCallExposure: body.toolCallExposure,
-                autoSummarize: body.autoSummarize,
-                disableChains: body.disableChains,
-                allowedChains: body.allowedChains,
-            });
-        } catch (e) { try { console.debug('[chat.submit] enrich settings error', e); } catch(_) {} }
-
-        // Mark conversation running so UI can show Abort based on data-driven selector
-        try {
-            const convCtx = context.Context('conversations');
-            convCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'running'}, value: true});
-            console.debug('[chat][submit] conversations.running=true');
-        } catch (_) {
-        }
+        const convCtx = context.Context('conversations');
+        convCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'running'}, value: true});
+        console.debug('[chat][submit] conversations.running=true');
 
         // Post user message
         const postResp = await messagesAPI.post({
@@ -1715,8 +1198,12 @@ export async function submitMessage(props) {
         try {
             const convCtx = context.Context('conversations');
             convCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'running'}, value: false});
-        } catch (_) {}
-        try { setStage({phase: 'error'}); } catch (_) {}
+        } catch (_) {
+        }
+        try {
+            setStage({phase: 'error'});
+        } catch (_) {
+        }
     } finally {
         try {
             setComposerBusy(false);
@@ -1724,6 +1211,7 @@ export async function submitMessage(props) {
         }
     }
 }
+
 
 /**
  * Dummy upload placeholder to keep original API shape
@@ -2335,14 +1823,14 @@ export function prepareChangeFiles(props) {
     const {collection, context} = props
     const {dataSource} = context
     const {dataSourceRef} = dataSource
-    const patentCtx  = context.Context(dataSourceRef)
-    const form =patentCtx.handlers.dataSource.peekFormData()
+    const patentCtx = context.Context(dataSourceRef)
+    const form = patentCtx.handlers.dataSource.peekFormData()
     const {workdir} = form
     return prepareFileTree({workdir, collection})
 }
 
 
-export function prepareFileTree({ workdir, collection = [] }) {
+export function prepareFileTree({workdir, collection = []}) {
     const norm = (p) => String(p || '').replace(/\\/g, '/');
     const wd = norm(workdir).replace(/\/+$/, '');
 
@@ -2383,7 +1871,7 @@ export function prepareFileTree({ workdir, collection = [] }) {
                     name: seg,
                     isFolder: true,
                     isExpanded: true,
-                    icon:  'folder-open',
+                    icon: 'folder-open',
                     childNodes: [],
                     parentPath: acc.includes('/') ? acc.slice(0, acc.lastIndexOf('/')) : '',
                 });
@@ -2477,9 +1965,6 @@ export const chatService = {
     onSettings,
     taskStatusIcon,
     saveSettings,
-    prepareSettings,
-    toggleExecDetails,
-    toggleToolFeed,
     debugHistoryOpen,
     debugHistorySelection,
     debugMessagesLoaded,
@@ -2533,11 +2018,6 @@ export const chatService = {
     receiveMessages,
     // DS event handlers
     onFetchMessages,
-    onChangeToolCallExposure,
-    onChangeSelectedTools,
-    onChangeAllowedChains,
-    onChangeChainsEnabled,
-    onChangeAutoSummarize,
     renderers: {
         bubble: HTMLTableBubble,
         execution: ExecutionBubble,
@@ -2578,26 +2058,11 @@ function onMetaLoaded(args) {
         ...current,
         agent: defAgent,
         model: defModel,
-        // Pre-select tools allowed for the default agent so the Settings
-        // dialog shows an accurate initial state when opened before any
-        // user interaction.
-        //
-        // The mapping comes from meta.agentInfo where each agent entry may
-        // declare a list of tools it can execute. When a new chat window
-        // is opened we want those tools pre-selected, however this field
-        // was previously omitted which caused the Settings dialog to show
-        // an empty tools list.
-
-        tool: (data.agentInfo && data.agentInfo[defAgent]
-            && Array.isArray(data.agentInfo[defAgent].tools))
-            ? data.agentInfo[defAgent].tools
-            : [],
         agentInfo: data.agentInfo || {},
-        agentChainTargets: Object.fromEntries(Object.entries(data.agentInfo || {}).map(([k,v]) => [k, Array.isArray(v?.chains)? v.chains : []])),
     }
     ds.setFormData?.({values});
-
 }
+
 
 // Prevent DS from trying to assign object payload to a collection; return [] so
 // the collection path is left untouched and onSuccess can map to the form.
@@ -2605,6 +2070,7 @@ function onFetchMeta(args) {
     const {collection = [], context} = args;
     const metaCtx = context?.Context?.('meta');
     const currentForm = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
+
     const updated = collection.map(data => {
         const agentInfo = data.agentInfo || {};
         const agentsRaw = Array.isArray(data?.agents)
@@ -2622,13 +2088,18 @@ function onFetchMeta(args) {
         // and let the widget handle grouping to avoid runtime errors.
 
         const agentChainTargets = {};
-        Object.entries(agentInfo).forEach(([k,v]) => {
+        Object.entries(agentInfo).forEach(([k, v]) => {
             agentChainTargets[k] = Array.isArray(v?.chains) ? v.chains : [];
         });
         // Preserve current agent selection if present; otherwise use defaults
         const curAgent = String(currentForm.agent || data.defaults.agent || '').toLowerCase();
 
-        const defaultAllowedChains = agentChainTargets[curAgent] || [];
+
+        const settings = {...data.agentInfo[curAgent], tool: ''}
+        settings.tool = settings.tools
+        delete (settings['tools'])
+        console.log('settings---', settings)
+
         return {
             ...data,
             agentOptions: agentsRaw.map(v => ({
@@ -2645,19 +2116,10 @@ function onFetchMeta(args) {
             })),
             model: data.defaults.model,
 
-            toolOptions: toolsRaw.map(v => ({ id: String(v), value: String(v), label: String(v) })),
-            // Default selection of tools for the default agent. Use plural
-            // property name to stay consistent with the rest of the code
-            // base (saveSettings, conversationService, etc.).
-            tool: agentInfo[curAgent]?.tools || [],
+            toolOptions: toolsRaw.map(v => ({id: String(v), value: String(v), label: String(v)})),
             agentChainTargets,
-            // Dialog defaults (can be overridden by prefs/prepareSettings)
-            showExecutionDetails: true,
-            showToolFeed: true,
-            chainsEnabled: true,
-            // Do NOT set a default for toolCallExposure here; let prepareSettings seed from prefs or conversation
-            autoSummarize: (typeof currentForm.autoSummarize === 'boolean' ? currentForm.autoSummarize : false),
-            allowedChains: Array.isArray(currentForm.allowedChains) ? currentForm.allowedChains : defaultAllowedChains,
+            ...settings,
+
         };
     });
     return updated;

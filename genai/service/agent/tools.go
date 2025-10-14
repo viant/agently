@@ -34,6 +34,9 @@ func toolPatterns(qi *QueryInput) []string {
 // resolveTools resolves agent tool patterns to concrete tools and optionally
 // applies an allow-list filter based on input.ToolsAllowed.
 func (s *Service) resolveTools(qi *QueryInput, applyAllow bool) ([]llm.Tool, error) {
+	if len(qi.ToolsAllowed) == 0 && qi.ToolsAllowed != nil {
+		return []llm.Tool{}, nil
+	}
 	patterns := toolPatterns(qi)
 	if len(patterns) == 0 {
 		return nil, nil
@@ -42,9 +45,10 @@ func (s *Service) resolveTools(qi *QueryInput, applyAllow bool) ([]llm.Tool, err
 	if err != nil {
 		return nil, err
 	}
-	if !applyAllow || len(qi.ToolsAllowed) == 0 {
+	if !applyAllow || qi.ToolsAllowed == nil {
 		return tools, nil
 	}
+
 	allowed := map[string]bool{}
 	for _, n := range qi.ToolsAllowed {
 		if n = strings.TrimSpace(n); n != "" {

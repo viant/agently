@@ -75,3 +75,22 @@ func TestService_Load(t *testing.T) {
 		})
 	}
 }
+
+func TestService_Load_UIFlags(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "embed:///testdata", &testFS)))
+
+	got, err := service.Load(ctx, "flags.yaml")
+	assert.NoError(t, err)
+
+	// All three flags are provided as false in YAML and must be parsed as such
+	if assert.NotNil(t, got.ShowExecutionDetails, "ShowExecutionDetails must be set") {
+		assert.False(t, *got.ShowExecutionDetails, "ShowExecutionDetails should be false")
+	}
+	if assert.NotNil(t, got.ShowToolFeed, "ShowToolFeed must be set") {
+		assert.False(t, *got.ShowToolFeed, "ShowToolFeed should be false")
+	}
+	if assert.NotNil(t, got.AutoSummarize, "AutoSummarize must be set") {
+		assert.False(t, *got.AutoSummarize, "AutoSummarize should be false")
+	}
+}

@@ -231,7 +231,11 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	// Infer server (service name) from tool name using fluxor-mcp naming.
 	server := mcptool.Name(mcptool.Canonical(name)).Service()
 	if server != "" && convID != "" {
-		if cli, err := r.mgr.Get(ctx, convID, server); err == nil && cli != nil {
+		cli, err := r.mgr.Get(ctx, convID, server)
+		if err != nil {
+			return "", fmt.Errorf("failed to lookup tool: %v", err)
+		}
+		if cli != nil {
 			ctx = mcontext.WithClient(ctx, cli)
 			// Optionally attach token from context if present (HTTP layer).
 			if tok := authctx.Bearer(ctx); tok != "" {

@@ -103,6 +103,7 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 		convID = memory.ConversationIDFromContext(ctx)
 	}
 	if err := c.persistElicitationMessage(ctx, &params, request.Id); err != nil {
+		fmt.Printf("failed to persist elicitation message: %v", err)
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("failed to persist elicitation: %v", err), nil)
 	}
 	status, payload, err := c.elicitation.Wait(ctx, convID, params.ElicitationId)

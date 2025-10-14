@@ -79,6 +79,7 @@ func (e *Service) init(ctx context.Context) error {
 	orchestration, err := mcpsvc.New(ctx,
 		mcpsvc.WithConfig(mcpConfig),
 		mcpsvc.WithWorkflowOptions(wfOptions...),
+
 		mcpsvc.WithMcpErrorHandler(func(config *mcp.ClientOptions, err error) error {
 			fmt.Printf("mcp %v initialization error: %v\n", config.Name, err)
 			return nil
