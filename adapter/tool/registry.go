@@ -228,18 +228,10 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	// import cycles while still propagating the identifier.
 	convID := memory.ConversationIDFromContext(ctx)
 
-	// Infer server (service name) from tool name using fluxor-mcp naming.
 	server := mcptool.Name(mcptool.Canonical(name)).Service()
-	switch server {
-	case "system":
-	case "orchestration":
-		server = ""
-	}
+	//TODO get mcp server instead of service name
 	if server != "" && convID != "" {
-		cli, err := r.mgr.Get(ctx, convID, server)
-		if err != nil {
-			return "", fmt.Errorf("failed to get manager: %v", err)
-		}
+		cli, _ := r.mgr.Get(ctx, convID, server)
 		if cli != nil {
 			ctx = mcontext.WithClient(ctx, cli)
 			// Optionally attach token from context if present (HTTP layer).
