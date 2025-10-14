@@ -14,7 +14,6 @@ import (
 	"github.com/viant/agently/internal/shared"
 
 	openai "github.com/openai/openai-go/v3"
-	genpdf "github.com/viant/agently/genai/io/pdf"
 	"github.com/viant/agently/genai/llm"
 	authctx "github.com/viant/agently/internal/auth"
 )
@@ -190,36 +189,39 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 				}
 			}
 			if int64(len(textPayload)) > toolAttachThreshold {
-				// Build single-PDF attachment from text payload (for UI/logging purposes).
-				// NOTE: OpenAI chat/completions does not support 'file' content parts, so the
-				// adapter below will convert any non-image binary to a placeholder text.
-				title := fmt.Sprintf("Tool: %s", strings.TrimSpace(msg.Name))
-				if title == "Tool:" {
-					title = "Tool Result"
-				}
-				pdfBytes, err := genpdf.WriteText(context.Background(), title, textPayload)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create PDF attachment for tool result: %w", err)
-				}
-				name := sanitizeFileName(msg.Name)
-				if name == "" {
-					name = "tool-result"
-				}
-				name = fmt.Sprintf("%s-%d.pdf", name, time.Now().Unix())
-				encoded := base64.StdEncoding.EncodeToString(pdfBytes)
-				msg.Items = []llm.ContentItem{
-					{
-						Name:     name,
-						Type:     llm.ContentTypeBinary,
-						Source:   llm.SourceBase64,
-						Data:     encoded,
-						MimeType: "application/pdf",
-					},
-				}
-				// Replace legacy text with a stable placeholder to avoid token bloat.
-				msg.Content = ""
-				msg.ContentItems = nil
 			}
+
+			//if int64(len(textPayload)) > toolAttachThreshold {
+			//	// Build single-PDF attachment from text payload (for UI/logging purposes).
+			//	// NOTE: OpenAI chat/completions does not support 'file' content parts, so the
+			//	// adapter below will convert any non-image binary to a placeholder text.
+			//	title := fmt.Sprintf("Tool: %s", strings.TrimSpace(msg.Name))
+			//	if title == "Tool:" {
+			//		title = "Tool Result"
+			//	}
+			//	pdfBytes, err := genpdf.WriteText(context.Background(), title, textPayload)
+			//	if err != nil {
+			//		return nil, fmt.Errorf("failed to create PDF attachment for tool result: %w", err)
+			//	}
+			//	name := sanitizeFileName(msg.Name)
+			//	if name == "" {
+			//		name = "tool-result"
+			//	}
+			//	name = fmt.Sprintf("%s-%d.pdf", name, time.Now().Unix())
+			//	encoded := base64.StdEncoding.EncodeToString(pdfBytes)
+			//	msg.Items = []llm.ContentItem{
+			//		{
+			//			Name:     name,
+			//			Type:     llm.ContentTypeBinary,
+			//			Source:   llm.SourceBase64,
+			//			Data:     encoded,
+			//			MimeType: "application/pdf",
+			//		},
+			//	}
+			//	// Replace legacy text with a stable placeholder to avoid token bloat.
+			//	msg.Content = ""
+			//	msg.ContentItems = nil
+			//}
 		}
 
 		// Handle content based on priority: Items > ContentItems > Result
