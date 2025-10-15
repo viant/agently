@@ -45,7 +45,7 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindAgent, "chat/prompt/user.tmpl"), "default/agents/chat/prompt/user.tmpl"},
 		{filepath.Join(KindAgent, "chat/system_knowledge/golang_rules.md"), "default/agents/chat/system_knowledge/golang_rules.md"},
 		{filepath.Join(KindAgent, "chat/system_knowledge/README_DELETE_THIS.md"), "default/agents/chat/system_knowledge/README_DELETE_THIS.md"},
-		{filepath.Join(KindAgent, "chat/chatter.yaml"), "default/agents/chat/chatter.yaml"},
+		{filepath.Join(KindAgent, "chat/chat.yaml"), "default/agents/chat/chat.yaml"},
 
 		{filepath.Join(KindAgent, "coder/knowledge/README_DELETE_THIS.md"), "default/agents/coder/knowledge/README_DELETE_THIS.md"},
 		{filepath.Join(KindAgent, "coder/prompt/system.tmpl"), "default/agents/coder/prompt/system.tmpl"},
