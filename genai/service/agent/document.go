@@ -118,11 +118,6 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 		}
 
 		allDocuments = augmenterOutput.LoadDocuments(ctx, s.fs)
-		// Stop if we've collected enough documents
-		if input.MaxDocuments > 0 && len(allDocuments) >= input.MaxDocuments {
-			allDocuments = allDocuments[:input.MaxDocuments]
-			break
-		}
 	}
 	return allDocuments, nil
 }
