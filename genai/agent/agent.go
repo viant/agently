@@ -70,10 +70,10 @@ type (
 		Chains []*Chain `yaml:"chains,omitempty" json:"chains,omitempty"`
 
 		// MCPResources controls optional inclusion of MCP-accessible resources
-		// as binary attachments in the core LLM generate call. When enabled, the
-		// agent service will lazily index the specified locations with Embedius,
-		// select the top-N most relevant resources for the current query, and
-		// include them as attachments in the request.
+		// as binding documents. When enabled, the agent service lazily indexes
+		// the specified locations with Embedius, selects the top-N most relevant
+		// resources for the current query, and includes their content in the
+		// binding Documents so prompts/templates can reason over them directly.
 		MCPResources *MCPResources `yaml:"mcpResources,omitempty" json:"mcpResources,omitempty"`
 	}
 
