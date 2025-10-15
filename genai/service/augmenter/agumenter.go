@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/tmc/langchaingo/embeddings"
+	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
+	"github.com/viant/agently/internal/mcpuri"
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/embedius/indexer"
 	"github.com/viant/embedius/indexer/fs"
@@ -76,7 +78,31 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 		if input.Match != nil {
 			matchOptions = input.Match.Options()
 		}
-		augmenter = NewDocsAugmenter(input.Model, model, matchOptions...)
+		// Detect if any location targets MCP resources; if so, prefer a composite fs
+		// that supports both MCP and regular AFS sources.
+		useMCP := false
+		for _, loc := range input.Locations {
+			if mcpuri.Is(loc) {
+				useMCP = true
+				break
+			}
+		}
+		if useMCP && s.mcpMgr != nil {
+			baseURL := embeddingBaseURL()
+			matcher := matching.New(matchOptions...)
+			splitterFactory := splitter.NewFactory(4096)
+			splitterFactory.RegisterExtensionSplitter(".pdf", NewPDFSplitter(4096))
+			idx := fs.NewWithFS(baseURL, input.Model, matcher, splitterFactory, mcpfs.NewComposite(s.mcpMgr))
+			ret := &DocsAugmenter{
+				embedder:  input.Model,
+				fsIndexer: idx,
+				memStore:  mem.NewStore(mem.WithBaseURL(baseURL)),
+			}
+			ret.service = indexer.NewService(baseURL, ret.memStore, model, ret.fsIndexer)
+			augmenter = ret
+		} else {
+			augmenter = NewDocsAugmenter(input.Model, model, matchOptions...)
+		}
 		s.DocsAugmenters.Set(key, augmenter)
 	}
 	return augmenter, nil

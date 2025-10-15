@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	neturl "net/url"
 	"path"
 	"strings"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/viant/agently/genai/prompt"
 	padapter "github.com/viant/agently/genai/prompt/adapter"
 	"github.com/viant/agently/genai/service/augmenter"
+	"github.com/viant/agently/internal/mcpuri"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
@@ -83,7 +83,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	// Optionally add MCP/resource-based documents selected via Embedius.
 	// Previously these were attached as binary attachments; we now expose them
 	// as binding documents so templates can reason over their content directly.
-	if input != nil && input.Agent != nil && input.Agent.MCPResources != nil && input.Agent.MCPResources.Enabled {
+	if input.Agent != nil && input.Agent.MCPResources != nil && input.Agent.MCPResources.Enabled {
 		if md, err := s.buildMCPDocuments(ctx, input, input.Agent.MCPResources); err != nil {
 			return nil, err
 		} else if len(md) > 0 {
@@ -147,12 +147,12 @@ func (s *Service) buildMCPDocuments(ctx context.Context, input *QueryInput, cfg 
 
 		// Fetch content
 		var content []byte
-		if strings.HasPrefix(uri, "mcp:") && s.mcpMgr != nil {
+		if mcpuri.Is(uri) && s.mcpMgr != nil {
 			if resolved, err := s.fetchMCPResource(ctx, uri); err == nil && len(resolved) > 0 {
 				content = resolved
 			}
 		}
-		if len(content) == 0 && !strings.HasPrefix(uri, "mcp:") {
+		if len(content) == 0 && !mcpuri.Is(uri) {
 			if raw, err := s.fs.DownloadWithURL(ctx, uri); err == nil && len(raw) > 0 {
 				content = raw
 			}
@@ -241,26 +241,7 @@ func (s *Service) fetchMCPResource(ctx context.Context, source string) ([]byte, 
 }
 
 // parseMCPSource supports mcp://server/path and mcp:server:/path formats.
-func parseMCPSource(src string) (server, uri string) {
-	if strings.HasPrefix(src, "mcp://") {
-		if u, err := neturl.Parse(src); err == nil {
-			server = u.Host
-			uri = u.EscapedPath()
-			if u.RawQuery != "" {
-				uri += "?" + u.RawQuery
-			}
-			return
-		}
-	}
-	raw := strings.TrimPrefix(src, "mcp:")
-	if i := strings.IndexByte(raw, ':'); i != -1 {
-		return raw[:i], raw[i+1:]
-	}
-	if j := strings.IndexByte(raw, '/'); j != -1 {
-		return raw[:j], raw[j:]
-	}
-	return "", ""
-}
+func parseMCPSource(src string) (server, uri string) { return mcpuri.Parse(src) }
 
 func (s *Service) BuildHistory(ctx context.Context, transcript apiconv.Transcript, binding *prompt.Binding) error {
 	hist, err := s.buildHistory(ctx, transcript)

@@ -10,7 +10,10 @@ import (
 	"github.com/tmc/langchaingo/schema"
 	"github.com/tmc/langchaingo/vectorstores"
 	"github.com/viant/afs"
+	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	"github.com/viant/agently/genai/embedder"
+	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
+	"github.com/viant/agently/internal/mcpuri"
 	"github.com/viant/agently/internal/shared"
 	embedius "github.com/viant/embedius"
 	"github.com/viant/fluxor/model/types"
@@ -23,16 +26,27 @@ type Service struct {
 	finder         embedder.Finder
 	DocsAugmenters shared.Map[string, *DocsAugmenter]
 	CodeAugmenters shared.Map[string, *CodeAugmenter]
+	// Optional MCP client manager for resolving mcp: resources during indexing
+	mcpMgr *mcpmgr.Manager
 }
 
 // New creates a new extractor service
-func New(finder embedder.Finder) *Service {
-	return &Service{
+func New(finder embedder.Finder, opts ...func(*Service)) *Service {
+	s := &Service{
 		finder:         finder,
 		DocsAugmenters: shared.NewMap[string, *DocsAugmenter](),
 		CodeAugmenters: shared.NewMap[string, *CodeAugmenter](),
 	}
+	for _, o := range opts {
+		if o != nil {
+			o(s)
+		}
+	}
+	return s
 }
+
+// WithMCPManager attaches an MCP manager so the augmenter can index mcp: resources.
+func WithMCPManager(m *mcpmgr.Manager) func(*Service) { return func(s *Service) { s.mcpMgr = m } }
 
 // Name returns the service name
 func (s *Service) Name() string {
@@ -155,7 +169,15 @@ func (s *Service) includeDocFileContent(ctx context.Context, searchResults []sch
 				}
 				unique[loc] = true
 			}
-			data, err := fs.DownloadWithURL(ctx, loc)
+			var data []byte
+			var err error
+			if mcpuri.Is(loc) && s.mcpMgr != nil {
+				// Read via MCP
+				mfs := mcpfs.New(s.mcpMgr)
+				data, err = mfs.Download(ctx, mcpfs.NewObjectFromURI(loc))
+			} else {
+				data, err = fs.DownloadWithURL(ctx, loc)
+			}
 			if err != nil {
 				continue
 			}

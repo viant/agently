@@ -1,0 +1,6 @@
+id: flags-demo
+name: Flags Demo
+modelRef: test
+showExecutionDetails: false
+showToolFeed: false
+autoSummarize: false
