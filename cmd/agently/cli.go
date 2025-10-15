@@ -1,7 +1,6 @@
 package agently
 
 import (
-	"fmt"
 	"github.com/jessevdk/go-flags"
 	"log"
 	"os"
@@ -28,7 +27,7 @@ func Run(args []string) {
 
 	// Global version flag: print and exit successfully.
 	if opts.Version {
-		fmt.Println(Version())
+		//fmt.Println(Version())
 		os.Exit(0)
 	}
 }
