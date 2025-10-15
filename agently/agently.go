@@ -10,12 +10,12 @@ import (
 	"github.com/viant/agently/cmd/agently"
 )
 
-func main() {
+// Version is populated by build ldflags in CI/release builds.
+// Default value is "dev" for local builds.
+var Version = "dev"
 
-	//os.Setenv("AGENTLY_ROOT", "/Users/awitas/go/src/github.com/viant/agently/ag")
-	////os.Args = []string{"", "chat", "-a=chatter"}
-	//
-	//////"-q='how many tables in agently db '"}
-	//os.Args = []string{"", "serve"}
+func main() {
+	// Expose version to the CLI layer so `-v/--version` can print it.
+	agently.SetVersion(Version)
 	agently.RunWithCommands(os.Args[1:])
 }

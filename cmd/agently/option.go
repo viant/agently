@@ -3,6 +3,7 @@ package agently
 // Options is the root command that groups sub-commands.  The struct tags are
 // interpreted by github.com/jessevdk/go-flags.
 type Options struct {
+	Version     bool            `short:"v" long:"version" description:"Show agently version and exit"`
 	Config      string          `short:"f" long:"config" description:"executor config YAML/JSON path"`
 	Chat        *ChatCmd        `command:"chat"  description:"Chat with an agent (single turn or continuation)"`
 	List        *ListCmd        `command:"list"  description:"List existing conversations"`
