@@ -13,7 +13,7 @@ require (
 	github.com/viant/afs v1.26.3
 	github.com/viant/afsc v1.12.0
 	github.com/viant/datly v0.20.17
-	github.com/viant/embedius v0.2.1
+	github.com/viant/embedius v0.2.2-0.20251015195730-ac1b650a9224
 	github.com/viant/fluxor v0.4.3
 	github.com/viant/fluxor-mcp v0.2.2
 	github.com/viant/forge v0.2.16

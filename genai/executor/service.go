@@ -217,7 +217,8 @@ func (e *Service) RegistryForConversation(convID string) tool.Registry {
 
 func (e *Service) registerServices(actions *extension.Actions) {
 	// Register orchestration actions: plan, execute and finalize
-	enricher := augmenter.New(e.embedderFinder)
+	// Provide MCP manager to augmenter so it can index mcp: resources.
+	enricher := augmenter.New(e.embedderFinder, augmenter.WithMCPManager(e.mcpMgr))
 
 	e.llmCore = core.New(e.modelFinder, e.tools, e.convClient)
 

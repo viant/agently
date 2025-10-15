@@ -116,8 +116,8 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	attachMode := "upload" // prefer upload for tool-result PDFs
 	agentID := "unknownAgent"
 	var ttlSec int64
-	// default threshold ~100kB for converting tool results to PDF attachments
-	var toolAttachThreshold int64 = 100 * 1024
+	// default threshold ~200kB for converting tool results to PDF attachments
+	var toolAttachThreshold int64 = 200 * 1024
 	if request != nil && request.Options != nil && request.Options.Metadata != nil {
 		if v, ok := request.Options.Metadata["attachMode"].(string); ok && strings.TrimSpace(v) != "" {
 			attachMode = strings.ToLower(strings.TrimSpace(v))
