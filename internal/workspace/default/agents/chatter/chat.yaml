@@ -1,5 +1,5 @@
-description: Default conversational agent1
-id: chat
+chatter.yaml: Default conversational agent1
+id: chatter
 modelRef: openai_gpt-5
 name: Chat
 orchestrationFlow: workflow/orchestration.yaml
