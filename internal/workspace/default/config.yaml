@@ -1,7 +1,7 @@
 default:
   model: openai_gpt-5
   embedder: openai_text
-  agent: chat
+  agent: chatter
 models:
   url: models
 embedders:
