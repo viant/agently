@@ -2116,7 +2116,13 @@ function onFetchMeta(args) {
             })),
             model: data.defaults.model,
 
-            toolOptions: toolsRaw.map(v => ({id: String(v), value: String(v), label: String(v)})),
+            // Provide a grouping key that replaces '/' with '-' for hierarchical display,
+            // while preserving the original value used by the backend.
+            toolOptions: toolsRaw.map((v) => {
+                const raw = String(v);
+                const groupKey = raw.replaceAll('/', '-');
+                return { id: raw, value: raw, label: raw, groupKey };
+            }),
             agentChainTargets,
             ...settings,
 

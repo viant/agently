@@ -1,4 +1,4 @@
-## Tool execution details layer
+## Tool Feed details layer
 Tool execution details layer fits Forge’s existing metadata style and enables two flavors: data selection for visualization
 and control actions (commit/rollback, etc.). No code, just the model.
 
