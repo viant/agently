@@ -14,6 +14,7 @@ import (
 	"github.com/viant/agently/internal/shared"
 
 	openai "github.com/openai/openai-go/v3"
+	genpdf "github.com/viant/agently/genai/io/pdf"
 	"github.com/viant/agently/genai/llm"
 	authctx "github.com/viant/agently/internal/auth"
 )
@@ -29,6 +30,9 @@ var modelTemperature = map[string]float64{
 func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	// Create the request with defaults
 	req := &Request{}
+
+	toolCallIdsToDelete := []string{}
+	messageIndexByToolCallsId := map[string]int{}
 
 	// Set options if provided
 	if request.Options != nil {
@@ -152,8 +156,10 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		}
 	}
 
+	ToolCallIdToReplaceContent := map[string]struct{}{}
+
 	// Convert messages
-	req.Messages = make([]Message, len(request.Messages))
+	req.Messages = make([]Message, 0) //len(request.Messages))
 	for i, originalMsg := range request.Messages {
 		// Work on a local copy so we can transform tool messages if needed.
 		msg := originalMsg
@@ -188,40 +194,42 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 					}
 				}
 			}
-			if int64(len(textPayload)) > toolAttachThreshold {
-			}
 
-			//if int64(len(textPayload)) > toolAttachThreshold {
-			//	// Build single-PDF attachment from text payload (for UI/logging purposes).
-			//	// NOTE: OpenAI chat/completions does not support 'file' content parts, so the
-			//	// adapter below will convert any non-image binary to a placeholder text.
-			//	title := fmt.Sprintf("Tool: %s", strings.TrimSpace(msg.Name))
-			//	if title == "Tool:" {
-			//		title = "Tool Result"
-			//	}
-			//	pdfBytes, err := genpdf.WriteText(context.Background(), title, textPayload)
-			//	if err != nil {
-			//		return nil, fmt.Errorf("failed to create PDF attachment for tool result: %w", err)
-			//	}
-			//	name := sanitizeFileName(msg.Name)
-			//	if name == "" {
-			//		name = "tool-result"
-			//	}
-			//	name = fmt.Sprintf("%s-%d.pdf", name, time.Now().Unix())
-			//	encoded := base64.StdEncoding.EncodeToString(pdfBytes)
-			//	msg.Items = []llm.ContentItem{
-			//		{
-			//			Name:     name,
-			//			Type:     llm.ContentTypeBinary,
-			//			Source:   llm.SourceBase64,
-			//			Data:     encoded,
-			//			MimeType: "application/pdf",
-			//		},
-			//	}
-			//	// Replace legacy text with a stable placeholder to avoid token bloat.
-			//	msg.Content = ""
-			//	msg.ContentItems = nil
-			//}
+			if int64(len(textPayload)) > toolAttachThreshold {
+				// Build single-PDF attachment from text payload (for UI/logging purposes).
+				// NOTE: OpenAI chat/completions does not support 'file' content parts, so the
+				// adapter below will convert any non-image binary to a placeholder text.
+				title := fmt.Sprintf("Tool: %s", strings.TrimSpace(msg.Name))
+				if title == "Tool:" {
+					title = "Tool Result"
+				}
+				pdfBytes, err := genpdf.WriteText(context.Background(), title, textPayload)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create PDF attachment for tool result: %w", err)
+				}
+				name := sanitizeFileName(msg.Name)
+				if name == "" {
+					name = "tool-result"
+				}
+				name = fmt.Sprintf("%s-%d.pdf", name, time.Now().Unix())
+				encoded := base64.StdEncoding.EncodeToString(pdfBytes)
+				msg.Items = []llm.ContentItem{
+					{
+						Name:     name,
+						Type:     llm.ContentTypeBinary,
+						Source:   llm.SourceBase64,
+						Data:     encoded,
+						MimeType: "application/pdf",
+					},
+				}
+				// Replace legacy text with a stable placeholder to avoid token bloat.
+				msg.Content = ""
+				msg.ContentItems = nil
+				ToolCallIdToReplaceContent[msg.ToolCallId] = struct{}{}
+
+				msg.Content = `{"status":"ok","file_id":"abc","filename":"abc.txt","bytes":0}`
+
+			}
 		}
 
 		// Handle content based on priority: Items > ContentItems > Result
@@ -291,16 +299,26 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 							if err != nil {
 								return nil, fmt.Errorf("failed to upload PDF content item: %w", err)
 							}
-							contentItem.Type = "file"
-							//contentItem.File = &File{FileID: fileID, FileName: item.Name} TODO can't put file name
-							contentItem.File = &File{FileID: fileID}
+
+							_, ok := ToolCallIdToReplaceContent[msg.ToolCallId]
+							if msg.Role == "tool" && ok {
+								msg.Content = fmt.Sprintf(`{"status":"ok","file_id":"%s","filename":"%s","bytes":%d}`, fileID, item.Name, len(item.Data))
+								msg.Items = []llm.ContentItem{}
+							} else {
+								contentItem.Type = "file"
+								contentItem.File = &File{FileID: fileID}
+							}
+
 						}
 					}
-					//return nil, fmt.Errorf("unsupported binary content item (mimeType: %v)", item.MimeType)
 				}
 				contentItems[j] = contentItem
 			}
-			message.Content = contentItems
+			if _, ok := ToolCallIdToReplaceContent[msg.ToolCallId]; !ok {
+				message.Content = contentItems
+			} else {
+				message.Content = msg.Content
+			}
 		} else if len(msg.ContentItems) > 0 {
 			// Legacy: Convert ContentItems to OpenAI format
 			contentItems := make([]ContentItem, len(msg.ContentItems))
@@ -352,10 +370,16 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		}
 
 		message.ToolCallId = msg.ToolCallId
+
+		if message.Role == "changeBackToAssistant" {
+			toolCallIdsToDelete = append(toolCallIdsToDelete, msg.ToolCallId)
+			message.Role = "assistant"
+		}
 		// Convert tool calls if present
 		if len(msg.ToolCalls) > 0 {
 			message.ToolCalls = make([]ToolCall, len(msg.ToolCalls))
 			for j, toolCall := range msg.ToolCalls {
+				messageIndexByToolCallsId[toolCall.ID] = i
 				message.ToolCalls[j] = ToolCall{
 					ID:   toolCall.ID,
 					Type: "function",
@@ -368,7 +392,8 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 			}
 		}
 
-		req.Messages[i] = message
+		req.Messages = append(req.Messages, message)
+		//req.Messages[i] = message
 	}
 
 	return req, nil
