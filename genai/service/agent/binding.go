@@ -80,25 +80,22 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 	b.Context = input.Context
 
-	// Optionally add MCP/resource-based attachments selected via Embedius
+	// Optionally add MCP/resource-based documents selected via Embedius.
+	// Previously these were attached as binary attachments; we now expose them
+	// as binding documents so templates can reason over their content directly.
 	if input != nil && input.Agent != nil && input.Agent.MCPResources != nil && input.Agent.MCPResources.Enabled {
-		if atts, err := s.buildMCPAttachments(ctx, input, input.Agent.MCPResources); err != nil {
+		if md, err := s.buildMCPDocuments(ctx, input, input.Agent.MCPResources); err != nil {
 			return nil, err
-		} else if len(atts) > 0 {
-			// Append to task-scoped attachments so core generate can include them directly
-			if len(b.Task.Attachments) == 0 {
-				b.Task.Attachments = atts
-			} else {
-				b.Task.Attachments = append(b.Task.Attachments, atts...)
-			}
+		} else if len(md) > 0 {
+			b.Documents.Items = append(b.Documents.Items, md...)
 		}
 	}
 	return b, nil
 }
 
-// buildMCPAttachments matches resources using Embedius and converts top-N results
-// into prompt attachments. Indexing is handled lazily by the augmenter service.
-func (s *Service) buildMCPAttachments(ctx context.Context, input *QueryInput, cfg *agent.MCPResources) ([]*prompt.Attachment, error) {
+// buildMCPDocuments matches resources using Embedius and converts top-N results
+// into binding documents. Indexing is handled lazily by the augmenter service.
+func (s *Service) buildMCPDocuments(ctx context.Context, input *QueryInput, cfg *agent.MCPResources) ([]*prompt.Document, error) {
 	if input == nil || cfg == nil {
 		return nil, nil
 	}
@@ -129,39 +126,48 @@ func (s *Service) buildMCPAttachments(ctx context.Context, input *QueryInput, cf
 	}
 	augOut := &augmenter.AugmentDocsOutput{}
 	if err := s.augmenter.AugmentDocs(ctx, augIn, augOut); err != nil {
-		return nil, fmt.Errorf("failed to build MCP attachments: %w", err)
+		return nil, fmt.Errorf("failed to build MCP documents: %w", err)
 	}
 
-	// Load original file contents for selected documents and attach them
-	var atts []*prompt.Attachment
-	docs := augOut.LoadDocuments(ctx, s.fs)
-	for i, d := range docs {
+	// Build binding documents from selected resources; fetch full content from MCP/FS.
+	var docsOut []*prompt.Document
+	unique := map[string]bool{}
+	for i, d := range augOut.Documents {
 		if cfg.MaxFiles > 0 && i >= cfg.MaxFiles {
 			break
 		}
 		uri := extractSource(d.Metadata)
-		name := baseName(uri)
-		// Prefer fetching original bytes rather than using PageContent (text)
-		var data []byte
-		// Resolve via MCP when mcp URI and manager present
+		if strings.TrimSpace(uri) == "" {
+			continue
+		}
+		if unique[uri] {
+			continue
+		}
+		unique[uri] = true
+
+		// Fetch content
+		var content []byte
 		if strings.HasPrefix(uri, "mcp:") && s.mcpMgr != nil {
 			if resolved, err := s.fetchMCPResource(ctx, uri); err == nil && len(resolved) > 0 {
-				data = resolved
+				content = resolved
 			}
 		}
-		// Fallback to filesystem for non-MCP URIs
-		if len(data) == 0 && !strings.HasPrefix(uri, "mcp:") {
+		if len(content) == 0 && !strings.HasPrefix(uri, "mcp:") {
 			if raw, err := s.fs.DownloadWithURL(ctx, uri); err == nil && len(raw) > 0 {
-				data = raw
+				content = raw
 			}
 		}
-		// Last resort: use loaded document content when bytes were unavailable
-		if len(data) == 0 {
-			data = []byte(d.PageContent)
+		if len(content) == 0 && strings.TrimSpace(d.PageContent) != "" {
+			content = []byte(d.PageContent)
 		}
-		atts = append(atts, &prompt.Attachment{Name: name, URI: uri, Data: data})
+
+		docsOut = append(docsOut, &prompt.Document{
+			Title:       baseName(uri),
+			PageContent: string(content),
+			SourceURI:   uri,
+		})
 	}
-	return atts, nil
+	return docsOut, nil
 }
 
 func extractSource(meta map[string]any) string {
