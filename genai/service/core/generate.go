@@ -71,6 +71,12 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to prompt: %w", err)
 	}
 
+	if i.Binding != nil {
+		for _, doc := range i.Binding.SystemDocuments.Items {
+			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole("system"), doc.PageContent))
+		}
+	}
+
 	if i.Binding != nil && len(i.Binding.History.Messages) > 0 {
 		messages := i.Binding.History.Messages
 		for k := 0; k < len(messages); k++ {
@@ -211,11 +217,9 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInput) (*llm.GenerateRequest, llm.Model, error) {
 
 	input.MatchModelIfNeeded(s.modelMatcher)
-
 	if input.Binding == nil {
 		input.Binding = &prompt.Binding{}
 	}
-
 	model, err := s.llmFinder.Find(ctx, input.Model)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to find model: %w", err)
