@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"github.com/viant/agently/genai/llm"
@@ -31,39 +33,66 @@ func toolPatterns(qi *QueryInput) []string {
 	return out
 }
 
-// resolveTools resolves agent tool patterns to concrete tools and optionally
-// applies an allow-list filter based on input.ToolsAllowed.
-func (s *Service) resolveTools(qi *QueryInput, applyAllow bool) ([]llm.Tool, error) {
-	if len(qi.ToolsAllowed) == 0 && qi.ToolsAllowed != nil {
-		return []llm.Tool{}, nil
+// resolveTools resolves tools using the following precedence:
+//   - If input.ToolsAllowed is provided (non-nil), resolve exactly those tools by name
+//     and do not gate by agent patterns.
+//   - Otherwise, resolve tools from agent patterns.
+func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool, error) {
+	// Clear any previous registry warnings before this resolution cycle.
+	if w, ok := s.registry.(interface{ ClearWarnings() }); ok {
+		w.ClearWarnings()
 	}
+	// Prefer explicit allow-list when provided (even if empty).
+	if qi.ToolsAllowed != nil {
+		if len(qi.ToolsAllowed) == 0 {
+			return []llm.Tool{}, nil
+		}
+		var out []llm.Tool
+		for _, n := range qi.ToolsAllowed {
+			name := strings.TrimSpace(n)
+			if name == "" {
+				continue
+			}
+			if def, ok := s.registry.GetDefinition(name); ok && def != nil {
+				out = append(out, llm.Tool{Type: "function", Definition: *def})
+				continue
+			}
+			// Allowed tool not found: add a warning to query output via context.
+			appendWarning(ctx, fmt.Sprintf("allowed tool not found: %s", name))
+		}
+		// Append any registry warnings (e.g., unreachable servers) to output warnings via context.
+		if w, ok := s.registry.(interface {
+			LastWarnings() []string
+			ClearWarnings()
+		}); ok {
+			for _, msg := range w.LastWarnings() {
+				appendWarning(ctx, msg)
+			}
+			w.ClearWarnings()
+		}
+		return out, nil
+	}
+
+	// Fall back to agent patterns when no explicit allow-list is provided.
 	patterns := toolPatterns(qi)
 	if len(patterns) == 0 {
 		return nil, nil
 	}
-	tools, err := s.registry.MustHaveTools(patterns)
-	if err != nil {
-		return nil, err
-	}
-	if !applyAllow || qi.ToolsAllowed == nil {
-		return tools, nil
-	}
-
-	allowed := map[string]bool{}
-	for _, n := range qi.ToolsAllowed {
-		if n = strings.TrimSpace(n); n != "" {
-			allowed[n] = true
+	var out []llm.Tool
+	for _, p := range patterns {
+		for _, def := range s.registry.MatchDefinition(p) {
+			out = append(out, llm.Tool{Type: "function", Definition: *def})
 		}
 	}
-	var filtered []llm.Tool
-	for _, t := range tools {
-		name := strings.TrimSpace(t.Definition.Name)
-		if name == "" {
-			continue
+	// Append any registry warnings raised during matching.
+	if w, ok := s.registry.(interface {
+		LastWarnings() []string
+		ClearWarnings()
+	}); ok {
+		for _, msg := range w.LastWarnings() {
+			appendWarning(ctx, msg)
 		}
-		if allowed[name] {
-			filtered = append(filtered, t)
-		}
+		w.ClearWarnings()
 	}
-	return filtered, nil
+	return out, nil
 }

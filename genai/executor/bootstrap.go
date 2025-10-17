@@ -8,32 +8,37 @@ import (
 	"strings"
 
 	clientmcp "github.com/viant/agently/adapter/mcp"
-	"github.com/viant/agently/adapter/tool"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/elicitation"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
-	"github.com/viant/agently/genai/tool/proxy"
-	agentrepo "github.com/viant/agently/internal/repository/agent"
-	embedderrepo "github.com/viant/agently/internal/repository/embedder"
-	extrepo "github.com/viant/agently/internal/repository/extension"
-	modelrepo "github.com/viant/agently/internal/repository/model"
-	"github.com/viant/fluxor/model/types"
+	gtool "github.com/viant/agently/genai/tool"
+	"github.com/viant/agently/internal/workspace/repository/agent"
+	embedderrepo "github.com/viant/agently/internal/workspace/repository/embedder"
+	extrepo "github.com/viant/agently/internal/workspace/repository/extension"
+	"github.com/viant/agently/internal/workspace/repository/model"
 
 	"github.com/viant/afs"
-	mcprepo "github.com/viant/agently/internal/repository/mcp"
 	"github.com/viant/agently/internal/workspace"
+	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
 	"github.com/viant/datly/view"
-	"github.com/viant/fluxor"
-	mcpsvc "github.com/viant/fluxor-mcp/mcp"
-	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
-	"github.com/viant/mcp"
+	// decoupled from orchestration
+	mcpcfg "github.com/viant/agently/internal/mcp/config"
+	mcpmgr "github.com/viant/agently/internal/mcp/manager"
+	protoclient "github.com/viant/mcp-protocol/client"
+	// mcp client types not used here
 	"gopkg.in/yaml.v3"
 
-	texecutor "github.com/viant/fluxor/service/executor"
-	// Helpers for exposing agents as Fluxor services
+	"github.com/viant/agently/genai/conversation"
+	agent2 "github.com/viant/agently/genai/service/agent"
+	augmenter "github.com/viant/agently/genai/service/augmenter"
+	core "github.com/viant/agently/genai/service/core"
+	llmexectool "github.com/viant/agently/genai/tool/service/llm/exec"
+	// removed executor options
+	// Helpers for exposing agents as tools
 	//	"github.com/viant/agently/genai/executor/agenttool"
+	apprmem "github.com/viant/agently/internal/approval/memory"
 )
 
 // init prepares the Service for handling requests.
@@ -53,66 +58,52 @@ func (e *Service) init(ctx context.Context) error {
 	}
 
 	// ------------------------------------------------------------------
-	// Step 3: orchestration service (single source of truth for workflows & tools)
+	// Step 3: Tool registry (MCP-backed) and agent tools exposure
 	// ------------------------------------------------------------------
-
-	// Translate executor Config → fluxor-mcp Config (reuse MCP section directly)
-	mcpConfig := &mcpcfg.Config{
-		Builtins: e.config.Services,
-		MCP:      e.config.MCP,
-	}
-
-	// Collect additional fluxor options that Agently requires.
-	wfOptions := append(e.fluxorOptions,
-		fluxor.WithServiceProxy(func(base types.Service) types.Service {
-			ret := proxy.New(base, e.convClient)
-			e.services[base.Name()] = ret
-			return ret
-		}),
-		fluxor.WithMetaService(e.config.Meta()),
-		fluxor.WithExecutorOptions(
-			texecutor.WithApprovalSkipPrefixes("llm/"),
-		),
-		fluxor.WithRootTaskNodeName("stage"))
-
-	// Build orchestration (fluxor-mcp) service instance
-	orchestration, err := mcpsvc.New(ctx,
-		mcpsvc.WithConfig(mcpConfig),
-		mcpsvc.WithWorkflowOptions(wfOptions...),
-
-		mcpsvc.WithMcpErrorHandler(func(config *mcp.ClientOptions, err error) error {
-			fmt.Printf("mcp %v initialization error: %v\n", config.Name, err)
-			return nil
-		}),
-		mcpsvc.WithClientHandler(e.clientHandler),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create orchestration service: %w", err)
-	}
-	e.orchestration = orchestration
-
-	// ------------------------------------------------------------------
-	// Step 3b: expose agents as callable tools via orchestration service
-	// ------------------------------------------------------------------
-	if err := e.registerAgentTools(); err != nil {
-		return fmt.Errorf("failed to register agent tools: %w", err)
-	}
 	if e.tools == nil {
 		if e.mcpMgr == nil {
 			return fmt.Errorf("executor: mcp manager not configured for tool registry")
 		}
-		reg, err := tool.New(e.orchestration, e.mcpMgr)
+		reg, err := gtool.NewDefaultRegistry(e.mcpMgr)
 		if err != nil {
 			return err
 		}
+		// Eagerly initialize registry (preload MCP servers/tools). Warnings are logged.
+		reg.Initialize(ctx)
+		// Expose agents as virtual tools when supported
+		gtool.InjectVirtualAgentTools(reg, e.config.Agent.Items, "")
 		e.tools = reg
 	}
 
-	// ------------------------------------------------------------------
-	// Step 4: register Agently-specific extension services on the shared runtime
-	// ------------------------------------------------------------------
-	actions := orchestration.WorkflowService().Actions()
-	e.registerServices(actions)
+	// Initialise decoupled core/agent services and conversation manager
+	enricher := augmenter.New(e.embedderFinder, augmenter.WithMCPManager(e.mcpMgr))
+	e.llmCore = core.New(e.modelFinder, e.tools, e.convClient)
+	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, &e.config.Default, e.convClient,
+		func(s *agent2.Service) {
+			if e.elicitationRouter != nil {
+				agent2.WithElicitationRouter(e.elicitationRouter)(s)
+			}
+		},
+		func(s *agent2.Service) {
+			if e.newAwaiter != nil {
+				agent2.WithNewElicitationAwaiter(e.newAwaiter)(s)
+			}
+		},
+	)
+	e.agentService = agentSvc
+
+	// Register llm/exec service as internal MCP for run_agent using Service.Name().
+	if e.tools != nil && agentSvc != nil {
+		gtool.AddInternalService(e.tools, llmexectool.New(agentSvc))
+	}
+	convHandler := func(ctx context.Context, in *agent2.QueryInput, out *agent2.QueryOutput) error {
+		exec, err := agentSvc.Method("query")
+		if err != nil {
+			return err
+		}
+		return exec(ctx, in, out)
+	}
+	e.convManager = conversation.New(convHandler)
 
 	return nil
 }
@@ -153,6 +144,11 @@ func (e *Service) initDefaults(ctx context.Context) {
 	e.initEmbedders()
 	e.initAgent(ctx)
 	e.initMcp()
+
+	// Default approval service (in-memory) when not injected
+	if e.approvalSvc == nil {
+		e.approvalSvc = apprmem.New()
+	}
 
 	if e.modelFinder == nil {
 		finder := e.config.DefaultModelFinder()
@@ -307,6 +303,15 @@ func (e *Service) initMcp() {
 				e.config.MCP.Items = append(e.config.MCP.Items, &clone)
 			}
 		}
+	}
+
+	// Ensure a default MCP manager exists when not injected via options.
+	if e.mcpMgr == nil {
+		prov := mcpmgr.NewRepoProvider()
+		// Reuse the already-initialised client handler so that elicitations and
+		// conversation persistence are consistent across CLI/HTTP flows.
+		hFactory := func() protoclient.Handler { return e.clientHandler }
+		e.mcpMgr = mcpmgr.New(prov, mcpmgr.WithHandlerFactory(hFactory))
 	}
 
 }

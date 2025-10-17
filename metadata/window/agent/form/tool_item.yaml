@@ -8,7 +8,7 @@
     type: text
 
   # -------------------------------------------------------------------------
-  # Pattern that resolves to an actual fluxor tool implementation.
+  # Pattern that resolves to an actual tool implementation.
   # -------------------------------------------------------------------------
   - id: pattern
     label: Pattern

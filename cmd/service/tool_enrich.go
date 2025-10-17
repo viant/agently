@@ -1,10 +1,11 @@
 package service
 
 import (
-	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/internal/overlay"
-	"github.com/viant/mcp-protocol/schema"
 	"strings"
+
+	"github.com/viant/agently/genai/llm"
+	overlay2 "github.com/viant/agently/internal/workspace/overlay"
+	"github.com/viant/mcp-protocol/schema"
 )
 
 // enrichSchema merges the first matching overlay into base. It returns base
@@ -33,8 +34,8 @@ func enrichSchema(base map[string]any) map[string]any {
 
 	// Always fix nodes prior to applying overlay so UI widgets behave nicely
 	fixSchemaNode(base)
-	for _, ov := range overlay.All() {
-		if len(ov.Match.Fields) > 0 && !overlay.FieldsMatch(cloneProps, ov.Match.Fields, false) {
+	for _, ov := range overlay2.All() {
+		if len(ov.Match.Fields) > 0 && !overlay2.FieldsMatch(cloneProps, ov.Match.Fields, false) {
 			continue
 		}
 		clone := make(map[string]any, len(base))

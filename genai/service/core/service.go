@@ -9,7 +9,7 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/fluxor/model/types"
+	svc "github.com/viant/agently/genai/tool/service"
 )
 
 const Name = "llm/core"
@@ -49,8 +49,8 @@ func (s *Service) Name() string {
 }
 
 // Methods returns the service methods
-func (s *Service) Methods() types.Signatures {
-	return []types.Signature{
+func (s *Service) Methods() svc.Signatures {
+	return []svc.Signature{
 		{
 			Name:     "generate",
 			Internal: true,
@@ -61,12 +61,12 @@ func (s *Service) Methods() types.Signatures {
 }
 
 // Method returns the specified method
-func (s *Service) Method(name string) (types.Executable, error) {
+func (s *Service) Method(name string) (svc.Executable, error) {
 	switch strings.ToLower(name) {
 	case "generate":
 		return s.generate, nil
 	default:
-		return nil, types.NewMethodNotFoundError(name)
+		return nil, svc.NewMethodNotFoundError(name)
 	}
 }
 

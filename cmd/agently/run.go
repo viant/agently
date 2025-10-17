@@ -42,13 +42,8 @@ func (r *RunCmd) Execute(_ []string) error {
 	baseCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fluxPol := buildFluxorPolicy(r.Policy)
-	toolPol := &tool.Policy{Mode: fluxPol.Mode, Ask: stdinAsk}
-	stopApprove := startApprovalLoop(baseCtx, svc, fluxPol)
-	defer stopApprove()
-
+	toolPol := buildPolicy(r.Policy)
 	ctx := tool.WithPolicy(baseCtx, toolPol)
-	ctx = withFluxorPolicy(ctx, fluxPol)
 
 	// Build service wrapper (no interaction handler since run is one-shot)
 	agentlySvc := service.New(svc, service.Options{})

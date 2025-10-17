@@ -5,8 +5,8 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/storage"
-	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
-	"github.com/viant/agently/internal/mcpuri"
+	mcpmgr "github.com/viant/agently/internal/mcp/manager"
+	mcpuri "github.com/viant/agently/internal/mcp/uri"
 )
 
 // Composite implements embedius fs.Service delegating to MCP or AFS

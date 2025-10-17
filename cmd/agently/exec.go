@@ -10,20 +10,19 @@ import (
 
 	"github.com/google/uuid"
 	mcpclienthandler "github.com/viant/agently/adapter/mcp"
-	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	mcprouter "github.com/viant/agently/adapter/mcp/router"
 	convfactory "github.com/viant/agently/client/conversation/factory"
 	"github.com/viant/agently/cmd/service"
 	elicitation "github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/memory"
-	"github.com/viant/fluxor-mcp/mcp/tool"
+	mcpmgr "github.com/viant/agently/internal/mcp/manager"
+	mcpname "github.com/viant/agently/pkg/mcpname"
 	protoclient "github.com/viant/mcp-protocol/client"
 )
 
 // ExecCmd executes a registered tool via the Agently executor. It mirrors the
-// behaviour of fluxor-mcp's `exec` command so that users switching between the
-// two CLIs get a consistent experience.
+// provides a consistent experience for ad‑hoc tool execution.
 type ExecCmd struct {
 	Name       string `short:"n" long:"name" positional-arg-name:"tool" description:"Tool name (service_method)" required:"yes"`
 	Inline     string `short:"i" long:"input" description:"Inline JSON arguments (object)"`
@@ -109,7 +108,7 @@ func (c *ExecCmd) Execute(_ []string) error {
 	}
 	ctx = memory.WithConversationID(ctx, convID)
 	ctx = memory.WithTurnMeta(ctx, turn)
-	canonical := tool.Canonical(c.Name)
+	canonical := mcpname.Canonical(c.Name)
 	resp, err := svc.ExecuteTool(ctx, service.ToolRequest{
 		Name:    canonical,
 		Args:    args,

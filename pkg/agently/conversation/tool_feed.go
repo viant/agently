@@ -3,7 +3,7 @@ package conversation
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"strings"
 
 	"sort"
@@ -15,7 +15,7 @@ import (
 	"github.com/viant/agently/pkg/agently/tool"
 	"github.com/viant/agently/pkg/agently/tool/invoker"
 	selres "github.com/viant/agently/pkg/agently/tool/resolver"
-	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
+	mcpname "github.com/viant/agently/pkg/mcpname"
 )
 
 // computeToolFeed computes ToolFeed for a transcript turn using configured FeedSpec.
@@ -32,13 +32,13 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 
 	// Collect tool calls in this turn keyed by canonical tool name
 	// and capture the set of present tool names
-	toolCallsByName := map[mcptool.Name][]*ToolCallView{}
+	toolCallsByName := map[mcpname.Name][]*ToolCallView{}
 	for _, m := range t.Message {
 		if m == nil || m.ToolCall == nil {
 			continue
 		}
-		toolName := mcptool.Canonical(strings.TrimSpace(m.ToolCall.ToolName))
-		key := mcptool.Name(toolName)
+		toolName := mcpname.Canonical(strings.TrimSpace(m.ToolCall.ToolName))
+		key := mcpname.Name(toolName)
 		if _, ok := feeds[key]; !ok {
 			continue
 		}
@@ -56,7 +56,7 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 		if feed.ShallInvokeTool() { //invoke one per match
 			inv := invoker.From(ctx)
 			if inv == nil {
-				return nil, fmt.Errorf("tool service was emtpy")
+				return nil, errors.New("tool service was empty")
 			}
 			method := feed.Activation.Method
 			if method == "" {
@@ -64,7 +64,7 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 			}
 			output, err := inv.Invoke(ctx, key.Service(), method, feed.Activation.Args)
 			if err != nil {
-				return nil, fmt.Errorf("failed to invoke feed: %v", err)
+				return nil, err
 			}
 			var payload string
 			switch actual := output.(type) {
@@ -72,7 +72,7 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 				payload = actual
 				resp := map[string]interface{}{}
 				if json.Unmarshal([]byte(actual), &resp) == nil {
-					if _, ok := resp["status"]; ok && len(resp) == 1 { //no actual data
+					if _, ok := resp["status"]; ok && len(resp) == 1 {
 						continue
 					}
 				}
@@ -93,6 +93,13 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 		key := feed.Match.Name()
 		toolCalls, ok := toolCallsByName[key]
 		if !ok {
+			// Case-insensitive fallback by matching on lower-cased canonical
+			lcKey := mcpname.Name(strings.ToLower(string(key)))
+			if v, ok2 := toolCallsByName[lcKey]; ok2 {
+				toolCalls, ok = v, true
+			}
+		}
+		if !ok {
 			continue
 		}
 		// Add a per-turn suffix to data source names and rewire UI refs using HighwayHash64(turnId)
@@ -107,7 +114,7 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 
 		feedDataSource, err := feed.DataSources.FeedDataSource()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get feed %v source selector: %v", feed.ID, err)
+			return nil, err
 		}
 
 		var toolFeedData interface{}
@@ -119,11 +126,12 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 			if toolCall.ResponsePayload != nil && toolCall.ResponsePayload.InlineBody != nil {
 				toolCallOutput, _ = stringToData(*toolCall.ResponsePayload.InlineBody)
 			}
-			if extracted := selres.Select(feedDataSource.Source, toolCallInput, toolCallOutput); extracted != nil {
+			extracted := selres.Select(feedDataSource.Source, toolCallInput, toolCallOutput)
+			if extracted != nil {
 				if toolFeedData != nil {
 					merged, err := conv.MergeSlices(toolFeedData, extracted)
 					if err != nil {
-						return nil, fmt.Errorf("failed to merge feed data: %T %T, %w", extracted, toolFeedData, err)
+						return nil, err
 					}
 					toolFeedData = merged
 				} else {

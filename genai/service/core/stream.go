@@ -10,7 +10,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/modelcallctx"
 	stream "github.com/viant/agently/genai/service/core/stream"
-	fluxortypes "github.com/viant/fluxor/model/types"
+	svc "github.com/viant/agently/genai/tool/service"
 )
 
 type StreamInput struct {
@@ -79,11 +79,11 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 func (s *Service) validateStreamIO(in, out interface{}) (*StreamInput, *StreamOutput, error) {
 	input, ok := in.(*StreamInput)
 	if !ok {
-		return nil, nil, fluxortypes.NewInvalidInputError(in)
+		return nil, nil, svc.NewInvalidInputError(in)
 	}
 	output, ok := out.(*StreamOutput)
 	if !ok {
-		return nil, nil, fluxortypes.NewInvalidOutputError(out)
+		return nil, nil, svc.NewInvalidOutputError(out)
 	}
 	if input.StreamID == "" {
 		return nil, nil, fmt.Errorf("streamID was empty")

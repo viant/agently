@@ -59,3 +59,6 @@ func (s *scopedRegistry) Execute(ctx context.Context, name string, args map[stri
 
 // SetDebugLogger delegates to the underlying registry.
 func (s *scopedRegistry) SetDebugLogger(w io.Writer) { s.inner.SetDebugLogger(w) }
+
+// Initialize delegates to the underlying registry.
+func (s *scopedRegistry) Initialize(ctx context.Context) { s.inner.Initialize(ctx) }

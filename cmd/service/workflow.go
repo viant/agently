@@ -3,13 +3,13 @@ package service
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/viant/agently/genai/usage"
 )
 
-// WorkflowRequest describes parameters to execute a Fluxor workflow.
+// WorkflowRequest is retained for backward compatibility. In decoupled mode,
+// workflow execution is not available and requests will return an error.
 type WorkflowRequest struct {
 	// Location points to a YAML/JSON workflow definition. It can be an
 	// absolute URL, a filesystem path or a relative path resolved by the
@@ -39,84 +39,5 @@ type WorkflowResponse struct {
 // otherwise only the specified task is executed. The method waits until
 // completion or timeout.
 func (s *Service) ExecuteWorkflow(ctx context.Context, req WorkflowRequest) (*WorkflowResponse, error) {
-	if s == nil || s.exec == nil {
-		return nil, fmt.Errorf("service not initialised")
-	}
-
-	orch := s.exec.Orchestration()
-	if orch == nil {
-		return nil, fmt.Errorf("orchestration runtime not initialised")
-	}
-
-	runtime := orch.WorkflowRuntime()
-	if runtime == nil {
-		return nil, fmt.Errorf("workflow runtime is nil")
-	}
-
-	if req.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, req.Timeout)
-		defer cancel()
-	}
-
-	ctx, agg := usage.WithAggregator(ctx)
-
-	location := req.Location
-	if !strings.Contains(location, "/") {
-		location = "workflows/" + location
-	}
-	wf, err := runtime.LoadWorkflow(ctx, location)
-	if err != nil {
-		return nil, fmt.Errorf("load workflow: %w", err)
-	}
-
-	var output interface{}
-
-	if req.TaskID != "" {
-		// Single task execution path.
-		output, err = runtime.RunTaskOnce(ctx, wf, req.TaskID, req.Input)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// Full workflow execution path; start a process and wait.
-		initial := map[string]interface{}{}
-		if req.Input != nil {
-			switch actual := req.Input.(type) {
-			case map[string]interface{}:
-				for k, v := range actual {
-					initial[k] = v
-				}
-			default:
-				initial["input"] = req.Input
-			}
-		}
-
-		_, waitFn, err := runtime.StartProcess(ctx, wf, initial)
-		if err != nil {
-			return nil, err
-		}
-
-		// Use provided timeout or default wait.
-		waitTimeout := req.Timeout
-		if waitTimeout == 0 {
-			waitTimeout = 30 * time.Minute
-		}
-
-		procOut, err := waitFn(ctx, waitTimeout)
-		if err != nil {
-			return nil, err
-		}
-		if len(procOut.Errors) > 0 {
-			if len(procOut.Output) == 0 {
-				procOut.Output = map[string]interface{}{}
-			}
-			procOut.Output["error"] = procOut.Errors
-		}
-		if procOut != nil {
-			output = procOut.Output
-		}
-	}
-
-	return &WorkflowResponse{Output: output, Usage: agg}, nil
+	return nil, fmt.Errorf("workflow orchestration is not available in decoupled mode")
 }

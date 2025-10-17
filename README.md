@@ -11,7 +11,7 @@ Agently is a Go framework for building and interacting with AI agents. It provid
 - **Embeddings**: Support for text embeddings for semantic search and retrieval
 - **CLI Interface**: Interact with agents through a command-line interface
 - **HTTP Server**: Deploy agents as web services
-- **Workflow Engine**: Built on Viant's Fluxor workflow engine for orchestrating complex agent tasks
+- **Orchestration (Decoupled)**: Agent turns are executed without a Fluxor runtime. MCP tools and internal services are coordinated directly by Agently.
 
 ## Installation
 
@@ -253,7 +253,7 @@ Agently stores all editable resources under **`$AGENTLY_ROOT`** (defaults to
 ~/.agently/
   agents/      # *.yaml agent definitions
   models/      # LLM or embedder configs
-  workflows/   # Fluxor workflow graphs
+  workflows/   # (deprecated)
   mcp/         # MCP client definitions
 ```
 
@@ -349,26 +349,22 @@ Agently supports rendering prompts with the velty template engine so you can
 compose rich queries from structured inputs.
 
 Where you can use templates:
-- Agent workflow run (Fluxor): llm/agent:run input accepts queryTemplate in
-  addition to query. The template is rendered with variables:
+- Agent prompts can be templated (Velty). Templates render with variables:
   - Prompt – the original query string
   - everything from context – each key becomes a template variable
 
-Example (Fluxor task):
+Example (templated prompt):
 
 ```
-action: llm/agent:run
-input:
-  agentId: designer
-  query: "Initial feature brief"
-  queryTemplate: |
-    Design this feature based on:\n
-    Brief: ${Prompt}\n
-    Product: ${productName}\n
-    Constraints: ${constraints}
-  context:
-    productName: "Acme WebApp"
-    constraints: "Ship MVP in 2 sprints"
+query: "Initial feature brief"
+queryTemplate: |
+  Design this feature based on:\n
+  Brief: ${Prompt}\n
+  Product: ${productName}\n
+  Constraints: ${constraints}
+context:
+  productName: "Acme WebApp"
+  constraints: "Ship MVP in 2 sprints"
 ```
 
 In addition, the core generation service uses the same unified templating for

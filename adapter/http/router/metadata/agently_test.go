@@ -9,7 +9,7 @@ import (
 	execcfg "github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/llm"
 	modelprovider "github.com/viant/agently/genai/llm/provider"
-	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
+	mcpcfg "github.com/viant/agently/internal/mcp/config"
 )
 
 func TestAggregate(t *testing.T) {

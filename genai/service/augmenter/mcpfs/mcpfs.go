@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/viant/afs/storage"
-	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	"github.com/viant/agently/genai/memory"
-	"github.com/viant/agently/internal/mcpuri"
+	mcpmgr "github.com/viant/agently/internal/mcp/manager"
+	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 

@@ -77,7 +77,7 @@ Workspace is the single place all editable artefacts live.  Layout:
 ~/.agently/
   agents/      # agent YAML
   models/      # llm provider configs
-  workflows/   # fluxor graphs
+  workflows/   # (deprecated)
   mcp/         # MCP servers
 ```
 
@@ -102,6 +102,16 @@ _ = workspace.DeleteMCP("local.yaml")
 ```
 
 These helpers are pure library calls – the CLI simply reuses them.
+
+## Tool Resolution Notes
+
+- Names are canonicalized for providers to `service_path-method` (e.g., `system_exec-execute`).
+- Agent patterns can be:
+  - Exact: `service/path:method`
+  - Wildcard: `service/*` or `service/path*`
+  - Service-only: `service/path` matches all methods under that service.
+- Unmatched patterns are ignored silently.
+- When `QueryInput.tools` is provided and a tool name doesn’t resolve, a warning is emitted in `QueryOutput.warnings` (no error).
 
 ## Agent Shape (YAML/JSON)
 
@@ -149,7 +159,7 @@ Composition and responsibilities:
 - tool registry: resolves tool signatures and executes functions.
 - agentFinder: loads agent definitions on demand.
 - augmenter: Embedius‑backed document selection for RAG/MCP resources.
-- runtime + orchestrator: Fluxor runtime to run multi‑step plans.
+- orchestrator: runs multi‑step plans using the internal tool registry.
 - conversation client: fetch transcript and write results/usage.
 - elicitation: manages assistant‑originated missing‑input requests.
 - cancel registry: exposes per‑turn cancellation to external actors.

@@ -14,8 +14,8 @@ import (
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/oauth2"
 	toolext "github.com/viant/agently/genai/tool"
-	oauthrepo "github.com/viant/agently/internal/repository/oauth"
 	"github.com/viant/agently/internal/workspace"
+	"github.com/viant/agently/internal/workspace/repository/oauth"
 	"github.com/viant/mcp"
 
 	"github.com/viant/agently/cmd/service"

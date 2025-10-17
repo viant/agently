@@ -2,7 +2,7 @@ package auto
 
 // Auto-elicitation Awaiter that uses a helper LLM-agent to craft JSON payload
 // satisfying a given schema. The implementation purposely lives in a package
-// below extension/fluxor so that it can be shared by both CLI and Fluxor
+// below extension so that it can be shared by both CLI and server
 // runtimes without introducing cyclic imports.
 
 import (

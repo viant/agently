@@ -10,13 +10,13 @@ import (
 	"github.com/tmc/langchaingo/schema"
 	"github.com/tmc/langchaingo/vectorstores"
 	"github.com/viant/afs"
-	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	"github.com/viant/agently/genai/embedder"
 	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
-	"github.com/viant/agently/internal/mcpuri"
+	svc "github.com/viant/agently/genai/tool/service"
+	mcpmgr "github.com/viant/agently/internal/mcp/manager"
+	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/shared"
 	embedius "github.com/viant/embedius"
-	"github.com/viant/fluxor/model/types"
 )
 
 const name = "llm/augmenter"
@@ -25,7 +25,6 @@ const name = "llm/augmenter"
 type Service struct {
 	finder         embedder.Finder
 	DocsAugmenters shared.Map[string, *DocsAugmenter]
-	CodeAugmenters shared.Map[string, *CodeAugmenter]
 	// Optional MCP client manager for resolving mcp: resources during indexing
 	mcpMgr *mcpmgr.Manager
 }
@@ -35,7 +34,6 @@ func New(finder embedder.Finder, opts ...func(*Service)) *Service {
 	s := &Service{
 		finder:         finder,
 		DocsAugmenters: shared.NewMap[string, *DocsAugmenter](),
-		CodeAugmenters: shared.NewMap[string, *CodeAugmenter](),
 	}
 	for _, o := range opts {
 		if o != nil {
@@ -58,8 +56,8 @@ const (
 )
 
 // Methods returns the service methods
-func (s *Service) Methods() types.Signatures {
-	return []types.Signature{
+func (s *Service) Methods() svc.Signatures {
+	return []svc.Signature{
 		{
 			Name:     augmentDocsMethod,
 			Internal: true,
@@ -70,12 +68,12 @@ func (s *Service) Methods() types.Signatures {
 }
 
 // Method returns the specified method
-func (s *Service) Method(name string) (types.Executable, error) {
+func (s *Service) Method(name string) (svc.Executable, error) {
 	switch name {
 	case augmentDocsMethod:
 		return s.augmentDocs, nil
 	default:
-		return nil, types.NewMethodNotFoundError(name)
+		return nil, svc.NewMethodNotFoundError(name)
 	}
 }
 
@@ -83,11 +81,11 @@ func (s *Service) Method(name string) (types.Executable, error) {
 func (s *Service) augmentDocs(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*AugmentDocsInput)
 	if !ok {
-		return types.NewInvalidInputError(in)
+		return svc.NewInvalidInputError(in)
 	}
 	output, ok := out.(*AugmentDocsOutput)
 	if !ok {
-		return types.NewInvalidOutputError(output)
+		return svc.NewInvalidOutputError(output)
 	}
 
 	return s.AugmentDocs(ctx, input, output)

@@ -1,0 +1,32 @@
+chatter.yaml: Default conversational agent
+id: chatter
+modelRef: openai_gpt-5
+name: Chatter
+orchestrationFlow: workflow/orchestration.yaml
+temperature: 0
+persona:
+  role: assistant
+  actor: Chat
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  - pattern: system/exec
+
+# General-purpose conversation agent is not exposed as a virtual tool
+toolExport:
+  expose: false
+  domains: [general]
+
+knowledge:
+  - inclusionMode: full
+    url: knowledge/
+
+systemKnowledge:
+  - inclusionMode: full
+    url: system_knowledge/
+
+attachmentLimitMB: 32
+attachmentTTLSec: 3600    # 3600 seconds = 1 hour (minimum), 86400 seconds = 24 hours (default)
+attachMode: ref #  ref, inline

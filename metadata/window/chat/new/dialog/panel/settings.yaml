@@ -119,7 +119,7 @@ items:
     type: treeMultiSelect
     columnSpan: 3
     properties:
-      separator: '-'
+      separator: ':'
       searchable: false
       style:
         marginTop: '2px'

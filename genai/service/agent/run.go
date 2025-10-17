@@ -37,6 +37,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// Bridge auth token from QueryInput.Context when provided (non-HTTP callers).
 	ctx = s.bindAuthFromInputContext(ctx, input)
 
+	// Install a warnings collector in context for this turn.
+	ctx, _ = withWarnings(ctx)
+
 	// Conversation already ensured above (fills AgentID/Model/Tools when missing)
 	output.ConversationID = input.ConversationID
 	s.tryMergePromptIntoContext(input)
@@ -100,6 +103,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	// Elicitation and final content persistence are handled inside runPlanLoop now
 	output.Usage = agg
+	// Expose any collected warnings on query output.
+	if ws := warningsFrom(ctx); len(ws) > 0 {
+		output.Warnings = ws
+	}
 	if err := s.executeChainsAfter(ctx, input, output, turn, conv, status); err != nil {
 		return err
 	}

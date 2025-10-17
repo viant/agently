@@ -40,4 +40,9 @@ type Registry interface {
 	// SetDebugLogger attaches a writer that receives every executed tool call
 	// for debugging.
 	SetDebugLogger(w io.Writer)
+
+	// Initialize allows registry implementations to perform optional
+	// one-time discovery or warm-up (e.g., preload MCP servers/tools).
+	// Implementations should be idempotent. Callers may safely ignore it.
+	Initialize(ctx context.Context)
 }

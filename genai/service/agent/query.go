@@ -8,8 +8,8 @@ import (
 	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/prompt"
+	svc "github.com/viant/agently/genai/tool/service"
 	"github.com/viant/agently/genai/usage"
-	"github.com/viant/fluxor/model/types"
 )
 
 // QueryInput represents the input for querying an agent's knowledge
@@ -61,17 +61,18 @@ type QueryOutput struct {
 	Usage          *usage.Aggregator `json:"usage,omitempty"`
 	Model          string            `json:"model,omitempty"`
 	MessageID      string            `json:"messageId,omitempty"`
+	Warnings       []string          `json:"warnings,omitempty"`
 }
 
 func (s *Service) query(ctx context.Context, input interface{}, output interface{}) error {
 	// 0. Coerce IO
 	queryInput, ok := input.(*QueryInput)
 	if !ok {
-		return types.NewInvalidInputError(input)
+		return svc.NewInvalidInputError(input)
 	}
 	queryOutput, ok := output.(*QueryOutput)
 	if !ok {
-		return types.NewInvalidOutputError(output)
+		return svc.NewInvalidOutputError(output)
 	}
 	return s.Query(ctx, queryInput, queryOutput)
 }

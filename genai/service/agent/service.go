@@ -7,20 +7,19 @@ import (
 	"strings"
 
 	"github.com/viant/afs"
-	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
 	cancels "github.com/viant/agently/genai/conversation/cancel"
 	elicitation "github.com/viant/agently/genai/elicitation"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/executor/config"
-	"github.com/viant/agently/genai/service/agent/orchestrator"
 	"github.com/viant/agently/genai/service/augmenter"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
+	svc "github.com/viant/agently/genai/tool/service"
+	mcpmgr "github.com/viant/agently/internal/mcp/manager"
+	orchestrator "github.com/viant/agently/internal/service/agent/orchestrator"
 	implconv "github.com/viant/agently/internal/service/conversation"
-	"github.com/viant/fluxor"
-	"github.com/viant/fluxor/model/types"
 )
 
 // Option customises Service instances.
@@ -31,13 +30,11 @@ const (
 )
 
 type Service struct {
-	llm         *core.Service
-	registry    tool.Registry
-	fs          afs.Service
-	agentFinder agent.Finder
-	augmenter   *augmenter.Service
-	// Runtime is the shared fluxor workflow runtime for orchestration
-	runtime      *fluxor.Runtime
+	llm          *core.Service
+	registry     tool.Registry
+	fs           afs.Service
+	agentFinder  agent.Finder
+	augmenter    *augmenter.Service
 	orchestrator *orchestrator.Service
 
 	defaults *config.Defaults
@@ -62,10 +59,7 @@ func (s *Service) Finder() agent.Finder {
 	return s.agentFinder
 }
 
-// SetRuntime sets the fluxor runtime for orchestration
-func (s *Service) SetRuntime(rt *fluxor.Runtime) {
-	s.runtime = rt
-}
+// SetRuntime removed: orchestration decoupled
 
 // WithElicitationRouter injects a router to coordinate elicitation waits
 // for assistant-originated prompts. When set, the agent will register a
@@ -89,9 +83,8 @@ func WithCancelRegistry(reg cancels.Registry) Option {
 // WithMCPManager attaches an MCP Manager to resolve resources via MCP servers.
 func WithMCPManager(m *mcpmgr.Manager) Option { return func(s *Service) { s.mcpMgr = m } }
 
-// New creates a new agent service instance with the given tool registry and fluxor runtime
+// New creates a new agent service instance with the given tool registry.
 func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Service, registry tool.Registry,
-	runtime *fluxor.Runtime,
 	defaults *config.Defaults,
 	convClient apiconv.Client,
 
@@ -102,7 +95,6 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 		agentFinder:  agentFinder,
 		augmenter:    augmenter,
 		registry:     registry,
-		runtime:      runtime,
 		conversation: convClient,
 		fs:           afs.New(),
 		cancelReg:    cancels.Default(),
@@ -136,8 +128,8 @@ func (s *Service) Name() string {
 }
 
 // Methods returns the service methods
-func (s *Service) Methods() types.Signatures {
-	return []types.Signature{
+func (s *Service) Methods() svc.Signatures {
+	return []svc.Signature{
 		{
 			Name:   "query",
 			Input:  reflect.TypeOf(&QueryInput{}),
@@ -147,11 +139,11 @@ func (s *Service) Methods() types.Signatures {
 }
 
 // Method returns the specified method
-func (s *Service) Method(name string) (types.Executable, error) {
+func (s *Service) Method(name string) (svc.Executable, error) {
 	switch strings.ToLower(name) {
 	case "query":
 		return s.query, nil
 	default:
-		return nil, types.NewMethodNotFoundError(name)
+		return nil, svc.NewMethodNotFoundError(name)
 	}
 }

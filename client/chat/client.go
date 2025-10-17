@@ -7,12 +7,11 @@ import (
 	"github.com/viant/agently/genai/conversation"
 	core "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
-	"github.com/viant/fluxor/policy"
-	"github.com/viant/fluxor/service/approval"
+	approval "github.com/viant/agently/internal/approval"
 )
 
 type Client interface {
-	AttachManager(mgr *conversation.Manager, tp *tool.Policy, fp *policy.Policy)
+	AttachManager(mgr *conversation.Manager, tp *tool.Policy)
 	AttachCore(core *core.Service)
 	AttachApproval(svc approval.Service)
 	Get(ctx context.Context, req GetRequest) (*GetResponse, error)

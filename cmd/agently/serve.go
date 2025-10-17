@@ -12,13 +12,13 @@ import (
 
 	"github.com/viant/agently/adapter/http/router"
 	mcpclienthandler "github.com/viant/agently/adapter/mcp"
-	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	convfactory "github.com/viant/agently/client/conversation/factory"
 	"github.com/viant/agently/cmd/service"
 	elicitationpkg "github.com/viant/agently/genai/elicitation"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
+	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	protoclient "github.com/viant/mcp-protocol/client"
 )
 
@@ -79,7 +79,6 @@ func (s *ServeCmd) Execute(_ []string) error {
 	if strings.ToLower(toolPol.Mode) == tool.ModeAsk {
 		toolPol.Ask = nil
 	}
-	fluxPol := buildFluxorPolicy(s.Policy)
 
 	// In server mode we rely solely on the HTTP approval flow; no console/stdin
 	// prompts are wired up. CLI sub-commands (chat, run, …) still attach the
@@ -89,7 +88,7 @@ func (s *ServeCmd) Execute(_ []string) error {
 	reapStop := mgr.StartReaper(context.Background(), 0) // interval defaults to ttl/2
 	defer reapStop()
 
-	handler, err := router.New(exec, svc, toolPol, fluxPol, r)
+	handler, err := router.New(exec, svc, toolPol, r)
 	if err != nil {
 		return err
 	}

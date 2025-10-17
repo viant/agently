@@ -75,7 +75,7 @@ environment variable.
   Linux if necessary.
 
 • The default debounce interval is **200 ms** (configured in
-  `internal/hotswap/register.go`).  Tune `NewManager(root, debounce)` if
+  `internal/workspace/hotswap/register.go`).  Tune `NewManager(root, debounce)` if
   required.
 
 ---

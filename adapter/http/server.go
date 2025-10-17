@@ -30,8 +30,7 @@ import (
 	invk "github.com/viant/agently/pkg/agently/tool/invoker"
 	"github.com/viant/datly"
 
-	fluxpol "github.com/viant/fluxor/policy"
-	"github.com/viant/fluxor/service/approval"
+	approval "github.com/viant/agently/internal/approval"
 
 	"github.com/viant/agently/internal/auth"
 	fservice "github.com/viant/forge/backend/service/file"
@@ -49,7 +48,6 @@ type Server struct {
 	mgr             *conversation.Manager
 	titles          sync.Map // convID -> title
 	toolPolicy      *tool.Policy
-	fluxPolicy      *fluxpol.Policy
 	chatSvc         *chat.Service
 	pendingApproval approval.Service
 	fileSvc         *fservice.Service
@@ -78,12 +76,11 @@ type ServerOption func(*Server)
 // /v1/api/conversations/{id}/tool-trace can return audit information.
 // WithExecutionStore removed; execution traces now reconstructed from DAO tool_calls when needed.
 
-// WithPolicies injects default tool & fluxor policies so that API requests
-// inherit the configured mode (auto/ask/deny).
-func WithPolicies(tp *tool.Policy, fp *fluxpol.Policy) ServerOption {
+// WithPolicies injects default tool policies so that API requests inherit
+// the configured mode (auto/ask/deny).
+func WithPolicies(tp *tool.Policy) ServerOption {
 	return func(s *Server) {
 		s.toolPolicy = tp
-		s.fluxPolicy = fp
 	}
 }
 
@@ -92,10 +89,9 @@ func WithPolicies(tp *tool.Policy, fp *fluxpol.Policy) ServerOption {
 // reads remain in effect.
 // WithStore removed; chat service no longer depends on domain.store
 
-// WithApprovalService injects the Fluxor approval service so that the HTTP
-// callback handler can forward Accept/Decline decisions to the workflow
-// engine. Supplying the service is optional — when nil the server falls back
-// to chat-only status updates.
+// WithApprovalService injects an approval service used by the HTTP callback
+// handler to forward Accept/Decline decisions. Optional; when nil the server
+// falls back to chat-only status updates.
 func WithApprovalService(svc approval.Service) ServerOption {
 	return func(s *Server) { s.pendingApproval = svc }
 }
@@ -163,7 +159,7 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		s.chatSvc.AttacheAgentFinder(s.agentFinder)
 	}
 
-	s.chatSvc.AttachManager(mgr, s.toolPolicy, s.fluxPolicy)
+	s.chatSvc.AttachManager(mgr, s.toolPolicy)
 	if s.pendingApproval != nil {
 		s.chatSvc.AttachApproval(s.pendingApproval)
 	}
