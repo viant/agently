@@ -12,7 +12,8 @@ import (
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/prompt"
-	fluxortypes "github.com/viant/fluxor/model/types"
+
+	svc "github.com/viant/agently/genai/tool/service"
 )
 
 type GenerateInput struct {
@@ -104,7 +105,7 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 
 	if tools := i.Binding.Tools; len(tools.Signatures) > 0 {
 		for _, tool := range tools.Signatures {
-			i.Options.Tools = append(i.Options.Tools, llm.Tool{Ref: "", Definition: *tool})
+			i.Options.Tools = append(i.Options.Tools, llm.Tool{Type: "function", Ref: "", Definition: *tool})
 		}
 		for _, call := range tools.Executions {
 			msg := llm.NewAssistantMessageWithToolCalls(*call)
@@ -154,11 +155,11 @@ func (i *GenerateInput) Validate(ctx context.Context) error {
 func (s *Service) generate(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*GenerateInput)
 	if !ok {
-		return fluxortypes.NewInvalidInputError(in)
+		return svc.NewInvalidInputError(in)
 	}
 	output, ok := out.(*GenerateOutput)
 	if !ok {
-		return fluxortypes.NewInvalidOutputError(out)
+		return svc.NewInvalidOutputError(out)
 	}
 
 	return s.Generate(ctx, input, output)

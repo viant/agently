@@ -18,7 +18,7 @@ import (
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	schsvc "github.com/viant/agently/internal/service/scheduler"
 	schstore "github.com/viant/agently/internal/service/scheduler/store"
-	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
+	mcpname "github.com/viant/agently/pkg/mcpname"
 
 	mw "github.com/viant/agently/adapter/http/middleware"
 	"github.com/viant/agently/adapter/http/router/metadata"
@@ -34,7 +34,6 @@ import (
 	useroauthtoken "github.com/viant/agently/pkg/agently/user_oauth_token"
 	useroauthtokenintread "github.com/viant/agently/pkg/agently/user_oauth_token/internalread"
 	useroauthtokenintwrite "github.com/viant/agently/pkg/agently/user_oauth_token/internalwrite"
-	fluxorpol "github.com/viant/fluxor/policy"
 	fhandlers "github.com/viant/forge/backend/handlers"
 	fservice "github.com/viant/forge/backend/service/file"
 )
@@ -50,7 +49,7 @@ func (e *execInvoker) Invoke(ctx context.Context, service, method string, args m
 	if method != "" {
 		name = service + "/" + method
 	}
-	cName := mcptool.Canonical(name)
+	cName := mcpname.Canonical(name)
 	return e.exec.ExecuteTool(ctx, cName, args, 0)
 }
 
@@ -58,7 +57,7 @@ func (e *execInvoker) Invoke(ctx context.Context, service, method string, args m
 //
 // Chat endpoints are mounted under /v1/api/… (see adapter/http/server.go).
 // Workspace endpoints under /v1/workspace/… (see adapter/http/workspace).
-func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, fluxPol *fluxorpol.Policy, mcpR elicrouter.ElicitationRouter) (http.Handler, error) {
+func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR elicrouter.ElicitationRouter) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	// Forge file service singleton (reused for upload handlers and chat service)
@@ -99,7 +98,7 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 
 	// Mount chat API now that dao/authCfg are available
 	mux.Handle("/v1/api/", chatserver.NewServer(exec.Conversation(),
-		chatserver.WithPolicies(toolPol, fluxPol),
+		chatserver.WithPolicies(toolPol),
 		chatserver.WithApprovalService(exec.ApprovalService()),
 		chatserver.WithFileService(fs),
 		chatserver.WithMCPRouter(mcpR),
@@ -189,7 +188,7 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, flux
 		w.WriteHeader(http.StatusNotFound)
 	})
 
-	// Kick off background sync that surfaces fluxor approval requests as chat messages
+	// Kick off background sync that surfaces approval requests as chat messages
 	ctx := context.Background()
 	chatserver.StartApprovalBridge(ctx, exec, exec.Conversation())
 

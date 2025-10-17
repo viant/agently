@@ -3,7 +3,6 @@ package agently
 import (
 	"encoding/json"
 	"fmt"
-	tool2 "github.com/viant/fluxor-mcp/mcp/tool"
 	"sort"
 
 	"github.com/viant/agently/genai/llm"
@@ -32,12 +31,6 @@ func (c *ListToolsCmd) Execute(_ []string) error {
 
 	// Name-specific output
 	if c.Name != "" {
-		// First try orchestration registry (canonical form)
-		if tool, err := svc.Orchestration().LookupTool(tool2.Canonical(c.Name)); err == nil {
-			llmTool := llm.ToolDefinitionFromMcpTool(&tool.Metadata)
-			return c.printToolDefinition(llmTool)
-		}
-		// Fallback to LLM core definitions by name
 		for _, d := range defs {
 			if d.Name == c.Name {
 				return c.printToolDefinition(&d)

@@ -1,8 +1,7 @@
 package toolhandler
 
 // HTTP handler that exposes simple execution of an MCP tool definition via
-// REST API so that the Forge UI can run ad-hoc actions outside of a Fluxor
-// workflow.
+// REST API so that the Forge UI can run ad-hoc actions without a workflow engine.
 
 import (
 	"encoding/json"

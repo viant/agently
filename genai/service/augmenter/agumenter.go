@@ -8,7 +8,7 @@ import (
 
 	"github.com/tmc/langchaingo/embeddings"
 	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
-	"github.com/viant/agently/internal/mcpuri"
+	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/embedius/indexer"
 	"github.com/viant/embedius/indexer/fs"

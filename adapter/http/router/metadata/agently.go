@@ -36,7 +36,10 @@ type AgentlyResponse struct {
 	} `json:"defaults"`
 	Agents []string `json:"agents"`
 	Tools  []string `json:"tools"`
-	Models []string `json:"models"`
+	// ToolsTree groups tools by service prefix using ':' as the separator.
+	// Example: { "sqlkit": ["dbExec", "dbQuery"], "system/exec": ["execute"] }
+	ToolsTree map[string][]string `json:"toolsTree,omitempty"`
+	Models    []string            `json:"models"`
 	// AgentInfo lists matched tool names per agent using pattern matching
 	// rules derived from the agent's Tool configuration.
 	AgentInfo map[string]*AgentInfo `json:"agentInfo,omitempty"`
@@ -81,10 +84,22 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 
 	// Tools: from llm definitions
 	for _, d := range defs {
-		if strings.TrimSpace(d.Name) == "" {
+		name := strings.TrimSpace(d.Name)
+		if name == "" {
 			continue
 		}
-		out.Tools = append(out.Tools, d.Name)
+		out.Tools = append(out.Tools, name)
+		// Build ToolsTree grouping by service prefix using ':'
+		if i := strings.IndexByte(name, ':'); i != -1 {
+			svc := strings.TrimSpace(name[:i])
+			method := strings.TrimSpace(name[i+1:])
+			if svc != "" && method != "" {
+				if out.ToolsTree == nil {
+					out.ToolsTree = map[string][]string{}
+				}
+				out.ToolsTree[svc] = append(out.ToolsTree[svc], method)
+			}
+		}
 	}
 
 	// Sort for deterministic output

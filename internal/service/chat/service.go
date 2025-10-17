@@ -28,17 +28,16 @@ import (
 	agentsrv "github.com/viant/agently/genai/service/agent"
 	corellm "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
+	approval "github.com/viant/agently/internal/approval"
 	authctx "github.com/viant/agently/internal/auth"
-	extrepo "github.com/viant/agently/internal/repository/extension"
 	implconv "github.com/viant/agently/internal/service/conversation"
 	usersvc "github.com/viant/agently/internal/service/user"
+	extrepo "github.com/viant/agently/internal/workspace/repository/extension"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	msgwrite "github.com/viant/agently/pkg/agently/message/write"
 	toolfeed "github.com/viant/agently/pkg/agently/tool"
+	mcpname "github.com/viant/agently/pkg/mcpname"
 	"github.com/viant/datly"
-	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
-	fluxpol "github.com/viant/fluxor/policy"
-	"github.com/viant/fluxor/service/approval"
 	fservice "github.com/viant/forge/backend/service/file"
 )
 
@@ -49,7 +48,6 @@ var compactInstruction string
 type Service struct {
 	mgr        *conversation.Manager
 	toolPolicy *tool.Policy
-	fluxPolicy *fluxpol.Policy
 	approval   approval.Service
 
 	convClient apiconv.Client
@@ -136,10 +134,9 @@ func (s *Service) ElicitationService() *elicitation.Service         { return s.e
 func (s *Service) ConversationClient() apiconv.Client { return s.convClient }
 
 // AttachManager configures the conversation manager and optional default policies.
-func (s *Service) AttachManager(mgr *conversation.Manager, tp *tool.Policy, fp *fluxpol.Policy) {
+func (s *Service) AttachManager(mgr *conversation.Manager, tp *tool.Policy) {
 	s.mgr = mgr
 	s.toolPolicy = tp
-	s.fluxPolicy = fp
 }
 
 // AttachApproval configures the approval service bridge for policy decisions.
@@ -302,8 +299,8 @@ func (s *Service) MatchToolFeedSpec(ctx context.Context, conversationID, sinceID
 	var result []*toolfeed.FeedSpec
 	// Match by observed tools
 	for service := range services {
-		canonical := mcptool.Canonical(service)
-		name := mcptool.Name(canonical)
+		canonical := mcpname.Canonical(service)
+		name := mcpname.Name(canonical)
 		svc := name.Service()
 		method := name.Method()
 
@@ -466,9 +463,6 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 			}
 			if pol := tool.FromContext(parent); pol != nil {
 				runCtx = tool.WithPolicy(runCtx, pol)
-			}
-			if s.fluxPolicy != nil {
-				runCtx = fluxpol.WithPolicy(runCtx, s.fluxPolicy)
 			}
 			// Populate userId for attribution when missing, using auth context
 			if strings.TrimSpace(input.UserId) == "" {

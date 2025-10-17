@@ -42,6 +42,65 @@ func NewFunctionTool(definition ToolDefinition) Tool {
 	}
 }
 
+// Normalize ensures provider-agnostic schema validity:
+// - parameters is always a JSON object with type=object and properties=object
+// - output_schema is always a JSON object with type=object and properties=object
+func (d *ToolDefinition) Normalize() {
+	// Parameters
+	if d.Parameters == nil {
+		d.Parameters = map[string]interface{}{}
+	}
+	if _, ok := d.Parameters["type"]; !ok || d.Parameters["type"] == nil {
+		d.Parameters["type"] = "object"
+	}
+	if props, ok := d.Parameters["properties"]; !ok || props == nil {
+		d.Parameters["properties"] = map[string]interface{}{}
+	} else {
+		if _, ok := props.(map[string]interface{}); !ok {
+			// Coerce known variants
+			switch m := props.(type) {
+			case map[string]map[string]interface{}:
+				coerced := make(map[string]interface{}, len(m))
+				for k, v := range m {
+					coerced[k] = v
+				}
+				d.Parameters["properties"] = coerced
+			case mcpschema.ToolInputSchemaProperties:
+				coerced := make(map[string]interface{}, len(m))
+				for k, v := range m {
+					coerced[k] = v
+				}
+				d.Parameters["properties"] = coerced
+			default:
+				d.Parameters["properties"] = map[string]interface{}{}
+			}
+		}
+	}
+	// OutputSchema
+	if d.OutputSchema == nil {
+		d.OutputSchema = map[string]interface{}{}
+	}
+	if _, ok := d.OutputSchema["type"]; !ok || d.OutputSchema["type"] == nil {
+		d.OutputSchema["type"] = "object"
+	}
+	if oprops, ok := d.OutputSchema["properties"]; !ok || oprops == nil {
+		d.OutputSchema["properties"] = map[string]interface{}{}
+	} else {
+		if _, ok := oprops.(map[string]interface{}); !ok {
+			switch m := oprops.(type) {
+			case map[string]map[string]interface{}:
+				coerced := make(map[string]interface{}, len(m))
+				for k, v := range m {
+					coerced[k] = v
+				}
+				d.OutputSchema["properties"] = coerced
+			default:
+				d.OutputSchema["properties"] = map[string]interface{}{}
+			}
+		}
+	}
+}
+
 // ToolChoice represents a choice of tool to use.
 // It can be "none", "auto", or a specific tool.
 type ToolChoice struct {
@@ -102,6 +161,8 @@ func ToolDefinitionFromMcpTool(tool *mcpschema.Tool) *ToolDefinition {
 	}
 	def.Parameters["properties"] = tool.InputSchema.Properties
 	def.Required = tool.InputSchema.Required
-	def.OutputSchema["properties"] = tool.OutputSchema.Properties
+	if tool.OutputSchema != nil {
+		def.OutputSchema["properties"] = tool.OutputSchema.Properties
+	}
 	return &def
 }

@@ -4,27 +4,23 @@ import (
 	"context"
 	"time"
 
-	"github.com/viant/agently/internal/hotswap"
+	hotswap "github.com/viant/agently/internal/workspace/hotswap"
+	"github.com/viant/agently/internal/workspace/loader/agent"
+	embedloader "github.com/viant/agently/internal/workspace/loader/embedder"
+	fsloader "github.com/viant/agently/internal/workspace/loader/fs"
+	modelload "github.com/viant/agently/internal/workspace/loader/model"
+	extrepo "github.com/viant/agently/internal/workspace/repository/extension"
 
 	agentfinder "github.com/viant/agently/internal/finder/agent"
 	embedfinder "github.com/viant/agently/internal/finder/embedder"
 	extfinder "github.com/viant/agently/internal/finder/extension"
 	modelfinder "github.com/viant/agently/internal/finder/model"
 
-	agentloader "github.com/viant/agently/internal/loader/agent"
-	embedloader "github.com/viant/agently/internal/loader/embedder"
-	fsloader "github.com/viant/agently/internal/loader/fs"
-	modelload "github.com/viant/agently/internal/loader/model"
-
+	"github.com/viant/afs"
 	embedprovider "github.com/viant/agently/genai/embedder/provider"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
-
-	"github.com/viant/afs"
-	extrepo "github.com/viant/agently/internal/repository/extension"
-	workflowrepo "github.com/viant/agently/internal/repository/workflow"
+	// workflowrepo "github.com/viant/agently/internal/repository/workflow"
 	"github.com/viant/agently/internal/workspace"
-
-	"github.com/viant/fluxor"
 
 	"reflect"
 	"unsafe"
@@ -46,7 +42,7 @@ func (e *Service) initialiseHotSwap() {
 	// Build loaders with same meta service -----------------------------
 	metaSvc := e.config.Meta()
 
-	aLoader := agentloader.New(agentloader.WithMetaService(metaSvc))
+	aLoader := agent.New(agent.WithMetaService(metaSvc))
 	mLoader := modelload.New(fsloader.WithMetaService[llmprovider.Config](metaSvc))
 	emLoader := embedloader.New(fsloader.WithMetaService[embedprovider.Config](metaSvc))
 
@@ -81,28 +77,7 @@ func (e *Service) initialiseHotSwap() {
 		mgr.Register(workspace.KindFeeds, hotswap.NewExtensionAdaptor(repo, finder))
 	}
 
-	// Workflow adaptor ---------------------------------------------------
-	if rt := e.Runtime(); rt != nil {
-		repo := workflowrepo.New(afs.New())
-
-		loadRaw := func(ctx context.Context, name string) ([]byte, error) {
-			return repo.GetRaw(ctx, name)
-		}
-
-		absFn := func(name string) string { return hotswap.ResolveWorkflowPath(name) }
-
-		refreshFn := func(location string) error { return rt.RefreshWorkflow(location) }
-
-		// UpsertDefinition may not exist in earlier fluxor versions. Use
-		// reflection to check.
-		var upsertFn func(string, []byte) error
-		if upsert, ok := runtimeUpsertFunc(rt); ok {
-			upsertFn = upsert
-		}
-
-		mgr.Register(workspace.KindWorkflow,
-			hotswap.NewWorkflowAdaptor(loadRaw, absFn, refreshFn, upsertFn))
-	}
+	// Workflow adaptor disabled in decoupled mode
 
 	_ = mgr.Start()
 }
@@ -126,23 +101,5 @@ func privateField[T any](svc *Service, name string) T {
 
 // runtimeUpsertFunc returns a strongly typed closure bound to rt.UpsertDefinition
 // when that method exists. It uses reflection so Agently can build against
-// older fluxor versions that do not yet expose the API.
-func runtimeUpsertFunc(rt *fluxor.Runtime) (func(string, []byte) error, bool) {
-	if rt == nil {
-		return nil, false
-	}
-	v := reflect.ValueOf(rt)
-	m := v.MethodByName("UpsertDefinition")
-	if !m.IsValid() {
-		return nil, false
-	}
-	// Expect signature func(string, []byte) error
-	wrapper := func(location string, data []byte) error {
-		res := m.Call([]reflect.Value{reflect.ValueOf(location), reflect.ValueOf(data)})
-		if len(res) == 1 && !res[0].IsNil() {
-			return res[0].Interface().(error)
-		}
-		return nil
-	}
-	return wrapper, true
-}
+// older runtime variants without the updated API.
+func runtimeUpsertFunc(_ interface{}) (func(string, []byte) error, bool) { return nil, false }

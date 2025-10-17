@@ -15,7 +15,6 @@ require (
 	github.com/viant/datly v0.20.17
 	github.com/viant/embedius v0.2.2-0.20251015195730-ac1b650a9224
 	github.com/viant/fluxor v0.4.3
-	github.com/viant/fluxor-mcp v0.2.2
 	github.com/viant/forge v0.2.16
 	github.com/viant/jsonrpc v0.10.2
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
@@ -28,7 +27,6 @@ require (
 	github.com/viant/xdatly/handler v0.0.0-20251006174948-cb34263ae8aa
 	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect -- replaced with internal stub, see below
-	github.com/yuin/goldmark v1.7.8
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -38,8 +36,13 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/minio/highwayhash v1.0.3
 	github.com/openai/openai-go/v3 v3.0.0
+	github.com/pmezard/go-difflib v1.0.0
+	github.com/sourcegraph/go-diff v0.7.0
+	github.com/viant/gosh v0.2.3
+	github.com/viant/parsly v0.3.3
 	github.com/viant/xdatly v0.5.4-0.20251006174948-cb34263ae8aa
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
+	golang.org/x/crypto v0.41.0
 	golang.org/x/oauth2 v0.30.0
 	modernc.org/sqlite v1.18.1
 )
@@ -128,11 +131,9 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0 // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.3 // indirect
-	github.com/sourcegraph/go-diff v0.7.0 // indirect
 	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
@@ -147,10 +148,8 @@ require (
 	github.com/viant/gds v0.4.5 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
 	github.com/viant/godiff v0.4.1 // indirect
-	github.com/viant/gosh v0.2.3 // indirect
 	github.com/viant/govalidator v0.3.1 // indirect
 	github.com/viant/igo v0.2.0 // indirect
-	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlparser v0.8.1 // indirect
 	github.com/viant/sqlx v0.19.0 // indirect
@@ -175,12 +174,10 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.56.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.56.0 // indirect
 	go.opentelemetry.io/otel v1.36.0 // indirect
-	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.36.0 // indirect
 	go.opentelemetry.io/otel/metric v1.36.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.36.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.31.0 // indirect
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
-	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect

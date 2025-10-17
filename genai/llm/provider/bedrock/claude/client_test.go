@@ -5,9 +5,10 @@ package claude
 
 import (
 	"context"
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently/genai/llm"
-	"testing"
 )
 
 func TestNewClient(t *testing.T) {
@@ -24,7 +25,7 @@ func TestNewClient(t *testing.T) {
 
 		{
 			description: "client with custom anthropic version",
-			model:       "arn:aws:bedrock:us-west-2:458197927229:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+			model:       "arn:aws:bedrock:us-west-2:458197927229:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 			options: []ClientOption{
 				WithCredentialsURL("aws-e2e"),
 				WithRegion("us-west-2"),

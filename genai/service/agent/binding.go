@@ -16,7 +16,8 @@ import (
 	"github.com/viant/agently/genai/prompt"
 	padapter "github.com/viant/agently/genai/prompt/adapter"
 	"github.com/viant/agently/genai/service/augmenter"
-	"github.com/viant/agently/internal/mcpuri"
+	mcpuri "github.com/viant/agently/internal/mcp/uri"
+	mcpname "github.com/viant/agently/pkg/mcpname"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
@@ -38,7 +39,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 
 	b.Task = s.buildTaskBinding(input)
 
-	sig, _, err := s.buildToolSignatures(input)
+	sig, _, err := s.buildToolSignatures(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +58,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 	// Tool executions exposure: default "turn"; allow QueryInput override; then agent setting.
 	exposure := agent.ToolCallExposure("turn")
-	if input != nil && input.ToolCallExposure != nil && strings.TrimSpace(string(*input.ToolCallExposure)) != "" {
+	if input.ToolCallExposure != nil && strings.TrimSpace(string(*input.ToolCallExposure)) != "" {
 		exposure = *input.ToolCallExposure
 	} else if input.Agent != nil && strings.TrimSpace(string(input.Agent.ToolCallExposure)) != "" {
 		exposure = input.Agent.ToolCallExposure
@@ -293,7 +294,8 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 			if m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
 				result = strings.TrimSpace(*m.ToolCall.ResponsePayload.InlineBody)
 			}
-			tc := llm.NewToolCall(m.ToolCall.OpId, m.ToolCall.ToolName, args, result)
+			// Canonicalize tool name so it matches declared tool signatures for providers.
+			tc := llm.NewToolCall(m.ToolCall.OpId, mcpname.Canonical(m.ToolCall.ToolName), args, result)
 			out = append(out, &tc)
 		}
 		return out
@@ -325,11 +327,11 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 	}
 }
 
-func (s *Service) buildToolSignatures(input *QueryInput) ([]*llm.ToolDefinition, bool, error) {
+func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([]*llm.ToolDefinition, bool, error) {
 	if s.registry == nil || input.Agent == nil || len(input.Agent.Tool) == 0 {
 		return nil, false, nil
 	}
-	tools, err := s.resolveTools(input, true)
+	tools, err := s.resolveTools(ctx, input)
 	if err != nil {
 		return nil, false, err
 	}

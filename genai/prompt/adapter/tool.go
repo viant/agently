@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"github.com/viant/agently/genai/llm"
+	mcpname "github.com/viant/agently/pkg/mcpname"
 	"strings"
 )
 
@@ -12,6 +13,8 @@ func ToToolDefinition(t llm.Tool) *llm.ToolDefinition {
 	if name == "" {
 		return nil
 	}
+	// Canonicalize tool names to provider-safe form (service_path-method)
+	name = mcpname.Canonical(name)
 	// llm.ToolDefinition already uses structured maps; no need to re-marshal.
 	return &llm.ToolDefinition{
 		Name:         name,

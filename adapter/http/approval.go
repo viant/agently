@@ -4,15 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/viant/agently/genai/conversation"
 	execsvc "github.com/viant/agently/genai/executor"
 
-	"github.com/viant/fluxor/service/approval"
+	approval "github.com/viant/agently/internal/approval"
 )
 
-// startApprovalBridge launches a background goroutine that converts Fluxor
+// startApprovalBridge launches a background goroutine that converts
 // approval events into chat messages (role=="policyapproval") and vice versa.
 // It mirrors the behaviour of elicitation and user-interaction bridging so that
 // web users can approve or reject tool executions through the existing chat UI.
@@ -24,20 +23,12 @@ func StartApprovalBridge(ctx context.Context, exec *execsvc.Service, mgr *conver
 	}
 
 	//TODO fix ME - I'm broken
+	// If no approval service is configured, skip bridging.
+	svc := exec.ApprovalService()
+	if svc == nil {
+		return
+	}
 	go func() {
-		// Wait for approval service to become ready (executor boot is async)
-		var svc approval.Service
-		for svc == nil {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			svc = exec.ApprovalService()
-			if svc == nil {
-				time.Sleep(20 * time.Millisecond)
-			}
-		}
 
 		// Helper to unmarshal args RawMessage -> map[string]interface{}
 		//parseArgs := func(raw json.RawMessage) map[string]interface{} {

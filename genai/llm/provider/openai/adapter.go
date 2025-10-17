@@ -17,6 +17,7 @@ import (
 	genpdf "github.com/viant/agently/genai/io/pdf"
 	"github.com/viant/agently/genai/llm"
 	authctx "github.com/viant/agently/internal/auth"
+	mcpname "github.com/viant/agently/pkg/mcpname"
 )
 
 var modelTemperature = map[string]float64{
@@ -75,13 +76,15 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		if len(request.Options.Tools) > 0 {
 			req.Tools = make([]Tool, len(request.Options.Tools))
 			for i, tool := range request.Options.Tools {
+				def := tool.Definition
+				def.Normalize() // ensure provider-agnostic, valid JSON schema shapes
 				req.Tools[i] = Tool{
 					Type: "function",
 					Function: ToolDefinition{
-						Name:        tool.Definition.Name,
-						Description: tool.Definition.Description,
-						Parameters:  tool.Definition.Parameters,
-						Required:    tool.Definition.Required,
+						Name:        mcpname.Canonical(def.Name),
+						Description: def.Description,
+						Parameters:  def.Parameters,
+						Required:    def.Required,
 					},
 				}
 			}

@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	mcpclienthandler "github.com/viant/agently/adapter/mcp"
-	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
 	mcprouter "github.com/viant/agently/adapter/mcp/router"
 	"github.com/viant/agently/client/conversation/factory"
 	"github.com/viant/agently/cmd/service"
@@ -24,6 +23,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/tool"
+	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	protoclient "github.com/viant/mcp-protocol/client"
 )
 
@@ -76,7 +76,7 @@ func (cliInteractionHandler) Accept(ctx context.Context, el *plan.Elicitation) (
 func (c *ChatCmd) Execute(_ []string) error {
 	// Fallbacks -------------------------------------------------------
 	if c.AgentID == "" {
-		c.AgentID = "chat" // default agent id shipped with embedded config
+		c.AgentID = "chatter" // default agent id shipped with embedded config
 	}
 
 	// -----------------------------------------------------------------
@@ -148,11 +148,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 	ctxBase, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fluxPol := buildFluxorPolicy(c.Policy)
-	toolPol := &tool.Policy{Mode: fluxPol.Mode, Ask: stdinAsk}
-
-	stopApprove := startApprovalLoop(ctxBase, svcExec, fluxPol)
-	defer stopApprove()
+	toolPol := buildPolicy(c.Policy)
 
 	serviceOpts := service.Options{Interaction: cliInteractionHandler{}}
 	svc := service.New(svcExec, serviceOpts)
@@ -162,7 +158,6 @@ func (c *ChatCmd) Execute(_ []string) error {
 
 	callChat := func(userQuery string) error {
 		ctx := tool.WithPolicy(ctxBase, toolPol)
-		ctx = withFluxorPolicy(ctx, fluxPol)
 		// Guarantee non-empty conversation ID so downstream components can rely
 		// on its presence when the very first turn is executed.
 		if convID == "" {

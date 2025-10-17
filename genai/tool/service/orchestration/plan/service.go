@@ -5,19 +5,14 @@ import (
 	_ "embed"
 	"fmt"
 	"reflect"
-	"sync"
 
 	"github.com/google/uuid"
-	mem "github.com/viant/agently/genai/memory"
-	"github.com/viant/fluxor/model/types"
+	svc "github.com/viant/agently/genai/tool/service"
 )
 
-type Service struct {
-	mu     sync.RWMutex
-	byConv map[string]UpdatePlanPayload
-}
+type Service struct{}
 
-// Name implements types.Service and identifies this Fluxor service.
+// Name implements types.Service and identifies this service.
 func (s *Service) Name() string { return "orchestration" }
 
 // UpdatePlanInput matches the MCP tool-call arguments envelope.
@@ -48,36 +43,46 @@ type UpdatePlanOutput struct {
 	Plan        []PlanItem `json:"plan"`
 }
 
-//go:embed update_plan.md
+// EmptyInput used by status
+type EmptyInput struct{}
+
+//go:embed doc/update_plan.md
 var description string
 
 // Methods implements types.Service.
-func (s *Service) Methods() types.Signatures {
-	return types.Signatures{{
+func (s *Service) Methods() svc.Signatures {
+	return svc.Signatures{{
 		Name:        "updatePlan",
 		Description: description,
 		Input:       reflect.TypeOf(&UpdatePlanInput{}),
+		Output:      reflect.TypeOf(&UpdatePlanOutput{}),
+	}, {
+		Name:        "status",
+		Description: "Returns the latest plan for the current conversation (if any)",
+		Input:       reflect.TypeOf(&EmptyInput{}),
 		Output:      reflect.TypeOf(&UpdatePlanOutput{}),
 	}}
 }
 
 // Method implements types.Service and returns the executable.
-func (s *Service) Method(name string) (types.Executable, error) {
-	if name != "updatePlan" {
-		return nil, types.NewMethodNotFoundError(name)
+func (s *Service) Method(name string) (svc.Executable, error) {
+	switch name {
+	case "updatePlan":
+		return s.updatePlan, nil
+	default:
+		return nil, svc.NewMethodNotFoundError(name)
 	}
-	return s.updatePlan, nil
 }
 
 // updatePlan parses the stringified JSON arguments and validates the plan.
 func (s *Service) updatePlan(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*UpdatePlanInput)
 	if !ok {
-		return types.NewInvalidInputError(in)
+		return svc.NewInvalidInputError(in)
 	}
 	output, ok := out.(*UpdatePlanOutput)
 	if !ok {
-		return types.NewInvalidOutputError(out)
+		return svc.NewInvalidOutputError(out)
 	}
 
 	if input.CallID == "" {
@@ -110,13 +115,6 @@ func (s *Service) updatePlan(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("at most one step can be in_progress")
 	}
 
-	// Persist plan keyed by turn ID when available; otherwise by conversation ID.
-	// Resolve conversation ID solely via memory context helpers to avoid import cycles
-	convID := mem.ConversationIDFromContext(ctx)
-	s.mu.Lock()
-	s.byConv[convID] = payload
-	s.mu.Unlock()
-
 	// Echo back the normalized payload
 	output.CallID = input.CallID
 	output.Explanation = payload.Explanation
@@ -125,4 +123,6 @@ func (s *Service) updatePlan(ctx context.Context, in, out interface{}) error {
 }
 
 // New constructs the plan Service instance for registration.
-func New() *Service { return &Service{byConv: map[string]UpdatePlanPayload{}} }
+func New() *Service { return &Service{} }
+
+// status returns the latest plan payload for the current conversation (best-effort).

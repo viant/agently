@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	mcptool "github.com/viant/fluxor-mcp/mcp/tool"
+	mcpname "github.com/viant/agently/pkg/mcpname"
 	"github.com/viant/forge/backend/types"
 )
 
@@ -122,8 +122,8 @@ type MatchSpec struct {
 	Method  string `yaml:"method,omitempty" json:"method,omitempty"`
 }
 
-func (m *MatchSpec) Name() mcptool.Name {
-	return mcptool.NewName(m.Service, m.Method)
+func (m *MatchSpec) Name() mcpname.Name {
+	return mcpname.NewName(m.Service, m.Method)
 }
 
 type ActivationSpec struct {
@@ -143,10 +143,19 @@ type ActivationSpec struct {
 // FeedSpecs is a convenience slice alias for helpers.
 type FeedSpecs []*FeedSpec
 
-func (s FeedSpecs) Index() map[mcptool.Name]*FeedSpec {
-	result := make(map[mcptool.Name]*FeedSpec)
+func (s FeedSpecs) Index() map[mcpname.Name]*FeedSpec {
+	result := make(map[mcpname.Name]*FeedSpec)
 	for _, feed := range s {
-		result[feed.Match.Name()] = feed
+		if feed == nil {
+			continue
+		}
+		name := feed.Match.Name()
+		result[name] = feed
+		lc := mcpname.Name(strings.ToLower(string(name)))
+		if lc != name {
+			// add lowercase alias for tolerant lookups without changing canonical form
+			result[lc] = feed
+		}
 	}
 	return result
 }
@@ -170,7 +179,7 @@ func (s FeedSpecs) MatchSpec() []MatchSpec {
 }
 
 // Matches reports whether any spec matches the provided canonical tool name.
-func (s FeedSpecs) Matches(name mcptool.Name) bool {
+func (s FeedSpecs) Matches(name mcpname.Name) bool {
 	for _, m := range s.MatchSpec() {
 		if m.Matches(name) {
 			return true
@@ -180,7 +189,7 @@ func (s FeedSpecs) Matches(name mcptool.Name) bool {
 }
 
 // Matches compares against an mcptool.Name; no wildcard allowed.
-func (m MatchSpec) Matches(name mcptool.Name) bool {
+func (m MatchSpec) Matches(name mcpname.Name) bool {
 	ms := strings.TrimSpace(m.Service)
 	mm := strings.TrimSpace(m.Method)
 	if ms == "" || mm == "" {

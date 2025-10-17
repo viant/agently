@@ -3,14 +3,15 @@ package refiner
 import (
 	"encoding/json"
 	"fmt"
-	overlaypkg "github.com/viant/agently/internal/overlay"
-	"github.com/viant/agently/internal/workspace"
-	"github.com/viant/mcp-protocol/schema"
-	yaml "gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/viant/agently/internal/workspace"
+	overlaypkg "github.com/viant/agently/internal/workspace/overlay"
+	"github.com/viant/mcp-protocol/schema"
+	yaml "gopkg.in/yaml.v3"
 )
 
 type Preset struct {

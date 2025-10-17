@@ -10,15 +10,15 @@ import (
 	agentfinder "github.com/viant/agently/internal/finder/agent"
 	embedderfinder "github.com/viant/agently/internal/finder/embedder"
 	modelfinder "github.com/viant/agently/internal/finder/model"
-	agentloader "github.com/viant/agently/internal/loader/agent"
-	embedderlloader "github.com/viant/agently/internal/loader/embedder"
-	modelloader "github.com/viant/agently/internal/loader/model"
+	mcpcfg "github.com/viant/agently/internal/mcp/config"
 	"github.com/viant/agently/internal/workspace"
-	"github.com/viant/fluxor/service/meta"
+	agent2 "github.com/viant/agently/internal/workspace/loader/agent"
+	embedderlloader "github.com/viant/agently/internal/workspace/loader/embedder"
+	"github.com/viant/agently/internal/workspace/loader/fs"
+	modelloader "github.com/viant/agently/internal/workspace/loader/model"
+	meta "github.com/viant/agently/internal/workspace/service/meta"
 
-	"github.com/viant/agently/internal/loader/fs"
 	"github.com/viant/datly/view"
-	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
 )
 
 type Config struct {
@@ -71,7 +71,7 @@ func (c *Config) DefaultEmbedderFinder() *embedderfinder.Finder {
 	)
 }
 
-func (c *Config) DefaultAgentFinder(options ...agentloader.Option) *agentfinder.Finder {
+func (c *Config) DefaultAgentFinder(options ...agent2.Option) *agentfinder.Finder {
 	// Always resolve relative agent paths against the workspace root (or
 	// Config.BaseURL when explicitly set) so that callers can simply refer to
 	// "chat" instead of providing an absolute path.
@@ -80,11 +80,11 @@ func (c *Config) DefaultAgentFinder(options ...agentloader.Option) *agentfinder.
 	// strategy as other component loaders.  Intentionally append (not prepend)
 	// so that explicit caller-supplied WithMetaService overrides ours when
 	// needed.
-	options = append(options, agentloader.WithMetaService(c.Meta()))
+	options = append(options, agent2.WithMetaService(c.Meta()))
 
 	return agentfinder.New(
 		agentfinder.WithInitial(c.Agent.Items...),
-		agentfinder.WithLoader(agentloader.New(options...)),
+		agentfinder.WithLoader(agent2.New(options...)),
 	)
 }
 

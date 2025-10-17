@@ -3,17 +3,16 @@ package executor
 import (
 	"io"
 
-	mcpmgr "github.com/viant/agently/adapter/mcp/manager"
-	atool "github.com/viant/agently/adapter/tool"
 	"github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/elicitation"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	modelprovider "github.com/viant/agently/genai/llm/provider"
-	"github.com/viant/agently/genai/tool"
-	"github.com/viant/fluxor"
-	mcpcfg "github.com/viant/fluxor-mcp/mcp/config"
-	"github.com/viant/fluxor/service/meta"
+	gtool "github.com/viant/agently/genai/tool"
+	approval "github.com/viant/agently/internal/approval"
+	mcpcfg "github.com/viant/agently/internal/mcp/config"
+	mcpmgr "github.com/viant/agently/internal/mcp/manager"
+	meta "github.com/viant/agently/internal/workspace/service/meta"
 )
 
 type Option func(config *Service)
@@ -53,12 +52,10 @@ func WithConfig(config *Config) Option {
 // writer. Passing nil disables logging.
 func WithToolDebugLogger(w io.Writer) Option {
 	return func(s *Service) {
-		if s.tools == nil && s.orchestration != nil {
-			if s.mcpMgr != nil {
-				if reg, err := atool.New(s.orchestration, s.mcpMgr); err == nil {
-					reg.SetDebugLogger(w)
-					s.tools = reg
-				}
+		if s.tools == nil && s.mcpMgr != nil {
+			if reg, err := gtool.NewDefaultRegistry(s.mcpMgr); err == nil {
+				reg.SetDebugLogger(w)
+				s.tools = reg
 			}
 		}
 	}
@@ -80,12 +77,7 @@ func WithConversionClient(client conversation.Client) Option {
 	}
 }
 
-// WithWorkflowOptions sets fluxor options
-func WithWorkflowOptions(option ...fluxor.Option) Option {
-	return func(s *Service) {
-		s.fluxorOptions = append(s.fluxorOptions, option...)
-	}
-}
+// WithWorkflowOptions removed in decoupled mode.
 
 func WithModelConfig(providers ...*modelprovider.Config) Option {
 	return func(s *Service) {
@@ -108,10 +100,16 @@ func WithAgents(agents ...*agent.Agent) Option {
 }
 
 // WithTools sets a custom atool registry.
-func WithTools(tools tool.Registry) Option {
+func WithTools(tools gtool.Registry) Option {
 	return func(s *Service) {
 		s.tools = tools
 	}
+}
+
+// WithApprovalService sets an internal approval service implementation.
+// Passing nil clears any existing service.
+func WithApprovalService(svc approval.Service) Option {
+	return func(s *Service) { s.approvalSvc = svc }
 }
 
 // WithoutHotSwap disables automatic workspace hot-reload. Use this option for

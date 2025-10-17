@@ -1,0 +1,4 @@
+- v0.2.6
+   - refactor mcp tool (previously managed by fluxor-mcp)
+   - improved code organization
+   - fixed -a (custom port as opposed to :8080)
