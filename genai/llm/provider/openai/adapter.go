@@ -14,7 +14,6 @@ import (
 	"github.com/viant/agently/internal/shared"
 
 	openai "github.com/openai/openai-go/v3"
-	genpdf "github.com/viant/agently/genai/io/pdf"
 	"github.com/viant/agently/genai/llm"
 	authctx "github.com/viant/agently/internal/auth"
 	mcpname "github.com/viant/agently/pkg/mcpname"
@@ -31,9 +30,6 @@ var modelTemperature = map[string]float64{
 func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	// Create the request with defaults
 	req := &Request{}
-
-	toolCallIdsToDelete := []string{}
-	messageIndexByToolCallsId := map[string]int{}
 
 	// Set options if provided
 	if request.Options != nil {
@@ -120,7 +116,6 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	agentID := "unknownAgent"
 	var ttlSec int64
 	// default threshold ~200kB for converting tool results to PDF attachments
-	var toolAttachThreshold int64 = 200 * 1024
 	if request != nil && request.Options != nil && request.Options.Metadata != nil {
 		if v, ok := request.Options.Metadata["attachMode"].(string); ok && strings.TrimSpace(v) != "" {
 			attachMode = strings.ToLower(strings.TrimSpace(v))
@@ -142,28 +137,12 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 				}
 			}
 		}
-		// Optional per-request override for tool result attachment threshold (bytes)
-		if v, ok := request.Options.Metadata["toolAttachmentThresholdBytes"]; ok {
-			switch t := v.(type) {
-			case int:
-				toolAttachThreshold = int64(t)
-			case int64:
-				toolAttachThreshold = t
-			case float64:
-				toolAttachThreshold = int64(t)
-			case string:
-				if n, err := strconv.ParseInt(strings.TrimSpace(t), 10, 64); err == nil {
-					toolAttachThreshold = n
-				}
-			}
-		}
 	}
-
 	ToolCallIdToReplaceContent := map[string]struct{}{}
 
 	// Convert messages
 	req.Messages = make([]Message, 0) //len(request.Messages))
-	for i, originalMsg := range request.Messages {
+	for _, originalMsg := range request.Messages {
 		// Work on a local copy so we can transform tool messages if needed.
 		msg := originalMsg
 		message := Message{
@@ -198,41 +177,6 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 				}
 			}
 
-			if int64(len(textPayload)) > toolAttachThreshold {
-				// Build single-PDF attachment from text payload (for UI/logging purposes).
-				// NOTE: OpenAI chat/completions does not support 'file' content parts, so the
-				// adapter below will convert any non-image binary to a placeholder text.
-				title := fmt.Sprintf("Tool: %s", strings.TrimSpace(msg.Name))
-				if title == "Tool:" {
-					title = "Tool Result"
-				}
-				pdfBytes, err := genpdf.WriteText(context.Background(), title, textPayload)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create PDF attachment for tool result: %w", err)
-				}
-				name := sanitizeFileName(msg.Name)
-				if name == "" {
-					name = "tool-result"
-				}
-				name = fmt.Sprintf("%s-%d.pdf", name, time.Now().Unix())
-				encoded := base64.StdEncoding.EncodeToString(pdfBytes)
-				msg.Items = []llm.ContentItem{
-					{
-						Name:     name,
-						Type:     llm.ContentTypeBinary,
-						Source:   llm.SourceBase64,
-						Data:     encoded,
-						MimeType: "application/pdf",
-					},
-				}
-				// Replace legacy text with a stable placeholder to avoid token bloat.
-				msg.Content = ""
-				msg.ContentItems = nil
-				ToolCallIdToReplaceContent[msg.ToolCallId] = struct{}{}
-
-				msg.Content = `{"status":"ok","file_id":"abc","filename":"abc.txt","bytes":0}`
-
-			}
 		}
 
 		// Handle content based on priority: Items > ContentItems > Result
@@ -373,16 +317,10 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		}
 
 		message.ToolCallId = msg.ToolCallId
-
-		if message.Role == "changeBackToAssistant" {
-			toolCallIdsToDelete = append(toolCallIdsToDelete, msg.ToolCallId)
-			message.Role = "assistant"
-		}
 		// Convert tool calls if present
 		if len(msg.ToolCalls) > 0 {
 			message.ToolCalls = make([]ToolCall, len(msg.ToolCalls))
 			for j, toolCall := range msg.ToolCalls {
-				messageIndexByToolCallsId[toolCall.ID] = i
 				message.ToolCalls[j] = ToolCall{
 					ID:   toolCall.ID,
 					Type: "function",
@@ -400,23 +338,6 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	}
 
 	return req, nil
-}
-
-// sanitizeFileName reduces a string to a safe filename token (alnum and '-')
-func sanitizeFileName(in string) string {
-	if in == "" {
-		return ""
-	}
-	in = strings.ToLower(strings.TrimSpace(in))
-	b := strings.Builder{}
-	for _, r := range in {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			b.WriteRune(r)
-		} else if r == ' ' || r == '_' || r == '/' || r == '\\' {
-			b.WriteRune('-')
-		}
-	}
-	return strings.Trim(b.String(), "-")
 }
 
 // ToRequest is a convenience wrapper retained for backward-compatible tests.
