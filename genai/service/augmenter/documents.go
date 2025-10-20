@@ -1,13 +1,13 @@
 package augmenter
 
 import (
-	"github.com/tmc/langchaingo/schema"
+	embSchema "github.com/viant/embedius/schema"
 	"github.com/viant/linager/inspector/graph"
 )
 
-type Documents []schema.Document
+type Documents []embSchema.Document
 
-type Document schema.Document
+type Document embSchema.Document
 
 func (d Document) Size() int {
 	size := len(d.PageContent)

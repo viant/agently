@@ -16,7 +16,6 @@ type MatchInput struct {
 	MessageID string `json:"messageId"`
 	Query     string `json:"query"`
 	TopK      int    `json:"topK,omitempty"`
-	Chunk     int    `json:"chunk,omitempty"`
 }
 type MatchFragment struct {
 	Offset  int     `json:"offset"`
@@ -48,7 +47,7 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	size := len(body)
-	chunk := effectiveMatchChunk(input.Chunk, s.matchChunk)
+	chunk := s.matchChunk
 	topK := effectiveTopK(input.TopK)
 	emb, err := resolveEmbedder(ctx, s.embedder, s.embedModel)
 	if err != nil {

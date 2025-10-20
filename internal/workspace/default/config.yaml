@@ -15,6 +15,11 @@ default:
     # Optional system guide document path (file:// or absolute path). When set and a tool result overflows,
     # its content is injected into SystemDocuments for the LLM.
     systemGuidePath: ""
+  match:
+    # Default cap for auto full vs match decision and result capping
+    # When a knowledge/MCP entry doesn't set maxFiles, this value is used.
+    # If omitted, the runtime falls back to 5.
+    maxFiles: 5
 models:
   url: models
 embedders:

@@ -53,6 +53,9 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 
 	streamCh, err := streamer.Stream(ctx, req)
 	if err != nil {
+		if isContextLimitError(err) {
+			return cleanup, fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
+		}
 		return cleanup, fmt.Errorf("failed to start Stream: %w", err)
 	}
 	if err := s.consumeEvents(ctx, streamCh, handler, output); err != nil {
@@ -138,6 +141,9 @@ func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, 
 func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput) error {
 	if event.Err != nil {
 		output.Events = append(output.Events, stream.Event{Type: "error", Content: event.Err.Error()})
+		if isContextLimitError(event.Err) {
+			return fmt.Errorf("%w: %v", ErrContextLimitExceeded, event.Err)
+		}
 		return event.Err
 	}
 	resp := event.Response

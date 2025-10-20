@@ -5,13 +5,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tmc/langchaingo/schema"
 	"github.com/viant/afs/asset"
 	"github.com/viant/agently/genai/prompt"
+	embSchema "github.com/viant/embedius/schema"
 )
 
 // FromSchemaDocs converts search documents into prompt.Document items.
-func FromSchemaDocs(docs []schema.Document) []*prompt.Document {
+func FromSchemaDocs(docs []embSchema.Document) []*prompt.Document {
 	out := make([]*prompt.Document, 0, len(docs))
 
 	// Ensure deterministic processing order: sort knowledge by URL

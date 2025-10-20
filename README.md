@@ -164,6 +164,24 @@ You can now use natural language to query your database through Agently!
 
 ## Usage
 
+### Match Defaults (auto full vs match)
+
+You can control auto full vs match behavior and result capping via a single default in your workspace config:
+
+```yaml
+default:
+  match:
+    # Used when a knowledge/MCP entry doesn't specify maxFiles.
+    # Also drives the auto decision: if a location has more files than this,
+    # the runtime switches to Embedius match; otherwise it loads files directly (full).
+    maxFiles: 5
+```
+
+Notes:
+- minScore (when provided on a knowledge/MCP entry) only filters results in match mode; it does not force match mode.
+- URIs are normalized (TrimPath) for stable references and better token caching.
+- System documents are injected as separate system messages (content only) and are not rendered in system.tmpl to avoid duplication.
+
 ### HTTP API (v1)
 
 The embedded server exposes a simple chat API under `/v1/api`:

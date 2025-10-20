@@ -9,11 +9,10 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/stretchr/testify v1.10.0
-	github.com/tmc/langchaingo v0.1.14-0.20250213044659-d3e43b632176
 	github.com/viant/afs v1.26.3
 	github.com/viant/afsc v1.12.0
 	github.com/viant/datly v0.20.17
-	github.com/viant/embedius v0.2.2-0.20251015195730-ac1b650a9224
+	github.com/viant/embedius v0.2.5
 	github.com/viant/fluxor v0.4.3
 	github.com/viant/forge v0.2.16
 	github.com/viant/jsonrpc v0.11.0
@@ -100,7 +99,6 @@ require (
 	github.com/cncf/xds/go v0.0.0-20240905190251-b4127c9b8d78 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
-	github.com/dlclark/regexp2 v1.10.0 // indirect
 	github.com/envoyproxy/go-control-plane v0.13.1 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.1.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -131,7 +129,6 @@ require (
 	github.com/onsi/ginkgo/v2 v2.23.3 // indirect
 	github.com/onsi/gomega v1.37.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0 // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect

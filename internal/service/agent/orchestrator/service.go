@@ -46,6 +46,11 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 		cleanup, err := s.llm.Stream(ctx, &core2.StreamInput{StreamID: streamId, GenerateInput: genInput}, &core2.StreamOutput{})
 		defer cleanup()
 		if err != nil {
+			if errors.Is(err, core2.ErrContextLimitExceeded) {
+				if perr := s.presentContextLimitExceeded(ctx, strings.ReplaceAll(err.Error(), core2.ErrContextLimitExceeded.Error(), "")); perr != nil {
+					return nil, fmt.Errorf("failed to handle context limit: %w", perr)
+				}
+			}
 			return nil, fmt.Errorf("failed to stream: %w", err)
 		}
 		wg.Wait()
@@ -58,13 +63,13 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 		default:
 		}
 		s.synthesizeFinalResponse(genOutput)
-		//TODO if strem has not emit tool call but JSON (either eliciation or plan extract and act)
+		//TODO if stream has not emit tool call but JSON (either eliciation or plan extract and act)
 
 	} else {
 		if err := s.llm.Generate(ctx, genInput, genOutput); err != nil {
 			if errors.Is(err, core2.ErrContextLimitExceeded) {
 				// Present token-limit message with candidates to guide removal
-				if perr := s.presentContextLimitExceeded(ctx); perr != nil {
+				if perr := s.presentContextLimitExceeded(ctx, strings.ReplaceAll(err.Error(), core2.ErrContextLimitExceeded.Error(), "")); perr != nil {
 					return nil, fmt.Errorf("failed to handle context limit: %w", perr)
 				}
 			}
@@ -125,7 +130,7 @@ func hasRemovalTool(p *plan.Plan) bool {
 // and listing concise candidates to remove. It uses a minimal auto-compaction pass only to
 // free space for this presentation message. Subsequent cleanup is LLM-driven via message:remove
 // (and optionally message:summarize).
-func (s *Service) presentContextLimitExceeded(ctx context.Context) error {
+func (s *Service) presentContextLimitExceeded(ctx context.Context, errMessage string) error {
 	convID := memory.ConversationIDFromContext(ctx)
 	if strings.TrimSpace(convID) == "" || s.convClient == nil {
 		return fmt.Errorf("missing conversation context")
@@ -142,7 +147,9 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context) error {
 	}
 	// Compose presentation message
 	var buf bytes.Buffer
-	buf.WriteString("Context limit exceeded: reduce context to continue.\n")
+	buf.WriteString("Context limit exceeded (")
+	buf.WriteString(errMessage)
+	buf.WriteString("): reduce context to continue.\n")
 	buf.WriteString("Use tools message:remove (to remove items) and message:summarize (to craft short summaries). We will retry automatically after removals.\n")
 	buf.WriteString("Candidates:\n")
 	for _, l := range lines {
