@@ -21,6 +21,12 @@ func Run(args []string) {
 	}
 	opts.Init(first)
 
+	// Handle version early to avoid command requirement error from parser
+	if hasVersionFlag(args) {
+		fmt.Println(Version())
+		os.Exit(0)
+	}
+
 	parser := flags.NewParser(opts, flags.HelpFlag|flags.PassDoubleDash)
 	if _, err := parser.ParseArgs(args); err != nil {
 		// flags already prints user-friendly message; we only exit with code 1
@@ -50,6 +56,16 @@ func extractConfigPath(args []string) string {
 		}
 	}
 	return ""
+}
+
+// hasVersionFlag returns true if args contain a global version flag.
+func hasVersionFlag(args []string) bool {
+	for _, a := range args {
+		if a == "-v" || a == "--version" {
+			return true
+		}
+	}
+	return false
 }
 
 // RunWithCommands is kept for symmetry with scy CLI.
