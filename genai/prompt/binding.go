@@ -13,6 +13,9 @@ type (
 		CanStream    bool `yaml:"canStream,omitempty" json:"canStream,omitempty"`
 		IsMultimodal bool `yaml:"isMultimodal,omitempty" json:"isMultimodal,omitempty"`
 		IsSystem     bool `yaml:"isSystemPath,omitempty" json:"isSystemPath,omitempty"`
+		// HasMessageOverflow indicates that a message content (tool result or otherwise)
+		// exceeded the preview limit and the binding may expose message helpers.
+		HasMessageOverflow bool `yaml:"hasMessageOverflow,omitempty" json:"hasMessageOverflow,omitempty"`
 	}
 
 	Documents struct {
@@ -64,6 +67,7 @@ type (
 
 	Binding struct {
 		Task            Task                   `yaml:"task" json:"task"`
+		Model           string                 `yaml:"model,omitempty" json:"model,omitempty"`
 		Persona         Persona                `yaml:"persona,omitempty" json:"persona,omitempty"`
 		History         History                `yaml:"history,omitempty" json:"history,omitempty"`
 		Tools           Tools                  `yaml:"tools,omitempty" json:"tools,omitempty"`

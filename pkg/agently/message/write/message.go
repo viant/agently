@@ -5,27 +5,31 @@ import "time"
 var PackageName = "message/write"
 
 type Message struct {
-	Id                   string     `sqlx:"id,primaryKey" validate:"required"`
-	Archived             *int       `sqlx:"archived" json:",omitempty"`
-	ConversationID       string     `sqlx:"conversation_id" validate:"required"`
-	TurnID               *string    `sqlx:"turn_id" json:",omitempty"`
-	Sequence             *int       `sqlx:"sequence" json:",omitempty"`
-	CreatedAt            *time.Time `sqlx:"created_at" json:",omitempty"`
-	UpdatedAt            *time.Time `sqlx:"updated_at" json:",omitempty"`
-	CreatedByUserID      *string    `sqlx:"created_by_user_id" json:",omitempty"`
-	Mode                 string     `sqlx:"mode" json:",omitempty"`
-	Role                 string     `sqlx:"role" validate:"required"`
-	Status               string     `sqlx:"status" `
-	Type                 string     `sqlx:"type" validate:"required"`
-	Content              string     `sqlx:"content"`
-	ContextSummary       *string    `sqlx:"context_summary" json:",omitempty"`
-	Tags                 *string    `sqlx:"tags" json:",omitempty"`
-	Interim              *int       `sqlx:"interim" json:",omitempty"`
-	ElicitationID        *string    `sqlx:"elicitation_id" json:",omitempty"`
-	ParentMessageID      *string    `sqlx:"parent_message_id" json:",omitempty"`
-	SupersededBy         *string    `sqlx:"superseded_by" json:",omitempty"`
-	LinkedConversationID *string    `sqlx:"linked_conversation_id" json:",omitempty"`
-	ToolName             *string    `sqlx:"tool_name" json:",omitempty"`
+	Id              string     `sqlx:"id,primaryKey" validate:"required"`
+	Archived        *int       `sqlx:"archived" json:",omitempty"`
+	ConversationID  string     `sqlx:"conversation_id" validate:"required"`
+	TurnID          *string    `sqlx:"turn_id" json:",omitempty"`
+	Sequence        *int       `sqlx:"sequence" json:",omitempty"`
+	CreatedAt       *time.Time `sqlx:"created_at" json:",omitempty"`
+	UpdatedAt       *time.Time `sqlx:"updated_at" json:",omitempty"`
+	CreatedByUserID *string    `sqlx:"created_by_user_id" json:",omitempty"`
+	Mode            string     `sqlx:"mode" json:",omitempty"`
+	Role            string     `sqlx:"role" validate:"required"`
+	Status          string     `sqlx:"status" `
+	Type            string     `sqlx:"type" validate:"required"`
+	Content         string     `sqlx:"content"`
+	// Summary holds a compact retained summary for this message.
+	Summary        *string `sqlx:"summary" json:",omitempty"`
+	ContextSummary *string `sqlx:"context_summary" json:",omitempty"`
+	// EmbeddingIndex stores a serialized vector index used for semantic match.
+	EmbeddingIndex       *[]byte `sqlx:"embedding_index" json:",omitempty"`
+	Tags                 *string `sqlx:"tags" json:",omitempty"`
+	Interim              *int    `sqlx:"interim" json:",omitempty"`
+	ElicitationID        *string `sqlx:"elicitation_id" json:",omitempty"`
+	ParentMessageID      *string `sqlx:"parent_message_id" json:",omitempty"`
+	SupersededBy         *string `sqlx:"superseded_by" json:",omitempty"`
+	LinkedConversationID *string `sqlx:"linked_conversation_id" json:",omitempty"`
+	ToolName             *string `sqlx:"tool_name" json:",omitempty"`
 	// AttachmentPayloadID links a message to an uploaded/staged attachment payload.
 	AttachmentPayloadID *string `sqlx:"attachment_payload_id" json:",omitempty"`
 	// ElicitationPayloadID links a message to an elicitation response payload.
@@ -47,7 +51,9 @@ type MessageHas struct {
 	Status               bool
 	Type                 bool
 	Content              bool
+	Summary              bool
 	ContextSummary       bool
+	EmbeddingIndex       bool
 	Tags                 bool
 	Interim              bool
 	ElicitationID        bool
@@ -80,11 +86,17 @@ func (m *Message) SetCreatedByUserID(v string) {
 	m.ensureHas()
 	m.Has.CreatedByUserID = true
 }
-func (m *Message) SetMode(v string)     { m.Mode = v; m.ensureHas(); m.Has.Mode = true }
-func (m *Message) SetRole(v string)     { m.Role = v; m.ensureHas(); m.Has.Role = true }
-func (m *Message) SetStatus(v string)   { m.Status = v; m.ensureHas(); m.Has.Status = true }
-func (m *Message) SetType(v string)     { m.Type = v; m.ensureHas(); m.Has.Type = true }
-func (m *Message) SetContent(v string)  { m.Content = v; m.ensureHas(); m.Has.Content = true }
+func (m *Message) SetMode(v string)    { m.Mode = v; m.ensureHas(); m.Has.Mode = true }
+func (m *Message) SetRole(v string)    { m.Role = v; m.ensureHas(); m.Has.Role = true }
+func (m *Message) SetStatus(v string)  { m.Status = v; m.ensureHas(); m.Has.Status = true }
+func (m *Message) SetType(v string)    { m.Type = v; m.ensureHas(); m.Has.Type = true }
+func (m *Message) SetContent(v string) { m.Content = v; m.ensureHas(); m.Has.Content = true }
+func (m *Message) SetSummary(v string) { m.Summary = &v; m.ensureHas(); m.Has.Summary = true }
+func (m *Message) SetEmbeddingIndex(v []byte) {
+	m.EmbeddingIndex = &v
+	m.ensureHas()
+	m.Has.EmbeddingIndex = true
+}
 func (m *Message) SetToolName(v string) { m.ToolName = &v; m.ensureHas(); m.Has.ToolName = true }
 func (m *Message) SetInterim(v int)     { m.Interim = &v; m.ensureHas(); m.Has.Interim = true }
 func (m *Message) SetLinkedConversationID(v string) {

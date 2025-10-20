@@ -22,18 +22,16 @@ func init() {
 }
 
 type MessageInput struct {
-	Id              string           `parameter:",kind=path,in=id"`
+	Id              string           `parameter:",kind=path,in=id" predicate:"equal,group=4,m,id"`
 	IncludeModelCal bool             `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"false"`
 	IncludeToolCall bool             `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"false"`
 	Has             *MessageInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type MessageInputHas struct {
-	Id                bool
-	Since             bool
-	IncludeTranscript bool
-	IncludeModelCal   bool
-	IncludeToolCall   bool
+	Id              bool
+	IncludeModelCal bool
+	IncludeToolCall bool
 }
 
 type MessageOutput struct {

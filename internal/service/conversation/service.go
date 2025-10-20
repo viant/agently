@@ -30,7 +30,7 @@ type Service struct{ dao *datly.Service }
 // and registers the rich conversation components.
 func New(ctx context.Context, dao *datly.Service) (*Service, error) {
 	if dao == nil {
-		return nil, nil
+		return nil, errors.New("conversation service requires a non-nil datly.Service")
 	}
 	srv := &Service{dao: dao}
 	err := srv.init(ctx, dao)
@@ -165,7 +165,7 @@ func (s *Service) GetConversation(ctx context.Context, id string, options ...con
 
 func (s *Service) GetPayload(ctx context.Context, id string) (*convcli.Payload, error) {
 	if s == nil || s.dao == nil {
-		return nil, nil
+		return nil, errors.New("conversation service not configured: dao is nil")
 	}
 	in := payloadread.Input{Id: id, Has: &payloadread.Has{Id: true}}
 	out := &payloadread.Output{}
@@ -180,8 +180,11 @@ func (s *Service) GetPayload(ctx context.Context, id string) (*convcli.Payload, 
 }
 
 func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayload) error {
-	if s == nil || s.dao == nil || payload == nil {
-		return nil
+	if s == nil || s.dao == nil {
+		return errors.New("conversation service not configured: dao is nil")
+	}
+	if payload == nil {
+		return errors.New("invalid payload: nil")
 	}
 	// MutablePayload is an alias of pkg/agently/payload.Payload
 	pw := (*payloadwrite.Payload)(payload)
@@ -201,13 +204,33 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 	return nil
 }
 
-func (s *Service) GetMessage(ctx context.Context, id string) (*convcli.Message, error) {
+func (s *Service) GetMessage(ctx context.Context, id string, options ...convcli.Option) (*convcli.Message, error) {
 	if s == nil || s.dao == nil {
-		return nil, nil
+		return nil, errors.New("conversation service not configured: dao is nil")
+	}
+	// Map conversation-style options to message read input flags
+	var convIn convcli.Input
+	for _, opt := range options {
+		if opt == nil {
+			continue
+		}
+		opt(&convIn)
 	}
 	in := messageread.MessageInput{Id: id, Has: &messageread.MessageInputHas{Id: true}}
+	if convIn.Has != nil {
+		if convIn.Has.IncludeToolCall && convIn.IncludeToolCall {
+			in.IncludeToolCall = true
+			in.Has.IncludeToolCall = true
+		}
+		if convIn.Has.IncludeModelCal && convIn.IncludeModelCal {
+			in.IncludeModelCal = true
+			in.Has.IncludeModelCal = true
+		}
+	}
+
+	uri := strings.ReplaceAll(messageread.MessagePathURI, "{id}", id)
 	out := &messageread.MessageOutput{}
-	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(messageread.MessagePathURI), datly.WithInput(&in)); err != nil {
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(&in)); err != nil {
 		return nil, err
 	}
 	if len(out.Data) == 0 {
@@ -219,7 +242,7 @@ func (s *Service) GetMessage(ctx context.Context, id string) (*convcli.Message, 
 
 func (s *Service) GetMessageByElicitation(ctx context.Context, conversationID, elicitationID string) (*convcli.Message, error) {
 	if s == nil || s.dao == nil {
-		return nil, nil
+		return nil, errors.New("conversation service not configured: dao is nil")
 	}
 	in := messageread.MessageByElicitationInput{ConversationId: conversationID, ElicitationId: elicitationID}
 	out := &messageread.MessageByElicitationOutput{}
@@ -253,8 +276,11 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 }
 
 func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.MutableModelCall) error {
-	if s == nil || s.dao == nil || modelCall == nil {
-		return nil
+	if s == nil || s.dao == nil {
+		return errors.New("conversation service not configured: dao is nil")
+	}
+	if modelCall == nil {
+		return errors.New("invalid modelCall: nil")
 	}
 	mc := (*modelcallwrite.ModelCall)(modelCall)
 	input := &modelcallwrite.Input{ModelCalls: []*modelcallwrite.ModelCall{mc}}
@@ -275,8 +301,11 @@ func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.Mutable
 }
 
 func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableToolCall) error {
-	if s == nil || s.dao == nil || toolCall == nil {
-		return nil
+	if s == nil || s.dao == nil {
+		return errors.New("conversation service not configured: dao is nil")
+	}
+	if toolCall == nil {
+		return errors.New("invalid toolCall: nil")
 	}
 	tc := (*toolcallwrite.ToolCall)(toolCall)
 	input := &toolcallwrite.Input{ToolCalls: []*toolcallwrite.ToolCall{tc}}
@@ -296,8 +325,11 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 }
 
 func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) error {
-	if s == nil || s.dao == nil || turn == nil {
-		return nil
+	if s == nil || s.dao == nil {
+		return errors.New("conversation service not configured: dao is nil")
+	}
+	if turn == nil {
+		return errors.New("invalid turn: nil")
 	}
 	tr := (*turnwrite.Turn)(turn)
 	input := &turnwrite.Input{Turns: []*turnwrite.Turn{tr}}
@@ -318,8 +350,11 @@ func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) erro
 
 // DeleteConversation removes a conversation by id. Dependent rows are removed via DB FKs (ON DELETE CASCADE).
 func (s *Service) DeleteConversation(ctx context.Context, id string) error {
-	if s == nil || s.dao == nil || strings.TrimSpace(id) == "" {
-		return nil
+	if s == nil || s.dao == nil {
+		return errors.New("conversation service not configured: dao is nil")
+	}
+	if strings.TrimSpace(id) == "" {
+		return errors.New("conversation id is required")
 	}
 	in := &convdel.Input{Ids: []string{id}}
 	out := &convdel.Output{}
@@ -339,8 +374,11 @@ func (s *Service) DeleteConversation(ctx context.Context, id string) error {
 
 // DeleteMessage removes a single message from a conversation using the dedicated DELETE component.
 func (s *Service) DeleteMessage(ctx context.Context, conversationID, messageID string) error {
-	if s == nil || s.dao == nil || strings.TrimSpace(messageID) == "" {
-		return nil
+	if s == nil || s.dao == nil {
+		return errors.New("conversation service not configured: dao is nil")
+	}
+	if strings.TrimSpace(messageID) == "" {
+		return errors.New("message id is required")
 	}
 
 	// Optional safety check: if conversationID provided, verify the message belongs to it.

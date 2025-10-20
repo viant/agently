@@ -76,4 +76,8 @@ type ElicitResult struct {
 	// Payload is the user supplied map that conforms to the supplied schema
 	// when Action == "accept". It is nil if the action is "decline".
 	Payload map[string]any `json:"payload,omitempty"`
+
+	// Reason optionally carries a human readable explanation when the user
+	// declines an elicitation. It is empty for accept actions.
+	Reason string `json:"reason,omitempty"`
 }

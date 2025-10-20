@@ -109,3 +109,16 @@ func (t *Transcript) Filter(f func(v *Message) bool) Messages {
 	}
 	return result
 }
+
+func (t *Turn) HasToolCallOverflow() bool {
+	overflow := false
+	if t != nil {
+		for _, m := range t.ToolCalls() {
+			if m != nil && m.ToolCall != nil && m.ToolCall.ResponseOverflow {
+				overflow = true
+				break
+			}
+		}
+	}
+	return overflow
+}

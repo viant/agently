@@ -5,18 +5,17 @@ import "time"
 var PackageName = "toolcall/write"
 
 type ToolCall struct {
-	MessageID         string     `sqlx:"message_id,primaryKey" validate:"required"`
-	TurnID            *string    `sqlx:"turn_id" json:",omitempty"`
-	OpID              string     `sqlx:"op_id" validate:"required"`
-	Attempt           int        `sqlx:"attempt"`
-	ToolName          string     `sqlx:"tool_name" validate:"required"`
-	ToolKind          string     `sqlx:"tool_kind" validate:"required"`
-	CapabilityTags    *string    `sqlx:"capability_tags" json:",omitempty"`
-	ResourceURIs      *string    `sqlx:"resource_uris" json:",omitempty"`
-	Status            string     `sqlx:"status" validate:"required"`
-	RequestSnapshot   *string    `sqlx:"request_snapshot" json:",omitempty"`
-	RequestHash       *string    `sqlx:"request_hash" json:",omitempty"`
-	ResponseSnapshot  *string    `sqlx:"response_snapshot" json:",omitempty"`
+	MessageID string  `sqlx:"message_id,primaryKey" validate:"required"`
+	TurnID    *string `sqlx:"turn_id" json:",omitempty"`
+	OpID      string  `sqlx:"op_id" validate:"required"`
+	Attempt   int     `sqlx:"attempt"`
+	ToolName  string  `sqlx:"tool_name" validate:"required"`
+	ToolKind  string  `sqlx:"tool_kind" validate:"required"`
+	// capability_tags and resource_uris removed
+	Status string `sqlx:"status" validate:"required"`
+	// request_snapshot removed
+	RequestHash *string `sqlx:"request_hash" json:",omitempty"`
+	// response_snapshot removed
 	ErrorCode         *string    `sqlx:"error_code" json:",omitempty"`
 	ErrorMessage      *string    `sqlx:"error_message" json:",omitempty"`
 	Retriable         *int       `sqlx:"retriable" json:",omitempty"`
@@ -28,23 +27,26 @@ type ToolCall struct {
 	SpanID            *string    `sqlx:"span_id" json:",omitempty"`
 	RequestPayloadID  *string    `sqlx:"request_payload_id"`
 	ResponsePayloadID *string    `sqlx:"response_payload_id"`
+	// ResponseOverflow flags that response content exceeded preview limit.
+	ResponseOverflow bool `sqlx:"-" json:",omitempty"`
+	// summary removed (persist on payload only)
 
 	Has *ToolCallHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type ToolCallHas struct {
-	MessageID         bool
-	TurnID            bool
-	OpID              bool
-	Attempt           bool
-	ToolName          bool
-	ToolKind          bool
-	CapabilityTags    bool
-	ResourceURIs      bool
-	Status            bool
-	RequestSnapshot   bool
-	RequestHash       bool
-	ResponseSnapshot  bool
+	MessageID bool
+	TurnID    bool
+	OpID      bool
+	Attempt   bool
+	ToolName  bool
+	ToolKind  bool
+	// CapabilityTags removed
+	// ResourceURIs removed
+	Status bool
+	// RequestSnapshot removed
+	RequestHash bool
+	// ResponseSnapshot removed
 	ErrorCode         bool
 	ErrorMessage      bool
 	Retriable         bool
@@ -56,6 +58,8 @@ type ToolCallHas struct {
 	SpanID            bool
 	RequestPayloadID  bool
 	ResponsePayloadID bool
+	ResponseOverflow  bool
+	// Summary removed
 }
 
 func (t *ToolCall) ensureHas() {
@@ -69,3 +73,10 @@ func (t *ToolCall) SetAttempt(v int)      { t.Attempt = v; t.ensureHas(); t.Has.
 func (t *ToolCall) SetToolName(v string)  { t.ToolName = v; t.ensureHas(); t.Has.ToolName = true }
 func (t *ToolCall) SetToolKind(v string)  { t.ToolKind = v; t.ensureHas(); t.Has.ToolKind = true }
 func (t *ToolCall) SetStatus(v string)    { t.Status = v; t.ensureHas(); t.Has.Status = true }
+func (t *ToolCall) SetResponseOverflow(v bool) {
+	t.ResponseOverflow = v
+	t.ensureHas()
+	t.Has.ResponseOverflow = true
+}
+
+// SetSummary removed

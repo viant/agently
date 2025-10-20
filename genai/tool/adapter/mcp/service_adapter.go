@@ -131,6 +131,34 @@ func applyMeta(m map[string]interface{}, f reflect.StructField) {
 	if t := f.Tag.Get("title"); t != "" {
 		m["title"] = t
 	}
+	// Map repeated `choice:"value"` struct tags to JSON Schema enum
+	if enums := enumChoicesFromTag(f.Tag); len(enums) > 0 {
+		m["enum"] = enums
+	}
+}
+
+// enumChoicesFromTag extracts all choice:"..." values from a struct tag.
+func enumChoicesFromTag(tag reflect.StructTag) []string {
+	raw := string(tag)
+	const key = "choice:\""
+	out := []string{}
+	for {
+		i := strings.Index(raw, key)
+		if i == -1 {
+			break
+		}
+		rest := raw[i+len(key):]
+		j := strings.Index(rest, "\"")
+		if j == -1 {
+			break
+		}
+		val := rest[:j]
+		if strings.TrimSpace(val) != "" {
+			out = append(out, val)
+		}
+		raw = rest[j+1:]
+	}
+	return out
 }
 
 func isInternal(f reflect.StructField) bool { return f.Tag.Get("internal") == "true" }

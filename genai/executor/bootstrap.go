@@ -35,6 +35,7 @@ import (
 	augmenter "github.com/viant/agently/genai/service/augmenter"
 	core "github.com/viant/agently/genai/service/core"
 	llmexectool "github.com/viant/agently/genai/tool/service/llm/exec"
+	msgsvc "github.com/viant/agently/genai/tool/service/message"
 	// removed executor options
 	// Helpers for exposing agents as tools
 	//	"github.com/viant/agently/genai/executor/agenttool"
@@ -93,8 +94,48 @@ func (e *Service) init(ctx context.Context) error {
 	e.agentService = agentSvc
 
 	// Register llm/exec service as internal MCP for run_agent using Service.Name().
-	if e.tools != nil && agentSvc != nil {
-		gtool.AddInternalService(e.tools, llmexectool.New(agentSvc))
+	gtool.AddInternalService(e.tools, llmexectool.New(agentSvc))
+	// Register internal message service (unified show/summarize/match/remove)
+	summarizeChunk := 4096
+	matchChunk := 1024
+	summaryModel := ""
+	summaryPrompt := ""
+	embedModel := ""
+	defaultModel := ""
+	if e.config != nil {
+		if e.config.Default.ToolCallResult.SummarizeChunk > 0 {
+			summarizeChunk = e.config.Default.ToolCallResult.SummarizeChunk
+		}
+		if e.config.Default.ToolCallResult.MatchChunk > 0 {
+			matchChunk = e.config.Default.ToolCallResult.MatchChunk
+		}
+		summaryModel = e.config.Default.ToolCallResult.SummaryModel
+		if strings.TrimSpace(summaryModel) == "" {
+			summaryModel = e.config.Default.SummaryModel
+		}
+		summaryPrompt = e.config.Default.SummaryPrompt
+		embedModel = e.config.Default.ToolCallResult.EmbeddingModel
+		if strings.TrimSpace(embedModel) == "" {
+			embedModel = e.config.Default.Embedder
+		}
+		defaultModel = e.config.Default.Model
+	}
+	gtool.AddInternalService(e.tools, msgsvc.NewWithDeps(e.convClient, e.llmCore, e.embedderFinder, summarizeChunk, matchChunk, summaryModel, summaryPrompt, defaultModel, embedModel))
+
+	// Apply per-model tool result preview limits from model configs when available
+	if e.llmCore != nil && e.config != nil && e.config.Model != nil {
+		limits := map[string]int{}
+		for _, cfg := range e.config.Model.Items {
+			if cfg == nil {
+				continue
+			}
+			if cfg.Options.ToolResultPreviewLimit > 0 {
+				limits[cfg.ID] = cfg.Options.ToolResultPreviewLimit
+			}
+		}
+		if len(limits) > 0 {
+			e.llmCore.SetModelPreviewLimits(limits)
+		}
 	}
 	convHandler := func(ctx context.Context, in *agent2.QueryInput, out *agent2.QueryOutput) error {
 		exec, err := agentSvc.Method("query")
@@ -140,6 +181,26 @@ func (e *Service) initDefaults(ctx context.Context) {
 	// This makes CLI/HTTP entry-points that construct executor.Service directly
 	// respect $AGENTLY_ROOT/ag/config.yaml without going through instance.Init.
 	e.loadWorkspaceConfigIfEmpty(ctx)
+	// Ensure toolCallResult defaults when missing
+	if e.config != nil {
+		tr := &e.config.Default.ToolCallResult
+		if tr.PreviewLimit == 0 {
+			tr.PreviewLimit = 8192
+		}
+		if tr.SummarizeChunk == 0 {
+			tr.SummarizeChunk = 4096
+		}
+		if tr.MatchChunk == 0 {
+			tr.MatchChunk = 1024
+		}
+		// Prefer explicit summary model; otherwise default to the global default model id
+		if strings.TrimSpace(tr.SummaryModel) == "" {
+			tr.SummaryModel = strings.TrimSpace(e.config.Default.Model)
+		}
+		if strings.TrimSpace(tr.EmbeddingModel) == "" {
+			tr.EmbeddingModel = e.config.Default.Embedder
+		}
+	}
 	e.initModel()
 	e.initEmbedders()
 	e.initAgent(ctx)

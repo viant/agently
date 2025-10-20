@@ -150,3 +150,48 @@ func TestFromService_JSONSchemaGeneration(t *testing.T) {
 		t.Errorf("output ok.type=%v", outProps["ok"]["type"])
 	}
 }
+
+// Ensure choice tags map to JSON Schema enum.
+type choiceInput struct {
+	Mode string `json:"mode" choice:"alpha" choice:"beta"`
+}
+type choiceOutput struct{}
+type svcWithChoice struct{}
+
+func (svcWithChoice) Name() string { return "svc/choice" }
+func (svcWithChoice) Methods() svc.Signatures {
+	return []svc.Signature{{
+		Name:        "do",
+		Description: "test choice",
+		Input:       reflect.TypeOf(&choiceInput{}),
+		Output:      reflect.TypeOf(&choiceOutput{}),
+	}}
+}
+func (svcWithChoice) Method(string) (svc.Executable, error) { return nil, nil }
+
+func TestFromService_ChoiceEnum(t *testing.T) {
+	tools := FromService(svcWithChoice{})
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(tools))
+	}
+	tool := tools[0]
+	props := map[string]map[string]interface{}(tool.InputSchema.Properties)
+	mode, ok := props["mode"]
+	if !ok {
+		t.Fatalf("missing mode property")
+	}
+	enumVals, ok := mode["enum"].([]string)
+	if !ok {
+		// try interface slice fallback in case of JSON marshalling differences
+		if arr, ok2 := mode["enum"].([]interface{}); ok2 {
+			got := make([]string, len(arr))
+			for i := range arr {
+				got[i], _ = arr[i].(string)
+			}
+			enumVals = got
+		}
+	}
+	if len(enumVals) != 2 || enumVals[0] != "alpha" || enumVals[1] != "beta" {
+		t.Fatalf("enum mismatch: %#v", mode["enum"])
+	}
+}

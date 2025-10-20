@@ -2,6 +2,19 @@ default:
   model: openai_gpt-5
   embedder: openai_text
   agent: chatter
+  toolCallResult:
+    # Preview limit bytes for inline LLM binding (full body always stored)
+    previewLimit: 8192
+    # Chunk sizes for summarize/match tools
+    summarizeChunk: 4096
+    matchChunk: 1024
+    # Model used for summarizing large tool results
+    summaryModel: openai_gpt-5
+    # Embedding model for semantic match (falls back to global default embedder)
+    embeddingModel: openai_text
+    # Optional system guide document path (file:// or absolute path). When set and a tool result overflows,
+    # its content is injected into SystemDocuments for the LLM.
+    systemGuidePath: ""
 models:
   url: models
 embedders:

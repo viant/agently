@@ -55,7 +55,10 @@ func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitati
 					return &plan.ElicitResult{Action: plan.ElicitResultActionAccept}, nil
 				}
 				if sel == "d" || sel == "decline" || sel == "r" || sel == "reject" {
-					return &plan.ElicitResult{Action: plan.ElicitResultActionDecline}, nil
+					// Ask for an optional decline reason to help the agent react appropriately.
+					fmt.Fprint(os.Stdout, "Enter decline reason (optional): ")
+					reason, _ := reader.ReadString('\n')
+					return &plan.ElicitResult{Action: plan.ElicitResultActionDecline, Reason: strings.TrimSpace(reason)}, nil
 				}
 				fmt.Fprintln(os.Stdout, "Invalid choice. Please enter o or d.")
 			}
@@ -76,7 +79,9 @@ func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitati
 			return res, nil
 		}
 		if sel == "r" || sel == "reject" || sel == "decline" {
-			return &plan.ElicitResult{Action: plan.ElicitResultActionDecline}, nil
+			fmt.Fprint(os.Stdout, "Enter decline reason (optional): ")
+			reason, _ := reader.ReadString('\n')
+			return &plan.ElicitResult{Action: plan.ElicitResultActionDecline, Reason: strings.TrimSpace(reason)}, nil
 		}
 		fmt.Fprintln(os.Stdout, "Invalid choice. Please enter a or r.")
 	}

@@ -177,8 +177,11 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			w.Header().Set("Content-Type", "text/html")
-			w.Write(ui.Index)
-			w.WriteHeader(http.StatusOK)
+			// Do not call WriteHeader after Write; default status is 200
+			if _, err := w.Write(ui.Index); err != nil {
+				// Unable to write response; nothing else to do in handler
+				return
+			}
 			return
 		}
 		fileServer.ServeHTTP(w, r)

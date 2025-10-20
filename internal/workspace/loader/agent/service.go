@@ -468,22 +468,6 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 							}
 						}
 					}
-				case "toolcallconversionthreshold":
-					if v.Kind == yaml.ScalarNode {
-						val := v.Interface()
-						switch a := val.(type) {
-						case int:
-							cfg.ToolCallConversionThreshold = int64(a)
-						case int64:
-							cfg.ToolCallConversionThreshold = a
-						case float64:
-							cfg.ToolCallConversionThreshold = int64(a)
-						case string:
-							if n, err := parseInt64(a); err == nil {
-								cfg.ToolCallConversionThreshold = n
-							}
-						}
-					}
 				}
 				return nil
 			}); err != nil {

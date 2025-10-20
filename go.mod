@@ -16,9 +16,9 @@ require (
 	github.com/viant/embedius v0.2.2-0.20251015195730-ac1b650a9224
 	github.com/viant/fluxor v0.4.3
 	github.com/viant/forge v0.2.16
-	github.com/viant/jsonrpc v0.10.2
+	github.com/viant/jsonrpc v0.11.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.6.4
+	github.com/viant/mcp v0.7.0
 	github.com/viant/mcp-protocol v0.5.10
 	github.com/viant/scy v0.25.3
 	github.com/viant/structology v0.7.1 // indirect
@@ -37,8 +37,10 @@ require (
 	github.com/minio/highwayhash v1.0.3
 	github.com/openai/openai-go/v3 v3.0.0
 	github.com/pmezard/go-difflib v1.0.0
+	github.com/rwtodd/Go.Sed v0.0.0-20250326002959-ba712dc84b62
 	github.com/sourcegraph/go-diff v0.7.0
-	github.com/viant/gosh v0.2.3
+	github.com/viant/gds v0.6.0
+	github.com/viant/gosh v0.2.4
 	github.com/viant/parsly v0.3.3
 	github.com/viant/xdatly v0.5.4-0.20251006174948-cb34263ae8aa
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
@@ -145,7 +147,6 @@ require (
 	github.com/viant/cloudless v1.12.0 // indirect
 	github.com/viant/dyndb v0.1.4-0.20221214043424-27654ab6ed9c // indirect
 	github.com/viant/firebase v0.1.1 // indirect
-	github.com/viant/gds v0.4.5 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
 	github.com/viant/godiff v0.4.1 // indirect
 	github.com/viant/govalidator v0.3.1 // indirect

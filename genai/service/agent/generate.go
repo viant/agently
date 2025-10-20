@@ -35,11 +35,7 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 		if agent.Attachment.TTLSec > 0 {
 			i.Options.Metadata["attachmentTTLSec"] = agent.Attachment.TTLSec
 		}
-		if agent.Attachment.ToolCallConversionThreshold > 0 {
-			if _, exists := i.Options.Metadata["toolAttachmentThresholdBytes"]; !exists {
-				i.Options.Metadata["toolAttachmentThresholdBytes"] = agent.Attachment.ToolCallConversionThreshold
-			}
-		}
+
 	}
 
 	// No additional defaults here; Agent.Init sets defaults in a single place

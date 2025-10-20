@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
-	"github.com/tmc/langchaingo/embeddings"
+	"github.com/viant/agently/genai/embedder/provider/base"
 	"github.com/viant/agently/genai/embedder/provider/ollama"
 	"github.com/viant/agently/genai/embedder/provider/openai"
 	"github.com/viant/agently/genai/embedder/provider/vertexai"
@@ -14,7 +14,7 @@ type Factory struct {
 	secrets *secret.Service
 }
 
-func (f *Factory) CreateEmbedder(ctx context.Context, options *Options) (embeddings.EmbedderClient, error) {
+func (f *Factory) CreateEmbedder(ctx context.Context, options *Options) (base.Embedder, error) {
 
 	if options.Provider == "" {
 		return nil, fmt.Errorf("provider was empty")

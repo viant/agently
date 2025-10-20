@@ -23,6 +23,9 @@ type Service struct {
 
 	// attachment usage accumulator per conversation (bytes)
 	attachUsage map[string]int64
+
+	// optional per-model preview limits for tool results (bytes)
+	modelPreviewLimit map[string]int
 }
 
 func (s *Service) ModelFinder() llm.Finder {
@@ -120,3 +123,14 @@ func (s *Service) ModelImplements(ctx context.Context, modelName, feature string
 }
 
 func (s *Service) SetConversationClient(c apiconv.Client) { s.convClient = c }
+
+// SetModelPreviewLimits sets per-model preview byte limits used by binding to trim tool results.
+func (s *Service) SetModelPreviewLimits(m map[string]int) { s.modelPreviewLimit = m }
+
+// ModelToolPreviewLimit returns the preview limit in bytes for a model or 0 when not configured.
+func (s *Service) ModelToolPreviewLimit(model string) int {
+	if s == nil || s.modelPreviewLimit == nil || strings.TrimSpace(model) == "" {
+		return 0
+	}
+	return s.modelPreviewLimit[model]
+}

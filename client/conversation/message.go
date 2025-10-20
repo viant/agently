@@ -1,7 +1,9 @@
 package conversation
 
 import (
+	"encoding/json"
 	"sort"
+	"strings"
 )
 
 func (m *Message) IsInterim() bool {
@@ -16,6 +18,41 @@ func (m *Message) IsArchived() bool {
 		return false
 	}
 	return m.Archived != nil && *m.Archived == 1
+}
+
+// GetContent returns the printable content for this message.
+// - For tool-call messages, it prefers the response payload inline body.
+// - For user/assistant messages, it returns the message content field.
+func (m *Message) GetContent() string {
+	if m == nil {
+		return ""
+	}
+	if m.ToolCall != nil && m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
+		return *m.ToolCall.ResponsePayload.InlineBody
+	}
+	if m.Content != nil {
+		return *m.Content
+	}
+	return ""
+}
+
+// ToolCallArguments returns parsed arguments for a tool-call message.
+// It prefers the request payload inline JSON body when present. When parsing
+// fails or no payload is present, it returns an empty map.
+func (m *Message) ToolCallArguments() map[string]interface{} {
+	args := map[string]interface{}{}
+	if m == nil || m.ToolCall == nil || m.ToolCall.RequestPayload == nil || m.ToolCall.RequestPayload.InlineBody == nil {
+		return args
+	}
+	raw := strings.TrimSpace(*m.ToolCall.RequestPayload.InlineBody)
+	if raw == "" {
+		return args
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+		args = parsed
+	}
+	return args
 }
 
 type Messages []*Message

@@ -21,8 +21,6 @@ type Payload struct {
 	Redacted               *int        `sqlx:"redacted" json:",omitempty"`
 	CreatedAt              *time.Time  `sqlx:"created_at" json:",omitempty"`
 	SchemaRef              *string     `sqlx:"schema_ref" json:",omitempty"`
-	Preview                *string     `sqlx:"preview" json:",omitempty"`
-	Tags                   *string     `sqlx:"tags" json:",omitempty"`
 	Has                    *PayloadHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
@@ -43,8 +41,6 @@ type PayloadHas struct {
 	Redacted               bool
 	CreatedAt              bool
 	SchemaRef              bool
-	Preview                bool
-	Tags                   bool
 }
 
 func (p *Payload) ensureHas() {
@@ -64,3 +60,6 @@ func (p *Payload) SetCompression(v string) {
 	p.ensureHas()
 	p.Has.Compression = true
 }
+
+// Summary and EmbeddingIndex fields removed; summaries belong to messages and
+// embeddings are external to payloads.

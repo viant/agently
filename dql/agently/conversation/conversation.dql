@@ -28,7 +28,10 @@ SELECT conversation.*,
 cast(attachment.inline_body as []byte),
 cast(transcript.elapsedInSec as int),
 cast(transcript.toolFeed AS []*tool.Feed),
-tag(transcript.toolFeed, 'sqlx:"-"')
+tag(transcript.toolFeed, 'sqlx:"-"'),
+tag(toolCall.response_overflow, 'sqlx:"-"'),
+cast(toolCall.response_overflow AS bool),
+required(toolCall.response_overflow)
 FROM (
     SELECT t.*,
           (SELECT id
@@ -49,7 +52,8 @@ FROM (
       ${predicate.Builder().CombineOr($predicate.FilterGroup(1, "AND")).Build("WHERE")}
     ) transcript ON transcript.conversation_id = conversation.id
 JOIN (
-    SELECT * FROM message WHERE attachment_payload_id IS NULL
+    SELECT * FROM message m WHERE m.attachment_payload_id IS NULL
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("AND")}
 ) message ON message.turn_id = transcript.id
 JOIN (
  SELECT inline_body, compression, m.id as message_id FROM message m

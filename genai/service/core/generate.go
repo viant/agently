@@ -3,9 +3,12 @@ package core
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
@@ -175,9 +178,28 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 
 	// Attach finish barrier to upstream ctx so recorder observer can signal completion (payload ids, usage).
 	ctx, _ = modelcallctx.WithFinishBarrier(ctx)
-	response, err := model.Generate(ctx, request)
-	if err != nil {
-		return fmt.Errorf("failed to generate content: %w", err)
+	// Retry transient connectivity/network errors up to 3 attempts with
+	// 1s initial delay and exponential backoff (1s, 2s, 4s).
+	var response *llm.GenerateResponse
+	for attempt := 0; attempt < 3; attempt++ {
+		response, err = model.Generate(ctx, request)
+		if err == nil {
+			break
+		}
+		// Do not retry on provider/model context-limit errors; surface a sentinel error
+		if isContextLimitError(err) {
+			return fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
+		}
+		if !isTransientNetworkError(err) || attempt == 2 || ctx.Err() != nil {
+			return fmt.Errorf("failed to generate content: %w", err)
+		}
+		// 1s, 2s, 4s backoff
+		delay := time.Second << attempt
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return fmt.Errorf("failed to generate content: %w", err)
+		}
 	}
 	output.Response = response
 
@@ -211,6 +233,74 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		output.MessageID = msgID
 	}
 	return nil
+}
+
+// ErrContextLimitExceeded signals that a provider/model rejected the request due to
+// exceeding the maximum context window (prompt too long / too many tokens).
+var ErrContextLimitExceeded = errors.New("llm/core: context limit exceeded")
+
+// isContextLimitError heuristically classifies provider/model errors indicating
+// the prompt/context exceeded the model's maximum capacity.
+func isContextLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Unwrap and inspect message text; providers vary widely in phrasing.
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "context length exceeded"),
+		strings.Contains(msg, "maximum context length"),
+		strings.Contains(msg, "exceeds context length"),
+		strings.Contains(msg, "exceeds the context window"),
+		strings.Contains(msg, "context window is") && strings.Contains(msg, "exceeded"),
+		strings.Contains(msg, "prompt is too long"),
+		strings.Contains(msg, "prompt too long"),
+		strings.Contains(msg, "token limit"),
+		strings.Contains(msg, "too many tokens"),
+		strings.Contains(msg, "input is too long"),
+		strings.Contains(msg, "request too large"),
+		strings.Contains(msg, "context_length_exceeded"), // common provider code
+		strings.Contains(msg, "resourceexhausted") && strings.Contains(msg, "context"):
+		return true
+	}
+	return false
+}
+
+// isTransientNetworkError heuristically classifies errors that are likely
+// transient connectivity/network failures worth retrying.
+func isTransientNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// net.Error with Timeout/Temporary
+	var nerr net.Error
+	if errors.As(err, &nerr) {
+		if nerr.Timeout() {
+			return true
+		}
+		// Temporary is deprecated but still useful when implemented
+		type temporary interface{ Temporary() bool }
+		if t, ok := any(nerr).(temporary); ok && t.Temporary() {
+			return true
+		}
+	}
+	// Context deadline exceeded is often a transient provider/backbone failure
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// String heuristics for common transient failures
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "connection reset"),
+		strings.Contains(msg, "connection refused"),
+		strings.Contains(msg, "dial tcp"),
+		strings.Contains(msg, "i/o timeout"),
+		strings.Contains(msg, "tls handshake"),
+		strings.Contains(msg, "temporary network error"),
+		strings.Contains(msg, "server closed idle connection"):
+		return true
+	}
+	return false
 }
 
 // prepareGenerateRequest prepares a GenerateRequest and resolves the model based
