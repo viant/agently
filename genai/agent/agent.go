@@ -136,10 +136,6 @@ type Attachment struct {
 
 	// TTLSec sets TTL for attachments in seconds.
 	TTLSec int64 `yaml:"ttlSec,omitempty" json:"ttlSec,omitempty"`
-
-	// ToolCallConversionThreshold sets default threshold (bytes) to convert
-	// tool call results into PDF attachments (provider-dependent).
-	ToolCallConversionThreshold int64 `yaml:"toolCallConversionThreshold,omitempty" json:"toolCallConversionThreshold,omitempty"`
 }
 
 // Init applies default values to the agent after it has been loaded from YAML.
@@ -154,10 +150,6 @@ func (a *Agent) Init() {
 	}
 	if a.Attachment.Mode == "" {
 		a.Attachment.Mode = "ref"
-	}
-	if a.Attachment.ToolCallConversionThreshold <= 0 {
-		// Default 100k threshold for tool-call → PDF conversion
-		a.Attachment.ToolCallConversionThreshold = 100_000
 	}
 	// Defaults for UI flags – default to true when unspecified
 	if a.ShowExecutionDetails == nil {

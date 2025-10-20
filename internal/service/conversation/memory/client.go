@@ -291,7 +291,7 @@ func (c *Client) PatchPayload(_ context.Context, p *convcli.MutablePayload) erro
 }
 
 // GetMessage returns a message by id.
-func (c *Client) GetMessage(_ context.Context, id string) (*convcli.Message, error) {
+func (c *Client) GetMessage(_ context.Context, id string, _ ...convcli.Option) (*convcli.Message, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	m, ok := c.messages[id]
@@ -746,15 +746,6 @@ func applyModelCallPatch(dst *agconv.ModelCallView, src *mcallw.ModelCall) {
 	if src.Has.LatencyMS {
 		dst.LatencyMs = src.LatencyMS
 	}
-	if src.Has.CacheHit {
-		if src.CacheHit != nil {
-			v := *src.CacheHit
-			dst.CacheHit = v
-		}
-	}
-	if src.Has.CacheKey {
-		dst.CacheKey = src.CacheKey
-	}
 	if src.Has.Cost {
 		dst.Cost = src.Cost
 	}
@@ -800,24 +791,15 @@ func applyToolCallPatch(dst *agconv.ToolCallView, src *toolw.ToolCall) {
 	if src.Has.ToolKind {
 		dst.ToolKind = src.ToolKind
 	}
-	if src.Has.CapabilityTags {
-		dst.CapabilityTags = src.CapabilityTags
-	}
-	if src.Has.ResourceURIs {
-		dst.ResourceUris = src.ResourceURIs
-	}
+	// CapabilityTags and ResourceURIs removed
 	if src.Has.Status {
 		dst.Status = src.Status
 	}
-	if src.Has.RequestSnapshot {
-		dst.RequestSnapshot = src.RequestSnapshot
-	}
+	// RequestSnapshot removed
 	if src.Has.RequestHash {
 		dst.RequestHash = src.RequestHash
 	}
-	if src.Has.ResponseSnapshot {
-		dst.ResponseSnapshot = src.ResponseSnapshot
-	}
+	// ResponseSnapshot removed
 	if src.Has.ErrorCode {
 		dst.ErrorCode = src.ErrorCode
 	}
@@ -937,12 +919,6 @@ func applyPayloadPatch(dst *convcli.Payload, src *payloadw.Payload) {
 	}
 	if src.Has.SchemaRef {
 		dst.SchemaRef = src.SchemaRef
-	}
-	if src.Has.Preview {
-		dst.Preview = src.Preview
-	}
-	if src.Has.Tags {
-		dst.Tags = src.Tags
 	}
 }
 

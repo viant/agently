@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"strings"
+
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	plan "github.com/viant/agently/genai/llm"
@@ -53,6 +55,11 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 
 	// 4) Execute tool
 	out, toolResult, execErr := executeTool(ctx, reg, step)
+	if execErr != nil && strings.TrimSpace(toolResult) == "" {
+		// Provide the error text as response payload so the LLM can reason over it.
+		toolResult = execErr.Error()
+		out.Result = toolResult
+	}
 	if execErr != nil {
 		errs = append(errs, fmt.Errorf("execute tool: %w", execErr))
 	}
@@ -182,14 +189,6 @@ func persistResponsePayload(ctx context.Context, conv apiconv.Client, result str
 	return createInlinePayload(ctx, conv, "tool_response", "text/plain", rb)
 }
 
-// updateToolMessageContent updates the tool message content with the given result.
-func updateToolMessageContent(ctx context.Context, conv apiconv.Client, toolMsgID string, content string) error {
-	updMsg := apiconv.NewMessage()
-	updMsg.SetId(toolMsgID)
-	updMsg.SetContent(content)
-	return conv.PatchMessage(ctx, updMsg)
-}
-
 // completeToolCall marks the tool call as finished and attaches the response payload and error message.
 func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, status string, completedAt time.Time, respPayloadID string, errMsg string) error {
 	updTC := apiconv.NewToolCall()
@@ -206,6 +205,7 @@ func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, statu
 		updTC.ErrorMessage = &strings
 		updTC.Has.ErrorMessage = true
 	}
+
 	return conv.PatchToolCall(ctx, updTC)
 }
 

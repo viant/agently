@@ -24,4 +24,7 @@ type Options struct {
 	OutputTokenPrice float64 `yaml:"outputTokenPrice,omitempty" json:"outputTokenPrice,omitempty"`
 	// Cost per 1,000 tokens served from cache (no LLM call).
 	CachedTokenPrice float64 `yaml:"cachedTokenPrice,omitempty" json:"cachedTokenPrice,omitempty"`
+
+	// Preview limit for tool results when this model is used (bytes).
+	ToolResultPreviewLimit int `yaml:"toolResultPreviewLimit,omitempty" json:"toolResultPreviewLimit,omitempty"`
 }

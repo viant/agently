@@ -63,8 +63,6 @@ type PayloadView struct {
 	Redacted               *int       `sqlx:"redacted"`
 	CreatedAt              *time.Time `sqlx:"created_at"`
 	SchemaRef              *string    `sqlx:"schema_ref"`
-	Preview                *string    `sqlx:"preview"`
-	Tags                   *string    `sqlx:"tags"`
 }
 
 var PayloadURI = "/v2/api/agently/payload"

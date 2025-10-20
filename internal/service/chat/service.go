@@ -17,7 +17,7 @@ import (
 	"github.com/viant/afs"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
-	"github.com/viant/agently/genai/conversation"
+	genconv "github.com/viant/agently/genai/conversation"
 	cancels "github.com/viant/agently/genai/conversation/cancel"
 	"github.com/viant/agently/genai/elicitation"
 	execcfg "github.com/viant/agently/genai/executor/config"
@@ -46,7 +46,7 @@ var compactInstruction string
 
 // Service exposes message retrieval independent of HTTP concerns.
 type Service struct {
-	mgr        *conversation.Manager
+	mgr        *genconv.Manager
 	toolPolicy *tool.Policy
 	approval   approval.Service
 
@@ -134,7 +134,7 @@ func (s *Service) ElicitationService() *elicitation.Service         { return s.e
 func (s *Service) ConversationClient() apiconv.Client { return s.convClient }
 
 // AttachManager configures the conversation manager and optional default policies.
-func (s *Service) AttachManager(mgr *conversation.Manager, tp *tool.Policy) {
+func (s *Service) AttachManager(mgr *genconv.Manager, tp *tool.Policy) {
 	s.mgr = mgr
 	s.toolPolicy = tp
 }
@@ -766,7 +766,7 @@ func (s *Service) Elicit(ctx context.Context, messageID, action string, payload 
 		return fmt.Errorf("elicitation message not found")
 	}
 	// Always resolve via elicitation service; it patches status in all cases and stores payload when accepted
-	if err := s.elicitation.Resolve(ctx, elicitationMsg.ConversationId, *elicitationMsg.ElicitationId, action, payload); err != nil {
+	if err := s.elicitation.Resolve(ctx, elicitationMsg.ConversationId, *elicitationMsg.ElicitationId, action, payload, ""); err != nil {
 		return err
 	}
 	return nil

@@ -113,8 +113,7 @@ CREATE TABLE call_payload
     redacted                 BIGINT       NOT NULL DEFAULT 0 CHECK (redacted IN (0, 1)),
     created_at               TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     schema_ref               TEXT,
-    preview                  TEXT,
-    tags                     TEXT,
+    
     CHECK (
         (storage = 'inline' AND inline_body IS NOT NULL) OR
         (storage = 'object' AND inline_body IS NULL)
@@ -135,7 +134,6 @@ CREATE TABLE `message`
     created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP,
     created_by_user_id     VARCHAR(255),
-    client_ip              VARCHAR(45),
     status                 VARCHAR(255) CHECK (status IS NULL OR status IN
                                                                  ('', 'pending', 'accepted', 'rejected', 'cancel',
                                                                   'open', 'summary', 'summarized','completed')),
@@ -143,6 +141,7 @@ CREATE TABLE `message`
     role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
     `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control')),
     content                MEDIUMTEXT,
+    summary                TEXT,
     context_summary        TEXT,
     tags                   TEXT,
     interim                BIGINT       NOT NULL DEFAULT 0 CHECK (interim IN (0, 1)),
@@ -154,6 +153,7 @@ CREATE TABLE `message`
     elicitation_payload_id VARCHAR(255),
     -- legacy column to remain compatible with older readers
     tool_name              TEXT,
+    embedding_index        LONGBLOB,
 
     CONSTRAINT fk_message_conversation
         FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE,
@@ -170,7 +170,6 @@ CREATE INDEX idx_msg_conv_created ON `message` (conversation_id, created_at DESC
 -- IP audit indexes
 CREATE INDEX idx_conv_created_ip ON conversation (created_ip);
 CREATE INDEX idx_conv_last_ip    ON conversation (last_ip);
-CREATE INDEX idx_msg_client_ip   ON `message` (client_ip);
 
 -- Users table for identity and schedule UX state
 CREATE TABLE users (
@@ -206,11 +205,8 @@ CREATE TABLE model_call
     model_kind                            VARCHAR(255) NOT NULL CHECK (model_kind IN
                                                                        ('chat', 'completion', 'vision', 'reranker',
                                                                         'embedding', 'other')),
-    prompt_snapshot                       TEXT,
-    prompt_ref                            TEXT,
-    prompt_hash                           TEXT,
-    response_snapshot                     TEXT,
-    response_ref                          TEXT,
+    
+    
     error_code                            TEXT,
     error_message                         TEXT,
     finish_reason                         TEXT,
@@ -230,8 +226,7 @@ CREATE TABLE model_call
     cache_hit                             BIGINT       NOT NULL DEFAULT 0 CHECK (cache_hit IN (0, 1)),
     cache_key                             TEXT,
     cost                                  DOUBLE,
-    safety_blocked                        BIGINT CHECK (safety_blocked IN (0, 1)),
-    safety_reasons                        TEXT,
+    
     redaction_policy_version              TEXT,
     redacted                              BIGINT       NOT NULL DEFAULT 0 CHECK (redacted IN (0, 1)),
     trace_id                              TEXT,
@@ -269,15 +264,10 @@ CREATE TABLE tool_call
     attempt             BIGINT       NOT NULL DEFAULT 1,
     tool_name           VARCHAR(255) NOT NULL,
     tool_kind           VARCHAR(255) NOT NULL CHECK (tool_kind IN ('general', 'resource')),
-    capability_tags     TEXT,
-    resource_uris       TEXT,
     status              VARCHAR(255) NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'skipped',
                                                                 'canceled')),
-    request_snapshot    TEXT,
-    request_ref         TEXT,
+    -- request_ref removed
     request_hash        TEXT,
-    response_snapshot   TEXT,
-    response_ref        TEXT,
     error_code          TEXT,
     error_message       TEXT,
     retriable           BIGINT CHECK (retriable IN (0, 1)),
@@ -289,6 +279,7 @@ CREATE TABLE tool_call
     span_id             TEXT,
     request_payload_id  VARCHAR(255),
     response_payload_id VARCHAR(255),
+    response_overflow   BIGINT CHECK (response_overflow IN (0,1)),
 
     CONSTRAINT fk_tool_call_message
         FOREIGN KEY (message_id) REFERENCES `message` (id) ON DELETE CASCADE,

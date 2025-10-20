@@ -15,6 +15,7 @@ import (
 var Version = "dev"
 
 func main() {
+	// Expose version to the CLI layer so `-v/--version` can print it.
 	agently.SetVersion(Version)
 	agently.RunWithCommands(os.Args[1:])
 }

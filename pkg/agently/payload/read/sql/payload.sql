@@ -14,8 +14,6 @@ SELECT
   p.redaction_policy_version,
   p.redacted,
   p.created_at,
-  p.schema_ref,
-  p.preview,
-  p.tags
+  p.schema_ref
 FROM call_payload p
 ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")} 

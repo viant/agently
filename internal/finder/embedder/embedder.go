@@ -6,18 +6,18 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/tmc/langchaingo/embeddings"
 	provider "github.com/viant/agently/genai/embedder/provider"
+	baseembed "github.com/viant/agently/genai/embedder/provider/base"
 	"github.com/viant/agently/internal/registry"
 )
 
-// Finder caches embeddings.Embedder instances and lazily instantiates them using
+// Finder caches embedder client instances and lazily instantiates them using
 // the generic provider.Factory.
 type Finder struct {
 	factory        *provider.Factory
 	configRegistry *registry.Registry[*provider.Config]
 	loader         provider.ConfigLoader
-	embedders      map[string]embeddings.Embedder
+	embedders      map[string]baseembed.Embedder
 	mux            sync.RWMutex
 	version        int64
 }
@@ -27,7 +27,7 @@ func New(options ...Option) *Finder {
 	d := &Finder{
 		factory:        provider.New(),
 		configRegistry: registry.New[*provider.Config](),
-		embedders:      map[string]embeddings.Embedder{},
+		embedders:      map[string]baseembed.Embedder{},
 	}
 
 	for _, opt := range options {
@@ -75,9 +75,9 @@ func (d *Finder) Ids() []string {
 	return ids
 }
 
-// Find returns a ready-to-use embeddings.Embedder by ID, creating and
+// Find returns a ready-to-use embedder client by ID, creating and
 // caching it on first request.
-func (d *Finder) Find(ctx context.Context, id string) (embeddings.Embedder, error) {
+func (d *Finder) Find(ctx context.Context, id string) (baseembed.Embedder, error) {
 	d.mux.RLock()
 	if e, ok := d.embedders[id]; ok {
 		d.mux.RUnlock()
@@ -107,10 +107,6 @@ func (d *Finder) Find(ctx context.Context, id string) (embeddings.Embedder, erro
 	if err != nil {
 		return nil, err
 	}
-	embedder, err := embeddings.NewEmbedder(client)
-	if err != nil {
-		return nil, err
-	}
-	d.embedders[id] = embedder
-	return embedder, nil
+	d.embedders[id] = client
+	return client, nil
 }

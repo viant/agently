@@ -12,15 +12,7 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 	}
 	i.indexSlice()
 	// apply defaults for NOT NULL columns when inserting new records
-	for _, mc := range i.ModelCalls {
-		if mc == nil {
-			continue
-		}
-		if _, exists := i.CurByID[mc.MessageID]; !exists {
-			if mc.CacheHit == nil {
-				mc.SetCacheHit(0)
-			}
-		}
+	for range i.ModelCalls { /* no-op after column removals */
 	}
 	return nil
 }

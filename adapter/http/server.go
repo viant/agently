@@ -590,6 +590,7 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 	var req struct {
 		Action  string                 `json:"action"`
 		Payload map[string]interface{} `json:"payload,omitempty"`
+		Reason  string                 `json:"reason,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		encode(w, http.StatusBadRequest, nil, err)
@@ -610,7 +611,7 @@ func (s *Server) handleElicitationCallback(w http.ResponseWriter, r *http.Reques
 		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("elicitation service not initialised"))
 		return
 	}
-	if err := eliciationService.Resolve(r.Context(), convID, elicID, req.Action, req.Payload); err != nil {
+	if err := eliciationService.Resolve(r.Context(), convID, elicID, req.Action, req.Payload, req.Reason); err != nil {
 		// Map not found to 404; everything else bubbles as 500
 		if strings.Contains(err.Error(), "elicitation message not found") {
 			encode(w, http.StatusNotFound, nil, err)

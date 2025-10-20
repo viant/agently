@@ -6,8 +6,10 @@ import (
 	"path"
 	"strings"
 
-	"github.com/tmc/langchaingo/embeddings"
+	adaptembed "github.com/viant/agently/genai/embedder/adapter"
+	baseembed "github.com/viant/agently/genai/embedder/provider/base"
 	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
+	authctx "github.com/viant/agently/internal/auth"
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/embedius/indexer"
@@ -49,8 +51,8 @@ func Key(embedder string, options *option.Options) string {
 	return builder.String()
 }
 
-func NewDocsAugmenter(embeddingsModel string, embedder embeddings.Embedder, options ...option.Option) *DocsAugmenter {
-	baseURL := embeddingBaseURL()
+func NewDocsAugmenter(ctx context.Context, embeddingsModel string, embedder baseembed.Embedder, options ...option.Option) *DocsAugmenter {
+	baseURL := embeddingBaseURL(ctx)
 	matcher := matching.New(options...)
 	splitterFactory := splitter.NewFactory(4096)
 	// Register a basic PDF splitter to extract printable text before chunking.
@@ -60,14 +62,24 @@ func NewDocsAugmenter(embeddingsModel string, embedder embeddings.Embedder, opti
 		fsIndexer: fs.New(baseURL, embeddingsModel, matcher, splitterFactory),
 		memStore:  mem.NewStore(mem.WithBaseURL(baseURL)),
 	}
-	ret.service = indexer.NewService(baseURL, ret.memStore, embedder, ret.fsIndexer)
+	ret.service = indexer.NewService(baseURL, ret.memStore, adaptembed.LangchainEmbedderAdapter{Inner: embedder}, ret.fsIndexer)
 	return ret
 }
 
-func embeddingBaseURL() string { return path.Join(workspace.Root(), "index") }
+func embeddingBaseURL(ctx context.Context) string {
+	user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	if user == "" {
+		user = "default"
+	}
+	return path.Join(workspace.Root(), "index", user)
+}
 
 func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) (*DocsAugmenter, error) {
-	key := Key(input.Model, input.Match)
+	user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	if user == "" {
+		user = "default"
+	}
+	key := user + ":" + Key(input.Model, input.Match)
 	augmenter, ok := s.DocsAugmenters.Get(key)
 	if !ok {
 		model, err := s.finder.Find(ctx, input.Model)
@@ -88,7 +100,7 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 			}
 		}
 		if useMCP && s.mcpMgr != nil {
-			baseURL := embeddingBaseURL()
+			baseURL := embeddingBaseURL(ctx)
 			matcher := matching.New(matchOptions...)
 			splitterFactory := splitter.NewFactory(4096)
 			splitterFactory.RegisterExtensionSplitter(".pdf", NewPDFSplitter(4096))
@@ -98,10 +110,10 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 				fsIndexer: idx,
 				memStore:  mem.NewStore(mem.WithBaseURL(baseURL)),
 			}
-			ret.service = indexer.NewService(baseURL, ret.memStore, model, ret.fsIndexer)
+			ret.service = indexer.NewService(baseURL, ret.memStore, adaptembed.LangchainEmbedderAdapter{Inner: model}, ret.fsIndexer)
 			augmenter = ret
 		} else {
-			augmenter = NewDocsAugmenter(input.Model, model, matchOptions...)
+			augmenter = NewDocsAugmenter(ctx, input.Model, model, matchOptions...)
 		}
 		s.DocsAugmenters.Set(key, augmenter)
 	}

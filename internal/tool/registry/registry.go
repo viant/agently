@@ -182,6 +182,7 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 		if r.debugWriter != nil {
 			fmt.Fprintf(r.debugWriter, "[tool] list servers error: %v\n", err)
 		}
+		r.warnf("tools: list servers failed: %v", err)
 		return defs
 	}
 	seen := map[string]struct{}{}
@@ -191,6 +192,7 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 			if r.debugWriter != nil {
 				fmt.Fprintf(r.debugWriter, "[tool] list tools %s error: %v\n", s, err)
 			}
+			r.warnf("tools: list %s failed: %v", s, err)
 			continue
 		}
 		for _, t := range tools {

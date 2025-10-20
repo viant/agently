@@ -109,11 +109,19 @@ func (s *Service) Wait(ctx context.Context, convID, elicitationID string) (strin
 				return
 			}
 			// Persist when accepted and notify router
-			if strings.ToLower(string(res.Action)) == elact.Accept && res.Payload != nil {
-				_ = s.StorePayload(ctx, convID, elicitationID, res.Payload)
-				_ = s.UpdateStatus(ctx, convID, elicitationID, elact.Accept)
-			} else {
+			action := strings.ToLower(string(res.Action))
+			switch action {
+			case elact.Accept:
+				if res.Payload != nil {
+					_ = s.StorePayload(ctx, convID, elicitationID, res.Payload)
+					_ = s.UpdateStatus(ctx, convID, elicitationID, elact.Accept)
+				}
+				// If accepted without payload, do not mark declined; UI callback should resolve.
+			default: // decline or other
 				_ = s.UpdateStatus(ctx, convID, elicitationID, elact.Decline)
+				if strings.TrimSpace(res.Reason) != "" {
+					_ = s.StoreDeclineReason(ctx, convID, elicitationID, res.Reason)
+				}
 			}
 			out := &schema.ElicitResult{Action: schema.ElicitResultAction(elact.Normalize(string(res.Action))), Content: res.Payload}
 			s.router.AcceptByElicitation(convID, elicitationID, out)
@@ -197,8 +205,7 @@ func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, actio
 		return err
 	}
 	if msg.ParentMessageId != nil {
-		dep, err := s.client.GetMessage(ctx, *msg.ParentMessageId)
-		if err == nil {
+		if dep, err := s.client.GetMessage(ctx, *msg.ParentMessageId); err == nil && dep != nil {
 			return s.client.DeleteMessage(ctx, dep.ConversationId, dep.Id)
 		}
 	}
@@ -258,7 +265,7 @@ func NormalizeAction(a string) string { return elact.Normalize(a) }
 // - notifies any registered router waiter
 func (s *Service) HandleCallback(ctx context.Context, convID, elicitationID, action string, payload map[string]interface{}) error {
 	// Deprecated: prefer Resolve
-	return s.Resolve(ctx, convID, elicitationID, action, payload)
+	return s.Resolve(ctx, convID, elicitationID, action, payload, "")
 }
 
 // Resolve processes an elicitation decision end-to-end:
@@ -266,7 +273,7 @@ func (s *Service) HandleCallback(ctx context.Context, convID, elicitationID, act
 // - updates message status
 // - stores payload (when accepted)
 // - notifies any registered router waiter
-func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action string, payload map[string]interface{}) error {
+func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action string, payload map[string]interface{}, reason string) error {
 	if strings.TrimSpace(convID) == "" || strings.TrimSpace(elicitationID) == "" {
 		return fmt.Errorf("conversation and elicitation id required")
 	}
@@ -278,8 +285,33 @@ func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action str
 		if err := s.StorePayload(ctx, convID, elicitationID, payload); err != nil {
 			return err
 		}
+	} else if elact.ToStatus(act) == elact.StatusRejected && strings.TrimSpace(reason) != "" {
+		if err := s.StoreDeclineReason(ctx, convID, elicitationID, reason); err != nil {
+			return err
+		}
 	}
 	out := &schema.ElicitResult{Action: schema.ElicitResultAction(act), Content: payload}
 	s.router.AcceptByElicitation(convID, elicitationID, out)
 	return nil
+}
+
+// StoreDeclineReason persists a user-decline reason as a user message so the agent can react.
+func (s *Service) StoreDeclineReason(ctx context.Context, convID, elicitationID, reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		return nil
+	}
+	msg, err := s.client.GetMessageByElicitation(ctx, convID, elicitationID)
+	if err != nil {
+		return err
+	}
+	if msg == nil {
+		return fmt.Errorf("elicitation message not found")
+	}
+	// Only add a user response message when the elicitation originated from an assistant message
+	if msg.Role != llm.RoleAssistant.String() {
+		return nil
+	}
+	turn := memory.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
+	payload := map[string]interface{}{"declineReason": reason}
+	return s.AddUserResponseMessage(ctx, &turn, payload)
 }

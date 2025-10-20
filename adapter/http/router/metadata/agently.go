@@ -82,11 +82,16 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 		}
 	}
 
-	// Tools: from llm definitions
+	// Tools: from llm definitions (hide internal/* services)
 	for _, d := range defs {
 		name := strings.TrimSpace(d.Name)
 		if name == "" {
 			continue
+		}
+		if i := strings.IndexByte(name, ':'); i != -1 {
+			if strings.HasPrefix(strings.TrimSpace(name[:i]), "internal/") {
+				continue
+			}
 		}
 		out.Tools = append(out.Tools, name)
 		// Build ToolsTree grouping by service prefix using ':'
@@ -109,6 +114,21 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 
 	// Build AgentInfo mapping (matched tool names per agent)
 	if cfg.Agent != nil && len(cfg.Agent.Items) > 0 && len(defs) > 0 {
+		// Build filtered tool defs excluding internal/* services to avoid exposing them
+		filtered := make([]llm.ToolDefinition, 0, len(defs))
+		for _, d := range defs {
+			n := strings.TrimSpace(d.Name)
+			if n == "" {
+				continue
+			}
+			if i := strings.IndexByte(n, ':'); i != -1 {
+				if strings.HasPrefix(strings.TrimSpace(n[:i]), "internal/") {
+					continue
+				}
+			}
+			filtered = append(filtered, d)
+		}
+		defs = filtered
 		out.AgentInfo = make(map[string]*AgentInfo)
 		// Precompute canon tool names
 		names := make([]string, 0, len(defs))

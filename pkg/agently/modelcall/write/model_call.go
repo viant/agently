@@ -23,8 +23,6 @@ type ModelCall struct {
 	CompletionAcceptedPredictionTokens *int          `sqlx:"completion_accepted_prediction_tokens" json:",omitempty"`
 	CompletionRejectedPredictionTokens *int          `sqlx:"completion_rejected_prediction_tokens" json:",omitempty"`
 	FinishReason                       *string       `sqlx:"finish_reason" json:",omitempty"`
-	CacheHit                           *int          `sqlx:"cache_hit" json:",omitempty"`
-	CacheKey                           *string       `sqlx:"cache_key" json:",omitempty"`
 	StartedAt                          *time.Time    `sqlx:"started_at" json:",omitempty"`
 	CompletedAt                        *time.Time    `sqlx:"completed_at" json:",omitempty"`
 	LatencyMS                          *int          `sqlx:"latency_ms" json:",omitempty"`
@@ -57,8 +55,6 @@ type ModelCallHas struct {
 	CompletionAcceptedPredictionTokens bool
 	CompletionRejectedPredictionTokens bool
 	FinishReason                       bool
-	CacheHit                           bool
-	CacheKey                           bool
 	StartedAt                          bool
 	CompletedAt                        bool
 	LatencyMS                          bool
@@ -142,4 +138,3 @@ func (m *ModelCall) SetErrorMessage(v string) {
 	m.Has.ErrorMessage = true
 }
 func (m *ModelCall) SetErrorCode(v string) { m.ErrorCode = &v; m.ensureHas(); m.Has.ErrorCode = true }
-func (m *ModelCall) SetCacheHit(v int)     { m.CacheHit = &v; m.ensureHas(); m.Has.CacheHit = true }
