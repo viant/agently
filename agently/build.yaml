@@ -25,4 +25,4 @@ pipeline:
       - export GOOS=windows
       - export GOARCH=amd64
       - go build -ldflags="-X 'main.Version=${Ver}'" -trimpath
-      - tar cvzf agently_darwin_arm64_${Ver}.tar.gz agently
+      - tar cvzf agently_windows_amd64_${Ver}.tar.gz agently.exe
