@@ -85,6 +85,7 @@ type (
 		MaxFiles  int             `yaml:"maxFiles,omitempty" json:"maxFiles,omitempty"`
 		TrimPath  string          `yaml:"trimPath,omitempty" json:"trimPath,omitempty"`
 		Match     *option.Options `yaml:"match,omitempty" json:"match,omitempty"`
+		MinScore  *float64        `yaml:"minScore,omitempty" json:"minScore,omitempty"`
 	}
 
 	// ToolExport defines optional settings to expose an agent as a runtime tool.

@@ -24,12 +24,10 @@ toolExport:
   domains: [coding]
 
 knowledge:
-  - inclusionMode: full
-    url: knowledge/
+  - url: knowledge/
 
 systemKnowledge:
-  - inclusionMode: full
-    url: system_knowledge/
+  - url: system_knowledge/
 
 elicitation:
   message: "Please provide execution context"

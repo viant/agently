@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/viant/afs/url"
@@ -17,8 +18,11 @@ import (
 	"github.com/viant/agently/genai/prompt"
 	padapter "github.com/viant/agently/genai/prompt/adapter"
 	"github.com/viant/agently/genai/service/augmenter"
+	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
+	"github.com/viant/agently/internal/workspace"
 	mcpname "github.com/viant/agently/pkg/mcpname"
+	embSchema "github.com/viant/embedius/schema"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
@@ -121,7 +125,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if histOverflow {
 		b.Flags.HasMessageOverflow = true
 	}
-	debugf("overflow flags: histOverflow=%v HasMessageOverflow=%v", histOverflow, b.Flags.HasMessageOverflow)
+
 	b.Task = s.buildTaskBinding(input)
 
 	b.Tools.Signatures, _, err = s.buildToolSignatures(ctx, input)
@@ -170,11 +174,17 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		return nil, err
 	}
 	b.Documents = docs
+	// Normalize user doc URIs by trimming workspace root for stable display
+	s.normalizeDocURIs(&b.Documents, workspace.Root())
+	// Attach non-text user documents as binary attachments (e.g., PDFs, images)
+	s.attachNonTextUserDocs(ctx, b)
 
 	b.SystemDocuments, err = s.buildDocumentsBinding(ctx, input, true)
 	if err != nil {
 		return nil, err
 	}
+	// Normalize system doc URIs similarly (even if not rendered now)
+	s.normalizeDocURIs(&b.SystemDocuments, workspace.Root())
 	b.Context = input.Context
 
 	// Optionally add MCP/resource-based documents selected via Embedius.
@@ -213,7 +223,7 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 	if !b.Flags.HasMessageOverflow && !tokenLimit {
 		return
 	}
-	debugf("handleOverflow: tokenLimit=%v HasMessageOverflow=%v", tokenLimit, b.Flags.HasMessageOverflow)
+
 	// removed debug print: hasOverflow and existing signatures
 
 	// Build a canonical set of already exposed tools to avoid duplicates
@@ -229,7 +239,7 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 	// Using a service-only pattern matches any method under that service.
 	pattern := "internal/message" // service-only pattern (match any method)
 	defs := s.registry.MatchDefinition(pattern)
-	debugf("handleOverflow: matched %d internal/message tools", len(defs))
+
 	for _, d := range defs {
 		if d == nil {
 			continue
@@ -257,7 +267,7 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 				allowed = true
 			}
 		}
-		debugf("handleOverflow: tool=%s method=%s allowed=%v already=%v", name, method, allowed, have[name])
+
 		if !allowed {
 			continue
 		}
@@ -294,10 +304,36 @@ func (s *Service) appendCallToolResultGuide(ctx context.Context, b *prompt.Bindi
 	}
 }
 
+// normalizeDocURIs trims a prefix from document SourceURI for stable, short references
+func (s *Service) normalizeDocURIs(docs *prompt.Documents, trim string) {
+	if docs == nil || len(docs.Items) == 0 {
+		return
+	}
+	trim = strings.TrimSpace(trim)
+	if trim == "" {
+		return
+	}
+	// Ensure trailing slash for precise trimming
+	if !strings.HasSuffix(trim, "/") {
+		trim += "/"
+	}
+	for _, d := range docs.Items {
+		if d == nil {
+			continue
+		}
+		uri := strings.TrimSpace(d.SourceURI)
+		if uri == "" {
+			continue
+		}
+		if strings.HasPrefix(uri, trim) {
+			d.SourceURI = strings.TrimPrefix(uri, trim)
+		}
+	}
+}
+
 // debugf prints binding-level debug logs when AGENTLY_DEBUG or AGENTLY_DEBUG_BINDING is set.
 // debugf is intentionally a no-op to avoid noisy logs during normal operation.
 // Keep the function for quick re‑enablement if needed while troubleshooting.
-func debugf(format string, args ...interface{}) {}
 
 // buildMCPDocuments matches resources using Embedius and converts top-N results
 // into binding documents. Indexing is handled lazily by the augmenter service.
@@ -322,29 +358,130 @@ func (s *Service) buildMCPDocuments(ctx context.Context, input *QueryInput, cfg 
 		return nil, nil
 	}
 
+	// Auto/full decision for MCP: if MinScore set -> match; otherwise list resources
+	// and if any location has more entries than MaxFiles (default 5) -> match; else full.
+	useMatch := false
+	if cfg.MinScore != nil {
+		useMatch = true
+	}
+	if !useMatch {
+		// Count resources per location using mcpfs
+		fs := mcpfs.New(s.mcpMgr)
+		for _, loc := range locations {
+			objects, err := fs.List(ctx, loc)
+			if err != nil {
+				// On error, fall back to match path
+				useMatch = true
+				break
+			}
+			limit := cfg.MaxFiles
+			if limit <= 0 && s.defaults != nil && s.defaults.Match.MaxFiles > 0 {
+				limit = s.defaults.Match.MaxFiles
+			}
+			if len(objects) > max(1, limit) {
+				useMatch = true
+				break
+			}
+		}
+	}
+	if !useMatch {
+		// Full mode: download each resource and attach directly
+		fs := mcpfs.New(s.mcpMgr)
+		var out []*prompt.Document
+		for _, loc := range locations {
+			objects, err := fs.List(ctx, loc)
+			if err != nil {
+				continue
+			}
+			// Stable order by normalized URL for caching
+			sort.SliceStable(objects, func(i, j int) bool {
+				ui := strings.ToLower(strings.TrimSpace(objects[i].URL()))
+				uj := strings.ToLower(strings.TrimSpace(objects[j].URL()))
+				return ui < uj
+			})
+			// Cap by MaxFiles if specified
+			limit := cfg.MaxFiles
+			if limit <= 0 && s.defaults != nil && s.defaults.Match.MaxFiles > 0 {
+				limit = s.defaults.Match.MaxFiles
+			}
+			limit = max(1, limit)
+			n := len(objects)
+			if limit > 0 && n > limit {
+				n = limit
+			}
+			for i := 0; i < n; i++ {
+				o := objects[i]
+				data, err := fs.Download(ctx, o)
+				if err != nil || len(data) == 0 {
+					continue
+				}
+				uri := o.URL()
+				if strings.TrimSpace(cfg.TrimPath) != "" {
+					uri = strings.TrimPrefix(uri, cfg.TrimPath)
+				}
+				content := strings.TrimSpace(string(data))
+				out = append(out, &prompt.Document{Title: baseName(uri), PageContent: content, SourceURI: uri})
+			}
+		}
+		return out, nil
+	}
+
+	// Effective docs cap (entry or defaults)
+	effMax := cfg.MaxFiles
+	if effMax <= 0 && s.defaults != nil && s.defaults.Match.MaxFiles > 0 {
+		effMax = s.defaults.Match.MaxFiles
+	}
 	augIn := &augmenter.AugmentDocsInput{
 		Query:        input.Query,
 		Locations:    locations,
 		Match:        cfg.Match,
 		Model:        input.EmbeddingModel,
-		MaxDocuments: max(1, cfg.MaxFiles),
+		MaxDocuments: max(1, effMax),
 		TrimPath:     cfg.TrimPath,
+	}
+	// Debug inputs
+	inc := []string{}
+	exc := []string{}
+	if cfg.Match != nil {
+		inc = append(inc, cfg.Match.Inclusions...)
+		exc = append(exc, cfg.Match.Exclusions...)
 	}
 	augOut := &augmenter.AugmentDocsOutput{}
 	if err := s.augmenter.AugmentDocs(ctx, augIn, augOut); err != nil {
 		return nil, fmt.Errorf("failed to build MCP documents: %w", err)
 	}
+	// Optional minScore filter (keep order)
+	if cfg.MinScore != nil {
+		filtered := make([]embSchema.Document, 0, len(augOut.Documents))
+		threshold := float32(*cfg.MinScore)
+		for _, d := range augOut.Documents {
+			if d.Score >= threshold {
+				filtered = append(filtered, d)
+			}
+		}
+		augOut.Documents = filtered
+	}
+	// Stable order by normalized source URI
+	sort.SliceStable(augOut.Documents, func(i, j int) bool {
+		si := strings.ToLower(strings.TrimSpace(extractSource(augOut.Documents[i].Metadata)))
+		sj := strings.ToLower(strings.TrimSpace(extractSource(augOut.Documents[j].Metadata)))
+		return si < sj
+	})
 
 	// Build binding documents from selected resources; fetch full content from MCP/FS.
 	var docsOut []*prompt.Document
 	unique := map[string]bool{}
 	for i, d := range augOut.Documents {
-		if cfg.MaxFiles > 0 && i >= cfg.MaxFiles {
+		// Apply effective cap
+		if effMax > 0 && i >= effMax {
 			break
 		}
 		uri := extractSource(d.Metadata)
 		if strings.TrimSpace(uri) == "" {
 			continue
+		}
+		if strings.TrimSpace(cfg.TrimPath) != "" {
+			uri = strings.TrimPrefix(uri, cfg.TrimPath)
 		}
 		if unique[uri] {
 			continue
@@ -401,6 +538,69 @@ func baseName(uri string) string {
 		return b
 	}
 	return uri
+}
+
+// attachNonTextUserDocs scans user documents and adds non-text docs as attachments.
+// It avoids duplicating content in user templates, which now render references only.
+func (s *Service) attachNonTextUserDocs(ctx context.Context, b *prompt.Binding) {
+	if b == nil || len(b.Documents.Items) == 0 {
+		return
+	}
+	for _, d := range b.Documents.Items {
+		uri := strings.TrimSpace(d.SourceURI)
+		if uri == "" {
+			continue
+		}
+		mime := mimeFromExt(strings.ToLower(strings.TrimPrefix(path.Ext(uri), ".")))
+		if !isNonTextMime(mime) {
+			continue
+		}
+		var data []byte
+		if mcpuri.Is(uri) && s.mcpMgr != nil {
+			if resolved, err := s.fetchMCPResource(ctx, uri); err == nil && len(resolved) > 0 {
+				data = resolved
+			}
+		} else {
+			if raw, err := s.fs.DownloadWithURL(ctx, uri); err == nil && len(raw) > 0 {
+				data = raw
+			}
+		}
+		if len(data) == 0 {
+			continue
+		}
+		b.Task.Attachments = append(b.Task.Attachments, &prompt.Attachment{
+			Name: baseName(uri), URI: uri, Mime: mime, Data: data,
+		})
+	}
+}
+
+func isNonTextMime(m string) bool {
+	switch m {
+	case "application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/svg+xml":
+		return true
+	}
+	return false
+}
+
+func mimeFromExt(ext string) string {
+	switch ext {
+	case "pdf":
+		return "application/pdf"
+	case "png":
+		return "image/png"
+	case "jpg", "jpeg":
+		return "image/jpeg"
+	case "gif":
+		return "image/gif"
+	case "webp":
+		return "image/webp"
+	case "bmp":
+		return "image/bmp"
+	case "svg":
+		return "image/svg+xml"
+	default:
+		return "text/plain"
+	}
 }
 
 func max(a, b int) int {
@@ -625,10 +825,18 @@ func (s *Service) buildDocumentsBinding(ctx context.Context, input *QueryInput, 
 	} else {
 		knowledge = input.Agent.Knowledge
 	}
+	urls := make([]string, 0, len(knowledge))
+	for _, k := range knowledge {
+		if k != nil && strings.TrimSpace(k.URL) != "" {
+			urls = append(urls, k.URL)
+		}
+	}
+
 	matchedDocs, err := s.matchDocuments(ctx, input, knowledge)
 	if err != nil {
 		return docs, err
 	}
+
 	docs.Items = padapter.FromSchemaDocs(matchedDocs)
 	return docs, nil
 }

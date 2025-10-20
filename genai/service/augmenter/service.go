@@ -7,8 +7,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/tmc/langchaingo/schema"
-	"github.com/tmc/langchaingo/vectorstores"
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/embedder"
 	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
@@ -17,6 +15,7 @@ import (
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/shared"
 	embedius "github.com/viant/embedius"
+	embSchema "github.com/viant/embedius/schema"
 )
 
 const name = "llm/augmenter"
@@ -102,17 +101,15 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 		return err
 	}
 	service := embedius.NewService(augmenter.service)
-	var searchDocuments []schema.Document
-	var vectorOptions []vectorstores.Option
-	if input.Match != nil {
-		vectorOptions = append(vectorOptions, vectorstores.WithFilters(input.Match.Options()))
-	}
+	var searchDocuments []embSchema.Document
 
 	for _, location := range input.Locations {
-		docs, err := service.Match(ctx, input.Query, input.MaxDocuments, location, vectorOptions...)
+
+		docs, err := service.Match(ctx, input.Query, input.MaxDocuments, location)
 		if err != nil {
 			return fmt.Errorf("failed to augmentDocs documents: %w", err)
 		}
+
 		searchDocuments = append(searchDocuments, docs...)
 	}
 	output.Documents = searchDocuments
@@ -130,7 +127,7 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 	return nil
 }
 
-func (s *Service) includeDocuments(output *AugmentDocsOutput, input *AugmentDocsInput, searchDocuments []schema.Document, responseContent *strings.Builder) {
+func (s *Service) includeDocuments(output *AugmentDocsOutput, input *AugmentDocsInput, searchDocuments []embSchema.Document, responseContent *strings.Builder) {
 	documentSize := output.DocumentsSize
 	if documentSize < input.MaxResponseSize {
 		for _, doc := range searchDocuments {
@@ -152,7 +149,7 @@ func (s *Service) includeDocuments(output *AugmentDocsOutput, input *AugmentDocs
 	}
 }
 
-func (s *Service) includeDocFileContent(ctx context.Context, searchResults []schema.Document, input *AugmentDocsInput, responseContent *strings.Builder) {
+func (s *Service) includeDocFileContent(ctx context.Context, searchResults []embSchema.Document, input *AugmentDocsInput, responseContent *strings.Builder) {
 	fs := afs.New()
 	documentSize := Documents(searchResults).Size()
 	var unique = make(map[string]bool)

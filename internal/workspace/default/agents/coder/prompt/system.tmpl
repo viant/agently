@@ -73,10 +73,3 @@ Elicitation
 }
 
 
-{{- if and .Flags.IsSystem (gt (len .SystemDocuments.Items) 0) }}
-System Knowledge (for grounding):
-{{- range .SystemDocuments.Items }}
-
-- {{.Title}} ({{.SourceURI}})
-{{- end}}
-{{- end}}

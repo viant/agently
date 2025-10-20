@@ -9,6 +9,7 @@ Knowledge struct {
 	URL           string          `yaml:"url,omitempty" json:"url,omitempty"`
 	InclusionMode string          `yaml:"inclusionMode,omitempty" json:"inclusionMode,omitempty"` // Inclusion mode for the knowledge base
 	MaxFiles      int             `yaml:"maxFiles,omitempty" json:"maxFiles,omitempty"`           // Max matched assets per knowledge (default 5)
+	MinScore      *float64        `yaml:"minScore,omitempty" json:"minScore,omitempty"`           // Force match mode when set; optional score threshold
 }
 
 // EffectiveMaxFiles returns the max files constraint with a default of 5 when unset.

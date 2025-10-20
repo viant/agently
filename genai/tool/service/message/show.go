@@ -23,7 +23,6 @@ type ShowInput struct {
 	MessageID string         `json:"messageId"`
 	ByteRange *IntRange      `json:"byteRange,omitempty" description:"Optional byte range [from,to) over the selected content."`
 	LineRange *IntRange      `json:"lineRange,omitempty" description:"Optional line range [from,to) mapped to byte offsets."`
-	SedExpr   string         `json:"sedExpr,omitempty" description:"Single sed program applied to the selected content."`
 	Sed       []string       `json:"sed,omitempty" description:"List of sed programs applied in order to the selected content."`
 	Transform *TransformSpec `json:"transform,omitempty" description:"Transform with selector+fields or queryLanguage+query, then format as csv or ndjson."`
 }
@@ -182,9 +181,6 @@ func clipWithOffsets(b []byte, in *ShowInput) ([]byte, int, int, error) {
 func toSedList(in ShowInput) []string {
 	if len(in.Sed) > 0 {
 		return in.Sed
-	}
-	if strings.TrimSpace(in.SedExpr) != "" {
-		return []string{in.SedExpr}
 	}
 	return nil
 }

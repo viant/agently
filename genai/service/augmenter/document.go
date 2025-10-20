@@ -5,9 +5,9 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/tmc/langchaingo/schema"
 	"github.com/viant/afs"
 	"github.com/viant/embedius/matching/option"
+	embSchema "github.com/viant/embedius/schema"
 )
 
 type AugmentDocsInput struct {
@@ -61,12 +61,12 @@ func (i *AugmentDocsInput) Location(location string) string {
 // AugmentDocsOutput represents output from extraction
 type AugmentDocsOutput struct {
 	Content       string
-	Documents     []schema.Document
+	Documents     []embSchema.Document
 	DocumentsSize int
 }
 
-func (o *AugmentDocsOutput) LoadDocuments(ctx context.Context, fs afs.Service) []schema.Document {
-	var result = make([]schema.Document, 0, len(o.Documents))
+func (o *AugmentDocsOutput) LoadDocuments(ctx context.Context, fs afs.Service) []embSchema.Document {
+	var result = make([]embSchema.Document, 0, len(o.Documents))
 	var unique = make(map[string]bool)
 	for _, doc := range o.Documents {
 		key, ok := doc.Metadata["path"]
@@ -85,7 +85,7 @@ func (o *AugmentDocsOutput) LoadDocuments(ctx context.Context, fs afs.Service) [
 			continue
 		}
 		unique[uri] = true
-		result = append(result, schema.Document{Metadata: doc.Metadata, PageContent: string(content)})
+		result = append(result, embSchema.Document{Metadata: doc.Metadata, PageContent: string(content)})
 	}
 	return result
 }

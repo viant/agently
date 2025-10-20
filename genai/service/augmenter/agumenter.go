@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
 
 	adaptembed "github.com/viant/agently/genai/embedder/adapter"
 	baseembed "github.com/viant/agently/genai/embedder/provider/base"
@@ -18,6 +19,7 @@ import (
 	"github.com/viant/embedius/matching"
 	"github.com/viant/embedius/matching/option"
 	"github.com/viant/embedius/vectordb/mem"
+	"os"
 )
 
 type DocsAugmenter struct {
@@ -53,6 +55,7 @@ func Key(embedder string, options *option.Options) string {
 
 func NewDocsAugmenter(ctx context.Context, embeddingsModel string, embedder baseembed.Embedder, options ...option.Option) *DocsAugmenter {
 	baseURL := embeddingBaseURL(ctx)
+	_ = os.MkdirAll(baseURL, 0755)
 	matcher := matching.New(options...)
 	splitterFactory := splitter.NewFactory(4096)
 	// Register a basic PDF splitter to extract printable text before chunking.
@@ -60,9 +63,21 @@ func NewDocsAugmenter(ctx context.Context, embeddingsModel string, embedder base
 	ret := &DocsAugmenter{
 		embedder:  embeddingsModel,
 		fsIndexer: fs.New(baseURL, embeddingsModel, matcher, splitterFactory),
-		memStore:  mem.NewStore(mem.WithBaseURL(baseURL)),
+		memStore: mem.NewStore(
+			mem.WithBaseURL(baseURL),
+			mem.WithExternalValues(true),
+			mem.WithWriterLock(true, 5*time.Second),
+			mem.WithWriterQueue(true),
+			mem.WithWriterGatePoll(250*time.Millisecond),
+			mem.WithWriterGateTTL(5*time.Second),
+			mem.WithWriterBatch(64),
+			mem.WithTailInterval(500*time.Millisecond),
+			mem.WithJournalTTL(24*time.Hour),
+			mem.WithStaleReaderTTL(24*time.Hour),
+		),
 	}
 	ret.service = indexer.NewService(baseURL, ret.memStore, adaptembed.LangchainEmbedderAdapter{Inner: embedder}, ret.fsIndexer)
+
 	return ret
 }
 
@@ -71,7 +86,9 @@ func embeddingBaseURL(ctx context.Context) string {
 	if user == "" {
 		user = "default"
 	}
-	return path.Join(workspace.Root(), "index", user)
+	base := path.Join(workspace.Root(), "index", user)
+
+	return base
 }
 
 func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) (*DocsAugmenter, error) {
@@ -101,14 +118,27 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 		}
 		if useMCP && s.mcpMgr != nil {
 			baseURL := embeddingBaseURL(ctx)
+			_ = os.MkdirAll(baseURL, 0755)
 			matcher := matching.New(matchOptions...)
 			splitterFactory := splitter.NewFactory(4096)
 			splitterFactory.RegisterExtensionSplitter(".pdf", NewPDFSplitter(4096))
 			idx := fs.NewWithFS(baseURL, input.Model, matcher, splitterFactory, mcpfs.NewComposite(s.mcpMgr))
+
 			ret := &DocsAugmenter{
 				embedder:  input.Model,
 				fsIndexer: idx,
-				memStore:  mem.NewStore(mem.WithBaseURL(baseURL)),
+				memStore: mem.NewStore(
+					mem.WithBaseURL(baseURL),
+					mem.WithExternalValues(true),
+					mem.WithWriterLock(true, 5*time.Second),
+					mem.WithWriterQueue(true),
+					mem.WithWriterGatePoll(250*time.Millisecond),
+					mem.WithWriterGateTTL(5*time.Second),
+					mem.WithWriterBatch(64),
+					mem.WithTailInterval(500*time.Millisecond),
+					mem.WithJournalTTL(24*time.Hour),
+					mem.WithStaleReaderTTL(24*time.Hour),
+				),
 			}
 			ret.service = indexer.NewService(baseURL, ret.memStore, adaptembed.LangchainEmbedderAdapter{Inner: model}, ret.fsIndexer)
 			augmenter = ret
@@ -119,3 +149,5 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 	}
 	return augmenter, nil
 }
+
+// debugf prints Embedius-related debug information when AGENTLY_DEBUG_EMBEDIUS=1
