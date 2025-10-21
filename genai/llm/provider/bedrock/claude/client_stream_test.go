@@ -5,6 +5,7 @@ package claude
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -66,6 +67,7 @@ func TestStream(t *testing.T) {
 				gotResponse = true
 				// Basic assertions on the final aggregated response
 				if len(ev.Response.Choices) > 0 {
+					fmt.Println(ev.Response.Choices[0].Message.Content)
 					assert.NotEmpty(t, ev.Response.Choices[0].Message.Content)
 				}
 				// We don't break immediately to allow additional deltas; rely on close
