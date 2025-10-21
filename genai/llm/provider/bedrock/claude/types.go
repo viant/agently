@@ -3,15 +3,14 @@ package claude
 // Request represents the request structure for Claude API on AWS Bedrock
 type Request struct {
 	AnthropicVersion string           `json:"anthropic_version"`
-	Messages         []Message        `json:"messages"`
+	Temperature      float64          `json:"temperature,omitempty"`
+	MaxTokens        int              `json:"max_tokens,omitempty"`
 	Tools            []ToolDefinition `json:"tools,omitempty"`
-
-	MaxTokens     int      `json:"max_tokens,omitempty"`
-	Temperature   float64  `json:"temperature,omitempty"`
-	TopP          float64  `json:"top_p,omitempty"`
-	TopK          int      `json:"top_k,omitempty"`
-	StopSequences []string `json:"stop_sequences,omitempty"`
-	System        string   `json:"system,omitempty"`
+	System           string           `json:"system,omitempty"`
+	Messages         []Message        `json:"messages"`
+	TopP             float64          `json:"top_p,omitempty"`
+	TopK             int              `json:"top_k,omitempty"`
+	StopSequences    []string         `json:"stop_sequences,omitempty"`
 }
 
 // ToolDefinition mirrors the JSON schema Bedrock expects.
