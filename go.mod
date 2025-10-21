@@ -38,7 +38,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/rwtodd/Go.Sed v0.0.0-20250326002959-ba712dc84b62
 	github.com/sourcegraph/go-diff v0.7.0
-	github.com/viant/a2a-protocol v0.0.0-20251021004707-81629df0252f
+	github.com/viant/a2a-protocol v0.1.0
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.2.4
 	github.com/viant/parsly v0.3.3
@@ -204,5 +204,3 @@ require (
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
 )
-
-replace github.com/viant/a2a-protocol => ../a2a-protocol
