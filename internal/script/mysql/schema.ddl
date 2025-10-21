@@ -223,8 +223,6 @@ CREATE TABLE model_call
     started_at                            TIMESTAMP    NULL     DEFAULT NULL,
     completed_at                          TIMESTAMP    NULL     DEFAULT NULL,
     latency_ms                            BIGINT,
-    cache_hit                             BIGINT       NOT NULL DEFAULT 0 CHECK (cache_hit IN (0, 1)),
-    cache_key                             TEXT,
     cost                                  DOUBLE,
     
     redaction_policy_version              TEXT,
