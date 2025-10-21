@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
@@ -51,12 +52,40 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	ctx, _ = modelcallctx.WithFinishBarrier(ctx)
 	ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
 
-	streamCh, err := streamer.Stream(ctx, req)
-	if err != nil {
+	// Retry starting stream up to 3 attempts. Consult provider-specific
+	// BackoffAdvisor (e.g., Bedrock ThrottlingException -> 30s) when available.
+	var streamCh <-chan llm.StreamEvent
+	for attempt := 0; attempt < 3; attempt++ {
+		streamCh, err = streamer.Stream(ctx, req)
+		if err == nil {
+			break
+		}
 		if isContextLimitError(err) {
 			return cleanup, fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
 		}
-		return cleanup, fmt.Errorf("failed to start Stream: %w", err)
+		if advisor, ok := model.(llm.BackoffAdvisor); ok {
+			if delay, retry := advisor.AdviseBackoff(err, attempt); retry {
+				if attempt == 2 || ctx.Err() != nil {
+					return cleanup, fmt.Errorf("failed to start Stream: %w", err)
+				}
+				select {
+				case <-time.After(delay):
+				case <-ctx.Done():
+					return cleanup, fmt.Errorf("failed to start Stream: %w", err)
+				}
+				continue
+			}
+		}
+		if !isTransientNetworkError(err) || attempt == 2 || ctx.Err() != nil {
+			return cleanup, fmt.Errorf("failed to start Stream: %w", err)
+		}
+		// Backoff: 1s, 2s, 4s
+		delay := time.Second << attempt
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return cleanup, fmt.Errorf("failed to start Stream: %w", err)
+		}
 	}
 	if err := s.consumeEvents(ctx, streamCh, handler, output); err != nil {
 		return cleanup, err

@@ -186,7 +186,9 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	// Attach finish barrier to upstream ctx so recorder observer can signal completion (payload ids, usage).
 	ctx, _ = modelcallctx.WithFinishBarrier(ctx)
 	// Retry transient connectivity/network errors up to 3 attempts with
-	// 1s initial delay and exponential backoff (1s, 2s, 4s).
+	// 1s initial delay and exponential backoff (1s, 2s, 4s). Additionally,
+	// consult provider-specific backoff advisor when available (e.g., Bedrock
+	// ThrottlingException -> 30s wait) before the next attempt.
 	var response *llm.GenerateResponse
 	for attempt := 0; attempt < 3; attempt++ {
 		response, err = model.Generate(ctx, request)
@@ -196,6 +198,20 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		// Do not retry on provider/model context-limit errors; surface a sentinel error
 		if isContextLimitError(err) {
 			return fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
+		}
+		// Provider-specific backoff advice (optional)
+		if advisor, ok := model.(llm.BackoffAdvisor); ok {
+			if delay, retry := advisor.AdviseBackoff(err, attempt); retry {
+				if attempt == 2 || ctx.Err() != nil {
+					return fmt.Errorf("failed to generate content: %w", err)
+				}
+				select {
+				case <-time.After(delay):
+				case <-ctx.Done():
+					return fmt.Errorf("failed to generate content: %w", err)
+				}
+				continue
+			}
 		}
 		if !isTransientNetworkError(err) || attempt == 2 || ctx.Err() != nil {
 			return fmt.Errorf("failed to generate content: %w", err)

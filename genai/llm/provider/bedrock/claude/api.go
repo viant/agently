@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/smithy-go"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
@@ -42,6 +44,33 @@ func (c *Client) canStream() bool {
 		}
 	}
 	return true
+}
+
+// AdviseBackoff implements llm.BackoffAdvisor. It suggests a provider-specific
+// retry/backoff when AWS Bedrock returns throttling errors. Per service guidance,
+// we wait 30s before retrying on ThrottlingException.
+func (c *Client) AdviseBackoff(err error, attempt int) (time.Duration, bool) {
+	if err == nil {
+		return 0, false
+	}
+	// Specific modeled throttling error
+	var throttling *types.ThrottlingException
+	if errors.As(err, &throttling) {
+		return 30 * time.Second, true
+	}
+	// Smithy API error code check
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		code := strings.ToLower(apiErr.ErrorCode())
+		if strings.Contains(code, "throttling") || code == "throttlingexception" {
+			return 30 * time.Second, true
+		}
+	}
+	// String fallback (defensive)
+	if msg := strings.ToLower(err.Error()); strings.Contains(msg, "throttlingexception") || strings.Contains(msg, "rate limit") || strings.Contains(msg, "too many requests") {
+		return 30 * time.Second, true
+	}
+	return 0, false
 }
 
 // Generate sends a chat request to the Claude API on AWS Bedrock and returns the response
