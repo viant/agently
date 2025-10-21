@@ -62,62 +62,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 
 	// Build history with overflow previews when limit is present
-	hist, histOverflow, err := func() (prompt.History, bool, error) {
-		// local wrapper to preserve current signature, then refactor
-		// compute with clamping and track overflow occurrence
-		if effectiveLimit <= 0 {
-			h, e := s.buildHistory(ctx, conv.GetTranscript())
-			return h, false, e
-		}
-		tr := conv.GetTranscript()
-		normalized := tr.Filter(func(v *apiconv.Message) bool {
-			if v == nil || v.IsArchived() || v.IsInterim() || v.Content == nil || *v.Content == "" {
-				return false
-			}
-			if strings.ToLower(strings.TrimSpace(v.Type)) != "text" {
-				return false
-			}
-			r := strings.ToLower(strings.TrimSpace(v.Role))
-			return r == "user" || r == "assistant"
-		})
-		var out prompt.History
-		overflow := false
-		for _, msg := range normalized {
-			role := msg.Role
-			content := ""
-			if msg.Content != nil {
-				preview, of := buildOverflowPreview(*msg.Content, effectiveLimit, msg.Id)
-				if of {
-					overflow = true
-				}
-				content = preview
-			}
-			var attachments []*prompt.Attachment
-			if msg.Attachment != nil && len(msg.Attachment) > 0 {
-				for _, av := range msg.Attachment {
-					if av == nil {
-						continue
-					}
-					var data []byte
-					if av.InlineBody != nil {
-						data = []byte(*av.InlineBody)
-					}
-					name := ""
-					if av.Uri != nil && *av.Uri != "" {
-						name = path.Base(*av.Uri)
-					}
-					attachments = append(attachments, &prompt.Attachment{Name: name, URI: func() string {
-						if av.Uri != nil {
-							return *av.Uri
-						}
-						return ""
-					}(), Mime: av.MimeType, Data: data})
-				}
-			}
-			out.Messages = append(out.Messages, &prompt.Message{Role: role, Content: content, Attachment: attachments})
-		}
-		return out, overflow, nil
-	}()
+	hist, histOverflow, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript(), effectiveLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -673,10 +618,11 @@ func (s *Service) buildHistory(ctx context.Context, transcript apiconv.Transcrip
 }
 
 // buildHistoryWithLimit maps transcript into prompt history applying overflow preview to user/assistant text messages.
-func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript, limit int) (prompt.History, error) {
-	// When limit <= 0, fall back to default
-	if limit <= 0 {
-		return s.buildHistory(ctx, transcript)
+func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript, effectiveLimit int) (prompt.History, bool, error) {
+	// When effectiveLimit <= 0, fall back to default
+	if effectiveLimit <= 0 {
+		h, err := s.buildHistory(ctx, transcript)
+		return h, false, err
 	}
 	// Re-implement transcript.History(false) to include clamping with message id trailers.
 	normalized := transcript.Filter(func(v *apiconv.Message) bool {
@@ -690,12 +636,16 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 		return role == "user" || role == "assistant"
 	})
 	var out prompt.History
+	overflow := false
 	for _, msg := range normalized {
 		role := msg.Role
 		content := ""
 		if msg.Content != nil {
 			// Apply overflow preview with message id reference
-			preview, _ := buildOverflowPreview(*msg.Content, limit, msg.Id)
+			preview, of := buildOverflowPreview(*msg.Content, effectiveLimit, msg.Id)
+			if of {
+				overflow = true
+			}
 			content = preview
 		}
 		// Preserve attachments as in transcript.History
@@ -723,7 +673,7 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 		}
 		out.Messages = append(out.Messages, &prompt.Message{Role: role, Content: content, Attachment: attachments})
 	}
-	return out, nil
+	return out, overflow, nil
 }
 
 // buildToolExecutions extracts tool calls from the provided conversation transcript for the current turn.
