@@ -27,6 +27,10 @@ type AgentInfo struct {
 	AutoSummarize        bool     `json:"autoSummarize,omitempty"`
 	ChainsEnabled        bool     `json:"chainsEnabled,omitempty"`
 	AllowedChains        []string `json:"allowedChains,omitempty"`
+	// Profile metadata for UI/selection context
+	Responsibilities []string `json:"responsibilities,omitempty"`
+	InScope          []string `json:"inScope,omitempty"`
+	OutOfScope       []string `json:"outOfScope,omitempty"`
 }
 
 // AgentlyResponse is the aggregated workspace metadata payload.
@@ -234,6 +238,17 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				AutoSummarize:        autoSum,
 				ChainsEnabled:        chainsEnabled,
 				AllowedChains:        append([]string(nil), chainTargets...),
+			}
+			if a.Profile != nil {
+				if len(a.Profile.Responsibilities) > 0 {
+					info.Responsibilities = append([]string(nil), a.Profile.Responsibilities...)
+				}
+				if len(a.Profile.InScope) > 0 {
+					info.InScope = append([]string(nil), a.Profile.InScope...)
+				}
+				if len(a.Profile.OutOfScope) > 0 {
+					info.OutOfScope = append([]string(nil), a.Profile.OutOfScope...)
+				}
 			}
 			out.AgentInfo[agentID] = info
 			if agentName != "" {

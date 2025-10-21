@@ -2,13 +2,16 @@ package agents
 
 // ListItem is a directory entry describing an agent option for selection.
 type ListItem struct {
-	ID           string                 `json:"id"`
-	Name         string                 `json:"name,omitempty"`
-	Description  string                 `json:"description,omitempty"`
-	Tags         []string               `json:"tags,omitempty"`
-	Priority     int                    `json:"priority,omitempty"`
-	Capabilities map[string]interface{} `json:"capabilities,omitempty"`
-	Source       string                 `json:"source,omitempty"` // internal | external
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name,omitempty"`
+	Description      string                 `json:"description,omitempty"`
+	Tags             []string               `json:"tags,omitempty"`
+	Priority         int                    `json:"priority,omitempty"`
+	Capabilities     map[string]interface{} `json:"capabilities,omitempty"`
+	Source           string                 `json:"source,omitempty"` // internal | external
+	Responsibilities []string               `json:"responsibilities,omitempty"`
+	InScope          []string               `json:"inScope,omitempty"`
+	OutOfScope       []string               `json:"outOfScope,omitempty"`
 }
 
 // ListOutput defines the response payload for agents:list.

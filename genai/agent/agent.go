@@ -134,7 +134,10 @@ type Profile struct {
 	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty"`
 	Rank        int      `yaml:"rank,omitempty" json:"rank,omitempty"`
 	// Future-proof: extra metadata for presentation
-	Capabilities map[string]interface{} `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	Capabilities     map[string]interface{} `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	Responsibilities []string               `yaml:"responsibilities,omitempty" json:"responsibilities,omitempty"`
+	InScope          []string               `yaml:"inScope,omitempty" json:"inScope,omitempty"`
+	OutOfScope       []string               `yaml:"outOfScope,omitempty" json:"outOfScope,omitempty"`
 }
 
 // ExposeA2A (legacy): retained for backward compatibility; use Serve.A2A instead.

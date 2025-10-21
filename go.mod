@@ -29,8 +29,11 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
+replace github.com/viant/mcp => ../mcp
+
 require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.32.2
+	github.com/aws/smithy-go v1.22.0
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/minio/highwayhash v1.0.3
@@ -94,7 +97,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.55.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.24.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.28.2 // indirect
-	github.com/aws/smithy-go v1.22.0 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20240905190251-b4127c9b8d78 // indirect
@@ -203,4 +205,9 @@ require (
 	modernc.org/opt v0.1.3 // indirect
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
+)
+
+
+replace (
+	github.com/viant/mcp => ../mcp
 )

@@ -68,6 +68,8 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 				if attempt == 2 || ctx.Err() != nil {
 					return cleanup, fmt.Errorf("failed to start Stream: %w", err)
 				}
+				// Set model_call status to retrying before waiting
+				s.setModelCallStatus(ctx, "retrying")
 				select {
 				case <-time.After(delay):
 				case <-ctx.Done():
@@ -81,6 +83,8 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 		}
 		// Backoff: 1s, 2s, 4s
 		delay := time.Second << attempt
+		// Set model_call status to retrying before waiting
+		s.setModelCallStatus(ctx, "retrying")
 		select {
 		case <-time.After(delay):
 		case <-ctx.Done():

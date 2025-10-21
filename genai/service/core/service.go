@@ -8,6 +8,7 @@ import (
 	"github.com/viant/afs"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	svc "github.com/viant/agently/genai/tool/service"
 )
@@ -133,4 +134,21 @@ func (s *Service) ModelToolPreviewLimit(model string) int {
 		return 0
 	}
 	return s.modelPreviewLimit[model]
+}
+
+// setModelCallStatus best-effort patches model_call.status for the current message.
+// It requires a recorder observer to have created a message id earlier in the call.
+func (s *Service) setModelCallStatus(ctx context.Context, status string) {
+	if s == nil || s.convClient == nil || strings.TrimSpace(status) == "" {
+		return
+	}
+	msgID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	if msgID == "" {
+		return
+	}
+	upd := apiconv.NewModelCall()
+	upd.SetMessageID(msgID)
+	upd.SetStatus(status)
+	// best-effort; ignore error to not affect retry timing
+	_ = s.convClient.PatchModelCall(ctx, upd)
 }

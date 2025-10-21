@@ -1,5 +1,13 @@
 columns:
   - id: name
     name: Agent Name
+  - id: profile.description
+    name: Description
+  - id: profile.responsibilities
+    name: Responsibilities
+  - id: profile.inScope
+    name: In Scope
+  - id: profile.outOfScope
+    name: Out of Scope
 
 toolbar: $import('toolbar/agents.yaml')

@@ -2,10 +2,9 @@ package proxy
 
 import (
 	"context"
-	"strings"
-
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
+	"strings"
 )
 
 // Proxy wraps an MCP client to normalize tool names and provide simple helpers.
@@ -35,6 +34,8 @@ func (p *Proxy) ListAllTools(ctx context.Context) ([]mcpschema.Tool, error) {
 		cursor *string
 	)
 	for {
+		// Do not inject bearer here; rely on MCP client's auth transport
+		// (cookie jar or interactive flow) to authenticate discovery.
 		res, err := p.cli.ListTools(ctx, cursor)
 		if err != nil {
 			return nil, err
