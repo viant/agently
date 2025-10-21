@@ -287,6 +287,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		aggText := strings.Builder{}
 		tools := map[int]*toolAgg{}
 		finishReason := ""
+		// Aggregate token usage from streaming events
+		var aggregatedUsage *llm.Usage
 
 		for ev := range es.Events() {
 			chunk, ok := ev.(*types.ResponseStreamMemberChunk)
@@ -309,6 +311,20 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			}
 			t, _ := raw["type"].(string)
 			switch t {
+			case "message_start":
+				// Extract usage from message_start event
+				if msg, ok := raw["message"].(map[string]interface{}); ok {
+					if usageMap, ok := msg["usage"].(map[string]interface{}); ok {
+						aggregatedUsage = &llm.Usage{}
+						if inputTokens, ok := usageMap["input_tokens"].(float64); ok {
+							aggregatedUsage.PromptTokens = int(inputTokens)
+						}
+						if outputTokens, ok := usageMap["output_tokens"].(float64); ok {
+							aggregatedUsage.CompletionTokens = int(outputTokens)
+						}
+						aggregatedUsage.TotalTokens = aggregatedUsage.PromptTokens + aggregatedUsage.CompletionTokens
+					}
+				}
 			case "content_block_start":
 				// Tool use start carries content_block with name/id
 				if cb, ok := raw["content_block"].(map[string]interface{}); ok {
@@ -340,6 +356,15 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					}
 				}
 			case "message_delta":
+				// Update usage from message_delta if present
+				if usageMap, ok := raw["usage"].(map[string]interface{}); ok {
+					if outputTokens, ok := usageMap["output_tokens"].(float64); ok {
+						if aggregatedUsage != nil {
+							aggregatedUsage.CompletionTokens = int(outputTokens)
+							aggregatedUsage.TotalTokens = aggregatedUsage.PromptTokens + aggregatedUsage.CompletionTokens
+						}
+					}
+				}
 				if delta, ok := raw["delta"].(map[string]interface{}); ok {
 					if sr, _ := delta["stop_reason"].(string); sr != "" {
 						finishReason = sr
@@ -374,10 +399,18 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 						}
 						msg.ToolCalls = calls
 					}
-					lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model}
+					lr := &llm.GenerateResponse{
+						Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}},
+						Model:   c.Model,
+						Usage:   aggregatedUsage,
+					}
+					// Call UsageListener if configured
+					if c.UsageListener != nil && lr.Usage != nil && lr.Usage.TotalTokens > 0 {
+						c.UsageListener.OnUsage(request.Options.Model, lr.Usage)
+					}
 					if observer != nil {
 						respJSON, _ := json.Marshal(lr)
-						if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason, LLMResponse: lr}); obErr != nil {
+						if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason, Usage: lr.Usage, LLMResponse: lr}); obErr != nil {
 							events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
 							return
 						}
@@ -402,7 +435,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					finishReason = lastLR.Choices[0].FinishReason
 				}
 			}
-			if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason, LLMResponse: lastLR}); obErr != nil {
+			if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason, Usage: lastLR.Usage, LLMResponse: lastLR}); obErr != nil {
 				events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
 				return
 			}

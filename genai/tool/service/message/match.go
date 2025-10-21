@@ -47,7 +47,7 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	size := len(body)
-	chunk := s.matchChunk
+	chunk := effectiveMatchChunk(s.matchChunk, 4096)
 	topK := effectiveTopK(input.TopK)
 	emb, err := resolveEmbedder(ctx, s.embedder, s.embedModel)
 	if err != nil {
