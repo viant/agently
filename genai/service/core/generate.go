@@ -81,6 +81,13 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		}
 	}
 
+	// TODO change place - before history when full documents are used, after history when snippets are used
+	if i.Binding != nil {
+		for _, doc := range i.Binding.Documents.Items {
+			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole("user"), doc.PageContent))
+		}
+	}
+
 	if i.Binding != nil && len(i.Binding.History.Messages) > 0 {
 		messages := i.Binding.History.Messages
 		for k := 0; k < len(messages); k++ {
