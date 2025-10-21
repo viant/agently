@@ -44,9 +44,12 @@ export default function ExecutionBubble({ message: msg, context }) {
         : msg.role === "assistant" ? "var(--light-gray4)"
         : "var(--orange3)";
 
-    // Use clock for execution; keep original for others
+    // Role-based icon with execution status awareness
+    const turnStatus = (msg.turnStatus || '').toLowerCase();
+    const isDone = turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted';
+    const isError = turnStatus === 'failed' || turnStatus === 'error' || turnStatus === 'canceled';
     const iconName = msg.role === "execution"
-        ? "time"
+        ? (isError ? 'issue' : (isDone ? 'tick-circle' : 'time'))
         : (msg.role === "assistant" ? "chat" : (msg.role === "tool" ? "wrench" : "person"));
 
     const bubbleClass = (msg.role === "user"   ? "chat-bubble chat-user"
@@ -168,7 +171,7 @@ function ExecutionTurnDetails({ msg, context }) {
             <div style={{ width: '80vw' }}>
             <CollapsibleCard
                 title={`Execution details (${countLabel})${elapsed ? ` • ${elapsed}` : ''}`}
-                icon="time"
+                icon={isError ? 'issue' : (isDone ? 'tick-circle' : 'time')}
                 defaultOpen={!!msg.isLastTurn}
                 width="100%"
                 intent={isError ? 'danger' : (isDone ? 'success' : 'primary')}

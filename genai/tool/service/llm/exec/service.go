@@ -12,6 +12,9 @@ import (
 const Name = "llm/exec"
 
 // Service exposes an agent runner facade as a tool service.
+// Deprecated: prefer llm/agents:run (and llm/agents:list) for unified
+// internal/external agent execution and directory. This service remains for
+// backward compatibility and may be removed in a future release.
 type Service struct {
 	agent *agentsvc.Service
 }

@@ -60,8 +60,14 @@ type (
 		// sending messages. When nil the role defaults to "assistant".
 		Persona *prompt.Persona `yaml:"persona,omitempty" json:"persona,omitempty"`
 
-		// ToolExport controls automatic exposure of this agent as a virtual tool
-		ToolExport *ToolExport `yaml:"toolExport,omitempty" json:"toolExport,omitempty"`
+		// Profile controls agent discoverability in the catalog/list (preferred over Directory).
+		Profile *Profile `yaml:"profile,omitempty" json:"profile,omitempty"`
+
+		// Serve groups serving endpoints (e.g., A2A). Preferred over legacy ExposeA2A.
+		Serve *Serve `yaml:"serve,omitempty" json:"serve,omitempty"`
+
+		// ExposeA2A (legacy) controls optional exposure of this agent as an external A2A server
+		ExposeA2A *ExposeA2A `yaml:"exposeA2A,omitempty" json:"exposeA2A,omitempty"`
 
 		// Attachment groups binary-attachment behavior
 		Attachment *Attachment `yaml:"attachment,omitempty" json:"attachment,omitempty"`
@@ -86,14 +92,6 @@ type (
 		TrimPath  string          `yaml:"trimPath,omitempty" json:"trimPath,omitempty"`
 		Match     *option.Options `yaml:"match,omitempty" json:"match,omitempty"`
 		MinScore  *float64        `yaml:"minScore,omitempty" json:"minScore,omitempty"`
-	}
-
-	// ToolExport defines optional settings to expose an agent as a runtime tool.
-	ToolExport struct {
-		Expose  bool     `yaml:"expose,omitempty" json:"expose,omitempty"`   // opt-in flag
-		Service string   `yaml:"service,omitempty" json:"service,omitempty"` // MCP service name (default "agentExec")
-		Method  string   `yaml:"method,omitempty" json:"method,omitempty"`   // Method name (default agent.id)
-		Domains []string `yaml:"domains,omitempty" json:"domains,omitempty"` // Allowed parent domains
 	}
 
 	// Chain defines a single post-turn follow-up.
@@ -125,6 +123,50 @@ type (
 		MaxDepth int `yaml:"maxDepth,omitempty" json:"maxDepth,omitempty"`
 	}
 )
+
+// Directory (legacy) removed – use Profile.
+
+// Profile controls discoverability in the agent catalog/list.
+type Profile struct {
+	Publish     bool     `yaml:"publish,omitempty" json:"publish,omitempty"`
+	Name        string   `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
+	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Rank        int      `yaml:"rank,omitempty" json:"rank,omitempty"`
+	// Future-proof: extra metadata for presentation
+	Capabilities map[string]interface{} `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+}
+
+// ExposeA2A (legacy): retained for backward compatibility; use Serve.A2A instead.
+type ExposeA2A struct {
+	Enabled   bool     `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Port      int      `yaml:"port,omitempty" json:"port,omitempty"`
+	BasePath  string   `yaml:"basePath,omitempty" json:"basePath,omitempty"`
+	Streaming bool     `yaml:"streaming,omitempty" json:"streaming,omitempty"`
+	Auth      *A2AAuth `yaml:"auth,omitempty" json:"auth,omitempty"`
+}
+
+// Serve groups serving endpoints for this agent (e.g., A2A).
+type Serve struct {
+	A2A *ServeA2A `yaml:"a2a,omitempty" json:"a2a,omitempty"`
+}
+
+// ServeA2A declares how to expose an internal agent as an A2A server.
+type ServeA2A struct {
+	Enabled   bool     `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Port      int      `yaml:"port,omitempty" json:"port,omitempty"`
+	Streaming bool     `yaml:"streaming,omitempty" json:"streaming,omitempty"`
+	Auth      *A2AAuth `yaml:"auth,omitempty" json:"auth,omitempty"`
+}
+
+// A2AAuth configures per-agent A2A auth middleware.
+type A2AAuth struct {
+	Enabled       bool     `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Resource      string   `yaml:"resource,omitempty" json:"resource,omitempty"`
+	Scopes        []string `yaml:"scopes,omitempty" json:"scopes,omitempty"`
+	UseIDToken    bool     `yaml:"useIDToken,omitempty" json:"useIDToken,omitempty"`
+	ExcludePrefix string   `yaml:"excludePrefix,omitempty" json:"excludePrefix,omitempty"`
+}
 
 // Attachment configures binary attachment behavior for an agent.
 type Attachment struct {

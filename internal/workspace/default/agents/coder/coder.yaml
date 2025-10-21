@@ -18,10 +18,7 @@ tool:
   - pattern: system/patch
   - pattern: system/exec
 
-# Expose as virtual tool so other planners can delegate coding tasks to it
-toolExport:
-  expose: true
-  domains: [coding]
+toolCallExposure: conversation
 
 knowledge:
   - url: knowledge/

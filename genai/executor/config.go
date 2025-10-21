@@ -33,6 +33,12 @@ type Config struct {
 	//
 	metaService *meta.Service
 	Services    []string `yaml:"services" json:"services"`
+
+	// External A2A consumption and directory
+	A2AClients []*A2AClientConfig `yaml:"a2aClients,omitempty" json:"a2aClients,omitempty"`
+	Directory  *DirectoryConfig   `yaml:"directory,omitempty" json:"directory,omitempty"`
+	// Timeout for outbound A2A requests (seconds). When zero, a default is applied.
+	A2ATimeoutSec int `yaml:"a2aTimeoutSec,omitempty" json:"a2aTimeoutSec,omitempty"`
 }
 
 func (c *Config) Meta() *meta.Service {
@@ -90,4 +96,31 @@ func (c *Config) DefaultAgentFinder(options ...agent2.Option) *agentfinder.Finde
 
 func (c *Config) Validate() error {
 	return nil
+}
+
+// A2AClientConfig defines an external A2A endpoint for outbound calls.
+type A2AClientConfig struct {
+	Name             string            `yaml:"name" json:"name"`
+	JSONRPCURL       string            `yaml:"jsonrpcURL" json:"jsonrpcURL"`
+	StreamURL        string            `yaml:"streamURL,omitempty" json:"streamURL,omitempty"`
+	Headers          map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	StreamingDefault bool              `yaml:"streamingDefault,omitempty" json:"streamingDefault,omitempty"`
+}
+
+// DirectoryConfig defines external directory entries merged with internal agents.
+type DirectoryConfig struct {
+	External []*ExternalDirectoryItem `yaml:"external,omitempty" json:"external,omitempty"`
+	Strict   *bool                    `yaml:"strict,omitempty" json:"strict,omitempty"`
+}
+
+// ExternalDirectoryItem registers an external agent for the LLM directory.
+type ExternalDirectoryItem struct {
+	ID           string                 `yaml:"id" json:"id"`
+	ClientRef    string                 `yaml:"clientRef" json:"clientRef"`
+	Name         string                 `yaml:"name,omitempty" json:"name,omitempty"`
+	Description  string                 `yaml:"description,omitempty" json:"description,omitempty"`
+	Tags         []string               `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Domains      []string               `yaml:"domains,omitempty" json:"domains,omitempty"`
+	Priority     int                    `yaml:"priority,omitempty" json:"priority,omitempty"`
+	Capabilities map[string]interface{} `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
 }
