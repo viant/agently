@@ -13,6 +13,44 @@ Agently is a Go framework for building and interacting with AI agents. It provid
 - **HTTP Server**: Deploy agents as web services
 - **Orchestration (Decoupled)**: Agent turns are executed without a Fluxor runtime. MCP tools and internal services are coordinated directly by Agently.
 
+### Agent Tools (v2)
+
+Agently exposes a consolidated tool surface for agent selection and execution:
+
+- `llm/agents:list` – returns a small, filtered directory of agents (internal and external) with `{id, name, description, tags, priority}`. Only agents with `directory.enabled: true` are listed; external entries are configured under `directory.external`.
+- `llm/agents:run` – runs an agent by `agentId` with an `objective` and optional `context`. Conversation, turn, and user are derived from request context; the runtime publishes status and links parent/child conversations (when enabled in policy).
+
+Backwards compatibility: `llm/exec:run_agent` remains available but is deprecated. Prefer `llm/agents:run` going forward.
+
+Configuration hints:
+- Internal agents may opt‑in to the directory with:
+  ```yaml
+  directory:
+    enabled: true
+    name: "Coder"
+    description: "Generate and refactor code"
+    tags: ["code","refactor"]
+    priority: 80
+  ```
+- External A2A agents can be added to the directory via executor config:
+  ```yaml
+  a2aClients:
+    - name: ext-researcher
+      jsonrpcURL: https://ext.example.com/v1/jsonrpc
+      streamURL:  https://ext.example.com/a2a
+      headers:
+        Authorization: Bearer ${A2A_TOKEN}
+      streamingDefault: true
+  directory:
+    external:
+      - id: researcher
+        clientRef: ext-researcher
+        name: Researcher
+        description: "Find, read and summarize web sources"
+        tags: ["research","web"]
+        priority: 70
+  ```
+
 ## Installation
 
 ### Prerequisites

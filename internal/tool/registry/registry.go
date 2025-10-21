@@ -15,6 +15,8 @@ import (
 	"github.com/viant/agently/genai/memory"
 	authctx "github.com/viant/agently/internal/auth"
 	"github.com/viant/agently/internal/mcp/manager"
+	tmatch "github.com/viant/agently/internal/tool/matcher"
+	transform "github.com/viant/agently/internal/transform"
 	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
 	mcpnames "github.com/viant/agently/pkg/mcpname"
 	mcpschema "github.com/viant/mcp-protocol/schema"
@@ -88,25 +90,17 @@ func (r *Registry) WithManager(m *manager.Manager) *Registry { r.mgr = m; return
 // the agent catalogue is loaded. Domain can be empty to expose all.
 func (r *Registry) InjectVirtualAgentTools(agents []*agent.Agent, domain string) {
 	for _, ag := range agents {
-		if ag == nil || ag.ToolExport == nil || !ag.ToolExport.Expose {
+		if ag == nil {
+			continue
+		}
+		// Prefer Profile.Publish to drive exposure; fallback to legacy Directory.Enabled
+		if ag.Profile == nil || !ag.Profile.Publish {
 			continue
 		}
 
-		// Domain filter when requested
-		if len(ag.ToolExport.Domains) > 0 && domain != "" {
-			if !contains(ag.ToolExport.Domains, domain) {
-				continue
-			}
-		}
-
-		service := ag.ToolExport.Service
-		if service == "" {
-			service = "agentExec"
-		}
-		method := ag.ToolExport.Method
-		if method == "" {
-			method = ag.ID
-		}
+		// Service/method: default to historical values for compatibility
+		service := "agentExec"
+		method := ag.ID
 
 		toolID := fmt.Sprintf("%s/%s", service, method)
 
@@ -126,9 +120,18 @@ func (r *Registry) InjectVirtualAgentTools(agents []*agent.Agent, domain string)
 			"required": []string{"objective"},
 		}
 
+		dispName := strings.TrimSpace(ag.Name)
+		if strings.TrimSpace(ag.Profile.Name) != "" {
+			dispName = strings.TrimSpace(ag.Profile.Name)
+		}
+		desc := strings.TrimSpace(ag.Description)
+		if strings.TrimSpace(ag.Profile.Description) != "" {
+			desc = strings.TrimSpace(ag.Profile.Description)
+		}
+
 		def := llm.ToolDefinition{
 			Name:        toolID,
-			Description: fmt.Sprintf("Executes the \"%s\" agent – %s", ag.Name, strings.TrimSpace(ag.Description)),
+			Description: fmt.Sprintf("Executes the \"%s\" agent – %s", dispName, desc),
 			Parameters:  params,
 			Required:    []string{"objective"},
 			OutputSchema: map[string]interface{}{
@@ -218,9 +221,13 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 	var result []*llm.ToolDefinition
 
 	logf(r.debugWriter, "[tool:match] pattern=%q", pattern)
+	// Strip suffix selector (e.g., "|root=...;") when present
+	if i := strings.Index(pattern, "|"); i != -1 {
+		pattern = strings.TrimSpace(pattern[:i])
+	}
 	// Virtual first: support exact, wildcard, and service-only (no colon) patterns.
 	for id, def := range r.virtualDefs {
-		if matchPattern(pattern, id) || (noColon(pattern) && serverFromName(id) == pattern) {
+		if tmatch.Match(pattern, id) {
 			copyDef := def
 			result = append(result, &copyDef)
 			logf(r.debugWriter, "[tool:match] + virtual %s", id)
@@ -236,7 +243,7 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 		logf(r.debugWriter, "[tool:match] %s tools fetched: %d", svc, len(tools))
 		for _, t := range tools {
 			full := svc + "/" + t.Name
-			if matchPattern(pattern, full) || (noColon(pattern) && serverFromName(full) == pattern) {
+			if tmatch.Match(pattern, full) {
 				def := llm.ToolDefinitionFromMcpTool(&t)
 				def.Name = full
 				result = append(result, def)
@@ -303,20 +310,36 @@ func (r *Registry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 }
 
 func (r *Registry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	// Handle selector suffix and base tool name
+	var selector string
+	baseName := name
+	if i := strings.Index(name, "|"); i != -1 {
+		baseName = strings.TrimSpace(name[:i])
+		selector = strings.TrimSpace(name[i+1:])
+	}
 	// virtual tool?
-	if h, ok := r.virtualExec[name]; ok {
-		return h(ctx, args)
+	if h, ok := r.virtualExec[baseName]; ok {
+		out, err := h(ctx, args)
+		if err != nil || selector == "" {
+			return out, err
+		}
+		// Post-filter output when possible (JSON expected)
+		return r.applySelector(out, selector)
 	}
 	// cached executable?
-	if e, ok := r.cache[name]; ok && e.exec != nil {
-		return e.exec(ctx, args)
+	if e, ok := r.cache[baseName]; ok && e.exec != nil {
+		out, err := e.exec(ctx, args)
+		if err != nil || selector == "" {
+			return out, err
+		}
+		return r.applySelector(out, selector)
 	}
 	if r.debugWriter != nil {
-		fmt.Fprintf(r.debugWriter, "[tool] call %s args=%v (mcp)\n", name, args)
+		fmt.Fprintf(r.debugWriter, "[tool] call %s args=%v (mcp)\n", baseName, args)
 	}
 
 	convID := memory.ConversationIDFromContext(ctx)
-	serviceName, _ := splitToolName(name)
+	serviceName, _ := splitToolName(baseName)
 	server := serviceName
 	if server == "" {
 		return "", fmt.Errorf("invalid tool name: %s", name)
@@ -349,10 +372,10 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 
 	// Use proxy to normalize tool name and execute
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
-	res, err := px.CallTool(ctx, name, args, options...)
+	res, err := px.CallTool(ctx, baseName, args, options...)
 	if err != nil {
 		if r.debugWriter != nil {
-			fmt.Fprintf(r.debugWriter, "[tool] error %s: %v\n", name, err)
+			fmt.Fprintf(r.debugWriter, "[tool] error %s: %v\n", baseName, err)
 		}
 		return "", err
 	}
@@ -362,23 +385,51 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	// Compose textual result prioritising structured → json/text → first content
 	if res.StructuredContent != nil {
 		if data, err := json.Marshal(res.StructuredContent); err == nil {
-			return string(data), nil
+			out := string(data)
+			if selector != "" {
+				return r.applySelector(out, selector)
+			}
+			return out, nil
 		}
 	}
 	for _, c := range res.Content {
 		if strings.TrimSpace(c.Text) != "" {
+			if selector != "" {
+				return r.applySelector(c.Text, selector)
+			}
 			return c.Text, nil
 		}
 		if strings.TrimSpace(c.Data) != "" {
+			if selector != "" {
+				return r.applySelector(c.Data, selector)
+			}
 			return c.Data, nil
 		}
 	}
 	// Fallback to raw JSON of first element or empty
 	if len(res.Content) > 0 {
 		raw, _ := json.Marshal(res.Content[0])
-		return string(raw), nil
+		out := string(raw)
+		if selector != "" {
+			return r.applySelector(out, selector)
+		}
+		return out, nil
 	}
 	return "", nil
+}
+
+func (r *Registry) applySelector(out, selector string) (string, error) {
+	spec := transform.ParseSuffix(selector)
+	if spec == nil {
+		return out, nil
+	}
+	data := []byte(out)
+	filtered, err := spec.Apply(data)
+	if err != nil {
+		r.warnf("[tool:filter] apply failed: %v", err)
+		return out, nil // fallback to original
+	}
+	return string(filtered), nil
 }
 
 func (r *Registry) SetDebugLogger(w io.Writer) { r.debugWriter = w }

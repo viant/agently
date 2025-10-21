@@ -4,7 +4,7 @@
 
 import React from 'react';
 import CodeBlock from './CodeBlock.jsx';
-import { Button } from '@blueprintjs/core';
+import { Button, Dialog } from '@blueprintjs/core';
 import { Table as BpTable, Column as BpColumn, Cell as BpCell, ColumnHeaderCell as BpColumnHeaderCell } from '@blueprintjs/table';
 
 // Use Editor from forge/components directly (consistent with other imports like Chat).
@@ -101,8 +101,158 @@ function escapeHTMLCell(str = '') {
     .replace(/'/g, '&#39;');
 }
 
-// Renders a Markdown pipe table as a scrollable HTML table with basic styling.
+// Enhanced fenced table with toolbar, column chooser, pagination and expandable cells
+function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
+  const pageSize = 40;
+  const [visible, setVisible] = React.useState(() => new Set(headers.map((_, i) => i)));
+  const [page, setPage] = React.useState(0);
+  const [showCols, setShowCols] = React.useState(false);
+  const [expand, setExpand] = React.useState(null);
+  const [truncateAt, setTruncateAt] = React.useState(100);
+
+  const total = Array.isArray(rows) ? rows.length : 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(Math.max(0, page), pageCount - 1);
+  const start = safePage * pageSize;
+  const end = Math.min(total, start + pageSize);
+  const pageRows = React.useMemo(() => rows.slice(start, end), [rows, start, end]);
+
+  const visIdx = headers.map((_, i) => i).filter(i => visible.has(i));
+  const toggleColumn = (i) => setVisible(prev => { const n = new Set(prev); if (n.has(i)) n.delete(i); else n.add(i); return n; });
+
+  // Estimate column widths (based on all rows for stable layout)
+  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+  const allMaxLens = headers.map((h, i) => {
+    let m = String(h || '').length;
+    for (const r of rows) {
+      const c = String((r || [])[i] ?? '').length;
+      if (c > m) m = c;
+    }
+    return clamp(m, 4, 48);
+  });
+  const baseWidthPx = 720;
+  const totalLens = visIdx.reduce((acc, i) => acc + allMaxLens[i], 0) || visIdx.length;
+  const colWidths = visIdx.map(i => {
+    const p = allMaxLens[i] / totalLens;
+    return Math.max(80, Math.round(p * baseWidthPx));
+  });
+
+  const downloadCSV = () => {
+    try {
+      const escapeCell = (s = '') => {
+        const v = String(s ?? '');
+        if (/[,"\n]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
+        return v;
+      };
+      const lines = [];
+      lines.push(visIdx.map(i => escapeCell(headers[i])).join(','));
+      for (const r of rows) {
+        lines.push(visIdx.map(i => escapeCell((r || [])[i] ?? '')).join(','));
+      }
+      const bom = '\ufeff';
+      const csv = bom + lines.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `table-${ts}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (_) {}
+  };
+
+  const columns = visIdx.map((ci) => {
+    const align = aligns[ci] || 'left';
+    const cellRenderer = (rowIndex) => {
+      const raw = pageRows[rowIndex]?.[ci] ?? '';
+      const text = String(raw);
+      const isLong = text.length > truncateAt;
+      const display = isLong ? (text.slice(0, truncateAt) + '…') : text;
+      return (
+        <BpCell style={{ textAlign: align, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: isLong ? 'pointer' : 'default' }}
+                onClick={() => { if (isLong) setExpand({ title: headers[ci], content: text }); }}>
+          {display}
+        </BpCell>
+      );
+    };
+    const columnHeaderCellRenderer = () => (
+      <BpColumnHeaderCell name={headers[ci]} />
+    );
+    return (
+      <BpColumn key={`col-${ci}`} cellRenderer={cellRenderer} columnHeaderCellRenderer={columnHeaderCellRenderer} />
+    );
+  });
+
+  return (
+    <div style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Button small minimal icon="cog" onClick={() => setShowCols(true)} title="Columns & display" />
+          {total > pageSize && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Button small minimal icon="double-chevron-left" onClick={() => setPage(0)} disabled={safePage === 0} />
+              <Button small minimal icon="chevron-left" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage === 0} />
+              <span style={{ fontSize: 12 }}>{start + 1}–{end} of {total}</span>
+              <Button small minimal icon="chevron-right" onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={safePage >= pageCount - 1} />
+              <Button small minimal icon="double-chevron-right" onClick={() => setPage(pageCount - 1)} disabled={safePage >= pageCount - 1} />
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Button small minimal icon="download" onClick={downloadCSV} text="CSV" />
+        </div>
+      </div>
+      <BpTable
+        numRows={pageRows.length}
+        columnWidths={colWidths}
+        enableGhostCells={false}
+        enableRowHeader={false}
+        defaultRowHeight={28}
+      >
+        {columns}
+      </BpTable>
+
+      <Dialog isOpen={showCols} onClose={() => setShowCols(false)} title="Visible Columns">
+        <div style={{ padding: 12, display: 'flex', gap: 10, flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>Truncate at</label>
+            <input type="number" className="bp4-input bp4-small" min={20} max={1000} value={truncateAt}
+              onChange={e => setTruncateAt(Math.max(20, Math.min(1000, Number(e.target.value)||120)))} style={{ width: 90 }} />
+            <span style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>(characters)</span>
+          </div>
+          {headers.map((h, i) => (
+            <label key={`opt-${i}`} className="bp4-control bp4-checkbox">
+              <input type="checkbox" checked={visible.has(i)} onChange={() => toggleColumn(i)} />
+              <span className="bp4-control-indicator" />
+              {h}
+            </label>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button small intent="primary" onClick={() => setShowCols(false)}>Close</Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog isOpen={!!expand} onClose={() => setExpand(null)} title={expand?.title || 'Content'} style={{ width: '70vw', minWidth: 480 }}>
+        <div style={{ padding: 12 }}>
+          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{expand ? expand.content : ''}</pre>
+        </div>
+      </Dialog>
+    </div>
+  );
+}
+
+// Wrapper to render the enhanced table from a fenced block body
 function renderPipeTable(body = '') {
+  const { headers, rows, aligns } = parsePipeTable(body);
+  return <FencedPipeTable headers={headers} rows={rows} aligns={aligns} />;
+}
+
+// Renders a Markdown pipe table as a scrollable HTML table with basic styling.
+function legacyRenderPipeTable(body = '') {
   if (!looksLikePipeTable(body)) return null;
   const { headers, rows, aligns } = parsePipeTable(body);
   // Estimate column widths by max cell length per column (clamped and normalized)

@@ -24,7 +24,7 @@ const COLUMNS_BASE = [
     { id: "name",    name: "Name",   flex: 2 },
     { id: "mode",    name: "Mode",   width: 80 },
     { id: "actor",   name: "Actor",  width: 140 },
-    { id: "chain",   name: "Chain",  width: 110, type: 'button', cellProperties: { text: 'Open', minimal: true, small: true }, on: [ { event: "onClick", handler: "exec.openLinkedConversation" }, { event: 'onVisible', handler: 'exec.isLinkRow' } ] },
+    { id: "chain",   name: "Thread", width: 110, type: 'button', cellProperties: { text: 'Open', minimal: true, small: true }, on: [ { event: "onClick", handler: "exec.openLinkedConversation" }, { event: 'onVisible', handler: 'exec.isLinkRow' } ] },
     { id: "status",  name: "Status", width: 60 },
     { id: "elapsed", name: "Time",   width: 60 },
     {
@@ -159,9 +159,10 @@ function flattenExecutions(executions = []) {
             const hasBool = typeof s.successBool === 'boolean';
             const successBool = hasBool ? s.successBool : (typeof s.success === 'boolean' ? s.success : undefined);
             const statusText = (s.statusText || (successBool === undefined ? 'pending' : (successBool ? 'completed' : 'error'))).toLowerCase();
-            const hasError = !!(s.error || s.errorCode) || statusText === 'failed' || statusText === 'error';
-            // Status icon: hourglass if not completed, exclamation if error, ok otherwise
-            const icon = hasError ? '❗' : (statusText === 'completed' || statusText === 'accepted' ? '✅' : '⏳');
+            const hasError = !!(s.error || s.errorCode) || statusText === 'failed' || statusText === 'error' || statusText === 'canceled';
+            // Status icon: check for all completed-like states, hourglass while in-progress, exclamation on error
+            const isDoneOk = ['completed','accepted','done','succeeded','success'].includes(statusText);
+            const icon = hasError ? '❗' : (isDoneOk ? '✅' : '⏳');
             // Kind glyph: brain for model (thinking), tool for tool_call, keyboard for elicitation, link for link, warning for error
             const kindGlyph = reason === 'thinking' ? '🧠'
                 : reason === 'tool_call' ? '🛠️'
@@ -170,7 +171,7 @@ function flattenExecutions(executions = []) {
                 : '⌨️';
             const annotatedName = reason === 'elicitation' && s.originRole
                 ? `${s.name} (${s.originRole})`
-                : reason === 'link' ? 'Chain Thread'
+                : reason === 'link' ? 'Thread'
                 : reason === 'error' ? (s.error || 'Error')
                 : (s.name || reason);
             const elapsedDisplay = reason === 'link' ? '🔗' : s.elapsed;

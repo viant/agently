@@ -137,7 +137,11 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 		}
 		if url.IsRelative(knowledge.URL) && !url.IsRelative(srcURL) {
 			parentURL, _ := url.Split(srcURL, file.Scheme)
-			anAgent.Knowledge[i].URL = url.Join(parentURL, knowledge.URL)
+			anAgent.Knowledge[i].URL = url.JoinUNC(parentURL, knowledge.URL)
+		}
+		// Validate that knowledge path exists
+		if ok, _ := s.metaService.Exists(ctx, anAgent.Knowledge[i].URL); !ok {
+			return nil, fmt.Errorf("agent %v knowledge path does not exist: %s", anAgent.Name, anAgent.Knowledge[i].URL)
 		}
 	}
 
@@ -148,7 +152,11 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 		}
 		if url.IsRelative(knowledge.URL) && !url.IsRelative(srcURL) {
 			parentURL, _ := url.Split(srcURL, file.Scheme)
-			anAgent.SystemKnowledge[i].URL = url.Join(parentURL, knowledge.URL)
+			anAgent.SystemKnowledge[i].URL = url.JoinUNC(parentURL, knowledge.URL)
+		}
+		// Validate that system knowledge path exists
+		if ok, _ := s.metaService.Exists(ctx, anAgent.SystemKnowledge[i].URL); !ok {
+			return nil, fmt.Errorf("agent %v system knowledge path does not exist: %s", anAgent.Name, anAgent.SystemKnowledge[i].URL)
 		}
 	}
 
@@ -324,24 +332,12 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				agent.ShowToolFeed = &b
 			}
 		case "knowledge":
-			if valueNode.Kind == yaml.SequenceNode {
-				for _, itemNode := range valueNode.Content {
-					knowledge, err := parseKnowledge((*yml.Node)(itemNode))
-					if err != nil {
-						return err
-					}
-					agent.Knowledge = append(agent.Knowledge, knowledge)
-				}
+			if err := s.parseKnowledgeBlock(valueNode, agent); err != nil {
+				return err
 			}
 		case "systemknowledge":
-			if valueNode.Kind == yaml.SequenceNode {
-				for _, itemNode := range valueNode.Content {
-					knowledge, err := parseKnowledge((*yml.Node)(itemNode))
-					if err != nil {
-						return err
-					}
-					agent.SystemKnowledge = append(agent.SystemKnowledge, knowledge)
-				}
+			if err := s.parseSystemKnowledgeBlock(valueNode, agent); err != nil {
+				return err
 			}
 		case "prompt":
 			if agent.Prompt, err = s.getPrompt(valueNode); err != nil {
@@ -354,13 +350,23 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			}
 
 		case "tool":
-			// Accept either
-			//   tool:
-			//     - my/tool # scalar → pattern/name reference
-			//     - pattern: my/tool # mapping → inline definition (pattern & optional type)
-			//     - ref: some/ref    # mapping – legacy/alternative key
-			if valueNode.Kind != yaml.SequenceNode {
-				return fmt.Errorf("tool must be a sequence")
+			if err := s.parseToolBlock(valueNode, agent); err != nil {
+				return err
+			}
+
+		case "profile":
+			if err := s.parseProfileBlock(valueNode, agent); err != nil {
+				return err
+			}
+
+		case "serve":
+			if err := s.parseServeBlock(valueNode, agent); err != nil {
+				return err
+			}
+
+		case "exposea2a":
+			if err := s.parseExposeA2ABlock(valueNode, agent); err != nil {
+				return err
 			}
 
 			for _, itemNode := range valueNode.Content {
@@ -407,228 +413,676 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				agent.ToolCallExposure = agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(valueNode.Value)))
 			}
 		case "attachment":
-			if valueNode.Kind != yaml.MappingNode {
-				return fmt.Errorf("attachment must be a mapping")
-			}
-			var cfg agentmdl.Attachment
-			if err := valueNode.Pairs(func(k string, v *yml.Node) error {
-				switch strings.ToLower(strings.TrimSpace(k)) {
-				case "limitbytes", "limitmb":
-					if v.Kind == yaml.ScalarNode {
-						val := v.Interface()
-						switch a := val.(type) {
-						case int:
-							cfg.LimitBytes = int64(a)
-							if strings.Contains(strings.ToLower(k), "mb") {
-								cfg.LimitBytes *= 1024 * 1024
-							}
-						case int64:
-							cfg.LimitBytes = a
-							if strings.Contains(strings.ToLower(k), "mb") {
-								cfg.LimitBytes *= 1024 * 1024
-							}
-						case float64:
-							cfg.LimitBytes = int64(a)
-							if strings.Contains(strings.ToLower(k), "mb") {
-								cfg.LimitBytes *= 1024 * 1024
-							}
-						case string:
-							lv := strings.TrimSpace(strings.ToLower(a))
-							mul := int64(1)
-							if strings.HasSuffix(lv, "mb") {
-								lv = strings.TrimSuffix(lv, "mb")
-								mul = 1024 * 1024
-							}
-							if n, err := parseInt64(lv); err == nil {
-								cfg.LimitBytes = n * mul
-							}
-						}
-					}
-				case "mode":
-					if v.Kind == yaml.ScalarNode {
-						m := strings.ToLower(strings.TrimSpace(v.Value))
-						if m != "inline" {
-							m = "ref"
-						}
-						cfg.Mode = m
-					}
-				case "ttlsec":
-					if v.Kind == yaml.ScalarNode {
-						val := v.Interface()
-						switch a := val.(type) {
-						case int:
-							cfg.TTLSec = int64(a)
-						case int64:
-							cfg.TTLSec = a
-						case float64:
-							cfg.TTLSec = int64(a)
-						case string:
-							if n, err := parseInt64(a); err == nil {
-								cfg.TTLSec = n
-							}
-						}
-					}
-				}
-				return nil
-			}); err != nil {
+			if err := s.parseAttachmentBlock(valueNode, agent); err != nil {
 				return err
 			}
-			agent.Attachment = &cfg
 		case "chains":
-			if valueNode.Kind != yaml.SequenceNode {
-				return fmt.Errorf("chains must be a sequence")
-			}
-			for _, item := range valueNode.Content {
-				if item == nil || item.Kind != yaml.MappingNode {
-					return fmt.Errorf("invalid chain entry; expected mapping")
-				}
-				var c agentmdl.Chain
-				// Workaround: when: "expr" (scalar) cannot unmarshal into *WhenSpec.
-				// Temporarily replace scalar with empty mapping, capture expr.
-				var whenExpr string
-				for i := 0; i+1 < len(item.Content); i += 2 {
-					k := strings.ToLower(strings.TrimSpace(item.Content[i].Value))
-					if k == "when" {
-						v := item.Content[i+1]
-						if v != nil && v.Kind == yaml.ScalarNode {
-							whenExpr = v.Value
-							// replace with empty mapping to avoid decode error
-							item.Content[i+1] = &yaml.Node{Kind: yaml.MappingNode}
-						}
-						break
-					}
-				}
-				if err := (*yaml.Node)(item).Decode(&c); err != nil {
-					return fmt.Errorf("invalid chain definition: %w", err)
-				}
-				// Support scalar query by normalizing to prompt.Prompt{text: ...}
-				if c.Query == nil {
-					// search for 'query' key in the mapping
-					for i := 0; i+1 < len(item.Content); i += 2 {
-						k := strings.ToLower(strings.TrimSpace(item.Content[i].Value))
-						if k == "query" {
-							v := item.Content[i+1]
-							if v.Kind == yaml.ScalarNode {
-								c.Query = &prompt.Prompt{Text: v.Value}
-							}
-							break
-						}
-					}
-				}
-				// Support scalar when by normalizing to WhenSpec{Expr: ...}
-				if c.When == nil {
-					for i := 0; i+1 < len(item.Content); i += 2 {
-						k := strings.ToLower(strings.TrimSpace(item.Content[i].Value))
-						if k == "when" {
-							v := item.Content[i+1]
-							if whenExpr != "" {
-								c.When = &agentmdl.WhenSpec{Expr: whenExpr}
-							} else if v.Kind == yaml.ScalarNode && strings.TrimSpace(v.Value) != "" {
-								c.When = &agentmdl.WhenSpec{Expr: v.Value}
-							}
-							break
-						}
-					}
-				}
-				// Defaults
-				if strings.TrimSpace(c.Conversation) == "" {
-					c.Conversation = "link" // default to child/linked workflow
-				}
-				// Validate enums
-				switch strings.ToLower(strings.TrimSpace(c.Conversation)) {
-				case "reuse", "link":
-				case "": // defaulted above
-				default:
-					return fmt.Errorf("invalid chain.conversation: %s", c.Conversation)
-				}
-				agent.Chains = append(agent.Chains, &c)
+			if err := s.parseChainsBlock(valueNode, agent); err != nil {
+				return err
 			}
 		case "mcpresources":
-			// Parse MCP resources configuration
-			if valueNode.Kind != yaml.MappingNode {
-				return fmt.Errorf("mcpResources must be a mapping")
-			}
-			var cfg agentmdl.MCPResources
-			// Defaults
-			cfg.MaxFiles = 5
-			if err := valueNode.Pairs(func(k string, v *yml.Node) error {
-				switch strings.ToLower(strings.TrimSpace(k)) {
-				case "enabled":
-					if v.Kind == yaml.ScalarNode {
-						val := strings.ToLower(strings.TrimSpace(v.Value))
-						cfg.Enabled = val == "true" || val == "yes" || val == "on"
-					}
-				case "locations":
-					switch v.Kind {
-					case yaml.ScalarNode:
-						if s := strings.TrimSpace(v.Value); s != "" {
-							cfg.Locations = []string{s}
-						}
-					case yaml.SequenceNode:
-						for _, it := range v.Content {
-							if it != nil && it.Kind == yaml.ScalarNode && strings.TrimSpace(it.Value) != "" {
-								cfg.Locations = append(cfg.Locations, it.Value)
-							}
-						}
-					}
-				case "maxfiles":
-					if v.Kind == yaml.ScalarNode {
-						val := v.Interface()
-						switch actual := val.(type) {
-						case int:
-							cfg.MaxFiles = actual
-						case int64:
-							cfg.MaxFiles = int(actual)
-						case float64:
-							cfg.MaxFiles = int(actual)
-						case string:
-							if n, err := parseInt64(actual); err == nil {
-								cfg.MaxFiles = int(n)
-							}
-						}
-					}
-				case "trimpath":
-					if v.Kind == yaml.ScalarNode {
-						cfg.TrimPath = v.Value
-					}
-				case "match":
-					if v.Kind == yaml.MappingNode {
-						match := &option.Options{}
-						_ = v.Pairs(func(optKey string, optValue *yml.Node) error {
-							switch strings.ToLower(optKey) {
-							case "exclusions":
-								match.Exclusions = asStrings(optValue)
-							case "inclusions":
-								match.Inclusions = asStrings(optValue)
-							case "maxfilesize":
-								// accept int, int64, float64, string
-								switch v := optValue.Interface().(type) {
-								case int:
-									match.MaxFileSize = v
-								case int64:
-									match.MaxFileSize = int(v)
-								case float64:
-									match.MaxFileSize = int(v)
-								case string:
-									if n, err := parseInt64(v); err == nil {
-										match.MaxFileSize = int(n)
-									}
-								}
-							}
-							return nil
-						})
-						cfg.Match = match
-					}
-				}
-				return nil
-			}); err != nil {
+			if err := s.parseMCPResourcesBlock(valueNode, agent); err != nil {
 				return err
 			}
-			agent.MCPResources = &cfg
 		}
 		return nil
 	})
 
+}
+
+// parseAgentBasicScalar handles common scalar fields and returns handled=true when processed.
+func (s *Service) parseAgentBasicScalar(agent *agentmdl.Agent, key string, valueNode *yml.Node) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "id":
+		if valueNode.Kind == yaml.ScalarNode {
+			agent.ID = valueNode.Value
+		}
+		return true, nil
+	case "name":
+		if valueNode.Kind == yaml.ScalarNode {
+			agent.Name = valueNode.Value
+		}
+		return true, nil
+	case "icon":
+		if valueNode.Kind == yaml.ScalarNode {
+			agent.Icon = valueNode.Value
+		}
+		return true, nil
+	case "modelref", "model":
+		if valueNode.Kind == yaml.ScalarNode {
+			agent.Model = strings.TrimSpace(valueNode.Value)
+		}
+		return true, nil
+	case "temperature":
+		if valueNode.Kind == yaml.ScalarNode {
+			value := valueNode.Interface()
+			temp := 0.0
+			switch actual := value.(type) {
+			case int:
+				temp = float64(actual)
+			case float64:
+				temp = actual
+			default:
+				return true, fmt.Errorf("invalid temperature value: %T %v", value, value)
+			}
+			agent.Temperature = temp
+		}
+		return true, nil
+	case "description":
+		if valueNode.Kind == yaml.ScalarNode {
+			agent.Description = valueNode.Value
+		}
+		return true, nil
+	case "paralleltoolcalls":
+		if valueNode.Kind == yaml.ScalarNode {
+			val := valueNode.Interface()
+			switch actual := val.(type) {
+			case bool:
+				agent.ParallelToolCalls = actual
+			case string:
+				lv := strings.ToLower(strings.TrimSpace(actual))
+				agent.ParallelToolCalls = lv == "true"
+			}
+		}
+		return true, nil
+	case "autosummarize", "autosumarize":
+		if valueNode.Kind == yaml.ScalarNode {
+			val := valueNode.Interface()
+			switch actual := val.(type) {
+			case bool:
+				agent.AutoSummarize = &actual
+			case string:
+				lv := strings.ToLower(strings.TrimSpace(actual))
+				v := lv == "true" || lv == "yes" || lv == "on"
+				agent.AutoSummarize = &v
+			}
+		}
+		return true, nil
+	case "showexecutiondetails":
+		if valueNode.Kind == yaml.ScalarNode {
+			val := strings.ToLower(strings.TrimSpace(valueNode.Value))
+			b := val == "true" || val == "yes" || val == "on" || val == "1"
+			agent.ShowExecutionDetails = &b
+		}
+		return true, nil
+	case "showtoolfeed":
+		if valueNode.Kind == yaml.ScalarNode {
+			val := strings.ToLower(strings.TrimSpace(valueNode.Value))
+			b := val == "true" || val == "yes" || val == "on" || val == "1"
+			agent.ShowToolFeed = &b
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (s *Service) parseKnowledgeBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.SequenceNode {
+		return nil
+	}
+	for _, itemNode := range valueNode.Content {
+		knowledge, err := parseKnowledge((*yml.Node)(itemNode))
+		if err != nil {
+			return err
+		}
+		agent.Knowledge = append(agent.Knowledge, knowledge)
+	}
+	return nil
+}
+
+func (s *Service) parseSystemKnowledgeBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.SequenceNode {
+		return nil
+	}
+	for _, itemNode := range valueNode.Content {
+		knowledge, err := parseKnowledge((*yml.Node)(itemNode))
+		if err != nil {
+			return err
+		}
+		agent.SystemKnowledge = append(agent.SystemKnowledge, knowledge)
+	}
+	return nil
+}
+
+func (s *Service) parsePromptFields(agent *agentmdl.Agent, key string, valueNode *yml.Node) error {
+	var err error
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "prompt":
+		agent.Prompt, err = s.getPrompt(valueNode)
+	case "systemprompt":
+		agent.SystemPrompt, err = s.getPrompt(valueNode)
+	}
+	return err
+}
+
+func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.SequenceNode {
+		return fmt.Errorf("tool must be a sequence")
+	}
+	for _, item := range valueNode.Content {
+		if item == nil {
+			continue
+		}
+		switch item.Kind {
+		case yaml.ScalarNode:
+			v := strings.TrimSpace(item.Value)
+			if v == "" {
+				continue
+			}
+			agent.Tool = append(agent.Tool, &llm.Tool{Pattern: v})
+		case yaml.MappingNode:
+			var t llm.Tool
+			var inlineDef llm.ToolDefinition
+			var hasInlineDef bool
+			if err := (*yml.Node)(item).Pairs(func(k string, v *yml.Node) error {
+				lk := strings.ToLower(strings.TrimSpace(k))
+				switch lk {
+				case "pattern":
+					if v.Kind == yaml.ScalarNode {
+						t.Pattern = strings.TrimSpace(v.Value)
+					}
+				case "ref":
+					if v.Kind == yaml.ScalarNode {
+						t.Ref = strings.TrimSpace(v.Value)
+					}
+				case "type":
+					if v.Kind == yaml.ScalarNode {
+						t.Type = strings.TrimSpace(v.Value)
+					}
+				case "definition":
+					if v.Kind == yaml.MappingNode {
+						if err := (*yaml.Node)(v).Decode(&t.Definition); err != nil {
+							return fmt.Errorf("invalid tool.definition: %w", err)
+						}
+					}
+				case "name":
+					if v.Kind == yaml.ScalarNode {
+						inlineDef.Name = strings.TrimSpace(v.Value)
+						hasInlineDef = true
+					}
+				case "description":
+					if v.Kind == yaml.ScalarNode {
+						inlineDef.Description = v.Value
+						hasInlineDef = true
+					}
+				case "parameters":
+					if v.Kind == yaml.MappingNode {
+						var m map[string]interface{}
+						if err := (*yaml.Node)(v).Decode(&m); err != nil {
+							return fmt.Errorf("invalid tool.parameters: %w", err)
+						}
+						inlineDef.Parameters = m
+						hasInlineDef = true
+					}
+				case "required":
+					if v.Kind == yaml.SequenceNode {
+						var req []string
+						if err := (*yaml.Node)(v).Decode(&req); err != nil {
+							return fmt.Errorf("invalid tool.required: %w", err)
+						}
+						inlineDef.Required = req
+						hasInlineDef = true
+					}
+				case "output_schema", "outputschema":
+					if v.Kind == yaml.MappingNode {
+						var m map[string]interface{}
+						if err := (*yaml.Node)(v).Decode(&m); err != nil {
+							return fmt.Errorf("invalid tool.output_schema: %w", err)
+						}
+						inlineDef.OutputSchema = m
+						hasInlineDef = true
+					}
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			if hasInlineDef {
+				inlineDef.Normalize()
+				t.Definition = inlineDef
+				if t.Type == "" {
+					t.Type = "function"
+				}
+			}
+			if t.Definition.Name != "" || t.Pattern != "" || t.Ref != "" {
+				agent.Tool = append(agent.Tool, &t)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Service) parseProfileBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.MappingNode {
+		return fmt.Errorf("profile must be a mapping")
+	}
+	prof := &agentmdl.Profile{}
+	if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "publish":
+			if v.Kind == yaml.ScalarNode {
+				prof.Publish = toBool(v.Value)
+			}
+		case "name":
+			if v.Kind == yaml.ScalarNode {
+				prof.Name = v.Value
+			}
+		case "description":
+			if v.Kind == yaml.ScalarNode {
+				prof.Description = v.Value
+			}
+		case "tags":
+			if v != nil {
+				prof.Tags = asStrings(v)
+			}
+		case "rank":
+			if v.Kind == yaml.ScalarNode {
+				val := v.Interface()
+				switch actual := val.(type) {
+				case int:
+					prof.Rank = actual
+				case int64:
+					prof.Rank = int(actual)
+				case float64:
+					prof.Rank = int(actual)
+				case string:
+					if n, err := parseInt64(actual); err == nil {
+						prof.Rank = int(n)
+					}
+				}
+			}
+		case "capabilities":
+			if v.Kind == yaml.MappingNode {
+				var m map[string]interface{}
+				_ = (*yaml.Node)(v).Decode(&m)
+				prof.Capabilities = m
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	agent.Profile = prof
+	return nil
+}
+
+func (s *Service) parseServeBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.MappingNode {
+		return fmt.Errorf("serve must be a mapping")
+	}
+	var srv agentmdl.Serve
+	if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "a2a":
+			if v.Kind != yaml.MappingNode {
+				return fmt.Errorf("serve.a2a must be a mapping")
+			}
+			a2a := &agentmdl.ServeA2A{}
+			if err := v.Pairs(func(ak string, av *yml.Node) error {
+				switch strings.ToLower(strings.TrimSpace(ak)) {
+				case "enabled":
+					if av.Kind == yaml.ScalarNode {
+						a2a.Enabled = toBool(av.Value)
+					}
+				case "port":
+					if av.Kind == yaml.ScalarNode {
+						val := av.Interface()
+						switch actual := val.(type) {
+						case int:
+							a2a.Port = actual
+						case int64:
+							a2a.Port = int(actual)
+						case float64:
+							a2a.Port = int(actual)
+						case string:
+							if n, err := parseInt64(actual); err == nil {
+								a2a.Port = int(n)
+							}
+						}
+					}
+				case "streaming":
+					if av.Kind == yaml.ScalarNode {
+						a2a.Streaming = toBool(av.Value)
+					}
+				case "auth":
+					if av.Kind != yaml.MappingNode {
+						return fmt.Errorf("serve.a2a.auth must be a mapping")
+					}
+					a := &agentmdl.A2AAuth{}
+					_ = av.Pairs(func(k2 string, v2 *yml.Node) error {
+						switch strings.ToLower(strings.TrimSpace(k2)) {
+						case "enabled":
+							if v2.Kind == yaml.ScalarNode {
+								a.Enabled = toBool(v2.Value)
+							}
+						case "resource":
+							if v2.Kind == yaml.ScalarNode {
+								a.Resource = v2.Value
+							}
+						case "scopes":
+							a.Scopes = asStrings(v2)
+						case "useidtoken":
+							if v2.Kind == yaml.ScalarNode {
+								a.UseIDToken = toBool(v2.Value)
+							}
+						case "excludeprefix":
+							if v2.Kind == yaml.ScalarNode {
+								a.ExcludePrefix = v2.Value
+							}
+						}
+						return nil
+					})
+					a2a.Auth = a
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			srv.A2A = a2a
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	agent.Serve = &srv
+	return nil
+}
+
+func (s *Service) parseExposeA2ABlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.MappingNode {
+		return fmt.Errorf("exposeA2A must be a mapping")
+	}
+	exp := &agentmdl.ExposeA2A{}
+	if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "enabled":
+			if v.Kind == yaml.ScalarNode {
+				exp.Enabled = toBool(v.Value)
+			}
+		case "port":
+			if v.Kind == yaml.ScalarNode {
+				val := v.Interface()
+				switch actual := val.(type) {
+				case int:
+					exp.Port = actual
+				case int64:
+					exp.Port = int(actual)
+				case float64:
+					exp.Port = int(actual)
+				case string:
+					if n, err := parseInt64(actual); err == nil {
+						exp.Port = int(n)
+					}
+				}
+			}
+		case "basepath":
+			if v.Kind == yaml.ScalarNode {
+				exp.BasePath = strings.TrimSpace(v.Value)
+			}
+		case "streaming":
+			if v.Kind == yaml.ScalarNode {
+				exp.Streaming = toBool(v.Value)
+			}
+		case "auth":
+			if v.Kind != yaml.MappingNode {
+				return fmt.Errorf("exposeA2A.auth must be a mapping")
+			}
+			a := &agentmdl.A2AAuth{}
+			if err := v.Pairs(func(ak string, av *yml.Node) error {
+				switch strings.ToLower(strings.TrimSpace(ak)) {
+				case "enabled":
+					if av.Kind == yaml.ScalarNode {
+						a.Enabled = toBool(av.Value)
+					}
+				case "resource":
+					if av.Kind == yaml.ScalarNode {
+						a.Resource = av.Value
+					}
+				case "scopes":
+					if av != nil {
+						a.Scopes = asStrings(av)
+					}
+				case "useidtoken":
+					if av.Kind == yaml.ScalarNode {
+						a.UseIDToken = toBool(av.Value)
+					}
+				case "excludeprefix":
+					if av.Kind == yaml.ScalarNode {
+						a.ExcludePrefix = av.Value
+					}
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			exp.Auth = a
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	agent.ExposeA2A = exp
+	if agent.Serve == nil {
+		agent.Serve = &agentmdl.Serve{}
+	}
+	agent.Serve.A2A = &agentmdl.ServeA2A{Enabled: exp.Enabled, Port: exp.Port, Streaming: exp.Streaming, Auth: exp.Auth}
+	return nil
+}
+
+func (s *Service) parseAttachmentBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.MappingNode {
+		return fmt.Errorf("attachment must be a mapping")
+	}
+	var cfg agentmdl.Attachment
+	if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "limit", "limitbytes", "limitbytesmb", "limitmb":
+			if v.Kind == yaml.ScalarNode {
+				val := v.Interface()
+				switch a := val.(type) {
+				case int:
+					cfg.LimitBytes = int64(a)
+					if strings.Contains(strings.ToLower(k), "mb") {
+						cfg.LimitBytes *= 1024 * 1024
+					}
+				case int64:
+					cfg.LimitBytes = a
+					if strings.Contains(strings.ToLower(k), "mb") {
+						cfg.LimitBytes *= 1024 * 1024
+					}
+				case float64:
+					cfg.LimitBytes = int64(a)
+					if strings.Contains(strings.ToLower(k), "mb") {
+						cfg.LimitBytes *= 1024 * 1024
+					}
+				case string:
+					lv := strings.TrimSpace(strings.ToLower(a))
+					mul := int64(1)
+					if strings.HasSuffix(lv, "mb") {
+						lv = strings.TrimSuffix(lv, "mb")
+						mul = 1024 * 1024
+					}
+					if n, err := parseInt64(lv); err == nil {
+						cfg.LimitBytes = n * mul
+					}
+				}
+			}
+		case "mode":
+			if v.Kind == yaml.ScalarNode {
+				m := strings.ToLower(strings.TrimSpace(v.Value))
+				if m != "inline" {
+					m = "ref"
+				}
+				cfg.Mode = m
+			}
+		case "ttlsec":
+			if v.Kind == yaml.ScalarNode {
+				val := v.Interface()
+				switch a := val.(type) {
+				case int:
+					cfg.TTLSec = int64(a)
+				case int64:
+					cfg.TTLSec = a
+				case float64:
+					cfg.TTLSec = int64(a)
+				case string:
+					if n, err := parseInt64(a); err == nil {
+						cfg.TTLSec = n
+					}
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	agent.Attachment = &cfg
+	return nil
+}
+
+func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.SequenceNode {
+		return fmt.Errorf("chains must be a sequence")
+	}
+	for _, item := range valueNode.Content {
+		if item == nil || item.Kind != yaml.MappingNode {
+			return fmt.Errorf("invalid chain entry; expected mapping")
+		}
+		var c agentmdl.Chain
+		var whenExpr string
+		for i := 0; i+1 < len(item.Content); i += 2 {
+			k := strings.ToLower(strings.TrimSpace(item.Content[i].Value))
+			if k == "when" {
+				v := item.Content[i+1]
+				if v != nil && v.Kind == yaml.ScalarNode {
+					whenExpr = v.Value
+					item.Content[i+1] = &yaml.Node{Kind: yaml.MappingNode}
+				}
+				break
+			}
+		}
+		if err := (*yaml.Node)(item).Decode(&c); err != nil {
+			return fmt.Errorf("invalid chain definition: %w", err)
+		}
+		if c.Query == nil {
+			for i := 0; i+1 < len(item.Content); i += 2 {
+				k := strings.ToLower(strings.TrimSpace(item.Content[i].Value))
+				if k == "query" {
+					v := item.Content[i+1]
+					if v.Kind == yaml.ScalarNode {
+						c.Query = &prompt.Prompt{Text: v.Value}
+					}
+					break
+				}
+			}
+		}
+		if c.When == nil {
+			for i := 0; i+1 < len(item.Content); i += 2 {
+				k := strings.ToLower(strings.TrimSpace(item.Content[i].Value))
+				if k == "when" {
+					v := item.Content[i+1]
+					if whenExpr != "" {
+						c.When = &agentmdl.WhenSpec{Expr: whenExpr}
+					} else if v.Kind == yaml.ScalarNode && strings.TrimSpace(v.Value) != "" {
+						c.When = &agentmdl.WhenSpec{Expr: v.Value}
+					}
+					break
+				}
+			}
+		}
+		if strings.TrimSpace(c.Conversation) == "" {
+			c.Conversation = "link"
+		}
+		switch strings.ToLower(strings.TrimSpace(c.Conversation)) {
+		case "reuse", "link":
+		case "":
+		default:
+			return fmt.Errorf("invalid chain.conversation: %s", c.Conversation)
+		}
+		agent.Chains = append(agent.Chains, &c)
+	}
+	return nil
+}
+
+func (s *Service) parseMCPResourcesBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.MappingNode {
+		return fmt.Errorf("mcpResources must be a mapping")
+	}
+	var cfg agentmdl.MCPResources
+	cfg.MaxFiles = 5
+	if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "enabled":
+			if v.Kind == yaml.ScalarNode {
+				cfg.Enabled = toBool(v.Value)
+			}
+		case "locations":
+			switch v.Kind {
+			case yaml.ScalarNode:
+				if s := strings.TrimSpace(v.Value); s != "" {
+					cfg.Locations = []string{s}
+				}
+			case yaml.SequenceNode:
+				for _, it := range v.Content {
+					if it != nil && it.Kind == yaml.ScalarNode && strings.TrimSpace(it.Value) != "" {
+						cfg.Locations = append(cfg.Locations, it.Value)
+					}
+				}
+			}
+		case "maxfiles":
+			if v.Kind == yaml.ScalarNode {
+				val := v.Interface()
+				switch actual := val.(type) {
+				case int:
+					cfg.MaxFiles = actual
+				case int64:
+					cfg.MaxFiles = int(actual)
+				case float64:
+					cfg.MaxFiles = int(actual)
+				case string:
+					if n, err := parseInt64(actual); err == nil {
+						cfg.MaxFiles = int(n)
+					}
+				}
+			}
+		case "trimpath":
+			if v.Kind == yaml.ScalarNode {
+				cfg.TrimPath = v.Value
+			}
+		case "match":
+			if v.Kind == yaml.MappingNode {
+				match := &option.Options{}
+				_ = v.Pairs(func(optKey string, optValue *yml.Node) error {
+					switch strings.ToLower(optKey) {
+					case "exclusions":
+						match.Exclusions = asStrings(optValue)
+					case "inclusions":
+						match.Inclusions = asStrings(optValue)
+					case "maxfilesize":
+						switch vv := optValue.Interface().(type) {
+						case int:
+							match.MaxFileSize = vv
+						case int64:
+							match.MaxFileSize = int(vv)
+						case float64:
+							match.MaxFileSize = int(vv)
+						case string:
+							if n, err := parseInt64(vv); err == nil {
+								match.MaxFileSize = int(n)
+							}
+						}
+					}
+					return nil
+				})
+				cfg.Match = match
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	agent.MCPResources = &cfg
+	return nil
 }
 
 // parseInt64 parses an integer from string, trimming spaces; returns error on failure.
@@ -639,6 +1093,11 @@ func parseInt64(s string) (int64, error) {
 	// yaml already converts numeric scalars to int/float, but we support strings too
 	_, err = fmt.Sscan(s, &n)
 	return n, err
+}
+
+func toBool(s string) bool {
+	lv := strings.ToLower(strings.TrimSpace(s))
+	return lv == "true" || lv == "yes" || lv == "on" || lv == "1"
 }
 
 func (s *Service) getPrompt(valueNode *yml.Node) (*prompt.Prompt, error) {

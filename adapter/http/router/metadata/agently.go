@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	authctx "github.com/viant/agently/internal/auth"
 	convdao "github.com/viant/agently/internal/service/conversation"
 	usersvc "github.com/viant/agently/internal/service/user"
+	tmatch "github.com/viant/agently/internal/tool/matcher"
 )
 
 type AgentInfo struct {
@@ -112,8 +114,8 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 	sort.Strings(out.Models)
 	sort.Strings(out.Tools)
 
-	// Build AgentInfo mapping (matched tool names per agent)
-	if cfg.Agent != nil && len(cfg.Agent.Items) > 0 && len(defs) > 0 {
+	// Build AgentInfo mapping (matched tool names per agent). Always attempt to populate entries.
+	if cfg.Agent != nil && len(cfg.Agent.Items) > 0 {
 		// Build filtered tool defs excluding internal/* services to avoid exposing them
 		filtered := make([]llm.ToolDefinition, 0, len(defs))
 		for _, d := range defs {
@@ -129,14 +131,16 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 			filtered = append(filtered, d)
 		}
 		defs = filtered
-		out.AgentInfo = make(map[string]*AgentInfo)
-		// Precompute canon tool names
+		if out.AgentInfo == nil {
+			out.AgentInfo = make(map[string]*AgentInfo)
+		}
+		// Precompute tool names (raw)
 		names := make([]string, 0, len(defs))
 		for _, d := range defs {
 			if d.Name == "" {
 				continue
 			}
-			names = append(names, canon(d.Name))
+			names = append(names, strings.TrimSpace(d.Name))
 		}
 
 		for _, a := range cfg.Agent.Items {
@@ -148,7 +152,7 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				continue
 			}
 			agentName := strings.TrimSpace(a.Name)
-			// Build patterns from agent.Tool
+			// Build patterns from agent.Tool (raw; matcher normalizes internally)
 			var patterns []string
 			for _, t := range a.Tool {
 				if t == nil {
@@ -161,7 +165,7 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				if pat == "" {
 					continue
 				}
-				patterns = append(patterns, canon(pat))
+				patterns = append(patterns, pat)
 			}
 			// Collect chain targets (agent ids)
 			var chainTargets []string
@@ -184,67 +188,64 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				sort.Strings(chainTargets)
 			}
 
-			if len(patterns) == 0 && len(chainTargets) == 0 {
-				continue
-			}
-			// Match tool names
-			var matched []string
+			// Match tool names (dedup)
+			seenTools := map[string]struct{}{}
+			matched := make([]string, 0, len(defs))
 			for i, d := range defs {
 				name := names[i]
 				for _, p := range patterns {
-					if p == "*" || strings.HasPrefix(name, p) {
+					if tmatch.Match(p, name) {
+						if _, ok := seenTools[d.Name]; ok {
+							break
+						}
+						seenTools[d.Name] = struct{}{}
 						matched = append(matched, d.Name)
 						break
 					}
 				}
 			}
 			sort.Strings(matched)
-			if len(matched) > 0 || len(chainTargets) > 0 {
-				// Defaults per request
-				exposure := strings.TrimSpace(string(a.ToolCallExposure))
-				if exposure == "" {
-					exposure = "turn"
-				}
-				showExec := true
-				if a.ShowExecutionDetails != nil {
-					showExec = *a.ShowExecutionDetails
-				}
-				showFeed := true
-				if a.ShowToolFeed != nil {
-					showFeed = *a.ShowToolFeed
-				}
-				autoSum := true
-				if a.AutoSummarize != nil {
-					autoSum = *a.AutoSummarize
-				}
-				chainsEnabled := true
-
-				info := &AgentInfo{
-					Tools:                matched,
-					Model:                a.Model,
-					Chains:               chainTargets,
-					ToolCallExposure:     exposure,
-					ShowExecutionDetails: showExec,
-					ShowToolFeed:         showFeed,
-					AutoSummarize:        autoSum,
-					ChainsEnabled:        chainsEnabled,
-					AllowedChains:        append([]string(nil), chainTargets...),
-				}
-				out.AgentInfo[agentID] = info
-				if agentName != "" {
-					out.AgentInfo[strings.ToLower(agentName)] = info
-				}
+			// Defaults per request
+			exposure := strings.TrimSpace(string(a.ToolCallExposure))
+			if exposure == "" {
+				exposure = "turn"
 			}
-		}
-		if len(out.AgentInfo) == 0 {
-			out.AgentInfo = nil // omit when empty
+			showExec := true
+			if a.ShowExecutionDetails != nil {
+				showExec = *a.ShowExecutionDetails
+			}
+			showFeed := true
+			if a.ShowToolFeed != nil {
+				showFeed = *a.ShowToolFeed
+			}
+			autoSum := true
+			if a.AutoSummarize != nil {
+				autoSum = *a.AutoSummarize
+			}
+			chainsEnabled := true
+
+			info := &AgentInfo{
+				Tools:                matched,
+				Model:                a.Model,
+				Chains:               chainTargets,
+				ToolCallExposure:     exposure,
+				ShowExecutionDetails: showExec,
+				ShowToolFeed:         showFeed,
+				AutoSummarize:        autoSum,
+				ChainsEnabled:        chainsEnabled,
+				AllowedChains:        append([]string(nil), chainTargets...),
+			}
+			out.AgentInfo[agentID] = info
+			if agentName != "" {
+				out.AgentInfo[strings.ToLower(agentName)] = info
+			}
 		}
 	}
 
 	return out, nil
 }
 
-func canon(s string) string { return strings.ReplaceAll(strings.TrimSpace(s), "/", "_") }
+func canon(s string) string { return tmatch.Canon(s) }
 
 // NewAgently returns an http.HandlerFunc that writes aggregated workspace
 // metadata including defaults, agents, tools and models.
@@ -258,6 +259,69 @@ func NewAgently(exec *execsvc.Service) http.HandlerFunc {
 		var defs []llm.ToolDefinition
 		if exec.LLMCore() != nil {
 			defs = exec.LLMCore().ToolDefinitions()
+		}
+		// Transient debug: enable with ?debug=1
+		debug := strings.TrimSpace(r.URL.Query().Get("debug")) != ""
+		if debug {
+			// Filter out internal/* and canon names
+			filtered := make([]llm.ToolDefinition, 0, len(defs))
+			for _, d := range defs {
+				n := strings.TrimSpace(d.Name)
+				if n == "" {
+					continue
+				}
+				if i := strings.IndexByte(n, ':'); i != -1 {
+					if strings.HasPrefix(strings.TrimSpace(n[:i]), "internal/") {
+						continue
+					}
+				}
+				filtered = append(filtered, d)
+			}
+			names := make([]string, 0, len(filtered))
+			for _, d := range filtered {
+				n := strings.TrimSpace(d.Name)
+				if n != "" {
+					names = append(names, n)
+				}
+			}
+			// Per agent, log patterns and matched tool names
+			if cfg.Agent != nil {
+				for _, a := range cfg.Agent.Items {
+					if a == nil || strings.TrimSpace(a.ID) == "" {
+						continue
+					}
+					var patterns []string
+					for _, t := range a.Tool {
+						if t == nil {
+							continue
+						}
+						p := strings.TrimSpace(t.Pattern)
+						if p == "" {
+							p = strings.TrimSpace(t.Definition.Name)
+						}
+						if p == "" {
+							continue
+						}
+						patterns = append(patterns, p)
+					}
+					matched := []string{}
+					seen := map[string]struct{}{}
+					for i, d := range filtered {
+						nm := names[i]
+						for _, p := range patterns {
+							if tmatch.Match(p, nm) {
+								if _, ok := seen[d.Name]; ok {
+									break
+								}
+								seen[d.Name] = struct{}{}
+								matched = append(matched, d.Name)
+								break
+							}
+						}
+					}
+					log.Printf("[metadata.debug] agent=%s patterns=%v matched=%v defs=%d", strings.TrimSpace(a.ID), patterns, matched, len(filtered))
+				}
+			}
 		}
 		resp, err := Aggregate(cfg, defs)
 		if err != nil {
