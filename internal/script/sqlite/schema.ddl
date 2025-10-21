@@ -151,7 +151,7 @@ CREATE TABLE model_call
     provider                     TEXT    NOT NULL,
     model                        TEXT    NOT NULL,
     model_kind                   TEXT    NOT NULL CHECK (model_kind IN('chat', 'completion', 'vision', 'reranker', 'embedding','other')),
-    status                       TEXT CHECK (status IN ('thinking', 'streaming','running', 'completed', 'failed', 'canceled')),
+    status                       TEXT CHECK (status IN ('thinking', 'streaming','running', 'retrying', 'completed', 'failed', 'canceled')),
     
     error_code                   TEXT,
     error_message                TEXT,

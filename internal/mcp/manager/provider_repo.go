@@ -2,10 +2,18 @@ package manager
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"regexp"
 
 	"github.com/viant/afs"
+	authctx "github.com/viant/agently/internal/auth"
 	mcpcfg "github.com/viant/agently/internal/mcp/config"
+	"github.com/viant/agently/internal/workspace"
 	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
+	"github.com/viant/mcp"
+	mcpstore "github.com/viant/mcp/client/auth/store"
+	mcpauth "github.com/viant/mcp/client/auth/transport"
 )
 
 // RepoProvider loads MCP client options from the Agently workspace repo ($AGENTLY_ROOT/mcp).
@@ -16,5 +24,39 @@ type RepoProvider struct {
 func NewRepoProvider() *RepoProvider { return &RepoProvider{repo: mcprepo.New(afs.New())} }
 
 func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPClient, error) {
-	return p.repo.Load(ctx, name)
+	cfg, err := p.repo.Load(ctx, name)
+	if err != nil || cfg == nil || cfg.ClientOptions == nil {
+		return cfg, err
+	}
+	// Derive per-user state dir for tokens/cookies
+	userID := authctx.EffectiveUserID(ctx)
+	if userID == "" {
+		userID = "anonymous"
+	}
+	safe := sanitize(userID)
+	stateDir := filepath.Join(workspace.Root(), "state", "mcp", name, safe)
+	_ = os.MkdirAll(stateDir, 0o700)
+
+	// Attach persistent token store; preserve existing Auth config
+	if cfg.ClientOptions.Auth == nil {
+		cfg.ClientOptions.Auth = &mcp.ClientAuth{}
+	}
+	tokensPath := filepath.Join(stateDir, "tokens.json")
+	cfg.ClientOptions.Auth.Store = mcpstore.NewFileStore(tokensPath)
+
+	// Cookie jar persistence
+	cookiesPath := filepath.Join(stateDir, "cookies.json")
+	if jar, jerr := mcpauth.NewFileJar(cookiesPath); jerr == nil {
+		cfg.ClientOptions.CookieJar = jar
+	}
+	return cfg, nil
+}
+
+var nonWord = regexp.MustCompile(`[^A-Za-z0-9_.@-]+`)
+
+func sanitize(s string) string {
+	if s == "" {
+		return "anonymous"
+	}
+	return nonWord.ReplaceAllString(s, "_")
 }

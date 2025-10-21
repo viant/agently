@@ -697,6 +697,18 @@ func (s *Service) parseProfileBlock(valueNode *yml.Node, agent *agentmdl.Agent) 
 				_ = (*yaml.Node)(v).Decode(&m)
 				prof.Capabilities = m
 			}
+		case "responsibilities":
+			if v != nil {
+				prof.Responsibilities = asStrings(v)
+			}
+		case "inscope":
+			if v != nil {
+				prof.InScope = asStrings(v)
+			}
+		case "outofscope":
+			if v != nil {
+				prof.OutOfScope = asStrings(v)
+			}
 		}
 		return nil
 	}); err != nil {

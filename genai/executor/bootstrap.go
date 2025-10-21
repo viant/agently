@@ -215,19 +215,35 @@ func (e *Service) init(ctx context.Context) error {
 				if a.Profile != nil && a.Profile.Capabilities != nil {
 					caps = a.Profile.Capabilities
 				}
+				// Optional responsibilities and scope info for better orchestration context
+				var resp, inScope, outScope []string
+				if a.Profile != nil {
+					if len(a.Profile.Responsibilities) > 0 {
+						resp = append([]string(nil), a.Profile.Responsibilities...)
+					}
+					if len(a.Profile.InScope) > 0 {
+						inScope = append([]string(nil), a.Profile.InScope...)
+					}
+					if len(a.Profile.OutOfScope) > 0 {
+						outScope = append([]string(nil), a.Profile.OutOfScope...)
+					}
+				}
 				var tags []string
 				if a.Profile != nil && len(a.Profile.Tags) > 0 {
 					tags = append([]string(nil), a.Profile.Tags...)
 				}
 				rank := a.Profile.Rank
 				items = append(items, llmagents.ListItem{
-					ID:           id,
-					Name:         name,
-					Description:  desc,
-					Tags:         tags,
-					Priority:     rank,
-					Capabilities: caps,
-					Source:       "internal",
+					ID:               id,
+					Name:             name,
+					Description:      desc,
+					Tags:             tags,
+					Priority:         rank,
+					Capabilities:     caps,
+					Source:           "internal",
+					Responsibilities: resp,
+					InScope:          inScope,
+					OutOfScope:       outScope,
 				})
 				seen[id] = struct{}{}
 			}

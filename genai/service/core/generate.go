@@ -205,6 +205,8 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 				if attempt == 2 || ctx.Err() != nil {
 					return fmt.Errorf("failed to generate content: %w", err)
 				}
+				// Set model_call status to retrying before waiting
+				s.setModelCallStatus(ctx, "retrying")
 				select {
 				case <-time.After(delay):
 				case <-ctx.Done():
@@ -218,6 +220,8 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		}
 		// 1s, 2s, 4s backoff
 		delay := time.Second << attempt
+		// Set model_call status to retrying before waiting
+		s.setModelCallStatus(ctx, "retrying")
 		select {
 		case <-time.After(delay):
 		case <-ctx.Done():
