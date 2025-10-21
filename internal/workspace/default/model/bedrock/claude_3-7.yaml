@@ -8,7 +8,7 @@ options:
   model: arn:aws:bedrock:us-west-2:${AccountId}:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0
   region: us-west-2
   credentialsURL: aws-e2e
-  maxTokens: 1048576
+  maxTokens: 8192
   inputTokenPrice: 0.003   # USD per token (≈ $3 per 1M)
   outputTokenPrice: 0.015  # USD per token (≈ $15 per 1M)
   meta:

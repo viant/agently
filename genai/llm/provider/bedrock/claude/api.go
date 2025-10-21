@@ -70,6 +70,10 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if req.MaxTokens == 0 {
 		req.MaxTokens = c.MaxTokens
 	}
+	// Clamp to provider-safe maximum to avoid ValidationException
+	if req.MaxTokens > 200000 {
+		req.MaxTokens = 200000
+	}
 	if req.Temperature == 0 && c.Temperature != nil {
 		req.Temperature = *c.Temperature
 	}
@@ -181,6 +185,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	}
 	if req.MaxTokens == 0 {
 		req.MaxTokens = 8192
+	}
+	if req.MaxTokens > 200000 {
+		req.MaxTokens = 200000
 	}
 	data, err := json.Marshal(req)
 	if err != nil {
