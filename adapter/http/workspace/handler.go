@@ -15,6 +15,7 @@ import (
 	"github.com/viant/agently/genai/oauth2"
 	toolext "github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/internal/workspace"
+	a2arepo "github.com/viant/agently/internal/workspace/repository/a2a"
 	"github.com/viant/agently/internal/workspace/repository/oauth"
 	"github.com/viant/mcp"
 
@@ -56,6 +57,8 @@ func newInstance(kind string) interface{} {
 		return &agent.Agent{}
 	case workspace.KindFeeds:
 		return &toolext.FeedSpec{}
+	case workspace.KindA2A:
+		return &a2arepo.A2AClientConfig{}
 	default:
 		return nil
 	}
@@ -367,6 +370,8 @@ func (h *handler) repo(kind string) (rawRepository, bool) {
 		return h.svc.MCPRepo(), true
 	case workspace.KindFeeds:
 		return h.svc.FeednRepo(), true
+		//	case workspace.KindA2A:
+		//		return h.svc.A2ARepo(), true
 	default:
 		return nil, false
 	}
