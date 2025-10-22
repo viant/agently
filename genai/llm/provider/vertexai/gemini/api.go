@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/viant/agently/genai/llm/provider/base"
 
@@ -231,13 +232,14 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	}
 
 	out := make(chan llm.StreamEvent)
+	var wg sync.WaitGroup
 	go func() {
 		defer resp.Body.Close()
 		defer close(out)
 		_ = resp.Header.Get("Content-Type")
 		agg := newGeminiAggregator(c.Model, c.UsageListener)
 		// buffer final response so we can notify observer before publishing it
-		bufCh := make(chan llm.StreamEvent)
+		bufCh := make(chan llm.StreamEvent, 10)
 		var lastLR *llm.GenerateResponse
 		emit := func(lr *llm.GenerateResponse) {
 			if lr != nil {
@@ -270,7 +272,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				}
 			}
 		}
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for ev := range bufCh {
 				if ev.Response != nil {
 					lastLR = ev.Response
@@ -281,6 +285,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		// Gemini uses application/json streams; decode with JSON decoder.
 		c.streamJSON(resp.Body, bufCh, agg, observer, ctx)
 		close(bufCh)
+		wg.Wait()
 		// Prepare remainder as final response without emitting yet
 		final := agg.emitRemainderResponse()
 		endObserver(final)
