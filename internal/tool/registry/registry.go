@@ -25,6 +25,7 @@ import (
 	svc "github.com/viant/agently/genai/tool/service"
 	orchplan "github.com/viant/agently/genai/tool/service/orchestration/plan"
 	toolExec "github.com/viant/agently/genai/tool/service/system/exec"
+	toolOS "github.com/viant/agently/genai/tool/service/system/os"
 	toolPatch "github.com/viant/agently/genai/tool/service/system/patch"
 	localmcp "github.com/viant/agently/internal/mcp/localclient"
 	mcpproxy "github.com/viant/agently/internal/mcp/proxy"
@@ -618,6 +619,15 @@ func (r *Registry) addInternalMcp() {
 	// system/patch
 	{
 		svc := toolPatch.New()
+		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
+			r.internal[svc.Name()] = cli
+		} else if err != nil {
+			r.warnf("[tool:init] internal mcp for %s failed: %v", svc.Name(), err)
+		}
+	}
+	// system/os
+	{
+		svc := toolOS.New()
 		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
 			r.internal[svc.Name()] = cli
 		} else if err != nil {
