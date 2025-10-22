@@ -17,6 +17,7 @@ tool:
   - pattern: orchestration
   - pattern: system/patch
   - pattern: system/exec
+  - pattern: system/os
 
 toolCallExposure: conversation
 
@@ -25,16 +26,3 @@ knowledge:
 
 systemKnowledge:
   - url: system_knowledge/
-
-elicitation:
-  message: "Please provide execution context"
-  requestedSchema:
-    type: object
-    properties:
-      Workdir:
-        type: string
-        description: Working directory path
-        format: uri
-        default: ${env.HOME}
-    required:
-      - Workdir
