@@ -97,9 +97,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// Persist/refresh conversation default model with the actually used model this turn
 	_ = s.updateDefaultModel(ctx, turn, output)
 
-	conv, err := s.conversation.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
+	conv, err := s.fetchConversationWithRetry(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
 	if err != nil {
 		return fmt.Errorf("cannot get conversation: %w", err)
+	}
+	if conv == nil {
+		return fmt.Errorf("cannot get conversation: not found: %s", strings.TrimSpace(input.ConversationID))
 	}
 	// Elicitation and final content persistence are handled inside runPlanLoop now
 	output.Usage = agg
