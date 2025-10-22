@@ -200,19 +200,37 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	// Vertex Gemini stream returns application/json; request JSON explicitly.
 	httpReq.Header.Set("Accept", "application/json")
 
+	// Observer start
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, LLMRequest: request, ModelKind: "chat", RequestJSON: data, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			ctx = newCtx
+		} else {
+			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+		}
+	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
+		if observer != nil {
+			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", CompletedAt: time.Now(), Err: err.Error()})
+		}
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
+		if observer != nil {
+			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", CompletedAt: time.Now(), Err: fmt.Sprintf("status %d", resp.StatusCode)})
+		}
 		return nil, fmt.Errorf("Gemini stream error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	out := make(chan llm.StreamEvent)
-	observer := mcbuf.ObserverFromContext(ctx)
 	go func() {
 		defer resp.Body.Close()
 		defer close(out)
