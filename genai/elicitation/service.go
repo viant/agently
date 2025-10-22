@@ -152,7 +152,9 @@ func (s *Service) Elicit(ctx context.Context, turn *memory.TurnMeta, role string
 		return "", "", nil, fmt.Errorf("failed to record message: %w", err)
 	}
 	root := s.getRootConversation(ctx, turn.ConversationID)
-	if root != nil {
+	// Only duplicate into a different conversation. If getRootConversation returns
+	// the same conversation (e.g. when at the root or due to lookup quirks), skip.
+	if root != nil && strings.TrimSpace(root.Id) != "" && root.Id != turn.ConversationID {
 		rootConversationMessage := *msg
 		rootConversationMessage.SetId(uuid.New().String())
 		if root.LastTurnId != nil {
