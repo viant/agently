@@ -177,6 +177,8 @@ type AttachmentView struct {
 }
 
 type ModelCallView struct {
+	CacheHit                           int                  `sqlx:"cache_hit"`
+	CacheKey                           *string              `sqlx:"cache_key"`
 	CompletedAt                        *time.Time           `sqlx:"completed_at"`
 	CompletionAcceptedPredictionTokens *int                 `sqlx:"completion_accepted_prediction_tokens"`
 	CompletionAudioTokens              *int                 `sqlx:"completion_audio_tokens"`

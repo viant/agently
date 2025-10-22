@@ -74,7 +74,11 @@ func (r *Repository[T]) List(ctx context.Context) ([]string, error) {
 			continue
 		}
 		base := filepath.Base(o.Name())
-		res = append(res, strings.TrimSuffix(base, filepath.Ext(base)))
+		ext := strings.ToLower(filepath.Ext(base))
+		// Only include supported YAML files; ignore other extensions
+		if ext == ".yaml" || ext == ".yml" {
+			res = append(res, strings.TrimSuffix(base, ext))
+		}
 	}
 	return res, nil
 }
