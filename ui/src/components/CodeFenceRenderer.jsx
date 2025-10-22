@@ -6,6 +6,7 @@ import React from 'react';
 import CodeBlock from './CodeBlock.jsx';
 import { Button, Dialog } from '@blueprintjs/core';
 import { Table as BpTable, Column as BpColumn, Cell as BpCell, ColumnHeaderCell as BpColumnHeaderCell } from '@blueprintjs/table';
+import { findNextPipeTableBlock } from './markdownTableUtils.js';
 
 // Use Editor from forge/components directly (consistent with other imports like Chat).
 
@@ -15,7 +16,14 @@ function MinimalText({ text = '' }) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  const withInline = escaped.replace(/`([^`]+?)`/g, '<code>$1</code>');
+  const withHeadings = escaped
+    .replace(/^######\s+(.+)$/gm, '<h6>$1</h6>')
+    .replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>')
+    .replace(/^####\s+(.+)$/gm, '<h4>$1</h4>')
+    .replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
+    .replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
+    .replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+  const withInline = withHeadings.replace(/`([^`]+?)`/g, '<code>$1</code>');
   const withBold   = withInline.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   const withItalic = withBold.replace(/\*(.*?)\*/g, '<em>$1</em>');
   const withLinks  = withItalic.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
@@ -383,6 +391,30 @@ export default function CodeFenceRenderer({ text = '' }) {
   }
   // If no fences matched with language hints, try fallback (no explicit lang)
   if (fenceCount === 0) {
+    // Detect unfenced Markdown pipe tables within plain prose
+    let cursor = 0;
+    let anyTable = false;
+    while (true) {
+      const block = findNextPipeTableBlock(textNorm, cursor);
+      if (!block) break;
+      anyTable = true;
+      if (block.start > cursor) {
+        out.push(<MinimalText key={`pt-pre-${idx++}`} text={textNorm.slice(cursor, block.start)} />);
+      }
+      const body = textNorm.slice(block.start, block.end);
+      out.push(
+        <div key={`pt-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+          {renderPipeTable(body)}
+        </div>
+      );
+      cursor = block.end;
+    }
+    if (anyTable) {
+      if (cursor < textNorm.length) {
+        out.push(<MinimalText key={`pt-tail-${idx++}`} text={textNorm.slice(cursor)} />);
+      }
+      return <div style={{ width: '60vw', overflowX: 'auto' }}>{out}</div>;
+    }
     // 0a) Manual splitter on triple backticks if present
     const split = textNorm.split('```');
     if (split.length > 1) {
