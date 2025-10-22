@@ -155,7 +155,7 @@ export async function onInit({context}) {
                 if (!Array.isArray(metaCol) || metaCol.length === 0) return false;
                 const data = metaCol[0] || {};
                 const defaults = data.defaults || {};
-                const defAgent = String(defaults.agent || '').toLowerCase();
+                const defAgent = String(defaults.agent || '');
                 const defModel = String(defaults.model || '');
                 const convCtx = context.Context('conversations');
                 const convDS = convCtx?.handlers?.dataSource;
@@ -1043,7 +1043,7 @@ export function selectAgent(args) {
 
 
     const tryApply = (k) => {
-        const key = String(k || '').toLowerCase();
+        const key = String(k || '');
         const form = context.handlers.dataSource.peekFormData()
 
         if (!key) return;
@@ -2052,7 +2052,7 @@ function onMetaLoaded(args) {
     if (!ds) return;
     const current = ds.peekFormData?.() || {};
     const {defaults} = data
-    const defAgent = String(defaults.agent || '').toLowerCase();
+    const defAgent = String(defaults.agent || '');
     const defModel = defaults.model || '';
     const values = {
         ...current,
@@ -2092,7 +2092,7 @@ function onFetchMeta(args) {
             agentChainTargets[k] = Array.isArray(v?.chains) ? v.chains : [];
         });
         // Preserve current agent selection if present; otherwise use defaults
-        const curAgent = String(currentForm.agent || data.defaults.agent || '').toLowerCase();
+        const curAgent = String(currentForm.agent || data.defaults.agent || '');
 
 
         const settings = {...data.agentInfo[curAgent], tool: ''}
@@ -2102,11 +2102,11 @@ function onFetchMeta(args) {
 
         return {
             ...data,
-            agentOptions: agentsRaw.map(v => ({
-                id: String(v).toLowerCase(),
-                value: String(v).toLowerCase(),
-                label: String(v)
-            })),
+            agentOptions: agentsRaw.map(v => {
+                const id = String(v);
+                const label = (agentInfo?.[id]?.name) ? String(agentInfo[id].name) : id;
+                return { id, value: id, label };
+            }),
             agent: curAgent,
 
             modelOptions: modelsRaw.map(v => ({

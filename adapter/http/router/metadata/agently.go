@@ -17,6 +17,9 @@ import (
 )
 
 type AgentInfo struct {
+	// Name is a human-friendly display name for the agent.
+	// Always use agentId for selection and routing; name is UI-only.
+	Name   string   `json:"name,omitempty"`
 	Tools  []string `json:"tools"`
 	Model  string   `json:"model"`
 	Chains []string `json:"chains,omitempty"`
@@ -40,6 +43,8 @@ type AgentlyResponse struct {
 		Model    string `json:"model"`
 		Embedder string `json:"embedder,omitempty"`
 	} `json:"defaults"`
+	// Agents is a flat list of agent IDs (selection values).
+	// Display names are provided via AgentInfo[id].name.
 	Agents []string `json:"agents"`
 	Tools  []string `json:"tools"`
 	// ToolsTree groups tools by service prefix using ':' as the separator.
@@ -62,18 +67,15 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 	out.Defaults.Model = cfg.Default.Model
 	out.Defaults.Embedder = cfg.Default.Embedder
 
-	// Agents: prefer Name, fallback to ID when name empty.
+	// Agents: list IDs only; UI should use AgentInfo[id].name for display.
 	if cfg.Agent != nil {
 		for _, a := range cfg.Agent.Items {
 			if a == nil {
 				continue
 			}
-			name := strings.TrimSpace(a.Name)
-			if name == "" {
-				name = strings.TrimSpace(a.ID)
-			}
-			if name != "" {
-				out.Agents = append(out.Agents, name)
+			id := strings.TrimSpace(a.ID)
+			if id != "" {
+				out.Agents = append(out.Agents, id)
 			}
 		}
 	}
@@ -229,6 +231,7 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 			chainsEnabled := true
 
 			info := &AgentInfo{
+				Name:                 firstNonEmpty(agentName, agentID),
 				Tools:                matched,
 				Model:                a.Model,
 				Chains:               chainTargets,
@@ -251,9 +254,6 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				}
 			}
 			out.AgentInfo[agentID] = info
-			if agentName != "" {
-				out.AgentInfo[strings.ToLower(agentName)] = info
-			}
 		}
 	}
 
@@ -261,6 +261,16 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 }
 
 func canon(s string) string { return tmatch.Canon(s) }
+
+// firstNonEmpty returns the first non-empty string from inputs or "".
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
 
 // NewAgently returns an http.HandlerFunc that writes aggregated workspace
 // metadata including defaults, agents, tools and models.
