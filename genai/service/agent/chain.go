@@ -137,8 +137,19 @@ func (s *Service) executeChains(ctx context.Context, parent ChainContext, status
 				continue
 			}
 		}
-		on := strings.TrimSpace(strings.ToLower(ch.On))
-		if on != "" && on != "*" && on != strings.ToLower(status) {
+		statusLower := strings.ToLower(status)
+		on := strings.ToLower(strings.TrimSpace(ch.On))
+		// Default policy: when a turn finished with an error or was canceled,
+		// do not run chains unless explicitly allowed via On, or the chain
+		// defines an OnError policy. This prevents unintended follow-ups on
+		// failures when On is omitted.
+		if on == "" {
+			if statusLower != "succeeded" {
+				if strings.TrimSpace(strings.ToLower(ch.OnError)) == "" {
+					continue
+				}
+			}
+		} else if on != "*" && on != statusLower {
 			continue
 		}
 		shouldRunChain, err := s.evalChainWhen(ctx, parent, ch.When)

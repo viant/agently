@@ -354,6 +354,15 @@ func isTransientNetworkError(err error) bool {
 		strings.Contains(msg, "temporary network error"),
 		strings.Contains(msg, "server closed idle connection"):
 		return true
+	// Treat common HTTP 5xx gateway/availability errors as transient
+	case strings.Contains(msg, "status 502"),
+		strings.Contains(msg, "502 bad gateway"),
+		strings.Contains(msg, "bad gateway"),
+		strings.Contains(msg, "status 503"),
+		strings.Contains(msg, "service unavailable"),
+		strings.Contains(msg, "status 504"),
+		strings.Contains(msg, "gateway timeout"):
+		return true
 	}
 	return false
 }
