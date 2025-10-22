@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/viant/afs/url"
 	apiconv "github.com/viant/agently/client/conversation"
@@ -38,9 +39,12 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if s.conversation == nil {
 		return nil, fmt.Errorf("conversation API not configured")
 	}
-	conv, err := s.conversation.GetConversation(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
+	conv, err := s.fetchConversationWithRetry(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
 	if err != nil {
 		return nil, err
+	}
+	if conv == nil {
+		return nil, fmt.Errorf("conversation not found: %s", strings.TrimSpace(input.ConversationID))
 	}
 
 	// Compute effective preview limit (model override → model config → defaults)
@@ -143,6 +147,64 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		}
 	}
 	return b, nil
+}
+
+// fetchConversationWithRetry attempts to fetch a conversation up to three times,
+// applying a short exponential backoff on transient errors. It returns an error
+// when the conversation is missing or on non-transient failures.
+func (s *Service) fetchConversationWithRetry(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Conversation, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		conv, err := s.conversation.GetConversation(ctx, id, options...)
+		if err == nil {
+			return conv, nil
+		}
+		lastErr = err
+		// Do not keep retrying if context is done
+		if ctx.Err() != nil {
+			break
+		}
+		if !isTransientDBOrNetworkError(err) || attempt == 2 {
+			break
+		}
+		// 200ms, 400ms backoff (final attempt follows immediately)
+		delay := 200 * time.Millisecond << attempt
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return nil, fmt.Errorf("conversation fetch canceled: %w", err)
+		}
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("failed to fetch conversation: %w", lastErr)
+	}
+	return nil, fmt.Errorf("conversation not found: %s", strings.TrimSpace(id))
+}
+
+// isTransientDBOrNetworkError classifies intermittent DB/driver/network failures
+// that are commonly resolved with a short retry.
+func isTransientDBOrNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "timeout"),
+		strings.Contains(msg, "i/o timeout"),
+		strings.Contains(msg, "deadline exceeded"),
+		strings.Contains(msg, "connection reset"),
+		strings.Contains(msg, "connection refused"),
+		strings.Contains(msg, "driver: bad connection"),
+		strings.Contains(msg, "too many connections"),
+		strings.Contains(msg, "server closed idle connection"),
+		strings.Contains(msg, "deadlock"),
+		strings.Contains(msg, "lock wait timeout"),
+		strings.Contains(msg, "transaction aborted"),
+		strings.Contains(msg, "temporary network error"),
+		strings.Contains(msg, "network is unreachable"):
+		return true
+	}
+	return false
 }
 
 func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current *apiconv.Turn, b *prompt.Binding) {

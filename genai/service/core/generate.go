@@ -255,6 +255,34 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	}
 
 	output.Content = strings.TrimSpace(builder.String())
+
+	// Transient debug: if more than one tool call was emitted in a single
+	// provider response, print a concise trace line to aid troubleshooting.
+	// This is intentionally unconditional (no env gate) and low volume.
+	// It does not leak credentials and includes conversation/turn ids.
+	totalToolCalls := 0
+	var toolNames []string
+	for _, choice := range response.Choices {
+		if len(choice.Message.ToolCalls) == 0 {
+			continue
+		}
+		totalToolCalls += len(choice.Message.ToolCalls)
+		for _, tc := range choice.Message.ToolCalls {
+			name := strings.TrimSpace(tc.Name)
+			if name == "" {
+				name = "(unnamed)"
+			}
+			toolNames = append(toolNames, name)
+		}
+	}
+	if totalToolCalls > 1 {
+		convID := memory.ConversationIDFromContext(ctx)
+		turnID := ""
+		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+			turnID = tm.TurnID
+		}
+		fmt.Printf("[debug] multiple tool calls emitted: n=%d conv=%s turn=%s tools=%v\n", totalToolCalls, convID, turnID, toolNames)
+	}
 	// Provide the shared assistant message ID to the caller; orchestrator writes the final assistant message.
 	if msgID := memory.ModelMessageIDFromContext(ctx); msgID != "" {
 		output.MessageID = msgID
