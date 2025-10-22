@@ -162,6 +162,24 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		req.Messages = append(req.Messages, claudeMsg)
 	}
 
+	// Inject cache_control into the penultimate message's last content block
+	// as required for Bedrock provider. We do this only if there are at least
+	// two messages and the penultimate message has at least one content block.
+	if len(req.Messages) >= 2 {
+		penIdx := len(req.Messages) - 2
+		pen := req.Messages[penIdx]
+		if len(pen.Content) > 0 {
+			lastIdx := len(pen.Content) - 1
+			// Set cache_control on the existing last content element without adding new blocks
+			if pen.Content[lastIdx].CacheControl == nil {
+				cc := &CacheControl{Type: "ephemeral"}
+				pen.Content[lastIdx].CacheControl = cc
+				// write back the modified message
+				req.Messages[penIdx] = pen
+			}
+		}
+	}
+
 	return req, nil
 }
 
