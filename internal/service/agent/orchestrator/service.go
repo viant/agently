@@ -540,6 +540,12 @@ func (s *Service) extendPlanWithToolCalls(choice *llm.Choice, aPlan *plan.Plan) 
 			prev.Reason = choice.Message.Content
 			continue
 		}
+
+		// for gemini compatibility
+		if tc.ID == "" {
+			tc.ID = "call_" + uuid.New().String()
+		}
+
 		steps = append(steps, plan.Step{
 			ID:     tc.ID,
 			Type:   "tool",
