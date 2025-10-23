@@ -144,11 +144,9 @@ function ExecutionTurnDetails({ msg, context }) {
             const localToggle = (localStorage.getItem('agently_finish_ring') || '').toLowerCase();
             const localEnabled = localToggle === '1' || localToggle === 'true' || localToggle === 'yes';
             ringEnabled = ring || localEnabled;
-            try { console.log('[ring] resolve', { topLevel, fromAgent, localEnabled, ringEnabled, agentKey }); } catch(_) {}
         } catch(_) {}
 
         const stagePayload = { turnId: (msg.turnId || msg.TurnId || msg.id || msg.Id), ringEnabled };
-        try { console.log('[ring] stage update', { turnStatus, ...stagePayload }); } catch(_) {}
         if (isRunning) {
             setStage({phase: 'executing', ...stagePayload});
         } else if (isErrored) {

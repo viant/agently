@@ -331,6 +331,11 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				b := val == "true" || val == "yes" || val == "on" || val == "1"
 				agent.ShowToolFeed = &b
 			}
+		case "ringonfinish", "finishring", "notifyonfinish":
+			if valueNode.Kind == yaml.ScalarNode {
+				val := strings.ToLower(strings.TrimSpace(valueNode.Value))
+				agent.RingOnFinish = val == "true" || val == "yes" || val == "on" || val == "1"
+			}
 		case "knowledge":
 			if err := s.parseKnowledgeBlock(valueNode, agent); err != nil {
 				return err
