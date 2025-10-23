@@ -30,6 +30,8 @@ type AgentInfo struct {
 	AutoSummarize        bool     `json:"autoSummarize,omitempty"`
 	ChainsEnabled        bool     `json:"chainsEnabled,omitempty"`
 	AllowedChains        []string `json:"allowedChains,omitempty"`
+	// Client UX: ring sound when a turn finishes
+	RingOnFinish bool `json:"ringOnFinish,omitempty"`
 	// Profile metadata for UI/selection context
 	Responsibilities []string `json:"responsibilities,omitempty"`
 	InScope          []string `json:"inScope,omitempty"`
@@ -241,6 +243,7 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				AutoSummarize:        autoSum,
 				ChainsEnabled:        chainsEnabled,
 				AllowedChains:        append([]string(nil), chainTargets...),
+				RingOnFinish:         a.RingOnFinish,
 			}
 			if a.Profile != nil {
 				if len(a.Profile.Responsibilities) > 0 {

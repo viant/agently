@@ -135,15 +135,20 @@ function ExecutionTurnDetails({ msg, context }) {
             const convForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
             const agentKey = String(convForm?.agent || metaForm?.agent || '');
             const agentInfo = (metaForm?.agentInfo && agentKey) ? (metaForm.agentInfo[agentKey] || {}) : {};
-            const coderEnabled = !!(agentInfo.coderEnabled || agentInfo.coder);
-            const ring = !!(agentInfo.ringOnFinish || agentInfo.finishRing || agentInfo.notifyOnFinish);
+            // Accept both top-level settings form value (from Settings toggle)
+            // and agentInfo entry delivered by metadata aggregator.
+            const topLevel = !!(metaForm.ringOnFinish || metaForm.finishRing || metaForm.notifyOnFinish);
+            const fromAgent = !!(agentInfo.ringOnFinish || agentInfo.finishRing || agentInfo.notifyOnFinish);
+            const ring = topLevel || fromAgent;
             // Allow user override via localStorage
             const localToggle = (localStorage.getItem('agently_finish_ring') || '').toLowerCase();
             const localEnabled = localToggle === '1' || localToggle === 'true' || localToggle === 'yes';
-            ringEnabled = (coderEnabled && ring) || localEnabled;
+            ringEnabled = ring || localEnabled;
+            try { console.log('[ring] resolve', { topLevel, fromAgent, localEnabled, ringEnabled, agentKey }); } catch(_) {}
         } catch(_) {}
 
         const stagePayload = { turnId: (msg.turnId || msg.TurnId || msg.id || msg.Id), ringEnabled };
+        try { console.log('[ring] stage update', { turnStatus, ...stagePayload }); } catch(_) {}
         if (isRunning) {
             setStage({phase: 'executing', ...stagePayload});
         } else if (isErrored) {

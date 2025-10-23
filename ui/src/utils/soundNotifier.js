@@ -24,7 +24,7 @@ export function notifyFinishOnce(turnId, opts = {}) {
   if (!enabled) return false;
   const id = String(turnId || '');
   if (!id) return false;
-  if (notified.has(id)) return false;
+  if (notified.has(id)) { return false; }
   notified.add(id);
   playTone({ freq, volume });
   return true;
@@ -33,4 +33,3 @@ export function notifyFinishOnce(turnId, opts = {}) {
 export function resetNotified() {
   notified.clear();
 }
-

@@ -57,7 +57,6 @@ function renderHtmlWithCodeBlocks(html = '') {
 }
 
 export default function HTMLTableBubble({message, context}) {
-    log.debug('[chat][render] HTMLTableBubble', { id: message?.id, role: message?.role, ts: Date.now() });
     const role = String(message?.role || '').toLowerCase();
     const avatarColour = role === 'user' ? 'var(--blue4)'
         : role === 'assistant' ? 'var(--light-gray4)'

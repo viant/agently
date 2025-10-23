@@ -16,6 +16,9 @@ var Version = "dev"
 
 func main() {
 
+	//os.Setenv("AGENTLY_ROOT", "/Users/awitas/go/src/github.com/viant/agently/ag")
+	//os.Args = []string{"", "serve", "-a=:8088"}
+
 	// Expose version to the CLI layer so `-v/--version` can print it.
 	agently.SetVersion(Version)
 	agently.RunWithCommands(os.Args[1:])

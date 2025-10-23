@@ -33,9 +33,10 @@ export default function StatusBar() {
     React.useEffect(() => {
         if (!stage) return;
         const p = String(stage?.phase || '').toLowerCase();
+        const id = stage?.turnId || '';
+        const enabled = !!stage?.ringEnabled;
+        try { console.log('[ring] statusbar check', { phase: p, enabled, turnId: id }); } catch(_) {}
         if (p === 'done' || p === 'error') {
-            const enabled = !!stage.ringEnabled;
-            const id = stage.turnId || '';
             notifyFinishOnce(id, { enabled });
         }
     }, [stage?.phase, stage?.turnId, stage?.ringEnabled]);
