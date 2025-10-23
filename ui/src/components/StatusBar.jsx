@@ -1,6 +1,7 @@
 // src/components/StatusBar.jsx
 import React from 'react';
 import {useStage} from '../utils/stageBus';
+import { notifyFinishOnce } from '../utils/soundNotifier.js';
 
 // Subtle pulsing glow to accentuate terminated/aborted state
 const pulseStyles = `
@@ -26,6 +27,18 @@ const phaseMap = {
 
 export default function StatusBar() {
     const stage = useStage();
+
+    // Play a single short ring when a turn finishes (done or error),
+    // gated by stage.ringEnabled and de-duplicated per turnId.
+    React.useEffect(() => {
+        if (!stage) return;
+        const p = String(stage?.phase || '').toLowerCase();
+        if (p === 'done' || p === 'error') {
+            const enabled = !!stage.ringEnabled;
+            const id = stage.turnId || '';
+            notifyFinishOnce(id, { enabled });
+        }
+    }, [stage?.phase, stage?.turnId, stage?.ringEnabled]);
 
     if (!stage) {
         return null; // nothing to show to keep UI clean
