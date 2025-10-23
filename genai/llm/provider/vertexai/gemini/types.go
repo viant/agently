@@ -2,14 +2,14 @@ package gemini
 
 // Request represents the request structure for Gemini API
 type Request struct {
+	GenerationConfig  *GenerationConfig  `json:"generationConfig,omitempty"`
+	ToolConfig        *ToolConfig        `json:"toolConfig,omitempty"`
+	Tools             []Tool             `json:"tools,omitempty"`
+	SystemInstruction *SystemInstruction `json:"system_instruction,omitempty"`
 	Contents          []Content          `json:"contents"`
 	Stream            bool               `json:"stream,omitempty"`
 	CachedContent     string             `json:"cachedContent,omitempty"`
-	SystemInstruction *SystemInstruction `json:"system_instruction,omitempty"`
-	GenerationConfig  *GenerationConfig  `json:"generationConfig,omitempty"`
 	SafetySettings    []SafetySetting    `json:"safetySettings,omitempty"`
-	Tools             []Tool             `json:"tools,omitempty"`
-	ToolConfig        *ToolConfig        `json:"toolConfig,omitempty"`
 	Labels            map[string]string  `json:"labels,omitempty"`
 }
 
