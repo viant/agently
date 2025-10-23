@@ -128,12 +128,28 @@ function ExecutionTurnDetails({ msg, context }) {
         const isDoneOk = (turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted');
         const isErrored = (turnStatus === 'failed' || turnStatus === 'error');
         try { console.debug('[chat][turn]', {turnStatus, isRunning, isDoneOk, isErrored}); } catch(_) {}
+        // Determine whether finish ring is enabled for the current agent
+        let ringEnabled = false;
+        try {
+            const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+            const convForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+            const agentKey = String(convForm?.agent || metaForm?.agent || '');
+            const agentInfo = (metaForm?.agentInfo && agentKey) ? (metaForm.agentInfo[agentKey] || {}) : {};
+            const coderEnabled = !!(agentInfo.coderEnabled || agentInfo.coder);
+            const ring = !!(agentInfo.ringOnFinish || agentInfo.finishRing || agentInfo.notifyOnFinish);
+            // Allow user override via localStorage
+            const localToggle = (localStorage.getItem('agently_finish_ring') || '').toLowerCase();
+            const localEnabled = localToggle === '1' || localToggle === 'true' || localToggle === 'yes';
+            ringEnabled = (coderEnabled && ring) || localEnabled;
+        } catch(_) {}
+
+        const stagePayload = { turnId: (msg.turnId || msg.TurnId || msg.id || msg.Id), ringEnabled };
         if (isRunning) {
-            setStage({phase: 'executing'});
+            setStage({phase: 'executing', ...stagePayload});
         } else if (isErrored) {
-            setStage({phase: 'error'});
+            setStage({phase: 'error', ...stagePayload});
         } else {
-            setStage({phase: 'done'});
+            setStage({phase: 'done', ...stagePayload});
         }
         // Nudge messages DS loading flag so Forge Chat shows Abort button while running
         try {
