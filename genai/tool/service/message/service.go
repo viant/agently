@@ -42,7 +42,7 @@ func (s *Service) Methods() svc.Signatures {
 	// for the Token‑Limit Presentation message. Normal cleanup should be
 	// LLM-driven via listCandidates + remove (and optionally summarize).
 	return []svc.Signature{
-		{Name: "show", Description: "Show a message body with optional transform, range and sed.", Input: reflect.TypeOf(&ShowInput{}), Output: reflect.TypeOf(&ShowOutput{})},
+		{Name: "show", Description: "Show a message body with optional transform, range and sed. Make sure that either range, transform or set is set - otherwise you would only see preview", Input: reflect.TypeOf(&ShowInput{}), Output: reflect.TypeOf(&ShowOutput{})},
 		{Name: "summarize", Description: "Produce concise, chunked summaries of a large message body plus a combined summary.", Input: reflect.TypeOf(&SummarizeInput{}), Output: reflect.TypeOf(&SummarizeOutput{})},
 		{Name: "match", Description: "Retrieve top-K semantically relevant fragments from a large message body using the configured embedding model and cover-tree search.", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
 		{Name: "listCandidates", Description: "List removable messages with byte/token size and concise preview.", Input: reflect.TypeOf(&ListCandidatesInput{}), Output: reflect.TypeOf(&ListCandidatesOutput{})},

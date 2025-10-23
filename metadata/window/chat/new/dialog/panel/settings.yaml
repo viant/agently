@@ -84,6 +84,16 @@ items:
         marginTop: '6px'
         marginBottom: '0'
 
+  # Row 2b — Finish ring
+  - id: ringOnFinish
+    label: Finish Ring
+    type: toggle
+    columnSpan: 1
+    properties:
+      style:
+        marginTop: '6px'
+        marginBottom: '0'
+
   # Row 3 — Chains controls
   - id: chainsEnabled
     label: Chains Enabled

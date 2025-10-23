@@ -44,6 +44,10 @@ type (
 		ShowExecutionDetails *bool `yaml:"showExecutionDetails,omitempty" json:"showExecutionDetails,omitempty"`
 		ShowToolFeed         *bool `yaml:"showToolFeed,omitempty" json:"showToolFeed,omitempty"`
 
+		// RingOnFinish enables a short client-side notification sound when a turn
+		// completes (done or error). Consumed by the UI via metadata.AgentInfo.
+		RingOnFinish bool `yaml:"ringOnFinish,omitempty" json:"ringOnFinish,omitempty"`
+
 		SystemPrompt    *prompt.Prompt `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
 		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
 		Tool            []*llm.Tool    `yaml:"tool,omitempty" json:"tool,omitempty"`
@@ -123,6 +127,12 @@ type (
 		MaxDepth int `yaml:"maxDepth,omitempty" json:"maxDepth,omitempty"`
 	}
 )
+
+type Tool struct {
+	Items              []*llm.Tool      `yaml:"items,omitempty" json:"items,omitempty"`
+	ResultPreviewLimit *int             `yaml:"resultPreviewLimit,omitempty" json:"resultPreviewLimit,omitempty"`
+	CallExposure       ToolCallExposure `yaml:"toolCallExposure,omitempty" json:"toolCallExposure,omitempty"`
+}
 
 // Directory (legacy) removed – use Profile.
 

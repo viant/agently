@@ -115,7 +115,6 @@ export async function onInit({context}) {
                         const params = {...(cur.parameters || {}), convID, since: ''};
                         const next = {...cur, parameters: params, fetch: true};
                         if (typeof inSig.set === 'function') inSig.set(next); else inSig.value = next;
-                        log.debug('[chat][signals] set messages.input (initial fetch)', next);
                     }
                 } catch (_) {
                 }
@@ -1081,7 +1080,6 @@ export async function onSettings(args) {
     const win = context?.handlers?.window;
     const settingsCtx = context.Context('settings')
     const f = settingsCtx.handlers.dataSource.peekFormData()
-    console.log('setings f', f)
     await win.openDialog({execution: {args: ['settings']}});
     return;
 }
@@ -2098,7 +2096,6 @@ function onFetchMeta(args) {
         const settings = {...data.agentInfo[curAgent], tool: ''}
         settings.tool = settings.tools
         delete (settings['tools'])
-        console.log('settings---', settings)
 
         return {
             ...data,
