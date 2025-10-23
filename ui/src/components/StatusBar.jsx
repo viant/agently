@@ -35,7 +35,6 @@ export default function StatusBar() {
         const p = String(stage?.phase || '').toLowerCase();
         const id = stage?.turnId || '';
         const enabled = !!stage?.ringEnabled;
-        try { console.log('[ring] statusbar check', { phase: p, enabled, turnId: id }); } catch(_) {}
         if (p === 'done' || p === 'error') {
             notifyFinishOnce(id, { enabled });
         }
