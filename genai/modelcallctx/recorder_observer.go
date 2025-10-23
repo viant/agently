@@ -37,7 +37,11 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 
 	// Create interim assistant message to capture request payload in transcript
 	if turn.ConversationID != "" {
-		if err := o.patchInterimRequestMessage(ctx, turn, msgID, info.Payload, info.LLMRequest.Options.Mode); err != nil {
+		mode := ""
+		if info.LLMRequest != nil && info.LLMRequest.Options != nil {
+			mode = info.LLMRequest.Options.Mode
+		}
+		if err := o.patchInterimRequestMessage(ctx, turn, msgID, info.Payload, mode); err != nil {
 			return ctx, err
 		}
 	}
