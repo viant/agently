@@ -1,6 +1,8 @@
 package auth
 
-import "time"
+import (
+	"time"
+)
 
 // OAuthToken is a minimal serialized token shape stored encrypted in DB.
 type OAuthToken struct {

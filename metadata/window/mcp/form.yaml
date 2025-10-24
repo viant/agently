@@ -40,8 +40,8 @@
           label: stdio
         - value: sse
           label: sse
-        - value: streaming
-          label: streaming
+        - value: streamable
+          label: streamableHTTP (streaming)
     - id: transport.command
       label: Command
       type: text

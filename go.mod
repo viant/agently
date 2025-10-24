@@ -15,9 +15,9 @@ require (
 	github.com/viant/embedius v0.2.9-0.20251021151105-e529cdf683b2
 	github.com/viant/fluxor v0.4.3
 	github.com/viant/forge v0.2.16
-	github.com/viant/jsonrpc v0.11.0
+	github.com/viant/jsonrpc v0.14.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.7.4
+	github.com/viant/mcp v0.7.5
 	github.com/viant/mcp-protocol v0.5.10
 	github.com/viant/scy v0.25.3
 	github.com/viant/structology v0.7.1 // indirect
@@ -47,6 +47,7 @@ require (
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
 	golang.org/x/crypto v0.41.0
 	golang.org/x/oauth2 v0.30.0
+	golang.org/x/sync v0.16.0
 	modernc.org/sqlite v1.18.1
 )
 
@@ -179,7 +180,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
 	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/time v0.7.0 // indirect

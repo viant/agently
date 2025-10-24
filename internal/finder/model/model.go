@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -68,6 +69,26 @@ func (d *Finder) Find(ctx context.Context, id string) (llm.Model, error) {
 	}
 	d.models[id] = model
 	return model, nil
+}
+
+// TokenPrices returns per-1k token prices for the specified model ID when
+// available in the model configuration. Returns ok=false when no config exists
+// or prices are not set.
+func (d *Finder) TokenPrices(id string) (in float64, out float64, cached float64, ok bool) {
+	if strings.TrimSpace(id) == "" {
+		return 0, 0, 0, false
+	}
+	cfg, err := d.configRegistry.Lookup(context.Background(), id)
+	if err != nil || cfg == nil {
+		return 0, 0, 0, false
+	}
+	in = cfg.Options.InputTokenPrice
+	out = cfg.Options.OutputTokenPrice
+	cached = cfg.Options.CachedTokenPrice
+	if in == 0 && out == 0 && cached == 0 {
+		return 0, 0, 0, false
+	}
+	return in, out, cached, true
 }
 
 // Candidates returns lightweight view used by matcher.

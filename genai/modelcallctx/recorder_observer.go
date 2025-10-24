@@ -15,12 +15,14 @@ import (
 
 // recorderObserver writes model-call data directly using conversation client.
 type recorderObserver struct {
-	client          apiconv.Client
-	start           Info
-	hasBeg          bool
-	acc             strings.Builder
-	streamPayloadID string
-	streamLinked    bool
+    client          apiconv.Client
+    start           Info
+    hasBeg          bool
+    acc             strings.Builder
+    streamPayloadID string
+    streamLinked    bool
+    // Optional: resolve token prices for a model (per 1k tokens).
+    priceResolver   func(model string) (in float64, out float64, cached float64, ok bool)
 }
 
 func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.Context, error) {
@@ -158,15 +160,29 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 
 // WithRecorderObserver injects a recorder-backed Observer into context.
 func WithRecorderObserver(ctx context.Context, client apiconv.Client) context.Context {
-	_, ok := memory.TurnMetaFromContext(ctx) //ensure turn is in context
-	if !ok {
-		ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{
-			TurnID:          uuid.New().String(),
-			ConversationID:  memory.ConversationIDFromContext(ctx),
-			ParentMessageID: memory.ModelMessageIDFromContext(ctx),
-		})
-	}
-	return WithObserver(ctx, &recorderObserver{client: client})
+    _, ok := memory.TurnMetaFromContext(ctx) //ensure turn is in context
+    if !ok {
+        ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{
+            TurnID:          uuid.New().String(),
+            ConversationID:  memory.ConversationIDFromContext(ctx),
+            ParentMessageID: memory.ModelMessageIDFromContext(ctx),
+        })
+    }
+    return WithObserver(ctx, &recorderObserver{client: client})
+}
+
+// WithRecorderObserverWithPrice injects a recorder-backed Observer with an optional
+// price resolver used to compute per-call cost from token usage.
+func WithRecorderObserverWithPrice(ctx context.Context, client apiconv.Client, resolver func(string) (float64, float64, float64, bool)) context.Context {
+    _, ok := memory.TurnMetaFromContext(ctx)
+    if !ok {
+        ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{
+            TurnID:          uuid.New().String(),
+            ConversationID:  memory.ConversationIDFromContext(ctx),
+            ParentMessageID: memory.ModelMessageIDFromContext(ctx),
+        })
+    }
+    return WithObserver(ctx, &recorderObserver{client: client, priceResolver: resolver})
 }
 
 // patchInterimRequestMessage creates an interim assistant message capturing the request payload.
@@ -235,9 +251,9 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 
 // finishModelCall persists final model call updates, including response payloads and usage.
 func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status string, info Info, streamTxt string) error {
-	upd := apiconv.NewModelCall()
-	upd.SetMessageID(msgID)
-	upd.SetStatus(status)
+    upd := apiconv.NewModelCall()
+    upd.SetMessageID(msgID)
+    upd.SetStatus(status)
 	if strings.TrimSpace(info.Err) != "" {
 		upd.SetErrorMessage(info.Err)
 	}
@@ -276,19 +292,33 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		upd.SetStreamPayloadID(sid)
 	}
 	// usage mapping
-	if info.Usage != nil {
-		u := info.Usage
-		if u.PromptTokens > 0 {
-			upd.SetPromptTokens(u.PromptTokens)
-		}
-		if u.CompletionTokens > 0 {
-			upd.SetCompletionTokens(u.CompletionTokens)
-		}
-		if u.TotalTokens > 0 {
-			upd.SetTotalTokens(u.TotalTokens)
-		}
-	}
-	return o.client.PatchModelCall(ctx, upd)
+    if info.Usage != nil {
+        u := info.Usage
+        if u.PromptTokens > 0 {
+            upd.SetPromptTokens(u.PromptTokens)
+        }
+        if u.CompletionTokens > 0 {
+            upd.SetCompletionTokens(u.CompletionTokens)
+        }
+        if u.TotalTokens > 0 {
+            upd.SetTotalTokens(u.TotalTokens)
+        }
+        // Compute call cost when a price resolver is available and prices are defined
+        if o.priceResolver != nil {
+            if inP, outP, cachedP, ok := o.priceResolver(strings.TrimSpace(info.Model)); ok {
+                // Prefer provider-supplied cached tokens; tolerate zero
+                cached := u.CachedTokens
+                if cached == 0 && u.PromptCachedTokens > 0 {
+                    cached = u.PromptCachedTokens
+                }
+                cost := (float64(u.PromptTokens)*inP + float64(u.CompletionTokens)*outP + float64(cached)*cachedP) / 1000.0
+                if cost > 0 {
+                    upd.SetCost(cost)
+                }
+            }
+        }
+    }
+    return o.client.PatchModelCall(ctx, upd)
 }
 
 // upsertInlinePayload creates or updates an inline payload and returns its id.
