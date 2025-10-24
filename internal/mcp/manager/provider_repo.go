@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/viant/afs"
 	authctx "github.com/viant/agently/internal/auth"
@@ -27,6 +28,14 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 	cfg, err := p.repo.Load(ctx, name)
 	if err != nil || cfg == nil || cfg.ClientOptions == nil {
 		return cfg, err
+	}
+	// Normalize transport type aliases for backwards/forwards compatibility.
+	if cfg.ClientOptions != nil && cfg.ClientOptions.Transport.Type != "" {
+		t := strings.ToLower(strings.TrimSpace(cfg.ClientOptions.Transport.Type))
+		switch t {
+		case "streamable", "streamablehttp":
+			cfg.ClientOptions.Transport.Type = "streaming"
+		}
 	}
 	// Derive per-user state dir for tokens/cookies
 	userID := authctx.EffectiveUserID(ctx)

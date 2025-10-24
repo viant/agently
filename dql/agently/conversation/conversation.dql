@@ -42,6 +42,17 @@ FROM (
     '' AS stage FROM conversation t
      ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
 ) conversation
+JOIN (
+
+SELECT
+    m.conversation_id,
+    SUM(t.cost) AS cost,
+    SUM(t.prompt_tokens) AS prompt_tokens,
+    SUM(t.prompt_cached_tokens) AS prompt_cached_tokens,
+    SUM(t.completion_tokens) AS completion_tokens
+ FROM model_call t
+ JOIN message m on t.id = m.model_call_id
+) usage ON usage.conversation_id =  conversation.id
     JOIN  (
  SELECT
       t.*,

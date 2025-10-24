@@ -108,9 +108,14 @@ func (m *ModelCall) SetCompletionTokens(v int) {
 	m.Has.CompletionTokens = true
 }
 func (m *ModelCall) SetTotalTokens(v int) {
-	m.TotalTokens = &v
-	m.ensureHas()
-	m.Has.TotalTokens = true
+    m.TotalTokens = &v
+    m.ensureHas()
+    m.Has.TotalTokens = true
+}
+func (m *ModelCall) SetCost(v float64) {
+    m.Cost = &v
+    m.ensureHas()
+    m.Has.Cost = true
 }
 func (m *ModelCall) SetRequestPayloadID(v string) {
 	m.RequestPayloadID = &v
