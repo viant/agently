@@ -17,6 +17,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/service/core"
+	"github.com/viant/agently/genai/service/shared"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
@@ -479,8 +480,22 @@ func (s *Service) cloneContextMessages(ctx context.Context, transcript apiconv.T
 		mutable.SetTurnID(transcriptTurn.TurnID)
 		mutable.SetConversationID(transcriptTurn.ConversationID)
 		mutable.SetParentMessageID(transcriptTurn.ParentMessageID)
+		// Normalize status to satisfy DB constraints for messages
+		if strings.TrimSpace(mutable.Status) != "" {
+			mutable.SetStatus(shared.NormalizeMessageStatus(mutable.Status))
+		}
 		if err := s.conversation.PatchMessage(ctx, mutable); err != nil {
-			return fmt.Errorf("failed to patch transcript message: %w", err)
+			// Provide context for easier diagnosis (status constraints, etc.)
+			return fmt.Errorf(
+				"failed to patch transcript message (id=%s convo=%s turn=%s role=%s type=%s status=%q): %w",
+				mutable.Id,
+				transcriptTurn.ConversationID,
+				transcriptTurn.TurnID,
+				strings.TrimSpace(mutable.Role),
+				strings.TrimSpace(mutable.Type),
+				strings.TrimSpace(mutable.Status),
+				err,
+			)
 		}
 	}
 	return nil

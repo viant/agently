@@ -32,6 +32,18 @@ function MinimalText({ text = '' }) {
   return <div className="prose max-w-full text-sm" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
+// Renders fenced 'markdown' code as preformatted HTML with clickable markdown links only.
+// It preserves monospaced layout while converting [label](url) to <a> anchors.
+function MarkdownLinksPre({ body = '' }) {
+  const escaped = String(body || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const withLinks = escaped.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  // eslint-disable-next-line react/no-danger
+  return <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}><code dangerouslySetInnerHTML={{ __html: withLinks }} /></pre>;
+}
+
 function languageHint(lang = '') {
   const v = String(lang || '').trim().toLowerCase();
   if (!v) return 'plaintext';
@@ -381,9 +393,12 @@ export default function CodeFenceRenderer({ text = '' }) {
         </div>
       );
     } else {
+      const isMarkdownCode = (lang === 'markdown' || lang === 'md');
       out.push(
-        <div key={`e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
-          <CodeBlock value={body} language={lang} height={'auto'} />
+        <div key={`e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
+          {isMarkdownCode
+            ? <MarkdownLinksPre body={body} />
+            : <CodeBlock value={body} language={lang} height={'auto'} />}
         </div>
       );
     }
@@ -440,9 +455,12 @@ export default function CodeFenceRenderer({ text = '' }) {
               </div>
             );
           } else {
+            const isMarkdownCode = (lang === 'markdown' || lang === 'md');
             out.push(
-              <div key={`ms-e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
-                <CodeBlock value={body} language={lang} height={'auto'} />
+              <div key={`ms-e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
+                {isMarkdownCode
+                  ? <MarkdownLinksPre body={body} />
+                  : <CodeBlock value={body} language={lang} height={'auto'} />}
               </div>
             );
           }
@@ -463,10 +481,13 @@ export default function CodeFenceRenderer({ text = '' }) {
           </div>
         );
       }
+      const isMarkdownCode = (lang === 'markdown' || lang === 'md');
       return (
         <div style={{ width: '60vw', overflowX: 'auto' }}>
-          <div style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
-            <CodeBlock value={body} language={lang} height={'auto'} />
+          <div style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
+            {isMarkdownCode
+              ? <MarkdownLinksPre body={body} />
+              : <CodeBlock value={body} language={lang} height={'auto'} />}
           </div>
         </div>
       );
@@ -484,9 +505,12 @@ export default function CodeFenceRenderer({ text = '' }) {
         if (before.trim()) {
           parts.push(<MinimalText key={`pre-${idx++}`} text={before} />);
         }
+        const isMarkdownCode = (lang === 'markdown' || lang === 'md');
         parts.push(
-          <div key={`e3-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
-            <CodeBlock value={body} language={lang} height={'auto'} />
+          <div key={`e3-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
+            {isMarkdownCode
+              ? <MarkdownLinksPre body={body} />
+              : <CodeBlock value={body} language={lang} height={'auto'} />}
           </div>
         );
         return <div style={{ width: '60vw', overflowX: 'auto' }}>{parts}</div>;
@@ -512,6 +536,7 @@ export default function CodeFenceRenderer({ text = '' }) {
           </div>
         );
       } else {
+        // Fallback fence has no language; keep plain code block
         out.push(
           <div key={`e2-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0' }}>
             <CodeBlock value={body} language={'plaintext'} height={'auto'} />

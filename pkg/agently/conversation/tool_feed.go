@@ -157,9 +157,12 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 		if m.ToolCall == nil {
 			continue
 		}
-		//reduce output size - we already have tool feed
-		m.ToolCall.ResponsePayload = nil
-		m.ToolCall.RequestPayload = nil
+		// Reduce payload size when successful; keep payloads for failed calls so errors are visible to clients.
+		status := strings.ToLower(strings.TrimSpace(m.ToolCall.Status))
+		if status != "failed" {
+			m.ToolCall.ResponsePayload = nil
+			m.ToolCall.RequestPayload = nil
+		}
 	}
 	return result, nil
 }

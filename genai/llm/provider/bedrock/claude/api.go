@@ -404,9 +404,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 						Model:   c.Model,
 						Usage:   aggregatedUsage,
 					}
-					// Call UsageListener if configured
+					// Call UsageListener if configured; use client model id to avoid nil options deref
 					if c.UsageListener != nil && lr.Usage != nil && lr.Usage.TotalTokens > 0 {
-						c.UsageListener.OnUsage(request.Options.Model, lr.Usage)
+						c.UsageListener.OnUsage(c.Model, lr.Usage)
 					}
 					if observer != nil {
 						respJSON, _ := json.Marshal(lr)
@@ -429,13 +429,17 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		if !ended && observer != nil {
 			var respJSON []byte
 			var finishReason string
+			var usage *llm.Usage
+			var llmr *llm.GenerateResponse
 			if lastLR != nil {
+				llmr = lastLR
+				usage = lastLR.Usage
 				respJSON, _ = json.Marshal(lastLR)
 				if len(lastLR.Choices) > 0 {
 					finishReason = lastLR.Choices[0].FinishReason
 				}
 			}
-			if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason, Usage: lastLR.Usage, LLMResponse: lastLR}); obErr != nil {
+			if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason, Usage: usage, LLMResponse: llmr}); obErr != nil {
 				events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
 				return
 			}

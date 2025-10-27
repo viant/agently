@@ -551,8 +551,11 @@ func ToLLMSResponse(resp *Response) *llm.GenerateResponse {
 		CompletionTokens: resp.Usage.CompletionTokens,
 		TotalTokens:      resp.Usage.TotalTokens,
 	}
-	// Map prompt details
+	// Map prompt details (prefer details; fallback to flattened field)
 	u.PromptCachedTokens = resp.Usage.PromptTokensDetails.CachedTokens
+	if u.PromptCachedTokens == 0 && resp.Usage.PromptCachedTokens > 0 {
+		u.PromptCachedTokens = resp.Usage.PromptCachedTokens
+	}
 	if resp.Usage.PromptTokensDetails.AudioTokens > 0 {
 		u.PromptAudioTokens = resp.Usage.PromptTokensDetails.AudioTokens
 	}
@@ -560,6 +563,16 @@ func ToLLMSResponse(resp *Response) *llm.GenerateResponse {
 	if resp.Usage.CompletionTokensDetails.ReasoningTokens > 0 {
 		u.ReasoningTokens = resp.Usage.CompletionTokensDetails.ReasoningTokens
 		u.CompletionReasoningTokens = resp.Usage.CompletionTokensDetails.ReasoningTokens
+	} else {
+		// Fallback to flattened fields when details are absent
+		if resp.Usage.CompletionReasoningTokens > 0 {
+			u.CompletionReasoningTokens = resp.Usage.CompletionReasoningTokens
+			if u.ReasoningTokens == 0 {
+				u.ReasoningTokens = resp.Usage.CompletionReasoningTokens
+			}
+		} else if resp.Usage.ReasoningTokens > 0 && u.ReasoningTokens == 0 {
+			u.ReasoningTokens = resp.Usage.ReasoningTokens
+		}
 	}
 	if resp.Usage.CompletionTokensDetails.AudioTokens > 0 {
 		u.CompletionAudioTokens = resp.Usage.CompletionTokensDetails.AudioTokens

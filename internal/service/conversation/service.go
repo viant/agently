@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -267,12 +268,39 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 		datly.WithOutput(out),
 	)
 	if err != nil {
-		return err
+		// Augment DB/validation error with key message fields to aid diagnosis
+		return fmt.Errorf(
+			"patch message failed (id=%s convo=%s turn=%v role=%s type=%s status=%q): %w",
+			message.Id,
+			message.ConversationID,
+			valueOrEmpty(message.TurnID),
+			strings.TrimSpace(message.Role),
+			strings.TrimSpace(message.Type),
+			strings.TrimSpace(message.Status),
+			err,
+		)
 	}
 	if len(out.Violations) > 0 {
-		return errors.New(out.Violations[0].Message)
+		return fmt.Errorf(
+			"patch message violation (id=%s convo=%s turn=%v role=%s type=%s status=%q): %s",
+			message.Id,
+			message.ConversationID,
+			valueOrEmpty(message.TurnID),
+			strings.TrimSpace(message.Role),
+			strings.TrimSpace(message.Type),
+			strings.TrimSpace(message.Status),
+			out.Violations[0].Message,
+		)
 	}
 	return nil
+}
+
+// valueOrEmpty renders pointer values without exposing nil dereference in logs.
+func valueOrEmpty[T any](p *T) interface{} {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.MutableModelCall) error {

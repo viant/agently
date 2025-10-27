@@ -498,3 +498,17 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 ## Acknowledgments
 
 This product includes software developed at Viant (http://viantinc.com/).
+### Tool-Call Timeout Default
+
+Set a default per-tool execution timeout in your workspace config:
+
+```yaml
+default:
+  # Seconds to allow each tool call before it is canceled.
+  toolCallTimeoutSec: 180
+  # Optional: seconds to wait for elicitation (assistant/tool) before auto-decline.
+  elicitationTimeoutSec: 120
+```
+
+- The agent layer applies these values per turn.
+- You can still override tool timeouts via env `AGENTLY_TOOLCALL_TIMEOUT` for ad‑hoc runs; the workspace default takes precedence when present.

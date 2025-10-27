@@ -14,6 +14,15 @@ type Defaults struct {
 	// ---- Tool-call result controls (grouped) ---------------------
 	ToolCallResult ToolCallResultDefaults `yaml:"toolCallResult" json:"toolCallResult"`
 
+	// ---- Execution timeouts -------------------------------------
+	// ToolCallTimeoutSec sets the default per-tool execution timeout in seconds.
+	// When zero or missing, runtime falls back to a built-in default.
+	ToolCallTimeoutSec int `yaml:"toolCallTimeoutSec,omitempty" json:"toolCallTimeoutSec,omitempty"`
+	// ElicitationTimeoutSec caps how long the agent waits for an elicitation
+	// (assistant- or tool-originated) before auto-declining. When zero, no
+	// special timeout is applied (waits until the turn/request is canceled).
+	ElicitationTimeoutSec int `yaml:"elicitationTimeoutSec,omitempty" json:"elicitationTimeoutSec,omitempty"`
+
 	// ---- Match defaults (optional) -------------------------------
 	Match MatchDefaults `yaml:"match" json:"match"`
 }

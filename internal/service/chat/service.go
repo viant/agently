@@ -27,6 +27,7 @@ import (
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	agentsrv "github.com/viant/agently/genai/service/agent"
 	corellm "github.com/viant/agently/genai/service/core"
+	"github.com/viant/agently/genai/service/shared"
 	"github.com/viant/agently/genai/tool"
 	approval "github.com/viant/agently/internal/approval"
 	authctx "github.com/viant/agently/internal/auth"
@@ -817,6 +818,7 @@ func (s *Service) SetMessageStatus(ctx context.Context, messageID, status string
 	if s == nil || s.convClient == nil || strings.TrimSpace(messageID) == "" || strings.TrimSpace(status) == "" {
 		return nil
 	}
+	status = shared.NormalizeMessageStatus(status)
 	upd := apiconv.NewMessage()
 	upd.SetId(messageID)
 	upd.SetStatus(status)

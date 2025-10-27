@@ -41,7 +41,7 @@ ui:
           marginTop: 12px
         items:
           - id: revert
-            label: rever
+            label: revert
             icon: undo
             align: right
             on:
