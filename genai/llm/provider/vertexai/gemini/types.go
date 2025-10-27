@@ -61,7 +61,7 @@ type InlineData struct {
 
 // GenerationConfig represents generation configuration for the Gemini API
 type GenerationConfig struct {
-	Temperature      float64         `json:"temperature,omitempty"`
+	Temperature      float64         `json:"temperature"`
 	MaxOutputTokens  int             `json:"maxOutputTokens,omitempty"`
 	TopP             float64         `json:"topP,omitempty"`
 	TopK             int             `json:"topK,omitempty"`
