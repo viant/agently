@@ -120,7 +120,7 @@ Lifecycle & Storage
 Timeouts
 
 - Tool execution enforces a bounded timeout to prevent a single stuck call from blocking the run.
-- Configure via env var `AGENTLY_TOOLCALL_TIMEOUT` (e.g., `45s`, `2m`). Default is `60s`.
+- Configure via env var `AGENTLY_TOOLCALL_TIMEOUT` (e.g., `45s`, `2m`). Default is `3m`.
 - On timeout the tool call is marked `canceled` and the error text is captured as the response payload so the model can reason about it.
 
 Activation & Precedence

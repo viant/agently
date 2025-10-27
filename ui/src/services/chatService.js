@@ -1691,6 +1691,7 @@ export function receiveMessages(messagesContext, data, sinceId = '') {
     // Purge any user reply bubbles that correspond to elicitation userData
     try {
         const hideIds = new Set();
+        const resolvedElicitationBaseIds = new Set();
         for (const r of (data || [])) {
             const exes = Array.isArray(r?.executions) ? r.executions : [];
             for (const ex of exes) {
@@ -1699,17 +1700,38 @@ export function receiveMessages(messagesContext, data, sinceId = '') {
                     if (s && s.reason === 'elicitation' && s.userData && s.replyMessageId) {
                         hideIds.add(s.replyMessageId);
                     }
+                    // Track resolved/accepted elicitation steps so stale dialog rows can be removed
+                    if (s && s.reason === 'elicitation') {
+                        const statusText = String(s.statusText || '').toLowerCase();
+                        const accepted = !!s.successBool || statusText === 'accepted' || statusText === 'done' || statusText === 'succeeded';
+                        if (accepted && typeof s.id === 'string' && s.id.endsWith('/elicitation')) {
+                            resolvedElicitationBaseIds.add(s.id.slice(0, -('/elicitation'.length)));
+                        }
+                    }
                 }
             }
         }
-        if (hideIds.size > 0) {
+        if (hideIds.size > 0 || resolvedElicitationBaseIds.size > 0) {
             const collSig = messagesContext?.signals?.collection;
             if (collSig && Array.isArray(collSig.value)) {
                 const before = collSig.value.length;
-                collSig.value = collSig.value.filter(row => !hideIds.has(row?.id));
+                collSig.value = collSig.value.filter(row => {
+                    const id = row?.id;
+                    if (!id) return true;
+                    if (hideIds.has(id)) return false;
+                    // Drop stale elicitation dialog rows when an accepted step for the same message id was observed
+                    if ((row?.role === 'elicition') && resolvedElicitationBaseIds.has(id)) return false;
+                    return true;
+                });
                 const after = collSig.value.length;
                 try {
-                    log.debug('[chat] receiveMessages: purged elicitation reply bubbles', {removed: before - after});
+                    log.debug('[chat] receiveMessages: purged rows', {
+                        removed: before - after,
+                        removedTypes: {
+                            replies: hideIds.size,
+                            resolvedElicitations: resolvedElicitationBaseIds.size,
+                        }
+                    });
                 } catch (_) {
                 }
             }

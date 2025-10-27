@@ -21,9 +21,16 @@ view:
         selectFirst: true
         layout:
           orientation: horizontal
-          columns: 4
+          columns: 6
           labelPosition: left
         items:
+          - id: agent
+            type: label
+            label: Agent
+
+          - id: model
+            type: label
+            label: Model
           - id: title
             type: label
             label: Title

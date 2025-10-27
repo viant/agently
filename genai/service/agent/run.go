@@ -17,6 +17,7 @@ import (
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/service/core"
+	executil "github.com/viant/agently/genai/service/shared/executil"
 	"github.com/viant/agently/genai/tool"
 	"github.com/viant/agently/genai/usage"
 	authctx "github.com/viant/agently/internal/auth"
@@ -82,6 +83,11 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	// No pre-execution elicitation. Templates can instruct LLM to elicit details
 	// using binding.Elicitation. Orchestrator handles assistant-originated elicitations.
+	// Apply workspace-configured tool timeout to context, if set.
+	if s.defaults != nil && s.defaults.ToolCallTimeoutSec > 0 {
+		d := time.Duration(s.defaults.ToolCallTimeoutSec) * time.Second
+		ctx = executil.WithToolTimeout(ctx, d)
+	}
 	status, err := s.runPlanAndStatus(ctx, input, output)
 
 	if err != nil && !errors.Is(err, context.Canceled) {
@@ -211,8 +217,19 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 
 		// Handle elicitation inside the loop as a single-turn interaction.
 		if aPlan.Elicitation != nil {
-			_, status, _, err := s.elicitation.Elicit(ctx, &turn, "assistant", aPlan.Elicitation)
+			ectx := ctx
+			var cancel func()
+			if s.defaults != nil && s.defaults.ElicitationTimeoutSec > 0 {
+				ectx, cancel = context.WithTimeout(ctx, time.Duration(s.defaults.ElicitationTimeoutSec)*time.Second)
+				defer cancel()
+			}
+			_, status, _, err := s.elicitation.Elicit(ectx, &turn, "assistant", aPlan.Elicitation)
 			if err != nil {
+				// If timed out or canceled, auto-decline to avoid getting stuck
+				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+					_ = s.elicitation.Resolve(context.Background(), turn.ConversationID, aPlan.Elicitation.ElicitationId, "decline", nil, "timeout")
+					return nil
+				}
 				return err
 			}
 			if elact.Normalize(status) != elact.Accept {

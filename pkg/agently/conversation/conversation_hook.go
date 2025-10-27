@@ -94,7 +94,14 @@ func computeStage(c *ConversationView) string {
 				}
 			}
 			if r == "assistant" && m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
-				lastAssistantElic = true
+				// Consider elicitation active only when status is pending/open (or unset)
+				msgStatus := ""
+				if m.Status != nil {
+					msgStatus = strings.ToLower(strings.TrimSpace(*m.Status))
+				}
+				if msgStatus == "" || msgStatus == "pending" || msgStatus == "open" {
+					lastAssistantElic = true
+				}
 			}
 			// Break after inspecting the latest eligible message
 			goto DONE

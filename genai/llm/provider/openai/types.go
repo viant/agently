@@ -103,10 +103,15 @@ type Choice struct {
 
 // Usage represents token usage information in the OpenAI API response
 type Usage struct {
-	PromptTokens        int `json:"prompt_tokens"`
-	CompletionTokens    int `json:"completion_tokens"`
-	TotalTokens         int `json:"total_tokens"`
-	PromptTokensDetails struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	// Some OpenAI responses provide flattened fields in addition to details.
+	// Support both shapes to ensure robust parsing across models/endpoints.
+	PromptCachedTokens        int `json:"prompt_cached_tokens,omitempty"`
+	ReasoningTokens           int `json:"reasoning_tokens,omitempty"`
+	CompletionReasoningTokens int `json:"completion_reasoning_tokens,omitempty"`
+	PromptTokensDetails       struct {
 		CachedTokens int `json:"cached_tokens"`
 		AudioTokens  int `json:"audio_tokens"`
 	} `json:"prompt_tokens_details"`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/cookiejar"
@@ -90,7 +91,21 @@ func (e *Service) init(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		// Emit debug events from tool registry to standard logger for better MCP visibility
+		if dl, ok := interface{}(reg).(interface{ SetDebugLogger(w io.Writer) }); ok {
+			dl.SetDebugLogger(log.Writer())
+		}
 		reg.Initialize(ctx)
+		// Surface any initialization warnings (e.g., unreachable MCP servers)
+		if w, ok := interface{}(reg).(interface {
+			LastWarnings() []string
+			ClearWarnings()
+		}); ok {
+			for _, msg := range w.LastWarnings() {
+				log.Printf("[mcp:init] warning: %s", strings.TrimSpace(msg))
+			}
+			w.ClearWarnings()
+		}
 		// Expose internal agents as virtual tools driven by Profile.Publish
 		if e.config != nil && e.config.Agent != nil && len(e.config.Agent.Items) > 0 {
 			gtool.InjectVirtualAgentTools(reg, e.config.Agent.Items, "")

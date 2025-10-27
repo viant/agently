@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/google/uuid"
@@ -206,6 +207,9 @@ func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, actio
 	if err := s.client.PatchMessage(ctx, upd); err != nil {
 		return err
 	}
+	// Log status update for visibility (tool or assistant)
+	role := strings.TrimSpace(msg.Role)
+	log.Printf("[elicitation] status update: conv=%s elic=%s msg=%s role=%s status=%s", convID, elicitationID, msg.Id, role, st)
 	if msg.ParentMessageId != nil {
 		if dep, err := s.client.GetMessage(ctx, *msg.ParentMessageId); err == nil && dep != nil {
 			return s.client.DeleteMessage(ctx, dep.ConversationId, dep.Id)
@@ -243,6 +247,7 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 			return err
 		}
 	}
+	log.Printf("[elicitation] payload stored: conv=%s elic=%s msg=%s bytes=%d", convID, elicitationID, msg.Id, len(raw))
 	return s.client.PatchMessage(ctx, upd)
 }
 
@@ -280,6 +285,9 @@ func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action str
 		return fmt.Errorf("conversation and elicitation id required")
 	}
 	act := elact.Normalize(action)
+	// Log acceptance/decline with minimal context
+	hasPayload := payload != nil && len(payload) > 0
+	log.Printf("[elicitation] resolve: conv=%s elic=%s action=%s payload=%v", convID, elicitationID, act, hasPayload)
 	if err := s.UpdateStatus(ctx, convID, elicitationID, act); err != nil {
 		return err
 	}

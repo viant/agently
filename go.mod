@@ -18,7 +18,7 @@ require (
 	github.com/viant/jsonrpc v0.15.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.7.5
-	github.com/viant/mcp-protocol v0.5.10
+	github.com/viant/mcp-protocol v0.6.0
 	github.com/viant/scy v0.25.3
 	github.com/viant/structology v0.7.1 // indirect
 	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85

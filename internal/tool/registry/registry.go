@@ -184,9 +184,6 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 	// Aggregate discovered server tools across all configured MCP clients.
 	servers, err := r.listServers(context.Background())
 	if err != nil {
-		if r.debugWriter != nil {
-			fmt.Fprintf(r.debugWriter, "[tool] list servers error: %v\n", err)
-		}
 		r.warnf("tools: list servers failed: %v", err)
 		return defs
 	}
@@ -194,9 +191,6 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 	for _, s := range servers {
 		tools, err := r.listServerTools(context.Background(), s)
 		if err != nil {
-			if r.debugWriter != nil {
-				fmt.Fprintf(r.debugWriter, "[tool] list tools %s error: %v\n", s, err)
-			}
 			r.warnf("tools: list %s failed: %v", s, err)
 			continue
 		}
@@ -222,7 +216,7 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 	var result []*llm.ToolDefinition
 
-	logf(r.debugWriter, "[tool:match] pattern=%q", pattern)
+	// removed noisy debug logging
 	// Strip suffix selector (e.g., "|root=...;") when present
 	if i := strings.Index(pattern, "|"); i != -1 {
 		pattern = strings.TrimSpace(pattern[:i])
@@ -232,17 +226,14 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 		if tmatch.Match(pattern, id) {
 			copyDef := def
 			result = append(result, &copyDef)
-			logf(r.debugWriter, "[tool:match] + virtual %s", id)
 		}
 	}
 	// Discover matching server tools when pattern specifies an MCP service prefix.
 	if svc := serverFromPattern(pattern); svc != "" {
-		logf(r.debugWriter, "[tool:match] service=%q from pattern", svc)
 		tools, err := r.listServerTools(context.Background(), svc)
 		if err != nil {
-			r.warnf("[tool:match] %s list tools failed: %v", svc, err)
+			r.warnf("list tools failed for %s: %v", svc, err)
 		}
-		logf(r.debugWriter, "[tool:match] %s tools fetched: %d", svc, len(tools))
 		for _, t := range tools {
 			full := svc + "/" + t.Name
 			if tmatch.Match(pattern, full) {
@@ -252,16 +243,13 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 				if _, ok := r.cache[def.Name]; !ok {
 					r.cache[def.Name] = &toolCacheEntry{def: *def, mcpDef: t}
 				}
-				logf(r.debugWriter, "[tool:match] + %s", def.Name)
 			}
 		}
 	}
-	logf(r.debugWriter, "[tool:match] pattern=%q matched=%d", pattern, len(result))
 	return result
 }
 
 func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
-	logf(r.debugWriter, "[tool:getdef] name=%q", name)
 	if def, ok := r.virtualDefs[name]; ok {
 		return &def, true
 	}
@@ -272,13 +260,11 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 	}
 	svc := serverFromName(name)
 	if svc == "" {
-		logf(r.debugWriter, "[tool:getdef] no service derived for %q", name)
 		return nil, false
 	}
-	logf(r.debugWriter, "[tool:getdef] service=%q", svc)
 	tools, err := r.listServerTools(context.Background(), svc)
 	if err != nil {
-		r.warnf("[tool:getdef] %s list tools failed: %v", svc, err)
+		r.warnf("list tools failed for %s: %v", svc, err)
 		return nil, false
 	}
 	for _, t := range tools {
@@ -336,9 +322,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		}
 		return r.applySelector(out, selector)
 	}
-	if r.debugWriter != nil {
-		fmt.Fprintf(r.debugWriter, "[tool] call %s args=%v (mcp)\n", baseName, args)
-	}
+	// no debug logging
 
 	convID := memory.ConversationIDFromContext(ctx)
 	serviceName, _ := splitToolName(baseName)
@@ -376,9 +360,6 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
 	res, err := px.CallTool(ctx, baseName, args, options...)
 	if err != nil {
-		if r.debugWriter != nil {
-			fmt.Fprintf(r.debugWriter, "[tool] error %s: %v\n", baseName, err)
-		}
 		return "", err
 	}
 	if res.IsError != nil && *res.IsError {
@@ -428,7 +409,7 @@ func (r *Registry) applySelector(out, selector string) (string, error) {
 	data := []byte(out)
 	filtered, err := spec.Apply(data)
 	if err != nil {
-		r.warnf("[tool:filter] apply failed: %v", err)
+		r.warnf("selector apply failed: %v", err)
 		return out, nil // fallback to original
 	}
 	return string(filtered), nil
@@ -460,13 +441,13 @@ func (r *Registry) Initialize(ctx context.Context) {
 	}
 	servers, err := r.listServers(ctx)
 	if err != nil {
-		r.warnf("[tool:init] list servers failed: %v", err)
+		r.warnf("list servers failed: %v", err)
 		return
 	}
 	for _, s := range servers {
 		tools, err := r.listServerTools(ctx, s)
 		if err != nil {
-			r.warnf("[tool:init] %s list tools failed: %v", s, err)
+			r.warnf("list tools failed for %s: %v", s, err)
 			continue
 		}
 		for _, t := range tools {
@@ -479,19 +460,10 @@ func (r *Registry) Initialize(ctx context.Context) {
 				r.cache[full] = &toolCacheEntry{def: *def, mcpDef: t}
 			}
 		}
-		logf(r.debugWriter, "[tool:init] %s tools cached: %d", s, len(tools))
 	}
-}
-
-func logf(w io.Writer, format string, args ...interface{}) {
-	if w == nil {
-		return
-	}
-	fmt.Fprintf(w, format+"\n", args...)
 }
 
 func (r *Registry) warnf(format string, args ...interface{}) {
-	logf(r.debugWriter, format, args...)
 	r.warnings = append(r.warnings, fmt.Sprintf(format, args...))
 }
 
@@ -624,7 +596,7 @@ func (r *Registry) addInternalMcp() {
 		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
 			r.internal[svc.Name()] = cli
 		} else if err != nil {
-			r.warnf("[tool:init] internal mcp for %s failed: %v", svc.Name(), err)
+			r.warnf("internal mcp for %s failed: %v", svc.Name(), err)
 		}
 	}
 	// system/patch
@@ -633,7 +605,7 @@ func (r *Registry) addInternalMcp() {
 		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
 			r.internal[svc.Name()] = cli
 		} else if err != nil {
-			r.warnf("[tool:init] internal mcp for %s failed: %v", svc.Name(), err)
+			r.warnf("internal mcp for %s failed: %v", svc.Name(), err)
 		}
 	}
 	// system/os
@@ -642,7 +614,7 @@ func (r *Registry) addInternalMcp() {
 		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
 			r.internal[svc.Name()] = cli
 		} else if err != nil {
-			r.warnf("[tool:init] internal mcp for %s failed: %v", svc.Name(), err)
+			r.warnf("internal mcp for %s failed: %v", svc.Name(), err)
 		}
 	}
 	// orchestration/plan
@@ -651,7 +623,7 @@ func (r *Registry) addInternalMcp() {
 		if cli, err := localmcp.NewServiceClient(context.Background(), s); err == nil && cli != nil {
 			r.internal[s.Name()] = cli
 		} else if err != nil {
-			r.warnf("[tool:init] internal mcp for %s failed: %v", s.Name(), err)
+			r.warnf("internal mcp for %s failed: %v", s.Name(), err)
 		}
 	}
 }

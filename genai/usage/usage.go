@@ -33,7 +33,8 @@ func (a *Aggregator) OnUsage(model string, u *llm.Usage) {
 	if embed < 0 {
 		embed = 0
 	}
-	a.Add(model, u.PromptTokens, u.CompletionTokens, embed, 0)
+	// Record cached tokens when provider reports them (e.g., OpenAI prompt_cached_tokens)
+	a.Add(model, u.PromptTokens, u.CompletionTokens, embed, u.PromptCachedTokens)
 }
 
 func (a *Aggregator) ensure(model string) *Stat {

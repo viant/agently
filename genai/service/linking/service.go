@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/service/shared"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
@@ -108,8 +109,20 @@ func (s *Service) cloneMessages(ctx context.Context, transcript apiconv.Transcri
 		mut.SetTurnID(turn.TurnID)
 		mut.SetConversationID(turn.ConversationID)
 		mut.SetParentMessageID(turn.ParentMessageID)
+		if strings.TrimSpace(mut.Status) != "" {
+			mut.SetStatus(shared.NormalizeMessageStatus(mut.Status))
+		}
 		if err := s.conv.PatchMessage(ctx, mut); err != nil {
-			return fmt.Errorf("linking: clone message failed: %w", err)
+			return fmt.Errorf(
+				"linking: clone message failed (id=%s convo=%s turn=%s role=%s type=%s status=%q): %w",
+				mut.Id,
+				turn.ConversationID,
+				turn.TurnID,
+				strings.TrimSpace(mut.Role),
+				strings.TrimSpace(mut.Type),
+				strings.TrimSpace(mut.Status),
+				err,
+			)
 		}
 	}
 	return nil
