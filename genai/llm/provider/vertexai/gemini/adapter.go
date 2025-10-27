@@ -145,7 +145,7 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 			mode = "ANY"
 		}
 
-		if len(funcNames) > 0 || mode != "" {
+		if len(funcNames) > 0 {
 			if req.ToolConfig == nil {
 				req.ToolConfig = &ToolConfig{FunctionCallingConfig: &FunctionCallingConfig{}}
 			} else if req.ToolConfig.FunctionCallingConfig == nil {
@@ -569,14 +569,34 @@ func sanitizeSchema(v interface{}) interface{} {
 	}
 }
 
-// parseJSONOrString attempts to unmarshal a JSON string into an interface{}.
-// If unmarshalling fails, the original string is returned.
+// parseJSONOrString normalizes tool/function responses to an object as required by Gemini.
+// - If s is a valid JSON object, it is returned as-is (map[string]interface{}).
+// - If s is valid JSON but not an object (array/number/bool/string/null), it is wrapped:
+//   - array -> {"data": <array>}
+//   - scalar -> {"value": <scalar>}
+//
+// - If s is not valid JSON, we wrap it as an error payload: {"error": {"message": s}}
+// This guarantees Gemini receives a protobuf Struct-compatible value (JSON object),
+// avoiding INVALID_ARGUMENT when a plain string was provided.
 func parseJSONOrString(s string) interface{} {
 	var v interface{}
 	if err := json.Unmarshal([]byte(s), &v); err == nil {
-		return v
+		switch tv := v.(type) {
+		case map[string]interface{}:
+			// Already an object – OK
+			return tv
+		case []interface{}:
+			return map[string]interface{}{"data": tv}
+		default:
+			return map[string]interface{}{"value": tv}
+		}
 	}
-	return s
+	// Not JSON – treat as error string to preserve failure context while returning an object
+	return map[string]interface{}{
+		"error": map[string]interface{}{
+			"message": s,
+		},
+	}
 }
 
 // ToLLMSResponse converts a Response to an llm.ChatResponse
