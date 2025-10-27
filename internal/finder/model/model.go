@@ -78,17 +78,32 @@ func (d *Finder) TokenPrices(id string) (in float64, out float64, cached float64
 	if strings.TrimSpace(id) == "" {
 		return 0, 0, 0, false
 	}
-	cfg, err := d.configRegistry.Lookup(context.Background(), id)
-	if err != nil || cfg == nil {
-		return 0, 0, 0, false
+	// 1) Try direct lookup by config id (registry key)
+	if cfg, err := d.configRegistry.Lookup(context.Background(), id); err == nil && cfg != nil {
+		in = cfg.Options.InputTokenPrice
+		out = cfg.Options.OutputTokenPrice
+		cached = cfg.Options.CachedTokenPrice
+		if in != 0 || out != 0 || cached != 0 {
+			return in, out, cached, true
+		}
 	}
-	in = cfg.Options.InputTokenPrice
-	out = cfg.Options.OutputTokenPrice
-	cached = cfg.Options.CachedTokenPrice
-	if in == 0 && out == 0 && cached == 0 {
-		return 0, 0, 0, false
+	// 2) Fallback: scan all configs and match either config.ID or provider model name
+	if all, err := d.configRegistry.List(context.Background()); err == nil {
+		for _, cfg := range all {
+			if cfg == nil {
+				continue
+			}
+			if strings.EqualFold(cfg.ID, id) || strings.EqualFold(strings.TrimSpace(cfg.Options.Model), strings.TrimSpace(id)) {
+				in = cfg.Options.InputTokenPrice
+				out = cfg.Options.OutputTokenPrice
+				cached = cfg.Options.CachedTokenPrice
+				if in != 0 || out != 0 || cached != 0 {
+					return in, out, cached, true
+				}
+			}
+		}
 	}
-	return in, out, cached, true
+	return 0, 0, 0, false
 }
 
 // Candidates returns lightweight view used by matcher.

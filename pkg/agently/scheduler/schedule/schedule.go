@@ -42,25 +42,25 @@ type ScheduleOutput struct {
 }
 
 type ScheduleView struct {
-	AgentRef        string     `sqlx:"agent_ref"`
-	CreatedAt       time.Time  `sqlx:"created_at"`
-	CronExpr        *string    `sqlx:"cron_expr"`
-	Description     *string    `sqlx:"description"`
-	Enabled         bool       `sqlx:"enabled"`
-	EndAt           *time.Time `sqlx:"end_at"`
 	Id              string     `sqlx:"id"`
+	Name            string     `sqlx:"name"`
+	Description     *string    `sqlx:"description"`
+	AgentRef        string     `sqlx:"agent_ref"`
+	ModelOverride   *string    `sqlx:"model_override"`
+	Enabled         bool       `sqlx:"enabled"`
+	StartAt         *time.Time `sqlx:"start_at"`
+	EndAt           *time.Time `sqlx:"end_at"`
+	ScheduleType    string     `sqlx:"schedule_type"`
+	CronExpr        *string    `sqlx:"cron_expr"`
 	IntervalSeconds *int       `sqlx:"interval_seconds"`
-	LastError       *string    `sqlx:"last_error"`
+	Timezone        string     `sqlx:"timezone"`
+	TaskPromptUri   *string    `sqlx:"task_prompt_uri"`
+	TaskPrompt      *string    `sqlx:"task_prompt"`
+	NextRunAt       *time.Time `sqlx:"next_run_at"`
 	LastRunAt       *time.Time `sqlx:"last_run_at"`
 	LastStatus      *string    `sqlx:"last_status"`
-	ModelOverride   *string    `sqlx:"model_override"`
-	Name            string     `sqlx:"name"`
-	NextRunAt       *time.Time `sqlx:"next_run_at"`
-	ScheduleType    string     `sqlx:"schedule_type"`
-	StartAt         *time.Time `sqlx:"start_at"`
-	TaskPrompt      *string    `sqlx:"task_prompt"`
-	TaskPromptUri   *string    `sqlx:"task_prompt_uri"`
-	Timezone        string     `sqlx:"timezone"`
+	LastError       *string    `sqlx:"last_error"`
+	CreatedAt       time.Time  `sqlx:"created_at"`
 	UpdatedAt       *time.Time `sqlx:"updated_at"`
 }
 

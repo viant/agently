@@ -45,11 +45,14 @@ func (c *ExecCmd) Execute(_ []string) error {
 	if err != nil {
 		return err
 	}
-	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
+	mgr, err := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
 		// Elicitation service for tool elicitations, share router; attach stdin awaiter
 		el := elicitation.New(convClient, nil, r, newStdinAwaiter)
 		return mcpclienthandler.NewClient(el, convClient, nil)
 	}))
+	if err != nil {
+		return fmt.Errorf("init mcp manager: %w", err)
+	}
 	registerExecOption(executor.WithMCPManager(mgr))
 
 	execSvc := executorSingleton()

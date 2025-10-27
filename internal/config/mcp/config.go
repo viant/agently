@@ -38,6 +38,11 @@ type ProviderAuth struct {
 	Audience            string         `yaml:"audience" json:"audience"`
 	MinTTL              *MinTTL        `yaml:"minTTL" json:"minTTL"`
 	Storage             *StoragePolicy `yaml:"storage" json:"storage"`
+	// Optional guardrails; enforced only when provided
+	OriginAllowlist      []string `yaml:"originAllowlist" json:"originAllowlist"`
+	AudienceAllowlist    []string `yaml:"audienceAllowlist" json:"audienceAllowlist"`
+	RequireSameAuthority *bool    `yaml:"requireSameAuthority" json:"requireSameAuthority"`
+	AllowInsecure        *bool    `yaml:"allowInsecure" json:"allowInsecure"`
 }
 
 // Provider defines an MCP provider entry.

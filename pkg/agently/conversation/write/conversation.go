@@ -30,14 +30,16 @@ type Conversation struct {
 	DefaultModelParams       *string    `sqlx:"default_model_params" json:",omitempty"`
 	Metadata                 *string    `sqlx:"metadata" json:",omitempty"`
 	// Scheduling annotations for discriminating scheduled conversations
-	Scheduled        int              `sqlx:"scheduled" json:",omitempty"`
-	ScheduleId       *string          `sqlx:"schedule_id" json:",omitempty"`
-	ScheduleRunId    *string          `sqlx:"schedule_run_id" json:",omitempty"`
-	ScheduleKind     *string          `sqlx:"schedule_kind" json:",omitempty"`
-	ScheduleTimezone *string          `sqlx:"schedule_timezone" json:",omitempty"`
-	ScheduleCronExpr *string          `sqlx:"schedule_cron_expr" json:",omitempty"`
-	Status           *string          `sqlx:"status" json:",omitempty"`
-	Has              *ConversationHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	Scheduled        int     `sqlx:"scheduled" json:",omitempty"`
+	ScheduleId       *string `sqlx:"schedule_id" json:",omitempty"`
+	ScheduleRunId    *string `sqlx:"schedule_run_id" json:",omitempty"`
+	ScheduleKind     *string `sqlx:"schedule_kind" json:",omitempty"`
+	ScheduleTimezone *string `sqlx:"schedule_timezone" json:",omitempty"`
+	ScheduleCronExpr *string `sqlx:"schedule_cron_expr" json:",omitempty"`
+	// ExternalTaskRef links this conversation to an external A2A task reference
+	ExternalTaskRef *string          `sqlx:"external_task_ref" json:",omitempty"`
+	Status          *string          `sqlx:"status" json:",omitempty"`
+	Has             *ConversationHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type ConversationHas struct {
@@ -65,6 +67,7 @@ type ConversationHas struct {
 	ScheduleKind             bool
 	ScheduleTimezone         bool
 	ScheduleCronExpr         bool
+	ExternalTaskRef          bool
 	Status                   bool
 }
 
@@ -199,4 +202,12 @@ func (c *Conversation) SetScheduleTimezone(value string) {
 func (c *Conversation) SetScheduleCronExpr(value string) {
 	c.ScheduleCronExpr = &value
 	c.Has.ScheduleCronExpr = true
+}
+
+func (c *Conversation) SetExternalTaskRef(value string) {
+	c.ExternalTaskRef = &value
+	if c.Has == nil {
+		c.Has = &ConversationHas{}
+	}
+	c.Has.ExternalTaskRef = true
 }

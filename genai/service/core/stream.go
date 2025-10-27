@@ -50,7 +50,19 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	}
 	// Attach finish barrier so final message waits for model-call persistence.
 	ctx, _ = modelcallctx.WithFinishBarrier(ctx)
-	ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
+	// Inject recorder with price resolver when available so cost gets computed.
+	if tp, ok := s.llmFinder.(modelcallctx.TokenPriceProvider); ok {
+		declared := ""
+		if input != nil && input.GenerateInput != nil {
+			declared = strings.TrimSpace(input.GenerateInput.Model)
+		}
+		if declared != "" {
+			tp = modelcallctx.NewFixedModelPriceProvider(tp, declared)
+		}
+		ctx = modelcallctx.WithRecorderObserverWithPrice(ctx, s.convClient, tp)
+	} else {
+		ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
+	}
 
 	// Retry starting stream up to 3 attempts. Consult provider-specific
 	// BackoffAdvisor (e.g., Bedrock ThrottlingException -> 30s) when available.

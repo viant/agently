@@ -24,9 +24,7 @@ CREATE TABLE conversation
     created_at             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP,
     created_by_user_id     TEXT,
-    tenant_id              TEXT,
     agent_id               TEXT,
-    agent_config_id        TEXT,
     default_model_provider TEXT,
     default_model          TEXT,
     default_model_params   TEXT,
@@ -35,13 +33,6 @@ CREATE TABLE conversation
     conversation_parent_turn_id  TEXT,
     metadata               TEXT,
     visibility             TEXT      NOT NULL DEFAULT 'private',
-    archived               INTEGER   NOT NULL DEFAULT 0,
-    deleted_at             TIMESTAMP,
-    last_message_at        TIMESTAMP,
-    message_count          INTEGER   NOT NULL DEFAULT 0,
-    turn_count             INTEGER   NOT NULL DEFAULT 0,
-    retention_ttl_days     INTEGER,
-    expires_at             TIMESTAMP,
     status                 VARCHAR(255),
 
     -- scheduling annotations
@@ -51,10 +42,8 @@ CREATE TABLE conversation
     schedule_kind          TEXT,
     schedule_timezone      TEXT,
     schedule_cron_expr     TEXT,
-
-    -- client attribution
-    created_ip             TEXT,
-    last_ip                TEXT
+    -- external task reference for A2A exposure
+    external_task_ref      TEXT
 );
 
 -- Optional usage breakdown table (kept for compatibility)
@@ -112,9 +101,6 @@ CREATE TABLE message
 
 CREATE UNIQUE INDEX idx_message_turn_seq ON message (turn_id, sequence);
 CREATE INDEX idx_msg_conv_created ON message (conversation_id, created_at DESC);
--- IP audit indexes
-CREATE INDEX idx_conv_created_ip ON conversation (created_ip);
-CREATE INDEX idx_conv_last_ip    ON conversation (last_ip);
 
 -- Removed app_user table; consolidated into singular 'user'
 
@@ -170,9 +156,6 @@ CREATE TABLE model_call
     latency_ms                   INTEGER,
     
     cost                         REAL,
-    
-    redaction_policy_version     TEXT,
-    redacted                     INTEGER NOT NULL DEFAULT 0 CHECK (redacted IN (0, 1)),
     trace_id                     TEXT,
     span_id                      TEXT,
     request_payload_id           TEXT    REFERENCES call_payload (id) ON DELETE SET NULL,
@@ -195,7 +178,6 @@ CREATE TABLE tool_call
     tool_kind           TEXT    NOT NULL CHECK (tool_kind IN ('general', 'resource')),
     status              TEXT    NOT NULL CHECK (status IN
                                                 ('queued', 'running', 'completed', 'failed', 'skipped', 'canceled')),
-    request_ref         TEXT,
     request_hash        TEXT,
     error_code          TEXT,
     error_message       TEXT,
@@ -207,8 +189,7 @@ CREATE TABLE tool_call
     trace_id            TEXT,
     span_id             TEXT,
     request_payload_id  TEXT    REFERENCES call_payload (id) ON DELETE SET NULL,
-    response_payload_id TEXT    REFERENCES call_payload (id) ON DELETE SET NULL,
-    response_overflow   INTEGER CHECK (response_overflow IN (0,1))
+    response_payload_id TEXT    REFERENCES call_payload (id) ON DELETE SET NULL
 );
 CREATE UNIQUE INDEX idx_tool_op_attempt ON tool_call (turn_id, op_id, attempt);
 CREATE INDEX idx_tool_call_status ON tool_call (status);

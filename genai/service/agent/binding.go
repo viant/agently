@@ -778,8 +778,6 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 				if overflow {
 					overflowFound = true
 				}
-				// Mark overflow on the in-memory view so handleOverflow can auto-expose tools
-				m.ToolCall.ResponseOverflow = overflow
 				result = preview
 			}
 

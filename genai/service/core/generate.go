@@ -177,16 +177,16 @@ func (s *Service) generate(ctx context.Context, in, out interface{}) error {
 
 func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) error {
 
-    // Inject recorder observer with price resolver (if available) so per-call cost is computed.
-    var resolver func(string) (float64, float64, float64, bool)
-    if tp, ok := s.llmFinder.(interface{ TokenPrices(string) (float64, float64, float64, bool) }); ok {
-        resolver = tp.TokenPrices
-    }
-    if resolver != nil {
-        ctx = modelcallctx.WithRecorderObserverWithPrice(ctx, s.convClient, resolver)
-    } else {
-        ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
-    }
+	// Inject recorder observer with price resolver (if available) so per-call cost is computed.
+	if tp, ok := s.llmFinder.(modelcallctx.TokenPriceProvider); ok {
+		declared := strings.TrimSpace(input.Model)
+		if declared != "" {
+			tp = modelcallctx.NewFixedModelPriceProvider(tp, declared)
+		}
+		ctx = modelcallctx.WithRecorderObserverWithPrice(ctx, s.convClient, tp)
+	} else {
+		ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
+	}
 	request, model, err := s.prepareGenerateRequest(ctx, input)
 	if err != nil {
 		return err

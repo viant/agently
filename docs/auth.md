@@ -183,6 +183,44 @@ Troubleshooting:
 
 Flow: UI clicks “Sign in” → `POST /auth/oauth/initiate` → popup → `/auth/oauth/callback` → Cookie set → protected APIs OK. ID token is verified and `iss`/`aud` checks applied when configured.
 
+## MCP Clients (cookie‑first with optional bearer)
+
+When Agently connects to MCP providers (streamable or SSE), the HTTP clients use an auth RoundTripper configured for BFF cookie‑first behavior while allowing bearer tokens:
+
+- Cookies: always attached (from a shared Jar), including during internal retries and metadata fetches.
+- Bearer: attached from request context when present and allowed (default allowed origins: ["*"]). Rejected tokens are cached for a TTL to avoid reuse loops.
+- 401/419: the transport performs a single BFF exchange (or Protected Resource Metadata flow) and replays the request.
+
+Factory (used by Agently):
+
+```go
+rt, _ := integrate.NewAuthRoundTripper(sharedJar, http.DefaultTransport, 10*time.Minute)
+client := mcpclient.New("agently", version, transport)
+integrate.NewClientWithAuthInterceptor(client, rt)
+```
+
+Session resume (recommended for reconnects):
+
+- Streamable (NDJSON):
+
+```go
+sc, _ := streamcli.New(ctx, mcpURL,
+    streamcli.WithSessionID(savedID),
+    streamcli.WithSessionHeaderName("Mcp-Session-Id"),
+)
+```
+
+- SSE (HTTP streaming):
+
+```go
+ssec, _ := sse.New(ctx, streamURL,
+    sse.WithSessionID(savedID),
+    sse.WithStreamSessionParamName("Mcp-Session-Id"),
+)
+```
+
+Persist the session id you obtain during the initial handshake and pass it back on restart for smooth reconnects.
+
 ### 3) SPA OIDC only (Bearer, browser‑initiated OAuth)
 
 

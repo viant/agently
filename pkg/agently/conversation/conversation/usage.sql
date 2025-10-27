@@ -1,5 +1,6 @@
 SELECT 
     m.conversation_id AS conversation_id,
+    SUM(COALESCE(mc.cost, 0))                                           AS cost,
     SUM(COALESCE(mc.prompt_tokens, 0))                                  AS prompt_tokens,
     SUM(COALESCE(mc.prompt_cached_tokens, 0))                           AS prompt_cached_tokens,
     SUM(COALESCE(mc.prompt_audio_tokens, 0))                            AS prompt_audio_tokens,

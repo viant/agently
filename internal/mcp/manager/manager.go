@@ -3,13 +3,20 @@ package manager
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
+	authctx "github.com/viant/agently/internal/auth"
 	mcpcfg "github.com/viant/agently/internal/mcp/config"
 	"github.com/viant/mcp"
 	protoclient "github.com/viant/mcp-protocol/client"
 	mcpclient "github.com/viant/mcp/client"
+	auth "github.com/viant/mcp/client/auth"
+	authtransport "github.com/viant/mcp/client/auth/transport"
 )
 
 // Provider returns client options for a given MCP server name.
@@ -17,22 +24,57 @@ type Provider interface {
 	Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error)
 }
 
-// Option configures Manager.
-type Option func(*Manager)
+// Option configures Manager. It can return an error which will be bubbled up by New.
+type Option func(*Manager) error
 
 // WithTTL sets idle TTL before reaping a client.
-func WithTTL(ttl time.Duration) Option { return func(m *Manager) { m.ttl = ttl } }
+func WithTTL(ttl time.Duration) Option { return func(m *Manager) error { m.ttl = ttl; return nil } }
 
 // WithHandlerFactory sets a factory for per-connection client handlers (for elicitation, etc.).
 func WithHandlerFactory(newHandler func() protoclient.Handler) Option {
-	return func(m *Manager) { m.newHandler = newHandler }
+	return func(m *Manager) error { m.newHandler = newHandler; return nil }
+}
+
+// WithCookieJar injects a host-controlled CookieJar that will be applied to
+// newly created MCP clients via ClientOptions, overriding any per-provider jar.
+func WithCookieJar(jar http.CookieJar) Option {
+	return func(m *Manager) error { m.cookieJar = jar; return nil }
+}
+
+// JarProvider returns a per-request CookieJar (e.g., per-user) chosen from context.
+// When provided, it takes precedence over the static cookieJar set via WithCookieJar.
+type JarProvider func(ctx context.Context) (http.CookieJar, error)
+
+// WithCookieJarProvider injects a provider that selects a CookieJar per request (e.g., per user).
+func WithCookieJarProvider(p JarProvider) Option {
+	return func(m *Manager) error { m.jarProvider = p; return nil }
+}
+
+// WithAuthRoundTripper enables auth integration by attaching the provided
+// RoundTripper as an Authorizer interceptor to created MCP clients.
+func WithAuthRoundTripper(rt *authtransport.RoundTripper) Option {
+	return func(m *Manager) error { m.authRT = rt; return nil }
+}
+
+// AuthRTProvider returns a per-request auth RoundTripper (e.g., per-user) chosen from context.
+// When provided, it takes precedence over the static authRT set via WithAuthRoundTripper.
+type AuthRTProvider func(ctx context.Context) *authtransport.RoundTripper
+
+// WithAuthRoundTripperProvider injects a provider that selects an auth RoundTripper per request.
+func WithAuthRoundTripperProvider(p AuthRTProvider) Option {
+	return func(m *Manager) error { m.authRTProvider = p; return nil }
 }
 
 // Manager caches MCP clients per (conversationID, serverName) and handles idle reaping.
 type Manager struct {
-	prov       Provider
-	ttl        time.Duration
-	newHandler func() protoclient.Handler
+	prov           Provider
+	ttl            time.Duration
+	newHandler     func() protoclient.Handler
+	cookieJar      http.CookieJar
+	jarProvider    JarProvider
+	authRT         *authtransport.RoundTripper
+	authRTProvider AuthRTProvider
+	anonJar        http.CookieJar
 
 	mu   sync.Mutex
 	pool map[string]map[string]*entry // convID -> serverName -> entry
@@ -44,12 +86,14 @@ type entry struct {
 }
 
 // New creates a Manager with the given Provider and options.
-func New(prov Provider, opts ...Option) *Manager {
+func New(prov Provider, opts ...Option) (*Manager, error) {
 	m := &Manager{prov: prov, ttl: 30 * time.Minute, pool: map[string]map[string]*entry{}}
 	for _, o := range opts {
-		o(m)
+		if err := o(m); err != nil {
+			return nil, fmt.Errorf("mcp manager option: %w", err)
+		}
 	}
-	return m
+	return m, nil
 }
 
 // Get returns an MCP client for (convID, serverName), creating it if needed.
@@ -59,6 +103,7 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Maintain per-conversation client to correlate elicitation correctly.
 	if m.pool[convID] == nil {
 		m.pool[convID] = map[string]*entry{}
 	}
@@ -74,6 +119,46 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 		return nil, errors.New("mcp manager: nil client options")
 	}
 	opts.Init()
+	// Select per-request jar (provider beats static) and merge provider cookies.json into it
+	// (if both present) before override,
+	// so the very first POST can carry previously minted session cookies.
+	var effectiveJar http.CookieJar
+	if m.jarProvider != nil {
+		var jerr error
+		effectiveJar, jerr = m.jarProvider(ctx)
+		if jerr != nil {
+			return nil, fmt.Errorf("cookie jar provider: %w", jerr)
+		}
+	} else {
+		effectiveJar = m.cookieJar
+	}
+	if effectiveJar != nil && opts.ClientOptions != nil {
+		// Determine origin from transport URL
+		origin := strings.TrimSpace(opts.ClientOptions.Transport.URL)
+		if origin != "" {
+			if u, perr := url.Parse(origin); perr == nil {
+				// If we have an anonymous jar and current request is for a named user,
+				// merge cookies from anonymous into the user's jar for this origin.
+				userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+				if userID != "" && m.anonJar != nil && m.anonJar != effectiveJar {
+					if cs := m.anonJar.Cookies(u); len(cs) > 0 {
+						effectiveJar.SetCookies(u, cs)
+					}
+				}
+				if pj := opts.ClientOptions.CookieJar; pj != nil && pj != effectiveJar {
+					if cs := pj.Cookies(u); len(cs) > 0 {
+						effectiveJar.SetCookies(u, cs)
+					}
+				}
+			}
+		}
+		// Override CookieJar with selected jar to ensure reuse across conversations
+		opts.ClientOptions.CookieJar = effectiveJar
+		// Track anonymous jar to support later migration when identity becomes available
+		if strings.TrimSpace(authctx.EffectiveUserID(ctx)) == "" {
+			m.anonJar = effectiveJar
+		}
+	}
 	handler := m.newHandler
 	if handler == nil {
 		handler = func() protoclient.Handler { return nil }
@@ -87,7 +172,21 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	if err != nil {
 		return nil, err
 	}
-	m.pool[convID][serverName] = &entry{client: cli, usedAt: time.Now()}
+	// Attach auth interceptor when configured (prefer per-request provider)
+	var rt *authtransport.RoundTripper
+	if m.authRTProvider != nil {
+		rt = m.authRTProvider(ctx)
+	}
+	if rt == nil {
+		rt = m.authRT
+	}
+	if rt != nil {
+		authorizer := auth.NewAuthorizer(rt)
+		// apply option to concrete client
+		mcpclient.WithAuthInterceptor(authorizer)(cli)
+	}
+	ent := &entry{client: cli, usedAt: time.Now()}
+	m.pool[convID][serverName] = ent
 	return cli, nil
 }
 

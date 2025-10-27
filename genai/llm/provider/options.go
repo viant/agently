@@ -27,4 +27,9 @@ type Options struct {
 
 	// Preview limit for tool results when this model is used (bytes).
 	ToolResultPreviewLimit int `yaml:"toolResultPreviewLimit,omitempty" json:"toolResultPreviewLimit,omitempty"`
+
+	// ---- Safety Limits ----
+	// SafeEffectiveInputTokens defines a conservative safe input token count
+	// (excludes model output and provider overhead). Intended for request planning.
+	SafeEffectiveInputTokens int `yaml:"safeEffectiveInputTokens,omitempty" json:"safeEffectiveInputTokens,omitempty"`
 }

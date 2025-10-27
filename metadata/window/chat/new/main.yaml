@@ -21,23 +21,34 @@ view:
         selectFirst: true
         layout:
           orientation: horizontal
-          columns: 2
+          columns: 4
           labelPosition: left
         items:
-          - id: agent
-            type: label
-            label: Agent
-
-          - id: model
-            type: label
-            label: Model
-
-
-
           - id: title
             type: label
-            columnSpan: 2
+            label: Title
+            properties:
+              style:
+                fontWeight: 600
+          - id: costText
+            type: label
+            dataSourceRef: usage
+            label: Cost
+            properties:
+              style:
+                textAlign: right
+          - id: totalTokensText
+            type: label
+            dataSourceRef: usage
+            label: Tokens
+            tooltip: "Prompt: ${promptTokens}, Cached: ${promptCachedTokens}, Completion: ${completionTokens}, Prediction: ${predictionTokens}"
 
+          - id: promptCachedTokensText
+            type: label
+            dataSourceRef: usage
+            label: Cached
+
+     
       - id: conversationSection
         chat:
           dataSourceRef: messages
@@ -99,15 +110,20 @@ view:
               handler: chat.onUpload
             - event: onAbort
               handler: chat.abortConversation
-on:
-  - event: onInit
-    handler: chat.onInit
-  - event: onDestroy
-    handler: chat.onDestroy
+
 
 dataSource:
   conversations: $import('../conversations/datasource/conversations.yaml')
   messages: $import('datasource/messages.yaml')
   meta: $import('datasource/meta.yaml')
   settings: $import('datasource/settings.yaml')
+  usage: $import('datasource/usage.yaml')
   fs: $import('../../filebrowser/datasource/fileBrowser.yaml')
+
+
+
+on:
+  - event: onInit
+    handler: chat.onInit
+  - event: onDestroy
+    handler: chat.onDestroy

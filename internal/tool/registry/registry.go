@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -573,6 +574,16 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 func (r *Registry) listServers(ctx context.Context) ([]string, error) {
 	repo := mcprepo.New(afs.New())
 	names, _ := repo.List(ctx)
+	// Optional override to force discovery of specific servers (comma-separated)
+	if extra := strings.TrimSpace(os.Getenv("AGENTLY_MCP_SERVERS")); extra != "" {
+		for _, s := range strings.Split(extra, ",") {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			names = append(names, s)
+		}
+	}
 	// Merge with internal client names
 	seen := map[string]struct{}{}
 	var out []string
