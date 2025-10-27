@@ -28,10 +28,7 @@ SELECT conversation.*,
 cast(attachment.inline_body as []byte),
 cast(transcript.elapsedInSec as int),
 cast(transcript.toolFeed AS []*tool.Feed),
-tag(transcript.toolFeed, 'sqlx:"-"'),
-tag(toolCall.response_overflow, 'sqlx:"-"'),
-cast(toolCall.response_overflow AS bool),
-required(toolCall.response_overflow)
+tag(transcript.toolFeed, 'sqlx:"-"')
 FROM (
     SELECT t.*,
           (SELECT id
@@ -42,18 +39,7 @@ FROM (
     '' AS stage FROM conversation t
      ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
 ) conversation
-JOIN (
-
-SELECT
-    m.conversation_id,
-    SUM(t.cost) AS cost,
-    SUM(t.prompt_tokens) AS prompt_tokens,
-    SUM(t.prompt_cached_tokens) AS prompt_cached_tokens,
-    SUM(t.completion_tokens) AS completion_tokens
- FROM model_call t
- JOIN message m on t.id = m.model_call_id
-) usage ON usage.conversation_id =  conversation.id
-    JOIN  (
+JOIN  (
  SELECT
       t.*,
       0 elapsedInSec,
@@ -63,7 +49,7 @@ SELECT
       ${predicate.Builder().CombineOr($predicate.FilterGroup(1, "AND")).Build("WHERE")}
     ) transcript ON transcript.conversation_id = conversation.id
 JOIN (
-    SELECT * FROM message m WHERE m.attachment_payload_id IS NULL
+    SELECT m.* FROM message m WHERE m.attachment_payload_id IS NULL
     ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("AND")}
 ) message ON message.turn_id = transcript.id
 JOIN (
@@ -110,6 +96,7 @@ JOIN (
 JOIN (
   SELECT 
     m.conversation_id AS conversation_id,
+    SUM(COALESCE(mc.cost, 0))                                           AS cost,
     SUM(COALESCE(mc.prompt_tokens, 0))                                  AS prompt_tokens,
     SUM(COALESCE(mc.prompt_cached_tokens, 0))                           AS prompt_cached_tokens,
     SUM(COALESCE(mc.prompt_audio_tokens, 0))                            AS prompt_audio_tokens,
@@ -136,7 +123,8 @@ JOIN (
     SUM(COALESCE(mc.completion_audio_tokens, 0))                         AS completion_audio_tokens,
     SUM(COALESCE(mc.completion_accepted_prediction_tokens, 0))          AS completion_accepted_prediction_tokens,
     SUM(COALESCE(mc.completion_rejected_prediction_tokens, 0))          AS completion_rejected_prediction_tokens,
-    SUM(COALESCE(mc.total_tokens, 0))                                    AS total_tokens
+    SUM(COALESCE(mc.total_tokens, 0))                                    AS total_tokens,
+    SUM(COALESCE(mc.cost, 0))                                    AS cost
   FROM model_call mc
   JOIN message m ON m.id = mc.message_id
   $View.ParentJoinOn("WHERE","m.conversation_id")

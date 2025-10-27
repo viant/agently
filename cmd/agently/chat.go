@@ -134,11 +134,14 @@ func (c *ChatCmd) Execute(_ []string) error {
 	// Use an interactive awaiter so elicitation is resolved inline on CLI.
 	prov := mcpmgr.NewRepoProvider()
 	r := mcprouter.New()
-	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
+	mgr, err := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
 		el := elicitationpkg.New(convClient, nil, r, func() elicitationpkg.Awaiter { return newStdinAwaiter() })
 		// Disable client auto-open
 		return mcpclienthandler.NewClient(el, convClient, nil)
 	}))
+	if err != nil {
+		return fmt.Errorf("init mcp manager: %w", err)
+	}
 	registerExecOption(executor.WithMCPManager(mgr))
 	// Also pass router to agent so assistant-originated elicitations integrate with the same flow
 	registerExecOption(executor.WithElicitationRouter(r))

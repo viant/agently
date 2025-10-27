@@ -14,7 +14,6 @@ import (
 	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
 	"github.com/viant/mcp"
 	mcpstore "github.com/viant/mcp/client/auth/store"
-	mcpauth "github.com/viant/mcp/client/auth/transport"
 )
 
 // RepoProvider loads MCP client options from the Agently workspace repo ($AGENTLY_ROOT/mcp).
@@ -30,11 +29,12 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 		return cfg, err
 	}
 	// Normalize transport type aliases for backwards/forwards compatibility.
+	// The MCP client expects "streamable"; coerce common synonyms to it.
 	if cfg.ClientOptions != nil && cfg.ClientOptions.Transport.Type != "" {
 		t := strings.ToLower(strings.TrimSpace(cfg.ClientOptions.Transport.Type))
 		switch t {
-		case "streamable", "streamablehttp":
-			cfg.ClientOptions.Transport.Type = "streaming"
+		case "streaming", "streamablehttp":
+			cfg.ClientOptions.Transport.Type = "streamable"
 		}
 	}
 	// Derive per-user state dir for tokens/cookies
@@ -53,11 +53,6 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 	tokensPath := filepath.Join(stateDir, "tokens.json")
 	cfg.ClientOptions.Auth.Store = mcpstore.NewFileStore(tokensPath)
 
-	// Cookie jar persistence
-	cookiesPath := filepath.Join(stateDir, "cookies.json")
-	if jar, jerr := mcpauth.NewFileJar(cookiesPath); jerr == nil {
-		cfg.ClientOptions.CookieJar = jar
-	}
 	return cfg, nil
 }
 

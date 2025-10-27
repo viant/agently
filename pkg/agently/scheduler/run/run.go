@@ -44,19 +44,19 @@ type RunOutput struct {
 }
 
 type RunView struct {
-	CompletedAt        *time.Time `sqlx:"completed_at"`
+	Id                 string     `sqlx:"id"`
+	ScheduleId         string     `sqlx:"schedule_id"`
+	CreatedAt          time.Time  `sqlx:"created_at"`
+	UpdatedAt          *time.Time `sqlx:"updated_at"`
+	Status             string     `sqlx:"status"`
+	ErrorMessage       *string    `sqlx:"error_message"`
+	PreconditionRanAt  *time.Time `sqlx:"precondition_ran_at"`
+	PreconditionPassed *int       `sqlx:"precondition_passed"`
+	PreconditionResult *string    `sqlx:"precondition_result"`
 	ConversationId     *string    `sqlx:"conversation_id"`
 	ConversationKind   string     `sqlx:"conversation_kind"`
-	CreatedAt          time.Time  `sqlx:"created_at"`
-	ErrorMessage       *string    `sqlx:"error_message"`
-	Id                 string     `sqlx:"id"`
-	PreconditionPassed *int       `sqlx:"precondition_passed"`
-	PreconditionRanAt  *time.Time `sqlx:"precondition_ran_at"`
-	PreconditionResult *string    `sqlx:"precondition_result"`
-	ScheduleId         string     `sqlx:"schedule_id"`
 	StartedAt          *time.Time `sqlx:"started_at"`
-	Status             string     `sqlx:"status"`
-	UpdatedAt          *time.Time `sqlx:"updated_at"`
+	CompletedAt        *time.Time `sqlx:"completed_at"`
 }
 
 var RunPathURI = "/v1/api/agently/scheduler/run/{id}"

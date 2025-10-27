@@ -17,15 +17,27 @@ import (
 func NewAuthRoundTripper(jar http.CookieJar, base http.RoundTripper, rejectTTL time.Duration) (*authtransport.RoundTripper, error) {
 	opts := []authtransport.Option{
 		authtransport.WithBackendForFrontendAuth(),
-		authtransport.WithCookieJar(jar),
+	}
+	// Note: cookie persistence is handled by the http.Client that uses this
+	// RoundTripper. Ensure the client is constructed with Jar set to `jar`.
+	if base == nil {
+		base = http.DefaultTransport
 	}
 	if base != nil {
 		opts = append(opts, authtransport.WithTransport(base))
 	}
-	if rejectTTL > 0 {
-		opts = append(opts, authtransport.WithRejectCacheTTL(rejectTTL))
-	}
 	return authtransport.New(opts...)
+}
+
+// NewAuthRoundTripperWithPrompt wraps the provided base transport with an OOB
+// prompt trigger and builds the auth RoundTripper on top. When the resource
+// responds 401 with an authorization_uri, the prompt is invoked (non-blocking),
+// and the original response is returned to the caller.
+func NewAuthRoundTripperWithPrompt(jar http.CookieJar, base http.RoundTripper, rejectTTL time.Duration, prompt OAuthPrompt) (*authtransport.RoundTripper, error) {
+	if prompt != nil {
+		base = NewOOBRoundTripper(base, prompt)
+	}
+	return NewAuthRoundTripper(jar, base, rejectTTL)
 }
 
 // NewClientWithAuthInterceptor attaches an Authorizer that auto-retries once on 401.

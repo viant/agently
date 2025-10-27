@@ -244,6 +244,89 @@ async function dsTick({context}) {
             if (rows.length) {
                 receiveMessages(messagesCtx, rows, since);
             }
+            // Expose usage tokens via a lightweight Usage DS form
+            try {
+                const usage = conv?.Usage || conv?.usage || {
+                    promptTokens: conv?.UsageInputTokens ?? conv?.usageInputTokens,
+                    completionTokens: conv?.UsageOutputTokens ?? conv?.usageOutputTokens,
+                    totalTokens: conv?.Usage?.TotalTokens ?? conv?.usage?.totalTokens ?? conv?.Usage?.Total ?? conv?.usage?.total,
+                    promptCachedTokens: conv?.Usage?.PromptCachedTokens ?? conv?.usage?.promptCachedTokens,
+                    model: conv?.DefaultModel || conv?.defaultModel || conv?.Model || conv?.model,
+                };
+                if (usage) {
+                    const usageCtx = context?.Context?.('usage');
+                    // Normalize field casing for labels in the header
+                    const normalizeModel = (val) => {
+                        // Prefer a simple string. If array/object provided, derive a friendly label.
+                        if (val == null) return '';
+                        if (typeof val === 'string' || typeof val === 'number') return String(val);
+                        if (Array.isArray(val)) {
+                            const first = val[0];
+                            if (!first) return '';
+                            // Usage.Model[*] from backend has fields: Model, PromptTokens, etc.
+                            return String(first.Model || first.model || first.Name || '');
+                        }
+                        if (typeof val === 'object') {
+                            return String(val.Model || val.model || val.Name || '');
+                        }
+                        try { return JSON.stringify(val); } catch { return ''; }
+                    };
+                    const norm = {
+                        promptTokens: usage.PromptTokens ?? usage.promptTokens ?? usage.Prompt ?? usage.prompt,
+                        completionTokens: usage.CompletionTokens ?? usage.completionTokens ?? usage.Completion ?? usage.completion,
+                        totalTokens: usage.TotalTokens ?? usage.totalTokens ?? usage.Total ?? usage.total,
+                        promptCachedTokens: usage.PromptCachedTokens ?? usage.promptCachedTokens ?? usage.PromptCached ?? usage.cached,
+                        model: normalizeModel(usage.Model ?? usage.model ?? (conv?.DefaultModel || conv?.Model || '')),
+                    };
+                    // Add optional prediction token fields if present
+                    const acceptedPred = usage.CompletionAcceptedPredictionTokens ?? usage.completionAcceptedPredictionTokens ?? 0;
+                    const rejectedPred = usage.CompletionRejectedPredictionTokens ?? usage.completionRejectedPredictionTokens ?? 0;
+                    const predictionTokens = (Number(acceptedPred) || 0) + (Number(rejectedPred) || 0);
+                    if (predictionTokens > 0) {
+                        norm.predictionTokens = predictionTokens;
+                    }
+                    // Derive cost from Usage.Cost or sum of Usage.Model[*].Cost
+                    let cost = undefined;
+                    try {
+                        if (usage.Cost != null) {
+                            cost = Number(usage.Cost);
+                        } else if (Array.isArray(usage.Model)) {
+                            const costs = usage.Model
+                                .map(m => (m && (m.Cost ?? m.cost)) != null ? Number(m.Cost ?? m.cost) : 0)
+                                .filter(v => !Number.isNaN(v));
+                            if (costs.length) {
+                                cost = costs.reduce((a, b) => a + b, 0);
+                            }
+                        }
+                    } catch(_) { /* ignore cost derivation errors */ }
+
+                    const costText = (cost != null && !Number.isNaN(cost)) ? `$${Number(cost).toFixed(3)}` : '';
+                    const formatThousandsWithSpaces = (n) => {
+                        const v = Number(n);
+                        if (!Number.isFinite(v)) return '';
+                        const s = String(Math.trunc(v));
+                        return s.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+                    }
+                    const totalTokensText = formatThousandsWithSpaces(norm.totalTokens);
+                    const promptCachedTokensText = formatThousandsWithSpaces(norm.promptCachedTokens);
+                    const values = { ...norm, cost, costText, totalTokensText, promptCachedTokensText };
+                    usageCtx?.handlers?.dataSource?.setFormData?.({values});
+                }
+            } catch (_) { /* ignore */ }
+
+            // Keep conversation header fields (e.g., title) in sync
+            try {
+                const convCtx2 = context?.Context?.('conversations');
+                const ds2 = convCtx2?.handlers?.dataSource;
+                if (ds2) {
+                    const title = conv?.Title || conv?.title || '';
+                    if (title) ds2.setFormField?.({item: {id: 'title'}, value: title});
+                    const agent = conv?.AgentId || conv?.Agent || conv?.agent || '';
+                    if (agent) ds2.setFormField?.({item: {id: 'agent'}, value: String(agent)});
+                    const model = conv?.DefaultModel || conv?.Model || conv?.model || '';
+                    if (model) ds2.setFormField?.({item: {id: 'model'}, value: String(model)});
+                }
+            } catch (_) { /* ignore */ }
             // Derive running/finished state from the last turn to keep Abort button accurate
             try {
                 const lastTurn = Array.isArray(transcript) && transcript.length ? transcript[transcript.length - 1] : null;

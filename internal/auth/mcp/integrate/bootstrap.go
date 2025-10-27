@@ -90,8 +90,8 @@ func Bootstrap(cfg BootstrapConfig) (*ProviderClient, error) {
 		})(client)
 	}
 	NewClientWithAuthInterceptor(client, authRT)
-	// SSE http client shares the same auth RoundTripper
-	sseHTTP := &http.Client{Transport: authRT}
+	// SSE http client shares the same auth RoundTripper and cookie jar for BFF session continuity
+	sseHTTP := &http.Client{Transport: authRT, Jar: cfg.CookieJar}
 	// Token function
 	tokenFn := TokenFnFromResolver(cfg.Resolver, cfg.TokenKey)
 	return &ProviderClient{

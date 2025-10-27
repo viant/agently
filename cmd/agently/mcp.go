@@ -23,10 +23,10 @@ type McpCmd struct {
 // ------------------------------------------------------------------ add -----
 
 type McpAddCmd struct {
-    Name string `short:"n" long:"name" required:"yes" description:"identifier"`
+	Name string `short:"n" long:"name" required:"yes" description:"identifier"`
 
-    // Accept legacy and new aliases: stdio|sse|streaming plus streamable/streamableHTTP
-    Type string `short:"t" long:"type" choice:"stdio" choice:"sse" choice:"streaming" choice:"streamable" choice:"streamableHTTP" required:"yes"`
+	// Accept legacy and new aliases: stdio|sse|streaming plus streamable/streamableHTTP
+	Type string `short:"t" long:"type" choice:"stdio" choice:"sse" choice:"streaming" choice:"streamable" choice:"streamableHTTP" required:"yes"`
 
 	// HTTP
 	URL string `long:"url" description:"server URL when type=sse|streaming"`
@@ -37,10 +37,10 @@ type McpAddCmd struct {
 }
 
 func (c *McpAddCmd) Execute(_ []string) error {
-    opts := &mcp.ClientOptions{Name: c.Name}
+	opts := &mcp.ClientOptions{Name: c.Name}
 
-    switch strings.ToLower(c.Type) {
-    case "stdio":
+	switch strings.ToLower(c.Type) {
+	case "stdio":
 		if c.Command == "" {
 			return fmt.Errorf("--command required for stdio transport")
 		}
@@ -51,19 +51,16 @@ func (c *McpAddCmd) Execute(_ []string) error {
 				Arguments: c.Arguments,
 			},
 		}
-    case "sse", "streaming", "streamable", "streamablehttp":
-        // Normalize new aliases to streaming transport
-        t := strings.ToLower(c.Type)
-        if t == "streamable" || t == "streamablehttp" {
-            t = "streaming"
-        }
-        if c.URL == "" {
-            return fmt.Errorf("--url required for HTTP transport")
-        }
-        opts.Transport = mcp.ClientTransport{
-            Type:                t,
-            ClientTransportHTTP: mcp.ClientTransportHTTP{URL: c.URL},
-        }
+	case "sse", "streamable":
+		// Normalize new aliases to streaming transport
+		t := strings.ToLower(c.Type)
+		if c.URL == "" {
+			return fmt.Errorf("--url required for HTTP transport")
+		}
+		opts.Transport = mcp.ClientTransport{
+			Type:                t,
+			ClientTransportHTTP: mcp.ClientTransportHTTP{URL: c.URL},
+		}
 	default:
 		return fmt.Errorf("unsupported type %s", c.Type)
 	}

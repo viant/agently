@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/cookiejar"
 	neturl "net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	clientmcp "github.com/viant/agently/adapter/mcp"
@@ -29,9 +32,12 @@ import (
 	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
 	"github.com/viant/datly/view"
 	// decoupled from orchestration
+	authctx "github.com/viant/agently/internal/auth"
+	integrate "github.com/viant/agently/internal/auth/mcp/integrate"
 	mcpcfg "github.com/viant/agently/internal/mcp/config"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	protoclient "github.com/viant/mcp-protocol/client"
+	authtransport "github.com/viant/mcp/client/auth/transport"
 	// mcp client types not used here
 	"gopkg.in/yaml.v3"
 
@@ -61,7 +67,9 @@ func (e *Service) init(ctx context.Context) error {
 	// ------------------------------------------------------------------
 	// Step 1: defaults & validation
 	// ------------------------------------------------------------------
-	e.initDefaults(ctx)
+	if err := e.initDefaults(ctx); err != nil {
+		return err
+	}
 	if err := e.config.Validate(); err != nil {
 		return err
 	}
@@ -82,7 +90,6 @@ func (e *Service) init(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		// Eagerly initialize registry (preload MCP servers/tools). Warnings are logged.
 		reg.Initialize(ctx)
 		// Expose internal agents as virtual tools driven by Profile.Publish
 		if e.config != nil && e.config.Agent != nil && len(e.config.Agent.Items) > 0 {
@@ -544,7 +551,7 @@ func (e *Service) validateExtensions(ctx context.Context) error {
 
 // initDefaults sets fall-back implementations for all dependencies that were
 // not provided through options.
-func (e *Service) initDefaults(ctx context.Context) {
+func (e *Service) initDefaults(ctx context.Context) error {
 	if e.config == nil {
 		e.config = &Config{}
 	}
@@ -579,7 +586,9 @@ func (e *Service) initDefaults(ctx context.Context) {
 	e.initModel()
 	e.initEmbedders()
 	e.initAgent(ctx)
-	e.initMcp()
+	if err := e.initMcp(ctx); err != nil {
+		return err
+	}
 
 	// Default approval service (in-memory) when not injected
 	if e.approvalSvc == nil {
@@ -595,6 +604,7 @@ func (e *Service) initDefaults(ctx context.Context) {
 		e.embedderFinder = e.config.DefaultEmbedderFinder()
 	}
 
+	return nil
 }
 
 // loadWorkspaceConfigIfEmpty attempts to load $AGENTLY_ROOT/config.yaml (or the
@@ -694,62 +704,277 @@ func (e *Service) initEmbedders() {
 	}
 }
 
-func (e *Service) initMcp() {
-	// Merge MCP repo entries -----------------------------
+func (e *Service) initMcp(ctx context.Context) error {
+	// Ensure MCP group present
+	if err := e.ensureMCPGroup(); err != nil {
+		return err
+	}
+	// Ensure client handler (elicitation-backed) present
+	e.ensureClientHandler()
+
+	// Merge MCP repo entries
+	if err := e.mergeMCPRepoEntries(ctx); err != nil {
+		return err
+	}
+
+	// Ensure default manager
+	if err := e.ensureMCPManager(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureMCPGroup guarantees the MCP group in config exists.
+func (e *Service) ensureMCPGroup() error {
+	if e.config == nil {
+		return fmt.Errorf("executor: config is nil")
+	}
 	if e.config.MCP == nil {
 		e.config.MCP = &mcpcfg.Group[*mcpcfg.MCPClient]{}
 	}
+	return nil
+}
 
-	if e.clientHandler == nil {
-		// Ensure router is not nil for elicitation service
-		if e.elicitationRouter == nil {
-			e.elicitationRouter = elicrouter.New()
-		}
-		// Build elicitation service for MCP client; provide router and optional interactive awaiter
-		el := elicitation.New(e.convClient, nil, e.elicitationRouter, e.newAwaiter)
-		e.clientHandler = clientmcp.NewClient(el, e.convClient, nil)
+// ensureClientHandler initialises the MCP client handler with elicitation support when missing.
+func (e *Service) ensureClientHandler() {
+	if e.clientHandler != nil {
+		return
 	}
+	if e.elicitationRouter == nil {
+		e.elicitationRouter = elicrouter.New()
+	}
+	el := elicitation.New(e.convClient, nil, e.elicitationRouter, e.newAwaiter)
+	e.clientHandler = clientmcp.NewClient(el, e.convClient, nil)
+}
+
+// mergeMCPRepoEntries loads MCP client configs from the workspace repository and merges
+// them into the service config, skipping duplicates by Name. Collects all errors.
+func (e *Service) mergeMCPRepoEntries(ctx context.Context) error {
 	repo := mcprepo.New(afs.New())
-	if names, err := repo.List(context.Background()); err != nil {
-		// Print error and continue without failing executor initialisation.
-		log.Printf("mcp: listing servers failed: %v", err)
-	} else {
-		for _, n := range names {
-			opt, err := repo.Load(context.Background(), n)
-			if err != nil {
-				log.Printf("mcp: load %s failed: %v", n, err)
-				continue
-			}
-			if opt == nil {
-				continue
-			}
-			dup := false
-			for _, ex := range e.config.MCP.Items {
-				if ex != nil && ex.Name == opt.Name {
-					dup = true
-					break
-				}
-			}
-			if dup {
-				continue
-			}
-			var clone mcpcfg.MCPClient
-			if b, err := yaml.Marshal(opt); err == nil {
-				_ = yaml.Unmarshal(b, &clone)
-				e.config.MCP.Items = append(e.config.MCP.Items, &clone)
+	names, err := repo.List(ctx)
+	if err != nil {
+		return fmt.Errorf("mcp: list failed: %w", err)
+	}
+	var errs []string
+	for _, n := range names {
+		opt, lerr := repo.Load(ctx, n)
+		if lerr != nil {
+			errs = append(errs, fmt.Sprintf("load %s: %v", n, lerr))
+			continue
+		}
+		if opt == nil {
+			continue
+		}
+		if e.hasMCPClientByName(opt.Name) {
+			continue
+		}
+		var clone mcpcfg.MCPClient
+		b, merr := yaml.Marshal(opt)
+		if merr != nil {
+			errs = append(errs, fmt.Sprintf("marshal %s: %v", n, merr))
+			continue
+		}
+		if uerr := yaml.Unmarshal(b, &clone); uerr != nil {
+			errs = append(errs, fmt.Sprintf("unmarshal %s: %v", n, uerr))
+			continue
+		}
+		e.config.MCP.Items = append(e.config.MCP.Items, &clone)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("mcp: merge errors: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (e *Service) hasMCPClientByName(name string) bool {
+	for _, ex := range e.config.MCP.Items {
+		if ex != nil && ex.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ensureMCPManager initialises the MCP manager with cookie jar and auth RT providers.
+func (e *Service) ensureMCPManager() error {
+	if e.mcpMgr != nil {
+		return nil
+	}
+	prov := mcpmgr.NewRepoProvider()
+	hFactory := func() protoclient.Handler { return e.clientHandler }
+
+	jarProvider := e.newCookieJarProvider()
+	authRTProvider := e.newAuthRoundTripperProvider(jarProvider)
+
+	mgr, err := mcpmgr.New(prov,
+		mcpmgr.WithHandlerFactory(hFactory),
+		mcpmgr.WithCookieJarProvider(jarProvider),
+		mcpmgr.WithAuthRoundTripperProvider(authRTProvider),
+	)
+	if err != nil {
+		return fmt.Errorf("mcp manager init: %w", err)
+	}
+	e.mcpMgr = mgr
+	return nil
+}
+
+// newCookieJarProvider creates a provider that returns a per-user shared cookie jar
+// preloaded from shared and provider-specific jars.
+func (e *Service) newCookieJarProvider() func(ctx context.Context) (http.CookieJar, error) {
+	var (
+		jarMu      sync.Mutex
+		jarsByUser = map[string]http.CookieJar{}
+	)
+	return func(ctx context.Context) (http.CookieJar, error) {
+		user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+		if user == "" {
+			user = "anonymous"
+		}
+		jarMu.Lock()
+		defer jarMu.Unlock()
+		if j, ok := jarsByUser[user]; ok && j != nil {
+			return j, nil
+		}
+		sharedDir := filepath.Join(workspace.Root(), "state", "mcp", "bff", user)
+		sharedPath := filepath.Join(sharedDir, "cookies.json")
+		if err := os.MkdirAll(sharedDir, 0o700); err != nil {
+			return nil, err
+		}
+		fj, ferr := authtransport.NewFileJar(sharedPath)
+		if ferr != nil {
+			mem, _ := cookiejar.New(nil)
+			jarsByUser[user] = mem
+			return mem, nil
+		}
+		// Warm jar
+		if err := e.preloadSharedAnonymousCookies(fj); err != nil {
+			// continue warming other jars even if this fails
+		}
+		if err := e.preloadProviderJarsForUser(fj, user); err != nil {
+			// non-fatal warming error
+		}
+		jarsByUser[user] = fj
+		return fj, nil
+	}
+}
+
+func (e *Service) newAuthRoundTripperProvider(jarProvider func(ctx context.Context) (http.CookieJar, error)) func(ctx context.Context) *authtransport.RoundTripper {
+	var (
+		rtMu     sync.Mutex
+		rtByUser = map[string]*authtransport.RoundTripper{}
+	)
+	var prompt integrate.OAuthPrompt
+	return func(ctx context.Context) *authtransport.RoundTripper {
+		user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+		if user == "" {
+			user = "anonymous"
+		}
+		rtMu.Lock()
+		defer rtMu.Unlock()
+		if v, ok := rtByUser[user]; ok && v != nil {
+			return v
+		}
+		j, _ := jarProvider(ctx)
+		var base http.RoundTripper = http.DefaultTransport
+		rt, _ := integrate.NewAuthRoundTripperWithPrompt(j, base, 0, prompt)
+		rtByUser[user] = rt
+		return rt
+	}
+}
+
+func (e *Service) preloadSharedAnonymousCookies(dst http.CookieJar) error {
+	anonSharedPath := filepath.Join(workspace.Root(), "state", "mcp", "bff", "anonymous", "cookies.json")
+	fs := afs.New()
+	ok, _ := fs.Exists(context.Background(), anonSharedPath)
+	if !ok {
+		return nil
+	}
+	src, err := authtransport.NewFileJar(anonSharedPath)
+	if err != nil || src == nil {
+		return err
+	}
+	repo := mcprepo.New(fs)
+	names, lerr := repo.List(context.Background())
+	if lerr != nil {
+		return lerr
+	}
+	for _, name := range names {
+		cfg, rerr := repo.Load(context.Background(), name)
+		if rerr != nil || cfg == nil || cfg.ClientOptions == nil {
+			continue
+		}
+		raw := strings.TrimSpace(cfg.ClientOptions.Transport.URL)
+		if raw == "" {
+			continue
+		}
+		if u, perr := neturl.Parse(raw); perr == nil {
+			if cs := src.Cookies(u); len(cs) > 0 {
+				dst.SetCookies(u, cs)
+				e.mirrorDevAliasCookies(dst, u, cs)
 			}
 		}
 	}
+	return nil
+}
 
-	// Ensure a default MCP manager exists when not injected via options.
-	if e.mcpMgr == nil {
-		prov := mcpmgr.NewRepoProvider()
-		// Reuse the already-initialised client handler so that elicitations and
-		// conversation persistence are consistent across CLI/HTTP flows.
-		hFactory := func() protoclient.Handler { return e.clientHandler }
-		e.mcpMgr = mcpmgr.New(prov, mcpmgr.WithHandlerFactory(hFactory))
+func (e *Service) preloadProviderJarsForUser(dst http.CookieJar, user string) error {
+	fs := afs.New()
+	repo := mcprepo.New(fs)
+	names, err := repo.List(context.Background())
+	if err != nil {
+		return err
 	}
+	for _, name := range names {
+		cfg, rerr := repo.Load(context.Background(), name)
+		if rerr != nil || cfg == nil || cfg.ClientOptions == nil {
+			continue
+		}
+		raw := strings.TrimSpace(cfg.ClientOptions.Transport.URL)
+		if raw == "" {
+			continue
+		}
+		u, perr := neturl.Parse(raw)
+		if perr != nil {
+			continue
+		}
+		for _, scope := range []string{user, "anonymous"} {
+			stateDir := filepath.Join(workspace.Root(), "state", "mcp", name, scope)
+			cookiesPath := filepath.Join(stateDir, "cookies.json")
+			ok, _ := fs.Exists(context.Background(), cookiesPath)
+			if !ok {
+				continue
+			}
+			src, jerr := authtransport.NewFileJar(cookiesPath)
+			if jerr != nil || src == nil {
+				continue
+			}
+			if cs := src.Cookies(u); len(cs) > 0 {
+				dst.SetCookies(u, cs)
+				e.mirrorDevAliasCookies(dst, u, cs)
+			}
+		}
+	}
+	return nil
+}
 
+func (e *Service) mirrorDevAliasCookies(dst http.CookieJar, u *neturl.URL, cs []*http.Cookie) {
+	host, port := u.Hostname(), u.Port()
+	var alt string
+	if host == "localhost" {
+		alt = "127.0.0.1"
+	} else if host == "127.0.0.1" {
+		alt = "localhost"
+	}
+	if alt == "" {
+		return
+	}
+	altURL := *u
+	if port != "" {
+		altURL.Host = alt + ":" + port
+	} else {
+		altURL.Host = alt
+	}
+	dst.SetCookies(&altURL, cs)
 }
 
 func (e *Service) initAgent(ctx context.Context) {

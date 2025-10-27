@@ -30,9 +30,7 @@ CREATE TABLE conversation
     created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP    NULL     DEFAULT NULL,
     created_by_user_id     VARCHAR(255),
-    tenant_id              VARCHAR(255),
     agent_id               VARCHAR(255),
-    agent_config_id        VARCHAR(255),
     default_model_provider TEXT,
     default_model          TEXT,
     default_model_params   TEXT,
@@ -41,13 +39,6 @@ CREATE TABLE conversation
     conversation_parent_turn_id  VARCHAR(255),
     metadata               TEXT,
     visibility             VARCHAR(255) NOT NULL DEFAULT 'private',
-    archived               BIGINT       NOT NULL DEFAULT 0,
-    deleted_at             TIMESTAMP    NULL     DEFAULT NULL,
-    last_message_at        TIMESTAMP    NULL     DEFAULT NULL,
-    message_count          BIGINT       NOT NULL DEFAULT 0,
-    turn_count             BIGINT       NOT NULL DEFAULT 0,
-    retention_ttl_days     BIGINT,
-    expires_at             TIMESTAMP    NULL     DEFAULT NULL,
     status                 VARCHAR(255),
 
     -- scheduling annotations
@@ -57,10 +48,8 @@ CREATE TABLE conversation
     schedule_kind          VARCHAR(32)  NULL,
     schedule_timezone      VARCHAR(64)  NULL,
     schedule_cron_expr     VARCHAR(255) NULL,
-
-    -- client attribution
-    created_ip             VARCHAR(45),
-    last_ip                VARCHAR(45)
+    -- external task reference for A2A exposure
+    external_task_ref      TEXT
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_0900_ai_ci;
@@ -167,9 +156,6 @@ CREATE TABLE `message`
 
 CREATE UNIQUE INDEX idx_message_turn_seq ON `message` (turn_id, sequence);
 CREATE INDEX idx_msg_conv_created ON `message` (conversation_id, created_at DESC);
--- IP audit indexes
-CREATE INDEX idx_conv_created_ip ON conversation (created_ip);
-CREATE INDEX idx_conv_last_ip    ON conversation (last_ip);
 
 -- Users table for identity and schedule UX state
 CREATE TABLE users (
@@ -187,9 +173,7 @@ CREATE TABLE users (
     settings                             TEXT,
     disabled                             BIGINT       NOT NULL DEFAULT 0,
     created_at                           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at                           TIMESTAMP    NULL DEFAULT NULL,
-    last_seen_schedule_conversation_id   VARCHAR(255) NULL,
-    CONSTRAINT fk_user_last_seen_conv FOREIGN KEY (last_seen_schedule_conversation_id) REFERENCES conversation(id) ON DELETE SET NULL
+    updated_at                           TIMESTAMP    NULL DEFAULT NULL
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
 -- Unique subject per provider (NULL subject allowed for local)
@@ -225,10 +209,9 @@ CREATE TABLE model_call
     latency_ms                            BIGINT,
     cost                                  DOUBLE,
     
-    redaction_policy_version              TEXT,
-    redacted                              BIGINT       NOT NULL DEFAULT 0 CHECK (redacted IN (0, 1)),
     trace_id                              TEXT,
     span_id                               TEXT,
+    
     request_payload_id                    VARCHAR(255),
     response_payload_id                   VARCHAR(255),
     provider_request_payload_id           VARCHAR(255),
@@ -277,7 +260,7 @@ CREATE TABLE tool_call
     span_id             TEXT,
     request_payload_id  VARCHAR(255),
     response_payload_id VARCHAR(255),
-    response_overflow   BIGINT CHECK (response_overflow IN (0,1)),
+    
 
     CONSTRAINT fk_tool_call_message
         FOREIGN KEY (message_id) REFERENCES `message` (id) ON DELETE CASCADE,

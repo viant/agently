@@ -2,14 +2,19 @@ package agently
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/viant/afs"
 	"github.com/viant/agently/adapter/http/router"
 	mcpclienthandler "github.com/viant/agently/adapter/mcp"
 	convfactory "github.com/viant/agently/client/conversation/factory"
@@ -18,8 +23,13 @@ import (
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
+	authctx "github.com/viant/agently/internal/auth"
+	integrate "github.com/viant/agently/internal/auth/mcp/integrate"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
+	"github.com/viant/agently/internal/workspace"
+	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
 	protoclient "github.com/viant/mcp-protocol/client"
+	authtransport "github.com/viant/mcp/client/auth/transport"
 )
 
 // ServeCmd starts the embedded HTTP server.
@@ -47,10 +57,155 @@ func (s *ServeCmd) Execute(_ []string) error {
 	// no service is supplied; passing it explicitly keeps behaviour predictable
 	// if future defaults change.
 	// NOTE: For now, we rely on the internal default preset refiner; so no explicit WithRefinerService here.
-	mgr := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
+	// Per-user shared CookieJar and auth RT so all conversations reuse BFF cookies
+	var (
+		jarMu      sync.Mutex
+		jarsByUser = map[string]http.CookieJar{}
+	)
+	jarProvider := func(ctx context.Context) (http.CookieJar, error) {
+		user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+		if user == "" {
+			user = "anonymous"
+		}
+		jarMu.Lock()
+		defer jarMu.Unlock()
+		if j, ok := jarsByUser[user]; ok && j != nil {
+			return j, nil
+		}
+		// Shared per-user file jar (BFF): state/mcp/bff/<user>
+		sharedDir := filepath.Join(workspace.Root(), "state", "mcp", "bff", user)
+		sharedPath := filepath.Join(sharedDir, "cookies.json")
+		_ = os.MkdirAll(sharedDir, 0o700)
+		fj, _ := authtransport.NewFileJar(sharedPath)
+		if os.Getenv("AGENTLY_MCP_DEBUG") != "" {
+			log.Printf("[mcp] using shared cookie jar user=%s path=%s", user, sharedPath)
+		}
+		// Warm from per-provider and shared anonymous jars
+		repo := mcprepo.New(afs.New())
+		// Shared anonymous
+		anonSharedPath := filepath.Join(workspace.Root(), "state", "mcp", "bff", "anonymous", "cookies.json")
+		if src, err := authtransport.NewFileJar(anonSharedPath); err == nil && src != nil {
+			if names, err := repo.List(context.Background()); err == nil {
+				for _, name := range names {
+					if cfg, err := repo.Load(context.Background(), name); err == nil && cfg != nil && cfg.ClientOptions != nil {
+						if raw := strings.TrimSpace(cfg.ClientOptions.Transport.URL); raw != "" {
+							if u, perr := neturl.Parse(raw); perr == nil {
+								if cs := src.Cookies(u); len(cs) > 0 {
+									fj.SetCookies(u, cs)
+									if os.Getenv("AGENTLY_MCP_DEBUG") != "" {
+										log.Printf("[mcp] preloaded %d cookies for %s from %s", len(cs), u.Host, anonSharedPath)
+									}
+									host, port := u.Hostname(), u.Port()
+									var alt string
+									if host == "localhost" {
+										alt = "127.0.0.1"
+									} else if host == "127.0.0.1" {
+										alt = "localhost"
+									}
+									if alt != "" {
+										altURL := *u
+										if port != "" {
+											altURL.Host = alt + ":" + port
+										} else {
+											altURL.Host = alt
+										}
+										fj.SetCookies(&altURL, cs)
+										if os.Getenv("AGENTLY_MCP_DEBUG") != "" {
+											log.Printf("[mcp] mirrored %d cookies to %s for dev host alias", len(cs), altURL.Host)
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		// Per-provider user and anonymous
+		if names, err := repo.List(context.Background()); err == nil {
+			for _, name := range names {
+				cfg, err := repo.Load(context.Background(), name)
+				if err != nil || cfg == nil || cfg.ClientOptions == nil {
+					continue
+				}
+				raw := strings.TrimSpace(cfg.ClientOptions.Transport.URL)
+				if raw == "" {
+					continue
+				}
+				u, perr := neturl.Parse(raw)
+				if perr != nil {
+					continue
+				}
+				for _, scope := range []string{user, "anonymous"} {
+					stateDir := filepath.Join(workspace.Root(), "state", "mcp", name, scope)
+					cookiesPath := filepath.Join(stateDir, "cookies.json")
+					if src, jerr := authtransport.NewFileJar(cookiesPath); jerr == nil && src != nil {
+						if cs := src.Cookies(u); len(cs) > 0 {
+							fj.SetCookies(u, cs)
+							if os.Getenv("AGENTLY_MCP_DEBUG") != "" {
+								log.Printf("[mcp] preloaded %d cookies for %s from %s", len(cs), u.Host, cookiesPath)
+							}
+							host, port := u.Hostname(), u.Port()
+							var alt string
+							if host == "localhost" {
+								alt = "127.0.0.1"
+							} else if host == "127.0.0.1" {
+								alt = "localhost"
+							}
+							if alt != "" {
+								altURL := *u
+								if port != "" {
+									altURL.Host = alt + ":" + port
+								} else {
+									altURL.Host = alt
+								}
+								fj.SetCookies(&altURL, cs)
+								if os.Getenv("AGENTLY_MCP_DEBUG") != "" {
+									log.Printf("[mcp] mirrored %d cookies to %s for dev host alias", len(cs), altURL.Host)
+								}
+							}
+						}
+					}
+				}
+				if os.Getenv("AGENTLY_MCP_DEBUG") != "" {
+					if cs := fj.Cookies(u); len(cs) > 0 {
+						log.Printf("[mcp] shared jar now has %d cookies for %s (user=%s)", len(cs), u.Host, user)
+					} else {
+						log.Printf("[mcp] shared jar has 0 cookies for %s (user=%s)", u.Host, user)
+					}
+				}
+			}
+		}
+		jarsByUser[user] = fj
+		return fj, nil
+	}
+	var (
+		rtMu     sync.Mutex
+		rtByUser = map[string]*authtransport.RoundTripper{}
+	)
+	authRTProvider := func(ctx context.Context) *authtransport.RoundTripper {
+		user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+		if user == "" {
+			user = "anonymous"
+		}
+		rtMu.Lock()
+		defer rtMu.Unlock()
+		if v, ok := rtByUser[user]; ok && v != nil {
+			return v
+		}
+		j, _ := jarProvider(ctx)
+		rt, _ := integrate.NewAuthRoundTripperWithPrompt(j, http.DefaultTransport, 0, nil)
+		rtByUser[user] = rt
+		return rt
+	}
+
+	mgr, err := mcpmgr.New(prov, mcpmgr.WithHandlerFactory(func() protoclient.Handler {
 		el := elicitationpkg.New(convClient, nil, r, nil)
 		return mcpclienthandler.NewClient(el, convClient, nil)
-	}))
+	}), mcpmgr.WithCookieJarProvider(jarProvider), mcpmgr.WithAuthRoundTripperProvider(authRTProvider))
+	if err != nil {
+		return fmt.Errorf("init mcp manager: %w", err)
+	}
 	// Inject manager into executor options so tool registry can use it
 	registerExecOption(executor.WithMCPManager(mgr))
 	// Share the same elicitation router with the agent so LLM-originated
