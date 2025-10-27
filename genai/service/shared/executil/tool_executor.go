@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"strings"
@@ -53,8 +54,10 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		}
 	}
 
-	// 4) Execute tool
-	out, toolResult, execErr := executeTool(ctx, reg, step)
+	// 4) Execute tool with a bounded context so one stuck call won't hang the run
+	execCtx, cancel := toolExecContext(ctx)
+	defer cancel()
+	out, toolResult, execErr := executeTool(execCtx, reg, step)
 	if execErr != nil && strings.TrimSpace(toolResult) == "" {
 		// Provide the error text as response payload so the LLM can reason over it.
 		toolResult = execErr.Error()
@@ -81,19 +84,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	//}
 
 	// 7) Finish tool call (record error message when present)
-	status := "completed"
-	var errMsg string
-	// Detect cancellation originating from context
-	if execErr != nil {
-		if errors.Is(execErr, context.Canceled) || ctx.Err() == context.Canceled {
-			status = "canceled"
-		} else {
-			status = "failed"
-			errMsg = execErr.Error()
-		}
-	} else if ctx.Err() == context.Canceled {
-		status = "canceled"
-	}
+	status, errMsg := resolveToolStatus(execErr, ctx)
 	// Use background for final write when terminated to avoid canceled ctx
 	finCtx := ctx
 	if status == "canceled" {
@@ -161,6 +152,37 @@ func executeTool(ctx context.Context, reg tool.Registry, step StepInfo) (plan.To
 		out.Error = err.Error()
 	}
 	return out, toolResult, err
+}
+
+// resolveToolStatus determines the terminal status for a tool call based on execution error and parent context.
+// Returns one of: "completed", "failed", "canceled" and an optional error message.
+func resolveToolStatus(execErr error, parentCtx context.Context) (string, string) {
+	status := "completed"
+	var errMsg string
+	if execErr != nil {
+		// Treat context cancellation and deadline as cancellations, not failures
+		if errors.Is(execErr, context.Canceled) || errors.Is(execErr, context.DeadlineExceeded) || parentCtx.Err() == context.Canceled {
+			status = "canceled"
+		} else {
+			status = "failed"
+			errMsg = execErr.Error()
+		}
+	} else if parentCtx.Err() == context.Canceled {
+		status = "canceled"
+	}
+	return status, errMsg
+}
+
+// toolExecContext returns a bounded context for tool execution. It uses AGENTLY_TOOLCALL_TIMEOUT
+// environment variable when set (e.g., "45s", "2m"), otherwise defaults to 60s.
+func toolExecContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	const defaultTimeout = 60 * time.Second
+	if v := strings.TrimSpace(os.Getenv("AGENTLY_TOOLCALL_TIMEOUT")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return context.WithTimeout(ctx, d)
+		}
+	}
+	return context.WithTimeout(ctx, defaultTimeout)
 }
 
 // persistRequestPayload stores tool request arguments and links them to the tool call.
