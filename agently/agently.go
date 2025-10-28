@@ -15,6 +15,11 @@ import (
 var Version = "dev"
 
 func main() {
+	//os.Setenv("AGENTLY_DB_DRIVER", "mysql")
+	//os.Setenv("AGENTLY_DB_DSN", "root:dev@tcp(127.0.0.1:3307)/forecaster?parseTime=true")
+	os.Setenv("AGENTLY_ROOT", "/Users/awitas/go/src/github.vianttech.com/viant/mcp_agently/runtime/polaris")
+	os.Args = []string{"", "serve", "-a", ":8088"}
+
 	// Expose version to the CLI layer so `-v/--version` can print it.
 	agently.SetVersion(Version)
 	agently.RunWithCommands(os.Args[1:])
