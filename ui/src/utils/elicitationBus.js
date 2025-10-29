@@ -2,6 +2,7 @@
 // immediate re-open on fast polling updates. Not persisted.
 
 const store = new Map(); // id -> expiresAt (ms since epoch)
+const storeByEid = new Map(); // elicitationId -> expiresAt
 
 function now() { return Date.now(); }
 
@@ -31,3 +32,16 @@ export function clearElicitation(id) {
   store.delete(String(id));
 }
 
+export function markElicitationResolvedByEid(elicitationId, ttlMs = 10000) {
+  if (!elicitationId) return;
+  cleanup();
+  const t = now() + Math.max(0, Number(ttlMs) || 0);
+  storeByEid.set(String(elicitationId), t);
+}
+
+export function isElicitationEidSuppressed(elicitationId) {
+  if (!elicitationId) return false;
+  cleanup();
+  const exp = storeByEid.get(String(elicitationId));
+  return typeof exp === 'number' && exp > now();
+}

@@ -88,8 +88,20 @@ export function classifyMessage(message) {
     // renderer and therefore disappear from the visible chat once the user
     // has responded and the backend marked them as done/declined.
 
-    if (message.role === 'elicition' && message.status === 'open') {
+    // Consider forms with an already captured user payload as resolved
+    const hasUED = !!(message?.UserElicitationData || message?.userElicitationData || (message?.userData));
+    const hasPayloadId = !!(message?.elicitationPayloadId || message?.ElicitationPayloadId);
+    const stLower = String(message.status || '').toLowerCase();
+    const isResolved = hasUED || hasPayloadId || ['accepted','done','succeeded','success','failed','error','canceled'].includes(stLower);
+
+    if (message.role === 'elicition' && (message.status === 'open' || message.status === 'pending') && !isResolved) {
+        // debug log removed
         return 'elicition';
+    }
+
+    // Debug why an elicitation row did not mount
+    if (message.role === 'elicition') {
+        // debug log removed
     }
 
     if (message.role === 'mcpuserinteraction' && message.status === 'open') {
@@ -110,7 +122,15 @@ export function classifyMessage(message) {
     // Prefer modal ElicitionForm when callbackURL is provided; accept both 'open' and 'pending' status as active.
     if (message.elicitation?.requestedSchema && typeof message.callbackURL === 'string' && message.callbackURL) {
         const st = String(message.status || '').toLowerCase();
-        if (st === 'open' || st === 'pending') return 'elicition';
+        if (!isResolved && (st === 'open' || st === 'pending')) {
+            try {
+                const dbg = (localStorage.getItem('agently_debug_exec') || '').toLowerCase();
+                if (dbg === '1' || dbg === 'true') {
+                // debug log removed
+                }
+            } catch(_) {}
+            return 'elicition';
+        }
     }
     // Fallback to inline form when elicitation present without a callback URL.
     if (message.elicitation?.requestedSchema) return 'form';
@@ -209,6 +229,15 @@ export function normalizeMessages(raw = []) {
                 }
             }
         }
+
+        // If the backend included user elicitation data on this message, treat it as resolved.
+        try {
+            const ued = copy.UserElicitationData || copy.userElicitationData;
+            if (ued && (ued.InlineBody !== undefined || ued.inlineBody !== undefined)) {
+                const cur = String(copy.status || '').toLowerCase();
+                if (cur === 'open' || cur === 'pending' || cur === '') copy.status = 'accepted';
+            }
+        } catch(_) {}
 
         out.push(copy);
     }

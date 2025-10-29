@@ -10,9 +10,8 @@ try {
     },
   });
   // eslint-disable-next-line no-console
-  console.debug('[agently] radioPatchRegister installed');
+  
 } catch (e) {
   // eslint-disable-next-line no-console
   console.error('[agently] radioPatchRegister failed', e);
 }
-

@@ -193,8 +193,16 @@ async function dsTick({context}) {
         const convCtx = context.Context('conversations');
         const convID = convCtx?.handlers?.dataSource?.peekFormData?.()?.id;
         if (!convID) {
-            const msgContext = context.Context('messages');
-            msgContext.signals.collection.value = []
+            // No active conversation: don’t wipe the messages collection repeatedly
+            // (it interferes with history rendering). Just ensure loading is off.
+            try {
+                const msgCtx = context.Context('messages');
+                const ctrlSig = msgCtx?.signals?.control;
+                if (ctrlSig) {
+                    const prev = (typeof ctrlSig.peek === 'function') ? (ctrlSig.peek() || {}) : (ctrlSig.value || {});
+                    if (prev.loading) ctrlSig.value = { ...prev, loading: false };
+                }
+            } catch(_) {}
             return;
         }
         const messagesCtx = context.Context('messages');
@@ -241,9 +249,27 @@ async function dsTick({context}) {
             const transcript = Array.isArray(conv?.transcript) ? conv.transcript
                 : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
             const rows = mapTranscriptToRowsWithExecutions(transcript);
+            // Optional debug: log current turn + step status histogram
+            try {
+                // removed debug summary
+            } catch(_) {}
             if (rows.length) {
                 receiveMessages(messagesCtx, rows, since);
             }
+            // Safety release: if DS still loading but no active steps, force unlock
+            try {
+                const execRow = rows.find(r => typeof r?.id === 'string' && r.id.endsWith('/execution'));
+                const steps = execRow?.executions?.[0]?.steps || [];
+                const anyActive = hasActiveSteps(steps);
+                const ctrlSig = messagesCtx?.signals?.control;
+                if (ctrlSig) {
+                    const prev = (typeof ctrlSig.peek === 'function') ? (ctrlSig.peek() || {}) : (ctrlSig.value || {});
+                    if (prev.loading && !anyActive) {
+                        // removed debug unlock log
+                        ctrlSig.value = { ...prev, loading: false };
+                    }
+                }
+            } catch(_) {}
             // Expose usage tokens via a lightweight Usage DS form
             try {
                 const usage = conv?.Usage || conv?.usage || {
@@ -423,6 +449,9 @@ function buildToolStepFromToolCall(tc) {
         responsePayloadId: tc.responsePayloadId || tc.ResponsePayloadId,
         providerRequestPayloadId: null,
         providerResponsePayloadId: null,
+        // Elicitation correlation (OOB accept): bubble through IDs when present
+        elicitationId: tc.elicitationId || tc.ElicitationId,
+        elicitationPayloadId: tc.elicitationPayloadId || tc.ElicitationPayloadId,
     };
 }
 
@@ -438,6 +467,7 @@ function computeElapsed(step) {
 
 function mapTranscriptToRowsWithExecutions(transcript = []) {
     const rows = [];
+    const dbgOn = true;
     // Determine the very last message id to decide whether to suppress the inline
     // elicitation step (last message should open the form dialog instead of a step).
     let globalLastMsgId = '';
@@ -498,7 +528,9 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const mc = m?.modelCall || m?.ModelCall;
             const tc = m?.toolCall || m?.ToolCall;
             const s1 = buildThinkingStepFromModelCall(mc);
+            if (s1) { /* debug log removed */ }
             const s2 = buildToolStepFromToolCall(tc);
+            if (s2) { /* debug log removed */ }
             // Elicitation step – include except when it is the last message and still pending
             let s3 = null;
             const roleLower2 = String(m.role || m.Role || '').toLowerCase();
@@ -513,20 +545,32 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                     if (maybe && typeof maybe === 'object' && (maybe.requestedSchema || maybe.elicitationId)) {
                         elic = maybe;
                     }
-                } catch (_) {
+                } catch (_) {}
+                // Fallback: some tool control messages carry fields on the envelope but empty content
+                if (!elic && (m.elicitationId || m.ElicitationId)) {
+                    elic = {
+                        elicitationId: (m.elicitationId || m.ElicitationId),
+                        message: (m.message || m.Message || ''),
+                        requestedSchema: (m.requestedSchema || m.RequestedSchema || {}),
+                        url: (m.url || m.URL || ''),
+                        mode: (m.mode || m.Mode || ''),
+                        callbackURL: (m.callbackURL || m.CallbackURL || ''),
+                    };
+                    // debug log removed
                 }
                 if (elic) {
                     const created = m?.createdAt || m?.CreatedAt;
                     const updated = m?.updatedAt || m?.UpdatedAt || created;
                     const isLast = (m.id || m.Id) === globalLastMsgId;
-                    // For assistant: include unless it is last AND pending; for tool: include always (step timeline)
-                    const includeNow = (roleLower2 === 'assistant') ? (!isLast || (status2 && status2 !== 'pending')) : true;
+                    // Decouple execution details from dialog rendering: always include elicitation step
+                    // so the timeline reflects pending/accepted/rejected regardless of dialog state.
+                    const includeNow = true;
                     if (includeNow) {
                         s3 = {
                             id: (m.id || m.Id || '') + '/elicitation',
                             name: 'elicitation',
                             reason: 'elicitation',
-                            successBool: status2 === 'accepted',
+                            successBool: (status2 === 'accepted'),
                             statusText: status2 || 'pending',
                             originRole: roleLower2,
                             startedAt: created,
@@ -534,9 +578,9 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                             responsePayloadId: payloadId,
                             elicitationPayloadId: payloadId,
                             elicitation: {
-                                message: elic.message || elic.prompt,
-                                requestedSchema: elic.requestedSchema,
-                                url: elic.url,
+                                message: elic.message || elic.prompt || '',
+                                requestedSchema: elic.requestedSchema || {},
+                                url: elic.url || '',
                                 callbackURL: elic.callbackURL || (m.callbackURL || m.CallbackURL),
                                 elicitationId: elic.elicitationId || elic.ElicitationId,
                             },
@@ -550,9 +594,18 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                                 } catch (_) {
                                     s3.userData = udataRaw;
                                 }
+                                // If user data is present, treat this elicitation as accepted
+                                s3.successBool = true;
+                                s3.statusText = 'accepted';
                             }
                         } catch (_) {
                         }
+                        // If server provided a payload id, consider it accepted for table rendering
+                        if (payloadId && !s3.successBool) {
+                            s3.successBool = true;
+                            s3.statusText = 'accepted';
+                        }
+                        // debug log removed
                         lastElicitationStep = s3;
                         recentElicitationStep = s3;
                     }
@@ -605,6 +658,38 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             }
         }
 
+        // 1b) OOB elicitation acceptance reconciliation
+        // If a tool call reports accepted elicitation (with payload id), update the
+        // corresponding elicitation step status/payload so UI reflects acceptance.
+        try {
+            // Map last elicitation step per elicitationId
+            const lastElicById = new Map();
+            for (let i = 0; i < steps.length; i++) {
+                const s = steps[i];
+                if (s && s.reason === 'elicitation') {
+                    const eid = s?.elicitation?.elicitationId;
+                    if (eid) lastElicById.set(String(eid), s);
+                }
+            }
+            // Walk tool calls for accepted status carrying elicitation linkage
+            for (const s of steps) {
+                if (!s || s.reason !== 'tool_call') continue;
+                const st = String(s.statusText || '').toLowerCase();
+                const eid = s.elicitationId || s.ElicitationId;
+                const pid = s.elicitationPayloadId || s.ElicitationPayloadId;
+                if (!eid) continue;
+                if (st === 'accepted' || st === 'done' || st === 'succeeded' || s.success === true) {
+                    const target = lastElicById.get(String(eid));
+                    if (target) {
+                        target.statusText = 'accepted';
+                        target.successBool = true;
+                        if (pid && !target.elicitationPayloadId) target.elicitationPayloadId = pid;
+                    }
+                }
+            }
+        } catch (_) {
+        }
+
         // Sort steps by timestamp (prefer startedAt, fallback endedAt)
         steps.sort((a, b) => {
             const ta = a?.startedAt || a?.endedAt || '';
@@ -613,6 +698,41 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const db = tb ? new Date(tb).getTime() : 0;
             return da - db;
         });
+
+        // Collapse duplicate elicitation steps by elicitationId – keep the latest state
+        try {
+            const byEid = new Map(); // eid -> index of last occurrence
+            for (let i = 0; i < steps.length; i++) {
+                const s = steps[i];
+                if (!s || String(s.reason||'').toLowerCase() !== 'elicitation') continue;
+                const eid = s?.elicitation?.elicitationId;
+                if (!eid) continue;
+                byEid.set(String(eid), i);
+            }
+            if (byEid.size > 0) {
+                const keep = new Set(byEid.values());
+                const collapsed = [];
+                for (let i = 0; i < steps.length; i++) {
+                    const s = steps[i];
+                    if (String(s?.reason||'').toLowerCase() !== 'elicitation') {
+                        collapsed.push(s);
+                        continue;
+                    }
+                    const eid = s?.elicitation?.elicitationId;
+                    if (!eid) { collapsed.push(s); continue; }
+                    if (keep.has(i)) {
+                        // If the kept one has no terminal status but any later tool acceptance exists, it will have been reconciled above
+                        collapsed.push(s);
+                    }
+                }
+                steps.splice(0, steps.length, ...collapsed);
+            }
+        } catch(_) {}
+
+        // Optional debug trace per turn
+        try {
+            // removed per-turn debug log
+        } catch(_) {}
 
         // Keep error rendering in the table footer (ExecutionDetails) rather than as a step.
 
@@ -633,6 +753,8 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                     const target = lastElicitationStep || recentElicitationStep;
                     if (maybe && target && !target.userData) {
                         target.userData = maybe;
+                        // Treat presence of user data as acceptance for execution status
+                        try { target.statusText = 'accepted'; target.successBool = true; } catch(_) {}
                         try {
                             target.replyMessageId = m.id || m.Id;
                         } catch (_) {
@@ -699,6 +821,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                     // Other roles: do not mount as dialog
                     continue;
                 }
+                // No localStorage-based suppression; polling is temporarily paused while the dialog is open
             }
             // Assistant elicitation carried in a text message (non-control):
             // show only when last+pending; otherwise suppress bubble/modal entirely (execution-only).
@@ -710,16 +833,19 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             }
             // Suppress repeat mounts for the same elicitation id briefly to avoid flicker on fast polls
             const thisId = m.id || m.Id;
-            if ((isControlElicitation || (roleLower === 'assistant' && !!elic)) && isElicitationSuppressed(thisId)) {
-                continue;
+            if (isControlElicitation || (roleLower === 'assistant' && !!elic)) {
+                if (isElicitationSuppressed(thisId)) {
+                    continue;
+                }
             }
 
             // Row usage derived from model call only when attached to this row later; leave null here.
+            const rowRole = (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? 'elicition' : roleLower;
             const row = {
                 id,
                 conversationId: m.conversationId || m.ConversationId,
                 // For any elicitation row we allow (assistant last+pending or tool pending), force synthetic role.
-                role: (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? 'elicition' : roleLower,
+                role: rowRole,
                 name: (m.createdByUserId || m.CreatedByUserId || ''),
                 // Do not show any bubble content for elicitation rows; dialog carries the UI.
                 content: (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? '' : (m.content || m.Content || ''),
@@ -729,12 +855,14 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 parentId: turnIdRef,
                 executions: [],
                 usage: null,
-                // Normalize to "open" for elicitation so the dialog renderer reliably mounts
-                status: (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? 'open' : status,
+                // Preserve normalized backend status so accepted/failed states do not remount dialogs
+                status: String(status).toLowerCase(),
                 elicitation: elic,
                 callbackURL,
             };
-            turnRows.push(row);
+            if (rowRole !== 'elicition') {
+                turnRows.push(row);
+            }
             // Mark as shown so immediate re-fetch does not re-open the dialog right away
             if (row.role === 'elicition') {
                 try {
@@ -766,6 +894,20 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 isLastTurn,
             };
             // Build separate rows but delay pushing until we reorder the turn display
+            // Compute execution signature (used to ensure publish on meaningful changes)
+            const execSignature = (() => {
+                try {
+                    const parts = (steps||[]).map(s => {
+                        const r = String(s?.reason||'');
+                        const st = String(s?.statusText||'').toLowerCase();
+                        const eid = s?.elicitation?.elicitationId || '';
+                        const mid = s?.id || '';
+                        return `${r}:${st}:${eid}:${mid}`;
+                    });
+                    return parts.join('|');
+                } catch(_) { return ''; }
+            })();
+
             const execRow = {
                 id: `${turnId}/execution`,
                 conversationId: turn?.conversationId || turn?.ConversationId,
@@ -776,6 +918,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 parentId: turnId,
                 status: turnStatus,
                 executions: [{steps}],
+                _execSignature: execSignature,
                 turnStatus,
                 turnError,
                 turnCreatedAt,
@@ -797,7 +940,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 isLastTurn,
             } : null;
 
-            // Reorder within turn: user → execution → tool feed → others (assistant/elicition)
+            // Reorder within turn: user → execution → tool feed → elicitation dialogs → others
             const userRows = turnRows.filter(r => r && r.role === 'user');
             const otherRows = turnRows.filter(r => !userRows.includes(r));
             // Push user rows first (usually one)
@@ -806,14 +949,95 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             rows.push(execRow);
             // Then tool feed (if any)
             if (toolRow) rows.push(toolRow);
-            // Finally the remaining rows (assistant/elicition/etc)
-            for (const r of otherRows) rows.push(r);
+            // Then elicitation dialog rows derived solely from message content (independent of execution)
+            try {
+                const dlg = buildElicitationDialogRows(messages, turnId, (turn?.conversationId || turn?.ConversationId), globalLastMsgId);
+                for (const r of dlg) {
+                    try { markElicitationShown(r.id, 2500); } catch(_) {}
+                    rows.push(r);
+                }
+            } catch(_) {}
+            // Finally the remaining non-dialog rows (assistant/etc)
+            for (const r of otherRows) {
+                if (r?.role === 'elicition') continue; // skip; dialogs added above
+                rows.push(r);
+            }
             // Continue to error bubble handling below if applicable
             continue;
         }
 
-        // No execution steps – just push turn rows as-is
+        // 3b) If we have steps but no visible base rows, still render execution + dialogs
+        if (steps.length && !turnRows.length) {
+            // Build execution row for this turn
+            const execSignature = (() => {
+                try {
+                    const parts = (steps||[]).map(s => {
+                        const r = String(s?.reason||'');
+                        const st = String(s?.statusText||'').toLowerCase();
+                        const eid = s?.elicitation?.elicitationId || '';
+                        const mid = s?.id || '';
+                        return `${r}:${st}:${eid}:${mid}`;
+                    });
+                    return parts.join('|');
+                } catch(_) { return ''; }
+            })();
+
+            const execRow = {
+                id: `${turnId}/execution`,
+                conversationId: turn?.conversationId || turn?.ConversationId,
+                role: 'execution',
+                content: '',
+                createdAt: toISOSafe(turn?.createdAt || turn?.CreatedAt),
+                turnId: turnId,
+                parentId: turnId,
+                status: turnStatus,
+                executions: [{steps}],
+                _execSignature: execSignature,
+                turnStatus,
+                turnError,
+                turnCreatedAt,
+                turnUpdatedAt,
+                turnElapsedSec,
+                isLastTurn,
+            };
+            rows.push(execRow);
+            // Tool feed (if any)
+            const toolExec = Array.isArray(turn?.ToolExecution) ? turn.ToolExecution
+                : Array.isArray(turn?.toolExecution) ? turn.toolExecution
+                    : Array.isArray(turn?.ToolFeed) ? turn.ToolFeed
+                        : Array.isArray(turn?.toolFeed) ? turn.toolFeed : [];
+            const toolRow = (Array.isArray(toolExec) && toolExec.length > 0 && turnId) ? {
+                id: `${turnId}/toolfeed`,
+                conversationId: turn?.conversationId || turn?.ConversationId,
+                role: 'tool',
+                content: '',
+                createdAt: toISOSafe(turn?.createdAt || turn?.CreatedAt),
+                turnId: turnId,
+                parentId: turnId,
+                status: 'succeeded',
+                toolExecutions: toolExec,
+                toolFeed: true,
+                isLastTurn,
+            } : null;
+            if (toolRow) rows.push(toolRow);
+            // Dialog rows
+            try {
+                const dlg = buildElicitationDialogRows(messages, turnId, (turn?.conversationId || turn?.ConversationId), globalLastMsgId);
+                for (const r of dlg) { try { markElicitationShown(r.id, 2500); } catch(_) {}; rows.push(r); }
+            } catch(_) {}
+            // Skip to next turn
+            continue;
+        }
+
+        // No execution steps – push rows as-is, then any dialog rows based on message content
         for (const r of turnRows) rows.push(r);
+        try {
+            const dlg = buildElicitationDialogRows(messages, turnId, (turn?.conversationId || turn?.ConversationId), globalLastMsgId);
+            for (const r of dlg) {
+                try { markElicitationShown(r.id, 2500); } catch(_) {}
+                rows.push(r);
+            }
+        } catch(_) {}
 
         // Separate ToolFeed row is pushed above.
 
@@ -834,6 +1058,154 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
         }
     }
     return rows;
+}
+
+// -------------------------------- Elicitation dialog builder --------------------------------
+
+function safeParseJSON(s) {
+    try { return JSON.parse(s ?? ''); } catch { return null; }
+}
+
+function isTerminalDialogStatus(st) {
+    const v = String(st || '').toLowerCase();
+    return ['accepted','done','succeeded','success','rejected','declined','failed','error','canceled'].includes(v);
+}
+
+function normalizeDialogStatus(st) {
+    const v = String(st || '').toLowerCase();
+    if (!v || v === 'open') return 'pending';
+    return v;
+}
+
+// Determines if the dialog represented by message should be considered already resolved
+function hasResolvedElicitation(message) {
+    try {
+        const ued = message?.UserElicitationData || message?.userElicitationData;
+        const hasUED = !!(ued && (ued.InlineBody !== undefined || ued.inlineBody !== undefined));
+        const hasPayload = !!(message?.elicitationPayloadId || message?.ElicitationPayloadId || message?.payloadId || message?.PayloadId);
+        const st = String(message?.status || message?.Status || '').toLowerCase();
+        return hasUED || hasPayload || isTerminalDialogStatus(st);
+    } catch(_) { return false; }
+}
+
+// Extracts elicitation data from assorted message shapes. Returns null when none/rejected to mount.
+function extractElicitation(message) {
+    const dbgOn = true;
+    const mid = message?.id || message?.Id;
+    const roleLower = String(message?.role || message?.Role || '').toLowerCase();
+    const typeLower = String(message?.type || message?.Type || '').toLowerCase();
+    const statusRaw = message?.status || message?.Status || '';
+    const status = normalizeDialogStatus(statusRaw);
+    const createdAt = message?.createdAt || message?.CreatedAt;
+    const updatedAt = message?.updatedAt || message?.UpdatedAt || createdAt;
+
+    // Fast exit: if clearly resolved, don’t build dialog
+    if (hasResolvedElicitation(message)) {
+        // debug log removed
+        return null;
+    }
+
+    // Sources for elicitation info
+    let obj = null;
+    // 1) direct field (tool/assistant already pre-parsed upstream sometimes)
+    if (message?.elicitation || message?.Elicitation) {
+        const e = message.elicitation || message.Elicitation;
+        if (e && (e.requestedSchema || e.elicitationId)) obj = e;
+    }
+    // 2) content JSON
+    if (!obj && (message?.content || message?.Content)) {
+        const maybe = typeof (message.content || message.Content) === 'string'
+            ? safeParseJSON(message.content || message.Content)
+            : (message.content || message.Content);
+        if (maybe && typeof maybe === 'object' && (maybe.requestedSchema || maybe.elicitationId)) {
+            obj = maybe;
+        }
+    }
+    // 3) envelope fields (control messages or assistant with empty content)
+    if (!obj && (message?.elicitationId || message?.ElicitationId)) {
+        obj = {
+            elicitationId: (message.elicitationId || message.ElicitationId),
+            message: (message.message || message.Message || ''),
+            requestedSchema: (message.requestedSchema || message.RequestedSchema || {}),
+            url: (message.url || message.URL || ''),
+            callbackURL: (message.callbackURL || message.CallbackURL || ''),
+        };
+    }
+
+    const callbackURL = obj?.callbackURL || message?.callbackURL || message?.CallbackURL || '';
+    const elicitationId = obj?.elicitationId || obj?.ElicitationId;
+    const requestedSchema = obj?.requestedSchema || {};
+    const prompt = obj?.message || obj?.prompt || '';
+
+    const hasCore = !!elicitationId && !!requestedSchema;
+    if (!obj || !hasCore) {
+        // debug log removed
+        return null;
+    }
+
+    // Only allow when pending/open
+    if (!(status === 'pending' || status === 'open')) {
+        // debug log removed
+        return null;
+    }
+
+    // debug log removed
+
+    return {
+        id: mid,
+        role: 'elicition',
+        content: '',
+        createdAt,
+        updatedAt,
+        status: status,
+        elicitation: { requestedSchema, message: prompt, elicitationId },
+        callbackURL,
+        turnId: message?.turnId || message?.TurnId,
+        parentId: message?.turnId || message?.TurnId,
+        conversationId: message?.conversationId || message?.ConversationId,
+    };
+}
+
+// Build a list of dialog rows for a turn, collapsing duplicates by elicitationId (latest wins)
+function buildElicitationDialogRows(messages = [], turnIdHint = '', convIdHint = '', lastMsgId = '') {
+    const dbgOn = true;
+    const byEid = new Map();
+    const byEidOrder = [];
+    for (const m of (Array.isArray(messages) ? messages : [])) {
+        const mid = m?.id || m?.Id;
+        const ex = extractElicitation(m);
+        if (!ex) continue;
+        // Ensure structural fields present even when message lacks turn/conversation ids
+        if (!ex.turnId && turnIdHint) ex.turnId = turnIdHint;
+        if (!ex.parentId && turnIdHint) ex.parentId = turnIdHint;
+        if (!ex.conversationId && convIdHint) ex.conversationId = convIdHint;
+
+        // Collapse by elicitationId
+        const eid = ex?.elicitation?.elicitationId || `m:${mid}`;
+        if (!byEid.has(eid)) byEidOrder.push(eid);
+        byEid.set(eid, ex); // overwrite => latest wins
+    }
+    const out = byEidOrder.map(eid => byEid.get(eid)).filter(Boolean);
+    // debug log removed
+    return out;
+}
+
+// Detect if any step remains active
+export function hasActiveSteps(steps) {
+    try {
+        const arr = Array.isArray(steps) ? steps : [];
+        for (const s of arr) {
+            const reason = String(s?.reason || '').toLowerCase();
+            if (!reason || reason === 'error' || reason === 'link') continue;
+            const st = String(s?.statusText || '').toLowerCase();
+            if (st === '' || st === 'pending' || st === 'open' || st === 'running' || st === 'processing' || (typeof s.successBool === 'boolean' && s.successBool === false)) {
+                return true;
+            }
+        }
+        return false;
+    } catch(_) {
+        return false;
+    }
 }
 
 // // ---------------------------------------------------------------------------
@@ -1030,23 +1402,74 @@ export function onFetchMessages(props) {
         const {collection, context} = props || {};
         const transcript = Array.isArray(collection) ? collection : [];
         const built = mapTranscriptToRowsWithExecutions(transcript);
-
-        // Append-only merge with existing DS rows
+        // Merge with the current DS state to avoid regressing execution steps
+        // when the fetch snapshot lags behind dsTick’s merge.
         let prev = [];
         try {
             const msgCtx = context?.Context?.('messages');
-            prev = Array.isArray(msgCtx?.signals?.collection?.peek?.()) ? msgCtx.signals.collection.peek() : [];
-        } catch (_) {
+            prev = Array.isArray(msgCtx?.signals?.collection?.peek?.()) ? (msgCtx.signals.collection.peek() || []) : [];
+        } catch(_) {}
+
+        const dbgOn = (() => { try { const v = (localStorage.getItem('agently_debug_exec')||'').toLowerCase(); return v==='1'||v==='true'; } catch(_) { return false; } })();
+        const byIdPrev = new Map((prev||[]).map(r => [r?.id, r]).filter(([k,v]) => !!k && !!v));
+        const byIdBuilt = new Map((built||[]).map(r => [r?.id, r]).filter(([k,v]) => !!k && !!v));
+        // debug log removed
+
+        const merged = [];
+        const allIds = Array.from(new Set([...(prev||[]).map(r=>r?.id), ...(built||[]).map(r=>r?.id)])).filter(Boolean);
+
+        function pickExecutionRow(oldRow, newRow) {
+            if (!oldRow && newRow) return newRow;
+            if (oldRow && !newRow) return oldRow;
+            try {
+                const pSig = String(oldRow?._execSignature || '');
+                const nSig = String(newRow?._execSignature || '');
+                if (pSig !== nSig) { return newRow; }
+            } catch(_) {}
+            try {
+                const pSteps = oldRow?.executions?.[0]?.steps || [];
+                const nSteps = newRow?.executions?.[0]?.steps || [];
+                const pE = pSteps.filter(s=>String(s?.reason||'').toLowerCase()==='elicitation');
+                const nE = nSteps.filter(s=>String(s?.reason||'').toLowerCase()==='elicitation');
+                const term = (st) => {
+                    const s = String(st||'').toLowerCase();
+                    if (['accepted','done','succeeded','success'].includes(s)) return 3;
+                    if (['rejected','declined'].includes(s)) return 2;
+                    if (['error','failed','canceled'].includes(s)) return 1;
+                    return 0; // pending/open/unknown
+                };
+                const score = (arr) => arr.reduce((m,s)=>Math.max(m, term(s?.statusText)), 0);
+                const pScore = score(pE);
+                const nScore = score(nE);
+                // Prefer the row with a more terminal elicitation status; tie-break on step count
+                if (pScore > nScore) return oldRow;
+                if (nScore > pScore) return newRow;
+                if (nSteps.length > pSteps.length) return newRow;
+                // Prefer the row with newer turnUpdatedAt/createdAt timestamps as a final tie-breaker
+                const pTs = new Date(newRow?.turnUpdatedAt || newRow?.createdAt || 0).getTime();
+                const oTs = new Date(oldRow?.turnUpdatedAt || oldRow?.createdAt || 0).getTime();
+                if (pTs > oTs) return newRow;
+                return oldRow;
+            } catch(_) {
+                return newRow || oldRow;
+            }
         }
-        // Purge legacy toolfeed rows now that ToolFeed renders inline under ExecutionBubble
-        // Keep dedicated ToolFeed rows; do not purge
-        const seen = new Set((prev || []).map(r => r && r.id).filter(Boolean));
-        const merged = [...prev];
-        for (const r of built) {
-            if (!r || !r.id || seen.has(r.id)) continue;
-            seen.add(r.id);
-            merged.push(r);
+
+        for (const id of allIds) {
+            const oldRow = byIdPrev.get(id);
+            const newRow = byIdBuilt.get(id);
+            if (!oldRow && newRow) { merged.push(newRow); continue; }
+            if (oldRow && !newRow) { merged.push(oldRow); continue; }
+            if (String(id||'').endsWith('/execution')) {
+                const picked = pickExecutionRow(oldRow, newRow);
+                // debug log removed
+                merged.push(picked);
+            } else {
+                // For non-execution rows, prefer built snapshot to keep ordering and text fresh
+                merged.push(newRow || oldRow);
+            }
         }
+
         return merged;
     } catch (_) {
         return [];
@@ -1086,16 +1509,7 @@ export function saveSettings(args) {
     } = source
 
 
-    console.debug('[settings.saveSettings] form snapshot', {
-        source,
-        agent,
-        model,
-        tool,
-        toolCallExposure,
-        autoSummarize,
-        chainsEnabled,
-        allowedChains
-    });
+    // removed debug snapshot log
     // Avoid updating conversations DS here (would invoke hooks). Preferences are persisted below.
     setExecutionDetailsEnabled(!!showExecutionDetails);
     setToolFeedEnabled(!!showToolFeed);
@@ -1242,7 +1656,7 @@ export async function submitMessage(props) {
 
         const convCtx = context.Context('conversations');
         convCtx?.handlers?.dataSource?.setFormField?.({item: {id: 'running'}, value: true});
-        console.debug('[chat][submit] conversations.running=true');
+        // removed debug log
 
         // Post user message
         const postResp = await messagesAPI.post({
@@ -1571,7 +1985,16 @@ function mergeMessages(messagesContext, incoming) {
             if (Array.isArray(updated.execution)) {
                 updated.execution = [...updated.execution];
             }
-            if (!deepEqualShallow(prev, updated)) {
+            // Force publish when execution steps signature changes
+            const isExec = typeof updated?.id === 'string' && updated.id.endsWith('/execution');
+            const prevSig = isExec ? String(prev?._execSignature || '') : '';
+            const nextSig = isExec ? String(updated?._execSignature || '') : '';
+            if (isExec && prevSig !== nextSig) {
+                // debug log removed
+                current[idx] = updated;
+                changed = true;
+            } else if (!deepEqualShallow(prev, updated)) {
+                // debug log removed
                 current[idx] = updated;
                 changed = true;
             }
@@ -1692,6 +2115,7 @@ export function receiveMessages(messagesContext, data, sinceId = '') {
     try {
         const hideIds = new Set();
         const resolvedElicitationBaseIds = new Set();
+        const acceptedElicitationIds = new Set(); // correlate across different message ids
         for (const r of (data || [])) {
             const exes = Array.isArray(r?.executions) ? r.executions : [];
             for (const ex of exes) {
@@ -1707,11 +2131,15 @@ export function receiveMessages(messagesContext, data, sinceId = '') {
                         if (accepted && typeof s.id === 'string' && s.id.endsWith('/elicitation')) {
                             resolvedElicitationBaseIds.add(s.id.slice(0, -('/elicitation'.length)));
                         }
+                        try {
+                            const eid = s?.elicitation?.elicitationId;
+                            if (accepted && eid) acceptedElicitationIds.add(String(eid));
+                        } catch(_) {}
                     }
                 }
             }
         }
-        if (hideIds.size > 0 || resolvedElicitationBaseIds.size > 0) {
+        if (hideIds.size > 0 || resolvedElicitationBaseIds.size > 0 || acceptedElicitationIds.size > 0) {
             const collSig = messagesContext?.signals?.collection;
             if (collSig && Array.isArray(collSig.value)) {
                 const before = collSig.value.length;
@@ -1721,6 +2149,11 @@ export function receiveMessages(messagesContext, data, sinceId = '') {
                     if (hideIds.has(id)) return false;
                     // Drop stale elicitation dialog rows when an accepted step for the same message id was observed
                     if ((row?.role === 'elicition') && resolvedElicitationBaseIds.has(id)) return false;
+                    // Also drop by elicitationId correlation across assistant/tool control messages
+                    try {
+                        const eid = row?.elicitation?.elicitationId;
+                        if (row?.role === 'elicition' && eid && acceptedElicitationIds.has(String(eid))) return false;
+                    } catch(_) {}
                     return true;
                 });
                 const after = collSig.value.length;
@@ -1730,6 +2163,7 @@ export function receiveMessages(messagesContext, data, sinceId = '') {
                         removedTypes: {
                             replies: hideIds.size,
                             resolvedElicitations: resolvedElicitationBaseIds.size,
+                            resolvedByEid: acceptedElicitationIds.size,
                         }
                     });
                 } catch (_) {
