@@ -24,6 +24,7 @@ import (
 	"github.com/viant/agently/genai/tool"
 	auth "github.com/viant/agently/internal/auth"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
+	"github.com/viant/agently/shared"
 )
 
 //go:embed free_token_prompt.md
@@ -239,7 +240,7 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 					}
 				}
 				argStr, _ := json.Marshal(args)
-				ap := runeTruncate(string(argStr), previewLen)
+				ap := shared.RuneTruncate(string(argStr), previewLen)
 				body := ""
 				if m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
 					body = *m.ToolCall.ResponsePayload.InlineBody
@@ -251,7 +252,7 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 				if m.Content != nil {
 					body = *m.Content
 				}
-				pv := runeTruncate(body, previewLen)
+				pv := shared.RuneTruncate(body, previewLen)
 				sz := len(body)
 				line = fmt.Sprintf("messageId: %s, type: %s, preview: \"%s\", size: %d bytes (~%d tokens)", m.Id, role, pv, sz, estimateTokens(body))
 			} else {
@@ -263,21 +264,7 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 	return out
 }
 
-// runeTruncate safely truncates a UTF-8 string to at most n runes without
-// splitting a multi-byte character. When n <= 0 it returns an empty string.
-func runeTruncate(s string, n int) string {
-	if n <= 0 || s == "" {
-		return ""
-	}
-	i := 0
-	for idx := range s { // idx iterates over valid rune boundaries
-		if i == n {
-			return s[:idx]
-		}
-		i++
-	}
-	return s
-}
+// UTF-8 truncation is provided by shared.RuneTruncate
 
 // autoCompactToFitPresentation archives oldest messages to free at least neededTokens, excluding the last user message.
 // It inserts a short assistant summary per removed message to retain context.
