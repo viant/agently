@@ -25,6 +25,7 @@ const COLUMNS_BASE = [
     { id: "actor",   name: "Actor",     width: 100 },
     { id: "content", name: "Content",   flex: 8 },
     { id: "chain",   name: "Thread",    width: 80, type: 'button', cellProperties: { text: 'Open', minimal: true, small: true }, on: [ { event: "onClick", handler: "exec.openLinkedConversation" }, { event: 'onVisible', handler: 'exec.isLinkRow' } ] },
+    { id: "oobOpen", name: "",          width: 66, type: 'button', cellProperties: { text: 'open', minimal: true, small: true }, on: [ { event: 'onClick', handler: 'exec.openOOB' }, { event: 'onVisible', handler: 'exec.isElicitationWithURL' } ] },
     { id: "status",  name: "Status",    width: 50 },
     { id: "elapsed", name: "Time",      width: 50 },
     {
@@ -120,6 +121,28 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
                 };
             case "exec.isLinkRow":
                 return ({ row }) => !!(row && row._reason === 'link' && row._linkedConversationId);
+            case "exec.isElicitationWithURL":
+                return ({ row }) => {
+                    try {
+                        return String(row?._reason || '').toLowerCase() === 'elicitation' && !!(row?._elicitation?.url);
+                    } catch (_) { return false; }
+                };
+            case "exec.openOOB":
+                return async ({ row }) => {
+                    try {
+                        const url = row?._elicitation?.url;
+                        const cb = row?._elicitation?.callbackURL || row?.callbackURL;
+                        if (url) {
+                            try { window.open(url, '_blank', 'noopener,noreferrer'); } catch(_) {}
+                        }
+                        if (cb) {
+                            const base = endpoints?.agentlyAPI?.baseURL || (typeof window !== 'undefined' ? window.location.origin : '');
+                            const root = (base || '').replace(/\/+$/, '');
+                            const abs = /^https?:\/\//i.test(cb) ? cb : `${root}${cb.startsWith('/') ? '' : '/'}${cb}`;
+                            try { await fetch(abs, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'accept', payload: {} }), credentials: 'include' }); } catch(_) {}
+                        }
+                    } catch(_) {}
+                };
             default:
                 return parentContext?.lookupHandler ? parentContext.lookupHandler(id) : () => {};
         }

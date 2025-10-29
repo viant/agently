@@ -148,7 +148,9 @@ export default function ElicitionForm({message, context}) {
         .map(v => (v||'').trim())
         .filter(v => v.length > 0);
     const isWebOnly = (mode === 'webonly');
-    const isOOB = (mode === 'oob') || isWebOnly || (!!url && !hasSchemaProps);
+    // Treat any elicitation that supplies a URL as out-of-band, regardless of schema fields
+    const hasURL = !!url && typeof url === 'string';
+    const isOOB = hasURL || (mode === 'oob') || isWebOnly;
     try { console.debug('[ElicitionForm:init]', {id, mode, url, callbackURL, hasSchemaProps, isOOB}); } catch(_) {}
     try { markElicitationShown(id, 2500); } catch (_) {}
     const pickBoundValues = () => {
@@ -326,14 +328,10 @@ export default function ElicitionForm({message, context}) {
                     )}
                     {isOOB ? (
                       <>
-                        <Button intent="primary" onClick={() => { try { markElicitationShown(id, 2500); } catch(_) {}; if (url) { window.open(url, '_blank', 'noopener,noreferrer'); } post('accept', {}); }} disabled={submitting} style={{marginRight: 8}}>
+                        {/* Single action: open in a new window and accept immediately */}
+                        <Button intent="primary" onClick={() => { try { markElicitationShown(id, 2500); } catch(_) {}; if (url) { window.open(url, '_blank', 'noopener,noreferrer'); } post('accept', {}); }} disabled={submitting}>
                           Open
                         </Button>
-                        {isWebOnly && (
-                          <Button onClick={() => post('accept', {})} disabled={submitting} style={{marginRight: 8}}>
-                            OK
-                          </Button>
-                        )}
                       </>
                     ) : (
                       hasSchemaProps && !isSingleArrayStringSchema ? (

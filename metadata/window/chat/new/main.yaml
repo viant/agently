@@ -21,35 +21,38 @@ view:
         selectFirst: true
         layout:
           orientation: horizontal
-          columns: 6
+          columns: 2
           labelPosition: left
         items:
           - id: agent
             type: label
             label: Agent
 
-          - id: model
-            type: label
-            label: Model
           - id: title
             type: label
             label: Title
             properties:
               style:
                 fontWeight: 600
+
+      - id: headerSecond
+        layout:
+          orientation: horizontal
+          columns: 4
+          labelPosition: left
+        items:
+          - id: model
+            type: label
+            label: Model
           - id: costText
             type: label
             dataSourceRef: usage
             label: Cost
-            properties:
-              style:
-                textAlign: right
           - id: totalTokensText
             type: label
             dataSourceRef: usage
             label: Tokens
             tooltip: "Prompt: ${promptTokens}, Cached: ${promptCachedTokens}, Completion: ${completionTokens}, Prediction: ${predictionTokens}"
-
           - id: promptCachedTokensText
             type: label
             dataSourceRef: usage
