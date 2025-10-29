@@ -1136,6 +1136,8 @@ function extractElicitation(message) {
     const elicitationId = obj?.elicitationId || obj?.ElicitationId;
     const requestedSchema = obj?.requestedSchema || {};
     const prompt = obj?.message || obj?.prompt || '';
+    const urlVal = obj?.url || message?.url || message?.URL || '';
+    const modeVal = obj?.mode || message?.mode || message?.Mode || '';
 
     const hasCore = !!elicitationId && !!requestedSchema;
     if (!obj || !hasCore) {
@@ -1158,7 +1160,7 @@ function extractElicitation(message) {
         createdAt,
         updatedAt,
         status: status,
-        elicitation: { requestedSchema, message: prompt, elicitationId },
+        elicitation: { requestedSchema, message: prompt, elicitationId, url: urlVal, mode: modeVal, callbackURL },
         callbackURL,
         turnId: message?.turnId || message?.TurnId,
         parentId: message?.turnId || message?.TurnId,
