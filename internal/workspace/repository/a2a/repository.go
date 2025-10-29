@@ -6,7 +6,7 @@ import (
 	"github.com/viant/agently/internal/workspace/repository/base"
 )
 
-// A2AClientConfig matches the structure loaded from $AGENTLY_ROOT/a2a/*.yaml
+// A2AClientConfig matches the structure loaded from $AGENTLY_WORKSPACE/a2a/*.yaml
 // and corresponds to the external A2A client configuration format used in
 // genai/executor/bootstrap.go
 type A2AClientConfig struct {
@@ -23,7 +23,7 @@ type A2AClientConfig struct {
 	} `yaml:"directory,omitempty" json:"directory,omitempty"`
 }
 
-// Repository manages A2A client configs stored in $AGENTLY_ROOT/a2a.
+// Repository manages A2A client configs stored in $AGENTLY_WORKSPACE/a2a.
 type Repository struct {
 	*baserepo.Repository[A2AClientConfig]
 }

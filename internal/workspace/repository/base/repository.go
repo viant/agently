@@ -14,7 +14,7 @@ import (
 )
 
 // Repository generic CRUD for YAML/JSON resources stored under
-// $AGENTLY_ROOT/<kind>/.
+// $AGENTLY_WORKSPACE/<kind>/.
 type Repository[T any] struct {
 	fs   afs.Service
 	meta *meta.Service
