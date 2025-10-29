@@ -7,6 +7,7 @@ import (
 
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/shared"
 )
 
 type RemoveTuple struct {
@@ -87,7 +88,7 @@ func (s *Service) remove(ctx context.Context, in, out interface{}) error {
 		// Truncate summary for per-message field if needed
 		sumForField := sum
 
-		sumForField = runeTruncate(sumForField, 500)
+		sumForField = shared.RuneTruncate(sumForField, 500)
 
 		for _, id := range tup.MessageIds {
 			id = strings.TrimSpace(id)
@@ -112,20 +113,4 @@ func (s *Service) remove(ctx context.Context, in, out interface{}) error {
 	output.CreatedSummaryMessageIds = created
 	output.ArchivedMessages = archived
 	return nil
-}
-
-// runeTruncate safely truncates a UTF-8 string to at most n runes without
-// splitting a multi-byte character. When n <= 0 it returns an empty string.
-func runeTruncate(s string, n int) string {
-	if n <= 0 || s == "" {
-		return ""
-	}
-	i := 0
-	for idx := range s { // idx iterates over valid rune boundaries
-		if i == n {
-			return s[:idx]
-		}
-		i++
-	}
-	return s
 }
