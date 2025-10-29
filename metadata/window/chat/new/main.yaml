@@ -21,8 +21,9 @@ view:
         selectFirst: true
         layout:
           orientation: horizontal
-          columns: 2
+          columns: 4
           labelPosition: left
+          gap: 2
         items:
           - id: agent
             type: label
@@ -34,12 +35,14 @@ view:
             properties:
               style:
                 fontWeight: 600
+            columnSpan: 3
 
       - id: headerSecond
         layout:
           orientation: horizontal
           columns: 4
           labelPosition: left
+          gap: 2
         items:
           - id: model
             type: label

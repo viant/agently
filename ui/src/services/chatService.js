@@ -335,7 +335,12 @@ async function dsTick({context}) {
                     }
                     const totalTokensText = formatThousandsWithSpaces(norm.totalTokens);
                     const promptCachedTokensText = formatThousandsWithSpaces(norm.promptCachedTokens);
-                    const values = { ...norm, cost, costText, totalTokensText, promptCachedTokensText };
+                    const tokensWithCacheText = (() => {
+                        const base = totalTokensText || '';
+                        const cache = promptCachedTokensText || '';
+                        return cache ? `${base} (cached ${cache})` : base;
+                    })();
+                    const values = { ...norm, cost, costText, totalTokensText, promptCachedTokensText, tokensWithCacheText };
                     usageCtx?.handlers?.dataSource?.setFormData?.({values});
                 }
             } catch (_) { /* ignore */ }
