@@ -36,6 +36,17 @@ describe('classifyMessage – table-driven', () => {
       },
       want: 'bubble',
     },
+    {
+      name: 'assistant elicitation suppressed when user data present',
+      input: {
+        role: 'assistant',
+        status: 'pending',
+        callbackURL: '/v1/api/foo',
+        elicitation: { requestedSchema: { properties: { x: { type: 'string' } } } },
+        UserElicitationData: { InlineBody: '{}' },
+      },
+      want: 'bubble',
+    },
   ];
 
   cases.forEach(tc => {

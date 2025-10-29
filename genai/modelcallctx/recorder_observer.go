@@ -304,17 +304,6 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 	// usage mapping
 	if info.Usage != nil {
 		u := info.Usage
-		if debugPricingEnabled() {
-			debugPricingf("usage model=%s pt=%d ct=%d cached=%d", info.Model, u.PromptTokens, u.CompletionTokens, func() int {
-				if u.CachedTokens > 0 {
-					return u.CachedTokens
-				}
-				if u.PromptCachedTokens > 0 {
-					return u.PromptCachedTokens
-				}
-				return 0
-			}())
-		}
 		if u.PromptTokens > 0 {
 			upd.SetPromptTokens(u.PromptTokens)
 		}
@@ -323,6 +312,9 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		}
 		if u.TotalTokens > 0 {
 			upd.SetTotalTokens(u.TotalTokens)
+		}
+		if u.CachedTokens > 0 {
+			upd.SetPromptCachedTokens(u.CachedTokens)
 		}
 		// Compute call cost when a price resolver is available and prices are defined
 		if o.priceProvider != nil {

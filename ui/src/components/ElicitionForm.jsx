@@ -100,22 +100,24 @@ export default function ElicitionForm({message, context}) {
             const URL = isAbsolute
                 ? callbackURL
                 : joinURL(endpoints.agentlyAPI.baseURL, callbackURL);
-            try { console.debug('[ElicitionForm:post]', {id, action, payload, URL, isAbsolute}); } catch (_) {}
+            
             const resp = await fetch(URL, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({action, payload}),
             });
             if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
-            try { console.debug('[ElicitionForm:post:ok]', {status: resp.status}); } catch (_) {}
+            
             closeLocal(); // optimistic; server filter will hide it next poll
         } catch (e) {
-            try { console.debug('[ElicitionForm:post:error]', e); } catch (_) {}
+            
             setError(e.message || String(e));
         } finally {
             setSubmitting(false);
         }
     };
+
+    React.useEffect(() => { return () => {}; }, []);
 
     const wrapperId = `elic-form-${id}`;
     const hasSchemaProps = !!(requestedSchema && requestedSchema.properties && Object.keys(requestedSchema.properties).length > 0);

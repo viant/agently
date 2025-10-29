@@ -19,14 +19,14 @@ import {BasicTable} from "../../../../../forge/index.js";
 
 // Column template; dynamic handlers injected later
 const COLUMNS_BASE = [
-    { id: "icon",    name: "",      width: 28, align: "center", minWidth: "28px", enforceColumnSize: false },
-    { id: "kind",    name: "Kind",   width: 40, align: "center", minWidth: "68px" },
-    { id: "name",    name: "Name",   flex: 2 },
-    { id: "mode",    name: "Mode",   width: 80 },
-    { id: "actor",   name: "Actor",  width: 140 },
-    { id: "chain",   name: "Thread", width: 110, type: 'button', cellProperties: { text: 'Open', minimal: true, small: true }, on: [ { event: "onClick", handler: "exec.openLinkedConversation" }, { event: 'onVisible', handler: 'exec.isLinkRow' } ] },
-    { id: "status",  name: "Status", width: 60 },
-    { id: "elapsed", name: "Time",   width: 60 },
+    { id: "icon",    name: "",         width: 28, align: "center", minWidth: "28px", enforceColumnSize: false },
+    { id: "kind",    name: "Kind",      width: 40, align: "center", minWidth: "68px" },
+    { id: "name",    name: "Name",      flex: 1 },
+    { id: "actor",   name: "Actor",     width: 100 },
+    { id: "content", name: "Content",   flex: 8 },
+    { id: "chain",   name: "Thread",    width: 80, type: 'button', cellProperties: { text: 'Open', minimal: true, small: true }, on: [ { event: "onClick", handler: "exec.openLinkedConversation" }, { event: 'onVisible', handler: 'exec.isLinkRow' } ] },
+    { id: "status",  name: "Status",    width: 50 },
+    { id: "elapsed", name: "Time",      width: 50 },
     {
         id: "detail",
         name: "Detail",
@@ -97,7 +97,7 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
                     try {
                         const linked = row?._linkedConversationId || row?.chain;
                         if (!linked) {
-                            try { console.debug('[exec][link] no linkedConversationId on row', row); } catch(_) {}
+                            
                             return;
                         }
                         const openWin = parentContext?.handlers?.window?.openWindow;
@@ -109,11 +109,11 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
                             ];
                             const opts = { modal: true, parameters: paramDefs, size: { width: '98%', height: '98%' }, x: '2%', y: '2%', footer: { hide: true } };
                             const args = ['chat/new', 'Linked Chat', '', false, opts];
-                            try { console.debug('[exec][link] openWindow args', { args, paramDefs }); } catch(_) {}
+                            
                             const res = await openWin({ execution: { args, parameters: paramDefs }, context: parentContext });
-                            try { console.debug('[exec][link] openWindow returned', res); } catch(_) {}
+                            
                         } else if (typeof window !== 'undefined') {
-                            try { console.debug('[exec][link] openWindow not available, fallback to hash URL'); } catch(_) {}
+                            
                             try { window.open(`#/chat/new?convID=${encodeURIComponent(linked)}`, '_blank'); } catch (_) {}
                         }
                     } catch (_) { /* ignore */ }
@@ -158,10 +158,20 @@ function flattenExecutions(executions = []) {
             const reason = String(s?.reason || '').toLowerCase();
             const hasBool = typeof s.successBool === 'boolean';
             const successBool = hasBool ? s.successBool : (typeof s.success === 'boolean' ? s.success : undefined);
-            const statusText = (s.statusText || (successBool === undefined ? 'pending' : (successBool ? 'completed' : 'error'))).toLowerCase();
+            let statusText = (s.statusText || (successBool === undefined ? 'pending' : (successBool ? 'completed' : 'error'))).toLowerCase();
+            // Elicitation special-case: if we have a submitted payload id, treat as accepted
+            if (String(s?.reason || '').toLowerCase() === 'elicitation') {
+                try {
+                    const hasPayload = !!(s.elicitationPayloadId);
+                    if (hasPayload && (statusText === '' || statusText === 'pending' || statusText === 'open')) {
+                        statusText = 'accepted';
+                    }
+                } catch (_) {}
+            }
             const hasError = !!(s.error || s.errorCode) || statusText === 'failed' || statusText === 'error' || statusText === 'canceled';
             // Status icon: check for all completed-like states, hourglass while in-progress, exclamation on error
-            const isDoneOk = ['completed','accepted','done','succeeded','success'].includes(statusText);
+            // Treat rejected/declined as terminal to avoid perpetual hourglass
+            const isDoneOk = ['completed','accepted','done','succeeded','success','rejected','declined'].includes(statusText);
             const icon = hasError ? '❗' : (isDoneOk ? '✅' : '⏳');
             // Kind glyph: brain for model (thinking), tool for tool_call, keyboard for elicitation, link for link, warning for error
             const kindGlyph = reason === 'thinking' ? '🧠'
@@ -175,12 +185,21 @@ function flattenExecutions(executions = []) {
                 : reason === 'error' ? (s.error || 'Error')
                 : (s.name || reason);
             const elapsedDisplay = reason === 'link' ? '🔗' : s.elapsed;
+            // Derive human content when available (elicitation prompt, error message, etc.)
+            let content = '';
+            try {
+                if (reason === 'elicitation') {
+                    content = (s.elicitation && (s.elicitation.message || '')) || '';
+                } else if (reason === 'error') {
+                    content = String(s.error || '');
+                }
+            } catch(_) {}
             return {
                 icon,
                 kind: kindGlyph,
-                mode: s.mode || '',
                 name: annotatedName,
                 actor: s.createdByUserId || '',
+                content,
                 chain: (reason === 'link') ? 'Open' : '',
                 status: statusText,
                 elapsed: s.elapsed,
@@ -192,7 +211,6 @@ function flattenExecutions(executions = []) {
                 _reason: reason,
                 _provider: s.provider,
                 _model: s.model,
-                _mode: s.mode,
                 _createdByUserId: s.createdByUserId,
                 _linkedConversationId: s.linkedConversationId,
                 _finishReason: s.finishReason,
@@ -227,6 +245,7 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
     const [payloadPos, setPayloadPos] = React.useState({ left: 160, top: 120 });
     const dataSourceId = `ds${messageId ?? ""}`;
     const rows = useMemo(() => flattenExecutions(executions), [executions]);
+    // removed table debug log
     // Derive a single turn-level error message (if any) to render as a table footer.
     const errorFooter = React.useMemo(() => {
         // 1) Prefer explicit error step message when present

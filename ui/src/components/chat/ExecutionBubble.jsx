@@ -127,7 +127,7 @@ function ExecutionTurnDetails({ msg, context }) {
         const isRunning = (turnStatus === 'running' || turnStatus === 'open' || turnStatus === 'pending' || turnStatus === 'thinking');
         const isDoneOk = (turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted');
         const isErrored = (turnStatus === 'failed' || turnStatus === 'error');
-        try { console.debug('[chat][turn]', {turnStatus, isRunning, isDoneOk, isErrored}); } catch(_) {}
+        
         // Determine whether finish ring is enabled for the current agent
         let ringEnabled = false;
         try {
@@ -161,10 +161,10 @@ function ExecutionTurnDetails({ msg, context }) {
             if (ctrlSig) {
                 const prev = (typeof ctrlSig.peek === 'function') ? (ctrlSig.peek() || {}) : (ctrlSig.value || {});
                 if (isRunning) {
-                    try { console.debug('[chat][ds][control] set loading=true (running)', {prev}); } catch(_) {}
+                    
                     ctrlSig.value = {...prev, loading: true};
                 } else if (isDoneOk || isErrored) {
-                    try { console.debug('[chat][ds][control] set loading=false (finished)', {prev}); } catch(_) {}
+                    
                     ctrlSig.value = {...prev, loading: false};
                 }
             }
@@ -177,7 +177,7 @@ function ExecutionTurnDetails({ msg, context }) {
                 const value = isRunning ? true : (isDoneOk || isErrored) ? false : undefined;
                 if (value !== undefined) {
                     convCtx.handlers.dataSource.setFormField({ item: { id: 'running' }, value });
-                    try { console.debug('[chat][conv] set running', { value }); } catch(_) {}
+                    
                 }
             }
         } catch(_) { /* ignore */ }
