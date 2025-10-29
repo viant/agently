@@ -14,6 +14,7 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
+	"github.com/viant/agently/shared"
 )
 
 type CompactInput struct {
@@ -166,16 +167,10 @@ func buildSummaryForMsg(m *agconv.MessageView, toolName, body string) string {
 			}
 		}
 		argStr, _ := json.Marshal(args)
-		ap := string(argStr)
-		if len(ap) > 100 {
-			ap = ap[:100]
-		}
+		ap := shared.RuneTruncate(string(argStr), 100)
 		return fmt.Sprintf("%s: %s", strings.TrimSpace(toolName), ap)
 	}
-	pv := body
-	if len(pv) > 100 {
-		pv = pv[:100]
-	}
+	pv := shared.RuneTruncate(body, 100)
 	return pv
 }
 
