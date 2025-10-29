@@ -63,11 +63,11 @@ func (s *Service) initRepos() {
 		fs := afs.New()
 
 		// Only populate the workspace with built-in default resources when the
-		// caller did NOT override the root directory via the AGENTLY_ROOT
+		// caller did NOT override the root directory via the AGENTLY_WORKSPACE
 		// environment variable.  This behaviour keeps unit tests or callers
 		// that work with a temporary/empty workspace in full control over its
 		// contents.
-		if os.Getenv("AGENTLY_ROOT") == "" {
+		if os.Getenv("AGENTLY_WORKSPACE") == "" {
 			workspace.EnsureDefault(fs)
 		}
 		s.mRepo = modelrepo.New(fs)

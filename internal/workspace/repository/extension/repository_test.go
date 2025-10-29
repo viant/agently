@@ -47,7 +47,7 @@ func TestRepository_Load_View(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	_ = os.Setenv("AGENTLY_ROOT", root)
+	_ = os.Setenv("AGENTLY_WORKSPACE", root)
 	_ = os.MkdirAll(filepath.Join(root, "feeds"), 0755)
 
 	fs := afs.New()

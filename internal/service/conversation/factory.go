@@ -27,8 +27,8 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 		driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
 		dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
 		if dsn == "" {
-			// Fallback to local SQLite under $AGENTLY_ROOT/db/agently.db
-			root := strings.TrimSpace(os.Getenv("AGENTLY_ROOT"))
+			// Fallback to local SQLite under $AGENTLY_WORKSPACE/db/agently.db
+			root := strings.TrimSpace(os.Getenv("AGENTLY_WORKSPACE"))
 			sqlite := sqlitesvc.New(root)
 			var err error
 			if dsn, err = sqlite.Ensure(ctx); err != nil {

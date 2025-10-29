@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	// envKey is the environment variable used to override the default root.
-	envKey = "AGENTLY_ROOT"
+	// envKey is the environment variable used to override the default workspace root.
+	envKey = "AGENTLY_WORKSPACE"
 
 	// defaultRoot is used when the env variable is not defined.
 	defaultRootDir = ".agently"
@@ -36,15 +36,15 @@ const (
 	KindA2A      = "a2a"
 )
 
-// Root returns the absolute path to the Agently root directory.
+// Root returns the absolute path to the Agently workspace directory.
 // The lookup order is:
-//  1. $AGENTLY_ROOT environment variable, if set and non-empty
+//  1. $AGENTLY_WORKSPACE environment variable, if set and non-empty
 //  2. $HOME/.agently
 //
 // The result is cached for the lifetime of the process.
 func Root() string {
 	if cachedRoot != "" {
-		// If a different AGENTLY_ROOT is now set, update the cache so subsequent
+		// If a different AGENTLY_WORKSPACE is now set, update the cache so subsequent
 		// calls (e.g. in tests) see the correct location.
 		if env := os.Getenv(envKey); env != "" && abs(env) != cachedRoot {
 			cachedRoot = abs(env)
@@ -58,7 +58,7 @@ func Root() string {
 		cachedRoot = abs(env)
 		_ = os.MkdirAll(cachedRoot, 0755) // ensure root exists
 		// Do not auto-populate built-in defaults when a custom workspace root
-		// is explicitly supplied via $AGENTLY_ROOT. This gives callers full
+		// is explicitly supplied via $AGENTLY_WORKSPACE. This gives callers full
 		// control over the workspace content (e.g. unit tests expecting an
 		// empty repository).
 		return cachedRoot

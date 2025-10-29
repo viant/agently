@@ -73,10 +73,10 @@ git clone https://github.com/viant/agently.git
 cd agently/agently
 
 # Set the Agently root directory (defaults to ~/.agently if not set)
-export AGENTLY_ROOT=./agently_workspace
+export AGENTLY_WORKSPACE=./agently_workspace
 
 # Create the directory
-mkdir -p $AGENTLY_ROOT
+mkdir -p $AGENTLY_WORKSPACE
 
 # Build the application
 go build -o agently .
@@ -122,10 +122,10 @@ This guide will help you set up Agently with the MCP server and SQLKit tool for 
 2. Create the MCP configuration file:
 ```bash
 # Create the mcp directory if it doesn't exist
-mkdir -p $AGENTLY_ROOT/mcp
+mkdir -p $AGENTLY_WORKSPACE/mcp
 
 # Create the SQLKit configuration file
-cat > $AGENTLY_ROOT/mcp/sqlkit.yaml << EOF
+cat > $AGENTLY_WORKSPACE/mcp/sqlkit.yaml << EOF
 name: sqlkit
 version: ""
 protocol: ""
@@ -144,8 +144,8 @@ Update your agent configuration to include the SQLKit tool:
 
 ```bash
 # Create or update the chat agent configuration
-mkdir -p $AGENTLY_ROOT/agents
-cat > $AGENTLY_ROOT/agents/chatter.yaml << EOF
+mkdir -p $AGENTLY_WORKSPACE/agents
+cat > $AGENTLY_WORKSPACE/agents/chatter.yaml << EOF
 description: Default conversational agent
 id: chat
 modelRef: openai_o4-mini
@@ -258,7 +258,7 @@ The embedded server exposes a simple chat API under `/v1/api`:
   - Examples:
     - SQLite: `AGENTLY_DB_DRIVER=sqlite`, `AGENTLY_DB_DSN=file:/path/to/db.sqlite?cache=shared`
     - Postgres: `AGENTLY_DB_DRIVER=postgres`, `AGENTLY_DB_DSN=postgres://user:pass@host:5432/db?sslmode=disable`
-  - When unset, Agently falls back to a local SQLite database under `$AGENTLY_ROOT/db/agently.db`.
+  - When unset, Agently falls back to a local SQLite database under `$AGENTLY_WORKSPACE/db/agently.db`.
 
 - `AGENTLY_REDACT_KEYS`: comma-separated list of JSON keys to scrub from payload snapshots
   - Default: `api_key,apikey,authorization,auth,password,passwd,secret,token,bearer,client_secret`
@@ -302,7 +302,7 @@ agently serve
 
 # Workspace management (new)
 
-Agently stores all editable resources under **`$AGENTLY_ROOT`** (defaults to
+Agently stores all editable resources under **`$AGENTLY_WORKSPACE`** (defaults to
 `~/.agently`).  Each kind has its own sub-folder:
 
 
@@ -488,7 +488,7 @@ Example (properly quoted for Bash/Zsh):
 
 For an in-depth walkthrough of how Agently processes a request – from the CLI
 invocation through agent resolution, planning, LLM call and response – see
-`docs/agent_flow.md`.  The document also explains the `$AGENTLY_ROOT` workspace
+`docs/agent_flow.md`.  The document also explains the `$AGENTLY_WORKSPACE` workspace
 mechanism introduced in the 2025-06 release.
 
 ## License

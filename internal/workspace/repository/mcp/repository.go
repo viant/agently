@@ -7,7 +7,7 @@ import (
 	"github.com/viant/agently/internal/workspace/repository/base"
 )
 
-// Repository manages MCP client option configs stored in $AGENTLY_ROOT/mcp.
+// Repository manages MCP client option configs stored in $AGENTLY_WORKSPACE/mcp.
 type Repository struct {
 	*baserepo.Repository[mcpcfg.MCPClient]
 }

@@ -25,7 +25,7 @@ func doRequest(h http.Handler, method, path string, body []byte) *httptest.Respo
 
 func TestHandler_CRUD(t *testing.T) {
 	root := t.TempDir()
-	_ = os.Setenv("AGENTLY_ROOT", root)
+	_ = os.Setenv("AGENTLY_WORKSPACE", root)
 
 	// Pre-create workspace directories expected by repositories to avoid
 	// "path not found" errors on fs.List.

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/viant/agently/internal/workspace"
 )
 
 // Run parses flags and executes the selected command.
@@ -26,6 +27,13 @@ func Run(args []string) {
 		fmt.Println(Version())
 		os.Exit(0)
 	}
+
+	// Print startup workspace to make it clear which workspace is in use.
+	// We show both the raw env value and the resolved absolute path.
+	envWS := strings.TrimSpace(os.Getenv("AGENTLY_WORKSPACE"))
+	// Calling Root also ensures the workspace exists.
+	resolvedWS := workspace.Root()
+	log.Printf("Starting Agently workspace (env.AGENTLY_WORKSPACE=%q) -> %s", envWS, resolvedWS)
 
 	parser := flags.NewParser(opts, flags.HelpFlag|flags.PassDoubleDash)
 	if _, err := parser.ParseArgs(args); err != nil {

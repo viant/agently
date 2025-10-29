@@ -573,7 +573,7 @@ func (e *Service) initDefaults(ctx context.Context) error {
 
 	// Load default workspace config.yaml when no explicit config was supplied.
 	// This makes CLI/HTTP entry-points that construct executor.Service directly
-	// respect $AGENTLY_ROOT/ag/config.yaml without going through instance.Init.
+	// respect $AGENTLY_WORKSPACE/ag/config.yaml without going through instance.Init.
 	e.loadWorkspaceConfigIfEmpty(ctx)
 	// Ensure toolCallResult defaults when missing
 	if e.config != nil {
@@ -622,7 +622,7 @@ func (e *Service) initDefaults(ctx context.Context) error {
 	return nil
 }
 
-// loadWorkspaceConfigIfEmpty attempts to load $AGENTLY_ROOT/config.yaml (or the
+// loadWorkspaceConfigIfEmpty attempts to load $AGENTLY_WORKSPACE/config.yaml (or the
 // Config.BaseURL root) into e.config when the current config appears empty.
 func (e *Service) loadWorkspaceConfigIfEmpty(ctx context.Context) {
 	// consider config empty when all groups are nil and no base/dao/services set

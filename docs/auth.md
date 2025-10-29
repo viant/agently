@@ -1,6 +1,6 @@
 # Authentication for Agently (Unified OAuth + Local)
 
-This document describes how to configure authentication for Agently using a single workspace config (`$AGENTLY_ROOT/config.yaml`), the REST endpoints involved, and how the UI integrates with them.
+This document describes how to configure authentication for Agently using a single workspace config (`$AGENTLY_WORKSPACE/config.yaml`), the REST endpoints involved, and how the UI integrates with them.
 
 ## Overview
 
@@ -11,7 +11,7 @@ Agently supports two high‑level sign‑in styles that can be enabled independe
   - SPA (browser) login: The UI completes Code+PKCE (or provider SDK) and calls APIs with `Authorization: Bearer`. Agently validates the token using JWKS (and optional `iss`/`aud` checks).
   - BFF (server) login: The server starts Code+PKCE using the configured OAuth client, exchanges code on callback, and sets a session cookie.
 
-All configuration lives in `$AGENTLY_ROOT/config.yaml` under `auth`.
+All configuration lives in `$AGENTLY_WORKSPACE/config.yaml` under `auth`.
 
 ## Workspace Configuration
 
@@ -60,7 +60,7 @@ auth:
 
 ## Scenario Recipes
 
-Below are copy‑paste YAML examples for the `auth` section you can place inside `$AGENTLY_ROOT/config.yaml`. Each recipe shows only the `auth` block — it can be merged with your existing workspace config.
+Below are copy‑paste YAML examples for the `auth` section you can place inside `$AGENTLY_WORKSPACE/config.yaml`. Each recipe shows only the `auth` block — it can be merged with your existing workspace config.
 
 ### 1) Local only (Cookie, silent dev login)
 

@@ -16,7 +16,7 @@ import (
 	mcpstore "github.com/viant/mcp/client/auth/store"
 )
 
-// RepoProvider loads MCP client options from the Agently workspace repo ($AGENTLY_ROOT/mcp).
+// RepoProvider loads MCP client options from the Agently workspace repo ($AGENTLY_WORKSPACE/mcp).
 type RepoProvider struct {
 	repo *mcprepo.Repository
 }

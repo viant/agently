@@ -18,9 +18,9 @@ func TestRepository_List_FiltersInvalidEntries(t *testing.T) {
 		expected []string
 	}
 
-	// Prepare a temporary AGENTLY_ROOT and agents directory content.
+	// Prepare a temporary AGENTLY_WORKSPACE and agents directory content.
 	root := t.TempDir()
-	_ = os.Setenv("AGENTLY_ROOT", root)
+	_ = os.Setenv("AGENTLY_WORKSPACE", root)
 	agentsDir := filepath.Join(root, "agents")
 	_ = os.MkdirAll(agentsDir, 0755)
 
