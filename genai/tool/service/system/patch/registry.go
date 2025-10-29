@@ -137,11 +137,9 @@ func (s *Service) applyPatch(ctx context.Context, input *ApplyInput, output *App
 	s.mu.Unlock()
 
 	if err := sess.ApplyPatch(ctx, input.Patch, input.Workdir); err != nil {
-		// rollback session and clear it for this conversation
-		_ = sess.Rollback(ctx)
-		s.mu.Lock()
-		delete(s.sessions, convID)
-		s.mu.Unlock()
+		// Do not auto-rollback; leave the session active so the caller
+		// can inspect snapshot and explicitly decide to commit or rollback.
+		// Bubble up the error to the caller.
 		return err
 	}
 
