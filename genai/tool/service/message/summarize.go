@@ -71,9 +71,9 @@ func (s *Service) summarize(ctx context.Context, in, out interface{}) error {
 		mm := apiconv.NewMessage()
 		mm.SetId(input.MessageID)
 		mm.SetSummary(output.Summary)
-		_ = s.conv.PatchMessage(ctx, mm)
+		err = s.conv.PatchMessage(ctx, mm)
 	}
-	return nil
+	return err
 }
 
 func (s *Service) summarizeChunksParallel(ctx context.Context, body string, chunk int) ([]SummarizeChunk, error) {

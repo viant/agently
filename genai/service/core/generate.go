@@ -311,20 +311,26 @@ func isContextLimitError(err error) bool {
 	}
 	// Unwrap and inspect message text; providers vary widely in phrasing.
 	msg := strings.ToLower(err.Error())
+	return ContainsContextLimitError(msg)
+}
+
+func ContainsContextLimitError(input string) bool {
 	switch {
-	case strings.Contains(msg, "context length exceeded"),
-		strings.Contains(msg, "maximum context length"),
-		strings.Contains(msg, "exceeds context length"),
-		strings.Contains(msg, "exceeds the context window"),
-		strings.Contains(msg, "context window is") && strings.Contains(msg, "exceeded"),
-		strings.Contains(msg, "prompt is too long"),
-		strings.Contains(msg, "prompt too long"),
-		strings.Contains(msg, "token limit"),
-		strings.Contains(msg, "too many tokens"),
-		strings.Contains(msg, "input is too long"),
-		strings.Contains(msg, "request too large"),
-		strings.Contains(msg, "context_length_exceeded"), // common provider code
-		strings.Contains(msg, "resourceexhausted") && strings.Contains(msg, "context"):
+	case strings.Contains(input, "context length exceeded"),
+		strings.Contains(input, "maximum context length"),
+		strings.Contains(input, "exceeds context length"),
+		strings.Contains(input, "exceeds the context window"),
+		strings.Contains(input, "context window is") && strings.Contains(input, "exceeded"),
+		strings.Contains(input, "prompt is too long"),
+		strings.Contains(input, "prompt too long"),
+		strings.Contains(input, "token limit"),
+		strings.Contains(input, "too many tokens"),
+		strings.Contains(input, "input is too long"),
+		strings.Contains(input, "request too large"),
+		strings.Contains(input, "context_length_exceeded"), // common provider code
+		strings.Contains(input, "resourceexhausted") && strings.Contains(input, "context"):
+		return true
+	case strings.Contains(input, "request too large"):
 		return true
 	}
 	return false
