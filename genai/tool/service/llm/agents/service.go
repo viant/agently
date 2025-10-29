@@ -11,6 +11,7 @@ import (
 	linksvc "github.com/viant/agently/genai/service/linking"
 	statussvc "github.com/viant/agently/genai/service/toolstatus"
 	svc "github.com/viant/agently/genai/tool/service"
+	"github.com/viant/agently/shared"
 )
 
 const Name = "llm/agents"
@@ -190,10 +191,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 			ro.StreamSupported = streamSupp
 			ro.Warnings = append(ro.Warnings, warns...)
 			if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
-				preview := ans
-				if len(preview) > 512 {
-					preview = preview[:512]
-				}
+				preview := shared.RuneTruncate(ans, 512)
 				_ = s.status.Finalize(ctx, parent, statusMsgID, strings.TrimSpace(st), preview)
 			}
 			return nil
@@ -240,10 +238,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	ro.ConversationID = qo.ConversationID
 	ro.MessageID = qo.MessageID
 	if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
-		preview := qo.Content
-		if len(preview) > 512 {
-			preview = preview[:512]
-		}
+		preview := shared.RuneTruncate(qo.Content, 512)
 		_ = s.status.Finalize(ctx, parent, statusMsgID, "succeeded", preview)
 	}
 	return nil

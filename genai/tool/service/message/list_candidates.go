@@ -8,6 +8,7 @@ import (
 
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/shared"
 )
 
 type ListCandidatesInput struct {
@@ -124,10 +125,7 @@ func (s *Service) listCandidates(ctx context.Context, in, out interface{}) error
 					}
 				}
 				argStr, _ := json.Marshal(args)
-				ap := string(argStr)
-				if len(ap) > 100 {
-					ap = ap[:100]
-				}
+				ap := shared.RuneTruncate(string(argStr), 100)
 				body := ""
 				if m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
 					body = *m.ToolCall.ResponsePayload.InlineBody
@@ -141,10 +139,7 @@ func (s *Service) listCandidates(ctx context.Context, in, out interface{}) error
 				if m.Content != nil {
 					body = *m.Content
 				}
-				pv := body
-				if len(pv) > 100 {
-					pv = pv[:100]
-				}
+				pv := shared.RuneTruncate(body, 100)
 				c := Candidate{MessageID: m.Id, Type: role, Role: role, Preview: pv, ByteSize: len(body), TokenSize: estimateTokens(body)}
 				appendCandidate(c)
 			}
