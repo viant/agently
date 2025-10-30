@@ -14,8 +14,8 @@ import (
 	"github.com/viant/scy/kms/blowfish"
 	"golang.org/x/oauth2"
 
-	tokread "github.com/viant/agently/pkg/agently/user_oauth_token/internalread"
-	tokwrite "github.com/viant/agently/pkg/agently/user_oauth_token/internalwrite"
+	oauthread "github.com/viant/agently/pkg/agently/user/oauth"
+	oauthwrite "github.com/viant/agently/pkg/agently/user/oauth/write"
 )
 
 // NewTokenStoreDAO constructs a Datly-backed token store (package-level for external calls).
@@ -66,15 +66,32 @@ func (s *TokenStoreDAO) Get(ctx context.Context, userID, provider string) (*OAut
 	if s == nil || s.dao == nil {
 		return nil, nil
 	}
-	out := &tokread.Output{}
-	in := tokread.Input{UserID: userID, Provider: provider}
-	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(tokread.PathURI), datly.WithInput(&in)); err != nil {
+	out := &oauthread.TokenOutput{}
+	in := oauthread.TokenInput{}
+	in.Has = &oauthread.TokenInputHas{Id: true}
+	in.Id = userID
+	if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("GET", oauthread.TokenPathURI)), datly.WithInput(&in), datly.WithOutput(out)); err != nil {
 		return nil, err
 	}
-	if len(out.Data) == 0 || out.Data[0] == nil || strings.TrimSpace(out.Data[0].EncToken) == "" {
+	if len(out.Data) == 0 || out.Data[0] == nil {
 		return nil, nil
 	}
-	return s.decrypt(ctx, out.Data[0].EncToken)
+	var row *oauthread.TokenView
+	if strings.TrimSpace(provider) != "" {
+		for _, r := range out.Data {
+			if r != nil && strings.TrimSpace(r.Provider) == strings.TrimSpace(provider) {
+				row = r
+				break
+			}
+		}
+	}
+	if row == nil {
+		row = out.Data[0]
+	}
+	if row == nil || strings.TrimSpace(row.EncToken) == "" {
+		return nil, nil
+	}
+	return s.decrypt(ctx, row.EncToken)
 }
 
 // Upsert encrypts and saves token via internal write handler.
@@ -86,9 +103,12 @@ func (s *TokenStoreDAO) Upsert(ctx context.Context, userID, provider string, tok
 	if err != nil {
 		return err
 	}
-	in := &tokwrite.Input{Token: &tokwrite.Token{UserID: userID, Provider: provider, EncToken: enc}}
-	out := &tokwrite.Output{}
-	_, err = s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", tokwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out))
+	in := &oauthwrite.Input{Token: &oauthwrite.Token{}}
+	in.Token.SetUserID(userID)
+	in.Token.SetProvider(provider)
+	in.Token.SetEncToken(enc)
+	out := &oauthwrite.Output{}
+	_, err = s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", oauthwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out))
 	return err
 }
 
@@ -113,7 +133,7 @@ func (s *TokenStoreDAO) EnsureAccessToken(ctx context.Context, userID, provider,
 	}
 	tok.AccessToken = nt.AccessToken
 	tok.ExpiresAt = nt.Expiry
-	if r := nt.RefreshToken; r != "" {
+	if r := nt.RefreshToken; r != "" { //
 		tok.RefreshToken = r
 	}
 	if id := nt.Extra("id_token"); id != nil {

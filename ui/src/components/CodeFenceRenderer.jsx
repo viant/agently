@@ -4,6 +4,7 @@
 
 import React from 'react';
 import CodeBlock from './CodeBlock.jsx';
+import Mermaid from './Mermaid.jsx';
 import { Button, Dialog } from '@blueprintjs/core';
 import { Table as BpTable, Column as BpColumn, Cell as BpCell, ColumnHeaderCell as BpColumnHeaderCell } from '@blueprintjs/table';
 import { findNextPipeTableBlock } from './markdownTableUtils.js';
@@ -51,6 +52,7 @@ function languageHint(lang = '') {
   if (v === 'js') return 'javascript';
   if (v === 'ts') return 'typescript';
   if (v === 'yml') return 'yaml';
+  if (v === 'sequence' || v === 'sequencediagram') return 'mermaid';
   return v;
 }
 
@@ -454,6 +456,12 @@ export default function CodeFenceRenderer({ text = '' }) {
                 {renderPipeTable(body)}
               </div>
             );
+          } else if (lang === 'mermaid' || /^\s*(sequenceDiagram|flowchart|graph|classDiagram|stateDiagram)/.test(body)) {
+            out.push(
+              <div key={`ms-mermaid-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+                <Mermaid code={body} />
+              </div>
+            );
           } else {
             const isMarkdownCode = (lang === 'markdown' || lang === 'md');
             out.push(
@@ -478,6 +486,13 @@ export default function CodeFenceRenderer({ text = '' }) {
         return (
           <div style={{ width: '60vw', overflowX: 'auto' }}>
             {renderPipeTable(body)}
+          </div>
+        );
+      }
+      if (lang === 'mermaid' || /^\s*(sequenceDiagram|flowchart|graph|classDiagram|stateDiagram)/.test(body)) {
+        return (
+          <div style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+            <Mermaid code={body} />
           </div>
         );
       }
@@ -533,6 +548,12 @@ export default function CodeFenceRenderer({ text = '' }) {
         out.push(
           <div key={`table2-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
             {renderPipeTable(body)}
+          </div>
+        );
+      } else if (/^\s*(sequenceDiagram|flowchart|graph|classDiagram|stateDiagram)/.test(body)) {
+        out.push(
+          <div key={`m2-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+            <Mermaid code={body} />
           </div>
         );
       } else {

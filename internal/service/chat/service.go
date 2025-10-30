@@ -37,6 +37,8 @@ import (
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	msgwrite "github.com/viant/agently/pkg/agently/message/write"
 	toolfeed "github.com/viant/agently/pkg/agently/tool"
+	oauthread "github.com/viant/agently/pkg/agently/user/oauth"
+	oauthwrite "github.com/viant/agently/pkg/agently/user/oauth/write"
 	mcpname "github.com/viant/agently/pkg/mcpname"
 	"github.com/viant/datly"
 	fservice "github.com/viant/forge/backend/service/file"
@@ -87,6 +89,9 @@ func NewService() *Service {
 	// Legacy constructor: keep silent auto-wiring for backwards compatibility.
 	svc := &Service{reg: cancels.Default()}
 	if dao, err := implconv.NewDatly(context.Background()); err == nil {
+		// Register OAuth token components best-effort; legacy constructor suppresses errors
+		_ = oauthread.DefineTokenComponent(context.Background(), dao)
+		_, _ = oauthwrite.DefineComponent(context.Background(), dao)
 		if cli, err := implconv.New(context.Background(), dao); err == nil {
 			svc.convClient = cli
 			svc.dao = dao
@@ -102,6 +107,14 @@ func NewServiceFromEnv(ctx context.Context) (*Service, error) {
 	dao, err := implconv.NewDatly(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init datly: %w", err)
+	}
+	// Ensure OAuth token components are registered on this DAO so token store DAO can Operate
+	// using the same service (e.g., server-side EnsureAccessToken during post message).
+	if err := oauthread.DefineTokenComponent(ctx, dao); err != nil {
+		return nil, fmt.Errorf("failed to define oauth token read component: %w", err)
+	}
+	if _, err := oauthwrite.DefineComponent(ctx, dao); err != nil {
+		return nil, fmt.Errorf("failed to define oauth token write component: %w", err)
 	}
 	cli, err := implconv.New(ctx, dao)
 	if err != nil {

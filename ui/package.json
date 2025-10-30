@@ -39,6 +39,7 @@
     "immutability-helper": "^3.1.1",
     "isbot": "^5.1.17",
     "lodash": "^4.17.21",
+    "mermaid": "^10.9.4",
     "numeral": "^2.0.6",
     "phosphor-icons": "^1.4.2",
     "phosphor-react": "^1.4.1",

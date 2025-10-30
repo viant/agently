@@ -45,7 +45,9 @@ pipeline:
     schedule:
       action: run
       request: '@rule/schedule'
-
+    user:
+      action: run
+      request: '@rule/user'
 
 #
 #  test:

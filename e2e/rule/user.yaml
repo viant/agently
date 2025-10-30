@@ -1,0 +1,10 @@
+pipeline:
+  translate:
+    action: exec:run
+    TimeoutMs: 120000
+    checkError: true
+    commands:
+      - cd $repoPath
+      - $repoPath/bin/datly gen -o=get -u=agently/user      -s='dql/agently/user/user.dql' $datlyOptions
+      - $repoPath/bin/datly gen -o=get -u=agently/user/oauth      -s='dql/agently/user/oauth/token.dql' $datlyOptions
+
