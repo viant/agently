@@ -1,0 +1,19 @@
+/* {"URI":"/"} */
+
+
+
+#set($_ = $Status<?>(output/status))
+#set($_ = $Data<?>(output/view))
+#set($_ = $Metrics<?>(output/metrics))
+
+#set($_ = $Id<string>(query/user_id).WithPredicate(0, 'equal','t', 'user_id'))
+#set($_ = $Id<string>(query/provider).WithPredicate(0, 'equal','t', 'provider'))
+
+
+SELECT token.*
+FROM (
+    SELECT t.*  FROM user_oauth_token t
+     ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+) token
+
+

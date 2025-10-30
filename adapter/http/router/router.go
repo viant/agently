@@ -31,9 +31,8 @@ import (
 	chatsvc "github.com/viant/agently/internal/service/chat"
 	convdao "github.com/viant/agently/internal/service/conversation"
 	invk "github.com/viant/agently/pkg/agently/tool/invoker"
-	useroauthtoken "github.com/viant/agently/pkg/agently/user_oauth_token"
-	useroauthtokenintread "github.com/viant/agently/pkg/agently/user_oauth_token/internalread"
-	useroauthtokenintwrite "github.com/viant/agently/pkg/agently/user_oauth_token/internalwrite"
+	oauthread "github.com/viant/agently/pkg/agently/user/oauth"
+	oauthwrite "github.com/viant/agently/pkg/agently/user/oauth/write"
 	fhandlers "github.com/viant/forge/backend/handlers"
 	fservice "github.com/viant/forge/backend/service/file"
 )
@@ -134,14 +133,11 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR
 		_ = *schsvc.StartWatchdog(wdCtx, orch, 30*time.Second)
 	}
 
-	// Internal token components (read/masked + patch) – used by token store via dao.Operate only.
-	if err := useroauthtoken.DefineComponent(context.Background(), dao); err != nil {
+	// OAuth token components (read + write) – used by token store via dao.Operate only.
+	if err := oauthread.DefineTokenComponent(context.Background(), dao); err != nil {
 		return nil, err
 	}
-	if _, err := useroauthtokenintwrite.DefineComponent(context.Background(), dao); err != nil {
-		return nil, err
-	}
-	if err := useroauthtokenintread.DefineComponent(context.Background(), dao); err != nil {
+	if _, err := oauthwrite.DefineComponent(context.Background(), dao); err != nil {
 		return nil, err
 	}
 

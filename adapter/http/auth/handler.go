@@ -135,7 +135,7 @@ func (s *Service) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session := s.sess.Get(r)
-	var item *userread.View
+	var item *userread.UserView
 	var err error
 	if session == nil {
 		// Support SPA (Bearer) without cookie: derive identity from context
