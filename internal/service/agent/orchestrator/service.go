@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,12 +17,17 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
+	prompt "github.com/viant/agently/genai/prompt"
 	core2 "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/service/core/stream"
 	executil "github.com/viant/agently/genai/service/shared/executil"
 	"github.com/viant/agently/genai/tool"
-	agconv "github.com/viant/agently/pkg/agently/conversation"
+	auth "github.com/viant/agently/internal/auth"
+	"github.com/viant/agently/shared"
 )
+
+//go:embed free_token_prompt.md
+var freeTokenPrompt string
 
 type Service struct {
 	llm        *core2.Service
@@ -126,10 +132,9 @@ func hasRemovalTool(p *plan.Plan) bool {
 	return false
 }
 
-// presentContextLimitExceeded inserts an assistant message explaining the context-limit error
-// and listing concise candidates to remove. It uses a minimal auto-compaction pass only to
-// free space for this presentation message. Subsequent cleanup is LLM-driven via message:remove
-// (and optionally message:summarize).
+// presentContextLimitExceeded composes a concise guidance note with removable-candidate lines,
+// then triggers a best‑effort, tool‑driven recovery loop to free tokens (via internal/message tools),
+// and finally inserts an assistant message with the guidance for the user.
 func (s *Service) presentContextLimitExceeded(ctx context.Context, errMessage string) error {
 	convID := memory.ConversationIDFromContext(ctx)
 	if strings.TrimSpace(convID) == "" || s.convClient == nil {
@@ -146,22 +151,21 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context, errMessage st
 		lines = []string{"(no removable items identified)"}
 	}
 	// Compose presentation message
+	freeTokenPrompt = strings.Replace(freeTokenPrompt, "{{ERROR_MESSAGE}}", errMessage, 1)
+
 	var buf bytes.Buffer
-	buf.WriteString("Context limit exceeded (")
-	buf.WriteString(errMessage)
-	buf.WriteString("): reduce context to continue.\n")
-	buf.WriteString("Use tools message:remove (to remove items) and message:summarize (to craft short summaries). We will retry automatically after removals.\n")
-	buf.WriteString("Candidates:\n")
 	for _, l := range lines {
 		buf.WriteString(l)
 		buf.WriteByte('\n')
 	}
 
-	// Make room for the presentation message by auto-compacting oldest items (excluding the last user message).
-	// This compaction is limited in scope and is not used for general cleanup.
-	needed := estimateTokens(buf.String()) + 128 // small safety margin
-	if aerr := s.autoCompactToFitPresentation(ctx, conv, needed); aerr != nil {
-		// Best-effort: continue even if compact fails
+	freeTokenPrompt = strings.Replace(freeTokenPrompt, "{{CANDIDATES}}", buf.String(), 1)
+
+	// Best‑effort: let the assistant immediately run internal/message tools (e.g., remove)
+	// to free up tokens and recover the turn.
+	err = s.freeMessageTokensLLM(ctx, conv, freeTokenPrompt)
+	if err != nil {
+		return fmt.Errorf("failed to free message tokens via LLM: %v\n", err)
 	}
 
 	// Insert assistant message in current conversation turn
@@ -171,9 +175,11 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context, errMessage st
 		apiconv.WithType("text"),
 		apiconv.WithStatus("error"),
 		apiconv.WithContent(buf.String()),
+		apiconv.WithInterim(1),
 	); aerr != nil {
 		return fmt.Errorf("failed to insert context-limit message: %w", aerr)
 	}
+
 	return nil
 }
 
@@ -202,7 +208,7 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 		}
 	}
 	// Build candidates
-	const previewLen = 100
+	const previewLen = 1000
 	out := []string{}
 	for _, t := range tr {
 		if t == nil || len(t.Message) == 0 {
@@ -233,10 +239,7 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 					}
 				}
 				argStr, _ := json.Marshal(args)
-				ap := string(argStr)
-				if len(ap) > previewLen {
-					ap = ap[:previewLen]
-				}
+				ap := shared.RuneTruncate(string(argStr), previewLen)
 				body := ""
 				if m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
 					body = *m.ToolCall.ResponsePayload.InlineBody
@@ -248,10 +251,7 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 				if m.Content != nil {
 					body = *m.Content
 				}
-				pv := body
-				if len(pv) > previewLen {
-					pv = pv[:previewLen]
-				}
+				pv := shared.RuneTruncate(body, previewLen)
 				sz := len(body)
 				line = fmt.Sprintf("messageId: %s, type: %s, preview: \"%s\", size: %d bytes (~%d tokens)", m.Id, role, pv, sz, estimateTokens(body))
 			} else {
@@ -261,136 +261,6 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 		}
 	}
 	return out
-}
-
-// autoCompactToFitPresentation archives oldest messages to free at least neededTokens, excluding the last user message.
-// It inserts a short assistant summary per removed message to retain context.
-func (s *Service) autoCompactToFitPresentation(ctx context.Context, conv *apiconv.Conversation, neededTokens int) error {
-	if neededTokens <= 0 || conv == nil || s.convClient == nil {
-		return nil
-	}
-	tr := conv.GetTranscript()
-	// Identify last user message to preserve
-	lastUserID := ""
-	for i := len(tr) - 1; i >= 0 && lastUserID == ""; i-- {
-		t := tr[i]
-		if t == nil || len(t.Message) == 0 {
-			continue
-		}
-		for j := len(t.Message) - 1; j >= 0; j-- {
-			m := t.Message[j]
-			if m == nil || m.Interim != 0 || m.Content == nil || strings.TrimSpace(*m.Content) == "" {
-				continue
-			}
-			if strings.EqualFold(strings.TrimSpace(m.Role), "user") {
-				lastUserID = m.Id
-				break
-			}
-		}
-	}
-	// Helper to attempt removal for a message view
-	tryRemove := func(m *agconv.MessageView) (freed int, ok bool) {
-		if m == nil || m.Id == lastUserID || (m.Archived != nil && *m.Archived == 1) || m.Interim != 0 {
-			return 0, false
-		}
-		typ := strings.ToLower(strings.TrimSpace(m.Type))
-		role := strings.ToLower(strings.TrimSpace(m.Role))
-		var body string
-		if m.ToolCall != nil {
-			if m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
-				body = *m.ToolCall.ResponsePayload.InlineBody
-			}
-		} else if typ == "text" && (role == "user" || role == "assistant") {
-			if m.Content != nil {
-				body = *m.Content
-			}
-		} else {
-			return 0, false
-		}
-		if strings.TrimSpace(body) == "" {
-			return 0, false
-		}
-		freed = estimateTokens(body)
-		// Insert a short assistant summary
-		preview := body
-		if len(preview) > 100 {
-			preview = preview[:100]
-		}
-		sum := preview
-		// Include tool hint for tool calls
-		if m.ToolCall != nil {
-			tool := strings.TrimSpace(m.ToolCall.ToolName)
-			var args map[string]interface{}
-			if m.ToolCall.RequestPayload != nil && m.ToolCall.RequestPayload.InlineBody != nil {
-				raw := strings.TrimSpace(*m.ToolCall.RequestPayload.InlineBody)
-				if raw != "" {
-					var parsed map[string]interface{}
-					_ = json.Unmarshal([]byte(raw), &parsed)
-					args = parsed
-				}
-			}
-			argStr, _ := json.Marshal(args)
-			ap := string(argStr)
-			if len(ap) > 100 {
-				ap = ap[:100]
-			}
-			sum = fmt.Sprintf("%s: %s", tool, ap)
-		}
-		turn := s.ensureTurnMeta(ctx, conv)
-		if _, err := apiconv.AddMessage(ctx, s.convClient, &turn,
-			apiconv.WithRole("assistant"), apiconv.WithType("text"), apiconv.WithStatus("summary"), apiconv.WithContent(sum)); err != nil {
-			return 0, false
-		}
-		// Archive the original
-		mm := apiconv.NewMessage()
-		mm.SetId(m.Id)
-		mm.SetArchived(1)
-		if err := s.convClient.PatchMessage(ctx, mm); err != nil {
-			return 0, false
-		}
-		return freed, true
-	}
-
-	freed := 0
-	// Pass 1: oldest user/assistant text
-	for _, t := range tr {
-		if t == nil {
-			continue
-		}
-		for _, m := range t.Message {
-			if m == nil {
-				continue
-			}
-			role := strings.ToLower(strings.TrimSpace(m.Role))
-			typ := strings.ToLower(strings.TrimSpace(m.Type))
-			if typ == "text" && (role == "user" || role == "assistant") {
-				if f, ok := tryRemove(m); ok {
-					freed += f
-					if freed >= neededTokens {
-						return nil
-					}
-				}
-			}
-		}
-	}
-	// Pass 2: oldest tool-call results
-	for _, t := range tr {
-		if t == nil {
-			continue
-		}
-		for _, m := range t.Message {
-			if m == nil || m.ToolCall == nil {
-				continue
-			}
-			if f, ok := tryRemove(m); ok {
-				freed += f
-				if freed >= neededTokens {
-					return nil
-				}
-			}
-		}
-	}
-	return nil
 }
 
 // ensureTurnMeta returns a TurnMeta for adding messages: uses existing context when present, otherwise derives from conversation.
@@ -609,4 +479,55 @@ func New(service *core2.Service, registry tool.Registry, convClient apiconv.Clie
 		registry:   registry,
 		convClient: convClient,
 	}
+}
+
+// freeMessageTokensLLM kicks off a focused plan run with the guidance note as
+// the user prompt so the assistant can immediately use internal/message tools
+// (e.g., remove/summarize) to free tokens and continue the conversation.
+func (s *Service) freeMessageTokensLLM(ctx context.Context, conv *apiconv.Conversation, instruction string) error {
+	if s == nil || s.llm == nil || conv == nil {
+		return fmt.Errorf("missing llm or conversation")
+	}
+	// Ensure turn meta so recorder/stream handler can attach artifacts properly.
+	turn := s.ensureTurnMeta(ctx, conv)
+	ctx = memory.WithTurnMeta(ctx, turn)
+
+	// Select model from conversation defaults when available.
+	model := ""
+	if conv.DefaultModel != nil && strings.TrimSpace(*conv.DefaultModel) != "" {
+		model = strings.TrimSpace(*conv.DefaultModel)
+	}
+	genInput := &core2.GenerateInput{
+		ModelSelection: llm.ModelSelection{Model: model},
+		Prompt:         &prompt.Prompt{Text: strings.TrimSpace(instruction)},
+		Binding:        &prompt.Binding{},
+	}
+	// Attribute participants for naming and validation
+	if uid := auth.EffectiveUserID(ctx); strings.TrimSpace(uid) != "" {
+		genInput.UserID = uid
+	} else {
+		genInput.UserID = "system"
+	}
+	if genInput.Options == nil {
+		genInput.Options = &llm.Options{}
+	}
+	genInput.Options.Mode = "plan"
+	// Expose internal/message tools so recovery can use remove/summarize/show/match as needed.
+	if s.registry != nil {
+		pattern := "internal/message" // service-only pattern (match any method)
+		for _, def := range s.registry.MatchDefinition(pattern) {
+			if def == nil {
+				continue
+			}
+			if strings.Contains(def.Name, "remove") /*|| strings.Contains(def.Name, "show")*/ {
+				genInput.Options.Tools = append(genInput.Options.Tools, llm.Tool{Type: "function", Definition: *def})
+			}
+		}
+	}
+
+	genOutput := &core2.GenerateOutput{}
+	if _, err := s.Run(ctx, genInput, genOutput); err != nil {
+		return err
+	}
+	return nil
 }

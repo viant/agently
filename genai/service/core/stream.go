@@ -159,7 +159,14 @@ func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, 
 		}
 
 		if err := handler(ctx, &event); err != nil {
-			resErr = fmt.Errorf("failed to handle Stream event: %w", err)
+			// If the handler surfaced a provider error that indicates a context/window overflow,
+			// wrap it with ErrContextLimitExceeded so callers can reliably detect it via errors.Is.
+			if isContextLimitError(err) {
+				// Preserve the human-friendly prefix while keeping the sentinel in the wrap chain.
+				resErr = fmt.Errorf("failed to handle Stream event: %w", fmt.Errorf("%w: %v", ErrContextLimitExceeded, err))
+			} else {
+				resErr = fmt.Errorf("failed to handle Stream event: %w", err)
+			}
 			ignore = true
 			continue
 		}
