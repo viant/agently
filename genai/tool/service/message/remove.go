@@ -7,10 +7,11 @@ import (
 
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/shared"
 )
 
 type RemoveTuple struct {
-	Summary    string   `json:"summary"`
+	Summary    string   `json:"summary" description:"summary to associate with removed messages"`
 	MessageIds []string `json:"messageIds"`
 	Role       string   `json:"role,omitempty"`
 }
@@ -86,9 +87,9 @@ func (s *Service) remove(ctx context.Context, in, out interface{}) error {
 		}
 		// Truncate summary for per-message field if needed
 		sumForField := sum
-		if len(sumForField) > 256 {
-			sumForField = sumForField[:256]
-		}
+
+		sumForField = shared.RuneTruncate(sumForField, 500)
+
 		for _, id := range tup.MessageIds {
 			id = strings.TrimSpace(id)
 			if id == "" {

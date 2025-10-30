@@ -20,6 +20,7 @@ import (
 	padapter "github.com/viant/agently/genai/prompt/adapter"
 	"github.com/viant/agently/genai/service/augmenter"
 	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
+	"github.com/viant/agently/genai/service/core"
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/workspace"
 	mcpname "github.com/viant/agently/pkg/mcpname"
@@ -218,7 +219,7 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 			if strings.EqualFold(strings.TrimSpace(m.Role), "assistant") && m.Status != nil && strings.EqualFold(strings.TrimSpace(*m.Status), "error") {
 				{
 					msg := strings.ToLower(*m.Content)
-					if strings.Contains(msg, "context limit exceeded") || strings.Contains(msg, "input exceeds the context window") {
+					if core.ContainsContextLimitError(msg) {
 						tokenLimit = true
 						break
 					}
@@ -688,15 +689,29 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 	}
 	// Re-implement transcript.History(false) to include clamping with message id trailers.
 	normalized := transcript.Filter(func(v *apiconv.Message) bool {
-		if v == nil || v.IsArchived() || v.IsInterim() || v.Content == nil || *v.Content == "" {
+		if v == nil || v.Content == nil || *v.Content == "" {
 			return false
 		}
+
+		// Allow error messages exactly once
+		if v.Status != nil && strings.EqualFold(strings.TrimSpace(*v.Status), "error") {
+			if v.IsArchived() {
+				return false
+			}
+			return true
+		}
+
+		if v.IsArchived() || v.IsInterim() {
+			return false
+		}
+
 		if strings.ToLower(strings.TrimSpace(v.Type)) != "text" {
 			return false
 		}
 		role := strings.ToLower(strings.TrimSpace(v.Role))
 		return role == "user" || role == "assistant"
 	})
+
 	var out prompt.History
 	overflow := false
 	for _, msg := range normalized {
@@ -734,6 +749,21 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 			}
 		}
 		out.Messages = append(out.Messages, &prompt.Message{Role: role, Content: content, Attachment: attachments})
+
+		if msg.Status != nil && strings.EqualFold(strings.TrimSpace(*msg.Status), "error") {
+			if !msg.IsArchived() {
+				if mm := msg.NewMutable(); mm != nil {
+					archived := 1
+					mm.Archived = &archived
+					mm.Has.Archived = true
+					err := s.conversation.PatchMessage(ctx, (*apiconv.MutableMessage)(mm))
+					if err != nil {
+						return out, overflow, fmt.Errorf("failed to archive error message %q: %w", msg.Id, err)
+					}
+				}
+			}
+		}
+
 	}
 	return out, overflow, nil
 }
