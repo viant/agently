@@ -394,6 +394,13 @@ export default function CodeFenceRenderer({ text = '' }) {
           {renderPipeTable(body)}
         </div>
       );
+    } else if (lang === 'mermaid' || /^\s*(sequenceDiagram|flowchart|graph|classDiagram|stateDiagram)/.test(body)) {
+      // Render Mermaid diagrams when the fence language is 'mermaid' or the body starts with a known diagram type
+      out.push(
+        <div key={`mermaid-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+          <Mermaid code={body} />
+        </div>
+      );
     } else {
       const isMarkdownCode = (lang === 'markdown' || lang === 'md');
       out.push(
