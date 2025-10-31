@@ -28,6 +28,7 @@ import { workflowConversationService } from './services/workflowConversationServ
 import { oauthService } from './services/oauthService.js';
 import { scheduleService } from './services/scheduleService.js';
 import { preferencesService } from './services/preferencesService.js';
+import { guardrails } from './services/guardrails.js';
 import CodeDiffDialog from './components/CodeDiffDialog.jsx';
 
 const router = createBrowserRouter([
@@ -55,6 +56,7 @@ const services = {
   oauth: oauthService,
   schedule: scheduleService,
   preferences: preferencesService,
+  guardrails,
 };
 
 

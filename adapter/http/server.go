@@ -347,7 +347,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		id := r.PathValue("id")
 		if strings.TrimSpace(id) != "" {
-			cv, err := s.chatSvc.GetConversation(r.Context(), id)
+			cv, err := s.chatSvc.GetConversation(s.withAuthFromRequest(r), id)
 			if err != nil {
 				encode(w, http.StatusInternalServerError, nil, err)
 				return
@@ -416,7 +416,7 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	includeModelCallPayload := strings.TrimSpace(r.URL.Query().Get("includeModelCallPayload"))
 
 	// First fetch (or only when extensions are not requested)
-	baseCtx := r.Context()
+	baseCtx := s.withAuthFromRequest(r)
 	if s.invoker != nil {
 		baseCtx = invk.With(baseCtx, s.invoker)
 	}
@@ -433,6 +433,10 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	conv, err := s.chatSvc.Get(baseCtx, opts)
 	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+	if conv == nil || conv.Conversation == nil {
+		encode(w, http.StatusNotFound, nil, fmt.Errorf("conversation not found"))
 		return
 	}
 	encode(w, http.StatusOK, conv.Conversation, nil)

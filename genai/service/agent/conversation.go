@@ -139,7 +139,8 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 	needsPatch := false
 
 	if !exists {
-		patch.SetVisibility(convw.VisibilityPublic)
+		// Default new agent-created conversations to private for privacy.
+		patch.SetVisibility(convw.VisibilityPrivate)
 		needsPatch = true
 	}
 	if strings.TrimSpace(input.ModelOverride) != "" {
