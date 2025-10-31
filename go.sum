@@ -1205,6 +1205,8 @@ github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 h1:OWMFweaKPIdh1tkbx
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99/go.mod h1:7ovJ5fzlXnVcadUr9RjJVwVl2l3wbNvm5i4tSOj+VbE=
 github.com/viant/mcp v0.8.0 h1:n4tnLXpOtpnrLZtHyNG2mmZ9SUbGWKsWGla10iMfuDg=
 github.com/viant/mcp v0.8.0/go.mod h1:fyuB1TSQYbbGNn7U6rLmlr9gD+Yg5+Na32D34Uvm0sk=
+github.com/viant/mcp v0.8.1 h1:2vcGwqsWG2bBNSfi+/SDmEJhUlF4eIFD7m8Vtuor5MA=
+github.com/viant/mcp v0.8.1/go.mod h1:fyuB1TSQYbbGNn7U6rLmlr9gD+Yg5+Na32D34Uvm0sk=
 github.com/viant/mcp-protocol v0.6.0 h1:lv0PPJ+tyO0LBXyAvnZ65NwfT4OzSCytjDdCT6TC0tQ=
 github.com/viant/mcp-protocol v0.6.0/go.mod h1:EJPomVw6jnI+4Aa2ONYC3WTvApiF0YeQIiaaEpA54ec=
 github.com/viant/parsly v0.3.3 h1:7ytgfLOG4Ils+wviGacWxRD0gAUvVEH/iGsSE+UI8YM=
