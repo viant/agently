@@ -3,7 +3,7 @@ package patch
 // ApplyInput is the payload for Service.Apply
 type ApplyInput struct {
 	Patch   string `json:"patch" description:"Patch text to apply (either unified-diff or simplified patch format)"`
-	Workdir string `json:"workdir" description:"Base directory for relative paths"`
+	Workdir string `json:"workdir" description:"Required. Base directory for all relative patch paths"`
 }
 
 // DiffInput is the payload for Service.Diff

@@ -3,6 +3,7 @@ package patch
 import (
 	"context"
 	_ "embed"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -119,6 +120,11 @@ func (s *Service) apply(ctx context.Context, in, out interface{}) error {
 }
 
 func (s *Service) applyPatch(ctx context.Context, input *ApplyInput, output *ApplyOutput) error {
+	// Enforce workdir to avoid accidental writes outside the intended workspace.
+	// This prevents creating directories like "/internal" when workdir is missing.
+	if strings.TrimSpace(input.Workdir) == "" {
+		return fmt.Errorf("workdir is required for system/patch:apply")
+	}
 	convID := mem.ConversationIDFromContext(ctx)
 	if convID == "" {
 		convID = "_global"
