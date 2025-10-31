@@ -11,7 +11,6 @@ Agently is a Go framework for building and interacting with AI agents. It provid
 - **Embeddings**: Support for text embeddings for semantic search and retrieval
 - **CLI Interface**: Interact with agents through a command-line interface
 - **HTTP Server**: Deploy agents as web services
-- **Orchestration (Decoupled)**: Agent turns are executed without a Fluxor runtime. MCP tools and internal services are coordinated directly by Agently.
 
 ## Why Another Agentic System
 
