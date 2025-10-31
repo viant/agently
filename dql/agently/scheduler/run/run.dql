@@ -9,6 +9,12 @@
 #set($_ = $Id<string>(path/id).WithPredicate(0, 'equal','t', 'schedule_id'))
 #set($_ = $Since<string>(query/since).WithPredicate(1,'expr','created_at >= (SELECT created_at FROM turn WHERE id = ?)'))
 
+# Enforce privacy on schedule runs via handler: only runs linked to
+# public conversations or ones created by the current user are visible.
+# Runs without linked conversations are excluded.
+# Handler: *run.Filter registered in pkg/agently/scheduler/run/filter.go
+#set($_ = $DefaultPredicate<bool>(const/value).Value('0').WithPredicate(0,'handler','*run.Filter'))
+
 SELECT run.*
 FROM (
     SELECT t.*  FROM schedule_run t

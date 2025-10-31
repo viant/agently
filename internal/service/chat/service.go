@@ -234,6 +234,20 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 	if err != nil {
 		return nil, err
 	}
+	// Enforce per-user visibility when conversation was found
+	if conv != nil {
+		var userID string
+		if ui := authctx.User(ctx); ui != nil {
+			userID = strings.TrimSpace(ui.Subject)
+			if userID == "" {
+				userID = strings.TrimSpace(ui.Email)
+			}
+		}
+		if userID == "" || conv.CreatedByUserId == nil || strings.TrimSpace(*conv.CreatedByUserId) != userID {
+			// Deny by returning nil so HTTP handler can map to 404
+			return &GetResponse{Conversation: nil}, nil
+		}
+	}
 	return &GetResponse{Conversation: conv}, nil
 }
 
@@ -633,11 +647,8 @@ func (s *Service) CreateConversation(ctx context.Context, in CreateConversationR
 			cw.SetCreatedByUserID(userID)
 		}
 	}
-	if strings.TrimSpace(in.Visibility) == "" {
-		cw.SetVisibility(convw.VisibilityPublic)
-	} else {
-		cw.SetVisibility(strings.TrimSpace(in.Visibility))
-	}
+	// Force private visibility for all conversations (ignore client-provided visibility)
+	cw.SetVisibility(convw.VisibilityPrivate)
 	if s := strings.TrimSpace(in.Agent); s != "" {
 		cw.SetAgentId(s)
 	}
@@ -674,6 +685,19 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*Conversation
 	if cv == nil {
 		return nil, nil
 	}
+	// Enforce per-user visibility: only owner may view
+	if ui := authctx.User(ctx); ui != nil {
+		want := strings.TrimSpace(ui.Subject)
+		if want == "" {
+			want = strings.TrimSpace(ui.Email)
+		}
+		if want == "" || cv.CreatedByUserId == nil || strings.TrimSpace(*cv.CreatedByUserId) != want {
+			return nil, nil
+		}
+	} else {
+		// No identity -> deny
+		return nil, nil
+	}
 	t := id
 	if cv.Title != nil && strings.TrimSpace(*cv.Title) != "" {
 		t = *cv.Title
@@ -687,9 +711,21 @@ func (s *Service) ListConversations(ctx context.Context, input *apiconv.Input) (
 	if err != nil {
 		return nil, err
 	}
+	// Resolve current user
+	var userID string
+	if ui := authctx.User(ctx); ui != nil {
+		userID = strings.TrimSpace(ui.Subject)
+		if userID == "" {
+			userID = strings.TrimSpace(ui.Email)
+		}
+	}
 	out := make([]ConversationSummary, 0, len(rows))
 	for _, v := range rows {
 		if v == nil {
+			continue
+		}
+		// Only include user's own conversations
+		if userID == "" || v.CreatedByUserId == nil || strings.TrimSpace(*v.CreatedByUserId) != userID {
 			continue
 		}
 		t := v.Id

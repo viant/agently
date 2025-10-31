@@ -9,6 +9,7 @@ import (
 	"time"
 
 	convcli "github.com/viant/agently/client/conversation"
+	authctx "github.com/viant/agently/internal/auth"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 	msgw "github.com/viant/agently/pkg/agently/message/write"
 	mcallw "github.com/viant/agently/pkg/agently/modelcall/write"
@@ -82,11 +83,22 @@ func (c *Client) DeleteMessage(_ context.Context, conversationID, messageID stri
 }
 
 // GetConversations returns all conversations without transcript for summary.
-func (c *Client) GetConversations(_ context.Context, input *convcli.Input) ([]*convcli.Conversation, error) {
+func (c *Client) GetConversations(ctx context.Context, input *convcli.Input) ([]*convcli.Conversation, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	// Only include conversations owned by current user
+	var userID string
+	if ui := authctx.User(ctx); ui != nil {
+		userID = strings.TrimSpace(ui.Subject)
+		if userID == "" {
+			userID = strings.TrimSpace(ui.Email)
+		}
+	}
 	out := make([]*convcli.Conversation, 0, len(c.conversations))
 	for _, v := range c.conversations {
+		if v == nil || userID == "" || v.CreatedByUserId == nil || strings.TrimSpace(*v.CreatedByUserId) != userID {
+			continue
+		}
 		cp := cloneConversationView(v)
 		// Compute aggregated usage across entire conversation (not filtered)
 		cp.Usage = c.aggregateUsage(v.Id)
@@ -108,11 +120,22 @@ func (c *Client) GetConversations(_ context.Context, input *convcli.Input) ([]*c
 }
 
 // GetConversation returns a single conversation with optional filtering.
-func (c *Client) GetConversation(_ context.Context, id string, options ...convcli.Option) (*convcli.Conversation, error) {
+func (c *Client) GetConversation(ctx context.Context, id string, options ...convcli.Option) (*convcli.Conversation, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	conv, ok := c.conversations[id]
 	if !ok {
+		return nil, nil
+	}
+	// Only owner may view
+	var userID string
+	if ui := authctx.User(ctx); ui != nil {
+		userID = strings.TrimSpace(ui.Subject)
+		if userID == "" {
+			userID = strings.TrimSpace(ui.Email)
+		}
+	}
+	if userID == "" || conv.CreatedByUserId == nil || strings.TrimSpace(*conv.CreatedByUserId) != userID {
 		return nil, nil
 	}
 
@@ -245,7 +268,7 @@ func (c *Client) aggregateUsage(conversationID string) *agconv.UsageView {
 }
 
 // PatchConversations upserts conversations and merges fields according to Has flags.
-func (c *Client) PatchConversations(_ context.Context, in *convcli.MutableConversation) error {
+func (c *Client) PatchConversations(ctx context.Context, in *convcli.MutableConversation) error {
 	if in == nil || in.Has == nil || !in.Has.Id {
 		return errors.New("missing conversation id")
 	}
@@ -256,6 +279,17 @@ func (c *Client) PatchConversations(_ context.Context, in *convcli.MutableConver
 	if !ok {
 		// Create minimal conversation
 		cur = &agconv.ConversationView{Id: in.Id, Stage: "", CreatedAt: time.Now()}
+		// Default to private visibility and set owner when available
+		cur.Visibility = "private"
+		if ui := authctx.User(ctx); ui != nil {
+			userID := strings.TrimSpace(ui.Subject)
+			if userID == "" {
+				userID = strings.TrimSpace(ui.Email)
+			}
+			if userID != "" {
+				cur.CreatedByUserId = &userID
+			}
+		}
 		c.conversations[in.Id] = cur
 	}
 	applyConversationPatch(cur, in)

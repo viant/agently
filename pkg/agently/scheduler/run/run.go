@@ -27,9 +27,10 @@ func init() {
 var RunFS embed.FS
 
 type RunInput struct {
-	Id    string       `parameter:",kind=path,in=id" predicate:"equal,group=0,t,schedule_id"`
-	Since string       `parameter:",kind=query,in=since" predicate:"expr,group=1,created_at >= (SELECT created_at FROM turn WHERE id = ?)"`
-	Has   *RunInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	Id               string       `parameter:",kind=path,in=id" predicate:"equal,group=0,t,schedule_id"`
+	Since            string       `parameter:",kind=query,in=since" predicate:"expr,group=1,created_at >= (SELECT created_at FROM turn WHERE id = ?)"`
+	DefaultPredicate string       `parameter:",kind=const,in=value" predicate:"handler,group=0,*run.Filter" value:"0"`
+	Has              *RunInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type RunInputHas struct {
