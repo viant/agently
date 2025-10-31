@@ -13,6 +13,20 @@ Agently is a Go framework for building and interacting with AI agents. It provid
 - **HTTP Server**: Deploy agents as web services
 - **Orchestration (Decoupled)**: Agent turns are executed without a Fluxor runtime. MCP tools and internal services are coordinated directly by Agently.
 
+## Why Another Agentic System
+
+- Secure MCP hosting: Enforces authority matching, HTTPS‑only header reuse, and origin/audience allowlists by default, preventing credential leakage while supporting bearer‑first and cookie reuse where safe.
+- Conversation‑scoped orchestration: Associates MCP clients, elicitation, and tool calls to a conversation, preserving auth/session boundaries and simplifying multi‑step flows.
+- Local services as MCP tools: Wraps internal services as MCP servers with structured schemas and zero network hops, aligning with MCP list/call semantics for portability.
+- Decoupled runtime: Coordinates tools and services directly without heavyweight runtimes, reducing latency and operational complexity.
+- Workspace‑driven operations: Agents, models, MCP clients, and policies live in the workspace, enabling reproducible changes, safer reviews, and environment‑specific overrides.
+- Generic LLM request/response: Normalizes model selection, options, prompts, and outputs across providers while preserving provider‑specific fields for fidelity.
+- Provider request/response capture: Observers record provider‑raw payloads (request JSON, streaming deltas, timings, error surfaces) with correlation IDs for end‑to‑end tracing and compliance.
+- All tools catalogue: Unified directory lists internal tools and external MCP tools (paged discovery, normalized names, descriptions, schemas) with stable IDs to drive UIs and policy.
+- Elicitation in execution timeline: Assistant elicitation is persisted with callback URLs, status transitions, and appears in the turn timeline so executions remain auditable and resumable.
+- Tool feed streaming: Emits start/finish/error events with input schema, argument hashes, durations, and structured results across internal/MCP tools; resilient SSE with token‑refresh reconnect.
+- Zero‑code MCP activation: Add or switch MCP servers via workspace YAML/CLI; proxy handles name normalization and auth injection; auth bootstrap wires BFF cookies/tokens—no code changes to onboard tools.
+
 ### Agent Tools (v2)
 
 Agently exposes a consolidated tool surface for agent selection and execution:
@@ -305,7 +319,7 @@ agently serve
 Agently stores all editable resources under **`$AGENTLY_WORKSPACE`** (defaults to
 `~/.agently`).  Each kind has its own sub-folder:
 
-
+```
 ~/.agently/
   agents/      # *.yaml agent definitions
   models/      # LLM or embedder configs
@@ -354,7 +368,6 @@ agently mcp list   [--json]
 
 # Remove definition
 agently mcp remove -n local
-```
 ```
 
 ## Forge UI
