@@ -31,7 +31,6 @@ view:
 
           - id: title
             type: label
-            label: Title
             properties:
               style:
                 fontWeight: 600
