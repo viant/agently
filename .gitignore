@@ -1,6 +1,8 @@
 .*/
 ag/
-ag0*/
+db/
+state/
+index/
 repo/
 deprecated/
 local_test.go

@@ -234,7 +234,9 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 	if err != nil {
 		return nil, err
 	}
-	// Enforce per-user visibility when conversation was found
+	// Enforce per-user visibility when conversation was found:
+	// - Private: only creator may access
+	// - Non-private (public/empty): allow read regardless of creator
 	if conv != nil {
 		var userID string
 		if ui := authctx.User(ctx); ui != nil {
@@ -243,9 +245,12 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 				userID = strings.TrimSpace(ui.Email)
 			}
 		}
-		if userID == "" || conv.CreatedByUserId == nil || strings.TrimSpace(*conv.CreatedByUserId) != userID {
-			// Deny by returning nil so HTTP handler can map to 404
-			return &GetResponse{Conversation: nil}, nil
+		vis := strings.ToLower(strings.TrimSpace(conv.Visibility))
+		if vis == "private" {
+			if userID == "" || conv.CreatedByUserId == nil || strings.TrimSpace(*conv.CreatedByUserId) != userID {
+				// Deny by returning nil so HTTP handler can map to 404
+				return &GetResponse{Conversation: nil}, nil
+			}
 		}
 	}
 	return &GetResponse{Conversation: conv}, nil
@@ -685,18 +690,23 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*Conversation
 	if cv == nil {
 		return nil, nil
 	}
-	// Enforce per-user visibility: only owner may view
-	if ui := authctx.User(ctx); ui != nil {
-		want := strings.TrimSpace(ui.Subject)
-		if want == "" {
-			want = strings.TrimSpace(ui.Email)
-		}
-		if want == "" || cv.CreatedByUserId == nil || strings.TrimSpace(*cv.CreatedByUserId) != want {
+	// Enforce per-user visibility:
+	// - Private: only creator may view
+	// - Non-private: allow view regardless of creator or identity
+	vis := strings.ToLower(strings.TrimSpace(cv.Visibility))
+	if vis == "private" {
+		if ui := authctx.User(ctx); ui != nil {
+			want := strings.TrimSpace(ui.Subject)
+			if want == "" {
+				want = strings.TrimSpace(ui.Email)
+			}
+			if want == "" || cv.CreatedByUserId == nil || strings.TrimSpace(*cv.CreatedByUserId) != want {
+				return nil, nil
+			}
+		} else {
+			// No identity -> deny private
 			return nil, nil
 		}
-	} else {
-		// No identity -> deny
-		return nil, nil
 	}
 	t := id
 	if cv.Title != nil && strings.TrimSpace(*cv.Title) != "" {

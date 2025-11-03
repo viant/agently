@@ -41,11 +41,21 @@ export async function saveAgent({ context }) {
 
     handlers?.setLoading?.(true);
     try {
+        // Strip any UI-only helper fields before saving (e.g., edit meta)
+        const { editMeta, ...toPersist } = (formData || {});
         const resp = await api.put?.({
             inputParameters: { name },
-            body: { ...formData },
+            body: { ...toPersist },
         });
         log.debug('PUT', resp);
+        // Surface non-blocking warnings when present
+        try {
+            const data = resp && resp.data ? resp.data : resp;
+            const warnings = data && data.warnings ? data.warnings : [];
+            if (Array.isArray(warnings) && warnings.length) {
+                warnings.forEach(w => log.warn('[agent.save] warning:', w));
+            }
+        } catch (_) {}
         return resp;
     } catch (err) {
         log.error('agentService.saveAgent error', err);
@@ -56,6 +66,41 @@ export async function saveAgent({ context }) {
     }
 }
 
+/**
+ * Loads Agent Edit View meta for the currently selected agent and injects it
+ * into the agents dataSource form under `editMeta` so UI controls can render
+ * authoring hints without changing the stored YAML.
+ */
+export async function loadAgentEdit({ context }) {
+    try {
+        const agentsCtx = context?.Context('agents');
+        if (!agentsCtx) return false;
+        const sel = agentsCtx.handlers?.dataSource?.peekSelection?.();
+        const name = sel?.selected?.name || sel?.selected?.id;
+        if (!name) return false;
+
+        // Build absolute URL using configured endpoints when available
+        const endpoints = context?.endpoints || {};
+        const base = endpoints?.agentlyAPI?.baseURL || (typeof window !== 'undefined' ? window.location.origin : '');
+        const url = `${base}/v1/workspace/agent/${encodeURIComponent(name)}/edit`;
+
+        const resp = await fetch(url, { method: 'GET' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const payload = await resp.json();
+        const data = payload && payload.data ? payload.data : payload; // support raw or wrapped
+        if (!data) return false;
+
+        const handlers = agentsCtx.handlers?.dataSource;
+        const form = handlers?.getFormData?.() || sel?.selected || {};
+        handlers?.setFormData?.({ values: { ...form, editMeta: data.meta || {} } });
+        return true;
+    } catch (e) {
+        try { getLogger('agently').error('loadAgentEdit failed', e); } catch (_) {}
+        return false;
+    }
+}
+
 export const agentService = {
     saveAgent,
+    loadAgentEdit,
 };

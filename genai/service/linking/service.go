@@ -9,7 +9,9 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/service/shared"
+	authctx "github.com/viant/agently/internal/auth"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
+	shared2 "github.com/viant/agently/shared"
 )
 
 // Service encapsulates helpers to create child conversations linked to a parent
@@ -28,23 +30,26 @@ func New(c apiconv.Client) *Service { return &Service{conv: c} }
 // transcript is provided, it clones the last transcript into the new
 // conversation for context.
 func (s *Service) CreateLinkedConversation(ctx context.Context, parent memory.TurnMeta, cloneTranscript bool, transcript apiconv.Transcript) (string, error) {
-	if s == nil || s.conv == nil {
-		return "", fmt.Errorf("linking: conversation client not configured")
-	}
 	childID := uuid.New().String()
 	// Create child conversation and set parent ids
 	w := convw.Conversation{Has: &convw.ConversationHas{}}
 	w.SetId(childID)
 	w.SetVisibility(convw.VisibilityPublic)
+	if uid := strings.TrimSpace(authctx.EffectiveUserID(ctx)); uid != "" {
+		w.SetCreatedByUserID(uid)
+	}
 	if strings.TrimSpace(parent.ConversationID) != "" {
 		w.SetConversationParentId(parent.ConversationID)
 	}
 	if strings.TrimSpace(parent.TurnID) != "" {
 		w.SetConversationParentTurnId(parent.TurnID)
 	}
+	fmt.Printf("linking: create child conversation start parentConv=%s parentTurn=%s child=%s cloneTranscript=%v\n",
+		strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), childID, cloneTranscript)
 	if err := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&w)); err != nil {
 		return "", fmt.Errorf("linking: create conversation failed: %w", err)
 	}
+	fmt.Printf("linking: child conversation created child=%s\n", childID)
 	if cloneTranscript && transcript != nil {
 		// Clone messages (excluding chain-mode) as a single synthetic turn
 		if err := s.cloneMessages(ctx, transcript, childID); err != nil {
@@ -56,7 +61,7 @@ func (s *Service) CreateLinkedConversation(ctx context.Context, parent memory.Tu
 
 // AddLinkMessage adds an interim message to the parent turn with a linked
 // conversation id so UIs and tooling can navigate to the child.
-func (s *Service) AddLinkMessage(ctx context.Context, parent memory.TurnMeta, childConversationID, role, actor, mode string) error {
+func (s *Service) AddLinkMessage(ctx context.Context, parent memory.TurnMeta, childConversationID, role, actor, mode string, content string) error {
 	if s == nil || s.conv == nil {
 		return fmt.Errorf("linking: conversation client not configured")
 	}
@@ -73,7 +78,7 @@ func (s *Service) AddLinkMessage(ctx context.Context, parent memory.TurnMeta, ch
 		apiconv.WithId(uuid.New().String()),
 		apiconv.WithRole(role),
 		apiconv.WithInterim(1),
-		apiconv.WithContent(""),
+		apiconv.WithContent(content),
 		apiconv.WithCreatedByUserID(actor),
 		apiconv.WithMode(mode),
 		apiconv.WithLinkedConversationID(childConversationID),
@@ -81,6 +86,10 @@ func (s *Service) AddLinkMessage(ctx context.Context, parent memory.TurnMeta, ch
 	if err != nil {
 		return fmt.Errorf("linking: add link message failed: %w", err)
 	}
+	preview := shared2.RuneTruncate(strings.TrimSpace(content), 200)
+	fmt.Printf("linking: link message added parentConv=%s parentTurn=%s child=%s role=%s actor=%s mode=%s contentPreview=%q\n",
+		strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childConversationID),
+		strings.TrimSpace(role), strings.TrimSpace(actor), strings.TrimSpace(mode), preview)
 	return nil
 }
 
@@ -100,6 +109,7 @@ func (s *Service) cloneMessages(ctx context.Context, transcript apiconv.Transcri
 		return fmt.Errorf("linking: start synthetic turn failed: %w", err)
 	}
 	last := transcript[0]
+	cloned := 0
 	for _, m := range last.GetMessages() {
 		if m.Mode != nil && *m.Mode == "chain" {
 			continue
@@ -124,6 +134,8 @@ func (s *Service) cloneMessages(ctx context.Context, transcript apiconv.Transcri
 				err,
 			)
 		}
+		cloned++
 	}
+	fmt.Printf("linking: transcript cloned messages=%d to child=%s\n", cloned, conversationID)
 	return nil
 }

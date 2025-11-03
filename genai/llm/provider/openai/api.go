@@ -130,8 +130,12 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
 		}
 	}
-	// Execute
-	c.HTTPClient.Timeout = 10 * time.Minute
+	// Execute – honor configured timeout when provided
+	if c.Timeout > 0 {
+		c.HTTPClient.Timeout = c.Timeout
+	} else {
+		c.HTTPClient.Timeout = 10 * time.Minute
+	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
 		// Ensure model-call is finalized for cancellation/error cases
@@ -270,6 +274,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		} else {
 			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
 		}
+	}
+	// Honor configured timeout for streaming as well
+	if c.Timeout > 0 {
+		c.HTTPClient.Timeout = c.Timeout
 	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {

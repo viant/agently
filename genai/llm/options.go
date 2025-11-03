@@ -84,6 +84,8 @@ type Thinking struct {
 // Reasoning specifies options for the model's internal reasoning process.
 // Summary may be set to "auto" to request an automatic summary of chain-of-thought.
 type Reasoning struct {
-	Effort  int    `json:"effort,omitempty" yaml:"effort,omitempty"`
+	// Effort controls provider-native reasoning depth. For OpenAI o-series
+	// valid values are: "low" | "medium" | "high".
+	Effort  string `json:"effort,omitempty" yaml:"effort,omitempty"`
 	Summary string `json:"summary,omitempty" yaml:"summary,omitempty"`
 }

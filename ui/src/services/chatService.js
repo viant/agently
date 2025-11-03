@@ -63,6 +63,7 @@ const initialFetchDoneByConv = new Set();
 export async function onInit({context}) {
 
     try {
+        console.log('[chat.onInit] start');
         // Prevent DS loading from disabling composer or showing Abort during initial fetch
         context.resources = context.resources || {};
         context.resources.suppressMessagesLoading = true;
@@ -84,20 +85,82 @@ export async function onInit({context}) {
 
         const convCtx = context.Context('conversations');
         const handlers = convCtx?.handlers?.dataSource;
+        // If a convID was provided via window params, seed the conversations DS immediately
+        try {
+            const wp = context?.windowParams || {};
+            const fromParam = wp.convID || wp.conversationId || wp.id;
+            if (fromParam) {
+                handlers?.setFormData?.({ values: { id: fromParam } });
+                try {
+                    const inSig = convCtx?.signals?.input;
+                    if (inSig) {
+                        const cur = (typeof inSig.peek === 'function') ? (inSig.peek() || {}) : (inSig.value || {});
+                        inSig.value = { ...cur, id: fromParam, filter: { id: fromParam } };
+                    }
+                } catch (_) { /* ignore */ }
+            }
+        } catch (_) { /* ignore */ }
         const start = Date.now();
         const deadline = start + 1000;
-        const timer = setInterval(() => {
+        const timer = setInterval(async () => {
             let convID = '';
             try {
-                convID = handlers?.peekFormData?.()?.id || convCtx?.signals?.input?.peek?.()?.id || convCtx?.signals?.input?.peek?.()?.filter?.id;
-            } catch (_) {
+                const inSnap = convCtx?.signals?.input?.peek?.() || {};
+                const form = handlers?.peekFormData?.() || {};
+                convID = form.id
+                    || inSnap.id
+                    || (inSnap.filter && inSnap.filter.id)
+                    || (inSnap.parameters && (inSnap.parameters.convID || inSnap.parameters.id));
+                console.log('[chat.onInit] detect convID', { form, input: inSnap, convID });
+            } catch (e) {
+                console.warn('[chat.onInit] detect convID error', e);
             }
             if (convID) {
                 clearInterval(timer);
                 try {
                     handlers?.setFormData?.({values: {id: convID}});
+                    console.log('[chat.onInit] set conversations form id', convID);
                 } catch (_) {
                 }
+                // Ensure conversation exists; if not, create one using agent from form when available
+                try {
+                    const apiBase = (endpoints?.agentlyAPI?.baseURL || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/+$/, '');
+                    const checkUrl = `${apiBase}/v1/api/conversations/${encodeURIComponent(convID)}`;
+                    console.log('[chat.onInit] GET conversation', checkUrl);
+                    const resp = await fetch(checkUrl, { credentials: 'include' });
+                    if (resp && resp.status === 404) {
+                        // Try create-on-miss using agent id from conversations form
+                        let agentId = '';
+                        try { agentId = (handlers?.peekFormData?.()?.agent || '').trim(); } catch (_) {}
+                        if (!agentId) {
+                            try {
+                                const inSnap2 = convCtx?.signals?.input?.peek?.() || {};
+                                agentId = String((inSnap2.parameters && inSnap2.parameters.agent) || '').trim();
+                            } catch (_) {}
+                        }
+                        if (!agentId) {
+                            try {
+                                const metaCtx = context.Context('meta');
+                                const metaCol = metaCtx?.handlers?.dataSource?.peekCollection?.() || [];
+                                const data = metaCol[0] || {};
+                                agentId = String((data.defaults && data.defaults.agent) || '').trim();
+                            } catch (_) {}
+                        }
+                        console.log('[chat.onInit] 404 – createOnMiss with agent', agentId);
+                        if (agentId) {
+                            const listUrl = `${apiBase}/v1/api/conversations?createIfMissing=1&agentId=${encodeURIComponent(agentId)}`;
+                            console.log('[chat.onInit] createOnMiss GET', listUrl);
+                            const listResp = await fetch(listUrl, { credentials: 'include' });
+                            const json = await listResp.json().catch(() => ({}));
+                            const arr = (json && (json.data || json)) || [];
+                            if (Array.isArray(arr) && arr.length > 0 && arr[0].id) {
+                                convID = arr[0].id;
+                                try { handlers?.setFormData?.({ values: { id: convID, agent: agentId } }); } catch (_) {}
+                                console.log('[chat.onInit] created conversation', convID);
+                            }
+                        }
+                    }
+                } catch (_) { /* ignore */ }
                 // Avoid DS-driven fetch to prevent UI blink. Kick off polling immediately.
                 try {
                     // Wrap setError to always store string
@@ -115,6 +178,7 @@ export async function onInit({context}) {
                         const params = {...(cur.parameters || {}), convID, since: ''};
                         const next = {...cur, parameters: params, fetch: true};
                         if (typeof inSig.set === 'function') inSig.set(next); else inSig.value = next;
+                        console.log('[chat.onInit] messages initial fetch', next);
                     }
                 } catch (_) {
                 }
@@ -1603,7 +1667,7 @@ export async function submitMessage(props) {
 
     const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
 
-    const {agent, model, tool, toolCallExposure, autoSummarize, disableChains, allowedChains=[]} = metaForm
+    const {agent, model, tool, toolCallExposure, toolResultPreviewLimit, reasoningEffort, autoSummarize, disableChains, allowedChains=[]} = metaForm
 
     const messagesContext = context.Context('messages');
     const messagesAPI = messagesContext.connector;
@@ -1622,7 +1686,7 @@ export async function submitMessage(props) {
 
         const body = {
             content: message.content,tools:tool,
-            agent, model, toolCallExposure, autoSummarize, disableChains, allowedChains,
+            agent, model, toolCallExposure, toolResultPreviewLimit, reasoningEffort, autoSummarize, disableChains, allowedChains,
         }
         // Collect Forge-uploaded attachments from message (support multiple shapes) and form level
         try {

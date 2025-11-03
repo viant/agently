@@ -2,8 +2,10 @@ package agents
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
@@ -11,6 +13,7 @@ import (
 	linksvc "github.com/viant/agently/genai/service/linking"
 	statussvc "github.com/viant/agently/genai/service/toolstatus"
 	svc "github.com/viant/agently/genai/tool/service"
+	agconv "github.com/viant/agently/pkg/agently/conversation"
 	"github.com/viant/agently/shared"
 )
 
@@ -73,6 +76,10 @@ func New(agent *agentsvc.Service, opts ...Option) *Service {
 
 // Name returns the service name.
 func (s *Service) Name() string { return Name }
+
+// ToolTimeout suggests a larger timeout for llm/agents service tools which run
+// full agent turns.
+func (s *Service) ToolTimeout() time.Duration { return 15 * time.Minute }
 
 // Methods returns available methods.
 func (s *Service) Methods() svc.Signatures {
@@ -153,18 +160,48 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		}
 		childConvID := ""
 		statusMsgID := ""
-		// Create linked child convo under parent turn if available
+
+		// Reuse existing child conversation for (parent, agent) when available; otherwise create & link once
 		if s.linker != nil && strings.TrimSpace(parent.ConversationID) != "" {
-			if cid, err := s.linker.CreateLinkedConversation(ctx, parent, false, nil); err == nil {
-				childConvID = cid
-				_ = s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec")
-				if s.status != nil {
-					if mid, err := s.status.Start(ctx, parent, "llm/agents:run", "assistant", "tool", "exec"); err == nil {
-						statusMsgID = mid
+			// Try find existing (per-turn reuse)
+			if s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
+				in := &agconv.ConversationInput{
+					AgentId:      ri.AgentID,
+					ParentId:     parent.ConversationID,
+					ParentTurnId: parent.TurnID,
+					// Disable default predicate that enforces parent_id='' visibility logic; we are explicitly filtering by parent.
+					DefaultPredicate: "1",
+					Has:              &agconv.ConversationInputHas{AgentId: true, ParentId: true, ParentTurnId: true, DefaultPredicate: true},
+				}
+				fmt.Printf("agents.run: external reuse lookup agentId=%s parentConv=%s parentTurn=%s defaultPredicate=%s\n",
+					strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), in.DefaultPredicate)
+				if rows, err := s.conv.GetConversations(ctx, (*apiconv.Input)(in)); err == nil {
+					fmt.Printf("agents.run: external reuse result count=%d\n", len(rows))
+					if len(rows) > 0 && rows[0] != nil {
+						childConvID = rows[0].Id
+						fmt.Printf("agents.run: external reuse hit child=%s\n", childConvID)
 					}
 				}
 			}
+			if strings.TrimSpace(childConvID) == "" {
+				fmt.Printf("agents.run: external create linked for agentId=%s parentConv=%s parentTurn=%s\n",
+					strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID))
+				if cid, err := s.linker.CreateLinkedConversation(ctx, parent, false, nil); err == nil {
+					childConvID = cid
+					// Include a compact objective preview in the link message for traceability.
+					preview := shared.RuneTruncate(strings.TrimSpace(ri.Objective), 512)
+					_ = s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec", preview)
+					fmt.Printf("agents.run: external linked child=%s\n", childConvID)
+				}
+			}
+			// Always record a status for this parent step
+			if s.status != nil {
+				if mid, err := s.status.Start(ctx, parent, "llm/agents:run", "assistant", "tool", "exec"); err == nil {
+					statusMsgID = mid
+				}
+			}
 		}
+
 		// Prefer child conversation id as A2A contextId when present
 		extCtx := ctx
 		if strings.TrimSpace(childConvID) != "" {
@@ -210,15 +247,40 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	childConvID := ""
 	statusMsgID := ""
 	if s.linker != nil && strings.TrimSpace(parent.ConversationID) != "" {
-		if cid, err := s.linker.CreateLinkedConversation(ctx, parent, false, nil); err == nil {
-			childConvID = cid
-			// Add parent-side link message
-			_ = s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec")
-			// Start status message
-			if s.status != nil {
-				if mid, err := s.status.Start(ctx, parent, "llm/agents:run", "assistant", "tool", "exec"); err == nil {
-					statusMsgID = mid
+		// Try find existing (per-turn reuse)
+		if s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
+			in := &agconv.ConversationInput{
+				AgentId:          ri.AgentID,
+				ParentId:         parent.ConversationID,
+				ParentTurnId:     parent.TurnID,
+				DefaultPredicate: "1",
+				Has:              &agconv.ConversationInputHas{AgentId: true, ParentId: true, ParentTurnId: true, DefaultPredicate: true},
+			}
+			fmt.Printf("agents.run: internal reuse lookup agentId=%s parentConv=%s parentTurn=%s defaultPredicate=%s\n",
+				strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), in.DefaultPredicate)
+			if rows, err := s.conv.GetConversations(ctx, (*apiconv.Input)(in)); err == nil {
+				fmt.Printf("agents.run: internal reuse result count=%d\n", len(rows))
+				if len(rows) > 0 && rows[0] != nil {
+					childConvID = rows[0].Id
+					fmt.Printf("agents.run: internal reuse hit child=%s\n", childConvID)
 				}
+			}
+		}
+		if strings.TrimSpace(childConvID) == "" {
+			fmt.Printf("agents.run: internal create linked for agentId=%s parentConv=%s parentTurn=%s\n",
+				strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID))
+			if cid, err := s.linker.CreateLinkedConversation(ctx, parent, false, nil); err == nil {
+				childConvID = cid
+				// Add parent-side link message with objective preview
+				preview := shared.RuneTruncate(strings.TrimSpace(ri.Objective), 512)
+				_ = s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec", preview)
+				fmt.Printf("agents.run: internal linked child=%s\n", childConvID)
+			}
+		}
+		// Start status message
+		if s.status != nil {
+			if mid, err := s.status.Start(ctx, parent, "llm/agents:run", "assistant", "tool", "exec"); err == nil {
+				statusMsgID = mid
 			}
 		}
 	}

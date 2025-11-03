@@ -55,8 +55,15 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 
 	// 4) Execute tool with a bounded context so one stuck call won't hang the run
+	// Apply per-tool timeout when available (scoped registry exposes TimeoutResolver directly).
+	if tr, ok := reg.(tool.TimeoutResolver); ok {
+		if d, ok2 := tr.ToolTimeout(step.Name); ok2 && d > 0 {
+			ctx = WithToolTimeout(ctx, d)
+		}
+	}
 	execCtx, cancel := toolExecContext(ctx)
 	defer cancel()
+
 	out, toolResult, execErr := executeTool(execCtx, reg, step)
 	if execErr != nil && strings.TrimSpace(toolResult) == "" {
 		// Provide the error text as response payload so the LLM can reason over it.

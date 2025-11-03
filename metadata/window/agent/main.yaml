@@ -13,6 +13,9 @@ view:
         title: Agents
         dataSourceRef: agents
         table: $import('table/agents.yaml')
+        on:
+          - event: onSelection
+            handler: agent.loadAgentEdit
 
       - id: data
         dataSourceRef: agents

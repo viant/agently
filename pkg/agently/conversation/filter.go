@@ -43,8 +43,14 @@ func (a *Filter) Compute(ctx context.Context, value interface{}) (*codec.Criteri
 	var exprParts []string
 	var args []interface{}
 
-	// Limit to top-level, non-scheduled by default (history view)
-	if !(input.Has.Id || input.Has.HasScheduleId) {
+	// If caller explicitly disables default predicate, short-circuit.
+	if input.Has.DefaultPredicate && strings.TrimSpace(input.DefaultPredicate) == "1" {
+		return trueCriteria, nil
+	}
+
+	// Limit to top-level, non-scheduled by default (history view),
+	// but DO NOT apply when explicitly querying by parent conversation/turn.
+	if !(input.Has.Id || input.Has.ParentId || input.Has.ParentTurnId || input.Has.HasScheduleId) {
 		exprParts = append(exprParts, "t.conversation_parent_id = '' AND t.schedule_id IS NULL")
 	}
 

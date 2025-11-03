@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/viant/afs"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/oauth2"
 	toolext "github.com/viant/agently/genai/tool"
@@ -19,6 +21,7 @@ import (
 	"github.com/viant/agently/internal/workspace/repository/oauth"
 	"github.com/viant/mcp"
 
+	afsurl "github.com/viant/afs/url"
 	"github.com/viant/agently/cmd/service"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
 	"gopkg.in/yaml.v3"
@@ -264,6 +267,139 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Single item operations: allow names with slashes after {kind}
+	// Special view: /agent/{name}/edit -> enriched authoring meta
+	// Detect early to avoid falling through to raw repo fetch.
+	if (kind == workspace.KindAgent || kind == "agent") && len(parts) >= 3 && strings.EqualFold(parts[len(parts)-1], "edit") {
+		if r.Method != http.MethodGet {
+			encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
+			return
+		}
+		// name may itself contain slashes; rebuild without the trailing '/edit'
+		name := strings.Join(parts[1:len(parts)-1], "/")
+		repo, _ := h.repo(kind)
+		if repo == nil {
+			encode(w, http.StatusNotFound, nil, fmt.Errorf("repository not found"))
+			return
+		}
+		// Load authored agent YAML and unmarshal to typed struct
+		raw, err := repo.GetRaw(ctx, name)
+		if err != nil {
+			encode(w, http.StatusInternalServerError, nil, err)
+			return
+		}
+		var ag agent.Agent
+		if err := yaml.Unmarshal(raw, &ag); err != nil {
+			encode(w, http.StatusInternalServerError, nil, err)
+			return
+		}
+		// Resolve repository filename (absolute) to compute baseDir
+		var repoFilename string
+		if ar, ok := h.svc.AgentRepo(), true; ok && ar != nil {
+			repoFilename = ar.Filename(name)
+		} else {
+			repoFilename = name // fallback
+		}
+		view := buildAgentEditView(ctx, &ag, repoFilename)
+		encode(w, http.StatusOK, view, nil)
+		return
+	}
+
+	// Convenience wrapper: /agent/{name}/knowledge?scope=&idx=&path=&folderOnly=
+	if (kind == workspace.KindAgent || kind == "agent") && len(parts) >= 3 && strings.EqualFold(parts[len(parts)-1], "knowledge") {
+		if r.Method != http.MethodGet {
+			encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
+			return
+		}
+		name := strings.Join(parts[1:len(parts)-1], "/")
+		repo, _ := h.repo(kind)
+		if repo == nil {
+			encode(w, http.StatusNotFound, nil, fmt.Errorf("repository not found"))
+			return
+		}
+		raw, err := repo.GetRaw(ctx, name)
+		if err != nil {
+			encode(w, http.StatusInternalServerError, nil, err)
+			return
+		}
+		var ag agent.Agent
+		if err := yaml.Unmarshal(raw, &ag); err != nil {
+			encode(w, http.StatusInternalServerError, nil, err)
+			return
+		}
+		// Base dir for resolving relative URLs
+		var repoFilename string
+		if ar, ok := h.svc.AgentRepo(), true; ok && ar != nil {
+			repoFilename = ar.Filename(name)
+		} else {
+			repoFilename = name
+		}
+		baseDir := filepath.Dir(repoFilename)
+
+		q := r.URL.Query()
+		scope := strings.TrimSpace(q.Get("scope"))
+		if scope == "" {
+			scope = "user"
+		}
+		idx := 0
+		if s := strings.TrimSpace(q.Get("idx")); s != "" {
+			if v, err := strconv.Atoi(s); err == nil && v >= 0 {
+				idx = v
+			}
+		}
+		subPath := strings.TrimPrefix(strings.TrimSpace(q.Get("path")), "/")
+		folderOnly := strings.TrimSpace(q.Get("folderOnly"))
+
+		// Select knowledge root by scope/index
+		var authored string
+		if scope == "system" {
+			if idx >= 0 && idx < len(ag.SystemKnowledge) && ag.SystemKnowledge[idx] != nil {
+				authored = strings.TrimSpace(ag.SystemKnowledge[idx].URL)
+			}
+		} else {
+			if idx >= 0 && idx < len(ag.Knowledge) && ag.Knowledge[idx] != nil {
+				authored = strings.TrimSpace(ag.Knowledge[idx].URL)
+			}
+		}
+		if authored == "" {
+			encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid knowledge root: scope=%s idx=%d", scope, idx))
+			return
+		}
+		// Resolve authored URL relative to baseDir when needed
+		resolved := authored
+		if afsurl.Scheme(authored, "") == "" && !strings.HasPrefix(authored, string(filepath.Separator)) {
+			resolved = filepath.Clean(filepath.Join(baseDir, authored))
+		}
+		// Append subPath when provided
+		if subPath != "" {
+			if afsurl.Scheme(resolved, "") != "" {
+				// When scheme present (e.g., file://), append using URL join
+				resolved = afsurl.Join(resolved, subPath)
+			} else {
+				resolved = filepath.Join(resolved, subPath)
+			}
+		}
+		// Build URI for file-browser; ensure scheme is present so AFS treats as absolute
+		uri := resolved
+		if afsurl.Scheme(uri, "") == "" {
+			// Treat as local file path
+			if strings.HasPrefix(uri, string(filepath.Separator)) {
+				uri = "file://" + uri
+			} else {
+				// Relative paths shouldn’t happen here, but guard anyway
+				uri = afsurl.Join("file://", uri)
+			}
+		}
+		// Redirect to the existing file-browser list endpoint to reuse its payload shape.
+		v := neturl.Values{}
+		v.Set("uri", uri)
+		if folderOnly != "" {
+			v.Set("folderOnly", folderOnly)
+		}
+		target := "/v1/workspace/file-browser/list?" + v.Encode()
+		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+		return
+	}
+
 	name := strings.Join(parts[1:], "/")
 
 	switch r.Method {
@@ -322,9 +458,80 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		var warnings []string
 		// Prefer typed structs when we have a mapping for this kind – ensures YAML tags.
 		if inst := newInstance(kind); inst != nil {
 			if err := json.Unmarshal(body, inst); err == nil {
+				// Additional authoring validation for agents (non-blocking).
+				if ag, ok := inst.(*agent.Agent); ok && ag != nil {
+					// Compute baseDir from destination filename to resolve relative paths
+					repoFilename := h.svc.AgentRepo().Filename(name)
+					baseDir := filepath.Dir(repoFilename)
+					// helper resolve
+					resolve := func(authored string) (resolved string) {
+						authored = strings.TrimSpace(authored)
+						if authored == "" {
+							return ""
+						}
+						if afsurl.Scheme(authored, "") == "" && !strings.HasPrefix(authored, string(filepath.Separator)) {
+							return filepath.Clean(filepath.Join(baseDir, authored))
+						}
+						return authored
+					}
+					// prompt existence
+					if ag.Prompt != nil && strings.TrimSpace(ag.Prompt.URI) != "" {
+						p := resolve(ag.Prompt.URI)
+						if ok, _ := afs.New().Exists(ctx, p); !ok {
+							warnings = append(warnings, fmt.Sprintf("Prompt URI not found: %s (resolved %s)", strings.TrimSpace(ag.Prompt.URI), p))
+						}
+					}
+					if ag.SystemPrompt != nil && strings.TrimSpace(ag.SystemPrompt.URI) != "" {
+						p := resolve(ag.SystemPrompt.URI)
+						if ok, _ := afs.New().Exists(ctx, p); !ok {
+							warnings = append(warnings, fmt.Sprintf("System Prompt URI not found: %s (resolved %s)", strings.TrimSpace(ag.SystemPrompt.URI), p))
+						}
+					}
+					// knowledge existence
+					for i, k := range ag.Knowledge {
+						if k == nil || strings.TrimSpace(k.URL) == "" {
+							continue
+						}
+						r := resolve(k.URL)
+						if ok, _ := afs.New().Exists(ctx, r); !ok {
+							warnings = append(warnings, fmt.Sprintf("Knowledge[%d] not found: %s (resolved %s)", i, strings.TrimSpace(k.URL), r))
+						}
+					}
+					for i, k := range ag.SystemKnowledge {
+						if k == nil || strings.TrimSpace(k.URL) == "" {
+							continue
+						}
+						r := resolve(k.URL)
+						if ok, _ := afs.New().Exists(ctx, r); !ok {
+							warnings = append(warnings, fmt.Sprintf("SystemKnowledge[%d] not found: %s (resolved %s)", i, strings.TrimSpace(k.URL), r))
+						}
+					}
+					// ContextInputs schema checks
+					if ag.ContextInputs != nil {
+						rs := ag.ContextInputs.RequestedSchema
+						if strings.TrimSpace(rs.Type) != "object" {
+							warnings = append(warnings, "ContextInputs.requestedSchema.type should be 'object'")
+						}
+						// Missing required without default
+						req := map[string]struct{}{}
+						for _, k := range rs.Required {
+							req[strings.TrimSpace(k)] = struct{}{}
+						}
+						for name, raw := range rs.Properties {
+							if _, need := req[name]; need {
+								if m, ok := raw.(map[string]interface{}); ok {
+									if _, has := m["default"]; !has {
+										warnings = append(warnings, fmt.Sprintf("ContextInputs field '%s' is required and has no default", name))
+									}
+								}
+							}
+						}
+					}
+				}
 				if data, marshalErr := yaml.Marshal(inst); marshalErr == nil && len(data) > 0 {
 					body = data
 				}
@@ -341,6 +548,11 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if err := repo.Add(ctx, name, body); err != nil {
 			encode(w, http.StatusInternalServerError, nil, err)
+			return
+		}
+		// Return OK plus any non-blocking warnings so UI can surface them.
+		if len(warnings) > 0 {
+			encode(w, http.StatusOK, map[string]interface{}{"result": "ok", "warnings": warnings}, nil)
 			return
 		}
 		encode(w, http.StatusOK, "ok", nil)

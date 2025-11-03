@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -133,6 +134,11 @@ func (s *Service) GetConversations(ctx context.Context, input *convcli.Input) ([
 	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(agconv.ConversationsPathURI), datly.WithInput(input)); err != nil {
 		return nil, err
 	}
+	i, _ := json.Marshal(input)
+	m, _ := json.Marshal(out.Metrics)
+	d, _ := json.Marshal(out.Data)
+	fmt.Printf("Input: %s, Metrics: %s\nData: %v\n", i, m, len(d))
+
 	result := *(*[]*convcli.Conversation)(unsafe.Pointer(&out.Data))
 	return result, nil
 }

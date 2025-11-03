@@ -27,6 +27,11 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 	if i.Options.Metadata == nil {
 		i.Options.Metadata = map[string]interface{}{}
 	}
+
+	// Reasoning defaults: if not explicitly set on request, inherit from agent
+	if i.Options.Reasoning == nil && agent.Reasoning != nil {
+		i.Options.Reasoning = agent.Reasoning
+	}
 	mode := "ref"
 	if agent.Attachment != nil {
 		if m := strings.TrimSpace(strings.ToLower(agent.Attachment.Mode)); m != "" {

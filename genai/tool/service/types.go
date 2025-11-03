@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"reflect"
+	"time"
 )
 
 // Executable represents a callable method accepting an input value and writing
@@ -26,6 +27,13 @@ type Service interface {
 	Name() string
 	Methods() Signatures
 	Method(name string) (Executable, error)
+}
+
+// HasToolTimeout can be implemented by services to suggest a per-tool
+// execution timeout. Registries may honor this when executing the service.
+// Returned duration should be >0 to take effect.
+type HasToolTimeout interface {
+	ToolTimeout() time.Duration
 }
 
 // Error helpers (compat stamps with fluxor types)
