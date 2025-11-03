@@ -581,6 +581,12 @@ func (e *Service) initDefaults(ctx context.Context) error {
 		if tr.PreviewLimit == 0 {
 			tr.PreviewLimit = 8192
 		}
+		if tr.AgedAfterSteps == 0 {
+			tr.AgedAfterSteps = 15
+		}
+		if tr.AgedAfterSteps == 0 {
+			tr.AgedPreviewLimit = 2048
+		}
 		if tr.SummarizeChunk == 0 {
 			tr.SummarizeChunk = 4096
 		}

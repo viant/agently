@@ -789,31 +789,11 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		if strings.TrimSpace(input.ModelOverride) != "" {
 			modelName = strings.TrimSpace(input.ModelOverride)
 		}
-		effectiveCallToolResultLimit := 0
-		// 0) Per-turn override from QueryInput
-		if input.ToolResultPreviewLimit != nil && *input.ToolResultPreviewLimit > 0 {
-			effectiveCallToolResultLimit = *input.ToolResultPreviewLimit
-		}
-		// 1) Agent-level setting (new YAML contract)
-		if input.Agent != nil && input.Agent.Tools != nil && input.Agent.Tools.ResultPreviewLimit != nil {
-			if *input.Agent.Tools.ResultPreviewLimit > 0 {
-				if effectiveCallToolResultLimit == 0 { // do not override explicit per-turn
-					effectiveCallToolResultLimit = *input.Agent.Tools.ResultPreviewLimit
-				}
-			}
-		}
-		// 2) Model-level override
-		if effectiveCallToolResultLimit == 0 && s.llm != nil {
-			if v := s.llm.ModelToolPreviewLimit(modelName); v > 0 {
-				effectiveCallToolResultLimit = v
-			}
-		}
-		// 3) Service defaults
-		if effectiveCallToolResultLimit == 0 && s.defaults != nil && s.defaults.ToolCallResult.PreviewLimit > 0 {
-			effectiveCallToolResultLimit = s.defaults.ToolCallResult.PreviewLimit
-		}
-		for _, m := range t.ToolCalls() {
+
+		for i, m := range t.ToolCalls() {
 			args := m.ToolCallArguments()
+
+			effectiveCallToolResultLimit := s.effectivePreviewLimit(input, modelName, i)
 
 			// Prepare result content for LLM: derive preview from message content with effective limit
 			result := ""
@@ -857,6 +837,38 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		// Unrecognised/semantic: do not include tool calls for now
 		return nil, false, nil
 	}
+}
+
+func (s *Service) effectivePreviewLimit(input *QueryInput, modelName string, step int) int {
+
+	if s.defaults.ToolCallResult.AgedAfterSteps > 0 && step > s.defaults.ToolCallResult.AgedAfterSteps && s.defaults.ToolCallResult.AgedPreviewLimit > 0 {
+		return s.defaults.ToolCallResult.AgedPreviewLimit
+	}
+
+	effectiveCallToolResultLimit := 0
+	// 0) Per-turn override from QueryInput
+	if input.ToolResultPreviewLimit != nil && *input.ToolResultPreviewLimit > 0 {
+		effectiveCallToolResultLimit = *input.ToolResultPreviewLimit
+	}
+	// 1) Agent-level setting (new YAML contract)
+	if input.Agent != nil && input.Agent.Tools != nil && input.Agent.Tools.ResultPreviewLimit != nil {
+		if *input.Agent.Tools.ResultPreviewLimit > 0 {
+			if effectiveCallToolResultLimit == 0 { // do not override explicit per-turn
+				effectiveCallToolResultLimit = *input.Agent.Tools.ResultPreviewLimit
+			}
+		}
+	}
+	// 2) Model-level override
+	if effectiveCallToolResultLimit == 0 && s.llm != nil {
+		if v := s.llm.ModelToolPreviewLimit(modelName); v > 0 {
+			effectiveCallToolResultLimit = v
+		}
+	}
+	// 3) Service defaults
+	if effectiveCallToolResultLimit == 0 && s.defaults != nil && s.defaults.ToolCallResult.PreviewLimit > 0 {
+		effectiveCallToolResultLimit = s.defaults.ToolCallResult.PreviewLimit
+	}
+	return effectiveCallToolResultLimit
 }
 
 func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([]*llm.ToolDefinition, bool, error) {
