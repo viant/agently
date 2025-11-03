@@ -48,26 +48,8 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		return nil, fmt.Errorf("conversation not found: %s", strings.TrimSpace(input.ConversationID))
 	}
 
-	// Compute effective preview limit (model override → model config → defaults)
-	modelName := ""
-	if input.Agent != nil {
-		modelName = input.Agent.Model
-	}
-	if strings.TrimSpace(input.ModelOverride) != "" {
-		modelName = strings.TrimSpace(input.ModelOverride)
-	}
-	effectiveLimit := 0
-	if s.llm != nil {
-		if v := s.llm.ModelToolPreviewLimit(modelName); v > 0 {
-			effectiveLimit = v
-		}
-	}
-	if effectiveLimit == 0 && s.defaults != nil && s.defaults.PreviewSettings.Limit > 0 {
-		effectiveLimit = s.defaults.PreviewSettings.Limit
-	}
-
-	// Build history with overflow previews when limit is present
-	hist, histOverflow, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript(), effectiveLimit)
+	// Compute effective preview limit using service defaults only
+	hist, histOverflow, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript())
 	if err != nil {
 		return nil, err
 	}
@@ -681,9 +663,10 @@ func (s *Service) buildHistory(ctx context.Context, transcript apiconv.Transcrip
 }
 
 // buildHistoryWithLimit maps transcript into prompt history applying overflow preview to user/assistant text messages.
-func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript, effectiveLimit int) (prompt.History, bool, error) {
+func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript) (prompt.History, bool, error) {
 	// When effectiveLimit <= 0, fall back to default
-	if effectiveLimit <= 0 {
+
+	if s.effectivePreviewLimit(0) <= 0 {
 		h, err := s.buildHistory(ctx, transcript)
 		return h, false, err
 	}
@@ -714,12 +697,12 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 
 	var out prompt.History
 	overflow := false
-	for _, msg := range normalized {
+	for i, msg := range normalized {
 		role := msg.Role
 		content := ""
 		if msg.Content != nil {
 			// Apply overflow preview with message id reference
-			preview, of := buildOverflowPreview(*msg.Content, effectiveLimit, msg.Id)
+			preview, of := buildOverflowPreview(*msg.Content, s.effectivePreviewLimit(i), msg.Id)
 			if of {
 				overflow = true
 			}
@@ -781,24 +764,15 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		if t == nil {
 			return out
 		}
-		// Determine effective preview limit: model-level override > service default
-		modelName := ""
-		if input.Agent != nil {
-			modelName = input.Agent.Model
-		}
-		if strings.TrimSpace(input.ModelOverride) != "" {
-			modelName = strings.TrimSpace(input.ModelOverride)
-		}
-
 		for i, m := range t.ToolCalls() {
 			args := m.ToolCallArguments()
 
-			effectiveCallToolResultLimit := s.effectivePreviewLimit(input, modelName, i)
+			effectivePreviewLimit := s.effectivePreviewLimit(i)
 
 			// Prepare result content for LLM: derive preview from message content with effective limit
 			result := ""
 			if body := strings.TrimSpace(m.GetContent()); body != "" {
-				preview, overflow := buildOverflowPreview(body, effectiveCallToolResultLimit, m.Id)
+				preview, overflow := buildOverflowPreview(body, effectivePreviewLimit, m.Id)
 				if overflow {
 					overflowFound = true
 				}
@@ -839,33 +813,15 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 	}
 }
 
-func (s *Service) effectivePreviewLimit(input *QueryInput, modelName string, step int) int {
+func (s *Service) effectivePreviewLimit(step int) int {
 
 	if s.defaults.PreviewSettings.AgedAfterSteps > 0 && step > s.defaults.PreviewSettings.AgedAfterSteps && s.defaults.PreviewSettings.AgedLimit > 0 {
 		return s.defaults.PreviewSettings.AgedLimit
 	}
 
 	effectiveCallToolResultLimit := 0
-	// 0) Per-turn override from QueryInput
-	if input.ToolResultPreviewLimit != nil && *input.ToolResultPreviewLimit > 0 {
-		effectiveCallToolResultLimit = *input.ToolResultPreviewLimit
-	}
-	// 1) Agent-level setting (new YAML contract)
-	if input.Agent != nil && input.Agent.Tools != nil && input.Agent.Tools.ResultPreviewLimit != nil {
-		if *input.Agent.Tools.ResultPreviewLimit > 0 {
-			if effectiveCallToolResultLimit == 0 { // do not override explicit per-turn
-				effectiveCallToolResultLimit = *input.Agent.Tools.ResultPreviewLimit
-			}
-		}
-	}
-	// 2) Model-level override
-	if effectiveCallToolResultLimit == 0 && s.llm != nil {
-		if v := s.llm.ModelToolPreviewLimit(modelName); v > 0 {
-			effectiveCallToolResultLimit = v
-		}
-	}
-	// 3) Service defaults
-	if effectiveCallToolResultLimit == 0 && s.defaults != nil && s.defaults.PreviewSettings.Limit > 0 {
+	// Use service defaults only
+	if s.defaults != nil && s.defaults.PreviewSettings.Limit > 0 {
 		effectiveCallToolResultLimit = s.defaults.PreviewSettings.Limit
 	}
 	return effectiveCallToolResultLimit

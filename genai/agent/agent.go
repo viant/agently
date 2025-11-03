@@ -56,7 +56,7 @@ type (
 		Tool []*llm.Tool `yaml:"-" json:"-"`
 
 		// Tools defines the serialized tool configuration block using the new
-		// contract: tool: { items: [], resultPreviewLimit, toolCallExposure }.
+		// contract: tool: { items: [], toolCallExposure }.
 		// This preserves backward compatibility while enabling richer config.
 		Tools *Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
 
@@ -148,9 +148,8 @@ type (
 )
 
 type Tool struct {
-	Items              []*llm.Tool      `yaml:"items,omitempty" json:"items,omitempty"`
-	ResultPreviewLimit *int             `yaml:"resultPreviewLimit,omitempty" json:"resultPreviewLimit,omitempty"`
-	CallExposure       ToolCallExposure `yaml:"toolCallExposure,omitempty" json:"toolCallExposure,omitempty"`
+	Items        []*llm.Tool      `yaml:"items,omitempty" json:"items,omitempty"`
+	CallExposure ToolCallExposure `yaml:"toolCallExposure,omitempty" json:"toolCallExposure,omitempty"`
 }
 
 // Elicitation describes a JSON-Schema based input request associated with an agent.

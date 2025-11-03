@@ -48,18 +48,6 @@ items:
         marginTop: '0'
         marginBottom: '0'
 
-  # Row 1b — Tool result preview limit (optional)
-  - id: toolResultPreviewLimit
-    label: Tool Result Preview Limit
-    type: number
-    columnSpan: 1
-    properties:
-      min: 0
-      step: 1
-      placeholder: 'inherit default'
-      style:
-        width: '220px'
-
   # Row 1c — Reasoning effort override (optional)
   - id: reasoningEffort
     label: Reasoning Effort

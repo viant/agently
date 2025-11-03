@@ -33,8 +33,6 @@ type AgentInfo struct {
 	AllowedChains        []string `json:"allowedChains,omitempty"`
 	// Client UX: ring sound when a turn finishes
 	RingOnFinish bool `json:"ringOnFinish,omitempty"`
-	// Tool result preview limit (agent-level default)
-	ToolResultPreviewLimit *int `json:"toolResultPreviewLimit,omitempty"`
 	// Reasoning default (effort)
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
 	// Profile metadata for UI/selection context
@@ -254,11 +252,6 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				AllowedChains:        append([]string(nil), chainTargets...),
 				RingOnFinish:         a.RingOnFinish,
 				Elicitation:          a.ContextInputs,
-			}
-			// Propagate agent-level tool result preview limit (new contract) to UI meta
-			if a.Tools != nil && a.Tools.ResultPreviewLimit != nil && *a.Tools.ResultPreviewLimit > 0 {
-				v := *a.Tools.ResultPreviewLimit
-				info.ToolResultPreviewLimit = &v
 			}
 			if a.Reasoning != nil && strings.TrimSpace(a.Reasoning.Effort) != "" {
 				v := strings.TrimSpace(a.Reasoning.Effort)

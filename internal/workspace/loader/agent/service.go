@@ -366,7 +366,7 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					agent.Tools = &agentmdl.Tool{Items: agent.Tool}
 				}
 			case yaml.MappingNode:
-				// New format: tool: { items: [], resultPreviewLimit: N, toolCallExposure: "..." }
+				// New format: tool: { items: [], toolCallExposure: "..." }
 				if err := s.parseToolConfig(valueNode, agent); err != nil {
 					return err
 				}
@@ -684,7 +684,6 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 // tool:
 //
 //	items: [ ... ]
-//	resultPreviewLimit: 1024
 //	toolCallExposure: turn|conversation
 func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) error {
 	if valueNode.Kind != yaml.MappingNode {
@@ -697,30 +696,11 @@ func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) er
 		switch strings.ToLower(strings.TrimSpace(k)) {
 		case "items":
 			itemsNode = v
-		case "resultpreviewlimit":
-			if v.Kind == yaml.ScalarNode {
-				// Accept int or string numeric
-				switch a := v.Interface().(type) {
-				case int:
-					n := a
-					cfg.ResultPreviewLimit = &n
-				case int64:
-					n := int(a)
-					cfg.ResultPreviewLimit = &n
-				case float64:
-					n := int(a)
-					cfg.ResultPreviewLimit = &n
-				case string:
-					if n, err := parseInt(a); err == nil {
-						cfg.ResultPreviewLimit = &n
-					}
-				}
-			}
 		case "toolcallexposure", "toolexposure":
 			if v.Kind == yaml.ScalarNode {
 				exp := agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(v.Value)))
 				cfg.CallExposure = exp
-				// Also map to top-level for backward compatibility.
+				// Also map to top-level for backward compatix`bility.
 				agent.ToolCallExposure = exp
 			}
 		}

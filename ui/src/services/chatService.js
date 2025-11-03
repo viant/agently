@@ -1667,7 +1667,7 @@ export async function submitMessage(props) {
 
     const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
 
-    const {agent, model, tool, toolCallExposure, toolResultPreviewLimit, reasoningEffort, autoSummarize, disableChains, allowedChains=[]} = metaForm
+    const {agent, model, tool, toolCallExposure, reasoningEffort, autoSummarize, disableChains, allowedChains=[]} = metaForm
 
     const messagesContext = context.Context('messages');
     const messagesAPI = messagesContext.connector;
@@ -1685,8 +1685,8 @@ export async function submitMessage(props) {
         }
 
         const body = {
-            content: message.content,tools:tool,
-            agent, model, toolCallExposure, toolResultPreviewLimit, reasoningEffort, autoSummarize, disableChains, allowedChains,
+            content: message.content, tools: tool,
+            agent, model, toolCallExposure, reasoningEffort, autoSummarize, disableChains, allowedChains,
         }
         // Collect Forge-uploaded attachments from message (support multiple shapes) and form level
         try {
