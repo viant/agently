@@ -21,6 +21,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/conversation"
 	execcfg "github.com/viant/agently/genai/executor/config"
 	corellm "github.com/viant/agently/genai/service/core"
@@ -373,6 +374,18 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			encode(w, http.StatusInternalServerError, nil, err)
 			return
 		}
+		// Optional: create a conversation when agentId is provided and no match found.
+		if len(list) == 0 {
+			q := r.URL.Query()
+			createIfMissing := strings.TrimSpace(q.Get("createIfMissing"))
+			agentId := strings.TrimSpace(q.Get("agentId"))
+			if (createIfMissing == "1" || strings.EqualFold(createIfMissing, "true")) && agentId != "" {
+				// Create with minimal fields; Chat service enforces visibility/owner.
+				if resp, cErr := s.chatSvc.CreateConversation(s.withAuthFromRequest(r), chat.CreateConversationRequest{Agent: agentId}); cErr == nil && resp != nil {
+					list = append(list, chat.ConversationSummary{ID: resp.ID, Title: resp.Title, Summary: nil})
+				}
+			}
+		}
 		encode(w, http.StatusOK, list, nil)
 	default:
 		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
@@ -414,6 +427,7 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	}
 	sinceId := strings.TrimSpace(r.URL.Query().Get("since"))
 	includeModelCallPayload := strings.TrimSpace(r.URL.Query().Get("includeModelCallPayload"))
+	includeLinked := strings.TrimSpace(r.URL.Query().Get("includeLinked")) == "1"
 
 	// First fetch (or only when extensions are not requested)
 	baseCtx := s.withAuthFromRequest(r)
@@ -439,7 +453,45 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		encode(w, http.StatusNotFound, nil, fmt.Errorf("conversation not found"))
 		return
 	}
-	encode(w, http.StatusOK, conv.Conversation, nil)
+	if !includeLinked {
+		encode(w, http.StatusOK, conv.Conversation, nil)
+		return
+	}
+
+	// When requested, include child conversations referenced by link messages in this transcript.
+	linked := map[string]*apiconv.Conversation{}
+	if cc := s.chatSvc.ConversationClient(); cc != nil {
+		if tr := conv.Conversation.GetTranscript(); tr != nil {
+			seen := map[string]struct{}{}
+			for _, turn := range tr {
+				if turn == nil {
+					continue
+				}
+				for _, m := range turn.GetMessages() {
+					if m == nil || m.LinkedConversationId == nil {
+						continue
+					}
+					id := strings.TrimSpace(*m.LinkedConversationId)
+					if id == "" {
+						continue
+					}
+					if _, ok := seen[id]; ok {
+						continue
+					}
+					if child, err := cc.GetConversation(baseCtx, id); err == nil && child != nil {
+						linked[id] = child
+						seen[id] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	// Wrap response to preserve backward compatibility when includeLinked=1 is not passed.
+	resp := struct {
+		Conversation *apiconv.Conversation            `json:"conversation"`
+		Linked       map[string]*apiconv.Conversation `json:"linked,omitempty"`
+	}{Conversation: conv.Conversation, Linked: linked}
+	encode(w, http.StatusOK, resp, nil)
 }
 
 // handleDeleteMessage deletes a specific message by id within a conversation.

@@ -355,8 +355,23 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			}
 
 		case "tool":
-			if err := s.parseToolBlock(valueNode, agent); err != nil {
-				return err
+			switch valueNode.Kind {
+			case yaml.SequenceNode:
+				// Legacy format: tool: [ ... ]
+				if err := s.parseToolBlock(valueNode, agent); err != nil {
+					return err
+				}
+				// Populate serialized block to enable migration on save.
+				if len(agent.Tool) > 0 {
+					agent.Tools = &agentmdl.Tool{Items: agent.Tool}
+				}
+			case yaml.MappingNode:
+				// New format: tool: { items: [], resultPreviewLimit: N, toolCallExposure: "..." }
+				if err := s.parseToolConfig(valueNode, agent); err != nil {
+					return err
+				}
+			default:
+				return fmt.Errorf("invalid tool block; expected sequence or mapping")
 			}
 
 		case "profile":
@@ -411,6 +426,14 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					return fmt.Errorf("invalid persona definition: %w", err)
 				}
 				agent.Persona = &p
+			}
+		case "reasoning":
+			if valueNode.Kind == yaml.MappingNode {
+				var r llm.Reasoning
+				if err := (*yaml.Node)(valueNode).Decode(&r); err != nil {
+					return fmt.Errorf("invalid reasoning definition: %w", err)
+				}
+				agent.Reasoning = &r
 			}
 		case "toolexposure", "toolcallexposure":
 			// Accept scalar values: turn | conversation | semantic
@@ -655,6 +678,82 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 		}
 	}
 	return nil
+}
+
+// parseToolConfig parses the new tool mapping contract:
+// tool:
+//
+//	items: [ ... ]
+//	resultPreviewLimit: 1024
+//	toolCallExposure: turn|conversation
+func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.MappingNode {
+		return fmt.Errorf("tool must be a mapping")
+	}
+	var cfg agentmdl.Tool
+	// Collect nested nodes first to preserve order-independent parsing.
+	var itemsNode *yml.Node
+	if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "items":
+			itemsNode = v
+		case "resultpreviewlimit":
+			if v.Kind == yaml.ScalarNode {
+				// Accept int or string numeric
+				switch a := v.Interface().(type) {
+				case int:
+					n := a
+					cfg.ResultPreviewLimit = &n
+				case int64:
+					n := int(a)
+					cfg.ResultPreviewLimit = &n
+				case float64:
+					n := int(a)
+					cfg.ResultPreviewLimit = &n
+				case string:
+					if n, err := parseInt(a); err == nil {
+						cfg.ResultPreviewLimit = &n
+					}
+				}
+			}
+		case "toolcallexposure", "toolexposure":
+			if v.Kind == yaml.ScalarNode {
+				exp := agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(v.Value)))
+				cfg.CallExposure = exp
+				// Also map to top-level for backward compatibility.
+				agent.ToolCallExposure = exp
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// Parse items with legacy logic for consistency
+	if itemsNode != nil {
+		if err := s.parseToolBlock(itemsNode, agent); err != nil {
+			return err
+		}
+		cfg.Items = agent.Tool
+	}
+	agent.Tools = &cfg
+	return nil
+}
+
+// parseInt parses a base-10 integer from string, ignoring spaces.
+func parseInt(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty")
+	}
+	var n int64
+	var err error
+	// Support plain numbers only.
+	n, err = parseInt64(s)
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }
 
 func (s *Service) parseProfileBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {

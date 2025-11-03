@@ -134,6 +134,8 @@ agent. Key fields below map 1:1 to YAML/JSON:
 - toolExport: optional exposure as a virtual tool (service/method/domains).
 - attachment: behavior for binary attachments; mode `ref|inline`, size/TTL, and
   tool‑result→PDF conversion threshold.
+- elicitation: optional schema-driven input (message, requestedSchema) surfaced
+  to UIs and included in agent-derived tool input schemas when enabled.
 - chains: post‑turn follow‑ups with conditions and publishing policy.
   - on: succeeded|failed|canceled|*
   - target.agentId: required

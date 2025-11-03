@@ -2,6 +2,7 @@
 
 import React, { useMemo, useEffect } from "react";
 import {BasicTable as Basic} from "forge/components";
+import { addWindow } from "forge/core";
 import { Dialog } from "@blueprintjs/core";
 import JsonViewer from "../JsonViewer.jsx";
 import { signal } from "@preact/signals-react";
@@ -94,30 +95,56 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
             case "exec.openDetail":
                 return ({ row }) => openDialog('Details', { kind: 'detail', row });
             case "exec.openLinkedConversation":
-                return async ({ row }) => {
+                return async (ctx) => {
+                    const row = ctx?.row || {};
+                    const colId = (ctx && (ctx.col?.id || ctx.columnId || ctx.column?.id || ctx.colId)) || '';
+                    if (colId !== 'chain') {
+                        console.log('[exec.openLinkedConversation] skip: clicked column is', colId);
+                        return;
+                    }
                     try {
-                        const linked = row?._linkedConversationId || row?.chain;
+                        const linked = row?._linkedConversationId;
                         if (!linked) {
-                            
+                            console.warn('[exec] openLinkedConversation: missing _linkedConversationId', row);
                             return;
                         }
-                        const openWin = parentContext?.handlers?.window?.openWindow;
-                        if (typeof openWin === 'function') {
-                            const paramDefs = [
-                                // Legacy-style rows (resolver expects 'in' + DS name)
-                                { in: 'const', location: linked, to: 'conversations', name: 'input.id' },
-                                { in: 'const', location: linked, to: 'messages',      name: 'input.convID' },
-                            ];
-                            const opts = { modal: true, parameters: paramDefs, size: { width: '98%', height: '98%' }, x: '2%', y: '2%', footer: { hide: true } };
-                            const args = ['chat/new', 'Linked Chat', '', false, opts];
-                            
-                            const res = await openWin({ execution: { args, parameters: paramDefs }, context: parentContext });
-                            
-                        } else if (typeof window !== 'undefined') {
-                            
-                            try { window.open(`#/chat/new?convID=${encodeURIComponent(linked)}`, '_blank'); } catch (_) {}
+                        // Open using the same windowKey as Chat History, but
+                        // pass per‑DS parameters in the proper addWindow slot.
+                        try {
+                            const dsParams = {
+                                conversations: { parameters: { id: linked } },
+                                messages:      { parameters: { convID: linked } },
+                            };
+                            // Try to propagate agent from the current window to support create-on-miss
+                            try {
+                                const convCtx = parentContext?.Context ? parentContext.Context('conversations') : null;
+                                const metaCtx = parentContext?.Context ? parentContext.Context('meta') : null;
+                                const curAgent = (convCtx?.handlers?.dataSource?.peekFormData?.()?.agent || '').trim();
+                                let defAgent = '';
+                                try {
+                                    const metaCol = metaCtx?.handlers?.dataSource?.peekCollection?.() || [];
+                                    defAgent = String((metaCol[0]?.defaults?.agent || '')).trim();
+                                } catch (_) {}
+                                const agentId = curAgent || defAgent;
+                                if (agentId) {
+                                    dsParams.conversations.parameters.agent = agentId;
+                                }
+                            } catch (_) {}
+                            const title = 'Link Chat';
+                            console.log('[exec.openLinkedConversation] opening', { title, params: dsParams });
+                            // Reuse existing window when parameters (convID/id) match (no newInstance)
+                            // and auto‑index title for different conversations of the same type
+                            addWindow(title, null, 'chat/new', null, true, dsParams, { autoIndexTitle: true });
+                            return;
+                        } catch (e) {
+                            console.error('[exec] addWindow failed; falling back to hash nav', e);
                         }
-                    } catch (_) { /* ignore */ }
+                        // Fallback: hash navigation (kept as last resort)
+                        try {
+                            const href = `#/chat/new?convID=${encodeURIComponent(linked)}`;
+                            window.location.hash = href;
+                        } catch (_) {}
+                    } catch (e) { console.error('[exec] openLinkedConversation failed', e); }
                 };
             case "exec.isLinkRow":
                 return ({ row }) => !!(row && row._reason === 'link' && row._linkedConversationId);
@@ -370,15 +397,9 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                 if (id === 'exec.openResponse') return ({ row }) => viewPart('response', row);
                 if (id === 'exec.openStream') return ({ row }) => viewPart('stream', row);
                 if (id === 'exec.openDetail') return async ({ row }) => {
-                    // For link rows, reuse the Details button to open the linked conversation
-                    if (row && row._reason === 'link') {
-                        const fn = ctx.lookupHandler('exec.openLinkedConversation');
-                        if (typeof fn === 'function') {
-                            try { await fn({ row }); } catch(_) {}
-                            return;
-                        }
-                    }
-                    setDialog({ title: 'Details', kind: `detail-${row._reason}`, row });
+                    try {
+                        setDialog({ title: 'Details', kind: `detail-${row?._reason || ''}`, row });
+                    } catch (_) {}
                 };
                 return originalLookup ? originalLookup(id) : () => {};
             };
@@ -519,7 +540,55 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
                             </div>
                         );
                     }
-                    return null;
+
+                    if (kind === 'error') {
+                        return (
+                            <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div><strong>Status:</strong> error</div>
+                                {r._model && <div><strong>Model:</strong> {r._model}</div>}
+                                {r._provider && <div><strong>Provider:</strong> {r._provider}</div>}
+                                {r._errorCode && <div><strong>Error Code:</strong> {String(r._errorCode)}</div>}
+                                {r._error && <div style={{color: 'red'}}><strong>Error Message:</strong> {String(r._error)}</div>}
+                                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                    <button className="bp4-button bp4-small" disabled={!r.requestPayloadId} onClick={() => viewPart('request', r)}>Open Request</button>
+                                    <button className="bp4-button bp4-small" disabled={!r.responsePayloadId} onClick={() => viewPart('response', r)}>Open Response</button>
+                                </div>
+                            </div>
+                        );
+                    }
+
+                    if (kind === 'link') {
+                        const linked = r._linkedConversationId || '';
+                        return (
+                            <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div><strong>Thread Link</strong></div>
+                                <div><strong>Conversation ID:</strong> {linked || '(unknown)'} </div>
+                                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                    <button
+                                        className="bp4-button bp4-small"
+                                        disabled={!linked}
+                                        onClick={async () => {
+                                            try {
+                                                const fn = execContext.lookupHandler('exec.openLinkedConversation');
+                                                if (typeof fn === 'function') {
+                                                    await fn({ row: r, col: { id: 'chain' } });
+                                                }
+                                            } catch (_) {}
+                                        }}
+                                    >Open Thread</button>
+                                </div>
+                            </div>
+                        );
+                    }
+
+                    // Fallback: show raw row as JSON so Details is never empty
+                    try {
+                        return (
+                            <div style={{ padding: 12 }}>
+                                <JsonViewer value={r} useCodeMirror={useCodeMirror} height={'60vh'} language={'json'} />
+                            </div>
+                        );
+                    } catch (_) { return null; }
                 })()}
                 {dialog && (!dialog.kind || !String(dialog.kind).startsWith('detail-')) && (
                     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 8, padding: 12, height: resizable ? 'calc(100% - 24px)' : 'auto', maxHeight: resizable ? 'none' : '70vh', paddingRight: resizable ? 20 : 12, paddingBottom: resizable ? 20 : 12 }}>

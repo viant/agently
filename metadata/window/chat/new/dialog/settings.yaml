@@ -9,10 +9,14 @@ properties:
 
 
 
-# Make the dialog reasonably sized
+# Responsive sizing – larger by default, with min/max constraints
 style:
-  width: 55vw
-  height: 65vh
+  width: 75vw
+  height: 80vh
+  minWidth: 960px
+  minHeight: 620px
+  maxWidth: 95vw
+  maxHeight: 90vh
 
 # Action buttons shown in the footer
 actions:

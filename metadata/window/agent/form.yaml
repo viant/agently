@@ -102,6 +102,22 @@
       label: System Prompt (URI)
       type: text
       columnSpan: 1
+    - id: editMeta.prompts.user.content
+      label: Prompt Preview
+      type: textarea
+      columnSpan: 1
+      properties:
+        readOnly: true
+        style:
+          height: '220px'
+    - id: editMeta.prompts.system.content
+      label: System Prompt Preview
+      type: textarea
+      columnSpan: 1
+      properties:
+        readOnly: true
+        style:
+          height: '220px'
 
 # (Persona tab removed – fields moved to Basics)
 
@@ -210,6 +226,33 @@
       title: System Knowledge
       dataSourceRef: agentSystemKnowledge
       table: $import('table/knowledge.yaml')
+
+# -----------------------------------------------------------------------------
+# Authoring – read-only meta for paths, knowledge, elicitation, A2A
+# -----------------------------------------------------------------------------
+- id: authoring
+  title: Authoring
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  items:
+    - id: editMeta.prompts
+      label: Prompt Paths (display/resolved/exists)
+      type: object
+      columnSpan: 2
+    - id: editMeta.knowledge
+      label: Knowledge Roots
+      type: object
+      columnSpan: 2
+    - id: editMeta.contextInputs
+      label: Context Inputs
+      type: object
+      columnSpan: 2
+    - id: editMeta.a2a
+      label: A2A
+      type: object
+      columnSpan: 2
 
 # -----------------------------------------------------------------------------
 # Tool Export – domains and exposure

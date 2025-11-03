@@ -49,6 +49,14 @@ type QueryInput struct {
 	DisableChains bool `json:"disableChains,omitempty"`
 
 	ToolCallExposure *agentmdl.ToolCallExposure `json:"toolCallExposure,omitempty"`
+
+	// ToolResultPreviewLimit (single-turn override). When >0 it takes precedence
+	// over agent, model and service defaults for tool result preview trimming.
+	ToolResultPreviewLimit *int `json:"toolResultPreviewLimit,omitempty"`
+
+	// ReasoningEffort optionally overrides agent-level Reasoning.Effort for this turn.
+	// Valid values (OpenAI o-series): low | medium | high.
+	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
 }
 
 // QueryOutput represents the result of an agent knowledge query

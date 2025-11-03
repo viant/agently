@@ -15,4 +15,7 @@ type MCPClient struct {
 	*mcp.ClientOptions `yaml:",inline" json:",inline"`
 	Descriptions       map[string]string      `yaml:"descriptions,omitempty" json:"descriptions,omitempty"`
 	Metadata           map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	// ToolTimeoutSec overrides the default tool execution timeout when invoking
+	// tools on this MCP server. When zero, a system default applies.
+	ToolTimeoutSec int `yaml:"toolTimeoutSec,omitempty" json:"toolTimeoutSec,omitempty"`
 }

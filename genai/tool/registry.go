@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/viant/agently/genai/llm"
 )
@@ -45,4 +46,11 @@ type Registry interface {
 	// one-time discovery or warm-up (e.g., preload MCP servers/tools).
 	// Implementations should be idempotent. Callers may safely ignore it.
 	Initialize(ctx context.Context)
+}
+
+// TimeoutResolver may be implemented by registries that can suggest per-tool
+// execution timeouts.  The returned duration should be >0 to take effect; the
+// boolean indicates whether a suggestion is available for the given name.
+type TimeoutResolver interface {
+	ToolTimeout(name string) (time.Duration, bool)
 }

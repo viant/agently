@@ -3,6 +3,7 @@ package openai
 import (
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/viant/afs/storage"
@@ -27,7 +28,7 @@ type Client struct {
 func NewClient(apiKey, model string, options ...ClientOption) *Client {
 	client := &Client{
 		Config: basecfg.Config{
-			HTTPClient: &http.Client{Timeout: 15 * time.Minute}, //TODO: make it configurable
+			HTTPClient: &http.Client{Timeout: 15 * time.Minute}, // default; can be overridden
 			BaseURL:    openAIEndpoint,
 			Model:      model,
 		},
@@ -42,6 +43,14 @@ func NewClient(apiKey, model string, options ...ClientOption) *Client {
 
 	if client.APIKey == "" {
 		client.APIKey = os.Getenv("OPENAI_API_KEY")
+	}
+
+	// Optional: override HTTP timeout via environment variable (seconds)
+	if v := os.Getenv("OPENAI_HTTP_TIMEOUT_SEC"); v != "" {
+		if sec, err := time.ParseDuration(strings.TrimSpace(v) + "s"); err == nil && sec > 0 {
+			client.Config.HTTPClient.Timeout = sec
+			client.Config.Timeout = sec
+		}
 	}
 
 	client.storageMgr = afsco.New(assets.NewConfig(client.APIKey))

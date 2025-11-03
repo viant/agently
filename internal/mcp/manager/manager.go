@@ -96,6 +96,15 @@ func New(prov Provider, opts ...Option) (*Manager, error) {
 	return m, nil
 }
 
+// Options exposes the underlying provider client options (authoring metadata,
+// timeouts, etc.) for a given server name.
+func (m *Manager) Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error) {
+	if m == nil || m.prov == nil {
+		return nil, errors.New("mcp manager: provider not configured")
+	}
+	return m.prov.Options(ctx, serverName)
+}
+
 // Get returns an MCP client for (convID, serverName), creating it if needed.
 func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
 	if m.prov == nil {

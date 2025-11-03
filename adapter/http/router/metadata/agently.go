@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/viant/agently/genai/agent"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/llm"
 	authctx "github.com/viant/agently/internal/auth"
@@ -32,10 +33,18 @@ type AgentInfo struct {
 	AllowedChains        []string `json:"allowedChains,omitempty"`
 	// Client UX: ring sound when a turn finishes
 	RingOnFinish bool `json:"ringOnFinish,omitempty"`
+	// Tool result preview limit (agent-level default)
+	ToolResultPreviewLimit *int `json:"toolResultPreviewLimit,omitempty"`
+	// Reasoning default (effort)
+	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
 	// Profile metadata for UI/selection context
 	Responsibilities []string `json:"responsibilities,omitempty"`
 	InScope          []string `json:"inScope,omitempty"`
 	OutOfScope       []string `json:"outOfScope,omitempty"`
+
+	// Elicitation (optional): a schema-driven payload request declared on the agent
+	// (struct name ContextInputs; YAML key remains "elicitation").
+	Elicitation *agent.ContextInputs `json:"elicitation,omitempty"`
 }
 
 // AgentlyResponse is the aggregated workspace metadata payload.
@@ -244,6 +253,16 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				ChainsEnabled:        chainsEnabled,
 				AllowedChains:        append([]string(nil), chainTargets...),
 				RingOnFinish:         a.RingOnFinish,
+				Elicitation:          a.ContextInputs,
+			}
+			// Propagate agent-level tool result preview limit (new contract) to UI meta
+			if a.Tools != nil && a.Tools.ResultPreviewLimit != nil && *a.Tools.ResultPreviewLimit > 0 {
+				v := *a.Tools.ResultPreviewLimit
+				info.ToolResultPreviewLimit = &v
+			}
+			if a.Reasoning != nil && strings.TrimSpace(a.Reasoning.Effort) != "" {
+				v := strings.TrimSpace(a.Reasoning.Effort)
+				info.ReasoningEffort = &v
 			}
 			if a.Profile != nil {
 				if len(a.Profile.Responsibilities) > 0 {

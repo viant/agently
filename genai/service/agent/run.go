@@ -205,6 +205,15 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 		genInput.Options.Mode = "plan"
 		EnsureGenerateOptions(ctx, genInput, input.Agent)
+		// Apply per-turn override for reasoning effort when requested
+		if input.ReasoningEffort != nil {
+			if v := strings.TrimSpace(*input.ReasoningEffort); v != "" {
+				if genInput.ModelSelection.Options.Reasoning == nil {
+					genInput.ModelSelection.Options.Reasoning = &llm.Reasoning{}
+				}
+				genInput.ModelSelection.Options.Reasoning.Effort = v
+			}
+		}
 		genOutput := &core.GenerateOutput{}
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
 		if pErr != nil {

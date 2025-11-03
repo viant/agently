@@ -33,6 +33,9 @@ type ConversationInput struct {
 	IncludeTranscript bool                  `parameter:",kind=query,in=includeTranscript" predicate:"expr,group=1,?" value:"true"`
 	IncludeModelCal   bool                  `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"false"`
 	IncludeToolCall   bool                  `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"false"`
+	AgentId           string                `parameter:",kind=query,in=agentId" predicate:"expr,group=0,t.agent_id = ?"`
+	ParentId          string                `parameter:",kind=query,in=parentId" predicate:"expr,group=0,t.conversation_parent_id = ?"`
+	ParentTurnId      string                `parameter:",kind=query,in=parentTurnId" predicate:"expr,group=0,t.conversation_parent_turn_id = ?"`
 	ScheduleId        string                `parameter:",kind=query,in=scheduleId" predicate:"expr,group=0,t.schedule_id = ?"`
 	ScheduleRunId     string                `parameter:",kind=query,in=scheduleRunId" predicate:"expr,group=0,t.schedule_run_id = ?"`
 	HasScheduleId     bool                  `parameter:",kind=query,in=hasScheduleId" predicate:"expr,group=0,t.schedule_id IS NOT NULL"`
@@ -47,6 +50,9 @@ type ConversationInputHas struct {
 	IncludeTranscript bool
 	IncludeModelCal   bool
 	IncludeToolCall   bool
+	AgentId           bool
+	ParentId          bool
+	ParentTurnId      bool
 	ScheduleId        bool
 	ScheduleRunId     bool
 	HasScheduleId     bool

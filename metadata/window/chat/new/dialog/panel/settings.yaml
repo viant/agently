@@ -4,8 +4,11 @@ layout:
   kind: grid
   labels:
     mode: left
+    width: 200px
+    controlGap: 12
   columns: 3
-  gap: 6
+  rowGap: 10
+  columnGap: 24
 items:
   # Row 1 — Agent, Model, Tool Exposure
   - id: agent
@@ -44,6 +47,33 @@ items:
       style:
         marginTop: '0'
         marginBottom: '0'
+
+  # Row 1b — Tool result preview limit (optional)
+  - id: toolResultPreviewLimit
+    label: Tool Result Preview Limit
+    type: number
+    columnSpan: 1
+    properties:
+      min: 0
+      step: 1
+      placeholder: 'inherit default'
+      style:
+        width: '220px'
+
+  # Row 1c — Reasoning effort override (optional)
+  - id: reasoningEffort
+    label: Reasoning Effort
+    type: select
+    columnSpan: 1
+    options:
+      - { value: '', label: inherit default }
+      - { value: low, label: Low }
+      - { value: medium, label: Medium }
+      - { value: high, label: High }
+    properties:
+      placeholder: 'inherit default'
+      style:
+        width: '220px'
 
   # Section label
   - id: _label_agent_prefs
@@ -111,6 +141,8 @@ items:
     properties:
       placeholder: 'Select allowed chain targets (agent IDs)'
       options: []
+      style:
+        width: '100%'
 
   # Section label
   - id: _label_tools

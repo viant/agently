@@ -7,6 +7,7 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/prompt"
 	"github.com/viant/embedius/matching/option"
+	mcpproto "github.com/viant/mcp-protocol/schema"
 )
 
 type (
@@ -50,7 +51,18 @@ type (
 
 		SystemPrompt    *prompt.Prompt `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
 		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
-		Tool            []*llm.Tool    `yaml:"tool,omitempty" json:"tool,omitempty"`
+		// Tool (legacy): raw array of tool patterns/definitions used at runtime.
+		// Kept for backward compatibility; not serialized. Use Tools for YAML/JSON.
+		Tool []*llm.Tool `yaml:"-" json:"-"`
+
+		// Tools defines the serialized tool configuration block using the new
+		// contract: tool: { items: [], resultPreviewLimit, toolCallExposure }.
+		// This preserves backward compatibility while enabling richer config.
+		Tools *Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
+
+		// Reasoning controls provider native reasoning behavior (e.g., effort/summary
+		// for OpenAI o-series). When set, EnsureGenerateOptions passes it to LLM core.
+		Reasoning *llm.Reasoning `yaml:"reasoning,omitempty" json:"reasoning,omitempty"`
 
 		// ParallelToolCalls requests providers that support it to execute
 		// multiple tool calls in parallel within a single reasoning step.
@@ -85,6 +97,13 @@ type (
 		// resources for the current query, and includes their content in the
 		// binding Documents so prompts/templates can reason over them directly.
 		MCPResources *MCPResources `yaml:"mcpResources,omitempty" json:"mcpResources,omitempty"`
+
+		// ContextInputs (YAML key: elicitation) defines an optional schema-driven
+		// payload describing auxiliary inputs to be placed under args.context when
+		// calling this agent. UIs can render these ahead of, or during, execution.
+		// Runtime behavior remains controlled by QueryInput.elicitationMode and
+		// service options (router/awaiter).
+		ContextInputs *ContextInputs `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
 	}
 
 	// MCPResources defines matching and selection rules for attaching resources
@@ -132,6 +151,19 @@ type Tool struct {
 	Items              []*llm.Tool      `yaml:"items,omitempty" json:"items,omitempty"`
 	ResultPreviewLimit *int             `yaml:"resultPreviewLimit,omitempty" json:"resultPreviewLimit,omitempty"`
 	CallExposure       ToolCallExposure `yaml:"toolCallExposure,omitempty" json:"toolCallExposure,omitempty"`
+}
+
+// Elicitation describes a JSON-Schema based input request associated with an agent.
+// It embeds the MCP protocol ElicitRequestParams for consistent wire format with
+// tool- and assistant-originated elicitations.
+// ContextInputs models auxiliary inputs for an agent (YAML key: elicitation).
+type ContextInputs struct {
+	// Enabled gates whether this elicitation should be considered when exposing
+	// agent-derived tool schemas or metadata.
+	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+
+	// Inline MCP request parameters: Title, Message, RequestedSchema, etc.
+	mcpproto.ElicitRequestParams `yaml:",inline" json:",inline"`
 }
 
 // Directory (legacy) removed – use Profile.

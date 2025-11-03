@@ -465,20 +465,24 @@ func resolvePath(path, directory string) string {
 	path = strings.TrimSpace(path)
 	directory = strings.TrimSpace(directory)
 
-	// If directory is provided, treat all paths as relative to it
-	if directory != "" {
-		if filepath.IsAbs(path) {
-			// For absolute paths, extract the file name and join with directory
-			path = filepath.Join(directory, filepath.Base(path))
-		} else {
-			// For relative paths, join with directory
-			path = filepath.Join(directory, path)
-		}
+	// No workdir provided or path already has a scheme -> return as is
+	if directory == "" || strings.Contains(path, "://") {
 		return path
 	}
 
-	// If no directory is provided, return the path as is
-	return path
+	// If workdir looks like a URL, use URL join to preserve scheme
+	if strings.Contains(directory, "://") {
+		if filepath.IsAbs(path) {
+			return url.Join(directory, filepath.Base(path))
+		}
+		return url.Join(directory, path)
+	}
+
+	// Filesystem path join
+	if filepath.IsAbs(path) {
+		return filepath.Join(directory, filepath.Base(path))
+	}
+	return filepath.Join(directory, path)
 }
 
 // applyParsedHunks applies the hunks parsed by the new parser

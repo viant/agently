@@ -3,9 +3,11 @@ package tool
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
+	mcpnames "github.com/viant/agently/pkg/mcpname"
 )
 
 // scopedRegistry is a lightweight wrapper that binds a tool.Registry to a
@@ -62,3 +64,20 @@ func (s *scopedRegistry) SetDebugLogger(w io.Writer) { s.inner.SetDebugLogger(w)
 
 // Initialize delegates to the underlying registry.
 func (s *scopedRegistry) Initialize(ctx context.Context) { s.inner.Initialize(ctx) }
+
+// ToolTimeout delegates to the underlying registry when it implements TimeoutResolver.
+func (s *scopedRegistry) ToolTimeout(name string) (time.Duration, bool) {
+	if tr, ok := s.inner.(TimeoutResolver); ok {
+		if d, ok2 := tr.ToolTimeout(name); ok2 && d > 0 {
+			return d, true
+		}
+	}
+	// Best-effort fallback for known internal services with static timeouts
+	can := mcpnames.Canonical(name)
+	svc := mcpnames.Name(can).Service()
+	switch svc {
+	case "llm/agents", "llm/exec":
+		return 15 * time.Minute, true
+	}
+	return 0, false
+}
