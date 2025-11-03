@@ -488,18 +488,18 @@ func (e *Service) init(ctx context.Context) error {
 	embedModel := ""
 	defaultModel := ""
 	if e.config != nil {
-		if e.config.Default.ToolCallResult.SummarizeChunk > 0 {
-			summarizeChunk = e.config.Default.ToolCallResult.SummarizeChunk
+		if e.config.Default.PreviewSettings.SummarizeChunk > 0 {
+			summarizeChunk = e.config.Default.PreviewSettings.SummarizeChunk
 		}
-		if e.config.Default.ToolCallResult.MatchChunk > 0 {
-			matchChunk = e.config.Default.ToolCallResult.MatchChunk
+		if e.config.Default.PreviewSettings.MatchChunk > 0 {
+			matchChunk = e.config.Default.PreviewSettings.MatchChunk
 		}
-		summaryModel = e.config.Default.ToolCallResult.SummaryModel
+		summaryModel = e.config.Default.PreviewSettings.SummaryModel
 		if strings.TrimSpace(summaryModel) == "" {
 			summaryModel = e.config.Default.SummaryModel
 		}
 		summaryPrompt = e.config.Default.SummaryPrompt
-		embedModel = e.config.Default.ToolCallResult.EmbeddingModel
+		embedModel = e.config.Default.PreviewSettings.EmbeddingModel
 		if strings.TrimSpace(embedModel) == "" {
 			embedModel = e.config.Default.Embedder
 		}
@@ -577,15 +577,15 @@ func (e *Service) initDefaults(ctx context.Context) error {
 	e.loadWorkspaceConfigIfEmpty(ctx)
 	// Ensure toolCallResult defaults when missing
 	if e.config != nil {
-		tr := &e.config.Default.ToolCallResult
-		if tr.PreviewLimit == 0 {
-			tr.PreviewLimit = 8192
+		tr := &e.config.Default.PreviewSettings
+		if tr.Limit == 0 {
+			tr.Limit = 8192
 		}
 		if tr.AgedAfterSteps == 0 {
 			tr.AgedAfterSteps = 15
 		}
 		if tr.AgedAfterSteps == 0 {
-			tr.AgedPreviewLimit = 2048
+			tr.AgedLimit = 2048
 		}
 		if tr.SummarizeChunk == 0 {
 			tr.SummarizeChunk = 4096
