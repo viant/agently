@@ -577,6 +577,11 @@ func (e *Service) initDefaults(ctx context.Context) error {
 	e.loadWorkspaceConfigIfEmpty(ctx)
 	// Ensure toolCallResult defaults when missing
 	if e.config != nil {
+
+		defaults := &e.config.Default
+		if defaults.ToolCallMaxResults == 0 {
+			defaults.ToolCallMaxResults = 100
+		}
 		tr := &e.config.Default.PreviewSettings
 		if tr.Limit == 0 {
 			tr.Limit = 8192

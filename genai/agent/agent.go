@@ -179,6 +179,8 @@ type Profile struct {
 	Responsibilities []string               `yaml:"responsibilities,omitempty" json:"responsibilities,omitempty"`
 	InScope          []string               `yaml:"inScope,omitempty" json:"inScope,omitempty"`
 	OutOfScope       []string               `yaml:"outOfScope,omitempty" json:"outOfScope,omitempty"`
+	//ConversationScope defines the following "new" | "parent" | "parentTurn"
+	ConversationScope string `json:"conversationScope" json:"conversationScope"`
 }
 
 // ExposeA2A (legacy): retained for backward compatibility; use Serve.A2A instead.

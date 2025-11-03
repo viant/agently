@@ -14,6 +14,8 @@ type Defaults struct {
 	// ---- Tool-call result controls (grouped) ---------------------
 	PreviewSettings PreviewSettings `yaml:"previewSettings" json:"previewSettings"`
 
+	ToolCallMaxResults int `yaml:"toolCallMaxResults" json:"toolCallMaxResults"`
+
 	// ---- Execution timeouts -------------------------------------
 	// ToolCallTimeoutSec sets the default per-tool execution timeout in seconds.
 	// When zero or missing, runtime falls back to a built-in default.

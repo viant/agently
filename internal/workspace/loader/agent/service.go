@@ -789,6 +789,10 @@ func (s *Service) parseProfileBlock(valueNode *yml.Node, agent *agentmdl.Agent) 
 			if v != nil {
 				prof.InScope = asStrings(v)
 			}
+		case "conversationscope":
+			if v != nil {
+				prof.ConversationScope = v.Value
+			}
 		case "outofscope":
 			if v != nil {
 				prof.OutOfScope = asStrings(v)
