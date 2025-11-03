@@ -142,14 +142,16 @@ func (s *Service) summarizeChunksParallel(ctx context.Context, body string, chun
 }
 
 func effectiveChunkSize(req, def int) int {
-	if req > 0 {
+	min := 4096
+	if req > min {
 		return req
 	}
-	if def > 0 {
+	if def > min {
 		return def
 	}
-	return 4096
+	return min
 }
+
 func paginateSummaries(chunks []SummarizeChunk, page, perPage int) ([]SummarizeChunk, int, int, int, int) {
 	if perPage <= 0 {
 		perPage = 20
