@@ -764,7 +764,12 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		if t == nil {
 			return out
 		}
-		for i, m := range t.ToolCalls() {
+
+		toolCalls := t.ToolCalls()
+		if len(toolCalls) > s.defaults.ToolCallMaxResults && s.defaults.ToolCallMaxResults > 0 {
+			toolCalls = toolCalls[len(toolCalls)-s.defaults.ToolCallMaxResults:]
+		}
+		for i, m := range toolCalls {
 			args := m.ToolCallArguments()
 
 			effectivePreviewLimit := s.effectivePreviewLimit(i)
