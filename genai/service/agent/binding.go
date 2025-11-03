@@ -62,8 +62,8 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 			effectiveLimit = v
 		}
 	}
-	if effectiveLimit == 0 && s.defaults != nil && s.defaults.ToolCallResult.PreviewLimit > 0 {
-		effectiveLimit = s.defaults.ToolCallResult.PreviewLimit
+	if effectiveLimit == 0 && s.defaults != nil && s.defaults.PreviewSettings.Limit > 0 {
+		effectiveLimit = s.defaults.PreviewSettings.Limit
 	}
 
 	// Build history with overflow previews when limit is present
@@ -295,8 +295,8 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 }
 
 func (s *Service) appendCallToolResultGuide(ctx context.Context, b *prompt.Binding) {
-	if s.defaults != nil && strings.TrimSpace(s.defaults.ToolCallResult.SystemGuidePath) != "" {
-		guide := strings.TrimSpace(s.defaults.ToolCallResult.SystemGuidePath)
+	if s.defaults != nil && strings.TrimSpace(s.defaults.PreviewSettings.SystemGuidePath) != "" {
+		guide := strings.TrimSpace(s.defaults.PreviewSettings.SystemGuidePath)
 		uri := guide
 		if url.Scheme(uri, "") == "" {
 			uri = "file://" + guide
@@ -841,8 +841,8 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 
 func (s *Service) effectivePreviewLimit(input *QueryInput, modelName string, step int) int {
 
-	if s.defaults.ToolCallResult.AgedAfterSteps > 0 && step > s.defaults.ToolCallResult.AgedAfterSteps && s.defaults.ToolCallResult.AgedPreviewLimit > 0 {
-		return s.defaults.ToolCallResult.AgedPreviewLimit
+	if s.defaults.PreviewSettings.AgedAfterSteps > 0 && step > s.defaults.PreviewSettings.AgedAfterSteps && s.defaults.PreviewSettings.AgedLimit > 0 {
+		return s.defaults.PreviewSettings.AgedLimit
 	}
 
 	effectiveCallToolResultLimit := 0
@@ -865,8 +865,8 @@ func (s *Service) effectivePreviewLimit(input *QueryInput, modelName string, ste
 		}
 	}
 	// 3) Service defaults
-	if effectiveCallToolResultLimit == 0 && s.defaults != nil && s.defaults.ToolCallResult.PreviewLimit > 0 {
-		effectiveCallToolResultLimit = s.defaults.ToolCallResult.PreviewLimit
+	if effectiveCallToolResultLimit == 0 && s.defaults != nil && s.defaults.PreviewSettings.Limit > 0 {
+		effectiveCallToolResultLimit = s.defaults.PreviewSettings.Limit
 	}
 	return effectiveCallToolResultLimit
 }

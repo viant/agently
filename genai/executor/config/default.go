@@ -12,7 +12,7 @@ type Defaults struct {
 	SummaryLastN  int    `yaml:"summaryLastN" json:"summaryLastN"`
 
 	// ---- Tool-call result controls (grouped) ---------------------
-	ToolCallResult ToolCallResultDefaults `yaml:"toolCallResult" json:"toolCallResult"`
+	PreviewSettings PreviewSettings `yaml:"previewSettings" json:"previewSettings"`
 
 	// ---- Execution timeouts -------------------------------------
 	// ToolCallTimeoutSec sets the default per-tool execution timeout in seconds.
@@ -27,11 +27,11 @@ type Defaults struct {
 	Match MatchDefaults `yaml:"match" json:"match"`
 }
 
-// ToolCallResultDefaults groups tool-call result presentation and processing settings.
-type ToolCallResultDefaults struct {
-	PreviewLimit int `yaml:"previewLimit" json:"previewLimit"`
+// PreviewSettings groups tool-call result presentation and processing settings.
+type PreviewSettings struct {
+	Limit int `yaml:"limit" json:"limit"`
 
-	AgedPreviewLimit int `yaml:"agedPreviewLimit" json:"agedPreviewLimit"`
+	AgedLimit int `yaml:"agedLimit" json:"agedLimit"`
 
 	// How far back until we switch the UI to an aged preview.
 	AgedAfterSteps int `yaml:"agedAfterSteps" json:"agedAfterSteps"`
