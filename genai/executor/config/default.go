@@ -29,7 +29,13 @@ type Defaults struct {
 
 // ToolCallResultDefaults groups tool-call result presentation and processing settings.
 type ToolCallResultDefaults struct {
-	PreviewLimit   int    `yaml:"previewLimit" json:"previewLimit"`
+	PreviewLimit int `yaml:"previewLimit" json:"previewLimit"`
+
+	AgedPreviewLimit int `yaml:"agedPreviewLimit" json:"agedPreviewLimit"`
+
+	// How far back until we switch the UI to an aged preview.
+	AgedAfterSteps int `yaml:"agedAfterSteps" json:"agedAfterSteps"`
+
 	SummarizeChunk int    `yaml:"summarizeChunk" json:"summarizeChunk"`
 	MatchChunk     int    `yaml:"matchChunk" json:"matchChunk"`
 	SummaryModel   string `yaml:"summaryModel" json:"summaryModel"`
