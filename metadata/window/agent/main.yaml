@@ -13,9 +13,6 @@ view:
         title: Agents
         dataSourceRef: agents
         table: $import('table/agents.yaml')
-        on:
-          - event: onSelection
-            handler: agent.loadAgentEdit
 
       - id: data
         dataSourceRef: agents
@@ -51,7 +48,20 @@ dialogs:
     dataSourceRef: agents
     content:
       fetchData: true
-      table:
-        columns:
-          - id: name
-            name: Agent Name
+    table:
+      columns:
+        - id: name
+          name: Agent Name
+  - id: knowledgeViewer
+    title: Knowledge Viewer
+    dataSourceRef: agents
+    content:
+      id: knowledgeDialog
+      containers:
+        - id: codeViewer
+          editor:
+            selector:
+              source: knowledgeDialogSource
+              extension: knowledgeDialogExtension
+            style:
+              height: '70vh'

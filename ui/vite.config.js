@@ -42,6 +42,22 @@ export default defineConfig(({mode}) => {
             watch: {
                 ignored: ["!../../forge/**"], // Watch UI folder
             },
+            proxy: {
+                // Proxy API calls to backend during dev so relative '/v1/*' works
+                '/v1': {
+                    target: prodEnv.DATA_URL || 'http://localhost:8081/',
+                    changeOrigin: true,
+                    // do not rewrite; paths already include /v1
+                },
+                '/upload': {
+                    target: prodEnv.DATA_URL || 'http://localhost:8081/',
+                    changeOrigin: true,
+                },
+                '/download': {
+                    target: prodEnv.DATA_URL || 'http://localhost:8081/',
+                    changeOrigin: true,
+                },
+            },
         },
 
         optimizeDeps: {

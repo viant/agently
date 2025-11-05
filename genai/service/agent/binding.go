@@ -49,7 +49,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 
 	// Compute effective preview limit using service defaults only
-	hist, histOverflow, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript())
+	hist, histOverflow, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript(), &input.RequestTime)
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +64,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if err != nil {
 		return nil, err
 	}
+
 	// Tool executions exposure: default "turn"; allow QueryInput override; then agent setting.
 	exposure := agent.ToolCallExposure("turn")
 	if input.ToolCallExposure != nil && strings.TrimSpace(string(*input.ToolCallExposure)) != "" {
@@ -78,6 +79,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if len(execs) > 0 {
 		b.Tools.Executions = execs
 	}
+
 	// Drive overflow-based helper exposure via binding flag
 	if overflow {
 		b.Flags.HasMessageOverflow = true
@@ -663,8 +665,9 @@ func (s *Service) buildHistory(ctx context.Context, transcript apiconv.Transcrip
 }
 
 // buildHistoryWithLimit maps transcript into prompt history applying overflow preview to user/assistant text messages.
-func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript) (prompt.History, bool, error) {
+func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript, requestTime *time.Time) (prompt.History, bool, error) {
 	// When effectiveLimit <= 0, fall back to default
+	var out prompt.History
 
 	if s.effectivePreviewLimit(0) <= 0 {
 		h, err := s.buildHistory(ctx, transcript)
@@ -687,6 +690,10 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 		if v.IsArchived() || v.IsInterim() {
 			return false
 		}
+		if requestTime.Before(v.CreatedAt) && v.Content != nil {
+			out.UserElicitation = append(out.UserElicitation, &prompt.Message{Role: v.Role, Content: *v.Content})
+			return false
+		}
 
 		if strings.ToLower(strings.TrimSpace(v.Type)) != "text" {
 			return false
@@ -695,7 +702,6 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 		return role == "user" || role == "assistant"
 	})
 
-	var out prompt.History
 	overflow := false
 	for i, msg := range normalized {
 		role := msg.Role
@@ -767,8 +773,12 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 
 		toolCalls := t.ToolCalls()
 		if len(toolCalls) > s.defaults.ToolCallMaxResults && s.defaults.ToolCallMaxResults > 0 {
-			toolCalls = toolCalls[len(toolCalls)-s.defaults.ToolCallMaxResults:]
+
+			fmt.Println("ToolCallMaxResults !!!\n")
+			//	toolCalls = toolCalls[len(toolCalls)-s.defaults.ToolCallMaxResults:]
 		}
+		fmt.Printf("toolCalls: %v\n", len(toolCalls))
+
 		for i, m := range toolCalls {
 			args := m.ToolCallArguments()
 

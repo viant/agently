@@ -298,7 +298,6 @@ import (
 
 				if expectedForComparison != actualForComparison {
 					// Use assert.Equal to get the nice diff output, but with original content
-					fmt.Printf("file content mismatch for %s\n", path)
 					assert.Equal(t, expectedNormalized, actualNormalized, "file content mismatch for %s", path)
 				}
 			}

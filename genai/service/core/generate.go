@@ -133,6 +133,12 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		userMsg.Name = i.UserID
 	}
 	i.Message = append(i.Message, userMsg)
+
+	if len(i.Binding.History.UserElicitation) > 0 {
+		for _, elicitationMsg := range i.Binding.History.UserElicitation {
+			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole(elicitationMsg.Role), elicitationMsg.Content))
+		}
+	}
 	return nil
 }
 
@@ -283,14 +289,6 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 			}
 			toolNames = append(toolNames, name)
 		}
-	}
-	if totalToolCalls > 1 {
-		convID := memory.ConversationIDFromContext(ctx)
-		turnID := ""
-		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-			turnID = tm.TurnID
-		}
-		fmt.Printf("[debug] multiple tool calls emitted: n=%d conv=%s turn=%s tools=%v\n", totalToolCalls, convID, turnID, toolNames)
 	}
 	// Provide the shared assistant message ID to the caller; orchestrator writes the final assistant message.
 	if msgID := memory.ModelMessageIDFromContext(ctx); msgID != "" {

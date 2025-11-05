@@ -178,11 +178,13 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		return fmt.Errorf("failed to get turn meta")
 	}
 
+	input.RequestTime = time.Now()
 	for {
 		binding, bErr := s.BuildBinding(ctx, input)
 		if bErr != nil {
 			return bErr
 		}
+
 		modelSelection := input.Agent.ModelSelection
 		if input.ModelOverride != "" {
 			modelSelection.Model = input.ModelOverride
