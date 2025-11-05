@@ -1406,8 +1406,25 @@ export function hasActiveSteps(steps) {
 // }
 
 function selectFolder(props) {
-    const {context, selected} = props;
-    context.handlers.dialog.commit()
+    const { context } = props;
+    try {
+        const fsCtx = context?.Context('fs');
+        const sel = fsCtx?.handlers?.dataSource?.getSelection?.();
+        const picked = sel?.selected ?? sel;
+        const value = (() => {
+            if (!picked) return '';
+            if (typeof picked === 'string') return picked;
+            return picked.uri || picked.url || picked.path || picked.id || picked.name || '';
+        })();
+        // Commit with value so awaitResult resolves for the caller
+        if (value) {
+            context?.handlers?.dialog?.commit?.(value);
+        } else {
+            context?.handlers?.dialog?.commit?.(picked || null);
+        }
+    } catch (_) {
+        try { context?.handlers?.dialog?.commit?.(null); } catch (_) {}
+    }
     log.debug('selectFolder', props)
 }
 
