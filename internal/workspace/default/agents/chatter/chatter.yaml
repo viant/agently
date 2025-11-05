@@ -11,9 +11,12 @@ prompt:
   uri: prompt/user.tmpl
 systemPrompt:
   uri: prompt/system.tmpl
+
 tool:
-  - pattern: system/exec
-  - pattern: system/os
+  callExposure: conversation
+  items:
+    - pattern: system/exec
+    - pattern: system/os
 
 knowledge:
   - inclusionMode: full
