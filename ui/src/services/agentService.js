@@ -299,6 +299,21 @@ export async function browseKnowledge({ context }) {
         const resp = await fetch(url, { method: 'GET', credentials: 'include' });
         const payload = await resp.json().catch(() => ({}));
         const data = payload && payload.data ? payload.data : payload;
+
+        // Try to derive resolved root from returned list (fallback when editMeta is absent)
+        let derivedRoot = '';
+        try {
+            const arr = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+            if (Array.isArray(arr) && arr.length > 0) {
+                const u = arr[0]?.uri || arr[0]?.url || '';
+                if (u) {
+                    const noTrail = String(u).replace(/\/+$/, '');
+                    const i = noTrail.lastIndexOf('/');
+                    derivedRoot = i > -1 ? noTrail.substring(0, i) : noTrail;
+                }
+            }
+        } catch (_) { /* ignore */ }
+
         const listText = JSON.stringify(data, null, 2);
 
         const next = {
@@ -306,7 +321,7 @@ export async function browseKnowledge({ context }) {
             knowledgeBrowserScope: scope,
             knowledgeBrowserIndex: idx,
             knowledgeBrowserPath: '',
-            knowledgeBrowserResolvedRoot: root?.resolved || '',
+            knowledgeBrowserResolvedRoot: root?.resolved || derivedRoot || '',
             knowledgeBrowserListSource: listText,
             knowledgeBrowserListExtension: 'json',
             knowledgePreviewSource: '',
