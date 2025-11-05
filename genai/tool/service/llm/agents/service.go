@@ -2,7 +2,6 @@ package agents
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	statussvc "github.com/viant/agently/genai/service/toolstatus"
 	svc "github.com/viant/agently/genai/tool/service"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
+	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	"github.com/viant/agently/shared"
 )
 
@@ -161,37 +161,44 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		childConvID := ""
 		statusMsgID := ""
 
-		// Reuse existing child conversation for (parent, agent) when available; otherwise create & link once
+		// Reuse existing child conversation based on agent profile scope; otherwise create & link
 		if s.linker != nil && strings.TrimSpace(parent.ConversationID) != "" {
-			// Try find existing (per-turn reuse)
 			if s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
-				in := &agconv.ConversationInput{
-					AgentId:      ri.AgentID,
-					ParentId:     parent.ConversationID,
-					ParentTurnId: parent.TurnID,
-					// Disable default predicate that enforces parent_id='' visibility logic; we are explicitly filtering by parent.
-					DefaultPredicate: "1",
-					Has:              &agconv.ConversationInputHas{AgentId: true, ParentId: true, ParentTurnId: true, DefaultPredicate: true},
+				scope := "new"
+				if s.agent != nil && s.agent.Finder() != nil {
+					if ag, err := s.agent.Finder().Find(ctx, strings.TrimSpace(ri.AgentID)); err == nil && ag != nil && ag.Profile != nil {
+						v := strings.ToLower(strings.TrimSpace(ag.Profile.ConversationScope))
+						if v == "parent" || v == "parentturn" || v == "new" {
+							scope = v
+						}
+					}
 				}
-				fmt.Printf("agents.run: external reuse lookup agentId=%s parentConv=%s parentTurn=%s defaultPredicate=%s\n",
-					strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), in.DefaultPredicate)
-				if rows, err := s.conv.GetConversations(ctx, (*apiconv.Input)(in)); err == nil {
-					fmt.Printf("agents.run: external reuse result count=%d\n", len(rows))
-					if len(rows) > 0 && rows[0] != nil {
-						childConvID = rows[0].Id
-						fmt.Printf("agents.run: external reuse hit child=%s\n", childConvID)
+				if scope != "new" {
+					in := &agconv.ConversationInput{
+						AgentId:          ri.AgentID,
+						ParentId:         parent.ConversationID,
+						DefaultPredicate: "1",
+						Has:              &agconv.ConversationInputHas{AgentId: true, ParentId: true, DefaultPredicate: true},
+					}
+					if scope == "parentturn" {
+						in.ParentTurnId = parent.TurnID
+						in.Has.ParentTurnId = true
 					}
 				}
 			}
 			if strings.TrimSpace(childConvID) == "" {
-				fmt.Printf("agents.run: external create linked for agentId=%s parentConv=%s parentTurn=%s\n",
-					strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID))
 				if cid, err := s.linker.CreateLinkedConversation(ctx, parent, false, nil); err == nil {
 					childConvID = cid
+					// Set agent id on newly created conversation
+					if s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
+						upd := convw.Conversation{Has: &convw.ConversationHas{}}
+						upd.SetId(childConvID)
+						upd.SetAgentId(strings.TrimSpace(ri.AgentID))
+						_ = s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd))
+					}
 					// Include a compact objective preview in the link message for traceability.
 					preview := shared.RuneTruncate(strings.TrimSpace(ri.Objective), 512)
 					_ = s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec", preview)
-					fmt.Printf("agents.run: external linked child=%s\n", childConvID)
 				}
 			}
 			// Always record a status for this parent step
@@ -247,34 +254,42 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	childConvID := ""
 	statusMsgID := ""
 	if s.linker != nil && strings.TrimSpace(parent.ConversationID) != "" {
-		// Try find existing (per-turn reuse)
-		if s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
-			in := &agconv.ConversationInput{
-				AgentId:          ri.AgentID,
-				ParentId:         parent.ConversationID,
-				ParentTurnId:     parent.TurnID,
-				DefaultPredicate: "1",
-				Has:              &agconv.ConversationInputHas{AgentId: true, ParentId: true, ParentTurnId: true, DefaultPredicate: true},
-			}
-			fmt.Printf("agents.run: internal reuse lookup agentId=%s parentConv=%s parentTurn=%s defaultPredicate=%s\n",
-				strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), in.DefaultPredicate)
-			if rows, err := s.conv.GetConversations(ctx, (*apiconv.Input)(in)); err == nil {
-				fmt.Printf("agents.run: internal reuse result count=%d\n", len(rows))
-				if len(rows) > 0 && rows[0] != nil {
-					childConvID = rows[0].Id
-					fmt.Printf("agents.run: internal reuse hit child=%s\n", childConvID)
+		// Determine conversation scope from agent profile (default: new)
+		scope := "new"
+		if s.agent != nil && s.agent.Finder() != nil && strings.TrimSpace(ri.AgentID) != "" {
+			if ag, err := s.agent.Finder().Find(ctx, strings.TrimSpace(ri.AgentID)); err == nil && ag != nil && ag.Profile != nil {
+				v := strings.ToLower(strings.TrimSpace(ag.Profile.ConversationScope))
+				if v == "parent" || v == "parentturn" || v == "new" {
+					scope = v
 				}
 			}
 		}
+		// Reuse based on scope unless "new"
+		if scope != "new" && s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
+			input := &agconv.ConversationInput{
+				AgentId:          ri.AgentID,
+				ParentId:         parent.ConversationID,
+				DefaultPredicate: "1",
+				Has:              &agconv.ConversationInputHas{AgentId: true, ParentId: true, DefaultPredicate: true},
+			}
+			if scope == "parentturn" {
+				input.ParentTurnId = parent.TurnID
+				input.Has.ParentTurnId = true
+			}
+		}
 		if strings.TrimSpace(childConvID) == "" {
-			fmt.Printf("agents.run: internal create linked for agentId=%s parentConv=%s parentTurn=%s\n",
-				strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID))
 			if cid, err := s.linker.CreateLinkedConversation(ctx, parent, false, nil); err == nil {
 				childConvID = cid
+				// Populate agent id on the new conversation when available
+				if s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
+					upd := convw.Conversation{Has: &convw.ConversationHas{}}
+					upd.SetId(childConvID)
+					upd.SetAgentId(strings.TrimSpace(ri.AgentID))
+					_ = s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd))
+				}
 				// Add parent-side link message with objective preview
 				preview := shared.RuneTruncate(strings.TrimSpace(ri.Objective), 512)
 				_ = s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec", preview)
-				fmt.Printf("agents.run: internal linked child=%s\n", childConvID)
 			}
 		}
 		// Start status message

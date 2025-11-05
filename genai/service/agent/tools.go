@@ -42,6 +42,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 	if w, ok := s.registry.(interface{ ClearWarnings() }); ok {
 		w.ClearWarnings()
 	}
+	// debug logging removed
 	// Prefer explicit allow-list when provided (even if empty).
 	if qi.ToolsAllowed != nil {
 		if len(qi.ToolsAllowed) == 0 {

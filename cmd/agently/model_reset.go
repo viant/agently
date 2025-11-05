@@ -2,8 +2,6 @@ package agently
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/viant/agently/cmd/service"
 )
 
@@ -16,6 +14,5 @@ func (c *ModelResetCmd) Execute(_ []string) error {
 	if err := svc.ResetModel(context.Background(), c.Agent); err != nil {
 		return err
 	}
-	fmt.Printf("agent %s model reference cleared\n", c.Agent)
 	return nil
 }

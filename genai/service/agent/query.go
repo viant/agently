@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/viant/agently/client/conversation"
 	agentmdl "github.com/viant/agently/genai/agent"
@@ -14,6 +15,8 @@ import (
 
 // QueryInput represents the input for querying an agent's knowledge
 type QueryInput struct {
+	RequestTime time.Time `json:"requestTime,omitempty"`
+
 	// ConversationID is an optional identifier for the conversation session.
 	// If provided, conversation history will be tracked and reused.
 	ConversationID       string `json:"conversationId,omitempty"`

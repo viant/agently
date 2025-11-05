@@ -55,12 +55,18 @@ type Registry struct {
 	// cache: tool name → entry
 	cache map[string]*toolCacheEntry
 
+	// guards concurrent access to cache, warnings, and virtual maps
+	mu sync.RWMutex
+
 	warnings []string
 
 	// recentResults memoizes identical tool calls per conversation for a short TTL
 	recentMu      sync.Mutex
 	recentResults map[string]map[string]recentItem // convID -> key -> item
 	recentTTL     time.Duration
+
+	// background refresh configuration
+	refreshEvery time.Duration // successful refresh cadence
 }
 
 type toolCacheEntry struct {
@@ -91,6 +97,7 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		internalTimeout: map[string]time.Duration{},
 		recentResults:   map[string]map[string]recentItem{},
 		recentTTL:       5 * time.Second,
+		refreshEvery:    30 * time.Second,
 	}
 	// Register in-memory MCP clients for built-in services using Service.Name().
 	r.addInternalMcp()
@@ -107,6 +114,8 @@ func (r *Registry) WithManager(m *manager.Manager) *Registry { r.mgr = m; return
 // execution to another agent. It must be called once during bootstrap *after*
 // the agent catalogue is loaded. Domain can be empty to expose all.
 func (r *Registry) InjectVirtualAgentTools(agents []*agent.Agent, domain string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, ag := range agents {
 		if ag == nil {
 			continue
@@ -245,9 +254,11 @@ func contains(arr []string, s string) bool {
 func (r *Registry) Definitions() []llm.ToolDefinition {
 	var defs []llm.ToolDefinition
 	// Only virtual tools by default; server tools are matched on demand.
+	r.mu.RLock()
 	for _, def := range r.virtualDefs {
 		defs = append(defs, def)
 	}
+	r.mu.RUnlock()
 	// Aggregate discovered server tools across all configured MCP clients.
 	servers, err := r.listServers(context.Background())
 	if err != nil {
@@ -273,7 +284,9 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 				def.Name = disp
 				defs = append(defs, *def)
 				// cache for lookups with display name too
+				r.mu.Lock()
 				r.cache[disp] = &toolCacheEntry{def: *def, mcpDef: t}
+				r.mu.Unlock()
 			}
 		}
 	}
@@ -289,12 +302,14 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 		pattern = strings.TrimSpace(pattern[:i])
 	}
 	// Virtual first: support exact, wildcard, and service-only (no colon) patterns.
+	r.mu.RLock()
 	for id, def := range r.virtualDefs {
 		if tmatch.Match(pattern, id) {
 			copyDef := def
 			result = append(result, &copyDef)
 		}
 	}
+	r.mu.RUnlock()
 	// Discover matching server tools when pattern specifies an MCP service prefix.
 	if svc := serverFromPattern(pattern); svc != "" {
 		tools, err := r.listServerTools(context.Background(), svc)
@@ -307,9 +322,15 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 				def := llm.ToolDefinitionFromMcpTool(&t)
 				def.Name = full
 				result = append(result, def)
+				r.mu.Lock()
 				if _, ok := r.cache[def.Name]; !ok {
-					r.cache[def.Name] = &toolCacheEntry{def: *def, mcpDef: t}
+					entry := &toolCacheEntry{def: *def, mcpDef: t}
+					r.cache[def.Name] = entry
+					// also cache colon alias
+					colon := svc + ":" + t.Name
+					r.cache[colon] = entry
 				}
+				r.mu.Unlock()
 			}
 		}
 	}
@@ -317,14 +338,19 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 }
 
 func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
+	// debug logging removed
+	r.mu.RLock()
 	if def, ok := r.virtualDefs[name]; ok {
+		r.mu.RUnlock()
 		return &def, true
 	}
 	// cache hit?
 	if e, ok := r.cache[name]; ok {
 		def := e.def
+		r.mu.RUnlock()
 		return &def, true
 	}
+	r.mu.RUnlock()
 	svc := serverFromName(name)
 	if svc == "" {
 		return nil, false
@@ -334,11 +360,21 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 		r.warnf("list tools failed for %s: %v", svc, err)
 		return nil, false
 	}
+	// Compare by method part; add both aliases on hit
+	_, method := splitToolName(name)
 	for _, t := range tools {
-		if t.Name == name {
+		if strings.TrimSpace(t.Name) == strings.TrimSpace(method) {
 			tool := llm.ToolDefinitionFromMcpTool(&t)
 			if tool != nil {
-				r.cache[name] = &toolCacheEntry{def: *tool, mcpDef: t}
+				r.mu.Lock()
+				entry := &toolCacheEntry{def: *tool, mcpDef: t}
+				// cache both aliases and the exact name used
+				slash := svc + "/" + t.Name
+				colon := svc + ":" + t.Name
+				r.cache[slash] = entry
+				r.cache[colon] = entry
+				r.cache[name] = entry
+				r.mu.Unlock()
 			}
 			return tool, true
 		}
@@ -382,13 +418,16 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return r.applySelector(out, selector)
 	}
 	// cached executable?
+	r.mu.RLock()
 	if e, ok := r.cache[baseName]; ok && e.exec != nil {
+		r.mu.RUnlock()
 		out, err := e.exec(ctx, args)
 		if err != nil || selector == "" {
 			return out, err
 		}
 		return r.applySelector(out, selector)
 	}
+	r.mu.RUnlock()
 	// no debug logging
 
 	convID := memory.ConversationIDFromContext(ctx)
@@ -532,6 +571,7 @@ func (r *Registry) AddInternalService(s svc.Service) error {
 	if err != nil {
 		return err
 	}
+	r.mu.Lock()
 	if r.internal == nil {
 		r.internal = map[string]mcpclient.Interface{}
 	}
@@ -545,6 +585,7 @@ func (r *Registry) AddInternalService(s svc.Service) error {
 			r.internalTimeout[s.Name()] = d
 		}
 	}
+	r.mu.Unlock()
 	return nil
 }
 
@@ -588,33 +629,153 @@ func (r *Registry) Initialize(ctx context.Context) {
 		}
 		for _, t := range tools {
 			full := s + "/" + t.Name
-			if _, ok := r.cache[full]; ok {
+			r.mu.RLock()
+			_, ok := r.cache[full]
+			r.mu.RUnlock()
+			if ok {
 				continue
 			}
 			if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
 				def.Name = full
+				r.mu.Lock()
 				r.cache[full] = &toolCacheEntry{def: *def, mcpDef: t}
+				r.mu.Unlock()
 			}
+		}
+	}
+	// Start background refresh monitors to auto-register tools when servers come online
+	r.startAutoRefresh(ctx)
+
+}
+
+// startAutoRefresh launches a monitor per known server that periodically attempts
+// to refresh its tool list and update the cache when connectivity is restored.
+func (r *Registry) startAutoRefresh(ctx context.Context) {
+	servers, err := r.listServers(ctx)
+	if err != nil {
+		r.warnf("refresh: list servers failed: %v", err)
+		return
+	}
+	for _, s := range servers {
+		srv := s
+		go r.monitorServer(ctx, srv)
+	}
+}
+
+func (r *Registry) monitorServer(ctx context.Context, server string) {
+	// Exponential backoff on errors; steady cadence on success.
+	backoff := time.Second
+	maxBackoff := 60 * time.Second
+	jitter := time.Millisecond * 200
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		// Attempt refresh
+		if err := r.refreshServerTools(ctx, server); err != nil {
+			// wait with backoff + jitter
+			d := backoff
+			if d < time.Second {
+				d = time.Second
+			}
+			if d > maxBackoff {
+				d = maxBackoff
+			}
+			// add small jitter
+			d += time.Duration(time.Now().UnixNano() % int64(jitter))
+			timer := time.NewTimer(d)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			// increase backoff up to cap
+			if backoff < maxBackoff {
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
+			continue
+		}
+		// success: reset backoff and wait for steady refresh interval
+		backoff = time.Second
+		interval := r.refreshEvery
+		if interval <= 0 {
+			interval = 30 * time.Second
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
 		}
 	}
 }
 
+// refreshServerTools lists tools for a server and atomically replaces its cache entries.
+func (r *Registry) refreshServerTools(ctx context.Context, server string) error {
+	tools, err := r.listServerTools(ctx, server)
+	if err != nil {
+		return err
+	}
+	r.replaceServerTools(server, tools)
+	return nil
+}
+
+// replaceServerTools atomically replaces cache entries for a given server.
+func (r *Registry) replaceServerTools(server string, tools []mcpschema.Tool) {
+	// Build new map for server
+	newEntries := make(map[string]*toolCacheEntry, len(tools)*2)
+	for _, t := range tools {
+		full := server + "/" + t.Name
+		if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
+			def.Name = full
+			entry := &toolCacheEntry{def: *def, mcpDef: t}
+			newEntries[full] = entry
+			// also colon alias
+			colon := server + ":" + t.Name
+			newEntries[colon] = entry
+		}
+	}
+	// Swap entries under lock: remove old for server, then add new
+	r.mu.Lock()
+	for k := range r.cache {
+		if serverFromName(k) == server {
+			delete(r.cache, k)
+		}
+	}
+	for k, v := range newEntries {
+		r.cache[k] = v
+	}
+	r.mu.Unlock()
+}
+
 func (r *Registry) warnf(format string, args ...interface{}) {
+	r.mu.Lock()
 	r.warnings = append(r.warnings, fmt.Sprintf(format, args...))
+	r.mu.Unlock()
 }
 
 // LastWarnings returns any accumulated non-fatal warnings and does not clear them.
 func (r *Registry) LastWarnings() []string {
+	r.mu.RLock()
 	if len(r.warnings) == 0 {
+		r.mu.RUnlock()
 		return nil
 	}
 	out := make([]string, len(r.warnings))
 	copy(out, r.warnings)
+	r.mu.RUnlock()
 	return out
 }
 
 // ClearWarnings clears accumulated warnings.
-func (r *Registry) ClearWarnings() { r.warnings = nil }
+func (r *Registry) ClearWarnings() { r.mu.Lock(); r.warnings = nil; r.mu.Unlock() }
 
 // ---------------------- helpers ----------------------
 
@@ -766,6 +927,8 @@ func (r *Registry) addInternalMcp() {
 
 // injectOrchestratorVirtualTool registers the orchestration entry point as a virtual tool.
 func (r *Registry) injectOrchestratorVirtualTool() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	def := llm.ToolDefinition{
 		Name:        "llm/exec:run_agent",
 		Description: "Run an agent by id with a given objective",

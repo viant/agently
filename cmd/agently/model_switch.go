@@ -2,8 +2,6 @@ package agently
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/viant/agently/cmd/service"
 )
 
@@ -17,6 +15,5 @@ func (c *ModelSwitchCmd) Execute(_ []string) error {
 	if err := svc.SwitchModel(context.Background(), c.Agent, c.Model); err != nil {
 		return err
 	}
-	fmt.Printf("agent %s model switched to %s\n", c.Agent, c.Model)
 	return nil
 }

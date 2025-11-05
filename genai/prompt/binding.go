@@ -53,7 +53,8 @@ type (
 	}
 
 	History struct {
-		Messages []*Message `yaml:"messages,omitempty" json:"messages,omitempty"`
+		Messages        []*Message `yaml:"messages,omitempty" json:"messages,omitempty"`
+		UserElicitation []*Message `yaml:"userElicitation" json:"userElicitation"`
 	}
 
 	Task struct {

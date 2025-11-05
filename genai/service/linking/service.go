@@ -11,7 +11,6 @@ import (
 	"github.com/viant/agently/genai/service/shared"
 	authctx "github.com/viant/agently/internal/auth"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
-	shared2 "github.com/viant/agently/shared"
 )
 
 // Service encapsulates helpers to create child conversations linked to a parent
@@ -44,12 +43,9 @@ func (s *Service) CreateLinkedConversation(ctx context.Context, parent memory.Tu
 	if strings.TrimSpace(parent.TurnID) != "" {
 		w.SetConversationParentTurnId(parent.TurnID)
 	}
-	fmt.Printf("linking: create child conversation start parentConv=%s parentTurn=%s child=%s cloneTranscript=%v\n",
-		strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), childID, cloneTranscript)
 	if err := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&w)); err != nil {
 		return "", fmt.Errorf("linking: create conversation failed: %w", err)
 	}
-	fmt.Printf("linking: child conversation created child=%s\n", childID)
 	if cloneTranscript && transcript != nil {
 		// Clone messages (excluding chain-mode) as a single synthetic turn
 		if err := s.cloneMessages(ctx, transcript, childID); err != nil {
@@ -86,10 +82,6 @@ func (s *Service) AddLinkMessage(ctx context.Context, parent memory.TurnMeta, ch
 	if err != nil {
 		return fmt.Errorf("linking: add link message failed: %w", err)
 	}
-	preview := shared2.RuneTruncate(strings.TrimSpace(content), 200)
-	fmt.Printf("linking: link message added parentConv=%s parentTurn=%s child=%s role=%s actor=%s mode=%s contentPreview=%q\n",
-		strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childConversationID),
-		strings.TrimSpace(role), strings.TrimSpace(actor), strings.TrimSpace(mode), preview)
 	return nil
 }
 
@@ -136,6 +128,5 @@ func (s *Service) cloneMessages(ctx context.Context, transcript apiconv.Transcri
 		}
 		cloned++
 	}
-	fmt.Printf("linking: transcript cloned messages=%d to child=%s\n", cloned, conversationID)
 	return nil
 }

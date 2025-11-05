@@ -281,6 +281,15 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			encode(w, http.StatusNotFound, nil, fmt.Errorf("repository not found"))
 			return
 		}
+		// Proactive not-found guard for missing agent file
+		var debugRepoFilename string
+		{
+			debugRepoFilename = h.svc.AgentRepo().Filename(name)
+			if ok, _ := afs.New().Exists(ctx, debugRepoFilename); !ok {
+				encode(w, http.StatusNotFound, nil, fmt.Errorf("agent definition not found for '%s' at %s. Ensure $AGENTLY_WORKSPACE is set correctly and the file exists (agents/%s.yaml or agents/%s/%s.yaml)", name, debugRepoFilename, name, name, name))
+				return
+			}
+		}
 		// Load authored agent YAML and unmarshal to typed struct
 		raw, err := repo.GetRaw(ctx, name)
 		if err != nil {

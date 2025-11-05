@@ -25,6 +25,7 @@ type AgentAuthoringMeta struct {
 	Capabilities  CapabilitiesMeta   `json:"capabilities"`
 	ContextInputs *ContextInputsMeta `json:"contextInputs,omitempty"`
 	A2A           *A2AMeta           `json:"a2a,omitempty"`
+	Assets        []AssetMeta        `json:"assets,omitempty"`
 }
 
 type SourceMeta struct {
@@ -64,6 +65,13 @@ type CapabilitiesMeta struct {
 	SupportsChains            bool `json:"supportsChains"`
 	SupportsParallelToolCalls bool `json:"supportsParallelToolCalls"`
 	SupportsAttachments       bool `json:"supportsAttachments"`
+}
+
+// AssetMeta represents a non‑YAML asset under the agent folder.
+type AssetMeta struct {
+	Path string `json:"path"`
+	Type string `json:"type"` // file|dir
+	Size int64  `json:"size,omitempty"`
 }
 
 // ContextInputsMeta surfaces authored elicitation (aux inputs) with
@@ -212,6 +220,40 @@ func buildAgentEditView(ctx context.Context, ag *agentmdl.Agent, repoFilename st
 		SupportsAttachments:       ag.Attachment != nil,
 	}
 
+	// Collect non‑YAML assets under the agent base directory
+	var assets []AssetMeta
+	{
+		files := make([]string, 0, 32)
+		_ = listNonYAML(ctx, fs, baseDir, &files)
+		// Track directories that contain at least one non‑YAML file
+		dirSet := map[string]struct{}{}
+		for _, p := range files {
+			d := filepath.Dir(p)
+			for d != "" && d != baseDir && d != "." && d != string(filepath.Separator) {
+				dirSet[d] = struct{}{}
+				nd := filepath.Dir(d)
+				if nd == d {
+					break
+				}
+				d = nd
+			}
+		}
+		for d := range dirSet {
+			if rel, err := filepath.Rel(baseDir, d); err == nil && rel != "." && rel != "" {
+				assets = append(assets, AssetMeta{Path: filepath.ToSlash(rel), Type: "dir"})
+			}
+		}
+		for _, p := range files {
+			if rel, err := filepath.Rel(baseDir, p); err == nil && rel != "." && rel != "" {
+				var sz int64
+				if obj, err := fs.Object(ctx, p); err == nil && obj != nil {
+					sz = obj.Size()
+				}
+				assets = append(assets, AssetMeta{Path: filepath.ToSlash(rel), Type: "file", Size: sz})
+			}
+		}
+	}
+
 	return &AgentEditView{
 		Agent: ag,
 		Meta: &AgentAuthoringMeta{
@@ -221,8 +263,36 @@ func buildAgentEditView(ctx context.Context, ag *agentmdl.Agent, repoFilename st
 			Capabilities:  caps,
 			ContextInputs: buildContextInputsMeta(ag),
 			A2A:           buildA2AMeta(ag),
+			Assets:        assets,
 		},
 	}
+}
+
+// listNonYAML recursively collects non‑YAML files under root path.
+func listNonYAML(ctx context.Context, fs afs.Service, root string, out *[]string) error {
+	entries, err := fs.List(ctx, root)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		name := e.Name()
+		// Normalize to OS path for extension checks
+		osPath := name
+		if sch := afsurl.Scheme(name, ""); sch != "" {
+			osPath = afsurl.Path(name)
+		}
+		if e.IsDir() {
+			// recurse into subdir
+			_ = listNonYAML(ctx, fs, name, out)
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(osPath))
+		if ext == ".yaml" || ext == ".yml" {
+			continue
+		}
+		*out = append(*out, name)
+	}
+	return nil
 }
 
 // buildContextInputsMeta derives a UI-friendly view of agent.ContextInputs.
