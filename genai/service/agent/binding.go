@@ -773,12 +773,8 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 
 		toolCalls := t.ToolCalls()
 		if len(toolCalls) > s.defaults.ToolCallMaxResults && s.defaults.ToolCallMaxResults > 0 {
-
-			fmt.Println("ToolCallMaxResults !!!\n")
-			//	toolCalls = toolCalls[len(toolCalls)-s.defaults.ToolCallMaxResults:]
+			toolCalls = toolCalls[len(toolCalls)-s.defaults.ToolCallMaxResults:]
 		}
-		fmt.Printf("toolCalls: %v\n", len(toolCalls))
-
 		for i, m := range toolCalls {
 			args := m.ToolCallArguments()
 
