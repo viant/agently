@@ -9,6 +9,8 @@ import (
 	sqlitesvc "github.com/viant/agently/internal/service/sqlite"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
+	"github.com/viant/scy"
+	"github.com/viant/scy/cred"
 )
 
 // NewDatly constructs a datly.Service and wires the optional SQL connector
@@ -26,6 +28,8 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 
 		driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
 		dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
+		secrets := strings.TrimSpace(os.Getenv("AGENTLY_DB_SECRETS"))
+
 		if dsn == "" {
 			// Fallback to local SQLite under $AGENTLY_WORKSPACE/db/agently.db
 			root := strings.TrimSpace(os.Getenv("AGENTLY_WORKSPACE"))
@@ -37,8 +41,11 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 			}
 			driver = "sqlite"
 		}
-
-		if err := svc.AddConnectors(ctx, view.NewConnector("agently", driver, dsn)); err != nil {
+		conn := view.NewConnector("agently", driver, dsn)
+		if secrets != "" {
+			conn.Secret = scy.EncodedResource(secrets).Decode(ctx, &cred.Basic{})
+		}
+		if err := svc.AddConnectors(ctx, conn); err != nil {
 			initErr = err
 			return
 		}
