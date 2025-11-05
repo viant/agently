@@ -38,17 +38,34 @@ import { registerEventAdapter } from 'forge/runtime/binding';
             { awaitResult: true },    // options object recognised by runtime
         ];
         try {
-           await window.openDialog({ execution: { args: execArgs } });
-            const fsContext = context.Context('fs')
-            const selection = fsContext.handlers.dataSource.getSelection()
-            const {selected} = selection
-            if (selected) {
-                const newVal =
-                    typeof selected === 'string'
-                        ? selected
-                        : selected.id || selected.name || '';
-                if (newVal) onChange?.(newVal);
+           const result = await window.openDialog({ execution: { args: execArgs } });
+
+            // Prefer explicit dialog result when provided
+            const deriveValue = (item) => {
+                if (!item) return '';
+                if (typeof item === 'string') return item;
+                // Prefer URI/URL style fields returned by file-browser
+                return (
+                    item.uri ||
+                    item.url ||
+                    item.path ||
+                    item.id ||
+                    item.name ||
+                    ''
+                );
+            };
+
+            let picked = deriveValue(result);
+
+            // Fallback to fs DS selection if dialog didn't return a value
+            if (!picked) {
+                const fsContext = context.Context('fs');
+                const selection = fsContext?.handlers?.dataSource?.getSelection?.();
+                const selected = selection?.selected ?? selection;
+                picked = deriveValue(selected);
             }
+
+            if (picked) onChange?.(picked);
         } catch (e) {
             /* eslint-disable-next-line no-console */
             log.error('file widget – dialog failed', e);

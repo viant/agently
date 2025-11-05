@@ -690,16 +690,20 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 		if v.IsArchived() || v.IsInterim() {
 			return false
 		}
-		if requestTime.Before(v.CreatedAt) && v.Content != nil {
-			out.UserElicitation = append(out.UserElicitation, &prompt.Message{Role: v.Role, Content: *v.Content})
-			return false
-		}
 
 		if strings.ToLower(strings.TrimSpace(v.Type)) != "text" {
 			return false
 		}
 		role := strings.ToLower(strings.TrimSpace(v.Role))
-		return role == "user" || role == "assistant"
+
+		if role == "user" || role == "assistant" {
+			if requestTime.Before(v.CreatedAt) && v.Content != nil {
+				out.UserElicitation = append(out.UserElicitation, &prompt.Message{Role: v.Role, Content: *v.Content})
+				return false
+			}
+			return true
+		}
+		return false
 	})
 
 	overflow := false

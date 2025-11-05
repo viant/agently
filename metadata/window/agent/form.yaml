@@ -304,14 +304,14 @@
           dataSourceRef: agentKnowledge
           table: $import('table/knowledge.yaml')
           on:
-            - event: onSelection
+            - event: onRowSelect
               handler: agent.browseKnowledge
         - id: sysKnowledge
           title: System Knowledge
           dataSourceRef: agentSystemKnowledge
           table: $import('table/knowledge.yaml')
           on:
-            - event: onSelection
+            - event: onRowSelect
               handler: agent.browseKnowledge
     # Bottom: browser controls and split editors
     - id: knowledgeBottom
