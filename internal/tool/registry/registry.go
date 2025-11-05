@@ -253,22 +253,45 @@ func contains(arr []string, s string) bool {
 
 func (r *Registry) Definitions() []llm.ToolDefinition {
 	var defs []llm.ToolDefinition
-	// Only virtual tools by default; server tools are matched on demand.
+	// Always include virtual tools.
 	r.mu.RLock()
 	for _, def := range r.virtualDefs {
 		defs = append(defs, def)
 	}
 	r.mu.RUnlock()
-	// Aggregate discovered server tools across all configured MCP clients.
+
+	// Build a set of entries we've already included to avoid duplicates.
+	seen := map[string]struct{}{}
+
+	// Include any cached MCP tools so they remain visible even if servers are offline.
+	r.mu.RLock()
+	for _, e := range r.cache {
+		// Display using service:method for consistency
+		svc, method := splitToolName(e.def.Name)
+		if svc == "" || method == "" {
+			continue
+		}
+		disp := svc + ":" + method
+		if _, ok := seen[disp]; ok {
+			continue
+		}
+		def := e.def
+		def.Name = disp
+		defs = append(defs, def)
+		seen[disp] = struct{}{}
+	}
+	r.mu.RUnlock()
+
+	// Try to aggregate current server tools; merge with cache, but never remove on failure.
 	servers, err := r.listServers(context.Background())
 	if err != nil {
 		r.warnf("tools: list servers failed: %v", err)
 		return defs
 	}
-	seen := map[string]struct{}{}
 	for _, s := range servers {
 		tools, err := r.listServerTools(context.Background(), s)
 		if err != nil {
+			// Keep cached entries; just warn on failure.
 			r.warnf("tools: list %s failed: %v", s, err)
 			continue
 		}
@@ -277,13 +300,11 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 			if _, ok := seen[disp]; ok {
 				continue
 			}
-			seen[disp] = struct{}{}
 			if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
-				// For display, prefer service:method; for internal cache, we still
-				// track full internal name elsewhere (match/execute paths).
 				def.Name = disp
 				defs = append(defs, *def)
-				// cache for lookups with display name too
+				seen[disp] = struct{}{}
+				// Update cache for lookup by display name
 				r.mu.Lock()
 				r.cache[disp] = &toolCacheEntry{def: *def, mcpDef: t}
 				r.mu.Unlock()
@@ -741,6 +762,11 @@ func (r *Registry) replaceServerTools(server string, tools []mcpschema.Tool) {
 			colon := server + ":" + t.Name
 			newEntries[colon] = entry
 		}
+	}
+	// If refresh returns no tools, retain previous cache for this server.
+	if len(newEntries) == 0 {
+		r.warnf("refresh: %s returned no tools; retaining previous cache", server)
+		return
 	}
 	// Swap entries under lock: remove old for server, then add new
 	r.mu.Lock()
