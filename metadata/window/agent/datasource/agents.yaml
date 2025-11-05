@@ -15,3 +15,6 @@ selectors:
 uniqueKey:
   - field: name
 
+on:
+  - event: onSelection
+    handler: agent.loadAgentEdit

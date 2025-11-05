@@ -12,6 +12,3 @@ columns:
 
 toolbar: $import('toolbar/agents.yaml')
 
-on:
-  - event: onRowSelect
-    handler: agent.loadAgentEdit
