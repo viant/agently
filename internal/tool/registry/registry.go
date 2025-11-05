@@ -498,14 +498,39 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		r.recentMu.Unlock()
 	}
 
-	// Use proxy to normalize tool name and execute
+	// Use proxy to normalize tool name and execute with reconnect-aware retry.
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
-	res, err := px.CallTool(ctx, baseName, args, options...)
-	if err != nil {
+	const maxAttempts = 3 // initial + 2 retries
+	var res *mcpschema.CallToolResult
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		res, err = px.CallTool(ctx, baseName, args, options...)
+		if err == nil {
+			if res.IsError != nil && *res.IsError {
+				terr := toolError(res)
+				if r.mgr != nil && isReconnectableError(terr) && attempt < maxAttempts-1 {
+					// reconnect and retry
+					if _, rerr := r.mgr.Reconnect(ctx, convID, server); rerr == nil {
+						if ncli, gerr := r.mgr.Get(ctx, convID, server); gerr == nil {
+							px, _ = mcpproxy.NewProxy(ctx, server, ncli)
+							continue
+						}
+					}
+				}
+				return "", terr
+			}
+			break
+		}
+		// Transport/client-level error
+		if r.mgr != nil && isReconnectableError(err) && attempt < maxAttempts-1 {
+			if _, rerr := r.mgr.Reconnect(ctx, convID, server); rerr == nil {
+				if ncli, gerr := r.mgr.Get(ctx, convID, server); gerr == nil {
+					px, _ = mcpproxy.NewProxy(ctx, server, ncli)
+					continue
+				}
+			}
+		}
+		// Non-reconnectable or reconnect failed
 		return "", err
-	}
-	if res.IsError != nil && *res.IsError {
-		return "", toolError(res)
 	}
 	// Compose textual result prioritising structured → json/text → first content
 	if res.StructuredContent != nil {
@@ -911,6 +936,31 @@ func toolError(res *mcpschema.CallToolResult) error {
 	return errors.New(string(raw))
 }
 
+// isReconnectableError heuristically classifies transport/stream errors that
+// are likely to be resolved by reconnecting the MCP client and retrying.
+func isReconnectableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "stream error"),
+		strings.Contains(msg, "internal_error; received from peer"),
+		strings.Contains(msg, "rst_stream"),
+		strings.Contains(msg, "goaway"),
+		strings.Contains(msg, "http2"),
+		strings.Contains(msg, "trip not found"),
+		strings.Contains(msg, "connection reset"),
+		strings.Contains(msg, "broken pipe"),
+		strings.Contains(msg, "eof"),
+		strings.Contains(msg, "failed to parse response: trip not found"),
+		strings.Contains(msg, "server closed idle connection"),
+		strings.Contains(msg, "no cached connection"):
+		return true
+	}
+	return false
+}
+
 // addInternalMcp registers built-in services as in-memory MCP clients.
 func (r *Registry) addInternalMcp() {
 	// system/exec
@@ -949,6 +999,7 @@ func (r *Registry) addInternalMcp() {
 			r.warnf("internal mcp for %s failed: %v", s.Name(), err)
 		}
 	}
+
 }
 
 // injectOrchestratorVirtualTool registers the orchestration entry point as a virtual tool.
