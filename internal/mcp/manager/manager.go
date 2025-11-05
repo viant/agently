@@ -233,6 +233,25 @@ func (m *Manager) Reap() {
 	m.mu.Unlock()
 }
 
+// Reconnect drops the cached client for (convID, serverName) and creates a new one.
+// It returns the fresh client or an error if recreation fails.
+func (m *Manager) Reconnect(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
+	if m == nil {
+		return nil, errors.New("mcp manager: nil manager")
+	}
+	// Drop existing entry to force re-creation
+	m.mu.Lock()
+	if m.pool[convID] != nil {
+		delete(m.pool[convID], serverName)
+		if len(m.pool[convID]) == 0 {
+			delete(m.pool, convID)
+		}
+	}
+	m.mu.Unlock()
+	// Recreate
+	return m.Get(ctx, convID, serverName)
+}
+
 // StartReaper launches a background goroutine that periodically invokes Reap
 // until the provided context is cancelled or the returned stop function is
 // called. If interval is non-positive, ttl/2 is used with a minimum of 1 minute.
