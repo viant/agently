@@ -94,11 +94,7 @@ export async function loadAgentEdit({ context }) {
         const name = sel?.selected?.id || sel?.selected?.name;
         if (!name) return false;
 
-        const base = (
-            context?.endpoints?.agentlyAPI?.baseURL ||
-            agentsCtx?.connector?.baseURL ||
-            'http://localhost:8081/'
-        ).replace(/\/+$/, '');
+        const base = resolveAPIBase(context, agentsCtx);
         const url = `${base}/v1/workspace/agent/${encodeURIComponent(name)}/edit`;
 
         console.log('[agent.loadAgentEdit] GET', url);
@@ -194,11 +190,7 @@ export async function previewPrompts({ context }) {
         };
         const absUser = buildAbs(promptURI);
         const absSys = buildAbs(systemURI);
-        const apiBase = (
-            context?.endpoints?.agentlyAPI?.baseURL ||
-            agentsCtx?.connector?.baseURL ||
-            'http://localhost:8081/'
-        ).replace(/\/+$/, '');
+        const apiBase = resolveAPIBase(context, agentsCtx);
         console.log('[agent.previewPrompts] absUser, absSys, apiBase', absUser, absSys, apiBase);
         const dl = async (uri) => {
             if (!uri) return '';
@@ -301,7 +293,8 @@ export async function browseKnowledge({ context }) {
         const editMeta = form?.editMeta || {};
         const roots = (editMeta?.knowledge?.roots || []).filter(r => r.scope === scope);
         const root = roots[idx] || null;
-        const url = `/v1/workspace/agent/${encodeURIComponent(agentName)}/knowledge?scope=${encodeURIComponent(scope)}&idx=${encodeURIComponent(idx)}`;
+        const base = resolveAPIBase(context, agentsCtx);
+        const url = `${base}/v1/workspace/agent/${encodeURIComponent(agentName)}/knowledge?scope=${encodeURIComponent(scope)}&idx=${encodeURIComponent(idx)}`;
         console.log('[agent.browseKnowledge] GET', url, 'root:', root);
         const resp = await fetch(url, { method: 'GET', credentials: 'include' });
         const payload = await resp.json().catch(() => ({}));
@@ -337,7 +330,7 @@ export async function refreshKnowledgeBrowser({ context }) {
         const idx = form?.knowledgeBrowserIndex || 0;
         const subPath = (form?.knowledgeBrowserPath || '').toString().trim();
         const resolvedRoot = (form?.knowledgeBrowserResolvedRoot || '').toString();
-        const base = '';
+        const apiBase = resolveAPIBase(context, agentsCtx);
 
         const joinPath = (a, b) => a.replace(/\/+$/, '') + '/' + b.replace(/^\/+/, '');
         const buildFileURI = (root, rel) => {
@@ -351,7 +344,7 @@ export async function refreshKnowledgeBrowser({ context }) {
         if (subPath === '' || /\/$/.test(subPath)) {
             const params = new URLSearchParams({ scope, idx: String(idx) });
             if (subPath) params.set('path', subPath);
-            const url = `/v1/workspace/agent/${encodeURIComponent(agentName)}/knowledge?${params.toString()}`;
+            const url = `${apiBase}/v1/workspace/agent/${encodeURIComponent(agentName)}/knowledge?${params.toString()}`;
             console.log('[agent.refreshKnowledgeBrowser] LIST GET', url);
             const resp = await fetch(url, { method: 'GET', credentials: 'include' });
             const payload = await resp.json().catch(() => ({}));
@@ -362,7 +355,7 @@ export async function refreshKnowledgeBrowser({ context }) {
             return true;
         } else {
             const fileURI = buildFileURI(resolvedRoot, subPath);
-            const url = `/v1/workspace/file-browser/download?uri=${encodeURIComponent(fileURI)}`;
+            const url = `${apiBase}/v1/workspace/file-browser/download?uri=${encodeURIComponent(fileURI)}`;
             console.log('[agent.refreshKnowledgeBrowser] DOWNLOAD GET', url);
             const resp = await fetch(url, { method: 'GET', credentials: 'include' });
             const text = await resp.text();
@@ -423,11 +416,7 @@ export async function openKnowledgeDialog({ context }) {
             if (!/^([a-z]+):\/\//i.test(p)) return 'file://' + p;
             return p;
         };
-        const apiBase = (
-            context?.endpoints?.agentlyAPI?.baseURL ||
-            agentsCtx?.connector?.baseURL ||
-            'http://localhost:8081/'
-        ).replace(/\/+$/, '');
+        const apiBase = resolveAPIBase(context, agentsCtx);
         const fileURI = buildFileURI(resolvedRoot, subPath);
         const url = `${apiBase}/v1/workspace/file-browser/download?uri=${encodeURIComponent(fileURI)}`;
         const resp = await fetch(url, { method: 'GET', credentials: 'include' });
