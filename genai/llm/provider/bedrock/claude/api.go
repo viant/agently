@@ -141,14 +141,14 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	// Send the request to Bedrock
 	var resp *bedrockruntime.InvokeModelOutput
 	var invokeErr error
-	for i := 0; i < max(1, c.MaxRetries); i++ {
-		resp, invokeErr = c.BedrockClient.InvokeModel(ctx, invokeRequest)
-		if invokeErr == nil {
-			break
-		}
-	}
 
+	resp, invokeErr = c.BedrockClient.InvokeModel(ctx, invokeRequest)
 	if invokeErr != nil {
+		// Ensure model-call is finalized for cancellation/error cases
+		if observer != nil {
+			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", CompletedAt: time.Now(), Err: invokeErr.Error()})
+		}
+
 		return nil, fmt.Errorf("failed to invoke Bedrock model: %w", invokeErr)
 	}
 
@@ -251,18 +251,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	}
 	output, err := c.BedrockClient.InvokeModelWithResponseStream(ctx, input)
 	if err != nil {
-		// Graceful fallback: return a channel that emits a single non-streaming result
-		ch := make(chan llm.StreamEvent, 1)
-		go func() {
-			defer close(ch)
-			resp, gerr := c.Generate(ctx, request)
-			if gerr != nil {
-				ch <- llm.StreamEvent{Err: fmt.Errorf("stream not supported, generate failed: %w", gerr)}
-				return
-			}
-			ch <- llm.StreamEvent{Response: resp}
-		}()
-		return ch, nil
+		if observer != nil {
+			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", CompletedAt: time.Now(), Err: err.Error()})
+		}
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
 	events := make(chan llm.StreamEvent)
@@ -481,12 +473,4 @@ func (c *Client) loadAwsConfig(ctx context.Context) (*aws.Config, error) {
 		awsConfig = &defaultConfig
 	}
 	return awsConfig, nil
-}
-
-// max returns the maximum of two integers
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
