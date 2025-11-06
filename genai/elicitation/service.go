@@ -165,9 +165,11 @@ func (s *Service) Elicit(ctx context.Context, turn *memory.TurnMeta, role string
 			return "", "", nil, fmt.Errorf("failed to root record message: %w", err)
 		}
 
+		// should be (simpler but the same) msg.SetParentMessageID(rootConversationMessage.Id)
+		// 	_ = s.client.PatchMessage(ctx, cloneMsg)
 		cloneMsg := apiconv.NewMessage()
 		cloneMsg.SetId(msg.Id)
-		cloneMsg.SetParentMessageID(rootConversationMessage.Id)
+		cloneMsg.SetParentMessageID(rootConversationMessage.Id) //parent id will not exist after paranet_id msg removal in UpdateStatus
 		_ = s.client.PatchMessage(ctx, cloneMsg)
 	}
 
@@ -206,9 +208,11 @@ func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, actio
 	if err := s.client.PatchMessage(ctx, upd); err != nil {
 		return err
 	}
-	// No logging: bubble state via persistence and router only.
-	if msg.ParentMessageId != nil {
-		if dep, err := s.client.GetMessage(ctx, *msg.ParentMessageId); err == nil && dep != nil {
+
+	// delete duplicate elicitation msg in root conversation if any (current conversation is a child)
+	root := s.getRootConversation(ctx, convID)
+	if root != nil && strings.TrimSpace(root.Id) != "" && root.Id != convID && msg.ParentMessageId != nil {
+		if dep, err := s.client.GetMessage(ctx, *msg.ParentMessageId); err == nil && dep != nil && dep.ConversationId == root.Id /* double check */ {
 			return s.client.DeleteMessage(ctx, dep.ConversationId, dep.Id)
 		}
 	}
