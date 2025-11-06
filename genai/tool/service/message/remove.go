@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/shared"
@@ -68,6 +69,15 @@ func (s *Service) remove(ctx context.Context, in, out interface{}) error {
 	var created []string
 	archived := 0
 	for _, tup := range input.Tuples {
+		// validation before making any changes, llm can send invalid IDs (even source of them is valid)
+		for _, id := range tup.MessageIds {
+			id = strings.TrimSpace(id)
+			_, err := uuid.Parse(id)
+			if err != nil {
+				return fmt.Errorf("invalid message ID in remove tuple: %v", id)
+			}
+		}
+
 		sum := strings.TrimSpace(tup.Summary)
 		if sum != "" {
 			role := strings.TrimSpace(tup.Role)

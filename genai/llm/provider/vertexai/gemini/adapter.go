@@ -162,6 +162,7 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		}
 	}
 
+	wasSystemMsg := false
 	for _, msg := range request.Messages {
 
 		// Map roles from llms to Gemini
@@ -179,16 +180,19 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 			role = string(msg.Role)
 		}
 
-		content := Content{
-			Role:  role,
-			Parts: []Part{},
-		}
-
 		// Special handling for system messages: send via top-level systemInstruction
 		if msg.Role == llm.RoleSystem {
+			if !wasSystemMsg {
+				req.SystemInstruction = &SystemInstruction{
+					Role:  "system",
+					Parts: []Part{},
+				}
+				wasSystemMsg = true
+			}
+
 			// If caller provided explicit parts, use them, otherwise wrap msg.Content
 			if len(msg.Items) == 0 {
-				content.Parts = append(content.Parts, Part{Text: msg.Content})
+				req.SystemInstruction.Parts = append(req.SystemInstruction.Parts, Part{Text: msg.Content})
 			} else {
 				for _, item := range msg.Items {
 					if item.Type == llm.ContentTypeText {
@@ -196,17 +200,16 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 						if text == "" {
 							text = item.Text
 						}
-						content.Parts = append(content.Parts, Part{Text: text})
+						req.SystemInstruction.Parts = append(req.SystemInstruction.Parts, Part{Text: text})
 					}
 				}
 			}
-
-			req.SystemInstruction = &SystemInstruction{
-				Role:  "system",
-				Parts: content.Parts,
-			}
-			// do not append to contents; continue to next message
 			continue
+		}
+
+		content := Content{
+			Role:  role,
+			Parts: []Part{},
 		}
 
 		// Handle assistant tool calls and tool results before regular content
@@ -496,14 +499,6 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 					Arguments: msg.FunctionCall.Arguments,
 				},
 			})
-		}
-
-		if role == string(llm.RoleSystem) {
-			req.SystemInstruction = &SystemInstruction{
-				Role:  role,
-				Parts: content.Parts,
-			}
-			continue
 		}
 
 		// Add content to request
