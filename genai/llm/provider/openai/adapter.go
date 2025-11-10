@@ -140,6 +140,11 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	}
 	ToolCallIdToReplaceContent := map[string]struct{}{}
 
+	// Continue previous Responses API call when requested
+	if request != nil && strings.TrimSpace(request.PreviousResponseID) != "" {
+		req.PreviousResponseID = strings.TrimSpace(request.PreviousResponseID)
+	}
+
 	// Convert messages
 	req.Messages = make([]Message, 0) //len(request.Messages))
 	for _, originalMsg := range request.Messages {

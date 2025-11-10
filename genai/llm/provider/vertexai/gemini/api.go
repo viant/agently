@@ -27,6 +27,8 @@ func (c *Client) Implements(feature string) bool {
 		return c.canStream()
 	case base.IsMultimodal:
 		return true
+	case base.SupportsContinuationByResponseID:
+		return false
 	}
 	return false
 }

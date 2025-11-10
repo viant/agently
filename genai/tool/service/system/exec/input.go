@@ -8,12 +8,12 @@ import (
 
 // Input represents system executor configuration
 type Input struct {
-	Host         *sys.Host         `json:"host,omitempty" description:"host to execute command on"  internal:"true" `        //host to execute command on
-	Workdir      string            `json:"workdir,omitempty"  description:"directory where file system command start"`       //directory where command should run  - if does not exists there is no exception
-	Env          map[string]string `json:"env,omitempty" description:"environment variables to be set before command runs" ` //environment variables to be set before command runs
-	Commands     []string          `json:"commands,omitempty" description:"commands to execute on the target system"`        //commands to run
-	TimeoutMs    int               `json:"timeoutMs,omitempty" yaml:"timeoutMs,omitempty" description:"max wiat time before timing out command"`
-	AbortOnError *bool             `json:"abortOnError,omitempty" description:"check after command execution if status is <> 0, then throws error" ` //whether to abort on error
+	Host         *sys.Host         `json:"host,omitempty" internal:"true" description:"Target host. Use bash://localhost/ (default) or ssh://user@host:22."`
+	Workdir      string            `json:"workdir,omitempty" description:"Working directory for file operations. Example: /repo/path."`
+	Env          map[string]string `json:"env,omitempty" description:"Environment variables (k=v) set before running. Example: {'GOFLAGS':'-mod=mod'}."`
+	Commands     []string          `json:"commands,omitempty" description:"Commands to run in order (no pipes). Example: ['rg --files', 'sed -n 1,20p file.go']."`
+	TimeoutMs    int               `json:"timeoutMs,omitempty" yaml:"timeoutMs,omitempty" description:"Per-command timeout in ms (default 180000)."`
+	AbortOnError *bool             `json:"abortOnError,omitempty" description:"Stop on first non-zero status (default true)."`
 }
 
 var fsCommands = []string{

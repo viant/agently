@@ -517,7 +517,8 @@ Set a default per-tool execution timeout in your workspace config:
 ```yaml
 default:
   # Seconds to allow each tool call before it is canceled.
-  toolCallTimeoutSec: 180
+  # If not set, Agently defaults to 300s (5 minutes).
+  toolCallTimeoutSec: 600
   # Optional: seconds to wait for elicitation (assistant/tool) before auto-decline.
   elicitationTimeoutSec: 120
 ```

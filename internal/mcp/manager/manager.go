@@ -177,6 +177,8 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	if ca, ok := h.(interface{ SetConversationID(string) }); ok {
 		ca.SetConversationID(convID)
 	}
+	// Keepalive ping: older mcp client options may not support explicit ping interval.
+	// If supported upstream, configure ~30s; otherwise rely on transport defaults.
 	cli, err := mcp.NewClient(h, opts.ClientOptions)
 	if err != nil {
 		return nil, err

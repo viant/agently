@@ -151,6 +151,11 @@ type GenerateRequest struct {
 
 	// Options contains additional options for the request.
 	Options *Options `json:"options,omitempty"`
+
+	// PreviousResponseID optionally links this request to a prior provider
+	// response when the backend supports incremental continuation (e.g.,
+	// OpenAI Responses API).
+	PreviousResponseID string `json:"previous_response_id,omitempty"`
 }
 
 // GenerateResponse represents a response from a chat-based LLM.
@@ -162,6 +167,9 @@ type GenerateResponse struct {
 	// Usage contains token usage information.
 	Usage *Usage `json:"usage,omitempty"`
 	Model string `json:"model,omitempty"`
+
+	// ResponseID is a provider response identifier when available.
+	ResponseID string `json:"response_id,omitempty"`
 }
 
 // Choice represents a single response choice from a chat-based LLM.

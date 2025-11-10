@@ -19,6 +19,7 @@ import (
 	modelcallwrite "github.com/viant/agently/pkg/agently/modelcall/write"
 	payloadread "github.com/viant/agently/pkg/agently/payload/read"
 	payloadwrite "github.com/viant/agently/pkg/agently/payload/write"
+	toolread "github.com/viant/agently/pkg/agently/toolcall/read"
 	toolcallwrite "github.com/viant/agently/pkg/agently/toolcall/write"
 	turnwrite "github.com/viant/agently/pkg/agently/turn/write"
 	"github.com/viant/datly"
@@ -78,6 +79,10 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 			return
 		}
 		if _, err := toolcallwrite.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if _, err := toolread.DefineComponent(ctx, dao); err != nil {
 			initErr = err
 			return
 		}
@@ -351,6 +356,26 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 		return errors.New(out.Violations[0].Message)
 	}
 	return nil
+}
+
+// ToolCallTraceByOp returns the persisted trace_id (LLM response.id anchor) for a tool call op_id
+// scoped to a conversation. It returns an empty string when not found.
+func (s *Service) ToolCallTraceByOp(ctx context.Context, conversationID, opID string) (string, error) {
+	if s == nil || s.dao == nil {
+		return "", errors.New("conversation service not configured: dao is nil")
+	}
+	in := &toolread.ByOpInput{ConversationId: strings.TrimSpace(conversationID), OpId: strings.TrimSpace(opID), Has: &toolread.ByOpInputHas{ConversationId: true, OpId: true}}
+	out := &toolread.ByOpOutput{}
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(toolread.PathURI), datly.WithInput(in)); err != nil {
+		return "", err
+	}
+	if len(out.Data) == 0 {
+		return "", nil
+	}
+	if out.Data[0] == nil || out.Data[0].TraceId == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(*out.Data[0].TraceId), nil
 }
 
 func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) error {

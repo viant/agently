@@ -9,4 +9,5 @@ type Event struct {
 	Name         string                 `json:"name,omitempty"`         // function name for function_call events
 	Arguments    map[string]interface{} `json:"arguments,omitempty"`    // function arguments for function_call events
 	FinishReason string                 `json:"finishReason,omitempty"` // finish_reason for done events
+	ResponseID   string                 `json:"responseId,omitempty"`   // provider response id (anchor)
 }
