@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/modelcallctx"
 	stream "github.com/viant/agently/genai/service/core/stream"
