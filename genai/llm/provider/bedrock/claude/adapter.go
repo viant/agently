@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
+
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/llm"
-	"strings"
 )
 
 // ToRequest converts an llm.ChatRequest to a Claude API Request
@@ -63,14 +64,26 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 			req.Tools = append(req.Tools, def)
 		}
 	}
+	builder := strings.Builder{}
+	firstAdded := false
+	docNr := 1
 
 	// Find system message
 	for _, msg := range request.Messages {
-		if msg.Role == llm.RoleSystem {
-			req.System = msg.Content
-			break
+		if msg.Role != llm.RoleSystem {
+			continue
+		}
+
+		if !firstAdded {
+			builder.WriteString(msg.Content)
+			firstAdded = true
+		} else {
+			builder.WriteString(fmt.Sprintf("\n\n## Document %d:\n", docNr))
+			builder.WriteString(msg.Content)
+			docNr++
 		}
 	}
+	req.System = builder.String()
 
 	// Convert messages
 	for _, msg := range request.Messages {

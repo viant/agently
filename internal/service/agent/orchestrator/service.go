@@ -1,7 +1,6 @@
 package orchestrator
 
 import (
-	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -14,16 +13,15 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
+	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
-	prompt "github.com/viant/agently/genai/prompt"
 	core2 "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/service/core/stream"
 	executil "github.com/viant/agently/genai/service/shared/executil"
 	"github.com/viant/agently/genai/tool"
-	auth "github.com/viant/agently/internal/auth"
 	"github.com/viant/agently/shared"
 )
 
@@ -34,7 +32,17 @@ type Service struct {
 	llm        *core2.Service
 	registry   tool.Registry
 	convClient apiconv.Client
+	// Finder for agent metadata (prompts, model, prefs) to mirror agent-run plan input
+	agentFinder agentmdl.Finder
+	// Optional builder to produce a GenerateInput identical to agent.runPlanLoop,
+	// with the exception that the user query is provided as `instruction`.
+	buildPlanInput func(ctx context.Context, conv *apiconv.Conversation, instruction string) (*core2.GenerateInput, error)
 }
+
+// ctxKeyLimitRecoveryAttempted guards one-shot presentation of the context-limit guidance within a single Run invocation.
+type ctxKeyPresentedType int
+
+const ctxKeyLimitRecoveryAttempted ctxKeyPresentedType = 1
 
 func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
 	aPlan := plan.New()
@@ -54,8 +62,12 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 		defer cleanup()
 		if err != nil {
 			if errors.Is(err, core2.ErrContextLimitExceeded) {
-				if perr := s.presentContextLimitExceeded(ctx, strings.ReplaceAll(err.Error(), core2.ErrContextLimitExceeded.Error(), "")); perr != nil {
-					return nil, fmt.Errorf("failed to handle context limit: %w", perr)
+				// One-shot guard: present only once per Run
+				if ctx.Value(ctxKeyLimitRecoveryAttempted) == nil {
+					ctx = context.WithValue(ctx, ctxKeyLimitRecoveryAttempted, true)
+					if perr := s.presentContextLimitExceeded(ctx, genInput, strings.ReplaceAll(err.Error(), core2.ErrContextLimitExceeded.Error(), "")); perr != nil {
+						return nil, fmt.Errorf("failed to handle context limit: %w", perr)
+					}
 				}
 			}
 			return nil, fmt.Errorf("failed to stream: %w", err)
@@ -75,9 +87,12 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 	} else {
 		if err := s.llm.Generate(ctx, genInput, genOutput); err != nil {
 			if errors.Is(err, core2.ErrContextLimitExceeded) {
-				// Present token-limit message with candidates to guide removal
-				if perr := s.presentContextLimitExceeded(ctx, strings.ReplaceAll(err.Error(), core2.ErrContextLimitExceeded.Error(), "")); perr != nil {
-					return nil, fmt.Errorf("failed to handle context limit: %w", perr)
+				// One-shot guard: present only once per Run
+				if ctx.Value(ctxKeyLimitRecoveryAttempted) == nil {
+					ctx = context.WithValue(ctx, ctxKeyLimitRecoveryAttempted, true)
+					if perr := s.presentContextLimitExceeded(ctx, genInput, strings.ReplaceAll(err.Error(), core2.ErrContextLimitExceeded.Error(), "")); perr != nil {
+						return nil, fmt.Errorf("failed to handle context limit: %w", perr)
+					}
 				}
 			}
 			return nil, fmt.Errorf("failed to generate: %w", err)
@@ -136,7 +151,7 @@ func hasRemovalTool(p *plan.Plan) bool {
 // presentContextLimitExceeded composes a concise guidance note with removable-candidate lines,
 // then triggers a best‑effort, tool‑driven recovery loop to free tokens (via internal/message tools),
 // and finally inserts an assistant message with the guidance for the user.
-func (s *Service) presentContextLimitExceeded(ctx context.Context, errMessage string) error {
+func (s *Service) presentContextLimitExceeded(ctx context.Context, oldGenInput *core2.GenerateInput, errMessage string) error {
 	convID := memory.ConversationIDFromContext(ctx)
 	if strings.TrimSpace(convID) == "" || s.convClient == nil {
 		return fmt.Errorf("missing conversation context")
@@ -146,25 +161,19 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context, errMessage st
 	if err != nil || conv == nil {
 		return fmt.Errorf("failed to get conversation: %w", err)
 	}
-	lines := s.buildRemovalCandidates(ctx, conv)
+	lines, ids := s.buildRemovalCandidates(ctx, conv)
 	if len(lines) == 0 {
-		// Provide minimal instruction even without candidates
 		lines = []string{"(no removable items identified)"}
 	}
-	// Compose presentation message
-	freeTokenPrompt = strings.Replace(freeTokenPrompt, "{{ERROR_MESSAGE}}", errMessage, 1)
+	promptText := s.composeFreeTokenPrompt(errMessage, lines, ids)
 
-	var buf bytes.Buffer
-	for _, l := range lines {
-		buf.WriteString(l)
-		buf.WriteByte('\n')
+	overlimit := 0
+	if v, ok := extractOverlimitTokens(errMessage); ok {
+		overlimit = v
+		fmt.Printf("[debug] overlimit tokens: %d\n", overlimit)
 	}
 
-	freeTokenPrompt = strings.Replace(freeTokenPrompt, "{{CANDIDATES}}", buf.String(), 1)
-
-	// Best‑effort: let the assistant immediately run internal/message tools (e.g., remove)
-	// to free up tokens and recover the turn.
-	err = s.freeMessageTokensLLM(ctx, conv, freeTokenPrompt)
+	err = s.freeMessageTokensLLM(ctx, conv, promptText, oldGenInput, overlimit)
 	if err != nil {
 		return fmt.Errorf("failed to free message tokens via LLM: %v\n", err)
 	}
@@ -175,7 +184,7 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context, errMessage st
 		apiconv.WithRole("assistant"),
 		apiconv.WithType("text"),
 		apiconv.WithStatus("error"),
-		apiconv.WithContent(buf.String()),
+		apiconv.WithContent(promptText),
 		apiconv.WithInterim(1),
 	); aerr != nil {
 		return fmt.Errorf("failed to insert context-limit message: %w", aerr)
@@ -185,9 +194,9 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context, errMessage st
 }
 
 // buildRemovalCandidates constructs concise one-line entries for removable items excluding the last user message.
-func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conversation) []string {
+func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conversation) ([]string, []string) {
 	if conv == nil {
-		return nil
+		return nil, nil
 	}
 	tr := conv.GetTranscript()
 	lastUserID := ""
@@ -211,6 +220,7 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 	// Build candidates
 	const previewLen = 1000
 	out := []string{}
+	msgIDs := []string{}
 	for _, t := range tr {
 		if t == nil || len(t.Message) == 0 {
 			continue
@@ -259,9 +269,10 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 				continue
 			}
 			out = append(out, line)
+			msgIDs = append(msgIDs, m.Id)
 		}
 	}
-	return out
+	return out, msgIDs
 }
 
 // ensureTurnMeta returns a TurnMeta for adding messages: uses existing context when present, otherwise derives from conversation.
@@ -277,14 +288,17 @@ func (s *Service) ensureTurnMeta(ctx context.Context, conv *apiconv.Conversation
 }
 
 func estimateTokens(s string) int {
-	if s == "" {
+	return estimateTokensInt(len(s))
+}
+
+func estimateTokensInt(stringLength int) int {
+	if stringLength == 0 {
 		return 0
 	}
-	n := len(s)
-	if n < 8 {
+	if stringLength < 8 {
 		return 1
 	}
-	return (n + 3) / 4
+	return (stringLength + 3) / 4
 }
 
 func (s *Service) streamPlanSteps(ctx context.Context, streamId string, aPlan *plan.Plan) error {
@@ -572,61 +586,12 @@ func (s *Service) synthesizeFinalResponse(genOutput *core2.GenerateOutput) {
 	}
 }
 
-func New(service *core2.Service, registry tool.Registry, convClient apiconv.Client) *Service {
+func New(service *core2.Service, registry tool.Registry, convClient apiconv.Client, finder agentmdl.Finder, builder func(ctx context.Context, conv *apiconv.Conversation, instruction string) (*core2.GenerateInput, error)) *Service {
 	return &Service{
-		llm:        service,
-		registry:   registry,
-		convClient: convClient,
+		llm:            service,
+		registry:       registry,
+		convClient:     convClient,
+		agentFinder:    finder,
+		buildPlanInput: builder,
 	}
-}
-
-// freeMessageTokensLLM kicks off a focused plan run with the guidance note as
-// the user prompt so the assistant can immediately use internal/message tools
-// (e.g., remove/summarize) to free tokens and continue the conversation.
-func (s *Service) freeMessageTokensLLM(ctx context.Context, conv *apiconv.Conversation, instruction string) error {
-	if s == nil || s.llm == nil || conv == nil {
-		return fmt.Errorf("missing llm or conversation")
-	}
-	// Ensure turn meta so recorder/stream handler can attach artifacts properly.
-	turn := s.ensureTurnMeta(ctx, conv)
-	ctx = memory.WithTurnMeta(ctx, turn)
-
-	// Select model from conversation defaults when available.
-	model := ""
-	if conv.DefaultModel != nil && strings.TrimSpace(*conv.DefaultModel) != "" {
-		model = strings.TrimSpace(*conv.DefaultModel)
-	}
-	genInput := &core2.GenerateInput{
-		ModelSelection: llm.ModelSelection{Model: model},
-		Prompt:         &prompt.Prompt{Text: strings.TrimSpace(instruction)},
-		Binding:        &prompt.Binding{},
-	}
-	// Attribute participants for naming and validation
-	if uid := auth.EffectiveUserID(ctx); strings.TrimSpace(uid) != "" {
-		genInput.UserID = uid
-	} else {
-		genInput.UserID = "system"
-	}
-	if genInput.Options == nil {
-		genInput.Options = &llm.Options{}
-	}
-	genInput.Options.Mode = "plan"
-	// Expose internal/message tools so recovery can use remove/summarize/show/match as needed.
-	if s.registry != nil {
-		pattern := "internal/message" // service-only pattern (match any method)
-		for _, def := range s.registry.MatchDefinition(pattern) {
-			if def == nil {
-				continue
-			}
-			if strings.Contains(def.Name, "remove") /*|| strings.Contains(def.Name, "show")*/ {
-				genInput.Options.Tools = append(genInput.Options.Tools, llm.Tool{Type: "function", Definition: *def})
-			}
-		}
-	}
-
-	genOutput := &core2.GenerateOutput{}
-	if _, err := s.Run(ctx, genInput, genOutput); err != nil {
-		return err
-	}
-	return nil
 }

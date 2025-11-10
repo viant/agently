@@ -3,8 +3,10 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/viant/afs"
 	apiconv "github.com/viant/agently/client/conversation"
@@ -112,11 +114,56 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	// Wire core and orchestrator with conversation client
 	if srv.conversation != nil && srv.llm != nil {
 		srv.llm.SetConversationClient(srv.conversation)
-		srv.orchestrator = orchestrator.New(llm, registry, srv.conversation)
 	}
 
-	// Initialize orchestrator with conversation client
-	srv.orchestrator = orchestrator.New(llm, registry, srv.conversation)
+	// Initialize orchestrator with conversation client, agent finder, and a builder that mirrors runPlanLoop.
+	srv.orchestrator = orchestrator.New(llm, registry, srv.conversation, srv.agentFinder,
+		func(ctx context.Context, conv *apiconv.Conversation, instruction string) (*core.GenerateInput, error) {
+			if conv == nil || srv.agentFinder == nil {
+				return nil, fmt.Errorf("missing conversation or agent finder")
+			}
+			if conv.AgentId == nil || strings.TrimSpace(*conv.AgentId) == "" {
+				return nil, fmt.Errorf("missing agent id in conversation")
+			}
+			ag, err := srv.agentFinder.Find(ctx, strings.TrimSpace(*conv.AgentId))
+			if err != nil || ag == nil {
+				return nil, fmt.Errorf("failed to resolve agent: %w", err)
+			}
+			qi := &QueryInput{
+				Agent:          ag,
+				ConversationID: conv.Id,
+				Query:          strings.TrimSpace(instruction),
+				RequestTime:    time.Now(),
+			}
+			// Ensure embedding model for knowledge matching like ensureEnvironment does
+			if strings.TrimSpace(qi.EmbeddingModel) == "" && srv.defaults != nil {
+				qi.EmbeddingModel = srv.defaults.Embedder
+			}
+			binding, bErr := srv.BuildBinding(ctx, qi)
+			if bErr != nil {
+				return nil, bErr
+			}
+			modelSel := ag.ModelSelection
+			// Mirror runPlanLoop: allow an override; use conversation default as an effective override for this recovery run.
+			if conv.DefaultModel != nil && strings.TrimSpace(*conv.DefaultModel) != "" {
+				modelSel.Model = strings.TrimSpace(*conv.DefaultModel)
+			} else if qi.ModelOverride != "" { // keep behavior consistent if override is ever provided
+				modelSel.Model = qi.ModelOverride
+			}
+			genInput := &core.GenerateInput{
+				Prompt:         ag.Prompt,
+				SystemPrompt:   ag.SystemPrompt,
+				Binding:        binding,
+				ModelSelection: modelSel,
+			}
+			// Attribute participants as in runPlanLoop
+			genInput.UserID = strings.TrimSpace(qi.UserId)
+			genInput.AgentID = strings.TrimSpace(ag.ID)
+			EnsureGenerateOptions(ctx, genInput, ag)
+			genInput.Options.Mode = "plan"
+			return genInput, nil
+		})
+
 	srv.elicitation = elicitation.New(srv.conversation, nil, srv.elicRouter, srv.awaiterFactory)
 
 	return srv
