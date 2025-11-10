@@ -8,6 +8,7 @@ import (
 	"github.com/viant/afs"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
 	svc "github.com/viant/agently/genai/tool/service"
@@ -78,6 +79,57 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 func New(finder llm.Finder, registry tool.Registry, convClient apiconv.Client) *Service {
 	matcher, _ := finder.(llm.Matcher)
 	return &Service{llmFinder: finder, registry: registry, convClient: convClient, fs: afs.New(), modelMatcher: matcher, attachUsage: map[string]int64{}}
+}
+
+// resolveToolCallTraces builds a map of tool op_id -> TraceID (provider response.id)
+// by reading the conversation transcript with tool calls included. Errors are
+// swallowed and result in an empty map to keep core generation tolerant.
+func (s *Service) resolveToolCallTraces(ctx context.Context, conversationID string) map[string]string {
+	out := map[string]string{}
+	if s == nil || s.convClient == nil || strings.TrimSpace(conversationID) == "" {
+		return out
+	}
+	svc := apiconv.NewService(s.convClient)
+	resp, err := svc.Get(ctx, apiconv.GetRequest{Id: conversationID, IncludeToolCall: true})
+	if err != nil || resp == nil || resp.Conversation == nil {
+		return out
+	}
+	tr := resp.Conversation.GetTranscript()
+	for _, turn := range tr {
+		if turn == nil || turn.Message == nil {
+			continue
+		}
+		for _, m := range turn.Message {
+			if m == nil || m.ToolCall == nil {
+				continue
+			}
+			opID := strings.TrimSpace(m.ToolCall.OpId)
+			if opID == "" {
+				continue
+			}
+			if m.ToolCall.TraceId != nil {
+				if v := strings.TrimSpace(*m.ToolCall.TraceId); v != "" {
+					out[opID] = v
+				}
+			}
+		}
+	}
+	return out
+}
+
+// continuationEnabled returns true when the model supports continuation by response id
+// and the request options did not disable it explicitly.
+func continuationEnabled(model llm.Model, opts *llm.Options) bool {
+	if model == nil {
+		return false
+	}
+	if !model.Implements(base.SupportsContinuationByResponseID) {
+		return false
+	}
+	if opts == nil || opts.ContinuationEnabled == nil {
+		return true
+	}
+	return *opts.ContinuationEnabled
 }
 
 // AttachmentUsage returns cumulative attachment bytes recorded for a conversation.

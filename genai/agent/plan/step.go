@@ -16,6 +16,10 @@ type Step struct {
 
 	// Retries specifies how many times to retry this tool on error or empty result
 	Retries int `yaml:"retries,omitempty" json:"retries,omitempty"`
+
+	// ResponseID carries the provider response.id of the assistant message
+	// that requested this tool call (continuation anchor).
+	ResponseID string `json:"responseId,omitempty" yaml:"responseId,omitempty"`
 }
 
 type Steps []Step

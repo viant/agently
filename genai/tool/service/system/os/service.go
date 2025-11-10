@@ -48,7 +48,7 @@ func (s *Service) Name() string { return Name }
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{{
 		Name:        "getEnv",
-		Description: "Gets environment variables for provided names (requires at least one non-empty name)",
+		Description: "Read environment variables by name. Example: names=['PATH','HOME'].",
 		Input:       reflect.TypeOf(&GetEnvInput{}),
 		Output:      reflect.TypeOf(&GetEnvOutput{}),
 	}}

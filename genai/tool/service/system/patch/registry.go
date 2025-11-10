@@ -48,31 +48,31 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{
 			Name:        "apply",
-			Description: "Applies custom patch.\n" + applySpec,
+			Description: "Apply a patch to files. Requires workdir. Supports unified diff or simplified patch.",
 			Input:       reflect.TypeOf(&ApplyInput{}),
 			Output:      reflect.TypeOf(&ApplyOutput{}),
 		},
 		{
 			Name:        "diff",
-			Description: diffSpec,
+			Description: "Compute a patch between old and new content. Optional path and contextLines.",
 			Input:       reflect.TypeOf(&DiffInput{}),
 			Output:      reflect.TypeOf(&DiffOutput{}),
 		},
 		{
 			Name:        "snapshot",
-			Description: snapshotSpec,
+			Description: "List uncommitted changes captured by the current patch session.",
 			Input:       reflect.TypeOf(&EmptyInput{}),
 			Output:      reflect.TypeOf(&SnapshotOutput{}),
 		},
 		{
 			Name:        "commit",
-			Description: commitSpec,
+			Description: "Persist current patch session changes and clear the session.",
 			Input:       reflect.TypeOf(&EmptyInput{}),
 			Output:      reflect.TypeOf(&EmptyOutput{}),
 		},
 		{
 			Name:        "rollback",
-			Description: rollbackSpec,
+			Description: "Discard current patch session changes and clear the session.",
 			Input:       reflect.TypeOf(&EmptyInput{}),
 			Output:      reflect.TypeOf(&EmptyOutput{}),
 		},

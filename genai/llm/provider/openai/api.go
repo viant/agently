@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -76,6 +77,8 @@ func (c *Client) Implements(feature string) bool {
 	case base.IsMultimodal:
 		return c.canMultimodal()
 	case base.CanExecToolsInParallel:
+		return true
+	case base.SupportsContinuationByResponseID:
 		return true
 	}
 	return false
@@ -151,6 +154,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		// Bubble continuation errors – do not fallback/summarize
+		if isContinuationError(respBytes) {
+			if observer != nil {
+				_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Err: "continuation error"})
+			}
+			return nil, fmt.Errorf("openai continuation error: %s", string(respBytes))
+		}
 		if observer != nil {
 			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Err: fmt.Sprintf("status %d", resp.StatusCode)})
 		}
@@ -209,16 +219,43 @@ func (c *Client) prepareChatRequest(request *llm.GenerateRequest) (*Request, err
 	return req, nil
 }
 
+// marshalRequestBody builds the request body for the OpenAI Responses API
+// from our internal Request shape. The Responses API expects "input" messages
+// instead of the legacy chat "messages" and uses max_output_tokens, etc.
 func (c *Client) marshalRequestBody(req *Request) ([]byte, error) {
-	data, err := json.Marshal(req)
+	payload := ToResponsesPayload(req)
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
-	//fmt.Printf("req: %s\n=======\n", string(data))
+	return data, nil
+}
+
+// marshalChatCompletionBody marshals a legacy chat/completions payload from Request.
+func (c *Client) marshalChatCompletionBody(req *Request) ([]byte, error) {
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal chat/completions request: %w", err)
+	}
 	return data, nil
 }
 
 func (c *Client) createHTTPChatRequest(ctx context.Context, data []byte) (*http.Request, error) {
+	// Backward-compat entry kept; delegate to responses endpoint now.
+	return c.createHTTPResponsesRequest(ctx, data)
+}
+
+func (c *Client) createHTTPResponsesRequest(ctx context.Context, data []byte) (*http.Request, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/responses", bytes.NewBuffer(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	return httpReq, nil
+}
+
+func (c *Client) createHTTPChatCompletionsRequest(ctx context.Context, data []byte) (*http.Request, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewBuffer(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
@@ -228,16 +265,190 @@ func (c *Client) createHTTPChatRequest(ctx context.Context, data []byte) (*http.
 	return httpReq, nil
 }
 
+func isContinuationError(body []byte) bool {
+	msg := strings.ToLower(string(body))
+	if strings.Contains(msg, "previous_response_id") && (strings.Contains(msg, "invalid") || strings.Contains(msg, "unknown")) {
+		return true
+	}
+	if strings.Contains(msg, "no tool call found for function call output") {
+		return true
+	}
+	if strings.Contains(msg, "function_call_output") && strings.Contains(msg, "no tool call") {
+		return true
+	}
+	if strings.Contains(msg, "no tool output found for function call") {
+		return true
+	}
+	return false
+}
+
+func debugOpenAIEnabled() bool { return os.Getenv("AGENTLY_DEBUG_OPENAI") == "1" }
+func openaiNoFallback() bool   { return os.Getenv("AGENTLY_OPENAI_NO_FALLBACK") == "1" }
+
+func (c *Client) generateViaChatCompletion(ctx context.Context, req *Request, request *llm.GenerateRequest, observer mcbuf.Observer) (*llm.GenerateResponse, error) {
+	// Clone and scrub fields unsupported by chat/completions
+	req2 := *req
+	req2.PreviousResponseID = ""
+	req2.Stream = false
+	req2.StreamOptions = nil
+
+	payload, err := c.marshalChatCompletionBody(&req2)
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := c.createHTTPChatCompletionsRequest(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	if c.Timeout > 0 {
+		c.HTTPClient.Timeout = c.Timeout
+	} else {
+		c.HTTPClient.Timeout = 10 * time.Minute
+	}
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		if observer != nil {
+			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", CompletedAt: time.Now(), Err: err.Error()})
+		}
+		return nil, fmt.Errorf("failed to send chat.completions request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read chat.completions response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		if observer != nil {
+			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Err: fmt.Sprintf("status %d", resp.StatusCode)})
+		}
+		return nil, fmt.Errorf("OpenAI Chat API error (status %d): %s", resp.StatusCode, respBytes)
+	}
+	lr, perr := c.parseGenerateResponse(req.Model, respBytes)
+	if observer != nil {
+		info := mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now()}
+		if lr != nil {
+			info.Usage = lr.Usage
+			if len(lr.Choices) > 0 {
+				info.FinishReason = lr.Choices[0].FinishReason
+			}
+			info.LLMResponse = lr
+		}
+		if perr != nil {
+			info.Err = perr.Error()
+		}
+		_ = observer.OnCallEnd(ctx, info)
+	}
+	return lr, perr
+}
+
 func (c *Client) parseGenerateResponse(model string, respBytes []byte) (*llm.GenerateResponse, error) {
+	// Best‑effort: tolerate SSE-style payload delivered to non-stream path.
+	// Some gateways may return a pre-buffered SSE transcript where the final
+	// response is embedded in a "response.completed" data chunk.
+	if bytes.Contains(respBytes, []byte("data:")) && bytes.Contains(respBytes, []byte("event:")) {
+		if lr, ok := parseCompletedFromSSE(respBytes); ok {
+			if c.UsageListener != nil && lr.Usage != nil && lr.Usage.TotalTokens > 0 {
+				c.UsageListener.OnUsage(model, lr.Usage)
+			}
+			return lr, nil
+		}
+	}
+	// Try legacy chat/completions shape first
 	var apiResp Response
-	if err := json.Unmarshal(respBytes, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	if err := json.Unmarshal(respBytes, &apiResp); err == nil && (apiResp.Object != "" || len(apiResp.Choices) > 0) {
+		llmResp := ToLLMSResponse(&apiResp)
+		if c.UsageListener != nil && llmResp.Usage != nil && llmResp.Usage.TotalTokens > 0 {
+			c.UsageListener.OnUsage(model, llmResp.Usage)
+		}
+		return llmResp, nil
 	}
-	llmResp := ToLLMSResponse(&apiResp)
-	if c.UsageListener != nil && llmResp.Usage != nil && llmResp.Usage.TotalTokens > 0 {
-		c.UsageListener.OnUsage(model, llmResp.Usage)
+
+	// Try Responses API direct form
+	var r2 ResponsesResponse
+	if err := json.Unmarshal(respBytes, &r2); err == nil && (r2.ID != "" || len(r2.Output) > 0) {
+		llmResp := ToLLMSFromResponses(&r2)
+		if c.UsageListener != nil && llmResp.Usage != nil && llmResp.Usage.TotalTokens > 0 {
+			c.UsageListener.OnUsage(model, llmResp.Usage)
+		}
+		return llmResp, nil
 	}
-	return llmResp, nil
+
+	// Some streams may wrap final response under a "response" field
+	var wrap struct {
+		Response *ResponsesResponse `json:"response,omitempty"`
+	}
+	if err := json.Unmarshal(respBytes, &wrap); err == nil && wrap.Response != nil {
+		llmResp := ToLLMSFromResponses(wrap.Response)
+		if c.UsageListener != nil && llmResp.Usage != nil && llmResp.Usage.TotalTokens > 0 {
+			c.UsageListener.OnUsage(model, llmResp.Usage)
+		}
+		return llmResp, nil
+	}
+	// Improve diagnostics while still bubbling error up (no stdout printing).
+	snippet := string(respBytes)
+	if len(snippet) > 240 {
+		snippet = snippet[:240]
+	}
+	return nil, fmt.Errorf("failed to unmarshal response: unknown format (body=%q)", strings.TrimSpace(snippet))
+}
+
+// parseCompletedFromSSE attempts to extract a final response from a pre-buffered
+// SSE transcript by locating a response.completed data JSON chunk and
+// converting it to llm.GenerateResponse.
+func parseCompletedFromSSE(body []byte) (*llm.GenerateResponse, bool) {
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	buf := make([]byte, 0, sseInitialBuf)
+	scanner.Buffer(buf, sseMaxBuf)
+	lastEvent := ""
+	var lastData string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "event: ") {
+			lastEvent = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+			continue
+		}
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			continue
+		}
+		// Prefer response.completed, but remember last data otherwise
+		lastData = data
+		if lastEvent == "response.completed" {
+			if lr := parseAnyFinal(data); lr != nil {
+				return lr, true
+			}
+		}
+	}
+	// Fallback to the last data payload if it parses as a final response
+	if lr := parseAnyFinal(lastData); lr != nil {
+		return lr, true
+	}
+	return nil, false
+}
+
+// parseAnyFinal tries several known final object shapes from a JSON string.
+func parseAnyFinal(data string) *llm.GenerateResponse {
+	// Wrapped ResponsesResponse
+	var w struct {
+		Response *ResponsesResponse `json:"response"`
+	}
+	if json.Unmarshal([]byte(data), &w) == nil && w.Response != nil {
+		return ToLLMSFromResponses(w.Response)
+	}
+	// Direct ResponsesResponse
+	var r2 ResponsesResponse
+	if json.Unmarshal([]byte(data), &r2) == nil && (r2.ID != "" || len(r2.Output) > 0) {
+		return ToLLMSFromResponses(&r2)
+	}
+	// Legacy chat/completions Response
+	var r1 Response
+	if json.Unmarshal([]byte(data), &r1) == nil && (r1.Object != "" || len(r1.Choices) > 0) {
+		return ToLLMSResponse(&r1)
+	}
+	return nil
 }
 
 // Stream sends a chat request to the OpenAI API with streaming enabled and returns a channel of partial responses.
@@ -257,7 +468,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := c.createHTTPChatRequest(ctx, payload)
+	httpReq, err := c.createHTTPResponsesRequest(ctx, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +501,63 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	go func() {
 		defer resp.Body.Close()
 		defer close(events)
-		c.consumeStream(ctx, resp.Body, events)
+		proc := &streamProcessor{
+			client:   c,
+			ctx:      ctx,
+			observer: observer,
+			events:   events,
+			agg:      newStreamAggregator(),
+			state:    &streamState{},
+			req:      req,
+			orig:     request,
+		}
+		// Read response body
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			events <- llm.StreamEvent{Err: fmt.Errorf("failed to read response body: %w", readErr)}
+			return
+		}
+		// If Responses stream returned an immediate JSON error and it's
+		// a continuation error, bubble up an error and do not fallback.
+		if !bytes.Contains(respBody, []byte("data: ")) {
+			type apiErr struct {
+				Error struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			var e apiErr
+			if json.Unmarshal(bytes.TrimSpace(respBody), &e) == nil && e.Error.Message != "" {
+				if isContinuationError(respBody) {
+					events <- llm.StreamEvent{Err: fmt.Errorf("openai continuation error: %s", string(respBody))}
+					return
+				}
+			}
+		}
+		// Normal SSE handling
+		proc.respBody = respBody
+		// Prepare scanner
+		scanner := bufio.NewScanner(bytes.NewReader(respBody))
+		buf := make([]byte, 0, sseInitialBuf)
+		scanner.Buffer(buf, sseMaxBuf)
+		currentEvent := ""
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "event: ") {
+				currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+				continue
+			}
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "[DONE]" {
+				break
+			}
+			if ok := proc.handleEvent(currentEvent, data); !ok {
+				return
+			}
+		}
+		proc.finalize(scanner.Err())
 	}()
 	return events, nil
 }
@@ -439,9 +706,14 @@ func (c *Client) consumeStream(ctx context.Context, body io.Reader, events chan<
 	buf := make([]byte, 0, sseInitialBuf)
 	scanner.Buffer(buf, sseMaxBuf)
 
-	// Scan each SSE line
+	// Scan each SSE line, track event types (Responses API)
+	currentEvent := ""
 	for scanner.Scan() {
 		line := scanner.Text()
+		if strings.HasPrefix(line, "event: ") {
+			currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+			continue
+		}
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
@@ -449,7 +721,7 @@ func (c *Client) consumeStream(ctx context.Context, body io.Reader, events chan<
 		if data == "[DONE]" {
 			break
 		}
-		if ok := proc.handleData(data); !ok {
+		if ok := proc.handleEvent(currentEvent, data); !ok {
 			// Stop further processing on parsing error to match previous behavior.
 			return
 		}

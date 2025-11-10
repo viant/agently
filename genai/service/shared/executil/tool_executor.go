@@ -23,6 +23,8 @@ type StepInfo struct {
 	ID   string
 	Name string
 	Args map[string]interface{}
+	// ResponseID is the assistant response.id that requested this tool call
+	ResponseID string
 }
 
 // ExecuteToolStep runs a tool via the registry, records transcript, and updates traces.
@@ -43,7 +45,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 
 	// 2) Initialize tool call (running) with LLM op id
-	if err := initToolCall(ctx, conv, toolMsgID, step.ID, turn, step.Name, span.StartedAt); err != nil {
+	if err := initToolCall(ctx, conv, toolMsgID, step.ID, turn, step.Name, span.StartedAt, step.ResponseID); err != nil {
 		return plan.ToolCall{}, span, err
 	}
 
@@ -108,6 +110,42 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	return out, span, retErr
 }
 
+// SynthesizeToolStep persists a tool call using a precomputed result without
+// invoking the actual tool. It mirrors ExecuteToolStep's persistence flow
+// (messages, request/response payloads, status), setting status to "completed".
+func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo, toolResult string) error {
+	turn, ok := memory.TurnMetaFromContext(ctx)
+	if !ok {
+		return fmt.Errorf("turn meta not found")
+	}
+	startedAt := time.Now()
+	toolMsgID, err := createToolMessage(ctx, conv, turn, startedAt)
+	if err != nil {
+		return err
+	}
+	if err := initToolCall(ctx, conv, toolMsgID, step.ID, turn, step.Name, startedAt, step.ResponseID); err != nil {
+		return err
+	}
+	if len(step.Args) > 0 {
+		if _, pErr := persistRequestPayload(ctx, conv, toolMsgID, step.Args); pErr != nil {
+			return fmt.Errorf("persist request payload: %w", pErr)
+		}
+	}
+	// Persist provided result
+	respID, respErr := persistResponsePayload(ctx, conv, toolResult)
+	if respErr != nil {
+		return fmt.Errorf("persist response payload: %w", respErr)
+	}
+	// Complete tool call
+	status := "completed"
+	completedAt := time.Now()
+	if cErr := completeToolCall(ctx, conv, toolMsgID, status, completedAt, respID, ""); cErr != nil {
+		return fmt.Errorf("complete tool call: %w", cErr)
+	}
+	_ = conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status))
+	return nil
+}
+
 // createToolMessage persists a new tool message and returns its ID.
 func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.TurnMeta, startedAt time.Time) (string, error) {
 	toolMsgID := uuid.New().String()
@@ -124,7 +162,7 @@ func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.Tur
 }
 
 // initToolCall initializes and persists a new tool call in a 'running' state for the given tool message.
-func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID string, turn memory.TurnMeta, toolName string, startedAt time.Time) error {
+func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID string, turn memory.TurnMeta, toolName string, startedAt time.Time, traceID string) error {
 	tc := apiconv.NewToolCall()
 	tc.SetMessageID(toolMsgID)
 	if opID != "" {
@@ -141,6 +179,15 @@ func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID stri
 	now := startedAt
 	tc.StartedAt = &now
 	tc.Has.StartedAt = true
+	// Persist provider trace/anchor id (response.id) for this tool call when available.
+	if trace := strings.TrimSpace(traceID); trace != "" {
+		tc.TraceID = &trace
+		tc.Has.TraceID = true
+	} else if trace := strings.TrimSpace(memory.TurnTrace(turn.TurnID)); trace != "" {
+		// Fallback for legacy callers
+		tc.TraceID = &trace
+		tc.Has.TraceID = true
+	}
 	if err := conv.PatchToolCall(ctx, tc); err != nil {
 		return fmt.Errorf("persist tool call start: %w", err)
 	}

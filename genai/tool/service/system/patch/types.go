@@ -8,10 +8,10 @@ type ApplyInput struct {
 
 // DiffInput is the payload for Service.Diff
 type DiffInput struct {
-	OldContent   string `json:"old"`
-	NewContent   string `json:"new"`
-	Path         string `json:"path,omitempty"`
-	ContextLines int    `json:"contextLines,omitempty"`
+	OldContent   string `json:"old" description:"Original content."`
+	NewContent   string `json:"new" description:"Updated content."`
+	Path         string `json:"path,omitempty" description:"Optional logical path used in patch headers (e.g., src/file.go)."`
+	ContextLines int    `json:"contextLines,omitempty" description:"Patch context lines (default 3)."`
 }
 
 // DiffStats summarizes additions/removals in a patch string.

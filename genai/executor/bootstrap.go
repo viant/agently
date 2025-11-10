@@ -582,6 +582,10 @@ func (e *Service) initDefaults(ctx context.Context) error {
 		if defaults.ToolCallMaxResults == 0 {
 			defaults.ToolCallMaxResults = 100
 		}
+		// Set a sensible default tool-call timeout when not provided (5 minutes)
+		if defaults.ToolCallTimeoutSec <= 0 {
+			defaults.ToolCallTimeoutSec = 300
+		}
 		tr := &e.config.Default.PreviewSettings
 		if tr.Limit == 0 {
 			tr.Limit = 8192
@@ -1014,6 +1018,13 @@ func (e *Service) initAgent(ctx context.Context) {
 
 	agentRepo := agentrepo.New(afs.New())
 	if names, err := agentRepo.List(context.Background()); err == nil {
+		if len(names) == 0 {
+			// Emit a single helpful warning when no agents are discovered.
+			// Expected layouts:
+			//   - $AGENTLY_WORKSPACE/agents/<name>.yaml  (preferred)
+			//   - $AGENTLY_WORKSPACE/agents/<name>/<name>.yaml  (legacy)
+			log.Printf("[workspace] no agents found under %s (root=%s). Ensure agent files exist as <name>.yaml or <name>/<name>.yaml and have directory.enabled=true if they should be listed.", workspace.Path(workspace.KindAgent), workspace.Root())
+		}
 		for _, n := range names {
 			a, err := e.agentFinder.Find(ctx, n)
 			if err != nil {

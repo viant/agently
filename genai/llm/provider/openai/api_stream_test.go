@@ -13,7 +13,7 @@ import (
 	"github.com/viant/agently/genai/llm"
 )
 
-// Data-driven test: verifies stream aggregation and finish-only emission.
+// Data-driven test: verifies stream aggregation with Responses API events.
 func TestStream_ToolCalls_Aggregation(t *testing.T) {
 	testCases := []struct {
 		description string
@@ -23,36 +23,62 @@ func TestStream_ToolCalls_Aggregation(t *testing.T) {
 		{
 			description: "tool_calls aggregation with finish",
 			lines: []string{
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_u7wc2k7fbKAxfxIJHjw3BAYF","type":"function","function":{"name":"system_exec-execute","arguments":""}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\""}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"commands"}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\":[\\""}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"date"}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":" +"}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"%"}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"A"}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"],"}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\""}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"timeout"}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"Ms"}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\":\""}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"120"}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"000"}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
-				`data: [DONE]`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"id":"call_u7wc2k7fbKAxfxIJHjw3BAYF","type":"function","name":"system_exec-execute","arguments":""}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"{\""}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"commands"}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"\\":[\\""}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"date"}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":" +"}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"%"}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"A"}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"\"],"}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"\""}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"timeout"}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"Ms"}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"\":\""}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"120"}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"000"}}}`,
+				"event: response.message.tool_call.delta",
+				`data: {"index":0,"delta":{"tool_call":{"arguments":"}"}}}`,
+				// Final response object
+				"event: response.completed",
+				`data: {"id":"resp_1","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[],"tool_calls":[{"id":"call_u7wc2k7fbKAxfxIJHjw3BAYF","type":"function","function":{"name":"system_exec-execute","arguments":"{\"commands\":[\"date +%A\"],\"timeoutMs\":120000}"}}]}],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}`,
 			},
-			expected: &llm.GenerateResponse{Choices: []llm.Choice{{
-				Index:        0,
-				FinishReason: "tool_calls",
-				Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
-					ID:        "call_u7wc2k7fbKAxfxIJHjw3BAYF",
-					Name:      "system_exec-execute",
-					Arguments: map[string]interface{}{"commands": []interface{}{"date +%A"}, "timeoutMs": float64(120000)},
-					Type:      "function",
-					Function:  llm.FunctionCall{Name: "system_exec-execute", Arguments: `{"commands":["date +%A"],"timeoutMs":120000}`},
-				}}},
-			}}},
+			expected: &llm.GenerateResponse{
+				Choices: []llm.Choice{
+					{
+						Index:        0,
+						FinishReason: "",
+						Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+							{
+								ID:        "call_u7wc2k7fbKAxfxIJHjw3BAYF",
+								Name:      "system_exec-execute",
+								Arguments: map[string]interface{}{"commands": []interface{}{"date +%A"}, "timeoutMs": float64(120000)},
+								Type:      "function",
+								Function:  llm.FunctionCall{Name: "system_exec-execute", Arguments: `{"commands":["date +%A"],"timeoutMs":120000}`},
+							},
+						}},
+					},
+				},
+				Usage:      &llm.Usage{},
+				Model:      "o4-mini-2025-04-16",
+				ResponseID: "resp_1",
+			},
 		},
 	}
 
@@ -60,7 +86,7 @@ func TestStream_ToolCalls_Aggregation(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			body := strings.Join(tc.lines, "\n")
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/chat/completions" {
+				if r.URL.Path != "/responses" {
 					http.NotFound(w, r)
 					return
 				}
@@ -94,7 +120,7 @@ func TestStream_ToolCalls_Aggregation(t *testing.T) {
 	}
 }
 
-// Data-driven test: final usage-only chunk should not emit empty choices.
+// Data-driven test: usage in final completed event should be captured.
 func TestStream_UsageOnlyFinalChunk_NoEmptyChoicesEmission(t *testing.T) {
 	testCases := []struct {
 		description string
@@ -102,22 +128,38 @@ func TestStream_UsageOnlyFinalChunk_NoEmptyChoicesEmission(t *testing.T) {
 		expected    *llm.GenerateResponse
 	}{
 		{
-			description: "accumulate content; stop; usage-only final",
+			description: "accumulate content; completed with usage",
 			lines: []string{
 				// content deltas
-				`data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}`,
-				`data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}`,
-				// finish
-				`data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
-				// final usage-only event (OpenAI behavior)
-				`data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":1755193426,"model":"o4-mini-2025-04-16","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`,
-				`data: [DONE]`,
+				"event: response.output_text.delta",
+				`data: {"delta":"Hello"}`,
+				"event: response.output_text.delta",
+				`data: {"delta":" world"}`,
+				// final
+				"event: response.completed",
+				`data: {"id":"resp_2","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello world"}]}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`,
 			},
 			expected: &llm.GenerateResponse{Choices: []llm.Choice{{
 				Index:        0,
-				FinishReason: "stop",
+				FinishReason: "",
 				Message:      llm.Message{Role: llm.RoleAssistant, Content: "Hello world"},
-			}}, Usage: &llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}, Model: "o4-mini-2025-04-16"},
+			}}, Usage: &llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}, Model: "o4-mini-2025-04-16", ResponseID: "resp_2"},
+		},
+		{
+			description: "assistant text via multiple deltas and final completed",
+			lines: []string{
+				"event: response.output_text.delta",
+				`data: {"delta":"Part1-"}`,
+				"event: response.output_text.delta",
+				`data: {"delta":"Part2"}`,
+				"event: response.completed",
+				`data: {"id":"resp_3","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Part1-Part2"}]}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}`,
+			},
+			expected: &llm.GenerateResponse{Choices: []llm.Choice{{
+				Index:        0,
+				FinishReason: "",
+				Message:      llm.Message{Role: llm.RoleAssistant, Content: "Part1-Part2"},
+			}}, Usage: &llm.Usage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3}, Model: "o4-mini-2025-04-16", ResponseID: "resp_3"},
 		},
 	}
 
@@ -125,7 +167,7 @@ func TestStream_UsageOnlyFinalChunk_NoEmptyChoicesEmission(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			body := strings.Join(tc.lines, "\n")
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/chat/completions" {
+				if r.URL.Path != "/responses" {
 					http.NotFound(w, r)
 					return
 				}

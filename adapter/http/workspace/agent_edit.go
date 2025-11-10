@@ -173,7 +173,7 @@ func buildAgentEditView(ctx context.Context, ag *agentmdl.Agent, repoFilename st
 		}
 		url := resolved
 		if afsurl.Scheme(url, "") == "" {
-			url = "file://" + filepath.Clean(url)
+			url = afsurl.ToFileURL(url)
 		}
 		data, err := fs.DownloadWithURL(ctx, url)
 		if err != nil || len(data) == 0 {

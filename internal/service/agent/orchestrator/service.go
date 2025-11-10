@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -326,6 +327,14 @@ func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) 
 func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) (string, <-chan error) {
 	var mux sync.Mutex
 	stepErrCh := make(chan error, 1)
+	// Per-turn de-duplication: execute once per (tool+args) key and fan-out
+	// the same result to subsequent identical call_ids.
+	type cachedExec struct {
+		result string
+		err    error
+		done   chan struct{}
+	}
+	dedup := map[string]*cachedExec{}
 	var stopped atomic.Bool
 	id := stream.Register(func(ctx context.Context, event *llm.StreamEvent) error {
 		if stopped.Load() {
@@ -348,7 +357,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 			}
 		}
 
-		s.extendPlanWithToolCalls(&choice, aPlan)
+		s.extendPlanWithToolCalls(event.Response.ResponseID, &choice, aPlan)
 
 		for *nextStepIdx < len(aPlan.Steps) {
 			st := aPlan.Steps[*nextStepIdx]
@@ -356,19 +365,108 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 			if st.Type != "tool" {
 				continue
 			}
+			// De-dup by tool name + normalized args. Execute once; duplicates
+			// will synthesize tool calls after the first completes.
+			key := toolDedupKey(st.Name, st.Args)
+			if key != "" {
+				if ce, found := dedup[key]; found {
+					// Duplicate: wait for canonical to finish and then synthesize this call
+					step := st
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						<-ce.done
+						// Use cached result even if err != nil; completion flow records error fields.
+						_ = executil.SynthesizeToolStep(ctx, s.convClient, executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}, ce.result)
+					}()
+					continue
+				}
+				// First occurrence: create cache entry with done channel
+				dedup[key] = &cachedExec{done: make(chan struct{})}
+			}
 			wg.Add(1)
 			step := st
 			go func() {
 				defer wg.Done()
-				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args}
+				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
 				// Execute tool; even on error we let the LLM decide next steps.
 				// Errors are persisted on the tool call and exposed via tool result payload.
-				_, _, _ = executil.ExecuteToolStep(ctx, reg, stepInfo, s.convClient)
+				out, _, _ := executil.ExecuteToolStep(ctx, reg, stepInfo, s.convClient)
+				if key != "" {
+					if ce := dedup[key]; ce != nil {
+						ce.result = out.Result
+						close(ce.done)
+					}
+				}
 			}()
 		}
 		return nil
 	})
 	return id, stepErrCh
+}
+
+// toolDedupKey builds a stable key from tool name and arguments.
+// It canonicalizes map/array structures so logically equivalent args
+// produce identical keys independent of map iteration order.
+func toolDedupKey(name string, args map[string]interface{}) string {
+	b := &bytes.Buffer{}
+	b.WriteString(strings.TrimSpace(strings.ToLower(name)))
+	b.WriteString(":")
+	writeCanonical(args, b)
+	return b.String()
+}
+
+// writeCanonical appends a deterministic serialization of v to w.
+func writeCanonical(v interface{}, w *bytes.Buffer) {
+	switch t := v.(type) {
+	case nil:
+		w.WriteString("null")
+	case string:
+		w.WriteString("\"")
+		w.WriteString(t)
+		w.WriteString("\"")
+	case bool:
+		if t {
+			w.WriteString("true")
+		} else {
+			w.WriteString("false")
+		}
+	case float64:
+		// JSON numbers decode to float64
+		w.WriteString(fmt.Sprintf("%g", t))
+	case int, int32, int64:
+		w.WriteString(fmt.Sprintf("%v", t))
+	case map[string]interface{}:
+		// sort keys
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		w.WriteString("{")
+		for i, k := range keys {
+			if i > 0 {
+				w.WriteString(",")
+			}
+			w.WriteString("\"")
+			w.WriteString(k)
+			w.WriteString("\":")
+			writeCanonical(t[k], w)
+		}
+		w.WriteString("}")
+	case []interface{}:
+		w.WriteString("[")
+		for i, it := range t {
+			if i > 0 {
+				w.WriteString(",")
+			}
+			writeCanonical(it, w)
+		}
+		w.WriteString("]")
+	default:
+		// Fallback via fmt for other primitive types
+		w.WriteString(fmt.Sprintf("%v", t))
+	}
 }
 
 func (s *Service) extendPlanFromResponse(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) (bool, error) {
@@ -377,7 +475,7 @@ func (s *Service) extendPlanFromResponse(ctx context.Context, genOutput *core2.G
 	}
 	for j := range genOutput.Response.Choices {
 		choice := &genOutput.Response.Choices[j]
-		s.extendPlanWithToolCalls(choice, aPlan)
+		s.extendPlanWithToolCalls(genOutput.Response.ResponseID, choice, aPlan)
 	}
 	if len(aPlan.Steps) == 0 {
 		if err := s.extendPlanFromContent(ctx, genOutput, aPlan); err != nil {
@@ -387,7 +485,7 @@ func (s *Service) extendPlanFromResponse(ctx context.Context, genOutput *core2.G
 	return !aPlan.IsEmpty(), nil
 }
 
-func (s *Service) extendPlanWithToolCalls(choice *llm.Choice, aPlan *plan.Plan) {
+func (s *Service) extendPlanWithToolCalls(responseID string, choice *llm.Choice, aPlan *plan.Plan) {
 	if len(choice.Message.ToolCalls) == 0 {
 		return
 	}
@@ -417,11 +515,12 @@ func (s *Service) extendPlanWithToolCalls(choice *llm.Choice, aPlan *plan.Plan) 
 		}
 
 		steps = append(steps, plan.Step{
-			ID:     tc.ID,
-			Type:   "tool",
-			Name:   name,
-			Args:   args,
-			Reason: choice.Message.Content,
+			ID:         tc.ID,
+			Type:       "tool",
+			Name:       name,
+			Args:       args,
+			Reason:     choice.Message.Content,
+			ResponseID: strings.TrimSpace(responseID),
 		})
 	}
 	aPlan.Steps = append(aPlan.Steps, steps...)

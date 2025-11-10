@@ -135,9 +135,16 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 		if knowledge.URL == "" {
 			return nil, fmt.Errorf("agent %v knowledge URL is empty", anAgent.Name)
 		}
-		if url.IsRelative(knowledge.URL) && !url.IsRelative(srcURL) {
-			parentURL, _ := url.Split(srcURL, file.Scheme)
-			anAgent.Knowledge[i].URL = url.JoinUNC(parentURL, knowledge.URL)
+		// If URL has no scheme: if it’s absolute (drive/UNC/POSIX), convert to file:// URL.
+		// Otherwise resolve relative to agent source URL.
+		if url.Scheme(knowledge.URL, "") == "" {
+			u := strings.TrimSpace(knowledge.URL)
+			if !url.IsRelative(u) { // absolute OS path
+				anAgent.Knowledge[i].URL = url.ToFileURL(u)
+			} else if url.IsRelative(u) && !url.IsRelative(srcURL) {
+				parentURL, _ := url.Split(srcURL, file.Scheme)
+				anAgent.Knowledge[i].URL = url.JoinUNC(parentURL, u)
+			}
 		}
 		// Validate that knowledge path exists
 		if ok, _ := s.metaService.Exists(ctx, anAgent.Knowledge[i].URL); !ok {
@@ -150,9 +157,14 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 		if knowledge.URL == "" {
 			return nil, fmt.Errorf("agent %v system knowledge URL is empty", anAgent.Name)
 		}
-		if url.IsRelative(knowledge.URL) && !url.IsRelative(srcURL) {
-			parentURL, _ := url.Split(srcURL, file.Scheme)
-			anAgent.SystemKnowledge[i].URL = url.JoinUNC(parentURL, knowledge.URL)
+		if url.Scheme(knowledge.URL, "") == "" {
+			u := strings.TrimSpace(knowledge.URL)
+			if !url.IsRelative(u) {
+				anAgent.SystemKnowledge[i].URL = url.ToFileURL(u)
+			} else if url.IsRelative(u) && !url.IsRelative(srcURL) {
+				parentURL, _ := url.Split(srcURL, file.Scheme)
+				anAgent.SystemKnowledge[i].URL = url.JoinUNC(parentURL, u)
+			}
 		}
 		// Validate that system knowledge path exists
 		if ok, _ := s.metaService.Exists(ctx, anAgent.SystemKnowledge[i].URL); !ok {
@@ -202,6 +214,8 @@ func (s *Service) resolvePromptURIs(a *agentmdl.Agent) {
 		}
 	}
 }
+
+// (drive/UNC detection is handled by afs/url.IsRelative and ToFileURL)
 
 // normalizeAgent applies generic cleanups that make downstream behavior stable:
 // - trims trailing whitespace/newlines from prompt texts (agent and chains)

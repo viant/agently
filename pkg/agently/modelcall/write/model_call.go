@@ -144,6 +144,11 @@ func (m *ModelCall) SetProviderResponsePayloadID(v string) {
 	m.ensureHas()
 	m.Has.ProviderResponsePayloadID = true
 }
+func (m *ModelCall) SetTraceID(v string) {
+	m.TraceID = &v
+	m.ensureHas()
+	m.Has.TraceID = true
+}
 func (m *ModelCall) SetErrorMessage(v string) {
 	m.ErrorMessage = &v
 	m.ensureHas()

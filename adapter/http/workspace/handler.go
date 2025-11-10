@@ -387,17 +387,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				resolved = filepath.Join(resolved, subPath)
 			}
 		}
-		// Build URI for file-browser; ensure scheme is present so AFS treats as absolute
-		uri := resolved
-		if afsurl.Scheme(uri, "") == "" {
-			// Treat as local file path
-			if strings.HasPrefix(uri, string(filepath.Separator)) {
-				uri = "file://" + uri
-			} else {
-				// Relative paths shouldn’t happen here, but guard anyway
-				uri = afsurl.Join("file://", uri)
-			}
-		}
+		// Build URI for file-browser; ensure scheme is present and cross‑platform safe
+		uri := afsurl.ToFileURL(resolved)
 		// Redirect to the existing file-browser list endpoint to reuse its payload shape.
 		v := neturl.Values{}
 		v.Set("uri", uri)

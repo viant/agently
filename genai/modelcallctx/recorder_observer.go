@@ -140,6 +140,29 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 		o.client.PatchModelCall(ctx, modelCall)
 	}
 
+	// Attempt to detect provider response id early from OpenAI Responses events.
+	// We look for {"type":"response.created|response.completed","response":{"id":"..."}}.
+	var probe struct {
+		Type     string `json:"type"`
+		Response struct {
+			ID string `json:"id"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(data, &probe); err == nil {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(probe.Type)), "response.") && strings.TrimSpace(probe.Response.ID) != "" {
+			if strings.TrimSpace(msgID) != "" {
+				upd := apiconv.NewModelCall()
+				upd.SetMessageID(msgID)
+				upd.SetTraceID(strings.TrimSpace(probe.Response.ID))
+				_ = o.client.PatchModelCall(ctx, upd)
+				// Also cache in-memory per-turn for quick reuse
+				if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+					memory.SetTurnTrace(turn.TurnID, strings.TrimSpace(probe.Response.ID))
+				}
+			}
+		}
+	}
+
 	next := append(cur, data...)
 	if _, err := o.upsertInlinePayload(ctx, id, "model_stream", "text/plain", next); err != nil {
 		return fmt.Errorf("failed to update model stream: %w", err)
@@ -282,6 +305,13 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 				return err
 			}
 			upd.SetResponsePayloadID(respID)
+		}
+		// Set trace (provider response id) for continuation
+		if strings.TrimSpace(info.LLMResponse.ResponseID) != "" {
+			upd.SetTraceID(strings.TrimSpace(info.LLMResponse.ResponseID))
+			if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+				memory.SetTurnTrace(turn.TurnID, strings.TrimSpace(info.LLMResponse.ResponseID))
+			}
 		}
 	}
 	if len(info.ResponseJSON) > 0 {

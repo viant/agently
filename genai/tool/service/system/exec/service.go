@@ -23,7 +23,7 @@ import (
 )
 
 //go:embed doc/exec_spec.md
-var description string
+var description string // retained for human docs; not surfaced to LLM
 
 const Name = "system/exec"
 const timeoutCode = -101
@@ -178,7 +178,7 @@ func (s *Service) Name() string { return Name }
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{{
 		Name:        "execute",
-		Description: description,
+		Description: "Run shell commands on local host (no pipes). When using fs operation workdir is required",
 		Input:       reflect.TypeOf(&Input{}),
 		Output:      reflect.TypeOf(&Output{}),
 	}}

@@ -16,6 +16,8 @@ import (
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/prompt"
 
+	"os"
+
 	svc "github.com/viant/agently/genai/tool/service"
 )
 
@@ -196,6 +198,41 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	request, model, err := s.prepareGenerateRequest(ctx, input)
 	if err != nil {
 		return err
+	}
+
+	// Handle continuation-by-anchor in a dedicated helper for clarity.
+	if lr, handled, cerr := s.tryGenerateContinuationByAnchor(ctx, model, request); handled || cerr != nil {
+		if cerr != nil {
+			return cerr
+		}
+		output.Response = lr
+		if lr != nil {
+			var builder strings.Builder
+			for _, choice := range lr.Choices {
+				if len(choice.Message.ToolCalls) > 0 {
+					continue
+				}
+				if txt := strings.TrimSpace(choice.Message.Content); txt != "" {
+					builder.WriteString(txt)
+					continue
+				}
+				for _, item := range choice.Message.Items {
+					if item.Type != llm.ContentTypeText {
+						continue
+					}
+					if item.Data != "" {
+						builder.WriteString(item.Data)
+					} else if item.Text != "" {
+						builder.WriteString(item.Text)
+					}
+				}
+			}
+			output.Content = strings.TrimSpace(builder.String())
+			if msgID := memory.ModelMessageIDFromContext(ctx); msgID != "" {
+				output.MessageID = msgID
+			}
+		}
+		return nil
 	}
 
 	// Attach finish barrier to upstream ctx so recorder observer can signal completion (payload ids, usage).
@@ -409,6 +446,44 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		Messages: input.Message,
 		Options:  input.Options,
 	}
+
+	// If provider supports continuation by response id, only set it when the
+	// request carries tool results and all of them share a single anchor.
+	// This avoids mixing outputs from different response anchors and prevents
+	// "No tool output found for function call" errors.
+	if continuationEnabled(model, request.Options) {
+		if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+			// Collect anchors for all tool-result messages in this request
+			anchors := map[string]struct{}{}
+			totalTools := 0
+			missing := 0
+			// Resolve persisted traces for opIDs
+			traces := s.resolveToolCallTraces(ctx, turn.ConversationID)
+			for _, m := range request.Messages {
+				if strings.TrimSpace(m.ToolCallId) == "" && !strings.EqualFold(string(m.Role), "tool") {
+					continue
+				}
+				totalTools++
+				callID := strings.TrimSpace(m.ToolCallId)
+				anchor := strings.TrimSpace(traces[callID])
+				if anchor == "" {
+					missing++
+					continue
+				}
+				anchors[anchor] = struct{}{}
+			}
+			if totalTools > 0 && missing == 0 && len(anchors) == 1 {
+				// Safe: all tool results point to the same previous response
+				for a := range anchors {
+					request.PreviousResponseID = a
+				}
+			}
+			// Optional debug print remains concise
+			if os.Getenv("AGENTLY_DEBUG_OPENAI") == "1" && totalTools > 0 {
+				fmt.Printf("[openai] continuation debug: turn=%s selected_prev=%s total=%d missing=%d\n", turn.TurnID, request.PreviousResponseID, totalTools, missing)
+			}
+		}
+	}
 	return request, model, nil
 }
 
@@ -426,6 +501,103 @@ func (s *Service) updateFlags(input *GenerateInput, model llm.Model) {
 			input.Options.ParallelToolCalls = false
 		}
 	}
+}
+
+// tryGenerateContinuationByAnchor performs non-stream continuation calls grouped by
+// persisted TraceID (response.id) when enabled. It returns the last response,
+// a handled flag, and an error when a subcall fails.
+func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm.Model, request *llm.GenerateRequest) (*llm.GenerateResponse, bool, error) {
+	if !continuationEnabled(model, request.Options) {
+		return nil, false, nil
+	}
+	groups := map[string][]llm.Message{}
+	toolFound := false
+	var totalTools, missing int
+	var selectedPrev string
+	var turn memory.TurnMeta
+	var ok bool
+	if turn, ok = memory.TurnMetaFromContext(ctx); ok {
+		traces := s.resolveToolCallTraces(ctx, turn.ConversationID)
+		for _, m := range request.Messages {
+			if strings.TrimSpace(m.ToolCallId) == "" {
+				continue
+			}
+			totalTools++
+			callID := strings.TrimSpace(m.ToolCallId)
+			anchor := strings.TrimSpace(traces[callID])
+			if anchor == "" {
+				missing++
+				continue
+			}
+			toolFound = true
+			groups[anchor] = append(groups[anchor], m)
+		}
+	}
+	if !toolFound || len(groups) == 0 {
+		return nil, false, nil
+	}
+	if last := strings.TrimSpace(memory.TurnTrace(turn.TurnID)); last != "" {
+		if msgs, ok := groups[last]; ok {
+			only := map[string][]llm.Message{last: msgs}
+			groups = only
+			selectedPrev = last
+		}
+	}
+	if selectedPrev == "" && len(groups) == 1 {
+		for k := range groups {
+			selectedPrev = k
+		}
+	}
+	if os.Getenv("AGENTLY_DEBUG_OPENAI") == "1" && totalTools > 0 {
+		fmt.Printf("[openai] continuation debug: turn=%s selected_prev=%s groups=%d tools=%d missing=%d\n", turn.TurnID, selectedPrev, len(groups), totalTools, missing)
+	}
+	order := make([]string, 0, len(groups))
+	for k := range groups {
+		order = append(order, k)
+	}
+	sort.Strings(order)
+	var lastResp *llm.GenerateResponse
+	for _, anchor := range order {
+		msgs := groups[anchor]
+		sub := &llm.GenerateRequest{}
+		if request.Options != nil {
+			opts := *request.Options
+			sub.Options = &opts
+		}
+		sub.Messages = make([]llm.Message, len(msgs))
+		copy(sub.Messages, msgs)
+		sub.PreviousResponseID = anchor
+		resp, gerr := model.Generate(ctx, sub)
+		if gerr != nil {
+			// Fallback: on token limit, retry without tool calls and without previous_response_id
+			if isContextLimitError(gerr) {
+				fb := &llm.GenerateRequest{}
+				if request.Options != nil {
+					opts := *request.Options
+					fb.Options = &opts
+				}
+				// Filter out tool messages (role tool or with ToolCallId)
+				for _, m := range request.Messages {
+					if strings.EqualFold(string(m.Role), "tool") {
+						continue
+					}
+					if strings.TrimSpace(m.ToolCallId) != "" {
+						continue
+					}
+					fb.Messages = append(fb.Messages, m)
+				}
+				// Ensure no previous_response_id on fallback
+				fb.PreviousResponseID = ""
+				fresp, ferr := model.Generate(ctx, fb)
+				if ferr == nil {
+					return fresp, true, nil
+				}
+			}
+			return nil, true, fmt.Errorf("continuation subcall failed: %w", gerr)
+		}
+		lastResp = resp
+	}
+	return lastResp, true, nil
 }
 
 // enforceAttachmentPolicy removes or limits binary content items based on

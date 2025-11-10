@@ -10,7 +10,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/rwtodd/Go.Sed/sed"
+	sed "github.com/rwtodd/Go.Sed/sed"
 	apiconv "github.com/viant/agently/client/conversation"
 )
 
@@ -191,9 +191,13 @@ func applySedAll(b []byte, scripts []string) ([]byte, error) {
 	}
 	r := io.Reader(bytes.NewReader(b))
 	for _, sc := range scripts {
+		sc = strings.TrimSpace(sc)
+		if sc == "" {
+			continue
+		}
 		eng, err := sed.New(strings.NewReader(sc))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid sed program %q: %w", sc, err)
 		}
 		r = eng.Wrap(r)
 	}
