@@ -32,6 +32,13 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 	if i.Options.Reasoning == nil && agent.Reasoning != nil {
 		i.Options.Reasoning = agent.Reasoning
 	}
+
+	// Continuation-by-response-id: allow YAML to override only when explicitly set to false.
+	// We set Options.ContinuationEnabled=false so core continuationEnabled(...) can
+	// short-circuit when model supports the feature; omitted or true means no override.
+	if agent.SupportsContinuationByResponseID != nil && !*agent.SupportsContinuationByResponseID {
+		i.Options.ContinuationEnabled = agent.SupportsContinuationByResponseID
+	}
 	mode := "ref"
 	if agent.Attachment != nil {
 		if m := strings.TrimSpace(strings.ToLower(agent.Attachment.Mode)); m != "" {

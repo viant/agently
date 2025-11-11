@@ -15,6 +15,7 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
+	core "github.com/viant/agently/genai/service/core"
 )
 
 // Scanner buffer sizes for SSE processing
@@ -103,6 +104,19 @@ func (c *Client) canMultimodal() bool {
 
 // Generate sends a chat request to the OpenAI API and returns the response
 func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	continuationEnabled := false
+	if request != nil {
+		continuationEnabled = core.IsContinuationEnabled(c, request.Options)
+	}
+
+	if continuationEnabled {
+		return c.generateViaResponses(ctx, request)
+	}
+
+	return c.generateViaChatCompletion(ctx, request)
+}
+
+func (c *Client) generateViaResponses(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
 	if c.APIKey == "" {
 		return nil, fmt.Errorf("API key is required")
 	}
@@ -111,11 +125,11 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if err != nil {
 		return nil, err
 	}
-	payload, err := c.marshalRequestBody(req)
+	payload, err := c.marshalRequestBody(req, request)
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := c.createHTTPChatRequest(ctx, payload)
+	httpReq, err := c.createHTTPResponsesApiRequest(ctx, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -219,10 +233,22 @@ func (c *Client) prepareChatRequest(request *llm.GenerateRequest) (*Request, err
 	return req, nil
 }
 
-// marshalRequestBody builds the request body for the OpenAI Responses API
-// from our internal Request shape. The Responses API expects "input" messages
-// instead of the legacy chat "messages" and uses max_output_tokens, etc.
-func (c *Client) marshalRequestBody(req *Request) ([]byte, error) {
+// marshalRequestBody builds the request body for the OpenAI Responses API or legacy chat/completions API.
+func (c *Client) marshalRequestBody(req *Request, orig *llm.GenerateRequest) ([]byte, error) {
+	continuationEnabled := false
+	if orig != nil {
+		continuationEnabled = core.IsContinuationEnabled(c, orig.Options)
+	}
+
+	if continuationEnabled {
+		return c.marshalResponsesApiRequestBody(req)
+	}
+
+	return c.marshalChatCompletionApiRequestBody(req)
+}
+
+// marshalResponsesApiRequestBody marshals a Responses API payload from Request.
+func (c *Client) marshalResponsesApiRequestBody(req *Request) ([]byte, error) {
 	payload := ToResponsesPayload(req)
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -231,8 +257,8 @@ func (c *Client) marshalRequestBody(req *Request) ([]byte, error) {
 	return data, nil
 }
 
-// marshalChatCompletionBody marshals a legacy chat/completions payload from Request.
-func (c *Client) marshalChatCompletionBody(req *Request) ([]byte, error) {
+// marshalChatCompletionApiRequestBody marshals a legacy chat/completions payload from Request.
+func (c *Client) marshalChatCompletionApiRequestBody(req *Request) ([]byte, error) {
 	data, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal chat/completions request: %w", err)
@@ -240,12 +266,7 @@ func (c *Client) marshalChatCompletionBody(req *Request) ([]byte, error) {
 	return data, nil
 }
 
-func (c *Client) createHTTPChatRequest(ctx context.Context, data []byte) (*http.Request, error) {
-	// Backward-compat entry kept; delegate to responses endpoint now.
-	return c.createHTTPResponsesRequest(ctx, data)
-}
-
-func (c *Client) createHTTPResponsesRequest(ctx context.Context, data []byte) (*http.Request, error) {
+func (c *Client) createHTTPResponsesApiRequest(ctx context.Context, data []byte) (*http.Request, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/responses", bytes.NewBuffer(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
@@ -255,7 +276,7 @@ func (c *Client) createHTTPResponsesRequest(ctx context.Context, data []byte) (*
 	return httpReq, nil
 }
 
-func (c *Client) createHTTPChatCompletionsRequest(ctx context.Context, data []byte) (*http.Request, error) {
+func (c *Client) createHTTPChatCompletionsApiRequest(ctx context.Context, data []byte) (*http.Request, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewBuffer(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
@@ -285,21 +306,44 @@ func isContinuationError(body []byte) bool {
 func debugOpenAIEnabled() bool { return os.Getenv("AGENTLY_DEBUG_OPENAI") == "1" }
 func openaiNoFallback() bool   { return os.Getenv("AGENTLY_OPENAI_NO_FALLBACK") == "1" }
 
-func (c *Client) generateViaChatCompletion(ctx context.Context, req *Request, request *llm.GenerateRequest, observer mcbuf.Observer) (*llm.GenerateResponse, error) {
-	// Clone and scrub fields unsupported by chat/completions
-	req2 := *req
-	req2.PreviousResponseID = ""
-	req2.Stream = false
-	req2.StreamOptions = nil
+func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	if c.APIKey == "" {
+		return nil, fmt.Errorf("API key is required")
+	}
+	// Prepare request
+	req, err := c.prepareChatRequest(request)
+	if err != nil {
+		return nil, err
+	}
 
-	payload, err := c.marshalChatCompletionBody(&req2)
+	// Scrub fields unsupported by chat/completions
+	req.PreviousResponseID = ""
+	req.Stream = false
+	req.StreamOptions = nil
+
+	payload, err := c.marshalChatCompletionApiRequestBody(req)
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := c.createHTTPChatCompletionsRequest(ctx, payload)
+	httpReq, err := c.createHTTPChatCompletionsApiRequest(ctx, payload)
 	if err != nil {
 		return nil, err
 	}
+
+	// Observer start: include generic llm request as ResponsePayload JSON
+	observer := mcbuf.ObserverFromContext(ctx)
+	if observer != nil {
+		var genReqJSON []byte
+		if request != nil {
+			genReqJSON, _ = json.Marshal(request)
+		}
+		if newCtx, obErr := observer.OnCallStart(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", LLMRequest: request, RequestJSON: payload, Payload: genReqJSON, StartedAt: time.Now()}); obErr == nil {
+			ctx = newCtx
+		} else {
+			return nil, fmt.Errorf("observer OnCallStart (chat.completions) failed: %w", obErr)
+		}
+	}
+	// Execute – honor configured timeout when provided
 	if c.Timeout > 0 {
 		c.HTTPClient.Timeout = c.Timeout
 	} else {
@@ -307,27 +351,40 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, req *Request, re
 	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
+		// Ensure model-call is finalized for cancellation/error cases
 		if observer != nil {
 			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", CompletedAt: time.Now(), Err: err.Error()})
 		}
 		return nil, fmt.Errorf("failed to send chat.completions request: %w", err)
 	}
 	defer resp.Body.Close()
+
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read chat.completions response: %w", err)
+		return nil, fmt.Errorf("failed to read chat.completions response body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		/* TODO add this Response API like error handling if needed
+		// Bubble continuation errors – do not fallback/summarize
+		if isContinuationError(respBytes) {
+			if observer != nil {
+				_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Err: "continuation error"})
+			}
+			return nil, fmt.Errorf("openai continuation error: %s", string(respBytes))
+		}
+		*/
 		if observer != nil {
 			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Err: fmt.Sprintf("status %d", resp.StatusCode)})
 		}
-		return nil, fmt.Errorf("OpenAI Chat API error (status %d): %s", resp.StatusCode, respBytes)
+		return nil, fmt.Errorf("OpenAI Chat API (chat.completions) error (status %d): %s", resp.StatusCode, respBytes)
 	}
 	lr, perr := c.parseGenerateResponse(req.Model, respBytes)
+	// Observer end
 	if observer != nil {
 		info := mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now()}
 		if lr != nil {
 			info.Usage = lr.Usage
+			// capture finish reason from first choice if available
 			if len(lr.Choices) > 0 {
 				info.FinishReason = lr.Choices[0].FinishReason
 			}
@@ -336,7 +393,10 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, req *Request, re
 		if perr != nil {
 			info.Err = perr.Error()
 		}
-		_ = observer.OnCallEnd(ctx, info)
+
+		if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
+			return nil, fmt.Errorf("observer OnCallEnd failed (chat.completions): %w", obErr)
+		}
 	}
 	return lr, perr
 }
@@ -464,11 +524,18 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	req.Stream = true
 	// Ask OpenAI to include usage in the final stream event if supported
 	req.StreamOptions = &StreamOptions{IncludeUsage: true}
-	payload, err := c.marshalRequestBody(req)
+	payload, err := c.marshalRequestBody(req, request)
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := c.createHTTPResponsesRequest(ctx, payload)
+
+	var httpReq *http.Request
+	if core.IsContinuationEnabled(c, request.Options) {
+		httpReq, err = c.createHTTPResponsesApiRequest(ctx, payload)
+	} else {
+		httpReq, err = c.createHTTPChatCompletionsApiRequest(ctx, payload)
+	}
+
 	if err != nil {
 		return nil, err
 	}

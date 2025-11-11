@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 
+	_ "embed"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/embedder"
 	core "github.com/viant/agently/genai/service/core"
@@ -12,6 +13,17 @@ import (
 )
 
 const Name = "internal/message"
+
+var (
+	//go:embed tools/show.md
+	showDesc string
+	//go:embed tools/summarize.md
+	summarizeDesc string
+	//go:embed tools/match.md
+	matchDesc string
+	//go:embed tools/remove.md
+	removeDesc string
+)
 
 // Service provides internal message utilities (hidden from metadata/UI).
 type Service struct {
@@ -42,11 +54,11 @@ func (s *Service) Methods() svc.Signatures {
 	// for the Token‑Limit Presentation message. Normal cleanup should be
 	// LLM-driven via listCandidates + remove (and optionally summarize).
 	return []svc.Signature{
-		{Name: "show", Description: "Show a message body with optional transform, range and sed. Make sure that either range, transform or set is set - otherwise you would only see preview", Input: reflect.TypeOf(&ShowInput{}), Output: reflect.TypeOf(&ShowOutput{})},
-		{Name: "summarize", Description: "Produce concise, chunked summaries of a large message body plus a combined summary.", Input: reflect.TypeOf(&SummarizeInput{}), Output: reflect.TypeOf(&SummarizeOutput{})},
-		{Name: "match", Description: "Retrieve top-K semantically relevant fragments from a large message body using the configured embedding model and cover-tree search.", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
+		{Name: "show", Description: showDesc, Input: reflect.TypeOf(&ShowInput{}), Output: reflect.TypeOf(&ShowOutput{})},
+		{Name: "summarize", Description: summarizeDesc, Input: reflect.TypeOf(&SummarizeInput{}), Output: reflect.TypeOf(&SummarizeOutput{})},
+		{Name: "match", Description: matchDesc, Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
 		{Name: "listCandidates", Description: "List removable messages with byte/token size and concise preview.", Input: reflect.TypeOf(&ListCandidatesInput{}), Output: reflect.TypeOf(&ListCandidatesOutput{})},
-		{Name: "remove", Description: "Create a summary message and archive selected messages (soft-remove).", Input: reflect.TypeOf(&RemoveInput{}), Output: reflect.TypeOf(&RemoveOutput{})},
+		{Name: "remove", Description: removeDesc, Input: reflect.TypeOf(&RemoveInput{}), Output: reflect.TypeOf(&RemoveOutput{})},
 	}
 }
 
