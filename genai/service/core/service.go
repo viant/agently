@@ -132,6 +132,13 @@ func continuationEnabled(model llm.Model, opts *llm.Options) bool {
 	return *opts.ContinuationEnabled
 }
 
+// IsContinuationEnabled is an exported wrapper for continuationEnabled so that
+// other packages (e.g., providers) can check whether continuation-by-response-id
+// should be considered for a given model and options.
+func IsContinuationEnabled(model llm.Model, opts *llm.Options) bool {
+	return continuationEnabled(model, opts)
+}
+
 // AttachmentUsage returns cumulative attachment bytes recorded for a conversation.
 func (s *Service) AttachmentUsage(convID string) int64 {
 	if s == nil || s.attachUsage == nil || strings.TrimSpace(convID) == "" {

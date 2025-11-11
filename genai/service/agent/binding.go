@@ -103,6 +103,9 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 
 	}
 
+	// Append internal tools needed for continuation flows (no duplicates)
+	s.ensureInternalToolsIfNeeded(ctx, input, b)
+
 	docs, err := s.buildDocumentsBinding(ctx, input, false)
 	if err != nil {
 		return nil, err
@@ -293,6 +296,64 @@ func (s *Service) appendCallToolResultGuide(ctx context.Context, b *prompt.Bindi
 			doc := &prompt.Document{Title: title, PageContent: string(data), SourceURI: uri, MimeType: "text/markdown"}
 			b.SystemDocuments.Items = append(b.SystemDocuments.Items, doc)
 		}
+	}
+}
+
+// ensureInternalToolsIfNeeded appends internal/message tools that are used during
+// continuation-by-response-id flows so that the model can reference them when
+// continuing a prior response. Tools are appended only when the selected model
+// supports continuation. Duplicates are avoided by canonical name.
+func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryInput, b *prompt.Binding) {
+	if s == nil || s.registry == nil || b == nil {
+		return
+	}
+	modelName := strings.TrimSpace(b.Model)
+	if modelName == "" {
+		return
+	}
+
+	// Approximate continuationEnabled: require provider support for continuation.
+	if !s.llm.ModelImplements(ctx, modelName, base.SupportsContinuationByResponseID) {
+		return
+	}
+
+	if input.Agent.SupportsContinuationByResponseID != nil && !*input.Agent.SupportsContinuationByResponseID {
+		return
+	}
+
+	// Build set of existing tool names to avoid duplicates
+	have := map[string]bool{}
+	for _, sig := range b.Tools.Signatures {
+		if sig == nil {
+			continue
+		}
+		have[mcpname.Canonical(sig.Name)] = true
+	}
+
+	// Collect internal/message tool definitions and append a consistent subset used in overflow handling
+	// We include: show, summarize, match, remove (the union of tools referenced in handleOverflow).
+	defs := s.registry.MatchDefinition("internal/message")
+	wanted := map[string]bool{"show": true, "summarize": true, "match": true, "remove": true}
+	for _, d := range defs {
+		if d == nil {
+			continue
+		}
+		name := mcpname.Canonical(d.Name)
+		// Derive method suffix
+		method := name
+		if i := strings.LastIndexAny(name, ":-"); i != -1 && i+1 < len(name) {
+			method = name[i+1:]
+		}
+		if !wanted[method] {
+			continue
+		}
+		if have[name] {
+			continue
+		}
+		dd := *d
+		dd.Name = name
+		b.Tools.Signatures = append(b.Tools.Signatures, &dd)
+		have[name] = true
 	}
 }
 

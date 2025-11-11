@@ -1,0 +1,1 @@
+Show a message body with optional transform, range and sed. Make sure that either range, transform or set is set - otherwise you would only see preview
