@@ -54,6 +54,12 @@ func (s *Service) Execute(ctx context.Context, input *Input, output *Output) err
 			return fmt.Errorf("workdir is required for %s", cmd)
 		}
 	}
+	if input.Workdir == "." {
+		if cmd := input.HasFSCommand(); cmd != "" {
+			return fmt.Errorf("absolute path in workdir is required for %s", cmd)
+		}
+	}
+
 	if input.Workdir != "" {
 		_, _, err := session.service.Run(ctx, fmt.Sprintf("cd %s", input.Workdir))
 		if err != nil {
