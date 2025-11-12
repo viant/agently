@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -172,6 +173,7 @@ func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *
 
 func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutput *QueryOutput) error {
 	var err error
+	iter := 0
 
 	turn, ok := memory.TurnMetaFromContext(ctx)
 	if !ok {
@@ -180,11 +182,17 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 
 	input.RequestTime = time.Now()
 	for {
+		iter++
 		binding, bErr := s.BuildBinding(ctx, input)
 		if bErr != nil {
 			return bErr
 		}
-
+		// Context keys snapshot
+		keys := []string{}
+		for k := range binding.Context {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
 		modelSelection := input.Agent.ModelSelection
 		if input.ModelOverride != "" {
 			modelSelection.Model = input.ModelOverride

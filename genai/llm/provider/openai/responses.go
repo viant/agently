@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/viant/agently/genai/llm"
@@ -97,26 +98,18 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 		return &ResponsesPayload{}
 	}
 	out := &ResponsesPayload{
-		Model:             req.Model,
-		Temperature:       req.Temperature,
-		MaxOutputTokens:   req.MaxTokens,
-		TopP:              req.TopP,
-		N:                 req.N,
-		Stream:            req.Stream,
-		ToolChoice:        req.ToolChoice,
-		ParallelToolCalls: req.ParallelToolCalls,
-		Reasoning:         req.Reasoning,
+		Model:              req.Model,
+		Temperature:        req.Temperature,
+		MaxOutputTokens:    req.MaxTokens,
+		TopP:               req.TopP,
+		N:                  req.N,
+		Stream:             req.Stream,
+		ToolChoice:         req.ToolChoice,
+		ParallelToolCalls:  req.ParallelToolCalls,
+		Reasoning:          req.Reasoning,
+		PreviousResponseID: req.PreviousResponseID,
 	}
-	if strings.TrimSpace(req.PreviousResponseID) != "" {
-		out.PreviousResponseID = strings.TrimSpace(req.PreviousResponseID)
-	}
-	// Optional: allow caller to enable server-side storage via metadata["store"].
-	// Supported values: true | "true" | 1
-	if reqModelHasStore := true; reqModelHasStore { // feature-gate placeholder
-		// try to read from llm options metadata in the original request, if present via ToolChoice etc.
-		// We can't access original llm.GenerateRequest here, but upstream sets metadata on Request? Not available.
-		// Keep as no-op unless wired through later.
-	}
+
 	// Normalize tool_choice for Responses API: {type:"function", name:"..."}
 	if m, ok := req.ToolChoice.(map[string]interface{}); ok {
 		if t, _ := m["type"].(string); strings.EqualFold(t, "function") {
@@ -145,41 +138,14 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 
 	// Convert Messages to Input content
 	out.Input = make([]interface{}, 0, len(req.Messages))
-
-	// Continuation mode: when previous_response_id is present, only emit
-	// function_call_output items for tool results. Ignore all other messages
-	// to avoid duplicating history or causing validation issues.
-	if strings.TrimSpace(req.PreviousResponseID) != "" {
-		for _, m := range req.Messages {
-			if strings.TrimSpace(m.ToolCallId) == "" && strings.ToLower(m.Role) != "tool" {
-				continue
-			}
-			var outTxt string
-			switch content := m.Content.(type) {
-			case string:
-				outTxt = strings.TrimSpace(content)
-			case []ContentItem:
-				var sb strings.Builder
-				for _, it := range content {
-					if it.Text != "" {
-						sb.WriteString(it.Text)
-					}
-				}
-				outTxt = strings.TrimSpace(sb.String())
-			}
-			if strings.TrimSpace(m.ToolCallId) != "" && outTxt != "" {
-				out.Input = append(out.Input, ResponsesContentItem{Type: "function_call_output", CallID: m.ToolCallId, Output: outTxt})
-			}
-		}
-		return out
-	}
-
 	for _, m := range req.Messages {
 		role := strings.TrimSpace(m.Role)
-		if role == "tool" {
+		isTool := role == "tool"
+		if isTool {
 			// Responses API does not accept role "tool"; map to user.
 			role = "user"
 		}
+
 		isAssistant := role == "assistant"
 		var items []ResponsesContentItem
 
@@ -201,6 +167,7 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 			// Only emit function_call_output when continuing a stored response
 			if strings.TrimSpace(req.PreviousResponseID) != "" && strings.TrimSpace(m.ToolCallId) != "" && outTxt != "" {
 				out.Input = append(out.Input, ResponsesContentItem{Type: "function_call_output", CallID: m.ToolCallId, Output: outTxt})
+				fmt.Printf("[openai] input.add function_call_output call_id=%s len=%d (normal-map)\n", strings.TrimSpace(m.ToolCallId), len(outTxt))
 				continue
 			}
 			// Otherwise fall through to normal message mapping (as input_text),

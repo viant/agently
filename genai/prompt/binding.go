@@ -1,8 +1,12 @@
 package prompt
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
+	"encoding/json"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/viant/agently/genai/llm"
 )
@@ -55,8 +59,20 @@ type (
 	History struct {
 		Messages        []*Message `yaml:"messages,omitempty" json:"messages,omitempty"`
 		UserElicitation []*Message `yaml:"userElicitation" json:"userElicitation"`
+		LastResponse    *Trace
+		Traces          map[string]*Trace
 	}
+)
 
+type Kind string
+
+const (
+	KindResponse Kind = "resp"
+	KindToolCall Kind = "op"
+	KindContent  Kind = "content"
+)
+
+type (
 	Task struct {
 		Prompt      string        `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 		Attachments []*Attachment `yaml:"attachments,omitempty" json:"attachments,omitempty"`
@@ -92,7 +108,70 @@ type (
 		// SchemaJSON is a pre-serialized JSON of Schema for templates without JSON helpers
 		SchemaJSON string `yaml:"schemaJSON,omitempty" json:"schemaJSON,omitempty"`
 	}
+
+	Trace struct {
+		ID   string
+		Kind Kind
+		At   time.Time
+	}
 )
+
+// IsValid reports whether the trace carries a usable anchor.
+// A valid anchor must have a non-zero time; ID may be empty when
+// provider continuation by response id is not used.
+func (t *Trace) IsValid() bool {
+	return t != nil && !t.At.IsZero()
+}
+
+// Kind helpers
+func (k Kind) IsToolCall() bool {
+	return strings.EqualFold(strings.TrimSpace(string(k)), string(KindToolCall))
+}
+func (k Kind) IsResponse() bool {
+	return strings.EqualFold(strings.TrimSpace(string(k)), string(KindResponse))
+}
+func (k Kind) IsContent() bool {
+	return strings.EqualFold(strings.TrimSpace(string(k)), string(KindContent))
+}
+
+// Key produces a stable map key for the given raw value based on the Kind.
+// - For KindResponse and KindToolCall, it trims whitespace and returns the id/opId.
+// - For KindContent, it derives a hash key from normalized content.
+func (k Kind) Key(raw string) string {
+	switch {
+	case k.IsContent():
+		return "content:" + MakeContentKey(raw)
+	case k.IsToolCall():
+		return "tool:" + strings.TrimSpace(raw)
+	case k.IsResponse():
+		return "resp:" + strings.TrimSpace(raw)
+	default:
+		return strings.TrimSpace(raw)
+	}
+}
+
+// NormalizeContent trims whitespace and, if content is valid JSON, returns
+// its minified canonical form.
+func NormalizeContent(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	var tmp interface{}
+	if json.Unmarshal([]byte(s), &tmp) == nil {
+		if b, err := json.Marshal(tmp); err == nil {
+			return string(b)
+		}
+	}
+	return s
+}
+
+// MakeContentKey builds a stable key for text contents by hashing normalized content.
+func MakeContentKey(content string) string {
+	norm := NormalizeContent(content)
+	h := sha1.Sum([]byte(norm))
+	return hex.EncodeToString(h[:])
+}
 
 func (b *Binding) SystemBinding() *Binding {
 	clone := *b

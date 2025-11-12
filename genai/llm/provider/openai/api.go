@@ -136,8 +136,8 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 
 	// Observer start: include generic llm request as ResponsePayload JSON
 	observer := mcbuf.ObserverFromContext(ctx)
+	var genReqJSON []byte
 	if observer != nil {
-		var genReqJSON []byte
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
@@ -153,6 +153,7 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 	} else {
 		c.HTTPClient.Timeout = 10 * time.Minute
 	}
+
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
 		// Ensure model-call is finalized for cancellation/error cases
@@ -332,8 +333,8 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 
 	// Observer start: include generic llm request as ResponsePayload JSON
 	observer := mcbuf.ObserverFromContext(ctx)
+	var genReqJSON []byte
 	if observer != nil {
-		var genReqJSON []byte
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
@@ -542,8 +543,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	httpReq.Header.Set("Accept", "text/event-stream")
 	// Observer start
 	observer := mcbuf.ObserverFromContext(ctx)
+	var genReqJSON []byte
+
 	if observer != nil {
-		var genReqJSON []byte
 		if request != nil {
 			genReqJSON, _ = json.Marshal(request)
 		}
@@ -557,6 +559,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if c.Timeout > 0 {
 		c.HTTPClient.Timeout = c.Timeout
 	}
+
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
 		if observer != nil {

@@ -81,11 +81,8 @@ func New(finder llm.Finder, registry tool.Registry, convClient apiconv.Client) *
 	return &Service{llmFinder: finder, registry: registry, convClient: convClient, fs: afs.New(), modelMatcher: matcher, attachUsage: map[string]int64{}}
 }
 
-// resolveToolCallTraces builds a map of tool op_id -> TraceID (provider response.id)
-// by reading the conversation transcript with tool calls included. Errors are
-// swallowed and result in an empty map to keep core generation tolerant.
-func (s *Service) resolveToolCallTraces(ctx context.Context, conversationID string) map[string]string {
-	out := map[string]string{}
+func (s *Service) resolveTraces(ctx context.Context, conversationID string) apiconv.IndexedMessages {
+	out := map[string]*apiconv.Message{}
 	if s == nil || s.convClient == nil || strings.TrimSpace(conversationID) == "" {
 		return out
 	}
@@ -94,13 +91,25 @@ func (s *Service) resolveToolCallTraces(ctx context.Context, conversationID stri
 	if err != nil || resp == nil || resp.Conversation == nil {
 		return out
 	}
-	tr := resp.Conversation.GetTranscript()
-	for _, turn := range tr {
+	turns := resp.Conversation.GetTranscript()
+	for _, turn := range turns {
 		if turn == nil || turn.Message == nil {
 			continue
 		}
-		for _, m := range turn.Message {
-			if m == nil || m.ToolCall == nil {
+		for _, m := range turn.GetMessages() {
+			if m.ModelCall != nil {
+				if m.ModelCall.TraceId == nil {
+					continue
+				}
+				out[*m.ModelCall.TraceId] = m
+				continue
+			}
+			if m.ModelCall == nil && m.ToolCall == nil && m.Content != nil {
+				out[*m.Content] = m
+				continue
+			}
+
+			if m.ToolCall == nil {
 				continue
 			}
 			opID := strings.TrimSpace(m.ToolCall.OpId)
@@ -109,7 +118,7 @@ func (s *Service) resolveToolCallTraces(ctx context.Context, conversationID stri
 			}
 			if m.ToolCall.TraceId != nil {
 				if v := strings.TrimSpace(*m.ToolCall.TraceId); v != "" {
-					out[opID] = v
+					out[opID] = m
 				}
 			}
 		}

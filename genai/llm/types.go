@@ -218,6 +218,12 @@ type Usage struct {
 	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
 }
 
+type Messages []Message
+
+func (m *Messages) Append(msg Message) {
+	*m = append(*m, msg)
+}
+
 // NewUserMessage creates a new message with the "user" role.
 // NewUserMessage creates a new message with the "user" role.
 func NewUserMessage(content string) Message {

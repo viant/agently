@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"time"
 )
 
 func (m *Message) IsInterim() bool {
@@ -56,6 +57,49 @@ func (m *Message) ToolCallArguments() map[string]interface{} {
 }
 
 type Messages []*Message
+
+type IndexedMessages map[string]*Message
+
+// BuildMatchIndex returns a set of tool-call opIds that should be
+// included for a continuation anchored at anchorID/anchorTime.
+func (n IndexedMessages) BuildMatchIndex(anchorID string, anchorTime time.Time) map[string]bool {
+	out := map[string]bool{}
+	for opID, tmsg := range n {
+		if tmsg == nil {
+			continue
+		}
+		if tmsg.ToolCall != nil && tmsg.ToolCall.TraceId != nil {
+			if matchByID := strings.TrimSpace(*tmsg.ToolCall.TraceId) == strings.TrimSpace(anchorID); matchByID {
+				out[opID] = true
+			}
+			continue
+		}
+
+		matchByTime := tmsg.CreatedAt.After(anchorTime)
+		if matchByTime && tmsg.Content != nil {
+			out[*tmsg.Content] = true
+		}
+	}
+	return out
+}
+
+// LatestByCreatedAt returns the last non-nil message by CreatedAt timestamp.
+// When messages are empty or all nil, it returns nil.
+func (m Messages) LatestByCreatedAt() *Message {
+	if len(m) == 0 {
+		return nil
+	}
+	var latest *Message
+	for _, v := range m {
+		if v == nil {
+			continue
+		}
+		if latest == nil || v.CreatedAt.After(latest.CreatedAt) {
+			latest = v
+		}
+	}
+	return latest
+}
 
 // SortByCreatedAt sorts the messages in-place by CreatedAt.
 // When asc is true, earlier messages come first; otherwise latest first.
