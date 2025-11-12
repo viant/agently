@@ -1,13 +1,11 @@
 package orchestrator
 
 import (
-	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -342,14 +340,8 @@ func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) 
 func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) (string, <-chan error) {
 	var mux sync.Mutex
 	stepErrCh := make(chan error, 1)
-	// Per-turn de-duplication: execute once per (tool+args) key and fan-out
-	// the same result to subsequent identical call_ids.
-	type cachedExec struct {
-		result string
-		err    error
-		done   chan struct{}
-	}
-	dedup := map[string]*cachedExec{}
+	// Execute steps in order; do not de-duplicate by tool/args.
+	// Duplicated tool steps will each execute independently.
 	var stopped atomic.Bool
 	id := stream.Register(func(ctx context.Context, event *llm.StreamEvent) error {
 		if stopped.Load() {
@@ -380,25 +372,8 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 			if st.Type != "tool" {
 				continue
 			}
-			// De-dup by tool name + normalized args. Execute once; duplicates
-			// will synthesize tool calls after the first completes.
-			key := toolDedupKey(st.Name, st.Args)
-			if key != "" {
-				if ce, found := dedup[key]; found {
-					// Duplicate: wait for canonical to finish and then synthesize this call
-					step := st
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
-						<-ce.done
-						// Use cached result even if err != nil; completion flow records error fields.
-						_ = executil.SynthesizeToolStep(ctx, s.convClient, executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}, ce.result)
-					}()
-					continue
-				}
-				// First occurrence: create cache entry with done channel
-				dedup[key] = &cachedExec{done: make(chan struct{})}
-			}
+			// Previously we de-duplicated by tool name + canonical args and fanned-out
+			// the result. We now always execute each step.
 			wg.Add(1)
 			step := st
 			go func() {
@@ -406,13 +381,8 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
 				// Execute tool; even on error we let the LLM decide next steps.
 				// Errors are persisted on the tool call and exposed via tool result payload.
-				out, _, _ := executil.ExecuteToolStep(ctx, reg, stepInfo, s.convClient)
-				if key != "" {
-					if ce := dedup[key]; ce != nil {
-						ce.result = out.Result
-						close(ce.done)
-					}
-				}
+				_, _, _ = executil.ExecuteToolStep(ctx, reg, stepInfo, s.convClient)
+				// No per-turn de-duplication; each duplicate runs independently.
 			}()
 		}
 		return nil
@@ -423,66 +393,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 // toolDedupKey builds a stable key from tool name and arguments.
 // It canonicalizes map/array structures so logically equivalent args
 // produce identical keys independent of map iteration order.
-func toolDedupKey(name string, args map[string]interface{}) string {
-	b := &bytes.Buffer{}
-	b.WriteString(strings.TrimSpace(strings.ToLower(name)))
-	b.WriteString(":")
-	writeCanonical(args, b)
-	return b.String()
-}
-
-// writeCanonical appends a deterministic serialization of v to w.
-func writeCanonical(v interface{}, w *bytes.Buffer) {
-	switch t := v.(type) {
-	case nil:
-		w.WriteString("null")
-	case string:
-		w.WriteString("\"")
-		w.WriteString(t)
-		w.WriteString("\"")
-	case bool:
-		if t {
-			w.WriteString("true")
-		} else {
-			w.WriteString("false")
-		}
-	case float64:
-		// JSON numbers decode to float64
-		w.WriteString(fmt.Sprintf("%g", t))
-	case int, int32, int64:
-		w.WriteString(fmt.Sprintf("%v", t))
-	case map[string]interface{}:
-		// sort keys
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		w.WriteString("{")
-		for i, k := range keys {
-			if i > 0 {
-				w.WriteString(",")
-			}
-			w.WriteString("\"")
-			w.WriteString(k)
-			w.WriteString("\":")
-			writeCanonical(t[k], w)
-		}
-		w.WriteString("}")
-	case []interface{}:
-		w.WriteString("[")
-		for i, it := range t {
-			if i > 0 {
-				w.WriteString(",")
-			}
-			writeCanonical(it, w)
-		}
-		w.WriteString("]")
-	default:
-		// Fallback via fmt for other primitive types
-		w.WriteString(fmt.Sprintf("%v", t))
-	}
-}
+// (dedup helpers removed; duplicates are now executed independently)
 
 func (s *Service) extendPlanFromResponse(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) (bool, error) {
 	if genOutput.Response == nil || len(genOutput.Response.Choices) == 0 {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
+	"github.com/viant/agently/genai/agent/plan"
 	elact "github.com/viant/agently/genai/elicitation/action"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
@@ -234,6 +235,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 		queryOutput.Plan = aPlan
 
+		// Detect duplicated tool steps in the plan and attach warnings to the turn context.
+		s.warnOnDuplicateSteps(ctx, aPlan)
+
 		// Handle elicitation inside the loop as a single-turn interaction.
 		if aPlan.Elicitation != nil {
 			ectx := ctx
@@ -280,6 +284,66 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		// Otherwise, continue loop to allow the orchestrator to perform next step
 	}
 	return err
+}
+
+// warnOnDuplicateSteps scans a plan for duplicate tool steps (same name and canonicalised args)
+// and appends a warning to the per-turn warnings collector. It does not modify the plan.
+func (s *Service) warnOnDuplicateSteps(ctx context.Context, p *plan.Plan) {
+	if p == nil || len(p.Steps) == 0 {
+		return
+	}
+	type key struct{ Name, Args string }
+	seen := map[key]struct{}{}
+	for _, st := range p.Steps {
+		if strings.TrimSpace(st.Type) != "tool" {
+			continue
+		}
+		k := key{Name: strings.TrimSpace(st.Name), Args: canonicalArgsForWarning(st.Args)}
+		if _, ok := seen[k]; ok {
+			appendWarning(ctx, fmt.Sprintf("duplicate tool step detected: %s %s", k.Name, k.Args))
+			continue
+		}
+		seen[k] = struct{}{}
+	}
+}
+
+// canonicalArgsForWarning returns a deterministic JSON string for args to detect duplicates.
+// This local copy avoids importing internal packages; it is intentionally minimal and only
+// used for warnings (not for execution decisions).
+func canonicalArgsForWarning(args map[string]interface{}) string {
+	if len(args) == 0 {
+		return "{}"
+	}
+	var canonicalize func(v interface{}) interface{}
+	canonicalize = func(v interface{}) interface{} {
+		switch tv := v.(type) {
+		case map[string]interface{}:
+			if len(tv) == 0 {
+				return map[string]interface{}{}
+			}
+			keys := make([]string, 0, len(tv))
+			for k := range tv {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			out := make(map[string]interface{}, len(tv))
+			for _, k := range keys {
+				out[k] = canonicalize(tv[k])
+			}
+			return out
+		case []interface{}:
+			arr := make([]interface{}, len(tv))
+			for i, el := range tv {
+				arr[i] = canonicalize(el)
+			}
+			return arr
+		default:
+			return tv
+		}
+	}
+	canon := canonicalize(args)
+	b, _ := json.Marshal(canon)
+	return string(b)
 }
 
 // waitForElicitation registers a waiter on the elicitation router and optionally

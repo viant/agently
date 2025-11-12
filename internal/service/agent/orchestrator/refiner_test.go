@@ -26,7 +26,7 @@ func TestRefinePlan(t *testing.T) {
 		expected plan.Steps
 	}{
 		{
-			name:  "in-plan duplicate removed, keep first occurrence",
+			name:  "in-plan duplicate retained (warning emitted elsewhere)",
 			prior: nil,
 			steps: plan.Steps{
 				mkStep("grep", map[string]interface{}{"q": "foo"}),
@@ -36,6 +36,7 @@ func TestRefinePlan(t *testing.T) {
 			expected: plan.Steps{
 				mkStep("grep", map[string]interface{}{"q": "foo"}),
 				mkStep("curl", map[string]interface{}{"url": "http://example.com"}),
+				mkStep("grep", map[string]interface{}{"q": "foo"}),
 			},
 		},
 		{
