@@ -37,7 +37,7 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 	// We set Options.ContinuationEnabled=false so core continuationEnabled(...) can
 	// short-circuit when model supports the feature; omitted or true means no override.
 	if agent.SupportsContinuationByResponseID != nil && !*agent.SupportsContinuationByResponseID {
-		i.Options.ContinuationEnabled = agent.SupportsContinuationByResponseID
+		i.Options.ContinuationEnabled = *agent.SupportsContinuationByResponseID
 	}
 	mode := "ref"
 	if agent.Attachment != nil {
