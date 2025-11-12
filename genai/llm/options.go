@@ -78,7 +78,7 @@ type Options struct {
 	// ContinuationEnabled explicitly enables/disables provider continuation
 	// via previous_response_id for models that support it. When nil, it
 	// defaults to enabled if the model supports continuation.
-	ContinuationEnabled *bool `json:"continuationEnabled,omitempty" yaml:"continuationEnabled,omitempty"`
+	ContinuationEnabled bool `json:"continuationEnabled,omitempty" yaml:"continuationEnabled,omitempty"`
 }
 
 type Thinking struct {
