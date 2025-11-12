@@ -16,11 +16,6 @@ import (
 var Version = agently.Version
 
 func main() {
-
-	os.Setenv("AGENTLY_DEBUG", "BINDING,ELICITATION,CHAT")
-	os.Setenv("AGENTLY_WORKSPACE", "/Users/awitas/go/src/github.com/viant/agently/ag")
-	os.Args = []string{"", "serve", "-a", ":8082"}
-
 	// Expose version to the CLI layer so `-v/--version` can print it.
 	cagently.SetVersion(Version)
 	cagently.RunWithCommands(os.Args[1:])
