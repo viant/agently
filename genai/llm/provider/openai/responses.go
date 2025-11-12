@@ -37,10 +37,11 @@ type ResponsesInput struct {
 }
 
 type ResponsesContentItem struct {
-	Type     string             `json:"type"`
-	Text     string             `json:"text,omitempty"`
-	ImageURL *ResponsesImageURL `json:"image_url,omitempty"`
-	File     *File              `json:"file,omitempty"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+	File     *File  `json:"file,omitempty"`
 	// Function call output back to the model
 	CallID string `json:"call_id,omitempty"`
 	Output string `json:"output,omitempty"`
@@ -200,7 +201,7 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 						if it.ImageURL != nil {
 							url = it.ImageURL.URL
 						}
-						items = append(items, ResponsesContentItem{Type: "input_image", ImageURL: &ResponsesImageURL{URL: url, Detail: detail}})
+						items = append(items, ResponsesContentItem{Type: "input_image", ImageURL: url, Detail: detail})
 					case "file":
 						if it.File != nil {
 							items = append(items, ResponsesContentItem{Type: "input_file", File: it.File})
@@ -238,7 +239,7 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 								}
 							}
 							if url != "" {
-								items = append(items, ResponsesContentItem{Type: "input_image", ImageURL: &ResponsesImageURL{URL: url, Detail: detail}})
+								items = append(items, ResponsesContentItem{Type: "input_image", ImageURL: url, Detail: detail})
 							}
 						}
 					}
