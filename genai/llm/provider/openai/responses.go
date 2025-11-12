@@ -2,7 +2,6 @@ package openai
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/viant/agently/genai/llm"
@@ -167,8 +166,15 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 			}
 			// Only emit function_call_output when continuing a stored response
 			if strings.TrimSpace(req.PreviousResponseID) != "" && strings.TrimSpace(m.ToolCallId) != "" && outTxt != "" {
+				outTxt = strings.TrimSpace(outTxt)
+				if !(strings.HasPrefix(outTxt, "{") || strings.HasPrefix(outTxt, "[")) {
+					var data = map[string]interface{}{
+						"data": outTxt,
+					}
+					payload, _ := json.Marshal(data)
+					outTxt = string(payload)
+				}
 				out.Input = append(out.Input, ResponsesContentItem{Type: "function_call_output", CallID: m.ToolCallId, Output: outTxt})
-				fmt.Printf("[openai] input.add function_call_output call_id=%s len=%d (normal-map)\n", strings.TrimSpace(m.ToolCallId), len(outTxt))
 				continue
 			}
 			// Otherwise fall through to normal message mapping (as input_text),
