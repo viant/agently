@@ -82,9 +82,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 		if err == nil {
 			break
 		}
-		if continuationRequest != nil {
-			streamCh, err = streamer.Stream(ctx, req)
-		}
+
 		if isContextLimitError(err) {
 			return cleanup, fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
 		}
