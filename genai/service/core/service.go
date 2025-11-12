@@ -135,10 +135,7 @@ func continuationEnabled(model llm.Model, opts *llm.Options) bool {
 	if !model.Implements(base.SupportsContinuationByResponseID) {
 		return false
 	}
-	if opts == nil || opts.ContinuationEnabled == nil {
-		return true
-	}
-	return *opts.ContinuationEnabled
+	return opts.ContinuationEnabled
 }
 
 // IsContinuationEnabled is an exported wrapper for continuationEnabled so that
