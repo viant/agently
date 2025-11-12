@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -15,9 +16,6 @@ import (
 	"github.com/viant/agently/genai/memory"
 	modelcallctx "github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/prompt"
-
-	"os"
-
 	svc "github.com/viant/agently/genai/tool/service"
 )
 
@@ -139,6 +137,18 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 	if len(i.Binding.History.UserElicitation) > 0 {
 		for _, elicitationMsg := range i.Binding.History.UserElicitation {
 			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole(elicitationMsg.Role), elicitationMsg.Content))
+			// Debug: keys or a short sample
+			content := strings.TrimSpace(elicitationMsg.Content)
+			keys := []string{}
+			if content != "" && strings.HasPrefix(content, "{") {
+				var tmp map[string]interface{}
+				if err := json.Unmarshal([]byte(content), &tmp); err == nil {
+					for k := range tmp {
+						keys = append(keys, k)
+					}
+					sort.Strings(keys)
+				}
+			}
 		}
 	}
 	return nil
@@ -199,7 +209,16 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	if err != nil {
 		return err
 	}
-
+	// Debug: summarize messages with tool calls and tool_call_id prior to generate
+	var withCalls, withCallID int
+	for _, m := range request.Messages {
+		if len(m.ToolCalls) > 0 {
+			withCalls += len(m.ToolCalls)
+		}
+		if strings.TrimSpace(m.ToolCallId) != "" {
+			withCallID++
+		}
+	}
 	// Handle continuation-by-anchor in a dedicated helper for clarity.
 	if lr, handled, cerr := s.tryGenerateContinuationByAnchor(ctx, model, request); handled || cerr != nil {
 		if cerr != nil {
@@ -281,6 +300,20 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		}
 	}
 	output.Response = response
+	if response != nil {
+		// Log response id and any tool calls emitted
+		total := 0
+		var ids []string
+		for _, choice := range response.Choices {
+			if len(choice.Message.ToolCalls) == 0 {
+				continue
+			}
+			total += len(choice.Message.ToolCalls)
+			for _, tc := range choice.Message.ToolCalls {
+				ids = append(ids, strings.TrimSpace(tc.ID)+":"+strings.TrimSpace(tc.Name))
+			}
+		}
+	}
 
 	// Usage aggregation is now handled by provider-level UsageListener attached
 	// in the model finder. Avoid double-counting here.
@@ -458,29 +491,29 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 			totalTools := 0
 			missing := 0
 			// Resolve persisted traces for opIDs
-			traces := s.resolveToolCallTraces(ctx, turn.ConversationID)
+			traces := s.resolveTraces(ctx, turn.ConversationID)
 			for _, m := range request.Messages {
 				if strings.TrimSpace(m.ToolCallId) == "" && !strings.EqualFold(string(m.Role), "tool") {
 					continue
 				}
 				totalTools++
 				callID := strings.TrimSpace(m.ToolCallId)
-				anchor := strings.TrimSpace(traces[callID])
+				var anchor string
+				if msg, ok := traces[callID]; ok && msg != nil && msg.ToolCall != nil && msg.ToolCall.TraceId != nil {
+					anchor = strings.TrimSpace(*msg.ToolCall.TraceId)
+				}
 				if anchor == "" {
 					missing++
 					continue
 				}
 				anchors[anchor] = struct{}{}
 			}
+
 			if totalTools > 0 && missing == 0 && len(anchors) == 1 {
 				// Safe: all tool results point to the same previous response
 				for a := range anchors {
 					request.PreviousResponseID = a
 				}
-			}
-			// Optional debug print remains concise
-			if os.Getenv("AGENTLY_DEBUG_OPENAI") == "1" && totalTools > 0 {
-				fmt.Printf("[openai] continuation debug: turn=%s selected_prev=%s total=%d missing=%d\n", turn.TurnID, request.PreviousResponseID, totalTools, missing)
 			}
 		}
 	}
@@ -517,14 +550,17 @@ func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm
 	var turn memory.TurnMeta
 	var ok bool
 	if turn, ok = memory.TurnMetaFromContext(ctx); ok {
-		traces := s.resolveToolCallTraces(ctx, turn.ConversationID)
+		traces := s.resolveTraces(ctx, turn.ConversationID)
 		for _, m := range request.Messages {
 			if strings.TrimSpace(m.ToolCallId) == "" {
 				continue
 			}
 			totalTools++
 			callID := strings.TrimSpace(m.ToolCallId)
-			anchor := strings.TrimSpace(traces[callID])
+			var anchor string
+			if msg, ok := traces[callID]; ok && msg != nil && msg.ToolCall != nil && msg.ToolCall.TraceId != nil {
+				anchor = strings.TrimSpace(*msg.ToolCall.TraceId)
+			}
 			if anchor == "" {
 				missing++
 				continue
@@ -532,24 +568,31 @@ func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm
 			toolFound = true
 			groups[anchor] = append(groups[anchor], m)
 		}
+		// Prefer the latest assistant response (model call) present in groups by persisted resp.id timing.
+		var latestTime time.Time
+		for respID := range groups {
+			if msg, ok := traces[respID]; ok && msg != nil && msg.ModelCall != nil {
+				if latestTime.IsZero() || msg.CreatedAt.After(latestTime) {
+					latestTime = msg.CreatedAt
+					selectedPrev = respID
+				}
+			}
+		}
 	}
 	if !toolFound || len(groups) == 0 {
 		return nil, false, nil
 	}
-	if last := strings.TrimSpace(memory.TurnTrace(turn.TurnID)); last != "" {
-		if msgs, ok := groups[last]; ok {
-			only := map[string][]llm.Message{last: msgs}
-			groups = only
-			selectedPrev = last
-		}
-	}
+	// Fallback: if there is exactly one group, pick it.
 	if selectedPrev == "" && len(groups) == 1 {
 		for k := range groups {
 			selectedPrev = k
 		}
 	}
-	if os.Getenv("AGENTLY_DEBUG_OPENAI") == "1" && totalTools > 0 {
-		fmt.Printf("[openai] continuation debug: turn=%s selected_prev=%s groups=%d tools=%d missing=%d\n", turn.TurnID, selectedPrev, len(groups), totalTools, missing)
+	// Narrow groups to the selected anchor if determined.
+	if selectedPrev != "" {
+		if msgs, ok := groups[selectedPrev]; ok {
+			groups = map[string][]llm.Message{selectedPrev: msgs}
+		}
 	}
 	order := make([]string, 0, len(groups))
 	for k := range groups {

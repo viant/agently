@@ -153,7 +153,9 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 			if strings.TrimSpace(msgID) != "" {
 				upd := apiconv.NewModelCall()
 				upd.SetMessageID(msgID)
-				upd.SetTraceID(strings.TrimSpace(probe.Response.ID))
+				if probe.Response.ID != "" {
+					upd.SetTraceID(strings.TrimSpace(probe.Response.ID))
+				}
 				_ = o.client.PatchModelCall(ctx, upd)
 				// Also cache in-memory per-turn for quick reuse
 				if turn, ok := memory.TurnMetaFromContext(ctx); ok {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -65,18 +64,26 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 		ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
 	}
 
-	// Handle continuation-by-anchor in a dedicated helper for clarity.
-	if handled, cerr := s.tryStreamContinuationByAnchor(ctx, model, req, streamer, handler, output); handled || cerr != nil {
-		return cleanup, cerr
+	var continuationRequest *llm.GenerateRequest
+	if continuationEnabled(model, req.Options) {
+		continuationRequest = s.BuildContinuationRequest(ctx, req, &input.GenerateInput.Binding.History)
+
 	}
 
 	// Retry starting stream up to 3 attempts. Consult provider-specific
 	// BackoffAdvisor (e.g., Bedrock ThrottlingException -> 30s) when available.
 	var streamCh <-chan llm.StreamEvent
 	for attempt := 0; attempt < 3; attempt++ {
-		streamCh, err = streamer.Stream(ctx, req)
+		llmRequest := req
+		if continuationRequest != nil {
+			llmRequest = continuationRequest
+		}
+		streamCh, err = streamer.Stream(ctx, llmRequest)
 		if err == nil {
 			break
+		}
+		if continuationRequest != nil {
+			streamCh, err = streamer.Stream(ctx, req)
 		}
 		if isContextLimitError(err) {
 			return cleanup, fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
@@ -129,110 +136,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	return cleanup, nil
 }
 
-// tryStreamContinuationByAnchor streams tool results grouped by their persisted
-// TraceID (response.id) when continuation-by-response-id is enabled and there
-// are tool outputs to return. Returns (handled=true) when it streamed the
-// continuation subcalls; otherwise handled=false and the caller should proceed
-// with a normal Stream.
-func (s *Service) tryStreamContinuationByAnchor(ctx context.Context, model llm.Model, req *llm.GenerateRequest, streamer llm.StreamingModel, handler stream.Handler, output *StreamOutput) (bool, error) {
-	if !continuationEnabled(model, req.Options) {
-		return false, nil
-	}
-	// Group tool-result messages by their persisted TraceID (response.id)
-	groups := map[string][]llm.Message{}
-	toolFound := false
-	var totalTools, missing int
-	var selectedPrev string
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
-		traces := s.resolveToolCallTraces(ctx, turn.ConversationID)
-		for _, m := range req.Messages {
-			if strings.TrimSpace(m.ToolCallId) == "" {
-				continue
-			}
-			totalTools++
-			callID := strings.TrimSpace(m.ToolCallId)
-			anchor := strings.TrimSpace(traces[callID])
-			if anchor == "" {
-				missing++
-				continue
-			}
-			toolFound = true
-			groups[anchor] = append(groups[anchor], m)
-		}
-		if toolFound && len(groups) >= 1 {
-			// Prefer the last assistant response id when available
-			if last := strings.TrimSpace(memory.TurnTrace(turn.TurnID)); last != "" {
-				if msgs, ok := groups[last]; ok {
-					only := map[string][]llm.Message{last: msgs}
-					groups = only
-					selectedPrev = last
-				}
-			}
-			if selectedPrev == "" && len(groups) == 1 {
-				for k := range groups {
-					selectedPrev = k
-				}
-			}
-			if os.Getenv("AGENTLY_DEBUG_OPENAI") == "1" && totalTools > 0 {
-				fmt.Printf("[openai] continuation debug: turn=%s selected_prev=%s groups=%d tools=%d missing=%d\n", turn.TurnID, selectedPrev, len(groups), totalTools, missing)
-			}
-		}
-	}
-	if !toolFound || len(groups) == 0 {
-		return false, nil
-	}
-	// Sequentially stream each anchor group
-	for anchor, msgs := range groups {
-		sub := &llm.GenerateRequest{}
-		if req.Options != nil {
-			// shallow copy options
-			opts := *req.Options
-			opts.Stream = true
-			sub.Options = &opts
-		} else {
-			sub.Options = &llm.Options{Stream: true}
-		}
-		sub.Messages = make([]llm.Message, len(msgs))
-		copy(sub.Messages, msgs)
-		sub.PreviousResponseID = anchor
-		subCh, serr := streamer.Stream(ctx, sub)
-		if serr != nil {
-			// Fallback: on token limit, retry streaming without tool calls and without previous_response_id
-			if isContextLimitError(serr) {
-				fb := &llm.GenerateRequest{}
-				if req.Options != nil {
-					opts := *req.Options
-					opts.Stream = true
-					fb.Options = &opts
-				} else {
-					fb.Options = &llm.Options{Stream: true}
-				}
-				for _, m := range req.Messages {
-					if strings.EqualFold(string(m.Role), "tool") {
-						continue
-					}
-					if strings.TrimSpace(m.ToolCallId) != "" {
-						continue
-					}
-					fb.Messages = append(fb.Messages, m)
-				}
-				fb.PreviousResponseID = ""
-				fbCh, ferr := streamer.Stream(ctx, fb)
-				if ferr == nil {
-					if err := s.consumeEvents(ctx, fbCh, handler, output); err != nil {
-						return true, err
-					}
-					return true, nil
-				}
-			}
-			return true, fmt.Errorf("continuation streaming subcall failed: %w", serr)
-		}
-		if err := s.consumeEvents(ctx, subCh, handler, output); err != nil {
-			return true, err
-		}
-	}
-	return true, nil
-}
+// moved to continuation.go
 
 // validateStreamIO validates and unwraps inputs.
 func (s *Service) validateStreamIO(in, out interface{}) (*StreamInput, *StreamOutput, error) {
@@ -332,6 +236,7 @@ func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput
 func (s *Service) toolCallEvents(responseID string, choice *llm.Choice) []stream.Event {
 	out := make([]stream.Event, 0, len(choice.Message.ToolCalls))
 	for _, tc := range choice.Message.ToolCalls {
+		fmt.Printf("[openai] stream tool_call id=%s name=%s response_id=%s\n", strings.TrimSpace(tc.ID), strings.TrimSpace(tc.Name), strings.TrimSpace(responseID))
 		name := tc.Name
 		args := tc.Arguments
 		if name == "" && tc.Function.Name != "" {

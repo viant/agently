@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -54,6 +55,24 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		return nil, err
 	}
 	b.History = hist
+	// Populate History.LastResponse using the last assistant message in transcript
+	if conv != nil {
+		tr := conv.GetTranscript()
+		if last := tr.LastAssistantMessage(); last != nil {
+			trace := &prompt.Trace{At: last.CreatedAt, Kind: prompt.KindResponse}
+			if last.ModelCall != nil && last.ModelCall.TraceId != nil {
+				if id := strings.TrimSpace(*last.ModelCall.TraceId); id != "" {
+					trace.ID = id
+				}
+			}
+			b.History.LastResponse = trace
+			// Build History.Traces map: resp, opid and content keys
+			b.History.Traces = s.buildTraces(tr)
+
+		}
+	}
+	// Merge latest user elicitation payload (JSON object) into binding.Context
+	mergeElicitationPayloadIntoContext(&b.History, &b.Context)
 	if histOverflow {
 		b.Flags.HasMessageOverflow = true
 	}
@@ -135,6 +154,83 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		}
 	}
 	return b, nil
+}
+
+func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
+	var result = make(map[string]*prompt.Trace)
+	for _, turn := range tr {
+		if turn == nil {
+			continue
+		}
+		for _, m := range turn.GetMessages() {
+			if m == nil {
+				continue
+			}
+			// Assistant model-call response
+			if m.ModelCall != nil && m.ModelCall.TraceId != nil {
+				id := strings.TrimSpace(*m.ModelCall.TraceId)
+				if id != "" {
+					key := prompt.KindResponse.Key(id)
+					result[key] = &prompt.Trace{ID: id, Kind: prompt.KindResponse, At: m.CreatedAt}
+				}
+				continue
+			}
+			// Tool-call message
+			if m.ToolCall != nil {
+				opID := strings.TrimSpace(m.ToolCall.OpId)
+				if opID != "" {
+					respId := ""
+					if m.ToolCall.TraceId != nil {
+						respId = strings.TrimSpace(*m.ToolCall.TraceId)
+					}
+					key := prompt.KindToolCall.Key(opID)
+					result[key] = &prompt.Trace{ID: respId, Kind: prompt.KindToolCall, At: m.CreatedAt}
+				}
+				continue
+			}
+
+			// User/assistant text message
+			if strings.ToLower(strings.TrimSpace(m.Type)) == "text" && m.Content != nil && *m.Content != "" {
+				ckey := prompt.KindContent.Key(*m.Content)
+				result[ckey] = &prompt.Trace{ID: ckey, Kind: prompt.KindContent, At: m.CreatedAt}
+			}
+		}
+	}
+	return result
+}
+
+// mergeElicitationPayloadIntoContext folds the most recent JSON object payloads
+// from user elicitation messages into the binding context so downstream plans
+// can see resolved inputs (e.g., workdir). Later messages win on key collision.
+func mergeElicitationPayloadIntoContext(h *prompt.History, ctxPtr *map[string]interface{}) {
+	if h == nil || len(h.UserElicitation) == 0 {
+		return
+	}
+	// Ensure context map exists
+	if ctxPtr == nil {
+		return
+	}
+	if *ctxPtr == nil {
+		*ctxPtr = map[string]interface{}{}
+	}
+	ctx := *ctxPtr
+	// Process in order, last one wins
+	for _, m := range h.UserElicitation {
+		if m == nil {
+			continue
+		}
+		raw := strings.TrimSpace(m.Content)
+		if raw == "" || !strings.HasPrefix(raw, "{") {
+			continue
+		}
+		var payload map[string]interface{}
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil || len(payload) == 0 {
+			continue
+		}
+		for k, v := range payload {
+			ctx[k] = v
+		}
+	}
 }
 
 // fetchConversationWithRetry attempts to fetch a conversation up to three times,
@@ -734,12 +830,11 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 		h, err := s.buildHistory(ctx, transcript)
 		return h, false, err
 	}
-	// Re-implement transcript.History(false) to include clamping with message id trailers.
+	anchor := transcript.LastAssistantMessage()
 	normalized := transcript.Filter(func(v *apiconv.Message) bool {
 		if v == nil || v.Content == nil || *v.Content == "" {
 			return false
 		}
-
 		// Allow error messages exactly once
 		if v.Status != nil && strings.EqualFold(strings.TrimSpace(*v.Status), "error") {
 			if v.IsArchived() {
@@ -747,18 +842,17 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 			}
 			return true
 		}
-
 		if v.IsArchived() || v.IsInterim() {
 			return false
 		}
-
 		if strings.ToLower(strings.TrimSpace(v.Type)) != "text" {
 			return false
 		}
 		role := strings.ToLower(strings.TrimSpace(v.Role))
 
 		if role == "user" || role == "assistant" {
-			if requestTime.Before(v.CreatedAt) && v.Content != nil {
+			// Gate user/assistant messages strictly by anchorFrom when available.
+			if anchor != nil && anchor.CreatedAt.Before(v.CreatedAt) && v.Content != nil {
 				out.UserElicitation = append(out.UserElicitation, &prompt.Message{Role: v.Role, Content: *v.Content})
 				return false
 			}

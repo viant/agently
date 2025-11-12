@@ -109,3 +109,37 @@ func (t *Transcript) Filter(f func(v *Message) bool) Messages {
 	}
 	return result
 }
+
+// PostAnchorTextContentSet returns a set of normalized contents for user/assistant
+// text messages created strictly after the provided time.
+// PostAnchorTextContentSet was removed to avoid transcript calls during continuation build.
+
+// LastAssistantMessage returns the last assistant text message in this transcript.
+// It scans turns from the end and messages from the end to preserve chronology.
+func (t *Transcript) LastAssistantMessage() *Message {
+	if t == nil || len(*t) == 0 {
+		return nil
+	}
+	for ti := len(*t) - 1; ti >= 0; ti-- {
+		turn := (*t)[ti]
+		if turn == nil {
+			continue
+		}
+
+		var last *Message
+		msgs := turn.GetMessages()
+		for mi := len(msgs) - 1; mi >= 0; mi-- {
+			m := msgs[mi]
+			if strings.ToLower(strings.TrimSpace(m.Role)) == "assistant" && m.ModelCall != nil && m.ModelCall.ProviderResponsePayloadId != nil {
+				last = m
+				if m.ModelCall.TraceId != nil {
+					return m
+				}
+			}
+		}
+		if last != nil {
+			return last
+		}
+	}
+	return nil
+}
