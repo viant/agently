@@ -13,41 +13,12 @@ type ToolKey struct {
 }
 
 func RefinePlan(p *plan.Plan) {
-	if len(p.Steps) == 0 {
+	// No-op refinement: keep plan steps as-is.
+	// We intentionally do not de-duplicate here to allow providers
+	// (e.g. OpenAI /v1/responses) to receive all tool calls as issued.
+	if p == nil {
 		return
 	}
-
-	// ------------------------------------------------------------------
-	// Two-tier duplicate protection:
-	//   1. Inside a single Plan we *remove* redundant repetitions because
-	//      running the exact same tool call twice in the same batch is never
-	//      useful.
-	// 2. Across iterations, we no longer discard the step here.
-	//    The executor is now responsible for detecting if an identical call
-	//    has already been executed, and if so, it will short-circuit the execution
-	//    and return the previous result.
-	// ------------------------------------------------------------------
-
-	seenThisPlan := map[ToolKey]struct{}{}
-	filtered := make(plan.Steps, 0, len(p.Steps))
-
-	for _, st := range p.Steps {
-		if st.Type != "tool" {
-			filtered = append(filtered, st)
-			continue
-		}
-
-		// Remove duplicates that occur *within* the same Plan only.
-		tk := ToolKey{st.Name, CanonicalArgs(st.Args)}
-		if _, ok := seenThisPlan[tk]; ok {
-			continue
-		}
-
-		seenThisPlan[tk] = struct{}{}
-		filtered = append(filtered, st)
-	}
-
-	p.Steps = filtered
 }
 
 // dedupResultsSkipSeenErrors returns a new slice containing only the last occurrence
