@@ -601,6 +601,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					events <- llm.StreamEvent{Err: fmt.Errorf("openai continuation error: %s", string(respBody))}
 					return
 				}
+				events <- llm.StreamEvent{Err: fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, string(respBody))}
+				return
 			}
 		}
 		// Normal SSE handling
