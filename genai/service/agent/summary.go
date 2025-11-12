@@ -65,6 +65,15 @@ func (s *Service) Summarize(ctx context.Context, conv *apiconv.Conversation) err
 		genInput.Options = &llm.Options{}
 	}
 	output := &core.GenerateOutput{}
+
+	agentId := *conv.AgentId
+	anAgent, err := s.agentFinder.Find(ctx, agentId)
+	if err != nil {
+		return fmt.Errorf("failed to find agent: %v %w", conv.AgentId, err)
+	}
+
+	EnsureGenerateOptions(ctx, genInput, anAgent)
+
 	if err := s.llm.Generate(ctx, genInput, output); err != nil {
 		return err
 	}
