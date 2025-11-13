@@ -162,6 +162,8 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 	return allDocuments, nil
 }
 
+// matchResources removed from binding path; binding continues to use knowledge.
+
 // shouldUseMatch determines whether to use match mode.
 //   - inclusionMode=="match" => true
 //   - inclusionMode=="full" => false

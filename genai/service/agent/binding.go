@@ -2,12 +2,10 @@ package agent
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -19,14 +17,9 @@ import (
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
 	padapter "github.com/viant/agently/genai/prompt/adapter"
-	"github.com/viant/agently/genai/service/augmenter"
-	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
 	"github.com/viant/agently/genai/service/core"
-	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/workspace"
 	mcpname "github.com/viant/agently/pkg/mcpname"
-	embSchema "github.com/viant/embedius/schema"
-	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.Binding, error) {
@@ -143,16 +136,6 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	s.normalizeDocURIs(&b.SystemDocuments, workspace.Root())
 	b.Context = input.Context
 
-	// Optionally add MCP/resource-based documents selected via Embedius.
-	// Previously these were attached as binary attachments; we now expose them
-	// as binding documents so templates can reason over their content directly.
-	if input.Agent != nil && input.Agent.MCPResources != nil && input.Agent.MCPResources.Enabled {
-		if md, err := s.buildMCPDocuments(ctx, input, input.Agent.MCPResources); err != nil {
-			return nil, err
-		} else if len(md) > 0 {
-			b.Documents.Items = append(b.Documents.Items, md...)
-		}
-	}
 	return b, nil
 }
 
@@ -484,184 +467,6 @@ func (s *Service) normalizeDocURIs(docs *prompt.Documents, trim string) {
 // debugf is intentionally a no-op to avoid noisy logs during normal operation.
 // Keep the function for quick re‑enablement if needed while troubleshooting.
 
-// buildMCPDocuments matches resources using Embedius and converts top-N results
-// into binding documents. Indexing is handled lazily by the augmenter service.
-func (s *Service) buildMCPDocuments(ctx context.Context, input *QueryInput, cfg *agent.MCPResources) ([]*prompt.Document, error) {
-	if input == nil || cfg == nil {
-		return nil, nil
-	}
-	// Require explicit embedding model and at least one location
-	if strings.TrimSpace(input.EmbeddingModel) == "" {
-		return nil, nil
-	}
-	locations := cfg.Locations
-	if len(locations) == 0 {
-		// No explicit locations provided; fall back to agent knowledge URLs
-		for _, kn := range input.Agent.Knowledge {
-			if kn != nil && strings.TrimSpace(kn.URL) != "" {
-				locations = append(locations, kn.URL)
-			}
-		}
-	}
-	if len(locations) == 0 {
-		return nil, nil
-	}
-
-	// Auto/full decision for MCP: if MinScore set -> match; otherwise list resources
-	// and if any location has more entries than MaxFiles (default 5) -> match; else full.
-	useMatch := false
-	if cfg.MinScore != nil {
-		useMatch = true
-	}
-	if !useMatch {
-		// Count resources per location using mcpfs
-		fs := mcpfs.New(s.mcpMgr)
-		for _, loc := range locations {
-			objects, err := fs.List(ctx, loc)
-			if err != nil {
-				// On error, fall back to match path
-				useMatch = true
-				break
-			}
-			limit := cfg.MaxFiles
-			if limit <= 0 && s.defaults != nil && s.defaults.Match.MaxFiles > 0 {
-				limit = s.defaults.Match.MaxFiles
-			}
-			if len(objects) > max(1, limit) {
-				useMatch = true
-				break
-			}
-		}
-	}
-	if !useMatch {
-		// Full mode: download each resource and attach directly
-		fs := mcpfs.New(s.mcpMgr)
-		var out []*prompt.Document
-		for _, loc := range locations {
-			objects, err := fs.List(ctx, loc)
-			if err != nil {
-				continue
-			}
-			// Stable order by normalized URL for caching
-			sort.SliceStable(objects, func(i, j int) bool {
-				ui := strings.ToLower(strings.TrimSpace(objects[i].URL()))
-				uj := strings.ToLower(strings.TrimSpace(objects[j].URL()))
-				return ui < uj
-			})
-			// Cap by MaxFiles if specified
-			limit := cfg.MaxFiles
-			if limit <= 0 && s.defaults != nil && s.defaults.Match.MaxFiles > 0 {
-				limit = s.defaults.Match.MaxFiles
-			}
-			limit = max(1, limit)
-			n := len(objects)
-			if limit > 0 && n > limit {
-				n = limit
-			}
-			for i := 0; i < n; i++ {
-				o := objects[i]
-				data, err := fs.Download(ctx, o)
-				if err != nil || len(data) == 0 {
-					continue
-				}
-				uri := o.URL()
-				if strings.TrimSpace(cfg.TrimPath) != "" {
-					uri = strings.TrimPrefix(uri, cfg.TrimPath)
-				}
-				content := strings.TrimSpace(string(data))
-				out = append(out, &prompt.Document{Title: baseName(uri), PageContent: content, SourceURI: uri})
-			}
-		}
-		return out, nil
-	}
-
-	// Effective docs cap (entry or defaults)
-	effMax := cfg.MaxFiles
-	if effMax <= 0 && s.defaults != nil && s.defaults.Match.MaxFiles > 0 {
-		effMax = s.defaults.Match.MaxFiles
-	}
-	augIn := &augmenter.AugmentDocsInput{
-		Query:        input.Query,
-		Locations:    locations,
-		Match:        cfg.Match,
-		Model:        input.EmbeddingModel,
-		MaxDocuments: max(1, effMax),
-		TrimPath:     cfg.TrimPath,
-	}
-	// Debug inputs
-	inc := []string{}
-	exc := []string{}
-	if cfg.Match != nil {
-		inc = append(inc, cfg.Match.Inclusions...)
-		exc = append(exc, cfg.Match.Exclusions...)
-	}
-	augOut := &augmenter.AugmentDocsOutput{}
-	if err := s.augmenter.AugmentDocs(ctx, augIn, augOut); err != nil {
-		return nil, fmt.Errorf("failed to build MCP documents: %w", err)
-	}
-	// Optional minScore filter (keep order)
-	if cfg.MinScore != nil {
-		filtered := make([]embSchema.Document, 0, len(augOut.Documents))
-		threshold := float32(*cfg.MinScore)
-		for _, d := range augOut.Documents {
-			if d.Score >= threshold {
-				filtered = append(filtered, d)
-			}
-		}
-		augOut.Documents = filtered
-	}
-	// Stable order by normalized source URI
-	sort.SliceStable(augOut.Documents, func(i, j int) bool {
-		si := strings.ToLower(strings.TrimSpace(extractSource(augOut.Documents[i].Metadata)))
-		sj := strings.ToLower(strings.TrimSpace(extractSource(augOut.Documents[j].Metadata)))
-		return si < sj
-	})
-
-	// Build binding documents from selected resources; fetch full content from MCP/FS.
-	var docsOut []*prompt.Document
-	unique := map[string]bool{}
-	for i, d := range augOut.Documents {
-		// Apply effective cap
-		if effMax > 0 && i >= effMax {
-			break
-		}
-		uri := extractSource(d.Metadata)
-		if strings.TrimSpace(uri) == "" {
-			continue
-		}
-		if strings.TrimSpace(cfg.TrimPath) != "" {
-			uri = strings.TrimPrefix(uri, cfg.TrimPath)
-		}
-		if unique[uri] {
-			continue
-		}
-		unique[uri] = true
-
-		// Fetch content
-		var content []byte
-		if mcpuri.Is(uri) && s.mcpMgr != nil {
-			if resolved, err := s.fetchMCPResource(ctx, uri); err == nil && len(resolved) > 0 {
-				content = resolved
-			}
-		}
-		if len(content) == 0 && !mcpuri.Is(uri) {
-			if raw, err := s.fs.DownloadWithURL(ctx, uri); err == nil && len(raw) > 0 {
-				content = raw
-			}
-		}
-		if len(content) == 0 && strings.TrimSpace(d.PageContent) != "" {
-			content = []byte(d.PageContent)
-		}
-
-		docsOut = append(docsOut, &prompt.Document{
-			Title:       baseName(uri),
-			PageContent: string(content),
-			SourceURI:   uri,
-		})
-	}
-	return docsOut, nil
-}
-
 func extractSource(meta map[string]any) string {
 	if meta == nil {
 		return ""
@@ -705,11 +510,8 @@ func (s *Service) attachNonTextUserDocs(ctx context.Context, b *prompt.Binding) 
 			continue
 		}
 		var data []byte
-		if mcpuri.Is(uri) && s.mcpMgr != nil {
-			if resolved, err := s.fetchMCPResource(ctx, uri); err == nil && len(resolved) > 0 {
-				data = resolved
-			}
-		} else {
+		// Skip MCP URIs for binding attachments; handled via resources tools on-demand
+		if !strings.HasPrefix(strings.ToLower(uri), "mcp:") {
 			if raw, err := s.fs.DownloadWithURL(ctx, uri); err == nil && len(raw) > 0 {
 				data = raw
 			}
@@ -760,43 +562,7 @@ func max(a, b int) int {
 }
 
 // fetchMCPResource resolves an mcp resource URI via MCP client.
-func (s *Service) fetchMCPResource(ctx context.Context, source string) ([]byte, error) {
-	turn, ok := memory.TurnMetaFromContext(ctx)
-	if !ok || strings.TrimSpace(turn.ConversationID) == "" || s.mcpMgr == nil {
-		return nil, fmt.Errorf("missing conversation or mcp manager")
-	}
-	server, resURI := parseMCPSource(source)
-	if strings.TrimSpace(server) == "" || strings.TrimSpace(resURI) == "" {
-		return nil, fmt.Errorf("invalid mcp source: %s", source)
-	}
-	cli, err := s.mcpMgr.Get(ctx, turn.ConversationID, server)
-	if err != nil {
-		return nil, fmt.Errorf("mcp get: %w", err)
-	}
-	if _, err := cli.Initialize(ctx); err != nil {
-		return nil, fmt.Errorf("mcp init: %w", err)
-	}
-	res, err := cli.ReadResource(ctx, &mcpschema.ReadResourceRequestParams{Uri: resURI})
-	if err != nil {
-		return nil, fmt.Errorf("mcp read: %w", err)
-	}
-	var out []byte
-	for _, c := range res.Contents {
-		if c.Text != "" {
-			out = append(out, []byte(c.Text)...)
-			continue
-		}
-		if c.Blob != "" {
-			if dec, err := base64.StdEncoding.DecodeString(c.Blob); err == nil {
-				out = append(out, dec...)
-			}
-		}
-	}
-	return out, nil
-}
-
-// parseMCPSource supports mcp://server/path and mcp:server:/path formats.
-func parseMCPSource(src string) (server, uri string) { return mcpuri.Parse(src) }
+// buildMCPDocuments and MCP fetch helpers removed — MCPResources retired.
 
 func (s *Service) BuildHistory(ctx context.Context, transcript apiconv.Transcript, binding *prompt.Binding) error {
 	hist, err := s.buildHistory(ctx, transcript)

@@ -27,6 +27,9 @@ type Defaults struct {
 
 	// ---- Match defaults (optional) -------------------------------
 	Match MatchDefaults `yaml:"match" json:"match"`
+
+	// ---- Resources defaults (optional) ---------------------------
+	Resources ResourcesDefaults `yaml:"resources,omitempty" json:"resources,omitempty"`
 }
 
 // PreviewSettings groups tool-call result presentation and processing settings.
@@ -52,4 +55,15 @@ type MatchDefaults struct {
 	// when a knowledge/MCP entry does not specify MaxFiles. When zero,
 	// the runtime falls back to hard-coded default (5).
 	MaxFiles int `yaml:"maxFiles" json:"maxFiles"`
+}
+
+// ResourcesDefaults defines default resource roots and presentation hints.
+type ResourcesDefaults struct {
+	// Locations are root URIs or paths (relative to workspace) such as
+	// "documents/", "file:///abs/path", or "mcp:server:/prefix".
+	Locations []string `yaml:"locations,omitempty" json:"locations,omitempty"`
+	// TrimPath optionally trims this prefix from presented URIs.
+	TrimPath string `yaml:"trimPath,omitempty" json:"trimPath,omitempty"`
+	// SummaryFiles lookup order for root descriptions.
+	SummaryFiles []string `yaml:"summaryFiles,omitempty" json:"summaryFiles,omitempty"`
 }
