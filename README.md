@@ -233,6 +233,21 @@ Notes:
 - URIs are normalized (TrimPath) for stable references and better token caching.
 - System documents are injected as separate system messages (content only) and are not rendered in system.tmpl to avoid duplication.
 
+Resources tools
+
+- Service `resources` provides generic resource discovery and retrieval across filesystem and MCP:
+  - `resources:roots` — discover configured roots.
+    - Input: `{ maxRoots: int }`
+    - Output: `{ roots: [{ uri, label, description, kind, source }] }`
+  - `resources:list` — list files/resources under provided `locations`.
+    - Input: `{ locations: [string], recursive?: bool, maxFiles?: int, trimPath?: string }`
+  - `resources:match` — semantic selection over `locations` using the configured embedder.
+    - Input: `{ query, locations, model, maxDocuments?, match?, includeFile?, trimPath? }`
+- Defaults (optional) under `default.resources` in executor config:
+  - `locations`: array of roots (relative to workspace or absolute `file://` / `mcp:server:/prefix`)
+  - `trimPath`: optional display trim
+  - `summaryFiles`: description lookup order (default: [`.summary`, `.summary.md`, `README.md`])
+
 ### HTTP API (v1)
 
 The embedded server exposes a simple chat API under `/v1/api`:

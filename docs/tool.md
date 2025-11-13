@@ -138,3 +138,49 @@ Security & Safety
 Migration & Implementation Steps
 
 - Add an execution bus: capture envelopes for all tool calls.
+
+## Resources Tools (roots, list, match)
+- Purpose: expose generic resource discovery and selection across filesystem paths and MCP prefixes.
+- Service: `resources` with methods:
+  - `resources:roots` — discover configured roots.
+    - Input: `{ maxRoots: int }`
+    - Output: `{ roots: [{ uri, label, description, kind: 'file'|'mcp', source: 'default' }] }`
+    - Notes: resolves relative paths against workspace; descriptions read from `.summary`, `.summary.md`, or `README.md` (first paragraph, small cap).
+  - `resources:list` — enumerate items under root(s).
+    - Input: `{ locations: [string], recursive?: bool, maxFiles?: int, trimPath?: string }`
+    - Output: `{ items: [{ uri, name, size, modified }], total }`
+    - Supports `file://` and `mcp:server:/prefix` sources.
+  - `resources:match` — semantic retrieval over root(s) using Embedius.
+    - Input: `{ query: string, locations: [string], model: string, maxDocuments?: int, match?: {...}, includeFile?: bool, trimPath?: string }`
+    - Output: `{ documents: [], documentsSize: int, content: string }`
+- Config (defaults): under `default.resources` in executor config
+  - `locations`: array of roots (relative to workspace or absolute/mcp)
+  - `trimPath`: optional prefix to trim from presented URIs
+  - `summaryFiles`: lookup order for descriptions (default: [`.summary`, `.summary.md`, `README.md`])
+
+## Agent Resources
+- Purpose: scope which roots an agent can see and use, and decide which ones participate in automatic binding vs. on-demand retrieval.
+- YAML (per agent):
+  ```yaml
+  resources:
+    - uri: system_knowledge/
+      role: system        # injected as system messages when selected
+      binding: true       # included in top‑N selection for binding
+      maxFiles: 3         # per‑entry cap for binding/match
+      match:
+        inclusions: [".md", ".txt"]
+        exclusions: ["node_modules/"]
+    - uri: knowledge/
+      role: user          # injected as user knowledge docs when selected
+      binding: true
+      maxFiles: 5
+    - uri: mcp:server1:/docs
+      role: user
+      binding: false      # not auto‑selected; available via resources tools
+  ```
+- Allowlist: At runtime, `resources:roots`, `resources:list`, and `resources:match` only accept locations that match the agent’s declared `resources[].uri` when an agent context is present. Outside agent context, defaults apply (`default.resources.locations`).
+- Flow:
+  - Discover: `resources:roots { maxRoots }` → returns agent or default roots with descriptions.
+  - Browse: `resources:list { locations }` → enumerates items under selected roots.
+  - Retrieve: `resources:match { query, locations, model, ... }` → semantic selection using Embedius (lazy indexing).
+- Descriptions: Roots may include a `.summary`, `.summary.md`, or `README.md` file; the first paragraph is used for descriptions (bounded read).

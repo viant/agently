@@ -50,6 +50,7 @@ import (
 	llmagents "github.com/viant/agently/genai/tool/service/llm/agents"
 	llmexectool "github.com/viant/agently/genai/tool/service/llm/exec"
 	msgsvc "github.com/viant/agently/genai/tool/service/message"
+	rsrcsvc "github.com/viant/agently/genai/tool/service/resources"
 	// External A2A client
 	a2acli "github.com/viant/a2a-protocol/client"
 	a2aschema "github.com/viant/a2a-protocol/schema"
@@ -132,6 +133,25 @@ func (e *Service) init(ctx context.Context) error {
 
 	// Register llm/exec service (legacy run_agent) and new llm/agents service.
 	gtool.AddInternalService(e.tools, llmexectool.New(agentSvc))
+	// Register resources service to expose roots/list/match over files and MCP resources
+	var rdef rsrcsvc.ResourcesDefaults
+	rdef.Locations = nil
+	rdef.TrimPath = ""
+	rdef.SummaryFiles = nil
+	if e.config != nil {
+		rdef.Locations = append(rdef.Locations, e.config.Default.Resources.Locations...)
+		rdef.TrimPath = e.config.Default.Resources.TrimPath
+		if len(e.config.Default.Resources.SummaryFiles) > 0 {
+			rdef.SummaryFiles = append(rdef.SummaryFiles, e.config.Default.Resources.SummaryFiles...)
+		}
+	}
+	gtool.AddInternalService(e.tools, rsrcsvc.New(
+		enricher,
+		rsrcsvc.WithMCPManager(e.mcpMgr),
+		rsrcsvc.WithDefaults(rdef),
+		rsrcsvc.WithConversationClient(e.convClient),
+		rsrcsvc.WithAgentFinder(e.agentFinder),
+	))
 	// Load external A2A agents from workspace a2a/ folder
 	type extSpec struct {
 		ID         string            `yaml:"id"`

@@ -371,6 +371,10 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			if err := s.parseSystemKnowledgeBlock(valueNode, agent); err != nil {
 				return err
 			}
+		case "resources":
+			if err := s.parseResourcesBlock(valueNode, agent); err != nil {
+				return err
+			}
 		case "prompt":
 			if agent.Prompt, err = s.getPrompt(valueNode); err != nil {
 				return err
@@ -475,10 +479,7 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			if err := s.parseChainsBlock(valueNode, agent); err != nil {
 				return err
 			}
-		case "mcpresources":
-			if err := s.parseMCPResourcesBlock(valueNode, agent); err != nil {
-				return err
-			}
+			// mcpresources: removed; use generic resources instead
 		}
 		return nil
 	})
@@ -1131,85 +1132,134 @@ func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) e
 	return nil
 }
 
-func (s *Service) parseMCPResourcesBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
-	if valueNode.Kind != yaml.MappingNode {
-		return fmt.Errorf("mcpResources must be a mapping")
-	}
-	var cfg agentmdl.MCPResources
-	cfg.MaxFiles = 5
-	if err := valueNode.Pairs(func(k string, v *yml.Node) error {
-		switch strings.ToLower(strings.TrimSpace(k)) {
-		case "enabled":
-			if v.Kind == yaml.ScalarNode {
-				cfg.Enabled = toBool(v.Value)
+// parseMCPResourcesBlock removed — agent.resources replaces it.
+
+// parseResourcesBlock parses agent.resources entries (list of mappings)
+func (s *Service) parseResourcesBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	switch valueNode.Kind {
+	case yaml.SequenceNode:
+		for _, it := range valueNode.Content {
+			if it == nil || it.Kind != yaml.MappingNode {
+				continue
 			}
-		case "locations":
-			switch v.Kind {
-			case yaml.ScalarNode:
-				if s := strings.TrimSpace(v.Value); s != "" {
-					cfg.Locations = []string{s}
-				}
-			case yaml.SequenceNode:
-				for _, it := range v.Content {
-					if it != nil && it.Kind == yaml.ScalarNode && strings.TrimSpace(it.Value) != "" {
-						cfg.Locations = append(cfg.Locations, it.Value)
-					}
-				}
+			entry, err := parseResourceEntry((*yml.Node)(it))
+			if err != nil {
+				return err
+			}
+			if entry != nil {
+				agent.Resources = append(agent.Resources, entry)
+			}
+		}
+	case yaml.MappingNode:
+		// Support single entry mapping for convenience
+		entry, err := parseResourceEntry((*yml.Node)(valueNode))
+		if err != nil {
+			return err
+		}
+		if entry != nil {
+			agent.Resources = append(agent.Resources, entry)
+		}
+	default:
+		return fmt.Errorf("resources must be a sequence or mapping")
+	}
+	return nil
+}
+
+func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("resource entry must be a mapping")
+	}
+	re := &agentmdl.Resource{Role: "user"}
+	err := node.Pairs(func(key string, v *yml.Node) error {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "uri":
+			if v.Kind == yaml.ScalarNode {
+				re.URI = strings.TrimSpace(v.Value)
+			}
+		case "role":
+			if v.Kind == yaml.ScalarNode {
+				re.Role = strings.ToLower(strings.TrimSpace(v.Value))
+			}
+		case "binding":
+			if v.Kind == yaml.ScalarNode {
+				re.Binding = toBool(v.Value)
 			}
 		case "maxfiles":
 			if v.Kind == yaml.ScalarNode {
 				val := v.Interface()
 				switch actual := val.(type) {
 				case int:
-					cfg.MaxFiles = actual
+					re.MaxFiles = actual
 				case int64:
-					cfg.MaxFiles = int(actual)
+					re.MaxFiles = int(actual)
 				case float64:
-					cfg.MaxFiles = int(actual)
+					re.MaxFiles = int(actual)
 				case string:
 					if n, err := parseInt64(actual); err == nil {
-						cfg.MaxFiles = int(n)
+						re.MaxFiles = int(n)
 					}
 				}
 			}
 		case "trimpath":
 			if v.Kind == yaml.ScalarNode {
-				cfg.TrimPath = v.Value
+				re.TrimPath = v.Value
 			}
 		case "match":
 			if v.Kind == yaml.MappingNode {
-				match := &option.Options{}
+				m := &option.Options{}
 				_ = v.Pairs(func(optKey string, optValue *yml.Node) error {
 					switch strings.ToLower(optKey) {
 					case "exclusions":
-						match.Exclusions = asStrings(optValue)
+						m.Exclusions = asStrings(optValue)
 					case "inclusions":
-						match.Inclusions = asStrings(optValue)
+						m.Inclusions = asStrings(optValue)
 					case "maxfilesize":
 						switch vv := optValue.Interface().(type) {
 						case int:
-							match.MaxFileSize = vv
+							m.MaxFileSize = vv
 						case int64:
-							match.MaxFileSize = int(vv)
+							m.MaxFileSize = int(vv)
 						case float64:
-							match.MaxFileSize = int(vv)
+							m.MaxFileSize = int(vv)
 						case string:
 							if n, err := parseInt64(vv); err == nil {
-								match.MaxFileSize = int(n)
+								m.MaxFileSize = int(n)
 							}
 						}
 					}
 					return nil
 				})
-				cfg.Match = match
+				re.Match = m
+			}
+		case "minscore":
+			if v.Kind == yaml.ScalarNode {
+				val := v.Interface()
+				var f float64
+				switch actual := val.(type) {
+				case float64:
+					f = actual
+				case int:
+					f = float64(actual)
+				case int64:
+					f = float64(actual)
+				case string:
+					var parsed float64
+					if _, err := fmt.Sscan(strings.TrimSpace(actual), &parsed); err == nil {
+						f = parsed
+					}
+				}
+				re.MinScore = &f
 			}
 		}
 		return nil
-	}); err != nil {
-		return err
+	})
+	if err != nil {
+		return nil, err
 	}
-	agent.MCPResources = &cfg
-	return nil
+	if strings.TrimSpace(re.URI) == "" {
+		return nil, fmt.Errorf("resource entry missing uri")
+	}
+	return re, nil
 }
 
 // parseInt64 parses an integer from string, trimming spaces; returns error on failure.

@@ -36,6 +36,8 @@ type (
 		Description string         `yaml:"description,omitempty" json:"description,omitempty"` // Description of the agent
 		Prompt      *prompt.Prompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`           // Prompt template
 		Knowledge   []*Knowledge   `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
+		// Resources: generic resource roots (file paths or MCP URIs)
+		Resources []*Resource `yaml:"resources,omitempty" json:"resources,omitempty"`
 
 		// AutoSummarize controls whether the conversation is automatically
 		// summarized/compacted after a turn (when supported by the runtime).
@@ -87,7 +89,7 @@ type (
 		// Serve groups serving endpoints (e.g., A2A). Preferred over legacy ExposeA2A.
 		Serve *Serve `yaml:"serve,omitempty" json:"serve,omitempty"`
 
-		// ExposeA2A (legacy) controls optional exposure of this agent as an external A2A server
+		// ExposeA2A (legacy) retained for backward compatibility; prefer Serve.A2A.
 		ExposeA2A *ExposeA2A `yaml:"exposeA2A,omitempty" json:"exposeA2A,omitempty"`
 
 		// Attachment groups binary-attachment behavior
@@ -96,12 +98,7 @@ type (
 		// Chains defines post-turn follow-ups executed after a turn finishes.
 		Chains []*Chain `yaml:"chains,omitempty" json:"chains,omitempty"`
 
-		// MCPResources controls optional inclusion of MCP-accessible resources
-		// as binding documents. When enabled, the agent service lazily indexes
-		// the specified locations with Embedius, selects the top-N most relevant
-		// resources for the current query, and includes their content in the
-		// binding Documents so prompts/templates can reason over them directly.
-		MCPResources *MCPResources `yaml:"mcpResources,omitempty" json:"mcpResources,omitempty"`
+		// MCPResources removed — use generic resources tools instead.
 
 		// ContextInputs (YAML key: elicitation) defines an optional schema-driven
 		// payload describing auxiliary inputs to be placed under args.context when
@@ -111,15 +108,15 @@ type (
 		ContextInputs *ContextInputs `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
 	}
 
-	// MCPResources defines matching and selection rules for attaching resources
-	// discovered via MCP (or generic locations) to the LLM request.
-	MCPResources struct {
-		Enabled   bool            `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-		Locations []string        `yaml:"locations,omitempty" json:"locations,omitempty"`
-		MaxFiles  int             `yaml:"maxFiles,omitempty" json:"maxFiles,omitempty"`
-		TrimPath  string          `yaml:"trimPath,omitempty" json:"trimPath,omitempty"`
-		Match     *option.Options `yaml:"match,omitempty" json:"match,omitempty"`
-		MinScore  *float64        `yaml:"minScore,omitempty" json:"minScore,omitempty"`
+	// Resource defines a single resource root with optional binding behavior.
+	Resource struct {
+		URI      string          `yaml:"uri" json:"uri"`
+		Role     string          `yaml:"role,omitempty" json:"role,omitempty"`       // system|user
+		Binding  bool            `yaml:"binding,omitempty" json:"binding,omitempty"` // include in auto top‑N binding
+		MaxFiles int             `yaml:"maxFiles,omitempty" json:"maxFiles,omitempty"`
+		TrimPath string          `yaml:"trimPath,omitempty" json:"trimPath,omitempty"`
+		Match    *option.Options `yaml:"match,omitempty" json:"match,omitempty"`
+		MinScore *float64        `yaml:"minScore,omitempty" json:"minScore,omitempty"`
 	}
 
 	// Chain defines a single post-turn follow-up.
