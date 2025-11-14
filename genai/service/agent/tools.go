@@ -17,7 +17,7 @@ func toolPatterns(qi *QueryInput) []string {
 	if qi == nil || qi.Agent == nil {
 		return out
 	}
-	for _, aTool := range qi.Agent.Tool {
+	for _, aTool := range qi.Agent.Tool.Items {
 		pattern := aTool.Pattern
 		if pattern == "" {
 			pattern = aTool.Ref

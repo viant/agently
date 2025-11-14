@@ -126,7 +126,7 @@ func WithoutHotSwap() Option {
 func WithMCPManager(m *mcpmgr.Manager) Option {
 	return func(s *Service) {
 		s.mcpMgr = m
-		// Tools will be created with manager when needed (see WithToolDebugLogger or explicit WithTools).
+		// Tool will be created with manager when needed (see WithToolDebugLogger or explicit WithTools).
 	}
 }
 

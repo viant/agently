@@ -106,20 +106,20 @@ func TestPrompt_Generate_BindingCoverage(t *testing.T) {
 		"- user: hello\n- assistant: hi\n",
 	)
 
-	// Tools signatures
+	// Tool signatures
 	run(
 		"tools-signatures",
-		"#foreach($s in $Tools.Signatures)- $s.Name: $s.Description\n#end",
-		"{{range .Tools.Signatures}}- {{.Name}}: {{.Description}}\n{{end}}",
+		"#foreach($s in $Tool.Signatures)- $s.Name: $s.Description\n#end",
+		"{{range .Tool.Signatures}}- {{.Name}}: {{.Description}}\n{{end}}",
 		&Binding{Tools: &Tools{Signatures: []*llm.ToolDefinition{{Name: "search", Description: "find"}, {Name: "calc", Description: "compute"}}}},
 		"- search: find\n- calc: compute\n",
 	)
 
-	// Tools executions (status removed in llm.ToolCall)
+	// Tool executions (status removed in llm.ToolCall)
 	run(
 		"tools-executions",
-		"#foreach($e in $Tools.Executions)- $e.Name: ($e.Result)\n#end",
-		"{{range .Tools.Executions}}- {{.Name}}: ({{.Result}})\n{{end}}",
+		"#foreach($e in $Tool.Executions)- $e.Name: ($e.Result)\n#end",
+		"{{range .Tool.Executions}}- {{.Name}}: ({{.Result}})\n{{end}}",
 		&Binding{Tools: &Tools{Executions: []*llm.ToolCall{{Name: "search", Result: "ok"}}}},
 		"- search: (ok)\n",
 	)

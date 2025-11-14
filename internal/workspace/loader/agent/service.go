@@ -242,12 +242,6 @@ func normalizeAgent(a *agentmdl.Agent) {
 		// If When exists but Expr is empty and Query is nil, keep as-is (explicit empty)
 	}
 
-	// Keep tool exposure consistent between top-level and nested tool block.
-	if a != nil && a.Tools != nil {
-		if strings.TrimSpace(string(a.Tools.CallExposure)) == "" && strings.TrimSpace(string(a.ToolCallExposure)) != "" {
-			a.Tools.CallExposure = a.ToolCallExposure
-		}
-	}
 }
 
 // parseAgent parses agent properties from a YAML node
@@ -399,10 +393,6 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				if err := s.parseToolBlock(valueNode, agent); err != nil {
 					return err
 				}
-				// Populate serialized block to enable migration on save.
-				if len(agent.Tool) > 0 {
-					agent.Tools = &agentmdl.Tool{Items: agent.Tool}
-				}
 			case yaml.MappingNode:
 				// New format: tool: { items: [], toolCallExposure: "..." }
 				if err := s.parseToolConfig(valueNode, agent); err != nil {
@@ -434,7 +424,7 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					if name == "" {
 						continue
 					}
-					agent.Tool = append(agent.Tool, &llm.Tool{Pattern: name, Type: "function"})
+					agent.Tool.Items = append(agent.Tool.Items, &llm.Tool{Pattern: name, Type: "function"})
 
 				case yaml.MappingNode:
 					var t llm.Tool
@@ -451,7 +441,7 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					if t.Pattern == "" {
 						return fmt.Errorf("tool entry missing pattern/ref")
 					}
-					agent.Tool = append(agent.Tool, &llm.Tool{Pattern: t.Pattern, Ref: t.Ref, Type: t.Type, Definition: t.Definition})
+					agent.Tool.Items = append(agent.Tool.Items, &llm.Tool{Pattern: t.Pattern, Ref: t.Ref, Type: t.Type, Definition: t.Definition})
 
 				default:
 					return fmt.Errorf("unsupported YAML node for tool entry: kind=%d", itemNode.Kind)
@@ -473,10 +463,10 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				}
 				agent.Reasoning = &r
 			}
-		case "toolexposure", "toolcallexposure":
+		case "callexposure", "toolcallexposure":
 			// Accept scalar values: turn | conversation | semantic
 			if valueNode.Kind == yaml.ScalarNode {
-				agent.ToolCallExposure = agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(valueNode.Value)))
+				agent.Tool.CallExposure = agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(valueNode.Value)))
 			}
 		case "attachment":
 			if err := s.parseAttachmentBlock(valueNode, agent); err != nil {
@@ -632,7 +622,7 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 			if v == "" {
 				continue
 			}
-			agent.Tool = append(agent.Tool, &llm.Tool{Pattern: v})
+			agent.Tool.Items = append(agent.Tool.Items, &llm.Tool{Pattern: v})
 		case yaml.MappingNode:
 			var t llm.Tool
 			var inlineDef llm.ToolDefinition
@@ -708,7 +698,7 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 				}
 			}
 			if t.Definition.Name != "" || t.Pattern != "" || t.Ref != "" {
-				agent.Tool = append(agent.Tool, &t)
+				agent.Tool.Items = append(agent.Tool.Items, &t)
 			}
 		}
 	}
@@ -736,7 +726,7 @@ func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) er
 				exp := agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(v.Value)))
 				cfg.CallExposure = exp
 				// Also map to top-level for backward compatix`bility.
-				agent.ToolCallExposure = exp
+				agent.Tool.CallExposure = exp
 			}
 		}
 		return nil
@@ -749,9 +739,9 @@ func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) er
 		if err := s.parseToolBlock(itemsNode, agent); err != nil {
 			return err
 		}
-		cfg.Items = agent.Tool
+		cfg.Items = agent.Tool.Items
 	}
-	agent.Tools = &cfg
+	agent.Tool = cfg
 	return nil
 }
 

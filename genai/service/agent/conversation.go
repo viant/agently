@@ -101,7 +101,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		}
 	}
 
-	// Tools metadata: read once, then decide to populate input
+	// Tool metadata: read once, then decide to populate input
 	var meta ConversationMetadata
 	if metadata != nil && strings.TrimSpace(*metadata) != "" {
 		_ = json.Unmarshal([]byte(*metadata), &meta)

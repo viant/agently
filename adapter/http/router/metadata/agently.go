@@ -99,7 +99,7 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 		}
 	}
 
-	// Tools: from llm definitions (hide internal/* services)
+	// Tool: from llm definitions (hide internal/* services)
 	for _, d := range defs {
 		name := strings.TrimSpace(d.Name)
 		if name == "" {
@@ -169,7 +169,7 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 			agentName := strings.TrimSpace(a.Name)
 			// Build patterns from agent.Tool (raw; matcher normalizes internally)
 			var patterns []string
-			for _, t := range a.Tool {
+			for _, t := range a.Tool.Items {
 				if t == nil {
 					continue
 				}
@@ -221,7 +221,7 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 			}
 			sort.Strings(matched)
 			// Defaults per request
-			exposure := strings.TrimSpace(string(a.ToolCallExposure))
+			exposure := strings.TrimSpace(string(a.Tool.CallExposure))
 			if exposure == "" {
 				exposure = "turn"
 			}
@@ -331,7 +331,7 @@ func NewAgently(exec *execsvc.Service) http.HandlerFunc {
 						continue
 					}
 					var patterns []string
-					for _, t := range a.Tool {
+					for _, t := range a.Tool.Items {
 						if t == nil {
 							continue
 						}

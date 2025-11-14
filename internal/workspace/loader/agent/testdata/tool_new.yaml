@@ -1,0 +1,11 @@
+agent:
+  id: agent-tool-new
+  model: gpt-4o-mini
+  tool:
+    callExposure: conversation
+    items:
+      - pattern: "sqlkit:*"
+        type: function
+      - ref: "mcp:*"
+        type: function
+

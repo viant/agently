@@ -12,7 +12,6 @@ prompt:
 systemPrompt:
   uri: prompt/system.tmpl
 
-supportsContinuationByResponseID: false
 
 tool:
   callExposure: conversation

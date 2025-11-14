@@ -81,8 +81,8 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	exposure := agent.ToolCallExposure("turn")
 	if input.ToolCallExposure != nil && strings.TrimSpace(string(*input.ToolCallExposure)) != "" {
 		exposure = *input.ToolCallExposure
-	} else if input.Agent != nil && strings.TrimSpace(string(input.Agent.ToolCallExposure)) != "" {
-		exposure = input.Agent.ToolCallExposure
+	} else if input.Agent != nil && strings.TrimSpace(string(input.Agent.Tool.CallExposure)) != "" {
+		exposure = input.Agent.Tool.CallExposure
 	}
 	execs, overflow, err := s.buildToolExecutions(ctx, input, conv, exposure)
 	if err != nil {
@@ -380,7 +380,7 @@ func (s *Service) appendCallToolResultGuide(ctx context.Context, b *prompt.Bindi
 
 // ensureInternalToolsIfNeeded appends internal/message tools that are used during
 // continuation-by-response-id flows so that the model can reference them when
-// continuing a prior response. Tools are appended only when the selected model
+// continuing a prior response. Tool are appended only when the selected model
 // supports continuation. Duplicates are avoided by canonical name.
 func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryInput, b *prompt.Binding) {
 	if s == nil || s.registry == nil || b == nil {
@@ -764,7 +764,7 @@ func (s *Service) effectivePreviewLimit(step int) int {
 }
 
 func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([]*llm.ToolDefinition, bool, error) {
-	if s.registry == nil || input.Agent == nil || len(input.Agent.Tool) == 0 {
+	if s.registry == nil || input.Agent == nil || len(input.Agent.Tool.Items) == 0 {
 		return nil, false, nil
 	}
 	tools, err := s.resolveTools(ctx, input)

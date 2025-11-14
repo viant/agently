@@ -18,4 +18,7 @@ const (
 
 	// ProviderInceptionLabs identifies InceptionLabs API
 	ProviderInceptionLabs = "inceptionlabs"
+
+	// ProviderGrok identifies xAI Grok API
+	ProviderGrok = "grok"
 )
