@@ -587,6 +587,12 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			events <- llm.StreamEvent{Err: fmt.Errorf("failed to read response body: %w", readErr)}
 			return
 		}
+
+		if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
+			events <- llm.StreamEvent{Err: fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, string(respBody))}
+			return
+		}
+
 		// If Responses stream returned an immediate JSON error and it's
 		// a continuation error, bubble up an error and do not fallback.
 		if !bytes.Contains(respBody, []byte("data: ")) {
