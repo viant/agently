@@ -79,10 +79,18 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return err
 	}
 
-	// Persist attachments if any
+	// Persist attachments if any. Once persisted into history, avoid also
+	// sending them as task-scoped attachments to prevent duplicate media in
+	// the provider request payload.
 	if err := s.processAttachments(ctx, turn, input); err != nil {
 		return err
 	}
+
+	// TODO delete if not needed
+	//if len(input.Attachments) > 0 {
+	//    input.Attachments = nil
+	//}
+
 	// No pre-execution elicitation. Templates can instruct LLM to elicit details
 	// using binding.Elicitation. Orchestrator handles assistant-originated elicitations.
 	// Apply workspace-configured tool timeout to context, if set.

@@ -43,7 +43,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 
 	// Compute effective preview limit using service defaults only
-	hist, histOverflow, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript(), &input.RequestTime)
+	hist, histOverflow, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript(), input)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	// Populate History.LastResponse using the last assistant message in transcript
 	if conv != nil {
 		tr := conv.GetTranscript()
-		if last := tr.LastAssistantMessage(); last != nil {
+		if last := tr.LastAssistantMessageWithModelCall(); last != nil {
 			trace := &prompt.Trace{At: last.CreatedAt, Kind: prompt.KindResponse}
 			if last.ModelCall != nil && last.ModelCall.TraceId != nil {
 				if id := strings.TrimSpace(*last.ModelCall.TraceId); id != "" {
@@ -588,7 +588,7 @@ func (s *Service) buildHistory(ctx context.Context, transcript apiconv.Transcrip
 }
 
 // buildHistoryWithLimit maps transcript into prompt history applying overflow preview to user/assistant text messages.
-func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript, requestTime *time.Time) (prompt.History, bool, error) {
+func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript, input *QueryInput) (prompt.History, bool, error) {
 	// When effectiveLimit <= 0, fall back to default
 	var out prompt.History
 
@@ -596,7 +596,19 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 		h, err := s.buildHistory(ctx, transcript)
 		return h, false, err
 	}
-	anchor := transcript.LastAssistantMessage()
+	lastAssistantMessage := transcript.LastAssistantMessage()
+	lastElicitationMessage := transcript.LastElicitationMessage()
+
+	currentElicitation := false
+	if lastElicitationMessage != nil {
+		if lastElicitationMessage.Id == lastAssistantMessage.Id {
+			currentElicitation = true
+		}
+		if lastElicitationMessage.CreatedAt.After(lastAssistantMessage.CreatedAt) {
+			currentElicitation = true
+		}
+	}
+
 	normalized := transcript.Filter(func(v *apiconv.Message) bool {
 		if v == nil || v.Content == nil || *v.Content == "" {
 			return false
@@ -616,16 +628,33 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 		}
 		role := strings.ToLower(strings.TrimSpace(v.Role))
 
-		if role == "user" || role == "assistant" {
-			// Gate user/assistant messages strictly by anchorFrom when available.
-			if anchor != nil && anchor.CreatedAt.Before(v.CreatedAt) && v.Content != nil {
+		if currentElicitation && (role == "user" || role == "assistant") {
+			if v.Id == lastElicitationMessage.Id && v.Content != nil {
 				out.UserElicitation = append(out.UserElicitation, &prompt.Message{Role: v.Role, Content: *v.Content})
 				return false
 			}
+
+			if lastElicitationMessage.CreatedAt.Before(v.CreatedAt) && v.Content != nil {
+				out.UserElicitation = append(out.UserElicitation, &prompt.Message{Role: v.Role, Content: *v.Content})
+				return false
+			}
+		}
+
+		if role == "user" || role == "assistant" {
 			return true
 		}
+
 		return false
 	})
+
+	// delete from history messages the message with current input query to avoid duplication
+	// input query will be added separately in generate step
+	if len(normalized) > 0 {
+		last := *normalized[len(normalized)-1]
+		if last.Content != nil && *last.Content == input.Query {
+			normalized = normalized[:len(normalized)-1]
+		}
+	}
 
 	overflow := false
 	for i, msg := range normalized {

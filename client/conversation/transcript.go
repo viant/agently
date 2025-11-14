@@ -114,9 +114,9 @@ func (t *Transcript) Filter(f func(v *Message) bool) Messages {
 // text messages created strictly after the provided time.
 // PostAnchorTextContentSet was removed to avoid transcript calls during continuation build.
 
-// LastAssistantMessage returns the last assistant text message in this transcript.
+// LastAssistantMessageWithModelCall returns the last assistant text message in this transcript that has a model call.
 // It scans turns from the end and messages from the end to preserve chronology.
-func (t *Transcript) LastAssistantMessage() *Message {
+func (t *Transcript) LastAssistantMessageWithModelCall() *Message {
 	if t == nil || len(*t) == 0 {
 		return nil
 	}
@@ -139,6 +139,50 @@ func (t *Transcript) LastAssistantMessage() *Message {
 		}
 		if last != nil {
 			return last
+		}
+	}
+	return nil
+}
+
+// LastAssistantMessage returns the last assistant text message in this transcript.
+// It scans turns from the end and messages from the end to preserve chronology.
+func (t *Transcript) LastAssistantMessage() *Message {
+	if t == nil || len(*t) == 0 {
+		return nil
+	}
+	for ti := len(*t) - 1; ti >= 0; ti-- {
+		turn := (*t)[ti]
+		if turn == nil {
+			continue
+		}
+
+		msgs := turn.GetMessages()
+		for mi := len(msgs) - 1; mi >= 0; mi-- {
+			m := msgs[mi]
+			if strings.ToLower(strings.TrimSpace(m.Role)) == "assistant" {
+				return m
+			}
+		}
+	}
+	return nil
+}
+
+func (t *Transcript) LastElicitationMessage() *Message {
+	if t == nil || len(*t) == 0 {
+		return nil
+	}
+	for ti := len(*t) - 1; ti >= 0; ti-- {
+		turn := (*t)[ti]
+		if turn == nil {
+			continue
+		}
+
+		msgs := turn.GetMessages()
+		for mi := len(msgs) - 1; mi >= 0; mi-- {
+			m := msgs[mi]
+			if strings.ToLower(strings.TrimSpace(m.Role)) == "assistant" && m.ElicitationId != nil && *m.ElicitationId != "" {
+				return m
+			}
 		}
 	}
 	return nil
