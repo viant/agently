@@ -241,6 +241,13 @@ func normalizeAgent(a *agentmdl.Agent) {
 		}
 		// If When exists but Expr is empty and Query is nil, keep as-is (explicit empty)
 	}
+
+	// Keep tool exposure consistent between top-level and nested tool block.
+	if a != nil && a.Tools != nil {
+		if strings.TrimSpace(string(a.Tools.CallExposure)) == "" && strings.TrimSpace(string(a.ToolCallExposure)) != "" {
+			a.Tools.CallExposure = a.ToolCallExposure
+		}
+	}
 }
 
 // parseAgent parses agent properties from a YAML node
@@ -724,7 +731,7 @@ func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) er
 		switch strings.ToLower(strings.TrimSpace(k)) {
 		case "items":
 			itemsNode = v
-		case "toolcallexposure", "toolexposure":
+		case "toolcallexposure", "toolexposure", "callexposure":
 			if v.Kind == yaml.ScalarNode {
 				exp := agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(v.Value)))
 				cfg.CallExposure = exp
