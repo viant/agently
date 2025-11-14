@@ -183,7 +183,7 @@ func (b *Binding) Data() map[string]interface{} {
 	var context = map[string]interface{}{
 		"Task":            &b.Task,
 		"History":         &b.History,
-		"Tools":           &b.Tools,
+		"Tool":            &b.Tools,
 		"Flags":           &b.Flags,
 		"Documents":       &b.Documents,
 		"Meta":            &b.Meta,

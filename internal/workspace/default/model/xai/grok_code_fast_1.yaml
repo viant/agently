@@ -1,0 +1,12 @@
+id: xai_grok-code-fast-1
+name: Grok Code Fast 1 (xAI)
+description: xAI Grok code-oriented fast model
+intelligence: 0.8
+speed: 0.95
+options:
+  provider: grok
+  model: grok-code-fast-1
+  envKey: XAI_API_KEY
+  # Prices are per 1k tokens (see recorder pricing logic)
+  inputTokenPrice: 0.0002   # $0.20 per 1M tokens
+  outputTokenPrice: 0.0015  # $1.50 per 1M tokens

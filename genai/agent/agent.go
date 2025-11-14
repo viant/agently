@@ -53,14 +53,10 @@ type (
 
 		SystemPrompt    *prompt.Prompt `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
 		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
-		// Tool (legacy): raw array of tool patterns/definitions used at runtime.
-		// Kept for backward compatibility; not serialized. Use Tools for YAML/JSON.
-		Tool []*llm.Tool `yaml:"-" json:"-"`
-
-		// Tools defines the serialized tool configuration block using the new
-		// contract: tool: { items: [], toolCallExposure }.
+		// Tool defines the serialized tool configuration block using the new
+		// contract: tool: { items: [], callExposure }.
 		// This preserves backward compatibility while enabling richer config.
-		Tools *Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
+		Tool Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
 
 		// Reasoning controls provider native reasoning behavior (e.g., effort/summary
 		// for OpenAI o-series). When set, EnsureGenerateOptions passes it to LLM core.
@@ -76,8 +72,6 @@ type (
 		// it. When omitted (nil), the runtime decides based on model capability.
 		// This is parsed from YAML and propagated to llm.Options.ContinuationEnabled.
 		SupportsContinuationByResponseID *bool `yaml:"supportsContinuationByResponseID,omitempty" json:"supportsContinuationByResponseID,omitempty"`
-		// ToolCallExposure defines how tool calls are exposed to the LLM
-		ToolCallExposure ToolCallExposure `yaml:"toolCallExposure,omitempty" json:"toolCallExposure,omitempty"`
 
 		// Persona defines the default conversational persona the agent uses when
 		// sending messages. When nil the role defaults to "assistant".
@@ -151,7 +145,7 @@ type (
 
 type Tool struct {
 	Items        []*llm.Tool      `yaml:"items,omitempty" json:"items,omitempty"`
-	CallExposure ToolCallExposure `yaml:"toolCallExposure,omitempty" json:"toolCallExposure,omitempty"`
+	CallExposure ToolCallExposure `yaml:"callExposure,omitempty" json:"callExposure,omitempty"`
 }
 
 // Elicitation describes a JSON-Schema based input request associated with an agent.

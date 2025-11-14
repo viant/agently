@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// FromService converts a service.Service to a slice of MCP Tools.
+// FromService converts a service.Service to a slice of MCP Tool.
 // Tool.Name is the method name; Input/Output schemas are derived from reflection types.
 func FromService(s svc.Service) []mcpschema.Tool {
 	sigs := s.Methods()

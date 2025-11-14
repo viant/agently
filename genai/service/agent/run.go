@@ -43,7 +43,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// Install a warnings collector in context for this turn.
 	ctx, _ = withWarnings(ctx)
 
-	// Conversation already ensured above (fills AgentID/Model/Tools when missing)
+	// Conversation already ensured above (fills AgentID/Model/Tool when missing)
 	output.ConversationID = input.ConversationID
 	s.tryMergePromptIntoContext(input)
 	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {

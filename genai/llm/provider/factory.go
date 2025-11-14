@@ -3,8 +3,11 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
+
 	"github.com/viant/agently/genai/llm"
 	bedrockclaude "github.com/viant/agently/genai/llm/provider/bedrock/claude"
+	"github.com/viant/agently/genai/llm/provider/grok"
 	"github.com/viant/agently/genai/llm/provider/inceptionlabs"
 	"github.com/viant/agently/genai/llm/provider/ollama"
 	"github.com/viant/agently/genai/llm/provider/openai"
@@ -97,6 +100,23 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 		}
 		return inceptionlabs.NewClient(apiKey, options.Model,
 			inceptionlabs.WithUsageListener(options.UsageListener)), nil
+	case ProviderGrok:
+		apiKey, err := f.apiKey(ctx, options.APIKeyURL)
+		if err != nil {
+			return nil, err
+		}
+		// Fallback to environment variable when not provided via secrets.
+		if apiKey == "" {
+			// Prefer explicitly provided EnvKey; otherwise default to XAI_API_KEY
+			if envKey := options.EnvKey; envKey != "" {
+				apiKey = os.Getenv(envKey)
+			}
+			if apiKey == "" {
+				apiKey = os.Getenv("XAI_API_KEY")
+			}
+		}
+		return grok.NewClient(apiKey, options.Model,
+			grok.WithUsageListener(options.UsageListener)), nil
 	default:
 		return nil, fmt.Errorf("unsupported provider: %v", options.Provider)
 	}

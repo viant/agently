@@ -1,0 +1,8 @@
+agent:
+  id: agent-tool-callexposure
+  model: test
+  tool:
+    callexposure: conversation
+    items:
+      - pattern: sqlkit
+
