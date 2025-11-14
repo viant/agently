@@ -95,3 +95,45 @@ func TestService_Load_UIFlags(t *testing.T) {
 		assert.False(t, *got.AutoSummarize, "AutoSummarize should be false")
 	}
 }
+
+func TestService_Load_ToolExposure(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "embed:///testdata")))
+
+	// Minimal, focused assertions: exposure must be set consistently
+	t.Run("tool.callExposure alias is parsed", func(t *testing.T) {
+		got, err := service.Load(ctx, "tool_callExposure.yaml")
+		assert.NoError(t, err)
+		if assert.NotNil(t, got) && assert.NotNil(t, got.Tools) {
+			assert.EqualValues(t, agent.ToolCallExposure("conversation"), got.ToolCallExposure)
+			assert.EqualValues(t, agent.ToolCallExposure("conversation"), got.Tools.CallExposure)
+		}
+	})
+
+	t.Run("new tool block with toolCallExposure", func(t *testing.T) {
+		got, err := service.Load(ctx, "tool_new.yaml")
+		assert.NoError(t, err)
+		if assert.NotNil(t, got) && assert.NotNil(t, got.Tools) {
+			assert.EqualValues(t, agent.ToolCallExposure("conversation"), got.ToolCallExposure)
+			assert.EqualValues(t, agent.ToolCallExposure("conversation"), got.Tools.CallExposure)
+		}
+	})
+
+	t.Run("tool.callexposure (lowercase) is parsed", func(t *testing.T) {
+		got, err := service.Load(ctx, "tool_callexposure.yaml")
+		assert.NoError(t, err)
+		if assert.NotNil(t, got) && assert.NotNil(t, got.Tools) {
+			assert.EqualValues(t, agent.ToolCallExposure("conversation"), got.ToolCallExposure)
+			assert.EqualValues(t, agent.ToolCallExposure("conversation"), got.Tools.CallExposure)
+		}
+	})
+
+	t.Run("top-level toolCallExposure mirrors into tool block", func(t *testing.T) {
+		got, err := service.Load(ctx, "tool_top.yaml")
+		assert.NoError(t, err)
+		if assert.NotNil(t, got) && assert.NotNil(t, got.Tools) {
+			assert.EqualValues(t, agent.ToolCallExposure("conversation"), got.ToolCallExposure)
+			assert.EqualValues(t, agent.ToolCallExposure("conversation"), got.Tools.CallExposure)
+		}
+	})
+}
