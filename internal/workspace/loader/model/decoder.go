@@ -2,10 +2,11 @@ package model
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/viant/agently/genai/llm/provider"
 	yml "github.com/viant/agently/internal/workspace/service/meta/yml"
 	"gopkg.in/yaml.v3"
-	"strings"
 )
 
 func decodeYaml(node *yml.Node, config *provider.Config) error {
@@ -156,6 +157,7 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 				}
 				config.Options.OutputTokenPrice = price
 			}
+
 		case "cachedtokenprice":
 			if valueNode.Kind == yaml.ScalarNode {
 				price := 0.0
@@ -169,6 +171,18 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 				}
 				config.Options.CachedTokenPrice = price
 			}
+		case "continuationenabled":
+			if valueNode.Kind == yaml.ScalarNode {
+				var enabled bool
+				switch v := valueNode.Interface().(type) {
+				case bool:
+					enabled = v
+				case string:
+					enabled = v == "true" || v == "1"
+				}
+				config.Options.ContinuationEnabled = enabled
+			}
+
 		}
 		return nil
 	})

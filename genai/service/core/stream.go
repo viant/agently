@@ -65,7 +65,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	}
 
 	var continuationRequest *llm.GenerateRequest
-	if continuationEnabled(model, req.Options) {
+	if continuationContextEnabled(model, req.Options) {
 		continuationRequest = s.BuildContinuationRequest(ctx, req, &input.GenerateInput.Binding.History)
 
 	}
@@ -193,7 +193,16 @@ func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, 
 		// Stop on done or error
 		if len(output.Events) > 0 {
 			last := output.Events[len(output.Events)-1]
-			if last.Type == "done" || last.Type == "error" {
+			// For tool-calls, finish_reason == "tool_calls" indicates that the
+			// model is requesting tools, not that the overall stream is done.
+			// In that case we must continue consuming subsequent events so that
+			// additional tool_call items (and the final assistant message) are
+			// observed and executed.
+			if last.Type == "done" {
+				if strings.TrimSpace(last.FinishReason) != "tool_calls" {
+					ignore = true
+				}
+			} else if last.Type == "error" {
 				ignore = true
 			}
 		}

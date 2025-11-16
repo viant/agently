@@ -67,11 +67,11 @@ type (
 		// Honored only when the selected model implements the feature.
 		ParallelToolCalls bool `yaml:"parallelToolCalls,omitempty" json:"parallelToolCalls,omitempty"`
 
-		// SupportsContinuationByResponseID, when set to false, disables provider
+		// ContinuationContext, when set to false, disables provider
 		// continuation by previous_response_id even if the selected model supports
 		// it. When omitted (nil), the runtime decides based on model capability.
-		// This is parsed from YAML and propagated to llm.Options.ContinuationEnabled.
-		SupportsContinuationByResponseID *bool `yaml:"supportsContinuationByResponseID,omitempty" json:"supportsContinuationByResponseID,omitempty"`
+		// This is parsed from YAML and propagated to llm.Options.ContinuationContext.
+		ContinuationContext *bool `yaml:"continuationContext,omitempty" json:"continuationContext,omitempty"`
 
 		// Persona defines the default conversational persona the agent uses when
 		// sending messages. When nil the role defaults to "assistant".

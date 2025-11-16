@@ -261,7 +261,7 @@ export default function ElicitionForm({message, context}) {
             isOpen={true}
             canEscapeKeyClose={!submitting}
             canOutsideClickClose={!submitting}
-            title="Additional input required"
+            title="Secure Flow Required"
             style={{width: '100%', maxWidth: 520}}>
 
             <fieldset className={Classes.DIALOG_BODY}>

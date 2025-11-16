@@ -33,11 +33,12 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 		i.Options.Reasoning = agent.Reasoning
 	}
 
-	// Continuation-by-response-id: allow YAML to override only when explicitly set to false.
-	// We set Options.ContinuationEnabled=false so core continuationEnabled(...) can
-	// short-circuit when model supports the feature; omitted or true means no override.
-	if agent.SupportsContinuationByResponseID != nil {
-		i.Options.ContinuationEnabled = *agent.SupportsContinuationByResponseID
+	// Continuation-by-response-id: allow the agent YAML to opt in/out explicitly.
+	// When nil, the core layer will decide based on model capability.
+	if agent.ContinuationContext != nil {
+		// Propagate pointer so core.continuationContextEnabled can distinguish
+		// between "no override" (nil) and explicit true/false.
+		i.Options.ContinuationContext = agent.ContinuationContext
 	}
 	mode := "ref"
 	if agent.Attachment != nil {

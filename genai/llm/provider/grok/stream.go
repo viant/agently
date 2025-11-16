@@ -128,6 +128,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		var lastModel string
 		var lastUsage *llm.Usage
 		var lastLR *llm.GenerateResponse
+		var lastProvider []byte
 		var published bool
 
 		scanner := bufio.NewScanner(resp.Body)
@@ -152,6 +153,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				// tolerate unrecognized payloads
 				continue
 			}
+			// keep provider chunk snapshot for recorder persistence
+			lastProvider = []byte(data)
 			if strings.TrimSpace(ch.Model) != "" {
 				lastModel = strings.TrimSpace(ch.Model)
 			}
@@ -211,7 +214,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					}
 				}
 			}
-			if err := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "grok", Model: lastModel, ModelKind: "chat", CompletedAt: time.Now(), Usage: lastUsage, LLMResponse: lastLR, StreamText: streamTxt}); err != nil {
+			if err := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "grok", Model: lastModel, ModelKind: "chat", ResponseJSON: lastProvider, CompletedAt: time.Now(), Usage: lastUsage, LLMResponse: lastLR, StreamText: streamTxt}); err != nil {
 				events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
 			}
 		}

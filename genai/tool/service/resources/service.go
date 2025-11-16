@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
@@ -20,13 +21,12 @@ import (
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/workspace"
 	embopt "github.com/viant/embedius/matching/option"
-	"time"
 )
 
 // Name identifies the resources tool service namespace
 const Name = "resources"
 
-// Service exposes resource search (match) and listing over filesystem and MCP resources.
+// Service exposes resource roots, listing, reading and semantic match over filesystem and MCP resources.
 type Service struct {
 	augmenter *aug.Service
 	mcpMgr    *mcpmgr.Manager
@@ -61,34 +61,37 @@ func (s *Service) Name() string { return Name }
 // Methods declares available tool methods
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
-		{Name: "match", Description: "Semantic match search over provided locations (files or MCP resources)", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
-		{Name: "list", Description: "List documents under locations (recursive for MCP; recursive for files via walk)", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "roots", Description: "Discover configured resource roots with optional descriptions", Input: reflect.TypeOf(&RootsInput{}), Output: reflect.TypeOf(&RootsOutput{})},
+		{Name: "list", Description: "List resources under a root (file or MCP)", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
+		{Name: "read", Description: "Read a single resource under a root", Input: reflect.TypeOf(&ReadInput{}), Output: reflect.TypeOf(&ReadOutput{})},
+		{Name: "match", Description: "Semantic match search over one or more roots", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
 	}
 }
 
 // Method resolves an executable method by name
 func (s *Service) Method(name string) (svc.Executable, error) {
 	switch strings.ToLower(name) {
-	case "match":
-		return s.match, nil
-	case "list":
-		return s.list, nil
 	case "roots":
 		return s.roots, nil
+	case "list":
+		return s.list, nil
+	case "read":
+		return s.read, nil
+	case "match":
+		return s.match, nil
 	default:
 		return nil, svc.NewMethodNotFoundError(name)
 	}
 }
 
-// MatchInput defines parameters for semantic search.
+// MatchInput defines parameters for semantic search across one or more roots.
 type MatchInput struct {
 	Query        string          `json:"query"`
-	Locations    []string        `json:"locations"`
+	Roots        []string        `json:"roots"`
+	Path         string          `json:"path,omitempty"`
 	Model        string          `json:"model"`
 	MaxDocuments int             `json:"maxDocuments,omitempty"`
 	IncludeFile  bool            `json:"includeFile,omitempty"`
-	TrimPath     string          `json:"trimPath,omitempty"`
 	Match        *embopt.Options `json:"match,omitempty"`
 }
 
@@ -98,9 +101,6 @@ type MatchOutput struct {
 }
 
 func (s *Service) match(ctx context.Context, in, out interface{}) error {
-	if s == nil || s.augmenter == nil {
-		return fmt.Errorf("documents service not initialised")
-	}
 	input, ok := in.(*MatchInput)
 	if !ok {
 		return svc.NewInvalidInputError(in)
@@ -109,27 +109,54 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	// Enforce allowlist when agent context present
-	allowed := s.agentAllowed(ctx)
-	if len(allowed) > 0 {
-		for _, loc := range input.Locations {
-			if strings.TrimSpace(loc) == "" {
-				continue
-			}
-			if !s.isAllowed(loc, allowed) {
-				return fmt.Errorf("location not allowed: %s", loc)
-			}
-		}
+	if s.augmenter == nil {
+		return fmt.Errorf("augmenter service is not configured")
 	}
+	query := strings.TrimSpace(input.Query)
+	if query == "" {
+		return fmt.Errorf("query is required")
+	}
+	if len(input.Roots) == 0 {
+		return fmt.Errorf("roots is required")
+	}
+	model := strings.TrimSpace(input.Model)
+	if model == "" {
+		return fmt.Errorf("model is required")
+	}
+	// Enforce allowlist when agent context present and normalize roots.
+	allowed := s.agentAllowed(ctx)
+	locations := make([]string, 0, len(input.Roots))
+	for _, root := range input.Roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		if len(allowed) > 0 && !s.isAllowed(root, allowed) {
+			return fmt.Errorf("root not allowed: %s", root)
+		}
+		norm, _ := s.normalizeLocation(root)
+		if norm == "" {
+			continue
+		}
+		base := norm
+		if strings.TrimSpace(input.Path) != "" {
+			base = url.Join(norm, strings.TrimPrefix(strings.TrimSpace(input.Path), "/"))
+		}
+		locations = append(locations, base)
+	}
+	if len(locations) == 0 {
+		return fmt.Errorf("no valid roots provided")
+	}
+	trimPrefix := commonPrefix(locations)
 	// Map to augmenter input and delegate
 	augIn := &aug.AugmentDocsInput{
-		Query:        strings.TrimSpace(input.Query),
-		Locations:    input.Locations,
+		Query:        query,
+		Locations:    locations,
 		Match:        input.Match,
-		Model:        strings.TrimSpace(input.Model),
+		Model:        model,
 		MaxDocuments: input.MaxDocuments,
 		IncludeFile:  input.IncludeFile,
-		TrimPath:     input.TrimPath,
+		TrimPath:     trimPrefix,
 	}
 	var augOut aug.AugmentDocsOutput
 	if err := s.augmenter.AugmentDocs(ctx, augIn, &augOut); err != nil {
@@ -142,14 +169,15 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 // -------- list implementation --------
 
 type ListInput struct {
-	Locations []string `json:"locations"`
-	Recursive bool     `json:"recursive,omitempty"`
-	MaxFiles  int      `json:"maxFiles,omitempty"`
-	TrimPath  string   `json:"trimPath,omitempty"`
+	RootURI   string `json:"root"`
+	Path      string `json:"path,omitempty"`
+	Recursive bool   `json:"recursive,omitempty"`
+	MaxItems  int    `json:"maxItems,omitempty"`
 }
 
 type ListItem struct {
 	URI      string    `json:"uri"`
+	Path     string    `json:"path"`
 	Name     string    `json:"name"`
 	Size     int64     `json:"size"`
 	Modified time.Time `json:"modified"`
@@ -169,81 +197,84 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	if len(input.Locations) == 0 {
-		return fmt.Errorf("locations is required")
+	rootURI := strings.TrimSpace(input.RootURI)
+	if rootURI == "" {
+		return fmt.Errorf("root is required")
 	}
-
-	var items []ListItem
-	seen := map[string]bool{}
-
+	allowed := s.agentAllowed(ctx)
+	if len(allowed) > 0 && !s.isAllowed(rootURI, allowed) {
+		return fmt.Errorf("root not allowed: %s", rootURI)
+	}
+	normRoot, _ := s.normalizeLocation(rootURI)
+	if normRoot == "" {
+		return fmt.Errorf("invalid root: %s", rootURI)
+	}
+	base := normRoot
+	if strings.TrimSpace(input.Path) != "" {
+		base = url.Join(normRoot, strings.TrimPrefix(strings.TrimSpace(input.Path), "/"))
+	}
 	afsSvc := afs.New()
 	mfs := (*mcpfs.Service)(nil)
 	if s.mcpMgr != nil {
 		mfs = mcpfs.New(s.mcpMgr)
 	}
-
-	max := input.MaxFiles
+	max := input.MaxItems
 	if max <= 0 {
 		max = 0
-	} // 0 = no limit
-
-	allowed := s.agentAllowed(ctx)
-	for _, loc := range input.Locations {
-		loc = strings.TrimSpace(loc)
-		if loc == "" {
-			continue
+	}
+	var items []ListItem
+	seen := map[string]bool{}
+	if mcpuri.Is(base) {
+		if mfs == nil {
+			return fmt.Errorf("mcp manager not configured")
 		}
-		if len(allowed) > 0 && !s.isAllowed(loc, allowed) {
-			return fmt.Errorf("location not allowed: %s", loc)
+		objs, err := mfs.List(ctx, base)
+		if err != nil {
+			return err
 		}
-		if mcpuri.Is(loc) {
-			if mfs == nil {
-				return fmt.Errorf("mcp manager not configured")
+		for _, o := range objs {
+			if o == nil {
+				continue
 			}
-			objs, err := mfs.List(ctx, loc)
-			if err != nil {
-				return err
+			uri := o.URL()
+			if seen[uri] {
+				continue
 			}
-			for _, o := range objs {
-				if o == nil {
-					continue
-				}
-				uri := o.URL()
-				if seen[uri] {
-					continue
-				}
-				seen[uri] = true
-				items = append(items, ListItem{URI: trim(uri, input.TrimPath), Name: o.Name(), Size: o.Size(), Modified: o.ModTime()})
-				if max > 0 && len(items) >= max {
-					break
-				}
-			}
+			seen[uri] = true
+			items = append(items, ListItem{
+				URI:      uri,
+				Path:     relativePath(normRoot, uri),
+				Name:     o.Name(),
+				Size:     o.Size(),
+				Modified: o.ModTime(),
+			})
 			if max > 0 && len(items) >= max {
 				break
 			}
-			continue
 		}
-
-		// File/AFS: walk when recursive; else list directory
+	} else {
 		if input.Recursive {
-			err := afsSvc.Walk(ctx, loc, func(ctx context.Context, baseURL, parent string, info os.FileInfo, reader io.Reader) (bool, error) {
-				if info == nil {
+			err := afsSvc.Walk(ctx, base, func(ctx context.Context, walkBaseURL, parent string, info os.FileInfo, reader io.Reader) (bool, error) {
+				if info == nil || info.IsDir() {
 					return true, nil
 				}
-				if info.IsDir() {
-					return true, nil
-				}
-				p := ""
+				var uri string
 				if parent == "" {
-					p = url.Join(baseURL, info.Name())
+					uri = url.Join(walkBaseURL, info.Name())
 				} else {
-					p = url.Join(baseURL, parent, info.Name())
+					uri = url.Join(walkBaseURL, parent, info.Name())
 				}
-				if seen[p] {
+				if seen[uri] {
 					return true, nil
 				}
-				seen[p] = true
-				items = append(items, ListItem{URI: trim(p, input.TrimPath), Name: info.Name(), Size: info.Size(), Modified: info.ModTime()})
+				seen[uri] = true
+				items = append(items, ListItem{
+					URI:      uri,
+					Path:     relativePath(normRoot, uri),
+					Name:     info.Name(),
+					Size:     info.Size(),
+					Modified: info.ModTime(),
+				})
 				if max > 0 && len(items) >= max {
 					return false, nil
 				}
@@ -252,11 +283,8 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 			if err != nil {
 				return err
 			}
-			if max > 0 && len(items) >= max {
-				break
-			}
 		} else {
-			objs, err := afsSvc.List(ctx, loc)
+			objs, err := afsSvc.List(ctx, base)
 			if err != nil {
 				return err
 			}
@@ -264,18 +292,21 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 				if o == nil || o.IsDir() {
 					continue
 				}
-				uri := url.Join(loc, o.Name())
+				uri := url.Join(base, o.Name())
 				if seen[uri] {
 					continue
 				}
 				seen[uri] = true
-				items = append(items, ListItem{URI: trim(uri, input.TrimPath), Name: o.Name(), Size: o.Size(), Modified: o.ModTime()})
+				items = append(items, ListItem{
+					URI:      uri,
+					Path:     relativePath(normRoot, uri),
+					Name:     o.Name(),
+					Size:     o.Size(),
+					Modified: o.ModTime(),
+				})
 				if max > 0 && len(items) >= max {
 					break
 				}
-			}
-			if max > 0 && len(items) >= max {
-				break
 			}
 		}
 	}
@@ -284,12 +315,131 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	return nil
 }
 
-func trim(s, prefix string) string {
-	p := strings.TrimSpace(prefix)
-	if p == "" {
-		return s
+// ReadInput describes a request to read a single resource.
+// Callers can either supply root+path (preferred for root-centric flows) or a
+// fully qualified URI (as returned by list).
+type ReadInput struct {
+	RootURI  string `json:"root,omitempty"`
+	Path     string `json:"path,omitempty"`
+	URI      string `json:"uri,omitempty"`
+	MaxBytes int    `json:"maxBytes,omitempty"`
+}
+
+// ReadOutput contains the resolved URI, relative path and optionally truncated content.
+type ReadOutput struct {
+	URI     string `json:"uri"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Size    int    `json:"size"`
+}
+
+func (s *Service) read(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*ReadInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
 	}
-	return strings.TrimPrefix(s, p)
+	output, ok := out.(*ReadOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	rootURI := strings.TrimSpace(input.RootURI)
+	pathPart := strings.TrimSpace(input.Path)
+	uri := strings.TrimSpace(input.URI)
+	allowed := s.agentAllowed(ctx)
+
+	var (
+		normRoot string
+		fullURI  string
+	)
+
+	if uri != "" {
+		// URI-only mode: enforce allowlist (when present) against the URI and
+		// normalize it for reading.
+		if len(allowed) > 0 && !s.isAllowed(uri, allowed) {
+			return fmt.Errorf("resource not allowed: %s", uri)
+		}
+		norm, _ := s.normalizeLocation(uri)
+		if norm == "" {
+			return fmt.Errorf("invalid uri: %s", uri)
+		}
+		fullURI = norm
+	} else {
+		// Root+path mode
+		if rootURI == "" {
+			return fmt.Errorf("root or uri is required")
+		}
+		if pathPart == "" {
+			return fmt.Errorf("path is required when uri is not provided")
+		}
+		if len(allowed) > 0 && !s.isAllowed(rootURI, allowed) {
+			return fmt.Errorf("root not allowed: %s", rootURI)
+		}
+		normRoot, _ = s.normalizeLocation(rootURI)
+		if normRoot == "" {
+			return fmt.Errorf("invalid root: %s", rootURI)
+		}
+		fullURI = url.Join(normRoot, strings.TrimPrefix(pathPart, "/"))
+	}
+	var data []byte
+	var err error
+	if mcpuri.Is(fullURI) {
+		if s.mcpMgr == nil {
+			return fmt.Errorf("mcp manager not configured")
+		}
+		mfs := mcpfs.New(s.mcpMgr)
+		data, err = mfs.Download(ctx, mcpfs.NewObjectFromURI(fullURI))
+	} else {
+		fs := afs.New()
+		data, err = fs.DownloadWithURL(ctx, fullURI)
+	}
+	if err != nil {
+		return err
+	}
+	if input.MaxBytes > 0 && len(data) > input.MaxBytes {
+		data = data[:input.MaxBytes]
+	}
+	output.URI = fullURI
+	if normRoot != "" {
+		output.Path = relativePath(normRoot, fullURI)
+	} else {
+		output.Path = fullURI
+	}
+	output.Content = string(data)
+	output.Size = len(data)
+	return nil
+}
+
+func relativePath(rootURI, fullURI string) string {
+	root := strings.TrimSuffix(strings.TrimSpace(rootURI), "/")
+	uri := strings.TrimSpace(fullURI)
+	if root == "" || uri == "" {
+		return ""
+	}
+	if !strings.HasPrefix(uri, root) {
+		return uri
+	}
+	rel := strings.TrimPrefix(uri[len(root):], "/")
+	return rel
+}
+
+func commonPrefix(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	prefix := values[0]
+	for _, v := range values[1:] {
+		for !strings.HasPrefix(v, prefix) && prefix != "" {
+			prefix = prefix[:len(prefix)-1]
+		}
+		if prefix == "" {
+			break
+		}
+	}
+	// Avoid cutting in the middle of a path segment when possible.
+	if i := strings.LastIndex(prefix, "/"); i > 0 {
+		return prefix[:i+1]
+	}
+	return prefix
 }
 
 func (s *Service) isAllowed(loc string, allowed []string) bool {

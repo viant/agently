@@ -42,7 +42,7 @@ func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitati
 			if u, err := urlpkg.Parse(url); err == nil && u.Host != "" {
 				present = u.Host
 			}
-			fmt.Fprintf(os.Stdout, "\nAdditional input is required via browser.\nOpen: %s\n", present)
+			fmt.Fprintf(os.Stdout, "\nSecure Flow Required.\nOpen: %s\n", present)
 
 			reader := bufio.NewReader(os.Stdin)
 			for {
