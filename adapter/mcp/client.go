@@ -102,8 +102,7 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 	if strings.TrimSpace(convID) == "" {
 		convID = memory.ConversationIDFromContext(ctx)
 	}
-	if err := c.persistElicitationMessage(ctx, &params, request.Id); err != nil {
-		fmt.Printf("failed to persist elicitation message: %v", err)
+	if err := c.persistElicitationMessage(ctx, convID, &params); err != nil {
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("failed to persist elicitation: %v", err), nil)
 	}
 	status, payload, err := c.elicitation.Wait(ctx, convID, params.ElicitationId)
@@ -159,22 +158,28 @@ func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedReques
 
 // persistElicitationMessage best-effort persists an assistant message with
 // elicitation payload so that poll-based UIs can display it while awaiting user action.
-func (c *Client) persistElicitationMessage(ctx context.Context, params *schema.ElicitRequestParams, rpcID uint64) error {
-	if strings.TrimSpace(c.convID) == "" {
+func (c *Client) persistElicitationMessage(ctx context.Context, convID string, params *schema.ElicitRequestParams) error {
+	if strings.TrimSpace(convID) == "" {
 		return fmt.Errorf("convID is required")
+	}
+	if c.convClient == nil {
+		return fmt.Errorf("conversation client is not configured")
+	}
+	if c.elicitation == nil {
+		return fmt.Errorf("elicitation service is not configured")
 	}
 	if strings.TrimSpace(params.ElicitationId) == "" {
 		params.ElicitationId = uuid.New().String()
 	}
 	payload := &elicitationSchema.Elicitation{ElicitRequestParams: *params}
 	// Provide a direct callback URL using conversation + elicitationId for unified posting.
-	payload.CallbackURL = fmt.Sprintf("/v1/api/conversations/%s/elicitation/%s", c.convID, params.ElicitationId)
-	aConversation, err := c.convClient.GetConversation(ctx, c.convID)
+	payload.CallbackURL = fmt.Sprintf("/v1/api/conversations/%s/elicitation/%s", convID, params.ElicitationId)
+	aConversation, err := c.convClient.GetConversation(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("failed to get conversation: %v for elicitation, %v", err, params.ElicitationId)
 	}
-	turn := &memory.TurnMeta{ConversationID: c.convID}
-	if aConversation.LastTurnId != nil {
+	turn := &memory.TurnMeta{ConversationID: convID}
+	if aConversation != nil && aConversation.LastTurnId != nil {
 		turn.TurnID = *aConversation.LastTurnId
 		turn.ParentMessageID = *aConversation.LastTurnId
 	}

@@ -75,10 +75,18 @@ type Options struct {
 	// (e.g., OpenAI). Others will ignore it.
 	ParallelToolCalls bool `json:"parallel_tool_calls,omitempty" yaml:"parallelToolCalls,omitempty"`
 
-	// ContinuationEnabled explicitly enables/disables provider continuation
-	// via previous_response_id for models that support it. When nil, it
-	// defaults to enabled if the model supports continuation.
-	ContinuationEnabled bool `json:"continuationEnabled,omitempty" yaml:"continuationEnabled,omitempty"`
+	// ContinuationContext explicitly enables/disables provider continuation
+	// via previous_response_id for models that support it.
+	//
+	// Semantics:
+	//   - nil           
+	//            //    default behaviour based on model capability
+	//        //    (enabled when the model implements SupportsContinuationByResponseID).
+	//   - true    
+	//            //    explicitly enable continuation when the provider supports it.
+	//   - false   
+	//            //    explicitly disable continuation even when the model supports it.
+	ContinuationContext *bool `json:"continuationContext,omitempty" yaml:"continuationContext,omitempty"`
 }
 
 type Thinking struct {

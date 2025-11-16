@@ -340,11 +340,11 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				val := valueNode.Interface()
 				switch actual := val.(type) {
 				case bool:
-					agent.SupportsContinuationByResponseID = &actual
+					agent.ContinuationContext = &actual
 				case string:
 					lv := strings.ToLower(strings.TrimSpace(actual))
 					v := lv == "true" || lv == "yes" || lv == "on"
-					agent.SupportsContinuationByResponseID = &v
+					agent.ContinuationContext = &v
 				}
 			}
 		case "showexecutiondetails":

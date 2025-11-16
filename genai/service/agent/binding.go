@@ -391,12 +391,21 @@ func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryI
 		return
 	}
 
-	// Approximate continuationEnabled: require provider support for continuation.
-	if !s.llm.ModelImplements(ctx, modelName, base.SupportsContinuationByResponseID) {
+	// Decide based on the same continuation semantics as the core service.
+	finder := s.llm.ModelFinder()
+	if finder == nil {
 		return
 	}
-
-	if input.Agent.SupportsContinuationByResponseID != nil && !*input.Agent.SupportsContinuationByResponseID {
+	model, err := finder.Find(ctx, modelName)
+	if err != nil || model == nil {
+		return
+	}
+	// Build a minimal options snapshot using the agent-level override only.
+	opts := &llm.Options{}
+	if input.Agent != nil {
+		opts.ContinuationContext = input.Agent.ContinuationContext
+	}
+	if !core.IsContinuationEnabled(model, opts) {
 		return
 	}
 

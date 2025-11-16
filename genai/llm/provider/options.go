@@ -32,4 +32,6 @@ type Options struct {
 	// SafeEffectiveInputTokens defines a conservative safe input token count
 	// (excludes model output and provider overhead). Intended for request planning.
 	SafeEffectiveInputTokens int `yaml:"safeEffectiveInputTokens,omitempty" json:"safeEffectiveInputTokens,omitempty"`
+
+	ContinuationEnabled bool `json:"continuationEnabled,omitempty" yaml:"continuationEnabled,omitempty"`
 }
