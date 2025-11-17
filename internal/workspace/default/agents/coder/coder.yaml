@@ -8,6 +8,13 @@ persona:
   role: assistant
   actor: Coder
 
+profile:
+  publish: true
+  name: Coder
+  description: Code generation and refactoring agent
+  tags: ["code", "refactor"]
+  rank: 90
+
 prompt:
   uri: prompt/user.tmpl
 systemPrompt:
@@ -29,3 +36,20 @@ knowledge:
 
 systemKnowledge:
   - url: system_knowledge/
+
+elicitation:
+  enabled: true
+  title: Coding Inputs
+  message: Provide the instruction and DID document (what/where to implement). Coder will implement the top 3 items per turn.
+  requestedSchema:
+    type: object
+    properties:
+      instruction:
+        type: string
+        description: Natural language description of the desired change or goal.
+      did:
+        description: Document describing what and where things should be implemented (files, functions, constraints, acceptance criteria).
+        oneOf:
+          - type: object
+          - type: string
+    required: [instruction, did]

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	pathpkg "path"
 	"reflect"
 	"strings"
 	"time"
@@ -124,23 +125,27 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("model is required")
 	}
 	// Enforce allowlist when agent context present and normalize roots.
-	allowed := s.agentAllowed(ctx)
+	allowed := s.agentAllowed(ctx) // workspace://... or mcp:
 	locations := make([]string, 0, len(input.Roots))
 	for _, root := range input.Roots {
 		root = strings.TrimSpace(root)
 		if root == "" {
 			continue
 		}
-		if len(allowed) > 0 && !s.isAllowed(root, allowed) {
+		wsRoot, kind, err := s.normalizeUserRoot(ctx, root)
+		if err != nil {
+			return err
+		}
+		if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
 			return fmt.Errorf("root not allowed: %s", root)
 		}
-		norm, _ := s.normalizeLocation(root)
-		if norm == "" {
-			continue
+		// Convert to file (for internal I/O) when workspace scheme
+		base := wsRoot
+		if kind == "file" && strings.HasPrefix(wsRoot, "workspace://") {
+			base = workspaceToFile(wsRoot)
 		}
-		base := norm
 		if strings.TrimSpace(input.Path) != "" {
-			base = url.Join(norm, strings.TrimPrefix(strings.TrimSpace(input.Path), "/"))
+			base = url.Join(base, strings.TrimPrefix(strings.TrimSpace(input.Path), "/"))
 		}
 		locations = append(locations, base)
 	}
@@ -201,13 +206,18 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if rootURI == "" {
 		return fmt.Errorf("root is required")
 	}
-	allowed := s.agentAllowed(ctx)
-	if len(allowed) > 0 && !s.isAllowed(rootURI, allowed) {
+	allowed := s.agentAllowed(ctx) // workspace://... or mcp:
+	wsRoot, kind, err := s.normalizeUserRoot(ctx, rootURI)
+	if err != nil {
+		return err
+	}
+	if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
 		return fmt.Errorf("root not allowed: %s", rootURI)
 	}
-	normRoot, _ := s.normalizeLocation(rootURI)
-	if normRoot == "" {
-		return fmt.Errorf("invalid root: %s", rootURI)
+	// Use file base for AFS when workspace scheme
+	normRoot := wsRoot
+	if kind == "file" && strings.HasPrefix(wsRoot, "workspace://") {
+		normRoot = workspaceToFile(wsRoot)
 	}
 	base := normRoot
 	if strings.TrimSpace(input.Path) != "" {
@@ -355,14 +365,17 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	if uri != "" {
 		// URI-only mode: enforce allowlist (when present) against the URI and
 		// normalize it for reading.
-		if len(allowed) > 0 && !s.isAllowed(uri, allowed) {
+		wsRoot, kind, err := s.normalizeUserRoot(ctx, uri)
+		if err != nil {
+			return err
+		}
+		if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
 			return fmt.Errorf("resource not allowed: %s", uri)
 		}
-		norm, _ := s.normalizeLocation(uri)
-		if norm == "" {
-			return fmt.Errorf("invalid uri: %s", uri)
+		fullURI = wsRoot
+		if kind == "file" && strings.HasPrefix(wsRoot, "workspace://") {
+			fullURI = workspaceToFile(wsRoot)
 		}
-		fullURI = norm
 	} else {
 		// Root+path mode
 		if rootURI == "" {
@@ -371,12 +384,16 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 		if pathPart == "" {
 			return fmt.Errorf("path is required when uri is not provided")
 		}
-		if len(allowed) > 0 && !s.isAllowed(rootURI, allowed) {
+		wsRoot, kind, err := s.normalizeUserRoot(ctx, rootURI)
+		if err != nil {
+			return err
+		}
+		if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
 			return fmt.Errorf("root not allowed: %s", rootURI)
 		}
-		normRoot, _ = s.normalizeLocation(rootURI)
-		if normRoot == "" {
-			return fmt.Errorf("invalid root: %s", rootURI)
+		normRoot = wsRoot
+		if kind == "file" && strings.HasPrefix(wsRoot, "workspace://") {
+			normRoot = workspaceToFile(wsRoot)
 		}
 		fullURI = url.Join(normRoot, strings.TrimPrefix(pathPart, "/"))
 	}
@@ -443,17 +460,17 @@ func commonPrefix(values []string) string {
 }
 
 func (s *Service) isAllowed(loc string, allowed []string) bool {
+	return isAllowedWorkspace(loc, allowed)
+}
+
+func isAllowedWorkspace(loc string, allowed []string) bool {
 	u := strings.TrimSpace(loc)
 	if u == "" {
 		return false
 	}
-	// Normalize to best-effort canonical form
-	norm, _ := s.normalizeLocation(u)
-	if norm == "" {
-		norm = u
-	}
+	// Compare canonical workspace:// or mcp: prefixes
 	for _, a := range allowed {
-		if strings.HasPrefix(norm, a) {
+		if strings.HasPrefix(u, strings.TrimRight(a, "/")) {
 			return true
 		}
 	}
@@ -515,7 +532,10 @@ func (s *Service) roots(ctx context.Context, in, out interface{}) error {
 	var roots []Root
 	seen := map[string]bool{}
 	for _, loc := range locs {
-		norm, kind := s.normalizeLocation(loc)
+		norm, kind, err := s.normalizeUserRoot(ctx, loc)
+		if err != nil {
+			continue
+		}
 		if norm == "" {
 			continue
 		}
@@ -562,6 +582,64 @@ func (s *Service) normalizeLocation(loc string) (string, string) {
 	return "file://" + abs + u, "file"
 }
 
+// normalizeUserRoot enforces workspace:// or mcp: for resources tools.
+// - workspace kinds (e.g., agents/...) => workspace://localhost/<input>
+// - relative => agents/<agentId>/<input>, else <workspace>/<input>
+// - mcp: passthrough
+// - file:// absolute under workspace => mapped to workspace://
+// - others => error
+func (s *Service) normalizeUserRoot(ctx context.Context, in string) (string, string, error) {
+	u := strings.TrimSpace(in)
+	if u == "" {
+		return "", "", nil
+	}
+	if mcpuri.Is(u) {
+		return u, "mcp", nil
+	}
+	if strings.HasPrefix(u, "workspace://") {
+		return u, "file", nil
+	}
+	if strings.HasPrefix(u, "file://") {
+		// Map to workspace if under workspace root
+		wsBase := url.Normalize(workspace.Root(), "file")
+		if strings.HasPrefix(u, strings.TrimRight(wsBase, "/")+"/") {
+			rel := strings.TrimPrefix(u, strings.TrimRight(wsBase, "/")+"/")
+			return url.Join("workspace://localhost/", rel), "file", nil
+		}
+		return "", "", fmt.Errorf("file uri not allowed: outside workspace")
+	}
+	// known workspace kinds
+	lower := strings.ToLower(u)
+	kinds := []string{
+		workspace.KindAgent + "/",
+		workspace.KindModel + "/",
+		workspace.KindEmbedder + "/",
+		workspace.KindMCP + "/",
+		workspace.KindWorkflow + "/",
+		workspace.KindTool + "/",
+		workspace.KindOAuth + "/",
+		workspace.KindFeeds + "/",
+		workspace.KindA2A + "/",
+	}
+	for _, pfx := range kinds {
+		if strings.HasPrefix(lower, pfx) {
+			return url.Join("workspace://localhost/", u), "file", nil
+		}
+	}
+	// relative: prefer agents/<agentId>/<u>, else workspace/<u>
+	ag := s.currentAgent(ctx)
+	agentID := ""
+	if ag != nil {
+		agentID = strings.TrimSpace(ag.Name)
+	}
+	if agentID != "" {
+		return url.Join("workspace://localhost/", workspace.KindAgent, agentID, u), "file", nil
+	}
+	return url.Join("workspace://localhost/", u), "file", nil
+}
+
+// (duplicate removed above)
+
 func (s *Service) defaultLabel(uri, kind string) string {
 	if kind == "mcp" {
 		// mcp:server:/prefix -> server: prefix
@@ -598,8 +676,11 @@ func (s *Service) tryDescribe(ctx context.Context, uri, kind string) string {
 		}
 		return ""
 	}
-	// file
+	// file or workspace:// → map to file for reading
 	fs := afs.New()
+	if strings.HasPrefix(uri, "workspace://") {
+		uri = workspaceToFile(uri)
+	}
 	for _, name := range order {
 		p := url.Join(uri, name)
 		data, err := fs.DownloadWithURL(ctx, p)
@@ -633,6 +714,28 @@ func boundBytes(b []byte, n int) []byte {
 
 // agentAllowed gathers agent.resources URIs based on the current conversation context.
 func (s *Service) agentAllowed(ctx context.Context) []string {
+	ag := s.currentAgent(ctx)
+	if ag == nil || len(ag.Resources) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ag.Resources))
+	for _, e := range ag.Resources {
+		if e == nil {
+			continue
+		}
+		if u := strings.TrimSpace(e.URI); u != "" {
+			ws, _, err := s.normalizeUserRoot(ctx, u)
+			if err != nil || ws == "" {
+				continue
+			}
+			out = append(out, ws)
+		}
+	}
+	return out
+}
+
+// currentAgent returns the active agent from conversation context, if available.
+func (s *Service) currentAgent(ctx context.Context) *agmodel.Agent {
 	if s.conv == nil || s.aFinder == nil {
 		return nil
 	}
@@ -653,24 +756,36 @@ func (s *Service) agentAllowed(ctx context.Context) []string {
 		}
 	}
 	if strings.TrimSpace(agentID) == "" {
-		return nil
+		// Fallback: use conversation.AgentId when present
+		if resp.Conversation.AgentId != nil && strings.TrimSpace(*resp.Conversation.AgentId) != "" {
+			agentID = strings.TrimSpace(*resp.Conversation.AgentId)
+		} else {
+			return nil
+		}
 	}
 	ag, err := s.aFinder.Find(ctx, agentID)
-	if err != nil || ag == nil || len(ag.Resources) == 0 {
+	if err != nil {
 		return nil
 	}
-	out := make([]string, 0, len(ag.Resources))
-	for _, e := range ag.Resources {
-		if e == nil {
-			continue
-		}
-		if u := strings.TrimSpace(e.URI); u != "" {
-			norm, _ := s.normalizeLocation(u)
-			if norm == "" {
-				norm = u
-			}
-			out = append(out, norm)
-		}
+	return ag
+}
+
+// workspaceToFile maps workspace://localhost/<rel> to file://<workspaceRoot>/<rel>
+func workspaceToFile(ws string) string {
+	base := url.Normalize(workspace.Root(), "file")
+	rel := strings.TrimPrefix(ws, "workspace://")
+	rel = strings.TrimPrefix(rel, "localhost/")
+	return url.Join(strings.TrimRight(base, "/")+"/", rel)
+}
+
+// cleanFileURL removes any "/../" segments from file URLs to produce a stable canonical form.
+func cleanFileURL(u string) string {
+	if !strings.HasPrefix(u, "file://") {
+		return u
 	}
-	return out
+	rest := strings.TrimPrefix(u, "file://localhost")
+	rest = strings.TrimPrefix(rest, "file://")
+	cleaned := "/" + strings.TrimLeft(rest, "/")
+	cleaned = pathpkg.Clean(cleaned)
+	return "file://localhost" + cleaned
 }

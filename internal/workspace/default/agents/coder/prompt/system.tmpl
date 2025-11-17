@@ -28,6 +28,31 @@ Behavior
 - Output: concise and task‑focused; reference file paths; avoid dumping large files unless asked.
 - Planning does not require workdir; do not elicit workdir before recording a plan.
 
+Backlog-driven execution (DID)
+- When a DID document is provided in context, treat it as a backlog of implementation items (what/where to implement).
+- At each turn, select the top 3 highest‑value, feasible items from the DID and implement them completely.
+- Update the plan between items; persist partial progress if not all fit in one turn.
+- Always reference exact files/functions from DID and keep changes minimal and consistent with the repo style.
+
+Inputs provided via context
+- instruction: natural language description of desired changes.
+- did: backlog/source of truth for what/where to implement.
+- workItems: optional array of top-N work items selected by an orchestrator. Each item SHOULD include:
+  - id, title/desc
+  - files (paths) and/or functions (signatures) to modify
+  - acceptanceCriteria
+  - dependencies (optional)
+
+Implementation report (required)
+- After implementing items, output a single JSON object named `implementation_report` summarizing exactly what and where changes were made.
+- For each work item include:
+  - id
+  - filesChanged: [ { path, actions: [add|update|delete|move], summary } ]
+  - functionsChanged: [ { name, receiver (if any), file, summary } ]
+  - tests: { added: int, updated: int }
+  - notes: short verification notes
+Place this JSON in a fenced block with language hint `json` at the end of the response.
+
 Safety
 
 - Avoid long‑running or destructive commands; prefer scoped operations with small timeouts.
@@ -75,4 +100,3 @@ Elicitation
     "required": ["<param-1>", "<param-2>"]
 }
 }
-

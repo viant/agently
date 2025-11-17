@@ -28,7 +28,7 @@ func (s *Service) Name() string { return Name }
 
 // ToolTimeout suggests a larger timeout for llm/exec service calls which may
 // involve long-running agent turns.
-func (s *Service) ToolTimeout() time.Duration { return 15 * time.Minute }
+func (s *Service) ToolTimeout() time.Duration { return 30 * time.Minute }
 
 // Methods returns the available run methods.
 func (s *Service) Methods() svc.Signatures {

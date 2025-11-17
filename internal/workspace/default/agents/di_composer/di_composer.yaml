@@ -1,0 +1,28 @@
+description: Developer Implementation Composer
+id: di_composer
+modelRef: openai_gpt-5
+name: DI Composer
+temperature: 1
+persona:
+  role: assistant
+  actor: DI Composer
+
+profile:
+  publish: true
+  name: DI Composer
+  description: Analyzes references and composes a comprehensive DI plan by partitioning documents and extracting actionable items
+  tags: ["plan", "compose", "references", "di"]
+  rank: 88
+
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+
+tool:
+  callExposure: conversation
+  items:
+    - pattern: orchestration
+    - pattern: system/patch
+    - pattern: system/exec
+

@@ -81,6 +81,22 @@ func NewDocsAugmenter(ctx context.Context, embeddingsModel string, embedder base
 	return ret
 }
 
+// NewDocsAugmenterWithStore constructs a DocsAugmenter that reuses the provided mem.Store.
+func NewDocsAugmenterWithStore(ctx context.Context, embeddingsModel string, embedder baseembed.Embedder, store *mem.Store, options ...option.Option) *DocsAugmenter {
+	baseURL := embeddingBaseURL(ctx)
+	_ = os.MkdirAll(baseURL, 0755)
+	matcher := matching.New(options...)
+	splitterFactory := splitter.NewFactory(4096)
+	splitterFactory.RegisterExtensionSplitter(".pdf", NewPDFSplitter(4096))
+	ret := &DocsAugmenter{
+		embedder:  embeddingsModel,
+		fsIndexer: fs.New(baseURL, embeddingsModel, matcher, splitterFactory),
+		memStore:  store,
+	}
+	ret.service = indexer.NewService(baseURL, ret.memStore, adaptembed.LangchainEmbedderAdapter{Inner: embedder}, ret.fsIndexer)
+	return ret
+}
+
 func embeddingBaseURL(ctx context.Context) string {
 	user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if user == "" {
@@ -92,11 +108,8 @@ func embeddingBaseURL(ctx context.Context) string {
 }
 
 func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) (*DocsAugmenter, error) {
-	user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
-	if user == "" {
-		user = "default"
-	}
-	key := user + ":" + Key(input.Model, input.Match)
+	// Use a single augmenter per model+options (no per-user instances), and a single writer mem store
+	key := Key(input.Model, input.Match)
 	augmenter, ok := s.DocsAugmenters.Get(key)
 	if !ok {
 		model, err := s.finder.Find(ctx, input.Model)
@@ -107,6 +120,7 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 		if input.Match != nil {
 			matchOptions = input.Match.Options()
 		}
+		store := s.ensureMemStore(ctx)
 		// Detect if any location targets MCP resources; if so, prefer a composite fs
 		// that supports both MCP and regular AFS sources.
 		useMCP := false
@@ -123,31 +137,40 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 			splitterFactory := splitter.NewFactory(4096)
 			splitterFactory.RegisterExtensionSplitter(".pdf", NewPDFSplitter(4096))
 			idx := fs.NewWithFS(baseURL, input.Model, matcher, splitterFactory, mcpfs.NewComposite(s.mcpMgr))
-
 			ret := &DocsAugmenter{
 				embedder:  input.Model,
 				fsIndexer: idx,
-				memStore: mem.NewStore(
-					mem.WithBaseURL(baseURL),
-					mem.WithExternalValues(true),
-					mem.WithWriterLock(true, 5*time.Second),
-					mem.WithWriterQueue(true),
-					mem.WithWriterGatePoll(250*time.Millisecond),
-					mem.WithWriterGateTTL(5*time.Second),
-					mem.WithWriterBatch(64),
-					mem.WithTailInterval(500*time.Millisecond),
-					mem.WithJournalTTL(24*time.Hour),
-					mem.WithStaleReaderTTL(24*time.Hour),
-				),
+				memStore:  store,
 			}
 			ret.service = indexer.NewService(baseURL, ret.memStore, adaptembed.LangchainEmbedderAdapter{Inner: model}, ret.fsIndexer)
 			augmenter = ret
 		} else {
-			augmenter = NewDocsAugmenter(ctx, input.Model, model, matchOptions...)
+			augmenter = NewDocsAugmenterWithStore(ctx, input.Model, model, store, matchOptions...)
 		}
 		s.DocsAugmenters.Set(key, augmenter)
 	}
 	return augmenter, nil
+}
+
+// ensureMemStore initialises a global writer-capable mem store once per process.
+func (s *Service) ensureMemStore(ctx context.Context) *mem.Store {
+	s.memStoreOnce.Do(func() {
+		baseURL := embeddingBaseURL(ctx)
+		_ = os.MkdirAll(baseURL, 0755)
+		s.memStore = mem.NewStore(
+			mem.WithBaseURL(baseURL),
+			mem.WithExternalValues(true),
+			mem.WithWriterLock(true, 5*time.Second),
+			mem.WithWriterQueue(true),
+			mem.WithWriterGatePoll(250*time.Millisecond),
+			mem.WithWriterGateTTL(5*time.Second),
+			mem.WithWriterBatch(64),
+			mem.WithTailInterval(500*time.Millisecond),
+			mem.WithJournalTTL(24*time.Hour),
+			mem.WithStaleReaderTTL(24*time.Hour),
+		)
+	})
+	return s.memStore
 }
 
 // debugf prints Embedius-related debug information when AGENTLY_DEBUG_EMBEDIUS=1

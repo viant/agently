@@ -1,5 +1,5 @@
 default:
-  model: openai_gpt-5
+  model: openai_gpt-5.1
   embedder: openai_text
   agent: chatter
   toolCallResult:

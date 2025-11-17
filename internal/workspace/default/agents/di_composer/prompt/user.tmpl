@@ -1,0 +1,20 @@
+{{- if .Context }}
+Context:
+{{ .Context }}
+
+{{- if gt (len .Documents.Items) 0 }}
+Relevant Documents:
+{{- range .Documents.Items }}
+
+- {{ .Title }} ({{ .SourceURI }})
+{{- end }}
+End of Documents.
+{{- end }}
+{{- end }}
+
+Task:
+{{ .Task.Prompt }}
+
+Output:
+- Save the composed DI document as specified: if the ask includes an explicit path (didPath or in text), use it; otherwise default to `<repo>/<feature>_di.md` inferred from referenced OS paths. Once chosen, keep using the same path for this request/session (update the same file; do not create additional DI files).
+- Return only the saved file location (absolute path) and a one‑line status; do not include the full document content unless explicitly requested.

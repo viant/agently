@@ -77,7 +77,7 @@ func (s *scopedRegistry) ToolTimeout(name string) (time.Duration, bool) {
 	svc := mcpnames.Name(can).Service()
 	switch svc {
 	case "llm/agents", "llm/exec":
-		return 15 * time.Minute, true
+		return 30 * time.Minute, true
 	}
 	return 0, false
 }

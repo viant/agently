@@ -16,6 +16,8 @@ import (
 	"github.com/viant/agently/internal/shared"
 	embedius "github.com/viant/embedius"
 	embSchema "github.com/viant/embedius/schema"
+	"github.com/viant/embedius/vectordb/mem"
+	"sync"
 )
 
 const name = "llm/augmenter"
@@ -26,6 +28,9 @@ type Service struct {
 	DocsAugmenters shared.Map[string, *DocsAugmenter]
 	// Optional MCP client manager for resolving mcp: resources during indexing
 	mcpMgr *mcpmgr.Manager
+	// Global writer-capable mem store reused across all augmenters
+	memStore     *mem.Store
+	memStoreOnce sync.Once
 }
 
 // New creates a new extractor service
