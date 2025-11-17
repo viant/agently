@@ -62,3 +62,5 @@ Keep mocks/interfaces in sync
 | **Fat Interfaces**     | Large, multi-method interfaces          | Favor small interfaces (e.g. `io.Reader`) |
 | **Magic Numbers**      | Hardcoded values scattered in code      | Use named constants or typed enums        |
 
+Break down large function into smaller.
+Break down large files into smaller.

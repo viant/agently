@@ -1,8 +1,7 @@
 chatter.yaml: Default conversational agent
 id: chatter
-modelRef: openai_gpt-5
+modelRef: openai_gpt-5.1
 name: Chatter
-orchestrationFlow: workflow/orchestration.yaml
 temperature: 0
 persona:
   role: assistant

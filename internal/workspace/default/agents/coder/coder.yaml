@@ -1,8 +1,7 @@
 description: Coder agent
 id: coder
-modelRef: openai_gpt-5
+modelRef: openai_gpt-5.1
 name: Coder
-orchestrationFlow: workflow/orchestration.yaml
 temperature: 1
 persona:
   role: assistant
@@ -31,8 +30,6 @@ tool:
 
 toolCallExposure: conversation
 
-knowledge:
-  - url: knowledge/
 
 systemKnowledge:
   - url: system_knowledge/
