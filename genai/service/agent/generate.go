@@ -33,13 +33,8 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 		i.Options.Reasoning = agent.Reasoning
 	}
 
-	// Continuation-by-response-id: allow the agent YAML to opt in/out explicitly.
-	// When nil, the core layer will decide based on model capability.
-	if agent.ContinuationContext != nil {
-		// Propagate pointer so core.continuationContextEnabled can distinguish
-		// between "no override" (nil) and explicit true/false.
-		i.Options.ContinuationContext = agent.ContinuationContext
-	}
+	// Continuation-by-response-id is now controlled by model/provider config
+	// (options.ContextContinuation). Agent-level override removed.
 	mode := "ref"
 	if agent.Attachment != nil {
 		if m := strings.TrimSpace(strings.ToLower(agent.Attachment.Mode)); m != "" {

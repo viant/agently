@@ -400,12 +400,7 @@ func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryI
 	if err != nil || model == nil {
 		return
 	}
-	// Build a minimal options snapshot using the agent-level override only.
-	opts := &llm.Options{}
-	if input.Agent != nil {
-		opts.ContinuationContext = input.Agent.ContinuationContext
-	}
-	if !core.IsContinuationEnabled(model, opts) {
+	if !core.IsContextContinuationEnabled(model) {
 		return
 	}
 

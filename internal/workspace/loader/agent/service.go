@@ -334,19 +334,6 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					agent.AutoSummarize = &v
 				}
 			}
-		case "supportscontinuationbyresponseid":
-			// Support correct and common misspelling keys. Accept bool or string values.
-			if valueNode.Kind == yaml.ScalarNode {
-				val := valueNode.Interface()
-				switch actual := val.(type) {
-				case bool:
-					agent.ContinuationContext = &actual
-				case string:
-					lv := strings.ToLower(strings.TrimSpace(actual))
-					v := lv == "true" || lv == "yes" || lv == "on"
-					agent.ContinuationContext = &v
-				}
-			}
 		case "showexecutiondetails":
 			if valueNode.Kind == yaml.ScalarNode {
 				val := strings.ToLower(strings.TrimSpace(valueNode.Value))

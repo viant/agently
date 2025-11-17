@@ -33,5 +33,7 @@ type Options struct {
 	// (excludes model output and provider overhead). Intended for request planning.
 	SafeEffectiveInputTokens int `yaml:"safeEffectiveInputTokens,omitempty" json:"safeEffectiveInputTokens,omitempty"`
 
-	ContinuationEnabled bool `json:"continuationEnabled,omitempty" yaml:"continuationEnabled,omitempty"`
+	// ContextContinuation explicitly enables/disables provider continuation
+	// for models (i.e. via previous_response_id for openai).
+	ContextContinuation *bool `json:"contextContinuation,omitempty" yaml:"contextContinuation,omitempty"`
 }

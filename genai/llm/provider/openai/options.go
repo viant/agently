@@ -42,3 +42,9 @@ func WithTemperature(temp float64) ClientOption {
 func WithUsageListener(l basecfg.UsageListener) ClientOption {
 	return func(c *Client) { c.Config.UsageListener = l }
 }
+
+// WithContextContinuation sets a client-level toggle for server-side context
+// continuation (continuation by response_id) when supported by the provider.
+func WithContextContinuation(enabled *bool) ClientOption {
+	return func(c *Client) { c.ContextContinuation = enabled }
+}
