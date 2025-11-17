@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/viant/agently"
 	"github.com/viant/agently/genai/agent"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/llm"
@@ -63,6 +64,8 @@ type AgentlyResponse struct {
 	// AgentInfo lists matched tool names per agent using pattern matching
 	// rules derived from the agent's Tool configuration.
 	AgentInfo map[string]*AgentInfo `json:"agentInfo,omitempty"`
+	// Version reports compiled application version (from build/ldflags or embedded file).
+	Version string `json:"version,omitempty"`
 }
 
 // Aggregate builds an AgentlyResponse from executor config and tool definitions.
@@ -368,6 +371,8 @@ func NewAgently(exec *execsvc.Service) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// Populate compiled version without coupling Aggregate to build details.
+		resp.Version = strings.TrimSpace(agently.Version)
 		// Override defaults with user preferences when available
 		// Best-effort: if anything fails, keep workspace defaults.
 		if uname := strings.TrimSpace(authctx.EffectiveUserID(r.Context())); uname != "" {
