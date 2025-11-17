@@ -28,8 +28,6 @@ tool:
     - pattern: system/exec
     - pattern: system/os
 
-toolCallExposure: conversation
-
 
 systemKnowledge:
   - url: system_knowledge/
