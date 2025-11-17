@@ -243,7 +243,6 @@ func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput
 func (s *Service) toolCallEvents(responseID string, choice *llm.Choice) []stream.Event {
 	out := make([]stream.Event, 0, len(choice.Message.ToolCalls))
 	for _, tc := range choice.Message.ToolCalls {
-		fmt.Printf("[openai] stream tool_call id=%s name=%s response_id=%s\n", strings.TrimSpace(tc.ID), strings.TrimSpace(tc.Name), strings.TrimSpace(responseID))
 		name := tc.Name
 		args := tc.Arguments
 		if name == "" && tc.Function.Name != "" {

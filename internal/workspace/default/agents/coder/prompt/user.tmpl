@@ -1,6 +1,19 @@
 {{- if .Context }}
-Context:
-{{ .Context }}
+Instruction:
+{{- if index .Context "instruction" }}
+{{ index .Context "instruction" }}
+{{- else }}
+N/A
+{{- end }}
+
+DID (what/where to implement):
+{{- if index .Context "did" }}
+```json
+{{ index .Context "did" }}
+```
+{{- else }}
+N/A
+{{- end }}
 
 {{- if gt (len .Documents.Items) 0 }}
 Relevant Documents:
@@ -15,3 +28,4 @@ End of Documents.
 Task:
 {{ .Task.Prompt }}
 
+At the end, include an `implementation_report` JSON describing what and where changes were implemented, as specified.

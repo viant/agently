@@ -1181,6 +1181,8 @@ github.com/viant/dyndb v0.1.4-0.20221214043424-27654ab6ed9c h1:M5se4NJFV45xZXyOG
 github.com/viant/dyndb v0.1.4-0.20221214043424-27654ab6ed9c/go.mod h1:IIV7sI3e5JfCyq+NRimnrjbPCEL1YeKqFmbcm53sxl8=
 github.com/viant/embedius v0.2.9 h1:4dNmUtkenkynSzRQ5AB34Kp1YB0QYfOt+ytG2qZ43SY=
 github.com/viant/embedius v0.2.9/go.mod h1:Z0ao4QGpcLnTA6qk24YpcjlDIrAyJiYfwSVLX+aCPI4=
+github.com/viant/embedius v0.2.10 h1:rsEkFS58LSdnxqiP3H/yuuCLvOO+RG3Fg5B/n4YOxNs=
+github.com/viant/embedius v0.2.10/go.mod h1:Z0ao4QGpcLnTA6qk24YpcjlDIrAyJiYfwSVLX+aCPI4=
 github.com/viant/firebase v0.1.1 h1:a4IiehQ2GWoH4qTnUD7JnJ5lTc87nfxX8ClUwBO7AKU=
 github.com/viant/firebase v0.1.1/go.mod h1:Q2DK7L/pdGS5xNQRgMJ9B/x9VhIeXAfXCeh3cKpSIkM=
 github.com/viant/fluxor v0.4.3 h1:jZDQzKk9cz7Gdh6kQiOojZeh3zXFoz8U3tjIkml8UQc=

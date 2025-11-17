@@ -73,13 +73,6 @@ func (p *streamProcessor) recordEmittedToolCallWith(callID, name, args string) {
 		p.state.emittedToolCallArgs = map[string]string{}
 	}
 	p.state.emittedToolCallArgs[id] = args
-	if debugOpenAIEnabled() {
-		preview := args
-		if len(preview) > 128 {
-			preview = preview[:128] + "…"
-		}
-		fmt.Printf("[openai] tool_call emitted: call_id=%s name=%s args.len=%d preview=%q\n", id, strings.TrimSpace(name), len(args), preview)
-	}
 }
 
 // hasEmittedToolCall checks if a tool call ID was already emitted.
@@ -110,17 +103,6 @@ func (p *streamProcessor) removeAlreadyEmittedToolCalls(lr *llm.GenerateResponse
 				kept = append(kept, tc)
 				// Mark as emitted to avoid any later duplicates in the same stream
 				p.recordEmittedToolCallWith(tc.ID, tc.Name, tc.Function.Arguments)
-			} else if debugOpenAIEnabled() {
-				prev := p.state.emittedToolCallArgs[strings.TrimSpace(tc.ID)]
-				if strings.TrimSpace(prev) == strings.TrimSpace(tc.Function.Arguments) {
-					preview := tc.Function.Arguments
-					if len(preview) > 128 {
-						preview = preview[:128] + "…"
-					}
-					fmt.Printf("[openai] duplicate tool_call dropped: call_id=%s name=%s same_args.len=%d preview=%q\n", strings.TrimSpace(tc.ID), strings.TrimSpace(tc.Name), len(tc.Function.Arguments), preview)
-				} else {
-					fmt.Printf("[openai] duplicate tool_call dropped: call_id=%s name=%s args_changed prev.len=%d curr.len=%d\n", strings.TrimSpace(tc.ID), strings.TrimSpace(tc.Name), len(prev), len(tc.Function.Arguments))
-				}
 			}
 		}
 		msg.ToolCalls = kept
@@ -182,9 +164,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 					}
 					p.fcPending[e.Item.ID] = &pendingFuncCall{ItemID: e.Item.ID, CallID: e.Item.CallID, Name: e.Item.Name}
 					// Keep TurnTrace via lastResponseID; do not maintain separate in-memory anchors.
-					if debugOpenAIEnabled() {
-						fmt.Printf("[openai] function_call added: resp=%s call_id=%s name=%s item_id=%s\n", p.state.lastResponseID, e.Item.CallID, e.Item.Name, e.Item.ID)
-					}
+
 				}
 			}
 			return true

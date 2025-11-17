@@ -1,33 +1,32 @@
-description: Coder agent
-id: coder
+description: Developer Implementation Orchestrator
+id: di_orchestrator
 modelRef: openai_gpt-5
-name: Coder
+name: DI Orchestrator
 orchestrationFlow: workflow/orchestration.yaml
-temperature: 1
+temperature: 0
 persona:
   role: assistant
-  actor: Coder
+  actor: DI Orchestrator
 
 profile:
   publish: true
-  name: Coder
-  description: Code generation and refactoring agent
-  tags: ["code", "refactor"]
-  rank: 90
+  name: DI Orchestrator
+  description: Coordinates DI Verifier and Coder in up to 5 passes to implement top missing items
+  tags: ["orchestrator", "verify", "code", "plan"]
+  rank: 95
 
 prompt:
   uri: prompt/user.tmpl
 systemPrompt:
   uri: prompt/system.tmpl
 
-
 tool:
   callExposure: conversation
   items:
+    - name: llm/agents:run
     - pattern: orchestration
     - pattern: system/patch
     - pattern: system/exec
-    - pattern: system/os
 
 toolCallExposure: conversation
 
@@ -39,17 +38,16 @@ systemKnowledge:
 
 elicitation:
   enabled: true
-  title: Coding Inputs
-  message: Provide the instruction and DID document (what/where to implement). Coder will implement the top 3 items per turn.
+  title: Orchestration Inputs
+  message: Provide instruction and DID. Orchestrator will verify and implement top 3 missing items per pass (up to 5 passes).
   requestedSchema:
     type: object
     properties:
       instruction:
         type: string
-        description: Natural language description of the desired change or goal.
       did:
-        description: Document describing what and where things should be implemented (files, functions, constraints, acceptance criteria).
         oneOf:
           - type: object
           - type: string
     required: [instruction, did]
+

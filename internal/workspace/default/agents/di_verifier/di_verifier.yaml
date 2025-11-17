@@ -1,25 +1,24 @@
-description: Coder agent
-id: coder
+description: Developer Implementation Verifier
+id: di_verifier
 modelRef: openai_gpt-5
-name: Coder
+name: DI Verifier
 orchestrationFlow: workflow/orchestration.yaml
-temperature: 1
+temperature: 0
 persona:
   role: assistant
-  actor: Coder
+  actor: DI Verifier
 
 profile:
   publish: true
-  name: Coder
-  description: Code generation and refactoring agent
-  tags: ["code", "refactor"]
-  rank: 90
+  name: DI Verifier
+  description: Reviews and verifies code and answers for correctness and clarity
+  tags: ["verify", "review", "qa"]
+  rank: 80
 
 prompt:
   uri: prompt/user.tmpl
 systemPrompt:
   uri: prompt/system.tmpl
-
 
 tool:
   callExposure: conversation
@@ -27,7 +26,7 @@ tool:
     - pattern: orchestration
     - pattern: system/patch
     - pattern: system/exec
-    - pattern: system/os
+
 
 toolCallExposure: conversation
 
@@ -39,17 +38,18 @@ systemKnowledge:
 
 elicitation:
   enabled: true
-  title: Coding Inputs
-  message: Provide the instruction and DID document (what/where to implement). Coder will implement the top 3 items per turn.
+  title: Verification Inputs
+  message: Provide the instruction and DID document (what/where to implement).
   requestedSchema:
     type: object
     properties:
       instruction:
         type: string
-        description: Natural language description of the desired change or goal.
+        description: Natural language description of the change or verification goal.
       did:
         description: Document describing what and where things should be implemented (files, functions, constraints, acceptance criteria).
         oneOf:
           - type: object
           - type: string
     required: [instruction, did]
+

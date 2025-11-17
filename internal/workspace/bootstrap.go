@@ -51,12 +51,22 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindAgent, "chatter/system_knowledge/README_DELETE_THIS.md"), "default/agents/chatter/system_knowledge/README_DELETE_THIS.md"},
 		{filepath.Join(KindAgent, "chatter/chatter.yaml"), "default/agents/chatter/chatter.yaml"},
 
-		{filepath.Join(KindAgent, "coder/knowledge/README_DELETE_THIS.md"), "default/agents/coder/knowledge/README_DELETE_THIS.md"},
 		{filepath.Join(KindAgent, "coder/prompt/system.tmpl"), "default/agents/coder/prompt/system.tmpl"},
 		{filepath.Join(KindAgent, "coder/prompt/user.tmpl"), "default/agents/coder/prompt/user.tmpl"},
 		{filepath.Join(KindAgent, "coder/system_knowledge/golang_rules.md"), "default/agents/coder/system_knowledge/golang_rules.md"},
-		{filepath.Join(KindAgent, "coder/system_knowledge/README_DELETE_THIS.md"), "default/agents/coder/system_knowledge/README_DELETE_THIS.md"},
 		{filepath.Join(KindAgent, "coder/coder.yaml"), "default/agents/coder/coder.yaml"},
+
+		{filepath.Join(KindAgent, "di_verifier/prompt/system.tmpl"), "default/agents/di_verifier/prompt/system.tmpl"},
+		{filepath.Join(KindAgent, "di_verifier/prompt/user.tmpl"), "default/agents/di_verifier/prompt/user.tmpl"},
+		{filepath.Join(KindAgent, "di_verifier/di_verifier.yaml"), "default/agents/di_verifier/di_verifier.yaml"},
+
+		{filepath.Join(KindAgent, "di_composer/prompt/system.tmpl"), "default/agents/di_composer/prompt/system.tmpl"},
+		{filepath.Join(KindAgent, "di_composer/prompt/user.tmpl"), "default/agents/di_composer/prompt/user.tmpl"},
+		{filepath.Join(KindAgent, "di_composer/di_composer.yaml"), "default/agents/di_composer/di_composer.yaml"},
+
+		{filepath.Join(KindAgent, "di_orchestrator/prompt/system.tmpl"), "default/agents/di_orchestrator/prompt/system.tmpl"},
+		{filepath.Join(KindAgent, "di_orchestrator/prompt/user.tmpl"), "default/agents/di_orchestrator/prompt/user.tmpl"},
+		{filepath.Join(KindAgent, "di_orchestrator/di_orchestrator.yaml"), "default/agents/di_orchestrator/di_orchestrator.yaml"},
 	}
 
 	baseURL := url.Normalize(Root(), file.Scheme)
