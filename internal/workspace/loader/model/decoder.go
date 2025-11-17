@@ -171,7 +171,7 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 				}
 				config.Options.CachedTokenPrice = price
 			}
-		case "continuationenabled":
+		case "contextcontinuation":
 			if valueNode.Kind == yaml.ScalarNode {
 				var enabled bool
 				switch v := valueNode.Interface().(type) {
@@ -180,7 +180,8 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 				case string:
 					enabled = v == "true" || v == "1"
 				}
-				config.Options.ContinuationEnabled = enabled
+				// assign pointer so absence of the key can be distinguished from false
+				config.Options.ContextContinuation = &enabled
 			}
 
 		}

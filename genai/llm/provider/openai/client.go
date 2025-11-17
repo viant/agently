@@ -22,6 +22,11 @@ type Client struct {
 	MaxTokens   int
 	Temperature *float64
 	storageMgr  storage.Manager
+
+	// ContextContinuation controls whether this client should use
+	// response continuation by response_id when supported. When nil,
+	// continuation is considered enabled.
+	ContextContinuation *bool
 }
 
 // NewClient creates a new OpenAI client with the given API key and model

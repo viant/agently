@@ -484,7 +484,7 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 	// request carries tool results and all of them share a single anchor.
 	// This avoids mixing outputs from different response anchors and prevents
 	// "No tool output found for function call" errors.
-	if continuationContextEnabled(model, request.Options) {
+	if IsContextContinuationEnabled(model) {
 		if turn, ok := memory.TurnMetaFromContext(ctx); ok {
 			// Collect anchors for all tool-result messages in this request
 			anchors := map[string]struct{}{}
@@ -540,7 +540,7 @@ func (s *Service) updateFlags(input *GenerateInput, model llm.Model) {
 // persisted TraceID (response.id) when enabled. It returns the last response,
 // a handled flag, and an error when a subcall fails.
 func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm.Model, request *llm.GenerateRequest) (*llm.GenerateResponse, bool, error) {
-	if !continuationContextEnabled(model, request.Options) {
+	if !IsContextContinuationEnabled(model) {
 		return nil, false, nil
 	}
 	groups := map[string][]llm.Message{}

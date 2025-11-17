@@ -74,19 +74,6 @@ type Options struct {
 	// This is honored by providers that implement base.CanExecToolsInParallel
 	// (e.g., OpenAI). Others will ignore it.
 	ParallelToolCalls bool `json:"parallel_tool_calls,omitempty" yaml:"parallelToolCalls,omitempty"`
-
-	// ContinuationContext explicitly enables/disables provider continuation
-	// via previous_response_id for models that support it.
-	//
-	// Semantics:
-	//   - nil           
-	//            //    default behaviour based on model capability
-	//        //    (enabled when the model implements SupportsContinuationByResponseID).
-	//   - true    
-	//            //    explicitly enable continuation when the provider supports it.
-	//   - false   
-	//            //    explicitly disable continuation even when the model supports it.
-	ContinuationContext *bool `json:"continuationContext,omitempty" yaml:"continuationContext,omitempty"`
 }
 
 type Thinking struct {

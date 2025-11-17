@@ -38,6 +38,8 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 		if options.Temperature != nil {
 			opts = append(opts, openai.WithTemperature(*options.Temperature))
 		}
+		// Pass through continuation flag; nil means default enabled.
+		opts = append(opts, openai.WithContextContinuation(options.ContextContinuation))
 		return openai.NewClient(apiKey, options.Model, opts...), nil
 	case ProviderOllama:
 		client, err := ollama.NewClient(ctx, options.Model,

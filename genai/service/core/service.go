@@ -126,29 +126,16 @@ func (s *Service) resolveTraces(ctx context.Context, conversationID string) apic
 	return out
 }
 
-// continuationContextEnabled returns true when the model supports continuation by response id
-// and the request options did not disable it explicitly. When opts or
-// opts.ContinuationContext is nil, the decision defaults to the model
-// capability (enabled when the model implements SupportsContinuationByResponseID).
-func continuationContextEnabled(model llm.Model, opts *llm.Options) bool {
+// IsContextContinuationEnabled reports whether the provided model supports
+// server-side context continuation (i.e. continuation by response id by open ai). The current
+// core only gates this by the model capability flag; per-request overrides are
+// not handled here.
+func IsContextContinuationEnabled(model llm.Model) bool {
 	if model == nil {
 		return false
 	}
-	if !model.Implements(base.SupportsContinuationByResponseID) {
-		return false
-	}
-	// No explicit override: use model capability as the default.
-	if opts == nil || opts.ContinuationContext == nil {
-		return true
-	}
-	return *opts.ContinuationContext
-}
 
-// IsContinuationEnabled is an exported wrapper for continuationContextEnabled so that
-// other packages (e.g., providers) can check whether continuation-by-response-id
-// should be considered for a given model and options.
-func IsContinuationEnabled(model llm.Model, opts *llm.Options) bool {
-	return continuationContextEnabled(model, opts)
+	return model.Implements(base.SupportsContextContinuation)
 }
 
 // AttachmentUsage returns cumulative attachment bytes recorded for a conversation.

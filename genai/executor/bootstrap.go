@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/viant/afs"
 	clientmcp "github.com/viant/agently/adapter/mcp"
 	"github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/elicitation"
@@ -23,13 +24,12 @@ import (
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
 	llmprovider "github.com/viant/agently/genai/llm/provider"
 	gtool "github.com/viant/agently/genai/tool"
+	"github.com/viant/agently/internal/workspace"
+	fsloader "github.com/viant/agently/internal/workspace/loader/fs"
+	modelload "github.com/viant/agently/internal/workspace/loader/model"
 	"github.com/viant/agently/internal/workspace/repository/agent"
 	embedderrepo "github.com/viant/agently/internal/workspace/repository/embedder"
 	extrepo "github.com/viant/agently/internal/workspace/repository/extension"
-	"github.com/viant/agently/internal/workspace/repository/model"
-
-	"github.com/viant/afs"
-	"github.com/viant/agently/internal/workspace"
 	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
 	"github.com/viant/datly/view"
 	// decoupled from orchestration
@@ -633,7 +633,11 @@ func (e *Service) initDefaults(ctx context.Context) error {
 			e.config.A2ATimeoutSec = 120
 		}
 	}
-	e.initModel()
+	err := e.initModel()
+	if err != nil {
+		return err
+	}
+
 	e.initEmbedders()
 	e.initAgent(ctx)
 	if err := e.initMcp(ctx); err != nil {
@@ -702,30 +706,39 @@ func (e *Service) loadWorkspaceConfigIfEmpty(ctx context.Context) {
 	e.config = &cfg
 }
 
-func (e *Service) initModel() {
-	// merge model repo first so DefaultModelFinder sees them
+func (e *Service) initModel() error {
+	// Merge workspace model configs first so DefaultModelFinder sees them.
+	// Use the loader/decoder path to parse provider options consistently.
 	if e.config.Model == nil {
 		e.config.Model = &mcpcfg.Group[*llmprovider.Config]{}
 	}
-	repo := modelrepo.New(afs.New())
-	if names, err := repo.List(context.Background()); err == nil {
-		for _, n := range names {
-			cfg, err := repo.Load(context.Background(), n)
-			if err != nil || cfg == nil {
-				continue
-			}
-			dup := false
-			for _, ex := range e.config.Model.Items {
-				if ex != nil && ex.ID == cfg.ID {
-					dup = true
-					break
-				}
-			}
-			if !dup {
-				e.config.Model.Items = append(e.config.Model.Items, cfg)
-			}
-		}
+
+	loader := modelload.New(fsloader.WithMetaService[llmprovider.Config](e.config.Meta()))
+	cfgs, err := loader.List(context.Background(), workspace.KindModel)
+	if err != nil {
+		return err
 	}
+	seen := make(map[string]struct{}, len(e.config.Model.Items))
+	for _, ex := range e.config.Model.Items {
+		if ex == nil {
+			continue
+		}
+		seen[ex.ID] = struct{}{}
+	}
+
+	for _, cfg := range cfgs {
+		if cfg == nil {
+			continue
+		}
+		if _, exists := seen[cfg.ID]; exists {
+			continue
+		}
+		e.config.Model.Items = append(e.config.Model.Items, cfg)
+		seen[cfg.ID] = struct{}{}
+	}
+
+	return nil
+
 }
 
 func (e *Service) initEmbedders() {
