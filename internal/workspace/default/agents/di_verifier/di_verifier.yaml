@@ -28,13 +28,6 @@ tool:
     - pattern: system/exec
 
 
-toolCallExposure: conversation
-
-knowledge:
-  - url: knowledge/
-
-systemKnowledge:
-  - url: system_knowledge/
 
 elicitation:
   enabled: true
