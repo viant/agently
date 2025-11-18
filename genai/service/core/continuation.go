@@ -51,7 +51,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 			}
 			key := prompt.KindContent.Key(m.Content)
 			trace, ok := history.Traces[key]
-			if !ok || trace.At.Before(anchorTime) {
+			if !ok || trace.At.Before(anchorTime) || trace.At.Equal(anchorTime) {
 				continue
 			}
 			selected.Append(m)
