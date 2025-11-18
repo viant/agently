@@ -86,11 +86,13 @@ func (c *Client) Implements(feature string) bool {
 
 		// TODO delete when Responses API can be default
 		// Default disabled; allow explicit enable via provider options.
-		if c.ContextContinuation == nil {
-			return false
-		} else {
-			return *c.ContextContinuation
-		}
+		return false
+
+		//if c.ContextContinuation == nil {
+		//	return false
+		//} else {
+		//	return *c.ContextContinuation
+		//}
 
 	}
 	return false
