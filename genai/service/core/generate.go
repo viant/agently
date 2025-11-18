@@ -132,6 +132,20 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 	if strings.TrimSpace(i.UserID) != "" {
 		userMsg.Name = i.UserID
 	}
+
+	// replacing trace for original user query (prompt) with expanded prompt
+	// history doesn't have user query (first request in current turn), we use task.Prompt as source to avoid duplicate messages and attachments
+	if i.Binding.History.Traces != nil {
+		ckeyOriginal := prompt.KindContent.Key(i.Binding.Task.Prompt)
+		origTrace, ok := i.Binding.History.Traces[ckeyOriginal]
+
+		if ok {
+			ckey := prompt.KindContent.Key(currentPrompt)
+			i.Binding.History.Traces[ckey] = &prompt.Trace{ID: ckey, Kind: prompt.KindContent, At: origTrace.At}
+			delete(i.Binding.History.Traces, ckeyOriginal)
+		}
+	}
+
 	i.Message = append(i.Message, userMsg)
 
 	if len(i.Binding.History.UserElicitation) > 0 {
