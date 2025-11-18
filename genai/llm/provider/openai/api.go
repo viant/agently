@@ -16,6 +16,7 @@ import (
 	"github.com/viant/agently/genai/llm/provider/base"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
 	core "github.com/viant/agently/genai/service/core"
+	"github.com/viant/agently/shared"
 )
 
 // Scanner buffer sizes for SSE processing
@@ -84,15 +85,11 @@ func (c *Client) Implements(feature string) bool {
 		// Default enabled; allow explicit disable via provider options.
 		// return c.ContextContinuation == nil || *c.ContextContinuation
 
-		// TODO delete when Responses API can be default
-		// Default disabled; allow explicit enable via provider options.
-		return false
-
-		//if c.ContextContinuation == nil {
-		//	return false
-		//} else {
-		//	return *c.ContextContinuation
-		//}
+		if c.ContextContinuation == nil {
+			return false
+		} else {
+			return *c.ContextContinuation
+		}
 
 	}
 	return false
@@ -142,7 +139,9 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 	if err != nil {
 		return nil, err
 	}
-
+	////
+	shared.LogPayload(payload, "", "_REQUEST_G_OPENAI")
+	////
 	httpReq, err := c.createHTTPResponsesApiRequest(ctx, payload)
 	if err != nil {
 		return nil, err
@@ -182,6 +181,9 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+	////
+	shared.LogPayload(respBytes, "", "_response_G_OPENAI")
+	////
 
 	if resp.StatusCode != http.StatusOK {
 		// Bubble continuation errors – do not fallback/summarize
@@ -336,7 +338,9 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 	if err != nil {
 		return nil, err
 	}
-
+	////
+	shared.LogPayload(payload, "", "_REQUEST_G_OPENAI_CHAT_COMPL")
+	////
 	httpReq, err := c.createHTTPChatCompletionsApiRequest(ctx, payload)
 	if err != nil {
 		return nil, err
@@ -375,6 +379,9 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 	if err != nil {
 		return nil, fmt.Errorf("failed to read chat.completions response body: %w", err)
 	}
+	////
+	shared.LogPayload(respBytes, "", "_response_G_OPENAI_CHAT_COMPL")
+	////
 
 	if resp.StatusCode != http.StatusOK {
 		/* TODO add this Response API like error handling if needed
@@ -541,6 +548,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if err != nil {
 		return nil, err
 	}
+	////
+	shared.LogPayload(payload, "", "_REQUEST_S_OPENAI")
+	////
 
 	var httpReq *http.Request
 	if core.IsContextContinuationEnabled(c) {
@@ -599,6 +609,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			events <- llm.StreamEvent{Err: fmt.Errorf("failed to read response body: %w", readErr)}
 			return
 		}
+		////
+		shared.LogPayload(respBody, "", "_response_S2_OPENAI")
+		////
 
 		if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
 			events <- llm.StreamEvent{Err: fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, string(respBody))}
