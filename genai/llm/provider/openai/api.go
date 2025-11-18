@@ -411,6 +411,8 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 }
 
 func (c *Client) parseGenerateResponse(model string, respBytes []byte) (*llm.GenerateResponse, error) {
+	continuationEnabled := core.IsContextContinuationEnabled(c)
+
 	// Best‑effort: tolerate SSE-style payload delivered to non-stream path.
 	// Some gateways may return a pre-buffered SSE transcript where the final
 	// response is embedded in a "response.completed" data chunk.
@@ -422,24 +424,27 @@ func (c *Client) parseGenerateResponse(model string, respBytes []byte) (*llm.Gen
 			return lr, nil
 		}
 	}
-	// Try legacy chat/completions shape first
-	var apiResp Response
-	if err := json.Unmarshal(respBytes, &apiResp); err == nil && (apiResp.Object != "" || len(apiResp.Choices) > 0) {
-		llmResp := ToLLMSResponse(&apiResp)
-		if c.UsageListener != nil && llmResp.Usage != nil && llmResp.Usage.TotalTokens > 0 {
-			c.UsageListener.OnUsage(model, llmResp.Usage)
-		}
-		return llmResp, nil
-	}
 
-	// Try Responses API direct form
-	var r2 ResponsesResponse
-	if err := json.Unmarshal(respBytes, &r2); err == nil && (r2.ID != "" || len(r2.Output) > 0) {
-		llmResp := ToLLMSFromResponses(&r2)
-		if c.UsageListener != nil && llmResp.Usage != nil && llmResp.Usage.TotalTokens > 0 {
-			c.UsageListener.OnUsage(model, llmResp.Usage)
+	if !continuationEnabled {
+		// Try legacy chat/completions shape first
+		var apiResp Response
+		if err := json.Unmarshal(respBytes, &apiResp); err == nil && (apiResp.Object != "" || len(apiResp.Choices) > 0) {
+			llmResp := ToLLMSResponse(&apiResp)
+			if c.UsageListener != nil && llmResp.Usage != nil && llmResp.Usage.TotalTokens > 0 {
+				c.UsageListener.OnUsage(model, llmResp.Usage)
+			}
+			return llmResp, nil
 		}
-		return llmResp, nil
+	} else {
+		// Try Responses API direct form
+		var r2 ResponsesResponse
+		if err := json.Unmarshal(respBytes, &r2); err == nil && (r2.ID != "" || len(r2.Output) > 0) {
+			llmResp := ToLLMSFromResponses(&r2)
+			if c.UsageListener != nil && llmResp.Usage != nil && llmResp.Usage.TotalTokens > 0 {
+				c.UsageListener.OnUsage(model, llmResp.Usage)
+			}
+			return llmResp, nil
+		}
 	}
 
 	// Some streams may wrap final response under a "response" field
