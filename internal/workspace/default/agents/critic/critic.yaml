@@ -1,0 +1,34 @@
+description: Critic
+id: critic
+modelRef: openai_gpt-5
+name: Critic
+temperature: 0
+persona:
+  role: assistant
+  actor: Critic
+
+profile:
+  publish: true
+  name: DI Critic
+  description: A Critic Agent is an expert evaluator that rigorously analyzes another model’s response for accuracy, reasoning quality, completeness, clarity, and safety—without rewriting the answer.
+  rank: 80
+
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+
+
+tool:
+  callExposure: conversation
+  items:
+    - pattern: orchestration
+    - pattern: system/patch
+    - pattern: system/exec
+
+
+
+attachment:
+  limitMB: 32
+  tTLSec: 3600    # 3600 seconds = 1 hour (minimum), 86400 seconds = 24 hours (default)
+  mode: ref #  ref, inline
