@@ -7,6 +7,7 @@ import (
 	"os"
 	pathpkg "path"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/workspace"
 	embopt "github.com/viant/embedius/matching/option"
+	embSchema "github.com/viant/embedius/schema"
 )
 
 // Name identifies the resources tool service namespace
@@ -34,6 +36,8 @@ type Service struct {
 	defaults  ResourcesDefaults
 	conv      apiconv.Client
 	aFinder   agmodel.Finder
+	// defaultEmbedder is used when MatchInput.Embedder/Model is not provided.
+	defaultEmbedder string
 }
 
 // New returns a resources service using a shared augmenter instance.
@@ -55,6 +59,12 @@ func WithConversationClient(c apiconv.Client) func(*Service) { return func(s *Se
 
 // WithAgentFinder attaches an agent finder to resolve agent resources in context.
 func WithAgentFinder(f agmodel.Finder) func(*Service) { return func(s *Service) { s.aFinder = f } }
+
+// WithDefaultEmbedder specifies a default embedder ID to use when the caller
+// does not provide one. This typically comes from executor config defaults.
+func WithDefaultEmbedder(id string) func(*Service) {
+	return func(s *Service) { s.defaultEmbedder = strings.TrimSpace(id) }
+}
 
 // Name returns service name
 func (s *Service) Name() string { return Name }
@@ -88,17 +98,28 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 // MatchInput defines parameters for semantic search across one or more roots.
 type MatchInput struct {
 	Query        string          `json:"query"`
-	Roots        []string        `json:"roots"`
+	RootURI      []string        `json:"rootUri" description:"use valid resources:root uri"`
+	Roots        []string        `json:"roots,omitempty" description:"alias for rootUri; deprecated"`
 	Path         string          `json:"path,omitempty"`
-	Model        string          `json:"model"`
-	MaxDocuments int             `json:"maxDocuments,omitempty"`
-	IncludeFile  bool            `json:"includeFile,omitempty"`
+	Model        string          `json:"model" internal:"true"`
+	MaxDocuments int             `json:"maxDocuments,omitempty" `
+	IncludeFile  bool            `json:"includeFile,omitempty" internal:"true"`
 	Match        *embopt.Options `json:"match,omitempty"`
+	// LimitBytes controls the maximum total bytes of matched content returned for the current cursor page.
+	LimitBytes int `json:"limitBytes,omitempty" description:"Max total bytes per page of matched content. Default: 7000."`
+	// Cursor selects the page (1..N) over the ranked documents, grouped by LimitBytes.
+	Cursor int `json:"cursor,omitempty" description:"Result page selector (1..N). Default: 1."`
 }
 
 // MatchOutput mirrors augmenter.AugmentDocsOutput for convenience.
 type MatchOutput struct {
 	aug.AugmentDocsOutput
+	// NextCursor points to the next page (cursor+1) when more content is available; 0 means no further pages.
+	NextCursor int `json:"nextCursor,omitempty" description:"Next page cursor when available; 0 when none."`
+	// Cursor echoes the selected page.
+	Cursor int `json:"cursor,omitempty" description:"Selected page cursor (1..N)."`
+	// LimitBytes echoes the applied byte limit per page.
+	LimitBytes int `json:"limitBytes,omitempty" description:"Applied byte cap per page."`
 }
 
 func (s *Service) match(ctx context.Context, in, out interface{}) error {
@@ -117,22 +138,31 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if query == "" {
 		return fmt.Errorf("query is required")
 	}
-	if len(input.Roots) == 0 {
+	if len(input.RootURI) == 0 && len(input.Roots) == 0 {
 		return fmt.Errorf("roots is required")
 	}
-	model := strings.TrimSpace(input.Model)
-	if model == "" {
-		return fmt.Errorf("model is required")
+	// Resolve embedder ID: prefer explicit model (internal), then service default.
+	input.IncludeFile = true
+	embedderID := strings.TrimSpace(input.Model)
+	if embedderID == "" {
+		embedderID = strings.TrimSpace(s.defaultEmbedder)
+	}
+	if embedderID == "" {
+		return fmt.Errorf("embedder is required (set default embedder in config or provide internal model)")
 	}
 	// Enforce allowlist when agent context present and normalize roots.
 	allowed := s.agentAllowed(ctx) // workspace://... or mcp:
-	locations := make([]string, 0, len(input.Roots))
-	for _, root := range input.Roots {
+	sources := input.RootURI
+	if len(sources) == 0 && len(input.Roots) > 0 {
+		sources = input.Roots
+	}
+	locations := make([]string, 0, len(sources))
+	for _, root := range sources {
 		root = strings.TrimSpace(root)
 		if root == "" {
 			continue
 		}
-		wsRoot, kind, err := s.normalizeUserRoot(ctx, root)
+		wsRoot, _, err := s.normalizeUserRoot(ctx, root)
 		if err != nil {
 			return err
 		}
@@ -141,7 +171,7 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 		}
 		// Convert to file (for internal I/O) when workspace scheme
 		base := wsRoot
-		if kind == "file" && strings.HasPrefix(wsRoot, "workspace://") {
+		if strings.HasPrefix(wsRoot, "workspace://") {
 			base = workspaceToFile(wsRoot)
 		}
 		if strings.TrimSpace(input.Path) != "" {
@@ -158,7 +188,7 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 		Query:        query,
 		Locations:    locations,
 		Match:        input.Match,
-		Model:        model,
+		Model:        embedderID,
 		MaxDocuments: input.MaxDocuments,
 		IncludeFile:  input.IncludeFile,
 		TrimPath:     trimPrefix,
@@ -167,8 +197,164 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if err := s.augmenter.AugmentDocs(ctx, augIn, &augOut); err != nil {
 		return err
 	}
-	output.AugmentDocsOutput = augOut
+
+	// Order by match score descending
+	sort.SliceStable(augOut.Documents, func(i, j int) bool { return augOut.Documents[i].Score > augOut.Documents[j].Score })
+
+	for i := range augOut.Documents {
+		doc := augOut.Documents[i]
+		// Surface score in metadata for clients (in addition to struct field)
+		if doc.Metadata == nil {
+			doc.Metadata = map[string]any{}
+		}
+		doc.Metadata["score"] = doc.Score
+		for _, key := range []string{"path", "docId", "fragmentId"} {
+			if path, ok := doc.Metadata[key]; ok {
+				doc.Metadata[key] = fileToWorkspace(path.(string))
+			}
+		}
+	}
+
+	// Apply byte-limited pagination for presentation
+	limit := effectiveLimitBytes(input.LimitBytes)
+	cursor := effectiveCursor(input.Cursor)
+	pageDocs, hasNext := selectDocPage(augOut.Documents, limit, cursor, trimPrefix)
+
+	// If the total formatted size of all documents does not exceed the limit,
+	// there is no next page regardless of internal grouping.
+	if total := totalFormattedBytes(augOut.Documents, trimPrefix); total <= limit {
+		hasNext = false
+	}
+
+	// Rebuild Content for selected page using same format as augmenter
+	var b strings.Builder
+	for _, doc := range pageDocs {
+		loc := strings.TrimPrefix(getStringFromMetadata(doc.Metadata, "path"), trimPrefix)
+		if loc == "" {
+			loc = getStringFromMetadata(doc.Metadata, "docId")
+		}
+		// Use local helper mirroring augmenter formatting
+		_, _ = b.WriteString(formatDocument(loc, doc.PageContent))
+	}
+
+	// Populate output with paged content
+	output.AugmentDocsOutput.Content = b.String()
+	output.AugmentDocsOutput.Documents = pageDocs
+	output.AugmentDocsOutput.DocumentsSize = augmenterDocumentsSize(pageDocs)
+	output.Cursor = cursor
+	output.LimitBytes = limit
+	if hasNext {
+		output.NextCursor = cursor + 1
+	}
 	return nil
+}
+
+// effectiveLimitBytes returns the per-page byte cap (default 7000, upper bound 200k)
+func effectiveLimitBytes(limit int) int {
+	if limit <= 0 {
+		return 7000
+	}
+	if limit > 200000 {
+		return 200000
+	}
+	return limit
+}
+
+// effectiveCursor normalizes the page cursor (1..N)
+func effectiveCursor(cursor int) int {
+	if cursor <= 0 {
+		return 1
+	}
+	return cursor
+}
+
+// selectDocPage splits documents into pages of at most limitBytes (based on formatted content length) and returns the selected page.
+func selectDocPage(docs []embSchema.Document, limitBytes int, cursor int, trimPrefix string) ([]embSchema.Document, bool) {
+	if limitBytes <= 0 || len(docs) == 0 {
+		return nil, false
+	}
+	// Build pages iteratively using formatted size to match presentation size
+	pages := make([][]embSchema.Document, 0, 4)
+	var cur []embSchema.Document
+	used := 0
+	for _, d := range docs {
+		loc := strings.TrimPrefix(getStringFromMetadata(d.Metadata, "path"), trimPrefix)
+		if loc == "" {
+			loc = getStringFromMetadata(d.Metadata, "docId")
+		}
+		formatted := formatDocument(loc, d.PageContent)
+		fragBytes := len(formatted)
+		if fragBytes > limitBytes {
+			if len(cur) > 0 {
+				pages = append(pages, cur)
+				cur = nil
+				used = 0
+			}
+			pages = append(pages, []embSchema.Document{d})
+			continue
+		}
+		if used+fragBytes > limitBytes {
+			pages = append(pages, cur)
+			cur = nil
+			used = 0
+		}
+		cur = append(cur, d)
+		used += fragBytes
+	}
+	if len(cur) > 0 {
+		pages = append(pages, cur)
+	}
+	if len(pages) == 0 {
+		return nil, false
+	}
+	if cursor < 1 {
+		cursor = 1
+	}
+	if cursor > len(pages) {
+		cursor = len(pages)
+	}
+	sel := pages[cursor-1]
+	hasNext := cursor < len(pages)
+	return sel, hasNext
+}
+
+// formatDocument mirrors augmenter.addDocumentContent formatting.
+func formatDocument(loc string, content string) string {
+	ext := strings.Trim(pathpkg.Ext(loc), ".")
+	return fmt.Sprintf("file: %v\n```%v\n%v\n````\n\n", loc, ext, content)
+}
+
+// augmenterDocumentsSize computes combined size using augmenter.Document.Size()
+func augmenterDocumentsSize(docs []embSchema.Document) int {
+	total := 0
+	for _, d := range docs {
+		total += aug.Document(d).Size()
+	}
+	return total
+}
+
+// getStringFromMetadata safely extracts a string value from metadata map.
+func getStringFromMetadata(metadata map[string]any, key string) string {
+	if value, ok := metadata[key]; ok {
+		if text, ok := value.(string); ok {
+			return text
+		}
+	}
+	return ""
+}
+
+// totalFormattedBytes sums the presentation bytes across all documents,
+// matching the formatting used in Content output.
+func totalFormattedBytes(docs []embSchema.Document, trimPrefix string) int {
+	total := 0
+	for _, d := range docs {
+		loc := strings.TrimPrefix(getStringFromMetadata(d.Metadata, "path"), trimPrefix)
+		if loc == "" {
+			loc = getStringFromMetadata(d.Metadata, "docId")
+		}
+		total += len(formatDocument(loc, d.PageContent))
+	}
+	return total
 }
 
 // -------- list implementation --------
@@ -207,7 +393,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("root is required")
 	}
 	allowed := s.agentAllowed(ctx) // workspace://... or mcp:
-	wsRoot, kind, err := s.normalizeUserRoot(ctx, rootURI)
+	wsRoot, _, err := s.normalizeUserRoot(ctx, rootURI)
 	if err != nil {
 		return err
 	}
@@ -216,7 +402,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	}
 	// Use file base for AFS when workspace scheme
 	normRoot := wsRoot
-	if kind == "file" && strings.HasPrefix(wsRoot, "workspace://") {
+	if strings.HasPrefix(wsRoot, "workspace://") {
 		normRoot = workspaceToFile(wsRoot)
 	}
 	base := normRoot
@@ -365,7 +551,7 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	if uri != "" {
 		// URI-only mode: enforce allowlist (when present) against the URI and
 		// normalize it for reading.
-		wsRoot, kind, err := s.normalizeUserRoot(ctx, uri)
+		wsRoot, _, err := s.normalizeUserRoot(ctx, uri)
 		if err != nil {
 			return err
 		}
@@ -373,7 +559,7 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 			return fmt.Errorf("resource not allowed: %s", uri)
 		}
 		fullURI = wsRoot
-		if kind == "file" && strings.HasPrefix(wsRoot, "workspace://") {
+		if strings.HasPrefix(wsRoot, "workspace://") {
 			fullURI = workspaceToFile(wsRoot)
 		}
 	} else {
@@ -384,7 +570,7 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 		if pathPart == "" {
 			return fmt.Errorf("path is required when uri is not provided")
 		}
-		wsRoot, kind, err := s.normalizeUserRoot(ctx, rootURI)
+		wsRoot, _, err := s.normalizeUserRoot(ctx, rootURI)
 		if err != nil {
 			return err
 		}
@@ -392,7 +578,7 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 			return fmt.Errorf("root not allowed: %s", rootURI)
 		}
 		normRoot = wsRoot
-		if kind == "file" && strings.HasPrefix(wsRoot, "workspace://") {
+		if strings.HasPrefix(wsRoot, "workspace://") {
 			normRoot = workspaceToFile(wsRoot)
 		}
 		fullURI = url.Join(normRoot, strings.TrimPrefix(pathPart, "/"))
@@ -494,7 +680,6 @@ type RootsInput struct {
 
 type Root struct {
 	URI         string `json:"uri"`
-	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
 	Kind        string `json:"kind"`   // file|mcp
 	Source      string `json:"source"` // default
@@ -543,9 +728,8 @@ func (s *Service) roots(ctx context.Context, in, out interface{}) error {
 			continue
 		}
 		seen[norm] = true
-		label := s.defaultLabel(norm, kind)
 		desc := s.tryDescribe(ctx, norm, kind)
-		roots = append(roots, Root{URI: norm, Label: label, Description: desc, Kind: kind, Source: source})
+		roots = append(roots, Root{URI: norm, Description: desc, Kind: kind, Source: source})
 		if max > 0 && len(roots) >= max {
 			break
 		}
@@ -597,7 +781,26 @@ func (s *Service) normalizeUserRoot(ctx context.Context, in string) (string, str
 		return u, "mcp", nil
 	}
 	if strings.HasPrefix(u, "workspace://") {
-		return u, "file", nil
+		// Normalize agent segment casing when path starts with agents/
+		rel := strings.TrimPrefix(u, "workspace://")
+		rel = strings.TrimPrefix(rel, "localhost/")
+		low := strings.ToLower(rel)
+		if strings.HasPrefix(low, workspace.KindAgent+"/") {
+			// Extract agent id segment and remainder
+			seg := rel[len(workspace.KindAgent)+1:]
+			agentID := seg
+			rest := ""
+			if i := strings.Index(seg, "/"); i != -1 {
+				agentID = seg[:i]
+				rest = seg[i+1:]
+			}
+			agentID = strings.ToLower(strings.TrimSpace(agentID))
+			if rest != "" {
+				return url.Join("workspace://localhost/", workspace.KindAgent, agentID, rest), "workspace", nil
+			}
+			return url.Join("workspace://localhost/", workspace.KindAgent, agentID), "workspace", nil
+		}
+		return u, "workspace", nil
 	}
 	if strings.HasPrefix(u, "file://") {
 		// Map to workspace if under workspace root
@@ -623,19 +826,31 @@ func (s *Service) normalizeUserRoot(ctx context.Context, in string) (string, str
 	}
 	for _, pfx := range kinds {
 		if strings.HasPrefix(lower, pfx) {
-			return url.Join("workspace://localhost/", u), "file", nil
+			// Normalize prefix to canonical lowercase kind and, for agents, normalize the agent id segment
+			rel := u
+			if len(u) >= len(pfx) {
+				rel = u[len(pfx):]
+			}
+			if pfx == workspace.KindAgent+"/" {
+				// Ensure agent folder matches the canonical (lowercase) agent id to align with workspace layout
+				agentSeg := rel
+				rest := ""
+				if i := strings.Index(agentSeg, "/"); i != -1 {
+					rest = agentSeg[i+1:]
+					agentSeg = agentSeg[:i]
+				}
+				agentSeg = strings.ToLower(strings.TrimSpace(agentSeg))
+				if rest != "" {
+					return url.Join("workspace://localhost/", workspace.KindAgent, agentSeg, rest), "workspace", nil
+				}
+				return url.Join("workspace://localhost/", workspace.KindAgent, agentSeg), "workspace", nil
+			}
+			// Other kinds: keep remainder as-is, normalize kind to canonical lowercase
+			return url.Join("workspace://localhost/", pfx+rel), "workspace", nil
 		}
 	}
-	// relative: prefer agents/<agentId>/<u>, else workspace/<u>
-	ag := s.currentAgent(ctx)
-	agentID := ""
-	if ag != nil {
-		agentID = strings.TrimSpace(ag.Name)
-	}
-	if agentID != "" {
-		return url.Join("workspace://localhost/", workspace.KindAgent, agentID, u), "file", nil
-	}
-	return url.Join("workspace://localhost/", u), "file", nil
+	// relative: resolve under the current workspace root
+	return url.Join("workspace://localhost/", u), "workspace", nil
 }
 
 // (duplicate removed above)
@@ -776,6 +991,13 @@ func workspaceToFile(ws string) string {
 	rel := strings.TrimPrefix(ws, "workspace://")
 	rel = strings.TrimPrefix(rel, "localhost/")
 	return url.Join(strings.TrimRight(base, "/")+"/", rel)
+}
+
+// workspaceToFile maps workspace://localhost/<rel> to file://<workspaceRoot>/<rel>
+func fileToWorkspace(file string) string {
+	base := workspace.Root()
+	file = strings.Replace(file, base, "", 1)
+	return "workspace://localhost" + url.Path(file)
 }
 
 // cleanFileURL removes any "/../" segments from file URLs to produce a stable canonical form.

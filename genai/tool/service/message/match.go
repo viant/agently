@@ -93,6 +93,8 @@ func effectiveTopK(req int) int {
 	return 5
 }
 
+// pagination helpers removed for message:match
+
 type textPart struct {
 	off, end int
 	text     string
@@ -171,3 +173,7 @@ func searchTopK(ctx context.Context, tree *cover.Tree[int], emb baseemb.Embedder
 	}
 	return frags, nil
 }
+
+// selectFragmentPage groups fragments into pages capped by limit bytes and returns the selected page.
+// It also reports whether a next page exists.
+// pagination removed; message:match returns all fragments up to TopK

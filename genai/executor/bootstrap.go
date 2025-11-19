@@ -151,6 +151,7 @@ func (e *Service) init(ctx context.Context) error {
 		rsrcsvc.WithDefaults(rdef),
 		rsrcsvc.WithConversationClient(e.convClient),
 		rsrcsvc.WithAgentFinder(e.agentFinder),
+		rsrcsvc.WithDefaultEmbedder(e.config.Default.Embedder),
 	))
 	// Load external A2A agents from workspace a2a/ folder
 	type extSpec struct {
