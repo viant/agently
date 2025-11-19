@@ -67,6 +67,10 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindAgent, "di_orchestrator/prompt/system.tmpl"), "default/agents/di_orchestrator/prompt/system.tmpl"},
 		{filepath.Join(KindAgent, "di_orchestrator/prompt/user.tmpl"), "default/agents/di_orchestrator/prompt/user.tmpl"},
 		{filepath.Join(KindAgent, "di_orchestrator/di_orchestrator.yaml"), "default/agents/di_orchestrator/di_orchestrator.yaml"},
+
+		{filepath.Join(KindAgent, "critic/prompt/system.tmpl"), "default/agents/critic/prompt/system.tmpl"},
+		{filepath.Join(KindAgent, "critic/prompt/user.tmpl"), "default/agents/critic/prompt/user.tmpl"},
+		{filepath.Join(KindAgent, "critic/di_orchestrator.yaml"), "default/agents/critic/critic.yaml"},
 	}
 
 	baseURL := url.Normalize(Root(), file.Scheme)
