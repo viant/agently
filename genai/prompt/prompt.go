@@ -3,6 +3,8 @@ package prompt
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"sync"
@@ -26,6 +28,7 @@ type (
 		once           sync.Once
 		parsedTemplate *template.Template `yaml:"-" json:"-"`
 		parseErr       error              `yaml:"-" json:"-"`
+		lastSourceHash string             `yaml:"-" json:"-"`
 	}
 )
 
@@ -63,8 +66,23 @@ func (a *Prompt) Generate(ctx context.Context, binding *Binding) (string, error)
 	if a == nil {
 		return "", nil
 	}
-	if err := a.Init(ctx); err != nil {
-		return "", err
+	// Always prefer latest content when URI is set to support hot-swap edits.
+	if strings.TrimSpace(a.URI) != "" {
+		fs := afs.New()
+		uri := a.URI
+		if url.Scheme(uri, "") == "" {
+			uri = file.Scheme + "://" + uri
+		}
+		data, err := fs.DownloadWithURL(ctx, uri)
+		if err != nil {
+			return "", err
+		}
+		a.Text = string(data)
+	} else {
+		// Fall back to initialisation path when only Text is provided
+		if err := a.Init(ctx); err != nil {
+			return "", err
+		}
 	}
 
 	prompt := strings.TrimSpace(a.Text)
@@ -75,6 +93,12 @@ func (a *Prompt) Generate(ctx context.Context, binding *Binding) (string, error)
 	engine := strings.ToLower(strings.TrimSpace(a.Engine))
 	switch engine {
 	case "go", "gotmpl", "text/template":
+		// Guarded reparse: recompute hash and only reset cache when content changed
+		if changed := a.updateGoTemplateHash(prompt); changed {
+			a.goTemplatePrompt.once = sync.Once{}
+			a.goTemplatePrompt.parsedTemplate = nil
+			a.goTemplatePrompt.parseErr = nil
+		}
 		return a.generateGoTemplatePrompt(prompt, binding)
 	case "velty", "vm", "":
 		// Use velty (velocity-like) by default
@@ -85,6 +109,20 @@ func (a *Prompt) Generate(ctx context.Context, binding *Binding) (string, error)
 		// Unknown engine type
 		return "", errors.New("unsupported prompt type: " + engine)
 	}
+}
+
+// updateGoTemplateHash stores and compares a content hash for go-template prompts.
+// Returns true when the hash changed since last call.
+func (a *Prompt) updateGoTemplateHash(src string) bool {
+	// small, stable hash to detect changes
+	// reuse NormalizeContent from binding? keep simple raw content hash here
+	h := sha1.Sum([]byte(src))
+	newHash := hex.EncodeToString(h[:])
+	if a.goTemplatePrompt.lastSourceHash == newHash {
+		return false
+	}
+	a.goTemplatePrompt.lastSourceHash = newHash
+	return true
 }
 
 // generateVeltyPrompt uses velty engine to process the template

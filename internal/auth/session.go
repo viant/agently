@@ -28,6 +28,9 @@ type Manager struct {
 
 func NewManager(cfg *Config) *Manager {
 	ttl := 7 * 24 * time.Hour
+	if cfg != nil && cfg.SessionTTLHours > 0 {
+		ttl = time.Duration(cfg.SessionTTLHours) * time.Hour
+	}
 	return &Manager{cfg: cfg, store: map[string]*Session{}, ttl: ttl}
 }
 
@@ -53,6 +56,9 @@ func (m *Manager) Create(w http.ResponseWriter, userID string) *Session {
 	m.store[sid] = s
 	m.mu.Unlock()
 	cookie := &http.Cookie{Name: m.cookie(), Value: sid, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode}
+	// Persist cookie lifetime explicitly for client (browser) so it survives restarts within TTL
+	cookie.Expires = s.ExpiresAt
+	cookie.MaxAge = int(m.ttl.Seconds())
 	if isTLS(w) {
 		cookie.Secure = true
 	}
@@ -68,6 +74,8 @@ func (m *Manager) CreateWithTokens(w http.ResponseWriter, userID, access, refres
 	m.store[sid] = s
 	m.mu.Unlock()
 	cookie := &http.Cookie{Name: m.cookie(), Value: sid, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode}
+	cookie.Expires = s.ExpiresAt
+	cookie.MaxAge = int(m.ttl.Seconds())
 	if isTLS(w) {
 		cookie.Secure = true
 	}

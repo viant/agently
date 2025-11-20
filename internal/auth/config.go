@@ -14,6 +14,7 @@ import (
 type Config struct {
 	Enabled         bool     `yaml:"enabled" json:"enabled"`
 	CookieName      string   `yaml:"cookieName" json:"cookieName"`
+	SessionTTLHours int      `yaml:"sessionTTLHours,omitempty" json:"sessionTTLHours,omitempty"` // cookie/session lifetime; default 168h (7 days)
 	DefaultUsername string   `yaml:"defaultUsername" json:"defaultUsername"`
 	IpHashKey       string   `yaml:"ipHashKey" json:"ipHashKey"`
 	TrustedProxies  []string `yaml:"trustedProxies" json:"trustedProxies"`
