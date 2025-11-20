@@ -10,4 +10,4 @@ options:
   maxTokens: 100000
   inputTokenPrice: 0.00125  # $1.25 per 1M tokens (placeholder; adjust if needed)
   outputTokenPrice: 0.01    # $10 per 1M tokens (placeholder; adjust if needed)
-
+  contextContinuation: true
