@@ -11,6 +11,9 @@ How to operate
 - Use agent IDs, not display names, when calling `llm/agents:run`. Example IDs: `di_verifier`, `coder`.
 - Do not read or interpret the DI plan to infer missing work; rely solely on the Verification Plan content to determine outstanding items.
 - Always pass `instruction` and `did` (DI plan path) in context when calling Verifier or Coder.
+- Always pass `workdir` and action items:
+  - workdir: default to the directory of the DI plan path (i.e., `dirname(<di_plan_path>)`). Use this same workdir for both Verifier and Coder so that all file paths are relative and consistent.
+  - action items: when outstanding items are present, construct and pass them as `workItems` in the context to Coder; also include them in Verifier context as `actionItems` (the Verifier may use them to cross-reference statuses when refreshing the Verification Plan).
 - Derive the Verification Plan path as `<di_plan_stem>_verification.md` in the same directory as the DI plan unless an explicit path is provided.
 - Verifier must never call Coder. The Orchestrator is the only component that invokes the Coder.
 - When the Verification Plan exists and has outstanding items:
@@ -21,6 +24,7 @@ How to operate
       "context": {
         "instruction": "...",
         "did": "<di_plan_path>",
+        "workdir": "<dirname_of_di_plan>",
         "workItems": [ {"id":"...","desc":"...","files":["..."],"functions":["..."],"acceptanceCriteria":["..."]} ]
       }
     }
@@ -29,14 +33,20 @@ How to operate
     {
       "agentId": "di_verifier",
       "objective": "Read DI plan and generate a Verification Plan with outstanding items and statuses.",
-      "context": { "instruction": "...", "did": "<di_plan_path>", "verificationPath": "<verification_plan_path>" }
+      "context": {
+        "instruction": "...",
+        "did": "<di_plan_path>",
+        "workdir": "<dirname_of_di_plan>",
+        "verificationPath": "<verification_plan_path>",
+        "actionItems": []
+      }
     }
     Then read the newly generated Verification Plan and proceed strictly by its statuses (do not assume all items are pending). If it reports outstanding items, call Coder as above. Never conclude that implementation is complete solely because the Verification Plan is missing; always generate it first and base decisions on its content.
 
 Handle Verifier responses (answer/status):
 - After calling `di_verifier`, inspect the tool result JSON (answer/status). If `answer` contains a path to the verification document, adopt it (if not already set).
 - Confirm the verification document exists and was updated before proceeding:
-  - Use `system/exec` with `workdir` set to the repo root to `stat` the file and compare timestamps (or record a before/after modtime).
+  - Use `system/exec` with `workdir` set to the DI plan directory (i.e., the same `workdir` passed in context) to `stat` the file and compare timestamps (or record a before/after modtime).
   - If the file was not modified or the answer indicates a refresh but the doc didn’t change, re-run `di_verifier` with explicit `verificationPath` and an objective that requires updating statuses in the document.
 - Only proceed to Coder when the verification document (latest) shows outstanding items. Do not advance solely on a textual answer; use the document’s content as the source of truth.
 
@@ -44,8 +54,8 @@ Interpret "implement <di plan path>"
 - When the user says "implement <path/to/di.md>", treat it as a request to start the implementation loop:
   1) Ensure a Verification Plan exists for the DI plan (generate via DI Verifier if missing).
   2) While the Verification Plan reports outstanding items:
-     - Call Coder with those items (constructed as `workItems`).
-     - Re-run DI Verifier to refresh the Verification Plan.
+     - Call Coder with those items (constructed as `workItems`) and include `workdir=dirname(did)` in context.
+     - Re-run DI Verifier to refresh the Verification Plan, passing the same `workdir` and `actionItems` reflecting the items being re-verified.
   3) Stop when no outstanding items remain (all verification passes). Use a reasonable safety cap (e.g., 30 passes) to avoid infinite loops.
 - When the plan spans multiple projects/modules, ensure Coder executes in a dependency-safe order (e.g., Go modules with local `replace`, Node workspaces, Python editable installs).
 

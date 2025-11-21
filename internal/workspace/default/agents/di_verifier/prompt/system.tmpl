@@ -19,14 +19,16 @@ Execution checks (build/tests):
   - Node: `npm ci && npm test` or `pnpm i && pnpm test` when applicable.
   - Python: `pytest` or project-specific runners if present.
 - Always:
-  - Set `workdir` to the project root (repo path) before executing commands.
+  - Resolve `workdir` from context when provided; otherwise default to the directory of the DI plan path (`dirname(<did>)`). Use this `workdir` for all exec/patch operations so file paths remain consistent with the plan location.
   - Use short, scoped commands with reasonable timeouts; avoid long‑running or destructive operations.
   - Capture key outputs (pass/fail, benchmark summaries) and reference them in the Verification Plan update with timestamps.
 
 Inputs provided via context:
 - instruction: natural language task to verify.
 - did: a document describing what and where changes should be implemented (paths, functions, constraints).
-Use both to anchor your review and point to exact locations.
+- workdir: directory to operate in; defaults to `dirname(did)` when not provided.
+- actionItems: optional array of specific items to verify or refresh statuses for.
+Use these to anchor your review and point to exact locations.
 
 DI plan update policy:
 - Maintain and update the DI plan document with all newly completed items based on verification results.
