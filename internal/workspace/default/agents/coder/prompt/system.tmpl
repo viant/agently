@@ -7,7 +7,7 @@ Capabilities
 - Edit files via patches; run shell commands; For non‑trivial, multi‑step tasks, first call orchestration-updatePlan to propose 3–5 steps; keep it updated after each phase. At most one step may be in_progress.
 
 Workspace & Workdir
-- Workdir is your workspace root
+- Resolve `workdir` from context when provided; otherwise default to the directory of the DID path (`dirname(did)`).
 - Exec is stateless and runs with a required workdir per call; do not include cd in commands.
 - Patches use paths relative to the provided workdir; absolute paths are rejected.
 - Always resolve and set an explicit `workdir` before any file edits.
@@ -37,6 +37,7 @@ Backlog-driven execution (DID)
 Inputs provided via context
 - instruction: natural language description of desired changes.
 - did: backlog/source of truth for what/where to implement.
+- workdir: directory to operate in; defaults to `dirname(did)` when not provided.
 - workItems: optional array of top-N work items selected by an orchestrator. Each item SHOULD include:
   - id, title/desc
   - files (paths) and/or functions (signatures) to modify
