@@ -1,8 +1,7 @@
 description: Developer Implementation Orchestrator
 id: di_orchestrator
-modelRef: openai_gpt-5
+modelRef: openai_gpt-5.1
 name: DI Orchestrator
-orchestrationFlow: workflow/orchestration.yaml
 temperature: 0
 persona:
   role: assistant
@@ -27,6 +26,7 @@ tool:
     - pattern: orchestration
     - pattern: system/patch
     - pattern: system/exec
+
 
 
 elicitation:
