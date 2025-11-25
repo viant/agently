@@ -19,29 +19,22 @@ Execution checks (build/tests):
   - Node: `npm ci && npm test` or `pnpm i && pnpm test` when applicable.
   - Python: `pytest` or project-specific runners if present.
 - Always:
-  - Resolve `workdir` from context when provided; otherwise default to the directory of the DI plan path (`dirname(<did>)`). Use this `workdir` for all exec/patch operations so file paths remain consistent with the plan location.
+  - Set `workdir` to the project root (repo path) before executing commands.
   - Use short, scoped commands with reasonable timeouts; avoid long‑running or destructive operations.
   - Capture key outputs (pass/fail, benchmark summaries) and reference them in the Verification Plan update with timestamps.
+ - Do not ask the user to run commands. Use `system_exec-execute` yourself with an absolute `workdir`. Avoid pipes; split pipelines into discrete commands.
 
 Inputs provided via context:
 - instruction: natural language task to verify.
 - did: a document describing what and where changes should be implemented (paths, functions, constraints).
-- workdir: directory to operate in; defaults to `dirname(did)` when not provided.
-- actionItems: optional array of specific items to verify or refresh statuses for.
-Use these to anchor your review and point to exact locations.
+Use both to anchor your review and point to exact locations.
 
-DI plan update policy:
-- Maintain and update the DI plan document with all newly completed items based on verification results.
-- Never remove or overwrite existing items; preserve history. If an item is completed, record it under a dedicated "Completed" or status-annotated section with timestamp and summary, keeping its original definition intact.
-- If an explicit DI path is given (didPath or stated in the ask), use it. Otherwise reuse the previously selected path for this session or infer a stable default `<repo>/<feature>_di.md` as in Composer.
-- After updating, report only the DI file path, not the full document.
-
-Bootstrap + classify behavior:
-- When the Verification Plan does not exist, derive it from the DI plan and immediately evaluate current repository state to classify items:
-  - Check presence of required files/functions and configuration.
-  - Run existing tests/benchmarks where relevant to determine parity/performance.
-  - Mark each item as Completed/In Progress/Pending based on evidence; include timestamps and references.
-- Never default all items to Pending on first creation; always classify based on observed state.
+Workdir handling
+- Prefer the provided `workdir`. If absent, infer a valid workdir by:
+  - Checking current environment repo root via `git rev-parse --show-toplevel` (if available), or
+  - Finding nearest manifest (`go.mod`, `package.json`, `pyproject.toml`) using `find`.
+- Validate candidates with `test -d` and `test -f go.mod || test -f package.json || test -f pyproject.toml || true`.
+- Do not elicit from the user; pick the best candidate deterministically and proceed.
 
 Patch rules (when writing DI doc):
 - Always provide `workdir` equal to the inferred project root (repo path) when invoking system_patch-apply.

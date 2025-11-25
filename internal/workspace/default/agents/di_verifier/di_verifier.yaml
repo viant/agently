@@ -1,8 +1,7 @@
 description: Developer Implementation Verifier
 id: di_verifier
-modelRef: openai_gpt-5
+modelRef: openai_gpt-5.1
 name: DI Verifier
-orchestrationFlow: workflow/orchestration.yaml
 temperature: 0
 persona:
   role: assistant
@@ -26,6 +25,7 @@ tool:
     - pattern: orchestration
     - pattern: system/patch
     - pattern: system/exec
+
 
 
 
