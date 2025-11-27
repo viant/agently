@@ -374,6 +374,16 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 							content.Parts = append(content.Parts, part)
 						}
 					}
+				case llm.ContentTypeBinary:
+					// Generic inline binary using provided MIME type
+					if item.Data != "" {
+						content.Parts = append(content.Parts, Part{
+							InlineData: &InlineData{
+								MimeType: item.MimeType,
+								Data:     item.Data,
+							},
+						})
+					}
 				}
 			}
 		} else if len(msg.ContentItems) > 0 {

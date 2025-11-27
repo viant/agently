@@ -39,6 +39,8 @@ type ResponsesContentItem struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
+	FileData string `json:"file_data,omitempty"`
+	FileName string `json:"filename,omitempty"`
 	Detail   string `json:"detail,omitempty"`
 	FileID   string `json:"file_id,omitempty"`
 	// Function call output back to the model
@@ -211,6 +213,8 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 					case "file":
 						if it.File != nil && it.File.FileID != "" {
 							items = append(items, ResponsesContentItem{Type: "input_file", FileID: it.File.FileID})
+						} else {
+							items = append(items, ResponsesContentItem{Type: "input_file", FileName: it.File.FileName, FileData: it.File.FileData})
 						}
 					default:
 						// Fallback attempt: treat any other type with text

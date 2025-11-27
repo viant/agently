@@ -9,8 +9,13 @@ options:
   envKey: GEMINI_API_KEY
   maxTokens: 1048576  # Flash supports up to 1,048,576 tokens (~1M)
   temperature: 0.7
-  inputTokenPrice: 0.00035   # USD per token (≈ $0.35 per 1M)
-  outputTokenPrice: 0.00105  # USD per token (≈ $1.05 per 1M)
+  inputTokenPrice: 0.00000125   # USD per token (≈ $1.25 per 1M)
+  outputTokenPrice: 0.00001  # USD per token (≈ $10.0 per 1M)
 
   meta:
     version: v1beta
+# https://ai.google.dev/gemini-api/docs/pricing#gemini-2.5-pro
+# Input price	$1.25, prompts <= 200k tokens
+#               $2.50, prompts > 200k tokens
+# Output price (including thinking tokens) $10.00, prompts <= 200k tokens
+#                                          $15.00, prompts > 200k
