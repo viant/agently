@@ -93,23 +93,16 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		for k := 0; k < len(messages); k++ {
 			m := messages[k]
 			sortAttachments(m.Attachment)
-			for _, attachment := range m.Attachment {
-				i.Message = append(i.Message,
-					llm.NewMessageWithBinary(llm.MessageRole(m.Role), attachment.Data, attachment.MIMEType(), attachment.Content, attachment.Name))
-			}
-			llmMessage := llm.NewTextMessage(llm.MessageRole(m.Role), m.Content)
-			i.Message = append(i.Message, llmMessage)
-		}
-	}
 
-	// Include task-scoped attachments for this turn (if any) before the user prompt
-	if i.Binding != nil && len(i.Binding.Task.Attachments) > 0 {
-		sortAttachments(i.Binding.Task.Attachments)
-		for _, a := range i.Binding.Task.Attachments {
-			if a == nil {
-				continue
+			var attachItems []*llm.AttachmentItem
+			for _, a := range m.Attachment {
+				item := &llm.AttachmentItem{Name: a.Name, Data: a.Data, Content: a.Content, MimeType: a.MIMEType()}
+				attachItems = append(attachItems, item)
 			}
-			i.Message = append(i.Message, llm.NewMessageWithBinary(llm.RoleUser, a.Data, a.MIMEType(), a.Content, a.Name))
+
+			bMsg := llm.NewMessageWithBinaries(llm.RoleUser, attachItems, m.Content)
+			i.Message = append(i.Message, bMsg)
+
 		}
 	}
 
@@ -128,10 +121,30 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 	}
 
 	// Append current user prompt with attributed name when available
-	userMsg := llm.NewUserMessage(currentPrompt)
+
+	var userMsg llm.Message
+
+	// Include task-scoped attachments for this turn (if any) before the user prompt
+	if i.Binding != nil && len(i.Binding.Task.Attachments) > 0 {
+		sortAttachments(i.Binding.Task.Attachments)
+
+		var attachItems []*llm.AttachmentItem
+		for _, a := range i.Binding.Task.Attachments {
+			item := &llm.AttachmentItem{Name: a.Name, Data: a.Data, Content: a.Content, MimeType: a.MIMEType()}
+			attachItems = append(attachItems, item)
+		}
+
+		userMsg = llm.NewMessageWithBinaries(llm.RoleUser, attachItems, currentPrompt)
+
+	} else {
+		userMsg = llm.NewUserMessage(currentPrompt)
+	}
+
 	if strings.TrimSpace(i.UserID) != "" {
 		userMsg.Name = i.UserID
 	}
+
+	i.Message = append(i.Message, userMsg)
 
 	// replacing trace for original user query (prompt) with expanded prompt
 	// history doesn't have user query (first request in current turn), we use task.Prompt as source to avoid duplicate messages and attachments
@@ -145,8 +158,6 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 			delete(i.Binding.History.Traces, ckeyOriginal)
 		}
 	}
-
-	i.Message = append(i.Message, userMsg)
 
 	if len(i.Binding.History.UserElicitation) > 0 {
 		for _, elicitationMsg := range i.Binding.History.UserElicitation {

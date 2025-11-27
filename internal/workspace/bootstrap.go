@@ -42,6 +42,7 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindModel, "vertexai_claude_opus_4.yaml"), "default/model/vertexai/claude_opus_4.yaml"},
 		{filepath.Join(KindModel, "vertexai_gemini_flash2_5.yaml"), "default/model/vertexai/gemini_flash2_5.yaml"},
 		{filepath.Join(KindModel, "vertexai_gemini_2_5_pro.yaml"), "default/model/vertexai/gemini_2_5_pro.yaml"},
+		{filepath.Join(KindModel, "vertexai_gemini_3_0_pro.yaml"), "default/model/vertexai/gemini_3_0_pro.yaml"},
 
 		{filepath.Join(KindAgent, "chatter/knowledge/doc.txt"), "default/agents/chatter/knowledge/doc.txt"},
 		{filepath.Join(KindAgent, "chatter/knowledge/README_DELETE_THIS.md"), "default/agents/chatter/knowledge/README_DELETE_THIS.md"},

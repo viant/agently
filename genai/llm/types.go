@@ -139,6 +139,13 @@ type CallSpan struct {
 	EndedAt   time.Time `json:"endedat"`
 }
 
+type AttachmentItem struct {
+	Name     string `json:"name,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
+	Data     []byte `json:"data,omitempty"`
+	Content  string `json:"content,omitempty"`
+}
+
 func (c *CallSpan) SetEnd(t time.Time) {
 	c.EndedAt = t
 }
@@ -338,6 +345,20 @@ func NewMessageWithBinary(role MessageRole, data []byte, mimeType, content, name
 	if content != "" {
 		items = append(items, NewTextContent(content))
 	}
+	return Message{Role: role, Items: items}
+}
+
+func NewMessageWithBinaries(role MessageRole, attachItems []*AttachmentItem, content string) Message {
+	items := []ContentItem{}
+
+	for _, a := range attachItems {
+		items = append(items, NewBinaryContent(a.Data, a.MimeType, a.Name))
+	}
+
+	if content != "" {
+		items = append(items, NewTextContent(content))
+	}
+
 	return Message{Role: role, Items: items}
 }
 
