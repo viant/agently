@@ -31,4 +31,4 @@ systemKnowledge:
 attachment:
   limitMB: 32
   tTLSec: 3600    # 3600 seconds = 1 hour (minimum), 86400 seconds = 24 hours (default)
-  mode: ref #  ref, inline
+  mode: inline #  ref, inline
