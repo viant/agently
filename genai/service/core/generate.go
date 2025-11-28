@@ -92,17 +92,20 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		messages := i.Binding.History.Messages
 		for k := 0; k < len(messages); k++ {
 			m := messages[k]
-			sortAttachments(m.Attachment)
+			if len(m.Attachment) > 0 {
+				sortAttachments(m.Attachment)
 
-			var attachItems []*llm.AttachmentItem
-			for _, a := range m.Attachment {
-				item := &llm.AttachmentItem{Name: a.Name, Data: a.Data, Content: a.Content, MimeType: a.MIMEType()}
-				attachItems = append(attachItems, item)
+				var attachItems []*llm.AttachmentItem
+				for _, a := range m.Attachment {
+					item := &llm.AttachmentItem{Name: a.Name, Data: a.Data, Content: a.Content, MimeType: a.MIMEType()}
+					attachItems = append(attachItems, item)
+				}
+
+				bMsg := llm.NewMessageWithBinaries(llm.MessageRole(m.Role), attachItems, m.Content)
+				i.Message = append(i.Message, bMsg)
+			} else {
+				i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole(m.Role), m.Content))
 			}
-
-			bMsg := llm.NewMessageWithBinaries(llm.RoleUser, attachItems, m.Content)
-			i.Message = append(i.Message, bMsg)
-
 		}
 	}
 
