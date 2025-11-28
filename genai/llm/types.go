@@ -359,7 +359,8 @@ func NewMessageWithBinaries(role MessageRole, attachItems []*AttachmentItem, con
 		items = append(items, NewTextContent(content))
 	}
 
-	return Message{Role: role, Items: items}
+	// content field is for backward compatibility, required as a key for continuation mapping
+	return Message{Role: role, Items: items, Content: content}
 }
 
 // NewTextMessage creates a text-only message for the given role.
