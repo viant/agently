@@ -6,15 +6,19 @@ import (
 	"io"
 	"os"
 	pathpkg "path"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
 	apiconv "github.com/viant/agently/client/conversation"
 	agmodel "github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/hygine"
 	"github.com/viant/agently/genai/memory"
 	aug "github.com/viant/agently/genai/service/augmenter"
 	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
@@ -29,7 +33,7 @@ import (
 // Name identifies the resources tool service namespace
 const Name = "resources"
 
-// Service exposes resource roots, listing, reading and semantic match over filesystem and MCP resources.
+// Service exposes resource roots, listing, reading and semantic match over filesystem and MCP
 type Service struct {
 	augmenter *aug.Service
 	mcpMgr    *mcpmgr.Manager
@@ -51,7 +55,7 @@ func New(augmenter *aug.Service, opts ...func(*Service)) *Service {
 	return s
 }
 
-// WithMCPManager attaches an MCP manager for listing/downloading MCP resources.
+// WithMCPManager attaches an MCP manager for listing/downloading MCP
 func WithMCPManager(m *mcpmgr.Manager) func(*Service) { return func(s *Service) { s.mcpMgr = m } }
 
 // WithConversationClient attaches a conversation client for context-aware filtering.
@@ -76,6 +80,7 @@ func (s *Service) Methods() svc.Signatures {
 		{Name: "list", Description: "List resources under a root (file or MCP)", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "read", Description: "Read a single resource under a root", Input: reflect.TypeOf(&ReadInput{}), Output: reflect.TypeOf(&ReadOutput{})},
 		{Name: "match", Description: "Semantic match search over one or more roots", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
+		{Name: "grepFiles", Description: "Search text patterns in files under a root and return per-file snippets.", Input: reflect.TypeOf(&GrepInput{}), Output: reflect.TypeOf(&GrepOutput{})},
 	}
 }
 
@@ -90,6 +95,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.read, nil
 	case "match":
 		return s.match, nil
+	case "grepfiles":
+		return s.grepFiles, nil
 	default:
 		return nil, svc.NewMethodNotFoundError(name)
 	}
@@ -97,9 +104,17 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 
 // MatchInput defines parameters for semantic search across one or more roots.
 type MatchInput struct {
-	Query        string          `json:"query"`
-	RootURI      []string        `json:"rootUri" description:"use valid resources:root uri"`
-	Roots        []string        `json:"roots,omitempty" description:"alias for rootUri; deprecated"`
+	Query string `json:"query"`
+	// RootURI contains root URIs selected for semantic search. Prefer using
+	// RootIDs when possible; RootURI/Roots are retained for compatibility
+	// but hidden from public schemas.
+	RootURI []string `json:"rootUri,omitempty" internal:"true"`
+	// Roots is a legacy alias for RootURI.
+	Roots []string `json:"roots,omitempty" internal:"true"`
+	// RootIDs contains stable identifiers corresponding to roots returned by
+	// roots. When provided, they are resolved to URIs before
+	// enforcement and search.
+	RootIDs      []string        `json:"rootIds,omitempty" description:"resource root ids returned by roots"`
 	Path         string          `json:"path,omitempty"`
 	Model        string          `json:"model" internal:"true"`
 	MaxDocuments int             `json:"maxDocuments,omitempty" `
@@ -138,8 +153,8 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if query == "" {
 		return fmt.Errorf("query is required")
 	}
-	if len(input.RootURI) == 0 && len(input.Roots) == 0 {
-		return fmt.Errorf("roots is required")
+	if len(input.RootURI) == 0 && len(input.Roots) == 0 && len(input.RootIDs) == 0 {
+		return fmt.Errorf("roots or rootIds is required")
 	}
 	// Resolve embedder ID: prefer explicit model (internal), then service default.
 	input.IncludeFile = true
@@ -152,9 +167,22 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	}
 	// Enforce allowlist when agent context present and normalize roots.
 	allowed := s.agentAllowed(ctx) // workspace://... or mcp:
-	sources := input.RootURI
-	if len(sources) == 0 && len(input.Roots) > 0 {
-		sources = input.Roots
+
+	// Start with any explicit root URIs (including legacy Roots alias).
+	sources := make([]string, 0, len(input.RootURI)+len(input.Roots)+len(input.RootIDs))
+	sources = append(sources, input.RootURI...)
+	sources = append(sources, input.Roots...)
+	// Resolve any rootIds into URIs using the agent context.
+	for _, id := range input.RootIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		uri, err := s.resolveRootID(ctx, id)
+		if err != nil {
+			return err
+		}
+		sources = append(sources, uri)
 	}
 	locations := make([]string, 0, len(sources))
 	for _, root := range sources {
@@ -169,13 +197,39 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 		if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
 			return fmt.Errorf("root not allowed: %s", root)
 		}
+		// Enforce per-resource semantic capability when agent context is
+		// available. When no agent or matching resource is found, default to
+		// allowing semantic search.
+		if !s.semanticAllowedForAgent(ctx, s.currentAgent(ctx), wsRoot) {
+			return fmt.Errorf("semantic match not allowed for root: %s", root)
+		}
 		// Convert to file (for internal I/O) when workspace scheme
 		base := wsRoot
 		if strings.HasPrefix(wsRoot, "workspace://") {
 			base = workspaceToFile(wsRoot)
 		}
 		if strings.TrimSpace(input.Path) != "" {
-			base = url.Join(base, strings.TrimPrefix(strings.TrimSpace(input.Path), "/"))
+			p := strings.TrimSpace(input.Path)
+			if isAbsLikePath(p) {
+				// For absolute-like paths, ensure they remain under the configured
+				// root when the root is file/workspace-backed.
+				if !mcpuri.Is(wsRoot) {
+					rootBase := base
+					if strings.HasPrefix(rootBase, "file://") {
+						rootBase = fileURLToPath(rootBase)
+					}
+					pathBase := p
+					if strings.HasPrefix(pathBase, "file://") {
+						pathBase = fileURLToPath(pathBase)
+					}
+					if !isUnderRootPath(pathBase, rootBase) {
+						return fmt.Errorf("path %s is outside root %s", p, root)
+					}
+				}
+				base = p
+			} else {
+				base = url.Join(base, strings.TrimPrefix(p, "/"))
+			}
 		}
 		locations = append(locations, base)
 	}
@@ -357,10 +411,93 @@ func totalFormattedBytes(docs []embSchema.Document, trimPrefix string) int {
 	return total
 }
 
+// isAbsLikePath reports whether the provided path looks like an absolute
+// location (filesystem path, file:// URL, or mcp: URI). In such cases callers
+// should avoid blindly joining it onto an existing root URI.
+func isAbsLikePath(p string) bool {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return false
+	}
+	if strings.HasPrefix(p, "/") {
+		return true
+	}
+	if strings.HasPrefix(p, "file://") {
+		return true
+	}
+	if mcpuri.Is(p) {
+		return true
+	}
+	return false
+}
+
+// fileURLToPath converts a file:// URL into a filesystem path. Non-file
+// URLs are returned unchanged.
+func fileURLToPath(u string) string {
+	u = strings.TrimSpace(u)
+	if !strings.HasPrefix(u, "file://") {
+		return u
+	}
+	rest := strings.TrimPrefix(u, "file://")
+	rest = strings.TrimPrefix(rest, "localhost")
+	if !strings.HasPrefix(rest, "/") {
+		rest = "/" + rest
+	}
+	return rest
+}
+
+// isUnderRootPath reports whether the given location lies under the provided
+// root. It supports both filesystem paths and URL-like locations (file://,
+// s3://, gs://, etc.) by normalizing to comparable path segments.
+func isUnderRootPath(path, root string) bool {
+	path = strings.TrimSpace(path)
+	root = strings.TrimSpace(root)
+	if path == "" || root == "" {
+		return false
+	}
+	// URL-like (file://, s3://, gs://, etc.): compare normalized URL paths.
+	if strings.Contains(root, "://") {
+		rootPath := pathpkg.Clean("/" + strings.TrimLeft(url.Path(root), "/"))
+		pathPath := pathpkg.Clean("/" + strings.TrimLeft(url.Path(path), "/"))
+		if rootPath == "/" {
+			return true
+		}
+		// Treat exact equality as under-root.
+		if pathPath == rootPath {
+			return true
+		}
+		if !strings.HasSuffix(rootPath, "/") {
+			rootPath += "/"
+		}
+		return strings.HasPrefix(pathPath, rootPath)
+	}
+	// Filesystem paths: use OS-aware filepath semantics.
+	pathFS := filepath.Clean(path)
+	rootFS := filepath.Clean(root)
+	if rootFS == string(os.PathSeparator) {
+		return true
+	}
+	// Treat exact equality as under-root.
+	if pathFS == rootFS {
+		return true
+	}
+	if !strings.HasSuffix(rootFS, string(os.PathSeparator)) {
+		rootFS += string(os.PathSeparator)
+	}
+	return strings.HasPrefix(pathFS, rootFS)
+}
+
 // -------- list implementation --------
 
 type ListInput struct {
-	RootURI   string `json:"root"`
+	// RootURI is the normalized or user-provided root URI. Prefer using
+	// RootID when possible; RootURI is retained for backward compatibility
+	// but hidden from public schemas.
+	RootURI string `json:"root,omitempty" internal:"true"`
+	// RootID is a stable identifier corresponding to a root returned by
+	// roots. When provided, it is resolved to the underlying
+	// normalized URI before enforcement and listing.
+	RootID    string `json:"rootId,omitempty"`
 	Path      string `json:"path,omitempty"`
 	Recursive bool   `json:"recursive,omitempty"`
 	MaxItems  int    `json:"maxItems,omitempty"`
@@ -389,8 +526,15 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	rootURI := strings.TrimSpace(input.RootURI)
+	if rootURI == "" && strings.TrimSpace(input.RootID) != "" {
+		var err error
+		rootURI, err = s.resolveRootID(ctx, input.RootID)
+		if err != nil {
+			return err
+		}
+	}
 	if rootURI == "" {
-		return fmt.Errorf("root is required")
+		return fmt.Errorf("root or rootId is required")
 	}
 	allowed := s.agentAllowed(ctx) // workspace://... or mcp:
 	wsRoot, _, err := s.normalizeUserRoot(ctx, rootURI)
@@ -407,7 +551,30 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	}
 	base := normRoot
 	if strings.TrimSpace(input.Path) != "" {
-		base = url.Join(normRoot, strings.TrimPrefix(strings.TrimSpace(input.Path), "/"))
+		p := strings.TrimSpace(input.Path)
+		if isAbsLikePath(p) {
+			// For absolute-like paths/URIs, ensure they remain under the
+			// configured root when the root is file/workspace-backed.
+			if !mcpuri.Is(wsRoot) {
+				rootBase := normRoot
+				if strings.HasPrefix(rootBase, "file://") {
+					rootBase = fileURLToPath(rootBase)
+				}
+				pathBase := p
+				if strings.HasPrefix(pathBase, "file://") {
+					pathBase = fileURLToPath(pathBase)
+				}
+				if !isUnderRootPath(pathBase, rootBase) {
+					return fmt.Errorf("path %s is outside root %s", p, rootURI)
+				}
+			}
+			// Use the path as-is instead of joining onto the normalized
+			// root to avoid duplicated prefixes such as
+			// /Users/.../Users/....
+			base = p
+		} else {
+			base = url.Join(normRoot, strings.TrimPrefix(p, "/"))
+		}
 	}
 	afsSvc := afs.New()
 	mfs := (*mcpfs.Service)(nil)
@@ -515,10 +682,35 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 // Callers can either supply root+path (preferred for root-centric flows) or a
 // fully qualified URI (as returned by list).
 type ReadInput struct {
-	RootURI  string `json:"root,omitempty"`
+	// RootURI is the normalized or user-provided root URI. Prefer using
+	// RootID when possible; RootURI is retained for backward compatibility
+	// but hidden from public schemas.
+	RootURI string `json:"root,omitempty" internal:"true"`
+	// RootID is a stable identifier corresponding to a root returned by
+	// roots. When provided (and URI is empty), it is resolved to
+	// the underlying normalized URI before enforcement and reading.
+	RootID   string `json:"rootId,omitempty"`
 	Path     string `json:"path,omitempty"`
 	URI      string `json:"uri,omitempty"`
 	MaxBytes int    `json:"maxBytes,omitempty"`
+
+	// OffsetBytes and LengthBytes describe a 0-based byte window within the
+	// file. When StartLine is > 0, the line range takes precedence and the
+	// byte range is ignored. When both byte and line ranges are unset, the
+	// full (optionally MaxBytes-truncated) content is returned.
+	OffsetBytes int64 `json:"offsetBytes,omitempty"` // 0-based byte offset; default 0
+	LengthBytes int   `json:"lengthBytes,omitempty"` // bytes to read; 0 => use MaxBytes cap
+
+	// StartLine and LineCount describe a 1-based line slice. When StartLine > 0
+	// this mode is used in preference to the byte range.
+	StartLine int `json:"startLine,omitempty"` // 1-based start line
+	LineCount int `json:"lineCount,omitempty"` // number of lines; 0 => until EOF or MaxBytes
+
+	// Mode controls how the line slice is interpreted when StartLine > 0.
+	// Supported values:
+	//   - "" or "slice"      : simple range [StartLine, StartLine+LineCount)
+	//   - "indentation"      : indentation-aware code block around StartLine
+	Mode string `json:"mode,omitempty" description:"read mode: 'slice' (default) for simple line ranges or 'indentation' for indentation-aware code blocks"`
 }
 
 // ReadOutput contains the resolved URI, relative path and optionally truncated content.
@@ -527,6 +719,11 @@ type ReadOutput struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 	Size    int    `json:"size"`
+	// StartLine and EndLine are 1-based line numbers describing the selected
+	// slice when Offset/Limit were provided. They are zero when the entire
+	// (possibly MaxBytes-truncated) file content is returned.
+	StartLine int `json:"startLine,omitempty"`
+	EndLine   int `json:"endLine,omitempty"`
 }
 
 func (s *Service) read(ctx context.Context, in, out interface{}) error {
@@ -564,8 +761,15 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 		}
 	} else {
 		// Root+path mode
+		if rootURI == "" && strings.TrimSpace(input.RootID) != "" {
+			var err error
+			rootURI, err = s.resolveRootID(ctx, input.RootID)
+			if err != nil {
+				return err
+			}
+		}
 		if rootURI == "" {
-			return fmt.Errorf("root or uri is required")
+			return fmt.Errorf("root or rootId or uri is required")
 		}
 		if pathPart == "" {
 			return fmt.Errorf("path is required when uri is not provided")
@@ -581,7 +785,34 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 		if strings.HasPrefix(wsRoot, "workspace://") {
 			normRoot = workspaceToFile(wsRoot)
 		}
-		fullURI = url.Join(normRoot, strings.TrimPrefix(pathPart, "/"))
+		p := pathPart
+		if isAbsLikePath(p) {
+			// For absolute filesystem paths, ensure they remain under the
+			// configured root when the root is file/workspace-backed.
+			if !mcpuri.Is(wsRoot) {
+				rootBase := normRoot
+				if strings.HasPrefix(rootBase, "file://") {
+					rootBase = fileURLToPath(rootBase)
+				}
+				pathBase := p
+				if strings.HasPrefix(pathBase, "file://") {
+					pathBase = fileURLToPath(pathBase)
+				}
+				if !isUnderRootPath(pathBase, rootBase) {
+					return fmt.Errorf("path %s is outside root %s", p, rootURI)
+				}
+			}
+			// Convert to a file:// URL so that downstream readers operate on a
+			// normalized URI instead of accidentally joining workspace and
+			// filesystem prefixes.
+			if strings.HasPrefix(p, "file://") || mcpuri.Is(p) {
+				fullURI = p
+			} else {
+				fullURI = url.Join("file://localhost/", strings.TrimPrefix(p, "/"))
+			}
+		} else {
+			fullURI = url.Join(normRoot, strings.TrimPrefix(p, "/"))
+		}
 	}
 	var data []byte
 	var err error
@@ -598,8 +829,87 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	originalSize := len(data)
 	if input.MaxBytes > 0 && len(data) > input.MaxBytes {
 		data = data[:input.MaxBytes]
+	}
+	text := string(data)
+	startLine := 0
+	endLine := 0
+
+	// Prefer line-slice mode when StartLine is specified.
+	if input.StartLine > 0 {
+		mode := strings.ToLower(strings.TrimSpace(input.Mode))
+		lines := strings.SplitAfter(text, "\n")
+		total := len(lines)
+		off := input.StartLine
+		if off <= 0 {
+			off = 1
+		}
+		if off > total {
+			// No content in the requested range; return empty slice with size metadata.
+			text = ""
+			startLine = off
+			endLine = off - 1
+		} else if mode == "indentation" {
+			startIdx, endIdx := indentationBlock(lines, off-1, input.LineCount)
+			if startIdx < 0 || endIdx <= startIdx || startIdx >= total {
+				text = ""
+				startLine = off
+				endLine = off - 1
+			} else {
+				if endIdx > total {
+					endIdx = total
+				}
+				var b strings.Builder
+				for _, ln := range lines[startIdx:endIdx] {
+					_, _ = b.WriteString(ln)
+				}
+				text = b.String()
+				startLine = startIdx + 1
+				endLine = endIdx
+			}
+		} else {
+			// default: simple slice mode
+			limit := input.LineCount
+			if limit <= 0 {
+				limit = total - off + 1
+			}
+			startIdx := off - 1
+			endIdx := startIdx + limit
+			if endIdx > total {
+				endIdx = total
+			}
+			var b strings.Builder
+			for _, ln := range lines[startIdx:endIdx] {
+				_, _ = b.WriteString(ln)
+			}
+			text = b.String()
+			startLine = off
+			endLine = startIdx + (endIdx - startIdx)
+		}
+	} else if input.OffsetBytes > 0 || input.LengthBytes > 0 {
+		// Byte-range mode: apply offset/length over the MaxBytes-truncated buffer.
+		off := input.OffsetBytes
+		if off < 0 {
+			off = 0
+		}
+		if off >= int64(len(data)) {
+			text = ""
+		} else {
+			end := len(data)
+			if input.LengthBytes > 0 {
+				candidate := int(off) + input.LengthBytes
+				if candidate < end {
+					end = candidate
+				}
+			}
+			if off < int64(end) {
+				text = string(data[off:end])
+			} else {
+				text = ""
+			}
+		}
 	}
 	output.URI = fullURI
 	if normRoot != "" {
@@ -607,8 +917,10 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	} else {
 		output.Path = fullURI
 	}
-	output.Content = string(data)
-	output.Size = len(data)
+	output.Content = text
+	output.Size = originalSize
+	output.StartLine = startLine
+	output.EndLine = endLine
 	return nil
 }
 
@@ -623,6 +935,85 @@ func relativePath(rootURI, fullURI string) string {
 	}
 	rel := strings.TrimPrefix(uri[len(root):], "/")
 	return rel
+}
+
+// indentationBlock computes a best-effort indentation-aware block around the
+// given anchor line index. It returns start and end indices (end exclusive)
+// into the provided lines slice. When lineCount > 0, it is treated as a
+// maximum number of lines for the block.
+func indentationBlock(lines []string, anchorIdx int, lineCount int) (int, int) {
+	total := len(lines)
+	if total == 0 || anchorIdx < 0 || anchorIdx >= total {
+		return -1, -1
+	}
+	// Move anchor down to first non-blank line when possible.
+	for anchorIdx < total && isBlankLine(lines[anchorIdx]) {
+		anchorIdx++
+	}
+	if anchorIdx >= total {
+		return -1, -1
+	}
+	indentLevels := make([]int, total)
+	for i, ln := range lines {
+		indentLevels[i] = indentLevel(ln)
+	}
+	anchorIndent := indentLevels[anchorIdx]
+	if anchorIndent < 0 {
+		anchorIndent = 0
+	}
+	start := anchorIdx
+	// Scan upwards to find the first line that belongs to this block. We stop
+	// when we encounter a non-blank line with indentation strictly less than
+	// the anchor indentation.
+	for i := anchorIdx - 1; i >= 0; i-- {
+		if isBlankLine(lines[i]) {
+			continue
+		}
+		if indentLevels[i] < anchorIndent {
+			break
+		}
+		start = i
+	}
+	end := anchorIdx + 1
+	// Scan downwards until indentation drops below the anchor indentation or
+	// we reach the end of the file.
+	for i := anchorIdx + 1; i < total; i++ {
+		if isBlankLine(lines[i]) {
+			end = i + 1
+			continue
+		}
+		if indentLevels[i] < anchorIndent {
+			break
+		}
+		end = i + 1
+	}
+	// Apply optional lineCount cap when provided.
+	if lineCount > 0 && end > start+lineCount {
+		end = start + lineCount
+	}
+	return start, end
+}
+
+// indentLevel returns a simple indentation level (number of leading spaces
+// and tabs, treating a tab as 4 spaces).
+func indentLevel(line string) int {
+	level := 0
+	for _, r := range line {
+		if r == ' ' {
+			level++
+			continue
+		}
+		if r == '\t' {
+			level += 4
+			continue
+		}
+		break
+	}
+	return level
+}
+
+func isBlankLine(line string) bool {
+	return strings.TrimSpace(line) == ""
 }
 
 func commonPrefix(values []string) string {
@@ -679,10 +1070,20 @@ type RootsInput struct {
 }
 
 type Root struct {
+	// ID is a stable identifier for this root when available. When the
+	// underlying agent resource entry defines an explicit id, it is surfaced
+	// here. Otherwise, the normalized URI is used as a fallback id so callers
+	// can still use rootId as an alias for the URI.
+	ID string `json:"id"`
+
 	URI         string `json:"uri"`
 	Description string `json:"description,omitempty"`
-	Kind        string `json:"kind"`   // file|mcp
-	Source      string `json:"source"` // default
+	// AllowedSemanticSearch reports whether semantic match (match)
+	// is permitted for this root in the current agent configuration.
+	AllowedSemanticSearch bool `json:"allowedSemanticSearch"`
+	// AllowedGrepSearch reports whether lexical grep (grepFiles)
+	// is permitted for this root in the current agent configuration.
+	AllowedGrepSearch bool `json:"allowedGrepSearch"`
 }
 
 type RootsOutput struct {
@@ -705,10 +1106,8 @@ func (s *Service) roots(ctx context.Context, in, out interface{}) error {
 
 	// Prefer agent-scoped resources when available; otherwise fall back to defaults
 	locs := s.agentAllowed(ctx)
-	source := "agent"
 	if len(locs) == 0 {
 		locs = append([]string(nil), s.defaults.Locations...)
-		source = "default"
 	}
 	if len(locs) == 0 {
 		output.Roots = nil
@@ -716,6 +1115,7 @@ func (s *Service) roots(ctx context.Context, in, out interface{}) error {
 	}
 	var roots []Root
 	seen := map[string]bool{}
+	curAgent := s.currentAgent(ctx)
 	for _, loc := range locs {
 		norm, kind, err := s.normalizeUserRoot(ctx, loc)
 		if err != nil {
@@ -729,7 +1129,56 @@ func (s *Service) roots(ctx context.Context, in, out interface{}) error {
 		}
 		seen[norm] = true
 		desc := s.tryDescribe(ctx, norm, kind)
-		roots = append(roots, Root{URI: norm, Description: desc, Kind: kind, Source: source})
+		rootID := ""
+		skip := false
+		// Prefer an explicit agent resource description when available, and
+		// identify any system-scoped resources that should not be surfaced as
+		// browseable roots (e.g. systemKnowledge backing files).
+		if curAgent != nil && len(curAgent.Resources) > 0 {
+			for _, r := range curAgent.Resources {
+				if r == nil || strings.TrimSpace(r.URI) == "" {
+					continue
+				}
+				normRes, _, err := s.normalizeUserRoot(ctx, r.URI)
+				if err != nil || strings.TrimSpace(normRes) == "" {
+					continue
+				}
+				if strings.TrimRight(strings.TrimSpace(normRes), "/") == strings.TrimRight(strings.TrimSpace(norm), "/") {
+					// Hide system-role resources (systemKnowledge, etc.) from
+					// roots so they are not offered as browseable
+					// roots to coding agents.
+					if strings.EqualFold(strings.TrimSpace(r.Role), "system") {
+						skip = true
+						break
+					}
+					if strings.TrimSpace(r.ID) != "" {
+						rootID = strings.TrimSpace(r.ID)
+					}
+					if strings.TrimSpace(r.Description) != "" {
+						desc = strings.TrimSpace(r.Description)
+					}
+					break
+				}
+			}
+		}
+		if skip {
+			continue
+		}
+		if strings.TrimSpace(rootID) == "" {
+			// Fallback: use normalized URI as an implicit id. This keeps
+			// behaviour backward compatible while still allowing callers to
+			// pass the id into rootId parameters.
+			rootID = norm
+		}
+		semAllowed := s.semanticAllowedForAgent(ctx, curAgent, norm)
+		grepAllowed := s.grepAllowedForAgent(ctx, curAgent, norm)
+		roots = append(roots, Root{
+			ID:                    rootID,
+			URI:                   norm,
+			Description:           desc,
+			AllowedSemanticSearch: semAllowed,
+			AllowedGrepSearch:     grepAllowed,
+		})
 		if max > 0 && len(roots) >= max {
 			break
 		}
@@ -764,6 +1213,51 @@ func (s *Service) normalizeLocation(loc string) (string, string) {
 		abs += "/"
 	}
 	return "file://" + abs + u, "file"
+}
+
+// resolveRootID maps a logical root id to its normalized root URI within the
+// current agent context. It prefers explicit ids declared on agent resources
+// and, for backward compatibility, falls back to interpreting the id as a
+// URI only when it already looks like a URI (contains a scheme).
+func (s *Service) resolveRootID(ctx context.Context, id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", fmt.Errorf("rootId is empty")
+	}
+	curAgent := s.currentAgent(ctx)
+	if curAgent != nil {
+		for _, r := range curAgent.Resources {
+			if r == nil {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(r.ID), id) {
+				norm, _, err := s.normalizeUserRoot(ctx, r.URI)
+				if err != nil {
+					return "", err
+				}
+				if strings.TrimSpace(norm) == "" {
+					break
+				}
+				return norm, nil
+			}
+		}
+	}
+	// Fallback: only treat id as a URI when it already looks like one
+	// (e.g., workspace://..., file://..., s3://..., mcp:...). This preserves
+	// legacy configurations that used raw URIs as ids, while avoiding
+	// accidentally mapping human-friendly ids like "local" into workspace
+	// roots (e.g., workspace://localhost/local).
+	if strings.Contains(id, "://") || mcpuri.Is(id) || strings.HasPrefix(id, "workspace://") || strings.HasPrefix(id, "file://") {
+		norm, _, err := s.normalizeUserRoot(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("unknown rootId %s: %w", id, err)
+		}
+		if strings.TrimSpace(norm) == "" {
+			return "", fmt.Errorf("unknown rootId: %s", id)
+		}
+		return norm, nil
+	}
+	return "", fmt.Errorf("unknown rootId: %s", id)
 }
 
 // normalizeUserRoot enforces workspace:// or mcp: for resources tools.
@@ -803,13 +1297,11 @@ func (s *Service) normalizeUserRoot(ctx context.Context, in string) (string, str
 		return u, "workspace", nil
 	}
 	if strings.HasPrefix(u, "file://") {
-		// Map to workspace if under workspace root
-		wsBase := url.Normalize(workspace.Root(), "file")
-		if strings.HasPrefix(u, strings.TrimRight(wsBase, "/")+"/") {
-			rel := strings.TrimPrefix(u, strings.TrimRight(wsBase, "/")+"/")
-			return url.Join("workspace://localhost/", rel), "file", nil
-		}
-		return "", "", fmt.Errorf("file uri not allowed: outside workspace")
+		// For file:// URIs, accept the value as-is and treat it as a file
+		// root. When the URI happens to be under the current workspace root,
+		// other helpers may still map it to workspace:// for internal use, but
+		// we no longer reject file:// URIs that live outside the workspace.
+		return u, "file", nil
 	}
 	// known workspace kinds
 	lower := strings.ToLower(u)
@@ -949,6 +1441,67 @@ func (s *Service) agentAllowed(ctx context.Context) []string {
 	return out
 }
 
+// semanticAllowedForAgent reports whether semantic match is permitted for the
+// given normalized workspace root under the provided agent configuration. When
+// no matching resource is found, the effective value defaults to true.
+func (s *Service) semanticAllowedForAgent(ctx context.Context, ag *agmodel.Agent, wsRoot string) bool {
+	ws := strings.TrimRight(strings.TrimSpace(wsRoot), "/")
+	if ws == "" || ag == nil || len(ag.Resources) == 0 {
+		return true
+	}
+	for _, r := range ag.Resources {
+		if r == nil || strings.TrimSpace(r.URI) == "" {
+			continue
+		}
+		norm, _, err := s.normalizeUserRoot(ctx, r.URI)
+		if err != nil || strings.TrimSpace(norm) == "" {
+			continue
+		}
+		if strings.TrimRight(strings.TrimSpace(norm), "/") == ws {
+			return r.SemanticAllowed()
+		}
+	}
+	return true
+}
+
+// grepAllowedForAgent reports whether grepFiles is permitted for the given
+// normalized workspace root under the provided agent configuration. When no
+// matching resource is found, the effective value defaults to true.
+func (s *Service) grepAllowedForAgent(ctx context.Context, ag *agmodel.Agent, wsRoot string) bool {
+	ws := strings.TrimRight(strings.TrimSpace(wsRoot), "/")
+	if ws == "" {
+		return true
+	}
+	isMCP := mcpuri.Is(ws)
+	// When no agent or resources are present, default to allowing grep on
+	// local/workspace roots but require an explicit resource with allowGrep
+	// for MCP roots.
+	if ag == nil || len(ag.Resources) == 0 {
+		if isMCP {
+			return false
+		}
+		return true
+	}
+	for _, r := range ag.Resources {
+		if r == nil || strings.TrimSpace(r.URI) == "" {
+			continue
+		}
+		norm, _, err := s.normalizeUserRoot(ctx, r.URI)
+		if err != nil || strings.TrimSpace(norm) == "" {
+			continue
+		}
+		if strings.TrimRight(strings.TrimSpace(norm), "/") == ws {
+			return r.GrepAllowed()
+		}
+	}
+	// No matching resource: allow grep by default for local/workspace roots,
+	// but require explicit opt-in for MCP roots.
+	if isMCP {
+		return false
+	}
+	return true
+}
+
 // currentAgent returns the active agent from conversation context, if available.
 func (s *Service) currentAgent(ctx context.Context) *agmodel.Agent {
 	if s.conv == nil || s.aFinder == nil {
@@ -1010,4 +1563,540 @@ func cleanFileURL(u string) string {
 	cleaned := "/" + strings.TrimLeft(rest, "/")
 	cleaned = pathpkg.Clean(cleaned)
 	return "file://localhost" + cleaned
+}
+
+// -------- grepFiles implementation --------
+
+// GrepInput describes a lexical, snippet-aware search over files under a
+// single root. It is intentionally similar in spirit to the GitHub
+// SearchRepoContentInput, but scoped to local/workspace
+type GrepInput struct {
+	// Pattern is a required search expression. Internally it may be split on
+	// simple OR separators ("|" or " or ") into multiple patterns which are
+	// combined using logical OR.
+	Pattern string `json:"pattern" description:"search pattern; supports OR via '|' or textual 'or' (case-insensitive)"`
+	// ExcludePattern optionally defines patterns that, when matched, cause a
+	// file or snippet to be excluded. It follows the same splitting rules as
+	// Pattern.
+	ExcludePattern string `json:"excludePattern,omitempty" description:"exclude pattern; same OR semantics as pattern"`
+
+	// RootURI is the normalized or user-provided root URI. Prefer using
+	// RootID when possible; RootURI is retained for backward compatibility.
+	RootURI string `json:"root,omitempty"`
+	// RootID is a stable identifier corresponding to a root returned by
+	// roots. When provided, it is resolved to the underlying
+	// normalized URI before enforcement and grep operations.
+	RootID    string   `json:"rootId,omitempty"`
+	Path      string   `json:"path"`
+	Recursive bool     `json:"recursive,omitempty"`
+	Include   []string `json:"include,omitempty"`
+	Exclude   []string `json:"exclude,omitempty"`
+
+	CaseInsensitive bool `json:"caseInsensitive,omitempty"`
+
+	Mode      string `json:"mode,omitempty"  description:"snippet mode: 'head' shows the first lines of each matching file; 'match' shows lines around matches"  choice:"head" choice:"match"`
+	Bytes     int    `json:"bytes,omitempty"`
+	Lines     int    `json:"lines,omitempty"`
+	MaxFiles  int    `json:"maxFiles,omitempty"`
+	MaxBlocks int    `json:"maxBlocks,omitempty"`
+
+	SkipBinary  bool `json:"skipBinary,omitempty"`
+	MaxSize     int  `json:"maxSize,omitempty"`
+	Concurrency int  `json:"concurrency,omitempty"`
+}
+
+type GrepOutput struct {
+	Stats hygine.GrepStats  `json:"stats"`
+	Files []hygine.GrepFile `json:"files,omitempty"`
+}
+
+func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*GrepInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*GrepOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	pattern := strings.TrimSpace(input.Pattern)
+	if pattern == "" {
+		return fmt.Errorf("pattern must not be empty")
+	}
+	rootURI := strings.TrimSpace(input.RootURI)
+	if rootURI == "" && strings.TrimSpace(input.RootID) != "" {
+		var err error
+		rootURI, err = s.resolveRootID(ctx, input.RootID)
+		if err != nil {
+			return err
+		}
+	}
+	if rootURI == "" {
+		return fmt.Errorf("root or rootId is required")
+	}
+	allowed := s.agentAllowed(ctx)
+	wsRoot, _, err := s.normalizeUserRoot(ctx, rootURI)
+	if err != nil {
+		return err
+	}
+	if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
+		return fmt.Errorf("root not allowed: %s", rootURI)
+	}
+	// Enforce per-resource grep capability when agent context is available.
+	if !s.grepAllowedForAgent(ctx, s.currentAgent(ctx), wsRoot) {
+		return fmt.Errorf("grep not allowed for root: %s", rootURI)
+	}
+	// Currently grepFiles is implemented for local/workspace-backed roots only.
+	if mcpuri.Is(wsRoot) {
+		return fmt.Errorf("grepFiles is not supported for mcp resources")
+	}
+	base := wsRoot
+	if strings.HasPrefix(wsRoot, "workspace://") {
+		base = workspaceToFile(wsRoot)
+	}
+	if strings.TrimSpace(input.Path) != "" {
+		p := strings.TrimSpace(input.Path)
+		if isAbsLikePath(p) {
+			// For absolute-like paths, ensure they remain under the configured
+			// root when the root is file/workspace-backed, and avoid joining to
+			// prevent duplicated prefixes.
+			if !mcpuri.Is(wsRoot) {
+				rootBase := base
+				if strings.HasPrefix(rootBase, "file://") {
+					rootBase = fileURLToPath(rootBase)
+				}
+				pathBase := p
+				if strings.HasPrefix(pathBase, "file://") {
+					pathBase = fileURLToPath(pathBase)
+				}
+				if !isUnderRootPath(pathBase, rootBase) {
+					return fmt.Errorf("path %s is outside root %s", p, rootURI)
+				}
+			}
+			base = p
+		} else {
+			base = url.Join(base, strings.TrimPrefix(p, "/"))
+		}
+	}
+	// Normalise defaults
+	mode := strings.ToLower(strings.TrimSpace(input.Mode))
+	if mode == "" {
+		mode = "match"
+	}
+	limitBytes := input.Bytes
+	if limitBytes <= 0 {
+		limitBytes = 512
+	}
+	limitLines := input.Lines
+	if limitLines <= 0 {
+		limitLines = 32
+	}
+	maxFiles := input.MaxFiles
+	if maxFiles <= 0 {
+		maxFiles = 20
+	}
+	maxBlocks := input.MaxBlocks
+	if maxBlocks <= 0 {
+		maxBlocks = 200
+	}
+	maxSize := input.MaxSize
+	if maxSize <= 0 {
+		maxSize = 1024 * 1024 // 1MB
+	}
+	skipBinary := input.SkipBinary
+	if !input.SkipBinary {
+		// default behaviour: skip binary files unless explicitly disabled
+		skipBinary = true
+	}
+
+	patList := splitPatterns(pattern)
+	exclList := splitPatterns(strings.TrimSpace(input.ExcludePattern))
+	if len(patList) == 0 {
+		return fmt.Errorf("pattern must not be empty")
+	}
+	matchers, err := compilePatterns(patList, input.CaseInsensitive)
+	if err != nil {
+		return err
+	}
+	excludeMatchers, err := compilePatterns(exclList, input.CaseInsensitive)
+	if err != nil {
+		return err
+	}
+
+	stats := hygine.GrepStats{}
+	var files []hygine.GrepFile
+	totalBlocks := 0
+
+	// Local/workspace vs MCP handling
+	if mcpuri.Is(wsRoot) {
+		if s.mcpMgr == nil {
+			return fmt.Errorf("mcp manager not configured")
+		}
+		mfs := mcpfs.New(s.mcpMgr)
+		objs, err := mfs.List(ctx, base)
+		if err != nil {
+			return err
+		}
+		for _, o := range objs {
+			if o == nil || o.IsDir() {
+				continue
+			}
+			uri := o.URL()
+			rel := relativePath(base, uri)
+			if !globAllowed(rel, input.Include, input.Exclude) {
+				continue
+			}
+			stats.Scanned++
+			if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
+				stats.Truncated = true
+				break
+			}
+			data, err := mfs.Download(ctx, o)
+			if err != nil {
+				return err
+			}
+			if maxSize > 0 && len(data) > maxSize {
+				data = data[:maxSize]
+			}
+			if skipBinary && isBinary(data) {
+				continue
+			}
+			text := string(data)
+			lines := strings.Split(text, "\n")
+			var matchLines []int
+			for i, line := range lines {
+				if lineMatches(line, matchers, excludeMatchers) {
+					matchLines = append(matchLines, i)
+				}
+			}
+			if len(matchLines) == 0 {
+				continue
+			}
+			stats.Matched++
+			gf := hygine.GrepFile{Path: rel, URI: uri}
+			gf.Matches = len(matchLines)
+			if mode == "head" {
+				end := limitLines
+				if end > len(lines) {
+					end = len(lines)
+				}
+				snippetText := joinLines(lines[:end])
+				if len(snippetText) > limitBytes {
+					snippetText = snippetText[:limitBytes]
+				}
+				gf.Snippets = append(gf.Snippets, hygine.Snippet{StartLine: 1, EndLine: end, Text: snippetText})
+				files = append(files, gf)
+				if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
+					stats.Truncated = true
+					break
+				}
+				continue
+			}
+			for _, idx := range matchLines {
+				if totalBlocks >= maxBlocks {
+					stats.Truncated = true
+					break
+				}
+				start := idx - limitLines/2
+				if start < 0 {
+					start = 0
+				}
+				end := start + limitLines
+				if end > len(lines) {
+					end = len(lines)
+				}
+				snippetText := joinLines(lines[start:end])
+				cut := false
+				if len(snippetText) > limitBytes {
+					snippetText = snippetText[:limitBytes]
+					cut = true
+				}
+				gf.Snippets = append(gf.Snippets, hygine.Snippet{
+					StartLine:   start + 1,
+					EndLine:     end,
+					Text:        snippetText,
+					OffsetBytes: 0,
+					LengthBytes: len(snippetText),
+					Cut:         cut,
+				})
+				totalBlocks++
+				if totalBlocks >= maxBlocks {
+					stats.Truncated = true
+					break
+				}
+			}
+			files = append(files, gf)
+			if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
+				stats.Truncated = true
+				break
+			}
+		}
+	} else {
+		fs := afs.New()
+		err = fs.Walk(ctx, base, func(ctx context.Context, walkBaseURL, parent string, info os.FileInfo, reader io.Reader) (bool, error) {
+			if info == nil || info.IsDir() {
+				return true, nil
+			}
+			// Enforce non-recursive mode: only consider direct children when Recursive=false.
+			if !input.Recursive && parent != "" {
+				return true, nil
+			}
+			// Build full URI
+			var uri string
+			if parent == "" {
+				uri = url.Join(walkBaseURL, info.Name())
+			} else {
+				uri = url.Join(walkBaseURL, parent, info.Name())
+			}
+			// Apply include/exclude globs on the relative path
+			rel := relativePath(base, uri)
+			if !globAllowed(rel, input.Include, input.Exclude) {
+				return true, nil
+			}
+
+			stats.Scanned++
+			if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
+				stats.Truncated = true
+				return false, nil
+			}
+			data, err := fs.DownloadWithURL(ctx, uri)
+			if err != nil {
+				return false, err
+			}
+			if maxSize > 0 && len(data) > maxSize {
+				data = data[:maxSize]
+			}
+			if skipBinary && isBinary(data) {
+				return true, nil
+			}
+			text := string(data)
+			lines := strings.Split(text, "\n")
+			var matchLines []int
+			for i, line := range lines {
+				if lineMatches(line, matchers, excludeMatchers) {
+					matchLines = append(matchLines, i)
+				}
+			}
+			if len(matchLines) == 0 {
+				return true, nil
+			}
+			stats.Matched++
+			gf := hygine.GrepFile{Path: rel, URI: uri}
+			gf.Matches = len(matchLines)
+			// Build snippets depending on mode
+			if mode == "head" {
+				// Single snippet from the top of the file
+				end := limitLines
+				if end > len(lines) {
+					end = len(lines)
+				}
+				snippetText := joinLines(lines[:end])
+				if len(snippetText) > limitBytes {
+					snippetText = snippetText[:limitBytes]
+				}
+				gf.Snippets = append(gf.Snippets, hygine.Snippet{StartLine: 1, EndLine: end, Text: snippetText})
+				files = append(files, gf)
+				return stats.Matched < maxFiles && totalBlocks < maxBlocks, nil
+			}
+			// match mode: build a snippet around each match line
+			for _, idx := range matchLines {
+				if totalBlocks >= maxBlocks {
+					stats.Truncated = true
+					return false, nil
+				}
+				start := idx - limitLines/2
+				if start < 0 {
+					start = 0
+				}
+				end := start + limitLines
+				if end > len(lines) {
+					end = len(lines)
+				}
+				snippetText := joinLines(lines[start:end])
+				cut := false
+				if len(snippetText) > limitBytes {
+					snippetText = snippetText[:limitBytes]
+					cut = true
+				}
+				gf.Snippets = append(gf.Snippets, hygine.Snippet{
+					StartLine:   start + 1,
+					EndLine:     end,
+					Text:        snippetText,
+					OffsetBytes: 0,
+					LengthBytes: len(snippetText),
+					Cut:         cut,
+				})
+				totalBlocks++
+				if totalBlocks >= maxBlocks {
+					stats.Truncated = true
+					break
+				}
+			}
+			files = append(files, gf)
+			if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
+				stats.Truncated = true
+				return false, nil
+			}
+			return true, nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	output.Stats = stats
+	output.Files = files
+	return nil
+}
+
+// splitPatterns splits a logical OR expression into individual patterns.
+// It supports simple separators like "|" and textual "or" (case-insensitive)
+// surrounded by spaces, e.g. "Auth or Token" or "AUTH OR TOKEN".
+func splitPatterns(expr string) []string {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return nil
+	}
+	lower := strings.ToLower(expr)
+	sep := " or "
+	var parts []string
+	start := 0
+	for {
+		idx := strings.Index(lower[start:], sep)
+		if idx == -1 {
+			break
+		}
+		// idx is relative to start; convert to absolute index into expr
+		abs := start + idx
+		parts = append(parts, expr[start:abs])
+		start = abs + len(sep)
+	}
+	if start == 0 {
+		// no textual "or" found; treat whole expr as a single part
+		parts = []string{expr}
+	} else {
+		parts = append(parts, expr[start:])
+	}
+	var out []string
+	for _, p := range parts {
+		for _, sub := range strings.Split(p, "|") {
+			if v := strings.TrimSpace(sub); v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
+}
+
+// helper used by grepFiles to compile patterns.
+func compilePatterns(patterns []string, caseInsensitive bool) ([]*regexp.Regexp, error) {
+	if len(patterns) == 0 {
+		return nil, nil
+	}
+	out := make([]*regexp.Regexp, 0, len(patterns))
+	for _, p := range patterns {
+		pat := strings.TrimSpace(p)
+		if pat == "" {
+			continue
+		}
+		if caseInsensitive {
+			pat = "(?i)" + pat
+		}
+		re, err := regexp.Compile(pat)
+		if err != nil {
+			return nil, fmt.Errorf("invalid pattern %q: %w", p, err)
+		}
+		out = append(out, re)
+	}
+	return out, nil
+}
+
+// lineMatches reports whether a line matches at least one include pattern and
+// none of the exclude patterns.
+func lineMatches(line string, includes, excludes []*regexp.Regexp) bool {
+	matched := false
+	if len(includes) == 0 {
+		matched = true
+	} else {
+		for _, re := range includes {
+			if re.FindStringIndex(line) != nil {
+				matched = true
+				break
+			}
+		}
+	}
+	if !matched {
+		return false
+	}
+	for _, re := range excludes {
+		if re.FindStringIndex(line) != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// globAllowed applies simple include/exclude globs to a path. When include is
+// empty, all paths are considered included.
+func globAllowed(path string, include, exclude []string) bool {
+	if path == "" {
+		return false
+	}
+	allowed := true
+	if len(include) > 0 {
+		allowed = false
+		for _, g := range include {
+			g = strings.TrimSpace(g)
+			if g == "" {
+				continue
+			}
+			if ok, _ := pathpkg.Match(g, path); ok {
+				allowed = true
+				break
+			}
+		}
+	}
+	if !allowed {
+		return false
+	}
+	for _, g := range exclude {
+		g = strings.TrimSpace(g)
+		if g == "" {
+			continue
+		}
+		if ok, _ := pathpkg.Match(g, path); ok {
+			return false
+		}
+	}
+	return true
+}
+
+// isBinary provides a simple heuristic for binary files: presence of NUL
+// bytes or invalid UTF-8.
+func isBinary(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+	for _, c := range b {
+		if c == 0 {
+			return true
+		}
+	}
+	if !utf8.Valid(b) {
+		return true
+	}
+	return false
+}
+
+func joinLines(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, ln := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(ln)
+	}
+	return b.String()
 }

@@ -62,6 +62,7 @@ func WithAgentResolver(r AgentResolver) Option {
 	return func(m *Manager) { m.resolver = r }
 }
 
+// WithAgentLocator installs a DI-friendly agent locator used by ResolveAgent.
 // ResolveAgent returns the Agent configuration for the provided name using the resolver when set.
 func (m *Manager) ResolveAgent(ctx context.Context, id string) (*agentdef.Agent, error) {
 	if m == nil || m.resolver == nil {

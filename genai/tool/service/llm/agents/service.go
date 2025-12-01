@@ -7,6 +7,7 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently/client/conversation"
+	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/memory"
 	agentsvc "github.com/viant/agently/genai/service/agent"
 	linksvc "github.com/viant/agently/genai/service/linking"
@@ -19,9 +20,16 @@ import (
 
 const Name = "llm/agents"
 
+// agentRuntime abstracts the subset of the agent service used by this
+// tool, allowing unit tests to inject a lightweight fake.
+type agentRuntime interface {
+	Query(ctx context.Context, input *agentsvc.QueryInput, output *agentsvc.QueryOutput) error
+	Finder() agentmdl.Finder
+}
+
 // Service exposes agent directory and execution as tool methods.
 type Service struct {
-	agent       *agentsvc.Service
+	agent       agentRuntime
 	dirProvider func() []ListItem
 	// Optional external runner: returns answer, status, taskID, contextID, streamSupported, warnings
 	runExternal func(ctx context.Context, agentID, objective string, payload map[string]interface{}) (string, string, string, string, bool, []string, error)
@@ -300,6 +308,15 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	qi := &agentsvc.QueryInput{AgentID: ri.AgentID, Query: ri.Objective, Context: ri.Context}
+	// Thread through optional model preferences hint so that the agent
+	// can adjust its ModelSelection.Preferences for this run when supported.
+	if ri.ModelPreferences != nil {
+		qi.ModelPreferences = ri.ModelPreferences
+	}
+	// Thread through optional reasoning effort override when provided.
+	if ri.ReasoningEffort != nil {
+		qi.ReasoningEffort = ri.ReasoningEffort
+	}
 	if strings.TrimSpace(childConvID) != "" {
 		qi.ConversationID = childConvID
 	}

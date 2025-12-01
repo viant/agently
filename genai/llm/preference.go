@@ -13,7 +13,7 @@ type ModelPreferences struct {
 	IntelligencePriority float64  `yaml:"intelligencePriority,omitempty" json:"intelligencePriority,omitempty"`
 	SpeedPriority        float64  `yaml:"speedPriority,omitempty" json:"speedPriority,omitempty"`
 	CostPriority         float64  `yaml:"costPriority,omitempty" json:"costPriority,omitempty"`
-	Hints                []string `yaml:"hints,omitempty" json:"hints,omitempty"`
+	Hints                []string `yaml:"hints,omitempty" json:"hints,omitempty" description:"model name"`
 }
 
 // ModelPreferencesOption // is a functional option for ModelPreferences.

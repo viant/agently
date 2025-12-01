@@ -1,5 +1,7 @@
 package agents
 
+import "github.com/viant/agently/genai/llm"
+
 // ListItem is a directory entry describing an agent option for selection.
 type ListItem struct {
 	ID               string                 `json:"id"`
@@ -28,6 +30,13 @@ type RunInput struct {
 	Context   map[string]interface{} `json:"context,omitempty"`
 	// Streaming is an optional hint. Runtime policy/capabilities decide final behavior.
 	Streaming *bool `json:"streaming,omitempty"`
+	// ModelPreferences optionally hints how to select a model for this
+	// run when the agent supports model preferences. When omitted, the
+	// agent's configured model selection is used.
+	ModelPreferences *llm.ModelPreferences `json:"modelPreferences,omitempty"`
+	// ReasoningEffort optionally overrides agent-level reasoning effort
+	// (e.g., low|medium|high) for this run when supported by the backend.
+	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
 }
 
 // RunOutput defines the response payload for agents:run.

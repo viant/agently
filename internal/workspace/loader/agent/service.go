@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -171,6 +172,11 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 			return nil, fmt.Errorf("agent %v system knowledge path does not exist: %s", anAgent.Name, anAgent.SystemKnowledge[i].URL)
 		}
 	}
+
+	// Ensure that knowledge and systemKnowledge locations are also reflected as
+	// resources with semantic match enabled so they participate in tools such as
+	// resources.match and resources.roots.
+	augmentResourcesWithKnowledge(anAgent)
 
 	// Resolve relative prompt URIs against the agent source location
 	s.resolvePromptURIs(anAgent)
@@ -1156,6 +1162,10 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 	re := &agentmdl.Resource{Role: "user"}
 	err := node.Pairs(func(key string, v *yml.Node) error {
 		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "id":
+			if v.Kind == yaml.ScalarNode {
+				re.ID = strings.TrimSpace(v.Value)
+			}
 		case "uri":
 			if v.Kind == yaml.ScalarNode {
 				re.URI = strings.TrimSpace(v.Value)
@@ -1167,6 +1177,20 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 		case "binding":
 			if v.Kind == yaml.ScalarNode {
 				re.Binding = toBool(v.Value)
+			}
+		case "description":
+			if v.Kind == yaml.ScalarNode {
+				re.Description = strings.TrimSpace(v.Value)
+			}
+		case "allowsemanticmatch":
+			if v.Kind == yaml.ScalarNode {
+				b := toBool(v.Value)
+				re.AllowSemanticMatch = &b
+			}
+		case "allowgrep":
+			if v.Kind == yaml.ScalarNode {
+				b := toBool(v.Value)
+				re.AllowGrep = &b
 			}
 		case "maxfiles":
 			if v.Kind == yaml.ScalarNode {
@@ -1240,10 +1264,106 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 	if err != nil {
 		return nil, err
 	}
+	re.URI = expandUserHome(re.URI)
 	if strings.TrimSpace(re.URI) == "" {
 		return nil, fmt.Errorf("resource entry missing uri")
 	}
 	return re, nil
+}
+
+// expandUserHome expands leading ~ in filesystem-like URIs to the current
+// user's home directory. It supports forms such as:
+//   - "~/path"
+//   - "file://localhost/~/path"
+//   - "file:///~/path"
+//
+// For non-file schemes (e.g. mcp:), the input is returned unchanged.
+func expandUserHome(u string) string {
+	trimmed := strings.TrimSpace(u)
+	if trimmed == "" {
+		return u
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return u
+	}
+	// Direct ~/path use
+	if strings.HasPrefix(trimmed, "~/") || trimmed == "~" {
+		return filepath.Join(home, strings.TrimPrefix(trimmed, "~"))
+	}
+	// file:// URI forms
+	if strings.HasPrefix(trimmed, "file://") {
+		prefix := "file://localhost"
+		rest := strings.TrimPrefix(trimmed, prefix)
+		if rest == trimmed { // no localhost prefix
+			prefix = "file://"
+			rest = strings.TrimPrefix(trimmed, prefix)
+		}
+		if rest == "" {
+			return u
+		}
+		// Normalize leading slash and expand ~/...
+		// Accept both /~/... and ~/...
+		rest = strings.TrimLeft(rest, "/")
+		if strings.HasPrefix(rest, "~") {
+			rel := strings.TrimPrefix(rest, "~") // leading / remains trimmed
+			abs := filepath.Join(home, rel)
+			// Reconstruct as file://localhost/abs or file://abs
+			return prefix + "/" + filepath.ToSlash(strings.TrimLeft(abs, "/"))
+		}
+	}
+	return u
+}
+
+// augmentResourcesWithKnowledge ensures that every knowledge URL is reflected
+// as a Resource entry with semantic match enabled. When a matching resource
+// already exists (URI match after normalization), its AllowSemanticMatch flag
+// is forced to true to guarantee that knowledge roots are always eligible for
+// semantic search via tools.
+func augmentResourcesWithKnowledge(agent *agentmdl.Agent) {
+	if agent == nil {
+		return
+	}
+	// helper to upsert a resource for the given URL and role
+	ensure := func(url, role string) {
+		u := strings.TrimSpace(url)
+		if u == "" {
+			return
+		}
+		norm := strings.TrimRight(u, "/")
+		// Try to find existing resource by URI
+		for _, r := range agent.Resources {
+			if r == nil || strings.TrimSpace(r.URI) == "" {
+				continue
+			}
+			cur := strings.TrimRight(strings.TrimSpace(r.URI), "/")
+			if cur == norm {
+				// Force semantic match enabled for knowledge-backed resources
+				b := true
+				r.AllowSemanticMatch = &b
+				return
+			}
+		}
+		// No existing resource; create a new one with semantic match enabled.
+		b := true
+		agent.Resources = append(agent.Resources, &agentmdl.Resource{
+			URI:                u,
+			Role:               role,
+			AllowSemanticMatch: &b,
+		})
+	}
+	for _, k := range agent.Knowledge {
+		if k == nil || strings.TrimSpace(k.URL) == "" {
+			continue
+		}
+		ensure(k.URL, "user")
+	}
+	for _, k := range agent.SystemKnowledge {
+		if k == nil || strings.TrimSpace(k.URL) == "" {
+			continue
+		}
+		ensure(k.URL, "system")
+	}
 }
 
 // parseInt64 parses an integer from string, trimming spaces; returns error on failure.
@@ -1382,23 +1502,22 @@ func parseKnowledge(node *yml.Node) (*agentmdl.Knowledge, error) {
 					knowledge.URL = locations[0]
 				}
 			}
-		case "match":
+		case "filter", "match":
 			if valueNode.Kind == yaml.MappingNode {
-
-				match := &option.Options{}
-				// Parse matching options if provided
+				opts := &option.Options{}
+				// Parse filtering options if provided
 				_ = valueNode.Pairs(func(optKey string, optValue *yml.Node) error {
 					switch strings.ToLower(optKey) {
 					case "exclusions":
-						match.Exclusions = asStrings(optValue)
+						opts.Exclusions = asStrings(optValue)
 					case "inclusions":
-						match.Inclusions = asStrings(optValue)
+						opts.Inclusions = asStrings(optValue)
 					case "maxfilesize":
-						match.MaxFileSize = int(optValue.Interface().(int64))
+						opts.MaxFileSize = int(optValue.Interface().(int64))
 					}
 					return nil
 				})
-				knowledge.Match = match
+				knowledge.Filter = opts
 			}
 		}
 		return nil

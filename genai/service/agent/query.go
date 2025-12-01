@@ -8,6 +8,7 @@ import (
 	"github.com/viant/agently/client/conversation"
 	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/agent/plan"
+	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/prompt"
 	svc "github.com/viant/agently/genai/tool/service"
 	"github.com/viant/agently/genai/usage"
@@ -39,6 +40,10 @@ type QueryInput struct {
 	ModelOverride string                 `json:"model,omitempty"` // llm model name
 	ToolsAllowed  []string               `json:"tools,omitempty"` // allow-list for tools (empty = default)
 	Context       map[string]interface{} `json:"context,omitempty"`
+	// ModelPreferences optionally overrides or hints model selection
+	// preferences for this turn. When nil, the agent's configured
+	// ModelSelection.Preferences are used.
+	ModelPreferences *llm.ModelPreferences `json:"modelPreferences,omitempty"`
 
 	Transcript conversation.Transcript `json:"transcript,omitempty"`
 

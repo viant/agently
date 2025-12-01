@@ -43,6 +43,19 @@ type ctxKeyPresentedType int
 
 const ctxKeyLimitRecoveryAttempted ctxKeyPresentedType = 1
 
+// ctxKeyContinuationMode marks runs that are invoked as part of a
+// continuation/recovery flow (e.g., context-limit handling). Duplicate
+// protection is disabled in this mode so internal/message tools can iterate
+// freely when trimming history.
+const ctxKeyContinuationMode ctxKeyPresentedType = 2
+
+func inContinuationMode(ctx context.Context) bool {
+	if v, ok := ctx.Value(ctxKeyContinuationMode).(bool); ok {
+		return v
+	}
+	return false
+}
+
 func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
 	aPlan := plan.New()
 
@@ -340,6 +353,13 @@ func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) 
 func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) (string, <-chan error) {
 	var mux sync.Mutex
 	stepErrCh := make(chan error, 1)
+	// Enable duplicate guard only in non-continuation mode so that recovery
+	// flows (e.g., context-limit handling) can freely iterate internal/message
+	// tools without being short-circuited.
+	var guard *DuplicateGuard
+	if !inContinuationMode(ctx) {
+		guard = NewDuplicateGuard(nil)
+	}
 	// Execute steps in order; do not de-duplicate by tool/args.
 	// Duplicated tool steps will each execute independently.
 	var stopped atomic.Bool
@@ -379,10 +399,26 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 			go func() {
 				defer wg.Done()
 				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
+				// Optional duplicate protection: when enabled, block pathological
+				// repetition patterns (same tool+args over and over) while still
+				// preserving transcript via synthetic tool results.
+				if guard != nil {
+					if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
+						// If we have a previous successful result, synthesize a
+						// matching tool call so the transcript remains consistent
+						// without re-executing the tool.
+						if prev.Name != "" && prev.Error == "" && s.convClient != nil {
+							_ = executil.SynthesizeToolStep(ctx, s.convClient, stepInfo, prev.Result)
+						}
+						return
+					}
+				}
 				// Execute tool; even on error we let the LLM decide next steps.
 				// Errors are persisted on the tool call and exposed via tool result payload.
-				_, _, _ = executil.ExecuteToolStep(ctx, reg, stepInfo, s.convClient)
-				// No per-turn de-duplication; each duplicate runs independently.
+				call, _, _ := executil.ExecuteToolStep(ctx, reg, stepInfo, s.convClient)
+				if guard != nil {
+					guard.RegisterResult(step.Name, step.Args, call)
+				}
 			}()
 		}
 		return nil

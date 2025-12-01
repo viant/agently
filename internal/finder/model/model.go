@@ -108,19 +108,27 @@ func (d *Finder) TokenPrices(id string) (in float64, out float64, cached float64
 
 // Candidates returns lightweight view used by matcher.
 func (d *Finder) Candidates() []matcher.Candidate {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
-
-	out := make([]matcher.Candidate, 0, len(d.models))
-	for id := range d.models {
-		cfg, _ := d.configRegistry.Lookup(context.Background(), id)
+	// Build candidates from current model configs. We intentionally base
+	// this on configuration registry instead of instantiated models so that
+	// matching can consider all known models, even those not yet used.
+	configs, err := d.configRegistry.List(context.Background())
+	if err != nil {
+		return nil
+	}
+	out := make([]matcher.Candidate, 0, len(configs))
+	for _, cfg := range configs {
 		if cfg == nil {
 			continue
 		}
+		cost := 0.0
+		if cfg.Options.InputTokenPrice > 0 || cfg.Options.OutputTokenPrice > 0 {
+			cost = cfg.Options.InputTokenPrice + cfg.Options.OutputTokenPrice
+		}
 		out = append(out, matcher.Candidate{
-			ID:           id,
+			ID:           cfg.ID,
 			Intelligence: cfg.Intelligence,
 			Speed:        cfg.Speed,
+			Cost:         cost,
 		})
 	}
 	return out
