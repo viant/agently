@@ -183,6 +183,11 @@ func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *
 func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutput *QueryOutput) error {
 	var err error
 	iter := 0
+	// resolvedModel tracks the first model selected (either via explicit
+	// override or matcher-based preferences) for this Query turn. Once set,
+	// subsequent iterations within the same turn stick to this model instead
+	// of re-evaluating preferences, to keep provider/model stable.
+	var resolvedModel string
 
 	turn, ok := memory.TurnMetaFromContext(ctx)
 	if !ok {
@@ -203,8 +208,77 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 		sort.Strings(keys)
 		modelSelection := input.Agent.ModelSelection
-		if input.ModelOverride != "" {
-			modelSelection.Model = input.ModelOverride
+		// Once a model has been resolved earlier in this turn (either via
+		// explicit override or matcher-based preferences), stick to it for
+		// the rest of the turn to avoid re-evaluating preferences and
+		// changing models mid‑execution.
+		if strings.TrimSpace(resolvedModel) != "" && strings.TrimSpace(input.ModelOverride) == "" {
+			modelSelection.Model = resolvedModel
+			modelSelection.Preferences = nil
+		} else {
+			// ModelOverride, when present, always wins for this turn.
+			if input.ModelOverride != "" {
+				modelSelection.Model = input.ModelOverride
+			} else if input.ModelPreferences != nil {
+				// When the caller supplies per-turn model preferences without an
+				// explicit override, clear the configured model so that
+				// GenerateInput.MatchModelIfNeeded can pick the best candidate
+				// using the workspace model matcher. This allows callers of
+				// llm/agents:run (and direct Query) to influence model choice
+				// beyond the agent's static modelRef.
+				modelSelection.Model = ""
+			}
+			if input.ModelPreferences != nil {
+				modelSelection.Preferences = input.ModelPreferences
+			}
+			// Apply agent-level model constraints as strong hints when
+			// preferences are in play. This keeps backward compatibility while
+			// biasing the matcher towards AllowedModels/Providers without
+			// changing the core matcher contract.
+			if modelSelection.Preferences != nil && input.Agent != nil {
+				// Prefer explicit AllowedModels over providers.
+				if len(input.Agent.AllowedModels) > 0 {
+					for _, id := range input.Agent.AllowedModels {
+						id = strings.TrimSpace(id)
+						if id == "" {
+							continue
+						}
+						modelSelection.Preferences.Hints = append(modelSelection.Preferences.Hints, id)
+					}
+				} else if len(input.Agent.AllowedProviders) > 0 {
+					for _, prov := range input.Agent.AllowedProviders {
+						prov = strings.TrimSpace(prov)
+						if prov == "" {
+							continue
+						}
+						modelSelection.Preferences.Hints = append(modelSelection.Preferences.Hints, prov)
+					}
+				}
+			}
+		}
+		// Apply agent-level model constraints as strong hints when
+		// preferences are in play. This keeps backward compatibility while
+		// biasing the matcher towards AllowedModels/Providers without
+		// changing the core matcher contract.
+		if modelSelection.Preferences != nil && input.Agent != nil {
+			// Prefer explicit AllowedModels over providers.
+			if len(input.Agent.AllowedModels) > 0 {
+				for _, id := range input.Agent.AllowedModels {
+					id = strings.TrimSpace(id)
+					if id == "" {
+						continue
+					}
+					modelSelection.Preferences.Hints = append(modelSelection.Preferences.Hints, id)
+				}
+			} else if len(input.Agent.AllowedProviders) > 0 {
+				for _, prov := range input.Agent.AllowedProviders {
+					prov = strings.TrimSpace(prov)
+					if prov == "" {
+						continue
+					}
+					modelSelection.Preferences.Hints = append(modelSelection.Preferences.Hints, prov)
+				}
+			}
 		}
 		if modelSelection.Options == nil {
 			modelSelection.Options = &llm.Options{}
@@ -240,6 +314,13 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 		if aPlan == nil {
 			return fmt.Errorf("unable to generate plan")
+		}
+		// Capture the first resolved model for this turn and stick to it on
+		// subsequent iterations when preferences are used.
+		if strings.TrimSpace(resolvedModel) == "" && genInput != nil {
+			if m := strings.TrimSpace(genInput.ModelSelection.Model); m != "" {
+				resolvedModel = m
+			}
 		}
 		queryOutput.Plan = aPlan
 

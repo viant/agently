@@ -106,7 +106,7 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 			continue
 		}
 		augmenterInput.Locations = []string{kn.URL}
-		augmenterInput.Match = kn.Match
+		augmenterInput.Match = kn.Filter
 		// Use augmenter to get relevant documents
 		augmenterOutput := &augmenter.AugmentDocsOutput{}
 		err := s.augmenter.AugmentDocs(ctx, augmenterInput, augmenterOutput)

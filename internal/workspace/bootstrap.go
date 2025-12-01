@@ -55,7 +55,7 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindAgent, "coder/prompt/system.tmpl"), "default/agents/coder/prompt/system.tmpl"},
 		{filepath.Join(KindAgent, "coder/prompt/user.tmpl"), "default/agents/coder/prompt/user.tmpl"},
 		{filepath.Join(KindAgent, "coder/system_knowledge/golang_rules.md"), "default/agents/coder/system_knowledge/golang_rules.md"},
-		{filepath.Join(KindAgent, "coder/coder.yaml"), "default/agents/coder/coder.yaml"},
+		{filepath.Join(KindAgent, "coder/dev_coder.yaml"), "default/agents/coder/dev_coder.yaml"},
 
 		{filepath.Join(KindAgent, "di_verifier/prompt/system.tmpl"), "default/agents/di_verifier/prompt/system.tmpl"},
 		{filepath.Join(KindAgent, "di_verifier/prompt/user.tmpl"), "default/agents/di_verifier/prompt/user.tmpl"},
@@ -63,15 +63,15 @@ func EnsureDefault(fs afs.Service) {
 
 		{filepath.Join(KindAgent, "di_composer/prompt/system.tmpl"), "default/agents/di_composer/prompt/system.tmpl"},
 		{filepath.Join(KindAgent, "di_composer/prompt/user.tmpl"), "default/agents/di_composer/prompt/user.tmpl"},
-		{filepath.Join(KindAgent, "di_composer/di_composer.yaml"), "default/agents/di_composer/di_composer.yaml"},
+		{filepath.Join(KindAgent, "di_composer/dev_composer.yaml"), "default/agents/di_composer/dev_composer.yaml"},
 
 		{filepath.Join(KindAgent, "di_orchestrator/prompt/system.tmpl"), "default/agents/di_orchestrator/prompt/system.tmpl"},
 		{filepath.Join(KindAgent, "di_orchestrator/prompt/user.tmpl"), "default/agents/di_orchestrator/prompt/user.tmpl"},
-		{filepath.Join(KindAgent, "di_orchestrator/di_orchestrator.yaml"), "default/agents/di_orchestrator/di_orchestrator.yaml"},
+		{filepath.Join(KindAgent, "di_orchestrator/dev_orchestrator.yaml"), "default/agents/di_orchestrator/dev_orchestrator.yaml"},
 
 		{filepath.Join(KindAgent, "critic/prompt/system.tmpl"), "default/agents/critic/prompt/system.tmpl"},
 		{filepath.Join(KindAgent, "critic/prompt/user.tmpl"), "default/agents/critic/prompt/user.tmpl"},
-		{filepath.Join(KindAgent, "critic/di_orchestrator.yaml"), "default/agents/critic/critic.yaml"},
+		{filepath.Join(KindAgent, "critic/dev_orchestrator.yaml"), "default/agents/critic/critic.yaml"},
 	}
 
 	baseURL := url.Normalize(Root(), file.Scheme)

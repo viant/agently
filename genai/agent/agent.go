@@ -31,6 +31,11 @@ type (
 		Source   *Source `yaml:"source,omitempty" json:"source,omitempty"` // Source of the agent
 
 		llm.ModelSelection `yaml:",inline" json:",inline"`
+		// Optional constraints for model selection when preferences are used.
+		// When set, higher-level routing or the model finder may restrict
+		// candidate models to these providers or IDs.
+		AllowedProviders []string `yaml:"allowedProviders,omitempty" json:"allowedProviders,omitempty"`
+		AllowedModels    []string `yaml:"allowedModels,omitempty" json:"allowedModels,omitempty"`
 
 		Temperature float64        `yaml:"temperature,omitempty" json:"temperature,omitempty"` // Temperature
 		Description string         `yaml:"description,omitempty" json:"description,omitempty"` // Description of the agent
@@ -98,6 +103,12 @@ type (
 
 	// Resource defines a single resource root with optional binding behavior.
 	Resource struct {
+		// ID is an optional stable identifier for this resource root.
+		// When set, it is surfaced to tools (e.g. resources.roots) so callers
+		// can refer to the root using a short, opaque id instead of copying the
+		// full URI. When empty, tools may fall back to using the normalized URI
+		// as the effective id.
+		ID       string          `yaml:"id,omitempty" json:"id,omitempty"`
 		URI      string          `yaml:"uri" json:"uri"`
 		Role     string          `yaml:"role,omitempty" json:"role,omitempty"`       // system|user
 		Binding  bool            `yaml:"binding,omitempty" json:"binding,omitempty"` // include in auto top‑N binding
@@ -105,6 +116,20 @@ type (
 		TrimPath string          `yaml:"trimPath,omitempty" json:"trimPath,omitempty"`
 		Match    *option.Options `yaml:"match,omitempty" json:"match,omitempty"`
 		MinScore *float64        `yaml:"minScore,omitempty" json:"minScore,omitempty"`
+
+		// Description is an optional human-friendly label for this resource
+		// root. When provided it is surfaced via tools such as resources.roots
+		// to help the agent understand the purpose of each root.
+		Description string `yaml:"description,omitempty" json:"description,omitempty"`
+
+		// AllowSemanticMatch controls whether semantic search (resources.match
+		// or knowledge-style augmentation) is permitted on this resource root
+		// when resolved through tools. When nil, the effective value defaults to
+		// true.
+		AllowSemanticMatch *bool `yaml:"allowSemanticMatch,omitempty" json:"allowSemanticMatch,omitempty"`
+		// AllowGrep controls whether lexical grep (resources.grepFiles) may be
+		// performed on this root. When nil, the effective value defaults to true.
+		AllowGrep *bool `yaml:"allowGrep,omitempty" json:"allowGrep,omitempty"`
 	}
 
 	// Chain defines a single post-turn follow-up.
@@ -136,6 +161,26 @@ type (
 		MaxDepth int `yaml:"maxDepth,omitempty" json:"maxDepth,omitempty"`
 	}
 )
+
+// SemanticAllowed reports whether semantic search is enabled for this
+// resource. When AllowSemanticMatch is nil, the effective value defaults
+// to true so that existing configurations continue to permit semantic
+// operations unless explicitly disabled.
+func (r *Resource) SemanticAllowed() bool {
+	if r == nil || r.AllowSemanticMatch == nil {
+		return true
+	}
+	return *r.AllowSemanticMatch
+}
+
+// GrepAllowed reports whether lexical grep operations are enabled for this
+// resource. When AllowGrep is nil, the effective value defaults to true.
+func (r *Resource) GrepAllowed() bool {
+	if r == nil || r.AllowGrep == nil {
+		return true
+	}
+	return *r.AllowGrep
+}
 
 type Tool struct {
 	Items        []*llm.Tool      `yaml:"items,omitempty" json:"items,omitempty"`

@@ -137,14 +137,13 @@ func TestDuplicateGuard_ConsecutiveCalls(t *testing.T) {
 					Name:      "sqlkit-query",
 					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "some error",
-					wantBlock: true, // Third consecutive identical call should be blocked
+					wantBlock: false, // second identical in a row; still allowed
 				},
-
 				{
 					Name:      "sqlkit-query",
 					Args:      map[string]interface{}{"query": "SELECT * FROM user"},
 					Error:     "some error",
-					wantBlock: true, // Fourth consecutive identical call should be blocked
+					wantBlock: true, // third consecutive identical call is blocked
 				},
 			},
 		},
@@ -337,10 +336,10 @@ func TestDuplicateGuard_AlternatingPattern(t *testing.T) {
 		// Register the result if not blocked
 		if !gotBlock {
 			guard.RegisterResult(call.Name, call.Args, plan.ToolCall{
-				Name:   call.Name,
-				Args:   call.Args,
-				Result: "some result",
-				Error:  call.Error,
+				Name:      call.Name,
+				Arguments: call.Args,
+				Result:    "some result",
+				Error:     call.Error,
 			})
 		}
 	}

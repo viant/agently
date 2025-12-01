@@ -5,6 +5,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	agentmdl "github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/llm"
+	agentsvc "github.com/viant/agently/genai/service/agent"
 )
 
 func TestService_List_DataDriven(t *testing.T) {
@@ -93,5 +97,55 @@ func TestService_Run_External_DataDriven(t *testing.T) {
 			assert.NoError(t, err)
 			assert.EqualValues(t, tc.expected, &out)
 		})
+	}
+}
+
+// fakeAgentRuntime is a lightweight stub implementing agentRuntime so we can
+// verify that llm/agents:run threads model preferences and reasoning effort
+// through to the underlying agent.Query input.
+type fakeAgentRuntime struct {
+	lastInput *agentsvc.QueryInput
+}
+
+func (f *fakeAgentRuntime) Query(_ context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+	f.lastInput = in
+	if out != nil {
+		out.Content = "ok"
+	}
+	return nil
+}
+
+// Finder is unused in this test; return nil to satisfy the interface.
+func (f *fakeAgentRuntime) Finder() agentmdl.Finder { return nil }
+
+func TestService_Run_Internal_ThreadsModelPrefsAndReasoning(t *testing.T) {
+	ctx := context.Background()
+	streaming := false
+	reasoning := "medium"
+	prefs := &llm.ModelPreferences{
+		IntelligencePriority: 0.7,
+		SpeedPriority:        0.7,
+		CostPriority:         0.7,
+	}
+	in := &RunInput{
+		AgentID:          "dev_reviewer",
+		Objective:        "review repo",
+		Streaming:        &streaming,
+		ModelPreferences: prefs,
+		ReasoningEffort:  &reasoning,
+		Context:          map[string]interface{}{"foo": "bar"},
+	}
+
+	fake := &fakeAgentRuntime{}
+	s := &Service{agent: fake}
+	var out RunOutput
+	err := s.run(ctx, in, &out)
+	assert.NoError(t, err)
+	if assert.NotNil(t, fake.lastInput, "expected QueryInput to be passed to agent runtime") {
+		assert.Equal(t, in.AgentID, fake.lastInput.AgentID)
+		assert.Equal(t, in.Objective, fake.lastInput.Query)
+		assert.Equal(t, in.Context, fake.lastInput.Context)
+		assert.Equal(t, prefs, fake.lastInput.ModelPreferences)
+		assert.Equal(t, &reasoning, fake.lastInput.ReasoningEffort)
 	}
 }

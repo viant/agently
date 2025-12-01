@@ -144,19 +144,19 @@ Migration & Implementation Steps
 - Service: `resources` with methods:
   - `resources:roots` — discover configured roots.
     - Input: `{ maxRoots: int }`
-    - Output: `{ roots: [{ uri, label, description, kind: 'file'|'mcp', source: 'default'|'agent' }] }`
+    - Output: `{ roots: [{ id, uri, label, description, kind: 'file'|'mcp', source: 'default'|'agent' }] }`
     - Notes: resolves relative paths against workspace; descriptions read from `.summary`, `.summary.md`, or `README.md` (first paragraph, small cap).
   - `resources:list` — enumerate items under a single root.
-    - Input: `{ root: string, path?: string, recursive?: bool, maxItems?: int }`
+    - Input: `{ rootId?: string, root?: string, path?: string, recursive?: bool, maxItems?: int }`
     - Output: `{ items: [{ uri, path, name, size, modified }], total }`
     - Supports `file://` and `mcp:server:/prefix` sources. `path` is interpreted relative to the root.
   - `resources:read` — read a single resource.
-    - Input (root-centric): `{ root: string, path: string, maxBytes?: int }`
+    - Input (root-centric): `{ rootId?: string, root?: string, path: string, maxBytes?: int }`
     - Input (uri-centric): `{ uri: string, maxBytes?: int }`
     - Output: `{ uri, path, content, size }`
     - Notes: when `uri` is provided it is used directly (after normalization and allowlist check). When `root+path` are provided, they are joined to form the target URI.
   - `resources:match` — semantic retrieval over one or more roots using Embedius.
-    - Input: `{ query: string, roots: [string], path?: string, model: string, maxDocuments?: int, match?: {...}, includeFile?: bool }`
+    - Input: `{ query: string, rootIds?: [string], roots?: [string], path?: string, model: string, maxDocuments?: int, match?: {...}, includeFile?: bool }`
     - Output: `{ documents: [], documentsSize: int, content: string }`
     - Notes: each root is normalized to a single Embedius location; when `path` is provided it is joined onto every root. A common URI prefix is automatically computed and trimmed from presented paths.
 - Config (defaults): under `default.resources` in executor config
@@ -185,8 +185,8 @@ Migration & Implementation Steps
   ```
 - Allowlist: At runtime, `resources:roots`, `resources:list`, `resources:read`, and `resources:match` only accept roots/URIs that match the agent’s declared `resources[].uri` when an agent context is present. Outside agent context, defaults apply (`default.resources.locations`).
 - Flow:
-  - Discover: `resources:roots { maxRoots }` → returns agent or default roots with descriptions.
-  - Browse: `resources:list { root, path?, recursive?, maxItems? }` → enumerates items under the selected root.
-  - Read: `resources:read { root, path }` or `resources:read { uri }` → fetches a single resource for inspection.
-  - Retrieve: `resources:match { query, roots, path?, model, ... }` → semantic selection using Embedius (lazy indexing) across one or more roots.
+  - Discover: `resources:roots { maxRoots }` → returns agent or default roots with ids, URIs and descriptions.
+  - Browse: `resources:list { rootId, path?, recursive?, maxItems? }` (or legacy `root`) → enumerates items under the selected root.
+  - Read: `resources:read { rootId, path }` (or legacy `root`) or `resources:read { uri }` → fetches a single resource for inspection.
+  - Retrieve: `resources:match { query, rootIds, path?, model, ... }` (or legacy `roots`) → semantic selection using Embedius (lazy indexing) across one or more roots.
 - Descriptions: Roots may include a `.summary`, `.summary.md`, or `README.md` file; the first paragraph is used for descriptions (bounded read).
