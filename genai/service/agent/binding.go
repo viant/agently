@@ -19,6 +19,7 @@ import (
 	padapter "github.com/viant/agently/genai/prompt/adapter"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/internal/workspace"
+	"github.com/viant/agently/pkg/agently/conversation"
 	mcpname "github.com/viant/agently/pkg/mcpname"
 )
 
@@ -656,7 +657,8 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 	if len(normalized) > 0 {
 		last := *normalized[len(normalized)-1]
 		if last.Content != nil && *last.Content == input.Query {
-			normalized = normalized[:len(normalized)-1]
+			normalized[len(normalized)-1].Attachment = make([]*conversation.AttachmentView, 0)
+			//normalized = normalized[:len(normalized)-1]
 		}
 	}
 
