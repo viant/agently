@@ -609,10 +609,10 @@ func (e *Service) initDefaults(ctx context.Context) error {
 		}
 		tr := &e.config.Default.PreviewSettings
 		if tr.Limit == 0 {
-			tr.Limit = 8192
+			tr.Limit = 16384
 		}
 		if tr.AgedAfterSteps == 0 {
-			tr.AgedAfterSteps = 15
+			tr.AgedAfterSteps = 80
 		}
 		if tr.AgedAfterSteps == 0 {
 			tr.AgedLimit = 2048
