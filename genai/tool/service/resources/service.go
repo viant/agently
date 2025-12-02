@@ -22,6 +22,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	aug "github.com/viant/agently/genai/service/augmenter"
 	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
+	"github.com/viant/agently/genai/textclip"
 	svc "github.com/viant/agently/genai/tool/service"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
@@ -689,28 +690,13 @@ type ReadInput struct {
 	// RootID is a stable identifier corresponding to a root returned by
 	// roots. When provided (and URI is empty), it is resolved to
 	// the underlying normalized URI before enforcement and reading.
-	RootID   string `json:"rootId,omitempty"`
-	Path     string `json:"path,omitempty"`
-	URI      string `json:"uri,omitempty"`
-	MaxBytes int    `json:"maxBytes,omitempty"`
+	RootID string `json:"rootId,omitempty"`
+	Path   string `json:"path,omitempty"`
+	URI    string `json:"uri,omitempty"`
 
-	// OffsetBytes and LengthBytes describe a 0-based byte window within the
-	// file. When StartLine is > 0, the line range takes precedence and the
-	// byte range is ignored. When both byte and line ranges are unset, the
-	// full (optionally MaxBytes-truncated) content is returned.
-	OffsetBytes int64 `json:"offsetBytes,omitempty"` // 0-based byte offset; default 0
-	LengthBytes int   `json:"lengthBytes,omitempty"` // bytes to read; 0 => use MaxBytes cap
-
-	// StartLine and LineCount describe a 1-based line slice. When StartLine > 0
-	// this mode is used in preference to the byte range.
-	StartLine int `json:"startLine,omitempty"` // 1-based start line
-	LineCount int `json:"lineCount,omitempty"` // number of lines; 0 => until EOF or MaxBytes
-
-	// Mode controls how the line slice is interpreted when StartLine > 0.
-	// Supported values:
-	//   - "" or "slice"      : simple range [StartLine, StartLine+LineCount)
-	//   - "indentation"      : indentation-aware code block around StartLine
-	Mode string `json:"mode,omitempty" description:"read mode: 'slice' (default) for simple line ranges or 'indentation' for indentation-aware code blocks"`
+	// Optional explicit range selectors to slice returned content.
+	ByteRange *textclip.IntRange `json:"byteRange,omitempty" description:"Optional byte range [from,to) over the file content."`
+	LineRange *textclip.IntRange `json:"lineRange,omitempty" description:"Optional line range [from,to) mapped to byte offsets (0-based, to exclusive)."`
 }
 
 // ReadOutput contains the resolved URI, relative path and optionally truncated content.
@@ -830,85 +816,28 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 		return err
 	}
 	originalSize := len(data)
-	if input.MaxBytes > 0 && len(data) > input.MaxBytes {
-		data = data[:input.MaxBytes]
-	}
 	text := string(data)
 	startLine := 0
 	endLine := 0
 
-	// Prefer line-slice mode when StartLine is specified.
-	if input.StartLine > 0 {
-		mode := strings.ToLower(strings.TrimSpace(input.Mode))
-		lines := strings.SplitAfter(text, "\n")
-		total := len(lines)
-		off := input.StartLine
-		if off <= 0 {
-			off = 1
+	// Optional slicing: byte range takes precedence over line range.
+	if input.ByteRange != nil {
+		clipped, _, _, err := textclip.ClipBytes(data, input.ByteRange)
+		if err != nil {
+			return err
 		}
-		if off > total {
-			// No content in the requested range; return empty slice with size metadata.
-			text = ""
-			startLine = off
-			endLine = off - 1
-		} else if mode == "indentation" {
-			startIdx, endIdx := indentationBlock(lines, off-1, input.LineCount)
-			if startIdx < 0 || endIdx <= startIdx || startIdx >= total {
-				text = ""
-				startLine = off
-				endLine = off - 1
-			} else {
-				if endIdx > total {
-					endIdx = total
-				}
-				var b strings.Builder
-				for _, ln := range lines[startIdx:endIdx] {
-					_, _ = b.WriteString(ln)
-				}
-				text = b.String()
-				startLine = startIdx + 1
-				endLine = endIdx
-			}
-		} else {
-			// default: simple slice mode
-			limit := input.LineCount
-			if limit <= 0 {
-				limit = total - off + 1
-			}
-			startIdx := off - 1
-			endIdx := startIdx + limit
-			if endIdx > total {
-				endIdx = total
-			}
-			var b strings.Builder
-			for _, ln := range lines[startIdx:endIdx] {
-				_, _ = b.WriteString(ln)
-			}
-			text = b.String()
-			startLine = off
-			endLine = startIdx + (endIdx - startIdx)
+		text = string(clipped)
+	} else if input.LineRange != nil {
+		clipped, _, _, err := textclip.ClipLines(data, input.LineRange)
+		if err != nil {
+			return err
 		}
-	} else if input.OffsetBytes > 0 || input.LengthBytes > 0 {
-		// Byte-range mode: apply offset/length over the MaxBytes-truncated buffer.
-		off := input.OffsetBytes
-		if off < 0 {
-			off = 0
+		text = string(clipped)
+		if input.LineRange.From != nil {
+			startLine = *input.LineRange.From + 1
 		}
-		if off >= int64(len(data)) {
-			text = ""
-		} else {
-			end := len(data)
-			if input.LengthBytes > 0 {
-				candidate := int(off) + input.LengthBytes
-				if candidate < end {
-					end = candidate
-				}
-			}
-			if off < int64(end) {
-				text = string(data[off:end])
-			} else {
-				text = ""
-			}
+		if input.LineRange.To != nil {
+			endLine = *input.LineRange.To
 		}
 	}
 	output.URI = fullURI

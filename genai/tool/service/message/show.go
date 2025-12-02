@@ -5,26 +5,20 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	sed "github.com/rwtodd/Go.Sed/sed"
 	apiconv "github.com/viant/agently/client/conversation"
+	"github.com/viant/agently/genai/textclip"
 )
 
-type IntRange struct {
-	From *int `json:"from,omitempty"`
-	To   *int `json:"to,omitempty"`
-}
-
 type ShowInput struct {
-	MessageID string         `json:"messageId"`
-	ByteRange *IntRange      `json:"byteRange,omitempty" description:"Optional byte range [from,to) over the selected content."`
-	LineRange *IntRange      `json:"lineRange,omitempty" description:"Optional line range [from,to) mapped to byte offsets."`
-	Sed       []string       `json:"sed,omitempty" description:"List of sed programs applied in order to the selected content."`
-	Transform *TransformSpec `json:"transform,omitempty" description:"Transform with selector+fields or queryLanguage+query, then format as csv or ndjson."`
+	MessageID string             `json:"messageId"`
+	ByteRange *textclip.IntRange `json:"byteRange,omitempty" description:"Optional byte range [from,to) over the selected content."`
+	Sed       []string           `json:"sed,omitempty" description:"List of sed programs applied in order to the selected content."`
+	Transform *TransformSpec     `json:"transform,omitempty" description:"Transform with selector+fields or queryLanguage+query, then format as csv or ndjson."`
 }
 
 type ShowOutput struct {
@@ -77,7 +71,7 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	size := len(result)
-	// 2) Optional slicing by byte/line ranges; if neither provided, return full content
+	// 2) Optional slicing by byte range; if not provided, return full content
 	clipped, start, end, err := clipWithOffsets(result, input)
 	if err != nil {
 		return err
@@ -96,84 +90,9 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	return nil
 }
 
-func rngOK(r *IntRange) bool {
-	return r != nil && r.From != nil && r.To != nil && *r.From >= 0 && *r.To >= *r.From
-}
-
-func clipBytes(b []byte, r *IntRange) ([]byte, int, int, error) {
-	if r == nil {
-		return b, 0, len(b), nil
-	}
-	if !rngOK(r) {
-		return nil, 0, 0, errors.New("invalid byteRange")
-	}
-	start := *r.From
-	end := *r.To
-	if start < 0 {
-		start = 0
-	}
-	if start > len(b) {
-		start = len(b)
-	}
-	if end < start {
-		end = start
-	}
-	if end > len(b) {
-		end = len(b)
-	}
-	return b[start:end], start, end, nil
-}
-
-func clipLines(b []byte, r *IntRange) ([]byte, int, int, error) {
-	if r == nil {
-		return b, 0, len(b), nil
-	}
-	if !rngOK(r) {
-		return nil, 0, 0, errors.New("invalid lineRange")
-	}
-	starts := []int{0}
-	for i, c := range b {
-		if c == '\n' && i+1 < len(b) {
-			starts = append(starts, i+1)
-		}
-	}
-	total := len(starts)
-	from := *r.From
-	to := *r.To
-	if from < 0 {
-		from = 0
-	}
-	if from > total {
-		from = total
-	}
-	if to < from {
-		to = from
-	}
-	if to > total {
-		to = total
-	}
-	start := 0
-	if from < total {
-		start = starts[from]
-	} else {
-		start = len(b)
-	}
-	end := len(b)
-	if to-1 < total-1 {
-		end = starts[to] - 1
-	}
-	if end < start {
-		end = start
-	}
-	return b[start:end], start, end, nil
-}
-
 func clipWithOffsets(b []byte, in *ShowInput) ([]byte, int, int, error) {
 	if in.ByteRange != nil {
-		return clipBytes(b, in.ByteRange)
-	}
-	if in.LineRange != nil {
-		return clipLines(b, in.LineRange)
+		return textclip.ClipBytes(b, in.ByteRange)
 	}
 	return b, 0, len(b), nil
 }

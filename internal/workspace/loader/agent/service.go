@@ -316,6 +316,52 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			if valueNode.Kind == yaml.ScalarNode {
 				agent.Description = valueNode.Value
 			}
+		case "allowedproviders":
+			// Accept either a scalar (single provider) or a sequence of scalars.
+			switch valueNode.Kind {
+			case yaml.ScalarNode:
+				v := strings.TrimSpace(valueNode.Value)
+				if v != "" {
+					agent.AllowedProviders = []string{v}
+				}
+			case yaml.SequenceNode:
+				providers := make([]string, 0, len(valueNode.Content))
+				for _, item := range valueNode.Content {
+					if item.Kind != yaml.ScalarNode {
+						continue
+					}
+					v := strings.TrimSpace(item.Value)
+					if v != "" {
+						providers = append(providers, v)
+					}
+				}
+				if len(providers) > 0 {
+					agent.AllowedProviders = providers
+				}
+			}
+		case "allowedmodels":
+			// Accept either a scalar (single model id) or a sequence of scalars.
+			switch valueNode.Kind {
+			case yaml.ScalarNode:
+				v := strings.TrimSpace(valueNode.Value)
+				if v != "" {
+					agent.AllowedModels = []string{v}
+				}
+			case yaml.SequenceNode:
+				models := make([]string, 0, len(valueNode.Content))
+				for _, item := range valueNode.Content {
+					if item.Kind != yaml.ScalarNode {
+						continue
+					}
+					v := strings.TrimSpace(item.Value)
+					if v != "" {
+						models = append(models, v)
+					}
+				}
+				if len(models) > 0 {
+					agent.AllowedModels = models
+				}
+			}
 		case "paralleltoolcalls":
 			if valueNode.Kind == yaml.ScalarNode {
 				val := valueNode.Interface()

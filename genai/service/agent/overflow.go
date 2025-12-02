@@ -13,15 +13,17 @@ func buildOverflowPreview(body string, limit int, refMessageID string) (string, 
 		return body, false
 	}
 	size := len(body)
-	omitted := body[limit:]
-	omittedLines := 0
-	if len(omitted) > 0 {
-		omittedLines = strings.Count(omitted, "\n") + 1
-	}
-	trailer := ""
-	if s := strings.TrimSpace(refMessageID); s != "" {
-		trailer = " to access rest use message " + s
-	}
-	preview := strings.TrimSpace(body[:limit]) + "\n[... omitted from " + fmt.Sprintf("%d", limit) + " to " + fmt.Sprintf("%d", size) + ", ~" + fmt.Sprintf("%d", omittedLines) + " lines]" + trailer
-	return preview, true
+	chunk := strings.TrimSpace(body[:limit])
+
+	id := strings.TrimSpace(refMessageID)
+	chunk += "[... omitted from " + fmt.Sprintf("%d", limit) + " to " + fmt.Sprintf("%d", size) + "]"
+
+	// Prefix with overflow nore and next byte range hint
+	return fmt.Sprintf(`overflow:true
+messageId: %s
+nextRange: %d-%d
+hasMore: true
+useToolToSeeMore: internal_message-show
+content: |
+%s`, id, limit, size, chunk), true
 }

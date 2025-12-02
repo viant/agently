@@ -1,0 +1,73 @@
+package resources
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	aug "github.com/viant/agently/genai/service/augmenter"
+	"github.com/viant/agently/genai/textclip"
+)
+
+func iptr(v int) *int { return &v }
+
+func TestService_Read_RangeVariants(t *testing.T) {
+	// Prepare workspace test folder
+	base := ".agently/test_resources_ranges"
+	_ = os.MkdirAll(base, 0755)
+
+	// File for byte-range test
+	fileBytes := filepath.Join(base, "bytes.txt")
+	bytesContent := []byte("abcdefghijklmnopqrstuvwxyz")
+	if err := os.WriteFile(fileBytes, bytesContent, 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	// File for line-range test
+	fileLines := filepath.Join(base, "lines.txt")
+	linesContent := "a\nb\nc\nd\n"
+	if err := os.WriteFile(fileLines, []byte(linesContent), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	service := New(aug.New(nil))
+	ctx := context.Background()
+	rootURI := "workspace://localhost/test_resources_ranges"
+
+	type got struct {
+		Content   string
+		StartLine int
+		EndLine   int
+		Size      int
+	}
+
+	cases := []struct {
+		name     string
+		input    *ReadInput
+		expected got
+	}{
+		{
+			name:     "byteRange from 2 to 5",
+			input:    &ReadInput{RootURI: rootURI, Path: "bytes.txt", ByteRange: &textclip.IntRange{From: iptr(2), To: iptr(5)}},
+			expected: got{Content: "cde", StartLine: 0, EndLine: 0, Size: len(bytesContent)},
+		},
+		{
+			name:     "lineRange from 1 to 3 (0-based)",
+			input:    &ReadInput{RootURI: rootURI, Path: "lines.txt", LineRange: &textclip.IntRange{From: iptr(1), To: iptr(3)}},
+			expected: got{Content: "b\nc", StartLine: 2, EndLine: 3, Size: len(linesContent)},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := &ReadOutput{}
+			if err := service.read(ctx, tc.input, out); err != nil {
+				t.Fatalf("read returned error: %v", err)
+			}
+			actual := got{Content: out.Content, StartLine: out.StartLine, EndLine: out.EndLine, Size: out.Size}
+			assert.EqualValues(t, tc.expected, actual)
+		})
+	}
+}

@@ -4,7 +4,7 @@ default:
   agent: chatter
   toolCallResult:
     # Preview limit bytes for inline LLM binding (full body always stored)
-    previewLimit: 8192
+    previewLimit: 16384
     # Chunk sizes for summarize/match tools
     summarizeChunk: 4096
     matchChunk: 1024
