@@ -231,53 +231,32 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			if input.ModelPreferences != nil {
 				modelSelection.Preferences = input.ModelPreferences
 			}
-			// Apply agent-level model constraints as strong hints when
-			// preferences are in play. This keeps backward compatibility while
-			// biasing the matcher towards AllowedModels/Providers without
-			// changing the core matcher contract.
-			if modelSelection.Preferences != nil && input.Agent != nil {
-				// Prefer explicit AllowedModels over providers.
+			// Gatekeeper: set allowed reductions from agent config; when providers empty, derive from agent default model provider.
+			if input.Agent != nil {
+				modelSelection.AllowedModels = nil
 				if len(input.Agent.AllowedModels) > 0 {
 					for _, id := range input.Agent.AllowedModels {
-						id = strings.TrimSpace(id)
-						if id == "" {
-							continue
+						if v := strings.TrimSpace(id); v != "" {
+							modelSelection.AllowedModels = append(modelSelection.AllowedModels, v)
 						}
-						modelSelection.Preferences.Hints = append(modelSelection.Preferences.Hints, id)
 					}
-				} else if len(input.Agent.AllowedProviders) > 0 {
-					for _, prov := range input.Agent.AllowedProviders {
-						prov = strings.TrimSpace(prov)
-						if prov == "" {
-							continue
+				}
+				modelSelection.AllowedProviders = nil
+				if len(input.Agent.AllowedProviders) > 0 {
+					for _, p := range input.Agent.AllowedProviders {
+						if v := strings.TrimSpace(p); v != "" {
+							modelSelection.AllowedProviders = append(modelSelection.AllowedProviders, v)
 						}
-						modelSelection.Preferences.Hints = append(modelSelection.Preferences.Hints, prov)
 					}
+				} else if prov := deriveProviderFromModelRef(input.Agent.Model); prov != "" {
+					modelSelection.AllowedProviders = []string{prov}
 				}
 			}
 		}
-		// Apply agent-level model constraints as strong hints when
-		// preferences are in play. This keeps backward compatibility while
-		// biasing the matcher towards AllowedModels/Providers without
-		// changing the core matcher contract.
-		if modelSelection.Preferences != nil && input.Agent != nil {
-			// Prefer explicit AllowedModels over providers.
-			if len(input.Agent.AllowedModels) > 0 {
-				for _, id := range input.Agent.AllowedModels {
-					id = strings.TrimSpace(id)
-					if id == "" {
-						continue
-					}
-					modelSelection.Preferences.Hints = append(modelSelection.Preferences.Hints, id)
-				}
-			} else if len(input.Agent.AllowedProviders) > 0 {
-				for _, prov := range input.Agent.AllowedProviders {
-					prov = strings.TrimSpace(prov)
-					if prov == "" {
-						continue
-					}
-					modelSelection.Preferences.Hints = append(modelSelection.Preferences.Hints, prov)
-				}
+		// Keep allowed reductions across iterations when available.
+		if input.Agent != nil && len(modelSelection.AllowedProviders) == 0 && len(modelSelection.AllowedModels) == 0 {
+			if prov := deriveProviderFromModelRef(input.Agent.Model); prov != "" {
+				modelSelection.AllowedProviders = []string{prov}
 			}
 		}
 		if modelSelection.Options == nil {
@@ -433,6 +412,28 @@ func canonicalArgsForWarning(args map[string]interface{}) string {
 	canon := canonicalize(args)
 	b, _ := json.Marshal(canon)
 	return string(b)
+}
+
+// addPreferenceHintsFromAgent appends model preference hints derived from the
+// agent configuration. When AllowedModels are set, they are preferred. When
+// AllowedProviders are set, they are used. When both are empty, this falls back
+// to the current agent provider (derived from modelRef) as an allowed provider.
+// NOTE: AllowedProviders/AllowedModels now act as gatekeepers (candidate reducer)
+// and must not be written into hints. Selection reduction is handled in
+// core.GenerateInput.MatchModelIfNeeded via ReducingMatcher.
+
+// deriveProviderFromModelRef returns the provider name from a modelRef in the
+// common form "provider_model". Returns empty string when it cannot be derived.
+func deriveProviderFromModelRef(modelRef string) string {
+	v := strings.TrimSpace(modelRef)
+	if v == "" {
+		return ""
+	}
+	// Heuristic: take the prefix before the first underscore as provider id.
+	if idx := strings.IndexRune(v, '_'); idx > 0 {
+		return strings.TrimSpace(v[:idx])
+	}
+	return ""
 }
 
 // waitForElicitation registers a waiter on the elicitation router and optionally

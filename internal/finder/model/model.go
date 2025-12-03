@@ -27,6 +27,24 @@ func (d *Finder) Best(p *llm.ModelPreferences) string {
 	return d.Matcher().Best(p)
 }
 
+// BestWithFilter selects the best model after reducing candidates using allow.
+// When the filter excludes all candidates, it falls back to the full set.
+func (d *Finder) BestWithFilter(p *llm.ModelPreferences, allow func(id string) bool) string {
+	cands := d.Candidates()
+	if allow != nil {
+		filtered := make([]matcher.Candidate, 0, len(cands))
+		for _, c := range cands {
+			if allow(c.ID) {
+				filtered = append(filtered, c)
+			}
+		}
+		if len(filtered) > 0 {
+			return matcher.New(filtered).Best(p)
+		}
+	}
+	return matcher.New(cands).Best(p)
+}
+
 func (d *Finder) Find(ctx context.Context, id string) (llm.Model, error) {
 	d.mux.RLock()
 	ret, ok := d.models[id]

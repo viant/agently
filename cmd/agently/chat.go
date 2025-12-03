@@ -142,6 +142,9 @@ func (c *ChatCmd) Execute(_ []string) error {
 	if err != nil {
 		return fmt.Errorf("init mcp manager: %w", err)
 	}
+	// Reap idle MCP clients (per-conversation) automatically; interval defaults to ttl/2.
+	reapStop := mgr.StartReaper(context.Background(), 0)
+	defer reapStop()
 	registerExecOption(executor.WithMCPManager(mgr))
 	// Also pass router to agent so assistant-originated elicitations integrate with the same flow
 	registerExecOption(executor.WithElicitationRouter(r))

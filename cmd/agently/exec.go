@@ -53,6 +53,9 @@ func (c *ExecCmd) Execute(_ []string) error {
 	if err != nil {
 		return fmt.Errorf("init mcp manager: %w", err)
 	}
+	// Start idle reaper so ad-hoc exec sessions also clean up per-conversation clients.
+	stopReap := mgr.StartReaper(context.Background(), 0)
+	defer stopReap()
 	registerExecOption(executor.WithMCPManager(mgr))
 
 	execSvc := executorSingleton()

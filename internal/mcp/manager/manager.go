@@ -87,7 +87,9 @@ type entry struct {
 
 // New creates a Manager with the given Provider and options.
 func New(prov Provider, opts ...Option) (*Manager, error) {
-	m := &Manager{prov: prov, ttl: 30 * time.Minute, pool: map[string]map[string]*entry{}}
+	// Default idle TTL reduced to 5 minutes to ensure per-conversation
+	// MCP clients are disconnected and removed promptly when idle.
+	m := &Manager{prov: prov, ttl: 5 * time.Minute, pool: map[string]map[string]*entry{}}
 	for _, o := range opts {
 		if err := o(m); err != nil {
 			return nil, fmt.Errorf("mcp manager option: %w", err)
@@ -214,7 +216,22 @@ func (m *Manager) Touch(convID, serverName string) {
 // Note: underlying transports may keep connections if the library doesn't expose Close.
 func (m *Manager) CloseConversation(convID string) {
 	m.mu.Lock()
-	delete(m.pool, convID)
+	if perServer, ok := m.pool[convID]; ok {
+		for server, e := range perServer {
+			if e != nil && e.client != nil {
+				// Best-effort disconnect of client if supported.
+				if c, ok := e.client.(interface{ Close() error }); ok {
+					_ = c.Close()
+				} else if c2, ok := e.client.(interface{ Close() }); ok {
+					c2.Close()
+				} else if s, ok := e.client.(interface{ Shutdown(context.Context) error }); ok {
+					_ = s.Shutdown(context.Background())
+				}
+			}
+			delete(perServer, server)
+		}
+		delete(m.pool, convID)
+	}
 	m.mu.Unlock()
 }
 
@@ -225,6 +242,16 @@ func (m *Manager) Reap() {
 	for convID, perServer := range m.pool {
 		for server, e := range perServer {
 			if e == nil || e.usedAt.Before(cutoff) {
+				// Attempt to gracefully disconnect before removing.
+				if e != nil && e.client != nil {
+					if c, ok := e.client.(interface{ Close() error }); ok {
+						_ = c.Close()
+					} else if c2, ok := e.client.(interface{ Close() }); ok {
+						c2.Close()
+					} else if s, ok := e.client.(interface{ Shutdown(context.Context) error }); ok {
+						_ = s.Shutdown(context.Background())
+					}
+				}
 				delete(perServer, server)
 			}
 		}
@@ -244,6 +271,16 @@ func (m *Manager) Reconnect(ctx context.Context, convID, serverName string) (mcp
 	// Drop existing entry to force re-creation
 	m.mu.Lock()
 	if m.pool[convID] != nil {
+		if e := m.pool[convID][serverName]; e != nil && e.client != nil {
+			// Best-effort disconnect of current client before replacing.
+			if c, ok := e.client.(interface{ Close() error }); ok {
+				_ = c.Close()
+			} else if c2, ok := e.client.(interface{ Close() }); ok {
+				c2.Close()
+			} else if s, ok := e.client.(interface{ Shutdown(context.Context) error }); ok {
+				_ = s.Shutdown(context.Background())
+			}
+		}
 		delete(m.pool[convID], serverName)
 		if len(m.pool[convID]) == 0 {
 			delete(m.pool, convID)

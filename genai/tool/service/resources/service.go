@@ -79,7 +79,7 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "roots", Description: "Discover configured resource roots with optional descriptions", Input: reflect.TypeOf(&RootsInput{}), Output: reflect.TypeOf(&RootsOutput{})},
 		{Name: "list", Description: "List resources under a root (file or MCP)", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
-		{Name: "read", Description: "Read a single resource under a root", Input: reflect.TypeOf(&ReadInput{}), Output: reflect.TypeOf(&ReadOutput{})},
+		{Name: "read", Description: "Read a single resource under a root. For large files, prefer byteRange and page in chunks (<= 8KB).", Input: reflect.TypeOf(&ReadInput{}), Output: reflect.TypeOf(&ReadOutput{})},
 		{Name: "match", Description: "Semantic match search over one or more roots", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
 		{Name: "grepFiles", Description: "Search text patterns in files under a root and return per-file snippets.", Input: reflect.TypeOf(&GrepInput{}), Output: reflect.TypeOf(&GrepOutput{})},
 	}
@@ -210,26 +210,10 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 			base = workspaceToFile(wsRoot)
 		}
 		if strings.TrimSpace(input.Path) != "" {
-			p := strings.TrimSpace(input.Path)
-			if isAbsLikePath(p) {
-				// For absolute-like paths, ensure they remain under the configured
-				// root when the root is file/workspace-backed.
-				if !mcpuri.Is(wsRoot) {
-					rootBase := base
-					if strings.HasPrefix(rootBase, "file://") {
-						rootBase = fileURLToPath(rootBase)
-					}
-					pathBase := p
-					if strings.HasPrefix(pathBase, "file://") {
-						pathBase = fileURLToPath(pathBase)
-					}
-					if !isUnderRootPath(pathBase, rootBase) {
-						return fmt.Errorf("path %s is outside root %s", p, root)
-					}
-				}
-				base = p
-			} else {
-				base = url.Join(base, strings.TrimPrefix(p, "/"))
+			var jerr error
+			base, jerr = joinBaseWithPath(wsRoot, base, strings.TrimSpace(input.Path), root)
+			if jerr != nil {
+				return jerr
 			}
 		}
 		locations = append(locations, base)
@@ -488,6 +472,37 @@ func isUnderRootPath(path, root string) bool {
 	return strings.HasPrefix(pathFS, rootFS)
 }
 
+// joinBaseWithPath applies a path component to a normalized base, enforcing
+// that absolute-like paths remain under the configured root when applicable.
+// It mirrors the repeated logic across match/list/grepFiles while centralizing
+// path normalization and validation. When p is absolute-like, it is returned
+// as-is after under-root validation; otherwise p is joined onto base.
+func joinBaseWithPath(wsRoot, base, p, rootAlias string) (string, error) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return base, nil
+	}
+	if isAbsLikePath(p) {
+		// For absolute-like paths, ensure they remain under the configured
+		// root when the root is file/workspace-backed.
+		if !mcpuri.Is(wsRoot) {
+			rootBase := base
+			if strings.HasPrefix(rootBase, "file://") {
+				rootBase = fileURLToPath(rootBase)
+			}
+			pathBase := p
+			if strings.HasPrefix(pathBase, "file://") {
+				pathBase = fileURLToPath(pathBase)
+			}
+			if !isUnderRootPath(pathBase, rootBase) {
+				return "", fmt.Errorf("path %s is outside root %s", p, rootAlias)
+			}
+		}
+		return p, nil
+	}
+	return url.Join(base, strings.TrimPrefix(p, "/")), nil
+}
+
 // -------- list implementation --------
 
 type ListInput struct {
@@ -552,29 +567,10 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	}
 	base := normRoot
 	if strings.TrimSpace(input.Path) != "" {
-		p := strings.TrimSpace(input.Path)
-		if isAbsLikePath(p) {
-			// For absolute-like paths/URIs, ensure they remain under the
-			// configured root when the root is file/workspace-backed.
-			if !mcpuri.Is(wsRoot) {
-				rootBase := normRoot
-				if strings.HasPrefix(rootBase, "file://") {
-					rootBase = fileURLToPath(rootBase)
-				}
-				pathBase := p
-				if strings.HasPrefix(pathBase, "file://") {
-					pathBase = fileURLToPath(pathBase)
-				}
-				if !isUnderRootPath(pathBase, rootBase) {
-					return fmt.Errorf("path %s is outside root %s", p, rootURI)
-				}
-			}
-			// Use the path as-is instead of joining onto the normalized
-			// root to avoid duplicated prefixes such as
-			// /Users/.../Users/....
-			base = p
-		} else {
-			base = url.Join(normRoot, strings.TrimPrefix(p, "/"))
+		var jerr error
+		base, jerr = joinBaseWithPath(wsRoot, normRoot, strings.TrimSpace(input.Path), rootURI)
+		if jerr != nil {
+			return jerr
 		}
 	}
 	afsSvc := afs.New()
@@ -694,9 +690,9 @@ type ReadInput struct {
 	Path   string `json:"path,omitempty"`
 	URI    string `json:"uri,omitempty"`
 
-	// Optional explicit range selectors to slice returned content.
-	ByteRange *textclip.IntRange `json:"byteRange,omitempty" description:"Optional byte range [from,to) over the file content."`
-	LineRange *textclip.IntRange `json:"lineRange,omitempty" description:"Optional line range [from,to) mapped to byte offsets (0-based, to exclusive)."`
+	// Embedded range selectors (preferred API)
+	textclip.BytesRange
+	textclip.LineRange
 }
 
 // ReadOutput contains the resolved URI, relative path and optionally truncated content.
@@ -820,24 +816,24 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	startLine := 0
 	endLine := 0
 
-	// Optional slicing: byte range takes precedence over line range.
-	if input.ByteRange != nil {
-		clipped, _, _, err := textclip.ClipBytes(data, input.ByteRange)
+	// Optional slicing: embedded byte range takes precedence over line range.
+	if input.OffsetBytes > 0 || input.LengthBytes > 0 {
+		clipped, _, _, err := textclip.ClipBytesByRange(data, input.BytesRange)
 		if err != nil {
 			return err
 		}
 		text = string(clipped)
-	} else if input.LineRange != nil {
-		clipped, _, _, err := textclip.ClipLines(data, input.LineRange)
+	} else if input.StartLine > 0 || input.LineCount > 0 {
+		clipped, _, _, err := textclip.ClipLinesByRange(data, input.LineRange)
 		if err != nil {
 			return err
 		}
 		text = string(clipped)
-		if input.LineRange.From != nil {
-			startLine = *input.LineRange.From + 1
-		}
-		if input.LineRange.To != nil {
-			endLine = *input.LineRange.To
+		if input.StartLine > 0 {
+			startLine = input.StartLine
+			if input.LineCount > 0 {
+				endLine = startLine + input.LineCount - 1
+			}
 		}
 	}
 	output.URI = fullURI
@@ -1116,33 +1112,7 @@ func (s *Service) roots(ctx context.Context, in, out interface{}) error {
 	return nil
 }
 
-func (s *Service) normalizeLocation(loc string) (string, string) {
-	u := strings.TrimSpace(loc)
-	if u == "" {
-		return "", ""
-	}
-	if mcpuri.Is(u) {
-		return u, "mcp"
-	}
-	// Resolve relative to workspace root, then to file:// URL
-	base := workspace.Root()
-	if strings.HasPrefix(u, "file://") {
-		return u, "file"
-	}
-	// Pass-through other AFS-supported schemes like s3://, gs://, http(s)://, etc.
-	if idx := strings.Index(u, "://"); idx > 0 {
-		return u, "file"
-	}
-	if strings.HasPrefix(u, "/") {
-		return "file://" + u, "file"
-	}
-	// treat as relative path
-	abs := base
-	if !strings.HasSuffix(abs, "/") {
-		abs += "/"
-	}
-	return "file://" + abs + u, "file"
-}
+// normalizeLocation was unused; removed to reduce file size and duplication.
 
 // resolveRootID maps a logical root id to its normalized root URI within the
 // current agent context. It prefers explicit ids declared on agent resources
@@ -1584,27 +1554,10 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 		base = workspaceToFile(wsRoot)
 	}
 	if strings.TrimSpace(input.Path) != "" {
-		p := strings.TrimSpace(input.Path)
-		if isAbsLikePath(p) {
-			// For absolute-like paths, ensure they remain under the configured
-			// root when the root is file/workspace-backed, and avoid joining to
-			// prevent duplicated prefixes.
-			if !mcpuri.Is(wsRoot) {
-				rootBase := base
-				if strings.HasPrefix(rootBase, "file://") {
-					rootBase = fileURLToPath(rootBase)
-				}
-				pathBase := p
-				if strings.HasPrefix(pathBase, "file://") {
-					pathBase = fileURLToPath(pathBase)
-				}
-				if !isUnderRootPath(pathBase, rootBase) {
-					return fmt.Errorf("path %s is outside root %s", p, rootURI)
-				}
-			}
-			base = p
-		} else {
-			base = url.Join(base, strings.TrimPrefix(p, "/"))
+		var jerr error
+		base, jerr = joinBaseWithPath(wsRoot, base, strings.TrimSpace(input.Path), rootURI)
+		if jerr != nil {
+			return jerr
 		}
 	}
 	// Normalise defaults
@@ -1656,221 +1609,116 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	var files []hygine.GrepFile
 	totalBlocks := 0
 
-	// Local/workspace vs MCP handling
-	if mcpuri.Is(wsRoot) {
-		if s.mcpMgr == nil {
-			return fmt.Errorf("mcp manager not configured")
-		}
-		mfs := mcpfs.New(s.mcpMgr)
-		objs, err := mfs.List(ctx, base)
-		if err != nil {
-			return err
-		}
-		for _, o := range objs {
-			if o == nil || o.IsDir() {
-				continue
-			}
-			uri := o.URL()
-			rel := relativePath(base, uri)
-			if !globAllowed(rel, input.Include, input.Exclude) {
-				continue
-			}
-			stats.Scanned++
-			if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
-				stats.Truncated = true
-				break
-			}
-			data, err := mfs.Download(ctx, o)
-			if err != nil {
-				return err
-			}
-			if maxSize > 0 && len(data) > maxSize {
-				data = data[:maxSize]
-			}
-			if skipBinary && isBinary(data) {
-				continue
-			}
-			text := string(data)
-			lines := strings.Split(text, "\n")
-			var matchLines []int
-			for i, line := range lines {
-				if lineMatches(line, matchers, excludeMatchers) {
-					matchLines = append(matchLines, i)
-				}
-			}
-			if len(matchLines) == 0 {
-				continue
-			}
-			stats.Matched++
-			gf := hygine.GrepFile{Path: rel, URI: uri}
-			gf.Matches = len(matchLines)
-			if mode == "head" {
-				end := limitLines
-				if end > len(lines) {
-					end = len(lines)
-				}
-				snippetText := joinLines(lines[:end])
-				if len(snippetText) > limitBytes {
-					snippetText = snippetText[:limitBytes]
-				}
-				gf.Snippets = append(gf.Snippets, hygine.Snippet{StartLine: 1, EndLine: end, Text: snippetText})
-				files = append(files, gf)
-				if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
-					stats.Truncated = true
-					break
-				}
-				continue
-			}
-			for _, idx := range matchLines {
-				if totalBlocks >= maxBlocks {
-					stats.Truncated = true
-					break
-				}
-				start := idx - limitLines/2
-				if start < 0 {
-					start = 0
-				}
-				end := start + limitLines
-				if end > len(lines) {
-					end = len(lines)
-				}
-				snippetText := joinLines(lines[start:end])
-				cut := false
-				if len(snippetText) > limitBytes {
-					snippetText = snippetText[:limitBytes]
-					cut = true
-				}
-				gf.Snippets = append(gf.Snippets, hygine.Snippet{
-					StartLine:   start + 1,
-					EndLine:     end,
-					Text:        snippetText,
-					OffsetBytes: 0,
-					LengthBytes: len(snippetText),
-					Cut:         cut,
-				})
-				totalBlocks++
-				if totalBlocks >= maxBlocks {
-					stats.Truncated = true
-					break
-				}
-			}
-			files = append(files, gf)
-			if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
-				stats.Truncated = true
-				break
-			}
-		}
-	} else {
-		fs := afs.New()
-		err = fs.Walk(ctx, base, func(ctx context.Context, walkBaseURL, parent string, info os.FileInfo, reader io.Reader) (bool, error) {
-			if info == nil || info.IsDir() {
-				return true, nil
-			}
-			// Enforce non-recursive mode: only consider direct children when Recursive=false.
-			if !input.Recursive && parent != "" {
-				return true, nil
-			}
-			// Build full URI
-			var uri string
-			if parent == "" {
-				uri = url.Join(walkBaseURL, info.Name())
-			} else {
-				uri = url.Join(walkBaseURL, parent, info.Name())
-			}
-			// Apply include/exclude globs on the relative path
-			rel := relativePath(base, uri)
-			if !globAllowed(rel, input.Include, input.Exclude) {
-				return true, nil
-			}
-
-			stats.Scanned++
-			if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
-				stats.Truncated = true
-				return false, nil
-			}
-			data, err := fs.DownloadWithURL(ctx, uri)
-			if err != nil {
-				return false, err
-			}
-			if maxSize > 0 && len(data) > maxSize {
-				data = data[:maxSize]
-			}
-			if skipBinary && isBinary(data) {
-				return true, nil
-			}
-			text := string(data)
-			lines := strings.Split(text, "\n")
-			var matchLines []int
-			for i, line := range lines {
-				if lineMatches(line, matchers, excludeMatchers) {
-					matchLines = append(matchLines, i)
-				}
-			}
-			if len(matchLines) == 0 {
-				return true, nil
-			}
-			stats.Matched++
-			gf := hygine.GrepFile{Path: rel, URI: uri}
-			gf.Matches = len(matchLines)
-			// Build snippets depending on mode
-			if mode == "head" {
-				// Single snippet from the top of the file
-				end := limitLines
-				if end > len(lines) {
-					end = len(lines)
-				}
-				snippetText := joinLines(lines[:end])
-				if len(snippetText) > limitBytes {
-					snippetText = snippetText[:limitBytes]
-				}
-				gf.Snippets = append(gf.Snippets, hygine.Snippet{StartLine: 1, EndLine: end, Text: snippetText})
-				files = append(files, gf)
-				return stats.Matched < maxFiles && totalBlocks < maxBlocks, nil
-			}
-			// match mode: build a snippet around each match line
-			for _, idx := range matchLines {
-				if totalBlocks >= maxBlocks {
-					stats.Truncated = true
-					return false, nil
-				}
-				start := idx - limitLines/2
-				if start < 0 {
-					start = 0
-				}
-				end := start + limitLines
-				if end > len(lines) {
-					end = len(lines)
-				}
-				snippetText := joinLines(lines[start:end])
-				cut := false
-				if len(snippetText) > limitBytes {
-					snippetText = snippetText[:limitBytes]
-					cut = true
-				}
-				gf.Snippets = append(gf.Snippets, hygine.Snippet{
-					StartLine:   start + 1,
-					EndLine:     end,
-					Text:        snippetText,
-					OffsetBytes: 0,
-					LengthBytes: len(snippetText),
-					Cut:         cut,
-				})
-				totalBlocks++
-				if totalBlocks >= maxBlocks {
-					stats.Truncated = true
-					break
-				}
-			}
-			files = append(files, gf)
-			if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
-				stats.Truncated = true
-				return false, nil
-			}
+	// Local/workspace handling (MCP roots are rejected earlier in this method)
+	fs := afs.New()
+	err = fs.Walk(ctx, base, func(ctx context.Context, walkBaseURL, parent string, info os.FileInfo, reader io.Reader) (bool, error) {
+		if info == nil || info.IsDir() {
 			return true, nil
-		})
-		if err != nil {
-			return err
 		}
+		// Enforce non-recursive mode: only consider direct children when Recursive=false.
+		if !input.Recursive && parent != "" {
+			return true, nil
+		}
+		// Build full URI
+		var uri string
+		if parent == "" {
+			uri = url.Join(walkBaseURL, info.Name())
+		} else {
+			uri = url.Join(walkBaseURL, parent, info.Name())
+		}
+		// Apply include/exclude globs on the relative path
+		rel := relativePath(base, uri)
+		if !globAllowed(rel, input.Include, input.Exclude) {
+			return true, nil
+		}
+
+		stats.Scanned++
+		if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
+			stats.Truncated = true
+			return false, nil
+		}
+		data, err := fs.DownloadWithURL(ctx, uri)
+		if err != nil {
+			return false, err
+		}
+		if maxSize > 0 && len(data) > maxSize {
+			data = data[:maxSize]
+		}
+		if skipBinary && isBinary(data) {
+			return true, nil
+		}
+		text := string(data)
+		lines := strings.Split(text, "\n")
+		var matchLines []int
+		for i, line := range lines {
+			if lineMatches(line, matchers, excludeMatchers) {
+				matchLines = append(matchLines, i)
+			}
+		}
+		if len(matchLines) == 0 {
+			return true, nil
+		}
+		stats.Matched++
+		gf := hygine.GrepFile{Path: rel, URI: uri}
+		gf.Matches = len(matchLines)
+		// Build snippets depending on mode
+		if mode == "head" {
+			// Single snippet from the top of the file
+			end := limitLines
+			if end > len(lines) {
+				end = len(lines)
+			}
+			snippetText := joinLines(lines[:end])
+			if len(snippetText) > limitBytes {
+				snippetText = snippetText[:limitBytes]
+			}
+			gf.Snippets = append(gf.Snippets, hygine.Snippet{StartLine: 1, EndLine: end, Text: snippetText})
+			files = append(files, gf)
+			return stats.Matched < maxFiles && totalBlocks < maxBlocks, nil
+		}
+		// match mode: build a snippet around each match line
+		for _, idx := range matchLines {
+			if totalBlocks >= maxBlocks {
+				stats.Truncated = true
+				return false, nil
+			}
+			start := idx - limitLines/2
+			if start < 0 {
+				start = 0
+			}
+			end := start + limitLines
+			if end > len(lines) {
+				end = len(lines)
+			}
+			snippetText := joinLines(lines[start:end])
+			cut := false
+			if len(snippetText) > limitBytes {
+				snippetText = snippetText[:limitBytes]
+				cut = true
+			}
+			gf.Snippets = append(gf.Snippets, hygine.Snippet{
+				StartLine:   start + 1,
+				EndLine:     end,
+				Text:        snippetText,
+				OffsetBytes: 0,
+				LengthBytes: len(snippetText),
+				Cut:         cut,
+			})
+			totalBlocks++
+			if totalBlocks >= maxBlocks {
+				stats.Truncated = true
+				break
+			}
+		}
+		files = append(files, gf)
+		if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
+			stats.Truncated = true
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		return err
 	}
 	output.Stats = stats
 	output.Files = files

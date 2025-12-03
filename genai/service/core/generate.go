@@ -42,6 +42,43 @@ func (i *GenerateInput) MatchModelIfNeeded(matcher llm.Matcher) {
 	if i.Model != "" || i.Preferences == nil {
 		return
 	}
+	// When gatekeeper filters are set on selection, reduce candidates first if supported.
+	if rm, ok := matcher.(llm.ReducingMatcher); ok && (len(i.AllowedModels) > 0 || len(i.AllowedProviders) > 0) {
+		allowSet := map[string]struct{}{}
+		for _, m := range i.AllowedModels {
+			if v := strings.TrimSpace(m); v != "" {
+				allowSet[v] = struct{}{}
+			}
+		}
+		provSet := map[string]struct{}{}
+		for _, p := range i.AllowedProviders {
+			if v := strings.TrimSpace(p); v != "" {
+				provSet[v] = struct{}{}
+			}
+		}
+		allow := func(id string) bool {
+			id = strings.TrimSpace(strings.ToLower(id))
+			if id == "" {
+				return false
+			}
+			if len(allowSet) > 0 {
+				_, ok := allowSet[id]
+				return ok
+			}
+			if len(provSet) > 0 {
+				if idx := strings.IndexByte(id, '_'); idx > 0 {
+					_, ok := provSet[id[:idx]]
+					return ok
+				}
+				return false
+			}
+			return true
+		}
+		if m := rm.BestWithFilter(i.Preferences, allow); m != "" {
+			i.Model = m
+			return
+		}
+	}
 	if m := matcher.Best(i.Preferences); m != "" {
 		i.Model = m
 	}

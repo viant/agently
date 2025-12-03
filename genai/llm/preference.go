@@ -6,6 +6,10 @@ type ModelSelection struct {
 	Model       string            `yaml:"model,omitempty" json:"model,omitempty"`
 	Preferences *ModelPreferences `yaml:"modelPreferences,omitempty" json:"modelPreferences,omitempty"`
 	Options     *Options          `yaml:"options,omitempty" json:"options,omitempty"`
+	// Internal-only filters for model selection gatekeeping. These are set by
+	// agent runtime from agent configuration and are not part of public JSON.
+	AllowedProviders []string `yaml:"-" json:"-"`
+	AllowedModels    []string `yaml:"-" json:"-"`
 }
 
 // ModelPreferences expresses caller priorities (0..1) + optional name hints.
