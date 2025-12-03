@@ -11,8 +11,64 @@ type IntRange struct {
 	To   *int `json:"to,omitempty"`
 }
 
+type BytesRange struct {
+	// byte range is ignored. When both byte and line ranges are unset, the
+	// full (optionally MaxBytes-truncated) content is returned.
+	OffsetBytes int64 `json:"offsetBytes,omitempty"` // 0-based byte offset; default 0
+	LengthBytes int   `json:"lengthBytes,omitempty"` // bytes to read; 0 => use MaxBytes cap
+
+}
+
+type LineRange struct {
+	// OffsetBytes and LengthBytes describe a 0-based byte window within the
+	// file. When StartLine is > 0, the line range takes precedence and the
+
+	// StartLine and LineCount describe a 1-based line slice. When StartLine > 0
+	// this mode is used in preference to the byte range.
+	StartLine int `json:"startLine,omitempty"` // 1-based start line
+	LineCount int `json:"lineCount,omitempty"` // number of lines; 0 => until EOF or MaxBytes
+
+}
+
 func rngOK(r *IntRange) bool {
 	return r != nil && r.From != nil && r.To != nil && *r.From >= 0 && *r.To >= *r.From
+}
+
+// ClipBytesByRange clips using BytesRange (offset+length) without exposing IntRange.
+// When both fields are zero, the original slice is returned.
+func ClipBytesByRange(b []byte, br BytesRange) ([]byte, int, int, error) {
+	if br.OffsetBytes <= 0 && br.LengthBytes <= 0 {
+		return b, 0, len(b), nil
+	}
+	start := int(br.OffsetBytes)
+	end := start
+	if br.LengthBytes > 0 {
+		end = start + br.LengthBytes
+	} else {
+		end = len(b)
+	}
+	r := &IntRange{From: &start, To: &end}
+	return ClipBytes(b, r)
+}
+
+// ClipLinesByRange clips using LineRange (StartLine+LineCount) without exposing IntRange.
+// When both fields are zero, the original slice is returned.
+func ClipLinesByRange(b []byte, lr LineRange) ([]byte, int, int, error) {
+	if lr.StartLine <= 0 && lr.LineCount <= 0 {
+		return b, 0, len(b), nil
+	}
+	from := lr.StartLine - 1
+	if from < 0 {
+		from = 0
+	}
+	to := from
+	if lr.LineCount > 0 {
+		to = from + lr.LineCount
+	} else {
+		to = from + 1_000_000_000
+	}
+	r := &IntRange{From: &from, To: &to}
+	return ClipLines(b, r)
 }
 
 // ClipBytes returns a byte slice clipped to r and the start/end offsets.

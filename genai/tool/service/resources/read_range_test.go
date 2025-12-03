@@ -50,12 +50,12 @@ func TestService_Read_RangeVariants(t *testing.T) {
 	}{
 		{
 			name:     "byteRange from 2 to 5",
-			input:    &ReadInput{RootURI: rootURI, Path: "bytes.txt", ByteRange: &textclip.IntRange{From: iptr(2), To: iptr(5)}},
+			input:    &ReadInput{RootURI: rootURI, Path: "bytes.txt", BytesRange: textclip.BytesRange{OffsetBytes: 2, LengthBytes: 3}},
 			expected: got{Content: "cde", StartLine: 0, EndLine: 0, Size: len(bytesContent)},
 		},
 		{
-			name:     "lineRange from 1 to 3 (0-based)",
-			input:    &ReadInput{RootURI: rootURI, Path: "lines.txt", LineRange: &textclip.IntRange{From: iptr(1), To: iptr(3)}},
+			name:     "lineRange StartLine=2, Count=2",
+			input:    &ReadInput{RootURI: rootURI, Path: "lines.txt", LineRange: textclip.LineRange{StartLine: 2, LineCount: 2}},
 			expected: got{Content: "b\nc", StartLine: 2, EndLine: 3, Size: len(linesContent)},
 		},
 	}

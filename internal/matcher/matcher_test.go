@@ -46,3 +46,40 @@ func TestMatcher_Best_HonoursHintsFirst(t *testing.T) {
 	best := m.Best(prefs)
 	assert.Equal(t, "openai_o4-mini", best, "hint should force selection of matching candidate")
 }
+
+func TestMatcher_Best_HintDoesNotCollideWithGemini(t *testing.T) {
+	cands := []Candidate{
+		{ID: "openai_o4-mini", Intelligence: 0.5, Speed: 0.5, Cost: 0.01},
+		{ID: "gemini_gemini-2.5-flash", Intelligence: 0.8, Speed: 0.9, Cost: 0.01},
+	}
+	m := New(cands)
+	prefs := &llm.ModelPreferences{Hints: []string{"mini"}}
+
+	best := m.Best(prefs)
+	assert.Equal(t, "openai_o4-mini", best, "'mini' should match token '-mini' but not substring in 'gemini'")
+}
+
+func TestMatcher_Best_ProviderHintMatchesPrefix(t *testing.T) {
+	cands := []Candidate{
+		{ID: "openai_o4-mini", Intelligence: 0.5, Speed: 0.5, Cost: 0.01},
+		{ID: "gemini_gemini-2.5-flash", Intelligence: 0.8, Speed: 0.9, Cost: 0.01},
+	}
+	m := New(cands)
+	prefs := &llm.ModelPreferences{Hints: []string{"gemini"}}
+
+	best := m.Best(prefs)
+	assert.Equal(t, "gemini_gemini-2.5-flash", best, "provider hint should match provider prefix")
+}
+
+func TestMatcher_Best_ProviderReductionThenModelHint(t *testing.T) {
+	cands := []Candidate{
+		{ID: "gemini_gemini-mini", Intelligence: 0.9, Speed: 0.9, Cost: 0.01},
+		{ID: "openai_o4-mini", Intelligence: 0.8, Speed: 0.95, Cost: 0.004},
+	}
+	m := New(cands)
+	// Model hint first, provider hint second: provider must reduce candidates, then model hint applies.
+	prefs := &llm.ModelPreferences{Hints: []string{"mini", "openai"}}
+
+	best := m.Best(prefs)
+	assert.Equal(t, "openai_o4-mini", best, "provider hint should restrict candidates before applying model hint")
+}
