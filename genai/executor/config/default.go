@@ -47,6 +47,10 @@ type PreviewSettings struct {
 	EmbeddingModel string `yaml:"embeddingModel" json:"embeddingModel"`
 	// Optional system guide document (path or URL) injected when overflow occurs.
 	SystemGuidePath string `yaml:"systemGuidePath" json:"systemGuidePath"`
+	// SummaryThresholdBytes controls when internal/message:summarize is
+	// exposed for overflowed messages. When zero or negative, any
+	// overflowed message may use summarize.
+	SummaryThresholdBytes int `yaml:"summaryThresholdBytes,omitempty" json:"summaryThresholdBytes,omitempty"`
 }
 
 // MatchDefaults groups retrieval/matching defaults

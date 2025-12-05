@@ -20,6 +20,10 @@ type (
 		// HasMessageOverflow indicates that a message content (tool result or otherwise)
 		// exceeded the preview limit and the binding may expose message helpers.
 		HasMessageOverflow bool `yaml:"hasMessageOverflow,omitempty" json:"hasMessageOverflow,omitempty"`
+		// MaxOverflowBytes records the maximum original byte size of any
+		// message that triggered overflow in this binding (history or tool
+		// results). When zero, no size information was recorded.
+		MaxOverflowBytes int `yaml:"maxOverflowBytes,omitempty" json:"maxOverflowBytes,omitempty"`
 	}
 
 	Documents struct {
