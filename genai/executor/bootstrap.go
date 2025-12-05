@@ -623,6 +623,12 @@ func (e *Service) initDefaults(ctx context.Context) error {
 		if tr.MatchChunk == 0 {
 			tr.MatchChunk = 1024
 		}
+		if tr.SummaryThresholdBytes <= 0 {
+			// Default: enable summarize helpers only for messages
+			// larger than 128KB. Smaller overflows can still use
+			// internal/message:show and, when enabled, match.
+			tr.SummaryThresholdBytes = 256 * 1024
+		}
 		// Prefer explicit summary model; otherwise default to the global default model id
 		if strings.TrimSpace(tr.SummaryModel) == "" {
 			tr.SummaryModel = strings.TrimSpace(e.config.Default.Model)

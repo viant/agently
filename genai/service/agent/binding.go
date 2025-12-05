@@ -19,7 +19,6 @@ import (
 	padapter "github.com/viant/agently/genai/prompt/adapter"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/internal/workspace"
-	"github.com/viant/agently/pkg/agently/conversation"
 	mcpname "github.com/viant/agently/pkg/mcpname"
 )
 
@@ -44,7 +43,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 
 	// Compute effective preview limit using service defaults only
-	hist, histOverflow, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript(), input)
+	hist, histOverflow, maxHistOverflowBytes, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript(), input)
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +69,9 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if histOverflow {
 		b.Flags.HasMessageOverflow = true
 	}
+	if maxHistOverflowBytes > 0 {
+		b.Flags.MaxOverflowBytes = maxHistOverflowBytes
+	}
 
 	b.Task = s.buildTaskBinding(input)
 
@@ -85,7 +87,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	} else if input.Agent != nil && strings.TrimSpace(string(input.Agent.Tool.CallExposure)) != "" {
 		exposure = input.Agent.Tool.CallExposure
 	}
-	execs, overflow, err := s.buildToolExecutions(ctx, input, conv, exposure)
+	execs, overflow, maxExecOverflowBytes, err := s.buildToolExecutions(ctx, input, conv, exposure)
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +98,9 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	// Drive overflow-based helper exposure via binding flag
 	if overflow {
 		b.Flags.HasMessageOverflow = true
+	}
+	if maxExecOverflowBytes > 0 && maxExecOverflowBytes > b.Flags.MaxOverflowBytes {
+		b.Flags.MaxOverflowBytes = maxExecOverflowBytes
 	}
 
 	// If any tool call in the current turn overflowed, expose callToolResult tools
@@ -338,8 +343,21 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 				allowed = true
 			}
 		} else if b.Flags.HasMessageOverflow {
-			if method == "show" || method == "summarize" || method == "match" {
+			// For normal overflow, always expose show; gate summarize on
+			// configured summaryThresholdBytes and recorded MaxOverflowBytes.
+			if method == "show" || method == "match" {
 				allowed = true
+			} else if method == "summarize" {
+				threshold := 0
+				if s.defaults != nil {
+					threshold = s.defaults.PreviewSettings.SummaryThresholdBytes
+				}
+				// When threshold <= 0, fallback to previous behavior and
+				// allow summarize for any overflow. Otherwise, require at
+				// least one overflowed message to exceed the threshold.
+				if threshold <= 0 || b.Flags.MaxOverflowBytes > threshold {
+					allowed = true
+				}
 			}
 		}
 
@@ -593,13 +611,13 @@ func (s *Service) buildHistory(ctx context.Context, transcript apiconv.Transcrip
 }
 
 // buildHistoryWithLimit maps transcript into prompt history applying overflow preview to user/assistant text messages.
-func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript, input *QueryInput) (prompt.History, bool, error) {
+func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript, input *QueryInput) (prompt.History, bool, int, error) {
 	// When effectiveLimit <= 0, fall back to default
 	var out prompt.History
 
 	if s.effectivePreviewLimit(0) <= 0 {
 		h, err := s.buildHistory(ctx, transcript)
-		return h, false, err
+		return h, false, 0, err
 	}
 	lastAssistantMessage := transcript.LastAssistantMessage()
 	lastElicitationMessage := transcript.LastElicitationMessage()
@@ -656,21 +674,30 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 	// input query will be added separately in generate step
 	if len(normalized) > 0 {
 		last := *normalized[len(normalized)-1]
-		if last.Content != nil && *last.Content == input.Query {
-			normalized[len(normalized)-1].Attachment = make([]*conversation.AttachmentView, 0)
-			//normalized = normalized[:len(normalized)-1]
+		role := strings.ToLower(strings.TrimSpace(last.Role))
+		if role == "user" && last.Content != nil && *last.Content == input.Query {
+			// Drop the current turn's user message from history so that it is
+			// represented only once via the expanded task prompt generated from
+			// the agent's user template. Keeping it here as well would duplicate
+			// the raw query (once in history, once as the final Task message).
+			normalized = normalized[:len(normalized)-1]
 		}
 	}
 
 	overflow := false
+	maxOverflowBytes := 0
 	for i, msg := range normalized {
 		role := msg.Role
 		content := ""
 		if msg.Content != nil {
 			// Apply overflow preview with message id reference
-			preview, of := buildOverflowPreview(*msg.Content, s.effectivePreviewLimit(i), msg.Id)
+			orig := *msg.Content
+			preview, of := buildOverflowPreview(orig, s.effectivePreviewLimit(i), msg.Id)
 			if of {
 				overflow = true
+				if size := len(orig); size > maxOverflowBytes {
+					maxOverflowBytes = size
+				}
 			}
 			content = preview
 		}
@@ -707,24 +734,25 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 					mm.Has.Archived = true
 					err := s.conversation.PatchMessage(ctx, (*apiconv.MutableMessage)(mm))
 					if err != nil {
-						return out, overflow, fmt.Errorf("failed to archive error message %q: %w", msg.Id, err)
+						return out, overflow, maxOverflowBytes, fmt.Errorf("failed to archive error message %q: %w", msg.Id, err)
 					}
 				}
 			}
 		}
 
 	}
-	return out, overflow, nil
+	return out, overflow, maxOverflowBytes, nil
 }
 
 // buildToolExecutions extracts tool calls from the provided conversation transcript for the current turn.
-func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, conv *apiconv.Conversation, exposure agent.ToolCallExposure) ([]*llm.ToolCall, bool, error) {
+func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, conv *apiconv.Conversation, exposure agent.ToolCallExposure) ([]*llm.ToolCall, bool, int, error) {
 	turnMeta, ok := memory.TurnMetaFromContext(ctx)
 	if !ok || strings.TrimSpace(turnMeta.TurnID) == "" {
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	transcript := conv.GetTranscript()
 	overflowFound := false
+	maxOverflowBytes := 0
 	buildFromTurn := func(t *apiconv.Turn) []*llm.ToolCall {
 		var out []*llm.ToolCall
 		if t == nil {
@@ -746,6 +774,9 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 				preview, overflow := buildOverflowPreview(body, effectivePreviewLimit, m.Id)
 				if overflow {
 					overflowFound = true
+					if size := len(body); size > maxOverflowBytes {
+						maxOverflowBytes = size
+					}
 				}
 				result = preview
 			}
@@ -763,7 +794,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		for _, t := range transcript {
 			out = append(out, buildFromTurn(t)...)
 		}
-		return out, overflowFound, nil
+		return out, overflowFound, maxOverflowBytes, nil
 	case "turn", "":
 		// Find current turn only
 		var aTurn *apiconv.Turn
@@ -774,13 +805,13 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 			}
 		}
 		if aTurn == nil {
-			return nil, false, nil
+			return nil, false, 0, nil
 		}
 		execs := buildFromTurn(aTurn)
-		return execs, overflowFound, nil
+		return execs, overflowFound, maxOverflowBytes, nil
 	default:
 		// Unrecognised/semantic: do not include tool calls for now
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 }
 
