@@ -149,12 +149,28 @@ Migration & Implementation Steps
   - `resources:list` — enumerate items under a single root.
     - Input: `{ rootId?: string, root?: string, path?: string, recursive?: bool, maxItems?: int }`
     - Output: `{ items: [{ uri, path, name, size, modified }], total }`
-    - Supports `file://` and `mcp:server:/prefix` sources. `path` is interpreted relative to the root.
+    - Supports `file://` and `mcp:server:/prefix` sources.
+    - Path contract (root-based form):
+      - When `path` is omitted, the root itself is listed.
+      - When `path` is provided and **not** absolute, it is interpreted as a
+        relative path under the selected root (joined onto the root's
+        filesystem path).
+      - When `path` is provided and **is** an absolute filesystem path, it
+        MUST begin with the root's filesystem path. Absolute paths that do
+        not lie under the root MUST be rejected ("path is outside root").
   - `resources:read` — read a single resource.
     - Input (root-centric): `{ rootId?: string, root?: string, path: string, maxBytes?: int }`
     - Input (uri-centric): `{ uri: string, maxBytes?: int }`
     - Output: `{ uri, path, content, size }`
-    - Notes: when `uri` is provided it is used directly (after normalization and allowlist check). When `root+path` are provided, they are joined to form the target URI.
+    - Notes (root-based form):
+      - `path` MUST either be a relative path under the selected root, or an
+        absolute path that begins with the root's filesystem path.
+      - Relative paths are joined onto the root's filesystem path.
+      - Absolute paths that do not lie under the root MUST NOT be rewritten
+        or auto-joined; they MUST be rejected with a clear error such as
+        "path is outside root".
+    - Notes (uri-based form): when `uri` is provided it is used directly
+      (after normalization and allowlist check), bypassing `root`/`path`.
   - `resources:match` — semantic retrieval over one or more roots using Embedius.
     - Input: `{ query: string, rootIds?: [string], roots?: [string], path?: string, model: string, maxDocuments?: int, match?: {...}, includeFile?: bool }`
     - Output: `{ documents: [], documentsSize: int, content: string }`

@@ -2,6 +2,8 @@ package textclip
 
 import (
 	"errors"
+	"regexp"
+	"strings"
 )
 
 // IntRange represents a half-open interval [From, To) with 0-based indices.
@@ -142,4 +144,60 @@ func ClipLines(b []byte, r *IntRange) ([]byte, int, int, error) {
 		end = start
 	}
 	return b[start:end], start, end, nil
+}
+
+// ClipHead returns the first portion of text limited by maxBytes and maxLines.
+// remaining reflects how many bytes were omitted relative to totalSize.
+func ClipHead(text string, totalSize, maxBytes, maxLines int) (string, int, int) {
+	lines := strings.Split(text, "\n")
+	if maxLines > 0 && len(lines) > maxLines {
+		lines = lines[:maxLines]
+	}
+	head := strings.Join(lines, "\n")
+	if maxBytes > 0 && len(head) > maxBytes {
+		head = head[:maxBytes]
+	}
+	return head, len(head), remaining(totalSize, len(head))
+}
+
+// ClipTail returns the last portion of text limited by maxBytes and maxLines.
+func ClipTail(text string, totalSize, maxBytes, maxLines int) (string, int, int) {
+	lines := strings.Split(text, "\n")
+	if maxLines > 0 && len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	tail := strings.Join(lines, "\n")
+	if maxBytes > 0 && len(tail) > maxBytes {
+		tail = tail[len(tail)-maxBytes:]
+	}
+	return tail, len(tail), remaining(totalSize, len(tail))
+}
+
+// ExtractSignatures collects signature-like lines and optionally bounds the response by maxBytes.
+func ExtractSignatures(text string, maxBytes int) string {
+	var sigs []string
+	re := regexp.MustCompile(`^\s*(public|private|protected|class|interface|func|def|package|import|\w+\s+\w+\()`)
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if re.MatchString(line) {
+			sigs = append(sigs, line)
+		}
+		if maxBytes > 0 && len(strings.Join(sigs, "\n")) >= maxBytes {
+			break
+		}
+	}
+	result := strings.Join(sigs, "\n")
+	if maxBytes > 0 && len(result) > maxBytes {
+		result = result[:maxBytes]
+	}
+	return result
+}
+
+func remaining(totalSize, returned int) int {
+	if totalSize <= returned {
+		return 0
+	}
+	return totalSize - returned
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,11 +44,21 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 
 	// Compute effective preview limit using service defaults only
-	hist, histOverflow, maxHistOverflowBytes, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript(), input)
+	hist, elicitation, histOverflow, maxHistOverflowBytes, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript(), input)
 	if err != nil {
 		return nil, err
 	}
 	b.History = hist
+	// Align History.CurrentTurnID with the in-flight turn when available
+	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+		b.History.CurrentTurnID = strings.TrimSpace(tm.TurnID)
+	}
+	// Attach current-turn elicitation messages to History.Current so
+	// they can participate in a unified, chronological view of the
+	// in-flight turn.
+	if len(elicitation) > 0 {
+		appendCurrentMessages(&b.History, elicitation...)
+	}
 	// Populate History.LastResponse using the last assistant message in transcript
 	if conv != nil {
 		tr := conv.GetTranscript()
@@ -65,7 +76,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		}
 	}
 	// Merge latest user elicitation payload (JSON object) into binding.Context
-	mergeElicitationPayloadIntoContext(&b.History, &b.Context)
+	mergeElicitationPayloadIntoContext(b.History, &b.Context)
 	if histOverflow {
 		b.Flags.HasMessageOverflow = true
 	}
@@ -92,6 +103,29 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		return nil, err
 	}
 	if len(execs) > 0 {
+		// For turn exposure, treat tool executions as part of the
+		// current-turn continuation by appending synthetic tool
+		// result messages into History.Current.Messages. For
+		// conversation exposure, keep executions for templates
+		// only; the corresponding messages are already embedded
+		// chronologically in History via transcript mapping.
+		if strings.EqualFold(string(exposure), "turn") || strings.TrimSpace(string(exposure)) == "" {
+			var msgs []*prompt.Message
+			for _, tc := range execs {
+				if tc == nil {
+					continue
+				}
+				msgs = append(msgs, &prompt.Message{
+					Kind:     prompt.MessageKindToolResult,
+					Role:     "assistant",
+					Content:  tc.Result,
+					ToolOpID: tc.ID,
+					ToolName: tc.Name,
+					ToolArgs: tc.Arguments,
+				})
+			}
+			appendCurrentMessages(&b.History, msgs...)
+		}
 		b.Tools.Executions = execs
 	}
 
@@ -188,14 +222,11 @@ func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
 	return result
 }
 
-// mergeElicitationPayloadIntoContext folds the most recent JSON object payloads
-// from user elicitation messages into the binding context so downstream plans
-// can see resolved inputs (e.g., workdir). Later messages win on key collision.
-func mergeElicitationPayloadIntoContext(h *prompt.History, ctxPtr *map[string]interface{}) {
-	if h == nil || len(h.UserElicitation) == 0 {
-		return
-	}
-	// Ensure context map exists
+// mergeElicitationPayloadIntoContext folds the most recent JSON object
+// payloads from user elicitation messages into the binding context so
+// downstream plans can see resolved inputs (e.g., workdir). Later
+// messages win on key collision.
+func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]interface{}) {
 	if ctxPtr == nil {
 		return
 	}
@@ -203,22 +234,35 @@ func mergeElicitationPayloadIntoContext(h *prompt.History, ctxPtr *map[string]in
 		*ctxPtr = map[string]interface{}{}
 	}
 	ctx := *ctxPtr
-	// Process in order, last one wins
-	for _, m := range h.UserElicitation {
-		if m == nil {
+
+	// Helper to process a slice of messages in order.
+	consume := func(msgs []*prompt.Message) {
+		for _, m := range msgs {
+			if m == nil || m.Kind != prompt.MessageKindElicitAnswer {
+				continue
+			}
+			raw := strings.TrimSpace(m.Content)
+			if raw == "" || !strings.HasPrefix(raw, "{") {
+				continue
+			}
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(raw), &payload); err != nil || len(payload) == 0 {
+				continue
+			}
+			for k, v := range payload {
+				ctx[k] = v
+			}
+		}
+	}
+
+	for _, t := range h.Past {
+		if t == nil {
 			continue
 		}
-		raw := strings.TrimSpace(m.Content)
-		if raw == "" || !strings.HasPrefix(raw, "{") {
-			continue
-		}
-		var payload map[string]interface{}
-		if err := json.Unmarshal([]byte(raw), &payload); err != nil || len(payload) == 0 {
-			continue
-		}
-		for k, v := range payload {
-			ctx[k] = v
-		}
+		consume(t.Messages)
+	}
+	if h.Current != nil {
+		consume(h.Current.Messages)
 	}
 }
 
@@ -601,29 +645,48 @@ func (s *Service) buildTaskBinding(input *QueryInput) prompt.Task {
 	return prompt.Task{Prompt: task, Attachments: input.Attachments}
 }
 
-// buildHistory derives history from a provided conversation (if non-nil),
-// otherwise falls back to DAO transcript for compatibility.
+// buildHistory derives history from a provided conversation transcript.
+// It maps transcript turns and messages into prompt history without
+// applying any overflow preview logic.
 func (s *Service) buildHistory(ctx context.Context, transcript apiconv.Transcript) (prompt.History, error) {
-	// Default behavior: no clamping; use transcript mapping.
-	var h prompt.History
-	h.Messages = transcript.History(false)
-	return h, nil
+	h, _, _, _, err := s.buildChronologicalHistory(ctx, transcript, nil, false)
+	return h, err
 }
 
-// buildHistoryWithLimit maps transcript into prompt history applying overflow preview to user/assistant text messages.
-func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript, input *QueryInput) (prompt.History, bool, int, error) {
-	// When effectiveLimit <= 0, fall back to default
-	var out prompt.History
-
-	if s.effectivePreviewLimit(0) <= 0 {
+// buildHistoryWithLimit maps transcript into prompt history applying overflow
+// preview to user/assistant text messages and collecting current-turn
+// elicitation messages separately.
+func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript, input *QueryInput) (prompt.History, []*prompt.Message, bool, int, error) {
+	// When no preview limit is configured, fall back to default mapping.
+	if s.defaults == nil || s.defaults.PreviewSettings.Limit <= 0 {
 		h, err := s.buildHistory(ctx, transcript)
-		return h, false, 0, err
+		return h, nil, false, 0, err
 	}
+	h, elicitation, overflow, maxOverflowBytes, err := s.buildChronologicalHistory(ctx, transcript, input, true)
+	return h, elicitation, overflow, maxOverflowBytes, err
+}
+
+// buildChronologicalHistory constructs prompt history turns from the provided
+// transcript. When applyPreview is true, it applies overflow preview to
+// user/assistant text messages using the service's effective preview limit.
+// It also extracts current-turn elicitation messages as a separate slice.
+func (s *Service) buildChronologicalHistory(
+	ctx context.Context,
+	transcript apiconv.Transcript,
+	input *QueryInput,
+	applyPreview bool,
+) (prompt.History, []*prompt.Message, bool, int, error) {
+	var out prompt.History
+	var elicitation []*prompt.Message
+	// Empty transcript yields empty history.
+	if transcript == nil || len(transcript) == 0 {
+		return out, nil, false, 0, nil
+	}
+
 	lastAssistantMessage := transcript.LastAssistantMessage()
 	lastElicitationMessage := transcript.LastElicitationMessage()
-
 	currentElicitation := false
-	if lastElicitationMessage != nil {
+	if lastElicitationMessage != nil && lastAssistantMessage != nil {
 		if lastElicitationMessage.Id == lastAssistantMessage.Id {
 			currentElicitation = true
 		}
@@ -632,75 +695,171 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 		}
 	}
 
-	normalized := transcript.Filter(func(v *apiconv.Message) bool {
-		if v == nil || v.Content == nil || *v.Content == "" {
-			return false
+	type normalizedMsg struct {
+		turnIdx int
+		msg     *apiconv.Message
+	}
+
+	var normalized []normalizedMsg
+
+	// First pass: filter transcript messages according to existing rules,
+	// and collect current-turn elicitation separately.
+	for ti, turn := range transcript {
+		if turn == nil || turn.Message == nil {
+			continue
 		}
-		// Allow error messages exactly once
-		if v.Status != nil && strings.EqualFold(strings.TrimSpace(*v.Status), "error") {
-			if v.IsArchived() {
-				return false
+		for _, m := range turn.GetMessages() {
+			if m == nil {
+				continue
 			}
-			return true
-		}
-		if v.IsArchived() || v.IsInterim() {
-			return false
-		}
-		if strings.ToLower(strings.TrimSpace(v.Type)) != "text" {
-			return false
-		}
-		role := strings.ToLower(strings.TrimSpace(v.Role))
-
-		if currentElicitation && (role == "user" || role == "assistant") {
-			if v.Id == lastElicitationMessage.Id && v.Content != nil {
-				out.UserElicitation = append(out.UserElicitation, &prompt.Message{Role: v.Role, Content: *v.Content})
-				return false
+			// Allow error messages exactly once in the preview/limited
+			// history path; include them even if type is not text,
+			// provided they are not archived.
+			if applyPreview && m.Status != nil && strings.EqualFold(strings.TrimSpace(*m.Status), "error") {
+				if m.IsArchived() {
+					continue
+				}
+				normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: m})
+				continue
+			}
+			if m.IsArchived() || m.IsInterim() {
+				continue
 			}
 
-			if lastElicitationMessage.CreatedAt.Before(v.CreatedAt) && v.Content != nil {
-				out.UserElicitation = append(out.UserElicitation, &prompt.Message{Role: v.Role, Content: *v.Content})
-				return false
+			// Tool-call messages: always include when they have a
+			// non-empty body (from response payload or content).
+			if m.ToolCall != nil {
+				if body := strings.TrimSpace(m.GetContent()); body != "" {
+					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: m})
+				}
+				continue
 			}
-		}
 
-		if role == "user" || role == "assistant" {
-			return true
-		}
+			if m.Content == nil || *m.Content == "" {
+				continue
+			}
+			if strings.ToLower(strings.TrimSpace(m.Type)) != "text" {
+				continue
+			}
+			role := strings.ToLower(strings.TrimSpace(m.Role))
 
-		return false
-	})
+			if currentElicitation && lastElicitationMessage != nil && (role == "user" || role == "assistant") {
+				if m.Id == lastElicitationMessage.Id && m.Content != nil {
+					kind := prompt.MessageKindElicitAnswer
+					if role == "assistant" {
+						kind = prompt.MessageKindElicitPrompt
+					}
+					elicitation = append(elicitation, &prompt.Message{Kind: kind, Role: m.Role, Content: *m.Content, CreatedAt: m.CreatedAt})
+					continue
+				}
 
-	// delete from history messages the message with current input query to avoid duplication
-	// input query will be added separately in generate step
-	if len(normalized) > 0 {
-		last := *normalized[len(normalized)-1]
-		role := strings.ToLower(strings.TrimSpace(last.Role))
-		if role == "user" && last.Content != nil && *last.Content == input.Query {
-			// Drop the current turn's user message from history so that it is
-			// represented only once via the expanded task prompt generated from
-			// the agent's user template. Keeping it here as well would duplicate
-			// the raw query (once in history, once as the final Task message).
-			normalized = normalized[:len(normalized)-1]
+				if lastElicitationMessage.CreatedAt.Before(m.CreatedAt) && m.Content != nil {
+					kind := prompt.MessageKindElicitAnswer
+					if role == "assistant" {
+						kind = prompt.MessageKindElicitPrompt
+					}
+					elicitation = append(elicitation, &prompt.Message{Kind: kind, Role: m.Role, Content: *m.Content, CreatedAt: m.CreatedAt})
+					continue
+				}
+			}
+
+			if role == "user" || role == "assistant" {
+				normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: m})
+			}
 		}
 	}
 
-	overflow := false
-	maxOverflowBytes := 0
-	for i, msg := range normalized {
-		role := msg.Role
-		content := ""
-		if msg.Content != nil {
-			// Apply overflow preview with message id reference
-			orig := *msg.Content
-			preview, of := buildOverflowPreview(orig, s.effectivePreviewLimit(i), msg.Id)
-			if of {
-				overflow = true
-				if size := len(orig); size > maxOverflowBytes {
-					maxOverflowBytes = size
+	// Dedupe current-turn user task messages that are effectively the
+	// same instruction expressed twice (e.g., raw input and a later
+	// Task: wrapper). The transcript remains unchanged for UI/summary;
+	// this is only a prompt-history optimization for the LLM.
+	if len(normalized) > 0 {
+		if tm, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(tm.TurnID) != "" {
+			// Find the index of the current turn in the transcript
+			currentTurnIdx := -1
+			for ti, turn := range transcript {
+				if turn == nil {
+					continue
+				}
+				if strings.TrimSpace(turn.Id) == strings.TrimSpace(tm.TurnID) {
+					currentTurnIdx = ti
+					break
 				}
 			}
-			content = preview
+			if currentTurnIdx != -1 {
+				// Collect indices of user messages in the current turn
+				userIdxs := []int{}
+				for i, item := range normalized {
+					if item.turnIdx != currentTurnIdx || item.msg == nil {
+						continue
+					}
+					role := strings.ToLower(strings.TrimSpace(item.msg.Role))
+					if role != "user" {
+						continue
+					}
+					userIdxs = append(userIdxs, i)
+				}
+				// If we have multiple user messages in the current turn
+				// with the same normalized content (ignoring a leading
+				// "Task:" wrapper), keep only the last one.
+				if len(userIdxs) > 1 {
+					last := userIdxs[len(userIdxs)-1]
+					lastMsg := normalized[last].msg
+					lastText := normalizeUserTaskContent(lastMsg.GetContent())
+					if lastText != "" {
+						filtered := make([]normalizedMsg, 0, len(normalized))
+						for i, item := range normalized {
+							// Drop earlier user messages in the current
+							// turn that normalize to the same content.
+							if i < last && item.turnIdx == currentTurnIdx && item.msg != nil {
+								role := strings.ToLower(strings.TrimSpace(item.msg.Role))
+								if role == "user" {
+									if normalizeUserTaskContent(item.msg.GetContent()) == lastText {
+										continue
+									}
+								}
+							}
+							filtered = append(filtered, item)
+						}
+						normalized = filtered
+					}
+				}
+			}
 		}
+	}
+	overflow := false
+	maxOverflowBytes := 0
+	turns := make([]*prompt.Turn, len(transcript))
+	totalTurns := len(transcript)
+	// Track tool-result contents so we can later drop assistant
+	// messages that simply repeat the same raw tool output.
+	toolContents := map[string]struct{}{}
+
+	// Second pass: map normalized messages into prompt turns with optional preview.
+	for _, item := range normalized {
+		msg := item.msg
+		role := strings.ToLower(strings.TrimSpace(msg.Role))
+		orig := ""
+		if msg.ToolCall != nil {
+			orig = strings.TrimSpace(msg.GetContent())
+		} else if msg.Content != nil {
+			orig = *msg.Content
+		}
+		text := orig
+		if applyPreview && orig != "" {
+			limit := s.turnPreviewLimit(item.turnIdx, totalTurns, true)
+			if limit > 0 {
+				preview, of := buildOverflowPreview(orig, limit, msg.Id, false)
+				if of {
+					overflow = true
+					if size := len(orig); size > maxOverflowBytes {
+						maxOverflowBytes = size
+					}
+				}
+				text = preview
+			}
+		}
+
 		// Preserve attachments as in transcript.History
 		var attachments []*prompt.Attachment
 		if msg.Attachment != nil && len(msg.Attachment) > 0 {
@@ -716,32 +875,166 @@ func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.
 				if av.Uri != nil && *av.Uri != "" {
 					name = path.Base(*av.Uri)
 				}
-				attachments = append(attachments, &prompt.Attachment{Name: name, URI: func() string {
-					if av.Uri != nil {
-						return *av.Uri
-					}
-					return ""
-				}(), Mime: av.MimeType, Data: data})
+				attachments = append(attachments, &prompt.Attachment{
+					Name: name,
+					URI: func() string {
+						if av.Uri != nil {
+							return *av.Uri
+						}
+						return ""
+					}(),
+					Mime: av.MimeType,
+					Data: data,
+				})
 			}
 		}
-		out.Messages = append(out.Messages, &prompt.Message{Role: role, Content: content, Attachment: attachments})
 
-		if msg.Status != nil && strings.EqualFold(strings.TrimSpace(*msg.Status), "error") {
+		turnIdx := item.turnIdx
+		pt := turns[turnIdx]
+		if pt == nil {
+			pt = &prompt.Turn{ID: transcript[turnIdx].Id}
+			turns[turnIdx] = pt
+		}
+
+		pmsgRole := role
+		// Normalize tool-call messages to assistant role for history so
+		// they are rendered as assistant context rather than tool role
+		// messages, which require a preceding tool_calls message.
+		if msg.ToolCall != nil {
+			pmsgRole = "assistant"
+		}
+
+		pmsg := &prompt.Message{
+			Role:       pmsgRole,
+			Content:    text,
+			Attachment: attachments,
+			CreatedAt:  msg.CreatedAt,
+			ID:         msg.Id,
+		}
+
+		// Classify message kind and, when applicable, attach tool metadata.
+		if msg.ToolCall != nil {
+			pmsg.Kind = prompt.MessageKindToolResult
+			pmsg.ToolOpID = msg.ToolCall.OpId
+			pmsg.ToolName = msg.ToolCall.ToolName
+			pmsg.ToolArgs = msg.ToolCallArguments()
+			if msg.ToolCall.TraceId != nil {
+				pmsg.ToolTraceID = strings.TrimSpace(*msg.ToolCall.TraceId)
+			}
+			// Record the full tool-result content for later de‑duplication
+			// of assistant messages that echo the same text.
+			if c := strings.TrimSpace(pmsg.Content); c != "" {
+				toolContents[c] = struct{}{}
+			}
+		} else {
+			// Classify chat and elicitation messages. For past elicitation
+			// flows, ElicitationId will be set on assistant/user messages;
+			// current-turn elicitation has already been extracted into the
+			// separate elicitation slice and will not reach this block.
+			if msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
+				if role == "assistant" {
+					pmsg.Kind = prompt.MessageKindElicitPrompt
+				} else if role == "user" {
+					pmsg.Kind = prompt.MessageKindElicitAnswer
+				}
+			} else {
+				if role == "user" {
+					pmsg.Kind = prompt.MessageKindChatUser
+				} else if role == "assistant" {
+					pmsg.Kind = prompt.MessageKindChatAssistant
+				}
+			}
+		}
+		pt.Messages = append(pt.Messages, pmsg)
+		if pt.StartedAt.IsZero() || msg.CreatedAt.Before(pt.StartedAt) {
+			pt.StartedAt = msg.CreatedAt
+		}
+
+		// Archive error messages once processed when applyPreview is enabled.
+		if applyPreview && msg.Status != nil && strings.EqualFold(strings.TrimSpace(*msg.Status), "error") {
 			if !msg.IsArchived() {
 				if mm := msg.NewMutable(); mm != nil {
 					archived := 1
 					mm.Archived = &archived
 					mm.Has.Archived = true
-					err := s.conversation.PatchMessage(ctx, (*apiconv.MutableMessage)(mm))
-					if err != nil {
-						return out, overflow, maxOverflowBytes, fmt.Errorf("failed to archive error message %q: %w", msg.Id, err)
+					if err := s.conversation.PatchMessage(ctx, (*apiconv.MutableMessage)(mm)); err != nil {
+						return out, elicitation, overflow, maxOverflowBytes, fmt.Errorf("failed to archive error message %q: %w", msg.Id, err)
 					}
 				}
 			}
 		}
-
 	}
-	return out, overflow, maxOverflowBytes, nil
+
+	// Finalize turns: drop nils, sort messages by CreatedAt, de-duplicate
+	// assistant echoes of tool results, and build the legacy flat Messages
+	// view for persisted history.
+	for _, t := range turns {
+		if t == nil || len(t.Messages) == 0 {
+			continue
+		}
+		// Drop chat-assistant messages whose content exactly matches a
+		// tool-result content. This keeps the LLM prompt from seeing the
+		// same raw error/output twice (once as a tool result and once as
+		// a plain assistant echo) while leaving the transcript intact for
+		// UI and logging.
+		filtered := make([]*prompt.Message, 0, len(t.Messages))
+		for _, m := range t.Messages {
+			if m == nil {
+				continue
+			}
+			role := strings.ToLower(strings.TrimSpace(m.Role))
+			if role == "assistant" && m.Kind == prompt.MessageKindChatAssistant {
+				if c := strings.TrimSpace(m.Content); c != "" {
+					if _, dup := toolContents[c]; dup {
+						continue
+					}
+				}
+			}
+			filtered = append(filtered, m)
+		}
+		if len(filtered) == 0 {
+			continue
+		}
+		t.Messages = filtered
+		sort.SliceStable(t.Messages, func(i, j int) bool {
+			return t.Messages[i].CreatedAt.Before(t.Messages[j].CreatedAt)
+		})
+		out.Past = append(out.Past, t)
+		for _, m := range t.Messages {
+			out.Messages = append(out.Messages, m)
+		}
+	}
+
+	return out, elicitation, overflow, maxOverflowBytes, nil
+}
+
+// appendCurrentMessages appends messages to History.Current ensuring
+// CreatedAt is set and non-decreasing within the current turn. It does
+// not modify Past timestamps.
+func appendCurrentMessages(h *prompt.History, msgs ...*prompt.Message) {
+	if h == nil || len(msgs) == 0 {
+		return
+	}
+	if h.Current == nil {
+		h.Current = &prompt.Turn{ID: h.CurrentTurnID}
+	}
+	for _, m := range msgs {
+		if m == nil {
+			continue
+		}
+		// Seed CreatedAt when zero.
+		if m.CreatedAt.IsZero() {
+			m.CreatedAt = time.Now().UTC()
+		}
+		// Ensure non-decreasing CreatedAt relative to the last current message.
+		if n := len(h.Current.Messages); n > 0 {
+			last := h.Current.Messages[n-1].CreatedAt
+			if m.CreatedAt.Before(last) {
+				m.CreatedAt = last.Add(time.Nanosecond)
+			}
+		}
+		h.Current.Messages = append(h.Current.Messages, m)
+	}
 }
 
 // buildToolExecutions extracts tool calls from the provided conversation transcript for the current turn.
@@ -751,9 +1044,10 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		return nil, false, 0, nil
 	}
 	transcript := conv.GetTranscript()
+	totalTurns := len(transcript)
 	overflowFound := false
 	maxOverflowBytes := 0
-	buildFromTurn := func(t *apiconv.Turn) []*llm.ToolCall {
+	buildFromTurn := func(turnIdx int, t *apiconv.Turn, applyAging bool) []*llm.ToolCall {
 		var out []*llm.ToolCall
 		if t == nil {
 			return out
@@ -763,15 +1057,13 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		if len(toolCalls) > s.defaults.ToolCallMaxResults && s.defaults.ToolCallMaxResults > 0 {
 			toolCalls = toolCalls[len(toolCalls)-s.defaults.ToolCallMaxResults:]
 		}
-		for i, m := range toolCalls {
+		limit := s.turnPreviewLimit(turnIdx, totalTurns, applyAging)
+		for _, m := range toolCalls {
 			args := m.ToolCallArguments()
-
-			effectivePreviewLimit := s.effectivePreviewLimit(i)
-
-			// Prepare result content for LLM: derive preview from message content with effective limit
+			// Prepare result content for LLM: derive preview from message content with per-turn limit
 			result := ""
-			if body := strings.TrimSpace(m.GetContent()); body != "" {
-				preview, overflow := buildOverflowPreview(body, effectivePreviewLimit, m.Id)
+			if body := strings.TrimSpace(m.GetContent()); body != "" && limit > 0 {
+				preview, overflow := buildOverflowPreview(body, limit, m.Id, false)
 				if overflow {
 					overflowFound = true
 					if size := len(body); size > maxOverflowBytes {
@@ -791,23 +1083,26 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 	switch strings.ToLower(string(exposure)) {
 	case "conversation":
 		var out []*llm.ToolCall
-		for _, t := range transcript {
-			out = append(out, buildFromTurn(t)...)
+		for idx, t := range transcript {
+			out = append(out, buildFromTurn(idx, t, true)...)
 		}
 		return out, overflowFound, maxOverflowBytes, nil
 	case "turn", "":
 		// Find current turn only
 		var aTurn *apiconv.Turn
-		for _, t := range transcript {
+		var turnIdx int
+		for idx, t := range transcript {
 			if t != nil && t.Id == turnMeta.TurnID {
 				aTurn = t
+				turnIdx = idx
 				break
 			}
 		}
 		if aTurn == nil {
 			return nil, false, 0, nil
 		}
-		execs := buildFromTurn(aTurn)
+		// For turn exposure, do not apply aging; always use Limit.
+		execs := buildFromTurn(turnIdx, aTurn, false)
 		return execs, overflowFound, maxOverflowBytes, nil
 	default:
 		// Unrecognised/semantic: do not include tool calls for now
@@ -815,18 +1110,28 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 	}
 }
 
-func (s *Service) effectivePreviewLimit(step int) int {
-
-	if s.defaults.PreviewSettings.AgedAfterSteps > 0 && step > s.defaults.PreviewSettings.AgedAfterSteps && s.defaults.PreviewSettings.AgedLimit > 0 {
+// turnPreviewLimit returns the preview limit for a given turn index,
+// applying aging only to older turns. The newest
+// PreviewSettings.AgedAfterSteps turns use Limit, older ones (when
+// AgedLimit > 0) use AgedLimit. Aging is never applied to the
+// synthetic Current turn.
+func (s *Service) turnPreviewLimit(turnIdx, totalTurns int, applyAging bool) int {
+	if s.defaults == nil || s.defaults.PreviewSettings.Limit <= 0 {
+		return 0
+	}
+	limit := s.defaults.PreviewSettings.Limit
+	if !applyAging || s.defaults.PreviewSettings.AgedAfterSteps <= 0 || s.defaults.PreviewSettings.AgedLimit <= 0 {
+		return limit
+	}
+	w := s.defaults.PreviewSettings.AgedAfterSteps
+	if totalTurns <= w {
+		return limit
+	}
+	// Turns with index < totalTurns-w are considered aged.
+	if turnIdx < totalTurns-w {
 		return s.defaults.PreviewSettings.AgedLimit
 	}
-
-	effectiveCallToolResultLimit := 0
-	// Use service defaults only
-	if s.defaults != nil && s.defaults.PreviewSettings.Limit > 0 {
-		effectiveCallToolResultLimit = s.defaults.PreviewSettings.Limit
-	}
-	return effectiveCallToolResultLimit
+	return limit
 }
 
 func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([]*llm.ToolDefinition, bool, error) {
@@ -875,4 +1180,34 @@ func trimStr(s string, n int) string {
 		return s[:n-3] + "..."
 	}
 	return s[:n]
+}
+
+// normalizeUserTaskContent trims whitespace and strips a leading
+// "Task:" wrapper (case-insensitive, on the first line) so we can
+// detect semantically equivalent user instructions such as a raw
+// query and a later "Task:" form.
+func normalizeUserTaskContent(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	// Fast path: no Task: prefix on first line.
+	lower := strings.ToLower(s)
+	if !strings.HasPrefix(lower, "task:") && !strings.Contains(lower, "\n") {
+		return s
+	}
+	lines := strings.SplitN(s, "\n", 2)
+	if len(lines) == 0 {
+		return s
+	}
+	first := strings.TrimSpace(lines[0])
+	if !strings.HasPrefix(strings.ToLower(first), "task:") {
+		return s
+	}
+	if len(lines) == 1 {
+		// Only "Task:" line present; treat as empty content.
+		return ""
+	}
+	// Use the remainder as the normalized task content.
+	return strings.TrimSpace(lines[1])
 }

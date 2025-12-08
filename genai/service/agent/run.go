@@ -71,11 +71,26 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		ctx = tool.WithPolicy(ctx, pol)
 	}
 
-	// Start turn and persist initial user message
+	// Start turn and persist initial user message. Prefer using the
+	// expanded user prompt (via llm/core:expandUserPrompt) so the
+	// conversation stores a single, canonical task for this turn.
 	if err := s.startTurn(ctx, turn); err != nil {
 		return err
 	}
-	if err := s.addUserMessage(ctx, &turn, input); err != nil {
+	// Best-effort expansion of the user prompt; on failure, fall back
+	// to the raw input.Query as the user message content.
+	content := strings.TrimSpace(input.Query)
+	if s.llm != nil && input.Agent != nil {
+		b, berr := s.BuildBinding(ctx, input)
+		if berr == nil {
+			var expOut core.ExpandUserPromptOutput
+			expIn := &core.ExpandUserPromptInput{Prompt: input.Agent.Prompt, Binding: b}
+			if err := s.llm.ExpandUserPrompt(ctx, expIn, &expOut); err == nil && strings.TrimSpace(expOut.ExpandedUserPrompt) != "" {
+				content = expOut.ExpandedUserPrompt
+			}
+		}
+	}
+	if err := s.addUserMessage(ctx, &turn, input.UserId, content); err != nil {
 		return err
 	}
 
@@ -270,6 +285,10 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			Binding:        binding,
 			ModelSelection: modelSelection,
 		}
+		// The user task for this turn has already been expanded and
+		// persisted as the latest user message in history; avoid adding
+		// another synthetic user message in History.Current.
+		genInput.UserPromptAlreadyInHistory = true
 		// Attribute participants for multi-user/agent naming in LLM messages
 		genInput.UserID = strings.TrimSpace(input.UserId)
 		if input.Agent != nil {
@@ -544,8 +563,8 @@ func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
 	return s.conversation.PatchTurn(ctx, rec)
 }
 
-func (s *Service) addUserMessage(ctx context.Context, turn *memory.TurnMeta, input *QueryInput) error {
-	_, err := s.addMessage(ctx, turn, "user", input.UserId, input.Query, "task", turn.TurnID)
+func (s *Service) addUserMessage(ctx context.Context, turn *memory.TurnMeta, userID, content string) error {
+	_, err := s.addMessage(ctx, turn, "user", userID, content, "task", turn.TurnID)
 	if err != nil {
 		return fmt.Errorf("failed to add message: %w", err)
 	}

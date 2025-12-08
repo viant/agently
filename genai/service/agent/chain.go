@@ -419,7 +419,10 @@ func (s *Service) buildPromptBindingFromParent(ctx context.Context, parent Chain
 	// Attach minimal history
 	if parent.Conversation != nil {
 		transcript := parent.Conversation.GetTranscript()
-		b.History.Messages = transcript.History(lastTurnOnly)
+		msgs := transcript.History(lastTurnOnly)
+		if len(msgs) > 0 {
+			b.History.Past = []*prompt.Turn{{Messages: msgs}}
+		}
 	}
 	return b
 }

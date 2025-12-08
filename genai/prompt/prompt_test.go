@@ -102,7 +102,7 @@ func TestPrompt_Generate_BindingCoverage(t *testing.T) {
 		"history",
 		"#foreach($m in $History.Messages)- $m.Role: $m.Content\n#end",
 		"{{range .History.Messages}}- {{.Role}}: {{.Content}}\n{{end}}",
-		&Binding{History: History{Messages: []*Message{{Role: "user", Content: "hello"}, {Role: "assistant", Content: "hi"}}}},
+		&Binding{History: History{Past: []*Turn{{Messages: []*Message{{Role: "user", Content: "hello"}, {Role: "assistant", Content: "hi"}}}}}},
 		"- user: hello\n- assistant: hi\n",
 	)
 

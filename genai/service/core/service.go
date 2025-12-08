@@ -62,6 +62,12 @@ func (s *Service) Methods() svc.Signatures {
 			Input:    reflect.TypeOf(&GenerateInput{}),
 			Output:   reflect.TypeOf(&GenerateOutput{}),
 		},
+		{
+			Name:     "expandUserPrompt",
+			Internal: true,
+			Input:    reflect.TypeOf(&ExpandUserPromptInput{}),
+			Output:   reflect.TypeOf(&ExpandUserPromptOutput{}),
+		},
 	}
 }
 
@@ -70,9 +76,19 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 	switch strings.ToLower(name) {
 	case "generate":
 		return s.generate, nil
+	case "expanduserprompt":
+		return s.expandUserPrompt, nil
 	default:
 		return nil, svc.NewMethodNotFoundError(name)
 	}
+}
+
+// ExpandUserPrompt provides a typed helper around the internal
+// expandUserPrompt executable so callers within this process can
+// expand only the user prompt template without invoking a full
+// generate call.
+func (s *Service) ExpandUserPrompt(ctx context.Context, in *ExpandUserPromptInput, out *ExpandUserPromptOutput) error {
+	return s.expandUserPrompt(ctx, in, out)
 }
 
 // New creates a new extractor service
