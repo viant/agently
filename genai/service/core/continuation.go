@@ -27,35 +27,22 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	}
 
 	// Anchor derived from binding History.LastResponse
-	anchorTime := anchor.At
 	anchorID := strings.TrimSpace(anchor.ID)
 
-	// Collect tool-call messages mapped to this anchor or created after anchor time
-	// Build allowed opIds by checking traces entries of Kind=="op"
-
+	// Collect tool-call messages mapped to this anchor. User messages
+	// are already part of the anchored context and do not participate
+	// in continuation-by-anchor.
 	var selected llm.Messages
 	for _, m := range req.Messages {
-		if m.ToolCallId != "" {
-			key := prompt.KindToolCall.Key(m.ToolCallId)
-			trace, ok := history.Traces[key]
-			if !ok || trace.ID != anchorID {
-				continue
-			}
-			selected.Append(m)
+		if m.ToolCallId == "" {
 			continue
 		}
-
-		if m.Content != "" {
-			if llm.MessageRole(m.Role) != llm.RoleUser {
-				continue
-			}
-			key := prompt.KindContent.Key(m.Content)
-			trace, ok := history.Traces[key]
-			if !ok || trace.At.Before(anchorTime) || trace.At.Equal(anchorTime) {
-				continue
-			}
-			selected.Append(m)
+		key := prompt.KindToolCall.Key(m.ToolCallId)
+		trace, ok := history.Traces[key]
+		if !ok || trace.ID != anchorID {
+			continue
 		}
+		selected.Append(m)
 	}
 	if len(selected) == 0 {
 		return nil

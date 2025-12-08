@@ -102,28 +102,42 @@ func adjustInputIfNeeded(tokenDelta int, overlimit int, genInput *core2.Generate
 	if tokenDelta > overlimit {
 		// Enough savings from rebuilt request; proceed without pruning history.
 	} else {
-		// Remove the oldest user messages from binding history until we cover the remaining deficit.
+		// Remove the oldest user messages from binding history until we
+		// cover the remaining deficit. Operate only on persisted Past
+		// turns; Current is reserved for the in-flight step.
 		deficit := overlimit - tokenDelta
-		removedTokens := 0
-		if genInput != nil && genInput.Binding != nil && len(genInput.Binding.History.Messages) > 0 {
-			msgs := genInput.Binding.History.Messages
-			kept := make([]*prompt.Message, 0, len(msgs))
-			for i := 0; i < len(msgs); i++ {
-				m := msgs[i]
-				if m == nil {
-					continue
-				}
-				role := strings.ToLower(strings.TrimSpace(m.Role))
-				// Only consider user messages for removal; keep others intact
-				if removedTokens < deficit && role == "user" && strings.TrimSpace(m.Content) != "" {
-					removedTokens += estimateTokens(m.Content)
-					// Skip adding this message (effectively removed)
-					continue
-				}
-				kept = append(kept, m)
-			}
-			genInput.Binding.History.Messages = kept
+		if genInput != nil && genInput.Binding != nil && deficit > 0 {
+			pruneOldUserMessages(&genInput.Binding.History, deficit)
 		}
+	}
+}
+
+// pruneOldUserMessages removes oldest user messages from History.Past
+// until the approximate token deficit is covered. It does not touch
+// History.Current.
+func pruneOldUserMessages(h *prompt.History, deficit int) {
+	if h == nil || deficit <= 0 {
+		return
+	}
+	removedTokens := 0
+	for ti := 0; ti < len(h.Past) && removedTokens < deficit; ti++ {
+		turn := h.Past[ti]
+		if turn == nil || len(turn.Messages) == 0 {
+			continue
+		}
+		kept := make([]*prompt.Message, 0, len(turn.Messages))
+		for _, m := range turn.Messages {
+			if m == nil {
+				continue
+			}
+			role := strings.ToLower(strings.TrimSpace(m.Role))
+			if removedTokens < deficit && role == "user" && strings.TrimSpace(m.Content) != "" {
+				removedTokens += estimateTokens(m.Content)
+				continue
+			}
+			kept = append(kept, m)
+		}
+		turn.Messages = kept
 	}
 }
 
@@ -202,18 +216,24 @@ func (s *Service) stripSystemMessages(in *core2.GenerateInput) {
 	// Remove system documents
 	if in.Binding != nil {
 		in.Binding.SystemDocuments.Items = nil
-		if len(in.Binding.History.Messages) > 0 {
-			kept := make([]*prompt.Message, 0, len(in.Binding.History.Messages))
-			for _, m := range in.Binding.History.Messages {
-				if m == nil {
+		// Prune any system-role messages from persisted history.
+		if len(in.Binding.History.Past) > 0 {
+			for _, t := range in.Binding.History.Past {
+				if t == nil || len(t.Messages) == 0 {
 					continue
 				}
-				if strings.EqualFold(strings.TrimSpace(m.Role), "system") {
-					continue
+				kept := make([]*prompt.Message, 0, len(t.Messages))
+				for _, m := range t.Messages {
+					if m == nil {
+						continue
+					}
+					if strings.EqualFold(strings.TrimSpace(m.Role), "system") {
+						continue
+					}
+					kept = append(kept, m)
 				}
-				kept = append(kept, m)
+				t.Messages = kept
 			}
-			in.Binding.History.Messages = kept
 		}
 	}
 	// If Message was already initialized elsewhere, prune any system messages

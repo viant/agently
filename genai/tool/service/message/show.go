@@ -12,6 +12,7 @@ import (
 	sed "github.com/rwtodd/Go.Sed/sed"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/textclip"
+	"github.com/viant/mcp-protocol/extension"
 )
 
 type ShowInput struct {
@@ -26,6 +27,8 @@ type ShowOutput struct {
 	Offset  int    `json:"offset"`
 	Limit   int    `json:"limit"`
 	Size    int    `json:"size"`
+	// Continuation carries paging/truncation hints when only part of the message is returned.
+	Continuation *extension.Continuation `json:"continuation,omitempty"`
 }
 
 type DebugInfo struct {
@@ -87,6 +90,24 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	output.Offset = start
 	output.Limit = end - start
 	output.Size = size
+	if output.Limit < output.Size {
+		nextOffset := end
+		nextLength := output.Limit
+		if nextLength <= 0 {
+			nextLength = output.Size - output.Limit
+		}
+		output.Continuation = &extension.Continuation{
+			HasMore:   true,
+			Remaining: output.Size - output.Limit,
+			Returned:  output.Limit,
+			NextRange: &extension.RangeHint{
+				Bytes: &extension.ByteRange{
+					Offset: nextOffset,
+					Length: nextLength,
+				},
+			},
+		}
+	}
 	return nil
 }
 

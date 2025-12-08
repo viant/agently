@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	pathpkg "path"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -29,6 +28,7 @@ import (
 	"github.com/viant/agently/internal/workspace"
 	embopt "github.com/viant/embedius/matching/option"
 	embSchema "github.com/viant/embedius/schema"
+	"github.com/viant/mcp-protocol/extension"
 )
 
 // Name identifies the resources tool service namespace
@@ -240,16 +240,66 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	// Order by match score descending
 	sort.SliceStable(augOut.Documents, func(i, j int) bool { return augOut.Documents[i].Score > augOut.Documents[j].Score })
 
+	// Enrich matched documents with score, normalized paths and, when
+	// possible, the underlying agent resource role (user|system) so
+	// callers can distinguish system-scoped matches.
+	curAgent := s.currentAgent(ctx)
 	for i := range augOut.Documents {
 		doc := augOut.Documents[i]
-		// Surface score in metadata for clients (in addition to struct field)
 		if doc.Metadata == nil {
 			doc.Metadata = map[string]any{}
 		}
+		// Surface score in metadata for clients (in addition to struct field)
 		doc.Metadata["score"] = doc.Score
 		for _, key := range []string{"path", "docId", "fragmentId"} {
-			if path, ok := doc.Metadata[key]; ok {
-				doc.Metadata[key] = fileToWorkspace(path.(string))
+			if p, ok := doc.Metadata[key]; ok {
+				if s, _ := p.(string); s != "" {
+					doc.Metadata[key] = fileToWorkspace(s)
+				}
+			}
+		}
+		// When agent context is available, attempt to infer the resource
+		// role (user/system) by matching the document path against
+		// configured agent.resources URIs.
+		if curAgent != nil && len(curAgent.Resources) > 0 {
+			pathVal := ""
+			if v, ok := doc.Metadata["path"]; ok {
+				if s, _ := v.(string); strings.TrimSpace(s) != "" {
+					pathVal = s
+				}
+			}
+			if pathVal == "" {
+				if v, ok := doc.Metadata["docId"]; ok {
+					if s, _ := v.(string); strings.TrimSpace(s) != "" {
+						pathVal = s
+					}
+				}
+			}
+			if strings.TrimSpace(pathVal) != "" {
+				wsPath := strings.TrimRight(strings.TrimSpace(pathVal), "/")
+				role := ""
+				for _, r := range curAgent.Resources {
+					if r == nil || strings.TrimSpace(r.URI) == "" {
+						continue
+					}
+					normRes, _, err := s.normalizeUserRoot(ctx, r.URI)
+					if err != nil || strings.TrimSpace(normRes) == "" {
+						continue
+					}
+					normRes = strings.TrimRight(strings.TrimSpace(normRes), "/")
+					// Match when document path is under this resource root.
+					if strings.HasPrefix(wsPath, normRes) {
+						if strings.EqualFold(strings.TrimSpace(r.Role), "system") {
+							role = "system"
+						} else {
+							role = "user"
+						}
+						break
+					}
+				}
+				if role != "" {
+					doc.Metadata["resourceRole"] = role
+				}
 			}
 		}
 	}
@@ -396,127 +446,35 @@ func totalFormattedBytes(docs []embSchema.Document, trimPrefix string) int {
 	return total
 }
 
-// isAbsLikePath reports whether the provided path looks like an absolute
-// location (filesystem path, file:// URL, or mcp: URI). In such cases callers
-// should avoid blindly joining it onto an existing root URI.
-func isAbsLikePath(p string) bool {
-	p = strings.TrimSpace(p)
-	if p == "" {
-		return false
-	}
-	if strings.HasPrefix(p, "/") {
-		return true
-	}
-	if strings.HasPrefix(p, "file://") {
-		return true
-	}
-	if mcpuri.Is(p) {
-		return true
-	}
-	return false
-}
-
-// fileURLToPath converts a file:// URL into a filesystem path. Non-file
-// URLs are returned unchanged.
-func fileURLToPath(u string) string {
-	u = strings.TrimSpace(u)
-	if !strings.HasPrefix(u, "file://") {
-		return u
-	}
-	rest := strings.TrimPrefix(u, "file://")
-	rest = strings.TrimPrefix(rest, "localhost")
-	if !strings.HasPrefix(rest, "/") {
-		rest = "/" + rest
-	}
-	return rest
-}
-
-// isUnderRootPath reports whether the given location lies under the provided
-// root. It supports both filesystem paths and URL-like locations (file://,
-// s3://, gs://, etc.) by normalizing to comparable path segments.
-func isUnderRootPath(path, root string) bool {
-	path = strings.TrimSpace(path)
-	root = strings.TrimSpace(root)
-	if path == "" || root == "" {
-		return false
-	}
-	// URL-like (file://, s3://, gs://, etc.): compare normalized URL paths.
-	if strings.Contains(root, "://") {
-		rootPath := pathpkg.Clean("/" + strings.TrimLeft(url.Path(root), "/"))
-		pathPath := pathpkg.Clean("/" + strings.TrimLeft(url.Path(path), "/"))
-		if rootPath == "/" {
-			return true
-		}
-		// Treat exact equality as under-root.
-		if pathPath == rootPath {
-			return true
-		}
-		if !strings.HasSuffix(rootPath, "/") {
-			rootPath += "/"
-		}
-		return strings.HasPrefix(pathPath, rootPath)
-	}
-	// Filesystem paths: use OS-aware filepath semantics.
-	pathFS := filepath.Clean(path)
-	rootFS := filepath.Clean(root)
-	if rootFS == string(os.PathSeparator) {
-		return true
-	}
-	// Treat exact equality as under-root.
-	if pathFS == rootFS {
-		return true
-	}
-	if !strings.HasSuffix(rootFS, string(os.PathSeparator)) {
-		rootFS += string(os.PathSeparator)
-	}
-	return strings.HasPrefix(pathFS, rootFS)
-}
-
-// joinBaseWithPath applies a path component to a normalized base, enforcing
-// that absolute-like paths remain under the configured root when applicable.
-// It mirrors the repeated logic across match/list/grepFiles while centralizing
-// path normalization and validation. When p is absolute-like, it is returned
-// as-is after under-root validation; otherwise p is joined onto base.
-func joinBaseWithPath(wsRoot, base, p, rootAlias string) (string, error) {
-	p = strings.TrimSpace(p)
-	if p == "" {
-		return base, nil
-	}
-	if isAbsLikePath(p) {
-		// For absolute-like paths, ensure they remain under the configured
-		// root when the root is file/workspace-backed.
-		if !mcpuri.Is(wsRoot) {
-			rootBase := base
-			if strings.HasPrefix(rootBase, "file://") {
-				rootBase = fileURLToPath(rootBase)
-			}
-			pathBase := p
-			if strings.HasPrefix(pathBase, "file://") {
-				pathBase = fileURLToPath(pathBase)
-			}
-			if !isUnderRootPath(pathBase, rootBase) {
-				return "", fmt.Errorf("path %s is outside root %s", p, rootAlias)
-			}
-		}
-		return p, nil
-	}
-	return url.Join(base, strings.TrimPrefix(p, "/")), nil
-}
-
 // -------- list implementation --------
 
 type ListInput struct {
 	// RootURI is the normalized or user-provided root URI. Prefer using
 	// RootID when possible; RootURI is retained for backward compatibility
 	// but hidden from public schemas.
-	RootURI string `json:"root,omitempty" internal:"true"`
+	RootURI string `json:"root,omitempty" internal:"true" description:"normalized or user-provided root URI; prefer rootId when available"`
 	// RootID is a stable identifier corresponding to a root returned by
 	// roots. When provided, it is resolved to the underlying
 	// normalized URI before enforcement and listing.
-	RootID    string `json:"rootId,omitempty"`
-	Path      string `json:"path,omitempty"`
-	Recursive bool   `json:"recursive,omitempty"`
-	MaxItems  int    `json:"maxItems,omitempty"`
+	RootID string `json:"rootId,omitempty" description:"resource root id returned by roots"`
+	// Path is an optional subpath under the selected root. When empty, the
+	// root itself is listed. Paths may be relative to the root or
+	// absolute-like; absolute-like paths must remain under the root.
+	Path string `json:"path,omitempty" description:"optional subpath under the root to list"`
+	// Recursive controls whether the listing should walk the subtree under
+	// Path. When false, only immediate children are returned.
+	Recursive bool `json:"recursive,omitempty" description:"when true, walk recursively under path"`
+	// Include defines optional file or path globs to include. When provided,
+	// only items whose relative path or base name matches at least one
+	// pattern are returned. Globs use path-style matching rules.
+	Include []string `json:"include,omitempty" description:"optional file/path globs to include (relative to root+path)"`
+	// Exclude defines optional file or path globs to exclude. When provided,
+	// any item whose relative path or base name matches a pattern is
+	// filtered out.
+	Exclude []string `json:"exclude,omitempty" description:"optional file/path globs to exclude"`
+	// MaxItems caps the number of items returned. When zero or negative, no
+	// explicit limit is applied.
+	MaxItems int `json:"maxItems,omitempty" description:"maximum number of items to return; 0 means no limit"`
 }
 
 type ListItem struct {
@@ -532,6 +490,53 @@ type ListOutput struct {
 	Total int        `json:"total"`
 }
 
+// normalizeListGlobs trims whitespace and removes empty patterns.
+func normalizeListGlobs(patterns []string) []string {
+	out := make([]string, 0, len(patterns))
+	for _, p := range patterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// listGlobMatch performs a best-effort path-style glob match. It uses
+// path.Match and treats any pattern error as a non-match.
+func listGlobMatch(pattern, value string) bool {
+	if pattern == "" || value == "" {
+		return false
+	}
+	ok, err := pathpkg.Match(pattern, value)
+	if err != nil {
+		return false
+	}
+	return ok
+}
+
+// listMatchesFilters reports whether a candidate with the given relative
+// path and base name passes include/exclude filters. When includes are
+// non-empty, at least one must match; excludes always take precedence.
+func listMatchesFilters(relPath, name string, includes, excludes []string) bool {
+	// Exclude has priority.
+	for _, pat := range excludes {
+		if listGlobMatch(pat, relPath) || listGlobMatch(pat, name) {
+			return false
+		}
+	}
+	if len(includes) == 0 {
+		return true
+	}
+	for _, pat := range includes {
+		if listGlobMatch(pat, relPath) || listGlobMatch(pat, name) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*ListInput)
 	if !ok {
@@ -541,38 +546,20 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	rootURI := strings.TrimSpace(input.RootURI)
-	if rootURI == "" && strings.TrimSpace(input.RootID) != "" {
-		var err error
-		rootURI, err = s.resolveRootID(ctx, input.RootID)
+	rootCtx, err := s.newRootContext(ctx, input.RootURI, input.RootID, s.agentAllowed(ctx))
+	if err != nil {
+		return err
+	}
+	rootBase := rootCtx.Base()
+	base := rootBase
+	if trimmed := strings.TrimSpace(input.Path); trimmed != "" {
+		base, err = rootCtx.ResolvePath(trimmed)
 		if err != nil {
 			return err
 		}
 	}
-	if rootURI == "" {
-		return fmt.Errorf("root or rootId is required")
-	}
-	allowed := s.agentAllowed(ctx) // workspace://... or mcp:
-	wsRoot, _, err := s.normalizeUserRoot(ctx, rootURI)
-	if err != nil {
-		return err
-	}
-	if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
-		return fmt.Errorf("root not allowed: %s", rootURI)
-	}
-	// Use file base for AFS when workspace scheme
-	normRoot := wsRoot
-	if strings.HasPrefix(wsRoot, "workspace://") {
-		normRoot = workspaceToFile(wsRoot)
-	}
-	base := normRoot
-	if strings.TrimSpace(input.Path) != "" {
-		var jerr error
-		base, jerr = joinBaseWithPath(wsRoot, normRoot, strings.TrimSpace(input.Path), rootURI)
-		if jerr != nil {
-			return jerr
-		}
-	}
+	includes := normalizeListGlobs(input.Include)
+	excludes := normalizeListGlobs(input.Exclude)
 	afsSvc := afs.New()
 	mfs := (*mcpfs.Service)(nil)
 	if s.mcpMgr != nil {
@@ -600,10 +587,14 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 			if seen[uri] {
 				continue
 			}
+			rel := relativePath(rootBase, uri)
+			if !listMatchesFilters(rel, o.Name(), includes, excludes) {
+				continue
+			}
 			seen[uri] = true
 			items = append(items, ListItem{
 				URI:      uri,
-				Path:     relativePath(normRoot, uri),
+				Path:     rel,
 				Name:     o.Name(),
 				Size:     o.Size(),
 				Modified: o.ModTime(),
@@ -627,10 +618,14 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 				if seen[uri] {
 					return true, nil
 				}
+				rel := relativePath(rootBase, uri)
+				if !listMatchesFilters(rel, info.Name(), includes, excludes) {
+					return true, nil
+				}
 				seen[uri] = true
 				items = append(items, ListItem{
 					URI:      uri,
-					Path:     relativePath(normRoot, uri),
+					Path:     rel,
 					Name:     info.Name(),
 					Size:     info.Size(),
 					Modified: info.ModTime(),
@@ -649,17 +644,21 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 				return err
 			}
 			for _, o := range objs {
-				if o == nil || o.IsDir() {
+				if o == nil {
 					continue
 				}
 				uri := url.Join(base, o.Name())
 				if seen[uri] {
 					continue
 				}
+				rel := relativePath(rootBase, uri)
+				if !listMatchesFilters(rel, o.Name(), includes, excludes) {
+					continue
+				}
 				seen[uri] = true
 				items = append(items, ListItem{
 					URI:      uri,
-					Path:     relativePath(normRoot, uri),
+					Path:     rel,
 					Name:     o.Name(),
 					Size:     o.Size(),
 					Modified: o.ModTime(),
@@ -693,6 +692,15 @@ type ReadInput struct {
 	// Embedded range selectors (preferred API)
 	textclip.BytesRange
 	textclip.LineRange
+
+	// MaxBytes and MaxLines cap the returned payload when neither byte nor
+	// line ranges are provided. When zero, defaults are applied.
+	MaxBytes int `json:"maxBytes,omitempty"`
+	MaxLines int `json:"maxLines,omitempty"`
+
+	// Mode provides lightweight previews without full reads:
+	// head (default), tail, signatures.
+	Mode string `json:"mode,omitempty"`
 }
 
 // ReadOutput contains the resolved URI, relative path and optionally truncated content.
@@ -701,11 +709,21 @@ type ReadOutput struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 	Size    int    `json:"size"`
+	// Returned and Remaining describe how much of the original payload was
+	// returned after applying caps/ranges.
+	Returned  int `json:"returned,omitempty"`
+	Remaining int `json:"remaining,omitempty"`
 	// StartLine and EndLine are 1-based line numbers describing the selected
 	// slice when Offset/Limit were provided. They are zero when the entire
 	// (possibly MaxBytes-truncated) file content is returned.
 	StartLine int `json:"startLine,omitempty"`
 	EndLine   int `json:"endLine,omitempty"`
+	// Binary is true when the content was detected as binary and not fully returned.
+	Binary bool `json:"binary,omitempty"`
+	// ModeApplied echoes the preview mode applied.
+	ModeApplied string `json:"modeApplied,omitempty"`
+	// Continuation carries paging/truncation hints when content was clipped.
+	Continuation *extension.Continuation `json:"continuation,omitempty"`
 }
 
 func (s *Service) read(ctx context.Context, in, out interface{}) error {
@@ -717,116 +735,138 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	rootURI := strings.TrimSpace(input.RootURI)
-	pathPart := strings.TrimSpace(input.Path)
-	uri := strings.TrimSpace(input.URI)
-	allowed := s.agentAllowed(ctx)
-
-	var (
-		normRoot string
-		fullURI  string
-	)
-
-	if uri != "" {
-		// URI-only mode: enforce allowlist (when present) against the URI and
-		// normalize it for reading.
-		wsRoot, _, err := s.normalizeUserRoot(ctx, uri)
-		if err != nil {
-			return err
-		}
-		if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
-			return fmt.Errorf("resource not allowed: %s", uri)
-		}
-		fullURI = wsRoot
-		if strings.HasPrefix(wsRoot, "workspace://") {
-			fullURI = workspaceToFile(wsRoot)
-		}
-	} else {
-		// Root+path mode
-		if rootURI == "" && strings.TrimSpace(input.RootID) != "" {
-			var err error
-			rootURI, err = s.resolveRootID(ctx, input.RootID)
-			if err != nil {
-				return err
-			}
-		}
-		if rootURI == "" {
-			return fmt.Errorf("root or rootId or uri is required")
-		}
-		if pathPart == "" {
-			return fmt.Errorf("path is required when uri is not provided")
-		}
-		wsRoot, _, err := s.normalizeUserRoot(ctx, rootURI)
-		if err != nil {
-			return err
-		}
-		if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
-			return fmt.Errorf("root not allowed: %s", rootURI)
-		}
-		normRoot = wsRoot
-		if strings.HasPrefix(wsRoot, "workspace://") {
-			normRoot = workspaceToFile(wsRoot)
-		}
-		p := pathPart
-		if isAbsLikePath(p) {
-			// For absolute filesystem paths, ensure they remain under the
-			// configured root when the root is file/workspace-backed.
-			if !mcpuri.Is(wsRoot) {
-				rootBase := normRoot
-				if strings.HasPrefix(rootBase, "file://") {
-					rootBase = fileURLToPath(rootBase)
-				}
-				pathBase := p
-				if strings.HasPrefix(pathBase, "file://") {
-					pathBase = fileURLToPath(pathBase)
-				}
-				if !isUnderRootPath(pathBase, rootBase) {
-					return fmt.Errorf("path %s is outside root %s", p, rootURI)
-				}
-			}
-			// Convert to a file:// URL so that downstream readers operate on a
-			// normalized URI instead of accidentally joining workspace and
-			// filesystem prefixes.
-			if strings.HasPrefix(p, "file://") || mcpuri.Is(p) {
-				fullURI = p
-			} else {
-				fullURI = url.Join("file://localhost/", strings.TrimPrefix(p, "/"))
-			}
-		} else {
-			fullURI = url.Join(normRoot, strings.TrimPrefix(p, "/"))
-		}
-	}
-	var data []byte
-	var err error
-	if mcpuri.Is(fullURI) {
-		if s.mcpMgr == nil {
-			return fmt.Errorf("mcp manager not configured")
-		}
-		mfs := mcpfs.New(s.mcpMgr)
-		data, err = mfs.Download(ctx, mcpfs.NewObjectFromURI(fullURI))
-	} else {
-		fs := afs.New()
-		data, err = fs.DownloadWithURL(ctx, fullURI)
-	}
+	target, err := s.resolveReadTarget(ctx, input, s.agentAllowed(ctx))
 	if err != nil {
 		return err
 	}
-	originalSize := len(data)
-	text := string(data)
+	data, err := s.downloadResource(ctx, target.fullURI)
+	if err != nil {
+		return err
+	}
+	selection, err := applyReadSelection(data, input)
+	if err != nil {
+		return err
+	}
+	limitRequested := readLimitRequested(input)
+	populateReadOutput(output, target, selection.Text, len(data), selection.Returned, selection.Remaining, selection.StartLine, selection.EndLine, selection.ModeApplied, limitRequested, selection.Binary)
+	return nil
+}
+
+type readTarget struct {
+	fullURI  string
+	normRoot string
+}
+
+func (s *Service) resolveReadTarget(ctx context.Context, input *ReadInput, allowed []string) (*readTarget, error) {
+	uri := strings.TrimSpace(input.URI)
+	if uri != "" {
+		fullURI, err := s.normalizeFullURI(ctx, uri, allowed)
+		if err != nil {
+			return nil, err
+		}
+		return &readTarget{fullURI: fullURI}, nil
+	}
+	rootCtx, err := s.newRootContext(ctx, input.RootURI, input.RootID, allowed)
+	if err != nil {
+		return nil, err
+	}
+	pathPart := strings.TrimSpace(input.Path)
+	if pathPart == "" {
+		return nil, fmt.Errorf("path is required when uri is not provided")
+	}
+	fullURI, err := rootCtx.ResolvePath(pathPart)
+	if err != nil {
+		return nil, err
+	}
+	return &readTarget{fullURI: fullURI, normRoot: rootCtx.Base()}, nil
+}
+
+func readLimitRequested(input *ReadInput) bool {
+	if input == nil {
+		return false
+	}
+	if strings.TrimSpace(input.Mode) != "" {
+		return true
+	}
+	if input.MaxBytes > 0 || input.MaxLines > 0 {
+		return true
+	}
+	if input.BytesRange.OffsetBytes > 0 || input.BytesRange.LengthBytes > 0 {
+		return true
+	}
+	if input.LineRange.StartLine > 0 || input.LineRange.LineCount > 0 {
+		return true
+	}
+	return false
+}
+
+func (s *Service) downloadResource(ctx context.Context, uri string) ([]byte, error) {
+	if mcpuri.Is(uri) {
+		if s.mcpMgr == nil {
+			return nil, fmt.Errorf("mcp manager not configured")
+		}
+		mfs := mcpfs.New(s.mcpMgr)
+		return mfs.Download(ctx, mcpfs.NewObjectFromURI(uri))
+	}
+	fs := afs.New()
+	return fs.DownloadWithURL(ctx, uri)
+}
+
+type readSelection struct {
+	Text        string
+	StartLine   int
+	EndLine     int
+	ModeApplied string
+	Returned    int
+	Remaining   int
+	Binary      bool
+}
+
+func applyReadSelection(data []byte, input *ReadInput) (*readSelection, error) {
+	const defaultMaxBytes = 8192
+	appliedMode := strings.TrimSpace(strings.ToLower(input.Mode))
+	if appliedMode == "" {
+		appliedMode = "head"
+	}
 	startLine := 0
 	endLine := 0
 
-	// Optional slicing: embedded byte range takes precedence over line range.
+	// Binary guard: avoid returning raw binary payloads.
+	if isBinaryContent(data) {
+		return &readSelection{
+			Text:        "[binary content omitted]",
+			StartLine:   0,
+			EndLine:     0,
+			ModeApplied: appliedMode,
+			Returned:    0,
+			Remaining:   len(data),
+			Binary:      true,
+		}, nil
+	}
+
+	text := string(data)
+
 	if input.OffsetBytes > 0 || input.LengthBytes > 0 {
 		clipped, _, _, err := textclip.ClipBytesByRange(data, input.BytesRange)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		text = string(clipped)
-	} else if input.StartLine > 0 || input.LineCount > 0 {
+		return &readSelection{
+			Text:        text,
+			StartLine:   startLine,
+			EndLine:     endLine,
+			ModeApplied: appliedMode,
+			Returned:    len(text),
+			Remaining:   len(data) - len(text),
+			Binary:      false,
+		}, nil
+	}
+
+	if input.StartLine > 0 || input.LineCount > 0 {
 		clipped, _, _, err := textclip.ClipLinesByRange(data, input.LineRange)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		text = string(clipped)
 		if input.StartLine > 0 {
@@ -836,30 +876,114 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 			}
 		}
 	}
-	output.URI = fullURI
-	if normRoot != "" {
-		output.Path = relativePath(normRoot, fullURI)
-	} else {
-		output.Path = fullURI
+	maxBytes := input.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxBytes
 	}
-	output.Content = text
-	output.Size = originalSize
-	output.StartLine = startLine
-	output.EndLine = endLine
-	return nil
+	maxLines := input.MaxLines
+	if maxLines < 0 {
+		maxLines = 0
+	}
+	text, returned, remaining := applyMode(text, len(data), appliedMode, maxBytes, maxLines)
+	return &readSelection{
+		Text:        text,
+		StartLine:   startLine,
+		EndLine:     endLine,
+		ModeApplied: appliedMode,
+		Returned:    returned,
+		Remaining:   remaining,
+		Binary:      false,
+	}, nil
 }
 
-func relativePath(rootURI, fullURI string) string {
-	root := strings.TrimSuffix(strings.TrimSpace(rootURI), "/")
-	uri := strings.TrimSpace(fullURI)
-	if root == "" || uri == "" {
-		return ""
+func applyMode(text string, totalSize int, mode string, maxBytes, maxLines int) (string, int, int) {
+	switch mode {
+	case "tail":
+		return textclip.ClipTail(text, totalSize, maxBytes, maxLines)
+	case "signatures":
+		if sig := textclip.ExtractSignatures(text, maxBytes); sig != "" {
+			return sig, len(sig), clipRemaining(totalSize, len(sig))
+		}
+		// fallback to head if no signatures found
 	}
-	if !strings.HasPrefix(uri, root) {
-		return uri
+	return textclip.ClipHead(text, totalSize, maxBytes, maxLines)
+}
+
+func clipRemaining(totalSize, returned int) int {
+	if totalSize <= returned {
+		return 0
 	}
-	rel := strings.TrimPrefix(uri[len(root):], "/")
-	return rel
+	return totalSize - returned
+}
+
+func isBinaryContent(data []byte) bool {
+	if !utf8.Valid(data) {
+		return true
+	}
+	const maxInspect = 1024
+	limit := len(data)
+	if limit > maxInspect {
+		limit = maxInspect
+	}
+	control := 0
+	for _, b := range data[:limit] {
+		if b == 0 {
+			return true
+		}
+		if b < 32 && b != '\n' && b != '\r' && b != '\t' {
+			control++
+		}
+	}
+	return control > limit/10
+}
+
+func populateReadOutput(out *ReadOutput, target *readTarget, content string, size, returned, remaining, startLine, endLine int, mode string, limitRequested bool, binary bool) {
+	out.URI = target.fullURI
+	if target.normRoot != "" {
+		out.Path = relativePath(target.normRoot, target.fullURI)
+	} else {
+		out.Path = target.fullURI
+	}
+	out.Content = content
+	out.Size = size
+	out.Returned = returned
+	out.Remaining = remaining
+	out.StartLine = startLine
+	out.EndLine = endLine
+	out.ModeApplied = mode
+	out.Binary = binary
+	truncated := returned > 0 && size > returned
+	if !limitRequested {
+		truncated = false
+	}
+	if remaining <= 0 && truncated {
+		remaining = size - returned
+		if remaining < 0 {
+			remaining = 0
+		}
+		out.Remaining = remaining
+	}
+	if limitRequested && (remaining > 0 || truncated) {
+		out.Continuation = &extension.Continuation{
+			HasMore:   true,
+			Remaining: remaining,
+			Returned:  returned,
+			Mode:      mode,
+			Binary:    binary,
+		}
+		if out.Continuation.Remaining < 0 {
+			out.Continuation.Remaining = 0
+		}
+		if out.Continuation.Returned < 0 {
+			out.Continuation.Returned = 0
+		}
+		out.Continuation.NextRange = &extension.RangeHint{
+			Bytes: &extension.ByteRange{
+				Offset: returned,
+				Length: returned,
+			},
+		}
+	}
 }
 
 // indentationBlock computes a best-effort indentation-aware block around the
@@ -1437,33 +1561,6 @@ func (s *Service) currentAgent(ctx context.Context) *agmodel.Agent {
 	return ag
 }
 
-// workspaceToFile maps workspace://localhost/<rel> to file://<workspaceRoot>/<rel>
-func workspaceToFile(ws string) string {
-	base := url.Normalize(workspace.Root(), "file")
-	rel := strings.TrimPrefix(ws, "workspace://")
-	rel = strings.TrimPrefix(rel, "localhost/")
-	return url.Join(strings.TrimRight(base, "/")+"/", rel)
-}
-
-// workspaceToFile maps workspace://localhost/<rel> to file://<workspaceRoot>/<rel>
-func fileToWorkspace(file string) string {
-	base := workspace.Root()
-	file = strings.Replace(file, base, "", 1)
-	return "workspace://localhost" + url.Path(file)
-}
-
-// cleanFileURL removes any "/../" segments from file URLs to produce a stable canonical form.
-func cleanFileURL(u string) string {
-	if !strings.HasPrefix(u, "file://") {
-		return u
-	}
-	rest := strings.TrimPrefix(u, "file://localhost")
-	rest = strings.TrimPrefix(rest, "file://")
-	cleaned := "/" + strings.TrimLeft(rest, "/")
-	cleaned = pathpkg.Clean(cleaned)
-	return "file://localhost" + cleaned
-}
-
 // -------- grepFiles implementation --------
 
 // GrepInput describes a lexical, snippet-aware search over files under a
@@ -1534,13 +1631,11 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("root or rootId is required")
 	}
 	allowed := s.agentAllowed(ctx)
-	wsRoot, _, err := s.normalizeUserRoot(ctx, rootURI)
+	rootCtx, err := s.newRootContext(ctx, rootURI, input.RootID, allowed)
 	if err != nil {
 		return err
 	}
-	if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
-		return fmt.Errorf("root not allowed: %s", rootURI)
-	}
+	wsRoot := rootCtx.Workspace()
 	// Enforce per-resource grep capability when agent context is available.
 	if !s.grepAllowedForAgent(ctx, s.currentAgent(ctx), wsRoot) {
 		return fmt.Errorf("grep not allowed for root: %s", rootURI)
@@ -1549,15 +1644,11 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	if mcpuri.Is(wsRoot) {
 		return fmt.Errorf("grepFiles is not supported for mcp resources")
 	}
-	base := wsRoot
-	if strings.HasPrefix(wsRoot, "workspace://") {
-		base = workspaceToFile(wsRoot)
-	}
-	if strings.TrimSpace(input.Path) != "" {
-		var jerr error
-		base, jerr = joinBaseWithPath(wsRoot, base, strings.TrimSpace(input.Path), rootURI)
-		if jerr != nil {
-			return jerr
+	base := rootCtx.Base()
+	if trimmed := strings.TrimSpace(input.Path); trimmed != "" {
+		base, err = rootCtx.ResolvePath(trimmed)
+		if err != nil {
+			return err
 		}
 	}
 	// Normalise defaults

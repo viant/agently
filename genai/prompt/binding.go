@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -45,10 +46,20 @@ type (
 	}
 
 	Message struct {
+		Kind       MessageKind   `yaml:"kind,omitempty" json:"kind,omitempty"`
 		Role       string        `yaml:"role,omitempty" json:"role,omitempty"`
 		MimeType   string        `yaml:"mimeType,omitempty" json:"mimeType,omitempty"`
 		Content    string        `yaml:"content,omitempty" json:"content,omitempty"`
 		Attachment []*Attachment `yaml:"attachment,omitempty" json:"attachment,omitempty"`
+		CreatedAt  time.Time     `yaml:"createdAt,omitempty" json:"createdAt,omitempty"`
+
+		ID string `yaml:"id,omitempty" json:"id,omitempty"`
+
+		// Optional tool metadata for tool result messages.
+		ToolOpID    string                 `yaml:"toolOpId,omitempty" json:"toolOpId,omitempty"`
+		ToolName    string                 `yaml:"toolName,omitempty" json:"toolName,omitempty"`
+		ToolArgs    map[string]interface{} `yaml:"toolArgs,omitempty" json:"toolArgs,omitempty"`
+		ToolTraceID string                 `yaml:"toolTraceId,omitempty" json:"toolTraceId,omitempty"`
 	}
 
 	Attachment struct {
@@ -60,11 +71,36 @@ type (
 		Data          []byte `yaml:"data,omitempty" json:"data,omitempty"`
 	}
 
+	Turn struct {
+		ID        string     `yaml:"id,omitempty" json:"id,omitempty"`
+		StartedAt time.Time  `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
+		Messages  []*Message `yaml:"messages,omitempty" json:"messages,omitempty"`
+	}
+
 	History struct {
-		Messages        []*Message `yaml:"messages,omitempty" json:"messages,omitempty"`
-		UserElicitation []*Message `yaml:"userElicitation" json:"userElicitation"`
-		LastResponse    *Trace
-		Traces          map[string]*Trace
+		// Past contains committed conversation turns in chronological order.
+		Past []*Turn `yaml:"past,omitempty" json:"past,omitempty"`
+
+		// Current holds the in-flight turn for the ongoing request
+		// (React loop step). It is intentionally separated from Past
+		// so we can distinguish persisted history from the current
+		// LLM call context.
+		Current *Turn `yaml:"current,omitempty" json:"current,omitempty"`
+
+		// CurrentTurnID, when non-empty, carries the id of the in-flight
+		// turn associated with the Current messages. It is typically
+		// aligned with memory.TurnMeta.TurnID and is provided for
+		// observability and explicitness; Past remains the committed
+		// transcript.
+		CurrentTurnID string `yaml:"currentTurnID,omitempty" json:"currentTurnID,omitempty"`
+
+		// Messages is a legacy flat view of persisted history kept for
+		// template compatibility and internal tooling. New code should
+		// prefer Past/Current and helper methods.
+		Messages []*Message `yaml:"messages,omitempty" json:"messages,omitempty"`
+
+		LastResponse *Trace            `yaml:"lastResponse,omitempty" json:"lastResponse,omitempty"`
+		Traces       map[string]*Trace `yaml:"traces,omitempty" json:"traces,omitempty"`
 	}
 )
 
@@ -74,6 +110,18 @@ const (
 	KindResponse Kind = "resp"
 	KindToolCall Kind = "op"
 	KindContent  Kind = "content"
+)
+
+// MessageKind classifies high-level message semantics
+// in history for LLM binding purposes.
+type MessageKind string
+
+const (
+	MessageKindChatUser      MessageKind = "chat_user"
+	MessageKindChatAssistant MessageKind = "chat_assistant"
+	MessageKindToolResult    MessageKind = "tool_result"
+	MessageKindElicitPrompt  MessageKind = "elicit_prompt"
+	MessageKindElicitAnswer  MessageKind = "elicit_answer"
 )
 
 type (
@@ -255,4 +303,110 @@ func (a *Attachment) MIMEType() string {
 		return "video/mp4"
 	}
 	return "application/octet-Stream"
+}
+
+// ToLLM converts a prompt.Message into an llm.Message, preserving
+// attachments and role. It sorts attachments by URI to ensure
+// deterministic ordering when multiple attachments are present.
+func (m *Message) ToLLM() llm.Message {
+	if m == nil {
+		return llm.Message{}
+	}
+	role := llm.MessageRole(m.Role)
+	// Normalize any history messages with tool role to assistant
+	// when converting to LLM messages. Structured tool results for
+	// providers are created via llm.NewToolResultMessage and do not
+	// pass through this helper.
+	if strings.EqualFold(strings.TrimSpace(m.Role), "tool") {
+		role = llm.RoleAssistant
+	}
+	if len(m.Attachment) == 0 {
+		return llm.NewTextMessage(role, m.Content)
+	}
+	// Sort attachments by URI for stable order.
+	sort.Slice(m.Attachment, func(i, j int) bool {
+		if m.Attachment[i] == nil || m.Attachment[j] == nil {
+			return false
+		}
+		return strings.Compare(m.Attachment[i].URI, m.Attachment[j].URI) < 0
+	})
+	items := make([]*llm.AttachmentItem, 0, len(m.Attachment))
+	for _, a := range m.Attachment {
+		if a == nil {
+			continue
+		}
+		items = append(items, &llm.AttachmentItem{
+			Name:     a.Name,
+			MimeType: a.MIMEType(),
+			Data:     a.Data,
+			Content:  a.Content,
+		})
+	}
+	return llm.NewMessageWithBinaries(role, items, m.Content)
+}
+
+// Messages flattens Past turns (and optionally Current when present)
+// into a chronological slice of messages. It is intended for
+// legacy/template usage and internal tooling; new LLM flows should
+// prefer LLMMessages.
+// Messages flattens Past into a legacy slice for compatibility.
+// It intentionally excludes Current so overflow and trimming
+// operate only on persisted history.
+// NOTE: This is maintained as a field; callers should treat it
+// as read-only and prefer Past/Current when possible.
+
+// LLMMessages flattens history turns into a chronological slice of
+// llm.Messages. When Past/Current are present, they are used as the
+// source; otherwise the legacy flat Messages field is used.
+func (h *History) LLMMessages() []llm.Message {
+	var out []llm.Message
+	if h == nil {
+		return out
+	}
+	// Preferred path: flatten Past (committed transcript) and then
+	// Current (in-flight turn) when present. Legacy clients that rely
+	// solely on Messages will not populate Past/Current.
+	if len(h.Past) > 0 || h.Current != nil {
+		for _, t := range h.Past {
+			if t == nil {
+				continue
+			}
+			for _, m := range t.Messages {
+				if m == nil {
+					continue
+				}
+				// Skip tool-result and elicitation messages here; they are
+				// exposed via Tools.Executions and dedicated elicitation
+				// logic to avoid duplicating raw tool payloads or elicitation
+				// JSON in the LLM chat history.
+				if m.Kind == MessageKindToolResult || m.Kind == MessageKindElicitPrompt || m.Kind == MessageKindElicitAnswer {
+					continue
+				}
+				out = append(out, m.ToLLM())
+			}
+		}
+		if h.Current != nil {
+			for _, m := range h.Current.Messages {
+				if m == nil {
+					continue
+				}
+				if m.Kind == MessageKindToolResult || m.Kind == MessageKindElicitPrompt || m.Kind == MessageKindElicitAnswer {
+					continue
+				}
+				out = append(out, m.ToLLM())
+			}
+		}
+		return out
+	}
+	// Fallback: legacy flat Messages view.
+	for _, m := range h.Messages {
+		if m == nil {
+			continue
+		}
+		if m.Kind == MessageKindToolResult || m.Kind == MessageKindElicitPrompt || m.Kind == MessageKindElicitAnswer {
+			continue
+		}
+		out = append(out, m.ToLLM())
+	}
+	return out
 }

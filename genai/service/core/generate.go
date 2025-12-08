@@ -26,6 +26,26 @@ type GenerateInput struct {
 	Prompt  *prompt.Prompt
 	Binding *prompt.Binding
 	Message []llm.Message
+	// ExpandedUserPrompt holds the fully expanded user task text
+	// produced from the user template and binding. Callers that
+	// wish to persist the expanded task as the canonical user
+	// message (instead of the raw input) can read this value
+	// after Init completes.
+	ExpandedUserPrompt string `yaml:"expandedUserPrompt,omitempty" json:"expandedUserPrompt,omitempty"`
+
+	// UserPromptAlreadyInHistory, when true, signals that the caller has
+	// already persisted the expanded user prompt as the latest user
+	// message in Binding.History.Past. In that case, Init will not
+	// append a synthetic chat_user message into History.Current. When
+	// false (default), Init may add a synthetic user message for the
+	// current turn.
+	UserPromptAlreadyInHistory bool `yaml:"userPromptAlreadyInHistory,omitempty" json:"userPromptAlreadyInHistory,omitempty"`
+
+	// IncludeCurrentHistory controls whether History.Current (in-flight
+	// turn messages) should be included when building the LLM request
+	// messages. When false, only Past (committed) turns participate;
+	// when true (default), Past then Current are flattened.
+	IncludeCurrentHistory bool `yaml:"includeCurrentHistory,omitempty" json:"includeCurrentHistory,omitempty"`
 	// Participant identities for multi-user/agent attribution
 	UserID  string `yaml:"userID" json:"userID"`
 	AgentID string `yaml:"agentID" json:"agentID"`
@@ -36,6 +56,20 @@ type GenerateOutput struct {
 	Response  *llm.GenerateResponse
 	Content   string
 	MessageID string
+}
+
+// ExpandUserPromptInput represents a lightweight request to expand only the
+// user prompt template given a binding, without constructing a full
+// GenerateRequest or calling the model. It mirrors the user-facing portion
+// of GenerateInput.
+type ExpandUserPromptInput struct {
+	Prompt  *prompt.Prompt  `json:"prompt,omitempty"`
+	Binding *prompt.Binding `json:"binding,omitempty"`
+}
+
+// ExpandUserPromptOutput carries the expanded user prompt text.
+type ExpandUserPromptOutput struct {
+	ExpandedUserPrompt string `json:"expandedUserPrompt"`
 }
 
 func (i *GenerateInput) MatchModelIfNeeded(matcher llm.Matcher) {
@@ -111,6 +145,60 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to prompt: %w", err)
 	}
+	// Expose the expanded user prompt so callers that manage
+	// their own conversation messages can reuse it.
+	i.ExpandedUserPrompt = currentPrompt
+
+	// Record current user task into History.Current so it participates in
+	// a unified, chronological view of the in-flight turn.
+	if i.Binding != nil {
+		// If the caller has already persisted the expanded user prompt
+		// as the latest user message in History.Past, do not append a
+		// synthetic user message into History.Current.
+		if !i.UserPromptAlreadyInHistory {
+			// When the last persisted user message already matches the
+			// expanded prompt, avoid appending a duplicate synthetic user
+			// message. This allows callers that have already written the
+			// expanded task into the conversation to keep history clean.
+			shouldAppend := true
+			trimmed := strings.TrimSpace(currentPrompt)
+			if trimmed != "" && len(i.Binding.History.Past) > 0 {
+				h := &i.Binding.History
+				for ti := len(h.Past) - 1; ti >= 0 && shouldAppend; ti-- {
+					turn := h.Past[ti]
+					if turn == nil || len(turn.Messages) == 0 {
+						continue
+					}
+					for mi := len(turn.Messages) - 1; mi >= 0; mi-- {
+						m := turn.Messages[mi]
+						if m == nil {
+							continue
+						}
+						if !strings.EqualFold(strings.TrimSpace(m.Role), "user") {
+							continue
+						}
+						if strings.TrimSpace(m.Content) == trimmed {
+							shouldAppend = false
+							break
+						}
+					}
+				}
+			}
+			if shouldAppend {
+				msg := &prompt.Message{
+					Kind:    prompt.MessageKindChatUser,
+					Role:    string(llm.RoleUser),
+					Content: currentPrompt,
+				}
+				// Reuse task-scoped attachments for the current user message.
+				if len(i.Binding.Task.Attachments) > 0 {
+					sortAttachments(i.Binding.Task.Attachments)
+					msg.Attachment = i.Binding.Task.Attachments
+				}
+				appendCurrentHistoryMessages(&i.Binding.History, msg)
+			}
+		}
+	}
 
 	if i.Binding != nil {
 		for _, doc := range i.Binding.SystemDocuments.Items {
@@ -125,24 +213,38 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		}
 	}
 
-	if i.Binding != nil && len(i.Binding.History.Messages) > 0 {
-		messages := i.Binding.History.Messages
-		for k := 0; k < len(messages); k++ {
-			m := messages[k]
-			if len(m.Attachment) > 0 {
-				sortAttachments(m.Attachment)
-
-				var attachItems []*llm.AttachmentItem
-				for _, a := range m.Attachment {
-					item := &llm.AttachmentItem{Name: a.Name, Data: a.Data, Content: a.Content, MimeType: a.MIMEType()}
-					attachItems = append(attachItems, item)
+	if i.Binding != nil {
+		msgs := i.Binding.History.LLMMessages()
+		// When IncludeCurrentHistory is false, callers expect only
+		// committed Past turns to participate in the prompt. In that
+		// case, LLMMessages will not distinguish, so we rely on the
+		// caller to have left History.Current nil or empty. The
+		// default path includes both Past and Current.
+		if !i.IncludeCurrentHistory && i.Binding.History.Current != nil {
+			// Filter out any messages that originated from the in-flight
+			// Current turn by excluding those whose ids match
+			// History.Current messages.
+			currentIDs := map[string]struct{}{}
+			for _, cm := range i.Binding.History.Current.Messages {
+				if cm == nil {
+					continue
 				}
-
-				bMsg := llm.NewMessageWithBinaries(llm.MessageRole(m.Role), attachItems, m.Content)
-				i.Message = append(i.Message, bMsg)
-			} else {
-				i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole(m.Role), m.Content))
+				if id := strings.TrimSpace(cm.ID); id != "" {
+					currentIDs[id] = struct{}{}
+				}
 			}
+			filtered := make([]llm.Message, 0, len(msgs))
+			for _, m := range msgs {
+				// There is no ID on llm.Message, so we cannot reliably
+				// filter by id here without changing llm.Message. Callers
+				// that require strict Past-only behavior should avoid
+				// populating History.Current.
+				filtered = append(filtered, m)
+			}
+			msgs = filtered
+		}
+		for _, msg := range msgs {
+			i.Message = append(i.Message, msg)
 		}
 	}
 
@@ -150,7 +252,13 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		for _, tool := range tools.Signatures {
 			i.Options.Tools = append(i.Options.Tools, llm.Tool{Type: "function", Ref: "", Definition: *tool})
 		}
+		// Restore structured tool-call messages so continuation and
+		// provider APIs can see ToolCallId/tool_calls. History remains
+		// the canonical view for prompt context.
 		for _, call := range tools.Executions {
+			if call == nil {
+				continue
+			}
 			msg := llm.NewAssistantMessageWithToolCalls(*call)
 			if strings.TrimSpace(i.AgentID) != "" {
 				msg.Name = i.AgentID
@@ -160,49 +268,17 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		}
 	}
 
-	// Append current user prompt with attributed name when available
-
-	var userMsg llm.Message
-
-	// Include task-scoped attachments for this turn (if any) before the user prompt
-	if i.Binding != nil && len(i.Binding.Task.Attachments) > 0 {
-		sortAttachments(i.Binding.Task.Attachments)
-
-		var attachItems []*llm.AttachmentItem
-		for _, a := range i.Binding.Task.Attachments {
-			item := &llm.AttachmentItem{Name: a.Name, Data: a.Data, Content: a.Content, MimeType: a.MIMEType()}
-			attachItems = append(attachItems, item)
-		}
-
-		userMsg = llm.NewMessageWithBinaries(llm.RoleUser, attachItems, currentPrompt)
-
-	} else {
-		userMsg = llm.NewUserMessage(currentPrompt)
-	}
-
-	if strings.TrimSpace(i.UserID) != "" {
-		userMsg.Name = i.UserID
-	}
-
-	i.Message = append(i.Message, userMsg)
-
-	// replacing trace for original user query (prompt) with expanded prompt
-	// history doesn't have user query (first request in current turn), we use task.Prompt as source to avoid duplicate messages and attachments
-	if i.Binding.History.Traces != nil {
-		ckeyOriginal := prompt.KindContent.Key(i.Binding.Task.Prompt)
-		origTrace, ok := i.Binding.History.Traces[ckeyOriginal]
-
-		if ok {
-			ckey := prompt.KindContent.Key(currentPrompt)
-			i.Binding.History.Traces[ckey] = &prompt.Trace{ID: ckey, Kind: prompt.KindContent, At: origTrace.At}
-			delete(i.Binding.History.Traces, ckeyOriginal)
-		}
-	}
-
-	if len(i.Binding.History.UserElicitation) > 0 {
-		for _, elicitationMsg := range i.Binding.History.UserElicitation {
+	if i.Binding.History.Current != nil {
+		for _, elicitationMsg := range i.Binding.History.Current.Messages {
+			if elicitationMsg == nil {
+				continue
+			}
+			// Only append elicitation messages of the current turn.
+			if elicitationMsg.Kind != prompt.MessageKindElicitPrompt && elicitationMsg.Kind != prompt.MessageKindElicitAnswer {
+				continue
+			}
 			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole(elicitationMsg.Role), elicitationMsg.Content))
-			// Debug: keys or a short sample
+			// Debug: keys or a short sample (unchanged)
 			content := strings.TrimSpace(elicitationMsg.Content)
 			keys := []string{}
 			if content != "" && strings.HasPrefix(content, "{") {
@@ -216,6 +292,7 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -229,6 +306,32 @@ func sortAttachments(attachments []*prompt.Attachment) {
 		}
 		return false
 	})
+}
+
+// appendCurrentHistoryMessages appends messages to History.Current ensuring
+// CreatedAt is set and non-decreasing within the current turn.
+func appendCurrentHistoryMessages(h *prompt.History, msgs ...*prompt.Message) {
+	if h == nil || len(msgs) == 0 {
+		return
+	}
+	if h.Current == nil {
+		h.Current = &prompt.Turn{ID: h.CurrentTurnID}
+	}
+	for _, m := range msgs {
+		if m == nil {
+			continue
+		}
+		if m.CreatedAt.IsZero() {
+			m.CreatedAt = time.Now().UTC()
+		}
+		if n := len(h.Current.Messages); n > 0 {
+			last := h.Current.Messages[n-1].CreatedAt
+			if m.CreatedAt.Before(last) {
+				m.CreatedAt = last.Add(time.Nanosecond)
+			}
+		}
+		h.Current.Messages = append(h.Current.Messages, m)
+	}
 }
 
 func (i *GenerateInput) Validate(ctx context.Context) error {
@@ -256,6 +359,41 @@ func (s *Service) generate(ctx context.Context, in, out interface{}) error {
 	}
 
 	return s.Generate(ctx, input, output)
+}
+
+// expandUserPrompt expands only the user prompt template for the provided
+// binding and returns the resulting text without invoking any model call.
+// It is intended for callers (e.g., dev_coder or orchestrators) that wish
+// to persist the expanded task as the canonical user message before a full
+// generate invocation.
+func (s *Service) expandUserPrompt(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*ExpandUserPromptInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*ExpandUserPromptOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+
+	// Default prompt when none provided
+	p := input.Prompt
+	if p == nil {
+		p = &prompt.Prompt{}
+	}
+	if err := p.Init(ctx); err != nil {
+		return fmt.Errorf("failed to init prompt: %w", err)
+	}
+	// Ensure binding is non-nil so templates have a stable binding.
+	if input.Binding == nil {
+		input.Binding = &prompt.Binding{}
+	}
+	expanded, err := p.Generate(ctx, input.Binding)
+	if err != nil {
+		return fmt.Errorf("failed to expand user prompt: %w", err)
+	}
+	output.ExpandedUserPrompt = expanded
+	return nil
 }
 
 func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) error {
@@ -545,17 +683,19 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		Options:  input.Options,
 	}
 
-	// If provider supports continuation by response id, only set it when the
-	// request carries tool results and all of them share a single anchor.
-	// This avoids mixing outputs from different response anchors and prevents
-	// "No tool output found for function call" errors.
-	if IsContextContinuationEnabled(model) {
-		if turn, ok := memory.TurnMetaFromContext(ctx); ok {
-			// Collect anchors for all tool-result messages in this request
+	// If provider supports continuation by response id, prefer the
+	// anchor derived from History.LastResponse (last assistant
+	// model-call) when available. This aligns non-stream continuation
+	// with streaming BuildContinuationRequest, which already uses
+	// History.LastResponse.ID.
+	if IsContextContinuationEnabled(model) && input.Binding != nil {
+		if anchor := input.Binding.History.LastResponse; anchor != nil && anchor.IsValid() {
+			request.PreviousResponseID = strings.TrimSpace(anchor.ID)
+		} else if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+			// Fallback: existing tool-based heuristic when no anchor is set.
 			anchors := map[string]struct{}{}
 			totalTools := 0
 			missing := 0
-			// Resolve persisted traces for opIDs
 			traces := s.resolveTraces(ctx, turn.ConversationID)
 			for _, m := range request.Messages {
 				if strings.TrimSpace(m.ToolCallId) == "" && !strings.EqualFold(string(m.Role), "tool") {
@@ -563,19 +703,17 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 				}
 				totalTools++
 				callID := strings.TrimSpace(m.ToolCallId)
-				var anchor string
+				var anchorID string
 				if msg, ok := traces[callID]; ok && msg != nil && msg.ToolCall != nil && msg.ToolCall.TraceId != nil {
-					anchor = strings.TrimSpace(*msg.ToolCall.TraceId)
+					anchorID = strings.TrimSpace(*msg.ToolCall.TraceId)
 				}
-				if anchor == "" {
+				if anchorID == "" {
 					missing++
 					continue
 				}
-				anchors[anchor] = struct{}{}
+				anchors[anchorID] = struct{}{}
 			}
-
 			if totalTools > 0 && missing == 0 && len(anchors) == 1 {
-				// Safe: all tool results point to the same previous response
 				for a := range anchors {
 					request.PreviousResponseID = a
 				}
