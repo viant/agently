@@ -258,6 +258,7 @@ func (s *Service) AddUserResponseMessage(ctx context.Context, turn *memory.TurnM
 		apiconv.WithRole("user"),
 		apiconv.WithType("text"),
 		apiconv.WithContent(string(raw)),
+		apiconv.WithRawContent(string(raw)),
 	)
 	return err
 }

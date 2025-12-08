@@ -83,6 +83,7 @@ CREATE TABLE message
     role               TEXT      NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
     type               TEXT      NOT NULL DEFAULT 'text' CHECK (type IN ('text', 'tool_op',  'control')),
     content            TEXT,
+    raw_content        TEXT,
     summary            TEXT,
     context_summary    TEXT,
     tags               TEXT,

@@ -77,10 +77,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.startTurn(ctx, turn); err != nil {
 		return err
 	}
-	// Best-effort expansion of the user prompt; on failure, fall back
-	// to the raw input.Query as the user message content.
+	// Best-effort expansion of the user prompt only on the very first turn of a conversation.
+	rawUserContent := input.Query
 	content := strings.TrimSpace(input.Query)
-	if s.llm != nil && input.Agent != nil {
+	if input.IsNewConversation && s.llm != nil && input.Agent != nil {
 		b, berr := s.BuildBinding(ctx, input)
 		if berr == nil {
 			var expOut core.ExpandUserPromptOutput
@@ -90,7 +90,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			}
 		}
 	}
-	if err := s.addUserMessage(ctx, &turn, input.UserId, content); err != nil {
+	if err := s.addUserMessage(ctx, &turn, input.UserId, content, rawUserContent); err != nil {
 		return err
 	}
 
@@ -361,7 +361,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				}
 				// Attribute assistant message to the agent ID for history and UI display
 				actor := input.Actor()
-				if _, err := s.addMessage(ctx, &turn, "assistant", actor, genOutput.Content, "plan", msgID); err != nil {
+				if _, err := s.addMessage(ctx, &turn, "assistant", actor, genOutput.Content, nil, "plan", msgID); err != nil {
 					return err
 				}
 			}
@@ -460,12 +460,19 @@ func deriveProviderFromModelRef(modelRef string) string {
 // It returns true when the elicitation was accepted.
 // waitForElicitation was inlined into elicitation.Service.Wait
 
-func (s *Service) addMessage(ctx context.Context, turn *memory.TurnMeta, role, actor, content, mode, id string) (string, error) {
+func (s *Service) addMessage(ctx context.Context, turn *memory.TurnMeta, role, actor, content string, raw *string, mode, id string) (string, error) {
 	opts := []apiconv.MessageOption{
 		apiconv.WithRole(role),
 		apiconv.WithCreatedByUserID(actor),
 		apiconv.WithContent(content),
 		apiconv.WithMode(mode),
+	}
+	if raw != nil {
+		trimmed := strings.TrimSpace(*raw)
+		if trimmed != "" {
+			val := *raw
+			opts = append(opts, apiconv.WithRawContent(val))
+		}
 	}
 	if strings.TrimSpace(id) != "" {
 		opts = append(opts, apiconv.WithId(id))
@@ -563,8 +570,13 @@ func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
 	return s.conversation.PatchTurn(ctx, rec)
 }
 
-func (s *Service) addUserMessage(ctx context.Context, turn *memory.TurnMeta, userID, content string) error {
-	_, err := s.addMessage(ctx, turn, "user", userID, content, "task", turn.TurnID)
+func (s *Service) addUserMessage(ctx context.Context, turn *memory.TurnMeta, userID, content, raw string) error {
+	var rawPtr *string
+	if strings.TrimSpace(raw) != "" {
+		rawCopy := raw
+		rawPtr = &rawCopy
+	}
+	_, err := s.addMessage(ctx, turn, "user", userID, content, rawPtr, "task", turn.TurnID)
 	if err != nil {
 		return fmt.Errorf("failed to add message: %w", err)
 	}

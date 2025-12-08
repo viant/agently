@@ -703,6 +703,14 @@ func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
 			dst.Content = &s
 		}
 	}
+	if src.Has.RawContent {
+		if src.RawContent == nil || *src.RawContent == "" {
+			dst.RawContent = nil
+		} else {
+			val := *src.RawContent
+			dst.RawContent = &val
+		}
+	}
 	if src.Has.ContextSummary {
 		dst.ContextSummary = src.ContextSummary
 	}

@@ -93,6 +93,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		agentIDPtr = aConversation.AgentId
 		metadata = aConversation.Metadata
 	}
+	input.IsNewConversation = !exists
 
 	// Derive model when not provided: fall back to conversation default model only.
 	if input.ModelOverride == "" {

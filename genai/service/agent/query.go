@@ -61,6 +61,11 @@ type QueryInput struct {
 	// ReasoningEffort optionally overrides agent-level Reasoning.Effort for this turn.
 	// Valid values (OpenAI o-series): low | medium | high.
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
+
+	// IsNewConversation indicates whether ensureConversation had to create
+	// the conversation backing store for this request. It is used internally to
+	// control behaviors like prompt expansion on the first turn only.
+	IsNewConversation bool `json:"-"`
 }
 
 // QueryOutput represents the result of an agent knowledge query

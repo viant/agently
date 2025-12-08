@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	convcli "github.com/viant/agently/client/conversation"
 	mem "github.com/viant/agently/internal/service/conversation/memory"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
@@ -56,6 +57,7 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 	m1.SetRole("user")
 	m1.SetType("text")
 	m1.SetContent("hello")
+	m1.SetRawContent("hello raw")
 	m1.SetCreatedAt(t1)
 	assert.NoError(t, c.PatchMessage(ctx, (*convcli.MutableMessage)(m1)))
 
@@ -114,7 +116,7 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 		Visibility: "",
 		CreatedAt:  t0,
 		Transcript: []*agconv.TranscriptView{
-			{Id: "t1", ConversationId: "c1", CreatedAt: t1, Status: "ok", Message: []*agconv.MessageView{{Id: "m1", ConversationId: "c1", TurnId: ptrS("t1"), Role: "user", Type: "text", Content: ptrS("hello"), CreatedAt: t1}}},
+			{Id: "t1", ConversationId: "c1", CreatedAt: t1, Status: "ok", Message: []*agconv.MessageView{{Id: "m1", ConversationId: "c1", TurnId: ptrS("t1"), Role: "user", Type: "text", Content: ptrS("hello"), RawContent: ptrS("hello raw"), CreatedAt: t1}}},
 			{Id: "t2", ConversationId: "c1", CreatedAt: t2, Status: "ok", Message: []*agconv.MessageView{
 				{Id: "m2", ConversationId: "c1", TurnId: ptrS("t2"), Role: "assistant", Type: "text", Content: ptrS("world"), CreatedAt: t2},
 				{Id: "m3", ConversationId: "c1", TurnId: ptrS("t2"), Role: "assistant", Type: "tool", Content: ptrS("call:toolX"), CreatedAt: t2},
@@ -233,6 +235,54 @@ func TestClient_DeleteConversation_DataDriven(t *testing.T) {
 	items, err := c.GetConversations(ctx)
 	assert.NoError(t, err)
 	assert.EqualValues(t, []*convcli.Conversation{}, items)
+}
+
+func TestClient_MessageRawContentRoundTrip(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	type testCase struct {
+		name     string
+		rawInput *string
+		expected *string
+	}
+	cases := []testCase{
+		{name: "raw preserved", rawInput: ptrS("user raw input"), expected: ptrS("user raw input")},
+		{name: "empty raw dropped", rawInput: ptrS(""), expected: nil},
+		{name: "raw never set remains nil", rawInput: nil, expected: nil},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := mem.New()
+			conv := convcli.NewConversation()
+			conv.SetId("c-raw")
+			require.NoError(t, c.PatchConversations(ctx, conv))
+			msg := &msgw.Message{Has: &msgw.MessageHas{}}
+			msg.SetId("m-raw")
+			msg.SetConversationID("c-raw")
+			msg.SetRole("user")
+			msg.SetType("text")
+			msg.SetContent("expanded")
+			if tc.rawInput != nil {
+				msg.SetRawContent(*tc.rawInput)
+			}
+			require.NoError(t, c.PatchMessage(ctx, (*convcli.MutableMessage)(msg)), tc.name)
+			stored, err := c.GetMessage(ctx, "m-raw")
+			require.NoError(t, err, tc.name)
+			require.NotNil(t, stored, tc.name)
+			if tc.expected == nil {
+				assert.Nil(t, stored.RawContent, tc.name)
+			} else {
+				require.NotNil(t, stored.RawContent, tc.name)
+				assert.EqualValues(t, *tc.expected, *stored.RawContent, tc.name)
+			}
+			if stored.Content == nil {
+				t.Fatalf("content nil for case %s", tc.name)
+			}
+			assert.EqualValues(t, "expanded", *stored.Content, tc.name)
+		})
+	}
 }
 
 // Helpers for building expected data

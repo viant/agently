@@ -23,6 +23,7 @@ import (
 	execcfg "github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/preview"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	agentsrv "github.com/viant/agently/genai/service/agent"
@@ -853,7 +854,56 @@ func (s *Service) GetPayload(ctx context.Context, id string) ([]byte, string, er
 	if strings.TrimSpace(ctype) == "" {
 		ctype = "application/octet-stream"
 	}
-	return *p.InlineBody, ctype, nil
+	body := *p.InlineBody
+	// Default behavior: compact large JSON payloads for display to keep UI responsive.
+	if strings.Contains(strings.ToLower(ctype), "application/json") || looksLikeJSON(body) {
+		if compacted, ok := compactJSONForDisplay(body); ok {
+			body = compacted
+			// Ensure JSON content-type for compacted payload
+			ctype = "application/json"
+		}
+	}
+	return body, ctype, nil
+}
+
+// looksLikeJSON performs a quick check if the payload appears to be JSON.
+func looksLikeJSON(b []byte) bool {
+	s := strings.TrimSpace(string(b))
+	if s == "" {
+		return false
+	}
+	c := s[0]
+	return c == '{' || c == '['
+}
+
+// compactJSONForDisplay attempts to compact a JSON payload using preview.Compact
+// with reasonable defaults. It returns the compacted bytes and true on success
+// when the result differs from the original; otherwise returns (nil, false).
+func compactJSONForDisplay(b []byte) ([]byte, bool) {
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return nil, false
+	}
+	// Conservative defaults: ~64KB budget; trim long strings and arrays.
+	opts := preview.Options{
+		BudgetBytes:  64 * 1024,
+		MaxString:    4096,
+		MaxArray:     100,
+		PreserveKeys: []string{"id", "status", "type", "name", "createdAt", "messageId", "messageID"},
+		LowValueKeys: []string{"log", "logs", "html", "raw", "debug", "trace", "output", "stdout", "stderr"},
+	}
+	out, _, err := preview.Compact(v, opts)
+	if err != nil {
+		return nil, false
+	}
+	nb, err := json.Marshal(out)
+	if err != nil {
+		return nil, false
+	}
+	if len(nb) >= len(b) {
+		return nil, false
+	}
+	return nb, true
 }
 
 // ---- Status helpers (implements chat.Client) ----

@@ -910,6 +910,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
 
             // Row usage derived from model call only when attached to this row later; leave null here.
             const rowRole = (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? 'elicition' : roleLower;
+            const prefRaw = (() => { try { const r = m.rawContent || m.RawContent; return (typeof r === 'string' && r.trim().length > 0) ? r : ''; } catch(_) { return ''; } })();
             const row = {
                 id,
                 conversationId: m.conversationId || m.ConversationId,
@@ -917,7 +918,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 role: rowRole,
                 name: (m.createdByUserId || m.CreatedByUserId || ''),
                 // Do not show any bubble content for elicitation rows; dialog carries the UI.
-                content: (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? '' : (m.content || m.Content || ''),
+                content: (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? '' : (prefRaw || m.content || m.Content || ''),
                 createdAt,
                 toolName: m.toolName || m.ToolName,
                 turnId: turnIdRef,

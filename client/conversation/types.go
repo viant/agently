@@ -115,6 +115,9 @@ func (m *Message) NewMutable() *MutableMessage {
 	if m.Content != nil {
 		out.SetContent(*m.Content)
 	}
+	if m.RawContent != nil {
+		out.SetRawContent(*m.RawContent)
+	}
 	out.SetInterim(m.Interim)
 
 	// Optional summaries/tags and relationships

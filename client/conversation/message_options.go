@@ -36,6 +36,9 @@ func WithType(typ string) MessageOption      { return func(m *MutableMessage) { 
 func WithContent(content string) MessageOption {
 	return func(m *MutableMessage) { m.SetContent(content) }
 }
+func WithRawContent(content string) MessageOption {
+	return func(m *MutableMessage) { m.SetRawContent(content) }
+}
 func WithInterim(v int) MessageOption        { return func(m *MutableMessage) { m.SetInterim(v) } }
 func WithMode(mode string) MessageOption     { return func(m *MutableMessage) { m.SetMode(mode) } }
 func WithToolName(name string) MessageOption { return func(m *MutableMessage) { m.SetToolName(name) } }
