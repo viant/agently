@@ -352,7 +352,9 @@ func (a *geminiAggregator) addResponse(resp *Response) {
 				} else if p.FunctionCall.Arguments != "" {
 					_ = json.Unmarshal([]byte(p.FunctionCall.Arguments), &args)
 				}
-				a.tools[idx] = append(a.tools[idx], llm.ToolCall{Name: p.FunctionCall.Name, Arguments: args})
+				ts := strings.TrimSpace(p.ThoughtSignature)
+				tc := llm.ToolCall{ID: ts, Name: p.FunctionCall.Name, Arguments: args}
+				a.tools[idx] = append(a.tools[idx], tc)
 			}
 		}
 		if cand.FinishReason != "" {
