@@ -15,7 +15,12 @@ import (
 	plan "github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
+	contpol "github.com/viant/agently/genai/tool/continuation"
+	overwrap "github.com/viant/agently/genai/tool/overflow"
+	schinspect "github.com/viant/agently/genai/tool/schema"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
+	"github.com/viant/mcp-protocol/extension"
+	"strconv"
 )
 
 // StepInfo carries the tool step data needed for execution.
@@ -67,6 +72,11 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	defer cancel()
 
 	out, toolResult, execErr := executeTool(execCtx, reg, step)
+	// Optionally wrap overflow with YAML helper when native continuation is not supported.
+	if wrapped := maybeWrapOverflow(execCtx, reg, step.Name, toolResult, toolMsgID); wrapped != "" {
+		toolResult = wrapped
+		out.Result = wrapped
+	}
 	if execErr != nil && strings.TrimSpace(toolResult) == "" {
 		// Provide the error text as response payload so the LLM can reason over it.
 		toolResult = execErr.Error()
@@ -289,6 +299,121 @@ func persistRequestPayload(ctx context.Context, conv apiconv.Client, toolMsgID s
 func persistResponsePayload(ctx context.Context, conv apiconv.Client, result string) (string, error) {
 	rb := []byte(result)
 	return createInlinePayload(ctx, conv, "tool_response", "text/plain", rb)
+}
+
+// maybeWrapOverflow inspects a tool result for continuation hints and, based on
+// input/output schemas, returns a YAML overflow wrapper when native range
+// continuation is not supported. When no wrapper is needed, it returns an empty string.
+func maybeWrapOverflow(ctx context.Context, reg tool.Registry, toolName, result, toolMsgID string) string {
+	// Quick JSON parse to inspect continuation
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		return ""
+	}
+	contRaw, ok := payload["continuation"].(map[string]interface{})
+	if !ok || contRaw == nil {
+		return ""
+	}
+	// Detect truncation condition: remaining > 0 or hasMore=true
+	hasMore := false
+	if v, ok := contRaw["hasMore"]; ok {
+		if b, ok2 := v.(bool); ok2 && b {
+			hasMore = true
+		}
+	}
+	remaining := intFromAny(contRaw["remaining"]) // 0 when absent
+	if !hasMore && remaining <= 0 {
+		return ""
+	}
+	// Inspect schemas to decide strategy
+	def, ok := reg.GetDefinition(toolName)
+	var inShape schinspect.RangeInputs
+	var outShape schinspect.ContinuationShape
+	if ok && def != nil {
+		_, inShape = schinspect.HasInputRanges(def.Parameters)
+		_, outShape = schinspect.HasOutputContinuation(def.OutputSchema)
+	}
+	strat := contpol.Decide(inShape, outShape)
+	switch strat {
+	case contpol.OutputOnlyRanges, contpol.NoRanges:
+		// Build extension.Continuation (bytes-only for now)
+		ext := toContinuation(contRaw)
+		yaml, err := overwrap.BuildOverflowYAML(toolMsgID, ext)
+		if err == nil && strings.TrimSpace(yaml) != "" {
+			return yaml
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
+func intFromAny(v interface{}) int {
+	switch t := v.(type) {
+	case int:
+		return t
+	case int64:
+		return int(t)
+	case float64:
+		return int(t)
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return int(i)
+		}
+		if f, err := t.Float64(); err == nil {
+			return int(f)
+		}
+		return 0
+	default:
+		return 0
+	}
+}
+
+// toContinuation converts a generic map continuation into extension.Continuation.
+func toContinuation(m map[string]interface{}) *extension.Continuation {
+	if m == nil {
+		return nil
+	}
+	c := &extension.Continuation{}
+	if v, ok := m["hasMore"].(bool); ok {
+		c.HasMore = v
+	}
+	c.Remaining = intFromAny(m["remaining"])
+	c.Returned = intFromAny(m["returned"])
+	// bytes nextRange when present: nextRange or nested bytes {offset,length}
+	if nr, ok := m["nextRange"].(map[string]interface{}); ok && nr != nil {
+		if b, ok := nr["bytes"].(map[string]interface{}); ok && b != nil {
+			off := intFromAny(b["offset"])
+			if off == 0 {
+				off = intFromAny(b["offsetBytes"])
+			}
+			ln := intFromAny(b["length"])
+			if ln == 0 {
+				ln = intFromAny(b["lengthBytes"])
+			}
+			c.NextRange = &extension.RangeHint{Bytes: &extension.ByteRange{Offset: off, Length: ln}}
+		}
+	} else if s, ok := m["nextRange"].(string); ok && strings.Contains(s, "-") {
+		// parse "X-Y" string
+		parts := strings.SplitN(s, "-", 2)
+		if len(parts) == 2 {
+			// best effort
+			// ignore parse errors → zero values
+			var off, end int
+			if o, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
+				off = o
+			}
+			if e, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
+				end = e
+			}
+			ln := 0
+			if end > off {
+				ln = end - off
+			}
+			c.NextRange = &extension.RangeHint{Bytes: &extension.ByteRange{Offset: off, Length: ln}}
+		}
+	}
+	return c
 }
 
 // completeToolCall marks the tool call as finished and attaches the response payload and error message.

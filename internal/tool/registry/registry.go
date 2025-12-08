@@ -106,6 +106,14 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 	return r, nil
 }
 
+// debugf emits a formatted debug line to the configured debugWriter when present.
+func (r *Registry) debugf(format string, args ...interface{}) {
+	if r == nil || r.debugWriter == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(r.debugWriter, "[tools] "+format+"\n", args...)
+}
+
 // WithManager attaches a per-conversation MCP manager used to inject the
 // appropriate client and auth token into the context at call-time.
 func (r *Registry) WithManager(m *manager.Manager) *Registry { r.mgr = m; return r }
@@ -359,21 +367,25 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 }
 
 func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
-	// debug logging removed
+	// Lightweight debug hook to trace how tool definitions are resolved.
+	r.debugf("GetDefinition: name=%s", strings.TrimSpace(name))
 	r.mu.RLock()
 	if def, ok := r.virtualDefs[name]; ok {
 		r.mu.RUnlock()
+		r.debugf("GetDefinition: hit virtual tool %s", name)
 		return &def, true
 	}
 	// cache hit?
 	if e, ok := r.cache[name]; ok {
 		def := e.def
 		r.mu.RUnlock()
+		r.debugf("GetDefinition: hit cache %s (service=%s)", name, serverFromName(name))
 		return &def, true
 	}
 	r.mu.RUnlock()
 	svc := serverFromName(name)
 	if svc == "" {
+		r.debugf("GetDefinition: no service resolved for %s", name)
 		return nil, false
 	}
 	tools, err := r.listServerTools(context.Background(), svc)
@@ -388,18 +400,24 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 			tool := llm.ToolDefinitionFromMcpTool(&t)
 			if tool != nil {
 				r.mu.Lock()
+				// Normalise tool name to include service prefix so downstream
+				// callers (agents, adapters) never see bare method names like
+				// "read" without their service context.
+				fullSlash := svc + "/" + t.Name
+				tool.Name = fullSlash
 				entry := &toolCacheEntry{def: *tool, mcpDef: t}
 				// cache both aliases and the exact name used
-				slash := svc + "/" + t.Name
 				colon := svc + ":" + t.Name
-				r.cache[slash] = entry
+				r.cache[fullSlash] = entry
 				r.cache[colon] = entry
 				r.cache[name] = entry
 				r.mu.Unlock()
+				r.debugf("GetDefinition: populated cache for %s (service=%s, method=%s)", name, svc, method)
 			}
 			return tool, true
 		}
 	}
+	r.debugf("GetDefinition: tool not found (service=%s, method=%s, name=%s)", svc, method, name)
 	return nil, false
 }
 
@@ -429,8 +447,12 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		baseName = strings.TrimSpace(name[:i])
 		selector = strings.TrimSpace(name[i+1:])
 	}
+	convID := memory.ConversationIDFromContext(ctx)
+	r.debugf("Execute: name=%s base=%s selector=%s convID=%s", strings.TrimSpace(name), strings.TrimSpace(baseName), strings.TrimSpace(selector), convID)
+
 	// virtual tool?
 	if h, ok := r.virtualExec[baseName]; ok {
+		r.debugf("Execute: using virtual tool %s", baseName)
 		out, err := h(ctx, args)
 		if err != nil || selector == "" {
 			return out, err
@@ -442,6 +464,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	r.mu.RLock()
 	if e, ok := r.cache[baseName]; ok && e.exec != nil {
 		r.mu.RUnlock()
+		r.debugf("Execute: hit cached exec for %s (service=%s)", baseName, serverFromName(baseName))
 		out, err := e.exec(ctx, args)
 		if err != nil || selector == "" {
 			return out, err
@@ -449,14 +472,14 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return r.applySelector(out, selector)
 	}
 	r.mu.RUnlock()
-	// no debug logging
 
-	convID := memory.ConversationIDFromContext(ctx)
 	serviceName, _ := splitToolName(baseName)
 	server := serviceName
 	if server == "" {
+		r.debugf("Execute: invalid tool name (no server): %s", baseName)
 		return "", fmt.Errorf("invalid tool name: %s", name)
 	}
+	r.debugf("Execute: resolving via MCP server=%s method=%s (base=%s, convID=%s)", server, mcpnames.Name(mcpnames.Canonical(baseName)).Method(), baseName, convID)
 	var options []mcpclient.RequestOption
 	if tok := authctx.Bearer(ctx); tok != "" {
 		options = append(options, mcpclient.WithAuthToken(tok))

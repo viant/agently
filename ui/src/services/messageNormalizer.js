@@ -194,6 +194,15 @@ export function normalizeMessages(raw = []) {
             if (msg.mode || msg.Mode) copy.mode = msg.mode || msg.Mode;
         } catch (_) { /* ignore */ }
 
+        // Prefer rawContent over content when both are present so the transcript
+        // presents the original body. This affects only presentation.
+        try {
+            const raw = copy.rawContent || copy.RawContent;
+            if (typeof raw === 'string' && raw.trim().length > 0) {
+                copy.content = raw;
+            }
+        } catch (_) { /* ignore */ }
+
         // Assistant elicitation: when content is a JSON string/object with
         // { elicitationId, message, requestedSchema }
         if (copy.role === 'assistant') {

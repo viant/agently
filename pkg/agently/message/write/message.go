@@ -18,6 +18,7 @@ type Message struct {
 	Status          string     `sqlx:"status" `
 	Type            string     `sqlx:"type" validate:"required"`
 	Content         string     `sqlx:"content"`
+	RawContent      *string    `sqlx:"raw_content" json:",omitempty"`
 	// Summary holds a compact retained summary for this message.
 	Summary        *string `sqlx:"summary" json:",omitempty"`
 	ContextSummary *string `sqlx:"context_summary" json:",omitempty"`
@@ -51,6 +52,7 @@ type MessageHas struct {
 	Status               bool
 	Type                 bool
 	Content              bool
+	RawContent           bool
 	Summary              bool
 	ContextSummary       bool
 	EmbeddingIndex       bool
@@ -91,6 +93,11 @@ func (m *Message) SetRole(v string)    { m.Role = v; m.ensureHas(); m.Has.Role =
 func (m *Message) SetStatus(v string)  { m.Status = v; m.ensureHas(); m.Has.Status = true }
 func (m *Message) SetType(v string)    { m.Type = v; m.ensureHas(); m.Has.Type = true }
 func (m *Message) SetContent(v string) { m.Content = v; m.ensureHas(); m.Has.Content = true }
+func (m *Message) SetRawContent(v string) {
+	m.RawContent = &v
+	m.ensureHas()
+	m.Has.RawContent = true
+}
 func (m *Message) SetSummary(v string) { m.Summary = &v; m.ensureHas(); m.Has.Summary = true }
 func (m *Message) SetEmbeddingIndex(v []byte) {
 	m.EmbeddingIndex = &v

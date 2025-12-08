@@ -274,6 +274,10 @@ func (s *Service) fetchConversationWithRetry(ctx context.Context, id string, opt
 	for attempt := 0; attempt < 3; attempt++ {
 		conv, err := s.conversation.GetConversation(ctx, id, options...)
 		if err == nil {
+			if conv == nil {
+				lastErr = fmt.Errorf("conversation not found: %s", strings.TrimSpace(id))
+				break
+			}
 			return conv, nil
 		}
 		lastErr = err

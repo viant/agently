@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/pkg/mcpname"
 )
 
 type (
@@ -363,6 +364,20 @@ func (h *History) LLMMessages() []llm.Message {
 	if h == nil {
 		return out
 	}
+	appendLLM := func(msg *Message) {
+		if msg == nil {
+			return
+		}
+		switch msg.Kind {
+		case MessageKindToolResult:
+			toolMsgs := toolResultLLMMessages(msg)
+			out = append(out, toolMsgs...)
+		case MessageKindElicitPrompt, MessageKindElicitAnswer:
+			return
+		default:
+			out = append(out, msg.ToLLM())
+		}
+	}
 	// Preferred path: flatten Past (committed transcript) and then
 	// Current (in-flight turn) when present. Legacy clients that rely
 	// solely on Messages will not populate Past/Current.
@@ -372,41 +387,39 @@ func (h *History) LLMMessages() []llm.Message {
 				continue
 			}
 			for _, m := range t.Messages {
-				if m == nil {
-					continue
-				}
-				// Skip tool-result and elicitation messages here; they are
-				// exposed via Tools.Executions and dedicated elicitation
-				// logic to avoid duplicating raw tool payloads or elicitation
-				// JSON in the LLM chat history.
-				if m.Kind == MessageKindToolResult || m.Kind == MessageKindElicitPrompt || m.Kind == MessageKindElicitAnswer {
-					continue
-				}
-				out = append(out, m.ToLLM())
+				appendLLM(m)
 			}
 		}
 		if h.Current != nil {
 			for _, m := range h.Current.Messages {
-				if m == nil {
-					continue
-				}
-				if m.Kind == MessageKindToolResult || m.Kind == MessageKindElicitPrompt || m.Kind == MessageKindElicitAnswer {
-					continue
-				}
-				out = append(out, m.ToLLM())
+				appendLLM(m)
 			}
 		}
 		return out
 	}
 	// Fallback: legacy flat Messages view.
 	for _, m := range h.Messages {
-		if m == nil {
-			continue
-		}
-		if m.Kind == MessageKindToolResult || m.Kind == MessageKindElicitPrompt || m.Kind == MessageKindElicitAnswer {
-			continue
-		}
-		out = append(out, m.ToLLM())
+		appendLLM(m)
 	}
 	return out
+}
+
+func toolResultLLMMessages(msg *Message) []llm.Message {
+	if msg == nil {
+		return nil
+	}
+	opID := strings.TrimSpace(msg.ToolOpID)
+	if opID == "" {
+		return nil
+	}
+	rawName := strings.TrimSpace(msg.ToolName)
+	name := mcpname.Canonical(rawName)
+	if name == "" {
+		name = rawName
+	}
+	result := strings.TrimSpace(msg.Content)
+	call := llm.NewToolCall(opID, name, msg.ToolArgs, result)
+	assistant := llm.NewAssistantMessageWithToolCalls(call)
+	tool := llm.NewToolResultMessage(call)
+	return []llm.Message{assistant, tool}
 }

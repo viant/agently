@@ -31,6 +31,9 @@ func (m *Message) GetContent() string {
 	if m.ToolCall != nil && m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
 		return *m.ToolCall.ResponsePayload.InlineBody
 	}
+	if m.RawContent != nil && strings.TrimSpace(*m.RawContent) != "" {
+		return *m.RawContent
+	}
 	if m.Content != nil {
 		return *m.Content
 	}

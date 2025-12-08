@@ -34,15 +34,23 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	// in continuation-by-anchor.
 	var selected llm.Messages
 	for _, m := range req.Messages {
-		if m.ToolCallId == "" {
-			continue
+		switch {
+		case len(m.ToolCalls) > 0:
+			filtered := filterToolCallsByAnchor(m.ToolCalls, history, anchorID)
+			if len(filtered) == 0 {
+				continue
+			}
+			copyMsg := m
+			copyMsg.ToolCalls = filtered
+			selected.Append(copyMsg)
+		case m.ToolCallId != "":
+			key := prompt.KindToolCall.Key(m.ToolCallId)
+			trace, ok := history.Traces[key]
+			if !ok || trace.ID != anchorID {
+				continue
+			}
+			selected.Append(m)
 		}
-		key := prompt.KindToolCall.Key(m.ToolCallId)
-		trace, ok := history.Traces[key]
-		if !ok || trace.ID != anchorID {
-			continue
-		}
-		selected.Append(m)
 	}
 	if len(selected) == 0 {
 		return nil
@@ -57,4 +65,20 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	continuationRequest.Messages = append(continuationRequest.Messages, selected...)
 	continuationRequest.PreviousResponseID = anchorID
 	return continuationRequest
+}
+
+func filterToolCallsByAnchor(toolCalls []llm.ToolCall, history *prompt.History, anchorID string) []llm.ToolCall {
+	if len(toolCalls) == 0 || history == nil || anchorID == "" {
+		return nil
+	}
+	var filtered []llm.ToolCall
+	for _, call := range toolCalls {
+		key := prompt.KindToolCall.Key(call.ID)
+		trace, ok := history.Traces[key]
+		if !ok || trace.ID != anchorID {
+			continue
+		}
+		filtered = append(filtered, call)
+	}
+	return filtered
 }

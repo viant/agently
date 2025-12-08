@@ -9,6 +9,7 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/elicitation/router"
+	"github.com/viant/agently/genai/memory"
 )
 
 // fakeConv is a lightweight in-memory conversation client for tests.
@@ -19,6 +20,7 @@ type fakeConv struct {
 
 	lastPatchedStatus string
 	lastUserContent   string
+	lastUserRaw       string
 }
 
 func newFakeConv() *fakeConv {
@@ -37,6 +39,9 @@ func (f *fakeConv) PatchMessage(ctx context.Context, m *apiconv.MutableMessage) 
 	}
 	if m.Content != "" && m.Role == "user" {
 		f.lastUserContent = m.Content
+		if m.RawContent != nil {
+			f.lastUserRaw = *m.RawContent
+		}
 	}
 	// store by ID for GetMessage
 	if m.Id != "" {
@@ -128,4 +133,14 @@ func TestResolve_DeclineWithReasonAddsUserMessage(t *testing.T) {
 	assert.EqualValues(t, "rejected", fake.lastPatchedStatus)
 	// user message captured as JSON string content
 	assert.Contains(t, fake.lastUserContent, "declineReason")
+}
+
+func TestAddUserResponseMessageStoresRawContent(t *testing.T) {
+	fake := newFakeConv()
+	srv := &Service{client: fake}
+	turn := &memory.TurnMeta{ConversationID: "c-raw", TurnID: "t-raw"}
+	payload := map[string]interface{}{"field": "value"}
+	assert.NoError(t, srv.AddUserResponseMessage(context.Background(), turn, payload))
+	assert.Contains(t, fake.lastUserContent, "field")
+	assert.EqualValues(t, fake.lastUserContent, fake.lastUserRaw)
 }

@@ -132,6 +132,7 @@ type MessageView struct {
 	Role                 string                   `sqlx:"role"`
 	Type                 string                   `sqlx:"type"`
 	Content              *string                  `sqlx:"content"`
+	RawContent           *string                  `sqlx:"raw_content"`
 	Summary              *string                  `sqlx:"summary"`
 	ContextSummary       *string                  `sqlx:"context_summary"`
 	Tags                 *string                  `sqlx:"tags"`

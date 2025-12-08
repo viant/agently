@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
@@ -251,20 +252,6 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 	if tools := i.Binding.Tools; len(tools.Signatures) > 0 {
 		for _, tool := range tools.Signatures {
 			i.Options.Tools = append(i.Options.Tools, llm.Tool{Type: "function", Ref: "", Definition: *tool})
-		}
-		// Restore structured tool-call messages so continuation and
-		// provider APIs can see ToolCallId/tool_calls. History remains
-		// the canonical view for prompt context.
-		for _, call := range tools.Executions {
-			if call == nil {
-				continue
-			}
-			msg := llm.NewAssistantMessageWithToolCalls(*call)
-			if strings.TrimSpace(i.AgentID) != "" {
-				msg.Name = i.AgentID
-			}
-			i.Message = append(i.Message, msg)
-			i.Message = append(i.Message, llm.NewToolResultMessage(*call))
 		}
 	}
 
@@ -683,43 +670,6 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		Options:  input.Options,
 	}
 
-	// If provider supports continuation by response id, prefer the
-	// anchor derived from History.LastResponse (last assistant
-	// model-call) when available. This aligns non-stream continuation
-	// with streaming BuildContinuationRequest, which already uses
-	// History.LastResponse.ID.
-	if IsContextContinuationEnabled(model) && input.Binding != nil {
-		if anchor := input.Binding.History.LastResponse; anchor != nil && anchor.IsValid() {
-			request.PreviousResponseID = strings.TrimSpace(anchor.ID)
-		} else if turn, ok := memory.TurnMetaFromContext(ctx); ok {
-			// Fallback: existing tool-based heuristic when no anchor is set.
-			anchors := map[string]struct{}{}
-			totalTools := 0
-			missing := 0
-			traces := s.resolveTraces(ctx, turn.ConversationID)
-			for _, m := range request.Messages {
-				if strings.TrimSpace(m.ToolCallId) == "" && !strings.EqualFold(string(m.Role), "tool") {
-					continue
-				}
-				totalTools++
-				callID := strings.TrimSpace(m.ToolCallId)
-				var anchorID string
-				if msg, ok := traces[callID]; ok && msg != nil && msg.ToolCall != nil && msg.ToolCall.TraceId != nil {
-					anchorID = strings.TrimSpace(*msg.ToolCall.TraceId)
-				}
-				if anchorID == "" {
-					missing++
-					continue
-				}
-				anchors[anchorID] = struct{}{}
-			}
-			if totalTools > 0 && missing == 0 && len(anchors) == 1 {
-				for a := range anchors {
-					request.PreviousResponseID = a
-				}
-			}
-		}
-	}
 	return request, model, nil
 }
 
@@ -746,62 +696,24 @@ func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm
 	if !IsContextContinuationEnabled(model) {
 		return nil, false, nil
 	}
-	groups := map[string][]llm.Message{}
-	toolFound := false
-	var totalTools, missing int
-	var selectedPrev string
-	var turn memory.TurnMeta
-	var ok bool
-	if turn, ok = memory.TurnMetaFromContext(ctx); ok {
-		traces := s.resolveTraces(ctx, turn.ConversationID)
-		for _, m := range request.Messages {
-			if strings.TrimSpace(m.ToolCallId) == "" {
-				continue
-			}
-			totalTools++
-			callID := strings.TrimSpace(m.ToolCallId)
-			var anchor string
-			if msg, ok := traces[callID]; ok && msg != nil && msg.ToolCall != nil && msg.ToolCall.TraceId != nil {
-				anchor = strings.TrimSpace(*msg.ToolCall.TraceId)
-			}
-			if anchor == "" {
-				missing++
-				continue
-			}
-			toolFound = true
-			groups[anchor] = append(groups[anchor], m)
-		}
-		// Prefer the latest assistant response (model call) present in groups by persisted resp.id timing.
-		var latestTime time.Time
-		for respID := range groups {
-			if msg, ok := traces[respID]; ok && msg != nil && msg.ModelCall != nil {
-				if latestTime.IsZero() || msg.CreatedAt.After(latestTime) {
-					latestTime = msg.CreatedAt
-					selectedPrev = respID
-				}
-			}
-		}
-	}
-	if !toolFound || len(groups) == 0 {
+	turn, ok := memory.TurnMetaFromContext(ctx)
+	if !ok {
 		return nil, false, nil
 	}
-	// Fallback: if there is exactly one group, pick it.
-	if selectedPrev == "" && len(groups) == 1 {
-		for k := range groups {
-			selectedPrev = k
+	traces := s.resolveTraces(ctx, turn.ConversationID)
+	groups, order, latest := groupMessagesByAnchor(request.Messages, traces)
+	if len(groups) == 0 {
+		return nil, false, nil
+	}
+	if latest == "" && len(order) == 1 {
+		latest = order[0]
+	}
+	if latest != "" {
+		if msgs, ok := groups[latest]; ok {
+			groups = map[string][]llm.Message{latest: msgs}
+			order = []string{latest}
 		}
 	}
-	// Narrow groups to the selected anchor if determined.
-	if selectedPrev != "" {
-		if msgs, ok := groups[selectedPrev]; ok {
-			groups = map[string][]llm.Message{selectedPrev: msgs}
-		}
-	}
-	order := make([]string, 0, len(groups))
-	for k := range groups {
-		order = append(order, k)
-	}
-	sort.Strings(order)
 	var lastResp *llm.GenerateResponse
 	for _, anchor := range order {
 		msgs := groups[anchor]
@@ -844,6 +756,95 @@ func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm
 		lastResp = resp
 	}
 	return lastResp, true, nil
+}
+
+func groupMessagesByAnchor(messages []llm.Message, traces apiconv.IndexedMessages) (map[string][]llm.Message, []string, string) {
+	groups := map[string][]llm.Message{}
+	anchorTimes := map[string]time.Time{}
+	firstSeen := map[string]int{}
+	seenOrder := 0
+	var latestAnchor string
+	var latestTime time.Time
+	getAnchor := func(callID string) string {
+		if callID == "" {
+			return ""
+		}
+		if traceMsg, ok := traces[callID]; ok && traceMsg != nil && traceMsg.ToolCall != nil && traceMsg.ToolCall.TraceId != nil {
+			return strings.TrimSpace(*traceMsg.ToolCall.TraceId)
+		}
+		return ""
+	}
+	appendMsg := func(anchor string, msg llm.Message) {
+		if anchor == "" {
+			return
+		}
+		if _, ok := groups[anchor]; !ok {
+			firstSeen[anchor] = seenOrder
+			seenOrder++
+		}
+		groups[anchor] = append(groups[anchor], msg)
+		if traceMsg, ok := traces[anchor]; ok && traceMsg != nil {
+			if traceMsg.ModelCall != nil {
+				if latestTime.IsZero() || traceMsg.CreatedAt.After(latestTime) {
+					latestTime = traceMsg.CreatedAt
+					latestAnchor = anchor
+				}
+			}
+			if traceMsg.CreatedAt.After(anchorTimes[anchor]) || anchorTimes[anchor].IsZero() {
+				anchorTimes[anchor] = traceMsg.CreatedAt
+			}
+		}
+	}
+	for _, msg := range messages {
+		if len(msg.ToolCalls) > 0 {
+			byAnchor := map[string][]llm.ToolCall{}
+			for _, call := range msg.ToolCalls {
+				anchor := getAnchor(strings.TrimSpace(call.ID))
+				if anchor == "" {
+					continue
+				}
+				byAnchor[anchor] = append(byAnchor[anchor], call)
+			}
+			for anchor, calls := range byAnchor {
+				copyMsg := msg
+				copyMsg.ToolCalls = make([]llm.ToolCall, len(calls))
+				copy(copyMsg.ToolCalls, calls)
+				appendMsg(anchor, copyMsg)
+			}
+			continue
+		}
+		if id := strings.TrimSpace(msg.ToolCallId); id != "" {
+			anchor := getAnchor(id)
+			if anchor == "" {
+				continue
+			}
+			appendMsg(anchor, msg)
+		}
+	}
+	order := make([]string, 0, len(groups))
+	for anchor := range groups {
+		order = append(order, anchor)
+	}
+	sort.Slice(order, func(i, j int) bool {
+		iAnchor := order[i]
+		jAnchor := order[j]
+		ti := anchorTimes[iAnchor]
+		tj := anchorTimes[jAnchor]
+		switch {
+		case !ti.IsZero() && !tj.IsZero():
+			if ti.Equal(tj) {
+				return firstSeen[iAnchor] < firstSeen[jAnchor]
+			}
+			return ti.Before(tj)
+		case !ti.IsZero():
+			return true
+		case !tj.IsZero():
+			return false
+		default:
+			return firstSeen[iAnchor] < firstSeen[jAnchor]
+		}
+	})
+	return groups, order, latestAnchor
 }
 
 // enforceAttachmentPolicy removes or limits binary content items based on
