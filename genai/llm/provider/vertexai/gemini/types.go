@@ -33,6 +33,7 @@ type Part struct {
 	VideoMetadata    *VideoMetadata    `json:"video_metadata,omitempty"`
 	FunctionCall     *FunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *FunctionResponse `json:"functionResponse,omitempty"`
+	ThoughtSignature string            `json:"thoughtSignature,omitempty"`
 }
 
 // FileData represents file data in the Gemini API

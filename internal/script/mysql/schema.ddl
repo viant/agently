@@ -241,7 +241,7 @@ CREATE TABLE tool_call
 (
     message_id          VARCHAR(255) PRIMARY KEY,
     turn_id             VARCHAR(255),
-    op_id               VARCHAR(255) NOT NULL,
+    op_id               TEXT NOT NULL,
     attempt             BIGINT       NOT NULL DEFAULT 1,
     tool_name           VARCHAR(255) NOT NULL,
     tool_kind           VARCHAR(255) NOT NULL CHECK (tool_kind IN ('general', 'resource')),
@@ -275,8 +275,8 @@ CREATE TABLE tool_call
 CREATE UNIQUE INDEX idx_tool_op_attempt ON tool_call (turn_id, op_id, attempt);
 CREATE INDEX idx_tool_call_status ON tool_call (status);
 CREATE INDEX idx_tool_call_name ON tool_call (tool_name);
-CREATE INDEX idx_tool_call_op ON tool_call (turn_id, op_id);
-
+CREATE INDEX idx_tool_call_op ON tool_call (turn_id, op_id(191));
+CREATE UNIQUE INDEX idx_tool_op_attempt ON tool_call (turn_id, op_id(191), attempt);
 
 CREATE TABLE IF NOT EXISTS schedule (
                                         id                    VARCHAR(255) PRIMARY KEY,

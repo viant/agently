@@ -409,4 +409,22 @@ END $$
 
 CALL schema_upgrade_2() $$
 DROP PROCEDURE schema_upgrade_2 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_3 $$
+CREATE PROCEDURE schema_upgrade_3()
+BEGIN
+    IF get_schema_version() = 3 THEN
+        ALTER TABLE tool_call
+            DROP INDEX idx_tool_call_op,
+            DROP INDEX idx_tool_op_attempt,
+            MODIFY COLUMN op_id TEXT NOT NULL,
+            ADD INDEX idx_tool_call_op (turn_id, op_id(191)),
+            ADD UNIQUE INDEX idx_tool_op_attempt (turn_id, op_id(191), attempt);
+        CALL set_schema_version(4);
+    END IF;
+END $$
+
+CALL schema_upgrade_3() $$
+DROP PROCEDURE schema_upgrade_3 $$
+    
 DELIMITER ;

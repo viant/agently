@@ -215,12 +215,15 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		// Handle assistant tool calls and tool results before regular content
 		if len(msg.ToolCalls) > 0 {
 			for _, tc := range msg.ToolCalls {
-				content.Parts = append(content.Parts, Part{
+				part := Part{
+					ThoughtSignature: strings.TrimSpace(tc.ID),
 					FunctionCall: &FunctionCall{
 						Name: tc.Name,
 						Args: tc.Arguments,
 					},
-				})
+				}
+
+				content.Parts = append(content.Parts, part)
 			}
 			req.Contents = append(req.Contents, content)
 			continue
