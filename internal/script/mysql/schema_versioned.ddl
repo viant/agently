@@ -170,7 +170,6 @@ CREATE TABLE `message`
     role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
     `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control')),
     content                MEDIUMTEXT,
-    raw_content            MEDIUMTEXT,
     summary                TEXT,
     context_summary        TEXT,
     tags                   TEXT,
@@ -426,5 +425,5 @@ END $$
 
 CALL schema_upgrade_3() $$
 DROP PROCEDURE schema_upgrade_3 $$
-    
+
 DELIMITER ;
