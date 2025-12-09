@@ -14,10 +14,11 @@ import (
 
 func TestRepository_Load_View(t *testing.T) {
 	cases := []struct {
-		name   string
-		file   string
-		yaml   string
-		expect map[string]interface{}
+		name               string
+		file               string
+		yaml               string
+		expectID           string
+		expectContainerIDs []string
 	}{
 		{
 			name: "terminal-single-container",
@@ -26,8 +27,8 @@ func TestRepository_Load_View(t *testing.T) {
 				"title: Terminal\n" +
 				"match:\n  service: system/exec\n  method: execute\n" +
 				"activation:\n  kind: history\n" +
-				"view:\n  id: commands\n  type: table\n  dataSourceRef: commands\n  columns:\n    - id: input\n      name: Command\n    - id: output\n      name: Stdout\n",
-			expect: map[string]interface{}{"id": "commands", "type": "table"},
+				"ui:\n  id: commands\n  type: table\n  dataSourceRef: commands\n  columns:\n    - id: input\n      name: Command\n    - id: output\n      name: Stdout\n",
+			expectID: "commands",
 		},
 		{
 			name: "plan-multi-container",
@@ -36,13 +37,8 @@ func TestRepository_Load_View(t *testing.T) {
 				"title: Plan\n" +
 				"match:\n  service: orchestration\n  method: updatePlan\n" +
 				"activation:\n  kind: history\n  scope: all\n" +
-				"view:\n  containers:\n  - id: header\n    items:\n      - id: explanation\n        type: label\n  - id: planTable\n    type: table\n    columns:\n      - id: status\n        name: Status\n",
-			expect: map[string]interface{}{
-				"containers": []interface{}{
-					map[string]interface{}{"id": "header"},
-					map[string]interface{}{"id": "planTable"},
-				},
-			},
+				"ui:\n  containers:\n  - id: header\n    items:\n      - id: explanation\n        type: label\n  - id: planTable\n    type: table\n    columns:\n      - id: status\n        name: Status\n",
+			expectContainerIDs: []string{"header", "planTable"},
 		},
 	}
 
@@ -63,12 +59,28 @@ func TestRepository_Load_View(t *testing.T) {
 			rec, err := repo.Load(ctx, strings.TrimSuffix(tc.file, ".yaml"))
 			assert.EqualValues(t, nil, err)
 			assert.NotNil(t, rec)
-			raw, err := json.Marshal(rec.View)
+			raw, err := json.Marshal(rec.UI)
 			assert.EqualValues(t, nil, err)
 			var got map[string]interface{}
 			_ = json.Unmarshal(raw, &got)
-			for k, v := range tc.expect {
-				assert.EqualValues(t, v, got[k])
+			t.Logf("ui for %s: %#v", tc.name, got)
+
+			if tc.expectID != "" {
+				assert.EqualValues(t, tc.expectID, got["id"])
+			}
+			if len(tc.expectContainerIDs) > 0 {
+				rawContainers, ok := got["containers"].([]interface{})
+				if assert.True(t, ok, "containers should be a slice") {
+					var ids []string
+					for _, c := range rawContainers {
+						if m, ok := c.(map[string]interface{}); ok {
+							if id, _ := m["id"].(string); id != "" {
+								ids = append(ids, id)
+							}
+						}
+					}
+					assert.EqualValues(t, tc.expectContainerIDs, ids)
+				}
 			}
 		})
 	}

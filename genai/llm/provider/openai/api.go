@@ -80,16 +80,8 @@ func (c *Client) Implements(feature string) bool {
 	case base.CanExecToolsInParallel:
 		return true
 	case base.SupportsContextContinuation:
-		// TODO uncomment when Responses API can be default
 		// Default enabled; allow explicit disable via provider options.
-		// return c.ContextContinuation == nil || *c.ContextContinuation
-
-		if c.ContextContinuation == nil {
-			return false
-		} else {
-			return *c.ContextContinuation
-		}
-
+		return c.ContextContinuation == nil || *c.ContextContinuation
 	}
 	return false
 }
