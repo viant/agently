@@ -368,24 +368,20 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 
 func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 	// Lightweight debug hook to trace how tool definitions are resolved.
-	r.debugf("GetDefinition: name=%s", strings.TrimSpace(name))
 	r.mu.RLock()
 	if def, ok := r.virtualDefs[name]; ok {
 		r.mu.RUnlock()
-		r.debugf("GetDefinition: hit virtual tool %s", name)
 		return &def, true
 	}
 	// cache hit?
 	if e, ok := r.cache[name]; ok {
 		def := e.def
 		r.mu.RUnlock()
-		r.debugf("GetDefinition: hit cache %s (service=%s)", name, serverFromName(name))
 		return &def, true
 	}
 	r.mu.RUnlock()
 	svc := serverFromName(name)
 	if svc == "" {
-		r.debugf("GetDefinition: no service resolved for %s", name)
 		return nil, false
 	}
 	tools, err := r.listServerTools(context.Background(), svc)
@@ -412,12 +408,10 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 				r.cache[colon] = entry
 				r.cache[name] = entry
 				r.mu.Unlock()
-				r.debugf("GetDefinition: populated cache for %s (service=%s, method=%s)", name, svc, method)
 			}
 			return tool, true
 		}
 	}
-	r.debugf("GetDefinition: tool not found (service=%s, method=%s, name=%s)", svc, method, name)
 	return nil, false
 }
 
@@ -448,11 +442,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		selector = strings.TrimSpace(name[i+1:])
 	}
 	convID := memory.ConversationIDFromContext(ctx)
-	r.debugf("Execute: name=%s base=%s selector=%s convID=%s", strings.TrimSpace(name), strings.TrimSpace(baseName), strings.TrimSpace(selector), convID)
 
 	// virtual tool?
 	if h, ok := r.virtualExec[baseName]; ok {
-		r.debugf("Execute: using virtual tool %s", baseName)
 		out, err := h(ctx, args)
 		if err != nil || selector == "" {
 			return out, err
@@ -464,7 +456,6 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	r.mu.RLock()
 	if e, ok := r.cache[baseName]; ok && e.exec != nil {
 		r.mu.RUnlock()
-		r.debugf("Execute: hit cached exec for %s (service=%s)", baseName, serverFromName(baseName))
 		out, err := e.exec(ctx, args)
 		if err != nil || selector == "" {
 			return out, err
@@ -479,7 +470,6 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		r.debugf("Execute: invalid tool name (no server): %s", baseName)
 		return "", fmt.Errorf("invalid tool name: %s", name)
 	}
-	r.debugf("Execute: resolving via MCP server=%s method=%s (base=%s, convID=%s)", server, mcpnames.Name(mcpnames.Canonical(baseName)).Method(), baseName, convID)
 	var options []mcpclient.RequestOption
 	if tok := authctx.Bearer(ctx); tok != "" {
 		options = append(options, mcpclient.WithAuthToken(tok))
