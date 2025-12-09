@@ -62,9 +62,7 @@ type QueryInput struct {
 	// Valid values (OpenAI o-series): low | medium | high.
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
 
-	// IsNewConversation indicates whether ensureConversation had to create
-	// the conversation backing store for this request. It is used internally to
-	// control behaviors like prompt expansion on the first turn only.
+	// IsNewConversation indicates if this is a new conversation without prior history.
 	IsNewConversation bool `json:"-"`
 }
 

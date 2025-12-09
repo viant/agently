@@ -88,12 +88,18 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 	if err != nil {
 		return fmt.Errorf("failed to load conversation: %w", err)
 	}
+
+	if aConversation.UpdatedAt == nil && aConversation.CreatedAt.Equal(*aConversation.LastActivity) {
+		input.IsNewConversation = true
+	} else {
+		input.IsNewConversation = false
+	}
+
 	if exists = aConversation != nil; exists {
 		defaultModel = aConversation.DefaultModel
 		agentIDPtr = aConversation.AgentId
 		metadata = aConversation.Metadata
 	}
-	input.IsNewConversation = !exists
 
 	// Derive model when not provided: fall back to conversation default model only.
 	if input.ModelOverride == "" {
