@@ -36,7 +36,7 @@ func (f *fakeMCPClient) ListTools(ctx context.Context, cursor *string, options .
 		return nil, errors.New("server down")
 	}
 	// One page only
-	return &mcpschema.ListToolsResult{Tools: []mcpschema.Tool{{Name: "db/ping", Description: ptr("health check")}}}, nil
+	return &mcpschema.ListToolsResult{Tools: []mcpschema.Tool{{Name: "ping", Description: ptr("health check")}}}, nil
 }
 func (f *fakeMCPClient) ReadResource(ctx context.Context, params *mcpschema.ReadResourceRequestParams, options ...mcpclient.RequestOption) (*mcpschema.ReadResourceResult, error) {
 	return nil, errors.New("not implemented")
@@ -108,6 +108,8 @@ func TestAutoRegisterTools(t *testing.T) {
 
 			// init will start auto-refresh monitoring
 			reg.Initialize(ctx)
+			servers, _ := reg.listServers(ctx)
+			t.Logf("servers: %v", servers)
 
 			// Schedule server to come back online
 			time.AfterFunc(tc.bringUpAfter, func() { fake.setUp(true) })
@@ -123,7 +125,8 @@ func TestAutoRegisterTools(t *testing.T) {
 				time.Sleep(25 * time.Millisecond)
 			}
 			if defName == "" {
-				t.Fatalf("tool not auto-registered: %s", tc.expectTool)
+				defs := reg.Definitions()
+				t.Fatalf("tool not auto-registered: %s, defs=%v", tc.expectTool, defs)
 			}
 			if defName != tc.expectTool {
 				t.Fatalf("unexpected tool registered, expected %s, got %s", tc.expectTool, defName)

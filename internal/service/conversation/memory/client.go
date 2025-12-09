@@ -86,7 +86,8 @@ func (c *Client) DeleteMessage(_ context.Context, conversationID, messageID stri
 func (c *Client) GetConversations(ctx context.Context, input *convcli.Input) ([]*convcli.Conversation, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	// Only include conversations owned by current user
+	// When a user is present in auth context, restrict listing to that user.
+	// Otherwise, include all conversations.
 	var userID string
 	if ui := authctx.User(ctx); ui != nil {
 		userID = strings.TrimSpace(ui.Subject)
@@ -96,8 +97,13 @@ func (c *Client) GetConversations(ctx context.Context, input *convcli.Input) ([]
 	}
 	out := make([]*convcli.Conversation, 0, len(c.conversations))
 	for _, v := range c.conversations {
-		if v == nil || userID == "" || v.CreatedByUserId == nil || strings.TrimSpace(*v.CreatedByUserId) != userID {
+		if v == nil {
 			continue
+		}
+		if userID != "" {
+			if v.CreatedByUserId == nil || strings.TrimSpace(*v.CreatedByUserId) != userID {
+				continue
+			}
 		}
 		cp := cloneConversationView(v)
 		// Compute aggregated usage across entire conversation (not filtered)
@@ -127,7 +133,7 @@ func (c *Client) GetConversation(ctx context.Context, id string, options ...conv
 	if !ok {
 		return nil, nil
 	}
-	// Only owner may view
+	// When a user is present in auth context, only the owner may view.
 	var userID string
 	if ui := authctx.User(ctx); ui != nil {
 		userID = strings.TrimSpace(ui.Subject)
@@ -135,8 +141,10 @@ func (c *Client) GetConversation(ctx context.Context, id string, options ...conv
 			userID = strings.TrimSpace(ui.Email)
 		}
 	}
-	if userID == "" || conv.CreatedByUserId == nil || strings.TrimSpace(*conv.CreatedByUserId) != userID {
-		return nil, nil
+	if userID != "" {
+		if conv.CreatedByUserId == nil || strings.TrimSpace(*conv.CreatedByUserId) != userID {
+			return nil, nil
+		}
 	}
 
 	// Build input from options

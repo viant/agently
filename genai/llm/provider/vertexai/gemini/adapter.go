@@ -19,6 +19,9 @@ import (
 
 // ToRequest converts an llm.ChatRequest to a Gemini Request
 func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, error) {
+	if request == nil {
+		return nil, fmt.Errorf("nil generate request")
+	}
 	// Create the request with default values
 	req := &Request{}
 

@@ -43,7 +43,7 @@ func TestNewToolCall(t *testing.T) {
 			for k, v := range tc.args {
 				input[k] = v
 			}
-			tl := NewToolCall("", "toolName", input)
+			tl := NewToolCall("", "toolName", input, "")
 			assert.NotEmpty(t, tl.ID)
 			assert.EqualValues(t, "toolName", tl.Name)
 			assert.EqualValues(t, tc.args, tl.Arguments)
@@ -63,8 +63,8 @@ func TestNewAssistantMessageWithToolCalls(t *testing.T) {
 	}{
 		{desc: "empty calls", calls: nil},
 		{desc: "multiple calls", calls: []ToolCall{
-			NewToolCall("id", "a", map[string]interface{}{"x": 1}),
-			NewToolCall("", "b", map[string]interface{}{"y": 2}),
+			NewToolCall("id", "a", map[string]interface{}{"x": 1}, ""),
+			NewToolCall("", "b", map[string]interface{}{"y": 2}, ""),
 		}},
 	}
 	for _, tc := range cases {
@@ -127,7 +127,7 @@ func TestNewToolResultMessage(t *testing.T) {
 		{
 			desc: "basic tool result",
 			call: func() ToolCall {
-				c := NewToolCall("id-123", "toolName", map[string]interface{}{"foo": "bar"})
+				c := NewToolCall("id-123", "toolName", map[string]interface{}{"foo": "bar"}, "")
 				c.Result = "result text"
 				return c
 			}(),
@@ -136,7 +136,7 @@ func TestNewToolResultMessage(t *testing.T) {
 		{
 			desc: "error tool result",
 			call: func() ToolCall {
-				c := NewToolCall("id-456", "toolErr", map[string]interface{}{"foo": "bar"})
+				c := NewToolCall("id-456", "toolErr", map[string]interface{}{"foo": "bar"}, "")
 				c.Error = "boom"
 				return c
 			}(),

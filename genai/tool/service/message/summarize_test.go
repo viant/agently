@@ -33,6 +33,8 @@ func TestSummarize_Chunks(t *testing.T) {
 	err := svc.summarize(context.Background(), in, &out)
 	assert.NoError(t, err)
 	assert.EqualValues(t, len(body), out.Size)
-	assert.EqualValues(t, 4, len(out.Chunks))
+	// effectiveChunkSize enforces a minimum chunk size; with a short body this
+	// results in a single chunk regardless of requested Chunk.
+	assert.EqualValues(t, 1, len(out.Chunks))
 	assert.True(t, len(out.Summary) > 0)
 }
