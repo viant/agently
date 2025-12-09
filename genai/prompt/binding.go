@@ -43,7 +43,6 @@ type (
 
 	Tools struct {
 		Signatures []*llm.ToolDefinition `yaml:"signatures,omitempty" json:"signatures,omitempty"`
-		Executions []*llm.ToolCall       `yaml:"executions,omitempty" json:"executions,omitempty"`
 	}
 
 	Message struct {
@@ -102,6 +101,7 @@ type (
 
 		LastResponse *Trace            `yaml:"lastResponse,omitempty" json:"lastResponse,omitempty"`
 		Traces       map[string]*Trace `yaml:"traces,omitempty" json:"traces,omitempty"`
+		ToolExposure string
 	}
 )
 
@@ -364,12 +364,15 @@ func (h *History) LLMMessages() []llm.Message {
 	if h == nil {
 		return out
 	}
-	appendLLM := func(msg *Message) {
+	appendLLM := func(msg *Message, omitTools bool) {
 		if msg == nil {
 			return
 		}
 		switch msg.Kind {
 		case MessageKindToolResult:
+			if omitTools {
+				return
+			}
 			toolMsgs := toolResultLLMMessages(msg)
 			out = append(out, toolMsgs...)
 		case MessageKindElicitPrompt, MessageKindElicitAnswer:
@@ -378,6 +381,9 @@ func (h *History) LLMMessages() []llm.Message {
 			out = append(out, msg.ToLLM())
 		}
 	}
+
+	omitTools := h.ToolExposure == "turn"
+
 	// Preferred path: flatten Past (committed transcript) and then
 	// Current (in-flight turn) when present. Legacy clients that rely
 	// solely on Messages will not populate Past/Current.
@@ -387,19 +393,19 @@ func (h *History) LLMMessages() []llm.Message {
 				continue
 			}
 			for _, m := range t.Messages {
-				appendLLM(m)
+				appendLLM(m, omitTools) // omit tool results if turn-level tool exposure
 			}
 		}
 		if h.Current != nil {
 			for _, m := range h.Current.Messages {
-				appendLLM(m)
+				appendLLM(m, false)
 			}
 		}
 		return out
 	}
 	// Fallback: legacy flat Messages view.
 	for _, m := range h.Messages {
-		appendLLM(m)
+		appendLLM(m, false)
 	}
 	return out
 }

@@ -116,15 +116,6 @@ func TestPrompt_Generate_BindingCoverage(t *testing.T) {
 		"- search: find\n- calc: compute\n",
 	)
 
-	// Tool executions (status removed in llm.ToolCall)
-	run(
-		"tools-executions",
-		"#foreach($e in $Tool.Executions)- $e.Name: ($e.Result)\n#end",
-		"{{range .Tools.Executions}}- {{.Name}}: ({{.Result}})\n{{end}}",
-		&Binding{Tools: Tools{Executions: []*llm.ToolCall{{Name: "search", Result: "ok"}}}},
-		"- search: (ok)\n",
-	)
-
 	// Documents
 	run(
 		"documents",
