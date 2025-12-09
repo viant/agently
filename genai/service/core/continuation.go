@@ -34,8 +34,8 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	// in continuation-by-anchor.
 	var selected llm.Messages
 	for _, m := range req.Messages {
-		switch {
-		case len(m.ToolCalls) > 0:
+
+		if len(m.ToolCalls) > 0 {
 			filtered := filterToolCallsByAnchor(m.ToolCalls, history, anchorID)
 			if len(filtered) == 0 {
 				continue
@@ -43,7 +43,9 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 			copyMsg := m
 			copyMsg.ToolCalls = filtered
 			selected.Append(copyMsg)
-		case m.ToolCallId != "":
+		}
+
+		if m.ToolCallId != "" {
 			key := prompt.KindToolCall.Key(m.ToolCallId)
 			trace, ok := history.Traces[key]
 			if !ok || trace.ID != anchorID {
@@ -51,7 +53,23 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 			}
 			selected.Append(m)
 		}
+
+		if m.Content != "" {
+			if llm.MessageRole(m.Role) != llm.RoleUser {
+				continue
+			}
+
+			key := prompt.KindContent.Key(m.Content)
+			trace, ok := history.Traces[key]
+
+			if !ok || trace.At.Before(anchor.At) || trace.At.Equal(anchor.At) {
+				continue
+			}
+
+			selected.Append(m)
+		}
 	}
+
 	if len(selected) == 0 {
 		return nil
 	}
