@@ -21,7 +21,7 @@ func TestStream_Grok_TextAggregation_Usage(t *testing.T) {
 		`data: [DONE]`,
 	}
 	body := strings.Join(lines, "\n")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {
 			http.NotFound(w, r)
 			return
@@ -57,4 +57,16 @@ func TestStream_Grok_TextAggregation_Usage(t *testing.T) {
 	// usage listener should be called once with final cumulative
 	assert.Equal(t, "grok-4", gotModel)
 	assert.EqualValues(t, &llm.Usage{PromptTokens: 10, CompletionTokens: 3, TotalTokens: 13, PromptCachedTokens: 0}, gotUsage)
+}
+
+// newLocalServerOrSkip attempts to start an httptest.Server and skips the test
+// when the environment does not permit binding a local TCP listener.
+func newLocalServerOrSkip(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Skipf("skipping test: unable to start local HTTP server: %v", r)
+		}
+	}()
+	return httptest.NewServer(handler)
 }

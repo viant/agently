@@ -36,6 +36,7 @@ func TestGenerate_UsageListener(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			var called bool
+			enabled := false
 			client := NewClient(
 				"apiKey",
 				tc.expectedModel,
@@ -44,6 +45,8 @@ func TestGenerate_UsageListener(t *testing.T) {
 					assert.EqualValues(t, tc.expectedModel, model)
 					assert.EqualValues(t, &tc.expectedUsage, usage)
 				}),
+				// Force legacy chat/completions path for this unit test
+				WithContextContinuation(&enabled),
 			)
 			client.BaseURL = "http://localhost"
 			client.HTTPClient = &http.Client{

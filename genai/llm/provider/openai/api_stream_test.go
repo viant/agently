@@ -85,7 +85,7 @@ func TestStream_ToolCalls_Aggregation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			body := strings.Join(tc.lines, "\n")
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path != "/responses" {
 					http.NotFound(w, r)
 					return
@@ -166,7 +166,7 @@ func TestStream_UsageOnlyFinalChunk_NoEmptyChoicesEmission(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			body := strings.Join(tc.lines, "\n")
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path != "/responses" {
 					http.NotFound(w, r)
 					return
@@ -199,4 +199,16 @@ func TestStream_UsageOnlyFinalChunk_NoEmptyChoicesEmission(t *testing.T) {
 			assert.EqualValues(t, tc.expected, actual)
 		})
 	}
+}
+
+// newLocalServerOrSkip attempts to start an httptest.Server and skips the test
+// when the environment does not permit binding a local TCP listener.
+func newLocalServerOrSkip(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Skipf("skipping test: unable to start local HTTP server: %v", r)
+		}
+	}()
+	return httptest.NewServer(handler)
 }

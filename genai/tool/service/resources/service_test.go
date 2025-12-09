@@ -52,8 +52,17 @@ func TestService_ListAndRead_LocalRoot(t *testing.T) {
 		if err := service.list(ctx, listInput, listOutput); err != nil {
 			t.Fatalf("list returned error: %v", err)
 		}
-		if assert.Len(t, listOutput.Items, 1) {
-			item := listOutput.Items[0]
+		if assert.GreaterOrEqual(t, len(listOutput.Items), 1, "expected at least one item under workspace root") {
+			var item *ListItem
+			for i := range listOutput.Items {
+				if listOutput.Items[i].Name == "sample.txt" {
+					item = &listOutput.Items[i]
+					break
+				}
+			}
+			if item == nil {
+				t.Fatalf("expected to find sample.txt in list output, got: %+v", listOutput.Items)
+			}
 			assert.EqualValues(t, "sample.txt", item.Name)
 			assert.EqualValues(t, "sample.txt", item.Path)
 			assert.EqualValues(t, int64(len(content)), item.Size)

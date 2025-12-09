@@ -98,13 +98,13 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 		if filepath.Ext(URL) == "" {
 			ext = s.defaultExtension
 		}
-		ok, _ := s.metaService.Exists(ctx, URL+ext)
-		if ok {
-			URL = s.metaService.GetURL(URL + ext)
+		if ok, _ := s.metaService.Exists(ctx, URL+ext); ok {
+			// Keep relative URL; metaService will resolve against its base.
+			URL = URL + ext
 		} else {
 			candidate := path.Join(URL, nameOrLocation)
 			if ok, _ = s.metaService.Exists(ctx, candidate+ext); ok {
-				URL = s.metaService.GetURL(candidate + ext)
+				URL = candidate + ext
 			}
 		}
 	}
@@ -505,7 +505,9 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 		case "callexposure", "toolcallexposure":
 			// Accept scalar values: turn | conversation | semantic
 			if valueNode.Kind == yaml.ScalarNode {
-				agent.Tool.CallExposure = agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(valueNode.Value)))
+				exp := agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(valueNode.Value)))
+				agent.Tool.CallExposure = exp
+				agent.ToolCallExposure = exp
 			}
 		case "attachment":
 			if err := s.parseAttachmentBlock(valueNode, agent); err != nil {
@@ -764,8 +766,9 @@ func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) er
 			if v.Kind == yaml.ScalarNode {
 				exp := agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(v.Value)))
 				cfg.CallExposure = exp
-				// Also map to top-level for backward compatix`bility.
+				// Also map to top-level for backward compatibility.
 				agent.Tool.CallExposure = exp
+				agent.ToolCallExposure = exp
 			}
 		}
 		return nil
@@ -1120,6 +1123,7 @@ func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) e
 				v := item.Content[i+1]
 				if v != nil && v.Kind == yaml.ScalarNode {
 					whenExpr = v.Value
+					// Replace scalar with empty mapping so YAML can decode into WhenSpec.
 					item.Content[i+1] = &yaml.Node{Kind: yaml.MappingNode}
 				}
 				break
@@ -1140,18 +1144,12 @@ func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) e
 				}
 			}
 		}
-		if c.When == nil {
-			for i := 0; i+1 < len(item.Content); i += 2 {
-				k := strings.ToLower(strings.TrimSpace(item.Content[i].Value))
-				if k == "when" {
-					v := item.Content[i+1]
-					if whenExpr != "" {
-						c.When = &agentmdl.WhenSpec{Expr: whenExpr}
-					} else if v.Kind == yaml.ScalarNode && strings.TrimSpace(v.Value) != "" {
-						c.When = &agentmdl.WhenSpec{Expr: v.Value}
-					}
-					break
-				}
+		// Normalize scalar when: into WhenSpec.Expr when present.
+		if strings.TrimSpace(whenExpr) != "" {
+			if c.When == nil {
+				c.When = &agentmdl.WhenSpec{Expr: whenExpr}
+			} else if strings.TrimSpace(c.When.Expr) == "" && c.When.Query == nil && c.When.Expect == nil && strings.TrimSpace(c.When.Model) == "" {
+				c.When.Expr = whenExpr
 			}
 		}
 		if strings.TrimSpace(c.Conversation) == "" {

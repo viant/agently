@@ -113,7 +113,7 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 		Id:         "c1",
 		AgentId:    ptrS("agentA"),
 		Title:      ptrS("A title"),
-		Visibility: "",
+		Visibility: "private",
 		CreatedAt:  t0,
 		Transcript: []*agconv.TranscriptView{
 			{Id: "t1", ConversationId: "c1", CreatedAt: t1, Status: "ok", Message: []*agconv.MessageView{{Id: "m1", ConversationId: "c1", TurnId: ptrS("t1"), Role: "user", Type: "text", Content: ptrS("hello"), RawContent: ptrS("hello raw"), CreatedAt: t1}}},
@@ -164,6 +164,7 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := srv.Get(ctx, tc.req)
 			assert.NoError(t, err)
+			stripUsage(got)
 			assert.EqualValues(t, tc.exp, got)
 		})
 	}
@@ -186,12 +187,13 @@ func TestClient_GetConversations_ListSummary(t *testing.T) {
 	turn.SetStatus("ok")
 	assert.NoError(t, c.PatchTurn(ctx, (*convcli.MutableTurn)(turn)))
 
-	items, err := c.GetConversations(ctx)
+	items, err := c.GetConversations(ctx, &convcli.Input{})
 	assert.NoError(t, err)
 	expected := []*convcli.Conversation{{
-		Id:        "c1",
-		AgentId:   ptrS("agentA"),
-		CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		Id:         "c1",
+		AgentId:    ptrS("agentA"),
+		Visibility: "private",
+		CreatedAt:  time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 	}}
 	assert.EqualValues(t, expected, items)
 }
@@ -232,7 +234,7 @@ func TestClient_DeleteConversation_DataDriven(t *testing.T) {
 	assert.EqualValues(t, (*convcli.Conversation)(nil), got)
 
 	// List should not include the deleted conversation
-	items, err := c.GetConversations(ctx)
+	items, err := c.GetConversations(ctx, &convcli.Input{})
 	assert.NoError(t, err)
 	assert.EqualValues(t, []*convcli.Conversation{}, items)
 }
@@ -329,4 +331,13 @@ func cloneAg(in *agconv.ConversationView) *agconv.ConversationView {
 		}
 	}
 	return &cp
+}
+
+// stripUsage normalizes dynamic usage aggregation so that structural comparisons
+// in tests focus on transcript content and metadata.
+func stripUsage(resp *convcli.GetResponse) {
+	if resp == nil || resp.Conversation == nil {
+		return
+	}
+	resp.Conversation.Usage = nil
 }

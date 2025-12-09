@@ -22,6 +22,8 @@ type (
 	MutablePayload      = payloadw.Payload
 	MutableTurn         = turnw.Turn
 	Payload             = payloadread.PayloadView
+	ToolCallView        = agconv.ToolCallView
+	ResponsePayloadView = agconv.ResponsePayloadView
 )
 
 type (

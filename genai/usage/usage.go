@@ -62,6 +62,20 @@ func (a *Aggregator) Add(model string, prompt, completion, embed, cached int) {
 	stat.CachedTokens += cached
 }
 
+// Totals returns accumulated prompt, completion, embedding and cached tokens
+// across all tracked models. It is primarily intended for tests and reporting.
+func (a *Aggregator) Totals() (prompt, completion, embed, cached int) {
+	a.mux.RLock()
+	defer a.mux.RUnlock()
+	for _, stat := range a.PerModel {
+		prompt += stat.PromptTokens
+		completion += stat.CompletionTokens
+		embed += stat.EmbeddingTokens
+		cached += stat.CachedTokens
+	}
+	return prompt, completion, embed, cached
+}
+
 // Keys returns sorted list of model names.
 func (a *Aggregator) Keys() []string {
 	a.mux.RLock()

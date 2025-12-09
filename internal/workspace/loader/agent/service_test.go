@@ -2,22 +2,15 @@ package agent
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/afs"
-	_ "github.com/viant/afs/embed"
 	"github.com/viant/agently/genai/agent"
 	meta "github.com/viant/agently/internal/workspace/service/meta"
 )
-
-// testFS holds our test YAML files
-//
-//go:embed testdata/*
-var testFS embed.FS
 
 // TestService_Load tests the agent loading functionality
 func TestService_Load(t *testing.T) {
@@ -32,21 +25,32 @@ func TestService_Load(t *testing.T) {
 		expectedErr  bool
 	}{
 		{
-			name:         "Valid agent",
-			url:          "tester.yaml",
-			expectedJSON: `{"id":"agent-123","name":"Database tester Agent","icon":"https://example.com/icon.png","source":{"url":"embed:///testdata/tester.yaml"},"model":"o1","temperature":0.7,"description":"An example agent for demonstration purposes.","knowledge":[{"match":{"Inclusions":["*.md"]},"url":"embed://localhost/testdata/knowledge"}]}`,
+			name: "Valid agent",
+			url:  "tester.yaml",
+			expectedJSON: `{
+  "id":"agent-123",
+  "name":"Database tester Agent",
+  "icon":"https://example.com/icon.png",
+  "source":{"url":"testdata/tester.yaml"},
+  "model":"o1",
+  "temperature":0.7,
+  "description":"An example agent for demonstration purposes.",
+  "knowledge":[{"filter":{"Exclusions":null,"Inclusions":["*.md"],"MaxFileSize":0},"url":"knowledge/"}],
+  "resources":[{"uri":"knowledge/","role":"user","allowSemanticMatch":true}],
+  "tool":{}
+}`,
 		},
 		{
 			name: "Agent with chains",
 			url:  "with_chains.yaml",
 			expectedJSON: `{
 			  "id":"agent-chain-demo",
-			  "name":"chainLimits Demo",
-			  "source":{"url":"embed:///testdata/with_chains.yaml"},
+			  "name":"Chain Demo",
+			  "source":{"url":"testdata/with_chains.yaml"},
 			  "model":"gpt-4o",
             "chains":[
                 {"on":"succeeded","target":{"agentId":"summarizer"},"mode":"sync","conversation":"link","query":{"text":"Summarize the assistant reply: {{ .Output.Content }}"},"publish":{"role":"assistant"}},
-			    {"on":"failed","target":{"agentId":"notifier"},"mode":"sync","conversation":"reuse","when":"{{ ne .Output.Content \"\" }}","onError":"message"}
+			    {"on":"failed","target":{"agentId":"notifier"},"mode":"sync","conversation":"reuse","when":{"expr":"{{ ne .Output.Content \"\" }}"},"onError":"message"}
 			  ]
 			}`,
 		},
@@ -60,7 +64,7 @@ func TestService_Load(t *testing.T) {
 	// Run test cases
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			service := New(WithMetaService(meta.New(afs.New(), "embed:///testdata")))
+			service := New(WithMetaService(meta.New(afs.New(), "testdata")))
 			anAgent, err := service.Load(ctx, tc.url)
 
 			if tc.expectedErr {
@@ -79,7 +83,7 @@ func TestService_Load(t *testing.T) {
 
 func TestService_Load_UIFlags(t *testing.T) {
 	ctx := context.Background()
-	service := New(WithMetaService(meta.New(afs.New(), "embed:///testdata")))
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
 
 	got, err := service.Load(ctx, "flags.yaml")
 	assert.NoError(t, err)
@@ -98,7 +102,7 @@ func TestService_Load_UIFlags(t *testing.T) {
 
 func TestService_Load_ToolExposure(t *testing.T) {
 	ctx := context.Background()
-	service := New(WithMetaService(meta.New(afs.New(), "embed:///testdata")))
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
 
 	// Minimal, focused assertions: exposure must be set consistently
 	t.Run("tool.callExposure alias is parsed", func(t *testing.T) {

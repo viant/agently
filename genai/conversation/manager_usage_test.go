@@ -7,12 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 
-	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/usage"
 )
 
-// stubHandler returns a fixed usage aggregator so that we can verify that the
-// Manager persists the counts into the supplied UsageStore.
+// handlerWithUsage returns a fixed usage aggregator so that we can verify that the
+// Manager propagates usage from the handler into the returned output.
 func handlerWithUsage(u *usage.Aggregator) QueryHandler {
 	return func(ctx context.Context, in *agentpkg.QueryInput, out *agentpkg.QueryOutput) error {
 		out.Content = "ok"
@@ -27,21 +26,20 @@ func TestManager_UsageStoreIntegration(t *testing.T) {
 	agg.Add("gpt-3.5", 100, 20, 5, 0)
 	agg.Add("ada-002", 0, 0, 50, 0)
 
-	store := memory.NewUsageStore()
-	mgr := New(memory.NewHistoryStore(), nil, handlerWithUsage(agg), WithUsageStore(store))
+	mgr := New(handlerWithUsage(agg))
 
 	in := &agentpkg.QueryInput{ConversationID: "conv1", AgentID: "dummy", Query: "hi"}
-	_, err := mgr.Accept(context.Background(), in)
+	out, err := mgr.Accept(context.Background(), in)
 	assert.NoError(t, err)
 
-	// Totals should match aggregator sums.
-	p, c, e, cached := store.Totals("conv1")
-	assert.EqualValues(t, 100, p)
-	assert.EqualValues(t, 20, c)
-	assert.EqualValues(t, 55, e) // 5 + 50
-	assert.EqualValues(t, 0, cached)
+	if assert.NotNil(t, out) && assert.NotNil(t, out.Usage) {
+		// Totals should match aggregator sums returned by the handler.
+		p, c, e, cached := out.Usage.Totals()
+		assert.EqualValues(t, 100, p)
+		assert.EqualValues(t, 20, c)
+		assert.EqualValues(t, 55, e) // 5 + 50
+		assert.EqualValues(t, 0, cached)
 
-	aggConv := store.Aggregator("conv1")
-	assert.NotNil(t, aggConv)
-	assert.ElementsMatch(t, []string{"gpt-3.5", "ada-002"}, aggConv.Keys())
+		assert.ElementsMatch(t, []string{"gpt-3.5", "ada-002"}, out.Usage.Keys())
+	}
 }
