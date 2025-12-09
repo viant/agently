@@ -63,6 +63,11 @@ type (
 		// This preserves backward compatibility while enabling richer config.
 		Tool Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
 
+		// ToolCallExposure is a legacy top-level mirror of Tool.CallExposure
+		// retained for backward compatibility with older metadata and loaders.
+		// New configurations should prefer tool.callExposure.
+		ToolCallExposure ToolCallExposure `yaml:"toolCallExposure,omitempty" json:"toolCallExposure,omitempty"`
+
 		// Reasoning controls provider native reasoning behavior (e.g., effort/summary
 		// for OpenAI o-series). When set, EnsureGenerateOptions passes it to LLM core.
 		Reasoning *llm.Reasoning `yaml:"reasoning,omitempty" json:"reasoning,omitempty"`

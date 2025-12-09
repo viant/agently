@@ -43,7 +43,7 @@ func TestManager_Accept(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mgr := New(nil, nil, stubHandler) // default in-memory history & uuid generator
+			mgr := New(stubHandler) // default uuid generator
 
 			input := &agentpkg.QueryInput{
 				ConversationID: tc.convID,

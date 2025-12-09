@@ -2,6 +2,7 @@ package message
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,13 +27,13 @@ func (f *fakeFinder) Find(ctx context.Context, id string) (baseemb.Embedder, err
 func (f *fakeFinder) Ids() []string                                                 { return []string{"fake"} }
 
 func TestMatch_Simple(t *testing.T) {
-	svc := NewWithDeps(nil, nil, &fakeFinder{e: &fakeEmbedder{}}, 0, 0, "", "", "", "")
+	svc := NewWithDeps(nil, nil, &fakeFinder{e: &fakeEmbedder{}}, 0, 4, "", "", "", "")
 	body := "aaaa\nbb\ncccccc\n"
-	in := &MatchInput{Body: body, Query: "xxxx", Chunk: 4, TopK: 2}
+	in := &MatchInput{Body: body, Query: "xxxx", TopK: 2}
 	var out MatchOutput
 	err := svc.match(context.Background(), in, &out)
 	assert.NoError(t, err)
-	assert.EqualValues(t, len(body), out.Size)
+	assert.EqualValues(t, len(strings.TrimSpace(body)), out.Size)
 	assert.EqualValues(t, 2, len(out.Fragments))
 	// Fragments should be contiguous around highest-length chunk
 	assert.NotEmpty(t, out.Fragments[0].Content)

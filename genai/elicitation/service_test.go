@@ -11,21 +11,21 @@ func TestNormalizeAction(t *testing.T) {
 		In  string
 		Out string
 	}{
-		{"accept", "accepted"},
-		{"ACCEPTED", "accepted"},
-		{"approve", "accepted"},
-		{"approved", "accepted"},
-		{"yes", "accepted"},
-		{"y", "accepted"},
-		{"decline", "rejected"},
-		{"rejected", "rejected"},
-		{"reject", "rejected"},
-		{"no", "rejected"},
-		{"n", "rejected"},
+		{"accept", "accept"},
+		{"ACCEPTED", "accept"},
+		{"approve", "accept"},
+		{"approved", "accept"},
+		{"yes", "accept"},
+		{"y", "accept"},
+		{"decline", "decline"},
+		{"rejected", "decline"},
+		{"reject", "decline"},
+		{"no", "decline"},
+		{"n", "decline"},
 		{"cancel", "cancel"},
 		{"canceled", "cancel"},
 		{"cancelled", "cancel"},
-		{"", "rejected"},
+		{"", "decline"},
 	}
 	for _, tc := range testCases {
 		got := NormalizeAction(tc.In)
