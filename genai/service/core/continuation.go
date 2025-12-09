@@ -43,6 +43,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 			copyMsg := m
 			copyMsg.ToolCalls = filtered
 			selected.Append(copyMsg)
+			continue
 		}
 
 		if m.ToolCallId != "" {
@@ -52,6 +53,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 				continue
 			}
 			selected.Append(m)
+			continue
 		}
 
 		if m.Content != "" {
@@ -67,6 +69,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 			}
 
 			selected.Append(m)
+			continue
 		}
 	}
 
