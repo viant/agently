@@ -364,6 +364,7 @@ func (h *History) LLMMessages() []llm.Message {
 	if h == nil {
 		return out
 	}
+	trimmedCurrentID := strings.TrimSpace(h.CurrentTurnID)
 	appendLLM := func(msg *Message, omitTools bool) {
 		if msg == nil {
 			return
@@ -392,8 +393,10 @@ func (h *History) LLMMessages() []llm.Message {
 			if t == nil {
 				continue
 			}
+			isCurrentTurn := trimmedCurrentID != "" && strings.TrimSpace(t.ID) == trimmedCurrentID
+			omitToolsForTurn := omitTools && !isCurrentTurn
 			for _, m := range t.Messages {
-				appendLLM(m, omitTools) // omit tool results if turn-level tool exposure
+				appendLLM(m, omitToolsForTurn) // omit tool results if turn-level tool exposure and not current turn
 			}
 		}
 		if h.Current != nil {
