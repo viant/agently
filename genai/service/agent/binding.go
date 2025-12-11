@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path"
@@ -19,6 +21,7 @@ import (
 	"github.com/viant/agently/genai/prompt"
 	padapter "github.com/viant/agently/genai/prompt/adapter"
 	"github.com/viant/agently/genai/service/core"
+	executil "github.com/viant/agently/genai/service/shared/executil"
 	"github.com/viant/agently/internal/workspace"
 	mcpname "github.com/viant/agently/pkg/mcpname"
 )
@@ -172,6 +175,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if err != nil {
 		return nil, err
 	}
+	s.appendTranscriptSystemDocs(conv.GetTranscript(), b)
 	// Normalize system doc URIs similarly (even if not rendered now)
 	s.normalizeDocURIs(&b.SystemDocuments, workspace.Root())
 	b.Context = input.Context
@@ -532,6 +536,216 @@ func (s *Service) normalizeDocURIs(docs *prompt.Documents, trim string) {
 			d.SourceURI = strings.TrimPrefix(uri, trim)
 		}
 	}
+}
+
+func (s *Service) appendTranscriptSystemDocs(tr apiconv.Transcript, b *prompt.Binding) {
+	if b == nil {
+		return
+	}
+	systemDocs := transcriptSystemDocuments(tr)
+	if len(systemDocs) == 0 {
+		return
+	}
+	if b.SystemDocuments.Items == nil {
+		b.SystemDocuments.Items = []*prompt.Document{}
+	}
+	seen := map[string]bool{}
+	contentHashes := map[string]bool{}
+	for _, doc := range b.SystemDocuments.Items {
+		if key := systemDocDedupKey(doc); key != "" {
+			seen[key] = true
+		}
+		if hash := systemDocContentHash(doc); hash != "" {
+			contentHashes[hash] = true
+		}
+	}
+	for _, doc := range systemDocs {
+		if doc == nil {
+			continue
+		}
+		key := systemDocDedupKey(doc)
+		if key != "" {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		if hash := systemDocContentHash(doc); hash != "" {
+			if contentHashes[hash] {
+				continue
+			}
+			contentHashes[hash] = true
+		}
+		b.SystemDocuments.Items = append(b.SystemDocuments.Items, doc)
+	}
+}
+
+func transcriptSystemDocuments(tr apiconv.Transcript) []*prompt.Document {
+	if len(tr) == 0 {
+		return nil
+	}
+	var docs []*prompt.Document
+	seen := map[string]bool{}
+	for _, turn := range tr {
+		if turn == nil || len(turn.GetMessages()) == 0 {
+			continue
+		}
+		for _, msg := range turn.GetMessages() {
+			doc := toSystemDocument(turn, msg)
+			if doc == nil {
+				continue
+			}
+			key := systemDocDedupKey(doc)
+			if key != "" {
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+			}
+			docs = append(docs, doc)
+		}
+	}
+	return docs
+}
+
+func toSystemDocument(turn *apiconv.Turn, msg *apiconv.Message) *prompt.Document {
+	if msg == nil || !hasSystemDocTag(msg) {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(msg.Role), "system") {
+		return nil
+	}
+	content := strings.TrimSpace(msg.GetContent())
+	if content == "" {
+		return nil
+	}
+	source := extractSystemDocSource(msg, content)
+	meta := map[string]string{
+		"messageId": strings.TrimSpace(msg.Id),
+	}
+	if turn != nil && strings.TrimSpace(turn.Id) != "" {
+		meta["turnId"] = strings.TrimSpace(turn.Id)
+	}
+	if source != "" {
+		meta["source"] = source
+	}
+	return &prompt.Document{
+		Title:       deriveSystemDocTitle(source),
+		PageContent: content,
+		SourceURI:   source,
+		MimeType:    inferMimeTypeFromSource(source),
+		Metadata:    meta,
+	}
+}
+
+func extractSystemDocSource(msg *apiconv.Message, content string) string {
+	if msg != nil && msg.ContextSummary != nil {
+		if v := strings.TrimSpace(*msg.ContextSummary); v != "" {
+			return v
+		}
+	}
+	firstLine := ""
+	if content != "" {
+		parts := strings.SplitN(content, "\n", 2)
+		if len(parts) > 0 {
+			firstLine = strings.TrimSpace(parts[0])
+		}
+	}
+	if firstLine != "" && strings.HasPrefix(strings.ToLower(firstLine), "file:") {
+		return strings.TrimSpace(firstLine[len("file:"):])
+	}
+	return ""
+}
+
+func deriveSystemDocTitle(source string) string {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return "System Document"
+	}
+	base := strings.TrimSpace(path.Base(source))
+	if base == "" || base == "." || base == "/" {
+		return source
+	}
+	return base
+}
+
+func inferMimeTypeFromSource(source string) string {
+	switch strings.ToLower(strings.TrimSpace(path.Ext(strings.TrimSpace(source)))) {
+	case ".md", ".markdown":
+		return "text/markdown"
+	case ".json":
+		return "application/json"
+	case ".sql":
+		return "text/plain"
+	case ".go", ".py", ".ts", ".tsx", ".js", ".java", ".rb":
+		return "text/plain"
+	}
+	return "text/markdown"
+}
+
+func hasSystemDocTag(msg *apiconv.Message) bool {
+	if msg == nil {
+		return false
+	}
+	if msg.Tags != nil {
+		for _, tag := range strings.Split(*msg.Tags, ",") {
+			if strings.EqualFold(strings.TrimSpace(tag), executil.SystemDocumentTag) {
+				return true
+			}
+		}
+	}
+	mode := ""
+	if msg.Mode != nil {
+		mode = *msg.Mode
+	}
+	if strings.EqualFold(strings.TrimSpace(mode), executil.SystemDocumentMode) {
+		return true
+	}
+	content := strings.ToLower(strings.TrimSpace(msg.GetContent()))
+	return strings.HasPrefix(content, "file:")
+}
+
+func systemDocKey(doc *prompt.Document) string {
+	if doc == nil {
+		return ""
+	}
+	if v := strings.TrimSpace(doc.SourceURI); v != "" {
+		return v
+	}
+	if doc.Metadata != nil {
+		if id := strings.TrimSpace(doc.Metadata["messageId"]); id != "" {
+			return id
+		}
+	}
+	return strings.TrimSpace(doc.Title)
+}
+
+func systemDocDedupKey(doc *prompt.Document) string {
+	if doc == nil {
+		return ""
+	}
+	if key := systemDocKey(doc); key != "" {
+		return key
+	}
+	title := strings.TrimSpace(doc.Title)
+	content := strings.TrimSpace(doc.PageContent)
+	if title == "" && content == "" {
+		return ""
+	}
+	sum := md5.Sum([]byte(title + "::" + content))
+	return hex.EncodeToString(sum[:])
+}
+
+func systemDocContentHash(doc *prompt.Document) string {
+	if doc == nil {
+		return ""
+	}
+	content := strings.TrimSpace(doc.PageContent)
+	if content == "" {
+		return ""
+	}
+	sum := md5.Sum([]byte(content))
+	return hex.EncodeToString(sum[:])
 }
 
 // debugf prints binding-level debug logs when AGENTLY_DEBUG or AGENTLY_DEBUG_BINDING is set.

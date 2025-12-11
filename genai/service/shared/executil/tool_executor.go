@@ -2,25 +2,21 @@ package executil
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
+	"strings"
 	"time"
 
-	"strings"
-
-	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	plan "github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
-	contpol "github.com/viant/agently/genai/tool/continuation"
-	overwrap "github.com/viant/agently/genai/tool/overflow"
-	schinspect "github.com/viant/agently/genai/tool/schema"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
-	"github.com/viant/mcp-protocol/extension"
-	"strconv"
+)
+
+const (
+	SystemDocumentTag  = "system_doc"
+	SystemDocumentMode = "system_document"
 )
 
 // StepInfo carries the tool step data needed for execution.
@@ -68,12 +64,9 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 			ctx = WithToolTimeout(ctx, d)
 		}
 	}
-	execCtx, cancel := toolExecContext(ctx)
-	defer cancel()
-
-	out, toolResult, execErr := executeTool(execCtx, reg, step)
+	out, toolResult, execErr := executeToolWithRetry(ctx, reg, step)
 	// Optionally wrap overflow with YAML helper when native continuation is not supported.
-	if wrapped := maybeWrapOverflow(execCtx, reg, step.Name, toolResult, toolMsgID); wrapped != "" {
+	if wrapped := maybeWrapOverflow(ctx, reg, step.Name, toolResult, toolMsgID); wrapped != "" {
 		toolResult = wrapped
 		out.Result = wrapped
 	}
@@ -95,6 +88,15 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	respID, respErr := persistResponsePayload(persistCtx, conv, toolResult)
 	if respErr != nil {
 		errs = append(errs, fmt.Errorf("persist response payload: %w", respErr))
+	}
+	if strings.TrimSpace(toolResult) != "" {
+		persistCtx := ctx
+		if ctx.Err() != nil {
+			persistCtx = context.Background()
+		}
+		if err := persistDocumentsIfNeeded(persistCtx, reg, conv, turn, step.Name, toolResult); err != nil {
+			errs = append(errs, fmt.Errorf("emit system content: %w", err))
+		}
 	}
 
 	// 6) Update tool message with result content - why duplication of content gere
@@ -156,58 +158,6 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 	return nil
 }
 
-// createToolMessage persists a new tool message and returns its ID.
-func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.TurnMeta, startedAt time.Time) (string, error) {
-	toolMsgID := uuid.New().String()
-	msg, err := apiconv.AddMessage(ctx, conv, &turn,
-		apiconv.WithId(toolMsgID),
-		apiconv.WithRole("tool"),
-		apiconv.WithType("tool_op"),
-		apiconv.WithCreatedAt(startedAt),
-	)
-	if err != nil {
-		return "", fmt.Errorf("persist tool message: %w", err)
-	}
-	return msg.Id, nil
-}
-
-// initToolCall initializes and persists a new tool call in a 'running' state for the given tool message.
-func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID string, turn memory.TurnMeta, toolName string, startedAt time.Time, traceID string) error {
-	tc := apiconv.NewToolCall()
-	tc.SetMessageID(toolMsgID)
-	if opID != "" {
-		tc.SetOpID(opID)
-	}
-	if turn.TurnID != "" {
-		tc.TurnID = &turn.TurnID
-		tc.Has.TurnID = true
-	}
-	tc.SetToolName(toolName)
-	tc.SetToolKind("general")
-	tc.SetStatus("running")
-
-	now := startedAt
-	tc.StartedAt = &now
-	tc.Has.StartedAt = true
-	// Persist provider trace/anchor id (response.id) for this tool call when available.
-	if trace := strings.TrimSpace(traceID); trace != "" {
-		tc.TraceID = &trace
-		tc.Has.TraceID = true
-	} else if trace := strings.TrimSpace(memory.TurnTrace(turn.TurnID)); trace != "" {
-		// Fallback for legacy callers
-		tc.TraceID = &trace
-		tc.Has.TraceID = true
-	}
-	if err := conv.PatchToolCall(ctx, tc); err != nil {
-		return fmt.Errorf("persist tool call start: %w", err)
-	}
-
-	if err := conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running")); err != nil {
-		return fmt.Errorf("failed to update conversation: %w", err)
-	}
-	return nil
-}
-
 // executeTool runs the tool and returns the normalized ToolCall, raw result and error.
 func executeTool(ctx context.Context, reg tool.Registry, step StepInfo) (plan.ToolCall, string, error) {
 	toolResult, err := reg.Execute(ctx, step.Name, step.Args)
@@ -235,219 +185,4 @@ func resolveToolStatus(execErr error, parentCtx context.Context) (string, string
 		status = "canceled"
 	}
 	return status, errMsg
-}
-
-// toolExecContext returns a bounded context for tool execution. It uses AGENTLY_TOOLCALL_TIMEOUT
-// environment variable when set (e.g., "45s", "2m"), otherwise defaults to 60s.
-func toolExecContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	const defaultTimeout = 3 * time.Minute
-	if d, ok := toolTimeoutFromContext(ctx); ok && d > 0 {
-		return context.WithTimeout(ctx, d)
-	}
-	if v := strings.TrimSpace(os.Getenv("AGENTLY_TOOLCALL_TIMEOUT")); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			return context.WithTimeout(ctx, d)
-		}
-	}
-	return context.WithTimeout(ctx, defaultTimeout)
-}
-
-// ---------------- context helpers ----------------
-
-type ctxKey int
-
-const (
-	keyToolTimeout ctxKey = iota + 1
-)
-
-// WithToolTimeout attaches a per-tool execution timeout to the context.
-func WithToolTimeout(ctx context.Context, d time.Duration) context.Context {
-	return context.WithValue(ctx, keyToolTimeout, d)
-}
-
-// toolTimeoutFromContext reads a configured tool timeout from context when present.
-func toolTimeoutFromContext(ctx context.Context) (time.Duration, bool) {
-	if v := ctx.Value(keyToolTimeout); v != nil {
-		if d, ok := v.(time.Duration); ok {
-			return d, true
-		}
-	}
-	return 0, false
-}
-
-// persistRequestPayload stores tool request arguments and links them to the tool call.
-func persistRequestPayload(ctx context.Context, conv apiconv.Client, toolMsgID string, args map[string]interface{}) (string, error) {
-	b, mErr := json.Marshal(args)
-	if mErr != nil {
-		return "", mErr
-	}
-	// create payload using shared helper
-	reqID, pErr := createInlinePayload(ctx, conv, "tool_request", "application/json", b)
-	if pErr != nil {
-		return "", pErr
-	}
-	// link payload to tool call
-	upd := apiconv.NewToolCall()
-	upd.SetMessageID(toolMsgID)
-	upd.RequestPayloadID = &reqID
-	upd.Has.RequestPayloadID = true
-	_ = conv.PatchToolCall(ctx, upd)
-	return reqID, nil
-}
-
-// persistResponsePayload stores tool response content and returns the payload ID.
-func persistResponsePayload(ctx context.Context, conv apiconv.Client, result string) (string, error) {
-	rb := []byte(result)
-	return createInlinePayload(ctx, conv, "tool_response", "text/plain", rb)
-}
-
-// maybeWrapOverflow inspects a tool result for continuation hints and, based on
-// input/output schemas, returns a YAML overflow wrapper when native range
-// continuation is not supported. When no wrapper is needed, it returns an empty string.
-func maybeWrapOverflow(ctx context.Context, reg tool.Registry, toolName, result, toolMsgID string) string {
-	// Quick JSON parse to inspect continuation
-	var payload map[string]interface{}
-	if err := json.Unmarshal([]byte(result), &payload); err != nil {
-		return ""
-	}
-	contRaw, ok := payload["continuation"].(map[string]interface{})
-	if !ok || contRaw == nil {
-		return ""
-	}
-	// Detect truncation condition: remaining > 0 or hasMore=true
-	hasMore := false
-	if v, ok := contRaw["hasMore"]; ok {
-		if b, ok2 := v.(bool); ok2 && b {
-			hasMore = true
-		}
-	}
-	remaining := intFromAny(contRaw["remaining"]) // 0 when absent
-	if !hasMore && remaining <= 0 {
-		return ""
-	}
-	// Inspect schemas to decide strategy
-	def, ok := reg.GetDefinition(toolName)
-	var inShape schinspect.RangeInputs
-	var outShape schinspect.ContinuationShape
-	if ok && def != nil {
-		_, inShape = schinspect.HasInputRanges(def.Parameters)
-		_, outShape = schinspect.HasOutputContinuation(def.OutputSchema)
-	}
-	strat := contpol.Decide(inShape, outShape)
-	switch strat {
-	case contpol.OutputOnlyRanges, contpol.NoRanges:
-		// Build extension.Continuation (bytes-only for now)
-		ext := toContinuation(contRaw)
-		yaml, err := overwrap.BuildOverflowYAML(toolMsgID, ext)
-		if err == nil && strings.TrimSpace(yaml) != "" {
-			return yaml
-		}
-		return ""
-	default:
-		return ""
-	}
-}
-
-func intFromAny(v interface{}) int {
-	switch t := v.(type) {
-	case int:
-		return t
-	case int64:
-		return int(t)
-	case float64:
-		return int(t)
-	case json.Number:
-		if i, err := t.Int64(); err == nil {
-			return int(i)
-		}
-		if f, err := t.Float64(); err == nil {
-			return int(f)
-		}
-		return 0
-	default:
-		return 0
-	}
-}
-
-// toContinuation converts a generic map continuation into extension.Continuation.
-func toContinuation(m map[string]interface{}) *extension.Continuation {
-	if m == nil {
-		return nil
-	}
-	c := &extension.Continuation{}
-	if v, ok := m["hasMore"].(bool); ok {
-		c.HasMore = v
-	}
-	c.Remaining = intFromAny(m["remaining"])
-	c.Returned = intFromAny(m["returned"])
-	// bytes nextRange when present: nextRange or nested bytes {offset,length}
-	if nr, ok := m["nextRange"].(map[string]interface{}); ok && nr != nil {
-		if b, ok := nr["bytes"].(map[string]interface{}); ok && b != nil {
-			off := intFromAny(b["offset"])
-			if off == 0 {
-				off = intFromAny(b["offsetBytes"])
-			}
-			ln := intFromAny(b["length"])
-			if ln == 0 {
-				ln = intFromAny(b["lengthBytes"])
-			}
-			c.NextRange = &extension.RangeHint{Bytes: &extension.ByteRange{Offset: off, Length: ln}}
-		}
-	} else if s, ok := m["nextRange"].(string); ok && strings.Contains(s, "-") {
-		// parse "X-Y" string
-		parts := strings.SplitN(s, "-", 2)
-		if len(parts) == 2 {
-			// best effort
-			// ignore parse errors → zero values
-			var off, end int
-			if o, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
-				off = o
-			}
-			if e, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
-				end = e
-			}
-			ln := 0
-			if end > off {
-				ln = end - off
-			}
-			c.NextRange = &extension.RangeHint{Bytes: &extension.ByteRange{Offset: off, Length: ln}}
-		}
-	}
-	return c
-}
-
-// completeToolCall marks the tool call as finished and attaches the response payload and error message.
-func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, status string, completedAt time.Time, respPayloadID string, errMsg string) error {
-	updTC := apiconv.NewToolCall()
-	updTC.SetMessageID(toolMsgID)
-	updTC.SetStatus(status)
-	done := completedAt
-	updTC.CompletedAt = &done
-	updTC.Has.CompletedAt = true
-	if respPayloadID != "" {
-		updTC.ResponsePayloadID = &respPayloadID
-		updTC.Has.ResponsePayloadID = true
-	}
-	if strings := errMsg; strings != "" {
-		updTC.ErrorMessage = &strings
-		updTC.Has.ErrorMessage = true
-	}
-
-	return conv.PatchToolCall(ctx, updTC)
-}
-
-// createInlinePayload creates and persists an inline payload and returns its ID.
-func createInlinePayload(ctx context.Context, conv apiconv.Client, kind, mime string, body []byte) (string, error) {
-	pid := uuid.New().String()
-	p := apiconv.NewPayload()
-	p.SetId(pid)
-	p.SetKind(kind)
-	p.SetMimeType(mime)
-	p.SetSizeBytes(len(body))
-	p.SetStorage("inline")
-	p.SetInlineBody(body)
-	if err := conv.PatchPayload(ctx, p); err != nil {
-		return "", err
-	}
-	return pid, nil
 }

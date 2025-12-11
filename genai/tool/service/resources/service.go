@@ -23,6 +23,7 @@ import (
 	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
 	"github.com/viant/agently/genai/textclip"
 	svc "github.com/viant/agently/genai/tool/service"
+	"github.com/viant/agently/internal/agent/systemdoc"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/workspace"
@@ -43,6 +44,8 @@ type Service struct {
 	aFinder   agmodel.Finder
 	// defaultEmbedder is used when MatchInput.Embedder/Model is not provided.
 	defaultEmbedder string
+
+	augmentDocsOverride func(ctx context.Context, input *aug.AugmentDocsInput, output *aug.AugmentDocsOutput) error
 }
 
 // New returns a resources service using a shared augmenter instance.
@@ -80,7 +83,8 @@ func (s *Service) Methods() svc.Signatures {
 		{Name: "roots", Description: "Discover configured resource roots with optional descriptions", Input: reflect.TypeOf(&RootsInput{}), Output: reflect.TypeOf(&RootsOutput{})},
 		{Name: "list", Description: "List resources under a root (file or MCP)", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "read", Description: "Read a single resource under a root. For large files, prefer byteRange and page in chunks (<= 8KB).", Input: reflect.TypeOf(&ReadInput{}), Output: reflect.TypeOf(&ReadOutput{})},
-		{Name: "match", Description: "Semantic match search over one or more roots", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
+		{Name: "match", Description: "Semantic match search over one or more roots; use `match.exclusions` to block specific workspace paths.", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
+		{Name: "matchDocuments", Description: "Rank semantic matches and return distinct URIs with score + root metadata for transcript promotion. Example: {\"rootIds\":[\"workspace://localhost/knowledge/bidder\"],\"query\":\"performance\"}. Output fields: documents[].uri, documents[].score, documents[].rootId.", Input: reflect.TypeOf(&MatchDocumentsInput{}), Output: reflect.TypeOf(&MatchDocumentsOutput{})},
 		{Name: "grepFiles", Description: "Search text patterns in files under a root and return per-file snippets.", Input: reflect.TypeOf(&GrepInput{}), Output: reflect.TypeOf(&GrepOutput{})},
 	}
 }
@@ -96,6 +100,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.read, nil
 	case "match":
 		return s.match, nil
+	case "matchdocuments":
+		return s.matchDocuments, nil
 	case "grepfiles":
 		return s.grepFiles, nil
 	default:
@@ -103,15 +109,22 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 	}
 }
 
+func (s *Service) runAugmentDocs(ctx context.Context, input *aug.AugmentDocsInput, output *aug.AugmentDocsOutput) error {
+	if s.augmentDocsOverride != nil {
+		return s.augmentDocsOverride(ctx, input, output)
+	}
+	if s.augmenter == nil {
+		return fmt.Errorf("augmenter service is not configured")
+	}
+	return s.augmenter.AugmentDocs(ctx, input, output)
+}
+
 // MatchInput defines parameters for semantic search across one or more roots.
 type MatchInput struct {
 	Query string `json:"query"`
-	// RootURI contains root URIs selected for semantic search. Prefer using
-	// RootIDs when possible; RootURI/Roots are retained for compatibility
-	// but hidden from public schemas.
+	// RootURI/Roots are retained for backward compatibility but will default to all accessible roots when omitted.
 	RootURI []string `json:"rootUri,omitempty" internal:"true"`
-	// Roots is a legacy alias for RootURI.
-	Roots []string `json:"roots,omitempty" internal:"true"`
+	Roots   []string `json:"roots,omitempty" internal:"true"`
 	// RootIDs contains stable identifiers corresponding to roots returned by
 	// roots. When provided, they are resolved to URIs before
 	// enforcement and search.
@@ -136,6 +149,307 @@ type MatchOutput struct {
 	Cursor int `json:"cursor,omitempty" description:"Selected page cursor (1..N)."`
 	// LimitBytes echoes the applied byte limit per page.
 	LimitBytes int `json:"limitBytes,omitempty" description:"Applied byte cap per page."`
+	// SystemContent mirrors Content but only includes system-role documents so callers can surface
+	// protected context as system messages.
+	SystemContent string `json:"systemContent,omitempty" description:"Formatted content for system resources only."`
+	// DocumentRoots maps document SourceURI values to their originating root IDs.
+	DocumentRoots map[string]string `json:"documentRoots,omitempty" description:"Maps document source URIs to their root IDs."`
+}
+
+type augmentedDocuments struct {
+	documents      []embSchema.Document
+	trimPrefix     string
+	systemPrefixes []string
+}
+
+type searchRootMeta struct {
+	id     string
+	wsRoot string
+}
+
+func (s *Service) selectSearchRoots(ctx context.Context, roots []Root, input *MatchInput) ([]Root, error) {
+	if len(roots) == 0 {
+		return nil, fmt.Errorf("no roots configured")
+	}
+	var selected []Root
+	seen := map[string]struct{}{}
+	add := func(candidates []Root) {
+		for _, root := range candidates {
+			key := strings.ToLower(strings.TrimSpace(root.ID))
+			if key == "" {
+				key = strings.ToLower(strings.TrimSpace(root.URI))
+			}
+			if key == "" {
+				continue
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			if !root.AllowedSemanticSearch {
+				continue
+			}
+			seen[key] = struct{}{}
+			selected = append(selected, root)
+		}
+	}
+	if len(input.RootIDs) > 0 {
+		matchedByID := filterRootsByID(roots, input.RootIDs)
+		add(matchedByID)
+		missing := missingRootIDs(input.RootIDs, matchedByID)
+		if len(missing) > 0 {
+			matchedByURI := filterRootsByURI(roots, missing)
+			add(matchedByURI)
+			if remaining := missingRootIDs(input.RootIDs, append(matchedByID, matchedByURI...)); len(remaining) > 0 {
+				return nil, fmt.Errorf("unknown rootId(s): %s", strings.Join(remaining, ", "))
+			}
+		}
+	}
+	if len(selected) == 0 {
+		uris := append([]string(nil), input.RootURI...)
+		uris = append(uris, input.Roots...)
+		if len(uris) > 0 {
+			add(filterRootsByURI(roots, uris))
+		}
+	}
+	if len(selected) == 0 {
+		add(roots)
+	}
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("no semantic-enabled roots available")
+	}
+	return selected, nil
+}
+
+func filterRootsByID(roots []Root, ids []string) []Root {
+	if len(ids) == 0 {
+		return nil
+	}
+	idSet := map[string]struct{}{}
+	for _, raw := range ids {
+		if trimmed := normalizeRootID(raw); trimmed != "" {
+			idSet[trimmed] = struct{}{}
+		}
+	}
+	var out []Root
+	for _, root := range roots {
+		id := normalizeRootID(root.ID)
+		if id == "" {
+			id = normalizeRootID(root.URI)
+		}
+		if id == "" {
+			continue
+		}
+		if _, ok := idSet[id]; ok {
+			out = append(out, root)
+		}
+	}
+	return out
+}
+
+func filterRootsByURI(roots []Root, uris []string) []Root {
+	if len(uris) == 0 {
+		return nil
+	}
+	uriSet := map[string]struct{}{}
+	for _, raw := range uris {
+		if trimmed := normalizeRootURI(raw); trimmed != "" {
+			uriSet[trimmed] = struct{}{}
+		}
+	}
+	var out []Root
+	for _, root := range roots {
+		uri := normalizeRootURI(root.URI)
+		if uri == "" {
+			continue
+		}
+		if _, ok := uriSet[uri]; ok {
+			out = append(out, root)
+		}
+	}
+	return out
+}
+
+func missingRootIDs(requested []string, matched []Root) []string {
+	if len(requested) == 0 {
+		return nil
+	}
+	matchedSet := map[string]struct{}{}
+	for _, root := range matched {
+		if key := normalizeRootID(root.ID); key != "" {
+			matchedSet[key] = struct{}{}
+		}
+		if key := normalizeRootURI(root.URI); key != "" {
+			matchedSet[key] = struct{}{}
+		}
+	}
+	seen := map[string]struct{}{}
+	var missing []string
+	for _, raw := range requested {
+		idKey := normalizeRootID(raw)
+		uriKey := normalizeRootURI(raw)
+		if idKey == "" && uriKey == "" {
+			continue
+		}
+		if _, ok := matchedSet[idKey]; ok {
+			continue
+		}
+		if _, ok := matchedSet[uriKey]; ok {
+			continue
+		}
+		key := idKey
+		if key == "" {
+			key = uriKey
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		missing = append(missing, raw)
+	}
+	return missing
+}
+
+func normalizeRootID(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func normalizeRootURI(value string) string {
+	return strings.ToLower(strings.TrimRight(strings.TrimSpace(value), "/"))
+}
+
+func assignRootMetadata(doc *embSchema.Document, roots []searchRootMeta) {
+	if doc == nil || len(roots) == 0 {
+		return
+	}
+	path := documentMetadataPath(doc.Metadata)
+	if path == "" {
+		return
+	}
+	normalized := strings.ToLower(strings.TrimRight(path, "/"))
+	for _, entry := range roots {
+		prefix := strings.ToLower(strings.TrimRight(entry.wsRoot, "/"))
+		if prefix == "" {
+			continue
+		}
+		if normalized == prefix || strings.HasPrefix(normalized, prefix+"/") {
+			doc.Metadata["rootId"] = entry.id
+			return
+		}
+	}
+}
+
+func normalizeSearchPath(p string, wsRoot string) string {
+	trimmed := strings.TrimSpace(p)
+	if trimmed == "" {
+		return ""
+	}
+	trimmed = toWorkspaceURI(trimmed)
+	root := strings.TrimRight(strings.TrimSpace(wsRoot), "/")
+	if root == "" {
+		return trimmed
+	}
+	if strings.EqualFold(strings.TrimRight(trimmed, "/"), root) {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, root+"/") {
+		return strings.TrimPrefix(trimmed[len(root):], "/")
+	}
+	return trimmed
+}
+
+func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput) (*augmentedDocuments, error) {
+	if s == nil {
+		return nil, fmt.Errorf("service not configured")
+	}
+	query := strings.TrimSpace(input.Query)
+	if query == "" {
+		return nil, fmt.Errorf("query is required")
+	}
+	embedderID := strings.TrimSpace(input.Model)
+	if embedderID == "" {
+		embedderID = strings.TrimSpace(s.defaultEmbedder)
+	}
+	if embedderID == "" {
+		return nil, fmt.Errorf("embedder is required (set default embedder in config or provide internal model)")
+	}
+	input.IncludeFile = true
+
+	collectedRoots, err := s.collectRoots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	availableRoots := collectedRoots.all()
+	if len(availableRoots) == 0 {
+		return nil, fmt.Errorf("no roots configured for semantic search")
+	}
+	selectedRoots, err := s.selectSearchRoots(ctx, availableRoots, input)
+	if err != nil {
+		return nil, err
+	}
+	locations := make([]string, 0, len(selectedRoots))
+	searchRoots := make([]searchRootMeta, 0, len(selectedRoots))
+	for _, root := range selectedRoots {
+		wsRoot := strings.TrimRight(strings.TrimSpace(root.URI), "/")
+		if wsRoot == "" {
+			continue
+		}
+		base := wsRoot
+		if strings.HasPrefix(wsRoot, "workspace://") {
+			base = workspaceToFile(wsRoot)
+		}
+		if trimmed := normalizeSearchPath(input.Path, wsRoot); trimmed != "" {
+			base, err = joinBaseWithPath(wsRoot, base, trimmed, root.URI)
+			if err != nil {
+				return nil, err
+			}
+		}
+		locations = append(locations, base)
+		searchRoots = append(searchRoots, searchRootMeta{
+			id:     root.ID,
+			wsRoot: wsRoot,
+		})
+	}
+	if len(locations) == 0 {
+		return nil, fmt.Errorf("no valid roots provided")
+	}
+	trimPrefix := commonPrefix(locations)
+	augIn := &aug.AugmentDocsInput{
+		Query:        query,
+		Locations:    locations,
+		Match:        input.Match,
+		Model:        embedderID,
+		MaxDocuments: input.MaxDocuments,
+		IncludeFile:  input.IncludeFile,
+		TrimPath:     trimPrefix,
+	}
+	var augOut aug.AugmentDocsOutput
+	if err := s.runAugmentDocs(ctx, augIn, &augOut); err != nil {
+		return nil, err
+	}
+	sort.SliceStable(augOut.Documents, func(i, j int) bool { return augOut.Documents[i].Score > augOut.Documents[j].Score })
+
+	curAgent := s.currentAgent(ctx)
+	sysPrefixes := systemdoc.Prefixes(curAgent)
+	for i := range augOut.Documents {
+		doc := &augOut.Documents[i]
+		if doc.Metadata == nil {
+			doc.Metadata = map[string]any{}
+		}
+		doc.Metadata["score"] = doc.Score
+		for _, key := range []string{"path", "docId", "fragmentId"} {
+			if p, ok := doc.Metadata[key]; ok {
+				if s, _ := p.(string); s != "" {
+					doc.Metadata[key] = toWorkspaceURI(s)
+				}
+			}
+		}
+		assignRootMetadata(doc, searchRoots)
+	}
+	return &augmentedDocuments{
+		documents:      augOut.Documents,
+		trimPrefix:     trimPrefix,
+		systemPrefixes: sysPrefixes,
+	}, nil
 }
 
 func (s *Service) match(ctx context.Context, in, out interface{}) error {
@@ -147,195 +461,138 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	if s.augmenter == nil {
-		return fmt.Errorf("augmenter service is not configured")
-	}
-	query := strings.TrimSpace(input.Query)
-	if query == "" {
-		return fmt.Errorf("query is required")
-	}
-	if len(input.RootURI) == 0 && len(input.Roots) == 0 && len(input.RootIDs) == 0 {
-		return fmt.Errorf("roots or rootIds is required")
-	}
-	// Resolve embedder ID: prefer explicit model (internal), then service default.
-	input.IncludeFile = true
-	embedderID := strings.TrimSpace(input.Model)
-	if embedderID == "" {
-		embedderID = strings.TrimSpace(s.defaultEmbedder)
-	}
-	if embedderID == "" {
-		return fmt.Errorf("embedder is required (set default embedder in config or provide internal model)")
-	}
-	// Enforce allowlist when agent context present and normalize roots.
-	allowed := s.agentAllowed(ctx) // workspace://... or mcp:
-
-	// Start with any explicit root URIs (including legacy Roots alias).
-	sources := make([]string, 0, len(input.RootURI)+len(input.Roots)+len(input.RootIDs))
-	sources = append(sources, input.RootURI...)
-	sources = append(sources, input.Roots...)
-	// Resolve any rootIds into URIs using the agent context.
-	for _, id := range input.RootIDs {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		uri, err := s.resolveRootID(ctx, id)
-		if err != nil {
-			return err
-		}
-		sources = append(sources, uri)
-	}
-	locations := make([]string, 0, len(sources))
-	for _, root := range sources {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			continue
-		}
-		wsRoot, _, err := s.normalizeUserRoot(ctx, root)
-		if err != nil {
-			return err
-		}
-		if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
-			return fmt.Errorf("root not allowed: %s", root)
-		}
-		// Enforce per-resource semantic capability when agent context is
-		// available. When no agent or matching resource is found, default to
-		// allowing semantic search.
-		if !s.semanticAllowedForAgent(ctx, s.currentAgent(ctx), wsRoot) {
-			return fmt.Errorf("semantic match not allowed for root: %s", root)
-		}
-		// Convert to file (for internal I/O) when workspace scheme
-		base := wsRoot
-		if strings.HasPrefix(wsRoot, "workspace://") {
-			base = workspaceToFile(wsRoot)
-		}
-		if strings.TrimSpace(input.Path) != "" {
-			var jerr error
-			base, jerr = joinBaseWithPath(wsRoot, base, strings.TrimSpace(input.Path), root)
-			if jerr != nil {
-				return jerr
-			}
-		}
-		locations = append(locations, base)
-	}
-	if len(locations) == 0 {
-		return fmt.Errorf("no valid roots provided")
-	}
-	trimPrefix := commonPrefix(locations)
-	// Map to augmenter input and delegate
-	augIn := &aug.AugmentDocsInput{
-		Query:        query,
-		Locations:    locations,
-		Match:        input.Match,
-		Model:        embedderID,
-		MaxDocuments: input.MaxDocuments,
-		IncludeFile:  input.IncludeFile,
-		TrimPath:     trimPrefix,
-	}
-	var augOut aug.AugmentDocsOutput
-	if err := s.augmenter.AugmentDocs(ctx, augIn, &augOut); err != nil {
+	res, err := s.buildAugmentedDocuments(ctx, input)
+	if err != nil {
 		return err
-	}
-
-	// Order by match score descending
-	sort.SliceStable(augOut.Documents, func(i, j int) bool { return augOut.Documents[i].Score > augOut.Documents[j].Score })
-
-	// Enrich matched documents with score, normalized paths and, when
-	// possible, the underlying agent resource role (user|system) so
-	// callers can distinguish system-scoped matches.
-	curAgent := s.currentAgent(ctx)
-	for i := range augOut.Documents {
-		doc := augOut.Documents[i]
-		if doc.Metadata == nil {
-			doc.Metadata = map[string]any{}
-		}
-		// Surface score in metadata for clients (in addition to struct field)
-		doc.Metadata["score"] = doc.Score
-		for _, key := range []string{"path", "docId", "fragmentId"} {
-			if p, ok := doc.Metadata[key]; ok {
-				if s, _ := p.(string); s != "" {
-					doc.Metadata[key] = fileToWorkspace(s)
-				}
-			}
-		}
-		// When agent context is available, attempt to infer the resource
-		// role (user/system) by matching the document path against
-		// configured agent.resources URIs.
-		if curAgent != nil && len(curAgent.Resources) > 0 {
-			pathVal := ""
-			if v, ok := doc.Metadata["path"]; ok {
-				if s, _ := v.(string); strings.TrimSpace(s) != "" {
-					pathVal = s
-				}
-			}
-			if pathVal == "" {
-				if v, ok := doc.Metadata["docId"]; ok {
-					if s, _ := v.(string); strings.TrimSpace(s) != "" {
-						pathVal = s
-					}
-				}
-			}
-			if strings.TrimSpace(pathVal) != "" {
-				wsPath := strings.TrimRight(strings.TrimSpace(pathVal), "/")
-				role := ""
-				for _, r := range curAgent.Resources {
-					if r == nil || strings.TrimSpace(r.URI) == "" {
-						continue
-					}
-					normRes, _, err := s.normalizeUserRoot(ctx, r.URI)
-					if err != nil || strings.TrimSpace(normRes) == "" {
-						continue
-					}
-					normRes = strings.TrimRight(strings.TrimSpace(normRes), "/")
-					// Match when document path is under this resource root.
-					if strings.HasPrefix(wsPath, normRes) {
-						if strings.EqualFold(strings.TrimSpace(r.Role), "system") {
-							role = "system"
-						} else {
-							role = "user"
-						}
-						break
-					}
-				}
-				if role != "" {
-					doc.Metadata["resourceRole"] = role
-				}
-			}
-		}
 	}
 
 	// Apply byte-limited pagination for presentation
 	limit := effectiveLimitBytes(input.LimitBytes)
 	cursor := effectiveCursor(input.Cursor)
-	pageDocs, hasNext := selectDocPage(augOut.Documents, limit, cursor, trimPrefix)
+	pageDocs, hasNext := selectDocPage(res.documents, limit, cursor, res.trimPrefix)
 
 	// If the total formatted size of all documents does not exceed the limit,
 	// there is no next page regardless of internal grouping.
-	if total := totalFormattedBytes(augOut.Documents, trimPrefix); total <= limit {
+	if total := totalFormattedBytes(res.documents, res.trimPrefix); total <= limit {
 		hasNext = false
 	}
 
 	// Rebuild Content for selected page using same format as augmenter
-	var b strings.Builder
-	for _, doc := range pageDocs {
-		loc := strings.TrimPrefix(getStringFromMetadata(doc.Metadata, "path"), trimPrefix)
-		if loc == "" {
-			loc = getStringFromMetadata(doc.Metadata, "docId")
-		}
-		// Use local helper mirroring augmenter formatting
-		_, _ = b.WriteString(formatDocument(loc, doc.PageContent))
-	}
-
-	// Populate output with paged content
-	output.AugmentDocsOutput.Content = b.String()
+	content := buildDocumentContent(pageDocs, res.trimPrefix)
+	output.AugmentDocsOutput.Content = content
 	output.AugmentDocsOutput.Documents = pageDocs
 	output.AugmentDocsOutput.DocumentsSize = augmenterDocumentsSize(pageDocs)
+	output.DocumentRoots = buildDocumentRootsMap(pageDocs)
 	output.Cursor = cursor
 	output.LimitBytes = limit
+	if sys := buildDocumentContent(filterSystemDocuments(pageDocs, res.systemPrefixes), res.trimPrefix); strings.TrimSpace(sys) != "" {
+		output.SystemContent = sys
+	}
 	if hasNext {
 		output.NextCursor = cursor + 1
 	}
 	return nil
+}
+
+type MatchDocumentsInput struct {
+	Query        string          `json:"query" description:"semantic search query" required:"true"`
+	RootIDs      []string        `json:"rootIds,omitempty" description:"resource root ids returned by roots"`
+	Path         string          `json:"path,omitempty" description:"optional subpath relative to selected roots"`
+	Model        string          `json:"model,omitempty" internal:"true"`
+	MaxDocuments int             `json:"maxDocuments,omitempty" description:"maximum number of matched documents (distinct URIs); defaults to 5"`
+	Match        *embopt.Options `json:"match,omitempty" internal:"true"`
+}
+
+type MatchedDocument struct {
+	URI    string  `json:"uri"`
+	RootID string  `json:"rootId,omitempty"`
+	Score  float32 `json:"score"`
+}
+
+type MatchDocumentsOutput struct {
+	Documents []MatchedDocument `json:"documents"`
+}
+
+func (s *Service) matchDocuments(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*MatchDocumentsInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	if strings.TrimSpace(input.Query) == "" {
+		return fmt.Errorf("query is required")
+	}
+	output, ok := out.(*MatchDocumentsOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	maxDocs := input.MaxDocuments
+	if maxDocs <= 0 {
+		maxDocs = 5
+	}
+	matchInput := &MatchInput{
+		Query:        input.Query,
+		RootIDs:      append([]string(nil), input.RootIDs...),
+		Path:         input.Path,
+		Model:        input.Model,
+		MaxDocuments: maxDocs,
+		Match:        input.Match,
+	}
+	res, err := s.buildAugmentedDocuments(ctx, matchInput)
+	if err != nil {
+		return err
+	}
+	docs := res.documents
+	ranked := uniqueMatchedDocuments(docs, maxDocs)
+	if len(ranked) == 0 {
+		output.Documents = nil
+		return nil
+	}
+	output.Documents = ranked
+	return nil
+}
+
+func uniqueMatchedDocuments(docs []embSchema.Document, max int) []MatchedDocument {
+	if len(docs) == 0 {
+		return nil
+	}
+	type entry struct {
+		doc MatchedDocument
+		idx int
+	}
+	seen := map[string]entry{}
+	order := make([]string, 0, len(docs))
+	for idx, doc := range docs {
+		uri := documentMetadataPath(doc.Metadata)
+		if uri == "" {
+			continue
+		}
+		current := MatchedDocument{
+			URI:    uri,
+			RootID: documentRootID(doc.Metadata),
+			Score:  doc.Score,
+		}
+		if existing, ok := seen[uri]; ok {
+			if current.Score > existing.doc.Score {
+				seen[uri] = entry{doc: current, idx: existing.idx}
+			}
+			continue
+		}
+		seen[uri] = entry{doc: current, idx: idx}
+		order = append(order, uri)
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	result := make([]MatchedDocument, 0, len(seen))
+	for _, uri := range order {
+		if rec, ok := seen[uri]; ok {
+			result = append(result, rec.doc)
+			if max > 0 && len(result) >= max {
+				break
+			}
+		}
+	}
+	return result
 }
 
 // effectiveLimitBytes returns the per-page byte cap (default 7000, upper bound 200k)
@@ -367,10 +624,7 @@ func selectDocPage(docs []embSchema.Document, limitBytes int, cursor int, trimPr
 	var cur []embSchema.Document
 	used := 0
 	for _, d := range docs {
-		loc := strings.TrimPrefix(getStringFromMetadata(d.Metadata, "path"), trimPrefix)
-		if loc == "" {
-			loc = getStringFromMetadata(d.Metadata, "docId")
-		}
+		loc := documentLocation(d, trimPrefix)
 		formatted := formatDocument(loc, d.PageContent)
 		fragBytes := len(formatted)
 		if fragBytes > limitBytes {
@@ -437,13 +691,88 @@ func getStringFromMetadata(metadata map[string]any, key string) string {
 func totalFormattedBytes(docs []embSchema.Document, trimPrefix string) int {
 	total := 0
 	for _, d := range docs {
-		loc := strings.TrimPrefix(getStringFromMetadata(d.Metadata, "path"), trimPrefix)
-		if loc == "" {
-			loc = getStringFromMetadata(d.Metadata, "docId")
-		}
+		loc := documentLocation(d, trimPrefix)
 		total += len(formatDocument(loc, d.PageContent))
 	}
 	return total
+}
+
+func buildDocumentContent(docs []embSchema.Document, trimPrefix string) string {
+	if len(docs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, doc := range docs {
+		loc := documentLocation(doc, trimPrefix)
+		_, _ = b.WriteString(formatDocument(loc, doc.PageContent))
+	}
+	return b.String()
+}
+
+func documentLocation(doc embSchema.Document, trimPrefix string) string {
+	loc := strings.TrimPrefix(getStringFromMetadata(doc.Metadata, "path"), trimPrefix)
+	if loc == "" {
+		loc = getStringFromMetadata(doc.Metadata, "docId")
+	}
+	return loc
+}
+
+func filterSystemDocuments(docs []embSchema.Document, prefixes []string) []embSchema.Document {
+	if len(prefixes) == 0 || len(docs) == 0 {
+		return nil
+	}
+	out := make([]embSchema.Document, 0, len(docs))
+	for _, doc := range docs {
+		if systemdoc.Matches(prefixes, documentMetadataPath(doc.Metadata)) {
+			out = append(out, doc)
+		}
+	}
+	return out
+}
+
+func documentMetadataPath(metadata map[string]any) string {
+	if metadata == nil {
+		return ""
+	}
+	for _, key := range []string{"path", "docId", "fragmentId"} {
+		if v, ok := metadata[key]; ok {
+			if s, _ := v.(string); strings.TrimSpace(s) != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func documentRootID(metadata map[string]any) string {
+	if metadata == nil {
+		return ""
+	}
+	if v, ok := metadata["rootId"]; ok {
+		if s, _ := v.(string); strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+
+func buildDocumentRootsMap(docs []embSchema.Document) map[string]string {
+	if len(docs) == 0 {
+		return nil
+	}
+	roots := make(map[string]string)
+	for _, doc := range docs {
+		path := documentMetadataPath(doc.Metadata)
+		rootID := documentRootID(doc.Metadata)
+		if path == "" || rootID == "" {
+			continue
+		}
+		roots[path] = rootID
+	}
+	if len(roots) == 0 {
+		return nil
+	}
+	return roots
 }
 
 // -------- list implementation --------
@@ -483,6 +812,7 @@ type ListItem struct {
 	Name     string    `json:"name"`
 	Size     int64     `json:"size"`
 	Modified time.Time `json:"modified"`
+	RootID   string    `json:"rootId,omitempty"`
 }
 
 type ListOutput struct {
@@ -598,6 +928,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 				Name:     o.Name(),
 				Size:     o.Size(),
 				Modified: o.ModTime(),
+				RootID:   rootCtx.ID(),
 			})
 			if max > 0 && len(items) >= max {
 				break
@@ -629,6 +960,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 					Name:     info.Name(),
 					Size:     info.Size(),
 					Modified: info.ModTime(),
+					RootID:   rootCtx.ID(),
 				})
 				if max > 0 && len(items) >= max {
 					return false, nil
@@ -662,6 +994,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 					Name:     o.Name(),
 					Size:     o.Size(),
 					Modified: o.ModTime(),
+					RootID:   rootCtx.ID(),
 				})
 				if max > 0 && len(items) >= max {
 					break
@@ -1132,11 +1465,97 @@ type Root struct {
 	AllowedSemanticSearch bool `json:"allowedSemanticSearch"`
 	// AllowedGrepSearch reports whether lexical grep (grepFiles)
 	// is permitted for this root in the current agent configuration.
-	AllowedGrepSearch bool `json:"allowedGrepSearch"`
+	AllowedGrepSearch bool   `json:"allowedGrepSearch"`
+	Role              string `json:"role,omitempty"`
 }
 
 type RootsOutput struct {
 	Roots []Root `json:"roots"`
+}
+
+type rootCollection struct {
+	user   []Root
+	system []Root
+}
+
+func (c *rootCollection) all() []Root {
+	if c == nil {
+		return nil
+	}
+	out := make([]Root, 0, len(c.user)+len(c.system))
+	out = append(out, c.user...)
+	out = append(out, c.system...)
+	return out
+}
+
+func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
+	locs := s.agentAllowed(ctx)
+	if len(locs) == 0 {
+		locs = append([]string(nil), s.defaults.Locations...)
+	}
+	if len(locs) == 0 {
+		return &rootCollection{}, nil
+	}
+	curAgent := s.currentAgent(ctx)
+	seen := map[string]bool{}
+	var userRoots []Root
+	var systemRoots []Root
+	for _, loc := range locs {
+		root := strings.TrimSpace(loc)
+		if root == "" {
+			continue
+		}
+		wsRoot, kind, err := s.normalizeUserRoot(ctx, root)
+		if err != nil || wsRoot == "" {
+			continue
+		}
+		if seen[wsRoot] {
+			continue
+		}
+		seen[wsRoot] = true
+		desc := s.tryDescribe(ctx, wsRoot, kind)
+		role := "user"
+		rootID := wsRoot
+		if curAgent != nil && len(curAgent.Resources) > 0 {
+			for _, r := range curAgent.Resources {
+				if r == nil || strings.TrimSpace(r.URI) == "" {
+					continue
+				}
+				normRes, _, err := s.normalizeUserRoot(ctx, r.URI)
+				if err != nil || strings.TrimSpace(normRes) == "" {
+					continue
+				}
+				if strings.TrimRight(strings.TrimSpace(normRes), "/") == strings.TrimRight(strings.TrimSpace(wsRoot), "/") {
+					if strings.EqualFold(strings.TrimSpace(r.Role), "system") {
+						role = "system"
+					}
+					if strings.TrimSpace(r.ID) != "" {
+						rootID = strings.TrimSpace(r.ID)
+					}
+					if strings.TrimSpace(r.Description) != "" {
+						desc = strings.TrimSpace(r.Description)
+					}
+					break
+				}
+			}
+		}
+		semAllowed := s.semanticAllowedForAgent(ctx, curAgent, wsRoot)
+		grepAllowed := s.grepAllowedForAgent(ctx, curAgent, wsRoot)
+		rootEntry := Root{
+			ID:                    rootID,
+			URI:                   wsRoot,
+			Description:           desc,
+			AllowedSemanticSearch: semAllowed,
+			AllowedGrepSearch:     grepAllowed,
+			Role:                  role,
+		}
+		if role == "system" {
+			systemRoots = append(systemRoots, rootEntry)
+			continue
+		}
+		userRoots = append(userRoots, rootEntry)
+	}
+	return &rootCollection{user: userRoots, system: systemRoots}, nil
 }
 
 func (s *Service) roots(ctx context.Context, in, out interface{}) error {
@@ -1153,85 +1572,21 @@ func (s *Service) roots(ctx context.Context, in, out interface{}) error {
 		max = 0
 	}
 
-	// Prefer agent-scoped resources when available; otherwise fall back to defaults
-	locs := s.agentAllowed(ctx)
-	if len(locs) == 0 {
-		locs = append([]string(nil), s.defaults.Locations...)
-	}
-	if len(locs) == 0 {
-		output.Roots = nil
-		return nil
+	collected, err := s.collectRoots(ctx)
+	if err != nil {
+		return err
 	}
 	var roots []Root
-	seen := map[string]bool{}
-	curAgent := s.currentAgent(ctx)
-	for _, loc := range locs {
-		norm, kind, err := s.normalizeUserRoot(ctx, loc)
-		if err != nil {
-			continue
-		}
-		if norm == "" {
-			continue
-		}
-		if seen[norm] {
-			continue
-		}
-		seen[norm] = true
-		desc := s.tryDescribe(ctx, norm, kind)
-		rootID := ""
-		skip := false
-		// Prefer an explicit agent resource description when available, and
-		// identify any system-scoped resources that should not be surfaced as
-		// browseable roots (e.g. systemKnowledge backing files).
-		if curAgent != nil && len(curAgent.Resources) > 0 {
-			for _, r := range curAgent.Resources {
-				if r == nil || strings.TrimSpace(r.URI) == "" {
-					continue
-				}
-				normRes, _, err := s.normalizeUserRoot(ctx, r.URI)
-				if err != nil || strings.TrimSpace(normRes) == "" {
-					continue
-				}
-				if strings.TrimRight(strings.TrimSpace(normRes), "/") == strings.TrimRight(strings.TrimSpace(norm), "/") {
-					// Hide system-role resources (systemKnowledge, etc.) from
-					// roots so they are not offered as browseable
-					// roots to coding agents.
-					if strings.EqualFold(strings.TrimSpace(r.Role), "system") {
-						skip = true
-						break
-					}
-					if strings.TrimSpace(r.ID) != "" {
-						rootID = strings.TrimSpace(r.ID)
-					}
-					if strings.TrimSpace(r.Description) != "" {
-						desc = strings.TrimSpace(r.Description)
-					}
-					break
-				}
+	appendWithLimit := func(source []Root) {
+		for _, r := range source {
+			if max > 0 && len(roots) >= max {
+				return
 			}
-		}
-		if skip {
-			continue
-		}
-		if strings.TrimSpace(rootID) == "" {
-			// Fallback: use normalized URI as an implicit id. This keeps
-			// behaviour backward compatible while still allowing callers to
-			// pass the id into rootId parameters.
-			rootID = norm
-		}
-		semAllowed := s.semanticAllowedForAgent(ctx, curAgent, norm)
-		grepAllowed := s.grepAllowedForAgent(ctx, curAgent, norm)
-		roots = append(roots, Root{
-			ID:                    rootID,
-			URI:                   norm,
-			Description:           desc,
-			AllowedSemanticSearch: semAllowed,
-			AllowedGrepSearch:     grepAllowed,
-		})
-		if max > 0 && len(roots) >= max {
-			break
+			roots = append(roots, r)
 		}
 	}
+	appendWithLimit(collected.user)
+	appendWithLimit(collected.system)
 	output.Roots = roots
 	return nil
 }
@@ -1630,6 +1985,7 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	if rootURI == "" {
 		return fmt.Errorf("root or rootId is required")
 	}
+	curAgent := s.currentAgent(ctx)
 	allowed := s.agentAllowed(ctx)
 	rootCtx, err := s.newRootContext(ctx, rootURI, input.RootID, allowed)
 	if err != nil {
@@ -1637,7 +1993,7 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	}
 	wsRoot := rootCtx.Workspace()
 	// Enforce per-resource grep capability when agent context is available.
-	if !s.grepAllowedForAgent(ctx, s.currentAgent(ctx), wsRoot) {
+	if !s.grepAllowedForAgent(ctx, curAgent, wsRoot) {
 		return fmt.Errorf("grep not allowed for root: %s", rootURI)
 	}
 	// Currently grepFiles is implemented for local/workspace-backed roots only.

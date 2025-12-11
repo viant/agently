@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/viant/afs"
 	agmodel "github.com/viant/agently/genai/agent"
 	aug "github.com/viant/agently/genai/service/augmenter"
+	embSchema "github.com/viant/embedius/schema"
 )
 
 // dummyAugmenter is used only to satisfy the Service constructor in tests that
@@ -184,6 +186,31 @@ func TestService_GrepFiles_LocalRoot(t *testing.T) {
 	})
 }
 
+func TestSelectSearchRoots_InvalidRootID(t *testing.T) {
+	service := New(dummyAugmenter(t))
+	roots := []Root{
+		{ID: "bidder", URI: "workspace://localhost/knowledge/bidder", AllowedSemanticSearch: true},
+		{ID: "mdp", URI: "workspace://localhost/knowledge/mdp", AllowedSemanticSearch: true},
+	}
+	input := &MatchInput{RootIDs: []string{"workspace://localhost/knowledge"}}
+	_, err := service.selectSearchRoots(context.Background(), roots, input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown rootId")
+}
+
+func TestSelectSearchRoots_FallbackToURI(t *testing.T) {
+	service := New(dummyAugmenter(t))
+	roots := []Root{
+		{ID: "bidder", URI: "workspace://localhost/knowledge/bidder", AllowedSemanticSearch: true},
+		{ID: "mdp", URI: "workspace://localhost/knowledge/mdp", AllowedSemanticSearch: true},
+	}
+	input := &MatchInput{RootIDs: []string{"workspace://localhost/knowledge/bidder"}}
+	selected, err := service.selectSearchRoots(context.Background(), roots, input)
+	require.NoError(t, err)
+	require.Len(t, selected, 1)
+	assert.EqualValues(t, "bidder", selected[0].ID)
+}
+
 func TestResourceFlags_SemanticAndGrepAllowed(t *testing.T) {
 	ag := &agmodel.Agent{
 		Resources: []*agmodel.Resource{
@@ -250,4 +277,43 @@ func TestSplitPatterns_AndCompilePatterns(t *testing.T) {
 	// In case-sensitive mode, only the exact-case line should match
 	assert.False(t, lineMatches(lineLower, reSensitive, nil))
 	assert.True(t, lineMatches(lineUpper, reSensitive, nil))
+}
+
+func TestBuildDocumentContent_SystemOnly(t *testing.T) {
+	docs := []embSchema.Document{
+		{Metadata: map[string]any{"path": "workspace://localhost/sys/doc.txt"}, PageContent: "alpha"},
+		{Metadata: map[string]any{"path": "workspace://localhost/user/notes.txt"}, PageContent: "beta"},
+	}
+	systemDocs := filterSystemDocuments(docs, []string{"workspace://localhost/sys"})
+	got := buildDocumentContent(systemDocs, "workspace://localhost/")
+	expect := "file: sys/doc.txt\n```txt\nalpha\n````\n\n"
+	assert.Equal(t, expect, got)
+}
+
+func TestService_MatchDocuments(t *testing.T) {
+	service := New(dummyAugmenter(t))
+	service.defaultEmbedder = "dummy"
+	service.defaults.Locations = []string{"workspace://localhost/sys", "workspace://localhost/user"}
+	service.augmentDocsOverride = func(ctx context.Context, in *aug.AugmentDocsInput, out *aug.AugmentDocsOutput) error {
+		out.Documents = []embSchema.Document{
+			{Metadata: map[string]any{"path": "workspace://localhost/sys/doc.md"}, Score: 0.9},
+			{Metadata: map[string]any{"path": "workspace://localhost/sys/doc.md"}, Score: 0.3},
+			{Metadata: map[string]any{"path": "workspace://localhost/user/notes.md"}, Score: 0.4},
+		}
+		return nil
+	}
+	ctx := context.Background()
+	input := &MatchDocumentsInput{
+		Query:   "performance playbook",
+		RootIDs: []string{"workspace://localhost/sys", "workspace://localhost/user"},
+		Model:   "dummy",
+	}
+	output := &MatchDocumentsOutput{}
+	require.NoError(t, service.matchDocuments(ctx, input, output))
+	require.Len(t, output.Documents, 2)
+	assert.Equal(t, "workspace://localhost/sys/doc.md", output.Documents[0].URI)
+	assert.Equal(t, "workspace://localhost/sys", output.Documents[0].RootID)
+	assert.InDelta(t, 0.9, output.Documents[0].Score, 0.001)
+	assert.Equal(t, "workspace://localhost/user/notes.md", output.Documents[1].URI)
+	assert.Equal(t, "workspace://localhost/user", output.Documents[1].RootID)
 }
