@@ -1204,6 +1204,9 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 		return nil, fmt.Errorf("resource entry must be a mapping")
 	}
 	re := &agentmdl.Resource{Role: "user"}
+	roleExplicit := false
+	systemFlagSet := false
+	systemRole := "user"
 	err := node.Pairs(func(key string, v *yml.Node) error {
 		switch strings.ToLower(strings.TrimSpace(key)) {
 		case "id":
@@ -1217,6 +1220,20 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 		case "role":
 			if v.Kind == yaml.ScalarNode {
 				re.Role = strings.ToLower(strings.TrimSpace(v.Value))
+				roleExplicit = true
+			}
+		case "system":
+			enabled, handled, err := parseSystemFlag(v)
+			if err != nil {
+				return err
+			}
+			if handled {
+				systemFlagSet = true
+				if enabled {
+					systemRole = "system"
+				} else {
+					systemRole = "user"
+				}
 			}
 		case "binding":
 			if v.Kind == yaml.ScalarNode {
@@ -1308,11 +1325,33 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 	if err != nil {
 		return nil, err
 	}
+	if systemFlagSet {
+		if !roleExplicit {
+			re.Role = systemRole
+		} else if !strings.EqualFold(strings.TrimSpace(re.Role), systemRole) {
+			return nil, fmt.Errorf("resource entry role %q conflicts with system=%v", re.Role, systemRole == "system")
+		}
+	}
 	re.URI = expandUserHome(re.URI)
 	if strings.TrimSpace(re.URI) == "" {
 		return nil, fmt.Errorf("resource entry missing uri")
 	}
 	return re, nil
+}
+
+func parseSystemFlag(node *yml.Node) (enabled bool, handled bool, err error) {
+	if node == nil {
+		return false, false, nil
+	}
+	val := node.Interface()
+	switch actual := val.(type) {
+	case bool:
+		return actual, true, nil
+	case string:
+		return toBool(actual), true, nil
+	default:
+		return false, false, fmt.Errorf("system flag must be a boolean or string")
+	}
 }
 
 // expandUserHome expands leading ~ in filesystem-like URIs to the current

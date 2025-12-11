@@ -7,9 +7,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/agent"
 	meta "github.com/viant/agently/internal/workspace/service/meta"
+	yml "github.com/viant/agently/internal/workspace/service/meta/yml"
+	"gopkg.in/yaml.v3"
 )
 
 // TestService_Load tests the agent loading functionality
@@ -139,5 +142,43 @@ func TestService_Load_ToolExposure(t *testing.T) {
 			assert.EqualValues(t, agent.ToolCallExposure("conversation"), got.ToolCallExposure)
 			assert.EqualValues(t, agent.ToolCallExposure("conversation"), got.Tool.CallExposure)
 		}
+	})
+}
+
+func TestParseResourceEntry_SystemFlag(t *testing.T) {
+	makeNode := func(doc string) *yml.Node {
+		var root yaml.Node
+		require.NoError(t, yaml.Unmarshal([]byte(doc), &root))
+		require.Greater(t, len(root.Content), 0)
+		return (*yml.Node)(root.Content[0])
+	}
+
+	t.Run("system true sets role", func(t *testing.T) {
+		node := makeNode(`uri: workspace://foo
+system: true`)
+		res, err := parseResourceEntry(node)
+		assert.NoError(t, err)
+		if assert.NotNil(t, res) {
+			assert.Equal(t, "system", res.Role)
+		}
+	})
+
+	t.Run("system false keeps user role", func(t *testing.T) {
+		node := makeNode(`uri: workspace://bar
+role: user
+system: false`)
+		res, err := parseResourceEntry(node)
+		assert.NoError(t, err)
+		if assert.NotNil(t, res) {
+			assert.Equal(t, "user", res.Role)
+		}
+	})
+
+	t.Run("conflicting role and system raises error", func(t *testing.T) {
+		node := makeNode(`uri: workspace://baz
+role: user
+system: true`)
+		_, err := parseResourceEntry(node)
+		assert.Error(t, err)
 	})
 }

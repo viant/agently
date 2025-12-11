@@ -14,6 +14,7 @@ import (
 )
 
 type rootContext struct {
+	id     string
 	alias  string
 	wsRoot string
 	base   string
@@ -38,11 +39,16 @@ func (s *Service) newRootContext(ctx context.Context, rootURI, rootID string, al
 	if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
 		return nil, fmt.Errorf("root not allowed: %s", root)
 	}
+	id := strings.TrimSpace(rootID)
+	if id == "" {
+		id = wsRoot
+	}
 	base := wsRoot
 	if strings.HasPrefix(wsRoot, "workspace://") {
 		base = workspaceToFile(wsRoot)
 	}
 	return &rootContext{
+		id:     id,
 		alias:  root,
 		wsRoot: wsRoot,
 		base:   base,
@@ -58,6 +64,13 @@ func (rc *rootContext) ResolvePath(p string) (string, error) {
 
 func (rc *rootContext) Base() string {
 	return rc.base
+}
+
+func (rc *rootContext) ID() string {
+	if rc == nil {
+		return ""
+	}
+	return strings.TrimSpace(rc.id)
 }
 
 func (rc *rootContext) Workspace() string {
@@ -87,6 +100,9 @@ func isAbsLikePath(p string) bool {
 		return true
 	}
 	if strings.HasPrefix(p, "file://") {
+		return true
+	}
+	if strings.HasPrefix(strings.ToLower(p), "workspace://") {
 		return true
 	}
 	if mcpuri.Is(p) {
@@ -147,6 +163,9 @@ func joinBaseWithPath(wsRoot, base, p, rootAlias string) (string, error) {
 	if p == "" {
 		return base, nil
 	}
+	if p == "/" {
+		return base, nil
+	}
 	if isAbsLikePath(p) {
 		if !mcpuri.Is(wsRoot) {
 			rootBase := base
@@ -160,6 +179,10 @@ func joinBaseWithPath(wsRoot, base, p, rootAlias string) (string, error) {
 			if !isUnderRootPath(pathBase, rootBase) {
 				return "", fmt.Errorf("path %s is outside root %s", p, rootAlias)
 			}
+		}
+		lower := strings.ToLower(p)
+		if strings.HasPrefix(lower, "workspace://") {
+			return workspaceToFile(p), nil
 		}
 		return p, nil
 	}
@@ -190,6 +213,37 @@ func fileToWorkspace(file string) string {
 	base := workspace.Root()
 	file = strings.Replace(file, base, "", 1)
 	return "workspace://localhost" + url.Path(file)
+}
+
+func toWorkspaceURI(value string) string {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return ""
+	}
+	lower := strings.ToLower(v)
+	if strings.HasPrefix(lower, "workspace://") || strings.HasPrefix(lower, "mcp://") {
+		return v
+	}
+	if strings.HasPrefix(lower, "file://") {
+		return fileToWorkspace(v)
+	}
+	if filepath.IsAbs(v) || isWindowsAbsPath(v) {
+		return fileToWorkspace(v)
+	}
+	return v
+}
+
+func isWindowsAbsPath(v string) bool {
+	if len(v) < 2 {
+		return false
+	}
+	if v[1] != ':' {
+		return false
+	}
+	if v[0] >= 'a' && v[0] <= 'z' || v[0] >= 'A' && v[0] <= 'Z' {
+		return true
+	}
+	return false
 }
 
 func cleanFileURL(u string) string {
