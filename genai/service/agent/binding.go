@@ -1027,9 +1027,6 @@ func (s *Service) buildChronologicalHistory(
 	maxOverflowBytes := 0
 	turns := make([]*prompt.Turn, len(transcript))
 	totalTurns := len(transcript)
-	// Track tool-result contents so we can later drop assistant
-	// messages that simply repeat the same raw tool output.
-	toolContents := map[string]struct{}{}
 
 	// Second pass: map normalized messages into prompt turns with optional preview.
 	for _, item := range normalized {
@@ -1117,11 +1114,6 @@ func (s *Service) buildChronologicalHistory(
 			if msg.ToolCall.TraceId != nil {
 				pmsg.ToolTraceID = strings.TrimSpace(*msg.ToolCall.TraceId)
 			}
-			// Record the full tool-result content for later de‑duplication
-			// of assistant messages that echo the same text.
-			if c := strings.TrimSpace(pmsg.Content); c != "" {
-				toolContents[c] = struct{}{}
-			}
 		} else {
 			// Classify chat and elicitation messages. For past elicitation
 			// flows, ElicitationId will be set on assistant/user messages;
@@ -1161,37 +1153,12 @@ func (s *Service) buildChronologicalHistory(
 		}
 	}
 
-	// Finalize turns: drop nils, sort messages by CreatedAt, de-duplicate
-	// assistant echoes of tool results, and build the legacy flat Messages
-	// view for persisted history.
+	// Finalize turns: drop nils, sort messages by CreatedAt, and build the
+	// legacy flat Messages view for persisted history.
 	for _, t := range turns {
 		if t == nil || len(t.Messages) == 0 {
 			continue
 		}
-		// Drop chat-assistant messages whose content exactly matches a
-		// tool-result content. This keeps the LLM prompt from seeing the
-		// same raw error/output twice (once as a tool result and once as
-		// a plain assistant echo) while leaving the transcript intact for
-		// UI and logging.
-		filtered := make([]*prompt.Message, 0, len(t.Messages))
-		for _, m := range t.Messages {
-			if m == nil {
-				continue
-			}
-			role := strings.ToLower(strings.TrimSpace(m.Role))
-			if role == "assistant" && m.Kind == prompt.MessageKindChatAssistant {
-				if c := strings.TrimSpace(m.Content); c != "" {
-					if _, dup := toolContents[c]; dup {
-						continue
-					}
-				}
-			}
-			filtered = append(filtered, m)
-		}
-		if len(filtered) == 0 {
-			continue
-		}
-		t.Messages = filtered
 		sort.SliceStable(t.Messages, func(i, j int) bool {
 			return t.Messages[i].CreatedAt.Before(t.Messages[j].CreatedAt)
 		})
