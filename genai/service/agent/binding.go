@@ -101,35 +101,12 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	} else if input.Agent != nil && strings.TrimSpace(string(input.Agent.Tool.CallExposure)) != "" {
 		exposure = input.Agent.Tool.CallExposure
 	}
-	execs, overflow, maxExecOverflowBytes, err := s.buildToolExecutions(ctx, input, conv, exposure)
+
+	b.History.ToolExposure = string(exposure)
+
+	_, overflow, maxExecOverflowBytes, err := s.buildToolExecutions(ctx, input, conv, exposure)
 	if err != nil {
 		return nil, err
-	}
-	if len(execs) > 0 {
-		// For turn exposure, treat tool executions as part of the
-		// current-turn continuation by appending synthetic tool
-		// result messages into History.Current.Messages. For
-		// conversation exposure, keep executions for templates
-		// only; the corresponding messages are already embedded
-		// chronologically in History via transcript mapping.
-		if strings.EqualFold(string(exposure), "turn") || strings.TrimSpace(string(exposure)) == "" {
-			var msgs []*prompt.Message
-			for _, tc := range execs {
-				if tc == nil {
-					continue
-				}
-				msgs = append(msgs, &prompt.Message{
-					Kind:     prompt.MessageKindToolResult,
-					Role:     "assistant",
-					Content:  tc.Result,
-					ToolOpID: tc.ID,
-					ToolName: tc.Name,
-					ToolArgs: tc.Arguments,
-				})
-			}
-			appendCurrentMessages(&b.History, msgs...)
-		}
-		b.Tools.Executions = execs
 	}
 
 	// Drive overflow-based helper exposure via binding flag
@@ -926,7 +903,8 @@ func (s *Service) buildChronologicalHistory(
 		if turn == nil || turn.Message == nil {
 			continue
 		}
-		for _, m := range turn.GetMessages() {
+		messages := turn.GetMessages()
+		for _, m := range messages {
 			if m == nil {
 				continue
 			}
