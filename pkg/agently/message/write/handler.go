@@ -44,23 +44,47 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 	if err != nil {
 		return err
 	}
-	const maxContentBytes = 64 * 1024
+	const maxContentBytes = 16777215 //16MB - MEDIUMTEXT in MySQL
 	for _, rec := range in.Messages {
 		// Truncate content to maxContentBytes preserving valid UTF-8
-		if rec != nil {
-			b := []byte(rec.Content)
-			if len(b) > maxContentBytes {
-				trunc := b[:maxContentBytes]
-				// ensure we don't cut a multi-byte rune; backtrack to a valid boundary
-				for !utf8.Valid(trunc) && len(trunc) > 0 {
-					trunc = trunc[:len(trunc)-1]
+		if rec != nil && maxContentBytes > 0 {
+			if len(rec.Content) > maxContentBytes {
+				// Work on at most maxContentBytes bytes
+				s := rec.Content[:maxContentBytes]
+
+				// Ensure we don't cut through a multi-byte UTF-8 rune
+				for len(s) > 0 && !utf8.ValidString(s) {
+					s = s[:len(s)-1]
 				}
-				rec.Content = string(trunc)
+
+				rec.Content = s
+
+				// If this flag means "was truncated"
 				if rec.Has != nil {
 					rec.Has.Content = true
 				}
 			}
 		}
+
+		if rec != nil && maxContentBytes > 0 && rec.RawContent != nil {
+			if len(*rec.RawContent) > maxContentBytes {
+				// Work on at most maxContentBytes bytes
+				s := (*rec.RawContent)[:maxContentBytes]
+
+				// Ensure we don't cut through a multi-byte UTF-8 rune
+				for len(s) > 0 && !utf8.ValidString(s) {
+					s = s[:len(s)-1]
+				}
+
+				rec.RawContent = &s
+
+				// If this flag means "was truncated"
+				if rec.Has != nil {
+					rec.Has.RawContent = true
+				}
+			}
+		}
+
 		if _, ok := in.CurMessageById[rec.Id]; !ok {
 			if err = sql.Insert("message", rec); err != nil {
 				return err
