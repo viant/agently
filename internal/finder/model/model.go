@@ -23,6 +23,30 @@ type Finder struct {
 	version        int64
 }
 
+// ConfigByIDOrModel returns the provider config matching the given identifier.
+// It first attempts a direct lookup by config ID. If not found, it scans all
+// configs to find a match either by config ID or by the provider model name
+// stored in Options.Model. Returns nil when no matching config exists.
+func (d *Finder) ConfigByIDOrModel(id string) *provider.Config {
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+	if cfg, err := d.configRegistry.Lookup(context.Background(), id); err == nil && cfg != nil {
+		return cfg
+	}
+	if all, err := d.configRegistry.List(context.Background()); err == nil {
+		for _, cfg := range all {
+			if cfg == nil {
+				continue
+			}
+			if strings.EqualFold(cfg.ID, id) || strings.EqualFold(strings.TrimSpace(cfg.Options.Model), strings.TrimSpace(id)) {
+				return cfg
+			}
+		}
+	}
+	return nil
+}
+
 func (d *Finder) Best(p *llm.ModelPreferences) string {
 	return d.Matcher().Best(p)
 }

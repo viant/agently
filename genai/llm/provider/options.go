@@ -36,4 +36,6 @@ type Options struct {
 	// ContextContinuation explicitly enables/disables provider continuation
 	// for models (i.e. via previous_response_id for openai).
 	ContextContinuation *bool `json:"contextContinuation,omitempty" yaml:"contextContinuation,omitempty"`
+
+	EnableContinuationFormat bool `json:"enableContinuationFormat,omitempty" yaml:"enableContinuationFormat,omitempty"`
 }

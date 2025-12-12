@@ -183,7 +183,18 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 				// assign pointer so absence of the key can be distinguished from false
 				config.Options.ContextContinuation = &enabled
 			}
+		case "enablecontinuationformat":
+			if valueNode.Kind == yaml.ScalarNode {
+				var enabled bool
+				switch v := valueNode.Interface().(type) {
+				case bool:
+					enabled = v
+				case string:
+					enabled = v == "true" || v == "1"
+				}
 
+				config.Options.EnableContinuationFormat = enabled
+			}
 		}
 		return nil
 	})
