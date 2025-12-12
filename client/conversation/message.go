@@ -40,6 +40,22 @@ func (m *Message) GetContent() string {
 	return ""
 }
 
+func (m *Message) GetContentPreferContent() string {
+	if m == nil {
+		return ""
+	}
+	if m.ToolCall != nil && m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
+		return *m.ToolCall.ResponsePayload.InlineBody
+	}
+	if m.Content != nil && strings.TrimSpace(*m.Content) != "" {
+		return *m.Content
+	}
+	if m.RawContent != nil {
+		return *m.RawContent
+	}
+	return ""
+}
+
 // ToolCallArguments returns parsed arguments for a tool-call message.
 // It prefers the request payload inline JSON body when present. When parsing
 // fails or no payload is present, it returns an empty map.

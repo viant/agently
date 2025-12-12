@@ -11,11 +11,12 @@ import (
 // continuation wrapper (or JSON truncation) and return overflow=true to enable
 // paging via message:show. Otherwise, it returns a plain truncated preview and
 // overflow=false so the paging tool is not exposed.
-func buildOverflowPreview(body string, limit int, refMessageID string, allowContinuation bool) (string, bool) {
+func buildOverflowPreview(body string, threshold int, refMessageID string, allowContinuation bool) (string, bool) {
 	body = strings.TrimSpace(body)
-	if limit <= 0 || len(body) <= limit {
+	if threshold <= 0 || len(body) <= threshold {
 		return body, false
 	}
+	limit := int(0.9 * float64(threshold)) // to prevent internal show result being over threshold when wrapped as json + metadata
 
 	if allowContinuation && strings.TrimSpace(refMessageID) != "" {
 		if jsonPreview, ok := truncateContinuationJSON(body, limit); ok {
@@ -30,7 +31,7 @@ func buildOverflowPreview(body string, limit int, refMessageID string, allowCont
 		chunk := strings.TrimSpace(body[:returned])
 		chunk += "[... omitted from " + fmt.Sprintf("%d", returned) + " to " + fmt.Sprintf("%d", size) + "]"
 		id := strings.TrimSpace(refMessageID)
-		return fmt.Sprintf(`overflow:true
+		return fmt.Sprintf(`overflow: true
 messageId: %s
 nextRange:
   bytes:
