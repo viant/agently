@@ -3,9 +3,11 @@ package model
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/viant/agently/genai/llm"
 	provider "github.com/viant/agently/genai/llm/provider"
@@ -142,14 +144,64 @@ func (d *Finder) Candidates() []matcher.Candidate {
 		if cfg.Options.InputTokenPrice > 0 || cfg.Options.OutputTokenPrice > 0 {
 			cost = cfg.Options.InputTokenPrice + cfg.Options.OutputTokenPrice
 		}
+		base, ver := deriveBaseAndVersion(cfg.ID, cfg.Options.Model)
 		out = append(out, matcher.Candidate{
 			ID:           cfg.ID,
 			Intelligence: cfg.Intelligence,
 			Speed:        cfg.Speed,
 			Cost:         cost,
+			BaseModel:    base,
+			Version:      ver,
 		})
 	}
 	return out
+}
+
+func deriveBaseAndVersion(id, model string) (string, string) {
+	src := strings.TrimSpace(model)
+	if src == "" {
+		src = strings.TrimSpace(id)
+	}
+	if src == "" {
+		return "", ""
+	}
+	if idx := strings.IndexByte(src, '_'); idx > 0 {
+		src = strings.TrimSpace(src[idx+1:])
+	}
+	if src == "" {
+		return "", ""
+	}
+	base := src
+	version := ""
+	if i := strings.LastIndexByte(src, '-'); i > 0 && i+1 < len(src) {
+		cand := strings.TrimSpace(src[i+1:])
+		if isVersionToken(cand) {
+			version = cand
+			base = strings.TrimSpace(src[:i])
+		}
+	}
+	return base, version
+}
+
+func isVersionToken(v string) bool {
+	v = strings.TrimSpace(strings.TrimPrefix(v, "v"))
+	if v == "" {
+		return false
+	}
+	if len(v) == len("2006-01-02") && strings.Count(v, "-") == 2 {
+		if _, err := time.Parse("2006-01-02", v); err == nil {
+			return true
+		}
+	}
+	for _, part := range strings.Split(v, ".") {
+		if part == "" {
+			return false
+		}
+		if _, err := strconv.Atoi(part); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // Matcher builds a matcher instance from current configs.

@@ -1,8 +1,11 @@
 package matcher
 
 import (
-	"github.com/viant/agently/genai/llm"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/viant/agently/genai/llm"
 )
 
 // Candidate represents a model scored along multiple dimensions.
@@ -14,6 +17,10 @@ type Candidate struct {
 	// more expensive). When zero, cost information is either unknown or
 	// intentionally omitted.
 	Cost float64
+	// BaseModel is the model name without provider prefix and version suffix.
+	BaseModel string
+	// Version carries a parsed version token (e.g., date or semver-ish) for tie-breaking.
+	Version string
 }
 
 // Matcher holds a snapshot of all candidates and can pick the best one for
@@ -23,7 +30,22 @@ type Matcher struct {
 }
 
 // New builds a matcher from supplied candidates.
-func New(c []Candidate) *Matcher { return &Matcher{cand: c} }
+func New(c []Candidate) *Matcher {
+	out := make([]Candidate, len(c))
+	for i, cand := range c {
+		if strings.TrimSpace(cand.BaseModel) == "" || strings.TrimSpace(cand.Version) == "" {
+			base, ver := deriveBaseVersion(cand.ID)
+			if cand.BaseModel == "" {
+				cand.BaseModel = base
+			}
+			if cand.Version == "" {
+				cand.Version = ver
+			}
+		}
+		out[i] = cand
+	}
+	return &Matcher{cand: out}
+}
 
 // Best returns ID of the highest-ranked candidate or "" when none.
 func (m *Matcher) Best(p *llm.ModelPreferences) string {
@@ -109,7 +131,9 @@ func (m *Matcher) Best(p *llm.ModelPreferences) string {
 
 	// 3. weight score (simple linear model with optional cost penalty)
 	bestID := ""
-	best := -1.0
+	bestScore := -1.0
+	bestIntel := -1.0
+	var bestCand *Candidate
 	for _, c := range cand {
 		s := p.IntelligencePriority*c.Intelligence + p.SpeedPriority*c.Speed
 		if useCost && c.Cost > 0 {
@@ -118,8 +142,26 @@ func (m *Matcher) Best(p *llm.ModelPreferences) string {
 			norm := (c.Cost - minCost) / (maxCost - minCost)
 			s -= p.CostPriority * norm
 		}
-		if s > best {
-			best, bestID = s, c.ID
+		// Primary: prioritize intelligence, then score, then version.
+		if c.Intelligence > bestIntel {
+			bestIntel, bestScore, bestID, bestCand = c.Intelligence, s, c.ID, &c
+			continue
+		}
+		if c.Intelligence < bestIntel {
+			continue
+		}
+		if s > bestScore {
+			bestScore, bestID, bestCand = s, c.ID, &c
+			continue
+		}
+		if s < bestScore {
+			continue
+		}
+		// Intelligence and score tie: prefer newer version of the same base model.
+		if bestCand != nil && sameBase(bestCand, &c) {
+			if newerVersion(&c, bestCand) {
+				bestID, bestCand = c.ID, &c
+			}
 		}
 	}
 	return bestID
@@ -186,3 +228,138 @@ func isSep(b byte) bool {
 }
 
 func isDigit(b byte) bool { return b >= '0' && b <= '9' }
+
+func sameBase(a, b *Candidate) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	ab := strings.TrimSpace(strings.ToLower(a.BaseModel))
+	bb := strings.TrimSpace(strings.ToLower(b.BaseModel))
+	if ab == "" || bb == "" {
+		return false
+	}
+	return ab == bb
+}
+
+func newerVersion(a, b *Candidate) bool {
+	// Return true when candidate a has a newer version than b.
+	if a == nil || b == nil {
+		return false
+	}
+	av := strings.TrimSpace(a.Version)
+	bv := strings.TrimSpace(b.Version)
+	if av == "" || bv == "" {
+		return false
+	}
+	if at, bt := parseDate(av), parseDate(bv); at != nil && bt != nil {
+		return at.After(*bt)
+	}
+	if cmp, ok := compareNumericVersion(av, bv); ok {
+		return cmp > 0
+	}
+	// Fallback: lexical compare.
+	return av > bv
+}
+
+func parseDate(v string) *time.Time {
+	// Support YYYY-MM-DD
+	if len(v) != len("2006-01-02") {
+		return nil
+	}
+	t, err := time.Parse("2006-01-02", v)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
+func compareNumericVersion(a, b string) (int, bool) {
+	parse := func(s string) []int {
+		s = strings.TrimSpace(strings.TrimPrefix(s, "v"))
+		parts := strings.Split(s, ".")
+		out := make([]int, 0, len(parts))
+		for _, p := range parts {
+			if p == "" {
+				return nil
+			}
+			n, err := strconv.Atoi(p)
+			if err != nil {
+				return nil
+			}
+			out = append(out, n)
+		}
+		return out
+	}
+	as := parse(a)
+	bs := parse(b)
+	if as == nil || bs == nil {
+		return 0, false
+	}
+	max := len(as)
+	if len(bs) > max {
+		max = len(bs)
+	}
+	for i := 0; i < max; i++ {
+		ai, bi := 0, 0
+		if i < len(as) {
+			ai = as[i]
+		}
+		if i < len(bs) {
+			bi = bs[i]
+		}
+		if ai > bi {
+			return 1, true
+		}
+		if ai < bi {
+			return -1, true
+		}
+	}
+	return 0, true
+}
+
+func deriveBaseVersion(id string) (string, string) {
+	src := strings.TrimSpace(id)
+	if idx := strings.IndexByte(src, '_'); idx > 0 {
+		src = strings.TrimSpace(src[idx+1:])
+	}
+	if src == "" {
+		return "", ""
+	}
+	base := src
+	ver := ""
+	if i := strings.LastIndexByte(src, '-'); i > 0 && i+1 < len(src) {
+		cand := strings.TrimSpace(src[i+1:])
+		if isVersionToken(cand) {
+			ver = cand
+			base = strings.TrimSpace(src[:i])
+		}
+	}
+	return base, ver
+}
+
+func isVersionToken(v string) bool {
+	if v == "" {
+		return false
+	}
+	if parseDate(v) != nil {
+		return true
+	}
+	return isNumericVersion(v)
+}
+
+func isNumericVersion(v string) bool {
+	v = strings.TrimSpace(strings.TrimPrefix(v, "v"))
+	if v == "" {
+		return false
+	}
+	parts := strings.Split(v, ".")
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
+		if _, err := strconv.Atoi(p); err != nil {
+			return false
+		}
+	}
+	return true
+}
