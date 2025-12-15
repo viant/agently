@@ -5,12 +5,19 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	sqlitesvc "github.com/viant/agently/internal/service/sqlite"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
 	"github.com/viant/scy"
 	"github.com/viant/scy/cred"
+)
+
+const (
+	defaultConnMaxLifetime = 55 * time.Minute
+	defaultConnMaxIdle     = 5 * time.Minute
+	defaultMaxIdleConns    = 4
 )
 
 // NewDatly constructs a datly.Service and wires the optional SQL connector
@@ -44,6 +51,17 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 		conn := view.NewConnector("agently", driver, dsn)
 		if secrets != "" {
 			conn.Secret = scy.EncodedResource(secrets).Decode(ctx, &cred.Basic{})
+		}
+		if strings.EqualFold(driver, "mysql") {
+			if conn.ConnMaxLifetimeMs == 0 {
+				conn.ConnMaxLifetimeMs = int(defaultConnMaxLifetime / time.Millisecond)
+			}
+			if conn.ConnMaxIdleTimeMs == 0 {
+				conn.ConnMaxIdleTimeMs = int(defaultConnMaxIdle / time.Millisecond)
+			}
+			if conn.MaxIdleConns == 0 {
+				conn.MaxIdleConns = defaultMaxIdleConns
+			}
 		}
 		if err := svc.AddConnectors(ctx, conn); err != nil {
 			initErr = err
