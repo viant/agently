@@ -57,6 +57,7 @@ type ResponsesTool struct {
 	Name        string                 `json:"name,omitempty"`
 	Description string                 `json:"description,omitempty"`
 	Parameters  map[string]interface{} `json:"parameters,omitempty"`
+	Required    []string               `json:"required,omitempty"`
 }
 
 type ResponsesImageURL struct {
@@ -133,6 +134,7 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 				rt.Name = t.Function.Name
 				rt.Description = t.Function.Description
 				rt.Parameters = t.Function.Parameters
+				rt.Required = t.Function.Required
 			}
 			out.Tools = append(out.Tools, rt)
 		}
