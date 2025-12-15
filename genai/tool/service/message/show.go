@@ -64,7 +64,7 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	if alt, _ := preferToolPayload(msg, ""); len(alt) > 0 {
 		result = alt
 	} else {
-		result = []byte(msg.GetContent())
+		result = []byte(msg.GetContentPreferContent())
 	}
 	// 1) Optional transform on the full raw body first
 	if input.Transform != nil && strings.TrimSpace(input.Transform.Format) != "" {

@@ -24,6 +24,8 @@ import (
 	executil "github.com/viant/agently/genai/service/shared/executil"
 	"github.com/viant/agently/internal/workspace"
 	mcpname "github.com/viant/agently/pkg/mcpname"
+
+	intmodel "github.com/viant/agently/internal/finder/model"
 )
 
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.Binding, error) {
@@ -557,6 +559,35 @@ func (s *Service) appendTranscriptSystemDocs(tr apiconv.Transcript, b *prompt.Bi
 	}
 }
 
+// allowContinuationPreview reports whether continuation preview formatting is
+// enabled for the selected model on this turn. It resolves the effective model
+// from QueryInput (ModelOverride > Agent.Model) and inspects the provider
+// config option EnableContinuationFormat when available.
+func (s *Service) allowContinuationPreview(ctx context.Context, input *QueryInput) bool {
+	if s == nil || input == nil {
+		return false
+	}
+	modelName := ""
+	if strings.TrimSpace(input.ModelOverride) != "" {
+		modelName = strings.TrimSpace(input.ModelOverride)
+	} else if input.Agent != nil {
+		modelName = strings.TrimSpace(input.Agent.Model)
+	}
+	if modelName == "" || s.llm == nil {
+		return false
+	}
+	f := s.llm.ModelFinder()
+	if f == nil {
+		return false
+	}
+	if mf, ok := f.(*intmodel.Finder); ok {
+		if cfg := mf.ConfigByIDOrModel(modelName); cfg != nil {
+			return cfg.Options.EnableContinuationFormat
+		}
+	}
+	return false
+}
+
 func transcriptSystemDocuments(tr apiconv.Transcript) []*prompt.Document {
 	if len(tr) == 0 {
 		return nil
@@ -897,6 +928,9 @@ func (s *Service) buildChronologicalHistory(
 
 	var normalized []normalizedMsg
 
+	// Determine whether continuation preview format is enabled for the selected model.
+	allowContinuation := s.allowContinuationPreview(ctx, input)
+
 	// First pass: filter transcript messages according to existing rules,
 	// and collect current-turn elicitation separately.
 	for ti, turn := range transcript {
@@ -1042,7 +1076,7 @@ func (s *Service) buildChronologicalHistory(
 		if applyPreview && orig != "" {
 			limit := s.turnPreviewLimit(item.turnIdx, totalTurns, true)
 			if limit > 0 {
-				preview, of := buildOverflowPreview(orig, limit, msg.Id, false)
+				preview, of := buildOverflowPreview(orig, limit, msg.Id, allowContinuation)
 				if of {
 					overflow = true
 					if size := len(orig); size > maxOverflowBytes {
@@ -1207,6 +1241,8 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		return nil, false, 0, nil
 	}
 	transcript := conv.GetTranscript()
+	// Determine whether continuation preview format is enabled for the selected model.
+	allowContinuation := s.allowContinuationPreview(ctx, input)
 	totalTurns := len(transcript)
 	overflowFound := false
 	maxOverflowBytes := 0
@@ -1226,7 +1262,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 			// Prepare result content for LLM: derive preview from message content with per-turn limit
 			result := ""
 			if body := strings.TrimSpace(m.GetContent()); body != "" && limit > 0 {
-				preview, overflow := buildOverflowPreview(body, limit, m.Id, false)
+				preview, overflow := buildOverflowPreview(body, limit, m.Id, allowContinuation)
 				if overflow {
 					overflowFound = true
 					if size := len(body); size > maxOverflowBytes {
