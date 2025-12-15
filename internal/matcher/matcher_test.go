@@ -11,8 +11,7 @@ func TestMatcher_Best_PrefersMiniWithBalancedPriorities(t *testing.T) {
 	// openai_o4-mini vs openai_gpt-5.1, mirroring default config values.
 	// o4-mini:  intelligence 0.85, speed 0.95, cost 0.004
 	// gpt-5.1:  intelligence 0.96, speed 0.90, cost 0.01125
-	// With equal priorities (0.7 each), the normalized cost penalty should
-	// make o4-mini the better choice.
+	// Intelligence is prioritized first; despite a higher cost, gpt-5.1 wins.
 	cands := []Candidate{
 		{ID: "openai_o4-mini", Intelligence: 0.85, Speed: 0.95, Cost: 0.004},
 		{ID: "openai_gpt-5.1", Intelligence: 0.96, Speed: 0.90, Cost: 0.01125},
@@ -25,7 +24,7 @@ func TestMatcher_Best_PrefersMiniWithBalancedPriorities(t *testing.T) {
 	}
 
 	best := m.Best(prefs)
-	assert.Equal(t, "openai_o4-mini", best, "balanced priorities should select o4-mini over gpt-5.1")
+	assert.Equal(t, "openai_gpt-5.1", best, "intelligence priority should select gpt-5.1 over o4-mini")
 }
 
 func TestMatcher_Best_HonoursHintsFirst(t *testing.T) {
@@ -82,4 +81,20 @@ func TestMatcher_Best_ProviderReductionThenModelHint(t *testing.T) {
 
 	best := m.Best(prefs)
 	assert.Equal(t, "openai_o4-mini", best, "provider hint should restrict candidates before applying model hint")
+}
+
+func TestMatcher_Best_PrefersNewestVersionForSameModel(t *testing.T) {
+	cands := []Candidate{
+		{ID: "openai_gpt-5.0", Intelligence: 0.9, Speed: 0.9, Cost: 0.01},
+		{ID: "openai_gpt-5.1", Intelligence: 0.9, Speed: 0.9, Cost: 0.01},
+	}
+	m := New(cands)
+	prefs := &llm.ModelPreferences{
+		IntelligencePriority: 0.5,
+		SpeedPriority:        0.5,
+		CostPriority:         0.0,
+	}
+
+	best := m.Best(prefs)
+	assert.Equal(t, "openai_gpt-5.1", best, "newer version should win when intelligence/score tie")
 }
