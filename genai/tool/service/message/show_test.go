@@ -165,6 +165,7 @@ func TestShow_ContinuationEdgeCases(t *testing.T) {
 		assert.NoError(t, err)
 		// Returned zero bytes, continuation should cover the entire remainder
 		if assert.NotNil(t, out.Continuation) && assert.NotNil(t, out.Continuation.NextRange) && assert.NotNil(t, out.Continuation.NextRange.Bytes) {
+			assert.True(t, out.Continuation.HasMore)
 			assert.Equal(t, 0, out.Offset)
 			assert.Equal(t, 0, out.Limit)
 			assert.Equal(t, 100, out.Continuation.Remaining)
@@ -181,11 +182,24 @@ func TestShow_ContinuationEdgeCases(t *testing.T) {
 		assert.NoError(t, err)
 		// Returned 85, remaining 15, so nextLength=min(returned, remaining)=15
 		if assert.NotNil(t, out.Continuation) && assert.NotNil(t, out.Continuation.NextRange) && assert.NotNil(t, out.Continuation.NextRange.Bytes) {
-			assert.Equal(t, 85, out.Limit)
-			assert.Equal(t, 15, out.Continuation.Remaining)
-			assert.Equal(t, 85, out.Continuation.Returned)
-			assert.Equal(t, 85, out.Continuation.NextRange.Bytes.Offset)
-			assert.Equal(t, 15, out.Continuation.NextRange.Bytes.Length)
+			assert.Equal(t, true, out.Continuation.HasMore, "HasMore")
+			assert.Equal(t, 85, out.Limit, "Limit")
+			assert.Equal(t, 15, out.Continuation.Remaining, "Remaining")
+			assert.Equal(t, 85, out.Continuation.Returned, "Returned")
+			assert.Equal(t, 85, out.Continuation.NextRange.Bytes.Offset, "NextOffset")
+			assert.Equal(t, 15, out.Continuation.NextRange.Bytes.Length, "NextLength")
 		}
 	})
+
+	t.Run("no continuation expected", func(t *testing.T) {
+		in := ShowInput{MessageID: msgID, ByteRange: &textclip.IntRange{From: intPtr(85), To: intPtr(100)}}
+		var out ShowOutput
+		err := svc.show(context.Background(), &in, &out)
+		assert.NoError(t, err)
+		// Last page: returned 15 bytes, no continuation expected
+		assert.Nil(t, out.Continuation)
+		assert.Equal(t, 85, out.Offset, "Offset")
+		assert.Equal(t, 15, out.Limit, "Limit")
+	})
+
 }
