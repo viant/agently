@@ -32,6 +32,8 @@ type ToolDefinition struct {
 	Required []string `json:"required,omitempty" yaml:"required"`
 
 	OutputSchema map[string]interface{} `json:"output_schema,omitempty" yaml:"output_schema,omitempty"` // Output schema for the function
+
+	Strict bool `json:"strict,omitempty" yaml:"strict,omitempty"`
 }
 
 // NewFunctionTool creates a new Tool representing a callable function.

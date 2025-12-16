@@ -90,16 +90,23 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	output.Offset = start
 	output.Limit = end - start
 	output.Size = size
-	if output.Limit < output.Size {
+	if end < size {
+		remaining := size - end
 		nextOffset := end
+
+		// keep paging in same chunk size when possible
 		nextLength := output.Limit
 		if nextLength <= 0 {
-			nextLength = output.Size - output.Limit
+			nextLength = remaining
 		}
+		if nextLength > remaining {
+			nextLength = remaining
+		}
+
 		output.Continuation = &extension.Continuation{
 			HasMore:   true,
-			Remaining: output.Size - output.Limit,
-			Returned:  output.Limit,
+			Remaining: remaining,    // decreases each page
+			Returned:  output.Limit, // bytes returned this call
 			NextRange: &extension.RangeHint{
 				Bytes: &extension.ByteRange{
 					Offset: nextOffset,
