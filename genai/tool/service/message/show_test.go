@@ -102,7 +102,7 @@ func TestShow_TransformAndRanges(t *testing.T) {
 			wantOffset:  0,
 		},
 	}
-	for _, tc := range tests[len(tests)-1:] {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Prepare a synthetic message for this test case.
 			msgID := "m1"
