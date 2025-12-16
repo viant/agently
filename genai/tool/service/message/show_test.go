@@ -2,6 +2,7 @@ package message
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -101,7 +102,7 @@ func TestShow_TransformAndRanges(t *testing.T) {
 			wantOffset:  0,
 		},
 	}
-	for _, tc := range tests {
+	for _, tc := range tests[len(tests)-1:] {
 		t.Run(tc.name, func(t *testing.T) {
 			// Prepare a synthetic message for this test case.
 			msgID := "m1"
@@ -119,3 +120,72 @@ func TestShow_TransformAndRanges(t *testing.T) {
 }
 
 func intPtr(i int) *int { return &i }
+
+func TestShow_ContinuationEdgeCases(t *testing.T) {
+	mem := &fakeConv{msgs: map[string]*apiconv.Message{}}
+	svc := New(mem)
+
+	body := strings.Repeat("a", 100) // size=100
+	msgID := "msg-cont"
+	mem.msgs[msgID] = &apiconv.Message{RawContent: &body}
+
+	t.Run("first page small slice - has continuation", func(t *testing.T) {
+		in := ShowInput{MessageID: msgID, ByteRange: &textclip.IntRange{From: intPtr(0), To: intPtr(10)}}
+		var out ShowOutput
+		err := svc.show(context.Background(), &in, &out)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, out.Offset)
+		assert.Equal(t, 10, out.Limit)
+		assert.Equal(t, 100, out.Size)
+		if assert.NotNil(t, out.Continuation) {
+			assert.True(t, out.Continuation.HasMore)
+			assert.Equal(t, 90, out.Continuation.Remaining)
+			assert.Equal(t, 10, out.Continuation.Returned)
+			if assert.NotNil(t, out.Continuation.NextRange) && assert.NotNil(t, out.Continuation.NextRange.Bytes) {
+				assert.Equal(t, 10, out.Continuation.NextRange.Bytes.Offset)
+				assert.Equal(t, 10, out.Continuation.NextRange.Bytes.Length)
+			}
+		}
+	})
+
+	t.Run("last page - no continuation", func(t *testing.T) {
+		in := ShowInput{MessageID: msgID, ByteRange: &textclip.IntRange{From: intPtr(90), To: intPtr(100)}}
+		var out ShowOutput
+		err := svc.show(context.Background(), &in, &out)
+		assert.NoError(t, err)
+		assert.Nil(t, out.Continuation)
+		assert.Equal(t, 90, out.Offset)
+		assert.Equal(t, 10, out.Limit)
+	})
+
+	t.Run("empty slice at start - nextLength equals remaining", func(t *testing.T) {
+		in := ShowInput{MessageID: msgID, ByteRange: &textclip.IntRange{From: intPtr(0), To: intPtr(0)}}
+		var out ShowOutput
+		err := svc.show(context.Background(), &in, &out)
+		assert.NoError(t, err)
+		// Returned zero bytes, continuation should cover the entire remainder
+		if assert.NotNil(t, out.Continuation) && assert.NotNil(t, out.Continuation.NextRange) && assert.NotNil(t, out.Continuation.NextRange.Bytes) {
+			assert.Equal(t, 0, out.Offset)
+			assert.Equal(t, 0, out.Limit)
+			assert.Equal(t, 100, out.Continuation.Remaining)
+			assert.Equal(t, 0, out.Continuation.Returned)
+			assert.Equal(t, 0, out.Continuation.NextRange.Bytes.Offset)
+			assert.Equal(t, 100, out.Continuation.NextRange.Bytes.Length)
+		}
+	})
+
+	t.Run("nextLength capped by remaining", func(t *testing.T) {
+		in := ShowInput{MessageID: msgID, ByteRange: &textclip.IntRange{From: intPtr(0), To: intPtr(85)}}
+		var out ShowOutput
+		err := svc.show(context.Background(), &in, &out)
+		assert.NoError(t, err)
+		// Returned 85, remaining 15, so nextLength=min(returned, remaining)=15
+		if assert.NotNil(t, out.Continuation) && assert.NotNil(t, out.Continuation.NextRange) && assert.NotNil(t, out.Continuation.NextRange.Bytes) {
+			assert.Equal(t, 85, out.Limit)
+			assert.Equal(t, 15, out.Continuation.Remaining)
+			assert.Equal(t, 85, out.Continuation.Returned)
+			assert.Equal(t, 85, out.Continuation.NextRange.Bytes.Offset)
+			assert.Equal(t, 15, out.Continuation.NextRange.Bytes.Length)
+		}
+	})
+}

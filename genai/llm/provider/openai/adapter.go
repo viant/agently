@@ -81,6 +81,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 						Description: def.Description,
 						Parameters:  def.Parameters,
 						Required:    def.Required,
+						Strict:      def.Strict,
 					},
 				}
 			}
