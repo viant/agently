@@ -608,6 +608,8 @@ func (e *Service) initDefaults(ctx context.Context) error {
 			defaults.ToolCallTimeoutSec = 300
 		}
 		tr := &e.config.Default.PreviewSettings
+
+		// the real max limit is about 0.9 * tr.Limit (see buildOverflowPreview func)
 		if tr.Limit == 0 {
 			tr.Limit = 16384
 		}

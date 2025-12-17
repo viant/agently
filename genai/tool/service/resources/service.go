@@ -1022,9 +1022,9 @@ type ReadInput struct {
 	Path   string `json:"path,omitempty"`
 	URI    string `json:"uri,omitempty"`
 
-	// Embedded range selectors (preferred API)
-	textclip.BytesRange
-	textclip.LineRange
+	// Range selectors; nested objects accepted by JSON schema
+	BytesRange textclip.BytesRange `json:"bytesRange,omitempty"`
+	LineRange  textclip.LineRange  `json:"lineRange,omitempty"`
 
 	// MaxBytes and MaxLines cap the returned payload when neither byte nor
 	// line ranges are provided. When zero, defaults are applied.
@@ -1081,7 +1081,7 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 		return err
 	}
 	limitRequested := readLimitRequested(input)
-	populateReadOutput(output, target, selection.Text, len(data), selection.Returned, selection.Remaining, selection.StartLine, selection.EndLine, selection.ModeApplied, limitRequested, selection.Binary)
+	populateReadOutput(output, target, selection.Text, len(data), selection.Returned, selection.Remaining, selection.StartLine, selection.EndLine, selection.ModeApplied, limitRequested, selection.Binary, selection.OffsetBytes)
 	return nil
 }
 
@@ -1153,6 +1153,8 @@ type readSelection struct {
 	Returned    int
 	Remaining   int
 	Binary      bool
+	// OffsetBytes records the starting byte offset used for this selection (0 when head/tail without explicit range).
+	OffsetBytes int
 }
 
 func applyReadSelection(data []byte, input *ReadInput) (*readSelection, error) {
@@ -1174,51 +1176,64 @@ func applyReadSelection(data []byte, input *ReadInput) (*readSelection, error) {
 			Returned:    0,
 			Remaining:   len(data),
 			Binary:      true,
+			OffsetBytes: 0,
 		}, nil
 	}
 
-	text := string(data)
+	// Compute selection into these variables, then return once at the end.
+	var text string
+	var returned, remaining, offsetBytes int
 
-	if input.OffsetBytes > 0 || input.LengthBytes > 0 {
-		clipped, _, _, err := textclip.ClipBytesByRange(data, input.BytesRange)
+	// Default text is the whole file; branches below will override.
+	text = string(data)
+
+	// Byte range selection
+	if input.BytesRange.OffsetBytes > 0 || input.BytesRange.LengthBytes > 0 {
+		clipped, start, _, err := textclip.ClipBytesByRange(data, input.BytesRange)
 		if err != nil {
 			return nil, err
 		}
 		text = string(clipped)
-		return &readSelection{
-			Text:        text,
-			StartLine:   startLine,
-			EndLine:     endLine,
-			ModeApplied: appliedMode,
-			Returned:    len(text),
-			Remaining:   len(data) - len(text),
-			Binary:      false,
-		}, nil
-	}
-
-	if input.StartLine > 0 || input.LineCount > 0 {
-		clipped, _, _, err := textclip.ClipLinesByRange(data, input.LineRange)
+		offsetBytes = start
+		returned = len(text)
+		remaining = len(data) - (start + returned)
+		if remaining < 0 {
+			remaining = 0
+		}
+	} else if input.LineRange.StartLine > 0 || input.LineRange.LineCount > 0 {
+		// Line range selection
+		clipped, start, _, err := textclip.ClipLinesByRange(data, input.LineRange)
 		if err != nil {
 			return nil, err
 		}
 		text = string(clipped)
-		if input.StartLine > 0 {
-			startLine = input.StartLine
-			if input.LineCount > 0 {
-				endLine = startLine + input.LineCount - 1
+		if input.LineRange.StartLine > 0 {
+			startLine = input.LineRange.StartLine
+			if input.LineRange.LineCount > 0 {
+				endLine = startLine + input.LineRange.LineCount - 1
 			}
 		}
+		offsetBytes = start
+		returned = len(text)
+		remaining = len(data) - (start + returned)
+		if remaining < 0 {
+			remaining = 0
+		}
+	} else {
+		// Head/Tail/Signatures modes
+		maxBytes := input.MaxBytes
+		if maxBytes <= 0 {
+			maxBytes = defaultMaxBytes
+		}
+		maxLines := input.MaxLines
+		if maxLines < 0 {
+			maxLines = 0
+		}
+		text, returned, remaining = applyMode(text, len(data), appliedMode, maxBytes, maxLines)
+		offsetBytes = 0
 	}
-	maxBytes := input.MaxBytes
-	if maxBytes <= 0 {
-		maxBytes = defaultMaxBytes
-	}
-	maxLines := input.MaxLines
-	if maxLines < 0 {
-		maxLines = 0
-	}
-	text, returned, remaining := applyMode(text, len(data), appliedMode, maxBytes, maxLines)
-	return &readSelection{
+
+	rs := &readSelection{
 		Text:        text,
 		StartLine:   startLine,
 		EndLine:     endLine,
@@ -1226,7 +1241,9 @@ func applyReadSelection(data []byte, input *ReadInput) (*readSelection, error) {
 		Returned:    returned,
 		Remaining:   remaining,
 		Binary:      false,
-	}, nil
+		OffsetBytes: offsetBytes,
+	}
+	return rs, nil
 }
 
 func applyMode(text string, totalSize int, mode string, maxBytes, maxLines int) (string, int, int) {
@@ -1270,7 +1287,7 @@ func isBinaryContent(data []byte) bool {
 	return control > limit/10
 }
 
-func populateReadOutput(out *ReadOutput, target *readTarget, content string, size, returned, remaining, startLine, endLine int, mode string, limitRequested bool, binary bool) {
+func populateReadOutput(out *ReadOutput, target *readTarget, content string, size, returned, remaining, startLine, endLine int, mode string, limitRequested bool, binary bool, byteOffset int) {
 	out.URI = target.fullURI
 	if target.normRoot != "" {
 		out.Path = relativePath(target.normRoot, target.fullURI)
@@ -1290,7 +1307,7 @@ func populateReadOutput(out *ReadOutput, target *readTarget, content string, siz
 		truncated = false
 	}
 	if remaining <= 0 && truncated {
-		remaining = size - returned
+		remaining = size - (byteOffset + returned)
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -1310,11 +1327,30 @@ func populateReadOutput(out *ReadOutput, target *readTarget, content string, siz
 		if out.Continuation.Returned < 0 {
 			out.Continuation.Returned = 0
 		}
-		out.Continuation.NextRange = &extension.RangeHint{
-			Bytes: &extension.ByteRange{
-				Offset: returned,
-				Length: returned,
-			},
+		// Compute next byte range based on current offset and returned size.
+		nextOffset := byteOffset + returned
+		nextLength := returned
+		if remaining > 0 && nextLength > remaining {
+			nextLength = remaining
+		}
+		if remaining <= 0 {
+			// No continuation when nothing remains.
+			out.Continuation = nil
+		} else {
+			out.Continuation.NextRange = &extension.RangeHint{
+				Bytes: &extension.ByteRange{
+					Offset: nextOffset,
+					Length: nextLength,
+				},
+			}
+			// Optionally include line hints when present
+			if endLine > 0 && startLine > 0 {
+				count := endLine - startLine + 1
+				if count < 0 {
+					count = 0
+				}
+				out.Continuation.NextRange.Lines = &extension.LineRange{Start: endLine + 1, Count: count}
+			}
 		}
 	}
 }
