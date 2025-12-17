@@ -101,7 +101,7 @@ type Message struct {
 	Content      string        `json:"content,omitempty"`
 	ToolCallId   string        `json:"tool_call_id,omitempty"`
 	ContentItems []ContentItem `json:"content_items,omitempty"`
-	FunctionCall *FunctionCall `json:"function_call,omitempty"`
+	FunctionCall *FunctionCall `json:"function_call,omitempty"` //TODO deprecated
 }
 
 // FunctionCall represents a function call made by the assistant.
