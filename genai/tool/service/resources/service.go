@@ -949,7 +949,11 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 				if seen[uri] {
 					return true, nil
 				}
-				rel := relativePath(rootBase, uri)
+
+				scheme := url.SchemeExtensionURL(walkBaseURL)
+				rootBaseNormalised := url.Normalize(rootBase, scheme)
+				rel := relativePath(rootBaseNormalised, uri)
+
 				if !listMatchesFilters(rel, info.Name(), includes, excludes) {
 					return true, nil
 				}
@@ -975,11 +979,23 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 			if err != nil {
 				return err
 			}
+
+			baseNormalised := base
+			if len(objs) > 0 {
+				scheme := url.SchemeExtensionURL(objs[0].URL())
+				baseNormalised = url.Normalize(base, scheme)
+			}
+
 			for _, o := range objs {
 				if o == nil {
 					continue
 				}
-				uri := url.Join(base, o.Name())
+
+				if baseNormalised == o.URL() {
+					continue
+				}
+
+				uri := url.Join(base, o.Name()) // we don't enforce normalised base here
 				if seen[uri] {
 					continue
 				}

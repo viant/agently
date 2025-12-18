@@ -22,6 +22,8 @@ func writeTempFile(t *testing.T, content string) string {
 	return "file://" + path
 }
 
+// TestRead_HeadPaging_NextRange verifies head-mode paging with MaxBytes emits a
+// correct continuation hint (next byte offset/length) and accurate remaining.
 func TestRead_HeadPaging_NextRange(t *testing.T) {
 	uri := writeTempFile(t, strings.Repeat("x", 26)) // size=26
 	svc := New(nil)
@@ -38,6 +40,8 @@ func TestRead_HeadPaging_NextRange(t *testing.T) {
 	}
 }
 
+// TestRead_ByteRange_PagingSequence validates multi-page byte-range reads where
+// nextOffset advances by returned size and nextLength shrinks on the final page.
 func TestRead_ByteRange_PagingSequence(t *testing.T) {
 	uri := writeTempFile(t, strings.Repeat("a", 26)) // size=26
 	svc := New(nil)
@@ -73,6 +77,8 @@ func TestRead_ByteRange_PagingSequence(t *testing.T) {
 	assert.Nil(t, out3.Continuation)
 }
 
+// TestRead_HeadNoContinuation ensures no continuation is emitted when MaxBytes
+// exceeds the file size and the page is not truncated.
 func TestRead_HeadNoContinuation(t *testing.T) {
 	uri := writeTempFile(t, strings.Repeat("z", 20))
 	svc := New(nil)
@@ -84,6 +90,8 @@ func TestRead_HeadNoContinuation(t *testing.T) {
 	assert.Nil(t, out.Continuation)
 }
 
+// TestRead_TailPaging verifies tail-mode returns the last N bytes and still
+// provides a continuation hint to fetch the preceding range if desired.
 func TestRead_TailPaging(t *testing.T) {
 	content := "abcdefghijklmnopqrstuvwxyz"
 	uri := writeTempFile(t, content)
@@ -100,6 +108,8 @@ func TestRead_TailPaging(t *testing.T) {
 	}
 }
 
+// TestRead_ByteRange_OffsetPastEOF confirms offset beyond EOF yields zero bytes
+// and suppresses continuation.
 func TestRead_ByteRange_OffsetPastEOF(t *testing.T) {
 	uri := writeTempFile(t, strings.Repeat("b", 10))
 	svc := New(nil)
@@ -111,6 +121,8 @@ func TestRead_ByteRange_OffsetPastEOF(t *testing.T) {
 	assert.Nil(t, out.Continuation)
 }
 
+// TestRead_LineRange_PagingHints checks that line-range reads provide both byte
+// and line continuation hints so callers can continue by lines without guessing.
 func TestRead_LineRange_PagingHints(t *testing.T) {
 	var sb strings.Builder
 	for i := 0; i < 10; i++ {
@@ -135,6 +147,9 @@ func TestRead_LineRange_PagingHints(t *testing.T) {
 	}
 }
 
+// TestRead_BinaryGuard_NoContinuationByDefault asserts binary content is not
+// inlined; instead a placeholder is returned with no continuation unless the
+// caller explicitly requests paging.
 func TestRead_BinaryGuard_NoContinuationByDefault(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bin.dat")
