@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"strings"
+
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/agent"
 	embedderprovider "github.com/viant/agently/genai/embedder/provider"
@@ -27,6 +29,7 @@ type Config struct {
 	Model        *mcpcfg.Group[*llmprovider.Config]      `yaml:"models" json:"models"`
 	Embedder     *mcpcfg.Group[*embedderprovider.Config] `yaml:"embedders" json:"embedders" `
 	MCP          *mcpcfg.Group[*mcpcfg.MCPClient]        `yaml:"mcp" json:"mcp"`
+	MCPServer    *MCPServerConfig                        `yaml:"mcpServer,omitempty" json:"mcpServer,omitempty"`
 	DAOConnector *view.DBConfig                          `yaml:"daoConfig" json:"daoConfig" `
 	Default      config.Defaults                         `yaml:"default" json:"default"`
 	Auth         *authcfg.Config                         `yaml:"auth" json:"auth"`
@@ -39,6 +42,40 @@ type Config struct {
 	Directory  *DirectoryConfig   `yaml:"directory,omitempty" json:"directory,omitempty"`
 	// Timeout for outbound A2A requests (seconds). When zero, a default is applied.
 	A2ATimeoutSec int `yaml:"a2aTimeoutSec,omitempty" json:"a2aTimeoutSec,omitempty"`
+}
+
+// MCPServerConfig exposes the executor's tool registry over an MCP server
+// endpoint (HTTP) when running in serve mode.
+type MCPServerConfig struct {
+	// Port specifies the local TCP port to bind the MCP HTTP server to.
+	// When zero, the MCP server endpoint is disabled.
+	Port int `yaml:"port" json:"port"`
+
+	// Tool scopes which tools are exposed over MCP.
+	// Example:
+	//  tool:
+	//    items:
+	//    - pattern: system/exec
+	//    - pattern: system/patch
+	Tool agent.Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
+}
+
+func (c *MCPServerConfig) Enabled() bool { return c != nil && c.Port != 0 }
+
+func (c *MCPServerConfig) ToolPatterns() []string {
+	if c == nil || len(c.Tool.Items) == 0 {
+		return nil
+	}
+	var out []string
+	for _, item := range c.Tool.Items {
+		if item == nil {
+			continue
+		}
+		if pattern := strings.TrimSpace(item.Pattern); pattern != "" {
+			out = append(out, pattern)
+		}
+	}
+	return out
 }
 
 func (c *Config) Meta() *meta.Service {
