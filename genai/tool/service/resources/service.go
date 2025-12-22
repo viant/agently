@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"github.com/viant/agently/genai/textclip"
 	svc "github.com/viant/agently/genai/tool/service"
 	"github.com/viant/agently/internal/agent/systemdoc"
+	authctx "github.com/viant/agently/internal/auth"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/workspace"
@@ -1655,6 +1657,21 @@ func (s *Service) resolveRootID(ctx context.Context, id string) (string, error) 
 		return "", fmt.Errorf("rootId is empty")
 	}
 	curAgent := s.currentAgent(ctx)
+
+	// If the context was canceled/deadlined and we couldn't resolve the agent,
+	// retry once with a background context that preserves identity and conversation id.
+	if curAgent == nil && (errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded)) {
+		userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+		bg := context.Background()
+		if userID != "" {
+			bg = authctx.WithUserInfo(bg, &authctx.UserInfo{Subject: userID})
+		}
+		if convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx)); convID != "" {
+			bg = memory.WithConversationID(bg, convID)
+		}
+		curAgent = s.currentAgent(bg)
+	}
+
 	if curAgent != nil {
 		for _, r := range curAgent.Resources {
 			if r == nil {
