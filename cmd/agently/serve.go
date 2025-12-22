@@ -25,6 +25,7 @@ import (
 	"github.com/viant/agently/genai/tool"
 	authctx "github.com/viant/agently/internal/auth"
 	integrate "github.com/viant/agently/internal/auth/mcp/integrate"
+	mcpexpose "github.com/viant/agently/internal/mcp/expose"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	"github.com/viant/agently/internal/workspace"
 	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
@@ -262,6 +263,26 @@ func (s *ServeCmd) Execute(_ []string) error {
 		errCh <- nil // server closed normally
 	}()
 
+	var (
+		mcpSrv   *http.Server
+		mcpErrCh chan error
+	)
+	if cfg := exec.Config(); cfg != nil && cfg.MCPServer != nil && cfg.MCPServer.Enabled() {
+		var err error
+		mcpSrv, err = mcpexpose.NewHTTPServer(context.Background(), exec, cfg.MCPServer)
+		if err != nil {
+			return fmt.Errorf("init mcp server: %w", err)
+		}
+		mcpErrCh = make(chan error, 1)
+		go func() {
+			log.Printf("Agently MCP server listening on %s", mcpSrv.Addr)
+			if err := mcpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				mcpErrCh <- err
+			}
+			mcpErrCh <- nil
+		}()
+	}
+
 	// Wait for termination signal or server error.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
@@ -272,9 +293,24 @@ func (s *ServeCmd) Execute(_ []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 		_ = srv.Shutdown(ctx)
+		if mcpSrv != nil {
+			_ = mcpSrv.Shutdown(ctx)
+		}
 		exec.Shutdown(ctx)
 		return nil
 	case err := <-errCh:
+		if mcpSrv != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_ = mcpSrv.Shutdown(ctx)
+		}
+		return err
+	case err := <-mcpErrCh:
+		if srv != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_ = srv.Shutdown(ctx)
+		}
 		return err
 	}
 }

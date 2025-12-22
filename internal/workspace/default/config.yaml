@@ -30,6 +30,17 @@ services:
   - system/exec
   - system/patch
   - printer/print
+
+# Optional: expose selected tools over a local MCP HTTP server endpoint.
+# When enabled, connect an MCP client to `http://127.0.0.1:<port>/mcp`.
+#mcpServer:
+#  port: 6060
+#  tool:
+#    items:
+#      - pattern: orchestration
+#      - pattern: resources
+#      - pattern: system/patch
+#      - pattern: system/exec
 auth:
   enabled: true
   cookieName: agently_session

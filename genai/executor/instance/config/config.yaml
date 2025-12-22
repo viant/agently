@@ -18,3 +18,13 @@ agents:
         - pattern: system/exec
 services:
   - system/exec
+
+# Optional: expose selected tools over a local MCP HTTP server endpoint.
+#mcpServer:
+#  port: 6060
+#  tool:
+#    items:
+#      - pattern: orchestration
+#      - pattern: resources
+#      - pattern: system/patch
+#      - pattern: system/exec
