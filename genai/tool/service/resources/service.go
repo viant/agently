@@ -1041,8 +1041,8 @@ type ReadInput struct {
 	URI    string `json:"uri,omitempty"`
 
 	// Range selectors; nested objects accepted by JSON schema
-	BytesRange textclip.BytesRange `json:"bytesRange,omitempty"`
-	LineRange  textclip.LineRange  `json:"lineRange,omitempty"`
+	BytesRange         textclip.BytesRange `json:"bytesRange,omitempty"`
+	textclip.LineRange `json:"lineRange,omitempty"`
 
 	// MaxBytes and MaxLines cap the returned payload when neither byte nor
 	// line ranges are provided. When zero, defaults are applied.
