@@ -1,9 +1,12 @@
 package openai
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/viant/afs/storage"
@@ -12,16 +15,23 @@ import (
 	basecfg "github.com/viant/agently/genai/llm/provider/base"
 )
 
+type APIKeyProvider func(ctx context.Context) (string, error)
+
 // Client represents an OpenAI API client
 type Client struct {
 	basecfg.Config
 	APIKey string
+	// APIKeyProvider resolves the API key at call time (e.g., from OAuth token exchange).
+	// When set, it is used only if APIKey is empty.
+	APIKeyProvider APIKeyProvider
 
 	// Defaults applied when GenerateRequest.Options is nil or leaves the
 	// respective field unset.
-	MaxTokens   int
-	Temperature *float64
-	storageMgr  storage.Manager
+	MaxTokens        int
+	Temperature      *float64
+	storageMgr       storage.Manager
+	storageMgrAPIKey string
+	storageMgrMu     sync.Mutex
 
 	// ContextContinuation controls whether this client should use
 	// response continuation by response_id when supported. When nil,
@@ -46,7 +56,7 @@ func NewClient(apiKey, model string, options ...ClientOption) *Client {
 		option(client)
 	}
 
-	if client.APIKey == "" {
+	if client.APIKey == "" && client.APIKeyProvider == nil {
 		client.APIKey = os.Getenv("OPENAI_API_KEY")
 	}
 
@@ -58,7 +68,43 @@ func NewClient(apiKey, model string, options ...ClientOption) *Client {
 		}
 	}
 
-	client.storageMgr = afsco.New(assets.NewConfig(client.APIKey))
+	if client.APIKey != "" {
+		client.storageMgrAPIKey = client.APIKey
+		client.storageMgr = afsco.New(assets.NewConfig(client.APIKey))
+	}
 
 	return client
+}
+
+func (c *Client) apiKey(ctx context.Context) (string, error) {
+	if c.APIKey != "" {
+		return c.APIKey, nil
+	}
+	if c.APIKeyProvider == nil {
+		return "", fmt.Errorf("API key is required")
+	}
+	key, err := c.APIKeyProvider(ctx)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(key) == "" {
+		return "", fmt.Errorf("API key is required")
+	}
+	return key, nil
+}
+
+func (c *Client) ensureStorageManager(ctx context.Context) error {
+	apiKey, err := c.apiKey(ctx)
+	if err != nil {
+		return err
+	}
+	c.storageMgrMu.Lock()
+	defer c.storageMgrMu.Unlock()
+
+	if c.storageMgr != nil && c.storageMgrAPIKey == apiKey {
+		return nil
+	}
+	c.storageMgrAPIKey = apiKey
+	c.storageMgr = afsco.New(assets.NewConfig(apiKey))
+	return nil
 }

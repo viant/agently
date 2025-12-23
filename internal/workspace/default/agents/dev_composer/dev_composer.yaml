@@ -1,15 +1,15 @@
 description: Developer Implementation Composer
-id: di_composer
-modelRef: openai_gpt-5
-name: DI Composer
+id: dev_composer
+modelRef: openai_gpt-5.2
+name: Developer Composer
 temperature: 1
 persona:
   role: assistant
-  actor: DI Composer
+  actor: Developer Composer
 
 profile:
   publish: true
-  name: DI Composer
+  name: Developer Composer
   description: Analyzes references and composes a comprehensive DI plan by partitioning documents and extracting actionable items
   tags: ["plan", "compose", "references", "di"]
   rank: 88

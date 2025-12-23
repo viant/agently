@@ -43,6 +43,12 @@ func WithUsageListener(l basecfg.UsageListener) ClientOption {
 	return func(c *Client) { c.Config.UsageListener = l }
 }
 
+// WithAPIKeyProvider configures a resolver used to obtain an API key at call time.
+// This is intended for auth flows that mint or refresh API keys dynamically.
+func WithAPIKeyProvider(provider APIKeyProvider) ClientOption {
+	return func(c *Client) { c.APIKeyProvider = provider }
+}
+
 // WithContextContinuation sets a client-level toggle for server-side context
 // continuation (continuation by response_id) when supported by the provider.
 func WithContextContinuation(enabled *bool) ClientOption {

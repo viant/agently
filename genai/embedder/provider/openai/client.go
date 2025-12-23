@@ -8,16 +8,22 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/viant/agently/genai/embedder/provider/base"
 )
+
+type APIKeyProvider func(ctx context.Context) (string, error)
 
 // Client represents an OpenAI API client for embeddings
 type Client struct {
 	base.Client
 	base.Config // embeds BaseURL, HTTPClient, Find
 	APIKey      string
+	// APIKeyProvider resolves the API key at call time (e.g., from OAuth token exchange).
+	// When set, it is used only if APIKey is empty.
+	APIKeyProvider APIKeyProvider
 }
 
 // NewClient creates a new OpenAI embeddings client with the given API key and model
@@ -41,7 +47,7 @@ func NewClient(apiKey, model string, options ...ClientOption) *Client {
 	}
 
 	// Use environment variable if API key is not provided
-	if client.APIKey == "" {
+	if client.APIKey == "" && client.APIKeyProvider == nil {
 		client.APIKey = os.Getenv("OPENAI_API_KEY")
 	}
 
@@ -77,7 +83,11 @@ func (c *Client) Embed(ctx context.Context, texts []string) (vector [][]float32,
 
 	// Set headers
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
+	apiKey, err := c.apiKey(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)
@@ -114,4 +124,21 @@ func (c *Client) Embed(ctx context.Context, texts []string) (vector [][]float32,
 	// Adapt the response
 	AdaptResponse(&embeddingResp, c.Model, &vector, &totalTokens)
 	return vector, totalTokens, nil
+}
+
+func (c *Client) apiKey(ctx context.Context) (string, error) {
+	if c.APIKey != "" {
+		return c.APIKey, nil
+	}
+	if c.APIKeyProvider == nil {
+		return "", fmt.Errorf("API key is required")
+	}
+	key, err := c.APIKeyProvider(ctx)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(key) == "" {
+		return "", fmt.Errorf("API key is required")
+	}
+	return key, nil
 }

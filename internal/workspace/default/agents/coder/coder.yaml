@@ -1,6 +1,6 @@
 description: Coder agent
 id: coder
-modelRef: openai_gpt-5.1
+modelRef: openai_gpt-5.2
 name: Coder
 temperature: 1
 persona:
@@ -27,24 +27,20 @@ tool:
     - pattern: system/patch
     - pattern: system/exec
     - pattern: system/os
+    - pattern: system/env
+    - pattern: resources
 
 
 systemKnowledge:
   - url: system_knowledge/
 
-elicitation:
-  enabled: true
-  title: Coding Inputs
-  message: Provide the instruction and DID document (what/where to implement). Coder will implement the top 3 items per turn.
-  requestedSchema:
-    type: object
-    properties:
-      instruction:
-        type: string
-        description: Natural language description of the desired change or goal.
-      did:
-        description: Document describing what and where things should be implemented (files, functions, constraints, acceptance criteria).
-        oneOf:
-          - type: object
-          - type: string
-    required: [instruction, did]
+
+
+resources:
+  # Expose the local filesystem under a canonical root so tools like
+  # resources-list/read can operate against the workspace. The "root"
+  # id matches the rootId used by dev_coder calls.
+  - id: local
+    uri: file://localhost/~/
+    description: Local workspace
+    allowGrep: true

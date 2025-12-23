@@ -1,15 +1,15 @@
-description: Developer Implementation Verifier
-id: di_verifier
-modelRef: openai_gpt-5.1
+description: Development Verifier
+id: dev_verifier
+modelRef: openai_gpt-5.2
 name: DI Verifier
 temperature: 0
 persona:
   role: assistant
-  actor: DI Verifier
+  actor: Development Verifier
 
 profile:
   publish: true
-  name: DI Verifier
+  name: Development Verifier
   description: Reviews and verifies code and answers for correctness and clarity
   tags: ["verify", "review", "qa"]
   rank: 80
