@@ -13,6 +13,7 @@ import (
 	"github.com/viant/agently/genai/llm/provider/openai"
 	vertexaiclaude "github.com/viant/agently/genai/llm/provider/vertexai/claude"
 	"github.com/viant/agently/genai/llm/provider/vertexai/gemini"
+	"github.com/viant/agently/internal/genai/provider/openai/chatgptauth"
 	"github.com/viant/scy/cred/secret"
 )
 
@@ -32,6 +33,13 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 			return nil, err
 		}
 		opts := []openai.ClientOption{openai.WithUsageListener(options.UsageListener)}
+		if apiKey == "" && options.ChatGPTOAuth != nil {
+			manager, err := f.chatgptOAuthManager(options.ChatGPTOAuth)
+			if err != nil {
+				return nil, err
+			}
+			opts = append(opts, openai.WithAPIKeyProvider(manager.APIKey))
+		}
 		if options.MaxTokens > 0 {
 			opts = append(opts, openai.WithMaxTokens(options.MaxTokens))
 		}
@@ -133,6 +141,31 @@ func (o *Factory) apiKey(ctx context.Context, APIKeyURL string) (string, error) 
 		return "", err
 	}
 	return key.Secret, nil
+}
+
+func (o *Factory) chatgptOAuthManager(options *ChatGPTOAuthOptions) (*chatgptauth.Manager, error) {
+	if options == nil {
+		return nil, fmt.Errorf("chatgptOAuth options were nil")
+	}
+	if options.ClientURL == "" {
+		return nil, fmt.Errorf("chatgptOAuth.clientURL was empty")
+	}
+	if options.TokensURL == "" {
+		return nil, fmt.Errorf("chatgptOAuth.tokensURL was empty")
+	}
+	clientLoader := chatgptauth.NewScyOAuthClientLoader(options.ClientURL)
+	tokenStore := chatgptauth.NewScyTokenStateStore(options.TokensURL)
+	return chatgptauth.NewManager(
+		&chatgptauth.Options{
+			ClientURL:          options.ClientURL,
+			TokensURL:          options.TokensURL,
+			Issuer:             options.Issuer,
+			AllowedWorkspaceID: options.AllowedWorkspaceID,
+		},
+		clientLoader,
+		tokenStore,
+		nil,
+	)
 }
 
 func New() *Factory {

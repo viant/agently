@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/stretchr/testify v1.10.0
-	github.com/viant/afs v1.27.0
+	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.12.0
 	github.com/viant/datly v0.20.17
 	github.com/viant/embedius v0.2.10

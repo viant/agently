@@ -118,9 +118,6 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 }
 
 func (c *Client) generateViaResponses(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
-	if c.APIKey == "" {
-		return nil, fmt.Errorf("API key is required")
-	}
 	// Prepare request
 	req, err := c.prepareChatRequest(request)
 	if err != nil {
@@ -266,21 +263,29 @@ func (c *Client) marshalChatCompletionApiRequestBody(req *Request) ([]byte, erro
 }
 
 func (c *Client) createHTTPResponsesApiRequest(ctx context.Context, data []byte) (*http.Request, error) {
+	apiKey, err := c.apiKey(ctx)
+	if err != nil {
+		return nil, err
+	}
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/responses", bytes.NewBuffer(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 	return httpReq, nil
 }
 
 func (c *Client) createHTTPChatCompletionsApiRequest(ctx context.Context, data []byte) (*http.Request, error) {
+	apiKey, err := c.apiKey(ctx)
+	if err != nil {
+		return nil, err
+	}
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewBuffer(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 	return httpReq, nil
 }
@@ -306,9 +311,6 @@ func debugOpenAIEnabled() bool { return os.Getenv("AGENTLY_DEBUG_OPENAI") == "1"
 func openaiNoFallback() bool   { return os.Getenv("AGENTLY_OPENAI_NO_FALLBACK") == "1" }
 
 func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
-	if c.APIKey == "" {
-		return nil, fmt.Errorf("API key is required")
-	}
 	// Prepare request
 	req, err := c.prepareChatRequest(request)
 	if err != nil {
@@ -519,9 +521,6 @@ func parseAnyFinal(data string) *llm.GenerateResponse {
 
 // Stream sends a chat request to the OpenAI API with streaming enabled and returns a channel of partial responses.
 func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-chan llm.StreamEvent, error) {
-	if c.APIKey == "" {
-		return nil, fmt.Errorf("API key is required")
-	}
 	// Prepare request
 	req, err := c.prepareChatRequest(request)
 	if err != nil {

@@ -2069,7 +2069,8 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	if mcpuri.Is(wsRoot) {
 		return fmt.Errorf("grepFiles is not supported for mcp resources")
 	}
-	base := rootCtx.Base()
+	rootBase := rootCtx.Base()
+	base := rootBase
 	if trimmed := strings.TrimSpace(input.Path); trimmed != "" {
 		base, err = rootCtx.ResolvePath(trimmed)
 		if err != nil {
@@ -2127,6 +2128,102 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 
 	// Local/workspace handling (MCP roots are rejected earlier in this method)
 	fs := afs.New()
+
+	// When input.Path resolves to a file, avoid Walk (which assumes directories for file:// roots).
+	if obj, err := fs.Object(ctx, base); err == nil && obj != nil && !obj.IsDir() {
+		uri := base
+		data, err := fs.DownloadWithURL(ctx, uri)
+		if err != nil {
+			return err
+		}
+		if maxSize > 0 && len(data) > maxSize {
+			data = data[:maxSize]
+		}
+		if skipBinary && isBinary(data) {
+			output.Stats = stats
+			output.Files = nil
+			return nil
+		}
+		text := string(data)
+		lines := strings.Split(text, "\n")
+		var matchLines []int
+		for i, line := range lines {
+			if lineMatches(line, matchers, excludeMatchers) {
+				matchLines = append(matchLines, i)
+			}
+		}
+		if len(matchLines) == 0 {
+			output.Stats = stats
+			output.Files = nil
+			return nil
+		}
+
+		rel := relativePath(rootBase, uri)
+		if rel == "" {
+			rel = relativePath(base, uri)
+		}
+		if rel == "" {
+			rel = uri
+		}
+		if !globAllowed(rel, input.Include, input.Exclude) {
+			output.Stats = stats
+			output.Files = nil
+			return nil
+		}
+
+		stats.Scanned = 1
+		stats.Matched = 1
+		gf := hygine.GrepFile{Path: rel, URI: uri, Matches: len(matchLines)}
+		if mode == "head" {
+			end := limitLines
+			if end > len(lines) {
+				end = len(lines)
+			}
+			snippetText := joinLines(lines[:end])
+			if len(snippetText) > limitBytes {
+				snippetText = snippetText[:limitBytes]
+			}
+			gf.Snippets = append(gf.Snippets, hygine.Snippet{StartLine: 1, EndLine: end, Text: snippetText})
+			files = append(files, gf)
+			output.Stats = stats
+			output.Files = files
+			return nil
+		}
+		for _, idx := range matchLines {
+			if totalBlocks >= maxBlocks {
+				stats.Truncated = true
+				break
+			}
+			start := idx - limitLines/2
+			if start < 0 {
+				start = 0
+			}
+			end := start + limitLines
+			if end > len(lines) {
+				end = len(lines)
+			}
+			snippetText := joinLines(lines[start:end])
+			cut := false
+			if len(snippetText) > limitBytes {
+				snippetText = snippetText[:limitBytes]
+				cut = true
+			}
+			gf.Snippets = append(gf.Snippets, hygine.Snippet{
+				StartLine:   start + 1,
+				EndLine:     end,
+				Text:        snippetText,
+				OffsetBytes: 0,
+				LengthBytes: len(snippetText),
+				Cut:         cut,
+			})
+			totalBlocks++
+		}
+		files = append(files, gf)
+		output.Stats = stats
+		output.Files = files
+		return nil
+	}
+
 	err = fs.Walk(ctx, base, func(ctx context.Context, walkBaseURL, parent string, info os.FileInfo, reader io.Reader) (bool, error) {
 		if info == nil || info.IsDir() {
 			return true, nil

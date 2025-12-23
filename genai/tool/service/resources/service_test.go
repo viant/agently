@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,34 +155,62 @@ func TestService_GrepFiles_LocalRoot(t *testing.T) {
 	ctx := context.Background()
 	rootURI := "workspace://localhost/test_resources_grep"
 
-	t.Run("basic grepFiles by pattern", func(t *testing.T) {
-		in := &GrepInput{
-			Pattern:   "AuthMode",
-			RootURI:   rootURI,
-			Path:      ".",
-			Recursive: true,
-			Include:   []string{"*.txt", "*.log"},
-		}
-		out := &GrepOutput{}
-		if err := service.grepFiles(ctx, in, out); err != nil {
-			t.Fatalf("grepFiles returned error: %v", err)
-		}
-		// We expect matches in a.txt and c.log
-		assert.GreaterOrEqual(t, out.Stats.Matched, 2)
-		paths := map[string]bool{}
-		for _, f := range out.Files {
-			paths[f.Path] = true
-		}
-		assert.True(t, paths["a.txt"])
-		assert.True(t, paths["c.log"])
-	})
+	type testCase struct {
+		name      string
+		input     *GrepInput
+		expect    []string
+		expectMin int
+	}
+	testCases := []testCase{
+		{
+			name: "basic grepFiles by pattern",
+			input: &GrepInput{
+				Pattern:   "AuthMode",
+				RootURI:   rootURI,
+				Path:      ".",
+				Recursive: true,
+				Include:   []string{"*.txt", "*.log"},
+			},
+			expect:    []string{"a.txt", "c.log"},
+			expectMin: 2,
+		},
+		{
+			name: "path points to file",
+			input: &GrepInput{
+				Pattern:   "AuthMode",
+				RootURI:   rootURI,
+				Path:      "a.txt",
+				Recursive: false,
+			},
+			expect:    []string{"a.txt"},
+			expectMin: 1,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := &GrepOutput{}
+			if err := service.grepFiles(ctx, tc.input, out); err != nil {
+				t.Fatalf("grepFiles returned error: %v", err)
+			}
+			assert.EqualValues(t, false, out.Stats.Truncated)
+			assert.EqualValues(t, true, out.Stats.Matched >= tc.expectMin)
+			paths := map[string]bool{}
+			for _, f := range out.Files {
+				paths[f.Path] = true
+			}
+			for _, expected := range tc.expect {
+				assert.EqualValues(t, true, paths[expected])
+			}
+		})
+	}
 
 	t.Run("pattern must not be empty", func(t *testing.T) {
 		in := &GrepInput{Pattern: "   ", RootURI: rootURI, Path: "."}
 		out := &GrepOutput{}
 		err := service.grepFiles(ctx, in, out)
-		if assert.Error(t, err) {
-			assert.Contains(t, err.Error(), "pattern must not be empty")
+		assert.EqualValues(t, true, err != nil)
+		if err != nil {
+			assert.EqualValues(t, true, strings.Contains(err.Error(), "pattern must not be empty"))
 		}
 	})
 }

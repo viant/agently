@@ -26,3 +26,9 @@ func WithModel(model string) ClientOption {
 func WithUsageListener(listener base.UsageListener) ClientOption {
 	return func(c *Client) { c.UsageListener = listener }
 }
+
+// WithAPIKeyProvider configures a resolver used to obtain an API key at call time.
+// This is intended for auth flows that mint or refresh API keys dynamically.
+func WithAPIKeyProvider(provider APIKeyProvider) ClientOption {
+	return func(c *Client) { c.APIKeyProvider = provider }
+}

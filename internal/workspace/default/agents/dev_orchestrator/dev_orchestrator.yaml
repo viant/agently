@@ -1,16 +1,16 @@
-description: Developer Implementation Orchestrator
-id: di_orchestrator
-modelRef: openai_gpt-5.1
-name: DI Orchestrator
+description: Development Orchestrator
+id: dev_orchestrator
+modelRef: openai_gpt-5.2
+name: Development Orchestrator
 temperature: 0
 persona:
   role: assistant
-  actor: DI Orchestrator
+  actor: Development Orchestrator
 
 profile:
   publish: true
-  name: DI Orchestrator
-  description: Coordinates DI Verifier and Coder in up to 5 passes to implement top missing items
+  name: Development Orchestrator
+  description: Coordinates Development Verifier and Coder in up to 5 passes to implement top missing items
   tags: ["orchestrator", "verify", "code", "plan"]
   rank: 95
 

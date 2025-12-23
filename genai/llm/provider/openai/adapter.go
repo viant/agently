@@ -388,6 +388,9 @@ func (c *Client) uploadFiledAndGetID(ctx context.Context, base64Data string, nam
 
 	filename := fmt.Sprintf("agently/%s/%s/%s/%s", user, agentID, c.Model, name)
 	dest := "openai://assets/" + filename
+	if err := c.ensureStorageManager(ctx); err != nil {
+		return "", err
+	}
 	// Build options with optional TTL
 	var opts []storage.Option
 	opts = append(opts, &content.Meta{Values: map[string]string{"purpose": string(openai.FilePurposeUserData)}})
