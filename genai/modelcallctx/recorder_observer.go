@@ -32,6 +32,13 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 	if info.StartedAt.IsZero() {
 		o.start.StartedAt = time.Now()
 	}
+	// Persist a redacted request payload for transcript/logging purposes so large
+	// base64 attachments don't overwhelm the conversation payload store.
+	if info.LLMRequest != nil {
+		if redacted := RedactGenerateRequestForTranscript(info.LLMRequest); len(redacted) > 0 {
+			info.Payload = redacted
+		}
+	}
 	// Attach finish barrier so downstream can wait for persistence before emitting final message.
 	ctx, _ = WithFinishBarrier(ctx)
 	msgID := uuid.NewString()

@@ -456,7 +456,7 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		return
 	}
 	if !includeLinked {
-		encode(w, http.StatusOK, conv.Conversation, nil)
+		encode(w, http.StatusOK, sanitizeConversationForAPI(conv.Conversation), nil)
 		return
 	}
 
@@ -492,8 +492,51 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 	resp := struct {
 		Conversation *apiconv.Conversation            `json:"conversation"`
 		Linked       map[string]*apiconv.Conversation `json:"linked,omitempty"`
-	}{Conversation: conv.Conversation, Linked: linked}
+	}{Conversation: sanitizeConversationForAPI(conv.Conversation), Linked: linked}
 	encode(w, http.StatusOK, resp, nil)
+}
+
+// sanitizeConversationForAPI returns a copy of conv with any binary attachment
+// bytes removed, so transcripts can be returned over HTTP without flooding
+// clients with base64 payloads.
+func sanitizeConversationForAPI(conv *apiconv.Conversation) *apiconv.Conversation {
+	if conv == nil || conv.Transcript == nil {
+		return conv
+	}
+	out := *conv
+	tr := make([]*agconv.TranscriptView, len(conv.Transcript))
+	for i, t := range conv.Transcript {
+		if t == nil {
+			continue
+		}
+		tc := *t
+		if t.Message != nil {
+			msgs := make([]*agconv.MessageView, len(t.Message))
+			for j, m := range t.Message {
+				if m == nil {
+					continue
+				}
+				mc := *m
+				if mc.Attachment != nil {
+					atts := make([]*agconv.AttachmentView, len(mc.Attachment))
+					for k, a := range mc.Attachment {
+						if a == nil {
+							continue
+						}
+						ac := *a
+						ac.InlineBody = nil
+						atts[k] = &ac
+					}
+					mc.Attachment = atts
+				}
+				msgs[j] = &mc
+			}
+			tc.Message = msgs
+		}
+		tr[i] = &tc
+	}
+	out.Transcript = tr
+	return &out
 }
 
 // handleDeleteMessage deletes a specific message by id within a conversation.

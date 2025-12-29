@@ -80,26 +80,32 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 	span.SetEnd(time.Now())
 
-	// 5) Persist response payload (use background when canceled to avoid DB write cancellation)
+	// 5) Persist side effects + response payload (use background when canceled to avoid DB write cancellation)
 	persistCtx := ctx
 	if ctx.Err() == context.Canceled {
 		persistCtx = context.Background()
 	}
+
+	if strings.TrimSpace(toolResult) != "" {
+		docCtx := ctx
+		if ctx.Err() != nil {
+			docCtx = context.Background()
+		}
+		if err := persistDocumentsIfNeeded(docCtx, reg, conv, turn, step.Name, toolResult); err != nil {
+			errs = append(errs, fmt.Errorf("emit system content: %w", err))
+		}
+		if err := persistToolImageAttachmentIfNeeded(docCtx, conv, turn, toolMsgID, step.Name, toolResult); err != nil {
+			errs = append(errs, fmt.Errorf("persist tool attachments: %w", err))
+		}
+		if redacted, ok := redactToolResultIfNeeded(step.Name, toolResult); ok {
+			toolResult = redacted
+			out.Result = redacted
+		}
+	}
+
 	respID, respErr := persistResponsePayload(persistCtx, conv, toolResult)
 	if respErr != nil {
 		errs = append(errs, fmt.Errorf("persist response payload: %w", respErr))
-	}
-	if strings.TrimSpace(toolResult) != "" {
-		persistCtx := ctx
-		if ctx.Err() != nil {
-			persistCtx = context.Background()
-		}
-		if err := persistDocumentsIfNeeded(persistCtx, reg, conv, turn, step.Name, toolResult); err != nil {
-			errs = append(errs, fmt.Errorf("emit system content: %w", err))
-		}
-		if err := persistToolImageAttachmentIfNeeded(persistCtx, conv, turn, toolMsgID, step.Name, toolResult); err != nil {
-			errs = append(errs, fmt.Errorf("persist tool attachments: %w", err))
-		}
 	}
 
 	// 6) Update tool message with result content - why duplication of content gere
@@ -147,6 +153,9 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 		}
 	}
 	// Persist provided result
+	if redacted, ok := redactToolResultIfNeeded(step.Name, toolResult); ok {
+		toolResult = redacted
+	}
 	respID, respErr := persistResponsePayload(ctx, conv, toolResult)
 	if respErr != nil {
 		return fmt.Errorf("persist response payload: %w", respErr)
