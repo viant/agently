@@ -802,12 +802,13 @@ type ListInput struct {
 	Recursive bool `json:"recursive,omitempty" description:"when true, walk recursively under path"`
 	// Include defines optional file or path globs to include. When provided,
 	// only items whose relative path or base name matches at least one
-	// pattern are returned. Globs use path-style matching rules.
-	Include []string `json:"include,omitempty" description:"optional file/path globs to include (relative to root+path)"`
+	// pattern are returned. Globs use path-style matching rules and support
+	// globstar ("**") to match any directory depth.
+	Include []string `json:"include,omitempty" description:"optional file/path globs to include (relative to root+path); supports ** for any depth"`
 	// Exclude defines optional file or path globs to exclude. When provided,
 	// any item whose relative path or base name matches a pattern is
 	// filtered out.
-	Exclude []string `json:"exclude,omitempty" description:"optional file/path globs to exclude"`
+	Exclude []string `json:"exclude,omitempty" description:"optional file/path globs to exclude; supports ** for any depth"`
 	// MaxItems caps the number of items returned. When zero or negative, no
 	// explicit limit is applied.
 	MaxItems int `json:"maxItems,omitempty" description:"maximum number of items to return; 0 means no limit"`
@@ -846,11 +847,78 @@ func listGlobMatch(pattern, value string) bool {
 	if pattern == "" || value == "" {
 		return false
 	}
+	// path.Match does not support "**" (globstar). Implement a minimal globstar
+	// matcher where a full path segment equal to "**" can match zero or more
+	// path segments.
+	if strings.Contains(pattern, "**") {
+		return listGlobStarMatch(pattern, value)
+	}
 	ok, err := pathpkg.Match(pattern, value)
-	if err != nil {
+	return err == nil && ok
+}
+
+func listGlobStarMatch(pattern, value string) bool {
+	pattern = strings.TrimSpace(strings.ReplaceAll(pattern, "\\", "/"))
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
+	if pattern == "" || value == "" {
 		return false
 	}
-	return ok
+
+	pattern = strings.TrimPrefix(pattern, "./")
+	pattern = strings.TrimPrefix(pattern, "/")
+	pattern = strings.TrimSuffix(pattern, "/")
+
+	value = strings.TrimPrefix(value, "./")
+	value = strings.TrimPrefix(value, "/")
+	value = strings.TrimSuffix(value, "/")
+
+	pSegs := splitListGlob(pattern)
+	vSegs := splitListGlob(value)
+
+	type state struct{ i, j int }
+	seen := make(map[state]bool, len(pSegs)*len(vSegs))
+	memo := make(map[state]bool, len(pSegs)*len(vSegs))
+	var match func(i, j int) bool
+	match = func(i, j int) bool {
+		s := state{i: i, j: j}
+		if seen[s] {
+			return memo[s]
+		}
+		seen[s] = true
+
+		var ok bool
+		switch {
+		case i >= len(pSegs):
+			ok = j >= len(vSegs)
+		case pSegs[i] == "**":
+			// "**" matches zero segments (advance pattern) or one segment (advance value).
+			ok = match(i+1, j) || (j < len(vSegs) && match(i, j+1))
+		case j >= len(vSegs):
+			ok = false
+		default:
+			segOK, err := pathpkg.Match(pSegs[i], vSegs[j])
+			ok = err == nil && segOK && match(i+1, j+1)
+		}
+		memo[s] = ok
+		return ok
+	}
+
+	return match(0, 0)
+}
+
+func splitListGlob(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, "/")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // listMatchesFilters reports whether a candidate with the given relative
@@ -1363,14 +1431,14 @@ func applyReadSelection(data []byte, input *ReadInput) (*readSelection, error) {
 func applyMode(text string, totalSize int, mode string, maxBytes, maxLines int) (string, int, int) {
 	switch mode {
 	case "tail":
-		return textclip.ClipTail(text, totalSize, maxLines)
+		return textclip.ClipTail(text, totalSize, maxBytes, maxLines)
 	case "signatures":
 		if sig := textclip.ExtractSignatures(text, maxBytes); sig != "" {
 			return sig, len(sig), clipRemaining(totalSize, len(sig))
 		}
 		// fallback to head if no signatures found
 	}
-	return textclip.ClipHead(text, totalSize, maxLines)
+	return textclip.ClipHead(text, totalSize, maxBytes, maxLines)
 }
 
 func clipRemaining(totalSize, returned int) int {

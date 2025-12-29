@@ -146,21 +146,40 @@ func ClipLines(b []byte, r *IntRange) ([]byte, int, int, error) {
 	return b[start:end], start, end, nil
 }
 
-// ClipHead returns the first portion of text limited by maxBytes and maxLines.
-// remaining reflects how many bytes were omitted relative to totalSize.
-func ClipHead(text string, totalSize, maxLines int) (string, int, int) {
+// ClipHead returns the first portion of text.
+// If maxLines > 0, it clips by lines only.
+// Otherwise, if maxBytes > 0, it clips by bytes.
+func ClipHead(text string, totalSize, maxBytes, maxLines int) (string, int, int) {
+	if maxLines <= 0 {
+		head := text
+		if maxBytes > 0 && len(head) > maxBytes {
+			head = head[:maxBytes]
+		}
+		return head, len(head), remaining(totalSize, len(head))
+	}
+
 	lines := strings.Split(text, "\n")
-	if maxLines > 0 && len(lines) > maxLines {
+	if len(lines) > maxLines {
 		lines = lines[:maxLines]
 	}
 	head := strings.Join(lines, "\n")
 	return head, len(head), remaining(totalSize, len(head))
 }
 
-// ClipTail returns the last portion of text limited by maxLines.
-func ClipTail(text string, totalSize, maxLines int) (string, int, int) {
+// ClipTail returns the last portion of text.
+// If maxLines > 0, it clips by lines only.
+// Otherwise, if maxBytes > 0, it clips by bytes.
+func ClipTail(text string, totalSize, maxBytes, maxLines int) (string, int, int) {
+	if maxLines <= 0 {
+		tail := text
+		if maxBytes > 0 && len(tail) > maxBytes {
+			tail = tail[len(tail)-maxBytes:]
+		}
+		return tail, len(tail), remaining(totalSize, len(tail))
+	}
+
 	lines := strings.Split(text, "\n")
-	if maxLines > 0 && len(lines) > maxLines {
+	if len(lines) > maxLines {
 		lines = lines[len(lines)-maxLines:]
 	}
 	tail := strings.Join(lines, "\n")

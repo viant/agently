@@ -90,7 +90,7 @@ func TestRead_HeadNoContinuation(t *testing.T) {
 	assert.Nil(t, out.Continuation)
 }
 
-// TestRead_TailPaging verifies MaxBytes does not affect tail mode; callers must use BytesRange or line selectors.
+// TestRead_TailPaging verifies MaxBytes affects tail mode when no maxLines are provided.
 func TestRead_TailPaging(t *testing.T) {
 	content := "abcdefghijklmnopqrstuvwxyz"
 	uri := writeTempFile(t, content)
@@ -98,10 +98,13 @@ func TestRead_TailPaging(t *testing.T) {
 	var out ReadOutput
 	err := svc.read(context.Background(), &ReadInput{URI: uri, Mode: "tail", MaxBytes: 10}, &out)
 	assert.NoError(t, err)
-	assert.Equal(t, 26, out.Returned)
-	assert.Equal(t, 0, out.Remaining)
-	assert.Equal(t, content, out.Content)
-	assert.Nil(t, out.Continuation)
+	assert.Equal(t, 26, out.Size)
+	assert.Equal(t, 10, out.Returned)
+	assert.Equal(t, 16, out.Remaining)
+	assert.Equal(t, "qrstuvwxyz", out.Content)
+	if assert.NotNil(t, out.Continuation) {
+		assert.True(t, out.Continuation.HasMore)
+	}
 }
 
 // TestRead_ByteRange_OffsetPastEOF confirms offset beyond EOF yields zero bytes
