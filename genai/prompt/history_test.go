@@ -113,6 +113,38 @@ func TestHistory_LLMMessages_NoToolDedup(t *testing.T) {
 	}
 }
 
+func TestHistory_LLMMessages_ToolResultIncludesAttachments(t *testing.T) {
+	toolMsg := &Message{
+		Kind:     MessageKindToolResult,
+		Role:     "assistant",
+		ToolOpID: "op-1",
+		ToolName: "resources.readImage",
+		ToolArgs: map[string]interface{}{},
+		Content:  `{"status":"ok"}`,
+		Attachment: []*Attachment{
+			{Name: "img.png", Mime: "image/png", Data: []byte{1, 2, 3}},
+		},
+	}
+	h := History{
+		Past: []*Turn{{ID: "t-1", Messages: []*Message{toolMsg}}},
+	}
+	msgs := h.LLMMessages()
+
+	var sawBinary bool
+	for _, m := range msgs {
+		if m.Role != llm.RoleTool {
+			continue
+		}
+		for _, it := range m.Items {
+			if it.Type == llm.ContentTypeBinary && strings.HasPrefix(it.MimeType, "image/") {
+				sawBinary = true
+				break
+			}
+		}
+	}
+	assert.EqualValues(t, true, sawBinary)
+}
+
 func extractToolNames(messages []llm.Message) []string {
 	var out []string
 	for _, m := range messages {

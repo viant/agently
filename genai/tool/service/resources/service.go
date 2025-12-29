@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ import (
 	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
 	"github.com/viant/agently/genai/textclip"
 	svc "github.com/viant/agently/genai/tool/service"
+	"github.com/viant/agently/genai/tool/service/shared/imageio"
 	"github.com/viant/agently/internal/agent/systemdoc"
 	authctx "github.com/viant/agently/internal/auth"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
@@ -85,6 +87,7 @@ func (s *Service) Methods() svc.Signatures {
 		{Name: "roots", Description: "Discover configured resource roots with optional descriptions", Input: reflect.TypeOf(&RootsInput{}), Output: reflect.TypeOf(&RootsOutput{})},
 		{Name: "list", Description: "List resources under a root (file or MCP)", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "read", Description: "Read a single resource under a root. For large files, prefer byteRange and page in chunks (<= 8KB).", Input: reflect.TypeOf(&ReadInput{}), Output: reflect.TypeOf(&ReadOutput{})},
+		{Name: "readImage", Description: "Read an image under a root and return a base64 payload suitable for attaching as a vision input. Defaults to resizing to fit 2048x768.", Input: reflect.TypeOf(&ReadImageInput{}), Output: reflect.TypeOf(&ReadImageOutput{})},
 		{Name: "match", Description: "Semantic match search over one or more roots; use `match.exclusions` to block specific workspace paths.", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
 		{Name: "matchDocuments", Description: "Rank semantic matches and return distinct URIs with score + root metadata for transcript promotion. Example: {\"rootIds\":[\"workspace://localhost/knowledge/bidder\"],\"query\":\"performance\"}. Output fields: documents[].uri, documents[].score, documents[].rootId.", Input: reflect.TypeOf(&MatchDocumentsInput{}), Output: reflect.TypeOf(&MatchDocumentsOutput{})},
 		{Name: "grepFiles", Description: "Search text patterns in files under a root and return per-file snippets.", Input: reflect.TypeOf(&GrepInput{}), Output: reflect.TypeOf(&GrepOutput{})},
@@ -100,6 +103,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.list, nil
 	case "read":
 		return s.read, nil
+	case "readimage":
+		return s.readImage, nil
 	case "match":
 		return s.match, nil
 	case "matchdocuments":
@@ -1077,6 +1082,35 @@ type ReadOutput struct {
 	Continuation *extension.Continuation `json:"continuation,omitempty"`
 }
 
+type ReadImageInput struct {
+	// URI is an absolute URI; when provided, RootURI/RootID/Path are ignored.
+	URI string `json:"uri,omitempty"`
+	// RootURI/RootID + Path select an image under a root.
+	RootURI string `json:"root,omitempty"`
+	RootID  string `json:"rootId,omitempty"`
+	Path    string `json:"path,omitempty"`
+
+	// MaxWidth/MaxHeight define a resize-to-fit box; default 2048x768.
+	MaxWidth  int `json:"maxWidth,omitempty"`
+	MaxHeight int `json:"maxHeight,omitempty"`
+	// MaxBytes caps the encoded output bytes; default 4MB.
+	MaxBytes int `json:"maxBytes,omitempty"`
+
+	// Format optionally forces output encoding: "png" or "jpeg".
+	Format string `json:"format,omitempty"`
+}
+
+type ReadImageOutput struct {
+	URI      string `json:"uri"`
+	Path     string `json:"path"`
+	Name     string `json:"name,omitempty"`
+	MimeType string `json:"mimeType"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	Bytes    int    `json:"bytes"`
+	Base64   string `json:"dataBase64"`
+}
+
 func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*ReadInput)
 	if !ok {
@@ -1100,6 +1134,52 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	}
 	limitRequested := readLimitRequested(input)
 	populateReadOutput(output, target, selection.Text, len(data), selection.Returned, selection.Remaining, selection.StartLine, selection.EndLine, selection.ModeApplied, limitRequested, selection.Binary, selection.OffsetBytes)
+	return nil
+}
+
+func (s *Service) readImage(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*ReadImageInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*ReadImageOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	readTarget, err := s.resolveReadTarget(ctx, &ReadInput{
+		URI:     input.URI,
+		RootURI: input.RootURI,
+		RootID:  input.RootID,
+		Path:    input.Path,
+	}, s.agentAllowed(ctx))
+	if err != nil {
+		return err
+	}
+	raw, err := s.downloadResource(ctx, readTarget.fullURI)
+	if err != nil {
+		return err
+	}
+	options := imageio.NormalizeOptions(imageio.Options{
+		MaxWidth:  input.MaxWidth,
+		MaxHeight: input.MaxHeight,
+		MaxBytes:  input.MaxBytes,
+		Format:    strings.TrimSpace(input.Format),
+	})
+	encoded, err := imageio.EncodeToFit(raw, options)
+	if err != nil {
+		return err
+	}
+	output.URI = readTarget.fullURI
+	output.Path = strings.TrimSpace(input.Path)
+	if output.Path == "" {
+		output.Path = strings.TrimSpace(readTarget.fullURI)
+	}
+	output.Name = pathpkg.Base(output.Path)
+	output.MimeType = encoded.MimeType
+	output.Width = encoded.Width
+	output.Height = encoded.Height
+	output.Bytes = len(encoded.Bytes)
+	output.Base64 = base64.StdEncoding.EncodeToString(encoded.Bytes)
 	return nil
 }
 

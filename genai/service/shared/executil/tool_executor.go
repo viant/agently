@@ -97,6 +97,9 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		if err := persistDocumentsIfNeeded(persistCtx, reg, conv, turn, step.Name, toolResult); err != nil {
 			errs = append(errs, fmt.Errorf("emit system content: %w", err))
 		}
+		if err := persistToolImageAttachmentIfNeeded(persistCtx, conv, turn, toolMsgID, step.Name, toolResult); err != nil {
+			errs = append(errs, fmt.Errorf("persist tool attachments: %w", err))
+		}
 	}
 
 	// 6) Update tool message with result content - why duplication of content gere

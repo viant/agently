@@ -173,9 +173,52 @@ func TestExecuteToolStep_RetryBehavior(t *testing.T) {
 	}
 }
 
+func TestExecuteToolStep_PersistsReadImageAsAttachment(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-img", TurnID: "t-img", ParentMessageID: "p-img", Assistant: "agent-test"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	reg := &scriptedRegistry{script: []scriptedResult{{
+		result: `{"uri":"file:///tmp/img.png","mimeType":"image/png","dataBase64":"AQID","name":"img.png"}`,
+	}}}
+	conv := &stubConv{}
+
+	step := StepInfo{
+		ID:         "call-img",
+		Name:       "resources.readImage",
+		Args:       map[string]interface{}{"path": "img.png"},
+		ResponseID: "resp-1",
+	}
+	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
+	require.NoError(t, err)
+
+	var sawAttachmentPayload bool
+	for _, p := range conv.patchedPayloads {
+		if p == nil || p.Has == nil || !p.Has.Kind {
+			continue
+		}
+		if p.Kind == "attachment" && strings.EqualFold(p.MimeType, "image/png") {
+			sawAttachmentPayload = true
+			if p.InlineBody != nil {
+				assert.EqualValues(t, []byte{1, 2, 3}, []byte(*p.InlineBody))
+			}
+		}
+	}
+	assert.EqualValues(t, true, sawAttachmentPayload)
+
+	var sawLink bool
+	for _, m := range conv.patchedMessages {
+		if m == nil || m.Has == nil || !m.Has.AttachmentPayloadID {
+			continue
+		}
+		sawLink = true
+		break
+	}
+	assert.EqualValues(t, true, sawLink)
+}
+
 type stubConv struct {
 	patchedMessages  []*apiconv.MutableMessage
 	insertedMessages []*apiconv.MutableMessage
+	patchedPayloads  []*apiconv.MutablePayload
 }
 
 func (s *stubConv) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
@@ -194,7 +237,8 @@ func (s *stubConv) GetPayload(context.Context, string) (*apiconv.Payload, error)
 	return nil, nil
 }
 
-func (s *stubConv) PatchPayload(context.Context, *apiconv.MutablePayload) error {
+func (s *stubConv) PatchPayload(_ context.Context, payload *apiconv.MutablePayload) error {
+	s.patchedPayloads = append(s.patchedPayloads, payload)
 	return nil
 }
 
