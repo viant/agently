@@ -2,6 +2,10 @@ package resources
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -213,6 +217,82 @@ func TestService_GrepFiles_LocalRoot(t *testing.T) {
 			assert.EqualValues(t, true, strings.Contains(err.Error(), "pattern must not be empty"))
 		}
 	})
+}
+
+func TestService_ReadImage(t *testing.T) {
+	base := ".agently/test_resources_image"
+	require.NoError(t, os.MkdirAll(base, 0o755))
+
+	img := image.NewRGBA(image.Rect(0, 0, 10, 5))
+	imgPath := filepath.Join(base, "img.png")
+	f, err := os.Create(imgPath)
+	require.NoError(t, err)
+	require.NoError(t, png.Encode(f, img))
+	require.NoError(t, f.Close())
+
+	service := New(dummyAugmenter(t))
+	ctx := context.Background()
+	rootURI := "workspace://localhost/test_resources_image"
+
+	type testCase struct {
+		name      string
+		input     *ReadImageInput
+		expectErr bool
+		assertFn  func(t *testing.T, out *ReadImageOutput, err error)
+	}
+
+	testCases := []testCase{
+		{
+			name: "reads and returns base64",
+			input: &ReadImageInput{
+				RootURI: rootURI,
+				Path:    "img.png",
+			},
+			expectErr: false,
+			assertFn: func(t *testing.T, out *ReadImageOutput, err error) {
+				assert.EqualValues(t, nil, err)
+				assert.EqualValues(t, "img.png", out.Path)
+				assert.EqualValues(t, "img.png", out.Name)
+				assert.EqualValues(t, "image/png", out.MimeType)
+				assert.EqualValues(t, true, out.Width > 0)
+				assert.EqualValues(t, true, out.Height > 0)
+				raw, decErr := base64.StdEncoding.DecodeString(out.Base64)
+				assert.EqualValues(t, nil, decErr)
+				assert.EqualValues(t, out.Bytes, len(raw))
+			},
+		},
+		{
+			name: "rejects empty",
+			input: &ReadImageInput{
+				RootURI: rootURI,
+				Path:    "",
+			},
+			expectErr: true,
+			assertFn: func(t *testing.T, _ *ReadImageOutput, err error) {
+				assert.EqualValues(t, true, err != nil)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := &ReadImageOutput{}
+			err := service.readImage(ctx, tc.input, out)
+			if tc.expectErr {
+				assert.EqualValues(t, true, err != nil)
+			}
+			if tc.assertFn != nil {
+				tc.assertFn(t, out, err)
+			}
+		})
+	}
+
+	// Ensure JSON marshaling uses the expected keys for tool pipeline decoding.
+	out := &ReadImageOutput{URI: "u", Path: "p", Name: "n", MimeType: "image/png", Width: 1, Height: 1, Bytes: 1, Base64: "AA=="}
+	data, err := json.Marshal(out)
+	require.NoError(t, err)
+	assert.EqualValues(t, true, strings.Contains(string(data), "\"dataBase64\""))
+	assert.EqualValues(t, true, strings.Contains(string(data), "\"mimeType\""))
 }
 
 func TestSelectSearchRoots_InvalidRootID(t *testing.T) {

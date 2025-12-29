@@ -429,6 +429,31 @@ func toolResultLLMMessages(msg *Message) []llm.Message {
 	result := strings.TrimSpace(msg.Content)
 	call := llm.NewToolCall(opID, name, msg.ToolArgs, result)
 	assistant := llm.NewAssistantMessageWithToolCalls(call)
-	tool := llm.NewToolResultMessage(call)
+	tool := newToolResultMessageWithAttachments(call, msg.Attachment)
 	return []llm.Message{assistant, tool}
+}
+
+func newToolResultMessageWithAttachments(call llm.ToolCall, attachments []*Attachment) llm.Message {
+	if len(attachments) == 0 {
+		return llm.NewToolResultMessage(call)
+	}
+	items := make([]*llm.AttachmentItem, 0, len(attachments))
+	for _, a := range attachments {
+		if a == nil || len(a.Data) == 0 {
+			continue
+		}
+		items = append(items, &llm.AttachmentItem{
+			Name:     a.Name,
+			MimeType: a.MIMEType(),
+			Data:     a.Data,
+			Content:  a.Content,
+		})
+	}
+	if len(items) == 0 {
+		return llm.NewToolResultMessage(call)
+	}
+	tool := llm.NewMessageWithBinaries(llm.RoleTool, items, call.Result)
+	tool.Name = call.Name
+	tool.ToolCallId = call.ID
+	return tool
 }
