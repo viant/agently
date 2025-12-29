@@ -1046,13 +1046,12 @@ type ReadInput struct {
 	URI    string `json:"uri,omitempty"`
 
 	// Range selectors; nested objects accepted by JSON schema
-	BytesRange         textclip.BytesRange `json:"bytesRange,omitempty"`
-	textclip.LineRange `json:"lineRange,omitempty"`
+	BytesRange textclip.BytesRange `json:"bytesRange,omitempty"`
+	textclip.LineRange
 
-	// MaxBytes and MaxLines cap the returned payload when neither byte nor
-	// line ranges are provided. When zero, defaults are applied.
+	// MaxBytes caps the returned payload when neither byte nor line ranges are provided.
+	// When zero, defaults are applied.
 	MaxBytes int `json:"maxBytes,omitempty"`
-	MaxLines int `json:"maxLines,omitempty"`
 
 	// Mode provides lightweight previews without full reads:
 	// head (default), tail, signatures.
@@ -1234,13 +1233,13 @@ func readLimitRequested(input *ReadInput) bool {
 	if strings.TrimSpace(input.Mode) != "" {
 		return true
 	}
-	if input.MaxBytes > 0 || input.MaxLines > 0 {
+	if input.MaxBytes > 0 || input.LineCount > 0 {
 		return true
 	}
 	if input.BytesRange.OffsetBytes > 0 || input.BytesRange.LengthBytes > 0 {
 		return true
 	}
-	if input.LineRange.StartLine > 0 || input.LineRange.LineCount > 0 {
+	if input.StartLine > 0 {
 		return true
 	}
 	return false
@@ -1313,18 +1312,20 @@ func applyReadSelection(data []byte, input *ReadInput) (*readSelection, error) {
 		if remaining < 0 {
 			remaining = 0
 		}
-	} else if input.LineRange.StartLine > 0 || input.LineRange.LineCount > 0 {
+	} else if input.StartLine > 0 {
 		// Line range selection
-		clipped, start, _, err := textclip.ClipLinesByRange(data, input.LineRange)
+		lineRange := textclip.LineRange{StartLine: input.StartLine, LineCount: input.LineCount}
+		if lineRange.LineCount < 0 {
+			lineRange.LineCount = 0
+		}
+		clipped, start, _, err := textclip.ClipLinesByRange(data, lineRange)
 		if err != nil {
 			return nil, err
 		}
 		text = string(clipped)
-		if input.LineRange.StartLine > 0 {
-			startLine = input.LineRange.StartLine
-			if input.LineRange.LineCount > 0 {
-				endLine = startLine + input.LineRange.LineCount - 1
-			}
+		startLine = input.StartLine
+		if lineRange.LineCount > 0 {
+			endLine = startLine + lineRange.LineCount - 1
 		}
 		offsetBytes = start
 		returned = len(text)
@@ -1338,7 +1339,7 @@ func applyReadSelection(data []byte, input *ReadInput) (*readSelection, error) {
 		if maxBytes <= 0 {
 			maxBytes = defaultMaxBytes
 		}
-		maxLines := input.MaxLines
+		maxLines := input.LineCount
 		if maxLines < 0 {
 			maxLines = 0
 		}
@@ -1362,14 +1363,14 @@ func applyReadSelection(data []byte, input *ReadInput) (*readSelection, error) {
 func applyMode(text string, totalSize int, mode string, maxBytes, maxLines int) (string, int, int) {
 	switch mode {
 	case "tail":
-		return textclip.ClipTail(text, totalSize, maxBytes, maxLines)
+		return textclip.ClipTail(text, totalSize, maxLines)
 	case "signatures":
 		if sig := textclip.ExtractSignatures(text, maxBytes); sig != "" {
 			return sig, len(sig), clipRemaining(totalSize, len(sig))
 		}
 		// fallback to head if no signatures found
 	}
-	return textclip.ClipHead(text, totalSize, maxBytes, maxLines)
+	return textclip.ClipHead(text, totalSize, maxLines)
 }
 
 func clipRemaining(totalSize, returned int) int {

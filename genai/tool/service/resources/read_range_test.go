@@ -71,11 +71,14 @@ func TestService_Read_RangeVariants(t *testing.T) {
 			expectContinuation: true,
 		},
 		{
-			name: "maxBytes truncation adds continuation",
+			name: "byteRange from 0 to 5",
 			input: &ReadInput{
-				RootURI:  rootURI,
-				Path:     "bytes.txt",
-				MaxBytes: 5,
+				RootURI: rootURI,
+				Path:    "bytes.txt",
+				BytesRange: textclip.BytesRange{
+					OffsetBytes: 0,
+					LengthBytes: 5,
+				},
 			},
 			expected:           got{Content: "abcde", StartLine: 0, EndLine: 0, Size: len(bytesContent)},
 			expectContinuation: true,

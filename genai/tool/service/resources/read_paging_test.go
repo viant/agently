@@ -22,12 +22,12 @@ func writeTempFile(t *testing.T, content string) string {
 	return "file://" + path
 }
 
-// TestRead_HeadPaging_NextRange verifies head-mode paging with MaxBytes emits a
+// TestRead_HeadPaging_NextRange verifies head paging with BytesRange emits a
 // correct continuation hint (next byte offset/length) and accurate remaining.
 func TestRead_HeadPaging_NextRange(t *testing.T) {
 	uri := writeTempFile(t, strings.Repeat("x", 26)) // size=26
 	svc := New(nil)
-	in := &ReadInput{URI: uri, MaxBytes: 10}
+	in := &ReadInput{URI: uri, BytesRange: textclip.BytesRange{OffsetBytes: 0, LengthBytes: 10}}
 	var out ReadOutput
 	err := svc.read(context.Background(), in, &out)
 	assert.NoError(t, err)
@@ -77,21 +77,20 @@ func TestRead_ByteRange_PagingSequence(t *testing.T) {
 	assert.Nil(t, out3.Continuation)
 }
 
-// TestRead_HeadNoContinuation ensures no continuation is emitted when MaxBytes
+// TestRead_HeadNoContinuation ensures no continuation is emitted when BytesRange
 // exceeds the file size and the page is not truncated.
 func TestRead_HeadNoContinuation(t *testing.T) {
 	uri := writeTempFile(t, strings.Repeat("z", 20))
 	svc := New(nil)
 	var out ReadOutput
-	err := svc.read(context.Background(), &ReadInput{URI: uri, MaxBytes: 30}, &out)
+	err := svc.read(context.Background(), &ReadInput{URI: uri, BytesRange: textclip.BytesRange{OffsetBytes: 0, LengthBytes: 30}}, &out)
 	assert.NoError(t, err)
 	assert.Equal(t, 20, out.Returned)
 	assert.Equal(t, 0, out.Remaining)
 	assert.Nil(t, out.Continuation)
 }
 
-// TestRead_TailPaging verifies tail-mode returns the last N bytes and still
-// provides a continuation hint to fetch the preceding range if desired.
+// TestRead_TailPaging verifies MaxBytes does not affect tail mode; callers must use BytesRange or line selectors.
 func TestRead_TailPaging(t *testing.T) {
 	content := "abcdefghijklmnopqrstuvwxyz"
 	uri := writeTempFile(t, content)
@@ -99,13 +98,10 @@ func TestRead_TailPaging(t *testing.T) {
 	var out ReadOutput
 	err := svc.read(context.Background(), &ReadInput{URI: uri, Mode: "tail", MaxBytes: 10}, &out)
 	assert.NoError(t, err)
-	assert.Equal(t, 10, out.Returned)
-	assert.Equal(t, 16, out.Remaining)
-	assert.Equal(t, content[16:], out.Content)
-	if assert.NotNil(t, out.Continuation) && assert.NotNil(t, out.Continuation.NextRange) {
-		assert.Equal(t, 10, out.Continuation.NextRange.Bytes.Offset)
-		assert.Equal(t, 10, out.Continuation.NextRange.Bytes.Length)
-	}
+	assert.Equal(t, 26, out.Returned)
+	assert.Equal(t, 0, out.Remaining)
+	assert.Equal(t, content, out.Content)
+	assert.Nil(t, out.Continuation)
 }
 
 // TestRead_ByteRange_OffsetPastEOF confirms offset beyond EOF yields zero bytes

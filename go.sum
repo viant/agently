@@ -1155,8 +1155,6 @@ github.com/viant/a2a-protocol v0.1.0 h1:bnqiykd521HVW+HyAzfbryFr5gB5iHa6bO8pORTa
 github.com/viant/a2a-protocol v0.1.0/go.mod h1:7/GTUT1rUHnTq8nFHjSzxbrD+3pwBP6Lg/r2DnI6IC0=
 github.com/viant/aerospike v0.2.11-0.20241108195857-ed524b97800d h1:IRmoMmrWqkHDBy0tk9mbHRDK7+ynn0Gzwl+9WIiAtNs=
 github.com/viant/aerospike v0.2.11-0.20241108195857-ed524b97800d/go.mod h1:eRBywl0oTDM/oGhGLUeJjnC7XzmkTGuW9/og5YFy0K0=
-github.com/viant/afs v1.27.0 h1:Asr4rcJrjP+VxqL3Zq803NoZ28F8abJwQhTJJN92JbQ=
-github.com/viant/afs v1.27.0/go.mod h1:rScbFd9LJPGTM8HOI8Kjwee0AZ+MZMupAvFpPg+Qdj4=
 github.com/viant/afs v1.30.0 h1:dbgVVSCPwGHUgpgkWJ5gdjKBqssT7OV7Z2M81CjwZEY=
 github.com/viant/afs v1.30.0/go.mod h1:rScbFd9LJPGTM8HOI8Kjwee0AZ+MZMupAvFpPg+Qdj4=
 github.com/viant/afsc v1.12.0 h1:/JZiWufpWnmUIpT+gqNx4pl34SeSubOsZeZAFYPBiew=

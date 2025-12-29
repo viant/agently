@@ -1,10 +1,11 @@
 package mcp
 
 import (
-	svc "github.com/viant/agently/genai/tool/service"
-	mcpschema "github.com/viant/mcp-protocol/schema"
 	"reflect"
 	"strings"
+
+	svc "github.com/viant/agently/genai/tool/service"
+	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
 // FromService converts a service.Service to a slice of MCP Tool.
@@ -61,10 +62,40 @@ func objectSchema(t reflect.Type) (map[string]map[string]interface{}, []string) 
 			if isInternal(f) {
 				continue
 			}
-			name, omitempty := jsonName(f)
+			name, omitempty, inline := jsonName(f)
 			if name == "-" || name == "" {
 				continue
 			}
+
+			if inline || f.Anonymous && name == lowerFirst(f.Name) && (f.Type.Kind() == reflect.Struct || (f.Type.Kind() == reflect.Ptr && f.Type.Elem().Kind() == reflect.Struct)) {
+				// Determine underlying struct type for the embedded field.
+				embeddedType := f.Type
+				isPtr := false
+				if embeddedType.Kind() == reflect.Ptr {
+					isPtr = true
+					embeddedType = embeddedType.Elem()
+				}
+				// Only inline struct types.
+				if embeddedType.Kind() == reflect.Struct {
+					childProps, childReq := objectSchema(embeddedType)
+					// Merge child properties into parent, without overwriting existing keys.
+					for k, v := range childProps {
+						if _, exists := props[k]; !exists {
+							props[k] = v
+						}
+					}
+					// Propagate requireds only if this embedded field itself is required
+					// (i.e., not a pointer, not omitempty, and not explicitly optional).
+					tag := string(f.Tag)
+					isOptional := strings.Contains(tag, "required=false") || strings.Contains(tag, "optional")
+					if !isPtr && !omitempty && !isOptional {
+						required = append(required, childReq...)
+					}
+					// Done handling this field.
+					continue
+				}
+			}
+
 			props[name] = schemaForType(f.Type, f)
 			if !omitempty && f.Type.Kind() != reflect.Ptr {
 				required = append(required, name)
@@ -170,10 +201,10 @@ func indirectType(t reflect.Type) reflect.Type {
 	return t
 }
 
-func jsonName(f reflect.StructField) (name string, omitempty bool) {
+func jsonName(f reflect.StructField) (name string, omitempty bool, inline bool) {
 	tag := f.Tag.Get("json")
 	if tag == "-" {
-		return "-", false
+		return "-", false, false
 	}
 	parts := strings.Split(tag, ",")
 	if len(parts) == 0 || parts[0] == "" {
@@ -182,12 +213,15 @@ func jsonName(f reflect.StructField) (name string, omitempty bool) {
 		name = parts[0]
 	}
 	for _, p := range parts[1:] {
-		if strings.TrimSpace(p) == "omitempty" {
+		opt := strings.TrimSpace(p)
+		switch opt {
+		case "omitempty":
 			omitempty = true
-			break
+		case "inline":
+			inline = true
 		}
 	}
-	return name, omitempty
+	return name, omitempty, inline
 }
 
 func lowerFirst(s string) string {
