@@ -104,7 +104,38 @@ func TestRead_TailPaging(t *testing.T) {
 	assert.Equal(t, "qrstuvwxyz", out.Content)
 	if assert.NotNil(t, out.Continuation) {
 		assert.True(t, out.Continuation.HasMore)
+		assert.Equal(t, 10, out.Continuation.NextRange.Bytes.Offset)
+		assert.Equal(t, 10, out.Continuation.NextRange.Bytes.Length)
 	}
+}
+
+// TestRead_TailPaging verifies MaxBytes affects tail mode when no maxLines are provided.
+func TestRead_TailPaging_SizeExceeded(t *testing.T) {
+	content := "abcdefghijklmnopqrstuvwxyz"
+	uri := writeTempFile(t, content)
+	svc := New(nil)
+	var out ReadOutput
+	err := svc.read(context.Background(), &ReadInput{URI: uri, Mode: "tail", MaxBytes: 30}, &out)
+	assert.NoError(t, err)
+	assert.Equal(t, 26, out.Size)
+	assert.Equal(t, 26, out.Returned)
+	assert.Equal(t, 0, out.Remaining)
+	assert.Equal(t, "abcdefghijklmnopqrstuvwxyz", out.Content)
+	assert.Nil(t, out.Continuation)
+}
+
+func TestRead_HeadPaging_SizeExceeded(t *testing.T) {
+	content := "abcdefghijklmnopqrstuvwxyz"
+	uri := writeTempFile(t, content)
+	svc := New(nil)
+	var out ReadOutput
+	err := svc.read(context.Background(), &ReadInput{URI: uri, Mode: "head", MaxBytes: 30}, &out)
+	assert.NoError(t, err)
+	assert.Equal(t, 26, out.Size)
+	assert.Equal(t, 26, out.Returned)
+	assert.Equal(t, 0, out.Remaining)
+	assert.Equal(t, "abcdefghijklmnopqrstuvwxyz", out.Content)
+	assert.Nil(t, out.Continuation)
 }
 
 // TestRead_ByteRange_OffsetPastEOF confirms offset beyond EOF yields zero bytes
