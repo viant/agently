@@ -1098,17 +1098,25 @@ type ReadImageInput struct {
 
 	// Format optionally forces output encoding: "png" or "jpeg".
 	Format string `json:"format,omitempty"`
+
+	// IncludeData controls whether dataBase64 is returned in the tool response.
+	// When false (default), the tool writes the encoded image to EncodedURI and
+	// omits dataBase64 to keep tool output small.
+	IncludeData bool `json:"includeData,omitempty"`
+	// DestURL optionally specifies where to write the encoded image (file://...).
+	DestURL string `json:"destURL,omitempty"`
 }
 
 type ReadImageOutput struct {
 	URI      string `json:"uri"`
+	Encoded  string `json:"encodedURI,omitempty"`
 	Path     string `json:"path"`
 	Name     string `json:"name,omitempty"`
 	MimeType string `json:"mimeType"`
 	Width    int    `json:"width"`
 	Height   int    `json:"height"`
 	Bytes    int    `json:"bytes"`
-	Base64   string `json:"dataBase64"`
+	Base64   string `json:"dataBase64,omitempty"`
 }
 
 func (s *Service) read(ctx context.Context, in, out interface{}) error {
@@ -1179,7 +1187,14 @@ func (s *Service) readImage(ctx context.Context, in, out interface{}) error {
 	output.Width = encoded.Width
 	output.Height = encoded.Height
 	output.Bytes = len(encoded.Bytes)
-	output.Base64 = base64.StdEncoding.EncodeToString(encoded.Bytes)
+	encodedURI, err := imageio.StoreEncodedImage(ctx, encoded, imageio.StoreOptions{DestURL: strings.TrimSpace(input.DestURL)})
+	if err != nil {
+		return err
+	}
+	output.Encoded = encodedURI
+	if input.IncludeData {
+		output.Base64 = base64.StdEncoding.EncodeToString(encoded.Bytes)
+	}
 	return nil
 }
 

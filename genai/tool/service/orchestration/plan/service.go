@@ -56,11 +56,6 @@ func (s *Service) Methods() svc.Signatures {
 		Description: description,
 		Input:       reflect.TypeOf(&UpdatePlanInput{}),
 		Output:      reflect.TypeOf(&UpdatePlanOutput{}),
-	}, {
-		Name:        "status",
-		Description: "Returns the latest plan for the current conversation (if any)",
-		Input:       reflect.TypeOf(&EmptyInput{}),
-		Output:      reflect.TypeOf(&UpdatePlanOutput{}),
 	}}
 }
 

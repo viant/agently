@@ -36,8 +36,9 @@ import (
 // ServeCmd starts the embedded HTTP server.
 // Usage: agently serve --addr :8080
 type ServeCmd struct {
-	Addr   string `short:"a" long:"addr" description:"listen address" default:":8080"`
-	Policy string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
+	Addr      string `short:"a" long:"addr" description:"listen address" default:":8080"`
+	Policy    string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
+	ExposeMCP bool   `long:"expose-mcp" description:"Expose Agently tools over an MCP HTTP server (requires mcpServer.port and tool patterns in config)"`
 
 	// Unified log file capturing LLM, tool and task events. Defaults to
 	// "agently.log" in the current working directory when empty.
@@ -267,20 +268,22 @@ func (s *ServeCmd) Execute(_ []string) error {
 		mcpSrv   *http.Server
 		mcpErrCh chan error
 	)
-	if cfg := exec.Config(); cfg != nil && cfg.MCPServer != nil && cfg.MCPServer.Enabled() {
-		var err error
-		mcpSrv, err = mcpexpose.NewHTTPServer(context.Background(), exec, cfg.MCPServer)
-		if err != nil {
-			return fmt.Errorf("init mcp server: %w", err)
-		}
-		mcpErrCh = make(chan error, 1)
-		go func() {
-			log.Printf("Agently MCP server listening on %s", mcpSrv.Addr)
-			if err := mcpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				mcpErrCh <- err
+	if s.ExposeMCP {
+		if cfg := exec.Config(); cfg != nil && cfg.MCPServer != nil && cfg.MCPServer.Enabled() {
+			var err error
+			mcpSrv, err = mcpexpose.NewHTTPServer(context.Background(), exec, cfg.MCPServer)
+			if err != nil {
+				return fmt.Errorf("init mcp server: %w", err)
 			}
-			mcpErrCh <- nil
-		}()
+			mcpErrCh = make(chan error, 1)
+			go func() {
+				log.Printf("Agently MCP server listening on %s", mcpSrv.Addr)
+				if err := mcpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					mcpErrCh <- err
+				}
+				mcpErrCh <- nil
+			}()
+		}
 	}
 
 	// Wait for termination signal or server error.

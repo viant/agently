@@ -21,9 +21,9 @@ SELECT
     m.parent_message_id,
     m.superseded_by,
     m.linked_conversation_id,
-    m.attachment_payload_id,
-    m.elicitation_payload_id,
-    m.tool_name,
-    m.embedding_index
-FROM message m WHERE m.attachment_payload_id IS NULL
-    ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("AND")}
+	    m.attachment_payload_id,
+	    m.elicitation_payload_id,
+	    m.tool_name,
+	    m.embedding_index
+	FROM message m
+	    ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("AND")}

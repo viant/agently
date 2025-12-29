@@ -243,10 +243,16 @@ func TestService_ReadImage(t *testing.T) {
 
 	testCases := []testCase{
 		{
-			name: "reads and returns base64",
+			name: "reads and returns base64 when includeData",
 			input: &ReadImageInput{
-				RootURI: rootURI,
-				Path:    "img.png",
+				RootURI:     rootURI,
+				Path:        "img.png",
+				IncludeData: true,
+				MaxWidth:    256,
+				MaxHeight:   256,
+				MaxBytes:    1024 * 1024,
+				Format:      "png",
+				DestURL:     "",
 			},
 			expectErr: false,
 			assertFn: func(t *testing.T, out *ReadImageOutput, err error) {
@@ -254,11 +260,26 @@ func TestService_ReadImage(t *testing.T) {
 				assert.EqualValues(t, "img.png", out.Path)
 				assert.EqualValues(t, "img.png", out.Name)
 				assert.EqualValues(t, "image/png", out.MimeType)
+				assert.EqualValues(t, true, strings.HasPrefix(out.Encoded, "file://"))
 				assert.EqualValues(t, true, out.Width > 0)
 				assert.EqualValues(t, true, out.Height > 0)
 				raw, decErr := base64.StdEncoding.DecodeString(out.Base64)
 				assert.EqualValues(t, nil, decErr)
 				assert.EqualValues(t, out.Bytes, len(raw))
+			},
+		},
+		{
+			name: "reads without base64 by default",
+			input: &ReadImageInput{
+				RootURI: rootURI,
+				Path:    "img.png",
+			},
+			expectErr: false,
+			assertFn: func(t *testing.T, out *ReadImageOutput, err error) {
+				assert.EqualValues(t, nil, err)
+				assert.EqualValues(t, "", out.Base64)
+				assert.EqualValues(t, true, strings.HasPrefix(out.Encoded, "file://"))
+				assert.EqualValues(t, true, out.Bytes > 0)
 			},
 		},
 		{
@@ -288,11 +309,12 @@ func TestService_ReadImage(t *testing.T) {
 	}
 
 	// Ensure JSON marshaling uses the expected keys for tool pipeline decoding.
-	out := &ReadImageOutput{URI: "u", Path: "p", Name: "n", MimeType: "image/png", Width: 1, Height: 1, Bytes: 1, Base64: "AA=="}
+	out := &ReadImageOutput{URI: "u", Encoded: "file:///tmp/u.png", Path: "p", Name: "n", MimeType: "image/png", Width: 1, Height: 1, Bytes: 1, Base64: "AA=="}
 	data, err := json.Marshal(out)
 	require.NoError(t, err)
 	assert.EqualValues(t, true, strings.Contains(string(data), "\"dataBase64\""))
 	assert.EqualValues(t, true, strings.Contains(string(data), "\"mimeType\""))
+	assert.EqualValues(t, true, strings.Contains(string(data), "\"encodedURI\""))
 }
 
 func TestSelectSearchRoots_InvalidRootID(t *testing.T) {
