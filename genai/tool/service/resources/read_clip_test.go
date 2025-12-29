@@ -50,6 +50,29 @@ func TestService_Read_ClipVariants(t *testing.T) {
 		}
 	})
 
+	t.Run("head with maxBytes only (ClipHead)", func(t *testing.T) {
+		out := &ReadOutput{}
+		in := &ReadInput{RootURI: rootURI, Path: headTailName, MaxBytes: 1}
+		if err := svc.read(ctx, in, out); err != nil {
+			t.Fatalf("read error: %v", err)
+		}
+		assert.Equal(t, "a", out.Content)
+		assert.Equal(t, "head", out.ModeApplied)
+		if assert.NotNil(t, out.Continuation) {
+			assert.True(t, out.Continuation.HasMore)
+		}
+	})
+
+	t.Run("head with maxLines ignores maxBytes (ClipHead)", func(t *testing.T) {
+		out := &ReadOutput{}
+		in := &ReadInput{RootURI: rootURI, Path: headTailName, MaxBytes: 1, LineRange: textclip.LineRange{LineCount: 2}}
+		if err := svc.read(ctx, in, out); err != nil {
+			t.Fatalf("read error: %v", err)
+		}
+		assert.Equal(t, "a\nb", out.Content)
+		assert.Equal(t, "head", out.ModeApplied)
+	})
+
 	t.Run("tail with lineCount only (ClipTail)", func(t *testing.T) {
 		out := &ReadOutput{}
 		in := &ReadInput{RootURI: rootURI, Path: headTailName, Mode: "tail", LineRange: textclip.LineRange{LineCount: 2}}
@@ -61,6 +84,29 @@ func TestService_Read_ClipVariants(t *testing.T) {
 		if assert.NotNil(t, out.Continuation) {
 			assert.True(t, out.Continuation.HasMore)
 		}
+	})
+
+	t.Run("tail with maxBytes only (ClipTail)", func(t *testing.T) {
+		out := &ReadOutput{}
+		in := &ReadInput{RootURI: rootURI, Path: headTailName, Mode: "tail", MaxBytes: 1}
+		if err := svc.read(ctx, in, out); err != nil {
+			t.Fatalf("read error: %v", err)
+		}
+		assert.Equal(t, "d", out.Content)
+		assert.Equal(t, "tail", out.ModeApplied)
+		if assert.NotNil(t, out.Continuation) {
+			assert.True(t, out.Continuation.HasMore)
+		}
+	})
+
+	t.Run("tail with maxLines ignores maxBytes (ClipTail)", func(t *testing.T) {
+		out := &ReadOutput{}
+		in := &ReadInput{RootURI: rootURI, Path: headTailName, Mode: "tail", MaxBytes: 1, LineRange: textclip.LineRange{LineCount: 2}}
+		if err := svc.read(ctx, in, out); err != nil {
+			t.Fatalf("read error: %v", err)
+		}
+		assert.Equal(t, "c\nd", out.Content)
+		assert.Equal(t, "tail", out.ModeApplied)
 	})
 
 	t.Run("line range start+count (ClipLines)", func(t *testing.T) {

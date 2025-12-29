@@ -110,6 +110,8 @@ func TestService_Read_RangeVariants(t *testing.T) {
 			t.Fatalf("read returned error: %v", err)
 		}
 		assert.Nil(t, out.Continuation, "default limit should not set continuation")
-		assert.True(t, len(out.Content) > 0)
+		assert.Equal(t, 8192, out.Returned)
+		assert.Equal(t, len(largeContent)-8192, out.Remaining)
+		assert.Equal(t, largeContent[:8192], out.Content)
 	})
 }

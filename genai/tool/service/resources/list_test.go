@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	apiconv "github.com/viant/agently/client/conversation"
+	agmodel "github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/memory"
+	convmem "github.com/viant/agently/internal/service/conversation/memory"
 )
 
 func tempDirURL(t *testing.T) string {
@@ -29,6 +34,20 @@ func writeFile(t *testing.T, rootPath string, rel string, content string) string
 		t.Fatalf("write file: %v", err)
 	}
 	return full
+}
+
+type testAgentFinder struct {
+	agent *agmodel.Agent
+}
+
+func (f *testAgentFinder) Find(ctx context.Context, id string) (*agmodel.Agent, error) {
+	if f == nil || f.agent == nil {
+		return nil, errors.New("agent not configured")
+	}
+	if f.agent.ID != "" && f.agent.ID != id {
+		return nil, errors.New("agent not found")
+	}
+	return f.agent, nil
 }
 
 // TestList_ChildrenOnly (when no recursion) ensures list returns only direct children of the root
@@ -185,4 +204,132 @@ func TestList_RootID_Propagated(t *testing.T) {
 	if assert.Greater(t, len(out.Items), 0) {
 		assert.NotEmpty(t, out.Items[0].RootID)
 	}
+}
+
+func TestList_RootID_Include_PatternDepth(t *testing.T) {
+	ctx := context.Background()
+	rootURL := tempDirURL(t)
+	writeFile(t, rootURL, "foo.txt", "root")
+	writeFile(t, rootURL, "one/foo.txt", "one")
+	writeFile(t, rootURL, "one/two/foo.txt", "two")
+
+	svc := New(nil)
+
+	t.Run("include */foo.txt matches one-level only", func(t *testing.T) {
+		var out ListOutput
+		err := svc.list(ctx, &ListInput{RootID: rootURL, Recursive: true, Include: []string{"*/foo.txt"}}, &out)
+		assert.NoError(t, err)
+
+		paths := make([]string, 0, len(out.Items))
+		for _, it := range out.Items {
+			paths = append(paths, it.Path)
+			assert.Equal(t, rootURL, it.RootID)
+		}
+		assert.Equal(t, 1, out.Total)
+		assert.Contains(t, paths, filepath.ToSlash("one/foo.txt"))
+		assert.NotContains(t, paths, "foo.txt")
+		assert.NotContains(t, paths, filepath.ToSlash("one/two/foo.txt"))
+	})
+
+	t.Run("include **/foo.txt matches any depth", func(t *testing.T) {
+		var out ListOutput
+		err := svc.list(ctx, &ListInput{RootID: rootURL, Recursive: true, Include: []string{"**/foo.txt"}}, &out)
+		assert.NoError(t, err)
+
+		paths := make([]string, 0, len(out.Items))
+		for _, it := range out.Items {
+			paths = append(paths, it.Path)
+			assert.Equal(t, rootURL, it.RootID)
+		}
+		assert.Equal(t, 3, out.Total)
+		assert.Contains(t, paths, "foo.txt")
+		assert.Contains(t, paths, filepath.ToSlash("one/foo.txt"))
+		assert.Contains(t, paths, filepath.ToSlash("one/two/foo.txt"))
+	})
+}
+
+func TestList_RootID_Exclude_PatternDepth(t *testing.T) {
+	ctx := context.Background()
+	rootURL := tempDirURL(t)
+	writeFile(t, rootURL, "foo.txt", "root")
+	writeFile(t, rootURL, "one/foo.txt", "one")
+	writeFile(t, rootURL, "one/two/foo.txt", "two")
+
+	svc := New(nil)
+
+	t.Run("exclude */foo.txt removes one-level only", func(t *testing.T) {
+		var out ListOutput
+		err := svc.list(ctx, &ListInput{RootID: rootURL, Recursive: true, Exclude: []string{"*/foo.txt"}}, &out)
+		assert.NoError(t, err)
+
+		paths := make([]string, 0, len(out.Items))
+		for _, it := range out.Items {
+			paths = append(paths, it.Path)
+			assert.Equal(t, rootURL, it.RootID)
+		}
+		assert.Contains(t, paths, "foo.txt")
+		assert.NotContains(t, paths, filepath.ToSlash("one/foo.txt"))
+		assert.Contains(t, paths, filepath.ToSlash("one/two/foo.txt"))
+	})
+
+	t.Run("exclude **/foo.txt removes any depth", func(t *testing.T) {
+		var out ListOutput
+		err := svc.list(ctx, &ListInput{RootID: rootURL, Recursive: true, Exclude: []string{"**/foo.txt"}}, &out)
+		assert.NoError(t, err)
+
+		paths := make([]string, 0, len(out.Items))
+		for _, it := range out.Items {
+			paths = append(paths, it.Path)
+			assert.Equal(t, rootURL, it.RootID)
+		}
+		assert.Empty(t, paths)
+		assert.Equal(t, 0, out.Total)
+	})
+}
+
+func TestList_RootID_Local_Include_GlobStar(t *testing.T) {
+	rootURL := tempDirURL(t)
+	writeFile(t, rootURL, "foo.txt", "root")
+	writeFile(t, rootURL, "one/foo.txt", "one")
+	writeFile(t, rootURL, "one/two/foo.txt", "two")
+
+	agentID := "test-agent"
+	convClient := convmem.New()
+	conv := apiconv.NewConversation()
+	conv.SetId("conv-1")
+	conv.SetAgentId(agentID)
+	assert.NoError(t, convClient.PatchConversations(context.Background(), conv))
+
+	svc := New(nil,
+		WithConversationClient(convClient),
+		WithAgentFinder(&testAgentFinder{agent: &agmodel.Agent{
+			Identity: agmodel.Identity{ID: agentID},
+			Resources: []*agmodel.Resource{
+				{ID: "local", URI: rootURL, Role: "user"},
+			},
+		}}),
+	)
+
+	ctx := memory.WithConversationID(context.Background(), "conv-1")
+	var out ListOutput
+	err := svc.list(ctx, &ListInput{
+		RootID:    "local",
+		Recursive: true,
+		Include:   []string{"**/foo.txt"},
+		MaxItems:  50,
+		Path:      "",
+		Exclude:   nil,
+		RootURI:   "",
+	}, &out)
+	assert.NoError(t, err)
+
+	paths := make([]string, 0, len(out.Items))
+	for _, it := range out.Items {
+		paths = append(paths, it.Path)
+		assert.Equal(t, "local", it.RootID)
+	}
+	assert.Equal(t, 3, out.Total)
+	assert.Contains(t, paths, "foo.txt")
+	assert.Contains(t, paths, filepath.ToSlash("one/foo.txt"))
+	assert.Contains(t, paths, filepath.ToSlash("one/two/foo.txt"))
 }
