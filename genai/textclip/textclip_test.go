@@ -27,20 +27,9 @@ func TestClipHeadAndTail(t *testing.T) {
 			expect:   expected{content: "a\nb", returned: len("a\nb"), remaining: total - len("a\nb")},
 		},
 		{
-			name:     "head limits bytes",
-			maxBytes: 3,
-			expect:   expected{content: "a\nb", returned: len("a\nb"), remaining: total - len("a\nb")},
-		},
-		{
 			name:     "tail limits lines",
 			useTail:  true,
 			maxLines: 2,
-			expect:   expected{content: "c\nd", returned: len("c\nd"), remaining: total - len("c\nd")},
-		},
-		{
-			name:     "tail limits bytes",
-			useTail:  true,
-			maxBytes: 3,
 			expect:   expected{content: "c\nd", returned: len("c\nd"), remaining: total - len("c\nd")},
 		},
 	}
@@ -49,9 +38,9 @@ func TestClipHeadAndTail(t *testing.T) {
 			var gotText string
 			var returned, remaining int
 			if tc.useTail {
-				gotText, returned, remaining = ClipTail(text, total, tc.maxBytes, tc.maxLines)
+				gotText, returned, remaining = ClipTail(text, total, tc.maxLines)
 			} else {
-				gotText, returned, remaining = ClipHead(text, total, tc.maxBytes, tc.maxLines)
+				gotText, returned, remaining = ClipHead(text, total, tc.maxLines)
 			}
 			assert.EqualValues(t, tc.expect.content, gotText)
 			assert.EqualValues(t, tc.expect.returned, returned)
