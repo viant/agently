@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -156,21 +157,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 // loopControls captures continuation flags from Context.chain.loop
 func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *prompt.Attachment) error {
-	// 1) Create attachment message first (without payload)
-	messageID := uuid.New().String()
-	opts := []apiconv.MessageOption{
-		apiconv.WithId(messageID),
-		apiconv.WithRole("user"),
-		apiconv.WithType("control"),
-	}
-	if strings.TrimSpace(att.Name) != "" {
-		opts = append(opts, apiconv.WithContent(att.Name))
-	}
-	if _, err := apiconv.AddMessage(ctx, s.conversation, &turn, opts...); err != nil {
-		return fmt.Errorf("failed to persist attachment message: %w", err)
-	}
-
-	// 2) Create payload for attachment content
 	pid := uuid.New().String()
 	payload := apiconv.NewPayload()
 	payload.SetId(pid)
@@ -186,11 +172,28 @@ func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *
 		return fmt.Errorf("failed to persist attachment payload: %w", err)
 	}
 
-	link := apiconv.NewMessage()
-	link.SetId(messageID)
-	link.SetAttachmentPayloadID(pid)
-	if err := s.conversation.PatchMessage(ctx, link); err != nil {
-		return fmt.Errorf("failed to link attachment payload to message: %w", err)
+	parentMsgID := strings.TrimSpace(turn.ParentMessageID)
+	if parentMsgID == "" {
+		parentMsgID = strings.TrimSpace(turn.TurnID)
+	}
+
+	name := strings.TrimSpace(att.Name)
+	if name == "" && strings.TrimSpace(att.URI) != "" {
+		name = path.Base(strings.TrimSpace(att.URI))
+	}
+	if name == "" {
+		name = "(attachment)"
+	}
+
+	_, err := apiconv.AddMessage(ctx, s.conversation, &turn,
+		apiconv.WithRole("user"),
+		apiconv.WithType("control"),
+		apiconv.WithParentMessageID(parentMsgID),
+		apiconv.WithContent(name),
+		apiconv.WithAttachmentPayloadID(pid),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to persist attachment message: %w", err)
 	}
 	return nil
 }

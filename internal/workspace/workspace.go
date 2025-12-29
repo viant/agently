@@ -19,7 +19,9 @@ const (
 var (
 	// cachedRoot holds the resolved, absolute path to the workspace root.
 	cachedRoot string
-	initOnce   sync.Once
+	// defaultsMu guards defaultsByRoot so default bootstrapping runs once per root.
+	defaultsMu     sync.Mutex
+	defaultsByRoot = map[string]bool{}
 )
 
 // Predefined kinds.  Callers may still supply arbitrary sub-folder names when
@@ -49,6 +51,7 @@ func Root() string {
 		if env := os.Getenv(envKey); env != "" && abs(env) != cachedRoot {
 			cachedRoot = abs(env)
 			_ = os.MkdirAll(cachedRoot, 0755)
+			ensureDefaults(cachedRoot)
 			return cachedRoot
 		}
 		return cachedRoot
@@ -57,10 +60,7 @@ func Root() string {
 	if env := os.Getenv(envKey); env != "" {
 		cachedRoot = abs(env)
 		_ = os.MkdirAll(cachedRoot, 0755) // ensure root exists
-		// Do not auto-populate built-in defaults when a custom workspace root
-		// is explicitly supplied via $AGENTLY_WORKSPACE. This gives callers full
-		// control over the workspace content (e.g. unit tests expecting an
-		// empty repository).
+		ensureDefaults(cachedRoot)
 		return cachedRoot
 	}
 
@@ -75,7 +75,7 @@ func Root() string {
 	_ = os.MkdirAll(cachedRoot, 0755) // ensure root exists
 
 	// lazily create default resources once the root directory is ready
-	ensureDefaults()
+	ensureDefaults(cachedRoot)
 	return cachedRoot
 }
 
@@ -86,13 +86,29 @@ func Path(kind string) string {
 	return dir
 }
 
-// ensureDefaults writes baseline config/model/agent/workflow files to a fresh
-// workspace when they are missing.
-func ensureDefaults() {
-	initOnce.Do(func() {
-		afsSvc := afs.New()
-		EnsureDefault(afsSvc)
-	})
+// ensureDefaults writes baseline config/model/agent/workflow files to a workspace
+// when they are missing.
+//
+// It runs at most once per root. Set `AGENTLY_WORKSPACE_NO_DEFAULTS=1` to disable
+// default bootstrapping for a given process (useful for unit tests).
+func ensureDefaults(root string) {
+	if os.Getenv("AGENTLY_WORKSPACE_NO_DEFAULTS") != "" {
+		return
+	}
+	root = abs(root)
+	if root == "" {
+		return
+	}
+	defaultsMu.Lock()
+	if defaultsByRoot[root] {
+		defaultsMu.Unlock()
+		return
+	}
+	defaultsByRoot[root] = true
+	defaultsMu.Unlock()
+
+	afsSvc := afs.New()
+	EnsureDefault(afsSvc)
 }
 
 // abs converts p into an absolute, clean path. If an error occurs it returns p

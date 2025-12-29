@@ -234,23 +234,66 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		if msg.Role == llm.RoleTool && msg.ToolCallId != "" {
 			// As per Gemini doc, functionResponse must have role "user".
 			content.Role = "user"
-			if len(msg.Items) > 0 {
+			// Tool results may carry binary attachments (e.g. images). Gemini requires
+			// functionResponse payloads to be JSON objects; attachments must be sent
+			// as separate parts (inlineData/fileData), not embedded in the response object.
+			toolResponse := strings.TrimSpace(msg.Content)
+			if toolResponse == "" && len(msg.Items) > 0 {
 				for _, item := range msg.Items {
-					text := item.Data
+					if item.Type != llm.ContentTypeText {
+						continue
+					}
+					text := strings.TrimSpace(item.Data)
+					if text == "" {
+						text = strings.TrimSpace(item.Text)
+					}
+					if text != "" {
+						toolResponse = text
+						break
+					}
+				}
+			}
+			content.Parts = append(content.Parts, Part{
+				FunctionResponse: &FunctionResponse{
+					Name:     msg.Name,
+					Response: parseJSONOrString(toolResponse),
+				},
+			})
+			// Append binary image parts for vision.
+			for _, item := range msg.Items {
+				switch item.Type {
+				case llm.ContentTypeBinary:
+					if item.Data == "" {
+						continue
+					}
+					mimeType := strings.TrimSpace(item.MimeType)
+					if !strings.HasPrefix(strings.ToLower(mimeType), "image/") {
+						continue
+					}
 					content.Parts = append(content.Parts, Part{
-						FunctionResponse: &FunctionResponse{
-							Name:     msg.Name,
-							Response: parseJSONOrString(text),
+						InlineData: &InlineData{
+							MimeType: mimeType,
+							Data:     item.Data,
 						},
 					})
+				case llm.ContentTypeImage, llm.ContentTypeImageURL:
+					if item.Source != llm.SourceURL || strings.TrimSpace(item.Data) == "" {
+						continue
+					}
+					mimeType := strings.TrimSpace(item.MimeType)
+					if mimeType == "" {
+						ext := path.Ext(url.Path(item.Data))
+						mimeType = mime.TypeByExtension(ext)
+						if mimeType == "" {
+							mimeType = "image/jpeg"
+						}
+					}
+					imagePart, err := downloadImagePart(ctx, fs, item, mimeType)
+					if err != nil {
+						return nil, err
+					}
+					content.Parts = append(content.Parts, *imagePart)
 				}
-			} else if msg.Content != "" {
-				content.Parts = append(content.Parts, Part{
-					FunctionResponse: &FunctionResponse{
-						Name:     msg.Name,
-						Response: parseJSONOrString(msg.Content),
-					},
-				})
 			}
 			req.Contents = append(req.Contents, content)
 			continue

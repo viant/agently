@@ -190,6 +190,23 @@ func TestExecuteToolStep_PersistsReadImageAsAttachment(t *testing.T) {
 	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
 	require.NoError(t, err)
 
+	var sawToolResponse bool
+	for _, p := range conv.patchedPayloads {
+		if p == nil || p.Has == nil || !p.Has.Kind {
+			continue
+		}
+		if p.Kind != "tool_response" {
+			continue
+		}
+		sawToolResponse = true
+		if p.InlineBody != nil {
+			body := string(*p.InlineBody)
+			assert.EqualValues(t, false, strings.Contains(body, "AQID"))
+			assert.EqualValues(t, true, strings.Contains(body, "\"dataBase64Omitted\""))
+		}
+	}
+	assert.EqualValues(t, true, sawToolResponse)
+
 	var sawAttachmentPayload bool
 	for _, p := range conv.patchedPayloads {
 		if p == nil || p.Has == nil || !p.Has.Kind {

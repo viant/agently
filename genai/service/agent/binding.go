@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/afs"
 	"github.com/viant/afs/url"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
@@ -23,6 +24,7 @@ import (
 	"github.com/viant/agently/genai/service/core"
 	executil "github.com/viant/agently/genai/service/shared/executil"
 	"github.com/viant/agently/internal/workspace"
+	"github.com/viant/agently/internal/workspace/repository/toolplaybook"
 	mcpname "github.com/viant/agently/pkg/mcpname"
 
 	intmodel "github.com/viant/agently/internal/finder/model"
@@ -80,8 +82,8 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 
 		}
 	}
-	// Merge latest user elicitation payload (JSON object) into binding.Context
-	mergeElicitationPayloadIntoContext(b.History, &b.Context)
+	// Elicitation payload is merged into binding.Context later (after cloning input.Context)
+	// to avoid mutating caller-supplied maps and to keep a single authoritative merge point.
 	if histOverflow {
 		b.Flags.HasMessageOverflow = true
 	}
@@ -155,11 +157,150 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		return nil, err
 	}
 	s.appendTranscriptSystemDocs(conv.GetTranscript(), b)
+	if err := s.appendToolPlaybooks(ctx, b.Tools.Signatures, &b.SystemDocuments); err != nil {
+		return nil, err
+	}
 	// Normalize system doc URIs similarly (even if not rendered now)
 	s.normalizeDocURIs(&b.SystemDocuments, workspace.Root())
 	b.Context = input.Context
 
+	// Expose tool availability flags for templates (dynamic tool selection).
+	// Avoid mutating input.Context directly by working on a copy.
+	b.Context = cloneContextMap(b.Context)
+	mergeElicitationPayloadIntoContext(b.History, &b.Context)
+	applyToolContext(b.Context, b.Tools.Signatures)
+
 	return b, nil
+}
+
+func cloneContextMap(src map[string]interface{}) map[string]interface{} {
+	if len(src) == 0 {
+		return map[string]interface{}{}
+	}
+	dst := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func (s *Service) appendToolPlaybooks(ctx context.Context, defs []*llm.ToolDefinition, docs *prompt.Documents) error {
+	if docs == nil {
+		return nil
+	}
+	_, services := collectToolPresence(defs)
+	if !services["webdriver"] {
+		return nil
+	}
+	repo := toolplaybook.New(s.fs)
+	content, uri, err := repo.Load(ctx, "webdriver.md")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(content) == "" || strings.TrimSpace(uri) == "" {
+		return nil
+	}
+	if hasDocumentURI(docs.Items, uri) {
+		return nil
+	}
+	doc := &prompt.Document{
+		Title:       "tools/webdriver",
+		PageContent: strings.TrimSpace(content),
+		SourceURI:   uri,
+		Score:       1.0,
+		MimeType:    "text/markdown",
+		Metadata:    map[string]string{"kind": "tool_playbook", "tool": "webdriver"},
+	}
+	docs.Items = append(docs.Items, doc)
+	return nil
+}
+
+func hasDocumentURI(items []*prompt.Document, uri string) bool {
+	u := strings.TrimSpace(uri)
+	if u == "" || len(items) == 0 {
+		return false
+	}
+	for _, d := range items {
+		if d == nil {
+			continue
+		}
+		if strings.TrimSpace(d.SourceURI) == u {
+			return true
+		}
+	}
+	return false
+}
+
+func applyToolContext(ctx map[string]interface{}, defs []*llm.ToolDefinition) {
+	if ctx == nil {
+		return
+	}
+	toolsCtx := ensureToolsContextMap(ctx)
+	presentSet, serviceSet := collectToolPresence(defs)
+	present := make(map[string]interface{}, len(presentSet))
+	services := make(map[string]interface{}, len(serviceSet))
+	for k, v := range presentSet {
+		if v {
+			present[k] = true
+		}
+	}
+	for k, v := range serviceSet {
+		if v {
+			services[k] = true
+		}
+	}
+
+	toolsCtx["present"] = present
+	toolsCtx["services"] = services
+	toolsCtx["hasWebdriver"] = serviceSet["webdriver"]
+	toolsCtx["hasResources"] = serviceSet["resources"]
+}
+
+func collectToolPresence(defs []*llm.ToolDefinition) (map[string]bool, map[string]bool) {
+	present := map[string]bool{}
+	services := map[string]bool{}
+	for _, d := range defs {
+		if d == nil {
+			continue
+		}
+		raw := strings.TrimSpace(d.Name)
+		if raw == "" {
+			continue
+		}
+		name := mcpname.Canonical(raw)
+		if strings.TrimSpace(name) == "" {
+			name = raw
+		}
+		present[name] = true
+		svc := mcpname.Name(name).Service()
+		if strings.TrimSpace(svc) != "" {
+			services[svc] = true
+		}
+	}
+	return present, services
+}
+
+func ensureToolsContextMap(ctx map[string]interface{}) map[string]interface{} {
+	if ctx == nil {
+		return map[string]interface{}{}
+	}
+	if v, ok := ctx["tools"]; ok && v != nil {
+		if m, ok := v.(map[string]interface{}); ok {
+			return m
+		}
+		// Preserve existing "tools" key when not an object.
+		if v2, ok := ctx["agentlyTools"]; ok && v2 != nil {
+			if m, ok := v2.(map[string]interface{}); ok {
+				return m
+			}
+		}
+		m := map[string]interface{}{}
+		ctx["agentlyTools"] = m
+		return m
+	}
+	m := map[string]interface{}{}
+	ctx["tools"] = m
+	return m
 }
 
 func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
@@ -965,6 +1106,14 @@ func (s *Service) buildChronologicalHistory(
 				continue
 			}
 
+			// Attachment carrier messages are persisted as non-text control
+			// messages and must still be considered for history so we can merge
+			// their binaries into the correct parent prompt message.
+			if isAttachmentCarrier(m) {
+				normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: m})
+				continue
+			}
+
 			if m.Content == nil || *m.Content == "" {
 				continue
 			}
@@ -1061,6 +1210,11 @@ func (s *Service) buildChronologicalHistory(
 	maxOverflowBytes := 0
 	turns := make([]*prompt.Turn, len(transcript))
 	totalTurns := len(transcript)
+	lastUserByTurn := map[string]*prompt.Message{}
+	pendingUserAttachmentsByTurn := map[string][]*prompt.Attachment{}
+	promptByMessageID := map[string]*prompt.Message{}
+	pendingAttachmentsByMessageID := map[string][]*prompt.Attachment{}
+	payloadAttachmentCache := map[string]*prompt.Attachment{}
 
 	// Second pass: map normalized messages into prompt turns with optional preview.
 	for _, item := range normalized {
@@ -1087,33 +1241,9 @@ func (s *Service) buildChronologicalHistory(
 			}
 		}
 
-		// Preserve attachments as in transcript.History
-		var attachments []*prompt.Attachment
-		if msg.Attachment != nil && len(msg.Attachment) > 0 {
-			for _, av := range msg.Attachment {
-				if av == nil {
-					continue
-				}
-				var data []byte
-				if av.InlineBody != nil {
-					data = []byte(*av.InlineBody)
-				}
-				name := ""
-				if av.Uri != nil && *av.Uri != "" {
-					name = path.Base(*av.Uri)
-				}
-				attachments = append(attachments, &prompt.Attachment{
-					Name: name,
-					URI: func() string {
-						if av.Uri != nil {
-							return *av.Uri
-						}
-						return ""
-					}(),
-					Mime: av.MimeType,
-					Data: data,
-				})
-			}
+		attachments, err := s.attachmentsFromMessage(ctx, msg, payloadAttachmentCache)
+		if err != nil {
+			return out, elicitation, overflow, maxOverflowBytes, err
 		}
 
 		turnIdx := item.turnIdx
@@ -1121,6 +1251,46 @@ func (s *Service) buildChronologicalHistory(
 		if pt == nil {
 			pt = &prompt.Turn{ID: transcript[turnIdx].Id}
 			turns[turnIdx] = pt
+		}
+
+		// Attachments are persisted as *control* child messages (QueryInput
+		// attachments and tool-produced images). LLM providers need multimodal
+		// content on user/system/assistant messages, so we merge carrier
+		// attachments into the referenced parent message instead of emitting the
+		// carrier itself.
+		if isAttachmentCarrier(msg) && len(attachments) > 0 {
+			parentID := ""
+			if msg.ParentMessageId != nil {
+				parentID = strings.TrimSpace(*msg.ParentMessageId)
+			}
+			if parentID != "" {
+				if parent := promptByMessageID[parentID]; parent != nil {
+					parent.Attachment = append(parent.Attachment, attachments...)
+					debugAttachmentf("merged %d attachment(s) from carrier=%s into parent=%s", len(attachments), strings.TrimSpace(msg.Id), parentID)
+				} else {
+					pendingAttachmentsByMessageID[parentID] = append(pendingAttachmentsByMessageID[parentID], attachments...)
+					debugAttachmentf("queued %d attachment(s) from carrier=%s for parent=%s", len(attachments), strings.TrimSpace(msg.Id), parentID)
+				}
+				continue
+			}
+
+			turnID := strings.TrimSpace(pt.ID)
+			if turnID != "" {
+				if last := lastUserByTurn[turnID]; last != nil {
+					last.Attachment = append(last.Attachment, attachments...)
+					debugAttachmentf("merged %d attachment(s) from carrier=%s into last user message=%s (turn=%s)", len(attachments), strings.TrimSpace(msg.Id), strings.TrimSpace(last.ID), turnID)
+					continue
+				}
+				pendingUserAttachmentsByTurn[turnID] = append(pendingUserAttachmentsByTurn[turnID], attachments...)
+				debugAttachmentf("queued %d attachment(s) from carrier=%s for turn=%s", len(attachments), strings.TrimSpace(msg.Id), turnID)
+				continue
+			}
+			// Fallback: if turn id is missing, append to task-scoped attachments
+			// so the binaries still reach the model with the user prompt.
+			if input != nil {
+				input.Attachments = append(input.Attachments, attachments...)
+			}
+			continue
 		}
 
 		pmsgRole := role
@@ -1137,6 +1307,14 @@ func (s *Service) buildChronologicalHistory(
 			Attachment: attachments,
 			CreatedAt:  msg.CreatedAt,
 			ID:         msg.Id,
+		}
+		msgID := strings.TrimSpace(msg.Id)
+		if msgID != "" {
+			promptByMessageID[msgID] = pmsg
+			if pending := pendingAttachmentsByMessageID[msgID]; len(pending) > 0 {
+				pmsg.Attachment = append(pmsg.Attachment, pending...)
+				delete(pendingAttachmentsByMessageID, msgID)
+			}
 		}
 
 		// Classify message kind and, when applicable, attach tool metadata.
@@ -1172,6 +1350,19 @@ func (s *Service) buildChronologicalHistory(
 			pt.StartedAt = msg.CreatedAt
 		}
 
+		// Track the last user message per turn so deferred tool attachments
+		// can be applied once a user message exists.
+		if strings.EqualFold(strings.TrimSpace(pmsg.Role), "user") {
+			turnID := strings.TrimSpace(pt.ID)
+			if turnID != "" {
+				lastUserByTurn[turnID] = pmsg
+				if pending := pendingUserAttachmentsByTurn[turnID]; len(pending) > 0 {
+					pmsg.Attachment = append(pmsg.Attachment, pending...)
+					delete(pendingUserAttachmentsByTurn, turnID)
+				}
+			}
+		}
+
 		// Archive error messages once processed when applyPreview is enabled.
 		if applyPreview && msg.Status != nil && strings.EqualFold(strings.TrimSpace(*msg.Status), "error") {
 			if !msg.IsArchived() {
@@ -1184,6 +1375,24 @@ func (s *Service) buildChronologicalHistory(
 					}
 				}
 			}
+		}
+	}
+
+	// If a turn had only control attachment messages (no parent message present
+	// due to filtering), fall back to task-scoped attachments so they still
+	// reach the model.
+	if input != nil {
+		for _, pending := range pendingUserAttachmentsByTurn {
+			if len(pending) == 0 {
+				continue
+			}
+			input.Attachments = append(input.Attachments, pending...)
+		}
+		for _, pending := range pendingAttachmentsByMessageID {
+			if len(pending) == 0 {
+				continue
+			}
+			input.Attachments = append(input.Attachments, pending...)
 		}
 	}
 
@@ -1203,6 +1412,132 @@ func (s *Service) buildChronologicalHistory(
 	}
 
 	return out, elicitation, overflow, maxOverflowBytes, nil
+}
+
+func isAttachmentCarrier(msg *apiconv.Message) bool {
+	if msg == nil {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(msg.Type), "control") {
+		return false
+	}
+	// Real tool op/result messages carry ToolCall; attachment carriers do not.
+	if msg.ToolCall != nil {
+		return false
+	}
+	if msg.AttachmentPayloadId != nil && strings.TrimSpace(*msg.AttachmentPayloadId) != "" {
+		return true
+	}
+	return msg.Attachment != nil && len(msg.Attachment) > 0
+}
+
+func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Message, cache map[string]*prompt.Attachment) ([]*prompt.Attachment, error) {
+	if msg == nil {
+		return nil, nil
+	}
+	attachments := attachmentsFromMessageView(msg)
+
+	if msg.AttachmentPayloadId == nil || strings.TrimSpace(*msg.AttachmentPayloadId) == "" {
+		return attachments, nil
+	}
+	if s.conversation == nil {
+		return nil, fmt.Errorf("conversation API not configured")
+	}
+	payloadID := strings.TrimSpace(*msg.AttachmentPayloadId)
+
+	if cache != nil {
+		if cached, ok := cache[payloadID]; ok && cached != nil {
+			return append(attachments, cached), nil
+		}
+	}
+
+	payload, err := s.conversation.GetPayload(ctx, payloadID)
+	if err != nil {
+		return nil, fmt.Errorf("get attachment payload %q: %w", payloadID, err)
+	}
+	if payload == nil {
+		return nil, fmt.Errorf("get attachment payload %q: not found", payloadID)
+	}
+	var data []byte
+	if payload.InlineBody != nil && len(*payload.InlineBody) > 0 {
+		data = make([]byte, len(*payload.InlineBody))
+		copy(data, *payload.InlineBody)
+	} else if payload.URI != nil && strings.TrimSpace(*payload.URI) != "" {
+		downloaded, err := afs.New().DownloadWithURL(ctx, strings.TrimSpace(*payload.URI))
+		if err != nil {
+			return nil, fmt.Errorf("download attachment payload uri %q: %w", strings.TrimSpace(*payload.URI), err)
+		}
+		data = downloaded
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("attachment payload %q has no data", payloadID)
+	}
+
+	name := ""
+	if msg.Content != nil {
+		name = strings.TrimSpace(*msg.Content)
+	}
+	if name == "" {
+		name = "(attachment)"
+	}
+	uri := ""
+	if payload.URI != nil {
+		uri = strings.TrimSpace(*payload.URI)
+	}
+	mimeType := strings.TrimSpace(payload.MimeType)
+	att := &prompt.Attachment{
+		Name: name,
+		URI:  uri,
+		Mime: mimeType,
+		Data: data,
+	}
+	debugAttachmentf("loaded attachment payload=%s bytes=%d mime=%s name=%s", payloadID, len(data), mimeType, name)
+	if cache != nil {
+		cache[payloadID] = att
+	}
+	attachments = append(attachments, att)
+	return attachments, nil
+}
+
+func attachmentsFromMessageView(msg *apiconv.Message) []*prompt.Attachment {
+	if msg == nil || msg.Attachment == nil || len(msg.Attachment) == 0 {
+		return nil
+	}
+	defaultName := ""
+	if msg.Content != nil {
+		defaultName = strings.TrimSpace(*msg.Content)
+	}
+	var attachments []*prompt.Attachment
+	for _, av := range msg.Attachment {
+		if av == nil {
+			continue
+		}
+		var data []byte
+		if av.InlineBody != nil && len(*av.InlineBody) > 0 {
+			data = append([]byte(nil), (*av.InlineBody)...)
+		} else {
+			// Skip attachment views that don't carry bytes. For prompt construction
+			// we rely on attachment carrier messages (AttachmentPayloadId) to fetch
+			// the binary payload, avoiding large blobs in transcript payloads.
+			continue
+		}
+		uri := ""
+		if av.Uri != nil {
+			uri = strings.TrimSpace(*av.Uri)
+		}
+		name := defaultName
+		if name == "" && uri != "" {
+			name = path.Base(uri)
+		}
+		mimeType := strings.TrimSpace(av.MimeType)
+		attachments = append(attachments, &prompt.Attachment{
+			Name: name,
+			URI:  uri,
+			Mime: mimeType,
+			Data: data,
+		})
+	}
+	return attachments
 }
 
 // appendCurrentMessages appends messages to History.Current ensuring

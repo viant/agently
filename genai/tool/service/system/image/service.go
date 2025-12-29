@@ -30,23 +30,31 @@ type ReadImageInput struct {
 	MaxHeight int    `json:"maxHeight,omitempty"`
 	MaxBytes  int    `json:"maxBytes,omitempty"`
 	Format    string `json:"format,omitempty"`
+
+	// IncludeData controls whether dataBase64 is returned in the tool response.
+	// When false (default), the tool writes the encoded image to EncodedURI and
+	// omits dataBase64 to keep tool output small.
+	IncludeData bool `json:"includeData,omitempty"`
+	// DestURL optionally specifies where to write the encoded image (file://...).
+	DestURL string `json:"destURL,omitempty"`
 }
 
 type ReadImageOutput struct {
 	URI      string `json:"uri"`
+	Encoded  string `json:"encodedURI,omitempty"`
 	Path     string `json:"path"`
 	Name     string `json:"name,omitempty"`
 	MimeType string `json:"mimeType"`
 	Width    int    `json:"width"`
 	Height   int    `json:"height"`
 	Bytes    int    `json:"bytes"`
-	Base64   string `json:"dataBase64"`
+	Base64   string `json:"dataBase64,omitempty"`
 }
 
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{{
 		Name:        "readImage",
-		Description: "Read an image from a local path/uri and return a base64 payload suitable for vision inputs. Defaults to resizing to fit 2048x768.",
+		Description: "Read an image from a local path/uri and return an encoded image suitable for vision inputs. Defaults to resizing to fit 2048x768. By default it writes the encoded image to encodedURI and omits dataBase64 to keep tool output small; set includeData=true to return base64.",
 		Input:       reflect.TypeOf(&ReadImageInput{}),
 		Output:      reflect.TypeOf(&ReadImageOutput{}),
 	}}
@@ -98,7 +106,14 @@ func (s *Service) readImage(ctx context.Context, in, out interface{}) error {
 	output.Width = encoded.Width
 	output.Height = encoded.Height
 	output.Bytes = len(encoded.Bytes)
-	output.Base64 = base64.StdEncoding.EncodeToString(encoded.Bytes)
+	encodedURI, err := imageio.StoreEncodedImage(ctx, encoded, imageio.StoreOptions{DestURL: strings.TrimSpace(input.DestURL)})
+	if err != nil {
+		return err
+	}
+	output.Encoded = encodedURI
+	if input.IncludeData {
+		output.Base64 = base64.StdEncoding.EncodeToString(encoded.Bytes)
+	}
 	return nil
 }
 

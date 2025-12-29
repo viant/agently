@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
-	"fmt"
+	"log"
 	"path/filepath"
 
 	"github.com/viant/afs"
@@ -25,6 +25,8 @@ func EnsureDefault(fs afs.Service) {
 		src  string // path inside embed FS default/
 	}{
 		{"config.yaml", "default/config.yaml"},
+
+		{filepath.Join(KindTool, "webdriver.md"), "default/tools/webdriver.md"},
 
 		{filepath.Join(KindFeeds, "changes.yaml"), "default/feeds/changes.yaml"},
 		{filepath.Join(KindFeeds, "plan.yaml"), "default/feeds/plan.yaml"},
@@ -76,11 +78,6 @@ func EnsureDefault(fs afs.Service) {
 	}
 
 	baseURL := url.Normalize(Root(), file.Scheme)
-	absPath := url.Join(baseURL, entries[0].path)
-	if ok, _ := fs.Exists(ctx, absPath); ok {
-		//config already exists skipping default workspace creation
-		return
-	}
 	for _, e := range entries {
 		absPath := url.Join(baseURL, e.path)
 		// Skip if already present
@@ -90,9 +87,11 @@ func EnsureDefault(fs afs.Service) {
 
 		data, err := fs.DownloadWithURL(ctx, url.Join("embed://localhost/", e.src), &defaultsFS)
 		if err != nil {
-			fmt.Printf("failed to download %v: %v\n", e.src, err)
+			log.Printf("[workspace] failed to download %v: %v", e.src, err)
 			continue
 		}
-		_ = fs.Upload(ctx, absPath, file.DefaultFileOsMode, bytes.NewReader(data))
+		if err := fs.Upload(ctx, absPath, file.DefaultFileOsMode, bytes.NewReader(data)); err != nil {
+			log.Printf("[workspace] failed to upload %v to %v: %v", e.src, absPath, err)
+		}
 	}
 }
