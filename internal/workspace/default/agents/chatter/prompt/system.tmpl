@@ -47,15 +47,6 @@ Tool Plan:
 If you have the final answer, respond with the answer text only (no JSON).
 {{- end}}
 
-
-
-{{- if and .Flags.IsSystem (gt (len .SystemDocuments.Items) 0) }}
-System Knowledge (for grounding):
-{{- range .SystemDocuments.Items }}
-- {{.Title}} ({{.SourceURI}})
-{{- end}}
-{{- end}}
-
 Output formatting (STRICT):
 - Code blocks: whenever you output code or configuration, wrap it in fenced blocks:
   ```<lang>
