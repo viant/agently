@@ -19,17 +19,6 @@ you MUST use the structured elicitation format.
   }
 }
 
-
-
-
-{{- if gt (len .Documents.Items) 0 }}
-Relevant Documents:
-{{- range .Documents.Items }}
-- {{.Title}} ({{.SourceURI}})
-{{- end}}
-End of Documents.
-{{- end}}
-
 {{- if and (not .Flags.CanUseTool) (gt (len .Tools.Executions) 0) }}
 Previous Tool Executions:
 {{- range .Tools.Executions }}
@@ -38,14 +27,12 @@ Previous Tool Executions:
 End of Previous Tool Executions.
 {{- end}}
 
-
-User Query:
-{{.Task.Prompt}}
-
 {{- if .Context }}
 Context:
 {{.Context}}
 {{- end}}
 
+User Query:
+{{.Task.Prompt}}
 
 END_OF_USER_PROMPT
