@@ -12,7 +12,7 @@ require (
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.12.0
 	github.com/viant/datly v0.20.17
-	github.com/viant/embedius v0.2.10
+	github.com/viant/embedius v0.2.11-0.20251230224519-21dde124ce2a
 	github.com/viant/fluxor v0.4.3
 	github.com/viant/forge v0.2.16
 	github.com/viant/jsonrpc v0.16.2
