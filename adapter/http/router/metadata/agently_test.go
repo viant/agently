@@ -9,19 +9,23 @@ import (
 	execcfg "github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/llm"
 	modelprovider "github.com/viant/agently/genai/llm/provider"
+	toolbundle "github.com/viant/agently/genai/tool/bundle"
 	mcpcfg "github.com/viant/agently/internal/mcp/config"
 )
 
 func TestAggregate(t *testing.T) {
 	testCases := []struct {
-		name           string
-		cfg            *execsvc.Config
-		defs           []llm.ToolDefinition
-		wantAgents     []string
-		wantTools      []string
-		wantModels     []string
-		wantAgentTools map[string][]string
-		wantErr        bool
+		name            string
+		cfg             *execsvc.Config
+		defs            []llm.ToolDefinition
+		bundles         []*toolbundle.Bundle
+		wantAgents      []string
+		wantTools       []string
+		wantModels      []string
+		wantAgentTools  map[string][]string
+		wantBundles     []string
+		wantToolBundles map[string][]string
+		wantErr         bool
 	}{
 		{
 			name: "basic with names",
@@ -56,6 +60,31 @@ func TestAggregate(t *testing.T) {
 			wantAgentTools: map[string][]string{"Chat": {"workflow-run"}},
 		},
 		{
+			name: "bundles_and_tool_membership",
+			cfg: &execsvc.Config{
+				Default: execcfg.Defaults{Agent: "chat", Model: "gpt"},
+				Agent: &mcpcfg.Group[*agent.Agent]{
+					Items: []*agent.Agent{{
+						Identity: agent.Identity{ID: "chat", Name: "Chat"},
+						Tool:     agent.Tool{Bundles: []string{"resources"}},
+					}},
+				},
+			},
+			defs: []llm.ToolDefinition{
+				{Name: "resources:read"},
+				{Name: "resources:list"},
+				{Name: "resources:matchDocuments"},
+			},
+			bundles: []*toolbundle.Bundle{
+				{ID: "resources", Match: []toolbundle.MatchRule{{Name: "resources/*", Exclude: []string{"resources:matchDocuments"}}}},
+			},
+			wantAgents:      []string{"chat"},
+			wantTools:       []string{"resources:list", "resources:matchDocuments", "resources:read"},
+			wantBundles:     []string{"resources"},
+			wantAgentTools:  map[string][]string{"chat": {"resources:list", "resources:read"}},
+			wantToolBundles: map[string][]string{"resources:list": {"resources"}, "resources:read": {"resources"}},
+		},
+		{
 			name: "fallback to ID and embedder default",
 			cfg: &execsvc.Config{
 				Default: execcfg.Defaults{Agent: "agentA", Model: "m1", Embedder: "e1"},
@@ -80,7 +109,7 @@ func TestAggregate(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		got, err := Aggregate(tc.cfg, tc.defs)
+		got, err := Aggregate(tc.cfg, tc.defs, tc.bundles)
 		if tc.wantErr {
 			assert.Error(t, err, tc.name)
 			continue
@@ -108,6 +137,23 @@ func TestAggregate(t *testing.T) {
 				}
 			}
 			assert.EqualValues(t, tc.wantAgentTools, actualAgentTools, tc.name)
+		}
+		if len(tc.wantBundles) > 0 {
+			var gotBundleIDs []string
+			for _, b := range got.ToolBundles {
+				gotBundleIDs = append(gotBundleIDs, b.ID)
+			}
+			assert.EqualValues(t, tc.wantBundles, gotBundleIDs, tc.name)
+		}
+		if len(tc.wantToolBundles) > 0 {
+			actual := map[string][]string{}
+			for toolName, info := range got.ToolInfo {
+				if info == nil || len(info.Bundles) == 0 {
+					continue
+				}
+				actual[toolName] = info.Bundles
+			}
+			assert.EqualValues(t, tc.wantToolBundles, actual, tc.name)
 		}
 	}
 }

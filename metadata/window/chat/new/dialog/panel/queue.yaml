@@ -1,0 +1,11 @@
+layout:
+  orientation: horizontal
+  columns: 1
+  gap: 2
+
+containers:
+  - id: queueTable
+    title: Queued
+    dataSourceRef: queueTurns
+    table: $import('../table/queue.yaml')
+

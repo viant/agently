@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,10 +38,12 @@ import (
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	msgwrite "github.com/viant/agently/pkg/agently/message/write"
 	toolfeed "github.com/viant/agently/pkg/agently/tool"
+	turnread "github.com/viant/agently/pkg/agently/turn/read"
 	oauthread "github.com/viant/agently/pkg/agently/user/oauth"
 	oauthwrite "github.com/viant/agently/pkg/agently/user/oauth/write"
 	mcpname "github.com/viant/agently/pkg/mcpname"
 	"github.com/viant/datly"
+	"github.com/viant/datly/repository/contract"
 	fservice "github.com/viant/forge/backend/service/file"
 )
 
@@ -65,6 +68,13 @@ type Service struct {
 	// Optional: user preferences loader
 	users *usersvc.Service
 	dao   *datly.Service
+
+	queueMu   sync.Mutex
+	queueByID map[string]*conversationQueue
+}
+
+type conversationQueue struct {
+	notify chan struct{}
 }
 
 //// API defines the minimal interface the HTTP layer depends on. It allows
@@ -416,38 +426,29 @@ func (s *Service) PreflightPost(ctx context.Context, conversationID string, req 
 // defaultLocation returns supplied if not empty (preserving explicit agent location).
 func defaultLocation(loc string) string { return strings.TrimSpace(loc) }
 
+const defaultMaxQueuedTurnsPerConversation = 20
+
 // Post accepts a user message and triggers asynchronous processing via manager.
 // Returns generated message ID that can be used to track status.
 func (s *Service) Post(ctx context.Context, conversationID string, req PostRequest) (string, error) {
-
 	if conversationID == "" {
 		return "", fmt.Errorf("conversationID is required")
 	}
+	if s == nil || s.convClient == nil {
+		return "", fmt.Errorf("chat service not configured: conversation client is nil")
+	}
 	msgID := uuid.New().String()
-	input := &agentpkg.QueryInput{
-		ConversationID: conversationID,
-		Query:          req.Content,
-		AgentID:        defaultLocation(req.Agent),
-		ModelOverride:  req.Model,
-		ToolsAllowed:   req.Tools,
-		AllowedChains:  req.AllowedChains,
-		AutoSummarize:  req.AutoSummarize,
-		Context:        req.Context,
-		MessageID:      msgID,
-	}
-
-	// Apply optional overrides from request
-	if req.ToolCallExposure != nil {
-		input.ToolCallExposure = req.ToolCallExposure
-	}
-	if req.AutoSummarize != nil {
-		input.AutoSummarize = req.AutoSummarize
-	}
-	if len(req.AllowedChains) > 0 {
-		input.AllowedChains = append([]string(nil), req.AllowedChains...)
-	}
-	if req.DisableChains {
-		input.DisableChains = true
+	queued := queuedRequest{
+		Agent:            defaultLocation(req.Agent),
+		Model:            req.Model,
+		Tools:            append([]string(nil), req.Tools...),
+		Context:          req.Context,
+		EffectiveUserID:  strings.TrimSpace(authctx.EffectiveUserID(ctx)),
+		ToolCallExposure: req.ToolCallExposure,
+		AutoSummarize:    req.AutoSummarize,
+		DisableChains:    req.DisableChains,
+		AllowedChains:    append([]string(nil), req.AllowedChains...),
+		Attachments:      append([]UploadedAttachment(nil), req.Attachments...),
 	}
 
 	// Apply user preferences for default agent/model when not provided and when available
@@ -456,85 +457,343 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		uname := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 		if uname != "" {
 			if u, err := s.users.FindByUsername(ctx, uname); err == nil && u != nil {
-				if strings.TrimSpace(input.AgentID) == "" && u.DefaultAgentRef != nil && strings.TrimSpace(*u.DefaultAgentRef) != "" {
-					input.AgentID = strings.TrimSpace(*u.DefaultAgentRef)
+				if strings.TrimSpace(queued.Agent) == "" && u.DefaultAgentRef != nil && strings.TrimSpace(*u.DefaultAgentRef) != "" {
+					queued.Agent = strings.TrimSpace(*u.DefaultAgentRef)
 				}
-				if strings.TrimSpace(input.ModelOverride) == "" && u.DefaultModelRef != nil && strings.TrimSpace(*u.DefaultModelRef) != "" {
-					input.ModelOverride = strings.TrimSpace(*u.DefaultModelRef)
+				if strings.TrimSpace(queued.Model) == "" && u.DefaultModelRef != nil && strings.TrimSpace(*u.DefaultModelRef) != "" {
+					queued.Model = strings.TrimSpace(*u.DefaultModelRef)
 				}
 			}
 		}
 	}
 
-	// Launch asynchronous processing to avoid blocking HTTP caller.
-	go func(parent context.Context) {
-		// Detach from HTTP cancellation but preserve auth and policies.
-		base := context.Background()
-		// Preserve auth bearer and user info if present
-		if ui := authctx.User(parent); ui != nil {
-			base = authctx.WithUserInfo(base, ui)
-		}
-		if tok := authctx.Bearer(parent); tok != "" {
-			base = authctx.WithBearer(base, tok)
-		}
-		runCtx, cancel := context.WithCancel(base)
-		if s.reg != nil {
-			s.reg.Register(conversationID, msgID, cancel)
-			defer s.reg.Complete(conversationID, msgID, cancel)
-		} else {
-			defer cancel()
-		}
-		// Convert staged uploads into attachments (read + cleanup)
-		err := s.enrichAttachmentIfNeeded(req, runCtx, input)
-		if err == nil {
-			// Propagate conversation ID and policies
-			runCtx = memory.WithConversationID(runCtx, conversationID)
-			if s.toolPolicy != nil {
-				runCtx = tool.WithPolicy(runCtx, s.toolPolicy)
-			} else {
-				runCtx = tool.WithPolicy(runCtx, &tool.Policy{Mode: tool.ModeAuto})
-			}
-			if pol := tool.FromContext(parent); pol != nil {
-				runCtx = tool.WithPolicy(runCtx, pol)
-			}
-			// Populate userId for attribution when missing, using auth context
-			if strings.TrimSpace(input.UserId) == "" {
-				if ui := authctx.User(runCtx); ui != nil {
-					user := strings.TrimSpace(ui.Subject)
-					if user == "" {
-						user = strings.TrimSpace(ui.Email)
-					}
-					if user != "" {
-						input.UserId = user
-					}
-				}
-				if strings.TrimSpace(input.UserId) == "" {
-					input.UserId = "anonymous"
-				}
-			}
-			// Execute agentic flow; turn/message persistence handled by agent recorder.
-			_, err = s.mgr.Accept(runCtx, input)
-		}
-
-		if err != nil {
-			fmt.Println("[ERROR]", err)
-			if s.convClient != nil {
-				tUpd := apiconv.NewTurn()
-				tUpd.SetId(msgID)
-				if errors.Is(err, context.Canceled) {
-					// Persist canceled using background context; avoid writing with canceled ctx
-					tUpd.SetStatus("canceled")
-					_ = s.convClient.PatchTurn(context.Background(), tUpd)
-				} else {
-					tUpd.SetStatus("failed")
-					tUpd.SetErrorMessage(err.Error())
-					_ = s.convClient.PatchTurn(runCtx, tUpd)
-				}
-			}
-		}
-	}(ctx)
+	if err := s.ensureQueueHasCapacity(ctx, conversationID); err != nil {
+		return "", err
+	}
+	if err := s.persistQueuedTurn(ctx, conversationID, msgID, queued, req.Content); err != nil {
+		return "", err
+	}
+	s.triggerQueue(conversationID)
 
 	return msgID, nil
+}
+
+type queuedRequest struct {
+	Agent            string                  `json:"agent,omitempty"`
+	Model            string                  `json:"model,omitempty"`
+	Tools            []string                `json:"tools,omitempty"`
+	Context          map[string]interface{}  `json:"context,omitempty"`
+	EffectiveUserID  string                  `json:"effectiveUserId,omitempty"`
+	ToolCallExposure *agent.ToolCallExposure `json:"toolCallExposure,omitempty"`
+	AutoSummarize    *bool                   `json:"autoSummarize,omitempty"`
+	DisableChains    bool                    `json:"disableChains,omitempty"`
+	AllowedChains    []string                `json:"allowedChains,omitempty"`
+	Attachments      []UploadedAttachment    `json:"attachments,omitempty"`
+}
+
+const queuedRequestTagPrefix = "agently:queued_request:"
+
+func (s *Service) ensureQueueHasCapacity(ctx context.Context, conversationID string) error {
+	if s == nil || s.dao == nil {
+		return fmt.Errorf("chat service not configured: datly service is nil")
+	}
+	if strings.TrimSpace(conversationID) == "" {
+		return fmt.Errorf("conversationID is required")
+	}
+	in := &turnread.QueuedCountInput{
+		ConversationID: conversationID,
+		Has:            &turnread.QueuedCountInputHas{ConversationID: true},
+	}
+	out := &turnread.QueuedCountOutput{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath("GET", turnread.QueuedCountPathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return err
+	}
+	queued := 0
+	if len(out.Data) > 0 && out.Data[0] != nil {
+		queued = out.Data[0].QueuedCount
+	}
+	if queued >= defaultMaxQueuedTurnsPerConversation {
+		return fmt.Errorf("queue is full: %d queued turns (max %d)", queued, defaultMaxQueuedTurnsPerConversation)
+	}
+	return nil
+}
+
+func (s *Service) persistQueuedTurn(ctx context.Context, conversationID, turnID string, queued queuedRequest, content string) error {
+	queueSeq := time.Now().UnixNano()
+	turn := apiconv.NewTurn()
+	turn.SetId(turnID)
+	turn.SetConversationID(conversationID)
+	turn.SetQueueSeq(queueSeq)
+	turn.SetStatus("queued")
+	turn.SetStartedByMessageID(turnID)
+	if strings.TrimSpace(queued.Agent) != "" {
+		turn.SetAgentIDUsed(strings.TrimSpace(queued.Agent))
+	}
+	if strings.TrimSpace(queued.Model) != "" {
+		turn.SetModelOverride(strings.TrimSpace(queued.Model))
+	}
+	if err := s.convClient.PatchTurn(ctx, turn); err != nil {
+		return err
+	}
+
+	raw, err := json.Marshal(queued)
+	if err != nil {
+		return err
+	}
+
+	msg := apiconv.NewMessage()
+	msg.SetId(turnID)
+	msg.SetConversationID(conversationID)
+	msg.SetTurnID(turnID)
+	msg.SetRole("user")
+	msg.SetType("text")
+	msg.SetContent(content)
+	msg.SetTags(queuedRequestTagPrefix + string(raw))
+	msg.SetStatus("pending")
+	if uid := strings.TrimSpace(authctx.EffectiveUserID(ctx)); uid != "" {
+		msg.SetCreatedByUserID(uid)
+	}
+	return s.convClient.PatchMessage(ctx, msg)
+}
+
+func (s *Service) triggerQueue(conversationID string) {
+	if strings.TrimSpace(conversationID) == "" {
+		return
+	}
+	s.queueMu.Lock()
+	if s.queueByID == nil {
+		s.queueByID = map[string]*conversationQueue{}
+	}
+	q := s.queueByID[conversationID]
+	if q == nil {
+		q = &conversationQueue{notify: make(chan struct{}, 1)}
+		s.queueByID[conversationID] = q
+		go s.runQueue(conversationID, q.notify)
+	}
+	ch := q.notify
+	s.queueMu.Unlock()
+
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Service) runQueue(conversationID string, notify <-chan struct{}) {
+	for range notify {
+		for {
+			if s.mgr == nil || s.dao == nil {
+				return
+			}
+
+			blocked, reason, err := s.isConversationBlocked(context.Background(), conversationID)
+			if err != nil {
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+			if blocked {
+				// If the conversation is waiting for user input, do not auto-retry. A user action
+				// (elicitation resolution / new message) should re-trigger the queue.
+				if reason == "waiting_for_user" {
+					break
+				}
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+
+			nextID, err := s.nextQueuedTurnID(context.Background(), conversationID)
+			if err != nil {
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+			if nextID == "" {
+				break
+			}
+			_ = s.executeQueuedTurn(context.Background(), conversationID, nextID)
+		}
+	}
+}
+
+func (s *Service) isConversationBlocked(ctx context.Context, conversationID string) (bool, string, error) {
+	in := &turnread.ActiveTurnInput{ConversationID: conversationID, Has: &turnread.ActiveTurnInputHas{ConversationID: true}}
+	out := &turnread.ActiveTurnOutput{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath("GET", turnread.ActiveTurnPathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return false, "", err
+	}
+	if len(out.Data) == 0 || out.Data[0] == nil {
+		return false, "", nil
+	}
+	return true, strings.ToLower(strings.TrimSpace(out.Data[0].Status)), nil
+}
+
+func (s *Service) nextQueuedTurnID(ctx context.Context, conversationID string) (string, error) {
+	in := &turnread.NextQueuedInput{ConversationID: conversationID, Has: &turnread.NextQueuedInputHas{ConversationID: true}}
+	out := &turnread.NextQueuedOutput{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath("GET", turnread.NextQueuedPathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return "", err
+	}
+	if len(out.Data) == 0 || out.Data[0] == nil {
+		return "", nil
+	}
+	return out.Data[0].Id, nil
+}
+
+func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turnID string) error {
+	msg, err := s.convClient.GetMessage(parent, turnID)
+	if err != nil {
+		return s.persistTurnFailure(parent, turnID, err)
+	}
+	if msg == nil {
+		return s.persistTurnFailure(parent, turnID, fmt.Errorf("queued turn message not found: %s", turnID))
+	}
+
+	var meta queuedRequest
+	if payload, ok := queuedRequestPayload(msg); ok {
+		if uerr := json.Unmarshal([]byte(payload), &meta); uerr != nil {
+			return s.persistTurnFailure(parent, turnID, fmt.Errorf("decode queued request: %w", uerr))
+		}
+	}
+
+	input := &agentpkg.QueryInput{
+		ConversationID: conversationID,
+		Query: func() string {
+			if msg.Content != nil {
+				return *msg.Content
+			}
+			return ""
+		}(),
+		AgentID:          defaultLocation(meta.Agent),
+		ModelOverride:    meta.Model,
+		ToolsAllowed:     append([]string(nil), meta.Tools...),
+		Context:          meta.Context,
+		MessageID:        turnID,
+		ToolCallExposure: meta.ToolCallExposure,
+		AutoSummarize:    meta.AutoSummarize,
+		DisableChains:    meta.DisableChains,
+		AllowedChains:    append([]string(nil), meta.AllowedChains...),
+	}
+
+	// Detach from caller cancellation but preserve identity for per-user jars.
+	base := context.Background()
+	effectiveUserID := strings.TrimSpace(meta.EffectiveUserID)
+	if effectiveUserID == "" && msg.CreatedByUserId != nil {
+		effectiveUserID = strings.TrimSpace(*msg.CreatedByUserId)
+	}
+	if effectiveUserID != "" {
+		base = authctx.WithUserInfo(base, &authctx.UserInfo{Subject: effectiveUserID})
+	}
+
+	runCtx, cancel := context.WithCancel(base)
+	defer cancel()
+	if s.reg != nil {
+		s.reg.Register(conversationID, turnID, cancel)
+		defer s.reg.Complete(conversationID, turnID, cancel)
+	}
+
+	// Apply policy and conversation ID.
+	runCtx = memory.WithConversationID(runCtx, conversationID)
+	if s.toolPolicy != nil {
+		runCtx = tool.WithPolicy(runCtx, s.toolPolicy)
+	} else {
+		runCtx = tool.WithPolicy(runCtx, &tool.Policy{Mode: tool.ModeAuto})
+	}
+	if pol := tool.FromContext(parent); pol != nil {
+		runCtx = tool.WithPolicy(runCtx, pol)
+	}
+
+	// Populate userId for attribution when missing.
+	if strings.TrimSpace(input.UserId) == "" {
+		if ui := authctx.User(runCtx); ui != nil {
+			user := strings.TrimSpace(ui.Subject)
+			if user == "" {
+				user = strings.TrimSpace(ui.Email)
+			}
+			if user != "" {
+				input.UserId = user
+			}
+		}
+		if strings.TrimSpace(input.UserId) == "" {
+			input.UserId = "anonymous"
+		}
+	}
+
+	// Convert staged uploads into attachments (read + cleanup).
+	// Queueing assumes staged artifacts remain accessible until this turn runs.
+	if err := s.enrichAttachmentIfNeeded(PostRequest{Attachments: meta.Attachments}, runCtx, input); err != nil {
+		return err
+	}
+
+	out, err := s.mgr.Accept(runCtx, input)
+	if err != nil {
+		return s.persistTurnFailure(runCtx, turnID, err)
+	}
+	if out != nil && out.Elicitation != nil && !out.Elicitation.IsEmpty() {
+		upd := apiconv.NewTurn()
+		upd.SetId(turnID)
+		upd.SetStatus("waiting_for_user")
+		return s.convClient.PatchTurn(context.Background(), upd)
+	}
+	return nil
+}
+
+func queuedRequestPayload(msg *apiconv.Message) (string, bool) {
+	if msg == nil {
+		return "", false
+	}
+	if msg.Tags != nil {
+		s := strings.TrimSpace(*msg.Tags)
+		if strings.HasPrefix(s, queuedRequestTagPrefix) {
+			s = strings.TrimSpace(strings.TrimPrefix(s, queuedRequestTagPrefix))
+			if s != "" {
+				return s, true
+			}
+		}
+	}
+	// Backward compatibility: older queued messages stored metadata in raw_content.
+	if msg.RawContent != nil {
+		s := strings.TrimSpace(*msg.RawContent)
+		if s != "" && (strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[")) {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+func (s *Service) persistTurnFailure(ctx context.Context, turnID string, err error) error {
+	if err == nil || s == nil || s.convClient == nil {
+		return err
+	}
+	upd := apiconv.NewTurn()
+	upd.SetId(turnID)
+	if errors.Is(err, context.Canceled) {
+		upd.SetStatus("canceled")
+		return s.convClient.PatchTurn(context.Background(), upd)
+	}
+	upd.SetStatus("failed")
+	upd.SetErrorMessage(err.Error())
+	patchCtx := ctx
+	if errors.Is(ctx.Err(), context.Canceled) {
+		patchCtx = context.Background()
+	}
+	if pErr := s.convClient.PatchTurn(patchCtx, upd); pErr != nil {
+		return fmt.Errorf("%w: %v", err, pErr)
+	}
+	return err
 }
 
 func (s *Service) enrichAttachmentIfNeeded(req PostRequest, runCtx context.Context, input *agentpkg.QueryInput) error {
@@ -599,6 +858,146 @@ func (s *Service) CancelTurn(turnID string) bool {
 		return false
 	}
 	return s.reg.CancelTurn(turnID)
+}
+
+// CancelQueuedTurn cancels a queued (not yet running) turn and marks its
+// starting user message as canceled as well.
+func (s *Service) CancelQueuedTurn(ctx context.Context, conversationID, turnID string) error {
+	if s == nil || s.dao == nil || s.convClient == nil {
+		return fmt.Errorf("chat service not configured")
+	}
+	if strings.TrimSpace(conversationID) == "" || strings.TrimSpace(turnID) == "" {
+		return fmt.Errorf("conversationID and turnID are required")
+	}
+
+	in := &turnread.TurnByIDInput{
+		ID:             turnID,
+		ConversationID: conversationID,
+		Has:            &turnread.TurnByIDInputHas{ID: true, ConversationID: true},
+	}
+	out := &turnread.TurnByIDOutput{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath("GET", turnread.TurnByIDPathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return err
+	}
+	if len(out.Data) == 0 || out.Data[0] == nil {
+		return fmt.Errorf("turn not found")
+	}
+
+	st := strings.ToLower(strings.TrimSpace(out.Data[0].Status))
+	if st != "queued" {
+		return fmt.Errorf("cannot cancel turn in status %q", out.Data[0].Status)
+	}
+
+	turnUpd := apiconv.NewTurn()
+	turnUpd.SetId(turnID)
+	turnUpd.SetStatus("canceled")
+	if err := s.convClient.PatchTurn(ctx, turnUpd); err != nil {
+		return err
+	}
+
+	// Best-effort update of the starting message status; message schema uses 'cancel'.
+	msgUpd := apiconv.NewMessage()
+	msgUpd.SetId(turnID)
+	msgUpd.SetConversationID(conversationID)
+	msgUpd.SetStatus("cancel")
+	_ = s.convClient.PatchMessage(ctx, msgUpd)
+	return nil
+}
+
+func (s *Service) MoveQueuedTurn(ctx context.Context, conversationID, turnID, direction string) error {
+	if s == nil || s.dao == nil || s.convClient == nil {
+		return fmt.Errorf("chat service not configured")
+	}
+	if strings.TrimSpace(conversationID) == "" || strings.TrimSpace(turnID) == "" {
+		return fmt.Errorf("conversationID and turnID are required")
+	}
+
+	dir := strings.ToLower(strings.TrimSpace(direction))
+	if dir != "up" && dir != "down" {
+		return fmt.Errorf("unsupported direction %q", direction)
+	}
+
+	in := &turnread.QueuedListInput{
+		ConversationID: conversationID,
+		Has:            &turnread.QueuedListInputHas{ConversationID: true},
+	}
+	out := &turnread.QueuedListOutput{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath("GET", turnread.QueuedListPathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return err
+	}
+	if len(out.Data) == 0 {
+		return fmt.Errorf("no queued turns")
+	}
+
+	currentIndex := -1
+	for i, v := range out.Data {
+		if v == nil {
+			continue
+		}
+		if strings.TrimSpace(v.ID) == strings.TrimSpace(turnID) {
+			currentIndex = i
+			break
+		}
+	}
+	if currentIndex == -1 {
+		return fmt.Errorf("turn not found or not queued")
+	}
+
+	targetIndex := currentIndex
+	if dir == "up" {
+		targetIndex = currentIndex - 1
+	} else {
+		targetIndex = currentIndex + 1
+	}
+	if targetIndex < 0 || targetIndex >= len(out.Data) || out.Data[targetIndex] == nil {
+		return nil
+	}
+
+	a := out.Data[currentIndex]
+	b := out.Data[targetIndex]
+	queueA := a.QueueSeq
+	queueB := b.QueueSeq
+
+	// Ensure both have a value to swap. When missing, assign stable values.
+	if queueA == nil || queueB == nil {
+		base := time.Now().UnixNano()
+		if queueA == nil {
+			v := base
+			queueA = &v
+		}
+		if queueB == nil {
+			v := base + 1
+			queueB = &v
+		}
+	}
+
+	turnA := apiconv.NewTurn()
+	turnA.SetId(a.ID)
+	turnA.SetConversationID(conversationID)
+	turnA.SetQueueSeq(*queueB)
+	if err := s.convClient.PatchTurn(ctx, turnA); err != nil {
+		return err
+	}
+
+	turnB := apiconv.NewTurn()
+	turnB.SetId(b.ID)
+	turnB.SetConversationID(conversationID)
+	turnB.SetQueueSeq(*queueA)
+	if err := s.convClient.PatchTurn(ctx, turnB); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // --------------------------

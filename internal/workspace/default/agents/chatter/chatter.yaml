@@ -14,19 +14,15 @@ systemPrompt:
 
 tool:
   callExposure: conversation
-  items:
-    - name: llm/agents:run
-    - name: llm/agents:list
-    - pattern: system/exec
-    - pattern: system/os
+  bundles:
+    - llm/agents
+    - system/exec
+    - system/os
 
 knowledge:
   - inclusionMode: full
     url: knowledge/
 
-systemKnowledge:
-  - inclusionMode: full
-    url: system_knowledge/
 
 attachment:
   limitMB: 32

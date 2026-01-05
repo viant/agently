@@ -27,15 +27,17 @@ var (
 // Predefined kinds.  Callers may still supply arbitrary sub-folder names when
 // they need custom separation.
 const (
-	KindAgent    = "agents"
-	KindModel    = "models"
-	KindEmbedder = "embedders"
-	KindMCP      = "mcp"
-	KindWorkflow = "workflows"
-	KindTool     = "tools"
-	KindOAuth    = "oauth"
-	KindFeeds    = "feeds"
-	KindA2A      = "a2a"
+	KindAgent      = "agents"
+	KindModel      = "models"
+	KindEmbedder   = "embedders"
+	KindMCP        = "mcp"
+	KindWorkflow   = "workflows"
+	KindTool       = "tools"
+	KindToolBundle = "tools/bundles"
+	KindToolHints  = "tools/hints"
+	KindOAuth      = "oauth"
+	KindFeeds      = "feeds"
+	KindA2A        = "a2a"
 )
 
 // Root returns the absolute path to the Agently workspace directory.

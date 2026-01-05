@@ -199,7 +199,13 @@ export function normalizeMessages(raw = []) {
         try {
             const raw = copy.rawContent || copy.RawContent;
             if (typeof raw === 'string' && raw.trim().length > 0) {
-                copy.content = raw;
+                const rawTrim = raw.trim();
+                const content = copy.content;
+                const contentEmpty = !(typeof content === 'string') || content.trim().length === 0;
+                const rawLooksLikeJSON = rawTrim.startsWith('{') || rawTrim.startsWith('[');
+                if (contentEmpty || copy.role === 'assistant' || !rawLooksLikeJSON) {
+                    copy.content = raw;
+                }
             }
         } catch (_) { /* ignore */ }
 

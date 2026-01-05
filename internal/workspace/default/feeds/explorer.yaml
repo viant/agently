@@ -1,0 +1,63 @@
+id: explorer
+match:
+  service: resources
+  method: grepFiles
+
+activation:
+  kind: history
+  scope: last
+
+dataSource:
+  search:
+    source: input
+  results:
+    source: output.files
+    uniqueKey:
+      - field: URI
+      - field: SearchHash
+      - field: RangeKey
+
+ui:
+  title: Explorer
+  containers:
+    - id: toolbar
+      title: Search
+      dataSourceRef: search
+      toolbar:
+        items:
+          - id: search
+            label: search
+            icon: search
+            align: left
+            on:
+              - event: onClick
+                handler: chat.explorerSearch
+          - id: read
+            label: read
+            icon: book
+            align: left
+            on:
+              - event: onClick
+                handler: chat.explorerRead
+
+    - id: results
+      type: table
+      title: Results
+      dataSourceRef: results
+      table:
+        columns:
+          - id: Path
+            name: File
+            width: 220
+          - id: Matches
+            name: Hits
+            width: 40
+          - id: open
+            name: ' '
+            type: icon
+            width: 10
+            on:
+              - event: onValue
+                handler: chat.explorerOpenIcon
+              - event: onClick
+                handler: chat.explorerOpen

@@ -60,6 +60,8 @@ type ScheduleView struct {
 	LastRunAt       *time.Time `sqlx:"last_run_at"`
 	LastStatus      *string    `sqlx:"last_status"`
 	LastError       *string    `sqlx:"last_error"`
+	LeaseOwner      *string    `sqlx:"lease_owner"`
+	LeaseUntil      *time.Time `sqlx:"lease_until"`
 	CreatedAt       time.Time  `sqlx:"created_at"`
 	UpdatedAt       *time.Time `sqlx:"updated_at"`
 }

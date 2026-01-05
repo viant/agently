@@ -204,7 +204,7 @@ func (s *Service) appendToolPlaybooks(ctx context.Context, defs []*llm.ToolDefin
 		return nil
 	}
 	doc := &prompt.Document{
-		Title:       "tools/webdriver",
+		Title:       "tools/hints/webdriver",
 		PageContent: strings.TrimSpace(content),
 		SourceURI:   uri,
 		Score:       1.0,
@@ -1669,7 +1669,7 @@ func (s *Service) turnPreviewLimit(turnIdx, totalTurns int, applyAging bool) int
 }
 
 func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([]*llm.ToolDefinition, bool, error) {
-	if s.registry == nil || input.Agent == nil || len(input.Agent.Tool.Items) == 0 {
+	if s.registry == nil || input == nil || input.Agent == nil {
 		return nil, false, nil
 	}
 	tools, err := s.resolveTools(ctx, input)

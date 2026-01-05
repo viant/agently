@@ -145,6 +145,41 @@ func TestService_Load_ToolExposure(t *testing.T) {
 	})
 }
 
+func TestService_Load_ToolBundles(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
+
+	testCases := []struct {
+		name            string
+		url             string
+		expectedBundles []string
+		expectedExpo    agent.ToolCallExposure
+	}{
+		{
+			name:            "tool.bundles are parsed from mapping tool block",
+			url:             "tool_bundles.yaml",
+			expectedBundles: []string{"system/exec", "system/os"},
+			expectedExpo:    agent.ToolCallExposure("conversation"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := service.Load(ctx, testCase.url)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+
+			actualBundles := []string(nil)
+			if got.Tool.Bundles != nil {
+				actualBundles = append([]string(nil), got.Tool.Bundles...)
+			}
+			assert.EqualValues(t, testCase.expectedBundles, actualBundles)
+			assert.EqualValues(t, testCase.expectedExpo, got.Tool.CallExposure)
+			assert.EqualValues(t, testCase.expectedExpo, got.ToolCallExposure)
+		})
+	}
+}
+
 func TestParseResourceEntry_SystemFlag(t *testing.T) {
 	makeNode := func(doc string) *yml.Node {
 		var root yaml.Node

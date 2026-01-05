@@ -40,12 +40,13 @@ func TestNewAuthRoundTripper_CookiePropagation(t *testing.T) {
 	u, _ := url.Parse(srv.URL)
 	jar.SetCookies(u, []*http.Cookie{{Name: "sid", Value: "xyz", Path: "/", Expires: time.Now().Add(time.Hour)}})
 
-	// Build auth RoundTripper with default transport and attach jar to client.
-	// Cookie propagation is driven by http.Client.Jar, not by the RoundTripper.
+	// Build auth RoundTripper with default transport.
+	// Cookie propagation must work even when http.Client.Jar is not set because
+	// MCP auth interceptors use the transport directly.
 	rt, err := NewAuthRoundTripper(jar, http.DefaultTransport, 0)
 	assert.EqualValues(t, nil, err)
 
-	client := &http.Client{Transport: rt, Jar: jar}
+	client := &http.Client{Transport: rt}
 
 	// Act: perform a simple request via the auth-enabled client
 	resp, err := client.Get(srv.URL)
@@ -71,12 +72,12 @@ func TestNewAuthRoundTripper_WrapBaseTransport_AddsCookies(t *testing.T) {
 	u, _ := url.Parse(srv.URL)
 	jar.SetCookies(u, []*http.Cookie{{Name: "token", Value: "abc", Path: "/", Expires: time.Now().Add(time.Hour)}})
 
-	// recording base transport should see Cookie header due to cookie jar usage
+	// recording base transport should see Cookie header due to auth RoundTripper cookie jar usage
 	rec := &recordingRT{}
 	rt, err := NewAuthRoundTripper(jar, rec, 0)
 	assert.EqualValues(t, nil, err)
 
-	client := &http.Client{Transport: rt, Jar: jar}
+	client := &http.Client{Transport: rt}
 
 	// Act
 	resp, err := client.Get(srv.URL)

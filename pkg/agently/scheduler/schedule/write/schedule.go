@@ -23,6 +23,8 @@ type Schedule struct {
 	LastRunAt       *time.Time   `sqlx:"last_run_at" json:",omitempty"`
 	LastStatus      *string      `sqlx:"last_status" json:",omitempty"`
 	LastError       *string      `sqlx:"last_error" json:",omitempty"`
+	LeaseOwner      *string      `sqlx:"lease_owner" json:",omitempty"`
+	LeaseUntil      *time.Time   `sqlx:"lease_until" json:",omitempty"`
 	CreatedAt       *time.Time   `sqlx:"created_at" json:",omitempty"`
 	UpdatedAt       *time.Time   `sqlx:"updated_at" json:",omitempty"`
 	Has             *ScheduleHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
@@ -51,6 +53,8 @@ type ScheduleHas struct {
 	LastRunAt       bool
 	LastStatus      bool
 	LastError       bool
+	LeaseOwner      bool
+	LeaseUntil      bool
 	CreatedAt       bool
 	UpdatedAt       bool
 }
@@ -98,5 +102,11 @@ func (m *Schedule) SetNextRunAt(v time.Time) { m.NextRunAt = &v; m.ensureHas(); 
 func (m *Schedule) SetLastRunAt(v time.Time) { m.LastRunAt = &v; m.ensureHas(); m.Has.LastRunAt = true }
 func (m *Schedule) SetLastStatus(v string)   { m.LastStatus = &v; m.ensureHas(); m.Has.LastStatus = true }
 func (m *Schedule) SetLastError(v string)    { m.LastError = &v; m.ensureHas(); m.Has.LastError = true }
+func (m *Schedule) SetLeaseOwner(v string)   { m.LeaseOwner = &v; m.ensureHas(); m.Has.LeaseOwner = true }
+func (m *Schedule) SetLeaseUntil(v time.Time) {
+	m.LeaseUntil = &v
+	m.ensureHas()
+	m.Has.LeaseUntil = true
+}
 func (m *Schedule) SetCreatedAt(v time.Time) { m.CreatedAt = &v; m.ensureHas(); m.Has.CreatedAt = true }
 func (m *Schedule) SetUpdatedAt(v time.Time) { m.UpdatedAt = &v; m.ensureHas(); m.Has.UpdatedAt = true }

@@ -1,0 +1,8 @@
+id: system/exec
+title: System Exec
+description: Run shell commands (guarded by workdir)
+iconRef: builtin:system-exec
+priority: 80
+match:
+  - name: "system/exec:*"
+

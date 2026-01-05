@@ -1,0 +1,8 @@
+id: llm/agents
+title: Agents
+description: List and run agents
+iconRef: builtin:agents
+priority: 70
+match:
+  - name: "llm/agents:*"
+

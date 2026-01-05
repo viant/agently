@@ -1,0 +1,23 @@
+
+pipeline:
+
+  info:
+    action: print
+    message: 'running regression tests in appPath: ${appPath}'
+  datly:
+
+    stop:
+      action: process:stop
+      input: datly -c=config.json
+
+    start:
+      action: process:start
+      directory: ${appPath}/agently
+      checkError: true
+      immuneToHangups: true
+      sleepTimeMs: 4000
+      env:
+        TEST: 1
+        AGENTLY_WORKSPACE: /Users/awitas/go/src/github.com/viant/agently/ag
+        GOOGLE_APPLICATION_CREDENTIALS: ${env.HOME}/.secret/viant-e2e.json
+      command: $appPath/agently serve -a ':9091'

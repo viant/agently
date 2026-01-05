@@ -21,11 +21,12 @@ systemPrompt:
 
 tool:
   callExposure: conversation
-  items:
-    - name: llm/agents:run
-    - pattern: orchestration
-    - pattern: system/patch
-    - pattern: system/exec
+  bundles:
+    - llm/agents
+    - orchestration
+    - resources
+    - system/patch
+    - system/exec
 
 
 
@@ -43,4 +44,3 @@ elicitation:
           - type: object
           - type: string
     required: [instruction, did]
-

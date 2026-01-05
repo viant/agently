@@ -21,6 +21,7 @@ import (
 	payloadwrite "github.com/viant/agently/pkg/agently/payload/write"
 	toolread "github.com/viant/agently/pkg/agently/toolcall/read"
 	toolcallwrite "github.com/viant/agently/pkg/agently/toolcall/write"
+	turnread "github.com/viant/agently/pkg/agently/turn/read"
 	turnwrite "github.com/viant/agently/pkg/agently/turn/write"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
@@ -87,6 +88,26 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 			return
 		}
 		if _, err := turnwrite.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if err := turnread.DefineNextQueuedComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if err := turnread.DefineActiveTurnComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if err := turnread.DefineTurnByIDComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if err := turnread.DefineQueuedCountComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if err := turnread.DefineQueuedListComponent(ctx, dao); err != nil {
 			initErr = err
 			return
 		}

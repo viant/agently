@@ -22,7 +22,7 @@ func New(root string) *Service { return &Service{root: root} }
 const (
 	sqliteSchemaVersionTable  = "schema_version"
 	sqliteBaseSchemaVersion   = 1
-	sqliteTargetSchemaVersion = 3
+	sqliteTargetSchemaVersion = 5
 )
 
 // Ensure sets up a SQLite database under $ROOT/db/agently.db when missing and
@@ -120,23 +120,25 @@ func applySQLiteMigrations(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	migrations := []struct {
-		target int
-		apply  func(context.Context, *sql.DB) error
-	}{
-		{target: 3, apply: ensureSQLiteRawContentColumn},
+
+	// Apply idempotent migrations unconditionally to heal cases where schema_version
+	// was advanced but the DDL was only partially applied.
+	ensures := []func(context.Context, *sql.DB) error{
+		ensureSQLiteRawContentColumn,
+		ensureSQLiteTurnQueueSchema,
+		ensureSQLiteSchedulerLeaseSchema,
 	}
-	for _, m := range migrations {
-		if current >= m.target {
-			continue
-		}
-		if err := m.apply(ctx, db); err != nil {
+	for _, ensure := range ensures {
+		if err := ensure(ctx, db); err != nil {
 			return err
 		}
-		if err := setSQLiteSchemaVersion(ctx, db, m.target); err != nil {
+	}
+
+	// Keep schema_version monotonic; only bump when behind the target.
+	if current < sqliteTargetSchemaVersion {
+		if err := setSQLiteSchemaVersion(ctx, db, sqliteTargetSchemaVersion); err != nil {
 			return err
 		}
-		current = m.target
 	}
 	return nil
 }
@@ -164,6 +166,236 @@ func ensureSQLiteRawContentColumn(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("add %s.%s column: %w", table, column, err)
 	}
 	return nil
+}
+
+func ensureSQLiteTurnQueueSchema(ctx context.Context, db *sql.DB) error {
+	const table = "turn"
+	tableExists, err := sqliteTableExists(ctx, db, table)
+	if err != nil {
+		return fmt.Errorf("check %s table: %w", table, err)
+	}
+	if !tableExists {
+		return nil
+	}
+
+	hasQueueSeq, err := sqliteColumnExists(ctx, db, table, "queue_seq")
+	if err != nil {
+		return fmt.Errorf("check %s.queue_seq: %w", table, err)
+	}
+	allowsQueued, err := sqliteTurnAllowsQueuedStatus(ctx, db)
+	if err != nil {
+		return err
+	}
+
+	// If the column is missing we assume the table was created before queueing was introduced
+	// and rebuild it to include:
+	// - queue_seq
+	// - updated status CHECK constraint that allows 'queued'
+	if !hasQueueSeq || !allowsQueued {
+		return rebuildSQLiteTurnTableWithQueueing(ctx, db)
+	}
+
+	// Ensure indexes exist (older schemas may miss them).
+	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_turn_conversation ON turn (conversation_id)"); err != nil {
+		return fmt.Errorf("create idx_turn_conversation: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_turn_conv_status_created ON turn (conversation_id, status, created_at)"); err != nil {
+		return fmt.Errorf("create idx_turn_conv_status_created: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_turn_conv_queue_seq ON turn (conversation_id, queue_seq)"); err != nil {
+		return fmt.Errorf("create idx_turn_conv_queue_seq: %w", err)
+	}
+	return nil
+}
+
+func sqliteTurnAllowsQueuedStatus(ctx context.Context, db *sql.DB) (bool, error) {
+	var sqlText sql.NullString
+	row := db.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type='table' AND name='turn'")
+	switch err := row.Scan(&sqlText); err {
+	case nil:
+		// continue
+	case sql.ErrNoRows:
+		return true, nil
+	default:
+		return false, fmt.Errorf("read turn DDL: %w", err)
+	}
+	if !sqlText.Valid || strings.TrimSpace(sqlText.String) == "" {
+		return true, nil
+	}
+	ddl := strings.ToLower(sqlText.String)
+	return strings.Contains(ddl, "'queued'"), nil
+}
+
+func rebuildSQLiteTurnTableWithQueueing(ctx context.Context, db *sql.DB) error {
+	cols, err := sqliteTableColumns(ctx, db, "turn")
+	if err != nil {
+		return fmt.Errorf("read turn columns: %w", err)
+	}
+	if len(cols) == 0 {
+		return fmt.Errorf("turn table has no columns")
+	}
+	has := map[string]bool{}
+	for _, c := range cols {
+		has[strings.ToLower(c)] = true
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return fmt.Errorf("disable foreign_keys: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "ALTER TABLE turn RENAME TO turn_old"); err != nil {
+		return fmt.Errorf("rename turn: %w", err)
+	}
+
+	create := `
+CREATE TABLE turn
+(
+    id                      TEXT PRIMARY KEY,
+    conversation_id         TEXT      NOT NULL REFERENCES conversation (id) ON DELETE CASCADE,
+    created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    queue_seq               INTEGER,
+    status                  TEXT      NOT NULL CHECK (status IN
+                                                      ('queued', 'pending', 'running', 'waiting_for_user', 'succeeded',
+                                                       'failed', 'canceled')),
+    error_message           TEXT,
+    started_by_message_id   TEXT,
+    retry_of                TEXT,
+    agent_id_used           TEXT,
+    agent_config_used_id    TEXT,
+    model_override_provider TEXT,
+    model_override          TEXT,
+    model_params_override   TEXT
+);
+`
+	if _, err := tx.ExecContext(ctx, create); err != nil {
+		return fmt.Errorf("create turn: %w", err)
+	}
+
+	// Copy over any columns that existed on the legacy table.
+	dstCols := []string{"id", "conversation_id", "created_at", "status"}
+	srcCols := []string{"id", "conversation_id", "created_at", "status"}
+	optional := []string{
+		"error_message",
+		"started_by_message_id",
+		"retry_of",
+		"agent_id_used",
+		"agent_config_used_id",
+		"model_override_provider",
+		"model_override",
+		"model_params_override",
+	}
+	for _, c := range optional {
+		if has[c] {
+			dstCols = append(dstCols, c)
+			srcCols = append(srcCols, c)
+		}
+	}
+	insert := fmt.Sprintf("INSERT INTO turn (%s) SELECT %s FROM turn_old",
+		strings.Join(dstCols, ", "),
+		strings.Join(srcCols, ", "),
+	)
+	if _, err := tx.ExecContext(ctx, insert); err != nil {
+		return fmt.Errorf("copy turn data: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "DROP TABLE turn_old"); err != nil {
+		return fmt.Errorf("drop turn_old: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_turn_conversation ON turn (conversation_id)"); err != nil {
+		return fmt.Errorf("create idx_turn_conversation: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_turn_conv_status_created ON turn (conversation_id, status, created_at)"); err != nil {
+		return fmt.Errorf("create idx_turn_conv_status_created: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_turn_conv_queue_seq ON turn (conversation_id, queue_seq)"); err != nil {
+		return fmt.Errorf("create idx_turn_conv_queue_seq: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
+		return fmt.Errorf("enable foreign_keys: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+func ensureSQLiteSchedulerLeaseSchema(ctx context.Context, db *sql.DB) error {
+	// schedule table lease fields
+	if ok, err := sqliteTableExists(ctx, db, "schedule"); err != nil {
+		return fmt.Errorf("check schedule table: %w", err)
+	} else if ok {
+		if err := ensureSQLiteColumn(ctx, db, "schedule", "lease_owner", "TEXT"); err != nil {
+			return err
+		}
+		if err := ensureSQLiteColumn(ctx, db, "schedule", "lease_until", "TIMESTAMP"); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_schedule_enabled_next_lease ON schedule(enabled, next_run_at, lease_until)"); err != nil {
+			return fmt.Errorf("create idx_schedule_enabled_next_lease: %w", err)
+		}
+	}
+
+	// schedule_run scheduled_for
+	if ok, err := sqliteTableExists(ctx, db, "schedule_run"); err != nil {
+		return fmt.Errorf("check schedule_run table: %w", err)
+	} else if ok {
+		if err := ensureSQLiteColumn(ctx, db, "schedule_run", "scheduled_for", "TIMESTAMP"); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "CREATE UNIQUE INDEX IF NOT EXISTS ux_run_schedule_scheduled_for ON schedule_run(schedule_id, scheduled_for)"); err != nil {
+			return fmt.Errorf("create ux_run_schedule_scheduled_for: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func ensureSQLiteColumn(ctx context.Context, db *sql.DB, table, column, decl string) error {
+	exists, err := sqliteColumnExists(ctx, db, table, column)
+	if err != nil {
+		return fmt.Errorf("check %s.%s: %w", table, column, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, decl)); err != nil {
+		return fmt.Errorf("add %s.%s column: %w", table, column, err)
+	}
+	return nil
+}
+
+func sqliteTableColumns(ctx context.Context, db *sql.DB, table string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var cols []string
+	for rows.Next() {
+		var (
+			cid     int
+			name    string
+			ctype   string
+			notnull int
+			dflt    sql.NullString
+			pk      int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return nil, err
+		}
+		cols = append(cols, strings.TrimSpace(name))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return cols, nil
 }
 
 func sqliteColumnExists(ctx context.Context, db *sql.DB, table, column string) (bool, error) {

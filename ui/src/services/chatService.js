@@ -22,6 +22,7 @@ import SummaryNote from '../components/chat/SummaryNote.jsx';
 import {setStage} from '../utils/stageBus.js';
 import {setComposerBusy} from '../utils/composerBus.js';
 import {isElicitationSuppressed, markElicitationShown} from '../utils/elicitationBus.js';
+import {detectVoiceControl} from '../utils/voiceControl.js';
 import {
     setExecutionDetailsEnabled,
     setToolFeedEnabled,
@@ -37,15 +38,88 @@ let pendingUploads = [];
 // -------------------------------
 
 // Utility: Safe date → ISO string to avoid invalid time values
-const toISOSafe = (v) => {
-    if (!v) return new Date().toISOString();
-    try {
-        const d = new Date(v);
-        if (!isNaN(d.getTime())) return d.toISOString();
-    } catch (_) { /* ignore */
+const toISOSafe = (value) => {
+    if (!value) {
+        return new Date().toISOString();
     }
-    return new Date().toISOString();
+
+    const date = new Date(value);
+    if (isNaN(date.getTime())) {
+        return new Date().toISOString();
+    }
+    return date.toISOString();
 };
+
+// -------------------------------
+// Explorer feed handlers
+// -------------------------------
+
+export function explorerOpenIcon() {
+    return 'document-open';
+}
+
+export async function explorerOpen(props) {
+    const row = props?.row || props?.item || props?.node || {};
+    const uri = row?.uri || row?.URI || row?.Path || row?.path || '';
+    if (!uri) return false;
+    return await explorerRead({ ...props, uri });
+}
+
+export async function explorerRead(props) {
+    const context = props?.context;
+    const uri = String(props?.uri || '').trim();
+    if (!context || !uri) return false;
+
+    const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+    const title = uri.split('/').pop() || uri;
+
+    try {
+        const mod = await import('../utils/dialogBus.js');
+        mod.openFileViewDialog({ title, uri, loading: true, content: '' });
+    } catch (_) {
+    }
+
+    try {
+        // Reuse existing file-browser download endpoint.
+        const url = `${base}/v1/workspace/file-browser/download?uri=${encodeURIComponent(uri)}`;
+        const resp = await fetch(url, { credentials: 'include' });
+        const content = resp.ok ? await resp.text() : '';
+        const mod = await import('../utils/dialogBus.js');
+        mod.updateFileViewDialog({ title, uri, content, loading: false });
+    } catch (e) {
+        try {
+            const mod = await import('../utils/dialogBus.js');
+            mod.updateFileViewDialog({ content: String(e?.message || e), loading: false });
+        } catch (_) {
+        }
+    }
+    return true;
+}
+
+export async function explorerSearch(props) {
+    const context = props?.context;
+    if (!context) return false;
+    const ds = context?.handlers?.dataSource;
+    if (!ds) return false;
+    const form = ds.peekFormData?.() || {};
+
+    // Accept either "include"/"exclude" OR "inclusion"/"exclusion".
+    const include = String(form.include || form.inclusion || '').trim();
+    const exclude = String(form.exclude || form.exclusion || '').trim();
+    const pattern = String(form.pattern || form.query || '').trim();
+    const root = String(form.root || form.path || '').trim();
+    const showFiles = !!(form.showFiles ?? true);
+
+    if (!pattern) {
+        ds.setError?.('Missing pattern');
+        return false;
+    }
+
+    // NOTE: This is a tool feed for a *resources* tool call. The actual search
+    // is performed by the tool call itself (resources.grepFiles), and the feed
+    // renders its output.
+    return true;
+}
 
 // Track which conversations have completed an initial fetch across transient
 // DS resets within the same window lifecycle to avoid duplicate initial loads.
@@ -313,6 +387,17 @@ async function dsTick({context}) {
             const transcript = Array.isArray(conv?.transcript) ? conv.transcript
                 : Array.isArray(conv?.Transcript) ? conv.Transcript : [];
             const rows = mapTranscriptToRowsWithExecutions(transcript);
+            const stageLower = String(convStage || '').toLowerCase();
+            const hasBusyStage = (
+                stageLower === 'thinking' ||
+                stageLower === 'running' ||
+                stageLower === 'processing' ||
+                stageLower === 'waiting_for_user'
+            );
+            const anyActiveSteps = rows.some((row) => {
+                const executions = Array.isArray(row?.executions) ? row.executions : [];
+                return executions.some((ex) => hasActiveSteps(ex?.steps || []));
+            });
             // Optional debug: log current turn + step status histogram
             try {
                 // removed debug summary
@@ -322,13 +407,10 @@ async function dsTick({context}) {
             }
             // Safety release: if DS still loading but no active steps, force unlock
             try {
-                const execRow = rows.find(r => typeof r?.id === 'string' && r.id.endsWith('/execution'));
-                const steps = execRow?.executions?.[0]?.steps || [];
-                const anyActive = hasActiveSteps(steps);
                 const ctrlSig = messagesCtx?.signals?.control;
                 if (ctrlSig) {
                     const prev = (typeof ctrlSig.peek === 'function') ? (ctrlSig.peek() || {}) : (ctrlSig.value || {});
-                    if (prev.loading && !anyActive) {
+                    if (prev.loading && !anyActiveSteps) {
                         // removed debug unlock log
                         ctrlSig.value = { ...prev, loading: false };
                     }
@@ -417,32 +499,65 @@ async function dsTick({context}) {
                     const title = conv?.Title || conv?.title || '';
                     if (title) ds2.setFormField?.({item: {id: 'title'}, value: title});
                     const agent = conv?.AgentId || conv?.Agent || conv?.agent || '';
-                    if (agent) ds2.setFormField?.({item: {id: 'agent'}, value: String(agent)});
+                    if (agent) {
+                        const agentID = String(agent).trim();
+                        ds2.setFormField?.({item: {id: 'agent'}, value: agentID});
+                        try {
+                            const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+                            const agentName = String(metaForm?.agentInfo?.[agentID]?.name || metaForm?.agentInfo?.[agentID]?.Name || '').trim();
+                            if (agentName) ds2.setFormField?.({item: {id: 'agentName'}, value: agentName});
+                        } catch (_) {}
+                    }
                     const model = conv?.DefaultModel || conv?.Model || conv?.model || '';
                     if (model) ds2.setFormField?.({item: {id: 'model'}, value: String(model)});
                 }
             } catch (_) { /* ignore */ }
-            // Derive running/finished state from the last turn to keep Abort button accurate
+            // Derive running state from active steps / stage / turn statuses
+            // to keep Abort/Queue UX accurate.
+            // Important: do not bind "running" to the messages DS loading state, otherwise
+            // the Forge Chat composer becomes read-only and users can't enqueue messages.
             try {
-                const lastTurn = Array.isArray(transcript) && transcript.length ? transcript[transcript.length - 1] : null;
-                const turnStatus = String(lastTurn?.status || lastTurn?.Status || '').toLowerCase();
-                const isRunning = (turnStatus === 'running' || turnStatus === 'open' || turnStatus === 'pending' || turnStatus === 'thinking' || turnStatus === 'processing');
-                const isFinished = (!!turnStatus && !isRunning);
-                const ctrlSig = messagesCtx?.signals?.control;
-                if (ctrlSig) {
-                    const prev = (typeof ctrlSig.peek === 'function') ? (ctrlSig.peek() || {}) : (ctrlSig.value || {});
-                    const loading = !!isRunning;
-                    if (prev.loading !== loading) {
-                        ctrlSig.value = {...prev, loading};
+                const turns = Array.isArray(transcript) ? transcript : [];
+                const isBusyTurnStatus = (value) => {
+                    const status = String(value || '').toLowerCase();
+                    return (
+                        status === 'running' ||
+                        status === 'waiting_for_user' ||
+                        status === 'thinking' ||
+                        status === 'processing'
+                    );
+                };
+
+                let latestStatus = '';
+                for (let i = turns.length - 1; i >= 0; i--) {
+                    const status = String(turns[i]?.status || turns[i]?.Status || '').trim();
+                    if (status) {
+                        latestStatus = status;
+                        break;
                     }
                 }
+
+                const latestTurnBusy = isBusyTurnStatus(latestStatus);
+                // Some backends may leave conversation.stage as "running" after completion.
+                // Prefer execution steps + latest turn status for accuracy; stage is only a fallback
+                // when no transcript exists yet.
+                const isRunning = !!anyActiveSteps || !!latestTurnBusy || (!!hasBusyStage && turns.length === 0);
                 const convCtx = context.Context('conversations');
                 if (convCtx?.handlers?.dataSource?.setFormField) {
-                    convCtx.handlers.dataSource.setFormField({item: {id: 'running'}, value: !!isRunning});
+                    convCtx.handlers.dataSource.setFormField({ item: { id: 'running' }, value: !!isRunning });
                 }
+            } catch (_) {}
 
-            } catch (_) {
-            }
+            // Derive queued items from transcript for integrated queue UX (badge/popover).
+            try {
+                const queuedTurns = buildQueuedTurnsFromTranscript(transcript);
+                const convCtx = context.Context('conversations');
+                const ds = convCtx?.handlers?.dataSource;
+                if (ds?.setFormField) {
+                    ds.setFormField({ item: { id: 'queuedCount' }, value: queuedTurns.length });
+                    ds.setFormField({ item: { id: 'queuedTurns' }, value: queuedTurns });
+                }
+            } catch (_) {}
             // Update noop/backoff signals
             let newestTurnId = '';
             for (let i = transcript.length - 1; i >= 0; i--) {
@@ -467,6 +582,93 @@ async function dsTick({context}) {
 }
 
 // --------------------------- Transcript → rows helpers ------------------------------
+
+const queuedRequestTagPrefix = 'agently:queued_request:';
+
+function extractQueuedRequest(tags) {
+    try {
+        const raw = String(tags || '');
+        const idx = raw.indexOf(queuedRequestTagPrefix);
+        if (idx === -1) return null;
+        let jsonPart = raw.slice(idx + queuedRequestTagPrefix.length).trim();
+        if (!jsonPart) return null;
+        try {
+            return JSON.parse(jsonPart);
+        } catch (_) {
+            const last = jsonPart.lastIndexOf('}');
+            if (last !== -1) {
+                jsonPart = jsonPart.slice(0, last + 1);
+                return JSON.parse(jsonPart);
+            }
+        }
+        return null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function pickTurnStartedMessage(turn) {
+    try {
+        const startedByMessageId = turn?.startedByMessageId || turn?.StartedByMessageId || turn?.started_by_message_id;
+        const messages = Array.isArray(turn?.message) ? turn.message
+            : Array.isArray(turn?.Message) ? turn.Message : [];
+        if (!messages.length) return null;
+        if (startedByMessageId) {
+            const match = messages.find(m => String(m?.id || m?.Id || '').trim() === String(startedByMessageId).trim());
+            if (match) return match;
+        }
+        const userMsg = messages.find(m => String(m?.role || m?.Role || '').toLowerCase() === 'user');
+        return userMsg || messages[0] || null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function normalizePreview(text) {
+    const s = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    const maxLen = 120;
+    if (s.length <= maxLen) return s;
+    return s.slice(0, maxLen - 1) + '…';
+}
+
+function buildQueuedTurnsFromTranscript(transcript) {
+    const turns = Array.isArray(transcript) ? transcript : [];
+    const queued = turns
+        .filter(t => String(t?.status || t?.Status || '').toLowerCase() === 'queued')
+        .map(t => {
+            const startedMessage = pickTurnStartedMessage(t);
+            const queuedMeta = extractQueuedRequest(startedMessage?.tags || startedMessage?.Tags);
+            const tools = Array.isArray(queuedMeta?.tools) ? queuedMeta.tools : [];
+            return {
+                id: t?.id || t?.Id,
+                status: t?.status || t?.Status,
+                createdAt: toISOSafe(t?.createdAt || t?.CreatedAt),
+                queueSeq: t?.queueSeq ?? t?.QueueSeq,
+                startedByMessageId: t?.startedByMessageId || t?.StartedByMessageId,
+                preview: normalizePreview(startedMessage?.content || startedMessage?.Content || ''),
+                overrides: {
+                    agent: queuedMeta?.agent || '',
+                    model: queuedMeta?.model || '',
+                    tools: tools,
+                },
+            };
+        });
+    queued.sort((a, b) => {
+        const aSeq = (a?.queueSeq == null) ? null : Number(a.queueSeq);
+        const bSeq = (b?.queueSeq == null) ? null : Number(b.queueSeq);
+        if (aSeq != null && bSeq != null && Number.isFinite(aSeq) && Number.isFinite(bSeq) && aSeq !== bSeq) {
+            return aSeq - bSeq;
+        }
+        const aTime = Date.parse(a?.createdAt || '');
+        const bTime = Date.parse(b?.createdAt || '');
+        if (!Number.isNaN(aTime) && !Number.isNaN(bTime) && aTime !== bTime) {
+            return aTime - bTime;
+        }
+        return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    return queued;
+}
 
 function buildThinkingStepFromModelCall(mc) {
     if (!mc) return null;
@@ -1565,6 +1767,112 @@ export function onFetchMessages(props) {
     }
 }
 
+// onFetch handler for queued turns DS: filter transcript to queued turns only.
+export function onFetchQueuedTurns(props) {
+    try {
+        const {collection} = props || {};
+        const transcript = Array.isArray(collection) ? collection : [];
+        return buildQueuedTurnsFromTranscript(transcript);
+    } catch (_) {
+        return [];
+    }
+}
+
+export async function cancelQueuedTurnByID({context, conversationID, turnID}) {
+    try {
+        if (!context) return false;
+        const convID = String(conversationID || '').trim();
+        const tID = String(turnID || '').trim();
+        if (!convID || !tID) return false;
+
+        const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+        const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/turns/${encodeURIComponent(tID)}`;
+        const resp = await fetch(url, {method: 'DELETE', credentials: 'include'});
+        if (!resp.ok) {
+            const txt = await resp.text().catch(() => '');
+            throw new Error(txt || `cancel failed: ${resp.status}`);
+        }
+
+        try {
+            const qCtx = context.Context('queueTurns');
+            qCtx?.handlers?.dataSource?.fetchCollection?.();
+        } catch (_) {
+        }
+
+        // Refresh main chat to reflect cancellation immediately.
+        try {
+            const msgCtx = context.Context('messages');
+            msgCtx?.handlers?.dataSource?.fetchCollection?.();
+        } catch (_) {
+        }
+        return true;
+    } catch (err) {
+        log.error('chatService.cancelQueuedTurnByID error', err);
+        return false;
+    }
+}
+
+export async function cancelQueuedTurn(props) {
+    try {
+        const context = props?.context;
+        if (!context) return false;
+        const convCtx = context.Context('conversations');
+        const convForm = convCtx?.handlers?.dataSource?.peekFormData?.() || {};
+        const convID = String(convForm?.id || '').trim();
+        if (!convID) return false;
+
+        // Prefer the explicit row clicked (table button handlers pass row/item)
+        // so the action works even without selection/form state.
+        const turnIDFromRow = String(props?.row?.id || props?.item?.id || props?.record?.id || '').trim();
+
+        const qCtx = context.Context('queueTurns') || context;
+        const ds = qCtx?.handlers?.dataSource;
+        const turnID = turnIDFromRow || String(ds?.peekFormData?.()?.id || ds?.peekSelection?.()?.selected?.id || '').trim();
+        if (!turnID) return false;
+
+        return await cancelQueuedTurnByID({context, conversationID: convID, turnID});
+    } catch (err) {
+        log.error('chatService.cancelQueuedTurn error', err);
+        return false;
+    }
+}
+
+export async function moveQueuedTurn({context, conversationID, turnID, direction}) {
+    try {
+        if (!context) return false;
+        const convID = String(conversationID || '').trim();
+        const tID = String(turnID || '').trim();
+        const dir = String(direction || '').trim().toLowerCase();
+        if (!convID || !tID || (dir !== 'up' && dir !== 'down')) return false;
+
+        const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+        const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/turns/${encodeURIComponent(tID)}/move`;
+        const resp = await fetch(url, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ direction: dir }),
+        });
+        if (!resp.ok) {
+            const txt = await resp.text().catch(() => '');
+            throw new Error(txt || `move failed: ${resp.status}`);
+        }
+
+        try {
+            const qCtx = context.Context('queueTurns');
+            qCtx?.handlers?.dataSource?.fetchCollection?.();
+        } catch (_) {}
+        try {
+            const msgCtx = context.Context('messages');
+            msgCtx?.handlers?.dataSource?.fetchCollection?.();
+        } catch (_) {}
+        return true;
+    } catch (err) {
+        log.error('chatService.moveQueuedTurn error', err);
+        return false;
+    }
+}
+
 
 /**
  * Stops the polling loop created in onOpen. Bound to window onDestroy.
@@ -1637,6 +1945,15 @@ export function selectAgent(args) {
             ds.setFormField({item: {id: 'agent'}, value: key});
         } catch (_) {
         }
+        // Keep conversation header in sync with the selected agent so the chat panel
+        // reflects what will be used for the next turns.
+        try {
+            const convCtx = context?.Context?.('conversations');
+            const convDS = convCtx?.handlers?.dataSource;
+            convDS?.setFormField?.({item: {id: 'agent'}, value: key});
+            const agentName = String(form?.agentInfo?.[key]?.name || form?.agentInfo?.[key]?.Name || '').trim();
+            if (agentName) convDS?.setFormField?.({item: {id: 'agentName'}, value: agentName});
+        } catch (_) {}
         const selectedTools = form?.agentInfo?.[key]?.tools || [];
         const selectedModel = form?.agentInfo?.[key]?.model || '';
         const agentValues = {...(form?.agentInfo?.[key] || {}), tool: selectedTools}
@@ -1691,6 +2008,21 @@ export async function submitMessage(props) {
     const messagesAPI = messagesContext.connector;
 
     try {
+        // Voice control support: allow mic/dictation phrases like "cancel it now"
+        // or "submit it now" embedded in the message.
+        const originalContent = String(message?.content || '');
+        const vc = detectVoiceControl(originalContent);
+        if (vc.action === 'cancel') {
+            // Clear draft and avoid sending anything.
+            message.content = '';
+            pendingUploads = [];
+            return;
+        }
+        if (vc.action === 'submit') {
+            // Strip the control phrase before submit.
+            message.content = vc.cleanedText;
+        }
+
         const convID = await ensureConversation({context});
         if (!convID) {
             return;
@@ -1705,6 +2037,12 @@ export async function submitMessage(props) {
         const body = {
             content: message.content, tools: tool,
             agent, model, toolCallExposure, reasoningEffort, autoSummarize, disableChains, allowedChains,
+        }
+
+        // If voice command reduced content to empty and there are no attachments,
+        // treat it as a no-op (avoid creating empty messages).
+        if (!String(body.content || '').trim() && pendingUploads.length === 0) {
+            return;
         }
         // Collect Forge-uploaded attachments from message (support multiple shapes) and form level
         try {
@@ -2583,6 +2921,9 @@ export const chatService = {
     compactConversation,
     compactReadonly,
     deleteConversation,
+    cancelQueuedTurn,
+    cancelQueuedTurnByID,
+    moveQueuedTurn,
     onChangedFileSelect,
     onInit,
     onDestroy,
@@ -2644,6 +2985,7 @@ export const chatService = {
     receiveMessages,
     // DS event handlers
     onFetchMessages,
+    onFetchQueuedTurns,
     renderers: {
         bubble: HTMLTableBubble,
         execution: ExecutionBubble,
@@ -2696,6 +3038,8 @@ function onFetchMeta(args) {
     const {collection = [], context} = args;
     const metaCtx = context?.Context?.('meta');
     const currentForm = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
+    const convCtx = context?.Context?.('conversations');
+    const convDS = convCtx?.handlers?.dataSource;
 
     const updated = collection.map(data => {
         const agentInfo = data.agentInfo || {};
@@ -2708,6 +3052,8 @@ function onFetchMeta(args) {
             : (data?.defaults?.model ? [data.defaults.model] : []);
 
         const toolsRaw = Array.isArray(data?.tools) ? data.tools : [];
+        const toolInfo = data?.toolInfo || {};
+        const toolBundlesRaw = Array.isArray(data?.toolBundles) ? data.toolBundles : [];
 
         // TreeMultiSelect expects a flat option list and will build the tree
         // by splitting the value with properties.separator. Keep options flat
@@ -2719,7 +3065,15 @@ function onFetchMeta(args) {
         });
         // Preserve current agent selection if present; otherwise use defaults
         const curAgent = String(currentForm.agent || data.defaults.agent || '');
+        const curAgentName = (agentInfo?.[curAgent]?.name) ? String(agentInfo[curAgent].name) : curAgent;
 
+        // Keep chat header in sync: header binds to conversations.agentName.
+        try {
+            if (convDS?.setFormField) {
+                if (curAgent) convDS.setFormField({ item: { id: 'agent' }, value: curAgent });
+                if (curAgentName) convDS.setFormField({ item: { id: 'agentName' }, value: curAgentName });
+            }
+        } catch (_) { /* ignore */ }
 
         const settings = {...data.agentInfo[curAgent], tool: ''}
         settings.tool = settings.tools
@@ -2745,8 +3099,17 @@ function onFetchMeta(args) {
             // while preserving the original value used by the backend.
             toolOptions: toolsRaw.map((v) => {
                 const raw = String(v);
+                const toolInfoEntry = toolInfo?.[raw] || toolInfo?.[String(raw).trim()];
+                const bundle = Array.isArray(toolInfoEntry?.bundles) && toolInfoEntry.bundles.length
+                    ? String(toolInfoEntry.bundles[0])
+                    : '';
+                const bundleLabel = (() => {
+                    if (!bundle) return '';
+                    const def = (toolBundlesRaw || []).find(b => String(b?.id || '').toLowerCase() === bundle.toLowerCase());
+                    return def?.title ? String(def.title) : '';
+                })();
                 const groupKey = raw.replaceAll('/', '-');
-                return { id: raw, value: raw, label: raw, groupKey };
+                return { id: raw, value: raw, label: raw, groupKey, bundle, bundleLabel };
             }),
             agentChainTargets,
             ...settings,

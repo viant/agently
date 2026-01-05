@@ -1,0 +1,32 @@
+columns:
+  - id: queueSeq
+    name: Seq
+    width: 90
+  - id: preview
+    name: Preview
+    width: 420
+  - id: createdAt
+    name: Created
+    width: 170
+  - id: status
+    name: Status
+    width: 120
+  - id: id
+    name: Turn ID
+    width: 260
+  - id: cancel
+    icon: cross
+    type: button
+    width: 40
+    on:
+      - event: onClick
+        handler: chat.cancelQueuedTurn
+
+toolbar:
+  items:
+    - id: refresh
+      icon: refresh
+      align: left
+      on:
+        - event: onClick
+          handler: dataSource.fetchCollection

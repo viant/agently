@@ -72,9 +72,15 @@ func NewSession() (*Session, error) {
 		baseTempDir = "/tmp" // Fallback to the conventional location
 	}
 
-	// Keep the leading slash so that the resulting URI looks like
-	// file:///path/onpatch-<uuid>
-	tmp := fmt.Sprintf("file://%s/onpatch-%s", baseTempDir, uuid.NewString())
+	// Always build a valid file:// URI.
+	//
+	// os.TempDir() can return either an absolute path ("/tmp") or a relative path
+	// ("tmp") depending on environment and OS. A valid file URL for an absolute
+	// path must have three slashes: file:///tmp/...
+	//
+	// We therefore join using url.Join which normalizes slashes and preserves the
+	// file scheme, instead of string formatting.
+	tmp := url.Join("file:///"+strings.TrimLeft(baseTempDir, string(os.PathSeparator)), fmt.Sprintf("onpatch-%s", uuid.NewString()))
 	if err := fs.Create(ctx, tmp, file.DefaultDirOsMode, true); err != nil {
 		return nil, err
 	}
@@ -97,7 +103,7 @@ func NewSessionFor(convID string) (*Session, error) {
 		baseTempDir = "/tmp"
 	}
 	safe := sanitizeID(convID)
-	parent := fmt.Sprintf("file://%s/agently/%s", baseTempDir, safe)
+	parent := url.Join("file:///"+strings.TrimLeft(baseTempDir, string(os.PathSeparator)), "agently", safe)
 	if err := fs.Create(ctx, parent, file.DefaultDirOsMode, true); err != nil {
 		return nil, err
 	}
@@ -470,19 +476,37 @@ func resolvePath(path, directory string) string {
 		return path
 	}
 
-	// If workdir looks like a URL, use URL join to preserve scheme
+	// If workdir looks like a URL, use URL join to preserve scheme.
+	// Ensure the resolved path cannot escape the workdir by cleaning and stripping
+	// any leading slashes or ".." segments.
 	if strings.Contains(directory, "://") {
-		if filepath.IsAbs(path) {
-			return url.Join(directory, filepath.Base(path))
+		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
+		clean = strings.TrimPrefix(clean, "/")
+		for clean == ".." || strings.HasPrefix(clean, "../") {
+			clean = strings.TrimPrefix(clean, "../")
 		}
-		return url.Join(directory, path)
+		if filepath.IsAbs(path) {
+			clean = filepath.Base(path)
+		}
+		if clean == "." || clean == "" {
+			return directory
+		}
+		return url.Join(directory, clean)
 	}
 
-	// Filesystem path join
-	if filepath.IsAbs(path) {
-		return filepath.Join(directory, filepath.Base(path))
+	// Filesystem path join.
+	clean := filepath.Clean(path)
+	if filepath.IsAbs(clean) {
+		clean = filepath.Base(clean)
 	}
-	return filepath.Join(directory, path)
+	clean = strings.TrimPrefix(clean, string(filepath.Separator))
+	for clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		clean = strings.TrimPrefix(clean, ".."+string(filepath.Separator))
+	}
+	if clean == "." || clean == "" {
+		return directory
+	}
+	return filepath.Join(directory, clean)
 }
 
 // applyParsedHunks applies the hunks parsed by the new parser

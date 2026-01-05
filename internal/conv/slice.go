@@ -1,7 +1,6 @@
 package conv
 
 import (
-	"fmt"
 	"reflect"
 )
 
@@ -11,7 +10,7 @@ func MergeSlices(slice1, slice2 interface{}) (interface{}, error) {
 	vi := reflect.ValueOf(slice1)
 	vj := reflect.ValueOf(slice2)
 
-	// Allow pointers to slices
+	// Allow pointers
 	for vi.IsValid() && vi.Kind() == reflect.Ptr {
 		vi = vi.Elem()
 	}
@@ -19,50 +18,98 @@ func MergeSlices(slice1, slice2 interface{}) (interface{}, error) {
 		vj = vj.Elem()
 	}
 
-	if !vi.IsValid() || vi.Kind() != reflect.Slice {
-		return nil, fmt.Errorf("first argument is not a slice")
+	// nil handling
+	if !vi.IsValid() {
+		return slice2, nil
 	}
-	if !vj.IsValid() || vj.Kind() != reflect.Slice {
-		return nil, fmt.Errorf("second argument is not a slice")
+	if !vj.IsValid() {
+		return slice1, nil
 	}
 
-	ti := vi.Type() // e.g. []int
-	tj := vj.Type()
+	// If both are slices, try to preserve the slice type.
+	if vi.Kind() == reflect.Slice && vj.Kind() == reflect.Slice {
+		ti := vi.Type()
+		tj := vj.Type()
 
-	// Element types must be identical or assignable to the result element type.
-	// We choose the type of slice1 as the result type for simplicity.
-	eli := ti.Elem()
-	elj := tj.Elem()
-
-	if !(elj.AssignableTo(eli) && tj.ConvertibleTo(ti) || ti == tj) {
-		// Fast path: same slice type
+		// Fast path: identical type
 		if ti == tj {
 			out := reflect.MakeSlice(ti, 0, vi.Len()+vj.Len())
 			out = reflect.AppendSlice(out, vi)
 			out = reflect.AppendSlice(out, vj)
 			return out.Interface(), nil
 		}
-		// General check: all elements of slice2 must be assignable to elements of slice1
+
+		eli := ti.Elem()
+		elj := tj.Elem()
 		if !elj.AssignableTo(eli) {
-			return nil, fmt.Errorf("incompatible element types: %s vs %s", eli, elj)
+			// Fallback to []interface{} for heterogeneous lists.
+			return mergeAsInterfaces(slice1, slice2), nil
 		}
-	}
 
-	// Build result using the type of slice1
-	out := reflect.MakeSlice(ti, 0, vi.Len()+vj.Len())
-	out = reflect.AppendSlice(out, vi)
-
-	// If the slice types differ (but elements are assignable), append slice2 element-by-element
-	if ti == tj {
-		out = reflect.AppendSlice(out, vj)
+		out := reflect.MakeSlice(ti, 0, vi.Len()+vj.Len())
+		out = reflect.AppendSlice(out, vi)
+		for k := 0; k < vj.Len(); k++ {
+			elem := vj.Index(k)
+			if !elem.Type().AssignableTo(eli) {
+				return mergeAsInterfaces(slice1, slice2), nil
+			}
+			out = reflect.Append(out, elem)
+		}
 		return out.Interface(), nil
 	}
-	for k := 0; k < vj.Len(); k++ {
-		elem := vj.Index(k)
-		if !elem.Type().AssignableTo(eli) {
-			return nil, fmt.Errorf("element %d of slice2 (%s) not assignable to %s", k, elem.Type(), eli)
+
+	// One side is a slice: try to append the other as an element.
+	if vi.Kind() == reflect.Slice && vj.Kind() != reflect.Slice {
+		ti := vi.Type()
+		eli := ti.Elem()
+		elem := vj
+		if elem.Type().AssignableTo(eli) {
+			out := reflect.MakeSlice(ti, 0, vi.Len()+1)
+			out = reflect.AppendSlice(out, vi)
+			out = reflect.Append(out, elem)
+			return out.Interface(), nil
 		}
-		out = reflect.Append(out, elem)
+		return mergeAsInterfaces(slice1, slice2), nil
 	}
-	return out.Interface(), nil
+	if vi.Kind() != reflect.Slice && vj.Kind() == reflect.Slice {
+		tj := vj.Type()
+		elj := tj.Elem()
+		elem := vi
+		if elem.Type().AssignableTo(elj) {
+			out := reflect.MakeSlice(tj, 0, vj.Len()+1)
+			out = reflect.Append(out, elem)
+			out = reflect.AppendSlice(out, vj)
+			return out.Interface(), nil
+		}
+		return mergeAsInterfaces(slice1, slice2), nil
+	}
+
+	// Neither is a slice → represent as a 2-element list.
+	return mergeAsInterfaces(slice1, slice2), nil
+}
+
+func mergeAsInterfaces(v1, v2 interface{}) []interface{} {
+	out := make([]interface{}, 0, 2)
+	out = append(out, toInterfaces(v1)...)
+	out = append(out, toInterfaces(v2)...)
+	return out
+}
+
+func toInterfaces(v interface{}) []interface{} {
+	rv := reflect.ValueOf(v)
+	for rv.IsValid() && rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	if !rv.IsValid() {
+		return nil
+	}
+	if rv.Kind() != reflect.Slice {
+		return []interface{}{v}
+	}
+	n := rv.Len()
+	out := make([]interface{}, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, rv.Index(i).Interface())
+	}
+	return out
 }

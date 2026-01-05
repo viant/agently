@@ -188,6 +188,9 @@ func (r *Resource) GrepAllowed() bool {
 }
 
 type Tool struct {
+	// Bundles references global tool bundles by id (workspace-driven).
+	// When set, the runtime expands bundles into concrete tool definitions.
+	Bundles      []string         `yaml:"bundles,omitempty" json:"bundles,omitempty"`
 	Items        []*llm.Tool      `yaml:"items,omitempty" json:"items,omitempty"`
 	CallExposure ToolCallExposure `yaml:"callExposure,omitempty" json:"callExposure,omitempty"`
 }

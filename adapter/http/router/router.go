@@ -4,16 +4,21 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/viant/afs"
 	fsadapter "github.com/viant/afs/adapter/http"
+	_ "github.com/viant/afs/file"
 	chatserver "github.com/viant/agently/adapter/http"
 	authhttp "github.com/viant/agently/adapter/http/auth"
 	"github.com/viant/agently/adapter/http/filebrowser"
 	schedulerhttp "github.com/viant/agently/adapter/http/scheduler"
+	"github.com/viant/agently/adapter/http/speech"
 	toolhttp "github.com/viant/agently/adapter/http/tool"
 	"github.com/viant/agently/adapter/http/workflow"
+	schapi "github.com/viant/agently/client/scheduler"
+	schstorecli "github.com/viant/agently/client/scheduler/store"
 	"github.com/viant/agently/deployment/ui"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	schsvc "github.com/viant/agently/internal/service/scheduler"
@@ -36,6 +41,51 @@ import (
 	fhandlers "github.com/viant/forge/backend/handlers"
 	fservice "github.com/viant/forge/backend/service/file"
 )
+
+func isSchedulerAPIEnabled() bool {
+	v := strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_API"))
+	switch strings.ToLower(v) {
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+func isSchedulerWatchdogEnabled() bool {
+	v := strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_RUNNER"))
+	switch strings.ToLower(v) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func schedulerWatchdogInterval() time.Duration {
+	v := strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_INTERVAL"))
+	if v == "" {
+		return 30 * time.Second
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 30 * time.Second
+	}
+	return d
+}
+
+func isSchedulerRunNowEnabled() bool {
+	v := strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_RUN_NOW"))
+	switch strings.ToLower(v) {
+	case "0", "false", "no", "n", "off":
+		return false
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		// Preserve backward compatibility: keep run-now enabled unless explicitly disabled.
+		return true
+	}
+}
 
 // execInvoker provides a conversation-scoped invoker backed by executor.
 type execInvoker struct{ exec *execsvc.Service }
@@ -110,27 +160,38 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR
 		chatserver.WithDAO(dao),
 	))
 
-	// Scheduler endpoints – build client from DAO and inject into handler
-	client, err := schstore.New(context.Background(), dao)
-	if err != nil {
-		return nil, err
-	}
-	// Orchestration service reusing the shared chat service
-	orch, err := schsvc.New(client, chatSvc)
-	if err != nil {
-		return nil, err
-	}
-	if sch, err := schedulerhttp.NewHandler(dao, client, orch); err == nil {
-		registerSchedulerRoutes(mux, sch)
-	} else {
-		return nil, err
+	var (
+		schedulerStore schstorecli.Client
+		schedulerOrch  schapi.Client
+	)
+	if isSchedulerAPIEnabled() || isSchedulerWatchdogEnabled() {
+		// Scheduler store + orchestration service (reuses the shared chat service)
+		client, err := schstore.New(context.Background(), dao)
+		if err != nil {
+			return nil, err
+		}
+		orch, err := schsvc.New(client, chatSvc)
+		if err != nil {
+			return nil, err
+		}
+		schedulerStore = client
+		schedulerOrch = orch
 	}
 
-	// Start schedule watchdog: periodically triggers due runs in background.
-	// Uses a long-lived background context consistent with other background bridges.
-	{
+	if isSchedulerAPIEnabled() {
+		sch, err := schedulerhttp.NewHandler(dao, schedulerStore, schedulerOrch)
+		if err != nil {
+			return nil, err
+		}
+		registerSchedulerRoutes(mux, sch, isSchedulerRunNowEnabled())
+	}
+
+	// Start schedule watchdog only when explicitly enabled.
+	// This prevents duplicate schedule runs in horizontally scaled/serverless deployments.
+	if isSchedulerWatchdogEnabled() && schedulerOrch != nil {
+		interval := schedulerWatchdogInterval()
 		wdCtx := context.Background()
-		_ = *schsvc.StartWatchdog(wdCtx, orch, 30*time.Second)
+		_ = *schsvc.StartWatchdog(wdCtx, schedulerOrch, interval)
 	}
 
 	// OAuth token components (read + write) – used by token store via dao.Operate only.
@@ -151,6 +212,9 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR
 
 	// Ad-hoc tool execution
 	mux.Handle("/v1/api/tools/", http.StripPrefix("/v1/api/tools", toolhttp.New(svc)))
+
+	// Speech-to-text
+	mux.HandleFunc("/v1/api/speech/transcribe", speech.NewHandler())
 
 	// File browser (Forge)
 	mux.Handle("/v1/workspace/file-browser/", http.StripPrefix("/v1/workspace/file-browser", filebrowser.New()))
@@ -202,10 +266,12 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR
 
 // registerSchedulerRoutes mounts all scheduler-related endpoints using a single handler.
 // This avoids duplicating registration code and ensures patterns remain consistent.
-func registerSchedulerRoutes(mux *http.ServeMux, h http.Handler) {
+func registerSchedulerRoutes(mux *http.ServeMux, h http.Handler, runNowEnabled bool) {
 	mux.Handle("/v1/api/agently/scheduler/", h)
 	mux.Handle("/v1/api/agently/schedule", h)
 	mux.Handle("/v1/api/agently/schedule-run", h)
-	mux.Handle("/v1/api/agently/scheduler/run-now/", h)
-	mux.Handle("/v1/api/agently/schedule-run-now", h)
+	if runNowEnabled {
+		mux.Handle("/v1/api/agently/scheduler/run-now/", h)
+		mux.Handle("/v1/api/agently/schedule-run-now", h)
+	}
 }

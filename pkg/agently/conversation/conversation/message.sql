@@ -26,4 +26,4 @@ SELECT
 	    m.tool_name,
 	    m.embedding_index
 	FROM message m
-	    ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("AND")}
+	    ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("WHERE")}

@@ -18,6 +18,7 @@
 
 #set($_ = $DefaultPredicate<bool>(const/value).Value('0').WithPredicate(0,'handler','*conversation.Filter'))
 
+#set($_ = $MessageAttachmentFilter<bool>(const/value).Value('true').WithPredicate(4, 'expr', 'm.attachment_payload_id IS NULL'))
 
 #set($_ = $FeedSpec<[]*tool.FeedSpec>(transient/extension))
 
@@ -49,8 +50,8 @@ JOIN  (
       ${predicate.Builder().CombineOr($predicate.FilterGroup(1, "AND")).Build("WHERE")}
     ) transcript ON transcript.conversation_id = conversation.id
 JOIN (
-    SELECT m.* FROM message m WHERE m.attachment_payload_id IS NULL
-    ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("AND")}
+    SELECT m.* FROM message m
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("WHERE")}
 ) message ON message.turn_id = transcript.id
 JOIN (
  SELECT inline_body, compression, m.id as message_id FROM message m

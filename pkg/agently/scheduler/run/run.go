@@ -56,6 +56,7 @@ type RunView struct {
 	PreconditionResult *string    `sqlx:"precondition_result"`
 	ConversationId     *string    `sqlx:"conversation_id"`
 	ConversationKind   string     `sqlx:"conversation_kind"`
+	ScheduledFor       *time.Time `sqlx:"scheduled_for"`
 	StartedAt          *time.Time `sqlx:"started_at"`
 	CompletedAt        *time.Time `sqlx:"completed_at"`
 }

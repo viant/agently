@@ -98,6 +98,11 @@ func (m *Message) SetRawContent(v string) {
 	m.ensureHas()
 	m.Has.RawContent = true
 }
+func (m *Message) SetTags(v string) {
+	m.Tags = &v
+	m.ensureHas()
+	m.Has.Tags = true
+}
 func (m *Message) SetSummary(v string) { m.Summary = &v; m.ensureHas(); m.Has.Summary = true }
 func (m *Message) SetEmbeddingIndex(v []byte) {
 	m.EmbeddingIndex = &v

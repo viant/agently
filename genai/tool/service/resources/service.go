@@ -2,7 +2,10 @@ package resources
 
 import (
 	"context"
+	"crypto/sha1"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -2194,6 +2197,58 @@ type GrepOutput struct {
 	Files []hygine.GrepFile `json:"files,omitempty"`
 }
 
+type grepSearchHashInput struct {
+	Pattern         string   `json:"pattern,omitempty"`
+	ExcludePattern  string   `json:"excludePattern,omitempty"`
+	Root            string   `json:"root,omitempty"`
+	RootID          string   `json:"rootId,omitempty"`
+	Path            string   `json:"path,omitempty"`
+	Recursive       bool     `json:"recursive,omitempty"`
+	Include         []string `json:"include,omitempty"`
+	Exclude         []string `json:"exclude,omitempty"`
+	CaseInsensitive bool     `json:"caseInsensitive,omitempty"`
+	Mode            string   `json:"mode,omitempty"`
+	Bytes           int      `json:"bytes,omitempty"`
+	Lines           int      `json:"lines,omitempty"`
+	MaxFiles        int      `json:"maxFiles,omitempty"`
+	MaxBlocks       int      `json:"maxBlocks,omitempty"`
+	SkipBinary      bool     `json:"skipBinary,omitempty"`
+	MaxSize         int      `json:"maxSize,omitempty"`
+	Concurrency     int      `json:"concurrency,omitempty"`
+}
+
+func grepSearchHash(input *GrepInput, rootURI string) string {
+	if input == nil {
+		return ""
+	}
+	payload := grepSearchHashInput{
+		Pattern:         strings.TrimSpace(input.Pattern),
+		ExcludePattern:  strings.TrimSpace(input.ExcludePattern),
+		Root:            strings.TrimSpace(rootURI),
+		RootID:          strings.TrimSpace(input.RootID),
+		Path:            strings.TrimSpace(input.Path),
+		Recursive:       input.Recursive,
+		Include:         append([]string(nil), input.Include...),
+		Exclude:         append([]string(nil), input.Exclude...),
+		CaseInsensitive: input.CaseInsensitive,
+		Mode:            strings.TrimSpace(input.Mode),
+		Bytes:           input.Bytes,
+		Lines:           input.Lines,
+		MaxFiles:        input.MaxFiles,
+		MaxBlocks:       input.MaxBlocks,
+		SkipBinary:      input.SkipBinary,
+		MaxSize:         input.MaxSize,
+		Concurrency:     input.Concurrency,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha1.Sum(raw)
+	// Short but collision-resistant enough for UI row keys.
+	return hex.EncodeToString(sum[:6])
+}
+
 func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*GrepInput)
 	if !ok {
@@ -2218,6 +2273,7 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	if rootURI == "" {
 		return fmt.Errorf("root or rootId is required")
 	}
+	searchHash := grepSearchHash(input, rootURI)
 	curAgent := s.currentAgent(ctx)
 	allowed := s.agentAllowed(ctx)
 	rootCtx, err := s.newRootContext(ctx, rootURI, input.RootID, allowed)
@@ -2338,6 +2394,7 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 		stats.Scanned = 1
 		stats.Matched = 1
 		gf := hygine.GrepFile{Path: rel, URI: uri, Matches: len(matchLines)}
+		gf.SearchHash = searchHash
 		if mode == "head" {
 			end := limitLines
 			if end > len(lines) {
@@ -2348,6 +2405,7 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 				snippetText = snippetText[:limitBytes]
 			}
 			gf.Snippets = append(gf.Snippets, hygine.Snippet{StartLine: 1, EndLine: end, Text: snippetText})
+			gf.RangeKey = fmt.Sprintf("%d-%d", 1, end)
 			files = append(files, gf)
 			output.Stats = stats
 			output.Files = files
@@ -2380,6 +2438,9 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 				LengthBytes: len(snippetText),
 				Cut:         cut,
 			})
+			if gf.RangeKey == "" {
+				gf.RangeKey = fmt.Sprintf("%d-%d", start+1, end)
+			}
 			totalBlocks++
 		}
 		files = append(files, gf)
@@ -2437,6 +2498,7 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 		}
 		stats.Matched++
 		gf := hygine.GrepFile{Path: rel, URI: uri}
+		gf.SearchHash = searchHash
 		gf.Matches = len(matchLines)
 		// Build snippets depending on mode
 		if mode == "head" {
@@ -2450,6 +2512,7 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 				snippetText = snippetText[:limitBytes]
 			}
 			gf.Snippets = append(gf.Snippets, hygine.Snippet{StartLine: 1, EndLine: end, Text: snippetText})
+			gf.RangeKey = fmt.Sprintf("%d-%d", 1, end)
 			files = append(files, gf)
 			return stats.Matched < maxFiles && totalBlocks < maxBlocks, nil
 		}
@@ -2481,6 +2544,9 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 				LengthBytes: len(snippetText),
 				Cut:         cut,
 			})
+			if gf.RangeKey == "" {
+				gf.RangeKey = fmt.Sprintf("%d-%d", start+1, end)
+			}
 			totalBlocks++
 			if totalBlocks >= maxBlocks {
 				stats.Truncated = true

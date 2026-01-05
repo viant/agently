@@ -1,0 +1,20 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/api/conversations/{id}/messages
+  method: GET
+
+parameters:
+  - name: id
+    kind: path
+    in: input
+    location: id
+
+selectors:
+  data: data.Transcript
+
+uniqueKey:
+  - field: id
+
+on:
+  - event: onFetch
+    handler: chat.onFetchQueuedTurns

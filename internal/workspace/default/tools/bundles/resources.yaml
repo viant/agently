@@ -1,0 +1,8 @@
+id: resources
+title: Resources
+description: File and MCP resource discovery and retrieval
+iconRef: builtin:resources
+priority: 90
+match:
+  - name: "resources/*"
+

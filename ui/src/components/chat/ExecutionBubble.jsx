@@ -154,21 +154,6 @@ function ExecutionTurnDetails({ msg, context }) {
         } else {
             setStage({phase: 'done', ...stagePayload});
         }
-        // Nudge messages DS loading flag so Forge Chat shows Abort button while running
-        try {
-            const msgCtx = context?.Context?.('messages');
-            const ctrlSig = msgCtx?.signals?.control;
-            if (ctrlSig) {
-                const prev = (typeof ctrlSig.peek === 'function') ? (ctrlSig.peek() || {}) : (ctrlSig.value || {});
-                if (isRunning) {
-                    
-                    ctrlSig.value = {...prev, loading: true};
-                } else if (isDoneOk || isErrored) {
-                    
-                    ctrlSig.value = {...prev, loading: false};
-                }
-            }
-        } catch(_) { /* ignore */ }
 
         // Also update conversations form running flag to drive data-driven abort visibility
         try {

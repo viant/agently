@@ -26,11 +26,27 @@ func EnsureDefault(fs afs.Service) {
 	}{
 		{"config.yaml", "default/config.yaml"},
 
-		{filepath.Join(KindTool, "webdriver.md"), "default/tools/webdriver.md"},
+		{filepath.Join(KindToolHints, "webdriver.md"), "default/tools/hints/webdriver.md"},
+
+		{filepath.Join(KindToolBundle, "resources.yaml"), "default/tools/bundles/resources.yaml"},
+		{filepath.Join(KindToolBundle, "system_exec.yaml"), "default/tools/bundles/system_exec.yaml"},
+		{filepath.Join(KindToolBundle, "system_patch.yaml"), "default/tools/bundles/system_patch.yaml"},
+		{filepath.Join(KindToolBundle, "system_os.yaml"), "default/tools/bundles/system_os.yaml"},
+		{filepath.Join(KindToolBundle, "system_image.yaml"), "default/tools/bundles/system_image.yaml"},
+		{filepath.Join(KindToolBundle, "agents.yaml"), "default/tools/bundles/agents.yaml"},
+		{filepath.Join(KindToolBundle, "agent_exec.yaml"), "default/tools/bundles/agent_exec.yaml"},
+		{filepath.Join(KindToolBundle, "orchestration.yaml"), "default/tools/bundles/orchestration.yaml"},
+		{filepath.Join(KindToolBundle, "message.yaml"), "default/tools/bundles/message.yaml"},
+		{filepath.Join(KindToolBundle, "webdriver.yaml"), "default/tools/bundles/webdriver.yaml"},
+		{filepath.Join(KindToolBundle, "sqlkit.yaml"), "default/tools/bundles/sqlkit.yaml"},
+		{filepath.Join(KindToolBundle, "github.yaml"), "default/tools/bundles/github.yaml"},
+		{filepath.Join(KindToolBundle, "platform.yaml"), "default/tools/bundles/platform.yaml"},
+		{filepath.Join(KindToolBundle, "outlook.yaml"), "default/tools/bundles/outlook.yaml"},
 
 		{filepath.Join(KindFeeds, "changes.yaml"), "default/feeds/changes.yaml"},
 		{filepath.Join(KindFeeds, "plan.yaml"), "default/feeds/plan.yaml"},
 		{filepath.Join(KindFeeds, "terminal.yaml"), "default/feeds/terminal.yaml"},
+		{filepath.Join(KindFeeds, "explorer.yaml"), "default/feeds/explorer.yaml"},
 
 		{filepath.Join(KindEmbedder, "openai_text.yaml"), "default/model/openai/embedder_text.yaml"},
 		{filepath.Join(KindModel, "openai_o4-mini.yaml"), "default/model/openai/o4-mini.yaml"},
@@ -48,11 +64,8 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindModel, "vertexai_gemini_3_0_pro.yaml"), "default/model/vertexai/gemini_3_0_pro.yaml"},
 
 		{filepath.Join(KindAgent, "chatter/knowledge/doc.txt"), "default/agents/chatter/knowledge/doc.txt"},
-		{filepath.Join(KindAgent, "chatter/knowledge/README_DELETE_THIS.md"), "default/agents/chatter/knowledge/README_DELETE_THIS.md"},
 		{filepath.Join(KindAgent, "chatter/prompt/system.tmpl"), "default/agents/chatter/prompt/system.tmpl"},
 		{filepath.Join(KindAgent, "chatter/prompt/user.tmpl"), "default/agents/chatter/prompt/user.tmpl"},
-		{filepath.Join(KindAgent, "chatter/system_knowledge/golang_rules.md"), "default/agents/chatter/system_knowledge/golang_rules.md"},
-		{filepath.Join(KindAgent, "chatter/system_knowledge/README_DELETE_THIS.md"), "default/agents/chatter/system_knowledge/README_DELETE_THIS.md"},
 		{filepath.Join(KindAgent, "chatter/chatter.yaml"), "default/agents/chatter/chatter.yaml"},
 
 		{filepath.Join(KindAgent, "coder/prompt/system.tmpl"), "default/agents/coder/prompt/system.tmpl"},

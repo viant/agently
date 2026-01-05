@@ -29,6 +29,10 @@ pipeline:
     action: run
     description: build application
     request: '@build/build'
+  app:
+    action: run
+    description: app
+    request: '@app/app'
 
   rule:
     cleanup:
