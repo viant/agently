@@ -261,6 +261,10 @@ export default function ElicitionForm({message, context}) {
             isOpen={true}
             canEscapeKeyClose={!submitting}
             canOutsideClickClose={!submitting}
+            hasBackdrop={false}
+            enforceFocus={false}
+            autoFocus={false}
+            portalClassName="agently-elicitation-portal"
             title="Secure Flow Required"
             style={{width: '100%', maxWidth: 520}}>
 

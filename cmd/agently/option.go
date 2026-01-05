@@ -14,6 +14,7 @@ type Options struct {
 	ModelReset   *ModelResetCmd   `command:"model-reset" description:"Clear agent model override"`
 	Workspace    *WorkspaceCmd    `command:"ws" description:"Workspace CRUD operations"`
 	Serve        *ServeCmd        `command:"serve" description:"StartedAt HTTP server"`
+	Scheduler    *SchedulerCmd    `command:"scheduler" description:"Scheduler runner and utilities"`
 	MCP          *McpCmd          `command:"mcp" description:"Manage MCP servers"`
 	ChatGPTLogin *ChatGPTLoginCmd `command:"chatgpt-login" description:"Login via ChatGPT OAuth and persist tokens for OpenAI providers"`
 }
@@ -45,6 +46,8 @@ func (o *Options) Init(firstArg string) {
 		o.Workspace = &WorkspaceCmd{}
 	case "serve":
 		o.Serve = &ServeCmd{}
+	case "scheduler":
+		o.Scheduler = &SchedulerCmd{}
 	case "mcp":
 		o.MCP = &McpCmd{}
 	case "chatgpt-login":

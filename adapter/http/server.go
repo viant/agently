@@ -210,6 +210,20 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 			msgID := r.PathValue("msgId")
 			s.handleDeleteMessage(w, r, convID, msgID)
 		})
+
+		// Cancel a queued turn within a conversation
+		mux.HandleFunc("DELETE /v1/api/conversations/{id}/turns/{turnId}", func(w http.ResponseWriter, r *http.Request) {
+			convID := r.PathValue("id")
+			turnID := r.PathValue("turnId")
+			s.handleDeleteTurn(w, r, convID, turnID)
+		})
+
+		// Reorder a queued turn within a conversation (swap with neighbor)
+		mux.HandleFunc("POST /v1/api/conversations/{id}/turns/{turnId}/move", func(w http.ResponseWriter, r *http.Request) {
+			convID := r.PathValue("id")
+			turnID := r.PathValue("turnId")
+			s.handleMoveQueuedTurn(w, r, convID, turnID)
+		})
 	}
 
 	// Usage statistics
@@ -554,6 +568,64 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, con
 		return
 	}
 	encode(w, http.StatusOK, map[string]string{"id": msgID, "status": "deleted"}, nil)
+}
+
+// handleDeleteTurn cancels a queued turn by id within a conversation.
+func (s *Server) handleDeleteTurn(w http.ResponseWriter, r *http.Request, convID, turnID string) {
+	if r.Method != http.MethodDelete {
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
+		return
+	}
+	if strings.TrimSpace(convID) == "" || strings.TrimSpace(turnID) == "" {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("conversation and turn id required"))
+		return
+	}
+	if s.chatSvc == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
+		return
+	}
+	if err := s.chatSvc.CancelQueuedTurn(r.Context(), convID, turnID); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			encode(w, http.StatusNotFound, nil, err)
+			return
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "cannot cancel") {
+			encode(w, http.StatusBadRequest, nil, err)
+			return
+		}
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+	encode(w, http.StatusOK, map[string]string{"id": turnID, "status": "canceled"}, nil)
+}
+
+type moveQueuedTurnRequest struct {
+	Direction string `json:"direction"`
+}
+
+func (s *Server) handleMoveQueuedTurn(w http.ResponseWriter, r *http.Request, convID, turnID string) {
+	if r.Method != http.MethodPost {
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
+		return
+	}
+	if strings.TrimSpace(convID) == "" || strings.TrimSpace(turnID) == "" {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("conversation and turn id required"))
+		return
+	}
+	if s.chatSvc == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
+		return
+	}
+	var req moveQueuedTurnRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	if err := s.chatSvc.MoveQueuedTurn(r.Context(), convID, turnID, req.Direction); err != nil {
+		encode(w, http.StatusBadRequest, nil, err)
+		return
+	}
+	encode(w, http.StatusOK, map[string]string{"id": turnID, "status": "moved"}, nil)
 }
 
 // handleGetPayload serves payload content or metadata for a given payload id.

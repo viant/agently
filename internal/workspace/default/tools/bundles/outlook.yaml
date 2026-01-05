@@ -1,0 +1,8 @@
+id: outlook
+title: Outlook
+description: Outlook MCP tools
+iconRef: builtin:tools
+priority: 55
+match:
+  - name: "outlook/*"
+

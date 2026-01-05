@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/viant/agently/internal/codec"
 	runpkg "github.com/viant/agently/pkg/agently/scheduler/run"
@@ -29,4 +30,8 @@ type Client interface {
 	// Single upserts (helpers)
 	PatchSchedule(ctx context.Context, schedule *schedwrite.Schedule) error
 	PatchRun(ctx context.Context, run *runwrite.Run) error
+
+	// Lease-based locking (prevents duplicate due runs across instances)
+	TryClaimSchedule(ctx context.Context, scheduleID, leaseOwner string, leaseUntil time.Time) (bool, error)
+	ReleaseScheduleLease(ctx context.Context, scheduleID, leaseOwner string) (bool, error)
 }

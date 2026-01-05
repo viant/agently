@@ -30,11 +30,13 @@ const Root = () => {
                     style={{display: 'flex', flex: 1, overflow: 'hidden'}}
                 >
                     {profile && isNavigationOpen && <Navigation/>}
-                    <div className="main-content" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <div className="main-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
                         {profile ? (
                           <>
                             <Outlet/>
-                            <WindowManager/>
+                            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                                <WindowManager/>
+                            </div>
                           </>
                         ) : (
                           <SignIn/>

@@ -30,6 +30,7 @@ import { scheduleService } from './services/scheduleService.js';
 import { preferencesService } from './services/preferencesService.js';
 import { guardrails } from './services/guardrails.js';
 import CodeDiffDialog from './components/CodeDiffDialog.jsx';
+import FileViewDialog from './components/FileViewDialog.jsx';
 
 const router = createBrowserRouter([
     {
@@ -81,6 +82,7 @@ function App() {
         <>
           <RouterProvider router={router} />
           <CodeDiffDialog />
+          <FileViewDialog />
         </>
       </SettingProvider>
     </AuthProvider>

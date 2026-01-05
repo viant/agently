@@ -5,11 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	schstore "github.com/viant/agently/client/scheduler/store"
 	"github.com/viant/agently/internal/codec"
 	runpkg "github.com/viant/agently/pkg/agently/scheduler/run"
 	schedulepkg "github.com/viant/agently/pkg/agently/scheduler/schedule"
+	schlease "github.com/viant/agently/pkg/agently/scheduler/schedule/lease"
 
 	runwrite "github.com/viant/agently/pkg/agently/scheduler/run/write"
 	schedwrite "github.com/viant/agently/pkg/agently/scheduler/schedule/write"
@@ -55,6 +57,12 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 		return err
 	}
 	if _, err := runwrite.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := schlease.DefineClaimLeaseComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := schlease.DefineReleaseLeaseComponent(ctx, dao); err != nil {
 		return err
 	}
 	return nil
@@ -127,6 +135,50 @@ func (s *Service) PatchRun(ctx context.Context, run *runwrite.Run) error {
 		return errors.New(out.Violations[0].Message)
 	}
 	return nil
+}
+
+func (s *Service) TryClaimSchedule(ctx context.Context, scheduleID, leaseOwner string, leaseUntil time.Time) (bool, error) {
+	if s == nil || s.dao == nil {
+		return false, nil
+	}
+	in := &schlease.ClaimLeaseInput{
+		ScheduleID: strings.TrimSpace(scheduleID),
+		LeaseOwner: strings.TrimSpace(leaseOwner),
+		LeaseUntil: leaseUntil,
+		Now:        time.Now().UTC(),
+		Has:        &schlease.ClaimLeaseInputHas{ScheduleID: true, LeaseOwner: true, LeaseUntil: true, Now: true},
+	}
+	out := &schlease.ClaimLeaseOutput{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath(http.MethodPost, schlease.ClaimLeasePathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return false, err
+	}
+	return out.Claimed, nil
+}
+
+func (s *Service) ReleaseScheduleLease(ctx context.Context, scheduleID, leaseOwner string) (bool, error) {
+	if s == nil || s.dao == nil {
+		return false, nil
+	}
+	in := &schlease.ReleaseLeaseInput{
+		ScheduleID: strings.TrimSpace(scheduleID),
+		LeaseOwner: strings.TrimSpace(leaseOwner),
+		Has:        &schlease.ReleaseLeaseInputHas{ScheduleID: true, LeaseOwner: true},
+	}
+	out := &schlease.ReleaseLeaseOutput{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath(http.MethodPost, schlease.ReleaseLeasePathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return false, err
+	}
+	return out.Released, nil
 }
 
 // PatchSchedules applies a batch write and returns component output (including violations).

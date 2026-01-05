@@ -106,6 +106,7 @@ type TranscriptView struct {
 	Id                    string         `sqlx:"id"`
 	ConversationId        string         `sqlx:"conversation_id"`
 	CreatedAt             time.Time      `sqlx:"created_at"`
+	QueueSeq              *int64         `sqlx:"queue_seq"`
 	Status                string         `sqlx:"status"`
 	ErrorMessage          *string        `sqlx:"error_message"`
 	StartedByMessageId    *string        `sqlx:"started_by_message_id"`

@@ -53,9 +53,12 @@ CREATE TABLE turn
     id                      TEXT PRIMARY KEY,
     conversation_id         TEXT      NOT NULL REFERENCES conversation (id) ON DELETE CASCADE,
     created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- queue_seq provides deterministic FIFO ordering when created_at has low resolution.
+    -- It is set by the application when queueing is enabled.
+    queue_seq               INTEGER,
     status                  TEXT      NOT NULL CHECK (status IN
-                                                      ('pending', 'running', 'waiting_for_user', 'succeeded', 'failed',
-                                                       'canceled')),
+                                                      ('queued', 'pending', 'running', 'waiting_for_user', 'succeeded',
+                                                       'failed', 'canceled')),
     error_message TEXT,
     started_by_message_id   TEXT,
     retry_of                TEXT,
@@ -67,6 +70,8 @@ CREATE TABLE turn
 );
 
 CREATE INDEX idx_turn_conversation ON turn (conversation_id);
+CREATE INDEX idx_turn_conv_status_created ON turn (conversation_id, status, created_at);
+CREATE INDEX idx_turn_conv_queue_seq ON turn (conversation_id, queue_seq);
 
 CREATE TABLE message
 (
@@ -226,16 +231,19 @@ CREATE TABLE IF NOT EXISTS schedule (
 
     -- Optional orchestration workflow (reserved)
 
-    -- Bookkeeping
-    next_run_at           TIMESTAMP,
-    last_run_at           TIMESTAMP,
-    last_status           TEXT,                      -- succeeded/failed/skipped
-    last_error            TEXT,
-    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at            TIMESTAMP
-    );
+	    -- Bookkeeping
+	    next_run_at           TIMESTAMP,
+	    last_run_at           TIMESTAMP,
+	    last_status           TEXT,                      -- succeeded/failed/skipped
+	    last_error            TEXT,
+	    lease_owner           TEXT,
+	    lease_until           TIMESTAMP,
+	    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	    updated_at            TIMESTAMP
+	    );
 
-CREATE INDEX IF NOT EXISTS idx_schedule_enabled_next ON schedule(enabled, next_run_at);
+	CREATE INDEX IF NOT EXISTS idx_schedule_enabled_next ON schedule(enabled, next_run_at);
+	CREATE INDEX IF NOT EXISTS idx_schedule_enabled_next_lease ON schedule(enabled, next_run_at, lease_until);
 
 
 -- Per-run audit trail
@@ -252,14 +260,16 @@ CREATE TABLE IF NOT EXISTS schedule_run (
     precondition_passed    INTEGER   CHECK (precondition_passed IN (0,1)),
     precondition_result    TEXT,
 
-    -- Conversation spawned by this run
-    conversation_id        TEXT      REFERENCES conversation(id) ON DELETE SET NULL,
-    conversation_kind      TEXT      NOT NULL DEFAULT 'scheduled' CHECK (conversation_kind IN ('scheduled','precondition')),
-    started_at             TIMESTAMP,
-    completed_at           TIMESTAMP
-    );
+	    -- Conversation spawned by this run
+	    conversation_id        TEXT      REFERENCES conversation(id) ON DELETE SET NULL,
+	    conversation_kind      TEXT      NOT NULL DEFAULT 'scheduled' CHECK (conversation_kind IN ('scheduled','precondition')),
+	    scheduled_for          TIMESTAMP,
+	    started_at             TIMESTAMP,
+	    completed_at           TIMESTAMP
+	    );
 
-CREATE INDEX IF NOT EXISTS idx_run_schedule_status ON schedule_run(schedule_id, status);
+	CREATE INDEX IF NOT EXISTS idx_run_schedule_status ON schedule_run(schedule_id, status);
+	CREATE UNIQUE INDEX IF NOT EXISTS ux_run_schedule_scheduled_for ON schedule_run(schedule_id, scheduled_for);
 
 
 CREATE TABLE IF NOT EXISTS users (

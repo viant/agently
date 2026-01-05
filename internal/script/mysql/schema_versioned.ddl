@@ -100,9 +100,12 @@ CREATE TABLE turn
     id                      VARCHAR(255) PRIMARY KEY,
     conversation_id         VARCHAR(255) NOT NULL,
     created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- queue_seq provides deterministic FIFO ordering when created_at has low resolution.
+    -- It is set by the application when queueing is enabled.
+    queue_seq               BIGINT NULL,
     status                  VARCHAR(255) NOT NULL CHECK (status IN
-                                                         ('pending', 'running', 'waiting_for_user', 'succeeded',
-                                                          'failed', 'canceled')),
+                                                         ('queued', 'pending', 'running', 'waiting_for_user',
+                                                          'succeeded', 'failed', 'canceled')),
     error_message           TEXT,
     started_by_message_id   VARCHAR(255),
     retry_of                VARCHAR(255),
@@ -117,6 +120,8 @@ CREATE TABLE turn
 );
 
 CREATE INDEX idx_turn_conversation ON turn (conversation_id);
+CREATE INDEX idx_turn_conv_status_created ON turn (conversation_id, status, created_at);
+CREATE INDEX idx_turn_conv_queue_seq ON turn (conversation_id, queue_seq);
 
 
 
@@ -349,11 +354,14 @@ CREATE TABLE IF NOT EXISTS schedule (
     last_run_at           TIMESTAMP    NULL DEFAULT NULL,
     last_status           VARCHAR(32),
     last_error            TEXT,
+    lease_owner           VARCHAR(255) NULL,
+    lease_until           TIMESTAMP    NULL DEFAULT NULL,
     created_at            TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            TIMESTAMP    NULL DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE INDEX idx_schedule_enabled_next ON schedule(enabled, next_run_at);
+CREATE INDEX idx_schedule_enabled_next_lease ON schedule(enabled, next_run_at, lease_until);
 
 -- Per-run audit trail
 CREATE TABLE IF NOT EXISTS schedule_run (
@@ -370,6 +378,7 @@ CREATE TABLE IF NOT EXISTS schedule_run (
 
     conversation_id        VARCHAR(255) NULL,
     conversation_kind      VARCHAR(32)  NOT NULL DEFAULT 'scheduled' CHECK (conversation_kind IN ('scheduled','precondition')),
+    scheduled_for          TIMESTAMP    NULL DEFAULT NULL,
     started_at             TIMESTAMP    NULL DEFAULT NULL,
     completed_at           TIMESTAMP    NULL DEFAULT NULL,
 
@@ -378,6 +387,7 @@ CREATE TABLE IF NOT EXISTS schedule_run (
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE INDEX idx_run_schedule_status ON schedule_run(schedule_id, status);
+CREATE UNIQUE INDEX ux_run_schedule_scheduled_for ON schedule_run(schedule_id, scheduled_for);
 
 -- OAuth tokens per user (server-side, encrypted). Stores serialized scy/auth.Token as enc_token.
 CREATE TABLE IF NOT EXISTS user_oauth_token (

@@ -24,6 +24,10 @@ func rebuildNorm(lines []string) []string {
 // findSubSlice returns the first index of needle inside haystack (both
 // canonicalised), or –1 if not found.
 func findSubSlice(hay, need []string) int {
+	// Empty needle matches at start (useful for applying updates to an empty file).
+	if len(need) == 0 {
+		return 0
+	}
 Outer:
 	for i := 0; i <= len(hay)-len(need); i++ {
 		for j := range need {
@@ -67,7 +71,13 @@ func replaceSlice(src []string, start, lenOld int, repl []string) []string {
 // -specific heuristics are used.
 func (s *Session) applyUpdate(oldData []byte, h UpdateFile) []string {
 	// 1. Split original file into lines and create canonical view.
-	oldLines := strings.Split(strings.TrimRight(string(oldData), "\n"), "\n")
+	trimmed := strings.TrimRight(string(oldData), "\n")
+	var oldLines []string
+	if trimmed == "" {
+		oldLines = []string{}
+	} else {
+		oldLines = strings.Split(trimmed, "\n")
+	}
 	normOld := rebuildNorm(oldLines)
 
 	// 2. Process each chunk in order.

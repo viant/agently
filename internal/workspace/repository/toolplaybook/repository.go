@@ -12,8 +12,8 @@ import (
 	"github.com/viant/agently/internal/workspace"
 )
 
-// Repository loads markdown playbooks stored under $AGENTLY_WORKSPACE/tools.
-// Playbooks are plain text files (typically .md) and are not tool configs.
+// Repository loads markdown tool hints stored under $AGENTLY_WORKSPACE/tools/hints.
+// Hints are plain text files (typically .md) and are not tool configs.
 type Repository struct {
 	fs   afs.Service
 	dirs []string
@@ -28,7 +28,12 @@ func New(fs afs.Service, dirs ...string) *Repository {
 		roots = append(roots, dir)
 	}
 	if len(roots) == 0 {
-		roots = append(roots, workspace.Path(workspace.KindTool))
+		// Prefer new hints location; keep legacy tools/ as a fallback for
+		// backwards compatibility with existing workspaces.
+		roots = append(roots,
+			workspace.Path(workspace.KindToolHints),
+			workspace.Path(workspace.KindTool),
+		)
 	}
 	return &Repository{fs: fs, dirs: roots}
 }

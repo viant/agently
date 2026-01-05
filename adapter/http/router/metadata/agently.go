@@ -8,23 +8,28 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/viant/afs"
 	"github.com/viant/agently"
 	"github.com/viant/agently/genai/agent"
 	execsvc "github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/llm"
+	toolbundle "github.com/viant/agently/genai/tool/bundle"
 	authctx "github.com/viant/agently/internal/auth"
 	convdao "github.com/viant/agently/internal/service/conversation"
 	usersvc "github.com/viant/agently/internal/service/user"
 	tmatch "github.com/viant/agently/internal/tool/matcher"
+	bundlerepo "github.com/viant/agently/internal/workspace/repository/toolbundle"
 )
 
 type AgentInfo struct {
 	// Name is a human-friendly display name for the agent.
 	// Always use agentId for selection and routing; name is UI-only.
-	Name   string   `json:"name,omitempty"`
-	Tools  []string `json:"tools"`
-	Model  string   `json:"model"`
-	Chains []string `json:"chains,omitempty"`
+	Name  string   `json:"name,omitempty"`
+	Tools []string `json:"tools"`
+	// Bundles are the configured tool bundle IDs for this agent (if any).
+	Bundles []string `json:"bundles,omitempty"`
+	Model   string   `json:"model"`
+	Chains  []string `json:"chains,omitempty"`
 	// UI defaults and capabilities
 	ToolCallExposure     string   `json:"toolCallExposure,omitempty"`
 	ShowExecutionDetails bool     `json:"showExecutionDetails,omitempty"`
@@ -46,6 +51,22 @@ type AgentInfo struct {
 	Elicitation *agent.ContextInputs `json:"elicitation,omitempty"`
 }
 
+type ToolBundleInfo struct {
+	ID          string                 `json:"id"`
+	Title       string                 `json:"title,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	IconRef     string                 `json:"iconRef,omitempty"`
+	IconURI     string                 `json:"iconURI,omitempty"`
+	Priority    int                    `json:"priority,omitempty"`
+	Match       []toolbundle.MatchRule `json:"match,omitempty"`
+}
+
+type ToolInfo struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Bundles     []string `json:"bundles,omitempty"`
+}
+
 // AgentlyResponse is the aggregated workspace metadata payload.
 type AgentlyResponse struct {
 	Defaults struct {
@@ -59,8 +80,10 @@ type AgentlyResponse struct {
 	Tools  []string `json:"tools"`
 	// ToolsTree groups tools by service prefix using ':' as the separator.
 	// Example: { "sqlkit": ["dbExec", "dbQuery"], "system/exec": ["execute"] }
-	ToolsTree map[string][]string `json:"toolsTree,omitempty"`
-	Models    []string            `json:"models"`
+	ToolsTree   map[string][]string  `json:"toolsTree,omitempty"`
+	ToolBundles []ToolBundleInfo     `json:"toolBundles,omitempty"`
+	ToolInfo    map[string]*ToolInfo `json:"toolInfo,omitempty"`
+	Models      []string             `json:"models"`
 	// AgentInfo lists matched tool names per agent using pattern matching
 	// rules derived from the agent's Tool configuration.
 	AgentInfo map[string]*AgentInfo `json:"agentInfo,omitempty"`
@@ -69,7 +92,7 @@ type AgentlyResponse struct {
 }
 
 // Aggregate builds an AgentlyResponse from executor config and tool definitions.
-func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse, error) {
+func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition, bundles []*toolbundle.Bundle) (*AgentlyResponse, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -114,6 +137,10 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 			}
 		}
 		out.Tools = append(out.Tools, name)
+		if out.ToolInfo == nil {
+			out.ToolInfo = map[string]*ToolInfo{}
+		}
+		out.ToolInfo[name] = &ToolInfo{Name: name, Description: strings.TrimSpace(d.Description)}
 		// Build ToolsTree grouping by service prefix using ':'
 		if i := strings.IndexByte(name, ':'); i != -1 {
 			svc := strings.TrimSpace(name[:i])
@@ -131,6 +158,50 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 	sort.Strings(out.Agents)
 	sort.Strings(out.Models)
 	sort.Strings(out.Tools)
+
+	// Normalize bundles: when none provided, derive from available tools for UI convenience.
+	if len(bundles) == 0 {
+		bundles = toolbundle.DeriveBundles(defs)
+	}
+	if len(bundles) > 0 {
+		perBundle := map[string]map[string]struct{}{} // bundleID -> toolName set
+		for _, b := range bundles {
+			if b == nil || strings.TrimSpace(b.ID) == "" {
+				continue
+			}
+			id := strings.TrimSpace(b.ID)
+			perBundle[id] = matchBundleTools(b, out.Tools)
+			out.ToolBundles = append(out.ToolBundles, ToolBundleInfo{
+				ID:          id,
+				Title:       strings.TrimSpace(b.Title),
+				Description: strings.TrimSpace(b.Description),
+				IconRef:     strings.TrimSpace(b.IconRef),
+				IconURI:     strings.TrimSpace(b.IconURI),
+				Priority:    b.Priority,
+				Match:       append([]toolbundle.MatchRule(nil), b.Match...),
+			})
+		}
+		sort.Slice(out.ToolBundles, func(i, j int) bool {
+			if out.ToolBundles[i].Priority != out.ToolBundles[j].Priority {
+				return out.ToolBundles[i].Priority > out.ToolBundles[j].Priority
+			}
+			return out.ToolBundles[i].ID < out.ToolBundles[j].ID
+		})
+		for bundleID, toolSet := range perBundle {
+			for toolName := range toolSet {
+				if out.ToolInfo[toolName] == nil {
+					continue
+				}
+				out.ToolInfo[toolName].Bundles = append(out.ToolInfo[toolName].Bundles, bundleID)
+			}
+		}
+		for _, ti := range out.ToolInfo {
+			if ti == nil || len(ti.Bundles) == 0 {
+				continue
+			}
+			sort.Strings(ti.Bundles)
+		}
+	}
 
 	// Build AgentInfo mapping (matched tool names per agent). Always attempt to populate entries.
 	if cfg.Agent != nil && len(cfg.Agent.Items) > 0 {
@@ -161,6 +232,16 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 			names = append(names, strings.TrimSpace(d.Name))
 		}
 
+		// Index bundle tool sets for fast per-agent expansion.
+		bundleIndex := map[string]map[string]struct{}{} // lower(bundleID) -> toolName set
+		for _, bi := range out.ToolBundles {
+			if strings.TrimSpace(bi.ID) == "" {
+				continue
+			}
+			b := &toolbundle.Bundle{ID: bi.ID, Match: bi.Match}
+			bundleIndex[strings.ToLower(strings.TrimSpace(b.ID))] = matchBundleTools(b, names)
+		}
+
 		for _, a := range cfg.Agent.Items {
 			if a == nil {
 				continue
@@ -185,6 +266,7 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				}
 				patterns = append(patterns, pat)
 			}
+			bundlesSel := normalizeStringList(a.Tool.Bundles)
 			// Collect chain targets (agent ids)
 			var chainTargets []string
 			if len(a.Chains) > 0 {
@@ -206,9 +288,19 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 				sort.Strings(chainTargets)
 			}
 
-			// Match tool names (dedup)
+			// Select tool names from bundles + patterns (dedup)
 			seenTools := map[string]struct{}{}
 			matched := make([]string, 0, len(defs))
+			for _, bid := range bundlesSel {
+				set := bundleIndex[strings.ToLower(strings.TrimSpace(bid))]
+				for name := range set {
+					if _, ok := seenTools[name]; ok {
+						continue
+					}
+					seenTools[name] = struct{}{}
+					matched = append(matched, name)
+				}
+			}
 			for i, d := range defs {
 				name := names[i]
 				for _, p := range patterns {
@@ -245,6 +337,7 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition) (*AgentlyResponse
 			info := &AgentInfo{
 				Name:                 firstNonEmpty(agentName, agentID),
 				Tools:                matched,
+				Bundles:              append([]string(nil), bundlesSel...),
 				Model:                a.Model,
 				Chains:               chainTargets,
 				ToolCallExposure:     exposure,
@@ -302,6 +395,11 @@ func NewAgently(exec *execsvc.Service) http.HandlerFunc {
 		var defs []llm.ToolDefinition
 		if exec.LLMCore() != nil {
 			defs = exec.LLMCore().ToolDefinitions()
+		}
+		bundles, berr := loadToolBundles(r.Context())
+		if berr != nil {
+			http.Error(w, berr.Error(), http.StatusInternalServerError)
+			return
 		}
 		// Transient debug: enable with ?debug=1
 		debug := strings.TrimSpace(r.URL.Query().Get("debug")) != ""
@@ -366,7 +464,7 @@ func NewAgently(exec *execsvc.Service) http.HandlerFunc {
 				}
 			}
 		}
-		resp, err := Aggregate(cfg, defs)
+		resp, err := Aggregate(cfg, defs, bundles)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -401,4 +499,66 @@ func NewAgently(exec *execsvc.Service) http.HandlerFunc {
 			Data:   resp,
 		})
 	}
+}
+
+func normalizeStringList(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, raw := range in {
+		v := strings.TrimSpace(raw)
+		if v == "" {
+			continue
+		}
+		key := strings.ToLower(v)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func matchBundleTools(b *toolbundle.Bundle, toolNames []string) map[string]struct{} {
+	out := map[string]struct{}{}
+	if b == nil || len(b.Match) == 0 || len(toolNames) == 0 {
+		return out
+	}
+	for _, rule := range b.Match {
+		inc := strings.TrimSpace(rule.Name)
+		if inc == "" {
+			continue
+		}
+		excluded := map[string]struct{}{}
+		for _, ex := range rule.Exclude {
+			ex = strings.TrimSpace(ex)
+			if ex == "" {
+				continue
+			}
+			for _, name := range toolNames {
+				if tmatch.Match(ex, name) {
+					excluded[name] = struct{}{}
+				}
+			}
+		}
+		for _, name := range toolNames {
+			if !tmatch.Match(inc, name) {
+				continue
+			}
+			if _, ok := excluded[name]; ok {
+				continue
+			}
+			out[name] = struct{}{}
+		}
+	}
+	return out
+}
+
+func loadToolBundles(ctx context.Context) ([]*toolbundle.Bundle, error) {
+	repo := bundlerepo.New(afs.New())
+	return repo.LoadAll(ctx)
 }

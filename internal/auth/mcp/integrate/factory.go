@@ -17,6 +17,7 @@ import (
 func NewAuthRoundTripper(jar http.CookieJar, base http.RoundTripper, rejectTTL time.Duration) (*authtransport.RoundTripper, error) {
 	opts := []authtransport.Option{
 		authtransport.WithBackendForFrontendAuth(),
+		authtransport.WithCookieJar(jar),
 	}
 	// Note: cookie persistence is handled by the http.Client that uses this
 	// RoundTripper. Ensure the client is constructed with Jar set to `jar`.

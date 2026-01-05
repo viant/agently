@@ -3,10 +3,9 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently/genai/tool"
 	"sort"
 	"strings"
-
-	"github.com/viant/agently/genai/tool"
 )
 
 func (t *TranscriptView) filterInvokedToolFeed() {

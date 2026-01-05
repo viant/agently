@@ -16,6 +16,7 @@ type Run struct {
 	PreconditionResult *string    `sqlx:"precondition_result" json:",omitempty"`
 	ConversationId     *string    `sqlx:"conversation_id" json:",omitempty"`
 	ConversationKind   string     `sqlx:"conversation_kind" validate:"required"`
+	ScheduledFor       *time.Time `sqlx:"scheduled_for" json:",omitempty"`
 	StartedAt          *time.Time `sqlx:"started_at" json:",omitempty"`
 	CompletedAt        *time.Time `sqlx:"completed_at" json:",omitempty"`
 	Has                *RunHas    `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
@@ -30,6 +31,7 @@ type RunHas struct {
 	Status, ErrorMessage                                      bool
 	PreconditionRanAt, PreconditionPassed, PreconditionResult bool
 	ConversationId, ConversationKind                          bool
+	ScheduledFor                                              bool
 	StartedAt, CompletedAt                                    bool
 }
 
@@ -72,6 +74,11 @@ func (m *Run) SetConversationKind(v string) {
 	m.ConversationKind = v
 	m.ensureHas()
 	m.Has.ConversationKind = true
+}
+func (m *Run) SetScheduledFor(v time.Time) {
+	m.ScheduledFor = &v
+	m.ensureHas()
+	m.Has.ScheduledFor = true
 }
 func (m *Run) SetStartedAt(v time.Time) { m.StartedAt = &v; m.ensureHas(); m.Has.StartedAt = true }
 func (m *Run) SetCompletedAt(v time.Time) {

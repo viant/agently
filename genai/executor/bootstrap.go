@@ -7,9 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/http/cookiejar"
 	neturl "net/url"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -36,6 +34,7 @@ import (
 	authctx "github.com/viant/agently/internal/auth"
 	integrate "github.com/viant/agently/internal/auth/mcp/integrate"
 	mcpcfg "github.com/viant/agently/internal/mcp/config"
+	mcpcookies "github.com/viant/agently/internal/mcp/cookies"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	protoclient "github.com/viant/mcp-protocol/client"
 	authtransport "github.com/viant/mcp/client/auth/transport"
@@ -893,41 +892,10 @@ func (e *Service) ensureMCPManager() error {
 // newCookieJarProvider creates a provider that returns a per-user shared cookie jar
 // preloaded from shared and provider-specific jars.
 func (e *Service) newCookieJarProvider() func(ctx context.Context) (http.CookieJar, error) {
-	var (
-		jarMu      sync.Mutex
-		jarsByUser = map[string]http.CookieJar{}
-	)
-	return func(ctx context.Context) (http.CookieJar, error) {
-		user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
-		if user == "" {
-			user = "anonymous"
-		}
-		jarMu.Lock()
-		defer jarMu.Unlock()
-		if j, ok := jarsByUser[user]; ok && j != nil {
-			return j, nil
-		}
-		sharedDir := filepath.Join(workspace.Root(), "state", "mcp", "bff", user)
-		sharedPath := filepath.Join(sharedDir, "cookies.json")
-		if err := os.MkdirAll(sharedDir, 0o700); err != nil {
-			return nil, err
-		}
-		fj, ferr := authtransport.NewFileJar(sharedPath)
-		if ferr != nil {
-			mem, _ := cookiejar.New(nil)
-			jarsByUser[user] = mem
-			return mem, nil
-		}
-		// Warm jar
-		if err := e.preloadSharedAnonymousCookies(fj); err != nil {
-			// continue warming other jars even if this fails
-		}
-		if err := e.preloadProviderJarsForUser(fj, user); err != nil {
-			// non-fatal warming error
-		}
-		jarsByUser[user] = fj
-		return fj, nil
-	}
+	fs := afs.New()
+	repo := mcprepo.New(fs)
+	provider := mcpcookies.New(fs, repo)
+	return provider.Jar
 }
 
 func (e *Service) newAuthRoundTripperProvider(jarProvider func(ctx context.Context) (http.CookieJar, error)) func(ctx context.Context) *authtransport.RoundTripper {
@@ -952,101 +920,6 @@ func (e *Service) newAuthRoundTripperProvider(jarProvider func(ctx context.Conte
 		rtByUser[user] = rt
 		return rt
 	}
-}
-
-func (e *Service) preloadSharedAnonymousCookies(dst http.CookieJar) error {
-	anonSharedPath := filepath.Join(workspace.Root(), "state", "mcp", "bff", "anonymous", "cookies.json")
-	fs := afs.New()
-	ok, _ := fs.Exists(context.Background(), anonSharedPath)
-	if !ok {
-		return nil
-	}
-	src, err := authtransport.NewFileJar(anonSharedPath)
-	if err != nil || src == nil {
-		return err
-	}
-	repo := mcprepo.New(fs)
-	names, lerr := repo.List(context.Background())
-	if lerr != nil {
-		return lerr
-	}
-	for _, name := range names {
-		cfg, rerr := repo.Load(context.Background(), name)
-		if rerr != nil || cfg == nil || cfg.ClientOptions == nil {
-			continue
-		}
-		raw := strings.TrimSpace(cfg.ClientOptions.Transport.URL)
-		if raw == "" {
-			continue
-		}
-		if u, perr := neturl.Parse(raw); perr == nil {
-			if cs := src.Cookies(u); len(cs) > 0 {
-				dst.SetCookies(u, cs)
-				e.mirrorDevAliasCookies(dst, u, cs)
-			}
-		}
-	}
-	return nil
-}
-
-func (e *Service) preloadProviderJarsForUser(dst http.CookieJar, user string) error {
-	fs := afs.New()
-	repo := mcprepo.New(fs)
-	names, err := repo.List(context.Background())
-	if err != nil {
-		return err
-	}
-	for _, name := range names {
-		cfg, rerr := repo.Load(context.Background(), name)
-		if rerr != nil || cfg == nil || cfg.ClientOptions == nil {
-			continue
-		}
-		raw := strings.TrimSpace(cfg.ClientOptions.Transport.URL)
-		if raw == "" {
-			continue
-		}
-		u, perr := neturl.Parse(raw)
-		if perr != nil {
-			continue
-		}
-		for _, scope := range []string{user, "anonymous"} {
-			stateDir := filepath.Join(workspace.Root(), "state", "mcp", name, scope)
-			cookiesPath := filepath.Join(stateDir, "cookies.json")
-			ok, _ := fs.Exists(context.Background(), cookiesPath)
-			if !ok {
-				continue
-			}
-			src, jerr := authtransport.NewFileJar(cookiesPath)
-			if jerr != nil || src == nil {
-				continue
-			}
-			if cs := src.Cookies(u); len(cs) > 0 {
-				dst.SetCookies(u, cs)
-				e.mirrorDevAliasCookies(dst, u, cs)
-			}
-		}
-	}
-	return nil
-}
-
-func (e *Service) mirrorDevAliasCookies(dst http.CookieJar, u *neturl.URL, cs []*http.Cookie) {
-	host, port := u.Hostname(), u.Port()
-	var alt string
-	if host == "localhost" {
-		alt = "127.0.0.1"
-	} else if host == "127.0.0.1" {
-		alt = "localhost"
-	}
-	if alt == "" {
-		return
-	}
-	altURL := *u
-	if port != "" {
-		altURL.Host = alt + ":" + port
-	} else {
-		altURL.Host = alt
-	}
-	dst.SetCookies(&altURL, cs)
 }
 
 func (e *Service) initAgent(ctx context.Context) {

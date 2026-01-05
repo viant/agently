@@ -18,10 +18,12 @@ import (
 	"github.com/viant/agently/genai/service/augmenter"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
+	toolbundle "github.com/viant/agently/genai/tool/bundle"
 	svc "github.com/viant/agently/genai/tool/service"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	orchestrator "github.com/viant/agently/internal/service/agent/orchestrator"
 	implconv "github.com/viant/agently/internal/service/conversation"
+	bundlerepo "github.com/viant/agently/internal/workspace/repository/toolbundle"
 )
 
 // Option customises Service instances.
@@ -55,6 +57,10 @@ type Service struct {
 
 	// Optional MCP client manager to resolve resources via MCP servers.
 	mcpMgr *mcpmgr.Manager
+
+	// Optional provider for workspace tool bundles. When nil, bundles are derived
+	// from current tool definitions (service-based).
+	toolBundles func(ctx context.Context) ([]*toolbundle.Bundle, error)
 }
 
 func (s *Service) Finder() agent.Finder {
@@ -85,6 +91,11 @@ func WithCancelRegistry(reg cancels.Registry) Option {
 // WithMCPManager attaches an MCP Manager to resolve resources via MCP servers.
 func WithMCPManager(m *mcpmgr.Manager) Option { return func(s *Service) { s.mcpMgr = m } }
 
+// WithToolBundles configures a provider returning global tool bundles.
+func WithToolBundles(provider func(ctx context.Context) ([]*toolbundle.Bundle, error)) Option {
+	return func(s *Service) { s.toolBundles = provider }
+}
+
 // New creates a new agent service instance with the given tool registry.
 func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Service, registry tool.Registry,
 	defaults *config.Defaults,
@@ -104,6 +115,11 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 
 	for _, o := range opts {
 		o(srv)
+	}
+	// Default workspace tool bundles provider if not injected.
+	if srv.toolBundles == nil {
+		repo := bundlerepo.New(afs.New())
+		srv.toolBundles = func(ctx context.Context) ([]*toolbundle.Bundle, error) { return repo.LoadAll(ctx) }
 	}
 	// Instantiate conversation API once; ignore errors to preserve backward compatibility
 	if dao, err := implconv.NewDatly(context.Background()); err == nil {

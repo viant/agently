@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"time"
@@ -28,6 +29,9 @@ type Service struct {
 	sch  schcli.Client
 	chat chatcli.Client
 	conv apiconv.Client
+
+	leaseOwner string
+	leaseTTL   time.Duration
 }
 
 // New constructs a scheduler service requiring both a schedule store client and a chat client.
@@ -244,19 +248,21 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 	if s == nil || s.sch == nil || s.chat == nil {
 		return 0, fmt.Errorf("scheduler service not initialized")
 	}
+	s.ensureLeaseConfig()
+
 	rows, err := s.sch.GetSchedules(ctx)
 	if err != nil {
 		return 0, err
 	}
+
 	now := time.Now().UTC()
 	started := 0
 	for _, sc := range rows {
 		if sc == nil || !sc.Enabled {
 			continue
 		}
-		// Determine due
+
 		due := false
-		// 1) Cron-based
 		if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "cron") && sc.CronExpr != nil && strings.TrimSpace(*sc.CronExpr) != "" {
 			loc, _ := time.LoadLocation(strings.TrimSpace(sc.Timezone))
 			if loc == nil {
@@ -271,7 +277,6 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 				base = sc.LastRunAt.In(loc)
 			}
 			next := cronNext(spec, base).In(time.UTC)
-			// Use stored NextRunAt when present, else compute it; ensure future update after starting.
 			if sc.NextRunAt != nil {
 				next = sc.NextRunAt.UTC()
 			}
@@ -279,10 +284,8 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 				due = true
 			}
 		} else if sc.NextRunAt != nil && !now.Before(sc.NextRunAt.UTC()) {
-			// 2) Explicit NextRunAt
 			due = true
 		} else if sc.IntervalSeconds != nil {
-			// 3) Interval-based
 			base := sc.CreatedAt.UTC()
 			if sc.LastRunAt != nil {
 				base = sc.LastRunAt.UTC()
@@ -295,61 +298,122 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			continue
 		}
 
-		// Avoid duplicate if there is any active run (not terminal)
-		runs, err := s.sch.GetRuns(ctx, sc.Id, "")
+		leaseUntil := now.Add(s.leaseTTL)
+		claimed, err := s.sch.TryClaimSchedule(ctx, sc.Id, s.leaseOwner, leaseUntil)
 		if err != nil {
 			return started, err
 		}
-		active := false
-		for _, r := range runs {
-			if r == nil {
-				continue
-			}
-			if r.CompletedAt == nil {
-				st := strings.ToLower(strings.TrimSpace(r.Status))
-				// Treat failed, skipped, and succeeded as non-active terminal states
-				if st != "failed" && st != "skipped" && st != "succeeded" {
-					active = true
-					break
-				}
-			}
-		}
-		if active {
+		if !claimed {
 			continue
 		}
 
-		run := &schapi.MutableRun{}
-		run.SetId(uuid.NewString())
-		run.SetScheduleId(sc.Id)
-		// Insert as pending; transitions to running when task is posted
-		run.SetStatus("pending")
-		if err := s.Run(ctx, run); err != nil {
-			return started, err
+		releaseLease := func() {
+			_, _ = s.sch.ReleaseScheduleLease(context.Background(), sc.Id, s.leaseOwner)
 		}
 
-		// Update NextRunAt for cron/interval schedules
-		mut := &schapi.MutableSchedule{}
-		mut.SetId(sc.Id)
-		mut.SetLastRunAt(now)
-		if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "cron") && sc.CronExpr != nil && strings.TrimSpace(*sc.CronExpr) != "" {
-			loc, _ := time.LoadLocation(strings.TrimSpace(sc.Timezone))
-			if loc == nil {
-				loc = time.UTC
+		err = func() error {
+			defer releaseLease()
+
+			runs, err := s.sch.GetRuns(ctx, sc.Id, "")
+			if err != nil {
+				return err
 			}
-			spec, err := parseCron(strings.TrimSpace(*sc.CronExpr))
-			if err == nil {
-				mut.SetNextRunAt(cronNext(spec, now.In(loc)).UTC())
+			scheduledFor := now
+			if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() {
+				scheduledFor = sc.NextRunAt.UTC()
 			}
-		} else if sc.IntervalSeconds != nil {
-			mut.SetNextRunAt(now.Add(time.Duration(*sc.IntervalSeconds) * time.Second))
-		}
-		// fire-and-forget update; errors are bubbled when returned
-		if err := s.sch.PatchSchedule(ctx, mut); err != nil {
+
+			var pendingRun *schapi.Run
+			for _, r := range runs {
+				if r == nil || r.CompletedAt != nil {
+					continue
+				}
+				st := strings.ToLower(strings.TrimSpace(r.Status))
+				switch st {
+				case "running", "prechecking":
+					// Another instance is processing this schedule.
+					return nil
+				case "pending":
+					// Prefer a pending run that matches the current scheduled slot.
+					if pendingRun == nil {
+						pendingRun = r
+					}
+					if r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) {
+						pendingRun = r
+					}
+				}
+			}
+
+			run := &schapi.MutableRun{}
+			if pendingRun != nil {
+				run.SetId(strings.TrimSpace(pendingRun.Id))
+			} else {
+				run.SetId(uuid.NewString())
+			}
+			run.SetScheduleId(sc.Id)
+			run.SetStatus("pending")
+			run.SetScheduledFor(scheduledFor)
+
+			if err := s.Run(ctx, run); err != nil {
+				return err
+			}
+
+			mut := &schapi.MutableSchedule{}
+			mut.SetId(sc.Id)
+			mut.SetLastRunAt(now)
+			if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "cron") && sc.CronExpr != nil && strings.TrimSpace(*sc.CronExpr) != "" {
+				loc, _ := time.LoadLocation(strings.TrimSpace(sc.Timezone))
+				if loc == nil {
+					loc = time.UTC
+				}
+				spec, err := parseCron(strings.TrimSpace(*sc.CronExpr))
+				if err == nil {
+					mut.SetNextRunAt(cronNext(spec, now.In(loc)).UTC())
+				}
+			} else if sc.IntervalSeconds != nil {
+				mut.SetNextRunAt(now.Add(time.Duration(*sc.IntervalSeconds) * time.Second))
+			}
+			if err := s.sch.PatchSchedule(ctx, mut); err != nil {
+				return err
+			}
+
+			started++
+			return nil
+		}()
+		if err != nil {
 			return started, err
 		}
-		started++
 	}
+
 	return started, nil
+}
+
+func (s *Service) ensureLeaseConfig() {
+	if s == nil {
+		return
+	}
+	if s.leaseTTL <= 0 {
+		s.leaseTTL = 60 * time.Second
+		if v := strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_LEASE_TTL")); v != "" {
+			if d, err := time.ParseDuration(v); err == nil && d > 0 {
+				s.leaseTTL = d
+			}
+		}
+	}
+
+	if strings.TrimSpace(s.leaseOwner) != "" {
+		return
+	}
+	if v := strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_LEASE_OWNER")); v != "" {
+		s.leaseOwner = v
+		return
+	}
+	host, _ := os.Hostname()
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "unknown-host"
+	}
+	s.leaseOwner = fmt.Sprintf("%s:%d:%s", host, os.Getpid(), uuid.NewString())
 }
 
 // --------------------

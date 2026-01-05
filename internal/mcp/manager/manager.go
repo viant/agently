@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	authctx "github.com/viant/agently/internal/auth"
 	mcpcfg "github.com/viant/agently/internal/mcp/config"
 	"github.com/viant/mcp"
 	protoclient "github.com/viant/mcp-protocol/client"
@@ -74,7 +73,6 @@ type Manager struct {
 	jarProvider    JarProvider
 	authRT         *authtransport.RoundTripper
 	authRTProvider AuthRTProvider
-	anonJar        http.CookieJar
 
 	mu   sync.Mutex
 	pool map[string]map[string]*entry // convID -> serverName -> entry
@@ -148,14 +146,6 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 		origin := strings.TrimSpace(opts.ClientOptions.Transport.URL)
 		if origin != "" {
 			if u, perr := url.Parse(origin); perr == nil {
-				// If we have an anonymous jar and current request is for a named user,
-				// merge cookies from anonymous into the user's jar for this origin.
-				userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
-				if userID != "" && m.anonJar != nil && m.anonJar != effectiveJar {
-					if cs := m.anonJar.Cookies(u); len(cs) > 0 {
-						effectiveJar.SetCookies(u, cs)
-					}
-				}
 				if pj := opts.ClientOptions.CookieJar; pj != nil && pj != effectiveJar {
 					if cs := pj.Cookies(u); len(cs) > 0 {
 						effectiveJar.SetCookies(u, cs)
@@ -165,10 +155,6 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 		}
 		// Override CookieJar with selected jar to ensure reuse across conversations
 		opts.ClientOptions.CookieJar = effectiveJar
-		// Track anonymous jar to support later migration when identity becomes available
-		if strings.TrimSpace(authctx.EffectiveUserID(ctx)) == "" {
-			m.anonJar = effectiveJar
-		}
 	}
 	handler := m.newHandler
 	if handler == nil {

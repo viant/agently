@@ -6,6 +6,23 @@ body {
     color: #333;
 }
 
+/* Allow interacting with the chat composer while Secure Flow dialog is open */
+.agently-elicitation-portal .bp6-overlay-backdrop {
+    display: none;
+}
+
+.agently-elicitation-portal .bp6-overlay {
+    pointer-events: none;
+}
+
+.agently-elicitation-portal .bp6-dialog-container {
+    pointer-events: none;
+}
+
+.agently-elicitation-portal .bp6-dialog {
+    pointer-events: auto;
+}
+
 /* Remove left and right padding from the Navbar */
 .menu-bar .bp4-navbar {
     padding-left: 0;

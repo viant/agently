@@ -1,0 +1,8 @@
+id: webdriver
+title: WebDriver
+description: Browser automation via MCP webdriver server
+iconRef: builtin:tools
+priority: 65
+match:
+  - name: "webdriver/*"
+

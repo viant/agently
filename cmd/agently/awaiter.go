@@ -13,7 +13,7 @@ import (
 // attachAwaiter registers the stdin awaiter unless the first CLI argument is
 // "serve" (HTTP mode) where blocking on STDIN must be avoided.
 func attachAwaiter(firstArg string) {
-	if firstArg == "serve" {
+	if firstArg == "serve" || firstArg == "scheduler" {
 		return // server must never block on stdin
 	}
 	registerExecOption(executor.WithNewElicitationAwaiter(newStdinAwaiter))

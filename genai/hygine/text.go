@@ -59,6 +59,16 @@ type GrepFile struct {
 	Path string
 	URI  string
 
+	// SearchHash is a stable hash of the grep query parameters used to
+	// produce this result set (e.g. pattern, root, path, filters). It allows
+	// UIs to de-duplicate or uniquely identify rows across searches.
+	SearchHash string
+
+	// RangeKey is an optional, human-readable range identifier derived from
+	// the first snippet window (e.g. "12-24"). It is intended as a secondary
+	// disambiguator when needed by UIs.
+	RangeKey string
+
 	Matches  int     // number of matches in this file
 	Score    float32 // optional heuristic score (e.g. density of matches)
 	Snippets []Snippet

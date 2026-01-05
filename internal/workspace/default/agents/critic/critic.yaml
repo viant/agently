@@ -21,10 +21,10 @@ systemPrompt:
 
 tool:
   callExposure: conversation
-  items:
-    - pattern: orchestration
-    - pattern: system/patch
-    - pattern: system/exec
+  bundles:
+    - orchestration
+    - system/patch
+    - system/exec
 
 
 

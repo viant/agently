@@ -21,8 +21,8 @@ systemPrompt:
 
 tool:
   callExposure: conversation
-  items:
-    - pattern: orchestration
-    - pattern: system/patch
-    - pattern: system/exec
-
+  bundles:
+    - orchestration
+    - resources
+    - system/patch
+    - system/exec

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	schapi "github.com/viant/agently/client/scheduler"
 	schstore "github.com/viant/agently/client/scheduler/store"
 	runpkg "github.com/viant/agently/pkg/agently/scheduler/run"
@@ -114,12 +116,10 @@ func handleRunNow(ctx context.Context, svc Service, injector hstate.Injector) (i
 	}
 	input := &Body{Data: &runwrite.Run{}}
 	if err := injector.Bind(ctx, input); err != nil {
-		fmt.Println("error:", err)
 		return nil, err
 	}
 
 	in := input.Data
-	mr := schapi.MutableRun{}
 	id := strings.TrimSpace(in.Id)
 	schedID := strings.TrimSpace(in.ScheduleId)
 	// For {id} alias, schedule id may come via Id if ScheduleId absent
@@ -129,27 +129,70 @@ func handleRunNow(ctx context.Context, svc Service, injector hstate.Injector) (i
 	if schedID == "" {
 		return nil, fmt.Errorf("scheduleId is required")
 	}
-	if id != "" {
-		mr.SetId(id)
+
+	now := time.Now().UTC()
+	runID := id
+	if runID == "" {
+		runID = uuid.NewString()
 	}
-	mr.SetScheduleId(schedID)
 	status := strings.TrimSpace(in.Status)
 	if status == "" {
 		status = "pending"
 	}
-	mr.SetStatus(status)
-	if in.ConversationId != nil && strings.TrimSpace(*in.ConversationId) != "" {
-		mr.SetConversationId(strings.TrimSpace(*in.ConversationId))
-	}
+
+	// Always enqueue a run record so serverless deployments can rely on a dedicated runner.
+	run := &runwrite.Run{}
+	run.SetId(runID)
+	run.SetScheduleId(schedID)
+	run.SetStatus(status)
 	if strings.TrimSpace(in.ConversationKind) != "" {
-		mr.SetConversationKind(strings.TrimSpace(in.ConversationKind))
+		run.SetConversationKind(strings.TrimSpace(in.ConversationKind))
+	} else {
+		run.SetConversationKind("scheduled")
 	}
-	if err := svc.scheduler.Run(ctx, &mr); err != nil {
+	run.SetScheduledFor(now)
+	run.SetCreatedAt(now)
+	if in.ConversationId != nil && strings.TrimSpace(*in.ConversationId) != "" {
+		run.SetConversationId(strings.TrimSpace(*in.ConversationId))
+	}
+
+	if _, err := svc.store.PatchRuns(ctx, &runwrite.Input{Runs: []*runwrite.Run{run}}); err != nil {
 		return nil, err
 	}
-	out := &runpkg.RunNowOutput{RunId: mr.Id}
-	if mr.ConversationId != nil {
-		out.ConversationId = strings.TrimSpace(*mr.ConversationId)
+
+	// Mark schedule as due to wake up the background runner quickly (next_run_at <= now).
+	// The runner will recompute next_run_at after a successful run.
+	{
+		upd := &schedwrite.Schedule{}
+		upd.SetId(schedID)
+		upd.SetNextRunAt(now)
+		_ = svc.store.PatchSchedule(ctx, upd)
+	}
+
+	// If an orchestration scheduler is wired, execute immediately (preserves legacy behaviour).
+	if svc.scheduler != nil {
+		mr := schapi.MutableRun{}
+		mr.SetId(runID)
+		mr.SetScheduleId(schedID)
+		mr.SetStatus(status)
+		mr.SetConversationKind(run.ConversationKind)
+		mr.SetScheduledFor(now)
+		if in.ConversationId != nil && strings.TrimSpace(*in.ConversationId) != "" {
+			mr.SetConversationId(strings.TrimSpace(*in.ConversationId))
+		}
+		if err := svc.scheduler.Run(ctx, &mr); err != nil {
+			return nil, err
+		}
+		out := &runpkg.RunNowOutput{RunId: runID}
+		if mr.ConversationId != nil {
+			out.ConversationId = strings.TrimSpace(*mr.ConversationId)
+		}
+		return out, nil
+	}
+
+	out := &runpkg.RunNowOutput{RunId: runID}
+	if run.ConversationId != nil {
+		out.ConversationId = strings.TrimSpace(*run.ConversationId)
 	}
 	return out, nil
 }

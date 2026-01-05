@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/viant/afs"
@@ -762,6 +763,17 @@ func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) er
 		switch strings.ToLower(strings.TrimSpace(k)) {
 		case "items":
 			itemsNode = v
+		case "bundles", "bundle", "toolsets", "toolset", "connectors", "connector":
+			// Accept a single scalar or a sequence of scalars.
+			switch v.Kind {
+			case yaml.ScalarNode:
+				id := strings.TrimSpace(v.Value)
+				if id != "" {
+					cfg.Bundles = append(cfg.Bundles, id)
+				}
+			case yaml.SequenceNode:
+				cfg.Bundles = append(cfg.Bundles, asStrings(v)...)
+			}
 		case "toolcallexposure", "toolexposure", "callexposure":
 			if v.Kind == yaml.ScalarNode {
 				exp := agentmdl.ToolCallExposure(strings.ToLower(strings.TrimSpace(v.Value)))
@@ -783,8 +795,31 @@ func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) er
 		}
 		cfg.Items = agent.Tool.Items
 	}
+	cfg.Bundles = normalizeStrings(cfg.Bundles)
 	agent.Tool = cfg
 	return nil
+}
+
+func normalizeStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		v := strings.TrimSpace(raw)
+		if v == "" {
+			continue
+		}
+		key := strings.ToLower(v)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // parseInt parses a base-10 integer from string, ignoring spaces.

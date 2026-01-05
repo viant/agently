@@ -1,5 +1,12 @@
 # Agently
 
+### Mic voice control
+
+When using the mic/dictation input in the chat window, you can speak simple control phrases:
+
+- Cancel the draft (clears composer, does not send): "cancel it now", "cancel now", "never mind"
+- Submit the draft (removes the phrase, then sends): "submit it now", "submit now", "send it now"
+
 Agently is a Go framework for building and interacting with AI agents. It provides a flexible and extensible platform for creating, managing, and communicating with AI agents powered by Large Language Models (LLMs).
 
 ## Features
@@ -292,6 +299,15 @@ The embedded server exposes a simple chat API under `/v1/api`:
   - Default: `api_key,apikey,authorization,auth,password,passwd,secret,token,bearer,client_secret`
   - Example: `AGENTLY_REDACT_KEYS=apiKey,Authorization,password`
 
+- Scheduler execution (recommended: dedicated runner in serverless deployments)
+  - `AGENTLY_SCHEDULER_RUNNER`: enable watchdog inside `agently serve` when set to `1` (default: disabled)
+  - `AGENTLY_SCHEDULER_INTERVAL`: watchdog interval when enabled (default: `30s`)
+  - `AGENTLY_SCHEDULER_API`: disable scheduler HTTP endpoints when set to `0` (default: enabled)
+  - `AGENTLY_SCHEDULER_RUN_NOW`: disable run-now routes when set to `0` (default: enabled)
+  - `AGENTLY_SCHEDULER_LEASE_TTL`: DB lease TTL used by the runner (default: `60s`)
+  - `AGENTLY_SCHEDULER_LEASE_OWNER`: optional stable lease owner id (otherwise auto-generated)
+  - See `docs/scheduler.md`.
+
 ### Command Line Interface
 
 Agently provides a command-line interface for interacting with agents:
@@ -327,6 +343,9 @@ agently run -i <input-file>
 
 # Start HTTP server
 agently serve
+
+# Run schedule watchdog in a dedicated process
+agently scheduler run --interval 30s
 
 # Workspace management (new)
 

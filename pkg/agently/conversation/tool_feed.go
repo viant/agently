@@ -3,7 +3,6 @@ package conversation
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 
 	"sort"
@@ -22,7 +21,7 @@ import (
 // It supports activation.kind history/tool_call and scope all/last.
 func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, error) {
 	input := InputFromContext(ctx)
-	if len(input.FeedSpec) == 0 {
+	if input == nil || len(input.FeedSpec) == 0 {
 		return nil, nil
 	}
 
@@ -56,7 +55,9 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 		if feed.ShallInvokeTool() { //invoke one per match
 			inv := invoker.From(ctx)
 			if inv == nil {
-				return nil, errors.New("tool service was empty")
+				// Tool invocation is optional (best-effort). When the invoker is not configured
+				// we skip invoked feeds rather than failing transcript hydration.
+				continue
 			}
 			method := feed.Activation.Method
 			if method == "" {

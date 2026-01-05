@@ -3,6 +3,23 @@ import {Tree, InputGroup, Spinner} from '@blueprintjs/core';
 import {useSetting, addWindow} from 'forge/core';
 import {endpoints} from '../endpoint';
 
+const sanitizeTestID = (value) => {
+    return String(value || '')
+        .trim()
+        .replace(/[^a-zA-Z0-9_-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+};
+
+const navigationTestID = (pathParts) => {
+    const normalized = (pathParts || []).map(sanitizeTestID).filter(Boolean).join('.');
+    return normalized ? `nav-${normalized}` : 'nav';
+};
+
+const navigationClassName = (pathParts) => {
+    const normalized = (pathParts || []).map(sanitizeTestID).filter(Boolean).join('-');
+    return normalized ? `nav-${normalized}` : 'nav';
+};
 
 const Navigation = () => {
   
@@ -104,29 +121,38 @@ const Navigation = () => {
     };
 
     // Build the tree data structure from the navigation data
-    const buildTreeData = (nodes) => {
+    const buildTreeData = (nodes, pathParts = []) => {
 
 
         log.debug('buildTreeData', nodes);
-        return nodes.map((node) => ({
-            id: node.id,
-            label: node.id === 'search' ? (
+        return (nodes || []).map((node, index) => {
+            const nodeKey = node?.windowKey || node?.id || `idx${index}`;
+            const nextPath = [...pathParts, nodeKey];
+            const testID = navigationTestID(nextPath);
+            const className = navigationClassName(nextPath);
+            const label = node.id === 'search' ? (
                 <InputGroup
                     leftIcon="search"
                     placeholder="Search..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    inputProps={{ 'data-testid': 'nav-search' }}
                 />
             ) : (
-                node.label
-            ),
-            icon: node.icon,
-            hasCaret: node.childNodes && node.childNodes.length > 0,
-            childNodes: node.childNodes ? buildTreeData(node.childNodes) : undefined,
-            windowKey: node.windowKey,
-            windowTitle: node.windowTitle,
-            isExpanded: node.isExpanded || false,
-        }));
+                <span data-testid={testID}>{node.label}</span>
+            );
+            return {
+                id: node.id,
+                label: label,
+                icon: node.icon,
+                className,
+                hasCaret: node.childNodes && node.childNodes.length > 0,
+                childNodes: node.childNodes ? buildTreeData(node.childNodes, nextPath) : undefined,
+                windowKey: node.windowKey,
+                windowTitle: node.windowTitle,
+                isExpanded: node.isExpanded || false,
+            };
+        });
     };
 
     return (

@@ -3,6 +3,7 @@ namespace: Chat
 dialogs:
   - $import('dialog/settings.yaml')
   - $import('dialog/fileBrowser.yaml')
+  - $import('dialog/queue.yaml')
 
 # Window that displays a single conversation chat view (no conversation list).
 
@@ -25,7 +26,7 @@ view:
           labelPosition: left
           gap: 2
         items:
-          - id: agent
+          - id: agentName
             type: label
             label: Agent
 
@@ -36,36 +37,14 @@ view:
                 fontWeight: 600
             columnSpan: 3
 
-      - id: headerSecond
-        layout:
-          orientation: horizontal
-          columns: 4
-          labelPosition: left
-          gap: 2
-        items:
-          - id: model
-            type: label
-            label: Model
-          - id: costText
-            type: label
-            dataSourceRef: usage
-            label: Cost
-          - id: totalTokensText
-            type: label
-            dataSourceRef: usage
-            label: Tokens
-            tooltip: "Prompt: ${promptTokens}, Cached: ${promptCachedTokens}, Completion: ${completionTokens}, Prediction: ${predictionTokens}"
-          - id: promptCachedTokensText
-            type: label
-            dataSourceRef: usage
-            label: Cached
-
-     
       - id: conversationSection
         chat:
           dataSourceRef: messages
-          height: 80vh
+          #height: 80vh
           showSettings: true
+          showTools: true
+          showMic: true
+          commandCenter: true
           abortVisible:
             dataSourceRef: conversations
             selector: running
@@ -104,6 +83,21 @@ view:
                     handler: chat.compactConversation
                   - event: onReadonly
                     handler: chat.compactReadonly
+              - id: queue
+                icon: list
+                label: Queue
+                tooltip: Show queued turns
+                align: left
+                on:
+                  - event: onClick
+                    handler: window.openDialog
+                    args:
+                      - queue
+                    parameters:
+                      - name: parameters.id
+                        to: queueTurns:input
+                        from: conversations:form
+                        location: id
               # Removed usage dialog trigger
 
           on:
@@ -131,6 +125,7 @@ dataSource:
   settings: $import('datasource/settings.yaml')
   usage: $import('datasource/usage.yaml')
   fs: $import('../../filebrowser/datasource/fileBrowser.yaml')
+  queueTurns: $import('dialog/datasource/queueTurns.yaml')
 
 
 
