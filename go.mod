@@ -14,7 +14,7 @@ require (
 	github.com/viant/datly v0.20.17
 	github.com/viant/embedius v0.2.11-0.20251230224519-21dde124ce2a
 	github.com/viant/fluxor v0.4.3
-	github.com/viant/forge v0.2.16
+	github.com/viant/forge v0.2.17-0.20260105184320-7b9e795ab3ef
 	github.com/viant/jsonrpc v0.16.2
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.8.2
@@ -204,4 +204,3 @@ require (
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.0 // indirect
 )
-
