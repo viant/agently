@@ -1,7 +1,30 @@
 // Conversation management service
 
-import {data} from "autoprefixer";
 import {saveSettings} from "./chatService.js";
+import { getLogger } from 'forge/utils/logger';
+
+const log = getLogger('agently');
+
+const activeConversationStorageKey = 'agently.activeConversationID';
+let activeConversationID = '';
+
+export function setActiveConversationID(value) {
+    const next = String(value || '').trim();
+    activeConversationID = next;
+    try {
+        if (next) localStorage.setItem(activeConversationStorageKey, next);
+        else localStorage.removeItem(activeConversationStorageKey);
+    } catch (_) {}
+}
+
+export function getActiveConversationID() {
+    if (activeConversationID) return activeConversationID;
+    try {
+        const v = String(localStorage.getItem(activeConversationStorageKey) || '').trim();
+        if (v) activeConversationID = v;
+    } catch (_) {}
+    return activeConversationID;
+}
 
 /**
  * Ensures a conversation exists, creating a new one if necessary
@@ -16,6 +39,9 @@ export async function ensureConversation({ context }) {
 
     // Ensure we have a conversation id
     let convID = conversionHandlers.getSelection()?.selected?.id;
+    if (convID) {
+        setActiveConversationID(convID);
+    }
     
     if (!convID) {
         // include current overrides (model, agent, tools) when present
@@ -41,6 +67,7 @@ export async function ensureConversation({ context }) {
             log.error('Failed to obtain conversation id');
             return null;
         }
+        setActiveConversationID(convID);
 
         try {
             const inputSig = conversationContext.signals?.input;
@@ -70,8 +97,7 @@ export async function newConversation({context}) {
 
     const convContext = context.Context('conversations');
     convContext.handlers.dataSource.setSelection({args: {rowIndex: -1}})
+    setActiveConversationID('');
     saveSettings({context})
 
 }
-import { getLogger, ForgeLog } from 'forge/utils/logger';
-const log = getLogger('agently');

@@ -7,5 +7,5 @@ containers:
   - id: queueTable
     title: Queued
     dataSourceRef: queueTurns
+    fetchData: true
     table: $import('../table/queue.yaml')
-

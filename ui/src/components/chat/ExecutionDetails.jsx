@@ -287,7 +287,7 @@ function flattenExecutions(executions = []) {
     return rows;
 }
 
-export default function ExecutionDetails({ executions = [], context, messageId, turnStatus, turnError, onError, useForgeDialog = false, resizable = false, useCodeMirror = false }) {
+function ExecutionDetails({ executions = [], context, messageId, turnStatus, turnError, onError, useForgeDialog = false, resizable = false, useCodeMirror = false }) {
     const [dialog, setDialog] = React.useState(null); // Details or generic payload viewer
     const [payloadDialog, setPayloadDialog] = React.useState(null); // Secondary dialog for payloads when details is open
     const [dlgSize, setDlgSize] = React.useState({ width: 960, height: 640 });
@@ -718,6 +718,31 @@ export default function ExecutionDetails({ executions = [], context, messageId, 
         </>
     );
 }
+function execSignature(executions = []) {
+    try {
+        const parts = [];
+        for (const exe of (executions || [])) {
+            const steps = Array.isArray(exe?.steps) ? exe.steps : [];
+            for (const s of steps) {
+                const r = String(s?.reason || '');
+                const st = String(s?.statusText || '').toLowerCase();
+                const eid = s?.elicitation?.elicitationId || s?.elicitationId || '';
+                const pid = s?.elicitationPayloadId || '';
+                const id = s?.id || '';
+                parts.push(`${r}:${st}:${eid}:${pid}:${id}`);
+            }
+        }
+        return parts.join('|');
+    } catch(_) {
+        return '';
+    }
+}
+export default React.memo(ExecutionDetails, (a, b) => {
+    if ((a.messageId || '') !== (b.messageId || '')) return false;
+    if ((a.turnStatus || '') !== (b.turnStatus || '')) return false;
+    if ((a.turnError || '') !== (b.turnError || '')) return false;
+    return execSignature(a.executions) === execSignature(b.executions);
+});
 
 // Map a DAO model call view (optionally enriched with request/response) to table row
 function mapModelCall(row = {}) {

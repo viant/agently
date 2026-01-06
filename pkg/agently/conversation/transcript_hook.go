@@ -2,7 +2,6 @@ package conversation
 
 import (
 	"context"
-	"fmt"
 	"github.com/viant/agently/genai/tool"
 	"sort"
 	"strings"
@@ -32,7 +31,8 @@ func (t *TranscriptView) OnRelation(ctx context.Context) {
 	var err error
 	t.ToolFeed, err = t.computeToolFeed(ctx)
 	if err != nil {
-		fmt.Printf("failed to compute tool feed: %v\n", err)
+		// Tool feed is a best-effort augmentation; avoid failing transcript hydration.
+		t.ToolFeed = nil
 	}
 	// Compute stage for this turn
 	t.Stage = computeTurnStage(t)

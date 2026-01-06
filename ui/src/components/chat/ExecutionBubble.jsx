@@ -37,7 +37,7 @@ function renderMarkdown(md = "") {
     return withLinks.replace(/\n/g, "<br/>");
 }
 
-export default function ExecutionBubble({ message: msg, context }) {
+function ExecutionBubble({ message: msg, context }) {
     log.debug('[chat][render] ExecutionBubble', { id: msg?.id, role: msg?.role, ts: Date.now() });
     const { execution: showExecution, toolFeed: showToolFeed } = useExecVisibility();
     const avatarColour = msg.role === "user" ? "var(--blue4)"
@@ -75,6 +75,20 @@ export default function ExecutionBubble({ message: msg, context }) {
         </div>
     );
 }
+// Memoize heavy bubble; re-render only when relevant fields change
+function areEqual(prev, next) {
+    const a = prev.message || {};
+    const b = next.message || {};
+    // Stable identity by id + key fields that affect render
+    if (a.id !== b.id) return false;
+    if ((a.content || '') !== (b.content || '')) return false;
+    if ((a.turnStatus || '') !== (b.turnStatus || '')) return false;
+    if ((a._execSignature || '') !== (b._execSignature || '')) return false;
+    if (!!a.isLastTurn !== !!b.isLastTurn) return false;
+    if ((a.turnUpdatedAt || '') !== (b.turnUpdatedAt || '')) return false;
+    return true;
+}
+export default React.memo(ExecutionBubble, areEqual);
 function ExecutionTurnDetails({ msg, context }) {
     const steps = Array.isArray(msg.executions) && msg.executions[0] && Array.isArray(msg.executions[0].steps)
         ? msg.executions[0].steps

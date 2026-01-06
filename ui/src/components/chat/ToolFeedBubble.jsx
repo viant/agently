@@ -7,7 +7,7 @@ import CollapsibleCard from './CollapsibleCard.jsx';
 import { format as formatDate } from 'date-fns';
 import { useExecVisibility } from '../../utils/execFeedBus.js';
 
-export default function ToolFeedBubble({ message: msg, context }) {
+function ToolFeedBubble({ message: msg, context }) {
   const { toolFeed: showToolFeed } = useExecVisibility();
   const avatarColour = 'var(--green3)';
   const createdISO = (function() { try { const d = new Date(msg.createdAt); return isNaN(d) ? '' : formatDate(d, 'HH:mm'); } catch(_) { return ''; } })();
@@ -40,3 +40,15 @@ export default function ToolFeedBubble({ message: msg, context }) {
     </div>
   );
 }
+function areEqual(prev, next) {
+  const a = prev.message || {};
+  const b = next.message || {};
+  if (a.turnId !== b.turnId) return false;
+  const aLen = Array.isArray(a.toolExecutions) ? a.toolExecutions.length : 0;
+  const bLen = Array.isArray(b.toolExecutions) ? b.toolExecutions.length : 0;
+  if (aLen !== bLen) return false;
+  if (!!a.isLastTurn !== !!b.isLastTurn) return false;
+  if ((a.createdAt || '') !== (b.createdAt || '')) return false;
+  return true;
+}
+export default React.memo(ToolFeedBubble, areEqual);

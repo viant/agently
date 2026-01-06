@@ -1,4 +1,18 @@
 columns:
+  - id: moveUp
+    icon: caret-up
+    type: button
+    width: 40
+    on:
+      - event: onClick
+        handler: chat.moveQueuedTurnUp
+  - id: moveDown
+    icon: caret-down
+    type: button
+    width: 40
+    on:
+      - event: onClick
+        handler: chat.moveQueuedTurnDown
   - id: queueSeq
     name: Seq
     width: 90
@@ -14,6 +28,13 @@ columns:
   - id: id
     name: Turn ID
     width: 260
+  - id: edit
+    icon: edit
+    type: button
+    width: 40
+    on:
+      - event: onClick
+        handler: chat.editQueuedTurn
   - id: cancel
     icon: cross
     type: button

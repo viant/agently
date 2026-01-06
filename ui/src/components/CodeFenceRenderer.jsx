@@ -356,7 +356,7 @@ function legacyRenderPipeTable(body = '') {
   );
 }
 
-export default function CodeFenceRenderer({ text = '' }) {
+function CodeFenceRenderer({ text = '' }) {
   // Normalize newlines and run fence detection in two passes (with and without language hint)
   const textNorm = String(text || '').replace(/\r\n/g, '\n');
   const trimmed = textNorm.trimStart();
@@ -590,3 +590,4 @@ export default function CodeFenceRenderer({ text = '' }) {
   }
   return <>{out}</>;
 }
+export default React.memo(CodeFenceRenderer, (a, b) => (a.text || '') === (b.text || ''));
