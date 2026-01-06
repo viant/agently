@@ -339,7 +339,16 @@ func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
 			// User/assistant text message
 			if strings.ToLower(strings.TrimSpace(m.Type)) == "text" && m.Content != nil && *m.Content != "" {
 				ckey := prompt.KindContent.Key(*m.Content)
-				result[ckey] = &prompt.Trace{ID: ckey, Kind: prompt.KindContent, At: m.CreatedAt}
+				// Use a stable "effective at" timestamp for queued turns:
+				// queued user messages may be persisted before the prior assistant
+				// response exists, so comparing raw message.CreatedAt to the anchor
+				// can incorrectly exclude the current prompt from continuation.
+				// Prefer the later of turn.CreatedAt and message.CreatedAt.
+				at := m.CreatedAt
+				if !turn.CreatedAt.IsZero() && turn.CreatedAt.After(at) {
+					at = turn.CreatedAt
+				}
+				result[ckey] = &prompt.Trace{ID: ckey, Kind: prompt.KindContent, At: at}
 			}
 		}
 	}
@@ -1050,6 +1059,15 @@ func (s *Service) buildChronologicalHistory(
 		return out, nil, false, 0, nil
 	}
 
+	// Skip queued turns so future user prompts do not get merged into a single
+	// LLM request when the chat queue is used. Always keep the current turn
+	// (by TurnMeta) even if it is still marked queued due to eventual
+	// consistency or ordering.
+	currentTurnID := ""
+	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+		currentTurnID = strings.TrimSpace(tm.TurnID)
+	}
+
 	lastAssistantMessage := transcript.LastAssistantMessage()
 	lastElicitationMessage := transcript.LastElicitationMessage()
 	currentElicitation := false
@@ -1076,6 +1094,9 @@ func (s *Service) buildChronologicalHistory(
 	// and collect current-turn elicitation separately.
 	for ti, turn := range transcript {
 		if turn == nil || turn.Message == nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(turn.Status), "queued") && strings.TrimSpace(turn.Id) != currentTurnID {
 			continue
 		}
 		messages := turn.GetMessages()
