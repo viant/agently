@@ -909,7 +909,13 @@ func (s *Server) handleTerminateConversation(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	cancelled = s.chatSvc.Cancel(convID)
-	if err := s.chatSvc.SetLastAssistentMessageStatus(context.Background(), convID, "canceled"); err != nil {
+	// Preserve request context (auth/user) when patching the last turn/message; fall back to background only
+	// if the request context is already canceled.
+	ctx := r.Context()
+	if ctx.Err() != nil {
+		ctx = context.Background()
+	}
+	if err := s.chatSvc.SetLastAssistentMessageStatus(ctx, convID, "canceled"); err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}

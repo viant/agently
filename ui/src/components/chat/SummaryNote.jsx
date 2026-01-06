@@ -21,7 +21,7 @@ function renderMarkdown(md = '') {
     return withLinks.replace(/\n/g, '<br/>');
 }
 
-export default function SummaryNote({ message }) {
+function SummaryNote({ message }) {
     const preview = (message.content || '').split(/\n/)[0].slice(0, 120);
 
     const avatarColour = 'var(--light-gray4)';
@@ -45,3 +45,11 @@ export default function SummaryNote({ message }) {
         </div>
     );
 }
+export default React.memo(SummaryNote, (a, b) => {
+    const am = a.message || {};
+    const bm = b.message || {};
+    if (am.id !== bm.id) return false;
+    if ((am.content || '') !== (bm.content || '')) return false;
+    if ((am.createdAt || '') !== (bm.createdAt || '')) return false;
+    return true;
+});

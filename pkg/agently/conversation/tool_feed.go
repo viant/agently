@@ -13,8 +13,8 @@ import (
 	"github.com/viant/agently/internal/conv"
 	"github.com/viant/agently/pkg/agently/tool"
 	"github.com/viant/agently/pkg/agently/tool/invoker"
-	selres "github.com/viant/agently/pkg/agently/tool/resolver"
 	mcpname "github.com/viant/agently/pkg/mcpname"
+	"github.com/viant/forge/backend/types"
 )
 
 // computeToolFeed computes ToolFeed for a transcript turn using configured FeedSpec.
@@ -103,49 +103,67 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 		if !ok {
 			continue
 		}
-		// Add a per-turn suffix to data source names and rewire UI refs using HighwayHash64(turnId)
+		// Build a per-turn synthetic root so multiple independent DataSources can be derived
+		// from the same tool call input/output using selectors.
 		hash := hashSuffixFromTurnID(t.Id)
-		normalizedDS, mapping := feed.DataSources.Transform(hash)
+		rootName := feed.ID + "-root" + hash
+
+		// Merge tool call input/output across matching calls into a single JSON-like root.
+		// This supports activation.scope=all by combining slices and maps recursively.
+		var mergedInput interface{}
+		var mergedOutput interface{}
+		for _, toolCall := range toolCalls {
+			var toolCallInput interface{}
+			var toolCallOutput interface{}
+			if toolCall.RequestPayload != nil && toolCall.RequestPayload.InlineBody != nil {
+				toolCallInput = parseJSONOrString(*toolCall.RequestPayload.InlineBody)
+			}
+			if toolCall.ResponsePayload != nil && toolCall.ResponsePayload.InlineBody != nil {
+				toolCallOutput = parseJSONOrString(*toolCall.ResponsePayload.InlineBody)
+			}
+			mergedInput = mergeJSONLike(mergedInput, toolCallInput)
+			mergedOutput = mergeJSONLike(mergedOutput, toolCallOutput)
+		}
+
+		rootData := map[string]interface{}{
+			"input":  mergedInput,
+			"output": mergedOutput,
+		}
+
+		// Add a per-turn suffix to data source names and rewire UI refs.
+		mapping := make(map[string]string, len(feed.DataSources))
+		for name := range feed.DataSources {
+			mapping[name] = name + hash
+		}
+		normalizedDS := make(map[string]*types.DataSource, len(feed.DataSources))
+		for name, ds := range feed.DataSources {
+			if ds == nil {
+				continue
+			}
+			copied := ds.DataSource // value copy
+			// Rewrite existing refs, otherwise bind to synthetic root.
+			if strings.TrimSpace(copied.DataSourceRef) == "" {
+				copied.DataSourceRef = rootName
+			} else if newRef, ok := mapping[copied.DataSourceRef]; ok {
+				copied.DataSourceRef = newRef
+			}
+			// Promote `source:` into selectors.data (used by ToolFeed.jsx to derive collections)
+			if copied.Selectors == nil {
+				copied.Selectors = &types.Selectors{}
+			}
+			if strings.TrimSpace(copied.Selectors.Data) == "" && strings.TrimSpace(ds.Source) != "" {
+				copied.Selectors.Data = strings.TrimSpace(ds.Source)
+			}
+			normalizedDS[mapping[name]] = &copied
+		}
+
 		rewrittenUI := extx.RewriteContainerDataSourceRefs(feed.UI, mapping)
 		toolFeed := &tool.Feed{
 			ID:          feed.ID,
 			UI:          &rewrittenUI,
 			DataSources: normalizedDS,
+			Data:        extx.DataFeed{Name: rootName, Data: rootData, RawSelector: "root"},
 		}
-
-		feedDataSource, err := feed.DataSources.FeedDataSource()
-		if err != nil {
-			return nil, err
-		}
-
-		var toolFeedData interface{}
-		for _, toolCall := range toolCalls {
-			var toolCallInput, toolCallOutput interface{}
-			if toolCall.RequestPayload != nil && toolCall.RequestPayload.InlineBody != nil {
-				toolCallInput, _ = stringToData(*toolCall.RequestPayload.InlineBody)
-			}
-			if toolCall.ResponsePayload != nil && toolCall.ResponsePayload.InlineBody != nil {
-				toolCallOutput, _ = stringToData(*toolCall.ResponsePayload.InlineBody)
-			}
-			extracted := selres.Select(feedDataSource.Source, toolCallInput, toolCallOutput)
-			if extracted != nil {
-				if toolFeedData != nil {
-					merged, err := conv.MergeSlices(toolFeedData, extracted)
-					if err != nil {
-						return nil, err
-					}
-					toolFeedData = merged
-				} else {
-					toolFeedData = extracted
-				}
-			}
-		}
-		// Use hashed data source name when present
-		hashedName := feedDataSource.Name
-		if newName, ok := mapping[feedDataSource.Name]; ok {
-			hashedName = newName
-		}
-		toolFeed.Data = extx.DataFeed{Name: hashedName, Data: toolFeedData, RawSelector: feedDataSource.Source}
 		result = append(result, toolFeed)
 	}
 
@@ -168,18 +186,51 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 	return result, nil
 }
 
-func dataToString(data interface{}) (string, error) {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return "", err
+func parseJSONOrString(data string) interface{} {
+	raw := strings.TrimSpace(data)
+	if raw == "" {
+		return nil
 	}
-	return string(jsonData), nil
+	var out interface{}
+	if err := json.Unmarshal([]byte(raw), &out); err == nil {
+		return out
+	}
+	return raw
 }
 
-func stringToData(data string) (interface{}, error) {
-	var out interface{}
-	err := json.Unmarshal([]byte(data), &out)
-	return out, err
+func mergeJSONLike(prev, next interface{}) interface{} {
+	if prev == nil {
+		return next
+	}
+	if next == nil {
+		return prev
+	}
+	switch p := prev.(type) {
+	case map[string]interface{}:
+		nm, ok := next.(map[string]interface{})
+		if !ok {
+			return next
+		}
+		out := make(map[string]interface{}, len(p)+len(nm))
+		for k, v := range p {
+			out[k] = v
+		}
+		for k, v := range nm {
+			if existing, ok := out[k]; ok {
+				out[k] = mergeJSONLike(existing, v)
+			} else {
+				out[k] = v
+			}
+		}
+		return out
+	case []interface{}:
+		merged, _ := conv.MergeSlices(p, next)
+		return merged
+	default:
+		// Try slice merge for non-map roots as a generic aggregation fallback.
+		merged, _ := conv.MergeSlices(prev, next)
+		return merged
+	}
 }
 
 // hashSuffixFromTurnID computes a HighwayHash64-based integer suffix for a turn ID.

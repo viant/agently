@@ -56,7 +56,7 @@ function renderHtmlWithCodeBlocks(html = '') {
   return out.length ? out : [<div key={`h-${idx++}`} dangerouslySetInnerHTML={{ __html: html }} />];
 }
 
-export default function HTMLTableBubble({message, context}) {
+function HTMLTableBubble({message, context}) {
     const role = String(message?.role || '').toLowerCase();
     const avatarColour = role === 'user' ? 'var(--blue4)'
         : role === 'assistant' ? 'var(--light-gray4)'
@@ -95,3 +95,12 @@ export default function HTMLTableBubble({message, context}) {
         </div>
     );
 }
+function areEqual(prev, next) {
+  const a = prev.message || {};
+  const b = next.message || {};
+  if (a.id !== b.id) return false;
+  if ((a.content || '') !== (b.content || '')) return false;
+  if ((a.createdAt || '') !== (b.createdAt || '')) return false;
+  return true;
+}
+export default React.memo(HTMLTableBubble, areEqual);

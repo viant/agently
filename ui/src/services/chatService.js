@@ -17,7 +17,7 @@ import ExecutionBubble from '../components/chat/ExecutionBubble.jsx';
 import ToolFeedBubble from '../components/chat/ToolFeedBubble.jsx';
 import ToolFeed from '../components/chat/ToolFeed.jsx';
 import HTMLTableBubble from '../components/chat/HTMLTableBubble.jsx';
-import {ensureConversation, newConversation} from './conversationService';
+import {ensureConversation, newConversation, getActiveConversationID} from './conversationService';
 import SummaryNote from '../components/chat/SummaryNote.jsx';
 import {setStage} from '../utils/stageBus.js';
 import {setComposerBusy} from '../utils/composerBus.js';
@@ -632,6 +632,29 @@ function normalizePreview(text) {
     return s.slice(0, maxLen - 1) + '…';
 }
 
+function pickFirstStringField(obj, fieldNames) {
+    const src = obj && typeof obj === 'object' ? obj : null;
+    if (!src) return '';
+    for (const fieldName of fieldNames) {
+        const v = src[fieldName];
+        if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return '';
+}
+
+function pickFirstStringFieldDeep(obj, fieldNames) {
+    const direct = pickFirstStringField(obj, fieldNames);
+    if (direct) return direct;
+    const src = obj && typeof obj === 'object' ? obj : null;
+    if (!src) return '';
+    for (const key of ['row', 'item', 'record', 'node', 'data', 'value', 'payload', 'selected', 'selection', 'parameters', 'input', 'inputParameters']) {
+        const inner = src[key];
+        const nested = pickFirstStringField(inner, fieldNames);
+        if (nested) return nested;
+    }
+    return '';
+}
+
 function buildQueuedTurnsFromTranscript(transcript) {
     const turns = Array.isArray(transcript) ? transcript : [];
     const queued = turns
@@ -640,13 +663,24 @@ function buildQueuedTurnsFromTranscript(transcript) {
             const startedMessage = pickTurnStartedMessage(t);
             const queuedMeta = extractQueuedRequest(startedMessage?.tags || startedMessage?.Tags);
             const tools = Array.isArray(queuedMeta?.tools) ? queuedMeta.tools : [];
+            const turnID = (
+                t?.id ||
+                t?.Id ||
+                t?.turnId ||
+                t?.TurnId ||
+                t?.turnID ||
+                t?.TurnID
+            );
+            const content = String(startedMessage?.content || startedMessage?.Content || '');
             return {
-                id: t?.id || t?.Id,
+                id: turnID,
+                conversationId: t?.conversationId || t?.ConversationId,
                 status: t?.status || t?.Status,
                 createdAt: toISOSafe(t?.createdAt || t?.CreatedAt),
                 queueSeq: t?.queueSeq ?? t?.QueueSeq,
                 startedByMessageId: t?.startedByMessageId || t?.StartedByMessageId,
-                preview: normalizePreview(startedMessage?.content || startedMessage?.Content || ''),
+                content,
+                preview: normalizePreview(content),
                 overrides: {
                     agent: queuedMeta?.agent || '',
                     model: queuedMeta?.model || '',
@@ -1772,10 +1806,98 @@ export function onFetchQueuedTurns(props) {
     try {
         const {collection} = props || {};
         const transcript = Array.isArray(collection) ? collection : [];
-        return buildQueuedTurnsFromTranscript(transcript);
+        return buildQueuedTurnsFromTranscript(transcript).filter(t => !!String(t?.id || '').trim());
     } catch (_) {
         return [];
     }
+}
+
+function resolveConversationIDFromContext(context, props) {
+    try {
+        // 1) If handler props include a conversation id (some Forge event adapters do)
+        const fromProps = pickFirstStringFieldDeep(props || {}, [
+            'conversationID', 'conversationId',
+            'convID', 'convId',
+            'id', 'Id',
+        ]);
+        if (fromProps) return fromProps;
+
+        // 2) Prefer parent conversations DataSource (normal case)
+        try {
+            const convCtx = context?.Context?.('conversations');
+            const convDS = convCtx?.handlers?.dataSource;
+            const convForm = convDS?.peekFormData?.() || {};
+            const fromForm = String(convForm?.id || convForm?.Id || '').trim();
+            if (fromForm) return fromForm;
+            const sel = convDS?.getSelection?.()?.selected;
+            const fromSel = String(sel?.id || sel?.Id || '').trim();
+            if (fromSel) return fromSel;
+        } catch (_) {}
+
+        // 3) Fallback: use the current DataSource input (queueTurns dialog context)
+        // The queueTurns DataSource is opened with parameters.id bound from conversations:form.id.
+        try {
+            const ds = context?.handlers?.dataSource;
+            const inputObj =
+                ds?.peekInput?.() ||
+                ds?.peekInputData?.() ||
+                ds?.getInputData?.() ||
+                ds?.signals?.input?.peek?.() ||
+                ds?.signals?.input?.value;
+            const fromInput = pickFirstStringFieldDeep(inputObj || {}, [
+                'id', 'Id',
+                'convID', 'convId',
+                'conversationID', 'conversationId',
+            ]);
+            if (fromInput) return fromInput;
+        } catch (_) {}
+
+        // 4) Fallback: use the last active conversation tracked by conversationService
+        const active = String(getActiveConversationID?.() || '').trim();
+        if (active) return active;
+
+        return '';
+    } catch (_) {
+        return '';
+    }
+}
+
+function resolveQueueTurnIDFromEventProps(props) {
+    const turnID = pickFirstStringFieldDeep(props || {}, [
+        'id', 'Id',
+        'turnId', 'TurnId',
+        'turnID', 'TurnID',
+    ]);
+    if (turnID) return turnID;
+    // Some Forge table handlers pass the row object under `row` but the full record under `item.data`.
+    try {
+        const row = props?.row || props?.item || props?.record;
+        const deep = pickFirstStringFieldDeep(row || {}, ['id', 'Id', 'turnId', 'TurnId', 'turnID', 'TurnID']);
+        return deep;
+    } catch (_) {
+        return '';
+    }
+}
+
+function refreshQueueTurns(context) {
+    try {
+        const directDS = context?.handlers?.dataSource;
+        if (directDS?.fetchCollection) {
+            directDS.fetchCollection();
+            return;
+        }
+    } catch (_) {}
+    try {
+        const qCtx = context?.Context?.('queueTurns');
+        qCtx?.handlers?.dataSource?.fetchCollection?.();
+    } catch (_) {}
+}
+
+function refreshMessages(context) {
+    try {
+        const msgCtx = context?.Context?.('messages');
+        msgCtx?.handlers?.dataSource?.fetchCollection?.();
+    } catch (_) {}
 }
 
 export async function cancelQueuedTurnByID({context, conversationID, turnID}) {
@@ -1793,18 +1915,8 @@ export async function cancelQueuedTurnByID({context, conversationID, turnID}) {
             throw new Error(txt || `cancel failed: ${resp.status}`);
         }
 
-        try {
-            const qCtx = context.Context('queueTurns');
-            qCtx?.handlers?.dataSource?.fetchCollection?.();
-        } catch (_) {
-        }
-
-        // Refresh main chat to reflect cancellation immediately.
-        try {
-            const msgCtx = context.Context('messages');
-            msgCtx?.handlers?.dataSource?.fetchCollection?.();
-        } catch (_) {
-        }
+        refreshQueueTurns(context);
+        refreshMessages(context);
         return true;
     } catch (err) {
         log.error('chatService.cancelQueuedTurnByID error', err);
@@ -1816,18 +1928,10 @@ export async function cancelQueuedTurn(props) {
     try {
         const context = props?.context;
         if (!context) return false;
-        const convCtx = context.Context('conversations');
-        const convForm = convCtx?.handlers?.dataSource?.peekFormData?.() || {};
-        const convID = String(convForm?.id || '').trim();
+        const convID = resolveConversationIDFromContext(context, props);
         if (!convID) return false;
 
-        // Prefer the explicit row clicked (table button handlers pass row/item)
-        // so the action works even without selection/form state.
-        const turnIDFromRow = String(props?.row?.id || props?.item?.id || props?.record?.id || '').trim();
-
-        const qCtx = context.Context('queueTurns') || context;
-        const ds = qCtx?.handlers?.dataSource;
-        const turnID = turnIDFromRow || String(ds?.peekFormData?.()?.id || ds?.peekSelection?.()?.selected?.id || '').trim();
+        const turnID = resolveQueueTurnIDFromEventProps(props);
         if (!turnID) return false;
 
         return await cancelQueuedTurnByID({context, conversationID: convID, turnID});
@@ -1835,6 +1939,24 @@ export async function cancelQueuedTurn(props) {
         log.error('chatService.cancelQueuedTurn error', err);
         return false;
     }
+}
+
+export async function moveQueuedTurnUp(props) {
+    const context = props?.context;
+    if (!context) return false;
+    const convID = resolveConversationIDFromContext(context, props);
+    const turnID = resolveQueueTurnIDFromEventProps(props);
+    if (!convID || !turnID) return false;
+    return moveQueuedTurn({context, conversationID: convID, turnID, direction: 'up'});
+}
+
+export async function moveQueuedTurnDown(props) {
+    const context = props?.context;
+    if (!context) return false;
+    const convID = resolveConversationIDFromContext(context, props);
+    const turnID = resolveQueueTurnIDFromEventProps(props);
+    if (!convID || !turnID) return false;
+    return moveQueuedTurn({context, conversationID: convID, turnID, direction: 'down'});
 }
 
 export async function moveQueuedTurn({context, conversationID, turnID, direction}) {
@@ -1858,17 +1980,66 @@ export async function moveQueuedTurn({context, conversationID, turnID, direction
             throw new Error(txt || `move failed: ${resp.status}`);
         }
 
-        try {
-            const qCtx = context.Context('queueTurns');
-            qCtx?.handlers?.dataSource?.fetchCollection?.();
-        } catch (_) {}
-        try {
-            const msgCtx = context.Context('messages');
-            msgCtx?.handlers?.dataSource?.fetchCollection?.();
-        } catch (_) {}
+        refreshQueueTurns(context);
+        refreshMessages(context);
         return true;
     } catch (err) {
         log.error('chatService.moveQueuedTurn error', err);
+        return false;
+    }
+}
+
+async function postConversationMessage({context, conversationID, body}) {
+    const convID = String(conversationID || '').trim();
+    if (!context || !convID || !body) return null;
+    const messagesContext = context.Context?.('messages');
+    const messagesAPI = messagesContext?.connector;
+    if (!messagesAPI?.post) return null;
+    return await messagesAPI.post({inputParameters: {convID}, body});
+}
+
+export async function editQueuedTurn(props) {
+    try {
+        const context = props?.context;
+        if (!context) return false;
+        const convID = resolveConversationIDFromContext(context, props);
+        const turnID = resolveQueueTurnIDFromEventProps(props);
+        if (!convID || !turnID) return false;
+
+        const row = props?.row || props?.item || props?.record || {};
+        const currentContent = String(row?.content || row?.Content || '').trim();
+        const initial = currentContent || String(row?.preview || row?.Preview || '').trim();
+        const next = window.prompt('Edit queued message', initial);
+        if (next == null) return false;
+        const nextContent = String(next || '').trim();
+        if (!nextContent) return false;
+        if (currentContent && nextContent === currentContent) return false;
+
+        const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+        const overrides = row?.overrides || row?.Overrides || {};
+        const toolsOverride = Array.isArray(overrides?.tools) ? overrides.tools : [];
+        const body = {
+            content: nextContent,
+            tools: toolsOverride.length ? toolsOverride : (metaForm.tool || []),
+            agent: String(overrides?.agent || metaForm.agent || ''),
+            model: String(overrides?.model || metaForm.model || ''),
+            toolCallExposure: metaForm.toolCallExposure,
+            reasoningEffort: metaForm.reasoningEffort,
+            autoSummarize: metaForm.autoSummarize,
+            disableChains: metaForm.disableChains,
+            allowedChains: metaForm.allowedChains || [],
+        };
+
+        // Cancel old queued turn first, then enqueue the edited one.
+        const cancelled = await cancelQueuedTurnByID({context, conversationID: convID, turnID});
+        if (!cancelled) return false;
+        await postConversationMessage({context, conversationID: convID, body});
+
+        refreshQueueTurns(context);
+        refreshMessages(context);
+        return true;
+    } catch (err) {
+        log.error('chatService.editQueuedTurn error', err);
         return false;
     }
 }
@@ -2211,24 +2382,26 @@ export async function abortConversation(props) {
         const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
         const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/terminate`;
         const resp = await fetch(url, {method: 'POST', credentials: 'include'});
-        let payload = null;
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            throw new Error(text || `HTTP ${resp.status}`);
+        }
+
+        // 204 → no body; 202 → JSON body, but we treat both as successful termination requests.
         try {
-            // 204 → no body; guard parsing
-            const text = await resp.text();
-            if (text) payload = JSON.parse(text);
-        } catch (_) {
-        }
-        const statusStr = resp.ok ? 'ok' : String(resp.status || 'error');
-        // Update running only when termination succeeded (cancelled=true)
-        const cancelled = !!(payload && payload.data && payload.data.cancelled);
-        if (cancelled) {
             setStage({phase: 'terminated'});
-            try {
-                const convCtx2 = context.Context('conversations');
-                convCtx2?.handlers?.dataSource?.setFormField?.({item: {id: 'running'}, value: false});
-            } catch (_) {
-            }
-        }
+        } catch (_) {}
+        try {
+            const convCtx2 = context.Context('conversations');
+            convCtx2?.handlers?.dataSource?.setFormField?.({item: {id: 'running'}, value: false});
+        } catch (_) {}
+        try {
+            const msgCtx = context.Context('messages');
+            msgCtx?.handlers?.dataSource?.fetchCollection?.();
+        } catch (_) {}
+        try {
+            refreshQueueTurns(context);
+        } catch (_) {}
         return true;
     } catch (err) {
         log.error('chatService.abortConversation error', err);
