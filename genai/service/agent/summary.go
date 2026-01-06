@@ -73,6 +73,7 @@ func (s *Service) Summarize(ctx context.Context, conv *apiconv.Conversation) err
 	}
 
 	EnsureGenerateOptions(ctx, genInput, anAgent)
+	genInput.Options.Mode = "summary"
 
 	if err := s.llm.Generate(ctx, genInput, output); err != nil {
 		return err
