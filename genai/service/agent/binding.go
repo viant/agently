@@ -1096,7 +1096,13 @@ func (s *Service) buildChronologicalHistory(
 		if turn == nil || turn.Message == nil {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(turn.Status), "queued") && strings.TrimSpace(turn.Id) != currentTurnID {
+		turnStatus := strings.ToLower(strings.TrimSpace(turn.Status))
+		if turnStatus == "queued" && strings.TrimSpace(turn.Id) != currentTurnID {
+			continue
+		}
+		// Exclude canceled turns from prompt history; canceled queue items should
+		// not become part of model context for subsequent turns.
+		if turnStatus == "canceled" && strings.TrimSpace(turn.Id) != currentTurnID {
 			continue
 		}
 		messages := turn.GetMessages()
@@ -1116,6 +1122,15 @@ func (s *Service) buildChronologicalHistory(
 			}
 			if m.IsArchived() || m.IsInterim() {
 				continue
+			}
+			// Skip canceled messages (queue deletions mark the user message as cancel).
+			// Also include a defensive check for "canceled" which may appear on
+			// assistant/tool messages via transcript hooks.
+			if m.Status != nil {
+				ms := strings.ToLower(strings.TrimSpace(*m.Status))
+				if ms == "cancel" || ms == "canceled" {
+					continue
+				}
 			}
 
 			// Tool-call messages: always include when they have a
