@@ -181,7 +181,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 	}
 	// Fire-and-forget watcher to mark completion based on conversation progress
 	if in.ConversationId != nil && strings.TrimSpace(*in.ConversationId) != "" {
-		go s.watchRunCompletion(context.Background(), strings.TrimSpace(in.Id), schID, strings.TrimSpace(*in.ConversationId))
+		go s.watchRunCompletion(ctx, strings.TrimSpace(in.Id), schID, strings.TrimSpace(*in.ConversationId))
 	}
 	return nil
 }
@@ -199,7 +199,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			conv, err := s.conv.GetConversation(context.Background(), conversationID)
+			conv, err := s.conv.GetConversation(ctx, conversationID)
 			if err != nil || conv == nil {
 				continue
 			}
@@ -224,7 +224,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 			done := time.Now().UTC()
 			upd.SetCompletedAt(done)
 			// Best-effort patch; exit regardless of error to avoid loops
-			_ = s.sch.PatchRun(context.Background(), upd)
+			_ = s.sch.PatchRun(ctx, upd)
 			return
 		}
 	}

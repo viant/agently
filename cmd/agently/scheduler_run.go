@@ -12,6 +12,7 @@ import (
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
+	iauth "github.com/viant/agently/internal/auth"
 	chatsvc "github.com/viant/agently/internal/service/chat"
 	convdao "github.com/viant/agently/internal/service/conversation"
 	schsvc "github.com/viant/agently/internal/service/scheduler"
@@ -60,6 +61,10 @@ func (s *SchedulerRunCmd) Execute(_ []string) error {
 	if !exec.IsStarted() {
 		exec.Start(context.Background())
 	}
+	baseCtx := context.Background()
+	if cfg := exec.Config(); cfg != nil {
+		baseCtx = iauth.EnsureUser(baseCtx, cfg.Auth)
+	}
 
 	// Chat service that actually executes queued turns.
 	chat := chatsvc.NewServiceWithClient(convClient, dao)
@@ -76,11 +81,11 @@ func (s *SchedulerRunCmd) Execute(_ []string) error {
 	}
 
 	if s.Once {
-		_, err := orch.RunDue(context.Background())
+		_, err := orch.RunDue(baseCtx)
 		return err
 	}
 
-	wd := schsvc.StartWatchdog(context.Background(), orch, interval)
+	wd := schsvc.StartWatchdog(baseCtx, orch, interval)
 	if wd == nil {
 		return fmt.Errorf("failed to start scheduler watchdog")
 	}
