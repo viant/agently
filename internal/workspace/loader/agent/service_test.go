@@ -58,6 +58,18 @@ func TestService_Load(t *testing.T) {
 			}`,
 		},
 		{
+			name: "Agent internal flag",
+			url:  "internal.yaml",
+			expectedJSON: `{
+  "id":"internal-demo",
+  "name":"Internal Demo",
+  "source":{"url":"testdata/internal.yaml"},
+  "internal":true,
+  "model":"gpt-4o",
+  "tool":{}
+}`,
+		},
+		{
 			name:        "Invalid URL",
 			url:         "nonexistent.yaml",
 			expectedErr: true,

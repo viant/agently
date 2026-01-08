@@ -161,8 +161,10 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		}
 	}
 
-	// Try external path when declared external or when allowed is unknown but external runner exists
-	if s.runExternal != nil && (intended == "external" || intended == "") {
+	// Default to internal when the agent is resolvable locally; only fall back to
+	// external when explicitly routed or when the agent id is not found internally.
+	internalKnown := s.isInternalAgent(ctx, strings.TrimSpace(ri.AgentID))
+	if s.runExternal != nil && (intended == "external" || (intended == "" && !internalKnown)) {
 		var parent memory.TurnMeta
 		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
 			parent = tm
@@ -342,4 +344,19 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		_ = s.status.Finalize(ctx, parent, statusMsgID, "succeeded", preview)
 	}
 	return nil
+}
+
+func (s *Service) isInternalAgent(ctx context.Context, agentID string) bool {
+	if s == nil || s.agent == nil || strings.TrimSpace(agentID) == "" {
+		return false
+	}
+	// Handle typed-nil interfaces (e.g. var x *T=nil; interface{...}=x).
+	if v := reflect.ValueOf(s.agent); v.Kind() == reflect.Pointer && v.IsNil() {
+		return false
+	}
+	if s.agent.Finder() == nil {
+		return false
+	}
+	ag, err := s.agent.Finder().Find(ctx, strings.TrimSpace(agentID))
+	return err == nil && ag != nil
 }

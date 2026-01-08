@@ -216,8 +216,12 @@ func (e *Service) init(ctx context.Context) error {
 			if a == nil || strings.TrimSpace(a.ID) == "" {
 				continue
 			}
-			if a.Profile == nil || !a.Profile.Publish {
-				continue
+			// Allow calling internal-only agents even when they are not published to the UI directory.
+			// Published agents remain callable and also appear in directory listings.
+			if !a.Internal {
+				if a.Profile == nil || !a.Profile.Publish {
+					continue
+				}
 			}
 			allowed[strings.TrimSpace(a.ID)] = "internal"
 		}

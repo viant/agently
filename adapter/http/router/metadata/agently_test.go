@@ -101,6 +101,22 @@ func TestAggregate(t *testing.T) {
 			wantModels: []string{"m1", "m2"},
 		},
 		{
+			name: "internal_agents_hidden_from_ui_lists",
+			cfg: &execsvc.Config{
+				Default: execcfg.Defaults{Agent: "public", Model: "gpt"},
+				Agent: &mcpcfg.Group[*agent.Agent]{
+					Items: []*agent.Agent{
+						{Identity: agent.Identity{ID: "public", Name: "Public"}},
+						{Identity: agent.Identity{ID: "internal"}, Internal: true, Tool: agent.Tool{Items: []*llm.Tool{{Pattern: "workflow-"}}}},
+					},
+				},
+			},
+			defs:           []llm.ToolDefinition{{Name: "workflow-run"}},
+			wantAgents:     []string{"public"},
+			wantTools:      []string{"workflow-run"},
+			wantAgentTools: map[string][]string{"public": []string{}},
+		},
+		{
 			name:    "nil config error",
 			cfg:     nil,
 			defs:    nil,

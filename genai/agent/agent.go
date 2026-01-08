@@ -30,6 +30,11 @@ type (
 		Identity `yaml:",inline" json:",inline"`
 		Source   *Source `yaml:"source,omitempty" json:"source,omitempty"` // Source of the agent
 
+		// Internal marks an agent as internal-only for UI selection. Internal agents
+		// may still be callable by id (e.g., via llm/agents:run), but are excluded
+		// from workspace metadata agent lists used by UIs.
+		Internal bool `yaml:"internal,omitempty" json:"internal,omitempty"`
+
 		llm.ModelSelection `yaml:",inline" json:",inline"`
 		// Optional constraints for model selection when preferences are used.
 		// When set, higher-level routing or the model finder may restrict

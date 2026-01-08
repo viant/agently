@@ -291,6 +291,29 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			if valueNode.Kind == yaml.ScalarNode {
 				agent.Icon = valueNode.Value
 			}
+		case "internal":
+			if valueNode.Kind == yaml.ScalarNode {
+				v := valueNode.Interface()
+				switch actual := v.(type) {
+				case bool:
+					agent.Internal = actual
+				case string:
+					s := strings.TrimSpace(actual)
+					if s == "" {
+						agent.Internal = false
+						break
+					}
+					if strings.EqualFold(s, "true") || s == "1" || strings.EqualFold(s, "yes") {
+						agent.Internal = true
+					} else if strings.EqualFold(s, "false") || s == "0" || strings.EqualFold(s, "no") {
+						agent.Internal = false
+					} else {
+						return fmt.Errorf("invalid internal value: %q", s)
+					}
+				default:
+					return fmt.Errorf("invalid internal value: %T %v", v, v)
+				}
+			}
 		case "modelref":
 			if valueNode.Kind == yaml.ScalarNode {
 				agent.Model = valueNode.Value

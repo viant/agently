@@ -7,7 +7,11 @@ import { Container as ForgeContainer } from '../../../../../forge/index.js';
 import WindowContentDataSourceContainer from '../../../../../forge/src/components/WindowContentDataSourceContainer.jsx';
 
 function selectPath(selector, root) {
-  if (!selector || selector === 'output') return root;
+  if (!selector) return root;
+  // Backward-compatible: feeds may provide a root object with `input`/`output` keys,
+  // while older feeds used the output object as the root directly.
+  if (selector === 'output') return (root && typeof root === 'object' && 'output' in root) ? root.output : root;
+  if (selector === 'input') return (root && typeof root === 'object' && 'input' in root) ? root.input : root;
   let cur = root;
   const norm = String(selector).replace(/\[(\d+)\]/g, '.$1').replace(/^\./, '');
   const parts = norm.split('.').filter(Boolean);
