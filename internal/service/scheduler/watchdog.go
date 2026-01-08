@@ -39,14 +39,14 @@ func StartWatchdog(parent context.Context, client schapi.Client, interval time.D
 			case <-ctx.Done():
 				return
 			case <-timer.C:
-				if _, err := client.RunDue(context.Background()); err != nil {
+				if _, err := client.RunDue(ctx); err != nil {
 					select {
 					case wd.Errors <- err:
 					default:
 					}
 				}
 			case <-ticker.C:
-				if _, err := client.RunDue(context.Background()); err != nil {
+				if _, err := client.RunDue(ctx); err != nil {
 					select {
 					case wd.Errors <- err:
 					default:
