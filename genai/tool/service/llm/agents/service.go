@@ -12,6 +12,7 @@ import (
 	agentsvc "github.com/viant/agently/genai/service/agent"
 	linksvc "github.com/viant/agently/genai/service/linking"
 	statussvc "github.com/viant/agently/genai/service/toolstatus"
+	toolpol "github.com/viant/agently/genai/tool"
 	svc "github.com/viant/agently/genai/tool/service"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
@@ -308,6 +309,9 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	qi := &agentsvc.QueryInput{AgentID: ri.AgentID, Query: ri.Objective, Context: ri.Context}
+	// llm/agents:run should honor the delegated agent's configured tools (patterns/bundles)
+	// and must not inherit a parent conversation's tools allow-list.
+	qi.ToolsAllowed = []string{}
 	// Thread through optional model preferences hint so that the agent
 	// can adjust its ModelSelection.Preferences for this run when supported.
 	if ri.ModelPreferences != nil {
@@ -321,7 +325,9 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		qi.ConversationID = childConvID
 	}
 	qo := &agentsvc.QueryOutput{}
-	if err := s.agent.Query(ctx, qi, qo); err != nil {
+	// Clear any parent tool policy from context to avoid restricting delegated runs.
+	childCtx := toolpol.WithPolicy(ctx, nil)
+	if err := s.agent.Query(childCtx, qi, qo); err != nil {
 		if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
 			_ = s.status.Finalize(ctx, parent, statusMsgID, "failed", "")
 		}
