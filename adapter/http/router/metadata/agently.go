@@ -108,6 +108,9 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition, bundles []*toolbu
 			if a == nil {
 				continue
 			}
+			if a.Internal {
+				continue
+			}
 			id := strings.TrimSpace(a.ID)
 			if id != "" {
 				out.Agents = append(out.Agents, id)
@@ -244,6 +247,9 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition, bundles []*toolbu
 
 		for _, a := range cfg.Agent.Items {
 			if a == nil {
+				continue
+			}
+			if a.Internal {
 				continue
 			}
 			agentID := strings.TrimSpace(a.ID)
