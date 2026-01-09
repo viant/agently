@@ -45,6 +45,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 		w.ClearWarnings()
 	}
 	// Prefer explicit allow-list when provided and non-empty.
+
 	if len(qi.ToolsAllowed) > 0 {
 		var out []llm.Tool
 		for _, n := range qi.ToolsAllowed {
@@ -74,6 +75,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 
 	// Bundle selection: runtime override, then agent config.
 	bundleIDs := selectedBundleIDs(qi)
+
 	if len(bundleIDs) > 0 {
 		defs, err := s.resolveBundleDefinitions(ctx, bundleIDs)
 		if err != nil {

@@ -357,10 +357,9 @@ async function dsTick({context}) {
                 break;
             }
         }
-
-
-        if (!since && coll.length) {
-            since = coll[coll.length - 1]?.id || '';
+        // Never fall back to message id: backend "since" is turn-scoped.
+        if (!since) {
+            since = String(context.resources?.messagesLastTurnId || '').trim();
         }
         // Throttle requests but do not skip when 'since' is unchanged – we still want
         // to pick up updates within the same turn (model/tool call progress).
@@ -536,15 +535,33 @@ async function dsTick({context}) {
                         break;
                     }
                 }
+                const isTerminalTurnStatus = (value) => {
+                    const st = String(value || '').toLowerCase();
+                    return (
+                        st === 'succeeded' ||
+                        st === 'completed' ||
+                        st === 'done' ||
+                        st === 'failed' ||
+                        st === 'error' ||
+                        st === 'canceled' ||
+                        st === 'cancelled'
+                    );
+                };
 
                 const latestTurnBusy = isBusyTurnStatus(latestStatus);
-                // Some backends may leave conversation.stage as "running" after completion.
-                // Prefer execution steps + latest turn status for accuracy; stage is only a fallback
-                // when no transcript exists yet.
-                const isRunning = !!anyActiveSteps || !!latestTurnBusy || (!!hasBusyStage && turns.length === 0);
+                // Derive running state with a "no false negatives" bias:
+                // - When we see a terminal status: running=false
+                // - When we see busy signals: running=true
+                // - When we can't infer status, avoid flipping running to false (keeps Abort visible)
+                let nextRunning;
+                if (isTerminalTurnStatus(latestStatus)) {
+                    nextRunning = false;
+                } else if (latestTurnBusy || anyActiveSteps || (hasBusyStage && turns.length === 0)) {
+                    nextRunning = true;
+                }
                 const convCtx = context.Context('conversations');
-                if (convCtx?.handlers?.dataSource?.setFormField) {
-                    convCtx.handlers.dataSource.setFormField({ item: { id: 'running' }, value: !!isRunning });
+                if (convCtx?.handlers?.dataSource?.setFormField && typeof nextRunning === 'boolean') {
+                    convCtx.handlers.dataSource.setFormField({ item: { id: 'running' }, value: nextRunning });
                 }
             } catch (_) {}
 
