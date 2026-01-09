@@ -4,5 +4,5 @@ description: GitHub operations via MCP server
 iconRef: builtin:tools
 priority: 65
 match:
-  - name: "github/*"
+  - name: "github:*"
 

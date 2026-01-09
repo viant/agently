@@ -4,5 +4,5 @@ description: Database operations via MCP SQLKit server
 iconRef: builtin:tools
 priority: 65
 match:
-  - name: "sqlkit/*"
+  - name: "sqlkit:*"
 
