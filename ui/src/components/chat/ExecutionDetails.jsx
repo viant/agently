@@ -1,7 +1,6 @@
 // ExecutionDetails.jsx – moved from Forge to Agently for domain-specific execution UI
 
 import React, { useMemo, useEffect } from "react";
-import {BasicTable as Basic} from "forge/components";
 import { addWindow } from "forge/core";
 import { Dialog } from "@blueprintjs/core";
 import JsonViewer from "../JsonViewer.jsx";
@@ -15,7 +14,6 @@ import {
     getSelectionSignal,
 } from "forge/core";
 
-import {BasicTable} from "../../../../../forge/index.js";
 // no extra util needed
 
 // Column template; dynamic handlers injected later
@@ -242,6 +240,9 @@ function flattenExecutions(executions = []) {
                     content = (s.elicitation && (s.elicitation.message || '')) || '';
                 } else if (reason === 'error') {
                     content = String(s.error || '');
+                } else {
+                    // For model/tool steps, accept upstream-provided content preview when available.
+                    content = String(s.content || '');
                 }
             } catch(_) {}
             return {
@@ -319,6 +320,32 @@ function ExecutionDetails({ executions = [], context, messageId, turnStatus, tur
         sig.value = rows;
     }, [rows, dataSourceId]);
 
+    const formatExpandedContent = (value) => {
+        const original = String(value || '');
+        if (!original.trim()) return '';
+        // Preserve preformatted/multiline/code-ish content as-is.
+        if (original.includes('\n') || original.includes('```')) return original;
+        const compact = original.replace(/\s+/g, ' ').trim();
+        // Heuristic: don't reflow JSON-like blobs.
+        if ((compact.startsWith('{') && compact.endsWith('}')) || (compact.startsWith('[') && compact.endsWith(']'))) {
+            return original;
+        }
+        try {
+            if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+                const seg = new Intl.Segmenter(undefined, { granularity: 'sentence' });
+                const lines = [];
+                for (const part of seg.segment(compact)) {
+                    const s = String(part.segment || '').trim();
+                    if (s) lines.push(s);
+                }
+                if (lines.length > 1) return lines.join('\n');
+            }
+        } catch (_) {}
+        // Fallback: naive sentence split.
+        const parts = compact.split(/(?<=[.!?])\s+/g).map(s => s.trim()).filter(Boolean);
+        if (parts.length > 1) return parts.join('\n');
+        return original;
+    };
 
     const viewPart = async (part, row) => {
         try {
@@ -410,11 +437,78 @@ function ExecutionDetails({ executions = [], context, messageId, turnStatus, tur
 
     return (
         <>
-            <Basic
-                context={execContext}
-                container={{ id: `exec-${messageId}`, table: { enforceColumnSize: false, fullWidth: false } }}
-                columns={COLUMNS_BASE}
-            />
+            <div style={{ width: '100%', overflowX: 'auto' }}>
+                <table className="bp4-html-table bp4-html-table-striped bp4-interactive" style={{ width: '100%', tableLayout: 'fixed' }}>
+                    <thead>
+                        <tr>
+                            <th style={{ width: 28, textAlign: 'center' }}></th>
+                            <th style={{ width: 68, textAlign: 'center' }}>Kind</th>
+                            <th style={{ width: 220, textAlign: 'left' }}>Name</th>
+                            <th style={{ width: 120, textAlign: 'left' }}>Actor</th>
+                            <th style={{ width: 80, textAlign: 'left' }}>Thread</th>
+                            <th style={{ width: 66 }}></th>
+                            <th style={{ width: 90, textAlign: 'left' }}>Status</th>
+                            <th style={{ width: 70, textAlign: 'left' }}>Time</th>
+                            <th style={{ width: 90, textAlign: 'left' }}>Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.map((r, idx) => {
+                            const hasContent = String(r?.content || '').trim() !== '';
+                            const isLink = !!(r && r._reason === 'link' && r._linkedConversationId);
+                            const isElicitationWithURL = (() => {
+                                try {
+                                    return String(r?._reason || '').toLowerCase() === 'elicitation' && !!(r?._elicitation?.url);
+                                } catch (_) {
+                                    return false;
+                                }
+                            })();
+
+                            return (
+                                <React.Fragment key={`${r?.name || 'row'}-${idx}`}>
+                                    <tr>
+                                        <td style={{ width: 28, textAlign: 'center' }}>{r.icon}</td>
+                                        <td style={{ width: 68, textAlign: 'center' }}>{r.kind}</td>
+                                        <td style={{ width: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.name}>{r.name}</td>
+                                        <td style={{ width: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.actor}>{r.actor}</td>
+                                        <td style={{ width: 80 }}>
+                                            {isLink ? (
+                                                <button className="bp4-button bp4-minimal bp4-small" onClick={() => execContext.lookupHandler('exec.openLinkedConversation')({ row: r, col: { id: 'chain' } })}>Open</button>
+                                            ) : null}
+                                        </td>
+                                        <td style={{ width: 66 }}>
+                                            {isElicitationWithURL ? (
+                                                <button className="bp4-button bp4-minimal bp4-small" onClick={() => execContext.lookupHandler('exec.openOOB')({ row: r })}>open</button>
+                                            ) : null}
+                                        </td>
+                                        <td style={{ width: 90 }}>{r.status}</td>
+                                        <td style={{ width: 70 }}>{r.elapsed}</td>
+                                        <td style={{ width: 90 }}>
+                                            <button className="bp4-button bp4-minimal bp4-small" onClick={() => execContext.lookupHandler('exec.openDetail')({ row: r })}>details 🔍</button>
+                                        </td>
+                                    </tr>
+                                    {hasContent && (
+                                        <tr>
+                                            <td style={{ width: 28 }}></td>
+                                            <td style={{ width: 68 }}></td>
+                                            <td colSpan={7} style={{ padding: 0 }}>
+                                                <div style={{ padding: '10px 12px', background: 'var(--light-gray5)', borderTop: '1px solid var(--light-gray2)' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 6 }}>
+                                                        <button className="bp4-button bp4-minimal bp4-small" onClick={() => { try { navigator.clipboard?.writeText?.(String(r.content || '')); } catch (_) {} }}>copy</button>
+                                                    </div>
+                                                    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.4 }}>
+                                                        {formatExpandedContent(r.content)}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </React.Fragment>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
 
             {errorFooter && (
                 <div style={{

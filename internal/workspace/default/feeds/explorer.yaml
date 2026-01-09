@@ -1,13 +1,15 @@
 id: explorer
 match:
   service: resources
-  method: grepFiles
+  method: "*"
 
 activation:
   kind: history
   scope: last
 
 dataSource:
+  ops:
+    source: ops
   search:
     source: input
   results:

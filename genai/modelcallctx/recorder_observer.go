@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
+	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
@@ -79,10 +80,18 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) error {
 		return nil
 	}
 
-	// Emit planner interim message if response exists
-	if info.LLMResponse != nil {
-		if err := o.patchInterimFlag(ctx, msgID); err != nil {
+	// Persist assistant content (including tool_calls responses) so the UI can show it.
+	// When content exists, clear Interim flag to make it visible in the transcript.
+	if info.LLMResponse != nil || len(info.ResponseJSON) > 0 {
+		madeVisible, err := o.patchAssistantMessageFromInfo(ctx, msgID, info)
+		if err != nil {
 			return err
+		}
+		// Keep interim flag only when there is no user-visible content to render.
+		if !madeVisible {
+			if err := o.patchInterimFlag(ctx, msgID); err != nil {
+				return err
+			}
 		}
 	}
 	// Prefer provider-supplied stream text; fall back to accumulated chunks
@@ -112,6 +121,89 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) error {
 		return fmt.Errorf("failed to update conversation: %w", err)
 	}
 	return nil
+}
+
+func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, msgID string, info Info) (bool, error) {
+	if strings.TrimSpace(msgID) == "" {
+		return false, nil
+	}
+	resp := info.LLMResponse
+	if resp == nil && len(info.ResponseJSON) > 0 {
+		// Best-effort decode of response JSON (some providers omit LLMResponse but do provide a JSON snapshot).
+		var decoded llm.GenerateResponse
+		if err := json.Unmarshal(info.ResponseJSON, &decoded); err == nil {
+			resp = &decoded
+		}
+	}
+	content, hasToolCalls := assistantContentFromGenerateResponse(resp)
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return false, nil
+	}
+	msg := apiconv.NewMessage()
+	msg.SetId(msgID)
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.ConversationID) != "" {
+		msg.SetConversationID(turn.ConversationID)
+		if strings.TrimSpace(turn.TurnID) != "" {
+			msg.SetTurnID(turn.TurnID)
+		}
+	}
+	// Store content always. Store raw_content only for tool-call responses so
+	// transcripts can distinguish tool-driven interim content from normal replies.
+	msg.SetContent(content)
+	if hasToolCalls {
+		msg.SetRawContent(content)
+	}
+	// Make it visible in the transcript when it carries meaningful content.
+	msg.SetInterim(0)
+	if err := o.client.PatchMessage(ctx, msg); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func assistantContentFromGenerateResponse(resp *llm.GenerateResponse) (string, bool) {
+	if resp == nil || len(resp.Choices) == 0 {
+		return "", false
+	}
+	parts := make([]string, 0, len(resp.Choices))
+	hasToolCalls := false
+	for _, c := range resp.Choices {
+		if len(c.Message.ToolCalls) > 0 {
+			hasToolCalls = true
+		}
+		s := strings.TrimSpace(messageText(c.Message))
+		if s != "" {
+			parts = append(parts, s)
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n\n")), hasToolCalls
+}
+
+func messageText(msg llm.Message) string {
+	if s := strings.TrimSpace(msg.Content); s != "" {
+		return s
+	}
+	// Prefer Items; fall back to legacy ContentItems.
+	items := msg.Items
+	if len(items) == 0 {
+		items = msg.ContentItems
+	}
+	var parts []string
+	for _, it := range items {
+		if strings.TrimSpace(string(it.Type)) != "" && it.Type != llm.ContentTypeText {
+			continue
+		}
+		if s := strings.TrimSpace(it.Text); s != "" {
+			parts = append(parts, s)
+			continue
+		}
+		// Some adapters put text into Data for raw source.
+		if s := strings.TrimSpace(it.Data); s != "" {
+			parts = append(parts, s)
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
 
 // OnStreamDelta aggregates streamed chunks. Persisted once in FinishModelCall.

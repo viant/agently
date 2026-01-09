@@ -9,6 +9,16 @@ selectors:
 uniqueKey:
   - field: id
 
+filterSet:
+  - name: default
+    default: true
+    template:
+      - id: q
+        label: Filter
+        operator: eq
+
+quickFilterSet: default
+
 #parameters:
 #  # Optional: only scheduled conversations
 #  - name: scheduled

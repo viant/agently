@@ -81,7 +81,10 @@ func (c *Client) Implements(feature string) bool {
 		return true
 	case base.SupportsContextContinuation:
 		// Default enabled; allow explicit disable via provider options.
-		return c.ContextContinuation != nil && *c.ContextContinuation
+		if c.ContextContinuation == nil {
+			return true
+		}
+		return *c.ContextContinuation
 	}
 	return false
 }

@@ -393,17 +393,41 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			encode(w, http.StatusInternalServerError, nil, err)
 			return
 		}
+		q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 		// Optional: create a conversation when agentId is provided and no match found.
-		if len(list) == 0 {
-			q := r.URL.Query()
-			createIfMissing := strings.TrimSpace(q.Get("createIfMissing"))
-			agentId := strings.TrimSpace(q.Get("agentId"))
+		if len(list) == 0 && q == "" {
+			query := r.URL.Query()
+			createIfMissing := strings.TrimSpace(query.Get("createIfMissing"))
+			agentId := strings.TrimSpace(query.Get("agentId"))
 			if (createIfMissing == "1" || strings.EqualFold(createIfMissing, "true")) && agentId != "" {
 				// Create with minimal fields; Chat service enforces visibility/owner.
 				if resp, cErr := s.chatSvc.CreateConversation(s.withAuthFromRequest(r), chat.CreateConversationRequest{Agent: agentId}); cErr == nil && resp != nil {
 					list = append(list, chat.ConversationSummary{ID: resp.ID, Title: resp.Title, Summary: nil})
 				}
 			}
+		}
+		// Optional: simple search filter (title/summary/agent/model/id/tools)
+		if q != "" && len(list) > 0 {
+			filtered := make([]chat.ConversationSummary, 0, len(list))
+			for _, c := range list {
+				hay := strings.ToLower(strings.Join([]string{
+					strings.TrimSpace(c.ID),
+					strings.TrimSpace(c.Title),
+					strings.TrimSpace(c.Agent),
+					strings.TrimSpace(c.Model),
+					func() string {
+						if c.Summary != nil {
+							return strings.TrimSpace(*c.Summary)
+						}
+						return ""
+					}(),
+					strings.Join(c.Tools, " "),
+				}, " "))
+				if strings.Contains(hay, q) {
+					filtered = append(filtered, c)
+				}
+			}
+			list = filtered
 		}
 		encode(w, http.StatusOK, list, nil)
 	default:

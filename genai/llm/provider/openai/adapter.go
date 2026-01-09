@@ -432,6 +432,9 @@ func ToLLMSResponse(resp *Response) *llm.GenerateResponse {
 	llmsResp := &llm.GenerateResponse{
 		Choices: make([]llm.Choice, len(resp.Choices)),
 	}
+	// Preserve provider response identifiers for trace grouping/continuation.
+	llmsResp.Model = resp.Model
+	llmsResp.ResponseID = resp.ID
 
 	// Convert choices
 	for i, choice := range resp.Choices {

@@ -5,6 +5,7 @@ import { Tabs, Tab } from '@blueprintjs/core';
 import { getCollectionSignal, getControlSignal, getSelectionSignal, getFormSignal } from 'forge/core';
 import { Container as ForgeContainer } from '../../../../../forge/index.js';
 import WindowContentDataSourceContainer from '../../../../../forge/src/components/WindowContentDataSourceContainer.jsx';
+import ExplorerFeed from './ExplorerFeed.jsx';
 
 function selectPath(selector, root) {
   if (!selector) return root;
@@ -22,12 +23,13 @@ function selectPath(selector, root) {
       if (idx == null || idx < 0 || idx >= cur.length) return null;
       cur = cur[idx];
     } else if (typeof cur === 'object') {
+      if (!Object.prototype.hasOwnProperty.call(cur, token)) return null;
       cur = cur[token];
     } else {
       return null;
     }
   }
-  return cur;
+  return cur === undefined ? null : cur;
 }
 
 function asArray(val) { if (Array.isArray(val)) return val; if (val == null) return []; return [val]; }
@@ -140,7 +142,7 @@ export default function ToolFeed({ executions = [], turnId = '', context }) {
       ? { ...ui, dataSources: dsNormalized }
       : { dataSources: dsNormalized, ...(ui || {}) };
     const title = ui?.title || exe?.title || feedId;
-    return { key: feedId, title, ui: uiWithDS };
+    return { key: feedId, title, ui: uiWithDS, exe };
   }), [feeds]);
 
   if (!tabs.length) return null;
@@ -177,7 +179,10 @@ export default function ToolFeed({ executions = [], turnId = '', context }) {
                   <div style={{ padding: 8, color: 'var(--gray2)' }}>Initializing data sources…</div>
                 )}
                 {ready && (
-                  <ForgeContainer container={t.ui} context={tfContext} />
+                  (t.key === 'explorer'
+                    ? <ExplorerFeed data={t.exe?.dataFeed?.data} context={tfContext} />
+                    : <ForgeContainer container={t.ui} context={tfContext} />
+                  )
                 )}
               </div>
             } />
