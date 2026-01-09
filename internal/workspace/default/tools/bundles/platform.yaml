@@ -4,5 +4,5 @@ description: Platform MCP tools
 iconRef: builtin:tools
 priority: 55
 match:
-  - name: "platform/*"
+  - name: "platform:*"
 
