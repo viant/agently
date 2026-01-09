@@ -6,6 +6,7 @@ import (
 	"embed"
 	"log"
 	"path/filepath"
+	"strings"
 
 	"github.com/viant/afs"
 	_ "github.com/viant/afs/embed"
@@ -16,10 +17,27 @@ import (
 //go:embed default/*
 var defaultsFS embed.FS
 
-// EnsureDefault
+// EnsureDefault ensures built-in defaults are available in the active workspace root.
 func EnsureDefault(fs afs.Service) {
+	EnsureDefaultAt(context.Background(), fs, Root())
+}
 
-	ctx := context.Background()
+// EnsureDefaultAt ensures built-in defaults are available under the supplied workspace root.
+// If the root already contains a config.yaml, it assumes the workspace is user-managed
+// and does not seed any built-in defaults.
+func EnsureDefaultAt(ctx context.Context, fs afs.Service, root string) {
+	if fs == nil || strings.TrimSpace(root) == "" {
+		return
+	}
+	root = abs(root)
+	if root == "" {
+		return
+	}
+	baseURL := url.Normalize(root, file.Scheme)
+	if ok, _ := fs.Exists(ctx, url.Join(baseURL, "config.yaml")); ok {
+		return
+	}
+
 	entries := []struct {
 		path string // relative to workspace root
 		src  string // path inside embed FS default/
@@ -90,7 +108,6 @@ func EnsureDefault(fs afs.Service) {
 		{filepath.Join(KindAgent, "critic/critic.yaml"), "default/agents/critic/critic.yaml"},
 	}
 
-	baseURL := url.Normalize(Root(), file.Scheme)
 	for _, e := range entries {
 		absPath := url.Join(baseURL, e.path)
 		// Skip if already present
