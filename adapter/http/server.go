@@ -171,6 +171,9 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	if s.defaults != nil {
 		s.chatSvc.AttachDefaults(s.defaults)
 	}
+	if s.authCfg != nil {
+		s.chatSvc.AttachAuthConfig(s.authCfg)
+	}
 
 	// Attach a shared elicitation service for persistence and waiting
 	if s.chatSvc != nil {

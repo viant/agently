@@ -216,13 +216,7 @@ func (e *Service) init(ctx context.Context) error {
 			if a == nil || strings.TrimSpace(a.ID) == "" {
 				continue
 			}
-			// Allow calling internal-only agents even when they are not published to the UI directory.
-			// Published agents remain callable and also appear in directory listings.
-			if !a.Internal {
-				if a.Profile == nil || !a.Profile.Publish {
-					continue
-				}
-			}
+			// llm/agents:* directory and routing should include all configured agents.
 			allowed[strings.TrimSpace(a.ID)] = "internal"
 		}
 	}
@@ -242,18 +236,21 @@ func (e *Service) init(ctx context.Context) error {
 				if a == nil || strings.TrimSpace(a.ID) == "" {
 					continue
 				}
-				if a.Profile == nil || !a.Profile.Publish {
-					continue
-				}
 				id := strings.TrimSpace(a.ID)
-				name := strings.TrimSpace(a.Profile.Name)
+				name := ""
+				if a.Profile != nil {
+					name = strings.TrimSpace(a.Profile.Name)
+				}
 				if name == "" {
 					name = strings.TrimSpace(a.Name)
 				}
 				if name == "" {
 					name = id
 				}
-				desc := strings.TrimSpace(a.Profile.Description)
+				desc := ""
+				if a.Profile != nil {
+					desc = strings.TrimSpace(a.Profile.Description)
+				}
 				if desc == "" {
 					desc = strings.TrimSpace(a.Description)
 				}
@@ -278,7 +275,10 @@ func (e *Service) init(ctx context.Context) error {
 				if a.Profile != nil && len(a.Profile.Tags) > 0 {
 					tags = append([]string(nil), a.Profile.Tags...)
 				}
-				rank := a.Profile.Rank
+				rank := 0
+				if a.Profile != nil {
+					rank = a.Profile.Rank
+				}
 				items = append(items, llmagents.ListItem{
 					ID:               id,
 					Name:             name,
