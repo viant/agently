@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1031,9 +1032,12 @@ type CreateConversationResponse struct {
 
 // ConversationSummary lists id + title only.
 type ConversationSummary struct {
-	ID      string  `json:"id"`
-	Title   string  `json:"title"`
-	Summary *string `json:"summary"`
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
+	Summary *string  `json:"summary"`
+	Agent   string   `json:"agent,omitempty"`
+	Model   string   `json:"model,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
 }
 
 // CreateConversation persists a new conversation using DAO store.
@@ -1118,7 +1122,23 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*Conversation
 	if cv.Title != nil && strings.TrimSpace(*cv.Title) != "" {
 		t = *cv.Title
 	}
-	return &ConversationSummary{ID: id, Title: t, Summary: cv.Summary}, nil
+	var tools []string
+	if cv.Metadata != nil && strings.TrimSpace(*cv.Metadata) != "" {
+		var meta agentpkg.ConversationMetadata
+		_ = json.Unmarshal([]byte(*cv.Metadata), &meta)
+		if len(meta.Tools) > 0 {
+			tools = append([]string(nil), meta.Tools...)
+		}
+	}
+	agentID := ""
+	if cv.AgentId != nil {
+		agentID = strings.TrimSpace(*cv.AgentId)
+	}
+	model := ""
+	if cv.DefaultModel != nil {
+		model = strings.TrimSpace(*cv.DefaultModel)
+	}
+	return &ConversationSummary{ID: id, Title: t, Summary: cv.Summary, Agent: agentID, Model: model, Tools: tools}, nil
 }
 
 // ListConversations returns all conversation summaries.
@@ -1135,7 +1155,11 @@ func (s *Service) ListConversations(ctx context.Context, input *apiconv.Input) (
 			userID = strings.TrimSpace(ui.Email)
 		}
 	}
-	out := make([]ConversationSummary, 0, len(rows))
+	type convo struct {
+		summary  ConversationSummary
+		lastSeen time.Time
+	}
+	tmp := make([]convo, 0, len(rows))
 	for _, v := range rows {
 		if v == nil {
 			continue
@@ -1148,7 +1172,42 @@ func (s *Service) ListConversations(ctx context.Context, input *apiconv.Input) (
 		if v.Title != nil && strings.TrimSpace(*v.Title) != "" {
 			t = *v.Title
 		}
-		out = append(out, ConversationSummary{ID: v.Id, Title: t, Summary: v.Summary})
+		var tools []string
+		if v.Metadata != nil && strings.TrimSpace(*v.Metadata) != "" {
+			var meta agentpkg.ConversationMetadata
+			_ = json.Unmarshal([]byte(*v.Metadata), &meta)
+			if len(meta.Tools) > 0 {
+				tools = append([]string(nil), meta.Tools...)
+			}
+		}
+		agentID := ""
+		if v.AgentId != nil {
+			agentID = strings.TrimSpace(*v.AgentId)
+		}
+		model := ""
+		if v.DefaultModel != nil {
+			model = strings.TrimSpace(*v.DefaultModel)
+		}
+		lastSeen := v.CreatedAt
+		if v.LastActivity != nil && !v.LastActivity.IsZero() {
+			lastSeen = *v.LastActivity
+		} else if v.UpdatedAt != nil && !v.UpdatedAt.IsZero() {
+			lastSeen = *v.UpdatedAt
+		}
+		tmp = append(tmp, convo{
+			summary:  ConversationSummary{ID: v.Id, Title: t, Summary: v.Summary, Agent: agentID, Model: model, Tools: tools},
+			lastSeen: lastSeen,
+		})
+	}
+	sort.SliceStable(tmp, func(i, j int) bool {
+		if tmp[i].lastSeen.Equal(tmp[j].lastSeen) {
+			return strings.TrimSpace(tmp[i].summary.ID) > strings.TrimSpace(tmp[j].summary.ID)
+		}
+		return tmp[i].lastSeen.After(tmp[j].lastSeen)
+	})
+	out := make([]ConversationSummary, 0, len(tmp))
+	for _, c := range tmp {
+		out = append(out, c.summary)
 	}
 	return out, nil
 }

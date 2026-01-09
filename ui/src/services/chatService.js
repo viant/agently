@@ -80,10 +80,30 @@ export async function explorerRead(props) {
     }
 
     try {
-        // Reuse existing file-browser download endpoint.
-        const url = `${base}/v1/workspace/file-browser/download?uri=${encodeURIComponent(uri)}`;
-        const resp = await fetch(url, { credentials: 'include' });
-        const content = resp.ok ? await resp.text() : '';
+        // Use the resources.read tool so access is mediated by current user auth/policy.
+        const url = `${base}/v1/api/tools/resources:read`;
+        const resp = await fetch(url, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uri, maxBytes: 200_000 })
+        });
+
+        let content = '';
+        if (resp.ok) {
+            const payload = await resp.json();
+            let result = payload?.data?.Result || payload?.data?.result || payload?.Data?.Result || payload?.Data?.result;
+            // Tool endpoint may wrap structured results as a JSON string.
+            if (typeof result === 'string') {
+                const raw = String(result || '').trim();
+                if (raw.startsWith('{') || raw.startsWith('[')) {
+                    try { result = JSON.parse(raw); } catch (_) {}
+                }
+            }
+            content = String(result?.content ?? result?.Content ?? result ?? '');
+        } else {
+            content = await resp.text();
+        }
         const mod = await import('../utils/dialogBus.js');
         mod.updateFileViewDialog({ title, uri, content, loading: false });
     } catch (e) {
@@ -118,6 +138,22 @@ export async function explorerSearch(props) {
     // NOTE: This is a tool feed for a *resources* tool call. The actual search
     // is performed by the tool call itself (resources.grepFiles), and the feed
     // renders its output.
+    return true;
+}
+
+export async function explorerList(props) {
+    const context = props?.context;
+    if (!context) return false;
+    const ds = context?.handlers?.dataSource;
+    if (!ds) return false;
+    const form = ds.peekFormData?.() || {};
+
+    const root = String(form.rootId || form.root || '').trim();
+    const path = String(form.path || '').trim();
+    if (!root && !path) {
+        ds.setError?.('Missing rootId/root or path');
+        return false;
+    }
     return true;
 }
 
@@ -550,11 +586,13 @@ async function dsTick({context}) {
 
                 const latestTurnBusy = isBusyTurnStatus(latestStatus);
                 // Derive running state with a "no false negatives" bias:
-                // - When we see a terminal status: running=false
+                // - Only turn off running when we see a terminal status AND we see no other busy signal.
+                //   Some backends mark a turn "completed" early (e.g. after the first model call) while
+                //   tool calls or downstream agent processing is still ongoing.
                 // - When we see busy signals: running=true
                 // - When we can't infer status, avoid flipping running to false (keeps Abort visible)
                 let nextRunning;
-                if (isTerminalTurnStatus(latestStatus)) {
+                if (isTerminalTurnStatus(latestStatus) && !anyActiveSteps && !hasBusyStage) {
                     nextRunning = false;
                 } else if (latestTurnBusy || anyActiveSteps || (hasBusyStage && turns.length === 0)) {
                     nextRunning = true;
@@ -850,6 +888,14 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const mc = m?.modelCall || m?.ModelCall;
             const tc = m?.toolCall || m?.ToolCall;
             const s1 = buildThinkingStepFromModelCall(mc);
+            if (s1) {
+                // Surface the assistant text associated with this model call (including tool_calls).
+                const msgText = String(m?.content || m?.Content || '').trim();
+                if (msgText) s1.content = msgText;
+                // Attribution
+                const createdBy = String(m?.createdByUserId || m?.CreatedByUserId || '').trim();
+                if (createdBy) s1.createdByUserId = createdBy;
+            }
             if (s1) { /* debug log removed */ }
             const s2 = buildToolStepFromToolCall(tc);
             if (s2) { /* debug log removed */ }
@@ -3230,6 +3276,7 @@ function onFetchMeta(args) {
     const currentForm = metaCtx?.handlers?.dataSource?.peekFormData?.() || {};
     const convCtx = context?.Context?.('conversations');
     const convDS = convCtx?.handlers?.dataSource;
+    const convForm = convDS?.peekFormData?.() || {};
 
     const updated = collection.map(data => {
         const agentInfo = data.agentInfo || {};
@@ -3254,7 +3301,7 @@ function onFetchMeta(args) {
             agentChainTargets[k] = Array.isArray(v?.chains) ? v.chains : [];
         });
         // Preserve current agent selection if present; otherwise use defaults
-        const curAgent = String(currentForm.agent || data.defaults.agent || '');
+        const curAgent = String(convForm.agent || currentForm.agent || data.defaults.agent || '');
         const curAgentName = (agentInfo?.[curAgent]?.name) ? String(agentInfo[curAgent].name) : curAgent;
 
         // Keep chat header in sync: header binds to conversations.agentName.
@@ -3262,12 +3309,18 @@ function onFetchMeta(args) {
             if (convDS?.setFormField) {
                 if (curAgent) convDS.setFormField({ item: { id: 'agent' }, value: curAgent });
                 if (curAgentName) convDS.setFormField({ item: { id: 'agentName' }, value: curAgentName });
+                if (convForm?.model) convDS.setFormField({ item: { id: 'model' }, value: String(convForm.model) });
+                if (Array.isArray(convForm?.tools)) convDS.setFormField({ item: { id: 'tools' }, value: convForm.tools });
             }
         } catch (_) { /* ignore */ }
 
         const settings = {...data.agentInfo[curAgent], tool: ''}
         settings.tool = settings.tools
         delete (settings['tools'])
+        // If conversation stores tool defaults, prefer them over agent-level defaults.
+        if (Array.isArray(convForm?.tools) && convForm.tools.length > 0) {
+            settings.tool = convForm.tools;
+        }
 
         return {
             ...data,
@@ -3283,7 +3336,7 @@ function onFetchMeta(args) {
                 value: String(v),
                 label: String(v)
             })),
-            model: data.defaults.model,
+            model: String(convForm.model || data.defaults.model || ''),
 
             // Provide a grouping key that replaces '/' with '-' for hierarchical display,
             // while preserving the original value used by the backend.

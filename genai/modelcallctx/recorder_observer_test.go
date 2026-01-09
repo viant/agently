@@ -2,6 +2,7 @@ package modelcallctx
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -107,4 +108,89 @@ func (s staticPriceProvider) TokenPrices(model string) (float64, float64, float6
 		return s.inP, s.outP, s.cacheP, true
 	}
 	return 0, 0, 0, false
+}
+
+func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
+	type testCase struct {
+		name         string
+		resp         *llm.GenerateResponse
+		responseJSON []byte
+		expected     string
+		expectRaw    bool
+	}
+
+	cases := []testCase{
+		{
+			name:     "content field",
+			resp:     &llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "hello"}}}},
+			expected: "hello",
+		},
+		{
+			name:     "content items",
+			resp:     &llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, ContentItems: []llm.ContentItem{{Type: llm.ContentTypeText, Text: "from items"}}}}}},
+			expected: "from items",
+		},
+		{
+			name:      "tool calls store raw_content",
+			resp:      &llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "plan", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "resources-roots"}}}}}},
+			expected:  "plan",
+			expectRaw: true,
+		},
+		{
+			name: "response json fallback",
+			responseJSON: func() []byte {
+				raw, _ := json.Marshal(&llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "from json"}}}})
+				return raw
+			}(),
+			expected: "from json",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := convmem.New()
+			base := memory.WithConversationID(context.Background(), "conv-1")
+			if err := client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+				t.Fatalf("failed to seed conversation: %v", err)
+			}
+
+			ctx := WithRecorderObserver(base, client)
+			ob := ObserverFromContext(ctx)
+			if ob == nil {
+				t.Fatalf("observer not injected")
+			}
+			ctx2, err := ob.OnCallStart(ctx, Info{Provider: "test", Model: "test-model", LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}}})
+			if err != nil {
+				t.Fatalf("OnCallStart error: %v", err)
+			}
+
+			if err := ob.OnCallEnd(ctx2, Info{Model: "test-model", LLMResponse: tc.resp, ResponseJSON: tc.responseJSON}); err != nil {
+				t.Fatalf("OnCallEnd error: %v", err)
+			}
+
+			msgID := memory.ModelMessageIDFromContext(ctx2)
+			if msgID == "" {
+				t.Fatalf("message id not set in context")
+			}
+			msg, err := client.GetMessage(context.Background(), msgID)
+			if err != nil || msg == nil {
+				t.Fatalf("failed to fetch message: %v", err)
+			}
+			actualContent := ""
+			if msg.Content != nil {
+				actualContent = *msg.Content
+			}
+			actualRaw := ""
+			if msg.RawContent != nil {
+				actualRaw = *msg.RawContent
+			}
+			assert.EqualValues(t, tc.expected, actualContent)
+			if tc.expectRaw {
+				assert.EqualValues(t, tc.expected, actualRaw)
+			} else {
+				assert.EqualValues(t, "", actualRaw)
+			}
+			assert.EqualValues(t, 0, msg.Interim)
+		})
+	}
 }

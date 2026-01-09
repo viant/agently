@@ -49,6 +49,8 @@ func TestToRequest_StreamFlag(t *testing.T) {
 func TestToLLMSResponse_ToolCallsAndToolCallId(t *testing.T) {
 	// prepare a simulated OpenAI response with tool_calls and tool_call_id
 	resp := &Response{
+		ID:    "chatcmpl_123",
+		Model: "gpt-test",
 		Choices: []Choice{{
 			Index: 0,
 			Message: Message{
@@ -70,6 +72,8 @@ func TestToLLMSResponse_ToolCallsAndToolCallId(t *testing.T) {
 		Usage: Usage{PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5},
 	}
 	out := ToLLMSResponse(resp)
+	assert.Equal(t, "gpt-test", out.Model)
+	assert.Equal(t, "chatcmpl_123", out.ResponseID)
 	assert.Len(t, out.Choices, 1)
 	msg := out.Choices[0].Message
 	assert.EqualValues(t, llm.RoleAssistant, msg.Role)

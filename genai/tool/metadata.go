@@ -188,14 +188,17 @@ func (s FeedSpecs) Matches(name mcpname.Name) bool {
 	return false
 }
 
-// Matches compares against an mcptool.Name; no wildcard allowed.
+// Matches compares against a canonical tool name.
+// It supports simple wildcards: "*" in Service or Method matches any value.
 func (m MatchSpec) Matches(name mcpname.Name) bool {
 	ms := strings.TrimSpace(m.Service)
 	mm := strings.TrimSpace(m.Method)
 	if ms == "" || mm == "" {
 		return false
 	}
-	return strings.EqualFold(ms, name.Service()) && strings.EqualFold(mm, name.Method())
+	serviceMatches := ms == "*" || strings.EqualFold(ms, name.Service())
+	methodMatches := mm == "*" || strings.EqualFold(mm, name.Method())
+	return serviceMatches && methodMatches
 }
 
 // InvokeServiceMethod returns the effective (service, method) to invoke for this spec,
