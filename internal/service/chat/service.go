@@ -55,6 +55,7 @@ type Service struct {
 	mgr        *genconv.Manager
 	toolPolicy *tool.Policy
 	approval   approval.Service
+	authCfg    *authctx.Config
 
 	convClient apiconv.Client
 	fileSvc    *fservice.Service
@@ -164,7 +165,8 @@ func (s *Service) AttachManager(mgr *genconv.Manager, tp *tool.Policy) {
 }
 
 // AttachApproval configures the approval service bridge for policy decisions.
-func (s *Service) AttachApproval(svc approval.Service) { s.approval = svc }
+func (s *Service) AttachApproval(svc approval.Service)  { s.approval = svc }
+func (s *Service) AttachAuthConfig(cfg *authctx.Config) { s.authCfg = cfg }
 
 // AttachFileService wires the Forge file service instance so that attachment
 // reads can reuse the same staging root and resolution.
@@ -705,6 +707,9 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 		s.reg.Register(conversationID, turnID, cancel)
 		defer s.reg.Complete(conversationID, turnID, cancel)
 	}
+
+	// Best-effort: attach an access token for MCP/tool auth when BFF/OAuth is configured.
+	runCtx = s.ensureBearerForTools(runCtx, effectiveUserID)
 
 	// Apply policy and conversation ID.
 	runCtx = memory.WithConversationID(runCtx, conversationID)

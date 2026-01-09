@@ -25,6 +25,7 @@ import (
 	"github.com/viant/agently/genai/usage"
 	authctx "github.com/viant/agently/internal/auth"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
+	authtransport "github.com/viant/mcp/client/auth/transport"
 )
 
 // executeChains filters, evaluates and dispatches chains declared on the parent agent.
@@ -40,6 +41,11 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 	// Bridge auth token from QueryInput.Context when provided (non-HTTP callers).
 	ctx = s.bindAuthFromInputContext(ctx, input)
+	// Mirror internal/auth bearer into MCP auth context key so MCP transports can
+	// reuse the same access token without prompting for re-authorization.
+	if tok := strings.TrimSpace(authctx.Bearer(ctx)); tok != "" {
+		ctx = context.WithValue(ctx, authtransport.ContextAuthTokenKey, tok)
+	}
 
 	// Install a warnings collector in context for this turn.
 	ctx, _ = withWarnings(ctx)
