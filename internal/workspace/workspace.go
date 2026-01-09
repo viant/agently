@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sync"
@@ -110,7 +111,7 @@ func ensureDefaults(root string) {
 	defaultsMu.Unlock()
 
 	afsSvc := afs.New()
-	EnsureDefault(afsSvc)
+	EnsureDefaultAt(context.Background(), afsSvc, root)
 }
 
 // abs converts p into an absolute, clean path. If an error occurs it returns p
