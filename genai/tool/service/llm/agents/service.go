@@ -312,10 +312,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	}
 	qi := &agentsvc.QueryInput{AgentID: ri.AgentID, Query: ri.Objective, Context: ri.Context}
 	// llm/agents:run should honor the delegated agent's configured tools (patterns/bundles)
-	// and must not inherit a parent conversation's tools allow-list.
 	qi.ToolsAllowed = []string{}
-	// Thread through optional model preferences hint so that the agent
-	// can adjust its ModelSelection.Preferences for this run when supported.
 	if ri.ModelPreferences != nil {
 		qi.ModelPreferences = ri.ModelPreferences
 	}

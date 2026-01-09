@@ -20,6 +20,27 @@ type Finder struct {
 	version int64
 }
 
+// All returns a snapshot of all cached agents.
+// It does not invoke the loader.
+func (d *Finder) All() []*agent.Agent {
+	if d == nil {
+		return nil
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if len(d.items) == 0 {
+		return nil
+	}
+	out := make([]*agent.Agent, 0, len(d.items))
+	for _, a := range d.items {
+		if a == nil {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 // Add stores an Agent under the provided name key.
 func (d *Finder) Add(name string, a *agent.Agent) {
 	if a == nil || name == "" {

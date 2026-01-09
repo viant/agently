@@ -407,20 +407,8 @@ type UploadedAttachment struct {
 // PreflightPost validates minimal conditions before accepting a post.
 // It ensures an agent can be determined either from request or conversation defaults.
 func (s *Service) PreflightPost(ctx context.Context, conversationID string, req PostRequest) error {
-	if strings.TrimSpace(req.Agent) != "" {
-		return nil
-	}
-	// Check conversation has AgentId
-	if s.convClient != nil {
-		cv, err := s.convClient.GetConversation(ctx, conversationID)
-		if err != nil {
-			return err
-		}
-		if cv != nil && cv.AgentId != nil && strings.TrimSpace(*cv.AgentId) != "" {
-			return nil
-		}
-	}
-	return fmt.Errorf("agent is required")
+	_, _, err := s.resolveAgentIDForTurn(ctx, conversationID, req.Agent, req.Content)
+	return err
 }
 
 // defaultLocation returns supplied if not empty (preserving explicit agent location).
@@ -531,8 +519,8 @@ func (s *Service) persistQueuedTurn(ctx context.Context, conversationID, turnID 
 	turn.SetQueueSeq(queueSeq)
 	turn.SetStatus("queued")
 	turn.SetStartedByMessageID(turnID)
-	if strings.TrimSpace(queued.Agent) != "" {
-		turn.SetAgentIDUsed(strings.TrimSpace(queued.Agent))
+	if agentRef := strings.TrimSpace(queued.Agent); agentRef != "" && !isAutoAgentRef(agentRef) {
+		turn.SetAgentIDUsed(agentRef)
 	}
 	if strings.TrimSpace(queued.Model) != "" {
 		turn.SetModelOverride(strings.TrimSpace(queued.Model))
@@ -669,15 +657,28 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 		}
 	}
 
+	query := ""
+	if msg.Content != nil {
+		query = *msg.Content
+	}
+	agentID, autoSelected, err := s.resolveAgentIDForTurn(parent, conversationID, meta.Agent, query)
+	if err != nil {
+		return s.persistTurnFailure(parent, turnID, err)
+	}
+	if autoSelected && strings.TrimSpace(agentID) != "" {
+		upd := apiconv.NewTurn()
+		upd.SetId(turnID)
+		upd.SetConversationID(conversationID)
+		upd.SetAgentIDUsed(strings.TrimSpace(agentID))
+		if perr := s.convClient.PatchTurn(parent, upd); perr != nil {
+			return s.persistTurnFailure(parent, turnID, perr)
+		}
+	}
+
 	input := &agentpkg.QueryInput{
-		ConversationID: conversationID,
-		Query: func() string {
-			if msg.Content != nil {
-				return *msg.Content
-			}
-			return ""
-		}(),
-		AgentID:          defaultLocation(meta.Agent),
+		ConversationID:   conversationID,
+		Query:            query,
+		AgentID:          strings.TrimSpace(agentID),
 		ModelOverride:    meta.Model,
 		ToolsAllowed:     append([]string(nil), meta.Tools...),
 		Context:          meta.Context,

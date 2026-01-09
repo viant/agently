@@ -2,16 +2,16 @@
 
 pipeline:
 
-#  buildUI:
-#    action: exec:run
-#    TimeoutMs: 120000
-#    commands:
-#    - cd $repoPath/ui
-#    - rm -rf dist
-#    - npm run build
-#    - rm -rf $repoPath/deployment/ui/assets
-#    - rm $repoPath/deployment/ui/index.html
-#    - cp -rf dist/ $repoPath/deployment/ui
+  buildUI:
+    action: exec:run
+    TimeoutMs: 120000
+    commands:
+    - cd $repoPath/ui
+    - rm -rf dist
+    - npm run build
+    - rm -rf $repoPath/deployment/ui/assets
+    - rm $repoPath/deployment/ui/index.html
+    - cp -rf dist/ $repoPath/deployment/ui
 
   build:
     action: exec:run
