@@ -42,8 +42,12 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 				continue
 			}
 			if feed.ShallUseHistory() {
-				if feed.Activation.Scope == "last" {
-					toolCallsByFeedID[feed.ID] = nil
+				// Explorer feed is a UI aggregation over the whole turn; keep all matching
+				// tool calls even if legacy configs use activation.scope=last.
+				if !strings.EqualFold(strings.TrimSpace(feed.ID), "explorer") {
+					if feed.Activation.Scope == "last" {
+						toolCallsByFeedID[feed.ID] = nil
+					}
 				}
 				toolCallsByFeedID[feed.ID] = append(toolCallsByFeedID[feed.ID], m.ToolCall)
 				continue
@@ -140,13 +144,13 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 		// even when legacy workspace specs don't explicitly declare them.
 		if strings.EqualFold(strings.TrimSpace(feed.ID), "explorer") {
 			rootData["entries"] = deriveExplorerEntries(mergedOutput)
-			rootData["ops"] = deriveExplorerOps(toolCalls, defaultTraceID)
+			rootData["ops"] = deriveExplorerOps(toolCalls, defaultTraceID, traceLabelsByID(t.Message))
 		} else {
 			if feedWantsDataKey(feed, "entries") {
 				rootData["entries"] = deriveExplorerEntries(mergedOutput)
 			}
 			if feedWantsDataKey(feed, "ops") {
-				rootData["ops"] = deriveExplorerOps(toolCalls, defaultTraceID)
+				rootData["ops"] = deriveExplorerOps(toolCalls, defaultTraceID, traceLabelsByID(t.Message))
 			}
 		}
 
@@ -237,6 +241,96 @@ func lastModelCallTraceID(messages []*MessageView) string {
 	return ""
 }
 
+func traceLabelsByID(messages []*MessageView) map[string]string {
+	result := map[string]string{}
+	if len(messages) == 0 {
+		return result
+	}
+	// Some providers use a long trace id with a short stable prefix (e.g. "resp_0b8").
+	// Multiple traces can share the same short prefix, so only expose a short alias
+	// when it is unique within this turn.
+	shortCount := map[string]int{}
+	for _, m := range messages {
+		if m == nil || m.ModelCall == nil || m.ModelCall.TraceId == nil {
+			continue
+		}
+		traceID := strings.TrimSpace(*m.ModelCall.TraceId)
+		if traceID == "" {
+			continue
+		}
+		short := shortTraceID(traceID)
+		if short == "" || short == traceID {
+			continue
+		}
+		shortCount[short]++
+	}
+
+	for _, m := range messages {
+		if m == nil || m.ModelCall == nil || m.ModelCall.TraceId == nil {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(m.Role), "assistant") {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(m.Type), "text") {
+			continue
+		}
+		// Prefer interim assistant "preamble" messages as trace labels.
+		if m.Interim == 0 {
+			continue
+		}
+		// Skip summaries to avoid rendering long, auto-generated content as a trace label.
+		if m.Mode != nil && strings.EqualFold(strings.TrimSpace(*m.Mode), "summary") {
+			continue
+		}
+		traceID := strings.TrimSpace(*m.ModelCall.TraceId)
+		if traceID == "" {
+			continue
+		}
+		if _, exists := result[traceID]; exists {
+			continue
+		}
+		content := ""
+		if m.RawContent != nil {
+			content = strings.TrimSpace(*m.RawContent)
+		}
+		if content == "" && m.Content != nil {
+			content = strings.TrimSpace(*m.Content)
+		}
+		if content == "" {
+			continue
+		}
+		if label := summarizeTraceLabel(content); label != "" {
+			result[traceID] = label
+			// Only map the short trace prefix when it is unique for this turn.
+			short := shortTraceID(traceID)
+			if short != "" && short != traceID && shortCount[short] == 1 {
+				if _, exists := result[short]; !exists {
+					result[short] = label
+				}
+			}
+		}
+	}
+	return result
+}
+
+func shortTraceID(traceID string) string {
+	traceID = strings.TrimSpace(traceID)
+	if traceID == "" {
+		return ""
+	}
+	// OpenAI-style trace IDs typically start with "resp_" and a 3-hex prefix
+	// that is stable for a response. Keep the UI-friendly short form.
+	if len(traceID) <= 8 {
+		return traceID
+	}
+	return traceID[:8]
+}
+
+func summarizeTraceLabel(content string) string {
+	return strings.TrimSpace(content)
+}
+
 func feedWantsDataKey(feed *extx.FeedSpec, key string) bool {
 	if feed == nil || len(feed.DataSources) == 0 {
 		return false
@@ -268,6 +362,13 @@ func deriveExplorerEntries(output interface{}) []map[string]interface{} {
 	if files, ok := outMap["files"].([]interface{}); ok && len(files) > 0 {
 		return normalizeGrepFiles(files)
 	}
+	// resources.roots-style output: normalize roots into entries
+	if roots, ok := outMap["roots"].([]interface{}); ok && len(roots) > 0 {
+		return normalizeRootEntries(roots)
+	}
+	if roots, ok := outMap["Roots"].([]interface{}); ok && len(roots) > 0 {
+		return normalizeRootEntries(roots)
+	}
 	// resources.read-style output: normalize a single entry from uri/path fields.
 	if uri := trimString(outMap["uri"]); uri != "" || trimString(outMap["URI"]) != "" {
 		obj := map[string]interface{}{
@@ -288,7 +389,7 @@ func deriveExplorerEntries(output interface{}) []map[string]interface{} {
 	return nil
 }
 
-func deriveExplorerOps(toolCalls []*ToolCallView, defaultTraceID string) []map[string]interface{} {
+func deriveExplorerOps(toolCalls []*ToolCallView, defaultTraceID string, traceLabels map[string]string) []map[string]interface{} {
 	if len(toolCalls) == 0 {
 		return nil
 	}
@@ -322,6 +423,8 @@ func deriveExplorerOps(toolCalls []*ToolCallView, defaultTraceID string) []map[s
 		switch operation {
 		case "grepfiles":
 			operation = "search"
+		case "roots":
+			operation = "list"
 		case "list":
 			operation = "list"
 		case "read":
@@ -403,13 +506,18 @@ func deriveExplorerOps(toolCalls []*ToolCallView, defaultTraceID string) []map[s
 		if len(uris) > 0 {
 			primaryURI = uris[0]
 		}
-		traceShort := traceID
-		if len(traceShort) > 8 {
-			traceShort = traceShort[:8]
+		traceLabel := strings.TrimSpace(traceID)
+		if traceLabels != nil {
+			if v := strings.TrimSpace(traceLabels[traceID]); v != "" {
+				traceLabel = v
+			}
 		}
+		traceShortID := shortTraceID(traceID)
 		result = append(result, map[string]interface{}{
 			"traceId":   traceID,
-			"trace":     traceShort,
+			"traceGroupId": traceID,
+			"traceShortId": traceShortID,
+			"trace":     traceLabel,
 			"operation": operation,
 			"resources": resources,
 			"count":     len(names),
@@ -443,6 +551,50 @@ func deriveExplorerOps(toolCalls []*ToolCallView, defaultTraceID string) []map[s
 		}
 	}
 	return result
+}
+
+func normalizeRootEntries(roots []interface{}) []map[string]interface{} {
+	entries := make([]map[string]interface{}, 0, len(roots))
+	for _, item := range roots {
+		switch actual := item.(type) {
+		case map[string]interface{}:
+			uri := trimString(actual["uri"])
+			if uri == "" {
+				uri = trimString(actual["URI"])
+			}
+			pathValue := trimString(actual["path"])
+			if pathValue == "" {
+				pathValue = trimString(actual["Path"])
+			}
+			name := trimString(actual["name"])
+			if name == "" {
+				name = trimString(actual["Name"])
+			}
+			if name == "" {
+				name = trimString(actual["id"])
+			}
+			if name == "" {
+				name = trimString(actual["Id"])
+			}
+			name = sanitizeEntryName(name, uri, pathValue)
+			entries = append(entries, map[string]interface{}{
+				"uri":  uri,
+				"path": pathValue,
+				"name": name,
+			})
+		case string:
+			s := strings.TrimSpace(actual)
+			if s == "" {
+				continue
+			}
+			entries = append(entries, map[string]interface{}{
+				"uri":  s,
+				"path": "",
+				"name": sanitizeEntryName(s, s, ""),
+			})
+		}
+	}
+	return entries
 }
 
 // unwrapToolOutput normalizes common wrapper response shapes produced by invokers
@@ -575,9 +727,7 @@ func normalizeEntry(obj map[string]interface{}) map[string]interface{} {
 	uri := trimString(obj["uri"])
 	pathValue := trimString(obj["path"])
 	name := trimString(obj["name"])
-	if name == "" {
-		name = path.Base(pathValue)
-	}
+	name = sanitizeEntryName(name, uri, pathValue)
 	hits := obj["hits"]
 	if hits == nil {
 		hits = obj["Matches"]
@@ -601,7 +751,7 @@ func normalizeGrepFiles(files []interface{}) []map[string]interface{} {
 		}
 		uri := trimString(obj["URI"])
 		pathValue := trimString(obj["Path"])
-		name := path.Base(pathValue)
+		name := sanitizeEntryName("", uri, pathValue)
 		entries = append(entries, map[string]interface{}{
 			"uri":  uri,
 			"path": pathValue,
@@ -610,6 +760,32 @@ func normalizeGrepFiles(files []interface{}) []map[string]interface{} {
 		})
 	}
 	return entries
+}
+
+func sanitizeEntryName(name, uri, pathValue string) string {
+	n := strings.TrimSpace(name)
+	u := strings.TrimSpace(uri)
+	p := strings.TrimSpace(pathValue)
+
+	if n == "" && p != "" {
+		n = path.Base(p)
+	}
+	// Some callers incorrectly populate "name" with a URI; normalize to leaf.
+	if isURILike(n) {
+		n = path.Base(strings.TrimSuffix(n, "/"))
+	}
+	if (n == "" || n == "." || n == "/") && u != "" {
+		n = path.Base(strings.TrimSuffix(u, "/"))
+	}
+	if n == "" {
+		n = "."
+	}
+	return n
+}
+
+func isURILike(value string) bool {
+	s := strings.ToLower(strings.TrimSpace(value))
+	return strings.Contains(s, "://") || strings.HasPrefix(s, "file:")
 }
 
 func trimString(v interface{}) string {
