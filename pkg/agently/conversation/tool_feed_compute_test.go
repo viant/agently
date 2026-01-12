@@ -96,4 +96,3 @@ func TestTranscriptView_computeToolFeed_ExplorerKeepsAllHistoryScopeLast(t *test
 		}
 	}
 }
-

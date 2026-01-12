@@ -17,9 +17,28 @@ function operationMeta(operation) {
 }
 
 function rowKey(row) {
-    const traceId = String(row?.traceId || '');
+    const traceId = String(row?.traceGroupId || row?.traceId || '');
     const op = String(row?.operation || '');
     return `${traceId}:${op}`;
+}
+
+function traceLabelForRow(row) {
+    const trace = String(row?.trace || '').trim();
+    const traceId = String(row?.traceId || '').trim();
+    const traceShortId = String(row?.traceShortId || '').trim();
+
+    const looksLikeRawTraceId = (v) => {
+        const s = String(v || '').trim();
+        if (!s) return false;
+        if (s === traceId || s === traceShortId) return true;
+        if (/^resp_[0-9a-f]{10,}$/i.test(s)) return true;
+        return false;
+    };
+
+    if (trace && !looksLikeRawTraceId(trace)) return trace;
+    // No human-readable trace label for this trace id.
+    if (traceId || traceShortId) return '…';
+    return 'no-trace';
 }
 
 function normalizeItems(items) {
@@ -44,9 +63,12 @@ export default function ExplorerFeed({ data, context }) {
         const raw = Array.isArray(data?.ops) ? data.ops : [];
         return raw.map((row) => ({
             traceId: row?.traceId || '',
-            trace: row?.trace || '',
+            traceGroupId: row?.traceGroupId || '',
+            traceShortId: row?.traceShortId || '',
+            trace: traceLabelForRow(row),
             operation: row?.operation || '',
             count: Number(row?.count || 0),
+            resources: String(row?.resources || ''),
             items: normalizeItems(row?.items),
         }));
     }, [data]);
@@ -55,14 +77,18 @@ export default function ExplorerFeed({ data, context }) {
     const pageSize = 10;
 
     const grouped = useMemo(() => {
-        const byTrace = new Map();
+        // Keep chronological order as emitted by backend `ops` array while grouping by full traceId.
+        const byTrace = new Map(); // traceGroupId -> {label, rows}
         for (const row of ops) {
-            const trace = String(row.trace || '').trim() || 'no-trace';
-            const list = byTrace.get(trace) || [];
-            list.push(row);
-            byTrace.set(trace, list);
+            const traceKey = String(row.traceGroupId || row.traceId || '').trim() || 'no-trace';
+            const existing = byTrace.get(traceKey);
+            if (!existing) {
+                byTrace.set(traceKey, { label: row.trace || traceLabelForRow(row), rows: [row] });
+            } else {
+                existing.rows.push(row);
+            }
         }
-        return Array.from(byTrace.entries());
+        return Array.from(byTrace.entries()).map(([traceId, v]) => ({ traceId, label: v.label, rows: v.rows }));
     }, [ops]);
 
     const openURI = async (uri) => {
@@ -77,15 +103,44 @@ export default function ExplorerFeed({ data, context }) {
 
     return (
         <div style={{ padding: 8 }}>
-            {grouped.map(([trace, rows]) => (
-                <div key={trace} style={{ marginBottom: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                        <Tag minimal intent="primary">Trace {trace}</Tag>
+            {grouped.map((g) => (
+                <div key={g.traceId} style={{ marginBottom: 12 }}>
+                    <div style={{
+                        marginBottom: 6,
+                        padding: '6px 8px',
+                        borderRadius: 6,
+                        border: '1px solid var(--light-gray2)',
+                        background: 'var(--light-gray5)',
+                        color: 'var(--blue2)',
+                        display: 'block',
+                        width: '100%',
+                        maxWidth: 'none',
+                        overflow: 'visible',
+                        textOverflow: 'unset',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        overflowWrap: 'anywhere'
+                    }}
+                    title={g.label || ''}
+                    >
+                        <pre style={{
+                            margin: 0,
+                            padding: 0,
+                            fontFamily: 'inherit',
+                            fontSize: 'inherit',
+                            color: 'inherit',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            overflowWrap: 'anywhere',
+                            overflow: 'visible',
+                            textOverflow: 'unset',
+                            maxWidth: 'none',
+                        }}>{g.label || 'no-trace'}</pre>
                     </div>
                     <div style={{ border: '1px solid var(--light-gray2)', borderRadius: 6, overflow: 'hidden' }}>
-                        {rows.map((row) => {
+                        {g.rows.map((row, idx) => {
                             const meta = operationMeta(row.operation);
-                            const key = rowKey(row);
+                            const key = rowKey(row) || `${g.traceId}:${idx}`;
                             const total = row.items.length;
                             const totalPages = Math.max(1, Math.ceil(total / pageSize));
                             const page = Math.min(Math.max(0, Number(pageByRow[key] || 0)), totalPages - 1);

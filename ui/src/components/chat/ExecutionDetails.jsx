@@ -202,8 +202,16 @@ function flattenExecutions(executions = []) {
     const allowed = new Set([ 'thinking', 'tool_call', 'elicitation', 'link', 'error' ]);
     const rows = executions.flatMap(exe => (exe.steps || [])
         .filter(s => allowed.has(String(s?.reason || '').toLowerCase()))
-        .map(s => {
+        .map((s, idx) => {
             const reason = String(s?.reason || '').toLowerCase();
+            const rowId = String(
+                s.id ||
+                s.messageId ||
+                s.opId ||
+                s.turnId ||
+                s.turnID ||
+                `${reason}:${s.name || ''}:${idx}`
+            );
             const hasBool = typeof s.successBool === 'boolean';
             const successBool = hasBool ? s.successBool : (typeof s.success === 'boolean' ? s.success : undefined);
             let statusText = (s.statusText || (successBool === undefined ? 'pending' : (successBool ? 'completed' : 'error'))).toLowerCase();
@@ -246,6 +254,7 @@ function flattenExecutions(executions = []) {
                 }
             } catch(_) {}
             return {
+                rowId,
                 icon,
                 kind: kindGlyph,
                 name: annotatedName,
@@ -291,6 +300,7 @@ function flattenExecutions(executions = []) {
 function ExecutionDetails({ executions = [], context, messageId, turnStatus, turnError, onError, useForgeDialog = false, resizable = false, useCodeMirror = false }) {
     const [dialog, setDialog] = React.useState(null); // Details or generic payload viewer
     const [payloadDialog, setPayloadDialog] = React.useState(null); // Secondary dialog for payloads when details is open
+    const [selectedRowId, setSelectedRowId] = React.useState('');
     const [dlgSize, setDlgSize] = React.useState({ width: 960, height: 640 });
     const [dlgPos, setDlgPos] = React.useState({ left: 120, top: 80 });
     const [payloadPos, setPayloadPos] = React.useState({ left: 160, top: 120 });
@@ -425,6 +435,8 @@ function ExecutionDetails({ executions = [], context, messageId, turnStatus, tur
                 if (id === 'exec.openStream') return ({ row }) => viewPart('stream', row);
                 if (id === 'exec.openDetail') return async ({ row }) => {
                     try {
+                        const rid = String(row?.rowId || '').trim();
+                        if (rid) setSelectedRowId(rid);
                         setDialog({ title: 'Details', kind: `detail-${row?._reason || ''}`, row });
                     } catch (_) {}
                 };
@@ -434,6 +446,11 @@ function ExecutionDetails({ executions = [], context, messageId, turnStatus, tur
         },
         [context, dataSourceId]
     );
+
+    const rowIsSelected = (row) => {
+        const rid = String(row?.rowId || '').trim();
+        return rid !== '' && rid === String(selectedRowId || '').trim();
+    };
 
     return (
         <>
@@ -456,6 +473,7 @@ function ExecutionDetails({ executions = [], context, messageId, turnStatus, tur
                         {rows.map((r, idx) => {
                             const hasContent = String(r?.content || '').trim() !== '';
                             const isLink = !!(r && r._reason === 'link' && r._linkedConversationId);
+                            const isSelected = rowIsSelected(r);
                             const isElicitationWithURL = (() => {
                                 try {
                                     return String(r?._reason || '').toLowerCase() === 'elicitation' && !!(r?._elicitation?.url);
@@ -466,29 +484,56 @@ function ExecutionDetails({ executions = [], context, messageId, turnStatus, tur
 
                             return (
                                 <React.Fragment key={`${r?.name || 'row'}-${idx}`}>
-                                    <tr>
+                                    <tr
+                                        onClick={() => {
+                                            const rid = String(r?.rowId || '').trim();
+                                            if (rid) setSelectedRowId(rid);
+                                        }}
+                                        style={isSelected ? { background: 'rgba(19, 124, 189, 0.10)' } : undefined}
+                                    >
                                         <td style={{ width: 28, textAlign: 'center' }}>{r.icon}</td>
                                         <td style={{ width: 68, textAlign: 'center' }}>{r.kind}</td>
                                         <td style={{ width: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.name}>{r.name}</td>
                                         <td style={{ width: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.actor}>{r.actor}</td>
                                         <td style={{ width: 80 }}>
                                             {isLink ? (
-                                                <button className="bp4-button bp4-minimal bp4-small" onClick={() => execContext.lookupHandler('exec.openLinkedConversation')({ row: r, col: { id: 'chain' } })}>Open</button>
+                                                <button
+                                                    className="bp4-button bp4-minimal bp4-small"
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        execContext.lookupHandler('exec.openLinkedConversation')({ row: r, col: { id: 'chain' } });
+                                                    }}
+                                                >Open</button>
                                             ) : null}
                                         </td>
                                         <td style={{ width: 66 }}>
                                             {isElicitationWithURL ? (
-                                                <button className="bp4-button bp4-minimal bp4-small" onClick={() => execContext.lookupHandler('exec.openOOB')({ row: r })}>open</button>
+                                                <button
+                                                    className="bp4-button bp4-minimal bp4-small"
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        execContext.lookupHandler('exec.openOOB')({ row: r });
+                                                    }}
+                                                >open</button>
                                             ) : null}
                                         </td>
                                         <td style={{ width: 90 }}>{r.status}</td>
                                         <td style={{ width: 70 }}>{r.elapsed}</td>
                                         <td style={{ width: 90 }}>
-                                            <button className="bp4-button bp4-minimal bp4-small" onClick={() => execContext.lookupHandler('exec.openDetail')({ row: r })}>details 🔍</button>
+                                            <button
+                                                className="bp4-button bp4-minimal bp4-small"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    execContext.lookupHandler('exec.openDetail')({ row: r });
+                                                }}
+                                            >details 🔍</button>
                                         </td>
                                     </tr>
                                     {hasContent && (
-                                        <tr>
+                                        <tr style={isSelected ? { background: 'rgba(19, 124, 189, 0.06)' } : undefined}>
                                             <td style={{ width: 28 }}></td>
                                             <td style={{ width: 68 }}></td>
                                             <td colSpan={7} style={{ padding: 0 }}>

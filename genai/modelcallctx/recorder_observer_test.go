@@ -112,11 +112,12 @@ func (s staticPriceProvider) TokenPrices(model string) (float64, float64, float6
 
 func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 	type testCase struct {
-		name         string
-		resp         *llm.GenerateResponse
-		responseJSON []byte
-		expected     string
-		expectRaw    bool
+		name          string
+		resp          *llm.GenerateResponse
+		responseJSON  []byte
+		expected      string
+		expectRaw     bool
+		expectInterim int
 	}
 
 	cases := []testCase{
@@ -131,10 +132,11 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 			expected: "from items",
 		},
 		{
-			name:      "tool calls store raw_content",
-			resp:      &llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "plan", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "resources-roots"}}}}}},
-			expected:  "plan",
-			expectRaw: true,
+			name:          "tool calls store raw_content",
+			resp:          &llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "plan", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "resources-roots"}}}}}},
+			expected:      "plan",
+			expectRaw:     true,
+			expectInterim: 1,
 		},
 		{
 			name: "response json fallback",
@@ -190,7 +192,7 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 			} else {
 				assert.EqualValues(t, "", actualRaw)
 			}
-			assert.EqualValues(t, 0, msg.Interim)
+			assert.EqualValues(t, tc.expectInterim, msg.Interim)
 		})
 	}
 }

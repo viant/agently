@@ -19,8 +19,8 @@ func TestDeriveExplorerOps(t *testing.T) {
 			name: "aggregates list+roots+read+grep into ops grouped by trace",
 			toolCall: []*ToolCallView{
 				{
-					ToolName: "resources-roots",
-					TraceId:  &traceID,
+					ToolName:        "resources-roots",
+					TraceId:         &traceID,
 					ResponsePayload: &ResponsePayloadView{InlineBody: strPtr(`{"roots":[{"id":"local","path":"/tmp"},{"id":"workspace","uri":"file://localhost/tmp"}]}`)},
 				},
 				{
@@ -30,13 +30,13 @@ func TestDeriveExplorerOps(t *testing.T) {
 					ResponsePayload: &ResponsePayloadView{InlineBody: strPtr(`{"items":[{"uri":"file://localhost/a.txt","path":"/a.txt","name":"file://localhost/a.txt"}]}`)},
 				},
 				{
-					ToolName: "resources-read",
-					TraceId:  &traceID,
+					ToolName:        "resources-read",
+					TraceId:         &traceID,
 					ResponsePayload: &ResponsePayloadView{InlineBody: strPtr(`{"status":"ok","data":{"Result":"{\"uri\":\"file://localhost/b.txt\",\"path\":\"/b.txt\"}"}}`)},
 				},
 				{
-					ToolName: "resources-grepFiles",
-					TraceId:  &traceID,
+					ToolName:        "resources-grepFiles",
+					TraceId:         &traceID,
 					ResponsePayload: &ResponsePayloadView{InlineBody: strPtr(`{"files":[{"URI":"file://localhost/c.txt","Path":"/c.txt","Matches":3}]}`)},
 				},
 			},
