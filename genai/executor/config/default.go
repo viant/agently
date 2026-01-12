@@ -5,6 +5,11 @@ type Defaults struct {
 	Embedder string
 	Agent    string
 
+	// ---- Agent routing defaults (optional) -------------------------
+	// When Agent == "auto", the runtime may use these settings to pick a concrete
+	// agent for the turn using an LLM-based classifier.
+	AgentRouter AgentRouterDefaults `yaml:"agentRouter" json:"agentRouter"`
+
 	// ---- Conversation summary defaults (optional) -------------------
 	// When empty the runtime falls back to hard-coded defaults.
 	SummaryModel  string `yaml:"summaryModel" json:"summaryModel"`
@@ -70,4 +75,16 @@ type ResourcesDefaults struct {
 	TrimPath string `yaml:"trimPath,omitempty" json:"trimPath,omitempty"`
 	// SummaryFiles lookup order for root descriptions.
 	SummaryFiles []string `yaml:"summaryFiles,omitempty" json:"summaryFiles,omitempty"`
+}
+
+// AgentRouterDefaults controls the LLM-based agent classifier used for auto routing.
+type AgentRouterDefaults struct {
+	// Model is the model used for routing decisions. When empty, runtime falls back
+	// to the conversation default model or Defaults.Model.
+	Model string `yaml:"model,omitempty" json:"model,omitempty"`
+	// Prompt optionally overrides the default system prompt used by the router.
+	Prompt string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	// OutputKey controls the JSON field name the classifier should output.
+	// Examples: "agentId" (default), "agent_id".
+	OutputKey string `yaml:"outputKey,omitempty" json:"outputKey,omitempty"`
 }

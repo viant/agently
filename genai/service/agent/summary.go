@@ -26,6 +26,9 @@ func (s *Service) summarizeIfNeeded(ctx context.Context, input *QueryInput, conv
 var summaryPrompt string
 
 func (s *Service) Summarize(ctx context.Context, conv *apiconv.Conversation) error {
+	if conv == nil {
+		return fmt.Errorf("missing conversation")
+	}
 	transcript := conv.GetTranscript()
 	if !(conv.Summary == nil || *conv.Summary == "") {
 		transcript = transcript.Last()
@@ -66,10 +69,13 @@ func (s *Service) Summarize(ctx context.Context, conv *apiconv.Conversation) err
 	}
 	output := &core.GenerateOutput{}
 
-	agentId := *conv.AgentId
-	anAgent, err := s.agentFinder.Find(ctx, agentId)
+	agentID, _, err := s.resolveAgentIDForConversation(ctx, conv, "")
 	if err != nil {
-		return fmt.Errorf("failed to find agent: %v %w", conv.AgentId, err)
+		return fmt.Errorf("failed to resolve agent: %w", err)
+	}
+	anAgent, err := s.agentFinder.Find(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("failed to find agent: %w", err)
 	}
 
 	EnsureGenerateOptions(ctx, genInput, anAgent)

@@ -514,16 +514,16 @@ func deriveExplorerOps(toolCalls []*ToolCallView, defaultTraceID string, traceLa
 		}
 		traceShortID := shortTraceID(traceID)
 		result = append(result, map[string]interface{}{
-			"traceId":   traceID,
+			"traceId":      traceID,
 			"traceGroupId": traceID,
 			"traceShortId": traceShortID,
-			"trace":     traceLabel,
-			"operation": operation,
-			"resources": resources,
-			"count":     len(names),
-			"uri":       primaryURI,
-			"items":     append([]map[string]interface{}(nil), a.items...),
-			"uris":      append([]string(nil), uris...),
+			"trace":        traceLabel,
+			"operation":    operation,
+			"resources":    resources,
+			"count":        len(names),
+			"uri":          primaryURI,
+			"items":        append([]map[string]interface{}(nil), a.items...),
+			"uris":         append([]string(nil), uris...),
 		})
 	}
 

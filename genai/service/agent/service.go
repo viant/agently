@@ -138,12 +138,13 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 			if conv == nil || srv.agentFinder == nil {
 				return nil, fmt.Errorf("missing conversation or agent finder")
 			}
-			if conv.AgentId == nil || strings.TrimSpace(*conv.AgentId) == "" {
-				return nil, fmt.Errorf("missing agent id in conversation")
-			}
-			ag, err := srv.agentFinder.Find(ctx, strings.TrimSpace(*conv.AgentId))
-			if err != nil || ag == nil {
+			agentID, _, err := srv.resolveAgentIDForConversation(ctx, conv, strings.TrimSpace(instruction))
+			if err != nil {
 				return nil, fmt.Errorf("failed to resolve agent: %w", err)
+			}
+			ag, err := srv.agentFinder.Find(ctx, agentID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to find agent: %w", err)
 			}
 			qi := &QueryInput{
 				Agent:          ag,

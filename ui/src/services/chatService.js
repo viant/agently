@@ -408,10 +408,24 @@ async function dsTick({context}) {
         context.resources = context.resources || {};
         context.resources.lastDsReqTs = nowTs;
 
-        // Perform a silent poll via connector to avoid toggling DS loading and flicker
+        // Perform a silent poll.
+        // Prefer the Forge datasource connector, but fall back to a direct fetch
+        // when running in "History Chat" where the connector may not be wired.
         try {
+            let json = null;
             const api = messagesCtx.connector;
-            const json = await api.get({inputParameters: {convID, since}});
+            if (api && typeof api.get === 'function') {
+                json = await api.get({inputParameters: {convID, since}});
+            } else {
+                const apiBase = (endpoints?.agentlyAPI?.baseURL || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/+$/, '');
+                const url = `${apiBase}/v1/api/conversations/${encodeURIComponent(convID)}/messages?since=${encodeURIComponent(String(since || ''))}`;
+                const resp = await fetch(url, {credentials: 'include'});
+                if (!resp.ok) {
+                    const txt = await resp.text().catch(() => '');
+                    throw new Error(txt || `failed to fetch messages (${resp.status})`);
+                }
+                json = await resp.json();
+            }
             const conv = json && (json.data ?? json.Data ?? json.conversation ?? json.Conversation ?? json);
             const convStage = conv?.stage || conv?.Stage;
             if (convStage) {
@@ -790,6 +804,34 @@ function buildThinkingStepFromModelCall(mc) {
     };
 }
 
+function tryExtractElicitationMessage(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    // Handle code-fenced JSON: ```json { ... } ```
+    let candidate = raw;
+    try {
+        const fence = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (fence && fence[1]) candidate = String(fence[1]).trim();
+    } catch (_) {}
+    // If it isn't JSON, skip.
+    if (!(candidate.startsWith('{') && candidate.endsWith('}'))) return '';
+    try {
+        const obj = JSON.parse(candidate);
+        if (!obj || typeof obj !== 'object') return '';
+        if (String(obj.type || '').toLowerCase() !== 'elicitation') return '';
+        const msg = String(obj.message || '').trim();
+        return msg;
+    } catch (_) {
+        return '';
+    }
+}
+
+function hasToolCallLinks(modelCall) {
+    if (!modelCall) return false;
+    const links = modelCall.toolCallLinks || modelCall.ToolCallLinks;
+    return Array.isArray(links) && links.length > 0;
+}
+
 function buildToolStepFromToolCall(tc) {
     if (!tc) return null;
     const status = String((tc.status || tc.Status || '')).toLowerCase();
@@ -827,7 +869,6 @@ function computeElapsed(step) {
 
 function mapTranscriptToRowsWithExecutions(transcript = []) {
     const rows = [];
-    const dbgOn = true;
     // Determine the very last message id to decide whether to suppress the inline
     // elicitation step (last message should open the form dialog instead of a step).
     let globalLastMsgId = '';
@@ -871,8 +912,20 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
         // 1) Build all execution steps in this turn (model/tool/interim)
         const steps = [];
         let lastElicitationStep = null;
+        const toolTraceIds = new Set();
+        try {
+            for (const m of messages) {
+                const tc = m?.toolCall || m?.ToolCall;
+                const trace = String(tc?.TraceId || tc?.traceId || '').trim();
+                if (trace) {
+                    toolTraceIds.add(trace);
+                }
+            }
+        } catch (_) {
+        }
         for (const m of messages) {
             const isInterim = !!(m?.interim ?? m?.Interim);
+
             if (isInterim) {
                 const created = m?.createdAt || m?.CreatedAt;
                 const interim = {
@@ -889,9 +942,35 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const tc = m?.toolCall || m?.ToolCall;
             const s1 = buildThinkingStepFromModelCall(mc);
             if (s1) {
-                // Surface the assistant text associated with this model call (including tool_calls).
-                const msgText = String(m?.content || m?.Content || '').trim();
-                if (msgText) s1.content = msgText;
+                // Surface assistant preamble content for:
+                // - true interim messages, or
+                // - tool-initiating model calls (trace matches a tool call in this turn),
+                // while avoiding summaries/plans and elicitation JSON (which has its own step).
+                const roleLower = String(m?.role || m?.Role || '').toLowerCase().trim();
+                const typeLower = String(m?.type || m?.Type || '').toLowerCase().trim();
+                const modeLower = String(m?.mode || m?.Mode || '').toLowerCase().trim();
+                const isInternalMode = modeLower === 'summary';
+                const isText = typeLower === 'text' || typeLower === '';
+                const isAssistant = roleLower === 'assistant';
+
+                const msgText = String(m?.rawContent ?? m?.RawContent ?? m?.content ?? m?.Content ?? '').trim();
+                const traceId = String(mc?.TraceId || mc?.traceId || '').trim();
+                const isToolInitiator = !!traceId && toolTraceIds.has(traceId);
+                const showText =
+                    isAssistant &&
+                    isText &&
+                    !isInternalMode &&
+                    msgText &&
+                    isInterim &&
+                    (hasToolCallLinks(mc) || isToolInitiator);
+                if (showText) {
+                    const elicitationMsg = tryExtractElicitationMessage(msgText);
+                    if (!elicitationMsg) {
+                        s1.content = msgText;
+                    }
+                } else if (s1.content) {
+                    delete s1.content;
+                }
                 // Attribution
                 const createdBy = String(m?.createdByUserId || m?.CreatedByUserId || '').trim();
                 if (createdBy) s1.createdByUserId = createdBy;
@@ -1794,7 +1873,7 @@ export function onFetchMessages(props) {
         // when the fetch snapshot lags behind dsTick’s merge.
         let prev = [];
         try {
-            const msgCtx = context?.Context?.('messages');
+            const msgCtx = (context && typeof context.Context === 'function') ? context.Context('messages') : null;
             prev = Array.isArray(msgCtx?.signals?.collection?.peek?.()) ? (msgCtx.signals.collection.peek() || []) : [];
         } catch(_) {}
 
@@ -1857,6 +1936,16 @@ export function onFetchMessages(props) {
                 merged.push(newRow || oldRow);
             }
         }
+
+        // Important: Forge DataSource onFetch handlers are not guaranteed to replace the
+        // collection with the returned value. Explicitly publish the transformed rows so
+        // Chat views (including History Chat) render correctly.
+        try {
+            const msgCtx = (context && typeof context.Context === 'function') ? context.Context('messages') : null;
+            if (msgCtx?.signals?.collection) {
+                msgCtx.signals.collection.value = merged;
+            }
+        } catch (_) {}
 
         return merged;
     } catch (_) {
@@ -3300,9 +3389,13 @@ function onFetchMeta(args) {
         Object.entries(agentInfo).forEach(([k, v]) => {
             agentChainTargets[k] = Array.isArray(v?.chains) ? v.chains : [];
         });
-        // Preserve current agent selection if present; otherwise use defaults
+        // Preserve current agent selection if present; otherwise use defaults.
+        // Special-case `auto`: it may be configured as a default even when it isn't
+        // part of the workspace agent list, but it should still be selectable.
         const curAgent = String(convForm.agent || currentForm.agent || data.defaults.agent || '');
-        const curAgentName = (agentInfo?.[curAgent]?.name) ? String(agentInfo[curAgent].name) : curAgent;
+        const curAgentName = (agentInfo?.[curAgent]?.name)
+            ? String(agentInfo[curAgent].name)
+            : (curAgent === 'auto' ? 'Auto' : curAgent);
 
         // Keep chat header in sync: header binds to conversations.agentName.
         try {
@@ -3324,11 +3417,29 @@ function onFetchMeta(args) {
 
         return {
             ...data,
-            agentOptions: agentsRaw.map(v => {
-                const id = String(v);
-                const label = (agentInfo?.[id]?.name) ? String(agentInfo[id].name) : id;
-                return { id, value: id, label };
-            }),
+            agentOptions: (() => {
+                const options = agentsRaw.map(v => {
+                    const id = String(v);
+                    const label = (agentInfo?.[id]?.name) ? String(agentInfo[id].name) : id;
+                    return { id, value: id, label };
+                });
+                const have = new Set(options.map(o => String(o?.value || '')));
+
+                // Always include `auto` so users can choose it even if it's not a
+                // concrete workspace agent definition.
+                if (!have.has('auto')) {
+                    options.unshift({ id: 'auto', value: 'auto', label: 'Auto' });
+                    have.add('auto');
+                }
+
+                // If the current agent is not in the list (e.g., custom id),
+                // add it so the UI can display the selection reliably.
+                if (curAgent && !have.has(curAgent)) {
+                    const label = (curAgent === 'auto') ? 'Auto' : curAgent;
+                    options.unshift({ id: curAgent, value: curAgent, label });
+                }
+                return options;
+            })(),
             agent: curAgent,
 
             modelOptions: modelsRaw.map(v => ({

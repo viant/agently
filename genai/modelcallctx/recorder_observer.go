@@ -153,9 +153,10 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	msg.SetContent(content)
 	if hasToolCalls {
 		msg.SetRawContent(content)
+		msg.SetInterim(1)
+	} else {
+		msg.SetInterim(0)
 	}
-	// Make it visible in the transcript when it carries meaningful content.
-	msg.SetInterim(0)
 	if err := o.client.PatchMessage(ctx, msg); err != nil {
 		return false, err
 	}
@@ -432,6 +433,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		}
 		upd.SetStreamPayloadID(sid)
 	}
+
 	// usage mapping
 	if info.Usage != nil {
 		u := info.Usage
