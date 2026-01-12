@@ -1,0 +1,1 @@
+SELECT message_id, op_id, trace_id  FROM tool_call t

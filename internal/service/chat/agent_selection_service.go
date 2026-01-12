@@ -40,5 +40,16 @@ func (s *Service) resolveAgentIDForTurn(ctx context.Context, conversationID stri
 	if s != nil && s.defaults != nil {
 		defaultAgent = strings.TrimSpace(s.defaults.Agent)
 	}
+
+	reqAgent = strings.TrimSpace(reqAgent)
+	autoRequested := isAutoAgentRef(reqAgent) || (reqAgent == "" && isAutoAgentRef(defaultAgent))
+	if autoRequested {
+		if selected, err := s.classifyAgentIDWithLLM(ctx, conversationID, query, s.agentCatalogSnapshot()); err != nil {
+			return "", true, err
+		} else if strings.TrimSpace(selected) != "" {
+			return strings.TrimSpace(selected), true, nil
+		}
+	}
+
 	return resolveAgentID(reqAgent, conversationAgent, defaultAgent, query, s.agentCatalogSnapshot())
 }
