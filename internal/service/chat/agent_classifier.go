@@ -76,6 +76,14 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conversationID str
 		if role != "" {
 			label = fmt.Sprintf("%s [role=%s]", label, role)
 		}
+		if a.Profile != nil {
+			if len(a.Profile.Tags) > 0 {
+				label = fmt.Sprintf("%s [tags=%s]", label, strings.Join(a.Profile.Tags, ","))
+			}
+			if a.Profile.Rank != 0 {
+				label = fmt.Sprintf("%s [rank=%d]", label, a.Profile.Rank)
+			}
+		}
 		if desc != "" {
 			candidateLines = append(candidateLines, fmt.Sprintf("- %s: %s", label, desc))
 		} else {
@@ -115,8 +123,8 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conversationID str
 			llm.NewUserMessage(user),
 		},
 		Options: &llm.Options{
-			Model:            modelName,
-			Temperature:      0,
+			// Note: provider adapters may treat 0 as "unset"; use a tiny value to force near-deterministic routing.
+			Temperature:      0.0000001,
 			MaxTokens:        64,
 			JSONMode:         true,
 			ResponseMIMEType: "application/json",
@@ -128,6 +136,7 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conversationID str
 	if err != nil {
 		return "", err
 	}
+
 	selected := parseSelectedAgentID(resp, outputKey)
 	if selected == "" {
 		return "", nil
@@ -209,6 +218,9 @@ func agentRouterSystemPrompt(defaults *execcfg.Defaults, outputKey string) strin
 	return strings.Join([]string{
 		"You are an agent router for a developer tool.",
 		"Pick the single best agent id for the user request from the provided list.",
+		"Prefer the most direct specialist for the task.",
+		"For code reading, code analysis, refactors, implementation, debugging, or requests that mention local file paths/repos/packages, prefer a coding-focused agent (e.g. tags containing \"code\" or \"refactor\").",
+		"Only choose orchestration/coordination agents (e.g. ids containing \"orchestrator\") when the user explicitly asks to coordinate multiple agents, run multi-pass verification, or orchestrate a workflow.",
 		"Return ONLY valid JSON in the form: {\"" + key + "\":\"<id>\"}.",
 		"Do not call tools. Do not return any other keys or text.",
 	}, "\n")

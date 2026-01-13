@@ -6,5 +6,5 @@ import (
 )
 
 func (i *Input) Init(ctx context.Context, sess handler.Session, out *Output) error {
-	return nil
+	return sess.Stater().Bind(ctx, i)
 }

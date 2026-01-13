@@ -785,6 +785,8 @@ function buildThinkingStepFromModelCall(mc) {
         errorCode: mc.errorCode || mc.ErrorCode,
         reason: 'thinking',
         success: status === 'completed',
+        // Provide a canonical status field so Forge can infer active executions.
+        status,
         statusText: status,
         error: mc.errorMessage || mc.ErrorMessage || '',
         startedAt: mc.startedAt || mc.StartedAt,
@@ -841,6 +843,8 @@ function buildToolStepFromToolCall(tc) {
         toolName: tc.toolName || tc.ToolName,
         reason: 'tool_call',
         success: status === 'completed',
+        // Provide a canonical status field so Forge can infer active executions.
+        status,
         statusText: status,
         error: tc.errorMessage || tc.ErrorMessage || '',
         errorCode: tc.errorCode || tc.ErrorCode,
@@ -912,6 +916,9 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
         // 1) Build all execution steps in this turn (model/tool/interim)
         const steps = [];
         let lastElicitationStep = null;
+        // If the assistant emits a text preamble alongside tool-call links, surface it both
+        // in Execution Details (thinking step content) and in the Explorer tool feed.
+        let toolFeedPreamble = '';
         const toolTraceIds = new Set();
         try {
             for (const m of messages) {
@@ -943,7 +950,6 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             const s1 = buildThinkingStepFromModelCall(mc);
             if (s1) {
                 // Surface assistant preamble content for:
-                // - true interim messages, or
                 // - tool-initiating model calls (trace matches a tool call in this turn),
                 // while avoiding summaries/plans and elicitation JSON (which has its own step).
                 const roleLower = String(m?.role || m?.Role || '').toLowerCase().trim();
@@ -961,12 +967,14 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                     isText &&
                     !isInternalMode &&
                     msgText &&
-                    isInterim &&
                     (hasToolCallLinks(mc) || isToolInitiator);
                 if (showText) {
                     const elicitationMsg = tryExtractElicitationMessage(msgText);
                     if (!elicitationMsg) {
                         s1.content = msgText;
+                        if (!toolFeedPreamble && hasToolCallLinks(mc)) {
+                            toolFeedPreamble = msgText;
+                        }
                     }
                 } else if (s1.content) {
                     delete s1.content;
@@ -1332,6 +1340,27 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 : Array.isArray(turn?.toolExecution) ? turn.toolExecution
                     : Array.isArray(turn?.ToolFeed) ? turn.ToolFeed
                         : Array.isArray(turn?.toolFeed) ? turn.toolFeed : [];
+            const toolExecWithPreamble = (() => {
+                const preamble = String(toolFeedPreamble || '').trim();
+                const list = Array.isArray(toolExec) ? toolExec : [];
+                if (!preamble || list.length === 0) return list;
+                return list.map((exe) => {
+                    const id = String(exe?.id || exe?.ID || '').trim();
+                    if (id !== 'explorer') return exe;
+                    const dataFeed = (exe?.dataFeed && typeof exe.dataFeed === 'object') ? exe.dataFeed : {};
+                    const rawData = dataFeed?.data;
+                    const nextData = (() => {
+                        if (rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+                            return { ...rawData, preamble: rawData.preamble || rawData.Preamble || preamble };
+                        }
+                        if (Array.isArray(rawData)) {
+                            return { ops: rawData, preamble };
+                        }
+                        return { preamble };
+                    })();
+                    return { ...exe, dataFeed: { ...dataFeed, data: nextData } };
+                });
+            })();
             turnRows[carrierIdx] = {
                 ...turnRows[carrierIdx],
                 usage,
@@ -1383,7 +1412,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 turnId: turnId,
                 parentId: turnId,
                 status: 'succeeded',
-                toolExecutions: toolExec,
+                toolExecutions: toolExecWithPreamble,
                 toolFeed: true,
                 isLastTurn,
             } : null;
@@ -1454,6 +1483,27 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 : Array.isArray(turn?.toolExecution) ? turn.toolExecution
                     : Array.isArray(turn?.ToolFeed) ? turn.ToolFeed
                         : Array.isArray(turn?.toolFeed) ? turn.toolFeed : [];
+            const toolExecWithPreamble = (() => {
+                const preamble = String(toolFeedPreamble || '').trim();
+                const list = Array.isArray(toolExec) ? toolExec : [];
+                if (!preamble || list.length === 0) return list;
+                return list.map((exe) => {
+                    const id = String(exe?.id || exe?.ID || '').trim();
+                    if (id !== 'explorer') return exe;
+                    const dataFeed = (exe?.dataFeed && typeof exe.dataFeed === 'object') ? exe.dataFeed : {};
+                    const rawData = dataFeed?.data;
+                    const nextData = (() => {
+                        if (rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+                            return { ...rawData, preamble: rawData.preamble || rawData.Preamble || preamble };
+                        }
+                        if (Array.isArray(rawData)) {
+                            return { ops: rawData, preamble };
+                        }
+                        return { preamble };
+                    })();
+                    return { ...exe, dataFeed: { ...dataFeed, data: nextData } };
+                });
+            })();
             const toolRow = (Array.isArray(toolExec) && toolExec.length > 0 && turnId) ? {
                 id: `${turnId}/toolfeed`,
                 conversationId: turn?.conversationId || turn?.ConversationId,
@@ -1463,7 +1513,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 turnId: turnId,
                 parentId: turnId,
                 status: 'succeeded',
-                toolExecutions: toolExec,
+                toolExecutions: toolExecWithPreamble,
                 toolFeed: true,
                 isLastTurn,
             } : null;

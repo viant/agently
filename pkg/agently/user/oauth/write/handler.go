@@ -54,6 +54,7 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 	}
 	in.Token.Has.UserID = true
 	in.Token.Has.Provider = true
+	in.Token.Has.EncToken = true
 	in.Token.SetUpdatedAt(now)
 	return sqlx.Update("user_oauth_token", in.Token)
 }

@@ -59,8 +59,17 @@ function normalizeItems(items) {
 }
 
 export default function ExplorerFeed({ data, context }) {
+    const preamble = useMemo(() => {
+        try {
+            const v = (data && typeof data === 'object' && !Array.isArray(data)) ? (data.preamble || data.Preamble) : '';
+            return String(v || '').trim();
+        } catch (_) {
+            return '';
+        }
+    }, [data]);
+
     const ops = useMemo(() => {
-        const raw = Array.isArray(data?.ops) ? data.ops : [];
+        const raw = Array.isArray(data?.ops) ? data.ops : (Array.isArray(data) ? data : []);
         return raw.map((row) => ({
             traceId: row?.traceId || '',
             traceGroupId: row?.traceGroupId || '',
@@ -103,6 +112,21 @@ export default function ExplorerFeed({ data, context }) {
 
     return (
         <div style={{ padding: 8 }}>
+            {preamble && (
+                <div style={{
+                    marginBottom: 10,
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    border: '1px solid var(--light-gray2)',
+                    background: 'var(--light-gray5)',
+                    color: 'var(--gray1)',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere'
+                }}>
+                    {preamble}
+                </div>
+            )}
             {grouped.map((g) => (
                 <div key={g.traceId} style={{ marginBottom: 12 }}>
                     <div style={{
