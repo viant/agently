@@ -152,7 +152,7 @@ require (
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlparser v0.8.1 // indirect
-	github.com/viant/sqlx v0.19.0 // indirect
+	github.com/viant/sqlx v0.22.0 // indirect
 	github.com/viant/structql v0.5.2 // indirect
 	github.com/viant/tagly v0.2.2 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect

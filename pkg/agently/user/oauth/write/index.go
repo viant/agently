@@ -7,6 +7,7 @@ import (
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
 	"github.com/viant/datly/repository/contract"
+	"github.com/viant/datly/view"
 )
 
 var PathURI = "/v1/api/agently/user/oauth"
@@ -17,6 +18,7 @@ func DefineComponent(ctx context.Context, srv *datly.Service) (*repository.Compo
 		repository.WithContract(
 			reflect.TypeOf(&Input{}),
 			reflect.TypeOf(&Output{}),
-			&FS),
+			&FS,
+			view.WithConnectorRef("agently")),
 	)
 }
