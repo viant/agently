@@ -208,6 +208,7 @@ type ModelCallView struct {
 	ModelCallProviderRequestPayload    *ResponsePayloadView `view:",table=call_payload" on:"ProviderRequestPayloadId:provider_request_payload_id=Id:id" sql:"uri=conversation/model_call_provider_request_payload.sql"`
 	ModelCallResponsePayload           *ResponsePayloadView `view:",table=call_payload" on:"ResponsePayloadId:response_payload_id=Id:id" sql:"uri=conversation/model_call_response_payload.sql"`
 	ModelCallProviderResponsePayload   *ResponsePayloadView `view:",table=call_payload" on:"ProviderResponsePayloadId:provider_response_payload_id=Id:id" sql:"uri=conversation/model_call_provider_response_payload.sql"`
+	ToolCallLinks                      []*ToolCallLinksView `view:",table=tool_call" on:"TraceId:trace_id=TraceId:trace_id" sql:"uri=conversation/tool_call_links.sql"`
 	ModelCallStreamPayload             *ResponsePayloadView `view:",table=call_payload" on:"StreamPayloadId:stream_payload_id=Id:id" sql:"uri=conversation/model_call_stream_payload.sql"`
 }
 
@@ -215,6 +216,12 @@ type ResponsePayloadView struct {
 	Id          string  `sqlx:"id"`
 	InlineBody  *string `sqlx:"inline_body"`
 	Compression string  `sqlx:"compression"`
+}
+
+type ToolCallLinksView struct {
+	MessageId string  `sqlx:"message_id"`
+	OpId      string  `sqlx:"op_id"`
+	TraceId   *string `sqlx:"trace_id"`
 }
 
 type ToolCallView struct {

@@ -85,6 +85,9 @@ JOIN (
    SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
 ) modelCallProviderResponsePayload ON modelCallProviderResponsePayload.id = modelCall.provider_response_payload_id AND  1 = 1
 JOIN (
+   SELECT message_id, op_id, trace_id  FROM tool_call t
+) tool_call_links ON tool_call_links.trace_id = modelCall.trace_id
+JOIN (
    SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
 ) modelCallStreamPayload ON modelCallStreamPayload.id = modelCall.stream_payload_id AND  1 = 1
 JOIN (
