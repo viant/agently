@@ -112,24 +112,24 @@ func (s *TokenStoreDAO) Upsert(ctx context.Context, userID, provider string, tok
 	return err
 }
 
-// EnsureAccessToken refreshes if needed; updates DB on rotation.
-func (s *TokenStoreDAO) EnsureAccessToken(ctx context.Context, userID, provider, configURL string) (string, time.Time, error) {
+// EnsureToken refreshes if needed; updates DB on rotation.
+func (s *TokenStoreDAO) EnsureToken(ctx context.Context, userID, provider, configURL string) (*OAuthToken, error) {
 	tok, err := s.Get(ctx, userID, provider)
 	if err != nil || tok == nil {
-		return "", time.Time{}, err
+		return nil, err
 	}
 	if tok.AccessToken != "" && tok.ExpiresAt.After(time.Now().Add(60*time.Second)) {
-		return tok.AccessToken, tok.ExpiresAt, nil
+		return tok, nil
 	}
 	oa := authorizer.New()
 	oc := &authorizer.OAuthConfig{ConfigURL: configURL}
 	if err := oa.EnsureConfig(ctx, oc); err != nil {
-		return "", time.Time{}, err
+		return nil, err
 	}
 	src := oc.Config.TokenSource(ctx, &oauth2.Token{RefreshToken: tok.RefreshToken, Expiry: time.Now().Add(-time.Hour)})
 	nt, err := src.Token()
 	if err != nil {
-		return "", time.Time{}, err
+		return nil, err
 	}
 	tok.AccessToken = nt.AccessToken
 	tok.ExpiresAt = nt.Expiry
@@ -142,9 +142,9 @@ func (s *TokenStoreDAO) EnsureAccessToken(ctx context.Context, userID, provider,
 		}
 	}
 	if err := s.Upsert(ctx, userID, provider, tok); err != nil {
-		return "", time.Time{}, err
+		return nil, err
 	}
-	return tok.AccessToken, tok.ExpiresAt, nil
+	return tok, nil
 }
 
 // helpers

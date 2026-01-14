@@ -46,6 +46,8 @@ import (
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 	fservice "github.com/viant/forge/backend/service/file"
+	scyauth "github.com/viant/scy/auth"
+	"golang.org/x/oauth2"
 )
 
 //go:embed compact.md
@@ -121,7 +123,7 @@ func NewServiceFromEnv(ctx context.Context) (*Service, error) {
 		return nil, fmt.Errorf("failed to init datly: %w", err)
 	}
 	// Ensure OAuth token components are registered on this DAO so token store DAO can Operate
-	// using the same service (e.g., server-side EnsureAccessToken during post message).
+	// using the same service (e.g., server-side EnsureToken during post message).
 	if err := oauthread.DefineTokenComponent(ctx, dao); err != nil {
 		return nil, fmt.Errorf("failed to define oauth token read component: %w", err)
 	}
@@ -441,6 +443,20 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		AllowedChains:    append([]string(nil), req.AllowedChains...),
 		Attachments:      append([]UploadedAttachment(nil), req.Attachments...),
 	}
+	// Capture current auth tokens (when present) so queued execution can reuse them
+	// without requiring a refresh (refresh tokens may be absent in BFF flows).
+	qa := &queuedAuth{}
+	if tok := authctx.TokensFromContext(ctx); tok != nil {
+		qa.AccessToken = strings.TrimSpace(tok.AccessToken)
+		qa.IDToken = strings.TrimSpace(tok.IDToken)
+		qa.Expiry = tok.Expiry
+	} else {
+		qa.AccessToken = strings.TrimSpace(authctx.Bearer(ctx))
+		qa.IDToken = strings.TrimSpace(authctx.IDToken(ctx))
+	}
+	if qa.AccessToken != "" || qa.IDToken != "" {
+		queued.Auth = qa
+	}
 
 	// Apply user preferences for default agent/model when not provided and when available
 	if s.users != nil {
@@ -470,6 +486,7 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 }
 
 type queuedRequest struct {
+	Auth             *queuedAuth             `json:"auth,omitempty"`
 	Agent            string                  `json:"agent,omitempty"`
 	Model            string                  `json:"model,omitempty"`
 	Tools            []string                `json:"tools,omitempty"`
@@ -480,6 +497,12 @@ type queuedRequest struct {
 	DisableChains    bool                    `json:"disableChains,omitempty"`
 	AllowedChains    []string                `json:"allowedChains,omitempty"`
 	Attachments      []UploadedAttachment    `json:"attachments,omitempty"`
+}
+
+type queuedAuth struct {
+	AccessToken string    `json:"accessToken,omitempty"`
+	IDToken     string    `json:"idToken,omitempty"`
+	Expiry      time.Time `json:"expiry,omitempty"`
 }
 
 const queuedRequestTagPrefix = "agently:queued_request:"
@@ -694,6 +717,43 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 
 	// Detach from caller cancellation but preserve identity for per-user jars.
 	base := context.Background()
+	// Restore captured auth (if available) from queued request metadata.
+	// This avoids relying on refresh flows that may be unavailable in BFF mode.
+	if meta.Auth != nil {
+		at := strings.TrimSpace(meta.Auth.AccessToken)
+		idt := strings.TrimSpace(meta.Auth.IDToken)
+		if at != "" || idt != "" {
+			base = authctx.WithTokens(base, &scyauth.Token{Token: oauth2.Token{
+				AccessToken: at,
+				TokenType:   "Bearer",
+				Expiry:      meta.Auth.Expiry,
+			}, IDToken: idt})
+			if at != "" {
+				base = authctx.WithBearer(base, at)
+			}
+			if idt != "" {
+				base = authctx.WithIDToken(base, idt)
+			}
+		}
+	}
+	// Preserve auth tokens from the triggering context so queued execution can
+	// reuse them for MCP/tool calls (per-server token selection happens at call time).
+	if tok := authctx.TokensFromContext(parent); tok != nil {
+		base = authctx.WithTokens(base, tok)
+		if strings.TrimSpace(tok.AccessToken) != "" {
+			base = authctx.WithBearer(base, strings.TrimSpace(tok.AccessToken))
+		}
+		if strings.TrimSpace(tok.IDToken) != "" {
+			base = authctx.WithIDToken(base, strings.TrimSpace(tok.IDToken))
+		}
+	} else {
+		if v := strings.TrimSpace(authctx.Bearer(parent)); v != "" {
+			base = authctx.WithBearer(base, v)
+		}
+		if v := strings.TrimSpace(authctx.IDToken(parent)); v != "" {
+			base = authctx.WithIDToken(base, v)
+		}
+	}
 	effectiveUserID := strings.TrimSpace(meta.EffectiveUserID)
 	if effectiveUserID == "" && msg.CreatedByUserId != nil {
 		effectiveUserID = strings.TrimSpace(*msg.CreatedByUserId)

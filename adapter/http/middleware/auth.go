@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	iauth "github.com/viant/agently/internal/auth"
+	scyauth "github.com/viant/scy/auth"
 	vcfg "github.com/viant/scy/auth/jwt/verifier"
+	"golang.org/x/oauth2"
 )
 
 // Protect returns a middleware that, when enabled, requires authentication on
@@ -76,6 +78,8 @@ func Protect(cfg *iauth.Config, sessions *iauth.Manager) func(http.Handler) http
 					}
 					if token != "" {
 						ctx = iauth.WithBearer(ctx, token)
+						// Store token bundle; for SPA flows Bearer can be either access or ID token.
+						ctx = iauth.WithTokens(ctx, &scyauth.Token{Token: oauth2.Token{AccessToken: token, TokenType: "Bearer"}, IDToken: token})
 						if info, _ := iauth.DecodeUserInfo(token); info != nil {
 							ctx = iauth.WithUserInfo(ctx, info)
 						}
@@ -97,6 +101,9 @@ func Protect(cfg *iauth.Config, sessions *iauth.Manager) func(http.Handler) http
 						}
 						if sess.IDToken != "" {
 							ctx = iauth.WithIDToken(ctx, sess.IDToken)
+						}
+						if sess.AccessToken != "" || sess.IDToken != "" {
+							ctx = iauth.WithTokens(ctx, &scyauth.Token{Token: oauth2.Token{AccessToken: sess.AccessToken, TokenType: "Bearer"}, IDToken: sess.IDToken})
 						}
 						ctx = iauth.EnsureUser(ctx, cfg)
 						next.ServeHTTP(w, r.WithContext(ctx))

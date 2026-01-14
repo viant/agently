@@ -2,6 +2,8 @@ package tool
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -472,8 +474,18 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return "", fmt.Errorf("invalid tool name: %s", name)
 	}
 	var options []mcpclient.RequestOption
-	if tok := authctx.Bearer(ctx); tok != "" {
+	useID := false
+	if r.mgr != nil {
+		useID = r.mgr.UseIDToken(ctx, server)
+	}
+	if tok := authctx.MCPAuthToken(ctx, useID); tok != "" {
+		debugPrintMCPAuthToken(server, useID, tok, ctx)
 		options = append(options, mcpclient.WithAuthToken(tok))
+	} else {
+		// Debug-only: emit a line when no token is available so auth propagation issues are visible.
+		if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_MCP_AUTH")) != "" {
+			fmt.Fprintf(os.Stderr, "[mcp-auth] server=%s useID=%v src=none\n", strings.TrimSpace(server), useID)
+		}
 	}
 	// Acquire appropriate client: internal or per-conversation via manager.
 	var cli mcpclient.Interface
@@ -604,6 +616,26 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return out, nil
 	}
 	return "", nil
+}
+
+func debugPrintMCPAuthToken(server string, useID bool, token string, ctx context.Context) {
+	if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_MCP_AUTH")) == "" {
+		return
+	}
+	sum := sha256.Sum256([]byte(token))
+	fp := hex.EncodeToString(sum[:])[:12]
+	src := "legacy"
+	if tb := authctx.TokensFromContext(ctx); tb != nil {
+		switch {
+		case useID && strings.TrimSpace(tb.IDToken) != "":
+			src = "bundle:id"
+		case !useID && strings.TrimSpace(tb.AccessToken) != "":
+			src = "bundle:access"
+		default:
+			src = "bundle"
+		}
+	}
+	fmt.Fprintf(os.Stderr, "[mcp-auth] server=%s useID=%v src=%s tokLen=%d sha256=%s\n", strings.TrimSpace(server), useID, src, len(token), fp)
 }
 
 func (r *Registry) applySelector(out, selector string) (string, error) {
@@ -891,17 +923,31 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	// Prefer internal client if present
 	if c, ok := r.internal[server]; ok && c != nil {
 		px, _ := mcpproxy.NewProxy(ctx, server, c)
-		return px.ListAllTools(ctx)
+		var opts []mcpclient.RequestOption
+		useID := false
+		if r.mgr != nil {
+			useID = r.mgr.UseIDToken(ctx, server)
+		}
+		if tok := authctx.MCPAuthToken(ctx, useID); tok != "" {
+			opts = append(opts, mcpclient.WithAuthToken(tok))
+		}
+		return px.ListAllTools(ctx, opts...)
 	}
 	if r.mgr == nil {
 		return nil, errors.New("mcp manager not configured")
 	}
+	ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	cli, err := r.mgr.Get(ctx, "", server)
 	if err != nil {
 		return nil, err
 	}
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
-	return px.ListAllTools(ctx)
+	var opts []mcpclient.RequestOption
+	useID := r.mgr.UseIDToken(ctx, server)
+	if tok := authctx.MCPAuthToken(ctx, useID); tok != "" {
+		opts = append(opts, mcpclient.WithAuthToken(tok))
+	}
+	return px.ListAllTools(ctx, opts...)
 }
 
 // listServers returns MCP client names from the workspace repository.

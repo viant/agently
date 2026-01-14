@@ -351,6 +351,9 @@ func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) 
 }
 
 func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) (string, <-chan error) {
+	// Use the orchestrator.Run context for executing tools so auth (e.g. MCP/BFF tokens)
+	// propagates into tool execution. The stream callback context may not carry it.
+	runCtx := ctx
 	var mux sync.Mutex
 	stepErrCh := make(chan error, 1)
 	// Enable duplicate guard only in non-continuation mode so that recovery
@@ -363,7 +366,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 	// Execute steps in order; do not de-duplicate by tool/args.
 	// Duplicated tool steps will each execute independently.
 	var stopped atomic.Bool
-	id := stream.Register(func(ctx context.Context, event *llm.StreamEvent) error {
+	id := stream.Register(func(_ context.Context, event *llm.StreamEvent) error {
 		if stopped.Load() {
 			return nil
 		}
@@ -408,14 +411,14 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 						// matching tool call so the transcript remains consistent
 						// without re-executing the tool.
 						if prev.Name != "" && prev.Error == "" && s.convClient != nil {
-							_ = executil.SynthesizeToolStep(ctx, s.convClient, stepInfo, prev.Result)
+							_ = executil.SynthesizeToolStep(runCtx, s.convClient, stepInfo, prev.Result)
 						}
 						return
 					}
 				}
 				// Execute tool; even on error we let the LLM decide next steps.
 				// Errors are persisted on the tool call and exposed via tool result payload.
-				call, _, _ := executil.ExecuteToolStep(ctx, reg, stepInfo, s.convClient)
+				call, _, _ := executil.ExecuteToolStep(runCtx, reg, stepInfo, s.convClient)
 				if guard != nil {
 					guard.RegisterResult(step.Name, step.Args, call)
 				}

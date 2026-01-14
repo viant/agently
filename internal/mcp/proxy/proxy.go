@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	authctx "github.com/viant/agently/internal/auth"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -26,24 +25,18 @@ func NewProxy(_ context.Context, server string, cli mcpclient.Interface) (*Proxy
 // CallTool normalizes name and dispatches to the underlying client.
 func (p *Proxy) CallTool(ctx context.Context, name string, args map[string]interface{}, opts ...mcpclient.RequestOption) (*mcpschema.CallToolResult, error) {
 	call := normalizeToolName(p.server, strings.TrimSpace(name))
-	// Attach bearer when available (cookies are handled by the client's transport cookie jar)
-	if tok := strings.TrimSpace(authctx.Bearer(ctx)); tok != "" {
-		opts = append(opts, mcpclient.WithAuthToken(tok))
-	}
 	res, err := p.cli.CallTool(ctx, &mcpschema.CallToolRequestParams{Name: call, Arguments: args}, opts...)
 	return res, err
 }
 
 // ListAllTools returns all tools for the server by paging through cursors.
-func (p *Proxy) ListAllTools(ctx context.Context) ([]mcpschema.Tool, error) {
+func (p *Proxy) ListAllTools(ctx context.Context, opts ...mcpclient.RequestOption) ([]mcpschema.Tool, error) {
 	var (
 		tools  []mcpschema.Tool
 		cursor *string
 	)
 	for {
-		// Do not inject bearer here; rely on MCP client's auth transport
-		// (cookie jar or interactive flow) to authenticate discovery.
-		res, err := p.cli.ListTools(ctx, cursor, authOption(ctx)...)
+		res, err := p.cli.ListTools(ctx, cursor, opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -54,15 +47,6 @@ func (p *Proxy) ListAllTools(ctx context.Context) ([]mcpschema.Tool, error) {
 		cursor = res.NextCursor
 	}
 	return tools, nil
-}
-
-// authOption returns a RequestOption carrying Authorization Bearer when present in ctx.
-func authOption(ctx context.Context) []mcpclient.RequestOption {
-	tok := strings.TrimSpace(authctx.Bearer(ctx))
-	if tok == "" {
-		return nil
-	}
-	return []mcpclient.RequestOption{mcpclient.WithAuthToken(tok)}
 }
 
 func normalizeToolName(server, name string) string {
