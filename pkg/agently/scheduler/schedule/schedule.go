@@ -42,27 +42,27 @@ type ScheduleOutput struct {
 }
 
 type ScheduleView struct {
-	Id              string     `sqlx:"id"`
-	Name            string     `sqlx:"name"`
-	Description     *string    `sqlx:"description"`
 	AgentRef        string     `sqlx:"agent_ref"`
-	ModelOverride   *string    `sqlx:"model_override"`
-	Enabled         bool       `sqlx:"enabled"`
-	StartAt         *time.Time `sqlx:"start_at"`
-	EndAt           *time.Time `sqlx:"end_at"`
-	ScheduleType    string     `sqlx:"schedule_type"`
+	CreatedAt       time.Time  `sqlx:"created_at"`
 	CronExpr        *string    `sqlx:"cron_expr"`
+	Description     *string    `sqlx:"description"`
+	Enabled         bool       `sqlx:"enabled"`
+	EndAt           *time.Time `sqlx:"end_at"`
+	Id              string     `sqlx:"id"`
 	IntervalSeconds *int       `sqlx:"interval_seconds"`
-	Timezone        string     `sqlx:"timezone"`
-	TaskPromptUri   *string    `sqlx:"task_prompt_uri"`
-	TaskPrompt      *string    `sqlx:"task_prompt"`
-	NextRunAt       *time.Time `sqlx:"next_run_at"`
+	LastError       *string    `sqlx:"last_error"`
 	LastRunAt       *time.Time `sqlx:"last_run_at"`
 	LastStatus      *string    `sqlx:"last_status"`
-	LastError       *string    `sqlx:"last_error"`
 	LeaseOwner      *string    `sqlx:"lease_owner"`
 	LeaseUntil      *time.Time `sqlx:"lease_until"`
-	CreatedAt       time.Time  `sqlx:"created_at"`
+	ModelOverride   *string    `sqlx:"model_override"`
+	Name            string     `sqlx:"name"`
+	NextRunAt       *time.Time `sqlx:"next_run_at"`
+	ScheduleType    string     `sqlx:"schedule_type"`
+	StartAt         *time.Time `sqlx:"start_at"`
+	TaskPrompt      *string    `sqlx:"task_prompt"`
+	TaskPromptUri   *string    `sqlx:"task_prompt_uri"`
+	Timezone        string     `sqlx:"timezone"`
 	UpdatedAt       *time.Time `sqlx:"updated_at"`
 }
 
