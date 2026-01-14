@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"strings"
+
+	scyauth "github.com/viant/scy/auth"
 )
 
 // ctx keys use unexported distinct types to avoid collisions.
@@ -10,12 +12,58 @@ type (
 	bearerKey   struct{}
 	userInfoKey struct{}
 	idTokenKey  struct{}
+	tokensKey   struct{}
 )
 
 // UserInfo carries minimal identity extracted from a bearer token.
 type UserInfo struct {
 	Subject string
 	Email   string
+}
+
+// WithTokens stores a token bundle in context.
+func WithTokens(ctx context.Context, t *scyauth.Token) context.Context {
+	if ctx == nil || t == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, tokensKey{}, *t)
+}
+
+// TokensFromContext returns the token bundle from context, if present.
+func TokensFromContext(ctx context.Context) *scyauth.Token {
+	if ctx == nil {
+		return nil
+	}
+	if v, ok := ctx.Value(tokensKey{}).(scyauth.Token); ok {
+		return &v
+	}
+	return nil
+}
+
+// MCPAuthToken selects a single token string suitable for outbound MCP calls.
+// When useIDToken is true, it prefers IDToken and falls back to legacy IDToken/Bearer keys.
+// When false, it prefers AccessToken and falls back to the legacy bearer key.
+func MCPAuthToken(ctx context.Context, useIDToken bool) string {
+	if ctx == nil {
+		return ""
+	}
+	tb := TokensFromContext(ctx)
+	if useIDToken {
+		if tb != nil && strings.TrimSpace(tb.IDToken) != "" {
+			return strings.TrimSpace(tb.IDToken)
+		}
+		if v := strings.TrimSpace(IDToken(ctx)); v != "" {
+			return v
+		}
+		return strings.TrimSpace(Bearer(ctx))
+	}
+	if tb != nil && strings.TrimSpace(tb.AccessToken) != "" {
+		return strings.TrimSpace(tb.AccessToken)
+	}
+	if v := strings.TrimSpace(Bearer(ctx)); v != "" {
+		return v
+	}
+	return ""
 }
 
 // WithBearer stores a raw bearer token in context.

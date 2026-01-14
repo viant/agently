@@ -16,6 +16,7 @@ import (
 var Version = agently.Version
 
 func main() {
+
 	// Expose version to the CLI layer so `-v/--version` can print it.
 	cagently.SetVersion(Version)
 	cagently.RunWithCommands(os.Args[1:])

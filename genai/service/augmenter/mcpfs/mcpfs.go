@@ -50,6 +50,7 @@ func (s *Service) List(ctx context.Context, location string) ([]storage.Object, 
 	if err != nil {
 		return nil, fmt.Errorf("mcpfs: get client: %w", err)
 	}
+	ctx = s.mgr.WithAuthTokenContext(ctx, server)
 	if _, err := cli.Initialize(ctx); err != nil {
 		return nil, fmt.Errorf("mcpfs: init: %w", err)
 	}
@@ -98,6 +99,7 @@ func (s *Service) Download(ctx context.Context, object storage.Object) ([]byte, 
 	if err != nil {
 		return nil, fmt.Errorf("mcpfs: get client: %w", err)
 	}
+	ctx = s.mgr.WithAuthTokenContext(ctx, server)
 	if _, err := cli.Initialize(ctx); err != nil {
 		return nil, fmt.Errorf("mcpfs: init: %w", err)
 	}

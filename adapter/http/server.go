@@ -899,8 +899,11 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 					if strings.TrimSpace(prov) == "" {
 						prov = "oauth"
 					}
-					if access, _, err := store.EnsureAccessToken(ctx, uid, prov, s.authCfg.OAuth.Client.ConfigURL); err == nil && strings.TrimSpace(access) != "" {
-						ctx = auth.WithBearer(ctx, access)
+					if token, err := store.EnsureToken(ctx, uid, prov, s.authCfg.OAuth.Client.ConfigURL); err == nil && token != nil {
+						ctx = auth.WithBearer(ctx, token.AccessToken)
+						if token.IDToken != "" {
+							ctx = auth.WithIDToken(ctx, token.IDToken)
+						}
 					}
 				}
 			}
