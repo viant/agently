@@ -12,13 +12,16 @@
 #set($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
 #set($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
 
+#set($_ = $AgentId<string>(query/agentId).WithPredicate(0, 'expr', 't.agent_id = ?'))
+#set($_ = $ParentId<string>(query/parentId).WithPredicate(0, 'expr', 't.conversation_parent_id = ?'))
+#set($_ = $ParentTurnId<string>(query/parentTurnId).WithPredicate(0, 'expr', 't.conversation_parent_turn_id = ?'))
+
 #set($_ = $ScheduleId<string>(query/scheduleId).WithPredicate(0, 'expr', 't.schedule_id = ?'))
 #set($_ = $ScheduleRunId<string>(query/scheduleRunId).WithPredicate(0, 'expr', 't.schedule_run_id = ?'))
 #set($_ = $HasScheduleId<bool>(query/hasScheduleId).WithPredicate(0, 'expr', 't.schedule_id IS NOT NULL'))
 
 #set($_ = $DefaultPredicate<bool>(const/value).Value('0').WithPredicate(0,'handler','*conversation.Filter'))
 
-#set($_ = $MessageAttachmentFilter<bool>(const/value).Value('true').WithPredicate(4, 'expr', 'm.attachment_payload_id IS NULL'))
 
 #set($_ = $FeedSpec<[]*tool.FeedSpec>(transient/extension))
 
@@ -81,6 +84,9 @@ JOIN (
 JOIN (
    SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
 ) modelCallProviderResponsePayload ON modelCallProviderResponsePayload.id = modelCall.provider_response_payload_id AND  1 = 1
+JOIN (
+   SELECT message_id, op_id, trace_id  FROM tool_call t
+) tool_call_links ON tool_call_links.trace_id = modelCall.trace_id
 JOIN (
    SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
 ) modelCallStreamPayload ON modelCallStreamPayload.id = modelCall.stream_payload_id AND  1 = 1

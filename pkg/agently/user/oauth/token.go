@@ -42,11 +42,11 @@ type TokenOutput struct {
 }
 
 type TokenView struct {
-	UserId    string     `sqlx:"user_id"`
-	Provider  string     `sqlx:"provider"`
-	EncToken  string     `sqlx:"enc_token"`
 	CreatedAt time.Time  `sqlx:"created_at"`
+	EncToken  string     `sqlx:"enc_token"`
+	Provider  string     `sqlx:"provider"`
 	UpdatedAt *time.Time `sqlx:"updated_at"`
+	UserId    string     `sqlx:"user_id"`
 }
 
 var TokenPathURI = "/v1/api/agently/user/oauth"
@@ -68,6 +68,6 @@ func DefineTokenComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *TokenInput) EmbedFS() *embed.FS {
-		return &TokenFS
-	}
+func (i *TokenInput) EmbedFS() *embed.FS {
+	return &TokenFS
+}
