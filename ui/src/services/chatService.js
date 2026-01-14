@@ -386,16 +386,66 @@ async function dsTick({context}) {
         // Do not block polling while a turn is running; background updates rely on polling.
         // Any visual spinner suppression is handled separately via setLoading wrapper.
         const coll = Array.isArray(messagesCtx.signals?.collection?.value) ? messagesCtx.signals.collection.value : [];
+        const parseTurnCreatedAtMs = (row) => {
+            try {
+                const raw = row?.turnCreatedAt;
+                if (!raw) return NaN;
+                return Date.parse(raw);
+            } catch (_) {
+                return NaN;
+            }
+        };
+        let earliestQueuedAt = Infinity;
+        for (let i = 0; i < coll.length; i++) {
+            const row = coll[i];
+            if (!row?.turnId) continue;
+            const st = String(row?.turnStatus || '').toLowerCase();
+            if (st !== 'queued') continue;
+            const at = parseTurnCreatedAtMs(row);
+            if (!Number.isFinite(at)) continue;
+            if (at < earliestQueuedAt) earliestQueuedAt = at;
+        }
+        const hasQueuedTurns = Number.isFinite(earliestQueuedAt) && earliestQueuedAt !== Infinity;
         let since = '';
+        let sinceAt = NaN;
         for (let i = coll.length - 1; i >= 0; i--) {
-            if (coll[i]?.turnId) {
-                since = coll[i].turnId;
-                break;
+            const row = coll[i];
+            if (!row?.turnId) continue;
+            const turnStatus = String(row?.turnStatus || '').toLowerCase();
+            if (turnStatus === 'queued') continue;
+            since = row.turnId;
+            sinceAt = parseTurnCreatedAtMs(row);
+            break;
+        }
+        // When there are queued turns, ensure the cursor is not *newer* than the oldest queued turn,
+        // otherwise the backend "created_at >= anchor.created_at" slice can omit queued items.
+        if (since && hasQueuedTurns) {
+            const ok = Number.isFinite(sinceAt) && sinceAt <= earliestQueuedAt;
+            if (!ok) {
+                // Pick the newest non-queued turn at/before the earliest queued turn.
+                let bestId = '';
+                let bestAt = -Infinity;
+                for (let i = 0; i < coll.length; i++) {
+                    const row = coll[i];
+                    if (!row?.turnId) continue;
+                    const st = String(row?.turnStatus || '').toLowerCase();
+                    if (st === 'queued') continue;
+                    const at = parseTurnCreatedAtMs(row);
+                    if (!Number.isFinite(at)) continue;
+                    if (at <= earliestQueuedAt && at > bestAt) {
+                        bestAt = at;
+                        bestId = row.turnId;
+                    }
+                }
+                // If we can't find a safe anchor, fall back to full history (since="").
+                since = bestId || '';
             }
         }
         // Never fall back to message id: backend "since" is turn-scoped.
         if (!since) {
-            since = String(context.resources?.messagesLastTurnId || '').trim();
+            if (!hasQueuedTurns) {
+                since = String(context.resources?.messagesLastNonQueuedTurnId || '').trim();
+            }
         }
         // Throttle requests but do not skip when 'since' is unchanged – we still want
         // to pick up updates within the same turn (model/tool call progress).
@@ -634,6 +684,16 @@ async function dsTick({context}) {
                 newestTurnId = (t?.id || t?.Id || newestTurnId);
                 if (newestTurnId) break;
             }
+            let newestNonQueuedTurnId = '';
+            for (let i = transcript.length - 1; i >= 0; i--) {
+                const t = transcript[i];
+                const id = (t?.id || t?.Id || '');
+                if (!id) continue;
+                const st = String(t?.status || t?.Status || '').toLowerCase();
+                if (st === 'queued') continue;
+                newestNonQueuedTurnId = id;
+                break;
+            }
             if (newestTurnId && newestTurnId === since) {
                 context.resources.messagesNoopPolls = Math.min((context.resources.messagesNoopPolls || 0) + 1, 10);
             } else {
@@ -641,6 +701,9 @@ async function dsTick({context}) {
             }
             if (newestTurnId) {
                 context.resources.messagesLastTurnId = newestTurnId;
+            }
+            if (newestNonQueuedTurnId) {
+                context.resources.messagesLastNonQueuedTurnId = newestNonQueuedTurnId;
             }
         } catch (e) {
             log.warn('dsTick poll error', e);
@@ -1309,6 +1372,11 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 toolName: m.toolName || m.ToolName,
                 turnId: turnIdRef,
                 parentId: turnIdRef,
+                turnStatus,
+                turnCreatedAt,
+                turnUpdatedAt,
+                turnElapsedSec,
+                isLastTurn,
                 executions: [],
                 usage: null,
                 // Preserve normalized backend status so accepted/failed states do not remount dialogs
@@ -2006,9 +2074,47 @@ export function onFetchMessages(props) {
 // onFetch handler for queued turns DS: filter transcript to queued turns only.
 export function onFetchQueuedTurns(props) {
     try {
-        const {collection} = props || {};
+        const {collection, context} = props || {};
         const transcript = Array.isArray(collection) ? collection : [];
-        return buildQueuedTurnsFromTranscript(transcript).filter(t => !!String(t?.id || '').trim());
+        let queued = buildQueuedTurnsFromTranscript(transcript).filter(t => !!String(t?.id || '').trim());
+
+        // Fallback: if the queueTurns DS fetch returned no transcript (or onFetch return value is ignored),
+        // use the already-derived queue snapshot stored on the conversations form by dsTick.
+        // This keeps the Queue dialog consistent with the "Queued: N" badge/popover.
+        if (!queued.length && transcript.length === 0) {
+            try {
+                const convCtx = (context && typeof context.Context === 'function') ? context.Context('conversations') : null;
+                const form = convCtx?.handlers?.dataSource?.peekFormData?.() || {};
+                const fromForm = Array.isArray(form.queuedTurns) ? form.queuedTurns : [];
+                queued = fromForm.filter(t => !!String(t?.id || '').trim());
+            } catch (_) {}
+        }
+
+        // Important: Forge DataSource onFetch handlers are not guaranteed to replace the
+        // collection with the returned value. Explicitly publish queued rows so the
+        // "Queued Turns" dialog table renders reliably.
+        try {
+            const publish = (ctx) => {
+                if (!ctx) return;
+                const ds = ctx?.handlers?.dataSource;
+                if (ds?.setCollection) {
+                    ds.setCollection(queued);
+                    return;
+                }
+                if (ctx?.signals?.collection) {
+                    ctx.signals.collection.value = queued;
+                }
+            };
+            // Prefer the direct handler context (often the DataSource instance itself).
+            publish(context);
+            // Also publish via named lookup when available (some Forge adapters provide a root context).
+            if (context && typeof context.Context === 'function') {
+                const qCtx = context.Context('queueTurns');
+                if (qCtx && qCtx !== context) publish(qCtx);
+            }
+        } catch (_) {}
+
+        return queued;
     } catch (_) {
         return [];
     }
