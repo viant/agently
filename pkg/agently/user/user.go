@@ -42,21 +42,21 @@ type UserOutput struct {
 }
 
 type UserView struct {
-	Id                 string     `sqlx:"id"`
-	Username           string     `sqlx:"username"`
+	CreatedAt          time.Time  `sqlx:"created_at"`
+	DefaultAgentRef    *string    `sqlx:"default_agent_ref"`
+	DefaultEmbedderRef *string    `sqlx:"default_embedder_ref"`
+	DefaultModelRef    *string    `sqlx:"default_model_ref"`
+	Disabled           int        `sqlx:"disabled"`
 	DisplayName        *string    `sqlx:"display_name"`
 	Email              *string    `sqlx:"email"`
-	Provider           string     `sqlx:"provider"`
-	Subject            *string    `sqlx:"subject"`
 	HashIp             *string    `sqlx:"hash_ip"`
-	Timezone           string     `sqlx:"timezone"`
-	DefaultAgentRef    *string    `sqlx:"default_agent_ref"`
-	DefaultModelRef    *string    `sqlx:"default_model_ref"`
-	DefaultEmbedderRef *string    `sqlx:"default_embedder_ref"`
+	Id                 string     `sqlx:"id"`
+	Provider           string     `sqlx:"provider"`
 	Settings           *string    `sqlx:"settings"`
-	Disabled           int        `sqlx:"disabled"`
-	CreatedAt          time.Time  `sqlx:"created_at"`
+	Subject            *string    `sqlx:"subject"`
+	Timezone           string     `sqlx:"timezone"`
 	UpdatedAt          *time.Time `sqlx:"updated_at"`
+	Username           string     `sqlx:"username"`
 }
 
 var UserPathURI = "/v1/api/agently/user"
