@@ -26,7 +26,7 @@ pipeline:
       - cd ${repoPath}/datly
       - go mod tidy
       - /usr/local/go/bin/go build -o datly
-     # - mv datly $repoPath/bin/datly
+      - mv datly $repoPath/bin/datly
       # Build agently last so embedded UI reflects latest deployment/ui.
       - cd ${repoPath}/agently
       - /usr/local/go/bin/go build -o agently

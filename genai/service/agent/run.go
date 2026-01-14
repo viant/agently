@@ -569,7 +569,7 @@ func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
 	rec.SetId(turn.TurnID)
 	rec.SetConversationID(turn.ConversationID)
 	rec.SetStatus("running")
-	rec.SetCreatedAt(time.Now())
+	rec.SetCreatedAt(time.Now()) // it overrides queued turns createdAt, don't delete this line
 	return s.conversation.PatchTurn(ctx, rec)
 }
 

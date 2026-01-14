@@ -29,7 +29,7 @@ var ConversationFS embed.FS
 
 type ConversationInput struct {
 	Id                string                `parameter:",kind=path,in=id" predicate:"equal,group=0,t,id"`
-	Since             string                `parameter:",kind=query,in=since" predicate:"expr,group=1,created_at >= (SELECT created_at FROM turn WHERE id = ?)"`
+	Since             string                `parameter:",kind=query,in=since" predicate:"expr,group=1,EXISTS (SELECT 1 FROM turn a WHERE a.id = ? AND (created_at >= a.created_at OR (queue_seq IS NOT NULL AND a.queue_seq IS NOT NULL AND queue_seq >= a.queue_seq)))"`
 	IncludeTranscript bool                  `parameter:",kind=query,in=includeTranscript" predicate:"expr,group=1,?" value:"true"`
 	IncludeModelCal   bool                  `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"false"`
 	IncludeToolCall   bool                  `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"false"`

@@ -7,7 +7,7 @@
 #set($_ = $Metrics<?>(output/metrics))
 
 #set($_ = $Id<string>(path/id).WithPredicate(0, 'equal','t', 'id'))
-#set($_ = $Since<string>(query/since).WithPredicate(1,'expr','created_at >= (SELECT created_at FROM turn WHERE id = ?)'))
+#set($_ = $Since<string>(query/since).WithPredicate(1,'expr','EXISTS (SELECT 1 FROM turn a WHERE a.id = ? AND (created_at >= a.created_at OR (queue_seq IS NOT NULL AND a.queue_seq IS NOT NULL AND queue_seq >= a.queue_seq)))'))
 #set($_ = $IncludeTranscript<bool>(query/includeTranscript).Value('true').WithPredicate(1, 'expr', '?'))
 #set($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
 #set($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
