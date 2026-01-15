@@ -843,9 +843,55 @@ function buildQueuedTurnsFromTranscript(transcript) {
     return queued;
 }
 
+const FORGE_TERMINAL_STEP_STATUSES = new Set([
+    'completed',
+    'done',
+    'succeeded',
+    'success',
+    'failed',
+    'error',
+    'canceled',
+    'cancelled',
+    'skipped',
+    'accepted',
+    'rejected',
+    'declined',
+]);
+
+function normalizeStepStatusForForge(value) {
+    const statusText = String(value || '').toLowerCase().trim();
+    if (!statusText) return 'pending';
+    if (FORGE_TERMINAL_STEP_STATUSES.has(statusText)) return statusText;
+    if (statusText === 'queued' || statusText === 'open' || statusText === 'pending') return 'pending';
+    if (statusText === 'in_progress' || statusText === 'running' || statusText === 'processing') return statusText;
+    return 'running';
+}
+
+function applyCanceledTurnStatusToSteps(steps, turnStatus) {
+    const ts = String(turnStatus || '').toLowerCase().trim();
+    if (ts !== 'canceled' && ts !== 'cancelled') return;
+    const list = Array.isArray(steps) ? steps : [];
+    for (const step of list) {
+        if (!step || typeof step !== 'object') continue;
+        const reason = String(step.reason || step.Reason || '').toLowerCase().trim();
+        if (!reason || reason === 'link') continue;
+        const stText = String(step.statusText || step.StatusText || '').toLowerCase().trim();
+        if (FORGE_TERMINAL_STEP_STATUSES.has(stText)) {
+            step.status = stText;
+            continue;
+        }
+        step.status = 'canceled';
+        if (step.statusText !== undefined) step.statusText = 'canceled';
+        if (step.StatusText !== undefined) step.StatusText = 'canceled';
+        if (typeof step.successBool === 'boolean') step.successBool = false;
+        if (typeof step.success === 'boolean') step.success = false;
+    }
+}
+
 function buildThinkingStepFromModelCall(mc) {
     if (!mc) return null;
-    const status = String((mc.status || mc.Status || '')).toLowerCase();
+    const statusText = String((mc.status || mc.Status || '')).toLowerCase();
+    const status = normalizeStepStatusForForge(statusText);
     return {
         id: mc.messageId || mc.MessageId,
         name: mc.model || mc.Model,
@@ -854,10 +900,10 @@ function buildThinkingStepFromModelCall(mc) {
         finishReason: mc.finishReason || mc.FinishReason,
         errorCode: mc.errorCode || mc.ErrorCode,
         reason: 'thinking',
-        success: status === 'completed',
+        success: statusText === 'completed',
         // Provide a canonical status field so Forge can infer active executions.
         status,
-        statusText: status,
+        statusText,
         error: mc.errorMessage || mc.ErrorMessage || '',
         startedAt: mc.startedAt || mc.StartedAt,
         endedAt: mc.completedAt || mc.CompletedAt,
@@ -906,16 +952,17 @@ function hasToolCallLinks(modelCall) {
 
 function buildToolStepFromToolCall(tc) {
     if (!tc) return null;
-    const status = String((tc.status || tc.Status || '')).toLowerCase();
+    const statusText = String((tc.status || tc.Status || '')).toLowerCase();
+    const status = normalizeStepStatusForForge(statusText);
     return {
         id: tc.opId || tc.OpId,
         name: tc.toolName || tc.ToolName,
         toolName: tc.toolName || tc.ToolName,
         reason: 'tool_call',
-        success: status === 'completed',
+        success: statusText === 'completed',
         // Provide a canonical status field so Forge can infer active executions.
         status,
-        statusText: status,
+        statusText,
         error: tc.errorMessage || tc.ErrorMessage || '',
         errorCode: tc.errorCode || tc.ErrorCode,
         attempt: typeof (tc.attempt ?? tc.Attempt) === 'number' ? (tc.attempt ?? tc.Attempt) : undefined,
@@ -1182,6 +1229,8 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 steps.push({...sLink, elapsed: computeElapsed(sLink)});
             }
         }
+
+        applyCanceledTurnStatusToSteps(steps, turnStatus);
 
         // 1b) OOB elicitation acceptance reconciliation
         // If a tool call reports accepted elicitation (with payload id), update the
