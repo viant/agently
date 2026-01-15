@@ -122,7 +122,16 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 			s.llm.SetAttachmentUsage(convID, aux.Bytes)
 		}
 	}
-	if len(input.ToolsAllowed) == 0 && input.ToolsAllowed == nil {
+	autoSelectTools := false
+	if input.AutoSelectTools != nil {
+		autoSelectTools = *input.AutoSelectTools
+	} else if s.defaults != nil {
+		autoSelectTools = s.defaults.ToolAutoSelection.Enabled
+	}
+
+	// Only hydrate from stored tool allow-list when tool auto-selection is not enabled.
+	// When auto-selection is enabled we want tool routing to decide bundles/tools per turn.
+	if !autoSelectTools && len(input.ToolsAllowed) == 0 && input.ToolsAllowed == nil {
 		if len(meta.Tools) > 0 {
 			input.ToolsAllowed = append([]string(nil), meta.Tools...)
 		}
@@ -155,7 +164,9 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		needsPatch = true
 	}
 	// Intentionally do not patch agent name; conversation stores agent_id separately.
-	if len(input.ToolsAllowed) > 0 { // update tools metadata only when provided
+	// Persist explicit tool allow-list only when tool auto-selection is not enabled.
+	// Otherwise we would pin a per-turn decision into conversation metadata.
+	if !autoSelectTools && len(input.ToolsAllowed) > 0 { // update tools metadata only when provided
 		meta.Tools = append([]string(nil), input.ToolsAllowed...)
 		if b, err := json.Marshal(meta); err == nil {
 			patch.SetMetadata(string(b))

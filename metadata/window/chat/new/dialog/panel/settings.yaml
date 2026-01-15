@@ -102,6 +102,15 @@ items:
         marginTop: '6px'
         marginBottom: '0'
 
+  - id: autoSelectTools
+    label: Auto-select Tools
+    type: toggle
+    columnSpan: 1
+    properties:
+      style:
+        marginTop: '6px'
+        marginBottom: '0'
+
   # Row 2b — Finish ring
   - id: ringOnFinish
     label: Finish Ring

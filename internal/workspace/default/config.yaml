@@ -2,6 +2,8 @@ default:
   model: openai_gpt-5.2
   embedder: openai_text
   agent: chatter
+  toolAutoSelection:
+    enabled: true
   toolCallResult:
     # Preview limit bytes for inline LLM binding (full body always stored)
     previewLimit: 16384

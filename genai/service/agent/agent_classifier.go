@@ -31,7 +31,7 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 		modelName = strings.TrimSpace(*conv.DefaultModel)
 	}
 	if modelName == "" && s.defaults != nil {
-		modelName = strings.TrimSpace(s.defaults.AgentRouter.Model)
+		modelName = strings.TrimSpace(s.defaults.AgentAutoSelection.Model)
 		if modelName == "" {
 			modelName = strings.TrimSpace(s.defaults.Model)
 		}
@@ -202,7 +202,7 @@ func agentRouterOutputKey(defaults *config.Defaults) string {
 	if defaults == nil {
 		return "agentId"
 	}
-	if v := strings.TrimSpace(defaults.AgentRouter.OutputKey); v != "" {
+	if v := strings.TrimSpace(defaults.AgentAutoSelection.OutputKey); v != "" {
 		return v
 	}
 	return "agentId"
@@ -210,7 +210,7 @@ func agentRouterOutputKey(defaults *config.Defaults) string {
 
 func agentRouterSystemPrompt(defaults *config.Defaults, outputKey string) string {
 	if defaults != nil {
-		if v := strings.TrimSpace(defaults.AgentRouter.Prompt); v != "" {
+		if v := strings.TrimSpace(defaults.AgentAutoSelection.Prompt); v != "" {
 			return v
 		}
 	}

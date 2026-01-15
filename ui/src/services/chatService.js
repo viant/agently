@@ -330,6 +330,7 @@ export async function onInit({context}) {
                 const defaults = data.defaults || {};
                 const defAgent = String(defaults.agent || '');
                 const defModel = String(defaults.model || '');
+                const defAutoSelectTools = !!(defaults.autoSelectTools);
                 const convCtx = context.Context('conversations');
                 const convDS = convCtx?.handlers?.dataSource;
                 if (!convDS) return true;
@@ -342,6 +343,12 @@ export async function onInit({context}) {
                 }
                 if (!next.model && defModel) {
                     next.model = defModel;
+                    changed = true;
+                }
+                // Apply tool auto-selection default once (unless user already explicitly enabled it).
+                // Note: preferences are not persisted across reloads yet, so defaults should win on init.
+                if (defAutoSelectTools && next.autoSelectTools !== true) {
+                    next.autoSelectTools = true;
                     changed = true;
                 }
                 if (changed) {
@@ -2380,6 +2387,7 @@ export function saveSettings(args) {
         showToolFeed,
         toolCallExposure,
         autoSummarize,
+        autoSelectTools,
         chainsEnabled,
         allowedChains
     } = source
@@ -2389,6 +2397,11 @@ export function saveSettings(args) {
     // Avoid updating conversations DS here (would invoke hooks). Preferences are persisted below.
     setExecutionDetailsEnabled(!!showExecutionDetails);
     setToolFeedEnabled(!!showToolFeed);
+    try {
+        if (context?.resources) {
+            context.resources.autoSelectToolsTouched = true;
+        }
+    } catch (_) {}
     const signals = context.Signals('conversations');
     const patch = signals.form.peek()
     signals.form.value = {...patch, ...source}
@@ -2481,7 +2494,7 @@ export async function submitMessage(props) {
 
     const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
 
-    const {agent, model, tool, toolCallExposure, reasoningEffort, autoSummarize, disableChains, allowedChains=[]} = metaForm
+    const {agent, model, tool, toolCallExposure, reasoningEffort, autoSummarize, autoSelectTools, disableChains, allowedChains=[]} = metaForm
 
     const messagesContext = context.Context('messages');
     const messagesAPI = messagesContext.connector;
@@ -2514,8 +2527,11 @@ export async function submitMessage(props) {
         }
 
         const body = {
-            content: message.content, tools: tool,
-            agent, model, toolCallExposure, reasoningEffort, autoSummarize, disableChains, allowedChains,
+            content: message.content,
+            agent, model, toolCallExposure, reasoningEffort, autoSummarize, autoSelectTools, disableChains, allowedChains,
+        }
+        if (!autoSelectTools) {
+            body.tools = tool;
         }
 
         // If voice command reduced content to empty and there are no attachments,
@@ -3523,7 +3539,15 @@ function onFetchMeta(args) {
     const convDS = convCtx?.handlers?.dataSource;
     const convForm = convDS?.peekFormData?.() || {};
 
-    const updated = collection.map(data => {
+    // Forge datasources may call onFetch with either:
+    // - `collection` populated (array of payload items), or
+    // - `data` populated (single payload object), depending on datasource type.
+    // Support both so model/agent/tool option labels are always applied.
+    const payloads = (Array.isArray(collection) && collection.length)
+        ? collection
+        : (args?.data ? [args.data] : []);
+
+    const updated = payloads.map(data => {
         const agentInfo = data.agentInfo || {};
         const agentsRaw = Array.isArray(data?.agents)
             ? data.agents
@@ -3532,6 +3556,8 @@ function onFetchMeta(args) {
         const modelsRaw = Array.isArray(data?.models)
             ? data.models
             : (data?.defaults?.model ? [data.defaults.model] : []);
+        const modelOptionsRaw = Array.isArray(data?.modelOptions) ? data.modelOptions : null;
+        const modelInfo = data?.modelInfo || {};
 
         const toolsRaw = Array.isArray(data?.tools) ? data.tools : [];
         const toolInfo = data?.toolInfo || {};
@@ -3553,6 +3579,28 @@ function onFetchMeta(args) {
             ? String(agentInfo[curAgent].name)
             : (curAgent === 'auto' ? 'Auto' : curAgent);
 
+        const modelLabel = (raw) => {
+            const v = String(raw || '').trim();
+            if (!v) return '';
+
+            const providerPrefixes = new Set(['openai', 'vertexai', 'xai', 'anthropic', 'bedrock', 'azureopenai', 'google', 'mistral']);
+
+            let core = v;
+            const underscoreParts = v.split('_').filter(Boolean);
+            if (underscoreParts.length >= 2 && providerPrefixes.has(underscoreParts[0].toLowerCase())) {
+                core = underscoreParts.slice(1).join('_');
+            }
+
+            core = core.replace(/(\d)_(\d)/g, '$1.$2');
+            core = core.replaceAll('_', '-');
+
+            if (/^gpt[-.\\d]/i.test(core)) return core.replace(/^gpt/i, 'GPT');
+            if (/^gemini/i.test(core)) return core.replace(/^gemini/i, 'Gemini');
+            if (/^claude/i.test(core)) return core.replace(/^claude/i, 'Claude');
+            if (/^grok/i.test(core)) return core.replace(/^grok/i, 'Grok');
+            return core;
+        };
+
         // Keep chat header in sync: header binds to conversations.agentName.
         try {
             if (convDS?.setFormField) {
@@ -3566,6 +3614,39 @@ function onFetchMeta(args) {
         const settings = {...data.agentInfo[curAgent], tool: ''}
         settings.tool = settings.tools
         delete (settings['tools'])
+        // Default: tool auto-selection (bundle routing). Prefer user selection when present.
+        const normalizeBool = (v) => {
+            if (v === true || v === false) return v;
+            if (v == null) return undefined;
+            if (typeof v === 'string') {
+                const s = v.trim().toLowerCase();
+                if (!s) return undefined;
+                if (s === 'true') return true;
+                if (s === 'false') return false;
+                return undefined;
+            }
+            if (typeof v === 'number') {
+                if (v === 1) return true;
+                if (v === 0) return false;
+                return undefined;
+            }
+            return undefined;
+        };
+        // Auto tool selection (bundle routing): prefer any explicit form value
+        // (composer or settings dialog) over defaults. Do not rely on `context.resources`
+        // flags because different Forge data-source contexts do not share `resources`.
+        const autoSelectTools = (() => {
+            const curV = normalizeBool(currentForm.autoSelectTools);
+            if (curV !== undefined) return curV;
+            const convV = normalizeBool(convForm.autoSelectTools);
+            if (convV !== undefined) return convV;
+            return !!(data?.defaults?.autoSelectTools);
+        })();
+        settings.autoSelectTools = autoSelectTools;
+        // Mirror into conversation form so ensureConversation can omit explicit tools when enabled.
+        try {
+            convDS?.setFormField?.({ item: { id: 'autoSelectTools' }, value: !!autoSelectTools });
+        } catch (_) {}
         // If conversation stores tool defaults, prefer them over agent-level defaults.
         if (Array.isArray(convForm?.tools) && convForm.tools.length > 0) {
             settings.tool = convForm.tools;
@@ -3598,11 +3679,17 @@ function onFetchMeta(args) {
             })(),
             agent: curAgent,
 
-            modelOptions: modelsRaw.map(v => ({
-                id: String(v),
-                value: String(v),
-                label: String(v)
-            })),
+            modelOptions: (Array.isArray(modelOptionsRaw) && modelOptionsRaw.length)
+                ? modelOptionsRaw.map((o) => ({
+                    id: String(o?.id ?? o?.value ?? ''),
+                    value: String(o?.value ?? o?.id ?? ''),
+                    label: String(o?.label ?? o?.name ?? o?.title ?? o?.value ?? o?.id ?? ''),
+                })).filter((o) => o.value)
+                : modelsRaw.map(v => ({
+                    id: String(v),
+                    value: String(v),
+                    label: (modelInfo?.[String(v)]?.name) ? String(modelInfo[String(v)].name) : (modelLabel(v) || String(v))
+                })),
             model: String(convForm.model || data.defaults.model || ''),
 
             // Provide a grouping key that replaces '/' with '-' for hierarchical display,
@@ -3626,6 +3713,16 @@ function onFetchMeta(args) {
 
         };
     });
+
+    // Also mirror the first payload into the meta form; some Forge contexts read
+    // form values rather than collection entries.
+    try {
+        const ds = metaCtx?.handlers?.dataSource;
+        if (ds?.setFormData && updated[0]) {
+            const prev = ds?.peekFormData?.() || {};
+            ds.setFormData({ values: { ...prev, ...updated[0] } });
+        }
+    } catch (_) {}
     return updated;
 }
 

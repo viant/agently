@@ -26,6 +26,8 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 			}
 		case "id":
 			config.ID = strings.TrimSpace(valueNode.Value)
+		case "name":
+			config.Name = strings.TrimSpace(valueNode.Value)
 		case "description":
 			config.Description = strings.TrimSpace(valueNode.Value)
 		}
@@ -47,6 +49,10 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 		case "id":
 			if valueNode.Kind == yaml.ScalarNode {
 				config.ID = valueNode.Value
+			}
+		case "name":
+			if valueNode.Kind == yaml.ScalarNode {
+				config.Name = strings.TrimSpace(valueNode.Value)
 			}
 		case "description":
 			if valueNode.Kind == yaml.ScalarNode {

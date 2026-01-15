@@ -39,3 +39,5 @@ Common locators:
   - Attach: `{"testID":"chat-composer-attach"}`
   - Settings: `{"testID":"chat-composer-settings"}`
   - Mic: `{"testID":"chat-composer-mic"}`
+  - Toolsets menu: `{"testID":"chat-composer-tools"}`
+  - Auto tools (menu item inside Toolsets): `{"testID":"chat-composer-auto-tools"}`

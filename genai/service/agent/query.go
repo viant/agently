@@ -41,8 +41,11 @@ type QueryInput struct {
 	ToolsAllowed  []string `json:"tools,omitempty"` // allow-list for tools (empty = default)
 	// ToolBundles selects global tool bundles by id for this turn. When provided,
 	// bundles are expanded into a concrete tool allow-list sent to the model.
-	ToolBundles []string               `json:"toolBundles,omitempty"`
-	Context     map[string]interface{} `json:"context,omitempty"`
+	ToolBundles []string `json:"toolBundles,omitempty"`
+	// AutoSelectTools enables tool-bundle auto selection for this turn when the caller did
+	// not explicitly provide tools or bundles.
+	AutoSelectTools *bool                  `json:"autoSelectTools,omitempty"`
+	Context         map[string]interface{} `json:"context,omitempty"`
 	// ModelPreferences optionally overrides or hints model selection
 	// preferences for this turn. When nil, the agent's configured
 	// ModelSelection.Preferences are used.

@@ -67,12 +67,30 @@ type ToolInfo struct {
 	Bundles     []string `json:"bundles,omitempty"`
 }
 
+type ModelInfo struct {
+	// Name is a human-friendly display name for the model.
+	// Always use the model ID for selection/routing; name is UI-only.
+	Name string `json:"name,omitempty"`
+	// Description is optional additional information for UI/tooltips.
+	Description string `json:"description,omitempty"`
+}
+
+// Option is a generic select option shape used by Forge/Blueprint controls.
+// `Value` is the internal ID used by the backend; `Label` is UI-only.
+type Option struct {
+	ID    string `json:"id,omitempty"`
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
 // AgentlyResponse is the aggregated workspace metadata payload.
 type AgentlyResponse struct {
 	Defaults struct {
 		Agent    string `json:"agent"`
 		Model    string `json:"model"`
 		Embedder string `json:"embedder,omitempty"`
+		// AutoSelectTools reflects workspace defaults for automatic tool bundle selection.
+		AutoSelectTools bool `json:"autoSelectTools,omitempty"`
 	} `json:"defaults"`
 	// Agents is a flat list of agent IDs (selection values).
 	// Display names are provided via AgentInfo[id].name.
@@ -84,6 +102,11 @@ type AgentlyResponse struct {
 	ToolBundles []ToolBundleInfo     `json:"toolBundles,omitempty"`
 	ToolInfo    map[string]*ToolInfo `json:"toolInfo,omitempty"`
 	Models      []string             `json:"models"`
+	// ModelOptions is an explicit label/value list for UI selectors.
+	// When present, UIs should prefer this over deriving options from `models`.
+	ModelOptions []Option `json:"modelOptions,omitempty"`
+	// ModelInfo provides UI display metadata keyed by model ID.
+	ModelInfo map[string]*ModelInfo `json:"modelInfo,omitempty"`
 	// AgentInfo lists matched tool names per agent using pattern matching
 	// rules derived from the agent's Tool configuration.
 	AgentInfo map[string]*AgentInfo `json:"agentInfo,omitempty"`
@@ -101,6 +124,7 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition, bundles []*toolbu
 	out.Defaults.Agent = cfg.Default.Agent
 	out.Defaults.Model = cfg.Default.Model
 	out.Defaults.Embedder = cfg.Default.Embedder
+	out.Defaults.AutoSelectTools = cfg.Default.ToolAutoSelection.Enabled
 
 	// Agents: list IDs only; UI should use AgentInfo[id].name for display.
 	if cfg.Agent != nil {
@@ -118,13 +142,24 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition, bundles []*toolbu
 		}
 	}
 
-	// Models: use ID as display name.
+	// Models: publish IDs and additional UI metadata.
 	if cfg.Model != nil {
 		for _, m := range cfg.Model.Items {
 			if m == nil || strings.TrimSpace(m.ID) == "" {
 				continue
 			}
-			out.Models = append(out.Models, strings.TrimSpace(m.ID))
+			id := strings.TrimSpace(m.ID)
+			out.Models = append(out.Models, id)
+			if out.ModelInfo == nil {
+				out.ModelInfo = map[string]*ModelInfo{}
+			}
+			if _, ok := out.ModelInfo[id]; !ok {
+				name := strings.TrimSpace(firstNonEmpty(m.Name, m.Options.Model, id))
+				out.ModelInfo[id] = &ModelInfo{
+					Name:        name,
+					Description: strings.TrimSpace(m.Description),
+				}
+			}
 		}
 	}
 
@@ -161,6 +196,18 @@ func Aggregate(cfg *execsvc.Config, defs []llm.ToolDefinition, bundles []*toolbu
 	sort.Strings(out.Agents)
 	sort.Strings(out.Models)
 	sort.Strings(out.Tools)
+
+	// Build explicit model options after sorting so list ordering is stable.
+	if len(out.Models) > 0 {
+		out.ModelOptions = make([]Option, 0, len(out.Models))
+		for _, id := range out.Models {
+			label := id
+			if out.ModelInfo != nil && out.ModelInfo[id] != nil && strings.TrimSpace(out.ModelInfo[id].Name) != "" {
+				label = strings.TrimSpace(out.ModelInfo[id].Name)
+			}
+			out.ModelOptions = append(out.ModelOptions, Option{ID: id, Value: id, Label: label})
+		}
+	}
 
 	// Normalize bundles: when none provided, derive from available tools for UI convenience.
 	if len(bundles) == 0 {
