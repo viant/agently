@@ -1,6 +1,8 @@
 default:
   model: o4-mini
   agent: chat
+  toolAutoSelection:
+    enabled: true
 models:
   items:
     - id: o4-mini

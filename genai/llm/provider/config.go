@@ -2,7 +2,9 @@ package provider
 
 // Config is a struct that represents a model with an ID and options.
 type Config struct {
-	ID           string  `yaml:"id" json:"id"`
+	ID string `yaml:"id" json:"id"`
+	// Name is a human-friendly display name for UI selection (optional).
+	Name         string  `yaml:"name" json:"name"`
 	Description  string  `yaml:"description" json:"description"`
 	Intelligence float64 `yaml:"intelligence" json:"intelligence"`
 	Speed        float64 `yaml:"speed" json:"speed"`

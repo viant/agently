@@ -393,8 +393,10 @@ type PostRequest struct {
 	// Optional single-turn overrides
 	ToolCallExposure *agent.ToolCallExposure `json:"toolCallExposure,omitempty"`
 	AutoSummarize    *bool                   `json:"autoSummarize,omitempty"`
-	DisableChains    bool                    `json:"disableChains,omitempty"`
-	AllowedChains    []string                `json:"allowedChains"`
+	// AutoSelectTools enables tool-bundle auto selection for this turn when tools are not explicitly set.
+	AutoSelectTools *bool    `json:"autoSelectTools,omitempty"`
+	DisableChains   bool     `json:"disableChains,omitempty"`
+	AllowedChains   []string `json:"allowedChains"`
 	// Attachments carries staged upload descriptors returned by Forge upload endpoint.
 	// Each item must include at least name and uri (relative to storage root), optionally size, stagingFolder, mime.
 	Attachments []UploadedAttachment `json:"attachments,omitempty"`
@@ -439,6 +441,7 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		EffectiveUserID:  strings.TrimSpace(authctx.EffectiveUserID(ctx)),
 		ToolCallExposure: req.ToolCallExposure,
 		AutoSummarize:    req.AutoSummarize,
+		AutoSelectTools:  req.AutoSelectTools,
 		DisableChains:    req.DisableChains,
 		AllowedChains:    append([]string(nil), req.AllowedChains...),
 		Attachments:      append([]UploadedAttachment(nil), req.Attachments...),
@@ -494,6 +497,7 @@ type queuedRequest struct {
 	EffectiveUserID  string                  `json:"effectiveUserId,omitempty"`
 	ToolCallExposure *agent.ToolCallExposure `json:"toolCallExposure,omitempty"`
 	AutoSummarize    *bool                   `json:"autoSummarize,omitempty"`
+	AutoSelectTools  *bool                   `json:"autoSelectTools,omitempty"`
 	DisableChains    bool                    `json:"disableChains,omitempty"`
 	AllowedChains    []string                `json:"allowedChains,omitempty"`
 	Attachments      []UploadedAttachment    `json:"attachments,omitempty"`
@@ -707,6 +711,7 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 		AgentID:          strings.TrimSpace(agentID),
 		ModelOverride:    meta.Model,
 		ToolsAllowed:     append([]string(nil), meta.Tools...),
+		AutoSelectTools:  meta.AutoSelectTools,
 		Context:          meta.Context,
 		MessageID:        turnID,
 		ToolCallExposure: meta.ToolCallExposure,

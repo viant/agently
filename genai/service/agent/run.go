@@ -44,6 +44,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// Install a warnings collector in context for this turn.
 	ctx, _ = withWarnings(ctx)
 
+	// Optional tool auto-selection (bundle-first). This runs before we start the
+	// turn so the model sees a stable tool set for the whole execution.
+	s.maybeAutoSelectToolBundles(ctx, input)
+
 	// Conversation already ensured above (fills AgentID/Model/Tool when missing)
 	output.ConversationID = input.ConversationID
 	s.tryMergePromptIntoContext(input)
