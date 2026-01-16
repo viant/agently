@@ -154,6 +154,13 @@ func TestService_GrepFiles_LocalRoot(t *testing.T) {
 			t.Fatalf("failed to write file %s: %v", name, err)
 		}
 	}
+	// Nested file to validate globstar include/exclude behavior (e.g. **/*.log).
+	if err := os.MkdirAll(filepath.Join(base, "sub", "inner"), 0755); err != nil {
+		t.Fatalf("failed to create nested dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "sub", "inner", "deep.log"), []byte("AuthMode deep\n"), 0644); err != nil {
+		t.Fatalf("failed to write deep.log: %v", err)
+	}
 
 	service := New(dummyAugmenter(t))
 	ctx := context.Background()
@@ -188,6 +195,18 @@ func TestService_GrepFiles_LocalRoot(t *testing.T) {
 			},
 			expect:    []string{"a.txt"},
 			expectMin: 1,
+		},
+		{
+			name: "globstar include matches any depth",
+			input: &GrepInput{
+				Pattern:   "AuthMode",
+				RootURI:   rootURI,
+				Path:      ".",
+				Recursive: true,
+				Include:   []string{"**/*.log"},
+			},
+			expect:    []string{"c.log", "sub/inner/deep.log"},
+			expectMin: 2,
 		},
 	}
 	for _, tc := range testCases {

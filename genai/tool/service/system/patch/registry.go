@@ -60,7 +60,7 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "snapshot",
-			Description: "List uncommitted changes captured by the current patch session.",
+			Description: "List uncommitted changes captured by the current patch session. If there are no uncommitted changes, this tool returns {\"status\":\"noFound\"} — treat that as an empty result (equivalent to changes: []). This is not an error. Do not retry system_patch-snapshot after receiving {\"status\":\"noFound\"}; proceed to the next step.",
 			Input:       reflect.TypeOf(&EmptyInput{}),
 			Output:      reflect.TypeOf(&SnapshotOutput{}),
 		},
