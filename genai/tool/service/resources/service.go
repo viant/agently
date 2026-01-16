@@ -2176,8 +2176,8 @@ type GrepInput struct {
 	RootID    string   `json:"rootId,omitempty"`
 	Path      string   `json:"path"`
 	Recursive bool     `json:"recursive,omitempty"`
-	Include   []string `json:"include,omitempty"`
-	Exclude   []string `json:"exclude,omitempty"`
+	Include   []string `json:"include,omitempty" description:"optional file/path globs to include (matched against file path and base name); supports ** for any depth"`
+	Exclude   []string `json:"exclude,omitempty" description:"optional file/path globs to exclude; supports ** for any depth"`
 
 	CaseInsensitive bool `json:"caseInsensitive,omitempty"`
 
@@ -2281,13 +2281,13 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 		return err
 	}
 	wsRoot := rootCtx.Workspace()
-	// Enforce per-resource grep capability when agent context is available.
-	if !s.grepAllowedForAgent(ctx, curAgent, wsRoot) {
-		return fmt.Errorf("grep not allowed for root: %s", rootURI)
-	}
 	// Currently grepFiles is implemented for local/workspace-backed roots only.
 	if mcpuri.Is(wsRoot) {
 		return fmt.Errorf("grepFiles is not supported for mcp resources")
+	}
+	// Enforce per-resource grep capability when agent context is available.
+	if !s.grepAllowedForAgent(ctx, curAgent, wsRoot) {
+		return fmt.Errorf("grep not allowed for root: %s", rootURI)
 	}
 	rootBase := rootCtx.Base()
 	base := rootBase
@@ -2342,6 +2342,9 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 		return err
 	}
 
+	includes := normalizeListGlobs(input.Include)
+	excludes := normalizeListGlobs(input.Exclude)
+
 	stats := hygine.GrepStats{}
 	var files []hygine.GrepFile
 	totalBlocks := 0
@@ -2378,14 +2381,20 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 			return nil
 		}
 
-		rel := relativePath(rootBase, uri)
+		scheme := url.Scheme(rootBase, "file")
+		rootBaseNormalised := url.Normalize(rootBase, scheme)
+		uriNormalised := url.Normalize(uri, scheme)
+
+		rel := relativePath(rootBaseNormalised, uriNormalised)
 		if rel == "" {
-			rel = relativePath(base, uri)
+			baseNormalised := url.Normalize(base, scheme)
+			rel = relativePath(baseNormalised, uriNormalised)
 		}
 		if rel == "" {
 			rel = uri
 		}
-		if !globAllowed(rel, input.Include, input.Exclude) {
+		name := pathpkg.Base(strings.TrimSuffix(rel, "/"))
+		if !listMatchesFilters(rel, name, includes, excludes) {
 			output.Stats = stats
 			output.Files = nil
 			return nil
@@ -2465,8 +2474,10 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 			uri = url.Join(walkBaseURL, parent, info.Name())
 		}
 		// Apply include/exclude globs on the relative path
-		rel := relativePath(base, uri)
-		if !globAllowed(rel, input.Include, input.Exclude) {
+		scheme := url.Scheme(walkBaseURL, "file")
+		baseNormalised := url.Normalize(base, scheme)
+		rel := relativePath(baseNormalised, uri)
+		if !listMatchesFilters(rel, info.Name(), includes, excludes) {
 			return true, nil
 		}
 
@@ -2649,41 +2660,6 @@ func lineMatches(line string, includes, excludes []*regexp.Regexp) bool {
 	}
 	for _, re := range excludes {
 		if re.FindStringIndex(line) != nil {
-			return false
-		}
-	}
-	return true
-}
-
-// globAllowed applies simple include/exclude globs to a path. When include is
-// empty, all paths are considered included.
-func globAllowed(path string, include, exclude []string) bool {
-	if path == "" {
-		return false
-	}
-	allowed := true
-	if len(include) > 0 {
-		allowed = false
-		for _, g := range include {
-			g = strings.TrimSpace(g)
-			if g == "" {
-				continue
-			}
-			if ok, _ := pathpkg.Match(g, path); ok {
-				allowed = true
-				break
-			}
-		}
-	}
-	if !allowed {
-		return false
-	}
-	for _, g := range exclude {
-		g = strings.TrimSpace(g)
-		if g == "" {
-			continue
-		}
-		if ok, _ := pathpkg.Match(g, path); ok {
 			return false
 		}
 	}
