@@ -3,6 +3,7 @@ package orchestrator
 import (
 	plan "github.com/viant/agently/genai/llm"
 
+	"sync"
 	"testing"
 )
 
@@ -441,4 +442,37 @@ func TestDuplicateGuard_Args(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDuplicateGuard_ConcurrentAccess(t *testing.T) {
+	guard := NewDuplicateGuard(nil)
+
+	const goroutines = 64
+	const iterations = 100
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for goroutineID := 0; goroutineID < goroutines; goroutineID++ {
+		go func(id int) {
+			defer wg.Done()
+			<-start
+
+			for i := 0; i < iterations; i++ {
+				name := "tool"
+				args := map[string]interface{}{"goroutine": id, "i": i}
+
+				guard.ShouldBlock(name, args)
+				guard.RegisterResult(name, args, plan.ToolCall{
+					Name:      name,
+					Arguments: args,
+					Result:    "ok",
+				})
+			}
+		}(goroutineID)
+	}
+
+	close(start)
+	wg.Wait()
 }

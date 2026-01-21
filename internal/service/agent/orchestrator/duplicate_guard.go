@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	plan "github.com/viant/agently/genai/llm"
+	"sync"
 )
 
 // toolKey uniquely identifies a tool invocation by its name and canonicalised arguments.
@@ -13,6 +14,7 @@ type toolKey struct {
 // DuplicateGuard tracks the recent sequence of calls, detects pathological repetition patterns, and applies a set
 // of heuristics to decide whether a newly–proposed call should be blocked.
 type DuplicateGuard struct {
+	mu          sync.Mutex
 	lastKey     toolKey
 	consecutive int
 	window      []toolKey
@@ -55,6 +57,9 @@ func (g *DuplicateGuard) key(name string, args map[string]interface{}) toolKey {
 //  4. The window contains only two distinct calls that alternate (A, B,
 //     A, B, …).
 func (g *DuplicateGuard) ShouldBlock(name string, args map[string]interface{}) (bool, plan.ToolCall) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	key := g.key(name, args)
 	prev := g.latest[key] // previous result for the same key, if any
 
@@ -139,6 +144,9 @@ func (g *DuplicateGuard) isAlternatingPattern() bool {
 
 // RegisterResult stores latest outcome for reuse.
 func (g *DuplicateGuard) RegisterResult(name string, args map[string]interface{}, res plan.ToolCall) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	k := g.key(name, args)
 	g.latest[k] = res
 	g.lastKey = k
