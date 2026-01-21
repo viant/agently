@@ -353,6 +353,9 @@ func (a *geminiAggregator) addResponse(resp *Response) {
 					_ = json.Unmarshal([]byte(p.FunctionCall.Arguments), &args)
 				}
 				ts := strings.TrimSpace(p.ThoughtSignature)
+				if ts == "" {
+					ts = fmt.Sprintf("%s%d", EMPTY_THOUGHT_SIGNATURE, time.Now().UnixNano())
+				}
 				tc := llm.ToolCall{ID: ts, Name: p.FunctionCall.Name, Arguments: args}
 				a.tools[idx] = append(a.tools[idx], tc)
 			}

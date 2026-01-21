@@ -218,8 +218,12 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		// Handle assistant tool calls and tool results before regular content
 		if len(msg.ToolCalls) > 0 {
 			for _, tc := range msg.ToolCalls {
+				ts := strings.TrimSpace(tc.ID)
+				if strings.HasPrefix(ts, EMPTY_THOUGHT_SIGNATURE) {
+					ts = ""
+				}
 				part := Part{
-					ThoughtSignature: strings.TrimSpace(tc.ID),
+					ThoughtSignature: ts,
 					FunctionCall: &FunctionCall{
 						Name: tc.Name,
 						Args: tc.Arguments,
@@ -253,12 +257,16 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 					}
 				}
 			}
-			content.Parts = append(content.Parts, Part{
+
+			part := Part{
 				FunctionResponse: &FunctionResponse{
 					Name:     msg.Name,
 					Response: parseJSONOrString(toolResponse),
 				},
-			})
+			}
+
+			//toolResponse
+			content.Parts = append(content.Parts, part)
 			// Append binary image parts for vision.
 			for _, item := range msg.Items {
 				switch item.Type {
@@ -564,6 +572,8 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		req.Contents = append(req.Contents, content)
 	}
 
+	req.Contents = normalizeToolCallResponsePairSubSlices(req.Contents)
+
 	// Gemini v1beta expects the conversation to start with a USER turn and to
 	// alternate roles.  If for any reason the accumulated messages begin with
 	// a model/function call we prepend an empty USER message to satisfy the
@@ -577,6 +587,144 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 	}
 
 	return req, nil
+}
+
+type toolCallResponsePair struct {
+	call Content
+	resp Content
+}
+
+// normalizeToolCallResponsePairSubSlices groups consecutive (model functionCall, user functionResponse)
+// pairs into sub-slices where at most one model-side content carries a non-empty thoughtSignature.
+// If any model-side content in a sub-slice contains an empty thoughtSignature, that sub-slice is
+// collapsed into a single aggregated (model, user) pair. Within that aggregation, pairs with any
+// non-empty thoughtSignature are emitted first (stable), followed by those with none.
+func normalizeToolCallResponsePairSubSlices(contents []Content) []Content {
+	if len(contents) < 2 {
+		return contents
+	}
+
+	isToolCall := func(c *Content) bool {
+		if c == nil || strings.TrimSpace(c.Role) != "model" {
+			return false
+		}
+		for i := range c.Parts {
+			if c.Parts[i].FunctionCall != nil {
+				return true
+			}
+		}
+		return false
+	}
+	isToolResponse := func(c *Content) bool {
+		if c == nil || strings.TrimSpace(c.Role) != "user" {
+			return false
+		}
+		for i := range c.Parts {
+			if c.Parts[i].FunctionResponse != nil {
+				return true
+			}
+		}
+		return false
+	}
+	hasNonEmptyThoughtSignature := func(call *Content) bool {
+		if call == nil {
+			return false
+		}
+		for i := range call.Parts {
+			p := &call.Parts[i]
+			if p.FunctionCall == nil {
+				continue
+			}
+			if strings.TrimSpace(p.ThoughtSignature) != "" {
+				return true
+			}
+		}
+		return false
+	}
+	hasEmptyThoughtSignature := func(call *Content) bool {
+		if call == nil {
+			return false
+		}
+		for i := range call.Parts {
+			p := &call.Parts[i]
+			if p.FunctionCall == nil {
+				continue
+			}
+			if strings.TrimSpace(p.ThoughtSignature) == "" {
+				return true
+			}
+		}
+		return false
+	}
+
+	out := make([]Content, 0, len(contents))
+	for i := 0; i < len(contents); {
+		// 1) Extract subslice of consecutive (A,B) pairs.
+		if i+1 < len(contents) && isToolCall(&contents[i]) && isToolResponse(&contents[i+1]) {
+			pairs := make([]toolCallResponsePair, 0, 4)
+			// A subslice is a run of consecutive (call,response) pairs where at most
+			// one call content has a non-empty thoughtSignature. The subslice ends
+			// before a pair whose call would introduce a second non-empty signature.
+			seenNonEmpty := false
+			for {
+				pairs = append(pairs, toolCallResponsePair{call: contents[i], resp: contents[i+1]})
+				if !seenNonEmpty && hasNonEmptyThoughtSignature(&contents[i]) {
+					seenNonEmpty = true
+				}
+				i += 2
+				if i+1 >= len(contents) || !isToolCall(&contents[i]) || !isToolResponse(&contents[i+1]) {
+					break
+				}
+				// If we've already seen a non-empty thoughtSignature, stop before the
+				// next pair when it would introduce a second non-empty signature.
+				if seenNonEmpty && hasNonEmptyThoughtSignature(&contents[i]) {
+					break
+				}
+			}
+
+			// 2) If all model sides have non-empty thoughtSignature(s), do nothing.
+			needsAggregation := false
+			for pi := range pairs {
+				if hasEmptyThoughtSignature(&pairs[pi].call) {
+					needsAggregation = true
+					break
+				}
+			}
+			if !needsAggregation {
+				for pi := range pairs {
+					out = append(out, pairs[pi].call, pairs[pi].resp)
+				}
+				continue
+			}
+
+			// 3) Aggregate: stable partition by "has any non-empty thoughtSignature".
+			aggCall := Content{Role: "model", Parts: make([]Part, 0)}
+			aggResp := Content{Role: "user", Parts: make([]Part, 0)}
+
+			for pi := range pairs {
+				if !hasNonEmptyThoughtSignature(&pairs[pi].call) {
+					continue
+				}
+				aggCall.Parts = append(aggCall.Parts, pairs[pi].call.Parts...)
+				aggResp.Parts = append(aggResp.Parts, pairs[pi].resp.Parts...)
+			}
+			for pi := range pairs {
+				if hasNonEmptyThoughtSignature(&pairs[pi].call) {
+					continue
+				}
+				aggCall.Parts = append(aggCall.Parts, pairs[pi].call.Parts...)
+				aggResp.Parts = append(aggResp.Parts, pairs[pi].resp.Parts...)
+			}
+
+			out = append(out, aggCall, aggResp)
+			continue
+		}
+
+		out = append(out, contents[i])
+		i++
+	}
+
+	return out
 }
 
 func downloadImagePart(ctx context.Context, fs afs.Service, item llm.ContentItem, mimeType string) (*Part, error) {
