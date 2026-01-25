@@ -125,7 +125,7 @@ func (s *Service) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Create session
-	s.sess.Create(w, name) // session userID uses username for local; later can be actual id
+	s.sess.CreateWithProvider(w, name, "local") // session userID uses username for local; later can be actual id
 	encode(w, http.StatusOK, map[string]any{"name": name, "provider": "local"}, nil)
 }
 
@@ -365,15 +365,15 @@ func (s *Service) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// store session with tokens (server-side only)
 	accessToken := token.AccessToken
 	refreshToken := token.RefreshToken
-	s.sess.CreateWithTokens(w, username, accessToken, refreshToken, idTokenStr, token.Expiry)
+	prov := strings.TrimSpace(s.cfg.OAuth.Name)
+	if prov == "" {
+		prov = "oauth"
+	}
+	s.sess.CreateWithTokensProvider(w, username, prov, accessToken, refreshToken, idTokenStr, token.Expiry)
 	// Persist encrypted token server-side to allow refresh across restarts
 	if s.dao != nil && s.cfg != nil && s.cfg.OAuth != nil && s.cfg.OAuth.Client != nil {
 		store := iauth.NewTokenStoreDAO(s.dao, s.cfg.OAuth.Client.ConfigURL)
 		t := &iauth.OAuthToken{AccessToken: accessToken, RefreshToken: refreshToken, IDToken: idTokenStr, ExpiresAt: token.Expiry}
-		prov := strings.TrimSpace(s.cfg.OAuth.Name)
-		if prov == "" {
-			prov = "oauth"
-		}
 		if err := store.Upsert(r.Context(), id, prov, t); err != nil {
 			encode(w, http.StatusInternalServerError, nil, err)
 			return

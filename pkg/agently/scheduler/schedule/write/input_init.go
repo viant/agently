@@ -3,6 +3,7 @@ package write
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/viant/xdatly/handler"
@@ -15,6 +16,7 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 	i.indexSlice()
 
 	// Ensure IDs for new schedules prior to validation
+	now := time.Now().UTC()
 	for _, rec := range i.Schedules {
 		if rec == nil {
 			continue
@@ -28,9 +30,16 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 			if rec.Timezone == "" {
 				rec.Timezone = "UTC"
 			}
-			if !rec.Has.ScheduleType {
+			if rec.Has == nil || !rec.Has.ScheduleType {
 				rec.SetScheduleType("adhoc")
 			}
+			if rec.CreatedAt == nil {
+				rec.SetCreatedAt(now)
+			}
+			continue
+		}
+		if rec.UpdatedAt == nil {
+			rec.SetUpdatedAt(now)
 		}
 	}
 

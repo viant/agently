@@ -954,6 +954,21 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 func (r *Registry) listServers(ctx context.Context) ([]string, error) {
 	repo := mcprepo.New(afs.New())
 	names, _ := repo.List(ctx)
+	// Filter out malformed MCP configs to avoid nil pointer panics downstream.
+	validNames := make([]string, 0, len(names))
+	for _, n := range names {
+		cfg, err := repo.Load(ctx, n)
+		if err != nil {
+			r.warnf("mcp config load failed: %s: %v", repo.Filename(n), err)
+			continue
+		}
+		if cfg == nil || cfg.ClientOptions == nil || strings.TrimSpace(cfg.Name) == "" {
+			r.warnf("mcp config invalid (missing name/transport): %s", repo.Filename(n))
+			continue
+		}
+		validNames = append(validNames, n)
+	}
+	names = validNames
 	// Optional override to force discovery of specific servers (comma-separated)
 	if extra := strings.TrimSpace(os.Getenv("AGENTLY_MCP_SERVERS")); extra != "" {
 		for _, s := range strings.Split(extra, ",") {

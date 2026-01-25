@@ -169,8 +169,13 @@ func assistantContentFromGenerateResponse(resp *llm.GenerateResponse) (string, b
 	}
 	parts := make([]string, 0, len(resp.Choices))
 	hasToolCalls := false
+	// "finish_reason": "tool_calls"
+
 	for _, c := range resp.Choices {
-		if len(c.Message.ToolCalls) > 0 {
+		if len(c.Message.ToolCalls) > 0 || c.Message.FunctionCall != nil {
+			hasToolCalls = true
+		}
+		if strings.Contains(strings.ToLower(c.FinishReason), "tool") {
 			hasToolCalls = true
 		}
 		s := strings.TrimSpace(messageText(c.Message))

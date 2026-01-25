@@ -303,3 +303,17 @@ CREATE TABLE IF NOT EXISTS user_oauth_token (
   updated_at  DATETIME,
   PRIMARY KEY (user_id, provider)
 );
+
+-- Sessions (server-side). Each session is tied to a user + auth provider.
+CREATE TABLE IF NOT EXISTS session (
+  id          TEXT      PRIMARY KEY,
+  user_id     TEXT      NOT NULL,
+  provider    TEXT      NOT NULL,
+  created_at  DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME,
+  expires_at  DATETIME  NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_user_id ON session(user_id);
+CREATE INDEX IF NOT EXISTS idx_session_provider ON session(provider);
+CREATE INDEX IF NOT EXISTS idx_session_expires_at ON session(expires_at);

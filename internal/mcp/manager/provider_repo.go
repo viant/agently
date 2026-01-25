@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -52,6 +53,10 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 	}
 	tokensPath := filepath.Join(stateDir, "tokens.json")
 	cfg.ClientOptions.Auth.Store = mcpstore.NewFileStore(tokensPath)
+
+	for _, warning := range mcpcfg.ValidateResourceRoots(cfg.Metadata) {
+		log.Printf("mcp config %q: %s", name, warning)
+	}
 
 	return cfg, nil
 }

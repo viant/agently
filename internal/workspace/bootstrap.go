@@ -91,17 +91,9 @@ func EnsureDefaultAt(ctx context.Context, fs afs.Service, root string) {
 		{filepath.Join(KindAgent, "coder/system_knowledge/golang_rules.md"), "default/agents/coder/system_knowledge/golang_rules.md"},
 		{filepath.Join(KindAgent, "coder/coder.yaml"), "default/agents/coder/coder.yaml"},
 
-		{filepath.Join(KindAgent, "dev_verifier/prompt/system.tmpl"), "default/agents/dev_verifier/prompt/system.tmpl"},
-		{filepath.Join(KindAgent, "dev_verifier/prompt/user.tmpl"), "default/agents/dev_verifier/prompt/user.tmpl"},
-		{filepath.Join(KindAgent, "dev_verifier/dev_verifier.yaml"), "default/agents/dev_verifier/dev_verifier.yaml"},
-
-		{filepath.Join(KindAgent, "dev_composer/prompt/system.tmpl"), "default/agents/dev_composer/prompt/system.tmpl"},
-		{filepath.Join(KindAgent, "dev_composer/prompt/user.tmpl"), "default/agents/dev_composer/prompt/user.tmpl"},
-		{filepath.Join(KindAgent, "dev_composer/dev_composer.yaml"), "default/agents/dev_composer/dev_composer.yaml"},
-
-		{filepath.Join(KindAgent, "dev_orchestrator/prompt/system.tmpl"), "default/agents/dev_orchestrator/prompt/system.tmpl"},
-		{filepath.Join(KindAgent, "dev_orchestrator/prompt/user.tmpl"), "default/agents/dev_orchestrator/prompt/user.tmpl"},
-		{filepath.Join(KindAgent, "dev_orchestrator/dev_orchestrator.yaml"), "default/agents/dev_orchestrator/dev_orchestrator.yaml"},
+		{filepath.Join(KindAgent, "orchestrator/prompt/system.tmpl"), "default/agents/orchestrator/prompt/system.tmpl"},
+		{filepath.Join(KindAgent, "orchestrator/prompt/user.tmpl"), "default/agents/orchestrator/prompt/user.tmpl"},
+		{filepath.Join(KindAgent, "orchestrator/orchestrator.yaml"), "default/agents/orchestrator/orchestrator.yaml"},
 
 		{filepath.Join(KindAgent, "critic/prompt/system.tmpl"), "default/agents/critic/prompt/system.tmpl"},
 		{filepath.Join(KindAgent, "critic/prompt/user.tmpl"), "default/agents/critic/prompt/user.tmpl"},

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/viant/xdatly/handler"
 	"github.com/viant/xdatly/handler/response"
@@ -43,22 +42,15 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
 	for _, rec := range in.Runs {
 		if rec == nil {
 			continue
 		}
 		if _, ok := in.CurRunById[rec.Id]; !ok {
-			if rec.CreatedAt == nil {
-				rec.SetCreatedAt(now)
-			}
 			if err = sqlx.Insert("schedule_run", rec); err != nil {
 				return err
 			}
 		} else {
-			if rec.UpdatedAt == nil {
-				rec.SetUpdatedAt(now)
-			}
 			if err = sqlx.Update("schedule_run", rec); err != nil {
 				return err
 			}

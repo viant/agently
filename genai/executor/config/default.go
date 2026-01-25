@@ -163,6 +163,15 @@ type ResourcesDefaults struct {
 	TrimPath string `yaml:"trimPath,omitempty" json:"trimPath,omitempty"`
 	// SummaryFiles lookup order for root descriptions.
 	SummaryFiles []string `yaml:"summaryFiles,omitempty" json:"summaryFiles,omitempty"`
+	// DescribeMCP enables MCP description fetches for resources.roots when
+	// no description is provided by config/metadata.
+	DescribeMCP bool `yaml:"describeMCP,omitempty" json:"describeMCP,omitempty"`
+	// UpstreamSyncConcurrency controls parallel root syncs for MCP upstreams.
+	UpstreamSyncConcurrency int `yaml:"upstreamSyncConcurrency,omitempty" json:"upstreamSyncConcurrency,omitempty"`
+	// MatchConcurrency controls parallel match execution across roots.
+	MatchConcurrency int `yaml:"matchConcurrency,omitempty" json:"matchConcurrency,omitempty"`
+	// IndexAsync enables background indexing for resource matches.
+	IndexAsync *bool `yaml:"indexAsync,omitempty" json:"indexAsync,omitempty"`
 }
 
 // AgentAutoSelectionDefaults controls the LLM-based agent classifier used for auto routing.

@@ -2,22 +2,29 @@ package augmenter
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"log"
 	"path"
 	"reflect"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/viant/afs"
 	"github.com/viant/agently/genai/embedder"
 	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
 	svc "github.com/viant/agently/genai/tool/service"
+	mcpcfg "github.com/viant/agently/internal/mcp/config"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/shared"
+	"github.com/viant/datly/view"
 	embedius "github.com/viant/embedius"
+	embindexer "github.com/viant/embedius/indexer"
 	embSchema "github.com/viant/embedius/schema"
-	"github.com/viant/embedius/vectordb/mem"
-	"sync"
+	"github.com/viant/embedius/vectordb"
+	"github.com/viant/embedius/vectordb/sqlitevec"
 )
 
 const name = "llm/augmenter"
@@ -27,10 +34,17 @@ type Service struct {
 	finder         embedder.Finder
 	DocsAugmenters shared.Map[string, *DocsAugmenter]
 	// Optional MCP client manager for resolving mcp: resources during indexing
-	mcpMgr *mcpmgr.Manager
-	// Global writer-capable mem store reused across all augmenters
-	memStore     *mem.Store
-	memStoreOnce sync.Once
+	mcpMgr                      *mcpmgr.Manager
+	mcpSnapshotResolver         mcpfs.SnapshotResolver
+	mcpSnapshotManifestResolver mcpfs.SnapshotManifestResolver
+	// Global sqlite-vec store reused across all augmenters
+	store     *sqlitevec.Store
+	storeOnce sync.Once
+	// Limits parallel upstream sync operations.
+	upstreamSyncConcurrency int
+	// Limits parallel matching operations across roots.
+	matchConcurrency int
+	indexAsync       bool
 }
 
 // New creates a new extractor service
@@ -38,6 +52,7 @@ func New(finder embedder.Finder, opts ...func(*Service)) *Service {
 	s := &Service{
 		finder:         finder,
 		DocsAugmenters: shared.NewMap[string, *DocsAugmenter](),
+		indexAsync:     true,
 	}
 	for _, o := range opts {
 		if o != nil {
@@ -49,6 +64,41 @@ func New(finder embedder.Finder, opts ...func(*Service)) *Service {
 
 // WithMCPManager attaches an MCP manager so the augmenter can index mcp: resources.
 func WithMCPManager(m *mcpmgr.Manager) func(*Service) { return func(s *Service) { s.mcpMgr = m } }
+
+// WithMCPSnapshotResolver enables snapshot-based MCP reads when available.
+func WithMCPSnapshotResolver(resolver mcpfs.SnapshotResolver) func(*Service) {
+	return func(s *Service) { s.mcpSnapshotResolver = resolver }
+}
+
+// WithMCPSnapshotManifestResolver enables snapshot MD5 manifests when configured.
+func WithMCPSnapshotManifestResolver(resolver mcpfs.SnapshotManifestResolver) func(*Service) {
+	return func(s *Service) { s.mcpSnapshotManifestResolver = resolver }
+}
+
+// WithUpstreamSyncConcurrency sets the max number of concurrent upstream syncs.
+func WithUpstreamSyncConcurrency(n int) func(*Service) {
+	return func(s *Service) {
+		if n < 0 {
+			n = 0
+		}
+		s.upstreamSyncConcurrency = n
+	}
+}
+
+// WithMatchConcurrency sets the max number of concurrent match operations.
+func WithMatchConcurrency(n int) func(*Service) {
+	return func(s *Service) {
+		if n < 0 {
+			n = 0
+		}
+		s.matchConcurrency = n
+	}
+}
+
+// WithIndexAsync toggles background indexing.
+func WithIndexAsync(enabled bool) func(*Service) {
+	return func(s *Service) { s.indexAsync = enabled }
+}
 
 // Name returns the service name
 func (s *Service) Name() string {
@@ -108,13 +158,50 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 	service := embedius.NewService(augmenter.service)
 	var searchDocuments []embSchema.Document
 
-	for _, location := range input.Locations {
-
-		docs, err := service.Match(ctx, input.Query, input.MaxDocuments, location)
-		if err != nil {
-			return fmt.Errorf("failed to augmentDocs documents: %w", err)
-		}
-
+	limit := s.matchConcurrency
+	if limit <= 0 {
+		limit = 1
+	}
+	results := make([][]embSchema.Document, len(input.Locations))
+	var firstErr error
+	var errMu sync.Mutex
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for i, location := range input.Locations {
+		i := i
+		location := location
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			matchCtx := ctx
+			if s.indexAsync {
+				matchCtx = embindexer.WithAsyncIndex(matchCtx, true)
+			}
+			if cfg := s.upstreamSyncConfig(ctx, location, augmenter); cfg != nil {
+				matchCtx = embindexer.WithUpstreamSyncConfig(matchCtx, cfg)
+			}
+			log.Printf("embedius: match start location=%q query=%q max=%d", location, input.Query, input.MaxDocuments)
+			docs, err := service.Match(matchCtx, input.Query, input.MaxDocuments, location)
+			if err != nil {
+				log.Printf("embedius: match error location=%q err=%v", location, err)
+				errMu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				errMu.Unlock()
+				return
+			}
+			log.Printf("embedius: match done location=%q docs=%d", location, len(docs))
+			results[i] = docs
+		}()
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return fmt.Errorf("failed to augmentDocs documents: %w", firstErr)
+	}
+	for _, docs := range results {
 		searchDocuments = append(searchDocuments, docs...)
 	}
 	output.Documents = searchDocuments
@@ -130,6 +217,152 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 	}
 	output.Content = responseContent.String()
 	return nil
+}
+
+func (s *Service) upstreamSyncConfig(ctx context.Context, location string, augmenter *DocsAugmenter) *vectordb.UpstreamSyncConfig {
+	if s == nil || s.mcpMgr == nil || augmenter == nil || augmenter.store == nil {
+		return nil
+	}
+	if !mcpuri.Is(location) {
+		return nil
+	}
+	root, upstream, ok := s.resolveUpstream(ctx, location)
+	if !ok || root == nil || upstream == nil {
+		return nil
+	}
+	if !upstream.Enabled {
+		return &vectordb.UpstreamSyncConfig{Enabled: false}
+	}
+	datasetID := strings.TrimSpace(root.ID)
+	if datasetID == "" {
+		if augmenter.fsIndexer != nil {
+			if ns, err := augmenter.fsIndexer.Namespace(ctx, location); err == nil {
+				datasetID = ns
+			}
+		}
+	}
+	if strings.TrimSpace(upstream.Driver) == "" || strings.TrimSpace(upstream.DSN) == "" {
+		return nil
+	}
+	if datasetID == "" {
+		return nil
+	}
+	up, err := s.upstreamDB(ctx, upstream)
+	if err != nil {
+		log.Printf("embedius upstream open failed for %q: %v", root.URI, err)
+		return nil
+	}
+	minInterval := time.Hour
+	if upstream.MinIntervalSeconds > 0 {
+		minInterval = time.Duration(upstream.MinIntervalSeconds) * time.Second
+	}
+	return &vectordb.UpstreamSyncConfig{
+		Enabled:     true,
+		DatasetID:   datasetID,
+		UpstreamDB:  up,
+		Shadow:      upstream.Shadow,
+		BatchSize:   upstream.Batch,
+		Force:       upstream.Force,
+		Background:  true,
+		MinInterval: minInterval,
+		LocalShadow: "_vec_emb_docs",
+		AssetTable:  "emb_asset",
+		Logf:        func(format string, args ...any) { log.Printf(format, args...) },
+	}
+}
+
+func (s *Service) upstreamDB(ctx context.Context, upstream *mcpcfg.Upstream) (*sql.DB, error) {
+	conn := view.NewConnector("embedius_upstream", upstream.Driver, upstream.DSN)
+	db, err := conn.DB()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.pingDB(ctx, db); err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+func (s *Service) pingDB(ctx context.Context, db *sql.DB) error {
+	const (
+		attempts     = 3
+		waitDuration = 2 * time.Second
+		pingTimeout  = 5 * time.Second
+	)
+	var err error
+	for i := 0; i < attempts; i++ {
+		pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
+		err = db.PingContext(pingCtx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		if i+1 < attempts {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(waitDuration):
+			}
+		}
+	}
+	return err
+}
+
+func (s *Service) resolveUpstream(ctx context.Context, location string) (*mcpcfg.ResourceRoot, *mcpcfg.Upstream, bool) {
+	if s == nil || s.mcpMgr == nil {
+		return nil, nil, false
+	}
+	locServer, locPaths := mcpuri.CompareParts(location)
+	if strings.TrimSpace(locServer) == "" || len(locPaths) == 0 {
+		return nil, nil, false
+	}
+	opts, err := s.mcpMgr.Options(ctx, locServer)
+	if err != nil || opts == nil {
+		log.Printf("embedius upstream resolve failed server=%q err=%v", locServer, err)
+		return nil, nil, false
+	}
+	roots := mcpcfg.ResourceRoots(opts.Metadata)
+	if len(roots) == 0 {
+		log.Printf("embedius upstream resolve: no roots for server=%q", locServer)
+		return nil, nil, false
+	}
+	upstreams := mcpcfg.Upstreams(opts.Metadata)
+	if len(upstreams) == 0 {
+		log.Printf("embedius upstream resolve: no upstreams for server=%q", locServer)
+		return nil, nil, false
+	}
+	for _, root := range roots {
+		rootServer, rootPaths := mcpuri.CompareParts(root.URI)
+		if strings.TrimSpace(rootServer) == "" || len(rootPaths) == 0 {
+			continue
+		}
+		if rootServer != locServer {
+			continue
+		}
+		matched := false
+		for _, lp := range locPaths {
+			for _, rp := range rootPaths {
+				if lp == rp || strings.HasPrefix(lp, rp+"/") {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if matched {
+			if strings.TrimSpace(root.UpstreamRef) == "" {
+				return &root, nil, false
+			}
+			up, ok := upstreams[strings.TrimSpace(root.UpstreamRef)]
+			if !ok {
+				return &root, nil, false
+			}
+			return &root, &up, true
+		}
+	}
+	return nil, nil, false
 }
 
 func (s *Service) includeDocuments(output *AugmentDocsOutput, input *AugmentDocsInput, searchDocuments []embSchema.Document, responseContent *strings.Builder) {
@@ -173,7 +406,11 @@ func (s *Service) includeDocFileContent(ctx context.Context, searchResults []emb
 			var err error
 			if mcpuri.Is(loc) && s.mcpMgr != nil {
 				// Read via MCP
-				mfs := mcpfs.New(s.mcpMgr)
+				mfs := mcpfs.New(
+					s.mcpMgr,
+					mcpfs.WithSnapshotResolver(s.mcpSnapshotResolver),
+					mcpfs.WithSnapshotManifestResolver(s.mcpSnapshotManifestResolver),
+				)
 				data, err = mfs.Download(ctx, mcpfs.NewObjectFromURI(loc))
 			} else {
 				data, err = fs.DownloadWithURL(ctx, loc)

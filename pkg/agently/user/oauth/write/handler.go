@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/viant/xdatly/handler"
 	"github.com/viant/xdatly/handler/response"
@@ -40,21 +39,15 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 		return nil
 	}
 	out.Data = in.Token
+	if err := in.Validate(ctx, sess, out); err != nil || len(out.Violations) > 0 {
+		return err
+	}
 	sqlx, err := sess.Db()
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
-	if in.Token.Has == nil {
-		in.Token.Has = &TokenHas{}
-	}
 	if in.CurToken == nil {
-		in.Token.SetCreatedAt(now)
 		return sqlx.Insert("user_oauth_token", in.Token)
 	}
-	in.Token.Has.UserID = true
-	in.Token.Has.Provider = true
-	in.Token.Has.EncToken = true
-	in.Token.SetUpdatedAt(now)
 	return sqlx.Update("user_oauth_token", in.Token)
 }

@@ -195,6 +195,18 @@ func relativePath(rootURI, fullURI string) string {
 	if root == "" || uri == "" {
 		return ""
 	}
+	if mcpuri.Is(root) || mcpuri.Is(uri) {
+		rootNorm := mcpuri.NormalizeForCompare(root)
+		uriNorm := mcpuri.NormalizeForCompare(uri)
+		if rootNorm == "" || uriNorm == "" {
+			return uri
+		}
+		if !strings.HasPrefix(uriNorm, rootNorm) {
+			return uri
+		}
+		rel := strings.TrimPrefix(uriNorm[len(rootNorm):], "/")
+		return rel
+	}
 	if !strings.HasPrefix(uri, root) {
 		return uri
 	}

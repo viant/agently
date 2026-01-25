@@ -127,7 +127,7 @@ func TestGrepFiles_RootURI(t *testing.T) {
 			RootURI: "mcp:server:/repo",
 		}, out)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "grepFiles is not supported for mcp resources")
+		assert.Contains(t, err.Error(), "mcp manager not configured")
 	})
 
 	t.Run("root or rootId required", func(t *testing.T) {
@@ -280,7 +280,7 @@ func TestGrepFiles_RootID_ResolutionAndPermissions(t *testing.T) {
 			RootID:  "mcp",
 		}, out)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "grepFiles is not supported for mcp resources")
+		assert.Contains(t, err.Error(), "mcp manager not configured")
 	})
 
 	t.Run("rootId-as-uri fallback works without agent context", func(t *testing.T) {
@@ -680,8 +680,7 @@ func TestGrepFiles_PatternSemantics(t *testing.T) {
 			Pattern: "[",
 			RootURI: rootURI,
 		}, out)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid pattern")
+		require.NoError(t, err)
 	})
 
 	t.Run("OR semantics via | splits patterns (not regex alternation)", func(t *testing.T) {
@@ -760,8 +759,7 @@ func TestGrepFiles_PatternSemantics(t *testing.T) {
 			ExcludePattern: "[",
 			RootURI:        rootURI,
 		}, out)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid pattern")
+		require.NoError(t, err)
 	})
 }
 

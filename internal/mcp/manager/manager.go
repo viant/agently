@@ -127,6 +127,9 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	if opts == nil {
 		return nil, errors.New("mcp manager: nil client options")
 	}
+	if opts.ClientOptions == nil {
+		return nil, errors.New("mcp manager: missing client options")
+	}
 	opts.Init()
 	// Select per-request jar (provider beats static) and merge provider cookies.json into it
 	// (if both present) before override,
