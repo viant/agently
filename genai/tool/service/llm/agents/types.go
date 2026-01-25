@@ -28,6 +28,9 @@ type RunInput struct {
 	AgentID   string                 `json:"agentId"`
 	Objective string                 `json:"objective"`
 	Context   map[string]interface{} `json:"context,omitempty"`
+	// ConversationID optionally overrides the conversation identifier when
+	// not already provided by context.
+	ConversationID string `json:"conversationId,omitempty"`
 	// Streaming is an optional hint. Runtime policy/capabilities decide final behavior.
 	Streaming *bool `json:"streaming,omitempty"`
 	// ModelPreferences optionally hints how to select a model for this

@@ -1,16 +1,16 @@
-description: Development Orchestrator
+description: Orchestrator
 id: dev_orchestrator
 modelRef: openai_gpt-5.2
 name: Development Orchestrator
 temperature: 0
 persona:
   role: assistant
-  actor: Development Orchestrator
+  actor: Orchestrator
 
 profile:
   publish: true
-  name: Development Orchestrator
-  description: Coordinates Development Verifier and Coder in up to 5 passes to implement top missing items
+  name: Orchestrator
+  description: Coordinates, complex task orchestration.
   tags: ["orchestrator", "verify", "code", "plan"]
   rank: 95
 
@@ -27,20 +27,3 @@ tool:
     - resources
     - system/patch
     - system/exec
-
-
-
-elicitation:
-  enabled: true
-  title: Orchestration Inputs
-  message: Provide instruction and DID. Orchestrator will verify and implement top 3 missing items per pass (up to 5 passes).
-  requestedSchema:
-    type: object
-    properties:
-      instruction:
-        type: string
-      did:
-        oneOf:
-          - type: object
-          - type: string
-    required: [instruction, did]

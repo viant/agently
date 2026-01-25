@@ -16,7 +16,7 @@ SELECT
     t.model_override,
     t.model_params_override
 FROM turn t
-${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
-  AND (t.status = 'running' OR t.status = 'waiting_for_user')
+WHERE (t.status = 'running' OR t.status = 'waiting_for_user')
+${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
 ORDER BY t.created_at DESC, t.id DESC
 LIMIT 1

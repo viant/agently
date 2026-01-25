@@ -43,10 +43,13 @@ import (
 	oauthread "github.com/viant/agently/pkg/agently/user/oauth"
 	oauthwrite "github.com/viant/agently/pkg/agently/user/oauth/write"
 	mcpname "github.com/viant/agently/pkg/mcpname"
+	component "github.com/viant/agently/pkg/service"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 	fservice "github.com/viant/forge/backend/service/file"
 	scyauth "github.com/viant/scy/auth"
+	xhttp "github.com/viant/xdatly/handler/http"
+	"github.com/viant/xdatly/handler/state"
 	"golang.org/x/oauth2"
 )
 
@@ -72,6 +75,9 @@ type Service struct {
 	// Optional: user preferences loader
 	users *usersvc.Service
 	dao   *datly.Service
+
+	activeTurnSvc *component.Service[turnread.ActiveTurnInput, turnread.ActiveTurnOutput]
+	nextQueuedSvc *component.Service[turnread.NextQueuedInput, turnread.NextQueuedOutput]
 
 	queueMu   sync.Mutex
 	queueByID map[string]*conversationQueue
@@ -639,12 +645,11 @@ func (s *Service) runQueue(conversationID string, notify <-chan struct{}) {
 
 func (s *Service) isConversationBlocked(ctx context.Context, conversationID string) (bool, string, error) {
 	in := &turnread.ActiveTurnInput{ConversationID: conversationID, Has: &turnread.ActiveTurnInputHas{ConversationID: true}}
-	out := &turnread.ActiveTurnOutput{}
-	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath("GET", turnread.ActiveTurnPathURI)),
-		datly.WithInput(in),
-		datly.WithOutput(out),
-	)
+	svc, err := s.activeTurnService()
+	if err != nil {
+		return false, "", err
+	}
+	out, err := svc.Run(ctx, in)
 	if err != nil {
 		return false, "", err
 	}
@@ -656,12 +661,11 @@ func (s *Service) isConversationBlocked(ctx context.Context, conversationID stri
 
 func (s *Service) nextQueuedTurnID(ctx context.Context, conversationID string) (string, error) {
 	in := &turnread.NextQueuedInput{ConversationID: conversationID, Has: &turnread.NextQueuedInputHas{ConversationID: true}}
-	out := &turnread.NextQueuedOutput{}
-	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath("GET", turnread.NextQueuedPathURI)),
-		datly.WithInput(in),
-		datly.WithOutput(out),
-	)
+	svc, err := s.nextQueuedService()
+	if err != nil {
+		return "", err
+	}
+	out, err := svc.Run(ctx, in)
 	if err != nil {
 		return "", err
 	}
@@ -669,6 +673,47 @@ func (s *Service) nextQueuedTurnID(ctx context.Context, conversationID string) (
 		return "", nil
 	}
 	return out.Data[0].Id, nil
+}
+
+func (s *Service) activeTurnService() (*component.Service[turnread.ActiveTurnInput, turnread.ActiveTurnOutput], error) {
+	if s.activeTurnSvc != nil {
+		return s.activeTurnSvc, nil
+	}
+	if s.dao == nil {
+		return nil, fmt.Errorf("datly service is not configured")
+	}
+	s.activeTurnSvc = component.NewWithInjector[turnread.ActiveTurnInput, turnread.ActiveTurnOutput](
+		xhttp.NewRoute("GET", turnread.ActiveTurnPathURI),
+		s.componentInjector,
+	)
+	return s.activeTurnSvc, nil
+}
+
+func (s *Service) nextQueuedService() (*component.Service[turnread.NextQueuedInput, turnread.NextQueuedOutput], error) {
+	if s.nextQueuedSvc != nil {
+		return s.nextQueuedSvc, nil
+	}
+	if s.dao == nil {
+		return nil, fmt.Errorf("datly service is not configured")
+	}
+	s.nextQueuedSvc = component.NewWithInjector[turnread.NextQueuedInput, turnread.NextQueuedOutput](
+		xhttp.NewRoute("GET", turnread.NextQueuedPathURI),
+		s.componentInjector,
+	)
+	return s.nextQueuedSvc, nil
+}
+
+func (s *Service) componentInjector(ctx context.Context, route xhttp.Route) (state.Injector, error) {
+	comp, err := s.dao.Component(ctx, route.Method+":"+route.URL)
+	if err != nil {
+		return nil, err
+	}
+	sess := s.dao.NewComponentSession(comp)
+	handlerSess, err := s.dao.HandlerSession(ctx, comp, sess)
+	if err != nil {
+		return nil, err
+	}
+	return handlerSess.Stater(), nil
 }
 
 func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turnID string) error {

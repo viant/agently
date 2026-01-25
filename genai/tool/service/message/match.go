@@ -12,7 +12,6 @@ import (
 )
 
 type MatchInput struct {
-	Body      string `json:"body" internal:"true"`
 	MessageID string `json:"messageId"`
 	Query     string `json:"query"`
 	TopK      int    `json:"topK,omitempty"`
@@ -37,14 +36,20 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return fmt.Errorf("invalid output")
 	}
+	if strings.TrimSpace(input.MessageID) == "" {
+		return fmt.Errorf("messageId is required")
+	}
 	if s.embedder == nil {
 		return fmt.Errorf("embedder not initialised")
 	}
-	body := strings.TrimSpace(input.Body)
-	if body == "" && strings.TrimSpace(input.MessageID) != "" && s.conv != nil {
+	body := ""
+	if s.conv != nil {
 		if msg, _ := s.conv.GetMessage(ctx, input.MessageID, apiconv.WithIncludeToolCall(true)); msg != nil {
 			body = msg.GetContent()
 		}
+	}
+	if body == "" {
+		return fmt.Errorf("message body is empty for messageId %s", strings.TrimSpace(input.MessageID))
 	}
 	size := len(body)
 	chunk := effectiveMatchChunk(s.matchChunk, 4096)
