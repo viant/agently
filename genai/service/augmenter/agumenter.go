@@ -3,9 +3,9 @@ package augmenter
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"strings"
-	"time"
 
 	adaptembed "github.com/viant/agently/genai/embedder/adapter"
 	baseembed "github.com/viant/agently/genai/embedder/provider/base"
@@ -18,21 +18,20 @@ import (
 	"github.com/viant/embedius/indexer/fs/splitter"
 	"github.com/viant/embedius/matching"
 	"github.com/viant/embedius/matching/option"
-	"github.com/viant/embedius/vectordb/mem"
-	"os"
+	"github.com/viant/embedius/vectordb/sqlitevec"
 )
 
 type DocsAugmenter struct {
 	embedder  string
 	options   *option.Options
 	fsIndexer *fs.Indexer
-	memStore  *mem.Store
+	store     *sqlitevec.Store
 	service   *indexer.Service
 }
 
 type CodeAugmenter struct {
-	memStore *mem.Store
-	service  *indexer.Service
+	store   *sqlitevec.Store
+	service *indexer.Service
 }
 
 func Key(embedder string, options *option.Options) string {
@@ -60,29 +59,22 @@ func NewDocsAugmenter(ctx context.Context, embeddingsModel string, embedder base
 	splitterFactory := splitter.NewFactory(4096)
 	// Register a basic PDF splitter to extract printable text before chunking.
 	splitterFactory.RegisterExtensionSplitter(".pdf", NewPDFSplitter(4096))
+	store, err := newSQLiteStore(baseURL)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create sqlitevec store: %v", err))
+	}
 	ret := &DocsAugmenter{
 		embedder:  embeddingsModel,
 		fsIndexer: fs.New(baseURL, embeddingsModel, matcher, splitterFactory),
-		memStore: mem.NewStore(
-			mem.WithBaseURL(baseURL),
-			mem.WithExternalValues(true),
-			mem.WithWriterLock(true, 5*time.Second),
-			mem.WithWriterQueue(true),
-			mem.WithWriterGatePoll(250*time.Millisecond),
-			mem.WithWriterGateTTL(5*time.Second),
-			mem.WithWriterBatch(64),
-			mem.WithTailInterval(500*time.Millisecond),
-			mem.WithJournalTTL(24*time.Hour),
-			mem.WithStaleReaderTTL(24*time.Hour),
-		),
+		store:     store,
 	}
-	ret.service = indexer.NewService(baseURL, ret.memStore, adaptembed.LangchainEmbedderAdapter{Inner: embedder}, ret.fsIndexer)
+	ret.service = indexer.NewService(baseURL, ret.store, adaptembed.LangchainEmbedderAdapter{Inner: embedder}, ret.fsIndexer)
 
 	return ret
 }
 
-// NewDocsAugmenterWithStore constructs a DocsAugmenter that reuses the provided mem.Store.
-func NewDocsAugmenterWithStore(ctx context.Context, embeddingsModel string, embedder baseembed.Embedder, store *mem.Store, options ...option.Option) *DocsAugmenter {
+// NewDocsAugmenterWithStore constructs a DocsAugmenter that reuses the provided sqlitevec store.
+func NewDocsAugmenterWithStore(ctx context.Context, embeddingsModel string, embedder baseembed.Embedder, store *sqlitevec.Store, options ...option.Option) *DocsAugmenter {
 	baseURL := embeddingBaseURL(ctx)
 	_ = os.MkdirAll(baseURL, 0755)
 	matcher := matching.New(options...)
@@ -91,9 +83,9 @@ func NewDocsAugmenterWithStore(ctx context.Context, embeddingsModel string, embe
 	ret := &DocsAugmenter{
 		embedder:  embeddingsModel,
 		fsIndexer: fs.New(baseURL, embeddingsModel, matcher, splitterFactory),
-		memStore:  store,
+		store:     store,
 	}
-	ret.service = indexer.NewService(baseURL, ret.memStore, adaptembed.LangchainEmbedderAdapter{Inner: embedder}, ret.fsIndexer)
+	ret.service = indexer.NewService(baseURL, ret.store, adaptembed.LangchainEmbedderAdapter{Inner: embedder}, ret.fsIndexer)
 	return ret
 }
 
@@ -108,8 +100,23 @@ func embeddingBaseURL(ctx context.Context) string {
 }
 
 func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) (*DocsAugmenter, error) {
-	// Use a single augmenter per model+options (no per-user instances), and a single writer mem store
+	// Detect if any location targets MCP resources; if so, prefer a composite fs
+	// that supports both MCP and regular AFS sources.
+	useMCP := false
+	for _, loc := range input.Locations {
+		if mcpuri.Is(loc) {
+			useMCP = true
+			break
+		}
+	}
+	if useMCP && s.mcpMgr == nil {
+		return nil, fmt.Errorf("mcp manager not configured for MCP locations")
+	}
+	// Use a single augmenter per model+options(+mcp) and a shared sqlite store.
 	key := Key(input.Model, input.Match)
+	if useMCP {
+		key += ":mcp"
+	}
 	augmenter, ok := s.DocsAugmenters.Get(key)
 	if !ok {
 		model, err := s.finder.Find(ctx, input.Model)
@@ -120,29 +127,30 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 		if input.Match != nil {
 			matchOptions = input.Match.Options()
 		}
-		store := s.ensureMemStore(ctx)
-		// Detect if any location targets MCP resources; if so, prefer a composite fs
-		// that supports both MCP and regular AFS sources.
-		useMCP := false
-		for _, loc := range input.Locations {
-			if mcpuri.Is(loc) {
-				useMCP = true
-				break
-			}
-		}
+		store := s.ensureStore(ctx)
 		if useMCP && s.mcpMgr != nil {
 			baseURL := embeddingBaseURL(ctx)
 			_ = os.MkdirAll(baseURL, 0755)
 			matcher := matching.New(matchOptions...)
 			splitterFactory := splitter.NewFactory(4096)
 			splitterFactory.RegisterExtensionSplitter(".pdf", NewPDFSplitter(4096))
-			idx := fs.NewWithFS(baseURL, input.Model, matcher, splitterFactory, mcpfs.NewComposite(s.mcpMgr))
+			idx := fs.NewWithFS(
+				baseURL,
+				input.Model,
+				matcher,
+				splitterFactory,
+				mcpfs.NewComposite(
+					s.mcpMgr,
+					mcpfs.WithSnapshotResolver(s.mcpSnapshotResolver),
+					mcpfs.WithSnapshotManifestResolver(s.mcpSnapshotManifestResolver),
+				),
+			)
 			ret := &DocsAugmenter{
 				embedder:  input.Model,
 				fsIndexer: idx,
-				memStore:  store,
+				store:     store,
 			}
-			ret.service = indexer.NewService(baseURL, ret.memStore, adaptembed.LangchainEmbedderAdapter{Inner: model}, ret.fsIndexer)
+			ret.service = indexer.NewService(baseURL, ret.store, adaptembed.LangchainEmbedderAdapter{Inner: model}, ret.fsIndexer)
 			augmenter = ret
 		} else {
 			augmenter = NewDocsAugmenterWithStore(ctx, input.Model, model, store, matchOptions...)
@@ -152,25 +160,18 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 	return augmenter, nil
 }
 
-// ensureMemStore initialises a global writer-capable mem store once per process.
-func (s *Service) ensureMemStore(ctx context.Context) *mem.Store {
-	s.memStoreOnce.Do(func() {
+// ensureStore initializes a shared sqlite-vec store once per process.
+func (s *Service) ensureStore(ctx context.Context) *sqlitevec.Store {
+	s.storeOnce.Do(func() {
 		baseURL := embeddingBaseURL(ctx)
 		_ = os.MkdirAll(baseURL, 0755)
-		s.memStore = mem.NewStore(
-			mem.WithBaseURL(baseURL),
-			mem.WithExternalValues(true),
-			mem.WithWriterLock(true, 5*time.Second),
-			mem.WithWriterQueue(true),
-			mem.WithWriterGatePoll(250*time.Millisecond),
-			mem.WithWriterGateTTL(5*time.Second),
-			mem.WithWriterBatch(64),
-			mem.WithTailInterval(500*time.Millisecond),
-			mem.WithJournalTTL(24*time.Hour),
-			mem.WithStaleReaderTTL(24*time.Hour),
-		)
+		store, err := newSQLiteStore(baseURL)
+		if err != nil {
+			panic(fmt.Sprintf("failed to create sqlitevec store: %v", err))
+		}
+		s.store = store
 	})
-	return s.memStore
+	return s.store
 }
 
 // debugf prints Embedius-related debug information when AGENTLY_DEBUG_EMBEDIUS=1

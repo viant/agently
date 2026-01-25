@@ -9,6 +9,7 @@ import (
 	_ "github.com/viant/afsc/s3"
 	"github.com/viant/agently"
 	cagently "github.com/viant/agently/cmd/agently"
+	_ "github.com/viant/bigquery"
 )
 
 // Version is populated by build ldflags in CI/release builds.

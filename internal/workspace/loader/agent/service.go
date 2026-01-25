@@ -1265,6 +1265,8 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 	roleExplicit := false
 	systemFlagSet := false
 	systemRole := "user"
+	hasMCP := false
+	hasURI := false
 	err := node.Pairs(func(key string, v *yml.Node) error {
 		switch strings.ToLower(strings.TrimSpace(key)) {
 		case "id":
@@ -1274,7 +1276,19 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 		case "uri":
 			if v.Kind == yaml.ScalarNode {
 				re.URI = strings.TrimSpace(v.Value)
+				if re.URI != "" {
+					hasURI = true
+				}
 			}
+		case "mcp":
+			if v.Kind == yaml.ScalarNode {
+				re.MCP = strings.TrimSpace(v.Value)
+				if re.MCP != "" {
+					hasMCP = true
+				}
+			}
+		case "roots":
+			re.Roots = asStringList(v)
 		case "role":
 			if v.Kind == yaml.ScalarNode {
 				re.Role = strings.ToLower(strings.TrimSpace(v.Value))
@@ -1389,6 +1403,12 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 		} else if !strings.EqualFold(strings.TrimSpace(re.Role), systemRole) {
 			return nil, fmt.Errorf("resource entry role %q conflicts with system=%v", re.Role, systemRole == "system")
 		}
+	}
+	if hasMCP {
+		if hasURI {
+			return nil, fmt.Errorf("resource entry cannot set both uri and mcp")
+		}
+		return re, nil
 	}
 	re.URI = expandUserHome(re.URI)
 	if strings.TrimSpace(re.URI) == "" {
@@ -1684,6 +1704,36 @@ func asStrings(optValue *yml.Node) []string {
 		return result
 	}
 	return nil
+}
+
+func asStringList(value *yml.Node) []string {
+	if value == nil {
+		return nil
+	}
+	switch value.Kind {
+	case yaml.ScalarNode:
+		v := strings.TrimSpace(value.Value)
+		if v == "" {
+			return nil
+		}
+		return []string{v}
+	case yaml.SequenceNode:
+		out := make([]string, 0, len(value.Content))
+		for _, item := range value.Content {
+			if item == nil || item.Kind != yaml.ScalarNode {
+				continue
+			}
+			v := strings.TrimSpace(item.Value)
+			if v == "" {
+				continue
+			}
+			out = append(out, v)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return asStrings(value)
 }
 
 // getAgentNameFromURL extracts agent name from URL (file name without extension)

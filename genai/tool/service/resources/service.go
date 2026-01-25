@@ -1,6 +1,8 @@
 package resources
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/base64"
@@ -15,6 +17,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -31,9 +34,11 @@ import (
 	"github.com/viant/agently/genai/tool/service/shared/imageio"
 	"github.com/viant/agently/internal/agent/systemdoc"
 	authctx "github.com/viant/agently/internal/auth"
+	mcpcfg "github.com/viant/agently/internal/mcp/config"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	"github.com/viant/agently/internal/workspace"
+	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
 	embopt "github.com/viant/embedius/matching/option"
 	embSchema "github.com/viant/embedius/schema"
 	"github.com/viant/mcp-protocol/extension"
@@ -53,6 +58,11 @@ type Service struct {
 	defaultEmbedder string
 
 	augmentDocsOverride func(ctx context.Context, input *aug.AugmentDocsInput, output *aug.AugmentDocsOutput) error
+
+	descMu    sync.RWMutex
+	descCache map[string]string
+	mfsMu     sync.Mutex
+	mfs       *mcpfs.Service
 }
 
 // New returns a resources service using a shared augmenter instance.
@@ -81,8 +91,31 @@ func WithDefaultEmbedder(id string) func(*Service) {
 	return func(s *Service) { s.defaultEmbedder = strings.TrimSpace(id) }
 }
 
+func (s *Service) mcpFS(ctx context.Context) (*mcpfs.Service, error) {
+	if s.mcpMgr == nil {
+		return nil, fmt.Errorf("mcp manager not configured (resources/mcpfs)")
+	}
+	s.mfsMu.Lock()
+	defer s.mfsMu.Unlock()
+	if s.mfs == nil {
+		s.mfs = mcpfs.New(s.mcpMgr)
+	}
+	resolver := s.mcpSnapshotResolver(ctx)
+	if resolver != nil {
+		s.mfs.SetSnapshotResolver(resolver)
+	}
+	manifestResolver := s.mcpSnapshotManifestResolver(ctx)
+	if manifestResolver != nil {
+		s.mfs.SetSnapshotManifestResolver(manifestResolver)
+	}
+	return s.mfs, nil
+}
+
 // Name returns service name
 func (s *Service) Name() string { return Name }
+
+// ToolTimeout suggests a longer timeout for resources tools that may index large roots.
+func (s *Service) ToolTimeout() time.Duration { return 15 * time.Minute }
 
 // Methods declares available tool methods
 func (s *Service) Methods() svc.Signatures {
@@ -91,7 +124,7 @@ func (s *Service) Methods() svc.Signatures {
 		{Name: "list", Description: "List resources under a root (file or MCP)", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "read", Description: "Read a single resource under a root. For large files, prefer byteRange and page in chunks (<= 8KB).", Input: reflect.TypeOf(&ReadInput{}), Output: reflect.TypeOf(&ReadOutput{})},
 		{Name: "readImage", Description: "Read an image under a root and return a base64 payload suitable for attaching as a vision input. Defaults to resizing to fit 2048x768.", Input: reflect.TypeOf(&ReadImageInput{}), Output: reflect.TypeOf(&ReadImageOutput{})},
-		{Name: "match", Description: "Semantic match search over one or more roots; use `match.exclusions` to block specific workspace paths.", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
+		{Name: "match", Description: "Semantic match search over one or more roots; use `match.exclusions` to block specific  paths.", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
 		{Name: "matchDocuments", Description: "Rank semantic matches and return distinct URIs with score + root metadata for transcript promotion. Example: {\"rootIds\":[\"workspace://localhost/knowledge/bidder\"],\"query\":\"performance\"}. Output fields: documents[].uri, documents[].score, documents[].rootId.", Input: reflect.TypeOf(&MatchDocumentsInput{}), Output: reflect.TypeOf(&MatchDocumentsOutput{})},
 		{Name: "grepFiles", Description: "Search text patterns in files under a root and return per-file snippets.", Input: reflect.TypeOf(&GrepInput{}), Output: reflect.TypeOf(&GrepOutput{})},
 	}
@@ -210,7 +243,27 @@ func (s *Service) selectSearchRoots(ctx context.Context, roots []Root, input *Ma
 			matchedByURI := filterRootsByURI(roots, missing)
 			add(matchedByURI)
 			if remaining := missingRootIDs(input.RootIDs, append(matchedByID, matchedByURI...)); len(remaining) > 0 {
-				return nil, fmt.Errorf("unknown rootId(s): %s", strings.Join(remaining, ", "))
+				var unresolved []string
+				curAgent := s.currentAgent(ctx)
+				for _, id := range remaining {
+					uri, err := s.resolveRootID(ctx, id)
+					if err != nil || strings.TrimSpace(uri) == "" {
+						unresolved = append(unresolved, id)
+						continue
+					}
+					if !s.semanticAllowedForAgent(ctx, curAgent, uri) {
+						return nil, fmt.Errorf("rootId not semantic-enabled: %s", id)
+					}
+					add([]Root{{
+						ID:                    strings.TrimSpace(id),
+						URI:                   uri,
+						AllowedSemanticSearch: true,
+						Role:                  "system",
+					}})
+				}
+				if len(unresolved) > 0 {
+					return nil, fmt.Errorf("unknown rootId(s): %s", strings.Join(unresolved, ", "))
+				}
 			}
 		}
 	}
@@ -320,11 +373,21 @@ func missingRootIDs(requested []string, matched []Root) []string {
 }
 
 func normalizeRootID(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
+	v := strings.TrimSpace(value)
+	if mcpuri.Is(v) {
+		v = mcpuri.NormalizeForCompare(v)
+	}
+	return strings.ToLower(strings.TrimSpace(v))
 }
 
 func normalizeRootURI(value string) string {
-	return strings.ToLower(strings.TrimRight(strings.TrimSpace(value), "/"))
+	v := strings.TrimSpace(value)
+	if mcpuri.Is(v) {
+		v = mcpuri.NormalizeForCompare(v)
+	} else {
+		v = strings.TrimRight(v, "/")
+	}
+	return strings.ToLower(strings.TrimSpace(v))
 }
 
 func assignRootMetadata(doc *embSchema.Document, roots []searchRootMeta) {
@@ -335,9 +398,9 @@ func assignRootMetadata(doc *embSchema.Document, roots []searchRootMeta) {
 	if path == "" {
 		return
 	}
-	normalized := strings.ToLower(strings.TrimRight(path, "/"))
+	normalized := normalizeWorkspaceKey(path)
 	for _, entry := range roots {
-		prefix := strings.ToLower(strings.TrimRight(entry.wsRoot, "/"))
+		prefix := normalizeWorkspaceKey(entry.wsRoot)
 		if prefix == "" {
 			continue
 		}
@@ -367,6 +430,168 @@ func normalizeSearchPath(p string, wsRoot string) string {
 	return trimmed
 }
 
+func (s *Service) agentResources(ctx context.Context, ag *agmodel.Agent) []*agmodel.Resource {
+	if ag == nil || len(ag.Resources) == 0 {
+		return nil
+	}
+	var out []*agmodel.Resource
+	seen := map[string]struct{}{}
+	for _, r := range ag.Resources {
+		if r == nil {
+			continue
+		}
+		if strings.TrimSpace(r.URI) == "" && strings.TrimSpace(r.MCP) != "" {
+			for _, expanded := range s.expandMCPResources(ctx, r) {
+				if expanded == nil || strings.TrimSpace(expanded.URI) == "" {
+					continue
+				}
+				key := normalizeRootURI(expanded.URI)
+				if key == "" {
+					continue
+				}
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				out = append(out, expanded)
+			}
+			continue
+		}
+		if strings.TrimSpace(r.URI) == "" {
+			continue
+		}
+		key := normalizeRootURI(r.URI)
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func (s *Service) expandMCPResources(ctx context.Context, base *agmodel.Resource) []*agmodel.Resource {
+	if s == nil || s.mcpMgr == nil || base == nil {
+		return nil
+	}
+	server := strings.TrimSpace(base.MCP)
+	if server == "" {
+		return nil
+	}
+	opts, err := s.mcpMgr.Options(ctx, server)
+	if err != nil || opts == nil {
+		fmt.Printf("resources: mcp include server=%q err=%v\n", server, err)
+		return nil
+	}
+	roots := mcpcfg.ResourceRoots(opts.Metadata)
+	if len(roots) == 0 {
+		fmt.Printf("resources: mcp include server=%q no roots\n", server)
+		return nil
+	}
+	selectors := make([]string, 0, len(base.Roots))
+	for _, r := range base.Roots {
+		if v := strings.TrimSpace(r); v != "" {
+			selectors = append(selectors, v)
+		}
+	}
+	matchAll := len(selectors) == 0
+	for _, sel := range selectors {
+		if sel == "*" || strings.EqualFold(sel, "all") {
+			matchAll = true
+			break
+		}
+	}
+	var out []*agmodel.Resource
+	for _, root := range roots {
+		uri := strings.TrimRight(strings.TrimSpace(root.URI), "/")
+		if uri == "" {
+			continue
+		}
+		if !matchAll && !matchesMCPSelector(selectors, root) {
+			continue
+		}
+		if mcpuri.Is(uri) {
+			uri = normalizeMCPURI(uri)
+		}
+		rootID := strings.TrimSpace(root.ID)
+		if rootID == "" {
+			rootID = uri
+		}
+		role := strings.TrimSpace(base.Role)
+		if role == "" {
+			role = "user"
+		}
+		res := &agmodel.Resource{
+			ID:          rootID,
+			URI:         uri,
+			Role:        role,
+			Binding:     base.Binding,
+			MaxFiles:    base.MaxFiles,
+			TrimPath:    base.TrimPath,
+			Match:       base.Match,
+			MinScore:    base.MinScore,
+			Description: strings.TrimSpace(root.Description),
+		}
+		if strings.TrimSpace(base.Description) != "" {
+			res.Description = strings.TrimSpace(base.Description)
+		}
+		if base.AllowSemanticMatch != nil {
+			res.AllowSemanticMatch = base.AllowSemanticMatch
+		} else {
+			allowed := root.Vectorize && root.Snapshot
+			res.AllowSemanticMatch = &allowed
+		}
+		if base.AllowGrep != nil {
+			res.AllowGrep = base.AllowGrep
+		} else {
+			allowed := root.AllowGrep && root.Snapshot
+			res.AllowGrep = &allowed
+		}
+		out = append(out, res)
+	}
+	return out
+}
+
+func matchesMCPSelector(selectors []string, root mcpcfg.ResourceRoot) bool {
+	if len(selectors) == 0 {
+		return true
+	}
+	rootURI := strings.TrimSpace(root.URI)
+	rootID := strings.TrimSpace(root.ID)
+	if rootID == "" {
+		rootID = rootURI
+	}
+	for _, sel := range selectors {
+		if sel == "" {
+			continue
+		}
+		if normalizeRootID(sel) == normalizeRootID(rootID) {
+			return true
+		}
+		if normalizeRootURI(sel) == normalizeRootURI(rootURI) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeMCPURI(value string) string {
+	if !mcpuri.Is(value) {
+		return value
+	}
+	server, uri := mcpuri.Parse(value)
+	if strings.TrimSpace(server) == "" {
+		return value
+	}
+	normalized := mcpuri.Canonical(server, uri)
+	if normalized == "" {
+		return value
+	}
+	return normalized
+}
+
 func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput) (*augmentedDocuments, error) {
 	if s == nil {
 		return nil, fmt.Errorf("service not configured")
@@ -389,6 +614,23 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 		return nil, err
 	}
 	availableRoots := collectedRoots.all()
+	if mcpRoots := s.collectMCPRoots(ctx); len(mcpRoots) > 0 {
+		byURI := map[string]bool{}
+		for _, root := range availableRoots {
+			key := strings.TrimRight(strings.TrimSpace(root.URI), "/")
+			if key != "" {
+				byURI[key] = true
+			}
+		}
+		for _, root := range mcpRoots {
+			key := strings.TrimRight(strings.TrimSpace(root.URI), "/")
+			if key == "" || byURI[key] {
+				continue
+			}
+			byURI[key] = true
+			availableRoots = append(availableRoots, root)
+		}
+	}
 	if len(availableRoots) == 0 {
 		return nil, fmt.Errorf("no roots configured for semantic search")
 	}
@@ -404,6 +646,9 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 			continue
 		}
 		base := wsRoot
+		if mcpuri.Is(wsRoot) {
+			base = normalizeMCPURI(wsRoot)
+		}
 		if strings.HasPrefix(wsRoot, "workspace://") {
 			base = workspaceToFile(wsRoot)
 		}
@@ -471,8 +716,10 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
+	fmt.Printf("resources: match request query=%q roots=%v rootIds=%v path=%q\n", input.Query, input.Roots, input.RootIDs, input.Path)
 	res, err := s.buildAugmentedDocuments(ctx, input)
 	if err != nil {
+		fmt.Printf("resources: match error query=%q err=%v\n", input.Query, err)
 		return err
 	}
 
@@ -501,6 +748,7 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if hasNext {
 		output.NextCursor = cursor + 1
 	}
+	fmt.Printf("resources: match response query=%q docs=%d cursor=%d next=%d\n", input.Query, len(pageDocs), output.Cursor, output.NextCursor)
 	return nil
 }
 
@@ -535,6 +783,7 @@ func (s *Service) matchDocuments(ctx context.Context, in, out interface{}) error
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
+	fmt.Printf("resources: matchDocuments request query=%q rootIds=%v path=%q\n", input.Query, input.RootIDs, input.Path)
 	maxDocs := input.MaxDocuments
 	if maxDocs <= 0 {
 		maxDocs = 5
@@ -549,15 +798,18 @@ func (s *Service) matchDocuments(ctx context.Context, in, out interface{}) error
 	}
 	res, err := s.buildAugmentedDocuments(ctx, matchInput)
 	if err != nil {
+		fmt.Printf("resources: matchDocuments error query=%q err=%v\n", input.Query, err)
 		return err
 	}
 	docs := res.documents
 	ranked := uniqueMatchedDocuments(docs, maxDocs)
 	if len(ranked) == 0 {
 		output.Documents = nil
+		fmt.Printf("resources: matchDocuments response query=%q docs=0\n", input.Query)
 		return nil
 	}
 	output.Documents = ranked
+	fmt.Printf("resources: matchDocuments response query=%q docs=%d\n", input.Query, len(ranked))
 	return nil
 }
 
@@ -956,6 +1208,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	}
 	rootCtx, err := s.newRootContext(ctx, input.RootURI, input.RootID, s.agentAllowed(ctx))
 	if err != nil {
+		fmt.Printf("resources: list resolve error rootId=%q root=%q err=%v\n", input.RootID, input.RootURI, err)
 		return err
 	}
 	rootBase := rootCtx.Base()
@@ -971,7 +1224,11 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	afsSvc := afs.New()
 	mfs := (*mcpfs.Service)(nil)
 	if s.mcpMgr != nil {
-		mfs = mcpfs.New(s.mcpMgr)
+		var err error
+		mfs, err = s.mcpFS(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	max := input.MaxItems
 	if max <= 0 {
@@ -1200,14 +1457,17 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	}
 	target, err := s.resolveReadTarget(ctx, input, s.agentAllowed(ctx))
 	if err != nil {
+		fmt.Printf("resources: read resolve error rootId=%q root=%q uri=%q err=%v\n", input.RootID, input.RootURI, input.URI, err)
 		return err
 	}
 	data, err := s.downloadResource(ctx, target.fullURI)
 	if err != nil {
+		fmt.Printf("resources: read download error uri=%q err=%v\n", target.fullURI, err)
 		return err
 	}
 	selection, err := applyReadSelection(data, input)
 	if err != nil {
+		fmt.Printf("resources: read selection error uri=%q err=%v\n", target.fullURI, err)
 		return err
 	}
 	limitRequested := readLimitRequested(input)
@@ -1318,10 +1578,15 @@ func readLimitRequested(input *ReadInput) bool {
 
 func (s *Service) downloadResource(ctx context.Context, uri string) ([]byte, error) {
 	if mcpuri.Is(uri) {
-		if s.mcpMgr == nil {
-			return nil, fmt.Errorf("mcp manager not configured")
+		mfs, err := s.mcpFS(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("resources: download mcp uri=%q: %w", uri, err)
 		}
-		mfs := mcpfs.New(s.mcpMgr)
+		data, err := mfs.DownloadDirect(ctx, mcpfs.NewObjectFromURI(uri))
+		if err == nil {
+			return data, nil
+		}
+		fmt.Printf("resources: download direct failed uri=%q err=%v; falling back to snapshot\n", uri, err)
 		return mfs.Download(ctx, mcpfs.NewObjectFromURI(uri))
 	}
 	fs := afs.New()
@@ -1644,17 +1909,34 @@ func (s *Service) isAllowed(loc string, allowed []string) bool {
 }
 
 func isAllowedWorkspace(loc string, allowed []string) bool {
-	u := strings.TrimSpace(loc)
-	if u == "" {
+	uKey := normalizeWorkspaceKey(loc)
+	if uKey == "" {
 		return false
 	}
 	// Compare canonical workspace:// or mcp: prefixes
 	for _, a := range allowed {
-		if strings.HasPrefix(u, strings.TrimRight(a, "/")) {
+		aKey := normalizeWorkspaceKey(a)
+		if aKey == "" {
+			continue
+		}
+		if strings.HasPrefix(uKey, aKey) {
 			return true
 		}
 	}
 	return false
+}
+
+func normalizeWorkspaceKey(value string) string {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return ""
+	}
+	if mcpuri.Is(v) {
+		v = mcpuri.NormalizeForCompare(v)
+	} else {
+		v = strings.TrimRight(v, "/")
+	}
+	return strings.ToLower(strings.TrimSpace(v))
 }
 
 // -------- roots implementation --------
@@ -1663,6 +1945,7 @@ type ResourcesDefaults struct {
 	Locations    []string
 	TrimPath     string
 	SummaryFiles []string
+	DescribeMCP  bool
 }
 
 // WithDefaults configures default roots and presentation hints.
@@ -1734,11 +2017,11 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 			continue
 		}
 		seen[wsRoot] = true
-		desc := s.tryDescribe(ctx, wsRoot, kind)
+		desc := ""
 		role := "user"
 		rootID := wsRoot
-		if curAgent != nil && len(curAgent.Resources) > 0 {
-			for _, r := range curAgent.Resources {
+		if curAgent != nil {
+			for _, r := range s.agentResources(ctx, curAgent) {
 				if r == nil || strings.TrimSpace(r.URI) == "" {
 					continue
 				}
@@ -1746,7 +2029,7 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 				if err != nil || strings.TrimSpace(normRes) == "" {
 					continue
 				}
-				if strings.TrimRight(strings.TrimSpace(normRes), "/") == strings.TrimRight(strings.TrimSpace(wsRoot), "/") {
+				if normalizeWorkspaceKey(normRes) == normalizeWorkspaceKey(wsRoot) {
 					if strings.EqualFold(strings.TrimSpace(r.Role), "system") {
 						role = "system"
 					}
@@ -1759,6 +2042,9 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 					break
 				}
 			}
+		}
+		if desc == "" && (kind != "mcp" || s.defaults.DescribeMCP) {
+			desc = s.describeCached(ctx, wsRoot, kind)
 		}
 		semAllowed := s.semanticAllowedForAgent(ctx, curAgent, wsRoot)
 		grepAllowed := s.grepAllowedForAgent(ctx, curAgent, wsRoot)
@@ -1797,19 +2083,66 @@ func (s *Service) roots(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	mcpRoots := s.collectMCPRoots(ctx)
 	var roots []Root
+	seen := map[string]bool{}
 	appendWithLimit := func(source []Root) {
 		for _, r := range source {
 			if max > 0 && len(roots) >= max {
 				return
 			}
+			key := strings.TrimRight(strings.TrimSpace(r.URI), "/")
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
 			roots = append(roots, r)
 		}
 	}
 	appendWithLimit(collected.user)
 	appendWithLimit(collected.system)
+	appendWithLimit(mcpRoots)
 	output.Roots = roots
 	return nil
+}
+
+func (s *Service) collectMCPRoots(ctx context.Context) []Root {
+	if s == nil || s.mcpMgr == nil {
+		return nil
+	}
+	repo := mcprepo.New(afs.New())
+	names, err := repo.List(ctx)
+	if err != nil || len(names) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var roots []Root
+	for _, name := range names {
+		opts, err := s.mcpMgr.Options(ctx, name)
+		if err != nil || opts == nil {
+			continue
+		}
+		for _, root := range mcpcfg.ResourceRoots(opts.Metadata) {
+			uri := strings.TrimRight(strings.TrimSpace(root.URI), "/")
+			if uri == "" || seen[uri] {
+				continue
+			}
+			seen[uri] = true
+			rootID := strings.TrimSpace(root.ID)
+			if rootID == "" {
+				rootID = uri
+			}
+			roots = append(roots, Root{
+				ID:                    rootID,
+				URI:                   uri,
+				Description:           strings.TrimSpace(root.Description),
+				AllowedSemanticSearch: root.Vectorize && root.Snapshot,
+				AllowedGrepSearch:     root.AllowGrep && root.Snapshot,
+				Role:                  "system",
+			})
+		}
+	}
+	return roots
 }
 
 // normalizeLocation was unused; removed to reduce file size and duplication.
@@ -1840,7 +2173,7 @@ func (s *Service) resolveRootID(ctx context.Context, id string) (string, error) 
 	}
 
 	if curAgent != nil {
-		for _, r := range curAgent.Resources {
+		for _, r := range s.agentResources(ctx, curAgent) {
 			if r == nil {
 				continue
 			}
@@ -1854,6 +2187,22 @@ func (s *Service) resolveRootID(ctx context.Context, id string) (string, error) 
 				}
 				return norm, nil
 			}
+		}
+	}
+	// Check MCP roots defined in MCP client metadata (allows simple IDs like "mediator").
+	if s.mcpMgr != nil {
+		for _, root := range s.collectMCPRoots(ctx) {
+			if normalizeRootID(root.ID) != normalizeRootID(id) {
+				continue
+			}
+			norm, _, err := s.normalizeUserRoot(ctx, root.URI)
+			if err != nil {
+				return "", err
+			}
+			if strings.TrimSpace(norm) == "" {
+				break
+			}
+			return norm, nil
 		}
 	}
 	// Fallback: only treat id as a URI when it already looks like one
@@ -1884,6 +2233,10 @@ func (s *Service) normalizeUserRoot(ctx context.Context, in string) (string, str
 	u := strings.TrimSpace(in)
 	if u == "" {
 		return "", "", nil
+	}
+	// Treat github://... as shorthand for the github MCP server.
+	if strings.HasPrefix(strings.ToLower(u), "github://") {
+		return mcpuri.Canonical("github", u), "mcp", nil
 	}
 	if mcpuri.Is(u) {
 		return u, "mcp", nil
@@ -1984,10 +2337,10 @@ func (s *Service) tryDescribe(ctx context.Context, uri, kind string) string {
 		order = []string{".summary", ".summary.md", "README.md"}
 	}
 	if kind == "mcp" {
-		if s.mcpMgr == nil {
+		mfs, err := s.mcpFS(ctx)
+		if err != nil {
 			return ""
 		}
-		mfs := mcpfs.New(s.mcpMgr)
 		for _, name := range order {
 			p := url.Join(uri, name)
 			data, err := mfs.Download(ctx, mcpfs.NewObjectFromURI(p))
@@ -2010,6 +2363,30 @@ func (s *Service) tryDescribe(ctx context.Context, uri, kind string) string {
 		}
 	}
 	return ""
+}
+
+func (s *Service) describeCached(ctx context.Context, uri, kind string) string {
+	key := kind + "|" + normalizeWorkspaceKey(uri)
+	if key == "" {
+		return ""
+	}
+	s.descMu.RLock()
+	if s.descCache != nil {
+		if val, ok := s.descCache[key]; ok {
+			s.descMu.RUnlock()
+			return val
+		}
+	}
+	s.descMu.RUnlock()
+
+	desc := s.tryDescribe(ctx, uri, kind)
+	s.descMu.Lock()
+	if s.descCache == nil {
+		s.descCache = map[string]string{}
+	}
+	s.descCache[key] = desc
+	s.descMu.Unlock()
+	return desc
 }
 
 func summarizeText(s string) string {
@@ -2036,11 +2413,15 @@ func boundBytes(b []byte, n int) []byte {
 // agentAllowed gathers agent.resources URIs based on the current conversation context.
 func (s *Service) agentAllowed(ctx context.Context) []string {
 	ag := s.currentAgent(ctx)
-	if ag == nil || len(ag.Resources) == 0 {
+	if ag == nil {
 		return nil
 	}
-	out := make([]string, 0, len(ag.Resources))
-	for _, e := range ag.Resources {
+	expanded := s.agentResources(ctx, ag)
+	if len(expanded) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(expanded))
+	for _, e := range expanded {
 		if e == nil {
 			continue
 		}
@@ -2060,10 +2441,16 @@ func (s *Service) agentAllowed(ctx context.Context) []string {
 // no matching resource is found, the effective value defaults to true.
 func (s *Service) semanticAllowedForAgent(ctx context.Context, ag *agmodel.Agent, wsRoot string) bool {
 	ws := strings.TrimRight(strings.TrimSpace(wsRoot), "/")
-	if ws == "" || ag == nil || len(ag.Resources) == 0 {
+	if ws == "" || ag == nil {
+		if mcpuri.Is(ws) {
+			if meta, ok := s.mcpRootMeta(ctx, ws); ok && meta != nil {
+				return meta.Vectorize && meta.Snapshot
+			}
+			return false
+		}
 		return true
 	}
-	for _, r := range ag.Resources {
+	for _, r := range s.agentResources(ctx, ag) {
 		if r == nil || strings.TrimSpace(r.URI) == "" {
 			continue
 		}
@@ -2074,6 +2461,12 @@ func (s *Service) semanticAllowedForAgent(ctx context.Context, ag *agmodel.Agent
 		if strings.TrimRight(strings.TrimSpace(norm), "/") == ws {
 			return r.SemanticAllowed()
 		}
+	}
+	if mcpuri.Is(ws) {
+		if meta, ok := s.mcpRootMeta(ctx, ws); ok && meta != nil {
+			return meta.Vectorize && meta.Snapshot
+		}
+		return false
 	}
 	return true
 }
@@ -2090,13 +2483,16 @@ func (s *Service) grepAllowedForAgent(ctx context.Context, ag *agmodel.Agent, ws
 	// When no agent or resources are present, default to allowing grep on
 	// local/workspace roots but require an explicit resource with allowGrep
 	// for MCP roots.
-	if ag == nil || len(ag.Resources) == 0 {
+	if ag == nil {
 		if isMCP {
+			if meta, ok := s.mcpRootMeta(ctx, ws); ok && meta != nil {
+				return meta.AllowGrep && meta.Snapshot
+			}
 			return false
 		}
 		return true
 	}
-	for _, r := range ag.Resources {
+	for _, r := range s.agentResources(ctx, ag) {
 		if r == nil || strings.TrimSpace(r.URI) == "" {
 			continue
 		}
@@ -2111,9 +2507,79 @@ func (s *Service) grepAllowedForAgent(ctx context.Context, ag *agmodel.Agent, ws
 	// No matching resource: allow grep by default for local/workspace roots,
 	// but require explicit opt-in for MCP roots.
 	if isMCP {
+		if meta, ok := s.mcpRootMeta(ctx, ws); ok && meta != nil {
+			return meta.AllowGrep && meta.Snapshot
+		}
 		return false
 	}
 	return true
+}
+
+// mcpRootMeta resolves MCP resource metadata for the provided MCP root.
+func (s *Service) mcpRootMeta(ctx context.Context, location string) (*mcpcfg.ResourceRoot, bool) {
+	if s == nil || s.mcpMgr == nil {
+		return nil, false
+	}
+	server, _ := mcpuri.Parse(location)
+	if strings.TrimSpace(server) == "" {
+		return nil, false
+	}
+	opts, err := s.mcpMgr.Options(ctx, server)
+	if err != nil || opts == nil {
+		return nil, false
+	}
+	roots := mcpcfg.ResourceRoots(opts.Metadata)
+	if len(roots) == 0 {
+		return nil, false
+	}
+	normLoc := strings.TrimRight(strings.TrimSpace(location), "/")
+	if mcpuri.Is(normLoc) {
+		normLoc = normalizeMCPURI(normLoc)
+	}
+	for _, root := range roots {
+		uri := strings.TrimRight(strings.TrimSpace(root.URI), "/")
+		if uri == "" {
+			continue
+		}
+		if mcpuri.Is(uri) {
+			uri = normalizeMCPURI(uri)
+		}
+		if normLoc == uri || strings.HasPrefix(normLoc, uri+"/") {
+			r := root
+			return &r, true
+		}
+	}
+	return nil, false
+}
+
+// mcpSnapshotResolver builds a snapshot resolver based on MCP metadata roots.
+func (s *Service) mcpSnapshotResolver(ctx context.Context) mcpfs.SnapshotResolver {
+	return func(location string) (snapshotURI, rootURI string, ok bool) {
+		root, found := s.mcpRootMeta(ctx, location)
+		if !found || root == nil || !root.Snapshot {
+			return "", "", false
+		}
+		rootURI = strings.TrimRight(strings.TrimSpace(root.URI), "/")
+		if rootURI == "" {
+			return "", "", false
+		}
+		snapshotURI = strings.TrimSpace(root.SnapshotURI)
+		if snapshotURI == "" {
+			snapshotURI = rootURI + "/_snapshot.zip"
+		}
+		return snapshotURI, rootURI, true
+	}
+}
+
+// mcpSnapshotManifestResolver reports whether snapshot MD5 manifests are enabled for a root.
+func (s *Service) mcpSnapshotManifestResolver(ctx context.Context) mcpfs.SnapshotManifestResolver {
+	return func(location string) bool {
+		root, found := s.mcpRootMeta(ctx, location)
+		if !found || root == nil || !root.Snapshot {
+			return false
+		}
+		return root.SnapshotMD5
+	}
 }
 
 // currentAgent returns the active agent from conversation context, if available.
@@ -2276,15 +2742,20 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	searchHash := grepSearchHash(input, rootURI)
 	curAgent := s.currentAgent(ctx)
 	allowed := s.agentAllowed(ctx)
+	if mcpuri.Is(rootURI) {
+		if wsRoot, _, err := s.normalizeUserRoot(ctx, rootURI); err == nil && strings.TrimSpace(wsRoot) != "" {
+			if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
+				if rootMeta, ok := s.mcpRootMeta(ctx, wsRoot); ok && rootMeta != nil {
+					allowed = append(allowed, wsRoot)
+				}
+			}
+		}
+	}
 	rootCtx, err := s.newRootContext(ctx, rootURI, input.RootID, allowed)
 	if err != nil {
 		return err
 	}
 	wsRoot := rootCtx.Workspace()
-	// Currently grepFiles is implemented for local/workspace-backed roots only.
-	if mcpuri.Is(wsRoot) {
-		return fmt.Errorf("grepFiles is not supported for mcp resources")
-	}
 	// Enforce per-resource grep capability when agent context is available.
 	if !s.grepAllowedForAgent(ctx, curAgent, wsRoot) {
 		return fmt.Errorf("grep not allowed for root: %s", rootURI)
@@ -2349,7 +2820,11 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	var files []hygine.GrepFile
 	totalBlocks := 0
 
-	// Local/workspace handling (MCP roots are rejected earlier in this method)
+	if mcpuri.Is(wsRoot) {
+		return s.grepMCPFiles(ctx, input, output, rootCtx, searchHash, matchers, excludeMatchers, includes, excludes, mode, limitBytes, limitLines, maxFiles, maxBlocks, maxSize, skipBinary)
+	}
+
+	// Local/workspace handling
 	fs := afs.New()
 
 	// When input.Path resolves to a file, avoid Walk (which assumes directories for file:// roots).
@@ -2579,6 +3054,228 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	return nil
 }
 
+func (s *Service) grepMCPFiles(
+	ctx context.Context,
+	input *GrepInput,
+	output *GrepOutput,
+	rootCtx *rootContext,
+	searchHash string,
+	matchers []*regexp.Regexp,
+	excludeMatchers []*regexp.Regexp,
+	includes []string,
+	excludes []string,
+	mode string,
+	limitBytes int,
+	limitLines int,
+	maxFiles int,
+	maxBlocks int,
+	maxSize int,
+	skipBinary bool,
+) error {
+	if s == nil || s.mcpMgr == nil {
+		return fmt.Errorf("mcp manager not configured")
+	}
+	wsRoot := rootCtx.Workspace()
+	rootMeta, ok := s.mcpRootMeta(ctx, wsRoot)
+	if !ok || rootMeta == nil || !rootMeta.Snapshot {
+		return fmt.Errorf("grep requires snapshot support for root: %s", wsRoot)
+	}
+	if !rootMeta.AllowGrep {
+		return fmt.Errorf("grep not allowed for root: %s", wsRoot)
+	}
+	resolver := s.mcpSnapshotResolver(ctx)
+	snapURI, rootURI, ok := resolver(wsRoot)
+	if !ok {
+		return fmt.Errorf("grep requires snapshot support for root: %s", wsRoot)
+	}
+	mfs, err := s.mcpFS(ctx)
+	if err != nil {
+		return err
+	}
+	data, err := mfs.Download(ctx, mcpfs.NewObjectFromURI(snapURI))
+	if err != nil {
+		return err
+	}
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return err
+	}
+	stripPrefix := detectZipStripPrefix(reader)
+	server, rootPath := mcpuri.Parse(rootURI)
+	rootPath = strings.TrimRight(rootPath, "/")
+	base := rootCtx.Base()
+	baseServer, basePath := mcpuri.Parse(base)
+	if strings.TrimSpace(baseServer) == "" {
+		basePath = rootPath
+	} else {
+		basePath = strings.TrimRight(basePath, "/")
+	}
+
+	stats := hygine.GrepStats{}
+	var files []hygine.GrepFile
+	totalBlocks := 0
+
+	for _, f := range reader.File {
+		if f == nil || f.FileInfo().IsDir() {
+			continue
+		}
+		rel := strings.TrimPrefix(f.Name, stripPrefix)
+		rel = strings.TrimPrefix(rel, "/")
+		if rel == "" {
+			continue
+		}
+		fullPath := mcpuri.JoinResourcePath(rootPath, rel)
+		if basePath != "" && basePath != rootPath {
+			if fullPath != basePath && !strings.HasPrefix(fullPath, basePath+"/") {
+				continue
+			}
+		}
+		uri := mcpuri.Canonical(server, fullPath)
+		relPath := relativePath(base, uri)
+		if relPath == "" {
+			relPath = relativePath(wsRoot, uri)
+		}
+		if relPath == "" {
+			relPath = rel
+		}
+		name := pathpkg.Base(strings.TrimSuffix(relPath, "/"))
+		if !listMatchesFilters(relPath, name, includes, excludes) {
+			continue
+		}
+		stats.Scanned++
+		if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
+			stats.Truncated = true
+			break
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		fileData, err := readZipFile(rc, maxSize)
+		_ = rc.Close()
+		if err != nil {
+			return err
+		}
+		if skipBinary && isBinary(fileData) {
+			continue
+		}
+		text := string(fileData)
+		lines := strings.Split(text, "\n")
+		var matchLines []int
+		for i, line := range lines {
+			if lineMatches(line, matchers, excludeMatchers) {
+				matchLines = append(matchLines, i)
+			}
+		}
+		if len(matchLines) == 0 {
+			continue
+		}
+		stats.Matched++
+		gf := hygine.GrepFile{Path: relPath, URI: uri, Matches: len(matchLines)}
+		gf.SearchHash = searchHash
+		if mode == "head" {
+			end := limitLines
+			if end > len(lines) {
+				end = len(lines)
+			}
+			snippetText := joinLines(lines[:end])
+			if len(snippetText) > limitBytes {
+				snippetText = snippetText[:limitBytes]
+			}
+			gf.Snippets = append(gf.Snippets, hygine.Snippet{StartLine: 1, EndLine: end, Text: snippetText})
+			gf.RangeKey = fmt.Sprintf("%d-%d", 1, end)
+			files = append(files, gf)
+			if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
+				stats.Truncated = true
+				break
+			}
+			continue
+		}
+		for _, idx := range matchLines {
+			if totalBlocks >= maxBlocks {
+				stats.Truncated = true
+				break
+			}
+			start := idx - limitLines/2
+			if start < 0 {
+				start = 0
+			}
+			end := start + limitLines
+			if end > len(lines) {
+				end = len(lines)
+			}
+			snippetText := joinLines(lines[start:end])
+			cut := false
+			if len(snippetText) > limitBytes {
+				snippetText = snippetText[:limitBytes]
+				cut = true
+			}
+			gf.Snippets = append(gf.Snippets, hygine.Snippet{
+				StartLine:   start + 1,
+				EndLine:     end,
+				Text:        snippetText,
+				OffsetBytes: 0,
+				LengthBytes: len(snippetText),
+				Cut:         cut,
+			})
+			if gf.RangeKey == "" {
+				gf.RangeKey = fmt.Sprintf("%d-%d", start+1, end)
+			}
+			totalBlocks++
+			if totalBlocks >= maxBlocks {
+				stats.Truncated = true
+				break
+			}
+		}
+		files = append(files, gf)
+		if stats.Matched >= maxFiles || totalBlocks >= maxBlocks {
+			stats.Truncated = true
+			break
+		}
+	}
+	output.Stats = stats
+	output.Files = files
+	return nil
+}
+
+func readZipFile(rc io.Reader, maxSize int) ([]byte, error) {
+	if maxSize > 0 {
+		rc = io.LimitReader(rc, int64(maxSize))
+	}
+	return io.ReadAll(rc)
+}
+
+func detectZipStripPrefix(reader *zip.Reader) string {
+	if reader == nil {
+		return ""
+	}
+	common := ""
+	for _, f := range reader.File {
+		if f == nil || f.FileInfo().IsDir() {
+			continue
+		}
+		name := strings.TrimPrefix(f.Name, "/")
+		if name == "" {
+			continue
+		}
+		parts := strings.SplitN(name, "/", 2)
+		if len(parts) < 2 || parts[0] == "" {
+			return ""
+		}
+		if common == "" {
+			common = parts[0]
+			continue
+		}
+		if common != parts[0] {
+			return ""
+		}
+	}
+	if common == "" {
+		return ""
+	}
+	return common + "/"
+}
+
 // splitPatterns splits a logical OR expression into individual patterns.
 // It supports simple separators like "|" and textual "or" (case-insensitive)
 // surrounded by spaces, e.g. "Auth or Token" or "AUTH OR TOKEN".
@@ -2634,7 +3331,14 @@ func compilePatterns(patterns []string, caseInsensitive bool) ([]*regexp.Regexp,
 		}
 		re, err := regexp.Compile(pat)
 		if err != nil {
-			return nil, fmt.Errorf("invalid pattern %q: %w", p, err)
+			literal := regexp.QuoteMeta(strings.TrimSpace(p))
+			if caseInsensitive {
+				literal = "(?i)" + literal
+			}
+			re, err = regexp.Compile(literal)
+			if err != nil {
+				return nil, fmt.Errorf("invalid pattern %q: %w", p, err)
+			}
 		}
 		out = append(out, re)
 	}

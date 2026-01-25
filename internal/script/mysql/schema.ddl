@@ -359,3 +359,17 @@ CREATE TABLE IF NOT EXISTS user_oauth_token (
   PRIMARY KEY (user_id, provider),
   CONSTRAINT fk_uot_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Sessions (server-side). Each session is tied to a user + auth provider.
+CREATE TABLE IF NOT EXISTS session (
+  id          VARCHAR(64)  PRIMARY KEY,
+  user_id     VARCHAR(255) NOT NULL,
+  provider    VARCHAR(128) NOT NULL,
+  created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMP    NULL DEFAULT NULL,
+  expires_at  TIMESTAMP    NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE INDEX idx_session_user_id ON session(user_id);
+CREATE INDEX idx_session_provider ON session(provider);
+CREATE INDEX idx_session_expires_at ON session(expires_at);

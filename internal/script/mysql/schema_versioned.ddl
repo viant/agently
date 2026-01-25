@@ -390,6 +390,20 @@ CREATE TABLE IF NOT EXISTS user_oauth_token (
     CONSTRAINT fk_uot_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- Sessions (server-side). Each session is tied to a user + auth provider.
+CREATE TABLE IF NOT EXISTS session (
+    id          VARCHAR(64)  PRIMARY KEY,
+    user_id     VARCHAR(255) NOT NULL,
+    provider    VARCHAR(128) NOT NULL,
+    created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP    NULL DEFAULT NULL,
+    expires_at  TIMESTAMP    NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE INDEX idx_session_user_id ON session(user_id);
+CREATE INDEX idx_session_provider ON session(provider);
+CREATE INDEX idx_session_expires_at ON session(expires_at);
+
 CALL set_schema_version(2);
 END IF;
 END $$
@@ -550,5 +564,56 @@ END $$
 
 CALL schema_upgrade_4() $$
 DROP PROCEDURE schema_upgrade_4 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_5 $$
+CREATE PROCEDURE schema_upgrade_5()
+BEGIN
+    IF get_schema_version() = 5 THEN
+        -- Session table + indexes
+        CREATE TABLE IF NOT EXISTS session (
+            id          VARCHAR(64)  PRIMARY KEY,
+            user_id     VARCHAR(255) NOT NULL,
+            provider    VARCHAR(128) NOT NULL,
+            created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at  TIMESTAMP    NULL DEFAULT NULL,
+            expires_at  TIMESTAMP    NOT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'session'
+              AND INDEX_NAME = 'idx_session_user_id'
+        ) THEN
+            CREATE INDEX idx_session_user_id ON session(user_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'session'
+              AND INDEX_NAME = 'idx_session_provider'
+        ) THEN
+            CREATE INDEX idx_session_provider ON session(provider);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'session'
+              AND INDEX_NAME = 'idx_session_expires_at'
+        ) THEN
+            CREATE INDEX idx_session_expires_at ON session(expires_at);
+        END IF;
+
+        CALL set_schema_version(6);
+    END IF;
+END $$
+
+CALL schema_upgrade_5() $$
+DROP PROCEDURE schema_upgrade_5 $$
 
 DELIMITER ;

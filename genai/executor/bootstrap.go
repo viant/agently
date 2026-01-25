@@ -36,6 +36,7 @@ import (
 	mcpcfg "github.com/viant/agently/internal/mcp/config"
 	mcpcookies "github.com/viant/agently/internal/mcp/cookies"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
+	mcpuri "github.com/viant/agently/internal/mcp/uri"
 	protoclient "github.com/viant/mcp-protocol/client"
 	authtransport "github.com/viant/mcp/client/auth/transport"
 	// mcp client types not used here
@@ -45,6 +46,7 @@ import (
 	"github.com/viant/agently/genai/memory"
 	agent2 "github.com/viant/agently/genai/service/agent"
 	augmenter "github.com/viant/agently/genai/service/augmenter"
+	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
 	core "github.com/viant/agently/genai/service/core"
 	llmagents "github.com/viant/agently/genai/tool/service/llm/agents"
 	llmexectool "github.com/viant/agently/genai/tool/service/llm/exec"
@@ -114,7 +116,27 @@ func (e *Service) init(ctx context.Context) error {
 	}
 
 	// Initialise decoupled core/agent services and conversation manager
-	enricher := augmenter.New(e.embedderFinder, augmenter.WithMCPManager(e.mcpMgr))
+	var upstreamConcurrency int
+	var matchConcurrency int
+	indexAsync := true
+	if e.config != nil {
+		upstreamConcurrency = e.config.Default.Resources.UpstreamSyncConcurrency
+		matchConcurrency = e.config.Default.Resources.MatchConcurrency
+		if e.config.Default.Resources.IndexAsync != nil {
+			indexAsync = *e.config.Default.Resources.IndexAsync
+		}
+	}
+	snapResolver := buildSnapshotResolver(ctx, e.mcpMgr)
+	manifestResolver := buildSnapshotManifestResolver(ctx, e.mcpMgr)
+	enricher := augmenter.New(
+		e.embedderFinder,
+		augmenter.WithMCPManager(e.mcpMgr),
+		augmenter.WithMCPSnapshotResolver(snapResolver),
+		augmenter.WithMCPSnapshotManifestResolver(manifestResolver),
+		augmenter.WithUpstreamSyncConcurrency(upstreamConcurrency),
+		augmenter.WithMatchConcurrency(matchConcurrency),
+		augmenter.WithIndexAsync(indexAsync),
+	)
 	e.llmCore = core.New(e.modelFinder, e.tools, e.convClient)
 	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, &e.config.Default, e.convClient,
 		func(s *agent2.Service) {
@@ -143,6 +165,7 @@ func (e *Service) init(ctx context.Context) error {
 		if len(e.config.Default.Resources.SummaryFiles) > 0 {
 			rdef.SummaryFiles = append(rdef.SummaryFiles, e.config.Default.Resources.SummaryFiles...)
 		}
+		rdef.DescribeMCP = e.config.Default.Resources.DescribeMCP
 	}
 	gtool.AddInternalService(e.tools, rsrcsvc.New(
 		enricher,
@@ -825,6 +848,12 @@ func (e *Service) ensureClientHandler() {
 // mergeMCPRepoEntries loads MCP client configs from the workspace repository and merges
 // them into the service config, skipping duplicates by Name. Collects all errors.
 func (e *Service) mergeMCPRepoEntries(ctx context.Context) error {
+	if e == nil || e.config == nil {
+		return fmt.Errorf("mcp: config not initialized")
+	}
+	if e.config.MCP == nil {
+		e.config.MCP = &mcpcfg.Group[*mcpcfg.MCPClient]{}
+	}
 	repo := mcprepo.New(afs.New())
 	names, err := repo.List(ctx)
 	if err != nil {
@@ -838,6 +867,9 @@ func (e *Service) mergeMCPRepoEntries(ctx context.Context) error {
 			continue
 		}
 		if opt == nil {
+			continue
+		}
+		if opt.ClientOptions == nil || strings.TrimSpace(opt.Name) == "" {
 			continue
 		}
 		if e.hasMCPClientByName(opt.Name) {
@@ -862,8 +894,14 @@ func (e *Service) mergeMCPRepoEntries(ctx context.Context) error {
 }
 
 func (e *Service) hasMCPClientByName(name string) bool {
+	if e == nil || e.config == nil || e.config.MCP == nil {
+		return false
+	}
 	for _, ex := range e.config.MCP.Items {
-		if ex != nil && ex.Name == name {
+		if ex == nil || ex.ClientOptions == nil {
+			continue
+		}
+		if ex.Name == name {
 			return true
 		}
 	}
@@ -965,6 +1003,91 @@ func (e *Service) initAgent(ctx context.Context) {
 				e.config.Agent.Items = append(e.config.Agent.Items, a)
 			}
 		}
+	}
+}
+
+func buildSnapshotResolver(ctx context.Context, mgr *mcpmgr.Manager) mcpfs.SnapshotResolver {
+	return func(location string) (snapshotURI, rootURI string, ok bool) {
+		if mgr == nil {
+			return "", "", false
+		}
+		server, _ := mcpuri.Parse(location)
+		if strings.TrimSpace(server) == "" {
+			return "", "", false
+		}
+		opts, err := mgr.Options(ctx, server)
+		if err != nil || opts == nil {
+			return "", "", false
+		}
+		roots := mcpcfg.ResourceRoots(opts.Metadata)
+		if len(roots) == 0 {
+			return "", "", false
+		}
+		normLoc := strings.TrimRight(strings.TrimSpace(location), "/")
+		if mcpuri.Is(normLoc) {
+			normLoc = mcpuri.NormalizeForCompare(normLoc)
+		}
+		for _, root := range roots {
+			if !root.Snapshot {
+				continue
+			}
+			uri := strings.TrimRight(strings.TrimSpace(root.URI), "/")
+			if uri == "" {
+				continue
+			}
+			if mcpuri.Is(uri) {
+				uri = mcpuri.NormalizeForCompare(uri)
+			}
+			if normLoc == uri || strings.HasPrefix(normLoc, uri+"/") {
+				rootURI = uri
+				snapshotURI = strings.TrimSpace(root.SnapshotURI)
+				if snapshotURI == "" {
+					snapshotURI = rootURI + "/_snapshot.zip"
+				}
+				return snapshotURI, rootURI, true
+			}
+		}
+		return "", "", false
+	}
+}
+
+func buildSnapshotManifestResolver(ctx context.Context, mgr *mcpmgr.Manager) mcpfs.SnapshotManifestResolver {
+	return func(location string) bool {
+		if mgr == nil {
+			return false
+		}
+		server, _ := mcpuri.Parse(location)
+		if strings.TrimSpace(server) == "" {
+			return false
+		}
+		opts, err := mgr.Options(ctx, server)
+		if err != nil || opts == nil {
+			return false
+		}
+		roots := mcpcfg.ResourceRoots(opts.Metadata)
+		if len(roots) == 0 {
+			return false
+		}
+		normLoc := strings.TrimRight(strings.TrimSpace(location), "/")
+		if mcpuri.Is(normLoc) {
+			normLoc = mcpuri.NormalizeForCompare(normLoc)
+		}
+		for _, root := range roots {
+			if !root.Snapshot || !root.SnapshotMD5 {
+				continue
+			}
+			uri := strings.TrimRight(strings.TrimSpace(root.URI), "/")
+			if uri == "" {
+				continue
+			}
+			if mcpuri.Is(uri) {
+				uri = mcpuri.NormalizeForCompare(uri)
+			}
+			if normLoc == uri || strings.HasPrefix(normLoc, uri+"/") {
+				return true
+			}
+		}
+		return false
 	}
 }
 

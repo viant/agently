@@ -229,3 +229,48 @@ system: true`)
 		assert.Error(t, err)
 	})
 }
+
+func TestParseResourceEntry_MCPShorthand(t *testing.T) {
+	makeNode := func(doc string) *yml.Node {
+		var root yaml.Node
+		require.NoError(t, yaml.Unmarshal([]byte(doc), &root))
+		require.Greater(t, len(root.Content), 0)
+		return (*yml.Node)(root.Content[0])
+	}
+
+	t.Run("mcp shorthand defaults roots", func(t *testing.T) {
+		node := makeNode(`mcp: github
+system: true`)
+		res, err := parseResourceEntry(node)
+		assert.NoError(t, err)
+		if assert.NotNil(t, res) {
+			assert.Equal(t, "github", res.MCP)
+			assert.Empty(t, res.Roots)
+			assert.Equal(t, "system", res.Role)
+			assert.Empty(t, res.URI)
+		}
+	})
+
+	t.Run("mcp shorthand with roots list", func(t *testing.T) {
+		node := makeNode(`mcp: github
+roots:
+  - mediator
+  - mcp:github://github.vianttech.com/viant/mdp
+role: user`)
+		res, err := parseResourceEntry(node)
+		assert.NoError(t, err)
+		if assert.NotNil(t, res) {
+			assert.Equal(t, "github", res.MCP)
+			assert.Equal(t, []string{"mediator", "mcp:github://github.vianttech.com/viant/mdp"}, res.Roots)
+			assert.Equal(t, "user", res.Role)
+			assert.Empty(t, res.URI)
+		}
+	})
+
+	t.Run("mcp shorthand conflicts with uri", func(t *testing.T) {
+		node := makeNode(`mcp: github
+uri: workspace://foo`)
+		_, err := parseResourceEntry(node)
+		assert.Error(t, err)
+	})
+}

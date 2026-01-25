@@ -38,6 +38,9 @@ import (
 	invk "github.com/viant/agently/pkg/agently/tool/invoker"
 	oauthread "github.com/viant/agently/pkg/agently/user/oauth"
 	oauthwrite "github.com/viant/agently/pkg/agently/user/oauth/write"
+	sessionread "github.com/viant/agently/pkg/agently/user/session"
+	sessiondelete "github.com/viant/agently/pkg/agently/user/session/delete"
+	sessionwrite "github.com/viant/agently/pkg/agently/user/session/write"
 	fhandlers "github.com/viant/forge/backend/handlers"
 	fservice "github.com/viant/forge/backend/service/file"
 )
@@ -132,6 +135,23 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR
 		return nil, err
 	}
 
+	// OAuth + session components (read/write/delete) – used by token/session stores via dao.Operate only.
+	if err := oauthread.DefineTokenComponent(context.Background(), dao); err != nil {
+		return nil, err
+	}
+	if _, err := oauthwrite.DefineComponent(context.Background(), dao); err != nil {
+		return nil, err
+	}
+	if err := sessionread.DefineSessionComponent(context.Background(), dao); err != nil {
+		return nil, err
+	}
+	if _, err := sessiondelete.DefineComponent(context.Background(), dao); err != nil {
+		return nil, err
+	}
+	if _, err := sessionwrite.DefineComponent(context.Background(), dao); err != nil {
+		return nil, err
+	}
+
 	mux.Handle("/v1/api/workflow/run", workflow.New(exec, svc))
 
 	// Auth endpoints (local login, me, logout) – using shared DAO and shared session manager
@@ -140,7 +160,7 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR
 	if authCfg == nil {
 		authCfg = &iauth.Config{}
 	}
-	sess := iauth.NewManager(authCfg)
+	sess := iauth.NewManager(authCfg, iauth.WithSessionStore(iauth.NewSessionStoreDAO(dao)))
 	if ah, err := authhttp.NewWithDatlyAndConfigExt(dao, sess, authCfg, cfg.Default.Model, cfg.Default.Agent, cfg.Default.Embedder); err == nil {
 		mux.Handle("/v1/api/auth/", ah)
 	}
@@ -194,13 +214,7 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR
 		_ = *schsvc.StartWatchdog(wdCtx, schedulerOrch, interval)
 	}
 
-	// OAuth token components (read + write) – used by token store via dao.Operate only.
-	if err := oauthread.DefineTokenComponent(context.Background(), dao); err != nil {
-		return nil, err
-	}
-	if _, err := oauthwrite.DefineComponent(context.Background(), dao); err != nil {
-		return nil, err
-	}
+	// OAuth + session components are registered above.
 
 	// User preferences endpoint (/v1/api/me/preferences)
 	if uph, err := userpref.Handler(); err == nil {

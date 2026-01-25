@@ -17,8 +17,8 @@ type Composite struct {
 }
 
 // NewComposite constructs a composite fs service.
-func NewComposite(mgr *mcpmgr.Manager) *Composite {
-	return &Composite{mcp: New(mgr), afs: afs.New()}
+func NewComposite(mgr *mcpmgr.Manager, opts ...Option) *Composite {
+	return &Composite{mcp: New(mgr, opts...), afs: afs.New()}
 }
 
 func (c *Composite) List(ctx context.Context, location string) ([]storage.Object, error) {
@@ -36,4 +36,15 @@ func (c *Composite) Download(ctx context.Context, object storage.Object) ([]byte
 		return c.mcp.Download(ctx, object)
 	}
 	return c.afs.Download(ctx, object)
+}
+
+// SnapshotUpToDate forwards snapshot checks to the MCP fs when applicable.
+func (c *Composite) SnapshotUpToDate(ctx context.Context, location string) (bool, error) {
+	if c == nil || c.mcp == nil {
+		return false, nil
+	}
+	if mcpuri.Is(location) {
+		return c.mcp.SnapshotUpToDate(ctx, location)
+	}
+	return false, nil
 }

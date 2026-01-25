@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	neturl "net/url"
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/viant/afs/storage"
@@ -19,12 +21,63 @@ import (
 // Service implements embedius fs.Service for MCP resources.
 // It lists and downloads resources via a per-conversation MCP client manager.
 type Service struct {
-	mgr *mcpmgr.Manager
+	mgr              *mcpmgr.Manager
+	snapshotResolver SnapshotResolver
+	manifestResolver SnapshotManifestResolver
+	snapshotMu       sync.Mutex
+	snapshots        map[string]*snapshotCache
+	snapInFlight     map[string]*snapshotWait
+	snapSizeMu       sync.RWMutex
+	snapSizes        map[string]int64
+}
+
+type snapshotWait struct {
+	done chan struct{}
+	err  error
+}
+
+// Option configures an MCP fs service.
+type Option func(*Service)
+
+// WithSnapshotResolver instructs the MCP fs to prefer snapshot reads when available.
+func WithSnapshotResolver(resolver SnapshotResolver) Option {
+	return func(s *Service) {
+		s.snapshotResolver = resolver
+	}
+}
+
+// WithSnapshotManifestResolver instructs the MCP fs to use snapshot MD5 manifests when enabled.
+func WithSnapshotManifestResolver(resolver SnapshotManifestResolver) Option {
+	return func(s *Service) {
+		s.manifestResolver = resolver
+	}
 }
 
 // New returns an MCP-backed fs service.
-func New(mgr *mcpmgr.Manager) *Service {
-	return &Service{mgr: mgr}
+func New(mgr *mcpmgr.Manager, opts ...Option) *Service {
+	s := &Service{mgr: mgr}
+	for _, o := range opts {
+		if o != nil {
+			o(s)
+		}
+	}
+	return s
+}
+
+// SetSnapshotResolver updates the snapshot resolver for an existing MCP fs service.
+func (s *Service) SetSnapshotResolver(resolver SnapshotResolver) {
+	if s == nil {
+		return
+	}
+	s.snapshotResolver = resolver
+}
+
+// SetSnapshotManifestResolver updates the snapshot manifest resolver for an existing MCP fs service.
+func (s *Service) SetSnapshotManifestResolver(resolver SnapshotManifestResolver) {
+	if s == nil {
+		return
+	}
+	s.manifestResolver = resolver
 }
 
 // List returns MCP resources under the given location prefix.
@@ -33,6 +86,10 @@ func (s *Service) List(ctx context.Context, location string) ([]storage.Object, 
 	if s == nil || s.mgr == nil {
 		return nil, fmt.Errorf("mcpfs: manager not configured")
 	}
+	if snapURI, rootURI, ok := s.resolveSnapshot(location); ok {
+		return s.listSnapshot(ctx, location, snapURI, rootURI)
+	}
+	fmt.Printf("mcpfs: list start location=%q\n", location)
 	server, prefix := mcpuri.Parse(location)
 	if strings.TrimSpace(server) == "" {
 		return nil, fmt.Errorf("mcpfs: invalid location: %s", location)
@@ -57,23 +114,145 @@ func (s *Service) List(ctx context.Context, location string) ([]storage.Object, 
 
 	var out []storage.Object
 	var cursor *string
+	matched := 0
 	for {
 		res, err := cli.ListResources(ctx, cursor)
 		if err != nil {
 			return nil, fmt.Errorf("mcpfs: list resources: %w", err)
 		}
 		for _, r := range res.Resources {
-			if prefix != "" && !strings.HasPrefix(r.Uri, prefix) {
+			if prefix != "" && !matchesMCPPrefix(r.Uri, prefix) {
 				continue
 			}
+			if r.Size != nil && *r.Size > 0 {
+				s.recordSnapshotSize(r.Uri, int64(*r.Size))
+			}
 			out = append(out, newObject(server, r))
+			matched++
 		}
 		if res.NextCursor == nil || strings.TrimSpace(*res.NextCursor) == "" {
 			break
 		}
 		cursor = res.NextCursor
 	}
+	if prefix != "" && matched == 0 {
+		fmt.Printf("mcpfs: warning: no resources matched prefix %q on server %q\n", prefix, server)
+	}
+	fmt.Printf("mcpfs: list done location=%q matched=%d total=%d\n", location, matched, len(out))
 	return out, nil
+}
+
+// SnapshotUpToDate reports whether a cached snapshot matches the remote size.
+func (s *Service) SnapshotUpToDate(ctx context.Context, location string) (bool, error) {
+	if s == nil || s.mgr == nil {
+		return false, nil
+	}
+	snapURI, _, ok := s.resolveSnapshot(location)
+	if !ok {
+		return false, nil
+	}
+	s.snapshotMu.Lock()
+	cache := s.snapshots[snapURI]
+	s.snapshotMu.Unlock()
+	if cache == nil {
+		return false, nil
+	}
+	cachedSize := cache.size
+	if cachedSize <= 0 {
+		if fi, err := os.Stat(cache.path); err == nil && fi.Mode().IsRegular() {
+			cachedSize = fi.Size()
+			cache.size = cachedSize
+		}
+	}
+	if cachedSize <= 0 {
+		return false, nil
+	}
+	remoteSize, ok := s.snapshotSize(snapURI)
+	if !ok || remoteSize <= 0 {
+		if size, ok, err := s.fetchSnapshotSize(ctx, snapURI); err != nil {
+			return false, err
+		} else if ok {
+			remoteSize = size
+		}
+	}
+	if remoteSize <= 0 {
+		fmt.Printf("mcpfs: snapshot size unknown for %q; assuming cached snapshot is up-to-date\n", snapURI)
+		return true, nil
+	}
+	return remoteSize == cachedSize, nil
+}
+
+func (s *Service) recordSnapshotSize(uri string, size int64) {
+	if s == nil || size <= 0 {
+		return
+	}
+	if !strings.HasSuffix(strings.ToLower(uri), "/_snapshot.zip") && !strings.HasSuffix(strings.ToLower(uri), "_snapshot.zip") {
+		return
+	}
+	s.snapSizeMu.Lock()
+	if s.snapSizes == nil {
+		s.snapSizes = map[string]int64{}
+	}
+	s.snapSizes[normalizeMCPURL(uri)] = size
+	s.snapSizeMu.Unlock()
+}
+
+func (s *Service) snapshotSize(uri string) (int64, bool) {
+	s.snapSizeMu.RLock()
+	defer s.snapSizeMu.RUnlock()
+	if s.snapSizes == nil {
+		return 0, false
+	}
+	size, ok := s.snapSizes[normalizeMCPURL(uri)]
+	return size, ok
+}
+
+func (s *Service) fetchSnapshotSize(ctx context.Context, snapURI string) (int64, bool, error) {
+	server, _ := mcpuri.Parse(snapURI)
+	if strings.TrimSpace(server) == "" {
+		return 0, false, nil
+	}
+	convID := memory.ConversationIDFromContext(ctx)
+	if strings.TrimSpace(convID) == "" {
+		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+			convID = tm.ConversationID
+		}
+	}
+	if strings.TrimSpace(convID) == "" {
+		return 0, false, nil
+	}
+	cli, err := s.mgr.Get(ctx, convID, server)
+	if err != nil {
+		return 0, false, err
+	}
+	ctx = s.mgr.WithAuthTokenContext(ctx, server)
+	if _, err := cli.Initialize(ctx); err != nil {
+		return 0, false, err
+	}
+	var cursor *string
+	target := normalizeMCPURL(snapURI)
+	for {
+		res, err := cli.ListResources(ctx, cursor)
+		if err != nil {
+			return 0, false, err
+		}
+		for _, r := range res.Resources {
+			if normalizeMCPURL(r.Uri) != target {
+				continue
+			}
+			if r.Size != nil && *r.Size > 0 {
+				size := int64(*r.Size)
+				s.recordSnapshotSize(r.Uri, size)
+				return size, true, nil
+			}
+			return 0, false, nil
+		}
+		if res.NextCursor == nil || strings.TrimSpace(*res.NextCursor) == "" {
+			break
+		}
+		cursor = res.NextCursor
+	}
+	return 0, false, nil
 }
 
 // Download reads the MCP resource contents for the given object.
@@ -81,7 +260,86 @@ func (s *Service) Download(ctx context.Context, object storage.Object) ([]byte, 
 	if s == nil || s.mgr == nil {
 		return nil, fmt.Errorf("mcpfs: manager not configured")
 	}
+	if object == nil {
+		return nil, nil
+	}
 	mcpURL := object.URL()
+	server, uri := mcpuri.Parse(mcpURL)
+	if strings.TrimSpace(server) == "" || strings.TrimSpace(uri) == "" {
+		return nil, fmt.Errorf("mcpfs: invalid mcp url: %s", mcpURL)
+	}
+	if snapURI, rootURI, ok := s.resolveSnapshot(mcpURL); ok {
+		// Log snapshot requests at root-level only to avoid per-file noise.
+		if normalizeMCPURL(mcpURL) == normalizeMCPURL(snapURI) {
+			cache, err := s.ensureSnapshot(ctx, snapURI)
+			if err != nil {
+				return nil, err
+			}
+			data, err := os.ReadFile(cache.path)
+			if err == nil {
+				fmt.Printf("mcpfs: snapshot cached read url=%q bytes=%d\n", mcpURL, len(data))
+			}
+			return data, err
+		}
+		cache, err := s.ensureSnapshot(ctx, snapURI)
+		if err != nil {
+			return nil, err
+		}
+		if so, ok := object.(*snapshotObject); ok {
+			return s.downloadSnapshotFile(cache, so.archivePath, s.resolveManifest(mcpURL))
+		}
+		return s.downloadSnapshotByURI(cache, rootURI, mcpURL)
+	}
+	data, err := s.downloadRaw(ctx, mcpURL)
+	if err == nil {
+		// no-op
+	}
+	return data, err
+}
+
+// DownloadDirect bypasses snapshot resolution and fetches the resource directly.
+func (s *Service) DownloadDirect(ctx context.Context, object storage.Object) ([]byte, error) {
+	if s == nil || s.mgr == nil {
+		return nil, fmt.Errorf("mcpfs: manager not configured")
+	}
+	if object == nil {
+		return nil, nil
+	}
+	mcpURL := object.URL()
+	server, uri := mcpuri.Parse(mcpURL)
+	if strings.TrimSpace(server) == "" || strings.TrimSpace(uri) == "" {
+		return nil, fmt.Errorf("mcpfs: invalid mcp url: %s", mcpURL)
+	}
+	data, err := s.downloadRaw(ctx, mcpURL)
+	if err == nil {
+		// no-op
+	}
+	return data, err
+}
+
+func matchesMCPPrefix(uri, prefix string) bool {
+	if prefix == "" {
+		return true
+	}
+	if strings.HasPrefix(uri, prefix) {
+		return true
+	}
+	if u, err := neturl.Parse(uri); err == nil {
+		if strings.HasPrefix(u.Path, prefix) {
+			return true
+		}
+		if u.Host != "" {
+			combined := "/" + u.Host + u.Path
+			return strings.HasPrefix(combined, prefix)
+		}
+	}
+	return false
+}
+
+func (s *Service) downloadRaw(ctx context.Context, mcpURL string) ([]byte, error) {
+	if s == nil || s.mgr == nil {
+		return nil, fmt.Errorf("mcpfs: manager not configured")
+	}
 	server, uri := mcpuri.Parse(mcpURL)
 	if strings.TrimSpace(server) == "" || strings.TrimSpace(uri) == "" {
 		return nil, fmt.Errorf("mcpfs: invalid mcp url: %s", mcpURL)
@@ -151,7 +409,7 @@ func newObject(server string, r mcpschema.Resource) storage.Object {
 		uri:    r.Uri,
 		name:   name,
 		size:   size,
-		url:    "mcp:" + server + ":" + r.Uri,
+		url:    mcpuri.Canonical(server, r.Uri),
 		mod:    time.Now(),
 		isDir:  false,
 		src:    r,

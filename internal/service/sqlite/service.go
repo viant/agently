@@ -22,7 +22,7 @@ func New(root string) *Service { return &Service{root: root} }
 const (
 	sqliteSchemaVersionTable  = "schema_version"
 	sqliteBaseSchemaVersion   = 1
-	sqliteTargetSchemaVersion = 5
+	sqliteTargetSchemaVersion = 6
 )
 
 // Ensure sets up a SQLite database under $ROOT/db/agently.db when missing and
@@ -127,6 +127,7 @@ func applySQLiteMigrations(ctx context.Context, db *sql.DB) error {
 		ensureSQLiteRawContentColumn,
 		ensureSQLiteTurnQueueSchema,
 		ensureSQLiteSchedulerLeaseSchema,
+		ensureSQLiteSessionTable,
 	}
 	for _, ensure := range ensures {
 		if err := ensure(ctx, db); err != nil {
@@ -204,6 +205,38 @@ func ensureSQLiteTurnQueueSchema(ctx context.Context, db *sql.DB) error {
 	}
 	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_turn_conv_queue_seq ON turn (conversation_id, queue_seq)"); err != nil {
 		return fmt.Errorf("create idx_turn_conv_queue_seq: %w", err)
+	}
+	return nil
+}
+
+func ensureSQLiteSessionTable(ctx context.Context, db *sql.DB) error {
+	const table = "session"
+	exists, err := sqliteTableExists(ctx, db, table)
+	if err != nil {
+		return fmt.Errorf("check %s table: %w", table, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, `
+CREATE TABLE session (
+  id          TEXT      PRIMARY KEY,
+  user_id     TEXT      NOT NULL,
+  provider    TEXT      NOT NULL,
+  created_at  DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME,
+  expires_at  DATETIME  NOT NULL
+);`); err != nil {
+		return fmt.Errorf("create %s table: %w", table, err)
+	}
+	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_session_user_id ON session(user_id)"); err != nil {
+		return fmt.Errorf("create idx_session_user_id: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_session_provider ON session(provider)"); err != nil {
+		return fmt.Errorf("create idx_session_provider: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_session_expires_at ON session(expires_at)"); err != nil {
+		return fmt.Errorf("create idx_session_expires_at: %w", err)
 	}
 	return nil
 }

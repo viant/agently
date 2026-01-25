@@ -118,8 +118,12 @@ type (
 		// can refer to the root using a short, opaque id instead of copying the
 		// full URI. When empty, tools may fall back to using the normalized URI
 		// as the effective id.
-		ID       string          `yaml:"id,omitempty" json:"id,omitempty"`
-		URI      string          `yaml:"uri" json:"uri"`
+		ID  string `yaml:"id,omitempty" json:"id,omitempty"`
+		URI string `yaml:"uri" json:"uri"`
+		// MCP denotes a shorthand include for MCP resources (e.g. "github").
+		// When set, Roots controls which MCP roots are expanded at runtime.
+		MCP      string          `yaml:"mcp,omitempty" json:"mcp,omitempty"`
+		Roots    []string        `yaml:"roots,omitempty" json:"roots,omitempty"`
 		Role     string          `yaml:"role,omitempty" json:"role,omitempty"`       // system|user
 		Binding  bool            `yaml:"binding,omitempty" json:"binding,omitempty"` // include in auto top‑N binding
 		MaxFiles int             `yaml:"maxFiles,omitempty" json:"maxFiles,omitempty"`

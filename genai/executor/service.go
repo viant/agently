@@ -156,7 +156,18 @@ func (e *Service) RegistryForConversation(convID string) tool.Registry {
 func (e *Service) registerServices(_ interface{}) {
 	/* Register orchestration actions: plan, execute and finalize
 		// Provide MCP manager to augmenter so it can index mcp: resources.
-		enricher := augmenter.New(e.embedderFinder, augmenter.WithMCPManager(e.mcpMgr))
+	var upstreamConcurrency int
+	var matchConcurrency int
+	if e.config != nil {
+		upstreamConcurrency = e.config.Default.Resources.UpstreamSyncConcurrency
+		matchConcurrency = e.config.Default.Resources.MatchConcurrency
+	}
+	enricher := augmenter.New(
+		e.embedderFinder,
+		augmenter.WithMCPManager(e.mcpMgr),
+		augmenter.WithUpstreamSyncConcurrency(upstreamConcurrency),
+		augmenter.WithMatchConcurrency(matchConcurrency),
+	)
 
 		e.llmCore = core.New(e.modelFinder, e.tools, e.convClient)
 
