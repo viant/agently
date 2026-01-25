@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 
@@ -51,9 +50,8 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 	}
 
 	conv, _ := s.fetchConversationForRouting(ctx, strings.TrimSpace(input.ConversationID))
-	model, modelName := s.resolveToolRouterModel(ctx, conv)
+	model, _ := s.resolveToolRouterModel(ctx, conv)
 	if model == nil {
-		log.Printf("[toolRouter] skipped conv=%s agent=%s reason=no_model", strings.TrimSpace(input.ConversationID), agentID)
 		return
 	}
 
@@ -123,10 +121,8 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 			ToolChoice:       llm.NewNoneToolChoice(),
 		},
 	}
-	log.Printf("[toolRouter] classify conv=%s agent=%s model=%s candidates=%d", strings.TrimSpace(input.ConversationID), agentID, modelName, len(lines))
 	resp, err := model.Generate(ctx, req)
 	if err != nil {
-		log.Printf("[toolRouter] failed conv=%s agent=%s err=%v", strings.TrimSpace(input.ConversationID), agentID, err)
 		return
 	}
 	selected := parseSelectedToolBundles(resp, outputKey)
@@ -154,13 +150,9 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 		}
 	}
 	if len(out) == 0 {
-		log.Printf("[toolRouter] ran conv=%s agent=%s selected=0", strings.TrimSpace(input.ConversationID), agentID)
 		return
 	}
 	input.ToolBundles = out
-	// Explicit signal for operators: this confirms the router LLM step ran and picked bundles.
-	log.Printf("[toolRouter] selected conv=%s agent=%s model=%s bundles=%s", strings.TrimSpace(input.ConversationID), agentID, modelName, strings.Join(out, ","))
-	log.Printf("[toolRouter] ran conv=%s agent=%s selected=%d bundles=%s", strings.TrimSpace(input.ConversationID), agentID, len(out), strings.Join(out, ","))
 }
 
 func (s *Service) fetchConversationForRouting(ctx context.Context, conversationID string) (*apiconv.Conversation, error) {

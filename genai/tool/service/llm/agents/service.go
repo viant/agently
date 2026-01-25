@@ -147,6 +147,14 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
+	convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	if convID == "" {
+		if v := strings.TrimSpace(ri.ConversationID); v != "" {
+			convID = v
+			ctx = memory.WithConversationID(ctx, convID)
+		}
+	}
+	ro.ConversationID = convID
 	// Strict routing: require id present in directory
 	if s.strict {
 		if _, ok := s.allowed[strings.TrimSpace(ri.AgentID)]; !ok {
@@ -224,6 +232,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		extCtx := ctx
 		if strings.TrimSpace(childConvID) != "" {
 			extCtx = memory.WithConversationID(ctx, childConvID)
+			ro.ConversationID = childConvID
 		}
 		ans, st, taskID, ctxID, streamSupp, warns, err := s.runExternal(extCtx, ri.AgentID, ri.Objective, ri.Context)
 		if err != nil {
@@ -238,6 +247,9 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 			ro.Answer = ans
 			ro.Status = st
 			ro.TaskID = taskID
+			if ro.ConversationID == "" {
+				ro.ConversationID = strings.TrimSpace(memory.ConversationIDFromContext(extCtx))
+			}
 			if strings.TrimSpace(ctxID) != "" {
 				ro.ContextID = ctxID
 			} else {
@@ -322,6 +334,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	}
 	if strings.TrimSpace(childConvID) != "" {
 		qi.ConversationID = childConvID
+		ro.ConversationID = childConvID
 	}
 	qo := &agentsvc.QueryOutput{}
 	// Clear any parent tool policy from context to avoid restricting delegated runs.
@@ -334,7 +347,12 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	}
 	ro.Answer = qo.Content
 	ro.Status = "succeeded"
-	ro.ConversationID = qo.ConversationID
+	if strings.TrimSpace(qo.ConversationID) != "" {
+		ro.ConversationID = qo.ConversationID
+	}
+	if ro.ConversationID == "" {
+		ro.ConversationID = convID
+	}
 	ro.MessageID = qo.MessageID
 	if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
 		preview := shared.RuneTruncate(qo.Content, 512)

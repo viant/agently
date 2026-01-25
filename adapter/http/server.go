@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -345,6 +346,50 @@ func humanTimestamp(t time.Time) string {
 		t.Hour(), t.Minute())
 }
 
+func parsePageSize(r *http.Request) (int, int, bool) {
+	if r == nil {
+		return 0, 0, false
+	}
+	q := r.URL.Query()
+	pageStr := strings.TrimSpace(q.Get("page"))
+	sizeStr := strings.TrimSpace(q.Get("size"))
+	if pageStr == "" && sizeStr == "" {
+		return 0, 0, false
+	}
+	page := 1
+	if pageStr != "" {
+		n, err := strconv.Atoi(pageStr)
+		if err != nil || n < 1 {
+			return 0, 0, false
+		}
+		page = n
+	}
+	size := 20
+	if sizeStr != "" {
+		n, err := strconv.Atoi(sizeStr)
+		if err != nil || n < 1 {
+			return 0, 0, false
+		}
+		size = n
+	}
+	return page, size, true
+}
+
+func paginateConversations(list []chat.ConversationSummary, page, size int) []chat.ConversationSummary {
+	if size <= 0 || page < 1 {
+		return list
+	}
+	start := (page - 1) * size
+	if start >= len(list) {
+		return []chat.ConversationSummary{}
+	}
+	end := start + size
+	if end > len(list) {
+		end = len(list)
+	}
+	return list[start:end]
+}
+
 // handleConversations supports POST to create new conversation id.
 func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -428,6 +473,9 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			list = filtered
+		}
+		if page, size, ok := parsePageSize(r); ok {
+			list = paginateConversations(list, page, size)
 		}
 		encode(w, http.StatusOK, list, nil)
 	default:
