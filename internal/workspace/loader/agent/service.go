@@ -1391,6 +1391,10 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 				}
 				re.MinScore = &f
 			}
+		case "upstreamref":
+			if v.Kind == yaml.ScalarNode {
+				re.UpstreamRef = strings.TrimSpace(v.Value)
+			}
 		}
 		return nil
 	})

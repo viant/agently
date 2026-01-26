@@ -22,11 +22,11 @@ import (
 //
 // The jar is persisted under:
 //
-//	$AGENTLY_WORKSPACE/state/mcp/bff/<user>/cookies.json
+//	$AGENTLY_STATE_PATH/mcp/bff/<user>/cookies.json
 //
 // It is optionally "warmed" from provider-specific jars:
 //
-//	$AGENTLY_WORKSPACE/state/mcp/<server>/<user>/cookies.json
+//	$AGENTLY_STATE_PATH/mcp/<server>/<user>/cookies.json
 //
 // By default, cookies are never migrated from anonymous scopes into a named user
 // to avoid accidental cross-identity reuse.
@@ -83,7 +83,7 @@ func (p *Provider) Jar(ctx context.Context) (http.CookieJar, error) {
 		return existing, nil
 	}
 
-	sharedDir := filepath.Join(workspace.Root(), "state", "mcp", "bff", user)
+	sharedDir := filepath.Join(workspace.StateRoot(), "mcp", "bff", user)
 	sharedPath := filepath.Join(sharedDir, "cookies.json")
 	if err := os.MkdirAll(sharedDir, 0o700); err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func (p *Provider) warmProviderCookies(dst http.CookieJar, user string) error {
 			continue
 		}
 		for _, scope := range scopes {
-			stateDir := filepath.Join(workspace.Root(), "state", "mcp", name, scope)
+			stateDir := filepath.Join(workspace.StateRoot(), "mcp", name, scope)
 			cookiesPath := filepath.Join(stateDir, "cookies.json")
 			ok, _ := p.fs.Exists(context.Background(), cookiesPath)
 			if !ok {

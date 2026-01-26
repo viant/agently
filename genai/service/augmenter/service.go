@@ -37,6 +37,11 @@ type Service struct {
 	mcpMgr                      *mcpmgr.Manager
 	mcpSnapshotResolver         mcpfs.SnapshotResolver
 	mcpSnapshotManifestResolver mcpfs.SnapshotManifestResolver
+	mcpSnapshotCacheRoot        string
+	indexPathTemplate           string
+	// Local (non-MCP) upstream sync configuration.
+	localRoots     []localRoot
+	localUpstreams map[string]LocalUpstream
 	// Global sqlite-vec store reused across all augmenters
 	store     *sqlitevec.Store
 	storeOnce sync.Once
@@ -75,6 +80,16 @@ func WithMCPSnapshotManifestResolver(resolver mcpfs.SnapshotManifestResolver) fu
 	return func(s *Service) { s.mcpSnapshotManifestResolver = resolver }
 }
 
+// WithMCPSnapshotCacheRoot sets the MCP snapshot cache root template.
+func WithMCPSnapshotCacheRoot(template string) func(*Service) {
+	return func(s *Service) { s.mcpSnapshotCacheRoot = strings.TrimSpace(template) }
+}
+
+// WithIndexPathTemplate sets the base path template for Embedius indexes.
+func WithIndexPathTemplate(template string) func(*Service) {
+	return func(s *Service) { s.indexPathTemplate = strings.TrimSpace(template) }
+}
+
 // WithUpstreamSyncConcurrency sets the max number of concurrent upstream syncs.
 func WithUpstreamSyncConcurrency(n int) func(*Service) {
 	return func(s *Service) {
@@ -100,9 +115,46 @@ func WithIndexAsync(enabled bool) func(*Service) {
 	return func(s *Service) { s.indexAsync = enabled }
 }
 
+// LocalRoot binds a non-MCP resource root to an upstream definition.
+type LocalRoot struct {
+	ID          string
+	URI         string
+	UpstreamRef string
+}
+
+// LocalUpstream defines a database used to sync local/workspace resources.
+type LocalUpstream struct {
+	Name               string
+	Driver             string
+	DSN                string
+	Shadow             string
+	Batch              int
+	Force              bool
+	Enabled            *bool
+	MinIntervalSeconds int
+}
+
+// WithLocalUpstreams configures local resource upstreams and root bindings.
+func WithLocalUpstreams(roots []LocalRoot, upstreams []LocalUpstream) func(*Service) {
+	return func(s *Service) {
+		s.localRoots = normalizeLocalRoots(roots)
+		s.localUpstreams = normalizeLocalUpstreams(upstreams)
+	}
+}
+
 // Name returns the service name
 func (s *Service) Name() string {
 	return name
+}
+
+func (s *Service) withIndexPath(ctx context.Context) context.Context {
+	if s == nil || strings.TrimSpace(s.indexPathTemplate) == "" {
+		return ctx
+	}
+	if strings.TrimSpace(indexPathTemplateFromContext(ctx)) != "" {
+		return ctx
+	}
+	return WithIndexPathTemplateContext(ctx, s.indexPathTemplate)
 }
 
 const (
@@ -151,6 +203,7 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 	if err != nil {
 		return fmt.Errorf("failed to init input: %w", err)
 	}
+	ctx = s.withIndexPath(ctx)
 	augmenter, err := s.getDocAugmenter(ctx, input)
 	if err != nil {
 		return err
@@ -220,17 +273,62 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 }
 
 func (s *Service) upstreamSyncConfig(ctx context.Context, location string, augmenter *DocsAugmenter) *vectordb.UpstreamSyncConfig {
-	if s == nil || s.mcpMgr == nil || augmenter == nil || augmenter.store == nil {
+	if s == nil || augmenter == nil || augmenter.store == nil {
 		return nil
 	}
-	if !mcpuri.Is(location) {
-		return nil
+	if mcpuri.Is(location) {
+		if s.mcpMgr == nil {
+			return nil
+		}
+		root, upstream, ok := s.resolveUpstream(ctx, location)
+		if !ok || root == nil || upstream == nil {
+			return nil
+		}
+		if !upstream.Enabled {
+			return &vectordb.UpstreamSyncConfig{Enabled: false}
+		}
+		datasetID := strings.TrimSpace(root.ID)
+		if datasetID == "" {
+			if augmenter.fsIndexer != nil {
+				if ns, err := augmenter.fsIndexer.Namespace(ctx, location); err == nil {
+					datasetID = ns
+				}
+			}
+		}
+		if strings.TrimSpace(upstream.Driver) == "" || strings.TrimSpace(upstream.DSN) == "" {
+			return nil
+		}
+		if datasetID == "" {
+			return nil
+		}
+		up, err := s.upstreamDB(ctx, upstream)
+		if err != nil {
+			log.Printf("embedius upstream open failed for %q: %v", root.URI, err)
+			return nil
+		}
+		minInterval := time.Hour
+		if upstream.MinIntervalSeconds > 0 {
+			minInterval = time.Duration(upstream.MinIntervalSeconds) * time.Second
+		}
+		return &vectordb.UpstreamSyncConfig{
+			Enabled:     true,
+			DatasetID:   datasetID,
+			UpstreamDB:  up,
+			Shadow:      upstream.Shadow,
+			BatchSize:   upstream.Batch,
+			Force:       upstream.Force,
+			Background:  true,
+			MinInterval: minInterval,
+			LocalShadow: "_vec_emb_docs",
+			AssetTable:  "emb_asset",
+			Logf:        func(format string, args ...any) { log.Printf(format, args...) },
+		}
 	}
-	root, upstream, ok := s.resolveUpstream(ctx, location)
+	root, upstream, ok := s.resolveLocalUpstream(ctx, location)
 	if !ok || root == nil || upstream == nil {
 		return nil
 	}
-	if !upstream.Enabled {
+	if !isLocalUpstreamEnabled(upstream) {
 		return &vectordb.UpstreamSyncConfig{Enabled: false}
 	}
 	datasetID := strings.TrimSpace(root.ID)
@@ -247,7 +345,7 @@ func (s *Service) upstreamSyncConfig(ctx context.Context, location string, augme
 	if datasetID == "" {
 		return nil
 	}
-	up, err := s.upstreamDB(ctx, upstream)
+	up, err := s.upstreamDBLocal(ctx, upstream)
 	if err != nil {
 		log.Printf("embedius upstream open failed for %q: %v", root.URI, err)
 		return nil

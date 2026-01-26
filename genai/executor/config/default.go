@@ -6,6 +6,15 @@ type Defaults struct {
 	Model    string
 	Embedder string
 	Agent    string
+	// RuntimeRoot allows separating runtime state (db, snapshots, indexes) from the workspace.
+	// Supports ${workspaceRoot}. When empty, defaults to ${workspaceRoot}.
+	RuntimeRoot string `yaml:"runtimeRoot,omitempty" json:"runtimeRoot,omitempty"`
+	// StatePath overrides the runtime state root (used by cookies/tokens).
+	// Supports ${workspaceRoot} and ${runtimeRoot}. When empty, defaults to ${runtimeRoot}/state.
+	StatePath string `yaml:"statePath,omitempty" json:"statePath,omitempty"`
+	// DBPath overrides the SQLite database file path when AGENTLY_DB_* is not set.
+	// Supports ${workspaceRoot} and ${runtimeRoot}. When empty, defaults to ${runtimeRoot}/db/agently.db.
+	DBPath string `yaml:"dbPath,omitempty" json:"dbPath,omitempty"`
 
 	// ---- Agent routing defaults (optional) -------------------------
 	// When Agent == "auto", the runtime may use these settings to pick a concrete
@@ -154,11 +163,42 @@ type MatchDefaults struct {
 	MaxFiles int `yaml:"maxFiles" json:"maxFiles"`
 }
 
+// ResourceRoot defines a non-MCP resource root with optional upstream binding.
+type ResourceRoot struct {
+	ID          string `yaml:"id,omitempty" json:"id,omitempty"`
+	URI         string `yaml:"uri,omitempty" json:"uri,omitempty"`
+	UpstreamRef string `yaml:"upstreamRef,omitempty" json:"upstreamRef,omitempty"`
+}
+
+// ResourceUpstream defines an upstream database used for local resource sync.
+type ResourceUpstream struct {
+	Name               string `yaml:"name,omitempty" json:"name,omitempty"`
+	Driver             string `yaml:"driver,omitempty" json:"driver,omitempty"`
+	DSN                string `yaml:"dsn,omitempty" json:"dsn,omitempty"`
+	Shadow             string `yaml:"shadow,omitempty" json:"shadow,omitempty"`
+	Batch              int    `yaml:"batch,omitempty" json:"batch,omitempty"`
+	Force              bool   `yaml:"force,omitempty" json:"force,omitempty"`
+	Enabled            *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	MinIntervalSeconds int    `yaml:"minIntervalSeconds,omitempty" json:"minIntervalSeconds,omitempty"`
+}
+
 // ResourcesDefaults defines default resource roots and presentation hints.
 type ResourcesDefaults struct {
 	// Locations are root URIs or paths (relative to workspace) such as
 	// "documents/", "file:///abs/path", or "mcp:server:/prefix".
 	Locations []string `yaml:"locations,omitempty" json:"locations,omitempty"`
+	// Roots define resource roots with optional upstream bindings for local/workspace locations.
+	Roots []ResourceRoot `yaml:"roots,omitempty" json:"roots,omitempty"`
+	// Upstreams define upstream databases for local/workspace resource sync.
+	Upstreams []ResourceUpstream `yaml:"upstreams,omitempty" json:"upstreams,omitempty"`
+	// IndexPath controls where Embedius stores local indexes. Supports
+	// ${workspaceRoot} and ${user} macros. If empty, defaults to
+	// ${workspaceRoot}/index/${user}.
+	IndexPath string `yaml:"indexPath,omitempty" json:"indexPath,omitempty"`
+	// SnapshotPath controls where MCP snapshot caches are stored. Supports
+	// ${workspaceRoot} and ${user} macros. If empty, defaults to
+	// ${workspaceRoot}/snapshots.
+	SnapshotPath string `yaml:"snapshotPath,omitempty" json:"snapshotPath,omitempty"`
 	// TrimPath optionally trims this prefix from presented URIs.
 	TrimPath string `yaml:"trimPath,omitempty" json:"trimPath,omitempty"`
 	// SummaryFiles lookup order for root descriptions.

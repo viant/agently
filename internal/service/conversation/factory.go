@@ -8,6 +8,7 @@ import (
 	"time"
 
 	sqlitesvc "github.com/viant/agently/internal/service/sqlite"
+	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
 	"github.com/viant/scy"
@@ -36,11 +37,18 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 		driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
 		dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
 		secrets := strings.TrimSpace(os.Getenv("AGENTLY_DB_SECRETS"))
+		dbPath := strings.TrimSpace(os.Getenv("AGENTLY_DB_PATH"))
+		if dbPath != "" {
+			dbPath = workspace.ResolvePathTemplate(dbPath)
+		}
 
 		if dsn == "" {
 			// Fallback to local SQLite under $AGENTLY_WORKSPACE/db/agently.db
 			root := strings.TrimSpace(os.Getenv("AGENTLY_WORKSPACE"))
 			sqlite := sqlitesvc.New(root)
+			if dbPath != "" {
+				sqlite = sqlite.WithPath(dbPath)
+			}
 			var err error
 			if dsn, err = sqlite.Ensure(ctx); err != nil {
 				initErr = err

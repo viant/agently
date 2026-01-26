@@ -178,6 +178,17 @@ Migration & Implementation Steps
 - Config (defaults): under `default.resources` in executor config
   - `locations`: array of root URIs (relative to workspace or absolute/mcp)
   - `summaryFiles`: lookup order for descriptions (default: [`.summary`, `.summary.md`, `README.md`])
+  - `roots`: optional structured roots (local/workspace) with `upstreamRef`
+  - `upstreams`: optional upstream DB definitions for local/workspace resources
+  - `indexPath`: Embedius index root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`)
+  - `snapshotPath`: MCP snapshot cache root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`)
+
+Runtime/config paths
+
+- `default.runtimeRoot`: runtime root (supports `${workspaceRoot}`)
+- `default.statePath`: runtime state root (supports `${workspaceRoot}`, `${runtimeRoot}`)
+- `default.dbPath`: sqlite db file path (supports `${workspaceRoot}`, `${runtimeRoot}`)
+- Env overrides: `AGENTLY_RUNTIME_ROOT`, `AGENTLY_STATE_PATH`, `AGENTLY_DB_PATH`, `AGENTLY_INDEX_PATH`, `AGENTLY_SNAPSHOT_PATH`
 
 ## Agent Resources
 - Purpose: scope which roots an agent can see and use, and decide which ones participate in automatic binding vs. on-demand retrieval.
@@ -198,6 +209,8 @@ Migration & Implementation Steps
     - uri: mcp:server1:/docs
       role: user
       binding: false      # not auto‑selected; available via resources tools
+    - uri: knowledge/
+      upstreamRef: emb_main
   ```
 - Allowlist: At runtime, `resources:roots`, `resources:list`, `resources:read`, and `resources:match` only accept roots/URIs that match the agent’s declared `resources[].uri` when an agent context is present. Outside agent context, defaults apply (`default.resources.locations`).
 - Flow:

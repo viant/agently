@@ -98,7 +98,11 @@ func (s *Service) mcpFS(ctx context.Context) (*mcpfs.Service, error) {
 	s.mfsMu.Lock()
 	defer s.mfsMu.Unlock()
 	if s.mfs == nil {
-		s.mfs = mcpfs.New(s.mcpMgr)
+		opts := []mcpfs.Option{}
+		if strings.TrimSpace(s.defaults.SnapshotPath) != "" {
+			opts = append(opts, mcpfs.WithSnapshotCacheRoot(s.defaults.SnapshotPath))
+		}
+		s.mfs = mcpfs.New(s.mcpMgr, opts...)
 	}
 	resolver := s.mcpSnapshotResolver(ctx)
 	if resolver != nil {
@@ -637,6 +641,20 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 	selectedRoots, err := s.selectSearchRoots(ctx, availableRoots, input)
 	if err != nil {
 		return nil, err
+	}
+	var localRoots []aug.LocalRoot
+	for _, root := range selectedRoots {
+		if root.UpstreamRef == "" || mcpuri.Is(root.URI) {
+			continue
+		}
+		localRoots = append(localRoots, aug.LocalRoot{
+			ID:          root.ID,
+			URI:         root.URI,
+			UpstreamRef: root.UpstreamRef,
+		})
+	}
+	if len(localRoots) > 0 {
+		ctx = aug.WithLocalRoots(ctx, localRoots)
 	}
 	locations := make([]string, 0, len(selectedRoots))
 	searchRoots := make([]searchRootMeta, 0, len(selectedRoots))
@@ -1946,6 +1964,7 @@ type ResourcesDefaults struct {
 	TrimPath     string
 	SummaryFiles []string
 	DescribeMCP  bool
+	SnapshotPath string
 }
 
 // WithDefaults configures default roots and presentation hints.
@@ -1964,6 +1983,8 @@ type Root struct {
 
 	URI         string `json:"uri"`
 	Description string `json:"description,omitempty"`
+	// UpstreamRef is an internal-only reference used to resolve local upstream sync.
+	UpstreamRef string `json:"-"`
 	// AllowedSemanticSearch reports whether semantic match (match)
 	// is permitted for this root in the current agent configuration.
 	AllowedSemanticSearch bool `json:"allowedSemanticSearch"`
@@ -2020,6 +2041,7 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 		desc := ""
 		role := "user"
 		rootID := wsRoot
+		upstreamRef := ""
 		if curAgent != nil {
 			for _, r := range s.agentResources(ctx, curAgent) {
 				if r == nil || strings.TrimSpace(r.URI) == "" {
@@ -2039,6 +2061,9 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 					if strings.TrimSpace(r.Description) != "" {
 						desc = strings.TrimSpace(r.Description)
 					}
+					if strings.TrimSpace(r.UpstreamRef) != "" {
+						upstreamRef = strings.TrimSpace(r.UpstreamRef)
+					}
 					break
 				}
 			}
@@ -2052,6 +2077,7 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 			ID:                    rootID,
 			URI:                   wsRoot,
 			Description:           desc,
+			UpstreamRef:           upstreamRef,
 			AllowedSemanticSearch: semAllowed,
 			AllowedGrepSearch:     grepAllowed,
 			Role:                  role,

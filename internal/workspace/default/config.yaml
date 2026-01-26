@@ -2,6 +2,9 @@ default:
   model: openai_gpt-5.2
   embedder: openai_text
   agent: chatter
+  #runtimeRoot: "${workspaceRoot}"
+  #statePath: "${runtimeRoot}/state"
+  #dbPath: "${runtimeRoot}/db/agently.db"
   toolAutoSelection:
     enabled: true
   toolCallResult:
@@ -22,6 +25,23 @@ default:
     # When a knowledge/MCP entry doesn't set maxFiles, this value is used.
     # If omitted, the runtime falls back to 5.
     maxFiles: 5
+  resources:
+    # Optional upstream sync for local/workspace roots
+    #roots:
+    #  - uri: "workspace://localhost/knowledge"
+    #    id: knowledge
+    #    upstreamRef: emb_main
+    #indexPath: "${runtimeRoot}/index/${user}"
+    #snapshotPath: "${runtimeRoot}/snapshots"
+    #upstreams:
+    #  - name: emb_main
+    #    driver: postgres
+    #    dsn: postgres://user:pass@host:5432/db
+    #    shadow: emb_shadow
+    #    batch: 500
+    #    force: false
+    #    enabled: true
+    #    minIntervalSeconds: 600
 models:
   url: models
 embedders:

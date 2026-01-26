@@ -15,9 +15,19 @@ import (
 
 type Service struct {
 	root string
+	path string
 }
 
 func New(root string) *Service { return &Service{root: root} }
+
+// WithPath overrides the sqlite file path.
+func (s *Service) WithPath(path string) *Service {
+	if s == nil {
+		return s
+	}
+	s.path = strings.TrimSpace(path)
+	return s
+}
 
 const (
 	sqliteSchemaVersionTable  = "schema_version"
@@ -33,11 +43,18 @@ func (s *Service) Ensure(ctx context.Context) (string, error) { // ctx kept for 
 		wd, _ := os.Getwd()
 		base = wd
 	}
-	dbDir := filepath.Join(base, "db")
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create db dir: %w", err)
+	dbFile := strings.TrimSpace(s.path)
+	if dbFile == "" {
+		dbDir := filepath.Join(base, "db")
+		if err := os.MkdirAll(dbDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create db dir: %w", err)
+		}
+		dbFile = filepath.Join(dbDir, "agently.db")
+	} else {
+		if err := os.MkdirAll(filepath.Dir(dbFile), 0755); err != nil {
+			return "", fmt.Errorf("failed to create db dir: %w", err)
+		}
 	}
-	dbFile := filepath.Join(dbDir, "agently.db")
 	// Use SQLite URI with pragmas to improve concurrency and avoid SQLITE_BUSY
 	dsn := "file:" + dbFile + "?cache=shared&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 
