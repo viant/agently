@@ -1,0 +1,16 @@
+pipeline:
+  sdkClient:
+    action: exec:run
+    TimeoutMs: 120000
+    checkError: true
+    commands:
+      - cd $repoPath
+      - echo \"hello from sdk\" | go run ./e2e/sdk/cli/main.go -baseURL http://localhost:8080
+
+  httpHealth:
+    action: http/runner:send
+    requests:
+      - Method: GET
+        URL: http://127.0.0.1:8080/v1/api/conversations
+        Expect:
+          Code: 200

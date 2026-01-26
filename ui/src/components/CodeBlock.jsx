@@ -53,6 +53,7 @@ export default function CodeBlock({ value = '', language = 'plaintext', height =
   const lineHeightPx = 18; // approx for fontSize 12
   const computedHeight = `${visibleLines * lineHeightPx + 6}px`;
   const cmHeight = height === 'auto' ? computedHeight : height;
+  const isJsdom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent || '');
 
   const doCopy = async () => {
     try {
@@ -74,6 +75,14 @@ export default function CodeBlock({ value = '', language = 'plaintext', height =
       // no-op
     }
   };
+
+  if (isJsdom) {
+    return (
+      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>
+        <code>{text}</code>
+      </pre>
+    );
+  }
 
   return (
     <div style={{ position: 'relative' }}>

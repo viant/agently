@@ -10,6 +10,7 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/modelcallctx"
 	"github.com/viant/agently/genai/tool"
 	svc "github.com/viant/agently/genai/tool/service"
 )
@@ -22,6 +23,7 @@ type Service struct {
 	modelMatcher llm.Matcher
 	fs           afs.Service
 	convClient   apiconv.Client
+	streamPub    modelcallctx.StreamPublisher
 
 	// attachment usage accumulator per conversation (bytes)
 	attachUsage map[string]int64
@@ -36,6 +38,14 @@ func (s *Service) ModelFinder() llm.Finder {
 
 func (s *Service) ModelMatcher() llm.Matcher {
 	return s.modelMatcher
+}
+
+// SetStreamPublisher injects a stream publisher used for token-level deltas.
+func (s *Service) SetStreamPublisher(p modelcallctx.StreamPublisher) {
+	if s == nil {
+		return
+	}
+	s.streamPub = p
 }
 
 // ToolDefinitions returns every tool definition registered in the tool

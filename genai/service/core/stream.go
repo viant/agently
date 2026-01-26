@@ -50,6 +50,9 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	}
 	// Attach finish barrier so final message waits for model-call persistence.
 	ctx, _ = modelcallctx.WithFinishBarrier(ctx)
+	if s.streamPub != nil {
+		ctx = modelcallctx.WithStreamPublisher(ctx, s.streamPub)
+	}
 	// Inject recorder with price resolver when available so cost gets computed.
 	if tp, ok := s.llmFinder.(modelcallctx.TokenPriceProvider); ok {
 		declared := ""

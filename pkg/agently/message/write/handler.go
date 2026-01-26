@@ -2,6 +2,7 @@ package write
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -44,8 +45,20 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 	if err != nil {
 		return err
 	}
+	db, err := sql.Db(ctx)
+	if err != nil {
+		return err
+	}
 	const maxContentBytes = 16777215 //16MB - MEDIUMTEXT in MySQL
+	nextSeq := map[string]int{}
 	for _, rec := range in.Messages {
+		if rec != nil && rec.Sequence == nil && rec.TurnID != nil && *rec.TurnID != "" {
+			seq, err := nextSequenceForTurn(ctx, db, nextSeq, *rec.TurnID)
+			if err != nil {
+				return err
+			}
+			rec.SetSequence(seq)
+		}
 		// Truncate content to maxContentBytes preserving valid UTF-8
 		if rec != nil && maxContentBytes > 0 {
 			if len(rec.Content) > maxContentBytes {
@@ -97,4 +110,25 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 		}
 	}
 	return nil
+}
+
+func nextSequenceForTurn(ctx context.Context, db interface {
+	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
+}, cache map[string]int, turnID string) (int, error) {
+	if v, ok := cache[turnID]; ok {
+		v++
+		cache[turnID] = v
+		return v, nil
+	}
+	var max sql.NullInt64
+	row := db.QueryRowContext(ctx, "SELECT MAX(sequence) FROM message WHERE turn_id = ?", turnID)
+	if err := row.Scan(&max); err != nil {
+		return 0, err
+	}
+	next := 1
+	if max.Valid {
+		next = int(max.Int64) + 1
+	}
+	cache[turnID] = next
+	return next, nil
 }
