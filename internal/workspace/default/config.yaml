@@ -3,7 +3,7 @@ default:
   embedder: openai_text
   agent: chatter
   toolAutoSelection:
-    enabled: true
+    enabled: false
   toolCallResult:
     # Preview limit bytes for inline LLM binding (full body always stored)
     previewLimit: 16384

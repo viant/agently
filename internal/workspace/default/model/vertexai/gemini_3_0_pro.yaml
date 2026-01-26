@@ -9,8 +9,9 @@ options:
   envKey: GEMINI_API_KEY
   maxTokens: 1048576  # Flash supports up to 1,048,576 tokens (~1M)
   temperature: 0.7
-  inputTokenPrice:  0.000002   # USD per token (≈ $2 per 1M)  #  $2 / $12 (<200k tokens)
-  outputTokenPrice: 0.000012  # USD per token (≈ $12 per 1M) #  $2 / $12 (<200k tokens)
+  inputTokenPrice:  0.002   # USD per token (≈ $2 per 1M)  #  $2 / $12 (<200k tokens)
+  outputTokenPrice: 0.012  # USD per token (≈ $12 per 1M) #  $2 / $12 (<200k tokens)
+  enableContinuationFormat: true
 
   meta:
     version: v1beta
