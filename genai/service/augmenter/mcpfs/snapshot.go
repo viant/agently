@@ -18,7 +18,6 @@ import (
 
 	"github.com/viant/afs/storage"
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
-	"github.com/viant/agently/internal/workspace"
 )
 
 // SnapshotResolver maps a location to an MCP snapshot URI and its root.
@@ -96,7 +95,7 @@ func (s *Service) ensureSnapshot(ctx context.Context, snapURI string) (*snapshot
 	s.snapInFlight[snapURI] = wait
 	s.snapshotMu.Unlock()
 
-	sharedPath := snapshotCachePath(snapURI)
+	sharedPath := s.snapshotCachePath(ctx, snapURI)
 	if sharedPath != "" {
 		if fi, err := os.Stat(sharedPath); err == nil && fi.Mode().IsRegular() && fi.Size() > 0 {
 			stripPrefix, err := detectStripPrefix(sharedPath)
@@ -133,7 +132,7 @@ func (s *Service) ensureSnapshot(ctx context.Context, snapURI string) (*snapshot
 	}
 	fmt.Printf("mcpfs: downloaded snapshot %s (%d bytes)\n", snapURI, len(data))
 	if sharedPath == "" {
-		sharedPath = snapshotCachePath(snapURI)
+		sharedPath = s.snapshotCachePath(ctx, snapURI)
 	}
 	if sharedPath == "" {
 		return nil, fmt.Errorf("mcpfs: snapshot cache path empty")
@@ -220,8 +219,8 @@ func (s *Service) ensureSnapshot(ctx context.Context, snapURI string) (*snapshot
 	return entry, nil
 }
 
-func snapshotCachePath(snapURI string) string {
-	root := workspace.Path("snapshots")
+func (s *Service) snapshotCachePath(ctx context.Context, snapURI string) string {
+	root := s.snapshotCacheRoot(ctx)
 	if strings.TrimSpace(root) == "" {
 		return ""
 	}

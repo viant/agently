@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/viant/afs"
@@ -20,6 +21,10 @@ const (
 var (
 	// cachedRoot holds the resolved, absolute path to the workspace root.
 	cachedRoot string
+	// cachedRuntime holds the resolved runtime root override when set.
+	cachedRuntime string
+	// cachedState holds the resolved state root override when set.
+	cachedState string
 	// defaultsMu guards defaultsByRoot so default bootstrapping runs once per root.
 	defaultsMu     sync.Mutex
 	defaultsByRoot = map[string]bool{}
@@ -80,6 +85,74 @@ func Root() string {
 	// lazily create default resources once the root directory is ready
 	ensureDefaults(cachedRoot)
 	return cachedRoot
+}
+
+// RuntimeRoot returns the runtime root path. It defaults to the workspace root
+// unless overridden via AGENTLY_RUNTIME_ROOT or SetRuntimeRoot.
+func RuntimeRoot() string {
+	if cachedRuntime != "" {
+		return cachedRuntime
+	}
+	if env := os.Getenv("AGENTLY_RUNTIME_ROOT"); strings.TrimSpace(env) != "" {
+		cachedRuntime = abs(resolveTemplate(env, false))
+		_ = os.MkdirAll(cachedRuntime, 0755)
+		return cachedRuntime
+	}
+	cachedRuntime = Root()
+	return cachedRuntime
+}
+
+// StateRoot returns the state root path. It defaults to RuntimeRoot()/state unless overridden.
+func StateRoot() string {
+	if cachedState != "" {
+		return cachedState
+	}
+	if env := os.Getenv("AGENTLY_STATE_PATH"); strings.TrimSpace(env) != "" {
+		cachedState = abs(resolveTemplate(env, true))
+		_ = os.MkdirAll(cachedState, 0755)
+		return cachedState
+	}
+	cachedState = filepath.Join(RuntimeRoot(), "state")
+	_ = os.MkdirAll(cachedState, 0755)
+	return cachedState
+}
+
+// SetRuntimeRoot overrides the runtime root path for this process.
+func SetRuntimeRoot(path string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	cachedRuntime = abs(resolveTemplate(path, false))
+	_ = os.MkdirAll(cachedRuntime, 0755)
+	// reset derived state root so it can be recomputed
+	cachedState = ""
+}
+
+// SetStateRoot overrides the state root path for this process.
+func SetStateRoot(path string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	cachedState = abs(resolveTemplate(path, true))
+	_ = os.MkdirAll(cachedState, 0755)
+}
+
+// ResolvePathTemplate expands supported macros in a path template.
+// Supported macros: ${workspaceRoot}, ${runtimeRoot}.
+func ResolvePathTemplate(value string) string {
+	return strings.TrimSpace(resolveTemplate(value, true))
+}
+
+func resolveTemplate(value string, includeRuntime bool) string {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return v
+	}
+	v = strings.ReplaceAll(v, "${workspaceRoot}", Root())
+	if includeRuntime {
+		v = strings.ReplaceAll(v, "${runtimeRoot}", RuntimeRoot())
+	}
+	return v
 }
 
 // Path returns a sub-path under the root for the given kind (e.g. "agents").

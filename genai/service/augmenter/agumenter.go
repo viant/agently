@@ -4,15 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"strings"
 
 	adaptembed "github.com/viant/agently/genai/embedder/adapter"
 	baseembed "github.com/viant/agently/genai/embedder/provider/base"
 	mcpfs "github.com/viant/agently/genai/service/augmenter/mcpfs"
-	authctx "github.com/viant/agently/internal/auth"
 	mcpuri "github.com/viant/agently/internal/mcp/uri"
-	"github.com/viant/agently/internal/workspace"
 	"github.com/viant/embedius/indexer"
 	"github.com/viant/embedius/indexer/fs"
 	"github.com/viant/embedius/indexer/fs/splitter"
@@ -90,13 +87,7 @@ func NewDocsAugmenterWithStore(ctx context.Context, embeddingsModel string, embe
 }
 
 func embeddingBaseURL(ctx context.Context) string {
-	user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
-	if user == "" {
-		user = "default"
-	}
-	base := path.Join(workspace.Root(), "index", user)
-
-	return base
+	return resolveIndexBaseURL(ctx, indexPathTemplateFromContext(ctx))
 }
 
 func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) (*DocsAugmenter, error) {
@@ -134,16 +125,19 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 			matcher := matching.New(matchOptions...)
 			splitterFactory := splitter.NewFactory(4096)
 			splitterFactory.RegisterExtensionSplitter(".pdf", NewPDFSplitter(4096))
+			opts := []mcpfs.Option{
+				mcpfs.WithSnapshotResolver(s.mcpSnapshotResolver),
+				mcpfs.WithSnapshotManifestResolver(s.mcpSnapshotManifestResolver),
+			}
+			if strings.TrimSpace(s.mcpSnapshotCacheRoot) != "" {
+				opts = append(opts, mcpfs.WithSnapshotCacheRoot(s.mcpSnapshotCacheRoot))
+			}
 			idx := fs.NewWithFS(
 				baseURL,
 				input.Model,
 				matcher,
 				splitterFactory,
-				mcpfs.NewComposite(
-					s.mcpMgr,
-					mcpfs.WithSnapshotResolver(s.mcpSnapshotResolver),
-					mcpfs.WithSnapshotManifestResolver(s.mcpSnapshotManifestResolver),
-				),
+				mcpfs.NewComposite(s.mcpMgr, opts...),
 			)
 			ret := &DocsAugmenter{
 				embedder:  input.Model,

@@ -19,19 +19,18 @@ func TestSnapshotManifestDisabled(t *testing.T) {
 
 	snapURI := "mcp:github://github.vianttech.com/adelphic/mediator/_snapshot.zip"
 	rootURI := "mcp:github://github.vianttech.com/adelphic/mediator"
-	zipPath := snapshotCachePath(snapURI)
-	require.NotEmpty(t, zipPath)
-	require.NoError(t, os.MkdirAll(filepath.Dir(zipPath), 0o755))
-	require.NoError(t, writeZip(zipPath, map[string]string{
-		"adelphic-mediator/file.txt": "hello",
-	}))
-
 	svc := New(&mcpmgr.Manager{},
 		WithSnapshotResolver(func(string) (string, string, bool) {
 			return snapURI, rootURI, true
 		}),
 		WithSnapshotManifestResolver(func(string) bool { return false }),
 	)
+	zipPath := svc.snapshotCachePath(context.Background(), snapURI)
+	require.NotEmpty(t, zipPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(zipPath), 0o755))
+	require.NoError(t, writeZip(zipPath, map[string]string{
+		"adelphic-mediator/file.txt": "hello",
+	}))
 	objects, err := svc.listSnapshot(context.Background(), rootURI, snapURI, rootURI)
 	require.NoError(t, err)
 	require.NotEmpty(t, objects)
@@ -54,19 +53,18 @@ func TestSnapshotManifestEnabled(t *testing.T) {
 
 	snapURI := "mcp:github://github.vianttech.com/adelphic/mediator/_snapshot.zip"
 	rootURI := "mcp:github://github.vianttech.com/adelphic/mediator"
-	zipPath := snapshotCachePath(snapURI)
-	require.NotEmpty(t, zipPath)
-	require.NoError(t, os.MkdirAll(filepath.Dir(zipPath), 0o755))
-	require.NoError(t, writeZip(zipPath, map[string]string{
-		"adelphic-mediator/file.txt": "hello",
-	}))
-
 	svc := New(&mcpmgr.Manager{},
 		WithSnapshotResolver(func(string) (string, string, bool) {
 			return snapURI, rootURI, true
 		}),
 		WithSnapshotManifestResolver(func(string) bool { return true }),
 	)
+	zipPath := svc.snapshotCachePath(context.Background(), snapURI)
+	require.NotEmpty(t, zipPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(zipPath), 0o755))
+	require.NoError(t, writeZip(zipPath, map[string]string{
+		"adelphic-mediator/file.txt": "hello",
+	}))
 	objects, err := svc.listSnapshot(context.Background(), rootURI, snapURI, rootURI)
 	require.NoError(t, err)
 	require.NotEmpty(t, objects)

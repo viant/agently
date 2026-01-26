@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	neturl "net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -128,15 +129,66 @@ func (e *Service) init(ctx context.Context) error {
 	}
 	snapResolver := buildSnapshotResolver(ctx, e.mcpMgr)
 	manifestResolver := buildSnapshotManifestResolver(ctx, e.mcpMgr)
+	var localRoots []augmenter.LocalRoot
+	var localUpstreams []augmenter.LocalUpstream
+	indexPathTemplate := ""
+	snapshotPathTemplate := ""
+	runtimeRoot := ""
+	statePath := ""
+	dbPath := ""
+	if e.config != nil {
+		indexPathTemplate = e.config.Default.Resources.IndexPath
+		snapshotPathTemplate = e.config.Default.Resources.SnapshotPath
+		runtimeRoot = e.config.Default.RuntimeRoot
+		statePath = e.config.Default.StatePath
+		dbPath = e.config.Default.DBPath
+		for _, root := range e.config.Default.Resources.Roots {
+			if strings.TrimSpace(root.URI) == "" {
+				continue
+			}
+			localRoots = append(localRoots, augmenter.LocalRoot{
+				ID:          strings.TrimSpace(root.ID),
+				URI:         strings.TrimSpace(root.URI),
+				UpstreamRef: strings.TrimSpace(root.UpstreamRef),
+			})
+		}
+		for _, upstream := range e.config.Default.Resources.Upstreams {
+			if strings.TrimSpace(upstream.Name) == "" {
+				continue
+			}
+			localUpstreams = append(localUpstreams, augmenter.LocalUpstream{
+				Name:               strings.TrimSpace(upstream.Name),
+				Driver:             strings.TrimSpace(upstream.Driver),
+				DSN:                strings.TrimSpace(upstream.DSN),
+				Shadow:             strings.TrimSpace(upstream.Shadow),
+				Batch:              upstream.Batch,
+				Force:              upstream.Force,
+				Enabled:            upstream.Enabled,
+				MinIntervalSeconds: upstream.MinIntervalSeconds,
+			})
+		}
+	}
 	enricher := augmenter.New(
 		e.embedderFinder,
 		augmenter.WithMCPManager(e.mcpMgr),
 		augmenter.WithMCPSnapshotResolver(snapResolver),
 		augmenter.WithMCPSnapshotManifestResolver(manifestResolver),
+		augmenter.WithMCPSnapshotCacheRoot(snapshotPathTemplate),
+		augmenter.WithIndexPathTemplate(indexPathTemplate),
+		augmenter.WithLocalUpstreams(localRoots, localUpstreams),
 		augmenter.WithUpstreamSyncConcurrency(upstreamConcurrency),
 		augmenter.WithMatchConcurrency(matchConcurrency),
 		augmenter.WithIndexAsync(indexAsync),
 	)
+	if strings.TrimSpace(runtimeRoot) != "" {
+		workspace.SetRuntimeRoot(runtimeRoot)
+	}
+	if strings.TrimSpace(statePath) != "" {
+		workspace.SetStateRoot(statePath)
+	}
+	if strings.TrimSpace(dbPath) != "" {
+		os.Setenv("AGENTLY_DB_PATH", dbPath)
+	}
 	e.llmCore = core.New(e.modelFinder, e.tools, e.convClient)
 	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, &e.config.Default, e.convClient,
 		func(s *agent2.Service) {
@@ -166,6 +218,7 @@ func (e *Service) init(ctx context.Context) error {
 			rdef.SummaryFiles = append(rdef.SummaryFiles, e.config.Default.Resources.SummaryFiles...)
 		}
 		rdef.DescribeMCP = e.config.Default.Resources.DescribeMCP
+		rdef.SnapshotPath = e.config.Default.Resources.SnapshotPath
 	}
 	gtool.AddInternalService(e.tools, rsrcsvc.New(
 		enricher,

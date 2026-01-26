@@ -254,6 +254,13 @@ Resources tools
   - `locations`: array of roots (relative to workspace or absolute `file://` / `mcp:server:/prefix`)
   - `trimPath`: optional display trim
   - `summaryFiles`: description lookup order (default: [`.summary`, `.summary.md`, `README.md`])
+  - `roots`: optional structured roots (local/workspace) with `upstreamRef`
+  - `upstreams`: optional upstream DB definitions for local/workspace resources
+  - `indexPath`: optional Embedius index root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`)
+  - `snapshotPath`: optional MCP snapshot cache root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`)
+  - `runtimeRoot`: optional runtime root (supports `${workspaceRoot}`)
+  - `statePath`: optional runtime state root (supports `${workspaceRoot}`, `${runtimeRoot}`)
+  - `dbPath`: optional sqlite db file path (supports `${workspaceRoot}`, `${runtimeRoot}`)
 
 ### HTTP API (v1)
 
@@ -298,6 +305,37 @@ The embedded server exposes a simple chat API under `/v1/api`:
 - `AGENTLY_REDACT_KEYS`: comma-separated list of JSON keys to scrub from payload snapshots
   - Default: `api_key,apikey,authorization,auth,password,passwd,secret,token,bearer,client_secret`
   - Example: `AGENTLY_REDACT_KEYS=apiKey,Authorization,password`
+- `AGENTLY_INDEX_PATH`: override Embedius index root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`)
+- `AGENTLY_SNAPSHOT_PATH`: override MCP snapshot cache root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`)
+- `AGENTLY_RUNTIME_ROOT`: override runtime root (supports `${workspaceRoot}`)
+- `AGENTLY_STATE_PATH`: override runtime state root (supports `${workspaceRoot}`, `${runtimeRoot}`)
+- `AGENTLY_DB_PATH`: override sqlite db file path (supports `${workspaceRoot}`, `${runtimeRoot}`)
+
+Config example (paths)
+
+```yaml
+default:
+  runtimeRoot: "/var/lib/agently/runtime"
+  statePath: "${runtimeRoot}/state"
+  dbPath: "${runtimeRoot}/db/agently.db"
+  resources:
+    indexPath: "${runtimeRoot}/index/${user}"
+    snapshotPath: "${runtimeRoot}/snapshots"
+```
+
+Runtime layout (default)
+
+```
+workspaceRoot/
+  config.yaml
+  agents/ models/ embedders/ workflows/ tools/ mcp/ ...
+runtimeRoot/ (defaults to workspaceRoot)
+  state/
+    mcp/            # MCP auth state + cookies
+  index/<user>/     # Embedius indexes
+  snapshots/        # MCP snapshot cache
+  db/agently.db     # SQLite fallback (when AGENTLY_DB_* unset)
+```
 
 - Scheduler execution (recommended: dedicated runner in serverless deployments)
   - `AGENTLY_SCHEDULER_RUNNER`: enable watchdog inside `agently serve` when set to `1` (default: disabled)

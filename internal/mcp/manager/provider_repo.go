@@ -44,7 +44,7 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 		userID = "anonymous"
 	}
 	safe := sanitize(userID)
-	stateDir := filepath.Join(workspace.Root(), "state", "mcp", name, safe)
+	stateDir := filepath.Join(workspace.StateRoot(), "mcp", name, safe)
 	_ = os.MkdirAll(stateDir, 0o700)
 
 	// Attach persistent token store; preserve existing Auth config

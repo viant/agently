@@ -130,6 +130,8 @@ type (
 		TrimPath string          `yaml:"trimPath,omitempty" json:"trimPath,omitempty"`
 		Match    *option.Options `yaml:"match,omitempty" json:"match,omitempty"`
 		MinScore *float64        `yaml:"minScore,omitempty" json:"minScore,omitempty"`
+		// UpstreamRef links this resource root to a configured upstream sync definition.
+		UpstreamRef string `yaml:"upstreamRef,omitempty" json:"upstreamRef,omitempty"`
 
 		// Description is an optional human-friendly label for this resource
 		// root. When provided it is surfaced via tools such as resources.roots

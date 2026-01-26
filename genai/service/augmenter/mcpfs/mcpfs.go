@@ -24,6 +24,7 @@ type Service struct {
 	mgr              *mcpmgr.Manager
 	snapshotResolver SnapshotResolver
 	manifestResolver SnapshotManifestResolver
+	snapshotRoot     string
 	snapshotMu       sync.Mutex
 	snapshots        map[string]*snapshotCache
 	snapInFlight     map[string]*snapshotWait
@@ -50,6 +51,13 @@ func WithSnapshotResolver(resolver SnapshotResolver) Option {
 func WithSnapshotManifestResolver(resolver SnapshotManifestResolver) Option {
 	return func(s *Service) {
 		s.manifestResolver = resolver
+	}
+}
+
+// WithSnapshotCacheRoot overrides the snapshot cache root template.
+func WithSnapshotCacheRoot(template string) Option {
+	return func(s *Service) {
+		s.snapshotRoot = strings.TrimSpace(template)
 	}
 }
 
