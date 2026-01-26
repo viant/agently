@@ -1,16 +1,16 @@
 id: vertexai_gemini_2_5_pro
-name: Gemini 2.5 Flash Pro
-description: Google Gemini 2.5 Flash model served through public generativelanguage v1beta API
+name: Gemini 2.5 Pro
+description: Google Gemini 2.5 Pro model served through public generativelanguage v1beta API
 intelligence: 0.8
 speed: 0.9
 options:
   provider: gemini
   model: gemini-2.5-pro
   envKey: GEMINI_API_KEY
-  maxTokens: 1048576  # Flash supports up to 1,048,576 tokens (~1M)
+  maxTokens: 1048576  #supports up to 1,048,576 tokens (~1M)
   temperature: 0.7
-  inputTokenPrice: 0.00000125   # USD per token (≈ $1.25 per 1M)
-  outputTokenPrice: 0.00001  # USD per token (≈ $10.0 per 1M)
+  inputTokenPrice: 0.00125   # USD per token (≈ $1.25 per 1M)
+  outputTokenPrice: 0.01  # USD per token (≈ $10.0 per 1M)
 
   meta:
     version: v1beta
