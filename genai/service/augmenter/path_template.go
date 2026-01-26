@@ -55,6 +55,8 @@ func resolveTemplate(ctx context.Context, envKey, template, fallback string) str
 	out := strings.ReplaceAll(template, "${user}", user)
 	out = strings.ReplaceAll(out, "${workspaceRoot}", workspace.Root())
 	out = strings.ReplaceAll(out, "${runtimeRoot}", workspace.RuntimeRoot())
+	out = workspace.ResolvePathTemplate(out)
+	out = strings.ReplaceAll(out, "${user}", user)
 	return strings.TrimSpace(out)
 }
 

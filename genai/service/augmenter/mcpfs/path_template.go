@@ -31,6 +31,8 @@ func (s *Service) snapshotCacheRoot(ctx context.Context) string {
 	out := strings.ReplaceAll(template, "${user}", user)
 	out = strings.ReplaceAll(out, "${workspaceRoot}", workspace.Root())
 	out = strings.ReplaceAll(out, "${runtimeRoot}", workspace.RuntimeRoot())
+	out = workspace.ResolvePathTemplate(out)
+	out = strings.ReplaceAll(out, "${user}", user)
 	out = strings.TrimSpace(out)
 	if strings.HasPrefix(strings.ToLower(out), "file://") {
 		out = fileURLToPath(out)

@@ -152,6 +152,42 @@ func resolveTemplate(value string, includeRuntime bool) string {
 	if includeRuntime {
 		v = strings.ReplaceAll(v, "${runtimeRoot}", RuntimeRoot())
 	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		v = strings.ReplaceAll(v, "${home}", home)
+	}
+	v = expandUserHome(v)
+	return v
+}
+
+func expandUserHome(v string) string {
+	trimmed := strings.TrimSpace(v)
+	if trimmed == "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return v
+	}
+	if strings.HasPrefix(trimmed, "~/") || trimmed == "~" {
+		return filepath.Join(home, strings.TrimPrefix(trimmed, "~"))
+	}
+	if strings.HasPrefix(trimmed, "file://") {
+		prefix := "file://localhost"
+		rest := strings.TrimPrefix(trimmed, prefix)
+		if rest == trimmed {
+			prefix = "file://"
+			rest = strings.TrimPrefix(trimmed, prefix)
+		}
+		if rest == "" {
+			return v
+		}
+		rest = strings.TrimLeft(rest, "/")
+		if strings.HasPrefix(rest, "~") {
+			rel := strings.TrimPrefix(rest, "~")
+			abs := filepath.Join(home, rel)
+			return prefix + "/" + filepath.ToSlash(strings.TrimLeft(abs, "/"))
+		}
+	}
 	return v
 }
 
