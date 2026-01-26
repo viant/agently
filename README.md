@@ -256,11 +256,11 @@ Resources tools
   - `summaryFiles`: description lookup order (default: [`.summary`, `.summary.md`, `README.md`])
   - `roots`: optional structured roots (local/workspace) with `upstreamRef`
   - `upstreams`: optional upstream DB definitions for local/workspace resources
-  - `indexPath`: optional Embedius index root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`)
-  - `snapshotPath`: optional MCP snapshot cache root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`)
-  - `runtimeRoot`: optional runtime root (supports `${workspaceRoot}`)
-  - `statePath`: optional runtime state root (supports `${workspaceRoot}`, `${runtimeRoot}`)
-  - `dbPath`: optional sqlite db file path (supports `${workspaceRoot}`, `${runtimeRoot}`)
+- `indexPath`: optional Embedius index root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`, `${home}`, `~`)
+- `snapshotPath`: optional MCP snapshot cache root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`, `${home}`, `~`)
+- `runtimeRoot`: optional runtime root (supports `${workspaceRoot}`, `${home}`, `~`)
+- `statePath`: optional runtime state root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${home}`, `~`)
+- `dbPath`: optional sqlite db file path (supports `${workspaceRoot}`, `${runtimeRoot}`, `${home}`, `~`)
 
 ### HTTP API (v1)
 
@@ -305,11 +305,11 @@ The embedded server exposes a simple chat API under `/v1/api`:
 - `AGENTLY_REDACT_KEYS`: comma-separated list of JSON keys to scrub from payload snapshots
   - Default: `api_key,apikey,authorization,auth,password,passwd,secret,token,bearer,client_secret`
   - Example: `AGENTLY_REDACT_KEYS=apiKey,Authorization,password`
-- `AGENTLY_INDEX_PATH`: override Embedius index root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`)
-- `AGENTLY_SNAPSHOT_PATH`: override MCP snapshot cache root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`)
-- `AGENTLY_RUNTIME_ROOT`: override runtime root (supports `${workspaceRoot}`)
-- `AGENTLY_STATE_PATH`: override runtime state root (supports `${workspaceRoot}`, `${runtimeRoot}`)
-- `AGENTLY_DB_PATH`: override sqlite db file path (supports `${workspaceRoot}`, `${runtimeRoot}`)
+- `AGENTLY_INDEX_PATH`: override Embedius index root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`, `${home}`, `~`)
+- `AGENTLY_SNAPSHOT_PATH`: override MCP snapshot cache root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`, `${home}`, `~`)
+- `AGENTLY_RUNTIME_ROOT`: override runtime root (supports `${workspaceRoot}`, `${home}`, `~`)
+- `AGENTLY_STATE_PATH`: override runtime state root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${home}`, `~`)
+- `AGENTLY_DB_PATH`: override sqlite db file path (supports `${workspaceRoot}`, `${runtimeRoot}`, `${home}`, `~`)
 
 Config example (paths)
 

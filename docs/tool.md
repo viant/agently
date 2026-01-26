@@ -185,10 +185,10 @@ Migration & Implementation Steps
 
 Runtime/config paths
 
-- `default.runtimeRoot`: runtime root (supports `${workspaceRoot}`)
-- `default.statePath`: runtime state root (supports `${workspaceRoot}`, `${runtimeRoot}`)
-- `default.dbPath`: sqlite db file path (supports `${workspaceRoot}`, `${runtimeRoot}`)
-- Env overrides: `AGENTLY_RUNTIME_ROOT`, `AGENTLY_STATE_PATH`, `AGENTLY_DB_PATH`, `AGENTLY_INDEX_PATH`, `AGENTLY_SNAPSHOT_PATH`
+- `default.runtimeRoot`: runtime root (supports `${workspaceRoot}`, `${home}`, `~`)
+- `default.statePath`: runtime state root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${home}`, `~`)
+- `default.dbPath`: sqlite db file path (supports `${workspaceRoot}`, `${runtimeRoot}`, `${home}`, `~`)
+- Env overrides: `AGENTLY_RUNTIME_ROOT`, `AGENTLY_STATE_PATH`, `AGENTLY_DB_PATH`, `AGENTLY_INDEX_PATH`, `AGENTLY_SNAPSHOT_PATH` (all support `${home}` and `~`)
 
 ## Agent Resources
 - Purpose: scope which roots an agent can see and use, and decide which ones participate in automatic binding vs. on-demand retrieval.
