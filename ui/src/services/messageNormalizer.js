@@ -79,7 +79,7 @@ export function classifyMessage(message) {
         return 'toolfeed';
     }
     // Domain-specific: show execution bubble when available
-    if ((message.role === 'execution') || message.executionCard === true) {
+    if ((message.role === 'execution') || message.executionCard === true || (Array.isArray(message.executions) && message.executions.length > 0)) {
         return 'execution';
     }
     // Detect interactive MCP prompts that should be rendered with a dedicated
@@ -102,6 +102,10 @@ export function classifyMessage(message) {
     // Debug why an elicitation row did not mount
     if (message.role === 'elicition') {
         // debug log removed
+    }
+
+    if (message.role === 'mcpelicitation' && message.status === 'open') {
+        return 'mcpelicitation';
     }
 
     if (message.role === 'mcpuserinteraction' && message.status === 'open') {
@@ -132,8 +136,15 @@ export function classifyMessage(message) {
             return 'elicition';
         }
     }
+    const schema = message.elicitation?.requestedSchema;
+    if (schema && isSimpleTextSchema(schema)) {
+        return 'bubble';
+    }
+    if (schema && isResolved) {
+        return 'bubble';
+    }
     // Fallback to inline form when elicitation present without a callback URL.
-    if (message.elicitation?.requestedSchema) return 'form';
+    if (schema) return 'form';
 
     return 'bubble';
 }

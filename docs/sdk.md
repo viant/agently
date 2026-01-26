@@ -1,0 +1,182 @@
+# SDKs (Go and TypeScript)
+
+This repo ships two client SDKs:
+
+- Go: `client/sdk`
+- TypeScript (browser): `ui/src/sdk/agentlyClient.ts`
+
+Both target the same HTTP APIs and event stream endpoints.
+
+## Go SDK
+
+### Install
+
+This SDK is part of the Agently repo; import it directly:
+
+```go
+import "github.com/viant/agently/client/sdk"
+```
+
+### Create a client
+
+```go
+client := sdk.New(
+  "http://localhost:8080",
+  sdk.WithTimeout(30*time.Second),
+  sdk.WithTokenProvider(func(ctx context.Context) (string, error) {
+    return os.Getenv("AGENTLY_TOKEN"), nil
+  }),
+)
+```
+
+### Create a conversation and send a message
+
+```go
+conv, err := client.CreateConversation(ctx, &sdk.CreateConversationRequest{
+  Model: "gpt-4.1",
+  Agent: "default",
+})
+if err != nil { /* handle */ }
+
+msg, err := client.PostMessage(ctx, conv.ID, &sdk.PostMessageRequest{
+  Content: "Hello!",
+})
+if err != nil { /* handle */ }
+_ = msg.ID
+```
+
+### Stream events (SSE)
+
+```go
+events, errs, err := client.StreamEvents(ctx, conv.ID, "", []string{"text", "tool_op", "control"})
+if err != nil { /* handle */ }
+for {
+  select {
+  case ev, ok := <-events:
+    if !ok { return }
+    // ev.Message holds MessageView; ev.Content may include deltas or meta
+  case err := <-errs:
+    if err != nil { /* handle */ }
+  }
+}
+```
+
+### Long-poll events (no SSE)
+
+```go
+resp, err := client.PollEvents(ctx, conv.ID, "10", []string{"text"}, 5000*time.Millisecond)
+if err != nil { /* handle */ }
+for _, ev := range resp.Events {
+  _ = ev
+}
+```
+
+### Attachments
+
+```go
+up, err := client.UploadAttachment(ctx, "file.txt", bytes.NewReader([]byte("hello")))
+if err != nil { /* handle */ }
+_, _ = client.PostMessage(ctx, conv.ID, &sdk.PostMessageRequest{
+  Content: "See attached.",
+  Attachments: []sdk.UploadedAttachment{
+    {Name: up.Name, URI: up.URI, Size: int(up.Size), StagingFolder: up.StagingFolder},
+  },
+})
+```
+
+### Auth helpers
+
+```go
+_ = client.AuthProviders(ctx)
+_ = client.AuthMe(ctx)
+_ = client.AuthLogout(ctx)
+```
+
+## TypeScript SDK
+
+### Create a client
+
+```ts
+import { AgentlyClient } from "@/sdk/agentlyClient";
+
+const client = new AgentlyClient({
+  baseURL: "http://localhost:8080",
+  tokenProvider: () => localStorage.getItem("token"),
+  useCookies: true,
+  timeoutMs: 30000,
+});
+```
+
+### Send a message
+
+```ts
+const conv = await client.createConversation({ model: "gpt-4.1", agent: "default" });
+const msg = await client.postMessage(conv.id, { content: "Hello!" });
+```
+
+### Stream events (SSE)
+
+```ts
+const es = client.streamEvents(conv.id, {
+  include: ["text", "tool_op", "control"],
+  onEvent: (ev) => {
+    // ev.message is MessageView, ev.content may include deltas/meta
+  },
+  onError: (err) => console.error(err),
+});
+// later: es.close()
+```
+
+### Long-poll events
+
+```ts
+const resp = await client.pollEvents(conv.id, { since: "10", include: ["text"], waitMs: 5000 });
+```
+
+### Upload attachments
+
+```ts
+const up = await client.uploadAttachment(file);
+await client.postMessage(conv.id, {
+  content: "See attached",
+  attachments: [{ name: up.name, uri: up.uri, size: up.size, stagingFolder: up.stagingFolder }],
+});
+```
+
+## Event stream shape
+
+SSE (`GET /v1/api/conversations/{id}/events`) and long-poll return the same envelope:
+
+```json
+{
+  "seq": 123,
+  "time": "2026-01-25T00:00:00Z",
+  "conversationId": "c1",
+  "message": { "id": "m1", "role": "assistant", "type": "text" },
+  "contentType": "application/json",
+  "content": { "delta": "partial text" }
+}
+```
+
+Long-poll response shape:
+
+```json
+{
+  "events": [/* envelopes */],
+  "since": "123"
+}
+```
+
+## Resume semantics
+
+- For SSE, use `Last-Event-ID` or `since` with the last `seq`.
+- For long-poll, pass `since=<seq>` and read the returned `since` as the new cursor.
+
+## Auth modes
+
+Both SDKs support:
+
+- Bearer token via `Authorization: Bearer <token>`
+- Cookie/session (for browser clients, pass `useCookies: true`)
+
+See `docs/auth.md` for server-side configuration.

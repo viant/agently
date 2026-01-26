@@ -1,0 +1,15 @@
+/* {"URI":"/queuedCount"} */
+
+
+
+#set($_ = $Status<?>(output/status))
+#set($_ = $Data<?>(output/view))
+#set($_ = $Metrics<?>(output/metrics))
+
+#set($_ = $ConversationID<string>(query/conversationId).WithPredicate(0, 'equal', 't', 'conversation_id'))
+
+SELECT
+    COUNT(*) AS queued_count
+FROM turn t
+${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+  AND t.status = 'queued'

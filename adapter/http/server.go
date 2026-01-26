@@ -20,6 +20,8 @@ import (
 	"github.com/viant/agently/genai/elicitation"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/modelcallctx"
+	"github.com/viant/agently/genai/streaming"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 
 	apiconv "github.com/viant/agently/client/conversation"
@@ -69,6 +71,10 @@ type Server struct {
 	// Optional auth + dao for token refresh
 	authCfg *auth.Config
 	dao     *datly.Service
+
+	eventSeqMu sync.Mutex
+	eventSeq   map[string]uint64
+	streamPub  *streaming.Publisher
 }
 
 // ServerOption customises HTTP server behaviour.
@@ -143,6 +149,8 @@ func WithDAO(dao *datly.Service) ServerOption { return func(s *Server) { s.dao =
 func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	s := &Server{mgr: mgr}
 	s.compactGuards = make(map[string]*int32)
+	s.eventSeq = make(map[string]uint64)
+	s.streamPub = streaming.NewPublisher()
 	for _, o := range opts {
 		if o != nil {
 			o(s)
@@ -168,6 +176,7 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	s.chatSvc.AttachFileService(s.fileSvc)
 	if s.core != nil {
 		s.chatSvc.AttachCore(s.core)
+		s.core.SetStreamPublisher(s.streamPub)
 	}
 	if s.defaults != nil {
 		s.chatSvc.AttachDefaults(s.defaults)
@@ -206,6 +215,9 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 
 		mux.HandleFunc("GET /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 			s.handleGetMessages(w, r, r.PathValue("id"))
+		})
+		mux.HandleFunc("GET /v1/api/conversations/{id}/events", func(w http.ResponseWriter, r *http.Request) {
+			s.handleConversationEvents(w, r, r.PathValue("id"))
 		})
 
 		// Delete a message within a conversation
@@ -583,6 +595,535 @@ func (s *Server) handleGetMessages(w http.ResponseWriter, r *http.Request, convI
 		Linked       map[string]*apiconv.Conversation `json:"linked,omitempty"`
 	}{Conversation: sanitizeConversationForAPI(conv.Conversation), Linked: linked}
 	encode(w, http.StatusOK, resp, nil)
+}
+
+type streamMessageEnvelope struct {
+	Seq            uint64              `json:"seq"`
+	Time           time.Time           `json:"time"`
+	ConversationID string              `json:"conversationId"`
+	Message        *agconv.MessageView `json:"message"`
+	ContentType    string              `json:"contentType,omitempty"`
+	Content        interface{}         `json:"content,omitempty"`
+}
+
+// handleConversationEvents streams conversation messages over SSE.
+// Query params:
+//   - since=<messageId> (default uses Last-Event-ID)
+//   - include=text,tool_op,control (optional filter by message type)
+//   - history=1 (include existing messages when since is empty)
+//   - includeModelCallPayload=1 (include model call payloads in message view)
+func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request, convID string) {
+	if r.Method != http.MethodGet {
+		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
+		return
+	}
+	if s.chatSvc == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
+		return
+	}
+	includeTypes := parseIncludeTypes(r.URL.Query().Get("include"))
+	includeHistory := strings.TrimSpace(r.URL.Query().Get("history")) == "1"
+	includeModelCallPayload := strings.TrimSpace(r.URL.Query().Get("includeModelCallPayload")) == "1"
+	lastSeenRaw := strings.TrimSpace(r.URL.Query().Get("since"))
+	if lastSeenRaw == "" {
+		lastSeenRaw = strings.TrimSpace(r.Header.Get("Last-Event-ID"))
+	}
+	lastSeenSeq, hasSeq := parseEventSeq(lastSeenRaw)
+	lastSeenID := ""
+	if !hasSeq && lastSeenRaw != "" {
+		lastSeenID = lastSeenRaw
+	}
+
+	baseCtx := s.withAuthFromRequest(r)
+	if s.invoker != nil {
+		baseCtx = invk.With(baseCtx, s.invoker)
+	}
+	baseCtx = memory.WithConversationID(baseCtx, convID)
+
+	waitMs := parseWaitMS(r.URL.Query().Get("wait"), 0)
+	if waitMs > 0 {
+		s.handleConversationEventsPoll(w, r, baseCtx, convID, includeTypes, includeHistory, includeModelCallPayload, lastSeenSeq, hasSeq, lastSeenID, waitMs)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("streaming unsupported"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	sent := map[uint64]struct{}{}
+	if hasSeq {
+		sent[lastSeenSeq] = struct{}{}
+	}
+	if !includeHistory && !hasSeq && lastSeenID == "" {
+		if seq := s.findLastMessageSeq(baseCtx, convID, includeModelCallPayload); seq > 0 {
+			lastSeenSeq = seq
+			hasSeq = true
+			sent[seq] = struct{}{}
+		}
+	}
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	defer heartbeat.Stop()
+	var deltaCh <-chan *modelcallctx.StreamEvent
+	var deltaCancel func()
+	if s.streamPub != nil {
+		deltaCh, deltaCancel = s.streamPub.Subscribe(convID)
+	}
+	if deltaCancel != nil {
+		defer deltaCancel()
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev := <-deltaCh:
+			if ev == nil {
+				continue
+			}
+			env := &streamMessageEnvelope{
+				Seq:            0,
+				Time:           time.Now().UTC(),
+				ConversationID: convID,
+				Message:        sanitizeMessageForStream(ev.Message),
+				ContentType:    ev.ContentType,
+				Content:        ev.Content,
+			}
+			if err := writeSSEEvent(w, flusher, "delta", "", env); err != nil {
+				return
+			}
+		case <-heartbeat.C:
+			_, _ = io.WriteString(w, ": ping\n\n")
+			flusher.Flush()
+		case <-ticker.C:
+			conv, err := s.chatSvc.Get(baseCtx, chat.GetRequest{
+				ConversationID:          convID,
+				SinceID:                 lastSeenID,
+				IncludeModelCallPayload: includeModelCallPayload,
+				IncludeToolCall:         true,
+			})
+			if err != nil {
+				_ = writeSSEEvent(w, flusher, "error", "", map[string]string{"error": err.Error()})
+				return
+			}
+			if conv == nil || conv.Conversation == nil {
+				_ = writeSSEEvent(w, flusher, "error", "", map[string]string{"error": "conversation not found"})
+				return
+			}
+			messages := flattenTranscriptMessages(conv.Conversation)
+			start := 0
+			if !hasSeq && lastSeenID != "" {
+				for i, m := range messages {
+					if m == nil {
+						continue
+					}
+					if m.Id == lastSeenID {
+						start = i + 1
+						break
+					}
+				}
+			}
+			for i := start; i < len(messages); i++ {
+				m := messages[i]
+				if m == nil || strings.TrimSpace(m.Id) == "" {
+					continue
+				}
+				seq := s.nextEventSeq(convID, m)
+				if hasSeq && seq <= lastSeenSeq {
+					continue
+				}
+				if len(includeTypes) > 0 {
+					if _, ok := includeTypes[strings.ToLower(strings.TrimSpace(m.Type))]; !ok {
+						continue
+					}
+				}
+				if _, ok := sent[seq]; ok {
+					continue
+				}
+				env := &streamMessageEnvelope{
+					Seq:            seq,
+					Time:           time.Now().UTC(),
+					ConversationID: convID,
+					Message:        sanitizeMessageForStream(m),
+				}
+				if ctype, content := buildStreamContent(m); content != nil {
+					env.ContentType = ctype
+					env.Content = content
+				}
+				if err := writeSSEEvent(w, flusher, "message", strconv.FormatUint(seq, 10), env); err != nil {
+					return
+				}
+				lastSeenSeq = seq
+				hasSeq = true
+				sent[seq] = struct{}{}
+				lastSeenID = m.Id
+			}
+		}
+	}
+}
+
+func (s *Server) handleConversationEventsPoll(w http.ResponseWriter, r *http.Request, baseCtx context.Context, convID string, includeTypes map[string]struct{}, includeHistory, includeModelCallPayload bool, lastSeenSeq uint64, hasSeq bool, lastSeenID string, waitMs int) {
+	deadline := time.Now().Add(time.Duration(waitMs) * time.Millisecond)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	writeJSON := func(status int, payload interface{}) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(payload)
+	}
+
+	for {
+		if r.Context().Err() != nil {
+			return
+		}
+		envs, seq, lastID, err := s.collectEventEnvelopes(baseCtx, convID, includeTypes, includeHistory, includeModelCallPayload, lastSeenSeq, hasSeq, lastSeenID)
+		if err != nil {
+			encode(w, http.StatusInternalServerError, nil, err)
+			return
+		}
+		if len(envs) > 0 {
+			resp := struct {
+				Events []*streamMessageEnvelope `json:"events"`
+				Since  string                   `json:"since,omitempty"`
+			}{Events: envs}
+			if seq > 0 {
+				resp.Since = strconv.FormatUint(seq, 10)
+			}
+			writeJSON(http.StatusOK, resp)
+			return
+		}
+		if time.Now().After(deadline) {
+			writeJSON(http.StatusOK, struct {
+				Events []*streamMessageEnvelope `json:"events"`
+			}{Events: nil})
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-r.Context().Done():
+			return
+		}
+		lastSeenSeq = seq
+		lastSeenID = lastID
+	}
+}
+
+func parseIncludeTypes(raw string) map[string]struct{} {
+	items := strings.Split(raw, ",")
+	out := map[string]struct{}{}
+	for _, item := range items {
+		t := strings.ToLower(strings.TrimSpace(item))
+		if t == "" {
+			continue
+		}
+		out[t] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func parseWaitMS(raw string, def int) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v <= 0 {
+		return def
+	}
+	return v
+}
+
+func parseEventSeq(raw string) (uint64, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+func writeSSEEvent(w io.Writer, flusher http.Flusher, eventName, eventID string, payload interface{}) error {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if eventID != "" {
+		_, _ = fmt.Fprintf(w, "id: %s\n", eventID)
+	}
+	if eventName != "" {
+		_, _ = fmt.Fprintf(w, "event: %s\n", eventName)
+	}
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
+	flusher.Flush()
+	return nil
+}
+
+func flattenTranscriptMessages(conv *apiconv.Conversation) []*agconv.MessageView {
+	if conv == nil || conv.Transcript == nil {
+		return nil
+	}
+	var out []*agconv.MessageView
+	for _, turn := range conv.Transcript {
+		if turn == nil || turn.Message == nil {
+			continue
+		}
+		for _, m := range turn.Message {
+			if m != nil {
+				out = append(out, m)
+			}
+		}
+	}
+	return out
+}
+
+func sanitizeMessageForStream(m *agconv.MessageView) *agconv.MessageView {
+	if m == nil {
+		return nil
+	}
+	mc := *m
+	if mc.Attachment == nil {
+		return &mc
+	}
+	atts := make([]*agconv.AttachmentView, len(mc.Attachment))
+	for i, a := range mc.Attachment {
+		if a == nil {
+			continue
+		}
+		ac := *a
+		ac.InlineBody = nil
+		atts[i] = &ac
+	}
+	mc.Attachment = atts
+	return &mc
+}
+
+func (s *Server) nextEventSeq(convID string, msg *agconv.MessageView) uint64 {
+	if msg != nil && msg.Sequence != nil && *msg.Sequence > 0 {
+		return uint64(*msg.Sequence)
+	}
+	s.eventSeqMu.Lock()
+	defer s.eventSeqMu.Unlock()
+	seq := s.eventSeq[convID] + 1
+	s.eventSeq[convID] = seq
+	return seq
+}
+
+func buildStreamContent(m *agconv.MessageView) (string, interface{}) {
+	if m == nil {
+		return "", nil
+	}
+	meta := map[string]interface{}{}
+	content := map[string]interface{}{}
+	switch strings.ToLower(strings.TrimSpace(m.Type)) {
+	case "text":
+		if isPreambleMessage(m) {
+			meta["kind"] = "preamble"
+		}
+		txt := ""
+		if m.Content != nil {
+			txt = strings.TrimSpace(*m.Content)
+		}
+		if txt == "" && m.RawContent != nil {
+			txt = strings.TrimSpace(*m.RawContent)
+		}
+		if txt != "" {
+			content["text"] = txt
+		}
+		if len(meta) > 0 {
+			content["meta"] = meta
+		}
+	case "tool_op":
+		if m.ToolCall != nil {
+			if phase := toolPhaseFromMessage(m); phase != "" {
+				meta["phase"] = phase
+			}
+			content["toolCallId"] = strings.TrimSpace(m.ToolCall.OpId)
+			content["name"] = strings.TrimSpace(m.ToolCall.ToolName)
+			if m.ToolCall.RequestPayload != nil && m.ToolCall.RequestPayload.InlineBody != nil {
+				content["request"] = *m.ToolCall.RequestPayload.InlineBody
+				content["requestCompression"] = strings.TrimSpace(m.ToolCall.RequestPayload.Compression)
+			}
+			if m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
+				content["response"] = *m.ToolCall.ResponsePayload.InlineBody
+				content["responseCompression"] = strings.TrimSpace(m.ToolCall.ResponsePayload.Compression)
+			}
+			if m.ToolCall.ErrorMessage != nil && strings.TrimSpace(*m.ToolCall.ErrorMessage) != "" {
+				content["error"] = strings.TrimSpace(*m.ToolCall.ErrorMessage)
+			}
+			if len(meta) > 0 {
+				content["meta"] = meta
+			}
+		}
+	}
+	if len(content) == 0 {
+		return "", nil
+	}
+	return "application/json", content
+}
+
+func isPreambleMessage(m *agconv.MessageView) bool {
+	if m == nil {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(m.Role)) != "assistant" {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(m.Type)) != "text" {
+		return false
+	}
+	if m.Interim == 0 {
+		return false
+	}
+	if m.ModelCall == nil || len(m.ModelCall.ToolCallLinks) == 0 {
+		return false
+	}
+	return true
+}
+
+func toolPhaseFromMessage(m *agconv.MessageView) string {
+	if m == nil || m.ToolCall == nil {
+		return ""
+	}
+	status := strings.ToLower(strings.TrimSpace(m.ToolCall.Status))
+	switch status {
+	case "running", "pending":
+		return "request"
+	case "completed", "succeeded", "success", "failed", "error", "canceled", "cancelled":
+		return "response"
+	}
+	if m.ToolCall.ResponsePayload != nil && m.ToolCall.ResponsePayload.InlineBody != nil {
+		return "response"
+	}
+	if m.ToolCall.RequestPayload != nil && m.ToolCall.RequestPayload.InlineBody != nil {
+		return "request"
+	}
+	return ""
+}
+
+func (s *Server) findLastMessageID(ctx context.Context, convID string, includeModelCallPayload bool) string {
+	if s.chatSvc == nil {
+		return ""
+	}
+	conv, err := s.chatSvc.Get(ctx, chat.GetRequest{
+		ConversationID:          convID,
+		IncludeModelCallPayload: includeModelCallPayload,
+		IncludeToolCall:         false,
+	})
+	if err != nil || conv == nil || conv.Conversation == nil {
+		return ""
+	}
+	msgs := flattenTranscriptMessages(conv.Conversation)
+	if len(msgs) == 0 {
+		return ""
+	}
+	last := msgs[len(msgs)-1]
+	if last == nil {
+		return ""
+	}
+	return last.Id
+}
+
+func (s *Server) findLastMessageSeq(ctx context.Context, convID string, includeModelCallPayload bool) uint64 {
+	if s.chatSvc == nil {
+		return 0
+	}
+	conv, err := s.chatSvc.Get(ctx, chat.GetRequest{
+		ConversationID:          convID,
+		IncludeModelCallPayload: includeModelCallPayload,
+		IncludeToolCall:         false,
+	})
+	if err != nil || conv == nil || conv.Conversation == nil {
+		return 0
+	}
+	msgs := flattenTranscriptMessages(conv.Conversation)
+	if len(msgs) == 0 {
+		return 0
+	}
+	last := msgs[len(msgs)-1]
+	if last == nil || last.Sequence == nil || *last.Sequence <= 0 {
+		return 0
+	}
+	return uint64(*last.Sequence)
+}
+
+func (s *Server) collectEventEnvelopes(ctx context.Context, convID string, includeTypes map[string]struct{}, includeHistory, includeModelCallPayload bool, lastSeenSeq uint64, hasSeq bool, lastSeenID string) ([]*streamMessageEnvelope, uint64, string, error) {
+	conv, err := s.chatSvc.Get(ctx, chat.GetRequest{
+		ConversationID:          convID,
+		SinceID:                 lastSeenID,
+		IncludeModelCallPayload: includeModelCallPayload,
+		IncludeToolCall:         true,
+	})
+	if err != nil {
+		return nil, lastSeenSeq, lastSeenID, err
+	}
+	if conv == nil || conv.Conversation == nil {
+		return nil, lastSeenSeq, lastSeenID, fmt.Errorf("conversation not found")
+	}
+	messages := flattenTranscriptMessages(conv.Conversation)
+	start := 0
+	if !hasSeq && lastSeenID != "" {
+		for i, m := range messages {
+			if m == nil {
+				continue
+			}
+			if m.Id == lastSeenID {
+				start = i + 1
+				break
+			}
+		}
+	}
+	var out []*streamMessageEnvelope
+	for i := start; i < len(messages); i++ {
+		m := messages[i]
+		if m == nil || strings.TrimSpace(m.Id) == "" {
+			continue
+		}
+		seq := s.nextEventSeq(convID, m)
+		if hasSeq && seq <= lastSeenSeq {
+			continue
+		}
+		if len(includeTypes) > 0 {
+			if _, ok := includeTypes[strings.ToLower(strings.TrimSpace(m.Type))]; !ok {
+				continue
+			}
+		}
+		out = append(out, &streamMessageEnvelope{
+			Seq:            seq,
+			Time:           time.Now().UTC(),
+			ConversationID: convID,
+			Message:        sanitizeMessageForStream(m),
+		})
+		if ctype, content := buildStreamContent(m); content != nil {
+			out[len(out)-1].ContentType = ctype
+			out[len(out)-1].Content = content
+		}
+		lastSeenSeq = seq
+		hasSeq = true
+		lastSeenID = m.Id
+	}
+	if len(out) == 0 && !includeHistory && !hasSeq && lastSeenID == "" {
+		if seq := s.findLastMessageSeq(ctx, convID, includeModelCallPayload); seq > 0 {
+			lastSeenSeq = seq
+			hasSeq = true
+		}
+	}
+	return out, lastSeenSeq, lastSeenID, nil
 }
 
 // sanitizeConversationForAPI returns a copy of conv with any binary attachment

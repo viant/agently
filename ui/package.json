@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@blueprintjs/core": "^6.0.0-alpha.1",
@@ -64,11 +65,15 @@
     "@types/node": "^20",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^14.3.1",
     "autoprefixer": "^10.4.20",
+    "jsdom": "^25.0.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3",
     "vite": "^6.3.5",
-    "vite-tsconfig-paths": "^5.1.2"
+    "vite-tsconfig-paths": "^5.1.2",
+    "vitest": "^2.1.5"
   }
 }

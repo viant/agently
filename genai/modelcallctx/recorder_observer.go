@@ -12,6 +12,7 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
+	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
@@ -217,6 +218,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 	if len(data) == 0 {
 		return nil
 	}
+	o.publishStreamDelta(ctx, data)
 	o.acc.Write(data)
 	// Best-effort append to stream payload inline body using conversation client
 	id := strings.TrimSpace(o.streamPayloadID)
@@ -287,6 +289,49 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 		}
 	}
 	return nil
+}
+
+func (o *recorderObserver) publishStreamDelta(ctx context.Context, data []byte) {
+	pub, ok := StreamPublisherFromContext(ctx)
+	if !ok {
+		return
+	}
+	convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	if convID == "" {
+		return
+	}
+	msgID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	if msgID == "" {
+		return
+	}
+	msg := &agconv.MessageView{
+		Id:             msgID,
+		ConversationId: convID,
+		Role:           "assistant",
+		Type:           "text",
+	}
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+		if strings.TrimSpace(turn.TurnID) != "" {
+			msg.TurnId = &turn.TurnID
+		}
+		if strings.TrimSpace(turn.ParentMessageID) != "" {
+			msg.ParentMessageId = &turn.ParentMessageID
+		}
+	}
+	interim := 1
+	msg.Interim = interim
+	content := map[string]interface{}{
+		"delta": string(data),
+		"meta": map[string]interface{}{
+			"kind": "stream_delta",
+		},
+	}
+	_ = pub.Publish(ctx, &StreamEvent{
+		ConversationID: convID,
+		Message:        msg,
+		ContentType:    "application/json",
+		Content:        content,
+	})
 }
 
 // WithRecorderObserver injects a recorder-backed Observer into context.

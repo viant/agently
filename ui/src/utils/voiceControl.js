@@ -41,7 +41,10 @@ function stripPhrases(text, phrases) {
   for (const phrase of phrases || []) {
     out = out.replace(buildPhraseRegex(phrase), ' ');
   }
-  return out.replace(/[\s\t\n\r]+/g, ' ').trim();
+  out = out.replace(/[\s\t\n\r]+/g, ' ').trim();
+  out = out.replace(/\s+([,;:.!?])/g, '$1');
+  out = out.replace(/([,;:.!?])(?:\s*\1)+/g, '$1');
+  return out;
 }
 
 /**
@@ -71,4 +74,3 @@ export function detectVoiceControl(text, opts = {}) {
   const cleanedText = stripPhrases(text, [...(phrases.submit || []), ...(phrases.cancel || [])]);
   return {action, cleanedText};
 }
-
