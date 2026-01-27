@@ -16,8 +16,9 @@ const (
 	snapshotPathDefault = "${runtimeRoot}/snapshots"
 )
 
-func (s *Service) snapshotCacheRoot(ctx context.Context) string {
-	template := strings.TrimSpace(s.snapshotRoot)
+// ResolveSnapshotPath resolves a snapshot cache root template using env overrides and defaults.
+func ResolveSnapshotPath(ctx context.Context, template string) string {
+	template = strings.TrimSpace(template)
 	if envVal := strings.TrimSpace(os.Getenv(envSnapshotPath)); envVal != "" {
 		template = envVal
 	}
@@ -33,6 +34,12 @@ func (s *Service) snapshotCacheRoot(ctx context.Context) string {
 	out = strings.ReplaceAll(out, "${runtimeRoot}", workspace.RuntimeRoot())
 	out = workspace.ResolvePathTemplate(out)
 	out = strings.ReplaceAll(out, "${user}", user)
+	return strings.TrimSpace(out)
+}
+
+func (s *Service) snapshotCacheRoot(ctx context.Context) string {
+	template := strings.TrimSpace(s.snapshotRoot)
+	out := ResolveSnapshotPath(ctx, template)
 	out = strings.TrimSpace(out)
 	if strings.HasPrefix(strings.ToLower(out), "file://") {
 		out = fileURLToPath(out)

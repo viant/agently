@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -26,9 +27,11 @@ import (
 	mcpcookies "github.com/viant/agently/internal/mcp/cookies"
 	mcpexpose "github.com/viant/agently/internal/mcp/expose"
 	mcpmgr "github.com/viant/agently/internal/mcp/manager"
+	"github.com/viant/agently/internal/workspace"
 	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
 	protoclient "github.com/viant/mcp-protocol/client"
 	authtransport "github.com/viant/mcp/client/auth/transport"
+	"gopkg.in/yaml.v3"
 )
 
 // ServeCmd starts the embedded HTTP server.
@@ -44,6 +47,7 @@ type ServeCmd struct {
 }
 
 func (s *ServeCmd) Execute(_ []string) error {
+	applyRuntimeConfig()
 	// Construct shared MCP router and per-conversation manager before executor init
 	r := elicrouter.New()
 	prov := mcpmgr.NewRepoProvider()
@@ -202,5 +206,30 @@ func (s *ServeCmd) Execute(_ []string) error {
 			_ = srv.Shutdown(ctx)
 		}
 		return err
+	}
+}
+
+func applyRuntimeConfig() {
+	cfgPath := getConfigPath()
+	if strings.TrimSpace(cfgPath) == "" {
+		cfgPath = filepath.Join(workspace.Root(), "config.yaml")
+	}
+	fs := afs.New()
+	data, err := fs.DownloadWithURL(context.Background(), cfgPath)
+	if err != nil || len(data) == 0 {
+		return
+	}
+	var cfg executor.Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return
+	}
+	if strings.TrimSpace(cfg.Default.RuntimeRoot) != "" {
+		workspace.SetRuntimeRoot(cfg.Default.RuntimeRoot)
+	}
+	if strings.TrimSpace(cfg.Default.StatePath) != "" {
+		workspace.SetStateRoot(cfg.Default.StatePath)
+	}
+	if strings.TrimSpace(cfg.Default.DBPath) != "" {
+		_ = os.Setenv("AGENTLY_DB_PATH", cfg.Default.DBPath)
 	}
 }

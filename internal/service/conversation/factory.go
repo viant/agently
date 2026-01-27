@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -41,6 +42,7 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 		if dbPath != "" {
 			dbPath = workspace.ResolvePathTemplate(dbPath)
 		}
+		log.Printf("[db] init driver=%q dsn=%q dbPath=%q", driver, dsn, dbPath)
 
 		if dsn == "" {
 			// Fallback to local SQLite under $AGENTLY_WORKSPACE/db/agently.db
@@ -54,6 +56,7 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 				initErr = err
 				return
 			}
+			log.Printf("[db] sqlite dsn=%q", dsn)
 			driver = "sqlite"
 		}
 		conn := view.NewConnector("agently", driver, dsn)

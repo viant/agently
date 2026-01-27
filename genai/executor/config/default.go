@@ -70,9 +70,12 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	type raw struct {
-		Model    string `yaml:"model"`
-		Embedder string `yaml:"embedder"`
-		Agent    string `yaml:"agent"`
+		Model       string `yaml:"model"`
+		Embedder    string `yaml:"embedder"`
+		Agent       string `yaml:"agent"`
+		RuntimeRoot string `yaml:"runtimeRoot,omitempty"`
+		StatePath   string `yaml:"statePath,omitempty"`
+		DBPath      string `yaml:"dbPath,omitempty"`
 
 		AgentAutoSelection AgentAutoSelectionDefaults `yaml:"agentAutoSelection,omitempty"`
 		ToolAutoSelection  ToolAutoSelectionDefaults  `yaml:"toolAutoSelection,omitempty"`
@@ -101,9 +104,12 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	*d = Defaults{
-		Model:    tmp.Model,
-		Embedder: tmp.Embedder,
-		Agent:    tmp.Agent,
+		Model:       tmp.Model,
+		Embedder:    tmp.Embedder,
+		Agent:       tmp.Agent,
+		RuntimeRoot: tmp.RuntimeRoot,
+		StatePath:   tmp.StatePath,
+		DBPath:      tmp.DBPath,
 
 		SummaryModel:  tmp.SummaryModel,
 		SummaryPrompt: tmp.SummaryPrompt,
