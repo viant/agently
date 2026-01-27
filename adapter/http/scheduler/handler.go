@@ -34,6 +34,14 @@ func newWith(dao *datly.Service, svc Service) (http.Handler, error) {
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Datly expects RFC3339 timestamps (with seconds). Many UI datetime pickers
+	// emit ISO-8601 without seconds (e.g. 2026-01-01T00:00+01:00), which fails
+	// Datly's time parser. Normalize scheduler write payloads to include seconds.
+	if err := normalizeSchedulerWriteTimeFields(r); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	// Dependencies are enforced at construction (newWith). Delegate to Datly router, which writes responses.
 	if err := h.router.Run(w, r); err != nil {
 		if datly.IsRouteNotFound(err) {
