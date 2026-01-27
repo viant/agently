@@ -41,6 +41,11 @@ func resolveIndexBaseURL(ctx context.Context, template string) string {
 	return normalizePath(resolved)
 }
 
+// ResolveIndexPath resolves an index path template using env overrides and defaults.
+func ResolveIndexPath(ctx context.Context, template string) string {
+	return resolveTemplate(ctx, envIndexPath, template, indexPathDefault)
+}
+
 func resolveTemplate(ctx context.Context, envKey, template, fallback string) string {
 	if envVal := strings.TrimSpace(getenv(envKey)); envVal != "" {
 		template = envVal

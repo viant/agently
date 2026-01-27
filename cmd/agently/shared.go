@@ -48,6 +48,12 @@ func setConfigPath(p string) {
 	cfgMu.Unlock()
 }
 
+func getConfigPath() string {
+	cfgMu.RLock()
+	defer cfgMu.RUnlock()
+	return cfgPath
+}
+
 // registerExecOption appends an option that will be passed to executor.New on
 // first initialisation.
 func registerExecOption(o executor.Option) {

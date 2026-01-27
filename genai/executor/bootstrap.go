@@ -133,15 +133,9 @@ func (e *Service) init(ctx context.Context) error {
 	var localUpstreams []augmenter.LocalUpstream
 	indexPathTemplate := ""
 	snapshotPathTemplate := ""
-	runtimeRoot := ""
-	statePath := ""
-	dbPath := ""
 	if e.config != nil {
 		indexPathTemplate = e.config.Default.Resources.IndexPath
 		snapshotPathTemplate = e.config.Default.Resources.SnapshotPath
-		runtimeRoot = e.config.Default.RuntimeRoot
-		statePath = e.config.Default.StatePath
-		dbPath = e.config.Default.DBPath
 		for _, root := range e.config.Default.Resources.Roots {
 			if strings.TrimSpace(root.URI) == "" {
 				continue
@@ -180,15 +174,6 @@ func (e *Service) init(ctx context.Context) error {
 		augmenter.WithMatchConcurrency(matchConcurrency),
 		augmenter.WithIndexAsync(indexAsync),
 	)
-	if strings.TrimSpace(runtimeRoot) != "" {
-		workspace.SetRuntimeRoot(runtimeRoot)
-	}
-	if strings.TrimSpace(statePath) != "" {
-		workspace.SetStateRoot(statePath)
-	}
-	if strings.TrimSpace(dbPath) != "" {
-		os.Setenv("AGENTLY_DB_PATH", dbPath)
-	}
 	e.llmCore = core.New(e.modelFinder, e.tools, e.convClient)
 	agentSvc := agent2.New(e.llmCore, e.agentFinder, enricher, e.tools, &e.config.Default, e.convClient,
 		func(s *agent2.Service) {
@@ -675,6 +660,17 @@ func (e *Service) initDefaults(ctx context.Context) error {
 	// This makes CLI/HTTP entry-points that construct executor.Service directly
 	// respect $AGENTLY_WORKSPACE/ag/config.yaml without going through instance.Init.
 	e.loadWorkspaceConfigIfEmpty(ctx)
+	if e.config != nil {
+		if strings.TrimSpace(e.config.Default.RuntimeRoot) != "" {
+			workspace.SetRuntimeRoot(e.config.Default.RuntimeRoot)
+		}
+		if strings.TrimSpace(e.config.Default.StatePath) != "" {
+			workspace.SetStateRoot(e.config.Default.StatePath)
+		}
+		if strings.TrimSpace(e.config.Default.DBPath) != "" {
+			os.Setenv("AGENTLY_DB_PATH", e.config.Default.DBPath)
+		}
+	}
 	// Ensure toolCallResult defaults when missing
 	if e.config != nil {
 
