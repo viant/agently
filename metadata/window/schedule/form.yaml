@@ -65,7 +65,7 @@
         title: Select Model
         outputs:
           - name: modelOverride
-            location: options.model
+            location: id
 
 - id: schedule
   title: Schedule
