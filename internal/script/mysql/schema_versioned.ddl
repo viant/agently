@@ -3,7 +3,6 @@ USE `agently`;
 
 
 DELIMITER $$
-START TRANSACTION $$
 -- Schema versioning helpers (added)
 -- Ensure schema_version table exists and initialize to version 0 if empty
 CREATE TABLE IF NOT EXISTS schema_version
@@ -468,17 +467,45 @@ CREATE TABLE IF NOT EXISTS emb_asset (
   PRIMARY KEY (dataset_id, asset_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_emb_asset_path
-  ON emb_asset(dataset_id, path(255));
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'emb_asset'
+              AND INDEX_NAME = 'idx_emb_asset_path'
+        ) THEN
+            CREATE INDEX idx_emb_asset_path ON emb_asset(dataset_id, path(255));
+        END IF;
 
-CREATE INDEX IF NOT EXISTS idx_emb_asset_mod
-  ON emb_asset(dataset_id, mod_time);
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'emb_asset'
+              AND INDEX_NAME = 'idx_emb_asset_mod'
+        ) THEN
+            CREATE INDEX idx_emb_asset_mod ON emb_asset(dataset_id, mod_time);
+        END IF;
 
-CREATE INDEX IF NOT EXISTS idx_shadow_vec_docs_scn
-  ON shadow_vec_docs(dataset_id, scn);
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'shadow_vec_docs'
+              AND INDEX_NAME = 'idx_shadow_vec_docs_scn'
+        ) THEN
+            CREATE INDEX idx_shadow_vec_docs_scn ON shadow_vec_docs(dataset_id, scn);
+        END IF;
 
-CREATE INDEX IF NOT EXISTS idx_shadow_vec_docs_archived
-  ON shadow_vec_docs(dataset_id, archived);
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'shadow_vec_docs'
+              AND INDEX_NAME = 'idx_shadow_vec_docs_archived'
+        ) THEN
+            CREATE INDEX idx_shadow_vec_docs_archived ON shadow_vec_docs(dataset_id, archived);
+        END IF;
 
 CALL set_schema_version(2);
 END IF;
@@ -805,5 +832,66 @@ END $$
 
 CALL schema_upgrade_6() $$
 DROP PROCEDURE schema_upgrade_6 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_7 $$
+CREATE PROCEDURE schema_upgrade_7()
+BEGIN
+    IF get_schema_version() = 7 THEN
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'investigation'
+        ) THEN
+            CREATE TABLE IF NOT EXISTS `investigation` (
+                id          VARCHAR(255) PRIMARY KEY,
+                title       TEXT NULL,
+                created_by  VARCHAR(255) NULL,
+                summary     TEXT NULL,
+                ad_order_id INT NULL,
+                verdict     VARCHAR(255) NULL,
+                created     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB
+              DEFAULT CHARSET=utf8mb4
+              COLLATE=utf8mb4_0900_ai_ci;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'investigation'
+              AND INDEX_NAME = 'idx_investigation_title'
+        ) THEN
+            CREATE FULLTEXT INDEX idx_investigation_title ON investigation (title);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'investigation'
+              AND INDEX_NAME = 'idx_investigation_created_by'
+        ) THEN
+            CREATE INDEX idx_investigation_created_by ON investigation (created_by);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'investigation'
+              AND INDEX_NAME = 'idx_investigation_created'
+        ) THEN
+            CREATE INDEX idx_investigation_created ON investigation (created);
+        END IF;
+
+        CALL set_schema_version(8);
+    END IF;
+END $$
+
+CALL schema_upgrade_7() $$
+DROP PROCEDURE schema_upgrade_7 $$
 
 DELIMITER ;
