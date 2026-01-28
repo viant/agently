@@ -320,4 +320,40 @@ func TestService_RunDue_LeaseAndPending_DataDriven(t *testing.T) {
 	}
 }
 
+func TestService_RunDue_CronWithoutNextOrLastRun_Triggers(t *testing.T) {
+	createdAt := time.Now().UTC().Add(-10 * time.Minute)
+
+	store := &fakeScheduleStore{
+		schedule: map[string]*schedulepkg.ScheduleView{},
+	}
+	schedule := &schedulepkg.ScheduleView{
+		Id:           "sch-1",
+		Name:         "s",
+		AgentRef:     "agent",
+		Enabled:      true,
+		ScheduleType: "cron",
+		CronExpr:     strPtr("*/1 * * * *"),
+		Timezone:     "UTC",
+		TaskPrompt:   strPtr("do"),
+		CreatedAt:    createdAt,
+	}
+	store.schedules = []*schedulepkg.ScheduleView{schedule}
+	store.schedule["sch-1"] = schedule
+
+	chat := &fakeChat{}
+	svc := &Service{
+		sch:        store,
+		chat:       chat,
+		leaseOwner: "owner-1",
+		leaseTTL:   60 * time.Second,
+	}
+
+	started, err := svc.RunDue(context.Background())
+	assert.NoError(t, err)
+	assert.EqualValues(t, 1, started)
+	assert.EqualValues(t, 1, len(store.patchedRuns))
+	assert.EqualValues(t, "running", store.patchedRuns[0].Status)
+	assert.EqualValues(t, 1, len(store.patchedSchedules))
+}
+
 func strPtr(v string) *string { return &v }
