@@ -127,6 +127,9 @@ export const scheduleService = {
   saveSchedule,
   // Trigger a run for the currently selected schedule
   async runSelected({ context }) {
+    if (scheduleService._runSelectedInFlight) {
+      return true;
+    }
     const ctx = context?.Context('schedules');
     if (!ctx) {
       log.error('scheduleService.runSelected: schedules context not found');
@@ -141,6 +144,7 @@ export const scheduleService = {
     const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
     const url = joinURL(base, `/v1/api/agently/scheduler/run-now/`);
     ctx.handlers?.setLoading?.(true);
+    scheduleService._runSelectedInFlight = true;
     try {
       const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scheduleId: id, status: 'pending' }), credentials: 'include' });
       if (!resp.ok) {
@@ -155,6 +159,7 @@ export const scheduleService = {
       ctx.handlers?.setError?.(err);
       return false;
     } finally {
+      scheduleService._runSelectedInFlight = false;
       ctx.handlers?.setLoading?.(false);
     }
   },

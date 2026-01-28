@@ -161,8 +161,9 @@ func handleRunNow(ctx context.Context, svc Service, injector hstate.Injector) (i
 	}
 
 	// Mark schedule as due to wake up the background runner quickly (next_run_at <= now).
-	// The runner will recompute next_run_at after a successful run.
-	{
+	// Only do this when no in-process orchestration scheduler is wired; otherwise
+	// it can cause duplicate executions when a watchdog/runner is also running.
+	if svc.scheduler == nil {
 		upd := &schedwrite.Schedule{}
 		upd.SetId(schedID)
 		upd.SetNextRunAt(now)

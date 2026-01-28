@@ -95,6 +95,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 	if s == nil || s.sch == nil {
 		return fmt.Errorf("scheduler service not initialized")
 	}
+	//ctx = authctx.WithInternalAccess(ctx) // TODO delete or accept
 	if in == nil {
 		return fmt.Errorf("run is required")
 	}
@@ -112,6 +113,18 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 	}
 	if row == nil {
 		return fmt.Errorf("schedule not found")
+	}
+
+	// Ensure required fields are set before persisting (status + conversationKind are required).
+	if strings.TrimSpace(in.Status) == "" {
+		in.SetStatus("pending")
+	}
+	in.SetConversationKind("scheduled")
+
+	// Persist initial state before any side-effects (conversation creation / LLM calls).
+	// This prevents duplicate/failed inserts from generating orphan conversations.
+	if err := s.sch.PatchRun(ctx, in); err != nil {
+		return err
 	}
 
 	// Always create a dedicated conversation for this run to avoid
@@ -156,7 +169,6 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 			_ = s.conv.PatchConversations(ctx, c)
 		}
 	}
-	in.SetConversationKind("scheduled")
 
 	// Post task prompt if defined
 	var taskContent string
@@ -175,7 +187,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		in.SetStatus("running")
 		in.SetStartedAt(time.Now().UTC())
 	}
-	// Persist initial state
+	// Persist updated state (conversation linkage, running timestamps, etc.)
 	if err := s.sch.PatchRun(ctx, in); err != nil {
 		return err
 	}
@@ -292,6 +304,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 	if s == nil || s.sch == nil || s.chat == nil {
 		return 0, fmt.Errorf("scheduler service not initialized")
 	}
+	//ctx = authctx.WithInternalAccess(ctx) TODO delete or accept
 	s.ensureLeaseConfig()
 
 	rows, err := s.sch.GetSchedules(ctx)
@@ -388,6 +401,17 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 				switch st {
 				case "running", "prechecking":
 					// Another instance is processing this schedule.
+					// For ad-hoc schedules, clear next_run_at so they don't remain due
+					// while a run is already in progress (e.g. when started via run-now).
+					if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "adhoc") && sc.NextRunAt != nil && !sc.NextRunAt.IsZero() {
+						mut := &schapi.MutableSchedule{}
+						mut.SetId(sc.Id)
+						mut.NextRunAt = nil
+						if mut.Has != nil {
+							mut.Has.NextRunAt = true
+						}
+						_ = s.sch.PatchSchedule(ctx, mut)
+					}
 					return nil
 				case "pending":
 					// Prefer a pending run that matches the current scheduled slot.
@@ -428,6 +452,13 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 				}
 			} else if sc.IntervalSeconds != nil {
 				mut.SetNextRunAt(now.Add(time.Duration(*sc.IntervalSeconds) * time.Second))
+			} else if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "adhoc") {
+				// Ad-hoc schedules are one-shot: once triggered, clear next_run_at so
+				// the runner doesn't keep treating it as perpetually due.
+				mut.NextRunAt = nil
+				if mut.Has != nil {
+					mut.Has.NextRunAt = true
+				}
 			}
 			if err := s.sch.PatchSchedule(ctx, mut); err != nil {
 				return err

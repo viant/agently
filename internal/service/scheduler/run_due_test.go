@@ -226,7 +226,7 @@ func TestService_RunDue_LeaseAndPending_DataDriven(t *testing.T) {
 			name:                  "uses_pending_run_when_present",
 			runs:                  []*runpkg.RunView{pendingMatching},
 			claim:                 true,
-			expectPatchedRuns:     1,
+			expectPatchedRuns:     2,
 			expectRunID:           "run-pending-1",
 			expectRunStatus:       "running",
 			expectScheduledForUTC: dueAt,
@@ -235,7 +235,7 @@ func TestService_RunDue_LeaseAndPending_DataDriven(t *testing.T) {
 			name:                  "creates_new_run_when_no_pending",
 			runs:                  nil,
 			claim:                 true,
-			expectPatchedRuns:     1,
+			expectPatchedRuns:     2,
 			expectRunID:           "",
 			expectRunStatus:       "running",
 			expectScheduledForUTC: dueAt,
@@ -305,7 +305,7 @@ func TestService_RunDue_LeaseAndPending_DataDriven(t *testing.T) {
 				return
 			}
 
-			got := store.patchedRuns[0]
+			got := store.patchedRuns[len(store.patchedRuns)-1]
 			if tc.expectRunID != "" {
 				assert.EqualValues(t, tc.expectRunID, got.Id)
 			} else {
@@ -351,9 +351,99 @@ func TestService_RunDue_CronWithoutNextOrLastRun_Triggers(t *testing.T) {
 	started, err := svc.RunDue(context.Background())
 	assert.NoError(t, err)
 	assert.EqualValues(t, 1, started)
-	assert.EqualValues(t, 1, len(store.patchedRuns))
-	assert.EqualValues(t, "running", store.patchedRuns[0].Status)
+	assert.EqualValues(t, 2, len(store.patchedRuns))
+	assert.EqualValues(t, "running", store.patchedRuns[len(store.patchedRuns)-1].Status)
 	assert.EqualValues(t, 1, len(store.patchedSchedules))
+}
+
+func TestService_RunDue_AdhocClearsNextRunAt(t *testing.T) {
+	now := time.Now().UTC()
+	dueAt := now.Add(-1 * time.Minute).UTC()
+
+	store := &fakeScheduleStore{
+		schedule: map[string]*schedulepkg.ScheduleView{},
+	}
+	schedule := &schedulepkg.ScheduleView{
+		Id:           "sch-1",
+		Name:         "s",
+		AgentRef:     "agent",
+		Enabled:      true,
+		ScheduleType: "adhoc",
+		Timezone:     "UTC",
+		NextRunAt:    &dueAt,
+		TaskPrompt:   strPtr("do"),
+		CreatedAt:    dueAt.Add(-time.Hour),
+	}
+	store.schedules = []*schedulepkg.ScheduleView{schedule}
+	store.schedule["sch-1"] = schedule
+
+	chat := &fakeChat{}
+	svc := &Service{
+		sch:        store,
+		chat:       chat,
+		leaseOwner: "owner-1",
+		leaseTTL:   60 * time.Second,
+	}
+
+	started, err := svc.RunDue(context.Background())
+	assert.NoError(t, err)
+	assert.EqualValues(t, 1, started)
+	assert.EqualValues(t, 1, len(store.patchedSchedules))
+	got := store.patchedSchedules[0]
+	assert.EqualValues(t, "sch-1", got.Id)
+	assert.True(t, got.LastRunAt != nil)
+	assert.True(t, got.NextRunAt == nil)
+	assert.True(t, got.Has != nil && got.Has.NextRunAt)
+}
+
+func TestService_RunDue_AdhocRunning_ClearsNextRunAtAndSkips(t *testing.T) {
+	now := time.Now().UTC()
+	dueAt := now.Add(-1 * time.Minute).UTC()
+
+	activeRunning := &runpkg.RunView{
+		Id:         "run-running-1",
+		ScheduleId: "sch-1",
+		Status:     "running",
+	}
+
+	store := &fakeScheduleStore{
+		schedule: map[string]*schedulepkg.ScheduleView{},
+		runs: map[string][]*runpkg.RunView{
+			"sch-1": {activeRunning},
+		},
+		claimResultByScheduleID: map[string]bool{"sch-1": true},
+	}
+	schedule := &schedulepkg.ScheduleView{
+		Id:           "sch-1",
+		Name:         "s",
+		AgentRef:     "agent",
+		Enabled:      true,
+		ScheduleType: "adhoc",
+		Timezone:     "UTC",
+		NextRunAt:    &dueAt,
+		TaskPrompt:   strPtr("do"),
+		CreatedAt:    dueAt.Add(-time.Hour),
+	}
+	store.schedules = []*schedulepkg.ScheduleView{schedule}
+	store.schedule["sch-1"] = schedule
+
+	chat := &fakeChat{}
+	svc := &Service{
+		sch:        store,
+		chat:       chat,
+		leaseOwner: "owner-1",
+		leaseTTL:   60 * time.Second,
+	}
+
+	started, err := svc.RunDue(context.Background())
+	assert.NoError(t, err)
+	assert.EqualValues(t, 0, started)
+	assert.EqualValues(t, 0, len(store.patchedRuns))
+	assert.EqualValues(t, 1, len(store.patchedSchedules))
+	got := store.patchedSchedules[0]
+	assert.EqualValues(t, "sch-1", got.Id)
+	assert.True(t, got.NextRunAt == nil)
+	assert.True(t, got.Has != nil && got.Has.NextRunAt)
 }
 
 func strPtr(v string) *string { return &v }

@@ -1,6 +1,6 @@
 You are a helpful, precise assistant. Use the provided context, history,
 and documents (when available) to resolve the user’s request.
-Prefer to infer reasonable defaults when parameters are clearly missing (e.g., current working directory or timeout)." Is this version better?
+Prefer to infer reasonable defaults when parameters are clearly missing (e.g., current working directory or timeout).
 Whenever required information is missing for either:
 - invoking a tool, or
 - providing a precise, contextually correct answer,
@@ -32,7 +32,9 @@ Context:
 {{.Context}}
 {{- end}}
 
-User Query:
+[Prompt configuration above]
+
+Actual user query for you now:
 {{.Task.Prompt}}
 
 END_OF_USER_PROMPT
