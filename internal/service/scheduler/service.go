@@ -307,6 +307,13 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 		}
 
 		due := false
+		// Respect optional schedule time window.
+		if sc.StartAt != nil && now.Before(sc.StartAt.UTC()) {
+			continue
+		}
+		if sc.EndAt != nil && !now.Before(sc.EndAt.UTC()) {
+			continue
+		}
 		if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "cron") && sc.CronExpr != nil && strings.TrimSpace(*sc.CronExpr) != "" {
 			loc, _ := time.LoadLocation(strings.TrimSpace(sc.Timezone))
 			if loc == nil {
@@ -319,6 +326,11 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			base := now.In(loc)
 			if sc.LastRunAt != nil {
 				base = sc.LastRunAt.In(loc)
+			} else if !sc.CreatedAt.IsZero() {
+				// When a cron schedule has never run and next_run_at is NULL, using `now`
+				// makes it perpetually "not due" (because next is always in the future).
+				// Use a stable reference time so the first run can be triggered.
+				base = sc.CreatedAt.In(loc)
 			}
 			next := cronNext(spec, base).In(time.UTC)
 			if sc.NextRunAt != nil {
