@@ -558,12 +558,12 @@ func (s *Session) applyParsedHunks(ctx context.Context, hunks []Hunk, directory 
 					return err
 				}
 
-				oldLines := s.applyUpdate(oldData, (UpdateFile)(h))
+				newContent, err := s.applyUpdate(oldData, (UpdateFile)(h), path)
+				if err != nil {
+					return err
+				}
 
-				// Join the lines and update the file
-				newContent := []byte(strings.Join(oldLines, "\n") + "\n")
-
-				if err := s.Update(ctx, path, newContent); err != nil {
+				if err := s.Update(ctx, path, []byte(newContent)); err != nil {
 					return err
 				}
 			}

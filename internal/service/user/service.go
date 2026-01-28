@@ -34,26 +34,10 @@ func New(ctx context.Context, dao *datly.Service) (*Service, error) {
 
 // FindByUsername returns a single user view or nil.
 func (s *Service) FindByUsername(ctx context.Context, username string) (*userread.UserView, error) {
-	in := &userread.UserInput{}
-	// Prefer setter if generated; otherwise assign directly.
-	// Using Has marker to enable username predicate when required by generator.
-	in.Has = &userread.UserInputHas{}
-	// Attempt to set Username; if the generated struct has a field, this will be set via JSON marshalling in Operate.
-	// Some generators provide setters; if available, you may switch to in.SetUsername(username).
-	// @regen: ensure UserInput includes Username predicate.
-	// Using reflection-free assignment is avoided here; rely on generated struct.
-	//nolint:staticcheck // field presence depends on generated code
-	// in.SetUsername(username)
-	// Best effort: cast to any and set field via type assertion when present
-	type hasUsername interface{ SetUsername(string) }
-	if setter, ok := any(in).(hasUsername); ok {
-		setter.SetUsername(username)
-	} else {
-		// Fallback: try to set exported field if present
-		// This is safe even if field does not exist (no-op via JSON encode rules when omitted)
-		// Using struct literal update would require knowing the field, so we leave it as-is.
-	}
+	in := &userread.UserInput{Has: &userread.UserInputHas{}}
+	in.SetUsername(username)
 	out := &userread.UserOutput{}
+
 	if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("GET", userread.UserPathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
 		return nil, err
 	}

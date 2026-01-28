@@ -68,55 +68,71 @@ import (
 // init prepares the Service for handling requests.
 func (e *Service) init(ctx context.Context) error {
 
-	// ------------------------------------------------------------------
-	// Step 1: defaults & validation
-	// ------------------------------------------------------------------
+	if err := e.initDefaultsAndValidate(ctx); err != nil {
+		return err
+	}
+	if err := e.initToolRegistry(ctx); err != nil {
+		return err
+	}
+	agentSvc, err := e.initCoreServices(ctx)
+	if err != nil {
+		return err
+	}
+	if err := e.initAgentDirectoryAndA2A(ctx, agentSvc); err != nil {
+		return err
+	}
+	e.initMessageServiceAndPreviewLimits()
+	e.initConversationManager(agentSvc)
+
+	return nil
+}
+
+func (e *Service) initDefaultsAndValidate(ctx context.Context) error {
 	if err := e.initDefaults(ctx); err != nil {
 		return err
 	}
 	if err := e.config.Validate(); err != nil {
 		return err
 	}
-
 	// Validate extension feeds strictly: abort startup when any feed is invalid.
-	if err := e.validateExtensions(ctx); err != nil {
+	return e.validateExtensions(ctx)
+}
+
+func (e *Service) initToolRegistry(ctx context.Context) error {
+	if e.tools != nil {
+		return nil
+	}
+	if e.mcpMgr == nil {
+		return fmt.Errorf("executor: mcp manager not configured for tool registry")
+	}
+	reg, err := gtool.NewDefaultRegistry(e.mcpMgr)
+	if err != nil {
 		return err
 	}
-
-	// ------------------------------------------------------------------
-	// Step 3: Tool registry (MCP-backed) and agent tools exposure
-	// ------------------------------------------------------------------
-	if e.tools == nil {
-		if e.mcpMgr == nil {
-			return fmt.Errorf("executor: mcp manager not configured for tool registry")
-		}
-		reg, err := gtool.NewDefaultRegistry(e.mcpMgr)
-		if err != nil {
-			return err
-		}
-		// Emit debug events from tool registry to standard logger for better MCP visibility
-		if dl, ok := interface{}(reg).(interface{ SetDebugLogger(w io.Writer) }); ok {
-			dl.SetDebugLogger(log.Writer())
-		}
-		reg.Initialize(ctx)
-		// Surface any initialization warnings (e.g., unreachable MCP servers)
-		if w, ok := interface{}(reg).(interface {
-			LastWarnings() []string
-			ClearWarnings()
-		}); ok {
-			for _, msg := range w.LastWarnings() {
-				log.Printf("[mcp:init] warning: %s", strings.TrimSpace(msg))
-			}
-			w.ClearWarnings()
-		}
-		// Expose internal agents as virtual tools driven by Profile.Publish
-		if e.config != nil && e.config.Agent != nil && len(e.config.Agent.Items) > 0 {
-			gtool.InjectVirtualAgentTools(reg, e.config.Agent.Items, "")
-		}
-		e.tools = reg
+	// Emit debug events from tool registry to standard logger for better MCP visibility
+	if dl, ok := interface{}(reg).(interface{ SetDebugLogger(w io.Writer) }); ok {
+		dl.SetDebugLogger(log.Writer())
 	}
+	reg.Initialize(ctx)
+	// Surface any initialization warnings (e.g., unreachable MCP servers)
+	if w, ok := interface{}(reg).(interface {
+		LastWarnings() []string
+		ClearWarnings()
+	}); ok {
+		for _, msg := range w.LastWarnings() {
+			log.Printf("[mcp:init] warning: %s", strings.TrimSpace(msg))
+		}
+		w.ClearWarnings()
+	}
+	// Expose internal agents as virtual tools driven by Profile.Publish
+	if e.config != nil && e.config.Agent != nil && len(e.config.Agent.Items) > 0 {
+		gtool.InjectVirtualAgentTools(reg, e.config.Agent.Items, "")
+	}
+	e.tools = reg
+	return nil
+}
 
-	// Initialise decoupled core/agent services and conversation manager
+func (e *Service) initCoreServices(ctx context.Context) (*agent2.Service, error) {
 	var upstreamConcurrency int
 	var matchConcurrency int
 	indexAsync := true
@@ -213,64 +229,96 @@ func (e *Service) init(ctx context.Context) error {
 		rsrcsvc.WithAgentFinder(e.agentFinder),
 		rsrcsvc.WithDefaultEmbedder(e.config.Default.Embedder),
 	))
-	// Load external A2A agents from workspace a2a/ folder
-	type extSpec struct {
-		ID         string            `yaml:"id"`
-		Enabled    *bool             `yaml:"enabled,omitempty"`
-		JSONRPCURL string            `yaml:"jsonrpcURL"`
-		StreamURL  string            `yaml:"streamURL,omitempty"`
-		Headers    map[string]string `yaml:"headers,omitempty"`
-		Directory  struct {
-			Name        string   `yaml:"name,omitempty"`
-			Description string   `yaml:"description,omitempty"`
-			Tags        []string `yaml:"tags,omitempty"`
-			Priority    int      `yaml:"priority,omitempty"`
-		} `yaml:"directory,omitempty"`
-	}
-	extRoutes := map[string]extSpec{}
-	var extErrors []string
-	if e.config != nil {
-		if names, _ := e.config.Meta().List(ctx, "a2a"); len(names) > 0 {
-			for _, u := range names {
-				var spec extSpec
-				if err := e.config.Meta().Load(ctx, u, &spec); err != nil {
-					extErrors = append(extErrors, fmt.Sprintf("load %s failed: %v", u, err))
-					continue
-				}
-				if strings.TrimSpace(spec.ID) == "" || strings.TrimSpace(spec.JSONRPCURL) == "" {
-					extErrors = append(extErrors, fmt.Sprintf("invalid spec (missing id or jsonrpcURL) at %s", u))
-					continue
-				}
-				if spec.Enabled != nil && !*spec.Enabled {
-					continue
-				}
-				id := strings.TrimSpace(spec.ID)
-				// Validate URLs
-				if p, err := neturl.Parse(spec.JSONRPCURL); err != nil || (p.Scheme != "http" && p.Scheme != "https") {
-					extErrors = append(extErrors, fmt.Sprintf("invalid jsonrpcURL for %s: %s", id, spec.JSONRPCURL))
-					continue
-				}
-				if strings.TrimSpace(spec.StreamURL) != "" {
-					if p, err := neturl.Parse(spec.StreamURL); err != nil || (p.Scheme != "http" && p.Scheme != "https") {
-						extErrors = append(extErrors, fmt.Sprintf("invalid streamURL for %s: %s", id, spec.StreamURL))
-						continue
-					}
-				}
-				if _, exists := extRoutes[id]; exists {
-					extErrors = append(extErrors, fmt.Sprintf("duplicate external id %s – keeping first, ignoring %s", id, u))
-					continue
-				}
-				extRoutes[id] = spec
-			}
-		}
-		if len(extErrors) > 0 {
-			for _, m := range extErrors {
-				log.Printf("a2a: %s", m)
-			}
-		}
+	return agentSvc, nil
+}
+
+func (e *Service) initAgentDirectoryAndA2A(ctx context.Context, agentSvc *agent2.Service) error {
+	extRoutes, extErrors := e.loadExternalA2ASpecs(ctx)
+	for _, m := range extErrors {
+		log.Printf("a2a: %s", m)
 	}
 
-	// Build allowed routing map: ids present in directory (internal enabled + external routes not shadowed)
+	allowed := e.buildAllowedAgentRoutes(extRoutes)
+	dirProvider := e.newDirectoryProvider(extRoutes)
+	runExternal := e.newExternalRunner(extRoutes)
+
+	// Strict routing default true; allow override via config.Directory.Strict
+	strict := true
+	if e.config != nil && e.config.Directory != nil && e.config.Directory.Strict != nil {
+		strict = *e.config.Directory.Strict
+	}
+
+	// New consolidated directory/run facade with external routing hook and routing policy
+	gtool.AddInternalService(e.tools, llmagents.New(
+		agentSvc,
+		llmagents.WithDirectoryProvider(dirProvider),
+		llmagents.WithExternalRunner(runExternal),
+		llmagents.WithAllowedIDs(allowed),
+		llmagents.WithStrict(strict),
+		llmagents.WithConversationClient(e.convClient),
+	))
+
+	e.startA2AServers(agentSvc)
+	return nil
+}
+
+type extSpec struct {
+	ID         string            `yaml:"id"`
+	Enabled    *bool             `yaml:"enabled,omitempty"`
+	JSONRPCURL string            `yaml:"jsonrpcURL"`
+	StreamURL  string            `yaml:"streamURL,omitempty"`
+	Headers    map[string]string `yaml:"headers,omitempty"`
+	Directory  struct {
+		Name        string   `yaml:"name,omitempty"`
+		Description string   `yaml:"description,omitempty"`
+		Tags        []string `yaml:"tags,omitempty"`
+		Priority    int      `yaml:"priority,omitempty"`
+	} `yaml:"directory,omitempty"`
+}
+
+func (e *Service) loadExternalA2ASpecs(ctx context.Context) (map[string]extSpec, []string) {
+	extRoutes := map[string]extSpec{}
+	var extErrors []string
+	if e.config == nil {
+		return extRoutes, extErrors
+	}
+	if names, _ := e.config.Meta().List(ctx, "a2a"); len(names) > 0 {
+		for _, u := range names {
+			var spec extSpec
+			if err := e.config.Meta().Load(ctx, u, &spec); err != nil {
+				extErrors = append(extErrors, fmt.Sprintf("load %s failed: %v", u, err))
+				continue
+			}
+			if strings.TrimSpace(spec.ID) == "" || strings.TrimSpace(spec.JSONRPCURL) == "" {
+				extErrors = append(extErrors, fmt.Sprintf("invalid spec (missing id or jsonrpcURL) at %s", u))
+				continue
+			}
+			if spec.Enabled != nil && !*spec.Enabled {
+				continue
+			}
+			id := strings.TrimSpace(spec.ID)
+			// Validate URLs
+			if p, err := neturl.Parse(spec.JSONRPCURL); err != nil || (p.Scheme != "http" && p.Scheme != "https") {
+				extErrors = append(extErrors, fmt.Sprintf("invalid jsonrpcURL for %s: %s", id, spec.JSONRPCURL))
+				continue
+			}
+			if strings.TrimSpace(spec.StreamURL) != "" {
+				if p, err := neturl.Parse(spec.StreamURL); err != nil || (p.Scheme != "http" && p.Scheme != "https") {
+					extErrors = append(extErrors, fmt.Sprintf("invalid streamURL for %s: %s", id, spec.StreamURL))
+					continue
+				}
+			}
+			if _, exists := extRoutes[id]; exists {
+				extErrors = append(extErrors, fmt.Sprintf("duplicate external id %s – keeping first, ignoring %s", id, u))
+				continue
+			}
+			extRoutes[id] = spec
+		}
+	}
+	return extRoutes, extErrors
+}
+
+func (e *Service) buildAllowedAgentRoutes(extRoutes map[string]extSpec) map[string]string {
 	allowed := map[string]string{}
 	if e.config != nil && e.config.Agent != nil {
 		for _, a := range e.config.Agent.Items {
@@ -287,9 +335,11 @@ func (e *Service) init(ctx context.Context) error {
 		}
 		allowed[id] = "external"
 	}
+	return allowed
+}
 
-	// Directory provider: merge internal (enabled) agents and external A2A entries; internal takes priority on id conflict
-	dirProvider := func() []llmagents.ListItem {
+func (e *Service) newDirectoryProvider(extRoutes map[string]extSpec) func() []llmagents.ListItem {
+	return func() []llmagents.ListItem {
 		var items []llmagents.ListItem
 		seen := map[string]struct{}{}
 		if e.config != nil && e.config.Agent != nil {
@@ -382,9 +432,10 @@ func (e *Service) init(ctx context.Context) error {
 		})
 		return items
 	}
+}
 
-	// External run resolver in-process
-	runExternal := func(ctx context.Context, agentID, objective string, payload map[string]interface{}) (answer, status, taskID, contextID string, streamSupported bool, warnings []string, err error) {
+func (e *Service) newExternalRunner(extRoutes map[string]extSpec) func(ctx context.Context, agentID, objective string, payload map[string]interface{}) (answer, status, taskID, contextID string, streamSupported bool, warnings []string, err error) {
+	return func(ctx context.Context, agentID, objective string, payload map[string]interface{}) (answer, status, taskID, contextID string, streamSupported bool, warnings []string, err error) {
 		spec, ok := extRoutes[strings.TrimSpace(agentID)]
 		if !ok {
 			return
@@ -440,131 +491,121 @@ func (e *Service) init(ctx context.Context) error {
 		streamSupported = strings.TrimSpace(spec.StreamURL) != ""
 		return
 	}
+}
 
-	// Strict routing default true; allow override via config.Directory.Strict
-	strict := true
-	if e.config != nil && e.config.Directory != nil && e.config.Directory.Strict != nil {
-		strict = *e.config.Directory.Strict
+func (e *Service) startA2AServers(agentSvc *agent2.Service) {
+	if e.config == nil || e.config.Agent == nil {
+		return
 	}
-
-	// New consolidated directory/run facade with external routing hook and routing policy
-	gtool.AddInternalService(e.tools, llmagents.New(
-		agentSvc,
-		llmagents.WithDirectoryProvider(dirProvider),
-		llmagents.WithExternalRunner(runExternal),
-		llmagents.WithAllowedIDs(allowed),
-		llmagents.WithStrict(strict),
-		llmagents.WithConversationClient(e.convClient),
-	))
-	// Expose configured internal agents as A2A servers
-	if e.config != nil && e.config.Agent != nil {
-		for _, a := range e.config.Agent.Items {
-			// Prefer Serve.A2A; fallback to legacy ExposeA2A
-			var a2aEnabled bool
-			var a2aPort int
-			if a != nil && a.Serve != nil && a.Serve.A2A != nil && a.Serve.A2A.Enabled && a.Serve.A2A.Port > 0 {
-				a2aEnabled = true
-				a2aPort = a.Serve.A2A.Port
-			} else if a != nil && a.ExposeA2A != nil && a.ExposeA2A.Enabled && a.ExposeA2A.Port > 0 {
-				a2aEnabled = true
-				a2aPort = a.ExposeA2A.Port
+	for _, a := range e.config.Agent.Items {
+		// Prefer Serve.A2A; fallback to legacy ExposeA2A
+		var a2aEnabled bool
+		var a2aPort int
+		if a != nil && a.Serve != nil && a.Serve.A2A != nil && a.Serve.A2A.Enabled && a.Serve.A2A.Port > 0 {
+			a2aEnabled = true
+			a2aPort = a.Serve.A2A.Port
+		} else if a != nil && a.ExposeA2A != nil && a.ExposeA2A.Enabled && a.ExposeA2A.Port > 0 {
+			a2aEnabled = true
+			a2aPort = a.ExposeA2A.Port
+		}
+		if !a2aEnabled {
+			continue
+		}
+		// local copy for closure
+		ag := a
+		go func() {
+			base := "/v1"
+			addr := fmt.Sprintf(":%d", a2aPort)
+			// Build AgentCard
+			name := strings.TrimSpace(ag.Name)
+			if name == "" {
+				name = strings.TrimSpace(ag.ID)
 			}
-			if !a2aEnabled {
-				continue
+			desc := strings.TrimSpace(ag.Description)
+			var descPtr *string
+			if desc != "" {
+				descPtr = &desc
 			}
-			// local copy for closure
-			ag := a
-			go func() {
-				base := "/v1"
-				addr := fmt.Sprintf(":%d", a2aPort)
-				// Build AgentCard
-				name := strings.TrimSpace(ag.Name)
-				if name == "" {
-					name = strings.TrimSpace(ag.ID)
-				}
-				desc := strings.TrimSpace(ag.Description)
-				var descPtr *string
-				if desc != "" {
-					descPtr = &desc
-				}
-				card := a2aschema.AgentCard{Name: name, Description: descPtr}
-				// Prefer Serve.A2A when present
-				sFlag := false
-				if ag.Serve != nil && ag.Serve.A2A != nil {
-					sFlag = ag.Serve.A2A.Streaming
-				} else if ag.ExposeA2A != nil {
-					sFlag = ag.ExposeA2A.Streaming
-				}
-				card.SetCapabilities(a2aschema.AgentCapabilities{Streaming: &sFlag})
-				// Handlers mapping A2A message/send into internal agent runtime
-				newOps := a2asrv.WithDefaultHandler(context.Background(),
-					a2asrv.RegisterMessageSend(func(ctx context.Context, messages []a2aschema.Message, contextID, taskID *string) (*a2aschema.Task, *jsonrpc.Error) {
-						// Collect objective from text parts
-						objective := ""
-						for _, m := range messages {
-							for _, p := range m.Parts {
-								if tp, ok := p.(a2aschema.TextPart); ok {
-									if s := strings.TrimSpace(tp.Text); s != "" {
-										if objective != "" {
-											objective += "\n"
-										}
-										objective += s
+			card := a2aschema.AgentCard{Name: name, Description: descPtr}
+			// Prefer Serve.A2A when present
+			sFlag := false
+			if ag.Serve != nil && ag.Serve.A2A != nil {
+				sFlag = ag.Serve.A2A.Streaming
+			} else if ag.ExposeA2A != nil {
+				sFlag = ag.ExposeA2A.Streaming
+			}
+			card.SetCapabilities(a2aschema.AgentCapabilities{Streaming: &sFlag})
+			// Handlers mapping A2A message/send into internal agent runtime
+			newOps := a2asrv.WithDefaultHandler(context.Background(),
+				a2asrv.RegisterMessageSend(func(ctx context.Context, messages []a2aschema.Message, contextID, taskID *string) (*a2aschema.Task, *jsonrpc.Error) {
+					// Collect objective from text parts
+					objective := ""
+					for _, m := range messages {
+						for _, p := range m.Parts {
+							if tp, ok := p.(a2aschema.TextPart); ok {
+								if s := strings.TrimSpace(tp.Text); s != "" {
+									if objective != "" {
+										objective += "\n"
 									}
+									objective += s
 								}
 							}
 						}
-						qi := &agent2.QueryInput{AgentID: ag.ID, Query: objective}
-						if contextID != nil && strings.TrimSpace(*contextID) != "" {
-							qi.ConversationID = *contextID
-						}
-						var qo agent2.QueryOutput
-						if err := agentSvc.Query(context.Background(), qi, &qo); err != nil {
-							return nil, jsonrpc.NewError(-32000, err.Error(), nil)
-						}
-						// Build completed task with a text artifact
-						t := &a2aschema.Task{ID: "t-" + qo.MessageID}
-						art := a2aschema.Artifact{ID: "a-" + t.ID, CreatedAt: time.Now().UTC(), Parts: []a2aschema.Part{a2aschema.TextPart{Type: "text", Text: qo.Content}}}
-						art.PartsRaw, _ = a2aschema.MarshalParts(art.Parts)
-						t.Status = a2aschema.TaskStatus{State: a2aschema.TaskCompleted, UpdatedAt: time.Now().UTC()}
-						t.Artifacts = []a2aschema.Artifact{art}
-						return t, nil
-					}),
-					a2asrv.RegisterMessageStream(func(ctx context.Context, messages []a2aschema.Message, contextID, taskID *string) (*a2aschema.Task, *jsonrpc.Error) {
-						return nil, jsonrpc.NewMethodNotFound("message/stream not supported", nil)
-					}),
-				)
-				srv := a2asrv.New(card, a2asrv.WithOperations(newOps))
-				inner := http.NewServeMux()
-				srv.RegisterSSE(inner, base)
-				srv.RegisterStreaming(inner, "/a2a")
-				srv.RegisterREST(inner)
-				outer := http.NewServeMux()
-				outer.HandleFunc("/.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
-					w.Header().Set("Content-Type", "application/json")
-					_ = json.NewEncoder(w).Encode(card)
-				})
-				var authCfg *A2AAuthProxy
-				if ag.Serve != nil && ag.Serve.A2A != nil && ag.Serve.A2A.Auth != nil && ag.Serve.A2A.Auth.Enabled {
-					a := ag.Serve.A2A.Auth
-					authCfg = &A2AAuthProxy{Enabled: a.Enabled, Resource: a.Resource, Scopes: a.Scopes, UseIDToken: a.UseIDToken, ExcludePrefix: a.ExcludePrefix}
-				} else if ag.ExposeA2A != nil && ag.ExposeA2A.Auth != nil && ag.ExposeA2A.Auth.Enabled {
-					a := ag.ExposeA2A.Auth
-					authCfg = &A2AAuthProxy{Enabled: a.Enabled, Resource: a.Resource, Scopes: a.Scopes, UseIDToken: a.UseIDToken, ExcludePrefix: a.ExcludePrefix}
-				}
-				if authCfg != nil {
-					pol := &aauth.Policy{Metadata: &aauth.ProtectedResourceMetadata{Resource: authCfg.Resource, ScopesSupported: authCfg.Scopes}, UseIDToken: authCfg.UseIDToken}
-					pol.ExcludePrefix = strings.TrimSpace(authCfg.ExcludePrefix)
-					authSvc := aauth.NewService(pol)
-					authSvc.RegisterHandlers(outer)
-					outer.Handle("/", authSvc.Middleware(inner))
-				} else {
-					outer.Handle("/", inner)
-				}
-				log.Printf("A2A agent '%s' on %s (base %s)", name, addr, base)
-				_ = http.ListenAndServe(addr, outer)
-			}()
-		}
+					}
+					qi := &agent2.QueryInput{AgentID: ag.ID, Query: objective}
+					if contextID != nil && strings.TrimSpace(*contextID) != "" {
+						qi.ConversationID = *contextID
+					}
+					var qo agent2.QueryOutput
+					if err := agentSvc.Query(context.Background(), qi, &qo); err != nil {
+						return nil, jsonrpc.NewError(-32000, err.Error(), nil)
+					}
+					// Build completed task with a text artifact
+					t := &a2aschema.Task{ID: "t-" + qo.MessageID}
+					art := a2aschema.Artifact{ID: "a-" + t.ID, CreatedAt: time.Now().UTC(), Parts: []a2aschema.Part{a2aschema.TextPart{Type: "text", Text: qo.Content}}}
+					art.PartsRaw, _ = a2aschema.MarshalParts(art.Parts)
+					t.Status = a2aschema.TaskStatus{State: a2aschema.TaskCompleted, UpdatedAt: time.Now().UTC()}
+					t.Artifacts = []a2aschema.Artifact{art}
+					return t, nil
+				}),
+				a2asrv.RegisterMessageStream(func(ctx context.Context, messages []a2aschema.Message, contextID, taskID *string) (*a2aschema.Task, *jsonrpc.Error) {
+					return nil, jsonrpc.NewMethodNotFound("message/stream not supported", nil)
+				}),
+			)
+			srv := a2asrv.New(card, a2asrv.WithOperations(newOps))
+			inner := http.NewServeMux()
+			srv.RegisterSSE(inner, base)
+			srv.RegisterStreaming(inner, "/a2a")
+			srv.RegisterREST(inner)
+			outer := http.NewServeMux()
+			outer.HandleFunc("/.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(card)
+			})
+			var authCfg *A2AAuthProxy
+			if ag.Serve != nil && ag.Serve.A2A != nil && ag.Serve.A2A.Auth != nil && ag.Serve.A2A.Auth.Enabled {
+				a := ag.Serve.A2A.Auth
+				authCfg = &A2AAuthProxy{Enabled: a.Enabled, Resource: a.Resource, Scopes: a.Scopes, UseIDToken: a.UseIDToken, ExcludePrefix: a.ExcludePrefix}
+			} else if ag.ExposeA2A != nil && ag.ExposeA2A.Auth != nil && ag.ExposeA2A.Auth.Enabled {
+				a := ag.ExposeA2A.Auth
+				authCfg = &A2AAuthProxy{Enabled: a.Enabled, Resource: a.Resource, Scopes: a.Scopes, UseIDToken: a.UseIDToken, ExcludePrefix: a.ExcludePrefix}
+			}
+			if authCfg != nil {
+				pol := &aauth.Policy{Metadata: &aauth.ProtectedResourceMetadata{Resource: authCfg.Resource, ScopesSupported: authCfg.Scopes}, UseIDToken: authCfg.UseIDToken}
+				pol.ExcludePrefix = strings.TrimSpace(authCfg.ExcludePrefix)
+				authSvc := aauth.NewService(pol)
+				authSvc.RegisterHandlers(outer)
+				outer.Handle("/", authSvc.Middleware(inner))
+			} else {
+				outer.Handle("/", inner)
+			}
+			log.Printf("A2A agent '%s' on %s (base %s)", name, addr, base)
+			_ = http.ListenAndServe(addr, outer)
+		}()
 	}
+}
+
+func (e *Service) initMessageServiceAndPreviewLimits() {
 	// Register internal message service (unified show/summarize/match/remove)
 	summarizeChunk := 4096
 	matchChunk := 1024
@@ -607,6 +648,9 @@ func (e *Service) init(ctx context.Context) error {
 			e.llmCore.SetModelPreviewLimits(limits)
 		}
 	}
+}
+
+func (e *Service) initConversationManager(agentSvc *agent2.Service) {
 	convHandler := func(ctx context.Context, in *agent2.QueryInput, out *agent2.QueryOutput) error {
 		exec, err := agentSvc.Method("query")
 		if err != nil {
@@ -615,8 +659,6 @@ func (e *Service) init(ctx context.Context) error {
 		return exec(ctx, in, out)
 	}
 	e.convManager = conversation.New(convHandler)
-
-	return nil
 }
 
 // A2AAuthProxy mirrors agent.A2AAuth to avoid an import cycle in bootstrap.

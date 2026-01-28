@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +55,6 @@ func (s *Service) Ensure(ctx context.Context) (string, error) { // ctx kept for 
 			return "", fmt.Errorf("failed to create db dir: %w", err)
 		}
 	}
-	log.Printf("[db] sqlite file=%s", dbFile)
 	// Use SQLite URI with pragmas to improve concurrency and avoid SQLITE_BUSY
 	dsn := "file:" + dbFile + "?cache=shared&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 

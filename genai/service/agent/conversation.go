@@ -89,7 +89,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		return fmt.Errorf("failed to load conversation: %w", err)
 	}
 
-	if aConversation.UpdatedAt == nil && aConversation.CreatedAt.Equal(*aConversation.LastActivity) {
+	if aConversation == nil || aConversation.UpdatedAt == nil && aConversation.CreatedAt.Equal(*aConversation.LastActivity) {
 		input.IsNewConversation = true
 	} else {
 		input.IsNewConversation = false

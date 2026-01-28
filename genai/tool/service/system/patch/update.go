@@ -1,136 +1,107 @@
 package patch
 
-import "strings"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
-//-----------------------------------------------------------------------------
-// Helpers
-//-----------------------------------------------------------------------------
-
-// normalise removes all whitespace characters to make comparison whitespace count insensitive.
-func normalise(s string) string {
-	// Remove all whitespace characters (spaces, tabs, carriage returns)
-	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, " ", ""), "\t", ""), "\r", "")
+type replacement struct {
+	start    int
+	oldLen   int
+	newLines []string
 }
-
-// rebuildNorm regenerates the canonical slice after oldLines has changed.
-func rebuildNorm(lines []string) []string {
-	n := make([]string, len(lines))
-	for i, l := range lines {
-		n[i] = normalise(l)
-	}
-	return n
-}
-
-// findSubSlice returns the first index of needle inside haystack (both
-// canonicalised), or –1 if not found.
-func findSubSlice(hay, need []string) int {
-	// Empty needle matches at start (useful for applying updates to an empty file).
-	if len(need) == 0 {
-		return 0
-	}
-Outer:
-	for i := 0; i <= len(hay)-len(need); i++ {
-		for j := range need {
-			if hay[i+j] != need[j] {
-				continue Outer
-			}
-		}
-		return i
-	}
-	return -1
-}
-
-// findFirstMatch returns the first index in hay whose canonical form matches
-// any element of targets.  If none match it returns –1.
-func findFirstMatch(hay, targets []string) int {
-	set := make(map[string]struct{}, len(targets))
-	for _, t := range targets {
-		set[t] = struct{}{}
-	}
-	for i, h := range hay {
-		if _, ok := set[h]; ok {
-			return i
-		}
-	}
-	return -1
-}
-
-// replaceSlice replaces lenOld lines of src starting at start with repl.
-func replaceSlice(src []string, start, lenOld int, repl []string) []string {
-	out := append([]string{}, src[:start]...)
-	out = append(out, repl...)
-	return append(out, src[start+lenOld:]...)
-}
-
-//-----------------------------------------------------------------------------
-// Core patch routine
-//-----------------------------------------------------------------------------
 
 // applyUpdate applies an UpdateFile patch to oldData and returns the new file
-// as a slice of lines.  All comparisons are whitespace-insensitive.  No language
-// -specific heuristics are used.
-func (s *Session) applyUpdate(oldData []byte, h UpdateFile) []string {
-	// 1. Split original file into lines and create canonical view.
-	trimmed := strings.TrimRight(string(oldData), "\n")
-	var oldLines []string
-	if trimmed == "" {
-		oldLines = []string{}
-	} else {
-		oldLines = strings.Split(trimmed, "\n")
+// contents. It uses sequential matching, strict context validation, and
+// consistent newline handling.
+func (s *Session) applyUpdate(oldData []byte, h UpdateFile, path string) (string, error) {
+	originalLines := strings.Split(string(oldData), "\n")
+	if len(originalLines) > 0 && originalLines[len(originalLines)-1] == "" {
+		originalLines = originalLines[:len(originalLines)-1]
 	}
-	normOld := rebuildNorm(oldLines)
 
-	// 2. Process each chunk in order.
-	for _, chunk := range h.Chunks {
-		// Canonicalise chunk once.
-		normOldChunk := make([]string, len(chunk.OldLines))
-		for i, l := range chunk.OldLines {
-			normOldChunk[i] = normalise(l)
-		}
-		normNewChunk := make([]string, len(chunk.NewLines))
-		for i, l := range chunk.NewLines {
-			normNewChunk[i] = normalise(l)
+	replacements, err := computeReplacements(originalLines, path, h.Chunks)
+	if err != nil {
+		return "", err
+	}
+
+	newLines := applyReplacements(originalLines, replacements)
+	if len(newLines) == 0 || newLines[len(newLines)-1] != "" {
+		newLines = append(newLines, "")
+	}
+	return strings.Join(newLines, "\n"), nil
+}
+
+func computeReplacements(lines []string, path string, chunks []UpdateChunk) ([]replacement, error) {
+	var reps []replacement
+	lineIndex := 0
+
+	for _, chunk := range chunks {
+		if chunk.ChangeContext != "" {
+			idx := seekSequence(lines, []string{chunk.ChangeContext}, lineIndex, false)
+			if idx < 0 {
+				return nil, fmt.Errorf("failed to find context %q in %s", chunk.ChangeContext, path)
+			}
+			lineIndex = idx + 1
 		}
 
-		//---------------------------------------------------------------------
-		// 2-A. Exact (canonical) match — fast path
-		//---------------------------------------------------------------------
-		if start := findSubSlice(normOld, normOldChunk); start >= 0 {
-			oldLines = replaceSlice(oldLines, start, len(chunk.OldLines), chunk.NewLines)
-			normOld = rebuildNorm(oldLines)
+		if len(chunk.OldLines) == 0 {
+			insertionIdx := len(lines)
+			if len(lines) > 0 && lines[len(lines)-1] == "" {
+				insertionIdx = len(lines) - 1
+			}
+			reps = append(reps, replacement{
+				start:    insertionIdx,
+				oldLen:   0,
+				newLines: append([]string{}, chunk.NewLines...),
+			})
 			continue
 		}
 
-		//---------------------------------------------------------------------
-		// 2-B. Fuzzy anchor on first matching line
-		//---------------------------------------------------------------------
-		if anchor := findFirstMatch(normOld, normOldChunk); anchor >= 0 {
-			// Build a set of canonical forms to be removed from the file.
-			remove := make(map[string]struct{}, len(normOldChunk))
-			for _, n := range normOldChunk {
-				remove[n] = struct{}{}
-			}
+		pattern := chunk.OldLines
+		newSlice := chunk.NewLines
+		found := seekSequence(lines, pattern, lineIndex, chunk.IsEOF)
 
-			var tmp []string
-			for i, line := range oldLines {
-				if _, drop := remove[normOld[i]]; drop {
-					// Insert the new chunk only once, when we hit the anchor.
-					if i == anchor {
-						tmp = append(tmp, chunk.NewLines...)
-					}
-					continue // skip this (old) line
-				}
-				tmp = append(tmp, line)
+		if found < 0 && len(pattern) > 0 && pattern[len(pattern)-1] == "" {
+			pattern = pattern[:len(pattern)-1]
+			if len(newSlice) > 0 && newSlice[len(newSlice)-1] == "" {
+				newSlice = newSlice[:len(newSlice)-1]
 			}
-			oldLines = tmp
-			normOld = rebuildNorm(oldLines)
-			continue
+			found = seekSequence(lines, pattern, lineIndex, chunk.IsEOF)
 		}
 
-		//---------------------------------------------------------------------
-		// 2-C. Could not locate chunk — skip to preserve file integrity
-		//---------------------------------------------------------------------
+		if found < 0 {
+			return nil, fmt.Errorf("failed to find expected lines in %s:\n%s", path, strings.Join(chunk.OldLines, "\n"))
+		}
+
+		reps = append(reps, replacement{
+			start:    found,
+			oldLen:   len(pattern),
+			newLines: append([]string{}, newSlice...),
+		})
+		lineIndex = found + len(pattern)
 	}
 
-	return oldLines
+	sort.Slice(reps, func(i, j int) bool {
+		return reps[i].start < reps[j].start
+	})
+	return reps, nil
+}
+
+func applyReplacements(lines []string, reps []replacement) []string {
+	out := append([]string{}, lines...)
+	for i := len(reps) - 1; i >= 0; i-- {
+		r := reps[i]
+		if r.start < 0 {
+			continue
+		}
+		end := r.start + r.oldLen
+		if end > len(out) {
+			end = len(out)
+		}
+		segment := append([]string{}, r.newLines...)
+		out = append(out[:r.start], append(segment, out[end:]...)...)
+	}
+	return out
 }

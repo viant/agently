@@ -28,17 +28,8 @@ func Run(args []string) {
 		os.Exit(0)
 	}
 
-	// Print startup workspace to make it clear which workspace is in use.
-	// We show both the raw env value and the resolved absolute path.
-	envWS := strings.TrimSpace(os.Getenv("AGENTLY_WORKSPACE"))
 	// Calling Root also ensures the workspace exists.
-	resolvedWS := workspace.Root()
-	if envWS != "" {
-		log.Printf("Starting Agently workspace with ${env.AGENTLY_WORKSPACE}:  %s", resolvedWS)
-	} else {
-		log.Printf("Starting Agently workspace with default workspace:  %s, ${env.AGENTLY_WORKSPACE} not set", resolvedWS)
-
-	}
+	workspace.Root()
 	parser := flags.NewParser(opts, flags.HelpFlag|flags.PassDoubleDash)
 	if _, err := parser.ParseArgs(args); err != nil {
 		// flags already prints user-friendly message; we only exit with code 1

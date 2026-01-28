@@ -1,7 +1,7 @@
 package patch
 
-// Package v1 provides a parser for the Codex "apply_patch" format. It mirrors
-// the semantics of the Rust/TypeScript reference implementations while being
+// Package v1 provides a parser for the "apply_patch" format. It mirrors
+// the semantics of the reference implementations while being
 // implemented in Go with the github.com/viant/parsly tokenizer.
 
 import (

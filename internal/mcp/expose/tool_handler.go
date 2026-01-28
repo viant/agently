@@ -91,7 +91,12 @@ func (h *ToolHandler) CallTool(ctx context.Context, req *jsonrpc.TypedRequest[*m
 	if execErr != nil {
 		msg := execErr.Error()
 		isErr := true
-		return &mcpschema.CallToolResult{IsError: &isErr, Content: []mcpschema.CallToolResultContentElem{{Type: "text", Text: msg}}}, nil
+		return &mcpschema.CallToolResult{
+			IsError: &isErr,
+			Content: []mcpschema.CallToolResultContentElem{
+				mcpschema.TextContent{Type: "text", Text: msg},
+			},
+		}, nil
 	}
 
 	text := marshalText(out)
@@ -99,7 +104,9 @@ func (h *ToolHandler) CallTool(ctx context.Context, req *jsonrpc.TypedRequest[*m
 	_ = json.Unmarshal([]byte(text), &structured)
 
 	res := &mcpschema.CallToolResult{
-		Content: []mcpschema.CallToolResultContentElem{{Type: "text", Text: text}},
+		Content: []mcpschema.CallToolResultContentElem{
+			mcpschema.TextContent{Type: "text", Text: text},
+		},
 	}
 	if structured != nil {
 		res.StructuredContent = structured

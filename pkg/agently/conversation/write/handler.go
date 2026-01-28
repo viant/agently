@@ -13,6 +13,7 @@ import (
 type Handler struct{}
 
 func (h *Handler) Exec(ctx context.Context, sess handler.Session) (interface{}, error) {
+
 	output := &Output{}
 	output.Status.Status = "ok"
 	err := h.exec(ctx, sess, output)

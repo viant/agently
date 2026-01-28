@@ -6,6 +6,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/viant/agently/genai/prompt"
@@ -96,7 +97,10 @@ func (c *Client) ListRoots(ctx context.Context, p *jsonrpc.TypedRequest[*schema.
 
 func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*schema.ElicitRequest]) (*schema.ElicitResult, *jsonrpc.Error) {
 	// Refine, persist, then delegate wait to the elicitation service
-	params := request.Request.Params
+	params, err := normalizeElicitParams(request.Request)
+	if err != nil {
+		return nil, jsonrpc.NewInvalidParamsError(fmt.Sprintf("invalid elicitation params: %v", err), nil)
+	}
 	c.elicitation.RefineRequestedSchema(&params.RequestedSchema)
 	convID := c.convID
 	if strings.TrimSpace(convID) == "" {
@@ -110,6 +114,71 @@ func (c *Client) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*sche
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("elicitation wait failed: %v", err), nil)
 	}
 	return &schema.ElicitResult{Action: schema.ElicitResultAction(status), Content: payload}, nil
+}
+
+func normalizeElicitParams(req *schema.ElicitRequest) (schema.ElicitRequestParams, error) {
+	if req == nil {
+		return schema.ElicitRequestParams{}, fmt.Errorf("request is nil")
+	}
+	return req.ElicitRequestParams, nil
+}
+
+func fillElicitFallbacks(params schema.ElicitRequestParams, req *schema.ElicitRequest) schema.ElicitRequestParams {
+	if strings.TrimSpace(params.ElicitationId) == "" {
+		params.ElicitationId = fmt.Sprintf("%v", req.Id)
+	}
+	return params
+}
+
+func convertFormParams(p schema.ElicitRequestFormParams, req *schema.ElicitRequest) schema.ElicitRequestParams {
+	mode := ""
+	if p.Mode != nil {
+		mode = *p.Mode
+	}
+	return schema.ElicitRequestParams{
+		ElicitationId: fmt.Sprintf("%v", req.Id),
+		Message:       p.Message,
+		Mode:          schema.ElicitRequestParamsMode(mode),
+		RequestedSchema: schema.ElicitRequestParamsRequestedSchema{
+			Schema:     p.RequestedSchema.Schema,
+			Properties: p.RequestedSchema.Properties,
+			Required:   p.RequestedSchema.Required,
+			Type:       p.RequestedSchema.Type,
+		},
+	}
+}
+
+func convertURLParams(p schema.ElicitRequestURLParams, req *schema.ElicitRequest) schema.ElicitRequestParams {
+	return schema.ElicitRequestParams{
+		ElicitationId: p.ElicitationId,
+		Message:       p.Message,
+		Mode:          schema.ElicitRequestParamsMode(p.Mode),
+		Url:           p.Url,
+	}
+}
+
+func convertElicitMap(m map[string]interface{}, req *schema.ElicitRequest) schema.ElicitRequestParams {
+	if m == nil {
+		return schema.ElicitRequestParams{ElicitationId: fmt.Sprintf("%v", req.Id)}
+	}
+	raw, _ := json.Marshal(m)
+	var out schema.ElicitRequestParams
+	if err := json.Unmarshal(raw, &out); err == nil {
+		if strings.TrimSpace(out.ElicitationId) == "" {
+			out.ElicitationId = fmt.Sprintf("%v", req.Id)
+		}
+		return out
+	}
+	// Best-effort mapping for new param shapes
+	var form schema.ElicitRequestFormParams
+	if err := json.Unmarshal(raw, &form); err == nil {
+		return convertFormParams(form, req)
+	}
+	var urlp schema.ElicitRequestURLParams
+	if err := json.Unmarshal(raw, &urlp); err == nil {
+		return convertURLParams(urlp, req)
+	}
+	return schema.ElicitRequestParams{ElicitationId: fmt.Sprintf("%v", req.Id)}
 }
 
 func (c *Client) CreateMessage(ctx context.Context, request *jsonrpc.TypedRequest[*schema.CreateMessageRequest]) (*schema.CreateMessageResult, *jsonrpc.Error) {
