@@ -27,12 +27,14 @@ func init() {
 var UserFS embed.FS
 
 type UserInput struct {
-	Id  string        `parameter:",kind=query,in=id" predicate:"equal,group=0,t,id"`
-	Has *UserInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	Id       string        `parameter:",kind=query,in=id" predicate:"equal,group=0,t,id"`
+	Username string        `parameter:",kind=query,in=username" predicate:"equal,group=0,t,username"`
+	Has      *UserInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type UserInputHas struct {
-	Id bool
+	Id       bool
+	Username bool
 }
 
 type UserOutput struct {

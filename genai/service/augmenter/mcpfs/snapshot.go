@@ -114,7 +114,6 @@ func (s *Service) ensureSnapshot(ctx context.Context, snapURI string) (*snapshot
 				delete(s.snapInFlight, snapURI)
 			}
 			s.snapshotMu.Unlock()
-			fmt.Printf("mcpfs: snapshot cache hit uri=%q path=%q bytes=%d\n", snapURI, sharedPath, fi.Size())
 			return entry, nil
 		}
 	}
@@ -130,7 +129,6 @@ func (s *Service) ensureSnapshot(ctx context.Context, snapURI string) (*snapshot
 		s.snapshotMu.Unlock()
 		return nil, err
 	}
-	fmt.Printf("mcpfs: downloaded snapshot %s (%d bytes)\n", snapURI, len(data))
 	if sharedPath == "" {
 		sharedPath = s.snapshotCachePath(ctx, snapURI)
 	}

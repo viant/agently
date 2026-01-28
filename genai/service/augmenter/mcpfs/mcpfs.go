@@ -184,7 +184,6 @@ func (s *Service) SnapshotUpToDate(ctx context.Context, location string) (bool, 
 		}
 	}
 	if remoteSize <= 0 {
-		fmt.Printf("mcpfs: snapshot size unknown for %q; assuming cached snapshot is up-to-date\n", snapURI)
 		return true, nil
 	}
 	return remoteSize == cachedSize, nil
@@ -284,9 +283,6 @@ func (s *Service) Download(ctx context.Context, object storage.Object) ([]byte, 
 				return nil, err
 			}
 			data, err := os.ReadFile(cache.path)
-			if err == nil {
-				fmt.Printf("mcpfs: snapshot cached read url=%q bytes=%d\n", mcpURL, len(data))
-			}
 			return data, err
 		}
 		cache, err := s.ensureSnapshot(ctx, snapURI)

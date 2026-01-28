@@ -134,7 +134,12 @@ func (h *serviceHandler) CallTool(ctx context.Context, req *jsonrpc.TypedRequest
 	if err := exec(ctx, inVal, outVal); err != nil {
 		msg := err.Error()
 		isErr := true
-		return &mcpschema.CallToolResult{IsError: &isErr, Content: []mcpschema.CallToolResultContentElem{{Type: "text", Text: msg}}}, nil
+		return &mcpschema.CallToolResult{
+			IsError: &isErr,
+			Content: []mcpschema.CallToolResultContentElem{
+				mcpschema.TextContent{Type: "text", Text: msg},
+			},
+		}, nil
 	}
 	var (
 		structured map[string]interface{}
@@ -148,7 +153,9 @@ func (h *serviceHandler) CallTool(ctx context.Context, req *jsonrpc.TypedRequest
 	// with the serialized JSON for compatibility with clients that only read content.
 	return &mcpschema.CallToolResult{
 		StructuredContent: structured,
-		Content:           []mcpschema.CallToolResultContentElem{{Type: "text", Text: textJSON}},
+		Content: []mcpschema.CallToolResultContentElem{
+			mcpschema.TextContent{Type: "text", Text: textJSON},
+		},
 	}, nil
 }
 

@@ -148,7 +148,6 @@ func (s *ServeCmd) Execute(_ []string) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("Agently HTTP server listening on %s", s.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}

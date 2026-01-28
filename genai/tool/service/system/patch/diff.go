@@ -1,6 +1,6 @@
 package patch
 
-// Diff generation helpers compatible with Codex CLI/Rust behaviour.
+// Diff generation helpers compatible with apply_patch behavior.
 
 import (
 	"strings"

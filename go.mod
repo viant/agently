@@ -11,14 +11,14 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.16.0
-	github.com/viant/datly v0.20.17
-	github.com/viant/embedius v0.2.11-0.20260125221737-1785ecb78256
+	github.com/viant/datly v0.35.1-0.20260128170806-3481a39615df
+	github.com/viant/embedius v0.2.11-0.20260128171351-c2bfffb86f56
 	github.com/viant/fluxor v0.4.3
 	github.com/viant/forge v0.2.17-0.20260105184320-7b9e795ab3ef
-	github.com/viant/jsonrpc v0.16.2
+	github.com/viant/jsonrpc v0.17.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.8.2
-	github.com/viant/mcp-protocol v0.7.0
+	github.com/viant/mcp v0.9.0
+	github.com/viant/mcp-protocol v0.9.0
 	github.com/viant/scy v0.25.3
 	github.com/viant/structology v0.8.0 // indirect
 	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85
@@ -112,9 +112,10 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-sql-driver/mysql v1.9.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
-	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
+	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
@@ -152,13 +153,13 @@ require (
 	github.com/viant/govalidator v0.3.1 // indirect
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
-	github.com/viant/sqlite-vec v0.1.1-0.20260125221439-ab0835ed7e73 // indirect
+	github.com/viant/sqlite-vec v0.1.1 // indirect
 	github.com/viant/sqlparser v0.9.0 // indirect
 	github.com/viant/sqlx v0.22.0 // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.0 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
-	github.com/viant/vec v0.2.4-0.20250304201558-76d42a0819d7 // indirect
+	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
 	github.com/viant/xdatly/extension v0.0.0-20231013204918-ecf3c2edf259 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.1 // indirect
@@ -202,4 +203,4 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace modernc.org/sqlite => gitlab.com/adrianwit/sqlite v1.40.2-0.20260122162029-000bc1b9740a
+replace modernc.org/sqlite => gitlab.com/adrianwit/sqlite v1.40.2-0.20260127183639-396307fdbe7c

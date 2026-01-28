@@ -8,9 +8,9 @@
 
 
 #set($_ = $Id<string>(query/id).WithPredicate(0, 'equal','t', 'id'))
-#set($_ = $Id<string>(query/username).WithPredicate(0, 'equal','t', 'username'))
-#set($_ = $Id<string>(query/provider).WithPredicate(0, 'equal','t', 'provider'))
-#set($_ = $Id<string>(query/subject).WithPredicate(0, 'equal','t', 'subject'))
+#set($_ = $Username<string>(query/username).WithPredicate(0, 'equal','t', 'username'))
+#set($_ = $Provider<string>(query/provider).WithPredicate(0, 'equal','t', 'provider'))
+#set($_ = $Subject<string>(query/subject).WithPredicate(0, 'equal','t', 'subject'))
 
 
 SELECT user.*
@@ -18,5 +18,4 @@ FROM (
     SELECT t.*  FROM users t
      ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
 ) user
-
 

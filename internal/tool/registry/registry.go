@@ -577,33 +577,19 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		}
 	}
 	for _, c := range res.Content {
-		if strings.TrimSpace(c.Text) != "" {
+		if text := strings.TrimSpace(callToolContentText(c)); text != "" {
 			if selector != "" {
-				return r.applySelector(c.Text, selector)
+				return r.applySelector(text, selector)
 			}
 			if r.recentTTL > 0 {
 				r.recentMu.Lock()
 				if r.recentResults[convID] == nil {
 					r.recentResults[convID] = map[string]recentItem{}
 				}
-				r.recentResults[convID][recentKey] = recentItem{when: time.Now(), out: c.Text}
+				r.recentResults[convID][recentKey] = recentItem{when: time.Now(), out: text}
 				r.recentMu.Unlock()
 			}
-			return c.Text, nil
-		}
-		if strings.TrimSpace(c.Data) != "" {
-			if selector != "" {
-				return r.applySelector(c.Data, selector)
-			}
-			if r.recentTTL > 0 {
-				r.recentMu.Lock()
-				if r.recentResults[convID] == nil {
-					r.recentResults[convID] = map[string]recentItem{}
-				}
-				r.recentResults[convID][recentKey] = recentItem{when: time.Now(), out: c.Data}
-				r.recentMu.Unlock()
-			}
-			return c.Data, nil
+			return text, nil
 		}
 	}
 	// Fallback to raw JSON of first element or empty
@@ -1004,11 +990,73 @@ func toolError(res *mcpschema.CallToolResult) error {
 	if len(res.Content) == 0 {
 		return errors.New("tool returned error without content")
 	}
-	if msg := res.Content[0].Text; msg != "" {
+	if msg := callToolContentText(res.Content[0]); msg != "" {
 		return errors.New(msg)
 	}
 	raw, _ := json.Marshal(res.Content[0])
 	return errors.New(string(raw))
+}
+
+func callToolContentText(elem mcpschema.CallToolResultContentElem) string {
+	switch v := elem.(type) {
+	case mcpschema.TextContent:
+		return v.Text
+	case *mcpschema.TextContent:
+		if v != nil {
+			return v.Text
+		}
+	case mcpschema.ImageContent:
+		return v.Data
+	case *mcpschema.ImageContent:
+		if v != nil {
+			return v.Data
+		}
+	case mcpschema.AudioContent:
+		return v.Data
+	case *mcpschema.AudioContent:
+		if v != nil {
+			return v.Data
+		}
+	case mcpschema.ResourceLink:
+		return v.Uri
+	case *mcpschema.ResourceLink:
+		if v != nil {
+			return v.Uri
+		}
+	case mcpschema.EmbeddedResource:
+		if v.Resource.Text != "" {
+			return v.Resource.Text
+		}
+		if v.Resource.Uri != "" {
+			return v.Resource.Uri
+		}
+		return v.Resource.Blob
+	case *mcpschema.EmbeddedResource:
+		if v == nil {
+			return ""
+		}
+		if v.Resource.Text != "" {
+			return v.Resource.Text
+		}
+		if v.Resource.Uri != "" {
+			return v.Resource.Uri
+		}
+		return v.Resource.Blob
+	case map[string]interface{}:
+		if s, ok := v["text"].(string); ok {
+			return s
+		}
+		if s, ok := v["data"].(string); ok {
+			return s
+		}
+		if s, ok := v["uri"].(string); ok {
+			return s
+		}
+		if s, ok := v["blob"].(string); ok {
+			return s
+		}
+	}
+	return ""
 }
 
 // isReconnectableError heuristically classifies transport/stream errors that

@@ -34,6 +34,69 @@ function selectPath(selector, root) {
 
 function asArray(val) { if (Array.isArray(val)) return val; if (val == null) return []; return [val]; }
 
+function computeDataMap(exe) {
+  if (!exe) return {};
+  const dsMap = exe.dataSources || {};
+  const rootName = String(exe?.dataFeed?.name || '').trim();
+  const rootData = exe?.dataFeed?.data;
+  const computed = {};
+  if (rootName) computed[rootName] = asArray(rootData);
+
+  const names = Object.keys(dsMap);
+  const visiting = new Set();
+  function resolve(name) {
+    if (computed.hasOwnProperty(name)) return;
+    const ds = dsMap[name] || {};
+    const parent = String(ds?.dataSourceRef || '').trim();
+    const sel = ds?.selectors?.data || 'output';
+    if (parent) {
+      if (!computed.hasOwnProperty(parent)) {
+        if (visiting.has(name)) return;
+        visiting.add(name);
+        resolve(parent);
+        visiting.delete(name);
+      }
+      const parentData = computed[parent];
+      const parentRoot = Array.isArray(parentData) && parentData.length === 1 ? parentData[0] : (Array.isArray(parentData) ? parentData : (parentData || {}));
+      computed[name] = asArray(selectPath(sel, parentRoot));
+    } else {
+      if (!computed.hasOwnProperty(name)) computed[name] = [];
+    }
+  }
+  for (const n of names) resolve(n);
+  return computed;
+}
+
+function buildAutoColumns(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+  const first = rows[0];
+  if (!first || typeof first !== 'object' || Array.isArray(first)) return [];
+  return Object.keys(first).map((key) => ({
+    id: key,
+    name: key,
+    width: 140,
+  }));
+}
+
+function applyAutoTableColumns(container, dataMap) {
+  if (!container || typeof container !== 'object') return container;
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.table && (!Array.isArray(node.table.columns) || node.table.columns.length === 0)) {
+      const dsRef = String(node.dataSourceRef || '').trim();
+      const rows = dsRef ? dataMap[dsRef] : [];
+      const cols = buildAutoColumns(rows);
+      if (cols.length > 0) {
+        node.table.columns = cols;
+      }
+    }
+    const children = Array.isArray(node.containers) ? node.containers : Array.isArray(node.items) ? node.items : [];
+    for (const child of children) visit(child);
+  };
+  visit(container);
+  return container;
+}
+
 function wireFeedSignals(exe, windowContext) {
   if (!exe) return 0;
   const dsMap = exe.dataSources || {};
@@ -138,19 +201,35 @@ export default function ToolFeed({ executions = [], turnId = '', context }) {
     };
 
     const dsNormalized = normalizeDataSources(rawDS);
-    const uiWithDS = ui && typeof ui === 'object'
-      ? { ...ui, dataSources: dsNormalized }
-      : { dataSources: dsNormalized, ...(ui || {}) };
+    const uiBase = (ui && typeof ui === 'object') ? JSON.parse(JSON.stringify(ui)) : (ui || {});
+    const uiWithDS = uiBase && typeof uiBase === 'object'
+      ? { ...uiBase, dataSources: dsNormalized }
+      : { dataSources: dsNormalized, ...(uiBase || {}) };
+    const dataMap = computeDataMap(exe);
+    applyAutoTableColumns(uiWithDS, dataMap);
     const title = ui?.title || exe?.title || feedId;
     return { key: feedId, title, ui: uiWithDS, exe };
   }), [feeds]);
 
-  if (!tabs.length) return null;
+  const titledTabs = useMemo(() => {
+    const counts = new Map();
+    for (const t of tabs) counts.set(t.title, (counts.get(t.title) || 0) + 1);
+    const seen = new Map();
+    return tabs.map((t) => {
+      const total = counts.get(t.title) || 0;
+      if (total <= 1) return t;
+      const next = (seen.get(t.title) || 0) + 1;
+      seen.set(t.title, next);
+      return { ...t, title: `${t.title} ${next}` };
+    });
+  }, [tabs]);
+
+  if (!titledTabs.length) return null;
 
   return (
     <div style={{ border: '1px solid var(--light-gray1)', borderRadius: 4, padding: 8, marginTop: 6 }}>
       <Tabs id={`toolfeed-${turnId}`} renderActiveTabPanelOnly>
-        {tabs.map((t, tabIdx) => {
+        {titledTabs.map((t, tabIdx) => {
           const dsDefs = (t?.ui?.dataSources || {});
           // Mutate the parent window metadata so Forge's Context can resolve DS immediately
           try {
