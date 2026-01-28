@@ -189,9 +189,7 @@ func TestServer_ListConversations_UserOrPublic(t *testing.T) {
 	assert.NoError(t, err)
 	respBP.Body.Close()
 
-	// List as userA: current behaviour returns only userA's own
-	// conversations; public conversations from other users are not
-	// included in the summary list.
+	// List as userA: should include userA's private and userB's public.
 	listReq, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/api/conversations", nil)
 	listReq.Header.Set("Authorization", "Bearer "+tokA)
 	listResp, err := srv.Client().Do(listReq)
@@ -205,7 +203,7 @@ func TestServer_ListConversations_UserOrPublic(t *testing.T) {
 		} `json:"data"`
 	}
 	_ = json.NewDecoder(listResp.Body).Decode(&out)
-	assert.EqualValues(t, 1, len(out.Data))
+	assert.EqualValues(t, 2, len(out.Data))
 }
 
 // newLocalServerOrSkip attempts to start an httptest.Server and skips the test
