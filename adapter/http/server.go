@@ -202,6 +202,7 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		mux.HandleFunc("POST /v1/api/conversations", s.handleConversations)     // create new conversation
 		mux.HandleFunc("GET /v1/api/conversations", s.handleConversations)      // list conversations
 		mux.HandleFunc("GET /v1/api/conversations/{id}", s.handleConversations) // get conversation by id
+		mux.HandleFunc("PATCH /v1/api/conversations/{id}", s.handleConversations)
 
 		// Delete conversation (cascades via DB FKs)
 		mux.HandleFunc("DELETE /v1/api/conversations/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -490,6 +491,24 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			list = paginateConversations(list, page, size)
 		}
 		encode(w, http.StatusOK, list, nil)
+	case http.MethodPatch:
+		id := strings.TrimSpace(r.PathValue("id"))
+		if id == "" {
+			encode(w, http.StatusBadRequest, nil, fmt.Errorf("conversation id is required"))
+			return
+		}
+		var req chat.PatchConversationRequest
+		if r.Body != nil {
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+				encode(w, http.StatusBadRequest, nil, err)
+				return
+			}
+		}
+		if err := s.chatSvc.PatchConversation(s.withAuthFromRequest(r), id, req); err != nil {
+			encode(w, http.StatusBadRequest, nil, err)
+			return
+		}
+		encode(w, http.StatusOK, map[string]string{"id": id}, nil)
 	default:
 		encode(w, http.StatusMethodNotAllowed, nil, fmt.Errorf("method not allowed"))
 	}

@@ -1130,6 +1130,11 @@ type CreateConversationRequest struct {
 	Visibility string `json:"visibility"`
 }
 
+// PatchConversationRequest mirrors HTTP payload for PATCH /conversations/{id}.
+type PatchConversationRequest struct {
+	Visibility string `json:"visibility"`
+}
+
 // CreateConversationResponse echoes created entity details.
 type CreateConversationResponse struct {
 	ID        string `json:"id"`
@@ -1172,8 +1177,11 @@ func (s *Service) CreateConversation(ctx context.Context, in CreateConversationR
 			cw.SetCreatedByUserID(userID)
 		}
 	}
-	// Force private visibility for all conversations (ignore client-provided visibility)
-	cw.SetVisibility(convw.VisibilityPrivate)
+	vis := strings.ToLower(strings.TrimSpace(in.Visibility))
+	if vis != convw.VisibilityPublic && vis != convw.VisibilityPrivate {
+		vis = convw.VisibilityPrivate
+	}
+	cw.SetVisibility(vis)
 	if s := strings.TrimSpace(in.Agent); s != "" {
 		cw.SetAgentId(s)
 	}
@@ -1199,6 +1207,47 @@ func (s *Service) CreateConversation(ctx context.Context, in CreateConversationR
 		return nil, fmt.Errorf("failed to persist conversation: %w", err)
 	}
 	return &CreateConversationResponse{ID: id, Title: title, CreatedAt: createdAt.Format(time.RFC3339), Model: in.Model, Agent: in.Agent, Tools: in.Tools}, nil
+}
+
+// PatchConversation updates mutable fields (currently visibility) on an existing conversation.
+func (s *Service) PatchConversation(ctx context.Context, id string, in PatchConversationRequest) error {
+	convID := strings.TrimSpace(id)
+	if convID == "" {
+		return fmt.Errorf("conversation id is required")
+	}
+	vis := strings.ToLower(strings.TrimSpace(in.Visibility))
+	if vis != convw.VisibilityPublic && vis != convw.VisibilityPrivate {
+		return fmt.Errorf("invalid visibility")
+	}
+	cv, err := s.convClient.GetConversation(ctx, convID)
+	if err != nil {
+		return err
+	}
+	if cv == nil {
+		return fmt.Errorf("conversation not found")
+	}
+	if ui := authctx.User(ctx); ui != nil {
+		want := strings.TrimSpace(ui.Subject)
+		if want == "" {
+			want = strings.TrimSpace(ui.Email)
+		}
+		if want == "" {
+			return fmt.Errorf("missing user identity")
+		}
+		if cv.CreatedByUserId != nil && strings.TrimSpace(*cv.CreatedByUserId) != want {
+			return fmt.Errorf("forbidden")
+		}
+	} else if cv.CreatedByUserId != nil && strings.TrimSpace(*cv.CreatedByUserId) != "" {
+		return fmt.Errorf("forbidden")
+	}
+	cw := &convw.Conversation{Has: &convw.ConversationHas{}}
+	cw.SetId(convID)
+	cw.SetVisibility(vis)
+	cw.SetUpdatedAt(time.Now().UTC())
+	if err := s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(cw)); err != nil {
+		return fmt.Errorf("failed to patch conversation: %w", err)
+	}
+	return nil
 }
 
 // GetConversation returns id + title by conversation id.
