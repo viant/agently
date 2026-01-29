@@ -2,6 +2,9 @@ columns:
   - id: title
     name: Title
     width: 260
+  - id: stage
+    name: Status
+    width: 80
   - id: id
     name: Conversation ID
     width: 50
