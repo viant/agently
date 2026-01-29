@@ -199,93 +199,6 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 	return nil
 }
 
-// watchRunCompletion polls conversation stage until completion and updates the run status.
-func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, conversationID string) {
-	// NOTE: Callers pass ctx as context.WithoutCancel(originalCtx).
-	// That means:
-	//   - ctx carries request-scoped values (trace IDs, auth, etc.)
-	//   - ctx has NO cancellation and NO deadline (Done() == nil)
-	// We intentionally use ctx only for Value() propagation + per-call timeouts below.
-	if s == nil || s.conv == nil || s.sch == nil {
-		return
-	}
-
-	// Hard limit for *starting new attempts* in this watcher.
-	// We intentionally base this on Background() so it is independent of the caller's ctx
-	// (caller cancellation is already stripped by context.WithoutCancel anyway).
-	deadline := time.Now().Add(10 * time.Minute)
-	allCtx, cancel := context.WithDeadline(context.Background(), deadline)
-	defer cancel()
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-	var err error
-	var conv *apiconv.Conversation
-
-	for {
-		select {
-		case <-allCtx.Done():
-			// Stop polling after ~10 minutes.
-			// IMPORTANT: This does NOT forcibly interrupt an in-flight DB/RPC call if one is running;
-			// it only stops scheduling further ticks.
-			if err != nil {
-				fmt.Printf("watchRunCompletion error (runID: %v, scheduleID: %v, convID: %v): %v\n", runID, scheduleID, conversationID, err)
-			}
-			return
-		case <-ticker.C:
-			// Per-tick call budget (prevents a single slow/hung call from blocking the loop forever).
-			// We derive from ctx (which is WithoutCancel) so we keep ctx.Values, but we impose a 5s timeout.
-			// This timeout is independent of allCtx, by design, so the "last attempt" may complete
-			// even if we're near/over the 10-minute polling window.
-			callCtx, callCancel := context.WithTimeout(ctx, 5*time.Second)
-
-			conv, err = s.conv.GetConversation(callCtx, conversationID)
-			if err != nil || conv == nil {
-				if err == nil {
-					err = fmt.Errorf("conversation not found: %v", conversationID)
-				}
-				callCancel()
-				continue
-			}
-
-			stage := strings.ToLower(strings.TrimSpace(conv.Stage))
-			// Running stages: keep polling until stage leaves these values or we hit allCtx deadline.
-			if stage == "executing" || stage == "thinking" || stage == "eliciting" || stage == "waiting" {
-				callCancel()
-				continue
-			}
-
-			// Decide final status from terminal stage.
-			status := "succeeded"
-			if stage == "error" || stage == "failed" || stage == "canceled" {
-				if stage == "canceled" {
-					status = "skipped"
-				} else {
-					status = "failed"
-				}
-			}
-
-			upd := &schapi.MutableRun{}
-			upd.SetId(runID)
-			upd.SetScheduleId(scheduleID)
-			upd.SetStatus(status)
-			upd.SetCompletedAt(time.Now().UTC())
-
-			// Patch uses the same per-tick context budget as GetConversation.
-			// If GetConversation consumed most of the 5s, PatchRun may time out too — that's acceptable here.
-			// We always exit afterward to avoid repeated patches.
-			err = s.sch.PatchRun(callCtx, upd)
-			if err != nil {
-				callCancel()
-				continue
-			}
-
-			callCancel()
-			return
-		}
-	}
-}
-
 func strPtrValue(p *string) string {
 	if p == nil {
 		return ""
@@ -641,20 +554,4 @@ func cronNext(spec *cronSpec, from time.Time) time.Time {
 		t = t.Add(time.Minute)
 	}
 	return t
-}
-
-func printCtxStatus(ctx context.Context) {
-	// Check if the context is canceled
-	if err := ctx.Err(); err == context.Canceled {
-		fmt.Println("CANCELED")
-		return
-	}
-
-	// Check for a deadline
-	if deadline, ok := ctx.Deadline(); ok {
-		fmt.Println(deadline)
-		return
-	}
-
-	fmt.Println("NO DEADLINE")
 }
