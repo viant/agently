@@ -36,6 +36,7 @@ import (
 	implconv "github.com/viant/agently/internal/service/conversation"
 	usersvc "github.com/viant/agently/internal/service/user"
 	extrepo "github.com/viant/agently/internal/workspace/repository/extension"
+	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 	msgwrite "github.com/viant/agently/pkg/agently/message/write"
 	toolfeed "github.com/viant/agently/pkg/agently/tool"
@@ -1153,6 +1154,7 @@ type ConversationSummary struct {
 	Agent   string   `json:"agent,omitempty"`
 	Model   string   `json:"model,omitempty"`
 	Tools   []string `json:"tools,omitempty"`
+	Stage   string   `json:"stage,omitempty"`
 }
 
 // CreateConversation persists a new conversation using DAO store.
@@ -1252,7 +1254,17 @@ func (s *Service) PatchConversation(ctx context.Context, id string, in PatchConv
 
 // GetConversation returns id + title by conversation id.
 func (s *Service) GetConversation(ctx context.Context, id string) (*ConversationSummary, error) {
-	cv, err := s.convClient.GetConversation(ctx, id)
+	// Include transcript so Stage can be computed accurately.
+	cv, err := s.convClient.GetConversation(ctx, id, func(input *apiconv.Input) {
+		if input == nil {
+			return
+		}
+		input.IncludeTranscript = true
+		if input.Has == nil {
+			input.Has = &agconv.ConversationInputHas{}
+		}
+		input.Has.IncludeTranscript = true
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1297,7 +1309,7 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*Conversation
 	if cv.DefaultModel != nil {
 		model = strings.TrimSpace(*cv.DefaultModel)
 	}
-	return &ConversationSummary{ID: id, Title: t, Summary: cv.Summary, Agent: agentID, Model: model, Tools: tools}, nil
+	return &ConversationSummary{ID: id, Title: t, Summary: cv.Summary, Agent: agentID, Model: model, Tools: tools, Stage: strings.TrimSpace(cv.Stage)}, nil
 }
 
 // ListConversations returns all conversation summaries.
@@ -1354,7 +1366,7 @@ func (s *Service) ListConversations(ctx context.Context, input *apiconv.Input) (
 			lastSeen = *v.UpdatedAt
 		}
 		tmp = append(tmp, convo{
-			summary:  ConversationSummary{ID: v.Id, Title: t, Summary: v.Summary, Agent: agentID, Model: model, Tools: tools},
+			summary:  ConversationSummary{ID: v.Id, Title: t, Summary: v.Summary, Agent: agentID, Model: model, Tools: tools, Stage: strings.TrimSpace(v.Stage)},
 			lastSeen: lastSeen,
 		})
 	}
