@@ -460,7 +460,13 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			if (createIfMissing == "1" || strings.EqualFold(createIfMissing, "true")) && agentId != "" {
 				// Create with minimal fields; Chat service enforces visibility/owner.
 				if resp, cErr := s.chatSvc.CreateConversation(s.withAuthFromRequest(r), chat.CreateConversationRequest{Agent: agentId}); cErr == nil && resp != nil {
-					list = append(list, chat.ConversationSummary{ID: resp.ID, Title: resp.Title, Summary: nil})
+					createdAt := time.Now().UTC()
+					if ts := strings.TrimSpace(resp.CreatedAt); ts != "" {
+						if parsed, pErr := time.Parse(time.RFC3339Nano, ts); pErr == nil {
+							createdAt = parsed
+						}
+					}
+					list = append(list, chat.ConversationSummary{ID: resp.ID, Title: resp.Title, Summary: nil, CreatedAt: createdAt})
 				}
 			}
 		}
