@@ -301,7 +301,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 				return err
 			}
 			scheduledFor := now
-			if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() {
+			if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() && scheduledFor.Before(*sc.NextRunAt) {
 				scheduledFor = sc.NextRunAt.UTC()
 			}
 
