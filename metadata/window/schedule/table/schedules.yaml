@@ -7,6 +7,8 @@ columns:
     name: Type
   - id: enabled
     name: Enabled
+    width: 60
+    type: checkbox
   - id: nextRunAt
     name: Next Run
   - id: lastStatus

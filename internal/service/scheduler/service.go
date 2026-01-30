@@ -325,6 +325,26 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 						}
 						_ = s.sch.PatchSchedule(ctx, mut)
 					}
+
+					// emergency lease extension logic could go here
+					if st == "running" {
+						started := r.StartedAt
+						timeoutSec := time.Duration(sc.TimeoutSeconds)
+						if timeoutSec <= 0 {
+							timeoutSec = watchTimeout
+						}
+						maxTime := started.Add(timeoutSec * time.Second)
+						maxTime = maxTime.Add(15 * time.Second)
+						if time.Now().After(maxTime) {
+							aCtx := context.WithoutCancel(ctx)
+							convId := ""
+							if r.ConversationId != nil {
+								convId = strings.TrimSpace(*r.ConversationId)
+							}
+							s.finalizeDeadline(aCtx, r.Id, sc.Id, convId, callTimeout, fmt.Errorf("emergency termination of an abandoned schedule run"), time.Duration(sc.TimeoutSeconds)*time.Second)
+						}
+					}
+
 					return nil
 				case "pending":
 					// Prefer a pending run that matches the current scheduled slot.

@@ -3,12 +3,11 @@ columns:
     name: Run ID
   - id: status
     name: Status
-  - id: created_at
+  - id: createdAt
     name: Created
-  - id: started_at
+  - id: startedAt
     name: Started
-  - id: completed_at
+  - id: completedAt
     name: Completed
-  - id: error_message
+  - id: errorMessage
     name: Error
-
