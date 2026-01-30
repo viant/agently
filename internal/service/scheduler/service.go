@@ -301,13 +301,49 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 				return err
 			}
 			scheduledFor := now
-			if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() && scheduledFor.Before(*sc.NextRunAt) {
+			if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() {
 				scheduledFor = sc.NextRunAt.UTC()
 			}
 
 			var pendingRun *schapi.Run
 			for _, r := range runs {
-				if r == nil || r.CompletedAt != nil {
+				if r == nil {
+					continue
+				}
+				// If a run already exists for the current scheduled slot (even completed),
+				// do not create another run for the same (schedule_id, scheduled_for) slot.
+				// This can happen after a crash where the run completed but the schedule row
+				// didn't advance next_run_at.
+				if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() &&
+					r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) &&
+					r.CompletedAt != nil {
+					mut := &schapi.MutableSchedule{}
+					mut.SetId(sc.Id)
+					mut.SetLastRunAt(now)
+					if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "cron") && sc.CronExpr != nil && strings.TrimSpace(*sc.CronExpr) != "" {
+						loc, _ := time.LoadLocation(strings.TrimSpace(sc.Timezone))
+						if loc == nil {
+							loc = time.UTC
+						}
+						spec, err := parseCron(strings.TrimSpace(*sc.CronExpr))
+						if err == nil {
+							mut.SetNextRunAt(cronNext(spec, now.In(loc)).UTC())
+						}
+					} else if sc.IntervalSeconds != nil {
+						mut.SetNextRunAt(now.Add(time.Duration(*sc.IntervalSeconds) * time.Second))
+					} else if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "adhoc") {
+						mut.NextRunAt = nil
+						if mut.Has != nil {
+							mut.Has.NextRunAt = true
+						}
+					}
+					if err := s.sch.PatchSchedule(ctx, mut); err != nil {
+						return err
+					}
+					return nil
+				}
+
+				if r.CompletedAt != nil {
 					continue
 				}
 				st := strings.ToLower(strings.TrimSpace(r.Status))
