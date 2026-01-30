@@ -2,15 +2,19 @@ columns:
   - id: title
     name: Title
     width: 260
+    sortable: true
   - id: stage
     name: Status
     width: 80
+    sortable: true
   - id: createdAt
     name: Created At
     width: 150
+    sortable: true
   - id: id
     name: Conversation ID
     width: 50
+    sortable: true
   - id: openChat
     icon: chat
     type: button

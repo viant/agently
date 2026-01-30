@@ -210,7 +210,7 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR
 	// This prevents duplicate schedule runs in horizontally scaled/serverless deployments.
 	if isSchedulerWatchdogEnabled() && schedulerOrch != nil {
 		interval := schedulerWatchdogInterval()
-		wdCtx := context.Background()
+		wdCtx := iauth.EnsureUser(context.Background(), authCfg)
 		_ = *schsvc.StartWatchdog(wdCtx, schedulerOrch, interval)
 	}
 

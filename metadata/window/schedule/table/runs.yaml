@@ -1,13 +1,22 @@
 columns:
   - id: id
     name: Run ID
+    sortable: true
+  - id: conversationId
+    name: Conversation ID
+    sortable: true
   - id: status
     name: Status
+    sortable: true
   - id: createdAt
     name: Created
+    sortable: true
   - id: startedAt
     name: Started
+    sortable: true
   - id: completedAt
     name: Completed
+    sortable: true
   - id: errorMessage
     name: Error
+    sortable: true
