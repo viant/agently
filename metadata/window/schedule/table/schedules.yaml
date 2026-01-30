@@ -1,19 +1,26 @@
 columns:
   - id: name
     name: Name
+    sortable: true
   - id: agentRef
     name: Agent
+    sortable: true
   - id: scheduleType
     name: Type
+    sortable: true
   - id: enabled
     name: Enabled
     width: 60
     type: checkbox
+    sortable: true
   - id: nextRunAt
     name: Next Run
+    sortable: true
   - id: lastStatus
     name: Last Status
+    sortable: true
   - id: lastRunAt
     name: Last Run
+    sortable: true
 
 toolbar: $import('toolbar/schedules.yaml')
