@@ -24,7 +24,7 @@ const (
 )
 
 // watchRunCompletion polls conversation stage until completion and updates the run status.
-func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, conversationID string) {
+func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, conversationID string, timeoutSeconds int) {
 	// NOTE: Callers pass ctx as context.WithoutCancel(originalCtx).
 	// That means:
 	//   - ctx carries request-scoped values (trace IDs, auth, etc.)
@@ -37,8 +37,14 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 	// Hard limit for *starting new attempts* in this watcher.
 	// We intentionally base this on Background() so it is independent of the caller's ctx
 	// (caller cancellation is already stripped by context.WithoutCancel anyway).
-	deadline := time.Now().Add(watchTimeout)
-	allCtx, allCancel := context.WithDeadline(context.Background(), deadline)
+	var timeout time.Duration
+	if timeoutSeconds <= 0 {
+		timeout = watchTimeout // default 10 minutes
+	} else {
+		timeout = time.Duration(timeoutSeconds) * time.Second
+	}
+
+	allCtx, allCancel := context.WithTimeout(context.Background(), timeout)
 	defer allCancel()
 
 	// DAO provider (used for cheap "turn in progress" precheck).

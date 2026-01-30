@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS schema_version
     version_number int UNSIGNED NOT NULL
 ) $$
 
-
+ 
 DROP FUNCTION IF EXISTS get_schema_version $$
 
 CREATE FUNCTION get_schema_version()
@@ -893,5 +893,29 @@ END $$
 
 CALL schema_upgrade_7() $$
 DROP PROCEDURE schema_upgrade_7 $$
+
+
+DROP PROCEDURE IF EXISTS schema_upgrade_8 $$
+CREATE PROCEDURE schema_upgrade_8()
+BEGIN
+    IF get_schema_version() = 8 THEN
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'schedule'
+              AND COLUMN_NAME = 'timeout_seconds'
+        ) THEN
+ALTER TABLE schedule
+    ADD COLUMN timeout_seconds timeout_seconds BIGINT NOT NULL DEFAULT 0 AFTER timezone;
+END IF;
+
+CALL set_schema_version(9);
+END IF;
+END $$
+
+CALL schema_upgrade_8() $$
+DROP PROCEDURE schema_upgrade_8 $$
 
 DELIMITER ;

@@ -224,6 +224,7 @@ CREATE TABLE IF NOT EXISTS schedule (
     cron_expr             TEXT,                      -- when schedule_type = 'cron'
     interval_seconds      INTEGER,                   -- when schedule_type = 'interval'
     timezone              TEXT      NOT NULL DEFAULT 'UTC',
+    timeout_seconds       INTEGER   NOT NULL DEFAULT 0,
 
     -- Task payload (predefined user task)
     task_prompt_uri       TEXT,                      -- URI to load task content

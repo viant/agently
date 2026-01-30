@@ -194,7 +194,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 	// Fire-and-forget watcher to mark completion based on conversation progress
 	if in.ConversationId != nil && strings.TrimSpace(*in.ConversationId) != "" {
 		aCtx := context.WithoutCancel(ctx)
-		go s.watchRunCompletion(aCtx, strings.TrimSpace(in.Id), schID, strings.TrimSpace(*in.ConversationId))
+		go s.watchRunCompletion(aCtx, strings.TrimSpace(in.Id), schID, strings.TrimSpace(*in.ConversationId), row.TimeoutSeconds)
 	}
 	return nil
 }

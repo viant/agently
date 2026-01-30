@@ -53,6 +53,7 @@ export async function saveSchedule({ context }) {
     cronExpr: form.cronExpr,
     intervalSeconds: form.intervalSeconds,
     timezone: form.timezone,
+    timeoutSeconds: form.timeoutSeconds,
     taskPromptUri: form.taskPromptUri,
     taskPrompt: form.taskPrompt,
   };
@@ -181,6 +182,7 @@ export const scheduleService = {
         cronExpr: firstDefined(r, ['cronExpr', 'cron_expr']),
         intervalSeconds: firstDefined(r, ['intervalSeconds', 'interval_seconds']),
         timezone: firstDefined(r, ['timezone']),
+        timeoutSeconds: firstDefined(r, ['timeoutSeconds', 'timeout_seconds']),
         taskPromptUri: firstDefined(r, ['taskPromptUri', 'task_prompt_uri']),
         taskPrompt: firstDefined(r, ['taskPrompt', 'task_prompt']),
         nextRunAt: firstDefined(r, ['nextRunAt', 'next_run_at']),

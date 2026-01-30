@@ -111,12 +111,12 @@ func (s *sqliteScheduleSQLX) Insert(tableName string, data interface{}) error {
 	_, err := s.db.Exec(`
 		INSERT INTO schedule (
 			id, name, description, agent_ref, model_override, enabled,
-			start_at, end_at, schedule_type, cron_expr, interval_seconds, timezone,
+			start_at, end_at, schedule_type, cron_expr, interval_seconds, timezone, timeout_seconds,
 			task_prompt_uri, task_prompt, next_run_at, last_run_at, last_status, last_error,
 			lease_owner, lease_until, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		rec.Id, rec.Name, rec.Description, rec.AgentRef, rec.ModelOverride, rec.Enabled,
-		rec.StartAt, rec.EndAt, rec.ScheduleType, rec.CronExpr, rec.IntervalSeconds, rec.Timezone,
+		rec.StartAt, rec.EndAt, rec.ScheduleType, rec.CronExpr, rec.IntervalSeconds, rec.Timezone, rec.TimeoutSeconds,
 		rec.TaskPromptUri, rec.TaskPrompt, rec.NextRunAt, rec.LastRunAt, rec.LastStatus, rec.LastError,
 		rec.LeaseOwner, rec.LeaseUntil, rec.CreatedAt, rec.UpdatedAt,
 	)
@@ -130,12 +130,12 @@ func (s *sqliteScheduleSQLX) Update(tableName string, data interface{}) error {
 	_, err := s.db.Exec(`
 		UPDATE schedule SET
 			name = ?, description = ?, agent_ref = ?, model_override = ?, enabled = ?,
-			start_at = ?, end_at = ?, schedule_type = ?, cron_expr = ?, interval_seconds = ?, timezone = ?,
+			start_at = ?, end_at = ?, schedule_type = ?, cron_expr = ?, interval_seconds = ?, timezone = ?, timeout_seconds = ?,
 			task_prompt_uri = ?, task_prompt = ?, next_run_at = ?, last_run_at = ?, last_status = ?, last_error = ?,
 			lease_owner = ?, lease_until = ?, created_at = ?, updated_at = ?
 		WHERE id = ?`,
 		rec.Name, rec.Description, rec.AgentRef, rec.ModelOverride, rec.Enabled,
-		rec.StartAt, rec.EndAt, rec.ScheduleType, rec.CronExpr, rec.IntervalSeconds, rec.Timezone,
+		rec.StartAt, rec.EndAt, rec.ScheduleType, rec.CronExpr, rec.IntervalSeconds, rec.Timezone, rec.TimeoutSeconds,
 		rec.TaskPromptUri, rec.TaskPrompt, rec.NextRunAt, rec.LastRunAt, rec.LastStatus, rec.LastError,
 		rec.LeaseOwner, rec.LeaseUntil, rec.CreatedAt, rec.UpdatedAt, rec.Id,
 	)
