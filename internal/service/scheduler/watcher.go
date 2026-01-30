@@ -154,8 +154,7 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 	if isRunning || stage == "" {
 		_ = s.chat.Cancel(conversationID)
 		upd.SetStatus("failed")
-		msg := fmt.Sprintf("conversation at stage %q was aborted because the schedule timed out %v", stage, timeout)
-
+		msg := fmt.Sprintf("conv. aborted at %q (%v timeout)", stage, timeout)
 		if cerr != nil {
 			msg += fmt.Sprintf(": %v", cerr)
 		} else if err != nil {

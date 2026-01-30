@@ -72,8 +72,8 @@ export async function saveSchedule({ context }) {
       const txt = await resp.text().catch(() => '');
       throw new Error(`PATCH ${url} failed: ${resp.status} ${txt}`);
     }
-    // Reload list to reflect any computed fields
-    await ctx.connector.get?.({});
+    // Refresh collection so the schedules grid reflects saved changes
+    ds?.fetchCollection?.();
     return true;
   } catch (err) {
     log.error('scheduleService.saveSchedule error', err);
@@ -195,6 +195,25 @@ export const scheduleService = {
       return mapped;
     } catch (e) {
       log.error('schedule.onFetchSchedules error', e);
+      return collection;
+    }
+  },
+  onFetchRuns({ context, collection = [] }) {
+    try {
+      const incoming = Array.isArray(collection) ? collection : [];
+      log.debug('schedule.onFetchRuns: incoming size', incoming.length);
+      const mapped = incoming.map((r) => ({
+        id: firstDefined(r, ['id']),
+        status: firstDefined(r, ['status']),
+        createdAt: firstDefined(r, ['createdAt', 'created_at']),
+        startedAt: firstDefined(r, ['startedAt', 'started_at']),
+        completedAt: firstDefined(r, ['completedAt', 'completed_at']),
+        errorMessage: firstDefined(r, ['errorMessage', 'error_message']),
+      }));
+      log.debug('schedule.onFetchRuns: mapped size', mapped.length);
+      return mapped;
+    } catch (e) {
+      log.error('schedule.onFetchRuns error', e);
       return collection;
     }
   },

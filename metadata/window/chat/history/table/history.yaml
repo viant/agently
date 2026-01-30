@@ -5,6 +5,9 @@ columns:
   - id: stage
     name: Status
     width: 80
+  - id: createdAt
+    name: Created At
+    width: 150
   - id: id
     name: Conversation ID
     width: 50
