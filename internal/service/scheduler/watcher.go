@@ -65,7 +65,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 		select {
 		case <-allCtx.Done():
 			// Stop polling after watchTimeout
-			s.finalizeDeadline(ctx, runID, scheduleID, conversationID, callTimeout, err)
+			s.finalizeDeadline(ctx, runID, scheduleID, conversationID, callTimeout, err, timeout)
 			return
 
 		case <-ticker.C:
@@ -130,7 +130,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 	}
 }
 
-func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID string, conversationID string, callTimeout time.Duration, err error) {
+func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID string, conversationID string, callTimeout time.Duration, err error, timeout time.Duration) {
 	// Best-effort: one final attempt to determine conversation stage and finalize the run.
 
 	callGetConvTransCtx, callGetConvTransCtxCancel := context.WithTimeout(ctx, getConvTranscriptTimeout)
@@ -154,8 +154,8 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 	if isRunning || stage == "" {
 		_ = s.chat.Cancel(conversationID)
 		upd.SetStatus("failed")
+		msg := fmt.Sprintf("conversation at stage %q was aborted because the schedule timed out %v", stage, timeout)
 
-		msg := fmt.Sprintf("watchRunCompletion timeout after 10m (stage=%q)", stage) // TODO timeout configurable
 		if cerr != nil {
 			msg += fmt.Sprintf(": %v", cerr)
 		} else if err != nil {
