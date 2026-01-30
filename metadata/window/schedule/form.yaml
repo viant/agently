@@ -113,6 +113,13 @@
       on:
         - event: onVisible
           handler: schedule.showIfInterval
+    - id: timeoutSeconds
+      label: Timeout Seconds
+      type: number
+      columnSpan: 2
+      properties:
+        min: 0
+        step: 1
 
 
 - id: task

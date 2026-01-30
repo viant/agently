@@ -37,11 +37,12 @@ func TestHandler_Exec_ScheduleWrite(t *testing.T) {
 		{
 			name: "insert sets created_at",
 			input: &Input{Schedules: []*Schedule{{
-				Name:         "daily",
-				AgentRef:     "agent",
-				Enabled:      true,
-				ScheduleType: "adhoc",
-				Timezone:     "UTC",
+				Name:           "daily",
+				AgentRef:       "agent",
+				Enabled:        true,
+				ScheduleType:   "adhoc",
+				Timezone:       "UTC",
+				TimeoutSeconds: 123,
 			}}},
 			expect: expected{status: "ok", expectRows: 1, createdSet: true},
 		},
@@ -49,13 +50,14 @@ func TestHandler_Exec_ScheduleWrite(t *testing.T) {
 			name: "update sets updated_at",
 			input: &Input{
 				Schedules: []*Schedule{{
-					Id:           "sched-1",
-					Name:         "weekly",
-					AgentRef:     "agent",
-					Enabled:      true,
-					ScheduleType: "cron",
-					Timezone:     "UTC",
-					CreatedAt:    &now,
+					Id:             "sched-1",
+					Name:           "weekly",
+					AgentRef:       "agent",
+					Enabled:        true,
+					ScheduleType:   "cron",
+					Timezone:       "UTC",
+					TimeoutSeconds: 456,
+					CreatedAt:      &now,
 				}},
 				CurSchedule: []*Schedule{{Id: "sched-1"}},
 			},
@@ -133,21 +135,24 @@ func TestHandler_Exec_ScheduleWrite(t *testing.T) {
 				} else {
 					require.False(t, row.updatedAt.Valid)
 				}
+				require.Equal(t, int64(tc.input.Schedules[0].TimeoutSeconds), row.timeoutSeconds)
 			}
 		})
 	}
 }
 
 type scheduleRow struct {
-	createdAt sql.NullString
-	updatedAt sql.NullString
+	createdAt      sql.NullString
+	updatedAt      sql.NullString
+	timeoutSeconds int64
 }
 
 func fetchScheduleRow(t *testing.T, db *sql.DB, id string) scheduleRow {
 	t.Helper()
 	row := scheduleRow{}
-	err := db.QueryRow(`SELECT created_at, updated_at FROM schedule WHERE id = ?`, id).Scan(
+	err := db.QueryRow(`SELECT created_at, updated_at, timeout_seconds FROM schedule WHERE id = ?`, id).Scan(
 		&row.createdAt, &row.updatedAt,
+		&row.timeoutSeconds,
 	)
 	require.NoError(t, err)
 	return row

@@ -17,6 +17,7 @@ type Schedule struct {
 	CronExpr        *string      `sqlx:"cron_expr" json:",omitempty"`
 	IntervalSeconds *int         `sqlx:"interval_seconds" json:",omitempty"`
 	Timezone        string       `sqlx:"timezone" validate:"required"`
+	TimeoutSeconds  int          `sqlx:"timeout_seconds"`
 	TaskPromptUri   *string      `sqlx:"task_prompt_uri" json:",omitempty"`
 	TaskPrompt      *string      `sqlx:"task_prompt" json:",omitempty"`
 	NextRunAt       *time.Time   `sqlx:"next_run_at" json:",omitempty"`
@@ -47,6 +48,7 @@ type ScheduleHas struct {
 	CronExpr        bool
 	IntervalSeconds bool
 	Timezone        bool
+	TimeoutSeconds  bool
 	TaskPromptUri   bool
 	TaskPrompt      bool
 	NextRunAt       bool
@@ -92,6 +94,11 @@ func (m *Schedule) SetIntervalSeconds(v int) {
 	m.Has.IntervalSeconds = true
 }
 func (m *Schedule) SetTimezone(v string) { m.Timezone = v; m.ensureHas(); m.Has.Timezone = true }
+func (m *Schedule) SetTimeoutSeconds(v int) {
+	m.TimeoutSeconds = v
+	m.ensureHas()
+	m.Has.TimeoutSeconds = true
+}
 func (m *Schedule) SetTaskPromptUri(v string) {
 	m.TaskPromptUri = &v
 	m.ensureHas()

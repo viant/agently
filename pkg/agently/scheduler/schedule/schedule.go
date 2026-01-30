@@ -62,6 +62,7 @@ type ScheduleView struct {
 	StartAt         *time.Time `sqlx:"start_at"`
 	TaskPrompt      *string    `sqlx:"task_prompt"`
 	TaskPromptUri   *string    `sqlx:"task_prompt_uri"`
+	TimeoutSeconds  int        `sqlx:"timeout_seconds"`
 	Timezone        string     `sqlx:"timezone"`
 	UpdatedAt       *time.Time `sqlx:"updated_at"`
 }

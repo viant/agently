@@ -302,7 +302,7 @@ CREATE TABLE IF NOT EXISTS schedule (
                                         cron_expr             VARCHAR(255),
                                         interval_seconds      BIGINT,
                                         timezone              VARCHAR(64)  NOT NULL DEFAULT 'UTC',
-
+                                        timeout_seconds       BIGINT NOT NULL DEFAULT 0,
     -- Task payload (predefined user task)
                                         task_prompt_uri       TEXT,
                                         task_prompt           MEDIUMTEXT,
