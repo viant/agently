@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS schema_version
     version_number int UNSIGNED NOT NULL
 ) $$
 
- 
+
 DROP FUNCTION IF EXISTS get_schema_version $$
 
 CREATE FUNCTION get_schema_version()
@@ -908,7 +908,7 @@ BEGIN
               AND COLUMN_NAME = 'timeout_seconds'
         ) THEN
 ALTER TABLE schedule
-    ADD COLUMN timeout_seconds timeout_seconds BIGINT NOT NULL DEFAULT 0 AFTER timezone;
+    ADD COLUMN timeout_seconds BIGINT NOT NULL DEFAULT 0 AFTER timezone;
 END IF;
 
 CALL set_schema_version(9);
