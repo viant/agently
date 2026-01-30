@@ -94,6 +94,55 @@ body {
     flex: 1;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Forge form tabs                                                            */
+/* -------------------------------------------------------------------------- */
+
+/* Ensure tab panels fill the available height so table-heavy tabs (e.g. Runs) can scroll */
+.form-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+}
+
+.form-panel .bp4-tabs,
+.form-panel .bp5-tabs,
+.form-panel .bp6-tabs {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+}
+
+.form-panel .bp4-tab-list,
+.form-panel .bp5-tab-list,
+.form-panel .bp6-tab-list {
+    flex: 0 0 auto;
+}
+
+.form-panel .bp4-tab-panels,
+.form-panel .bp5-tab-panels,
+.form-panel .bp6-tab-panels {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+.form-panel .bp4-tab-panel,
+.form-panel .bp5-tab-panel,
+.form-panel .bp6-tab-panel {
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    overflow: auto;
+}
+
 /* Optional resizable BlueprintJS dialog for payload viewer */
 .agently-resizable-dialog.bp4-dialog {
     resize: both;
