@@ -98,6 +98,17 @@ view:
                         to: queueTurns:input
                         from: conversations:form
                         location: id
+              - id: visibility
+                type: select
+                icon: eye-open
+                align: left
+                dataSourceRef: conversations
+                options:
+                  - { value: private, label: Private }
+                  - { value: public, label: Public }
+                on:
+                  - event: onChange
+                    handler: chat.updateVisibility
               # Removed usage dialog trigger
 
           on:

@@ -63,6 +63,26 @@ items:
       style:
         width: '220px'
 
+  # Row 1d — Conversation visibility
+  - id: visibility
+    label: Conversation Visibility
+    type: radio
+    columnSpan: 1
+    options:
+      - { value: private, label: Private }
+      - { value: public, label: Public }
+    on:
+      - event: onSelection
+        handler: chat.updateVisibility
+      - event: onChange
+        handler: chat.updateVisibility
+      - event: onItemSelect
+        handler: chat.updateVisibility
+    properties:
+      style:
+        marginTop: '0'
+        marginBottom: '0'
+
   # Section label
   - id: _label_agent_prefs
     type: label
@@ -137,7 +157,6 @@ items:
     columnSpan: 2
     properties:
       placeholder: 'Select allowed chain targets (agent IDs)'
-      options: []
       style:
         width: '100%'
 

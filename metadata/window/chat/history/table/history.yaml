@@ -1,24 +1,27 @@
 columns:
   - id: title
     name: Title
-    width: 260
+    width: 220
     sortable: true
   - id: stage
     name: Status
-    width: 80
+    width: 70
     sortable: true
   - id: createdAt
-    name: Created At
-    width: 150
+    name: Created
+    width: 120
     sortable: true
   - id: id
     name: Conversation ID
+    width: 40
+  - id: visibility
+    name: Visibility
     width: 50
     sortable: true
   - id: openChat
     icon: chat
     type: button
-    width: 40
+    width: 32
     on:
       - event: onClick
         handler: chat.debugHistoryOpen
@@ -38,3 +41,5 @@ columns:
             location: id
 
 toolbar: $import('toolbar/history.yaml')
+
+pagination: {}

@@ -1,8 +1,17 @@
 namespace: ChatConversations
 
+dialogs:
+  - $import('../new/dialog/settings.yaml')
+  - $import('../new/dialog/fileBrowser.yaml')
+  - $import('../new/dialog/queue.yaml')
+
 view:
   content:
     containers:
+      - id: metaLoader
+        dataSourceRef: meta
+        fetchData: true
+
       - id: convTable
         title: Conversations
         dataSourceRef: conversations
@@ -27,3 +36,8 @@ view:
 dataSource:
   conversations: $import('datasource/history.yaml')
   messages: $import('datasource/messages.yaml')
+  meta: $import('../new/datasource/meta.yaml')
+  settings: $import('../new/datasource/settings.yaml')
+  usage: $import('../new/datasource/usage.yaml')
+  fs: $import('../../filebrowser/datasource/fileBrowser.yaml')
+  queueTurns: $import('../new/dialog/datasource/queueTurns.yaml')

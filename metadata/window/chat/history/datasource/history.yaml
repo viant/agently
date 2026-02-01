@@ -3,11 +3,23 @@ service:
   uri: /v1/api/conversations
   method: GET
 
+paging:
+  size: 25
+  enabled: true
+  dataInfoSelectors:
+    pageCount: pageCount
+    totalCount: totalCount
+
 selectors:
   data: data
+  dataInfo: info
 
 uniqueKey:
   - field: id
+
+on:
+  - event: onFetch
+    handler: chat.onFetchHistory
 
 filterSet:
   - name: default

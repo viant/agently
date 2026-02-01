@@ -1148,14 +1148,15 @@ type CreateConversationResponse struct {
 
 // ConversationSummary lists id + title only.
 type ConversationSummary struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Summary   *string   `json:"summary"`
-	CreatedAt time.Time `json:"createdAt"`
-	Agent     string    `json:"agent,omitempty"`
-	Model     string    `json:"model,omitempty"`
-	Tools     []string  `json:"tools,omitempty"`
-	Stage     string    `json:"stage,omitempty"`
+	ID         string    `json:"id"`
+	Title      string    `json:"title"`
+	Summary    *string   `json:"summary"`
+	Visibility string    `json:"visibility,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
+	Agent      string    `json:"agent,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	Tools      []string  `json:"tools,omitempty"`
+	Stage      string    `json:"stage,omitempty"`
 }
 
 // CreateConversation persists a new conversation using DAO store.
@@ -1310,7 +1311,7 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*Conversation
 	if cv.DefaultModel != nil {
 		model = strings.TrimSpace(*cv.DefaultModel)
 	}
-	return &ConversationSummary{ID: id, Title: t, Summary: cv.Summary, CreatedAt: cv.CreatedAt, Agent: agentID, Model: model, Tools: tools, Stage: strings.TrimSpace(cv.Stage)}, nil
+	return &ConversationSummary{ID: id, Title: t, Summary: cv.Summary, CreatedAt: cv.CreatedAt, Visibility: vis, Agent: agentID, Model: model, Tools: tools}, nil
 }
 
 // ListConversations returns all conversation summaries.
@@ -1366,8 +1367,9 @@ func (s *Service) ListConversations(ctx context.Context, input *apiconv.Input) (
 		} else if v.UpdatedAt != nil && !v.UpdatedAt.IsZero() {
 			lastSeen = *v.UpdatedAt
 		}
+		vis := strings.ToLower(strings.TrimSpace(v.Visibility))
 		tmp = append(tmp, convo{
-			summary:  ConversationSummary{ID: v.Id, Title: t, Summary: v.Summary, CreatedAt: v.CreatedAt, Agent: agentID, Model: model, Tools: tools, Stage: strings.TrimSpace(v.Stage)},
+			summary:  ConversationSummary{ID: v.Id, Title: t, Summary: v.Summary, CreatedAt: v.CreatedAt, Visibility: vis, Agent: agentID, Model: model, Tools: tools},
 			lastSeen: lastSeen,
 		})
 	}

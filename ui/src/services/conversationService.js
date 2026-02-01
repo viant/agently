@@ -45,12 +45,17 @@ export async function ensureConversation({ context }) {
     
     if (!convID) {
         // include current overrides (model, agent, tools) when present
-        const currentForm = conversationContext.handlers?.dataSource?.peekFormData?.() || {};
-        const {model = '', agent = '', tools: toolsRaw = '', autoSelectTools = false} = currentForm;
+        const dsForm = conversationContext.handlers?.dataSource?.peekFormData?.() || {};
+        const sigForm = (conversationContext.signals?.form?.peek?.() || conversationContext.signals?.form?.value || {});
+        // Prefer signals form (newest UI selections) over DS form (may be stale).
+        const currentForm = { ...dsForm, ...sigForm };
+        const {model = '', agent = '', tools: toolsRaw0 = '', tool: toolRaw = '', autoSelectTools = false, visibility = ''} = currentForm;
+        const toolsRaw = toolsRaw0 || toolRaw || '';
 
         const body = {};
         if (model)  body.model  = model;
         if (agent)  body.agent  = agent;
+        if (visibility) body.visibility = visibility;
 
         // Tools may come as array from treeMultiSelect or as comma separated string.
         // When auto tool selection is enabled, omit explicit tool selection so the backend can route.
