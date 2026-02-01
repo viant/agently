@@ -10,6 +10,9 @@ items:
       - event: onClick
         handler: chat.deleteConversation
 # Additional toolbar items could be added here in the future
+  - id: pagination
+    type: pagination
+    align: center
   - id: quickFilter
     placeholder: Filter conversations...
     align: right

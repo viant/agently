@@ -23,12 +23,13 @@ type CreateConversationResponse struct {
 
 // ConversationSummary mirrors conversation list items.
 type ConversationSummary struct {
-	ID      string   `json:"id"`
-	Title   string   `json:"title"`
-	Summary *string  `json:"summary,omitempty"`
-	Agent   string   `json:"agent,omitempty"`
-	Model   string   `json:"model,omitempty"`
-	Tools   []string `json:"tools,omitempty"`
+	ID         string   `json:"id"`
+	Title      string   `json:"title"`
+	Summary    *string  `json:"summary,omitempty"`
+	Visibility string   `json:"visibility,omitempty"`
+	Agent      string   `json:"agent,omitempty"`
+	Model      string   `json:"model,omitempty"`
+	Tools      []string `json:"tools,omitempty"`
 }
 
 // GetMessagesOptions configures transcript fetch.

@@ -794,6 +794,41 @@ function pickFirstStringFieldDeep(obj, fieldNames) {
     return '';
 }
 
+function formatLocalDateTimeShort(value) {
+    try {
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return '';
+        const pad = (n) => String(n).padStart(2, '0');
+        const yyyy = d.getFullYear();
+        const mm = pad(d.getMonth() + 1);
+        const dd = pad(d.getDate());
+        const hh = pad(d.getHours());
+        const mi = pad(d.getMinutes());
+        return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+    } catch (_) {
+        return '';
+    }
+}
+
+export function onFetchHistory(args) {
+    try {
+        const { collection = [], data } = args || {};
+        const list = (Array.isArray(collection) && collection.length)
+            ? collection
+            : (Array.isArray(data) ? data : []);
+        if (!list.length) return list;
+        for (const row of list) {
+            if (!row || typeof row !== 'object') continue;
+            const raw = row.createdAt || row.CreatedAt || row.created_at || '';
+            const formatted = formatLocalDateTimeShort(raw);
+            if (formatted) row.createdAt = formatted;
+        }
+        return list;
+    } catch (_) {
+        return args?.collection || [];
+    }
+}
+
 function buildQueuedTurnsFromTranscript(transcript) {
     const turns = Array.isArray(transcript) ? transcript : [];
     const queued = turns
@@ -2264,6 +2299,63 @@ function refreshMessages(context) {
     } catch (_) {}
 }
 
+async function patchConversationVisibility({context, conversationID, visibility}) {
+    try {
+        if (!context) return false;
+        const convID = String(conversationID || '').trim();
+        const v = String(visibility || '').trim().toLowerCase();
+        if (!convID || (v !== 'public' && v !== 'private')) return false;
+        const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+        const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}`;
+        const resp = await fetch(url, {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ visibility: v }),
+        });
+        if (!resp.ok) {
+            const txt = await resp.text().catch(() => '');
+            throw new Error(txt || `visibility update failed: ${resp.status}`);
+        }
+        try {
+            const convCtx = context?.Context?.('conversations');
+            convCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'visibility' }, value: v });
+        } catch (_) {}
+        try {
+            const historyCtx = context?.Context?.('history');
+            historyCtx?.handlers?.dataSource?.fetchCollection?.();
+        } catch (_) {}
+        return true;
+    } catch (err) {
+        log.error('chatService.patchConversationVisibility error', err);
+        return false;
+    }
+}
+
+export async function updateVisibility(args) {
+    try {
+        const { context } = args || {};
+        if (!context) return false;
+        const raw = args?.selected ?? args?.value ?? args?.item?.value ?? args?.event?.target?.value ?? '';
+        const v = String(raw || '').trim().toLowerCase();
+        if (v !== 'public' && v !== 'private') return false;
+        const convCtx = context?.Context?.('conversations');
+        let convID = resolveConversationIDFromContext(context, args);
+        // Guard against accidental field-id capture (e.g. item.id = "visibility").
+        if (convID === 'visibility' || convID === 'public' || convID === 'private' || convID === v) {
+            convID = '';
+        }
+        if (!convID) {
+            convCtx?.handlers?.dataSource?.setFormField?.({ item: { id: 'visibility' }, value: v });
+            return true;
+        }
+        return await patchConversationVisibility({ context, conversationID: convID, visibility: v });
+    } catch (err) {
+        log.error('chatService.updateVisibility error', err);
+        return false;
+    }
+}
+
 export async function cancelQueuedTurnByID({context, conversationID, turnID}) {
     try {
         if (!context) return false;
@@ -2438,7 +2530,8 @@ export function saveSettings(args) {
         autoSummarize,
         autoSelectTools,
         chainsEnabled,
-        allowedChains
+        allowedChains,
+        visibility
     } = source
 
 
@@ -2453,7 +2546,32 @@ export function saveSettings(args) {
     } catch (_) {}
     const signals = context.Signals('conversations');
     const patch = signals.form.peek()
-    signals.form.value = {...patch, ...source}
+    const normalized = {...source};
+    if (typeof chainsEnabled === 'boolean') {
+        normalized.disableChains = !chainsEnabled;
+    }
+    if (Array.isArray(allowedChains)) {
+        normalized.allowedChains = allowedChains;
+    }
+    if (Array.isArray(tool)) {
+        normalized.tools = tool;
+    }
+    if (typeof visibility === 'string') {
+        const v = visibility.trim();
+        if (v) normalized.visibility = v;
+    }
+    signals.form.value = {...patch, ...normalized}
+
+    try {
+        const convCtx = context?.Context?.('conversations');
+        const convForm = convCtx?.handlers?.dataSource?.peekFormData?.() || {};
+        const convID = resolveConversationIDFromContext(context, args);
+        const nextVis = String(normalized.visibility || '').trim().toLowerCase();
+        const prevVis = String(convForm.visibility || '').trim().toLowerCase();
+        if (convID && nextVis && nextVis !== prevVis) {
+            void patchConversationVisibility({context, conversationID: convID, visibility: nextVis});
+        }
+    } catch (_) {}
 }
 
 
@@ -3475,7 +3593,9 @@ export const chatService = {
     onDestroy,
     onMetaLoaded,
     onFetchMeta,
+    onFetchHistory,
     onSettings,
+    updateVisibility,
     taskStatusIcon,
     saveSettings,
     debugHistoryOpen,
@@ -3700,6 +3820,38 @@ function onFetchMeta(args) {
         if (Array.isArray(convForm?.tools) && convForm.tools.length > 0) {
             settings.tool = convForm.tools;
         }
+        if (Array.isArray(convForm?.tool) && convForm.tool.length > 0) {
+            settings.tool = convForm.tool;
+        }
+        const hasConv = !!String(convForm.id || convForm.ID || '').trim();
+        const convVis = String(convForm.visibility || convForm.Visibility || '').trim().toLowerCase();
+        const formVis = String(currentForm.visibility || currentForm.Visibility || '').trim().toLowerCase();
+        const defVis = String(data?.defaults?.visibility || '').trim().toLowerCase();
+        const pickVis = (v) => (v === 'public' || v === 'private') ? v : '';
+        const selectedVisibility = pickVis(convVis) || pickVis(formVis) || pickVis(defVis) || 'private';
+        settings.visibility = selectedVisibility;
+        try {
+            // Only push defaults into the conversations form when no conversation exists yet.
+            if (convDS?.setFormField && !hasConv && selectedVisibility) {
+                convDS.setFormField({ item: { id: 'visibility' }, value: selectedVisibility });
+            }
+        } catch (_) {}
+
+        const disableChains = normalizeBool(settings.disableChains);
+        const chainsEnabled = normalizeBool(settings.chainsEnabled);
+        const finalChainsEnabled = (chainsEnabled !== undefined)
+            ? chainsEnabled
+            : (disableChains !== undefined ? !disableChains : true);
+        settings.chainsEnabled = finalChainsEnabled;
+        settings.disableChains = !finalChainsEnabled;
+        if (!Array.isArray(settings.allowedChains)) settings.allowedChains = [];
+
+        const allowedChainsOptions = (agentChainTargets?.[curAgent] || []).map((v) => ({
+            id: String(v),
+            value: String(v),
+            label: String(v),
+        }));
+        settings.allowedChainsOptions = allowedChainsOptions;
 
         return {
             ...data,

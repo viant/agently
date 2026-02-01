@@ -25,5 +25,7 @@ dataSource:
       data: data
     uniqueKey:
       - field: id
+    on:
+      - event: onFetch
+        handler: chat.onFetchHistory
     selectionMode: single
-

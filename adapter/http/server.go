@@ -494,7 +494,30 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			list = filtered
 		}
 		if page, size, ok := parsePageSize(r); ok {
+			totalCount := len(list)
 			list = paginateConversations(list, page, size)
+			pageCount := 1
+			if size > 0 {
+				pageCount = (totalCount + size - 1) / size
+				if pageCount < 1 {
+					pageCount = 1
+				}
+			}
+			resp := struct {
+				Status string `json:"status"`
+				Data   any    `json:"data"`
+				Info   any    `json:"info,omitempty"`
+			}{
+				Status: "ok",
+				Data:   list,
+				Info: map[string]any{
+					"pageCount":  pageCount,
+					"totalCount": totalCount,
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
 		}
 		encode(w, http.StatusOK, list, nil)
 	case http.MethodPatch:
