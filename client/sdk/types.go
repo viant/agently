@@ -144,13 +144,32 @@ type StreamEventEnvelope struct {
 type StreamEventType string
 
 const (
-	StreamEventMessage     StreamEventType = "message"
-	StreamEventDelta       StreamEventType = "delta"
-	StreamEventElicitation StreamEventType = "elicitation"
-	StreamEventError       StreamEventType = "error"
+	StreamEventMessage            StreamEventType = "message"
+	StreamEventDelta              StreamEventType = "delta"
+	StreamEventAssistantMessage   StreamEventType = "assistant_message"
+	StreamEventInterimMessage     StreamEventType = "interim_message"
+	StreamEventUserMessage        StreamEventType = "user_message"
+	StreamEventToolCallStarted    StreamEventType = "tool_call_started"
+	StreamEventToolCallCompleted  StreamEventType = "tool_call_completed"
+	StreamEventToolCallFailed     StreamEventType = "tool_call_failed"
+	StreamEventModelCallStarted   StreamEventType = "model_call_started"
+	StreamEventModelCallCompleted StreamEventType = "model_call_completed"
+	StreamEventModelCallFailed    StreamEventType = "model_call_failed"
+	StreamEventAttachmentLinked   StreamEventType = "attachment_linked"
+	StreamEventElicitation        StreamEventType = "elicitation"
+	StreamEventError              StreamEventType = "error"
 )
 
-func (e StreamEventType) IsDelta() bool { return e.normalize() == StreamEventDelta }
+func (e StreamEventType) IsDelta() bool {
+	n := e.normalize()
+	return n == StreamEventDelta || n == StreamEventInterimMessage
+}
+
+func (e StreamEventType) IsAssistantMessage() bool {
+	return e.normalize() == StreamEventAssistantMessage
+}
+
+func (e StreamEventType) IsInterimMessage() bool { return e.normalize() == StreamEventInterimMessage }
 
 func (e StreamEventType) IsElicitation() bool { return e.normalize() == StreamEventElicitation }
 

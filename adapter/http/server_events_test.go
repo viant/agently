@@ -118,7 +118,7 @@ func TestHandleConversationEvents_SSEHistory(t *testing.T) {
 
 	reader := bufio.NewReader(resp.Body)
 	event, data := readSSEEvent(t, reader, 2*time.Second)
-	require.Equal(t, "message", event)
+	require.Equal(t, "assistant_message", event)
 
 	var env streamMessageEnvelope
 	require.NoError(t, json.Unmarshal(data, &env))
@@ -170,7 +170,7 @@ func TestHandleConversationEvents_SSEDelta(t *testing.T) {
 
 	reader := bufio.NewReader(resp.Body)
 	event, data := readSSEEvent(t, reader, 2*time.Second)
-	require.Equal(t, "delta", event)
+	require.Equal(t, "interim_message", event)
 
 	var env streamMessageEnvelope
 	require.NoError(t, json.Unmarshal(data, &env))
@@ -180,6 +180,123 @@ func TestHandleConversationEvents_SSEDelta(t *testing.T) {
 	content, ok := env.Content.(map[string]interface{})
 	require.True(t, ok)
 	require.Equal(t, "hi", content["delta"])
+}
+
+func TestHandleConversationEvents_SSEAttachmentLinked(t *testing.T) {
+	conv := &apiconv.Conversation{
+		Transcript: []*agconv.TranscriptView{
+			{
+				Message: []*agconv.MessageView{
+					{
+						Id:             "m1",
+						ConversationId: "c1",
+						Role:           "assistant",
+						Type:           "text",
+						Attachment: []*agconv.AttachmentView{
+							{
+								Uri:             ptrS("file://tmp/upload.txt"),
+								MimeType:        "text/plain",
+								ParentMessageId: ptrS("m1"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	stub := &stubConvClient{conv: conv}
+	svc := chat.NewServiceWithClient(stub, nil)
+	srv := &Server{chatSvc: svc, eventSeq: map[string]uint64{}}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv.handleConversationEvents(w, r, "c1")
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/events?history=1", nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	event, data := readSSEEvent(t, reader, 2*time.Second)
+	require.Equal(t, "attachment_linked", event)
+
+	var env streamMessageEnvelope
+	require.NoError(t, json.Unmarshal(data, &env))
+	require.NotNil(t, env.Message)
+	require.Equal(t, "m1", env.Message.Id)
+	require.Len(t, env.Message.Attachment, 1)
+}
+
+func TestHandleConversationEvents_SSEToolCallEvents(t *testing.T) {
+	conv := &apiconv.Conversation{
+		Transcript: []*agconv.TranscriptView{
+			{
+				Message: []*agconv.MessageView{
+					{
+						Id:             "m1",
+						ConversationId: "c1",
+						Role:           "assistant",
+						Type:           "text",
+						ToolCall: &agconv.ToolCallView{
+							ToolName: "tools/grep",
+							Status:   "running",
+						},
+					},
+					{
+						Id:             "m2",
+						ConversationId: "c1",
+						Role:           "assistant",
+						Type:           "text",
+						ToolCall: &agconv.ToolCallView{
+							ToolName: "tools/grep",
+							Status:   "completed",
+						},
+					},
+					{
+						Id:             "m3",
+						ConversationId: "c1",
+						Role:           "assistant",
+						Type:           "text",
+						ToolCall: &agconv.ToolCallView{
+							ToolName: "tools/grep",
+							Status:   "failed",
+						},
+					},
+				},
+			},
+		},
+	}
+	stub := &stubConvClient{conv: conv}
+	svc := chat.NewServiceWithClient(stub, nil)
+	srv := &Server{chatSvc: svc, eventSeq: map[string]uint64{}}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv.handleConversationEvents(w, r, "c1")
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/events?history=1", nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	event, _ := readSSEEvent(t, reader, 2*time.Second)
+	require.Equal(t, "tool_call_started", event)
+	event, _ = readSSEEvent(t, reader, 2*time.Second)
+	require.Equal(t, "tool_call_completed", event)
+	event, _ = readSSEEvent(t, reader, 2*time.Second)
+	require.Equal(t, "tool_call_failed", event)
 }
 
 func TestHandleConversationEvents_SSEDeltaSuppressesElicitation(t *testing.T) {
@@ -237,7 +354,7 @@ func TestHandleConversationEvents_SSEDeltaSuppressesElicitation(t *testing.T) {
 
 	reader := bufio.NewReader(resp.Body)
 	event, data := readSSEEvent(t, reader, 2*time.Second)
-	require.Equal(t, "delta", event)
+	require.Equal(t, "interim_message", event)
 
 	var env streamMessageEnvelope
 	require.NoError(t, json.Unmarshal(data, &env))
