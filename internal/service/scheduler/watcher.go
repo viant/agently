@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"log"
 
 	apiconv "github.com/viant/agently/client/conversation"
 	schapi "github.com/viant/agently/client/scheduler"
@@ -177,7 +178,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 				fmt.Printf("debug: watchRunCompletion - released lease for runID: %v by owner: %v\n", runID, s.leaseOwner)
 				relCancel()
 			}
-			fmt.Printf("debug: watchRunCompletion - completed runID: %v, scheduleID: %v, convID: %v\n", runID, scheduleID, conversationID)
+			log.Printf("scheduler: run completed schedule_id=%q run_id=%q conversation_id=%q status=%q stage=%q", scheduleID, runID, conversationID, status, stage)
 			return
 		}
 	}
@@ -204,9 +205,11 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 	upd.SetScheduleId(scheduleID)
 	upd.SetCompletedAt(time.Now().UTC())
 
+	finalStatus := status
 	if isRunning || stage == "" {
 		_ = s.chat.Cancel(conversationID)
-		upd.SetStatus("failed")
+		finalStatus = "failed"
+		upd.SetStatus(finalStatus)
 		msg := fmt.Sprintf("conv. aborted at %q (%v timeout)", stage, timeout)
 		fmt.Printf("debug: TIMEOUT!!! watchRunCompletion finalizeDeadline - conversation still in progress for runID: %v, scheduleID: %v, convID: %v, stage: %v\n", runID, scheduleID, conversationID, stage)
 		if cerr != nil {
@@ -216,9 +219,9 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 		}
 		upd.SetErrorMessage(msg)
 	} else {
-		upd.SetStatus(status)
+		upd.SetStatus(finalStatus)
 
-		if status != "succeeded" {
+		if finalStatus != "succeeded" {
 			_ = s.chat.Cancel(conversationID)
 
 			if cerr != nil {
@@ -237,6 +240,8 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 
 	if pErr != nil {
 		fmt.Printf("error: watchRunCompletion error (runID: %v, scheduleID: %v, convID: %v): %v\n", runID, scheduleID, conversationID, pErr)
+	} else {
+		log.Printf("scheduler: run completed schedule_id=%q run_id=%q conversation_id=%q status=%q stage=%q timeout=%v", scheduleID, runID, conversationID, finalStatus, stage, timeout)
 	}
 
 	if strings.TrimSpace(s.leaseOwner) != "" {
