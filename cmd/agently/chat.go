@@ -25,20 +25,20 @@ import (
 
 // ChatCmd handles interactive/chat queries.
 type ChatCmd struct {
-	AgentID   string `short:"a" long:"agent-id" description:"agent id"`
-	Query     string `short:"q" long:"query"    description:"user query"`
-	ConvID    string `short:"c" long:"conv"     description:"conversation ID (optional)"`
-	ResetLogs bool   `long:"reset-logs" description:"truncate/clean log files before each run"  `
-	Timeout   int    `short:"t" long:"timeout" description:"timeout in seconds for the agent response (0=none)" `
-	User      string `short:"u" long:"user" description:"user id for the chat" default:"devuser"`
-	API       string `long:"api" description:"Agently base URL (skips auto-detect)" `
-	Token     string `long:"token" description:"Bearer token for API requests (overrides AGENTLY_TOKEN)" `
-	OOB       bool   `long:"oob" description:"Use server-side OAuth2 out-of-band login (requires --oauth-secrets)"`
-	OAuthCfg  string `long:"oauth-config" description:"scy OAuth config URL for client-side OOB login (unused for server OOB)"`
-	OAuthSec  string `long:"oauth-secrets" description:"scy OAuth secrets URL for OOB login"`
-	OAuthScp  string `long:"oauth-scopes" description:"comma-separated OAuth scopes for OOB login"`
-	Stream    bool   `long:"stream" description:"force SSE streaming (disable poll fallback)"`
-	ElicitDef string `long:"elicitation-default" description:"JSON or @file to auto-accept elicitations when stdin is not a TTY"`
+	AgentID   string   `short:"a" long:"agent-id" description:"agent id"`
+	Query     []string `short:"q" long:"query"    description:"user query (repeatable)"`
+	ConvID    string   `short:"c" long:"conv"     description:"conversation ID (optional)"`
+	ResetLogs bool     `long:"reset-logs" description:"truncate/clean log files before each run"  `
+	Timeout   int      `short:"t" long:"timeout" description:"timeout in seconds for the agent response (0=none)" `
+	User      string   `short:"u" long:"user" description:"user id for the chat" default:"devuser"`
+	API       string   `long:"api" description:"Agently base URL (skips auto-detect)" `
+	Token     string   `long:"token" description:"Bearer token for API requests (overrides AGENTLY_TOKEN)" `
+	OOB       bool     `long:"oob" description:"Use server-side OAuth2 out-of-band login (requires --oauth-secrets)"`
+	OAuthCfg  string   `long:"oauth-config" description:"scy OAuth config URL for client-side OOB login (unused for server OOB)"`
+	OAuthSec  string   `long:"oauth-secrets" description:"scy OAuth secrets URL for OOB login"`
+	OAuthScp  string   `long:"oauth-scopes" description:"comma-separated OAuth scopes for OOB login"`
+	Stream    bool     `long:"stream" description:"force SSE streaming (disable poll fallback)"`
+	ElicitDef string   `long:"elicitation-default" description:"JSON or @file to auto-accept elicitations when stdin is not a TTY"`
 
 	// Arbitrary JSON payload that will be forwarded to the agent as contextual
 	// information. It can be supplied either as an inline JSON string or as
@@ -156,7 +156,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 	var outputOpen bool
 	var lastElicitationPayload map[string]interface{}
 	var queryLog io.Writer
-	if c.Query != "" {
+	if len(c.Query) > 0 {
 		logDir := filepath.Join(workspace.Root(), "cli", "logs")
 		_ = os.MkdirAll(logDir, 0o700)
 		logPath := filepath.Join(logDir, "last_query.log")
@@ -229,9 +229,14 @@ func (c *ChatCmd) Execute(_ []string) error {
 	}
 
 	// Single-turn when -q provided.
-	if c.Query != "" {
-		if err := callChat(c.Query); err != nil {
-			return err
+	if len(c.Query) > 0 {
+		for _, q := range c.Query {
+			if strings.TrimSpace(q) == "" {
+				continue
+			}
+			if err := callChat(q); err != nil {
+				return err
+			}
 		}
 		if c, ok := queryLog.(io.Closer); ok && c != nil {
 			_ = c.Close()
@@ -438,6 +443,10 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 			if strings.TrimSpace(text) == "" {
 				continue
 			}
+			if looksLikeElicitationStream(text) || looksLikeElicitationJSON(text) {
+				handledElicitation = true
+				continue
+			}
 			normText := normalizeOutputText(text)
 			if lastOutputText != "" && normText == lastOutputText && time.Since(lastOutputAt) < 2*time.Second {
 				continue
@@ -508,7 +517,7 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 					continue
 				}
 				if !seenAssistant && !hadOutput {
-					if printed := printLastAssistant(ctx, client, convID); printed {
+					if printed := printLastAssistant(ctx, client, convID, postStart); printed {
 						if outputOpen != nil {
 							*outputOpen = true
 						}
@@ -530,7 +539,7 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 			}
 		case <-ctx.Done():
 			if !seenAssistant && !hadOutput {
-				if printed := printLastAssistant(ctx, client, convID); printed {
+				if printed := printLastAssistant(ctx, client, convID, postStart); printed {
 					if outputOpen != nil {
 						*outputOpen = true
 					}
@@ -879,7 +888,7 @@ func streamConversation(ctx context.Context, client *sdk.Client, convID string, 
 				return fmt.Errorf("turn failed")
 			}
 			if status == "succeeded" && !seenAssistant && !hadOutput {
-				if printed := printLastAssistant(ctx, client, convID); printed {
+				if printed := printLastAssistant(ctx, client, convID, postStart); printed {
 					if outputOpen != nil {
 						*outputOpen = true
 					}
@@ -897,7 +906,7 @@ func streamConversation(ctx context.Context, client *sdk.Client, convID string, 
 			}
 		case <-ctx.Done():
 			if !seenAssistant && !hadOutput {
-				if printed := printLastAssistant(ctx, client, convID); printed {
+				if printed := printLastAssistant(ctx, client, convID, postStart); printed {
 					if outputOpen != nil {
 						*outputOpen = true
 					}
@@ -1076,7 +1085,7 @@ func streamConversationPoll(ctx context.Context, client *sdk.Client, convID stri
 					return fmt.Errorf("turn failed")
 				}
 				if status == "succeeded" && !seenAssistant && !hadOutput {
-					if printed := printLastAssistant(ctx, client, convID); printed {
+					if printed := printLastAssistant(ctx, client, convID, postStart); printed {
 						if outputOpen != nil {
 							*outputOpen = true
 						}
@@ -1096,7 +1105,7 @@ func streamConversationPoll(ctx context.Context, client *sdk.Client, convID stri
 		}
 		if ctx.Err() != nil {
 			if !seenAssistant && !hadOutput {
-				if printed := printLastAssistant(ctx, client, convID); printed {
+				if printed := printLastAssistant(ctx, client, convID, postStart); printed {
 					if outputOpen != nil {
 						*outputOpen = true
 					}
@@ -1150,7 +1159,7 @@ func shouldSkipByTime(createdAt time.Time, postStart time.Time) bool {
 	return createdAt.Before(cutoff)
 }
 
-func printLastAssistant(ctx context.Context, client *sdk.Client, convID string) bool {
+func printLastAssistant(ctx context.Context, client *sdk.Client, convID string, postStart time.Time) bool {
 	conv, err := client.GetMessages(ctx, convID, "")
 	if err != nil || conv == nil {
 		return false
@@ -1173,6 +1182,9 @@ func printLastAssistant(ctx context.Context, client *sdk.Client, convID string) 
 			if m.Content != nil && strings.TrimSpace(*m.Content) != "" {
 				c := strings.TrimSpace(*m.Content)
 				if looksLikeElicitationJSON(c) {
+					continue
+				}
+				if shouldSkipByTime(m.CreatedAt, postStart) {
 					continue
 				}
 				last = c
@@ -1413,9 +1425,12 @@ func looksLikeElicitationStream(text string) bool {
 		return false
 	}
 	if strings.HasPrefix(raw, "```json") || strings.HasPrefix(raw, "```") {
-		if strings.Contains(raw, "elicitation") {
+		if strings.Contains(strings.ToLower(raw), "\"type\"") {
 			return true
 		}
+	}
+	if strings.Contains(strings.ToLower(raw), "\"requestedschema\"") {
+		return true
 	}
 	if strings.Contains(raw, "\"type\"") && strings.Contains(raw, "elicitation") {
 		return true
@@ -1876,6 +1891,11 @@ func parseJSONArg(raw string) (map[string]interface{}, error) {
 }
 
 func stdinIsTTY() bool {
+	if v := strings.TrimSpace(os.Getenv("AGENTLY_FORCE_NO_TTY")); v != "" {
+		if strings.EqualFold(v, "1") || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") {
+			return false
+		}
+	}
 	info, err := os.Stdin.Stat()
 	if err != nil {
 		return false

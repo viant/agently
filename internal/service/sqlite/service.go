@@ -32,7 +32,7 @@ func (s *Service) WithPath(path string) *Service {
 const (
 	sqliteSchemaVersionTable  = "schema_version"
 	sqliteBaseSchemaVersion   = 1
-	sqliteTargetSchemaVersion = 8
+	sqliteTargetSchemaVersion = 9
 )
 
 // Ensure sets up a SQLite database under $ROOT/db/agently.db when missing and
@@ -142,6 +142,7 @@ func applySQLiteMigrations(ctx context.Context, db *sql.DB) error {
 	// was advanced but the DDL was only partially applied.
 	ensures := []func(context.Context, *sql.DB) error{
 		ensureSQLiteRawContentColumn,
+		ensureSQLiteMessageTypeConstraint,
 		ensureSQLiteTurnQueueSchema,
 		ensureSQLiteSchedulerLeaseSchema,
 		ensureSQLiteScheduleUserCredURL,
@@ -209,6 +210,156 @@ func ensureSQLiteRawContentColumn(ctx context.Context, db *sql.DB) error {
 	}
 	if _, err := db.ExecContext(ctx, "ALTER TABLE message ADD COLUMN raw_content TEXT"); err != nil {
 		return fmt.Errorf("add %s.%s column: %w", table, column, err)
+	}
+	return nil
+}
+
+func ensureSQLiteMessageTypeConstraint(ctx context.Context, db *sql.DB) error {
+	const table = "message"
+	tableExists, err := sqliteTableExists(ctx, db, table)
+	if err != nil {
+		return fmt.Errorf("check %s table: %w", table, err)
+	}
+	if !tableExists {
+		return nil
+	}
+	ok, err := sqliteMessageTypeConstraintOK(ctx, db)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	if err := rebuildSQLiteMessageTable(ctx, db); err != nil {
+		return fmt.Errorf("rebuild %s: %w", table, err)
+	}
+	return nil
+}
+
+func sqliteMessageTypeConstraintOK(ctx context.Context, db *sql.DB) (bool, error) {
+	const query = "SELECT sql FROM sqlite_master WHERE type='table' AND name='message'"
+	var ddl sql.NullString
+	if err := db.QueryRowContext(ctx, query).Scan(&ddl); err != nil {
+		return false, fmt.Errorf("read message table ddl: %w", err)
+	}
+	if !ddl.Valid {
+		return false, nil
+	}
+	sqlText := strings.ToLower(ddl.String)
+	return strings.Contains(sqlText, "elicitation_request") && strings.Contains(sqlText, "elicitation_response"), nil
+}
+
+func rebuildSQLiteMessageTable(ctx context.Context, db *sql.DB) error {
+	const createMessageNew = `
+CREATE TABLE message_new
+(
+    id                 TEXT PRIMARY KEY,
+    archived           INTEGER   CHECK (archived IN (0, 1)),
+    conversation_id    TEXT      NOT NULL REFERENCES conversation (id) ON DELETE CASCADE,
+    turn_id            TEXT      REFERENCES turn (id) ON DELETE SET NULL,
+    sequence           INTEGER,
+    created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at         TIMESTAMP,
+    created_by_user_id TEXT,
+    status             TEXT CHECK (status IS NULL OR status IN ('', 'pending','accepted','rejected','cancel','open','summary','summarized', 'completed','error')),
+    mode               TEXT,
+    role               TEXT      NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
+    type               TEXT      NOT NULL DEFAULT 'text' CHECK (type IN ('text', 'tool_op',  'control', 'elicitation_request', 'elicitation_response')),
+    content            TEXT,
+    raw_content        TEXT,
+    summary            TEXT,
+    context_summary    TEXT,
+    tags               TEXT,
+    interim            INTEGER   NOT NULL DEFAULT 0 CHECK (interim IN (0, 1)),
+    elicitation_id     TEXT,
+    parent_message_id  TEXT,
+    superseded_by      TEXT,
+    linked_conversation_id  TEXT,
+    attachment_payload_id  TEXT REFERENCES call_payload (id) ON DELETE SET NULL,
+    elicitation_payload_id TEXT REFERENCES call_payload (id) ON DELETE SET NULL,
+    -- legacy column to remain compatible with older readers
+    tool_name          TEXT,
+    embedding_index    BLOB
+);`
+	allowedCols := map[string]struct{}{
+		"id":                     {},
+		"archived":               {},
+		"conversation_id":        {},
+		"turn_id":                {},
+		"sequence":               {},
+		"created_at":             {},
+		"updated_at":             {},
+		"created_by_user_id":     {},
+		"status":                 {},
+		"mode":                   {},
+		"role":                   {},
+		"type":                   {},
+		"content":                {},
+		"raw_content":            {},
+		"summary":                {},
+		"context_summary":        {},
+		"tags":                   {},
+		"interim":                {},
+		"elicitation_id":         {},
+		"parent_message_id":      {},
+		"superseded_by":          {},
+		"linked_conversation_id": {},
+		"attachment_payload_id":  {},
+		"elicitation_payload_id": {},
+		"tool_name":              {},
+		"embedding_index":        {},
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if _, err := tx.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return fmt.Errorf("disable foreign_keys: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, createMessageNew); err != nil {
+		return fmt.Errorf("create message_new: %w", err)
+	}
+
+	existingCols, err := sqliteTableColumns(ctx, tx, "message")
+	if err != nil {
+		return err
+	}
+	var cols []string
+	for _, col := range existingCols {
+		if _, ok := allowedCols[col]; ok {
+			cols = append(cols, col)
+		}
+	}
+	if len(cols) == 0 {
+		return fmt.Errorf("no columns to copy for message table")
+	}
+	colList := strings.Join(cols, ", ")
+	insertSQL := fmt.Sprintf("INSERT INTO message_new (%s) SELECT %s FROM message", colList, colList)
+	if _, err := tx.ExecContext(ctx, insertSQL); err != nil {
+		return fmt.Errorf("copy message rows: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "DROP TABLE message"); err != nil {
+		return fmt.Errorf("drop message: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "ALTER TABLE message_new RENAME TO message"); err != nil {
+		return fmt.Errorf("rename message_new: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "CREATE UNIQUE INDEX idx_message_turn_seq ON message (turn_id, sequence)"); err != nil {
+		return fmt.Errorf("create idx_message_turn_seq: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "CREATE INDEX idx_msg_conv_created ON message (conversation_id, created_at DESC)"); err != nil {
+		return fmt.Errorf("create idx_msg_conv_created: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
+		return fmt.Errorf("enable foreign_keys: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -520,7 +671,11 @@ func ensureSQLiteColumn(ctx context.Context, db *sql.DB, table, column, decl str
 	return nil
 }
 
-func sqliteTableColumns(ctx context.Context, db *sql.DB, table string) ([]string, error) {
+type sqliteQueryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func sqliteTableColumns(ctx context.Context, db sqliteQueryer, table string) ([]string, error) {
 	rows, err := db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err != nil {
 		return nil, err
