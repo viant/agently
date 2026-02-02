@@ -263,6 +263,7 @@ func (s *Service) applyUserCred(ctx context.Context, credRef string) (context.Co
 		cfgStart := time.Now()
 		log.Printf("scheduler: user_cred_url config load start url=%q", cfgURL)
 		resource := scy.EncodedResource(cfgURL).Decode(authCtx, reflect.TypeOf(cred.Oauth2Config{}))
+		resource.TimeoutMs = int((1 * time.Minute).Milliseconds())
 		secret, err := scySvc.Load(authCtx, resource)
 		if err != nil {
 			log.Printf("scheduler: user_cred_url config load error url=%q duration=%s err=%v", cfgURL, time.Since(cfgStart), err)
@@ -283,6 +284,7 @@ func (s *Service) applyUserCred(ctx context.Context, credRef string) (context.Co
 		secStart := time.Now()
 		log.Printf("scheduler: user_cred_url secret load start url=%q", credRef)
 		resource := scy.EncodedResource(credRef).Decode(authCtx, reflect.TypeOf(cred.Basic{}))
+		resource.TimeoutMs = int((1 * time.Minute).Milliseconds())
 		secret, err := scySvc.Load(authCtx, resource)
 		if err != nil {
 			log.Printf("scheduler: user_cred_url secret load error url=%q duration=%s err=%v", credRef, time.Since(secStart), err)
