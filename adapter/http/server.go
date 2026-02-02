@@ -741,9 +741,6 @@ func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request
 			if ev == nil {
 				continue
 			}
-			if isElicitationStreamEvent(ev) {
-				continue
-			}
 			env := &streamMessageEnvelope{
 				Seq:            0,
 				Time:           time.Now().UTC(),
@@ -774,7 +771,6 @@ func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request
 				return
 			}
 			messages := flattenTranscriptMessages(conv.Conversation)
-			turnElicitation := buildTurnElicitationIndex(messages)
 			start := 0
 			if !hasSeq && lastSeenID != "" {
 				for i, m := range messages {
@@ -790,12 +786,6 @@ func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request
 			for i := start; i < len(messages); i++ {
 				m := messages[i]
 				if m == nil || strings.TrimSpace(m.Id) == "" {
-					continue
-				}
-				if shouldSuppressAssistantMessage(m, turnElicitation) {
-					continue
-				}
-				if deltaCh != nil && isStreamingInterimMessage(m) {
 					continue
 				}
 				seq := s.nextEventSeq(convID, m)
@@ -967,7 +957,7 @@ func flattenTranscriptMessages(conv *apiconv.Conversation) []*agconv.MessageView
 			continue
 		}
 		for _, m := range turn.Message {
-			if m != nil && !isSummaryMessageView(m) && !isInterimAssistantMessageView(m) {
+			if m != nil && !isSummaryMessageView(m) {
 				out = append(out, m)
 			}
 		}
@@ -1367,7 +1357,6 @@ func (s *Server) collectEventEnvelopes(ctx context.Context, convID string, inclu
 		return nil, lastSeenSeq, lastSeenID, fmt.Errorf("conversation not found")
 	}
 	messages := flattenTranscriptMessages(conv.Conversation)
-	turnElicitation := buildTurnElicitationIndex(messages)
 	start := 0
 	if !hasSeq && lastSeenID != "" {
 		for i, m := range messages {
@@ -1384,9 +1373,6 @@ func (s *Server) collectEventEnvelopes(ctx context.Context, convID string, inclu
 	for i := start; i < len(messages); i++ {
 		m := messages[i]
 		if m == nil || strings.TrimSpace(m.Id) == "" {
-			continue
-		}
-		if shouldSuppressAssistantMessage(m, turnElicitation) {
 			continue
 		}
 		seq := s.nextEventSeq(convID, m)
@@ -1446,7 +1432,7 @@ func sanitizeConversationForAPI(conv *apiconv.Conversation) *apiconv.Conversatio
 				if m == nil {
 					continue
 				}
-				if isSummaryMessageView(m) || isInterimAssistantMessageView(m) {
+				if isSummaryMessageView(m) {
 					continue
 				}
 				mc := *m

@@ -24,8 +24,6 @@ type recorderObserver struct {
 	acc             strings.Builder
 	streamPayloadID string
 	streamLinked    bool
-	streamFence     bool
-	streamFenceTail string
 	// Optional: resolve token prices for a model (per 1k tokens).
 	priceProvider TokenPriceProvider
 }
@@ -220,8 +218,8 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 	if len(data) == 0 {
 		return nil
 	}
-	o.acc.Write(data)
 	o.publishStreamDelta(ctx, data)
+	o.acc.Write(data)
 	// Best-effort append to stream payload inline body using conversation client
 	id := strings.TrimSpace(o.streamPayloadID)
 	if id == "" {
@@ -298,9 +296,6 @@ func (o *recorderObserver) publishStreamDelta(ctx context.Context, data []byte) 
 	if !ok {
 		return
 	}
-	if o.shouldSuppressStreamDelta(data) {
-		return
-	}
 	if looksLikeElicitationDelta(data) {
 		return
 	}
@@ -342,33 +337,6 @@ func (o *recorderObserver) publishStreamDelta(ctx context.Context, data []byte) 
 	})
 }
 
-func (o *recorderObserver) shouldSuppressStreamDelta(data []byte) bool {
-	if len(data) == 0 {
-		return false
-	}
-	chunk := string(data)
-	combined := o.streamFenceTail + chunk
-	foundFence := strings.Contains(combined, "```")
-	if foundFence {
-		parts := strings.Split(combined, "```")
-		// Toggle fence state for each marker encountered.
-		for i := 1; i < len(parts); i++ {
-			o.streamFence = !o.streamFence
-		}
-	}
-	// Keep the last 2 chars to catch fence markers across boundaries.
-	if len(combined) >= 2 {
-		o.streamFenceTail = combined[len(combined)-2:]
-	} else {
-		o.streamFenceTail = combined
-	}
-	// Suppress any chunk that contains a fence marker or is inside a fence.
-	if foundFence || o.streamFence {
-		return true
-	}
-	return false
-}
-
 func looksLikeElicitationDelta(data []byte) bool {
 	if len(data) == 0 {
 		return false
@@ -377,13 +345,10 @@ func looksLikeElicitationDelta(data []byte) bool {
 	if raw == "" {
 		return false
 	}
-	if strings.HasPrefix(raw, "```json") && strings.Contains(raw, "\"type\"") {
+	if strings.HasPrefix(raw, "```json") {
 		return true
 	}
-	if strings.Contains(raw, "\"requestedschema\"") {
-		return true
-	}
-	if strings.Contains(raw, "\"requestedSchema\"") {
+	if strings.Contains(raw, "\"requestedSchema\"") && strings.Contains(raw, "\"type\"") && strings.Contains(raw, "elicitation") {
 		return true
 	}
 	if strings.Contains(raw, "\"type\"") && strings.Contains(raw, "elicitation") && strings.HasPrefix(raw, "{") {
