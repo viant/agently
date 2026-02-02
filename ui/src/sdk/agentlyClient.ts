@@ -166,6 +166,70 @@ export class AgentlyClient {
         opts?.onError?.(err);
       }
     });
+    es.addEventListener("tool_call_started", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        opts?.onEvent?.(data);
+      } catch (err) {
+        opts?.onError?.(err);
+      }
+    });
+    es.addEventListener("tool_call_completed", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        opts?.onEvent?.(data);
+      } catch (err) {
+        opts?.onError?.(err);
+      }
+    });
+    es.addEventListener("tool_call_failed", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        opts?.onEvent?.(data);
+      } catch (err) {
+        opts?.onError?.(err);
+      }
+    });
+    es.addEventListener("model_call_started", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        opts?.onEvent?.(data);
+      } catch (err) {
+        opts?.onError?.(err);
+      }
+    });
+    es.addEventListener("model_call_completed", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        opts?.onEvent?.(data);
+      } catch (err) {
+        opts?.onError?.(err);
+      }
+    });
+    es.addEventListener("model_call_failed", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        opts?.onEvent?.(data);
+      } catch (err) {
+        opts?.onError?.(err);
+      }
+    });
+    es.addEventListener("attachment_linked", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        opts?.onEvent?.(data);
+      } catch (err) {
+        opts?.onError?.(err);
+      }
+    });
+    es.addEventListener("user_message", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        opts?.onEvent?.(data);
+      } catch (err) {
+        opts?.onError?.(err);
+      }
+    });
     es.addEventListener("message", (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);

@@ -30,6 +30,24 @@ func ToolPhase(ev *StreamEventEnvelope) string {
 	return strings.TrimSpace(phase)
 }
 
+// ToolPhaseFromEvent maps SSE event names to tool phases when the tool call
+// payload is embedded in the message rather than content metadata.
+func ToolPhaseFromEvent(ev *StreamEventEnvelope) string {
+	if ev == nil {
+		return ""
+	}
+	switch ev.Event.normalize() {
+	case StreamEventToolCallStarted:
+		return "request"
+	case StreamEventToolCallCompleted:
+		return "response"
+	case StreamEventToolCallFailed:
+		return "failed"
+	default:
+		return ""
+	}
+}
+
 // ToolName returns the tool name from content when present.
 func ToolName(ev *StreamEventEnvelope) string {
 	if ev == nil || ev.Content == nil {
