@@ -150,6 +150,22 @@ export class AgentlyClient {
     if (opts?.include?.length) params.set("include", opts.include.join(","));
     const url = `${this.baseURL}/v1/api/conversations/${encodeURIComponent(conversationId)}/events?${params.toString()}`;
     const es = new EventSource(url, {withCredentials: this.useCookies});
+    es.addEventListener("assistant_message", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        opts?.onEvent?.(data);
+      } catch (err) {
+        opts?.onError?.(err);
+      }
+    });
+    es.addEventListener("interim_message", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        opts?.onEvent?.(data);
+      } catch (err) {
+        opts?.onError?.(err);
+      }
+    });
     es.addEventListener("message", (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);

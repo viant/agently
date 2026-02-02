@@ -56,6 +56,7 @@ export async function saveSchedule({ context }) {
     timeoutSeconds: form.timeoutSeconds,
     taskPromptUri: form.taskPromptUri,
     taskPrompt: form.taskPrompt,
+    userCredUrl: form.userCredUrl,
   };
   // Datly write API expects { Schedules: [ {...} ] } at /v1/api/agently/schedule (PATCH)
   const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
@@ -190,6 +191,7 @@ export const scheduleService = {
         lastRunAt: firstDefined(r, ['lastRunAt', 'last_run_at']),
         createdAt: firstDefined(r, ['createdAt', 'created_at']),
         updatedAt: firstDefined(r, ['updatedAt', 'updated_at']),
+        userCredUrl:  firstDefined(r, ['userCredUrl', 'user_cred_url']),
       }));
       log.debug('schedule.onFetchSchedules: mapped size', mapped.length);
       return mapped;
