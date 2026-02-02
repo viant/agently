@@ -4,7 +4,10 @@ import (
 	"os"
 
 	_ "github.com/viant/afsc/aws"
+	_ "github.com/viant/afsc/aws/secretmanager"
+	_ "github.com/viant/afsc/aws/ssm"
 	_ "github.com/viant/afsc/gcp"
+	_ "github.com/viant/afsc/gcp/secretmanager"
 	_ "github.com/viant/afsc/gs"
 	_ "github.com/viant/afsc/s3"
 	"github.com/viant/agently"
