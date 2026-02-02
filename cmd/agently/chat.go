@@ -319,6 +319,7 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 	lineOpen := false
 	handledElicitations := map[string]struct{}{}
 	activeElicitationTurns := map[string]struct{}{}
+	handledElicitation := false
 	lastPrinted := map[string]string{}
 	lastOutputText := ""
 	var lastOutputAt time.Time
@@ -395,6 +396,7 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 				if err := resolveElicitation(ctx, client, ev.ConversationID, ev.Elicitation, elicitationDefault, lastElicitationPayload); err != nil {
 					return err
 				}
+				handledElicitation = true
 				if tid := strings.TrimSpace(ev.TurnID); tid != "" {
 					delete(activeElicitationTurns, tid)
 				}
@@ -501,6 +503,10 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 				return fmt.Errorf("turn failed")
 			}
 			if status == "succeeded" {
+				if handledElicitation && !seenAssistant && !hadOutput {
+					// Wait for the post-elicitation assistant response; don't replay last assistant.
+					continue
+				}
 				if !seenAssistant && !hadOutput {
 					if printed := printLastAssistant(ctx, client, convID); printed {
 						if outputOpen != nil {

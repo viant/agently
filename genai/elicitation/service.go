@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/google/uuid"
@@ -228,6 +229,9 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 		return fmt.Errorf("elicitation message not found")
 	}
 	raw, _ := json.Marshal(payload)
+	if DebugEnabled() {
+		log.Printf("[debug][elicitation] store conv=%s id=%s payload=%s", convID, elicitationID, string(raw))
+	}
 	pid := uuid.New().String()
 	p := apiconv.NewPayload()
 	p.SetId(pid)
@@ -244,19 +248,20 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 	upd.SetElicitationPayloadID(pid)
 	if msg.Role == llm.RoleAssistant.String() {
 		turn := memory.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
-		if err := s.AddUserResponseMessage(ctx, &turn, payload); err != nil {
+		if err := s.AddUserResponseMessage(ctx, &turn, elicitationID, payload); err != nil {
 			return err
 		}
 	}
 	return s.client.PatchMessage(ctx, upd)
 }
 
-func (s *Service) AddUserResponseMessage(ctx context.Context, turn *memory.TurnMeta, payload map[string]interface{}) error {
+func (s *Service) AddUserResponseMessage(ctx context.Context, turn *memory.TurnMeta, elicitationID string, payload map[string]interface{}) error {
 	raw, _ := json.Marshal(payload)
 	_, err := apiconv.AddMessage(ctx, s.client, turn,
 		apiconv.WithId(uuid.New().String()),
 		apiconv.WithRole("user"),
-		apiconv.WithType("text"),
+		apiconv.WithType("elicitation_response"),
+		apiconv.WithElicitationID(elicitationID),
 		apiconv.WithContent(string(raw)),
 		apiconv.WithRawContent(string(raw)),
 	)
@@ -286,6 +291,9 @@ func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action str
 		return fmt.Errorf("conversation and elicitation id required")
 	}
 	act := elact.Normalize(action)
+	if DebugEnabled() {
+		log.Printf("[debug][elicitation] resolve conv=%s id=%s action=%s payloadKeys=%v", convID, elicitationID, act, PayloadKeys(payload))
+	}
 	// No logging; caller/UI can inspect status via DAO and router.
 	if err := s.UpdateStatus(ctx, convID, elicitationID, act); err != nil {
 		return err
@@ -322,5 +330,5 @@ func (s *Service) StoreDeclineReason(ctx context.Context, convID, elicitationID,
 	}
 	turn := memory.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
 	payload := map[string]interface{}{"declineReason": reason}
-	return s.AddUserResponseMessage(ctx, &turn, payload)
+	return s.AddUserResponseMessage(ctx, &turn, elicitationID, payload)
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"path"
 	"path/filepath"
 	"sort"
@@ -16,6 +17,7 @@ import (
 	"github.com/viant/afs/url"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/agent"
+	"github.com/viant/agently/genai/elicitation"
 	"github.com/viant/agently/genai/llm"
 	base "github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
@@ -382,6 +384,9 @@ func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]int
 			if err := json.Unmarshal([]byte(raw), &payload); err != nil || len(payload) == 0 {
 				continue
 			}
+			if elicitation.DebugEnabled() {
+				log.Printf("[debug][elicitation] merge payloadKeys=%v", elicitation.PayloadKeys(payload))
+			}
 			for k, v := range payload {
 				ctx[k] = v
 			}
@@ -396,6 +401,9 @@ func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]int
 				if v, ok := firstValue(payload, "shade", "shadeOrVariant", "variant"); ok {
 					ctx["shade"] = v
 				}
+			}
+			if elicitation.DebugEnabled() {
+				log.Printf("[debug][elicitation] ctxKeys=%v", elicitation.PayloadKeys(ctx))
 			}
 		}
 	}
