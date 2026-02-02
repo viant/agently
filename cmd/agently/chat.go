@@ -316,7 +316,7 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 	if strings.TrimSpace(msgID) != "" {
 		since = strings.TrimSpace(msgID)
 	}
-	events, errs, err := client.StreamTurnEvents(ctx, convID, since, []string{"text", "tool_op", "control", "elicitation"}, false)
+	events, errs, err := client.StreamEventsWithOptions(ctx, convID, since, []string{"text", "tool_op", "control", "elicitation"}, false)
 	if err != nil {
 		return err
 	}
@@ -325,11 +325,6 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 	handledElicitations := map[string]struct{}{}
 	activeElicitationTurns := map[string]struct{}{}
 	handledElicitation := false
-	lastPrinted := map[string]string{}
-	lastOutputText := ""
-	var lastOutputAt time.Time
-	printedTextAt := map[string]time.Time{}
-	lastMsgIDPrinted := ""
 	hadOutput := false
 	activeTurnID := ""
 	ticker := time.NewTicker(1 * time.Second)
@@ -384,74 +379,89 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 			if ev == nil {
 				continue
 			}
-			logTurnEvent(logw, ev)
-			switch ev.Type {
-			case sdk.TurnEventElicitation:
-				if ev.Elicitation == nil || strings.TrimSpace(ev.Elicitation.ElicitationID) == "" {
+			if logw != nil {
+				fmt.Fprintf(logw, "event=%s msg=%s\n", ev.Event, strings.TrimSpace(ev.Message.Id))
+			}
+			turnID := ""
+			if ev.Message.TurnId != nil {
+				turnID = strings.TrimSpace(*ev.Message.TurnId)
+			}
+			if ev.Event.IsElicitation() || sdk.IsElicitationPending(ev.Message) {
+				el := sdk.ElicitationFromEvent(ev)
+				if el == nil || strings.TrimSpace(el.ElicitationID) == "" {
 					continue
 				}
-				logElicitationEvent(logw, ev)
-				if tid := strings.TrimSpace(ev.TurnID); tid != "" {
+				if tid := strings.TrimSpace(turnID); tid != "" {
 					activeElicitationTurns[tid] = struct{}{}
 				}
-				if _, ok := handledElicitations[ev.Elicitation.ElicitationID]; ok {
+				if _, ok := handledElicitations[el.ElicitationID]; ok {
 					continue
 				}
-				handledElicitations[ev.Elicitation.ElicitationID] = struct{}{}
-				if err := resolveElicitation(ctx, client, ev.ConversationID, ev.Elicitation, elicitationDefault, lastElicitationPayload); err != nil {
+				handledElicitations[el.ElicitationID] = struct{}{}
+				if err := resolveElicitation(ctx, client, ev.ConversationID, el, elicitationDefault, lastElicitationPayload); err != nil {
 					return err
 				}
 				handledElicitation = true
-				if tid := strings.TrimSpace(ev.TurnID); tid != "" {
+				if tid := strings.TrimSpace(turnID); tid != "" {
 					delete(activeElicitationTurns, tid)
 				}
 				continue
-			case sdk.TurnEventTool:
-				phase := strings.TrimSpace(ev.ToolPhase)
-				if phase == "" {
-					phase = "event"
-				}
-				fmt.Printf("\n[tool] %s %s\n", phase, strings.TrimSpace(ev.ToolName))
-				if logw != nil {
-					fmt.Fprintf(logw, "tool phase=%s name=%s\n", phase, strings.TrimSpace(ev.ToolName))
-				}
-				continue
-			case sdk.TurnEventDelta:
-				// proceed
-			default:
+			}
+			switch strings.ToLower(strings.TrimSpace(string(ev.Event))) {
+			case string(sdk.StreamEventUserMessage),
+				string(sdk.StreamEventToolCallStarted),
+				string(sdk.StreamEventToolCallCompleted),
+				string(sdk.StreamEventToolCallFailed),
+				string(sdk.StreamEventModelCallStarted),
+				string(sdk.StreamEventModelCallCompleted),
+				string(sdk.StreamEventModelCallFailed),
+				string(sdk.StreamEventAttachmentLinked):
 				continue
 			}
-
-			if shouldSkipByTime(ev.CreatedAt, postStart) {
+			if ev.Event.IsInterimMessage() || ev.Event.IsDelta() {
 				continue
 			}
-			if activeTurnID == "" && strings.TrimSpace(ev.TurnID) != "" {
-				activeTurnID = strings.TrimSpace(ev.TurnID)
-			}
-			if activeTurnID != "" && strings.TrimSpace(ev.TurnID) != "" && strings.TrimSpace(ev.TurnID) != activeTurnID {
+			role := strings.ToLower(strings.TrimSpace(ev.Message.Role))
+			if role != "assistant" {
 				continue
 			}
-			if tid := strings.TrimSpace(ev.TurnID); tid != "" {
+			if ev.Message.ElicitationPayloadId != nil && strings.TrimSpace(*ev.Message.ElicitationPayloadId) != "" {
+				continue
+			}
+			if ev.Message.UserElicitationData != nil && ev.Message.UserElicitationData.InlineBody != nil && strings.TrimSpace(*ev.Message.UserElicitationData.InlineBody) != "" {
+				continue
+			}
+			if ev.Message.Interim != 0 {
+				continue
+			}
+			if shouldSkipByTime(ev.Message.CreatedAt, postStart) {
+				continue
+			}
+			if activeTurnID == "" && strings.TrimSpace(turnID) != "" {
+				activeTurnID = strings.TrimSpace(turnID)
+			}
+			if activeTurnID != "" && strings.TrimSpace(turnID) != "" && strings.TrimSpace(turnID) != activeTurnID {
+				continue
+			}
+			if tid := strings.TrimSpace(turnID); tid != "" {
 				if _, ok := activeElicitationTurns[tid]; ok {
 					continue
 				}
 			}
-			text := ev.TextFull
-			if strings.TrimSpace(text) == "" {
-				text = ev.Text
+			text := ""
+			if ev.Message.Content != nil {
+				text = strings.TrimSpace(*ev.Message.Content)
 			}
-			if strings.TrimSpace(text) == "" {
+			if text == "" && ev.Content != nil {
+				if t, ok := ev.Content["text"].(string); ok {
+					text = strings.TrimSpace(t)
+				}
+			}
+			if text == "" {
 				continue
 			}
 			if looksLikeElicitationStream(text) || looksLikeElicitationJSON(text) {
 				handledElicitation = true
-				continue
-			}
-			normText := normalizeOutputText(text)
-			if lastOutputText != "" && normText == lastOutputText && time.Since(lastOutputAt) < 2*time.Second {
-				continue
-			}
-			if ts, ok := printedTextAt[normText]; ok && time.Since(ts) < 5*time.Second {
 				continue
 			}
 			if !seenAssistant {
@@ -460,24 +470,16 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 				}
 				seenAssistant = true
 			}
-			msgID := strings.TrimSpace(ev.MessageID)
-			if msgID != "" && msgID != lastMsgIDPrinted && (lineOpen || (outputOpen != nil && *outputOpen)) {
+			if lineOpen || (outputOpen != nil && *outputOpen) {
 				fmt.Print("\n")
 				lineOpen = false
 			}
-			if printDeltaText(lastPrinted, msgID, text) {
-				lineOpen = true
-				if outputOpen != nil {
-					*outputOpen = true
-				}
-				hadOutput = true
-				if normText != "" {
-					printedTextAt[normText] = time.Now()
-				}
-				lastMsgIDPrinted = msgID
+			fmt.Print(text)
+			lineOpen = true
+			if outputOpen != nil {
+				*outputOpen = true
 			}
-			lastOutputText = normalizeOutputText(text)
-			lastOutputAt = time.Now()
+			hadOutput = true
 		case err := <-errs:
 			if err != nil {
 				return err
@@ -1666,6 +1668,12 @@ func maybeResolveElicitation(ctx context.Context, client *sdk.Client, ev *sdk.St
 	if ev == nil || ev.Message == nil {
 		return nil
 	}
+	if ev.Message.ElicitationPayloadId != nil && strings.TrimSpace(*ev.Message.ElicitationPayloadId) != "" {
+		return nil
+	}
+	if ev.Message.UserElicitationData != nil && ev.Message.UserElicitationData.InlineBody != nil && strings.TrimSpace(*ev.Message.UserElicitationData.InlineBody) != "" {
+		return nil
+	}
 	if !sdk.IsElicitationPending(ev.Message) {
 		return nil
 	}
@@ -1729,6 +1737,9 @@ func resolveElicitation(ctx context.Context, client *sdk.Client, convID string, 
 	}
 	req := planElicitationFromSDK(el)
 	if req == nil {
+		return nil
+	}
+	if strings.TrimSpace(req.RequestedSchema.Type) == "" && len(req.RequestedSchema.Properties) == 0 {
 		return nil
 	}
 	if seedPayload != nil {

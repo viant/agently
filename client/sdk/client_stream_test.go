@@ -66,7 +66,7 @@ func TestClientStreamEvents(t *testing.T) {
 		}
 		raw, err := json.Marshal(payload)
 		require.NoError(t, err)
-		_, _ = w.Write([]byte("event: message\n"))
+		_, _ = w.Write([]byte("event: interim_message\n"))
 		_, _ = w.Write([]byte("data: "))
 		_, _ = w.Write(raw)
 		_, _ = w.Write([]byte("\n\n"))
@@ -121,7 +121,7 @@ func TestClientStreamEventsDelta(t *testing.T) {
 		}
 		raw, err := json.Marshal(payload)
 		require.NoError(t, err)
-		_, _ = w.Write([]byte("event: delta\n"))
+		_, _ = w.Write([]byte("event: interim_message\n"))
 		_, _ = w.Write([]byte("data: "))
 		_, _ = w.Write(raw)
 		_, _ = w.Write([]byte("\n\n"))

@@ -749,7 +749,7 @@ func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request
 				ContentType:    ev.ContentType,
 				Content:        ev.Content,
 			}
-			if err := writeSSEEvent(w, flusher, "delta", "", env); err != nil {
+			if err := writeSSEEvent(w, flusher, "interim_message", "", env); err != nil {
 				return
 			}
 		case <-heartbeat.C:
@@ -813,10 +813,7 @@ func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request
 					env.ContentType = ctype
 					env.Content = content
 				}
-				eventName := "message"
-				if strings.EqualFold(strings.TrimSpace(env.ContentType), "application/elicitation+json") {
-					eventName = "elicitation"
-				}
+				eventName := eventNameForMessage(env.Message, env.ContentType)
 				if err := writeSSEEvent(w, flusher, eventName, strconv.FormatUint(seq, 10), env); err != nil {
 					return
 				}
@@ -1060,6 +1057,67 @@ func looksLikeElicitationStream(raw string) bool {
 		return true
 	}
 	return false
+}
+
+func eventNameForMessage(m *agconv.MessageView, contentType string) string {
+	if m == nil {
+		return "message"
+	}
+	if strings.EqualFold(strings.TrimSpace(contentType), "application/elicitation+json") {
+		return "elicitation"
+	}
+	if m.ToolCall != nil {
+		return toolCallEventName(m.ToolCall.Status)
+	}
+	if m.ModelCall != nil && strings.TrimSpace(ptrString(m.Content)) == "" && strings.TrimSpace(ptrString(m.RawContent)) == "" {
+		return modelCallEventName(m.ModelCall.Status)
+	}
+	if len(m.Attachment) > 0 {
+		return "attachment_linked"
+	}
+	if strings.EqualFold(strings.TrimSpace(m.Role), "assistant") {
+		if m.Interim != 0 {
+			return "interim_message"
+		}
+		return "assistant_message"
+	}
+	if strings.EqualFold(strings.TrimSpace(m.Role), "user") {
+		return "user_message"
+	}
+	return "message"
+}
+
+func toolCallEventName(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed", "ok", "succeeded", "success":
+		return "tool_call_completed"
+	case "failed", "error":
+		return "tool_call_failed"
+	case "canceled", "cancelled":
+		return "tool_call_failed"
+	default:
+		return "tool_call_started"
+	}
+}
+
+func modelCallEventName(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed", "ok", "succeeded", "success":
+		return "model_call_completed"
+	case "failed", "error":
+		return "model_call_failed"
+	case "canceled", "cancelled":
+		return "model_call_failed"
+	default:
+		return "model_call_started"
+	}
+}
+
+func ptrString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 func containsElicitationText(m map[string]interface{}) bool {
