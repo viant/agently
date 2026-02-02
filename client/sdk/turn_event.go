@@ -8,6 +8,8 @@ import (
 
 const (
 	TurnEventDelta       = "delta"
+	TurnEventAssistant   = "assistant_message"
+	TurnEventInterim     = "interim_message"
 	TurnEventElicitation = "elicitation"
 	TurnEventTool        = "tool"
 )
@@ -75,7 +77,14 @@ func (c *Client) StreamTurnEvents(ctx context.Context, conversationID string, si
 					}
 					continue
 				}
-				if name := ToolName(ev); name != "" {
+				phase := ToolPhase(ev)
+				if phase == "" {
+					phase = ToolPhaseFromEvent(ev)
+				}
+				if name := ToolName(ev); name != "" || ev.Event.normalize() == StreamEventToolCallStarted || ev.Event.normalize() == StreamEventToolCallCompleted || ev.Event.normalize() == StreamEventToolCallFailed {
+					if name == "" && ev.Message != nil && ev.Message.ToolCall != nil {
+						name = strings.TrimSpace(ev.Message.ToolCall.ToolName)
+					}
 					out <- &TurnEvent{
 						Type:           TurnEventTool,
 						ConversationID: ev.ConversationID,
@@ -85,7 +94,7 @@ func (c *Client) StreamTurnEvents(ctx context.Context, conversationID string, si
 						MessageType:    strings.TrimSpace(ev.Message.Type),
 						CreatedAt:      ev.Message.CreatedAt,
 						ToolName:       name,
-						ToolPhase:      ToolPhase(ev),
+						ToolPhase:      phase,
 					}
 				}
 				if strings.ToLower(strings.TrimSpace(ev.Message.Role)) != "assistant" {
@@ -104,8 +113,14 @@ func (c *Client) StreamTurnEvents(ctx context.Context, conversationID string, si
 					continue
 				}
 				lastByMsg[msgID] = text
+				eventType := TurnEventDelta
+				if ev.Event.IsAssistantMessage() {
+					eventType = TurnEventAssistant
+				} else if ev.Event.IsInterimMessage() {
+					eventType = TurnEventInterim
+				}
 				out <- &TurnEvent{
-					Type:           TurnEventDelta,
+					Type:           eventType,
 					ConversationID: ev.ConversationID,
 					TurnID:         strings.TrimSpace(ptrString(ev.Message.TurnId)),
 					MessageID:      strings.TrimSpace(ev.Message.Id),

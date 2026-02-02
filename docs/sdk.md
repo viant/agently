@@ -54,6 +54,15 @@ for {
   select {
   case ev, ok := <-events:
     if !ok { return }
+    // ev.Event names include:
+    // - interim_message
+    // - assistant_message
+    // - user_message
+    // - tool_call_started|tool_call_completed|tool_call_failed
+    // - model_call_started|model_call_completed|model_call_failed
+    // - attachment_linked
+    // - elicitation
+    // - error
     // ev.Message holds MessageView; ev.Content may include deltas or meta
   case err := <-errs:
     if err != nil { /* handle */ }
@@ -182,6 +191,7 @@ const es = client.streamEvents(conv.id, {
   include: ["text", "tool_op", "control"],
   onEvent: (ev) => {
     // ev.message is MessageView, ev.content may include deltas/meta
+    // ev.event is the SSE name (see list above in Go section)
   },
   onError: (err) => console.error(err),
 });
@@ -218,6 +228,21 @@ SSE (`GET /v1/api/conversations/{id}/events`) and long-poll return the same enve
   "content": { "delta": "partial text" }
 }
 ```
+
+Event names (SSE `event:`):
+
+- interim_message
+- assistant_message
+- user_message
+- tool_call_started
+- tool_call_completed
+- tool_call_failed
+- model_call_started
+- model_call_completed
+- model_call_failed
+- attachment_linked
+- elicitation
+- error
 
 Long-poll response shape:
 
