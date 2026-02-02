@@ -256,6 +256,8 @@ CREATE TABLE IF NOT EXISTS schedule_run (
     updated_at             TIMESTAMP,
     status                 TEXT      NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','prechecking','skipped','running','succeeded','failed')),
     error_message          TEXT,
+    lease_owner            TEXT,
+    lease_until            TIMESTAMP,
 
     -- Precondition outcome
     precondition_ran_at    TIMESTAMP,

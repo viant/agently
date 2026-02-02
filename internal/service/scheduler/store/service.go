@@ -10,6 +10,7 @@ import (
 	schstore "github.com/viant/agently/client/scheduler/store"
 	"github.com/viant/agently/internal/codec"
 	runpkg "github.com/viant/agently/pkg/agently/scheduler/run"
+	runlease "github.com/viant/agently/pkg/agently/scheduler/run/lease"
 	schedulepkg "github.com/viant/agently/pkg/agently/scheduler/schedule"
 	schlease "github.com/viant/agently/pkg/agently/scheduler/schedule/lease"
 
@@ -63,6 +64,12 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 		return err
 	}
 	if _, err := schlease.DefineReleaseLeaseComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := runlease.DefineClaimLeaseComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := runlease.DefineReleaseLeaseComponent(ctx, dao); err != nil {
 		return err
 	}
 	return nil
@@ -172,6 +179,50 @@ func (s *Service) ReleaseScheduleLease(ctx context.Context, scheduleID, leaseOwn
 	out := &schlease.ReleaseLeaseOutput{}
 	_, err := s.dao.Operate(ctx,
 		datly.WithPath(contract.NewPath(http.MethodPost, schlease.ReleaseLeasePathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return false, err
+	}
+	return out.Released, nil
+}
+
+func (s *Service) TryClaimRun(ctx context.Context, runID, leaseOwner string, leaseUntil time.Time) (bool, error) {
+	if s == nil || s.dao == nil {
+		return false, nil
+	}
+	in := &runlease.ClaimLeaseInput{
+		RunID:      strings.TrimSpace(runID),
+		LeaseOwner: strings.TrimSpace(leaseOwner),
+		LeaseUntil: leaseUntil,
+		Now:        time.Now().UTC(),
+		Has:        &runlease.ClaimLeaseInputHas{RunID: true, LeaseOwner: true, LeaseUntil: true, Now: true},
+	}
+	out := &runlease.ClaimLeaseOutput{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath(http.MethodPost, runlease.ClaimLeasePathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		return false, err
+	}
+	return out.Claimed, nil
+}
+
+func (s *Service) ReleaseRunLease(ctx context.Context, runID, leaseOwner string) (bool, error) {
+	if s == nil || s.dao == nil {
+		return false, nil
+	}
+	in := &runlease.ReleaseLeaseInput{
+		RunID:      strings.TrimSpace(runID),
+		LeaseOwner: strings.TrimSpace(leaseOwner),
+		Has:        &runlease.ReleaseLeaseInputHas{RunID: true, LeaseOwner: true},
+	}
+	out := &runlease.ReleaseLeaseOutput{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath(http.MethodPost, runlease.ReleaseLeasePathURI)),
 		datly.WithInput(in),
 		datly.WithOutput(out),
 	)

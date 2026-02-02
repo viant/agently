@@ -31,6 +31,10 @@ type fakeScheduleStore struct {
 	claimedByScheduleID     map[string]struct{}
 	releasedByScheduleID    map[string]struct{}
 
+	claimRunResultByRunID map[string]bool
+	claimedByRunID        map[string]struct{}
+	releasedByRunID       map[string]struct{}
+
 	patchedRuns      []*runwrite.Run
 	patchedSchedules []*schedwrite.Schedule
 }
@@ -138,6 +142,29 @@ func (f *fakeScheduleStore) ReleaseScheduleLease(_ context.Context, scheduleID, 
 	return true, nil
 }
 
+func (f *fakeScheduleStore) TryClaimRun(_ context.Context, runID, _ string, _ time.Time) (bool, error) {
+	if f.claimedByRunID == nil {
+		f.claimedByRunID = map[string]struct{}{}
+	}
+	f.claimedByRunID[runID] = struct{}{}
+	if f.claimRunResultByRunID == nil {
+		return true, nil
+	}
+	v, ok := f.claimRunResultByRunID[runID]
+	if !ok {
+		return true, nil
+	}
+	return v, nil
+}
+
+func (f *fakeScheduleStore) ReleaseRunLease(_ context.Context, runID, _ string) (bool, error) {
+	if f.releasedByRunID == nil {
+		f.releasedByRunID = map[string]struct{}{}
+	}
+	f.releasedByRunID[runID] = struct{}{}
+	return true, nil
+}
+
 type fakeChat struct {
 	createdConversationIDs []string
 	posted                 []string
@@ -198,6 +225,7 @@ func (f *fakeChat) Query(context.Context, *chatcli.QueryInput) (*chatcli.QueryOu
 func TestService_RunDue_LeaseAndPending_DataDriven(t *testing.T) {
 	now := time.Now().UTC()
 	dueAt := now.Add(-1 * time.Minute).UTC()
+	activeStartedAt := now.Add(-10 * time.Second).UTC()
 
 	type testCase struct {
 		name                  string
@@ -219,6 +247,8 @@ func TestService_RunDue_LeaseAndPending_DataDriven(t *testing.T) {
 		Id:         "run-running-1",
 		ScheduleId: "sch-1",
 		Status:     "running",
+		CreatedAt:  activeStartedAt,
+		StartedAt:  &activeStartedAt,
 	}
 
 	testCases := []testCase{
@@ -376,6 +406,61 @@ func TestService_RunDue_CompletedRunForSlot_AdvancesScheduleAndSkips(t *testing.
 	assert.True(t, got.Has != nil && got.Has.NextRunAt)
 }
 
+func TestService_RunDue_StaleRunningRunForSlot_FailsAndAdvancesSchedule(t *testing.T) {
+	now := time.Now().UTC()
+	dueAt := now.Add(-1 * time.Minute).UTC()
+	startedAt := now.Add(-30 * time.Second).UTC()
+
+	staleRunning := &runpkg.RunView{
+		Id:           "run-running-1",
+		ScheduleId:   "sch-1",
+		Status:       "running",
+		ScheduledFor: &dueAt,
+		StartedAt:    &startedAt,
+		CreatedAt:    startedAt,
+	}
+
+	store := &fakeScheduleStore{
+		schedule: map[string]*schedulepkg.ScheduleView{},
+		runs: map[string][]*runpkg.RunView{
+			"sch-1": {staleRunning},
+		},
+		claimResultByScheduleID: map[string]bool{"sch-1": true},
+	}
+	schedule := &schedulepkg.ScheduleView{
+		Id:             "sch-1",
+		Name:           "s",
+		AgentRef:       "agent",
+		Enabled:        true,
+		ScheduleType:   "cron",
+		CronExpr:       strPtr("* * * * *"),
+		Timezone:       "UTC",
+		NextRunAt:      &dueAt,
+		TimeoutSeconds: 1,
+		TaskPrompt:     strPtr("do"),
+		CreatedAt:      dueAt.Add(-time.Hour),
+	}
+	store.schedules = []*schedulepkg.ScheduleView{schedule}
+	store.schedule["sch-1"] = schedule
+
+	chat := &fakeChat{}
+	svc := &Service{
+		sch:        store,
+		chat:       chat,
+		leaseOwner: "owner-1",
+		leaseTTL:   60 * time.Second,
+	}
+
+	started, err := svc.RunDue(context.Background())
+	assert.NoError(t, err)
+	assert.EqualValues(t, 0, started)
+	assert.EqualValues(t, 1, len(store.patchedRuns))
+	assert.EqualValues(t, "failed", store.patchedRuns[0].Status)
+	assert.True(t, store.patchedRuns[0].CompletedAt != nil)
+	assert.EqualValues(t, 1, len(store.patchedSchedules))
+	assert.True(t, store.patchedSchedules[0].NextRunAt != nil)
+}
+
 func TestService_RunDue_CronWithoutNextOrLastRun_Triggers(t *testing.T) {
 	createdAt := time.Now().UTC().Add(-10 * time.Minute)
 
@@ -455,11 +540,14 @@ func TestService_RunDue_AdhocClearsNextRunAt(t *testing.T) {
 func TestService_RunDue_AdhocRunning_ClearsNextRunAtAndSkips(t *testing.T) {
 	now := time.Now().UTC()
 	dueAt := now.Add(-1 * time.Minute).UTC()
+	activeStartedAt := now.Add(-10 * time.Second).UTC()
 
 	activeRunning := &runpkg.RunView{
 		Id:         "run-running-1",
 		ScheduleId: "sch-1",
 		Status:     "running",
+		CreatedAt:  activeStartedAt,
+		StartedAt:  &activeStartedAt,
 	}
 
 	store := &fakeScheduleStore{
