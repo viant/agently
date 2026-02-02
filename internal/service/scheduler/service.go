@@ -249,7 +249,10 @@ func (s *Service) applyUserCred(ctx context.Context, credRef string) (context.Co
 	} else {
 		cmd.Scopes = []string{"openid"}
 	}
-	tok, err := authorizer.New().Authorize(ctx, cmd)
+	// Detach from request cancellation to allow OOB auth to complete; still bound by a short timeout.
+	authCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	tok, err := authorizer.New().Authorize(authCtx, cmd)
 	if err != nil {
 		return ctx, fmt.Errorf("schedule user_cred authorize failed: %w", err)
 	}
