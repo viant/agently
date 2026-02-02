@@ -3,9 +3,9 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"strings"
-
 	"time"
 
 	"github.com/google/uuid"
@@ -250,9 +250,12 @@ func (s *Service) applyUserCred(ctx context.Context, credRef string) (context.Co
 		cmd.Scopes = []string{"openid"}
 	}
 	// Detach from request cancellation to allow OOB auth to complete; still bound by a short timeout.
-	authCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	authCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 1*time.Minute)
 	defer cancel()
+	start := time.Now()
+	log.Printf("scheduler: user_cred_url auth start configURL=%q secretsURL=%q scopes=%v", cfgURL, credRef, cmd.Scopes)
 	tok, err := authorizer.New().Authorize(authCtx, cmd)
+	log.Printf("scheduler: user_cred_url auth done configURL=%q secretsURL=%q duration=%s err=%v", cfgURL, credRef, time.Since(start), err)
 	if err != nil {
 		return ctx, fmt.Errorf("schedule user_cred authorize failed: %w", err)
 	}
