@@ -115,5 +115,26 @@ WHERE id = ?
 	}
 	affected, _ := res.RowsAffected()
 	out.Claimed = affected > 0
+	if !out.Claimed {
+		// MySQL reports RowsAffected=0 when an UPDATE matches but doesn't change any values.
+		// Treat "already leased by me and unexpired" as claimed.
+		checkStmt := `
+SELECT 1
+FROM schedule
+WHERE id = ?
+  AND enabled = 1
+  AND lease_owner = ?
+  AND lease_until IS NOT NULL
+  AND lease_until >= ?
+`
+		var ok int
+		if qErr := db.QueryRowContext(ctx, checkStmt,
+			strings.TrimSpace(in.ScheduleID),
+			strings.TrimSpace(in.LeaseOwner),
+			in.Now.UTC(),
+		).Scan(&ok); qErr == nil && ok == 1 {
+			out.Claimed = true
+		}
+	}
 	return out, nil
 }

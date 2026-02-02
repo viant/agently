@@ -34,4 +34,8 @@ type Client interface {
 	// Lease-based locking (prevents duplicate due runs across instances)
 	TryClaimSchedule(ctx context.Context, scheduleID, leaseOwner string, leaseUntil time.Time) (bool, error)
 	ReleaseScheduleLease(ctx context.Context, scheduleID, leaseOwner string) (bool, error)
+
+	// Run-level lease (prevents multiple instances from finalizing the same run)
+	TryClaimRun(ctx context.Context, runID, leaseOwner string, leaseUntil time.Time) (bool, error)
+	ReleaseRunLease(ctx context.Context, runID, leaseOwner string) (bool, error)
 }

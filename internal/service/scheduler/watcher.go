@@ -30,9 +30,30 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 	//   - ctx carries request-scoped values (trace IDs, auth, etc.)
 	//   - ctx has NO cancellation and NO deadline (Done() == nil)
 	// We intentionally use ctx only for Value() propagation + per-call timeouts below.
-	if s == nil || s.conv == nil || s.sch == nil {
+	if s == nil || s.sch == nil {
 		return
 	}
+	s.ensureLeaseConfig()
+	if s.conv == nil {
+		return
+	}
+
+	heartbeatEvery := s.leaseTTL / 3
+	if heartbeatEvery < pollEvery {
+		heartbeatEvery = pollEvery
+	}
+
+	// Claim initial run lease (best-effort). If another instance owns it, stop.
+	if strings.TrimSpace(s.leaseOwner) != "" {
+		callCtx, callCancel := context.WithTimeout(ctx, callTimeout)
+		claimed, err := s.sch.TryClaimRun(callCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner), time.Now().UTC().Add(s.leaseTTL))
+		callCancel()
+		if err == nil && !claimed {
+			return
+		}
+	}
+
+	nextHeartbeatAt := time.Now().UTC().Add(heartbeatEvery)
 
 	// Hard limit for *starting new attempts* in this watcher.
 	// We intentionally base this on Background() so it is independent of the caller's ctx
@@ -69,6 +90,26 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 			return
 
 		case <-ticker.C:
+			// Heartbeat: renew the run lease so other scheduler instances can detect liveness.
+			// If we fail to renew because another instance took over, stop this watcher.
+			if strings.TrimSpace(s.leaseOwner) != "" {
+				now := time.Now().UTC()
+				if !now.Before(nextHeartbeatAt) {
+					callCtx, callCancel := context.WithTimeout(ctx, callTimeout)
+					claimed, err := s.sch.TryClaimRun(callCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner), now.Add(s.leaseTTL))
+					callCancel()
+					if err == nil && !claimed {
+						return
+					}
+					if err == nil && claimed {
+						nextHeartbeatAt = now.Add(heartbeatEvery)
+					} else if err != nil {
+						// Retry sooner on transient errors while still avoiding per-tick churn.
+						nextHeartbeatAt = now.Add(pollEvery)
+					}
+				}
+			}
+
 			// Cheap precheck: if there is any active or queued turn, the conversation is still in progress.
 			// Skip full transcript load in this case.
 			if dao != nil {
@@ -125,6 +166,11 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 			}
 
 			callCancel()
+			if strings.TrimSpace(s.leaseOwner) != "" {
+				relCtx, relCancel := context.WithTimeout(ctx, callTimeout)
+				_, _ = s.sch.ReleaseRunLease(relCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner))
+				relCancel()
+			}
 			return
 		}
 	}
@@ -183,6 +229,12 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 
 	if pErr != nil {
 		fmt.Printf("error: watchRunCompletion error (runID: %v, scheduleID: %v, convID: %v): %v\n", runID, scheduleID, conversationID, pErr)
+	}
+
+	if strings.TrimSpace(s.leaseOwner) != "" {
+		relCtx, relCancel := context.WithTimeout(ctx, callTimeout)
+		_, _ = s.sch.ReleaseRunLease(relCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner))
+		relCancel()
 	}
 }
 

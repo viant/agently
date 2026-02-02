@@ -957,4 +957,38 @@ END $$
 CALL schema_upgrade_10() $$
 DROP PROCEDURE schema_upgrade_10 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_10 $$
+CREATE PROCEDURE schema_upgrade_10()
+BEGIN
+    IF get_schema_version() = 10 THEN
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'schedule_run'
+              AND COLUMN_NAME = 'lease_owner'
+        ) THEN
+            ALTER TABLE schedule_run
+                ADD COLUMN lease_owner VARCHAR(255) NULL AFTER error_message;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'schedule_run'
+              AND COLUMN_NAME = 'lease_until'
+        ) THEN
+            ALTER TABLE schedule_run
+                ADD COLUMN lease_until TIMESTAMP NULL DEFAULT NULL AFTER lease_owner;
+        END IF;
+
+        CALL set_schema_version(11);
+    END IF;
+END $$
+
+CALL schema_upgrade_10() $$
+DROP PROCEDURE schema_upgrade_10 $$
+
 DELIMITER ;
