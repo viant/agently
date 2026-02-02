@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -18,8 +19,10 @@ import (
 	chatimpl "github.com/viant/agently/internal/service/chat"
 	convintern "github.com/viant/agently/internal/service/conversation"
 	schedstore "github.com/viant/agently/internal/service/scheduler/store"
+	"github.com/viant/scy"
 	scyauth "github.com/viant/scy/auth"
 	"github.com/viant/scy/auth/authorizer"
+	"github.com/viant/scy/cred"
 )
 
 // CRUD operations for schedules and runs are implemented in
@@ -254,6 +257,50 @@ func (s *Service) applyUserCred(ctx context.Context, credRef string) (context.Co
 	defer cancel()
 	start := time.Now()
 	log.Printf("scheduler: user_cred_url auth start configURL=%q secretsURL=%q scopes=%v", cfgURL, credRef, cmd.Scopes)
+
+	scySvc := scy.New()
+	{
+		cfgStart := time.Now()
+		log.Printf("scheduler: user_cred_url config load start url=%q", cfgURL)
+		resource := scy.EncodedResource(cfgURL).Decode(authCtx, reflect.TypeOf(cred.Oauth2Config{}))
+		secret, err := scySvc.Load(authCtx, resource)
+		if err != nil {
+			log.Printf("scheduler: user_cred_url config load error url=%q duration=%s err=%v", cfgURL, time.Since(cfgStart), err)
+			return ctx, fmt.Errorf("schedule user_cred oauth config load failed: %w", err)
+		}
+		cfg, ok := secret.Target.(*cred.Oauth2Config)
+		if !ok {
+			log.Printf("scheduler: user_cred_url config load cast failed url=%q target=%T duration=%s", cfgURL, secret.Target, time.Since(cfgStart))
+			return ctx, fmt.Errorf("schedule user_cred oauth config cast failed: %T", secret.Target)
+		}
+		log.Printf("scheduler: user_cred_url config load ok url=%q duration=%s client_id=%q auth_url=%q token_url=%q redirect_url=%q",
+			cfgURL, time.Since(cfgStart), cfg.Config.ClientID, cfg.Config.AuthURL, cfg.Config.TokenURL, cfg.Config.RedirectURL)
+		cmd.Config = &cfg.Config
+		cmd.ConfigURL = ""
+	}
+
+	{
+		secStart := time.Now()
+		log.Printf("scheduler: user_cred_url secret load start url=%q", credRef)
+		resource := scy.EncodedResource(credRef).Decode(authCtx, reflect.TypeOf(cred.Basic{}))
+		secret, err := scySvc.Load(authCtx, resource)
+		if err != nil {
+			log.Printf("scheduler: user_cred_url secret load error url=%q duration=%s err=%v", credRef, time.Since(secStart), err)
+			return ctx, fmt.Errorf("schedule user_cred secret load failed: %w", err)
+		}
+		basic, ok := secret.Target.(*cred.Basic)
+		if !ok {
+			log.Printf("scheduler: user_cred_url secret load cast failed url=%q target=%T duration=%s", credRef, secret.Target, time.Since(secStart))
+			return ctx, fmt.Errorf("schedule user_cred secret cast failed: %T", secret.Target)
+		}
+		cmd.Secrets = map[string]string{
+			"username": basic.Username,
+			"password": basic.Password,
+		}
+		cmd.SecretsURL = ""
+		log.Printf("scheduler: user_cred_url secret load ok url=%q duration=%s", credRef, time.Since(secStart))
+	}
+
 	tok, err := authorizer.New().Authorize(authCtx, cmd)
 	log.Printf("scheduler: user_cred_url auth done configURL=%q secretsURL=%q duration=%s err=%v", cfgURL, credRef, time.Since(start), err)
 	if err != nil {
