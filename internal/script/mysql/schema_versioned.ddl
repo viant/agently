@@ -325,6 +325,7 @@ CREATE TABLE IF NOT EXISTS schedule (
     -- Target agent / model
     agent_ref             VARCHAR(255) NOT NULL,
     model_override        VARCHAR(255),
+    user_cred_url         TEXT,
 
     -- Enable/disable + time window
     enabled               TINYINT      NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
@@ -917,5 +918,28 @@ END $$
 
 CALL schema_upgrade_8() $$
 DROP PROCEDURE schema_upgrade_8 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_9 $$
+CREATE PROCEDURE schema_upgrade_9()
+BEGIN
+    IF get_schema_version() = 9 THEN
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'schedule'
+              AND COLUMN_NAME = 'user_cred_url'
+        ) THEN
+            ALTER TABLE schedule
+                ADD COLUMN user_cred_url TEXT AFTER model_override;
+        END IF;
+
+        CALL set_schema_version(10);
+    END IF;
+END $$
+
+CALL schema_upgrade_9() $$
+DROP PROCEDURE schema_upgrade_9 $$
 
 DELIMITER ;

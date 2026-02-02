@@ -109,17 +109,14 @@ func (i *QueryInput) Actor() string {
 }
 
 func (i *QueryInput) ShallAutoSummarize() bool {
-	if i.Agent.HasAutoSummarizeDefinition() {
-		if !i.Agent.ShallAutoSummarize() {
-			return false
-		}
+	if i.Agent == nil || !i.Agent.HasAutoSummarizeDefinition() {
+		return false
+	}
+	if !i.Agent.ShallAutoSummarize() {
+		return false
 	}
 	if i.AutoSummarize == nil {
-		return i.Agent.ShallAutoSummarize()
+		return true
 	}
-	autoSummarize := false
-	if i.AutoSummarize != nil {
-		autoSummarize = *i.AutoSummarize
-	}
-	return autoSummarize
+	return *i.AutoSummarize
 }

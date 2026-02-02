@@ -118,15 +118,6 @@ func (p *streamProcessor) removeAlreadyEmittedToolCalls(lr *llm.GenerateResponse
 }
 
 func (p *streamProcessor) handleEvent(eventName string, data string) bool {
-	// Persist full raw SSE line for complete stream fidelity (JSON chunk as-is).
-	if p.observer != nil && strings.TrimSpace(data) != "" && data != "[DONE]" {
-		// Append newline to maintain readable separation between chunks
-		if err := p.observer.OnStreamDelta(p.ctx, []byte(data+"\n")); err != nil {
-			p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
-			return false
-		}
-	}
-
 	// Handle Responses API streaming events
 	if strings.HasPrefix(eventName, "response.") {
 		switch eventName {
@@ -236,6 +227,12 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 				Delta string `json:"delta"`
 			}
 			if err := json.Unmarshal([]byte(data), &d); err == nil && d.Delta != "" {
+				if p.observer != nil {
+					if err := p.observer.OnStreamDelta(p.ctx, []byte(d.Delta)); err != nil {
+						p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
+						return false
+					}
+				}
 				// aggregate content on choice 0
 				ch := StreamChoice{Index: 0, Delta: DeltaMessage{Content: &d.Delta}}
 				p.agg.updateDelta(ch)

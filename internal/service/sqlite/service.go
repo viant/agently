@@ -32,7 +32,7 @@ func (s *Service) WithPath(path string) *Service {
 const (
 	sqliteSchemaVersionTable  = "schema_version"
 	sqliteBaseSchemaVersion   = 1
-	sqliteTargetSchemaVersion = 7
+	sqliteTargetSchemaVersion = 8
 )
 
 // Ensure sets up a SQLite database under $ROOT/db/agently.db when missing and
@@ -144,6 +144,7 @@ func applySQLiteMigrations(ctx context.Context, db *sql.DB) error {
 		ensureSQLiteRawContentColumn,
 		ensureSQLiteTurnQueueSchema,
 		ensureSQLiteSchedulerLeaseSchema,
+		ensureSQLiteScheduleUserCredURL,
 		ensureSQLiteSessionTable,
 		ensureSQLiteEmbediusTables,
 	}
@@ -158,6 +159,31 @@ func applySQLiteMigrations(ctx context.Context, db *sql.DB) error {
 		if err := setSQLiteSchemaVersion(ctx, db, sqliteTargetSchemaVersion); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func ensureSQLiteScheduleUserCredURL(ctx context.Context, db *sql.DB) error {
+	const (
+		table  = "schedule"
+		column = "user_cred_url"
+	)
+	tableExists, err := sqliteTableExists(ctx, db, table)
+	if err != nil {
+		return fmt.Errorf("check %s table: %w", table, err)
+	}
+	if !tableExists {
+		return nil
+	}
+	exists, err := sqliteColumnExists(ctx, db, table, column)
+	if err != nil {
+		return fmt.Errorf("check %s.%s column: %w", table, column, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, "ALTER TABLE schedule ADD COLUMN user_cred_url TEXT"); err != nil {
+		return fmt.Errorf("add %s.%s column: %w", table, column, err)
 	}
 	return nil
 }

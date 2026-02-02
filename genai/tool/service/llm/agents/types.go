@@ -54,3 +54,10 @@ type RunOutput struct {
 	StreamSupported bool     `json:"streamSupported,omitempty"`
 	Warnings        []string `json:"warnings,omitempty"`
 }
+
+// MeOutput provides minimal execution context details.
+type MeOutput struct {
+	ConversationID string `json:"conversationId,omitempty"`
+	AgentName      string `json:"agentName,omitempty"`
+	Model          string `json:"model,omitempty"`
+}

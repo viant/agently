@@ -289,15 +289,6 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			if !ok {
 				continue
 			}
-			if observer != nil && len(chunk.Value.Bytes) > 0 {
-				// Append raw JSON chunk bytes for full fidelity
-				b := append([]byte{}, chunk.Value.Bytes...)
-				b = append(b, '\n')
-				if obErr := observer.OnStreamDelta(ctx, b); obErr != nil {
-					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
-					return
-				}
-			}
 			var raw map[string]interface{}
 			if err := json.Unmarshal(chunk.Value.Bytes, &raw); err != nil {
 				events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream chunk: %w", err)}

@@ -1,12 +1,16 @@
 package auth
 
 import (
-	"encoding/json"
-	"net/http"
-	"strings"
-
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"log"
+	"net/http"
+	"net/url"
+	"path"
+	"strings"
+	"time"
+
 	"github.com/golang-jwt/jwt/v5"
 	iauth "github.com/viant/agently/internal/auth"
 	usersvc "github.com/viant/agently/internal/service/user"
@@ -17,8 +21,7 @@ import (
 	vcfg "github.com/viant/scy/auth/jwt/verifier"
 	"github.com/viant/scy/kms"
 	"github.com/viant/scy/kms/blowfish"
-	"net/url"
-	"path"
+	"golang.org/x/oauth2"
 )
 
 // Service bundles deps for auth endpoints.
@@ -62,6 +65,9 @@ func NewWithDatlyAndConfigExt(dao *datly.Service, sess *iauth.Manager, cfg *iaut
 	mux.HandleFunc("/v1/api/auth/providers", s.handleProviders)
 	mux.HandleFunc("/v1/api/auth/oauth/initiate", s.handleOAuthInitiate)
 	mux.HandleFunc("/v1/api/auth/oauth/callback", s.handleOAuthCallback)
+	mux.HandleFunc("/v1/api/auth/oob", s.handleOAuthOOB)
+	mux.HandleFunc("/v1/api/auth/oauth/config", s.handleOAuthConfig)
+	mux.HandleFunc("/v1/api/auth/session", s.handleOAuthSession)
 	return mux, nil
 }
 
@@ -298,17 +304,127 @@ func (s *Service) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		encode(w, 0, nil, err)
 		return
 	}
+	if _, err := s.finishOAuthLogin(w, r, token); err != nil {
+		encode(w, 0, nil, err)
+		return
+	}
+	// Post a tiny HTML that closes the popup
+	w.Header().Set("Content-Type", "text/html")
+	_, _ = w.Write([]byte(`<html><body><script>if (window.opener) { try { window.opener.postMessage({type:'oauth',status:'ok'}, '*'); } catch(e){} } window.close();</script>OK</body></html>`))
+}
+
+// OAuth (BFF) – OOB login using user secrets URL (client-provided)
+func (s *Service) handleOAuthOOB(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.cfg == nil || s.cfg.OAuth == nil || s.cfg.OAuth.Client == nil || strings.TrimSpace(s.cfg.OAuth.Client.ConfigURL) == "" {
+		encode(w, http.StatusBadRequest, nil, errf("oauth client not configured"))
+		return
+	}
+	var payload struct {
+		SecretsURL string   `json:"secretsURL"`
+		Scopes     []string `json:"scopes,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		encode(w, http.StatusBadRequest, nil, err)
+		return
+	}
+	secretRef := strings.TrimSpace(payload.SecretsURL)
+	if secretRef == "" {
+		encode(w, http.StatusBadRequest, nil, errf("secretsURL is required"))
+		return
+	}
+	cmd := &authorizer.Command{
+		AuthFlow:   "OOB",
+		UsePKCE:    true,
+		SecretsURL: secretRef,
+		OAuthConfig: authorizer.OAuthConfig{
+			ConfigURL: strings.TrimSpace(s.cfg.OAuth.Client.ConfigURL),
+		},
+	}
+	if len(payload.Scopes) > 0 {
+		cmd.Scopes = payload.Scopes
+	} else if s.cfg.OAuth.Client.Scopes != nil && len(s.cfg.OAuth.Client.Scopes) > 0 {
+		cmd.Scopes = s.cfg.OAuth.Client.Scopes
+	} else {
+		cmd.Scopes = []string{"openid"}
+	}
+	token, err := authorizer.New().Authorize(r.Context(), cmd)
+	if err != nil {
+		encode(w, 0, nil, err)
+		return
+	}
+	if token == nil {
+		encode(w, 0, nil, errf("oauth authorize returned empty token"))
+		return
+	}
+	username, err := s.finishOAuthLogin(w, r, token)
+	if err != nil {
+		encode(w, 0, nil, err)
+		return
+	}
+	encode(w, http.StatusOK, map[string]any{"name": username, "provider": "oauth"}, nil)
+}
+
+// OAuth config exposure for CLI/browser auth flows.
+func (s *Service) handleOAuthConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.cfg == nil || s.cfg.OAuth == nil || s.cfg.OAuth.Client == nil || strings.TrimSpace(s.cfg.OAuth.Client.ConfigURL) == "" {
+		encode(w, http.StatusBadRequest, nil, errf("oauth client not configured"))
+		return
+	}
+	scopes := s.cfg.OAuth.Client.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{"openid"}
+	}
+	encode(w, http.StatusOK, map[string]any{
+		"configURL": strings.TrimSpace(s.cfg.OAuth.Client.ConfigURL),
+		"scopes":    scopes,
+	}, nil)
+}
+
+// OAuth session exchange: accept Bearer id_token and issue a session cookie.
+func (s *Service) handleOAuthSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	authz := strings.TrimSpace(r.Header.Get("Authorization"))
+	if authz == "" || !strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+		encode(w, http.StatusBadRequest, nil, errf("authorization bearer token required"))
+		return
+	}
+	idToken := strings.TrimSpace(strings.TrimPrefix(authz, "Bearer "))
+	if idToken == "" {
+		encode(w, http.StatusBadRequest, nil, errf("bearer token required"))
+		return
+	}
+	username, err := s.finishIDTokenLogin(w, r, idToken)
+	if err != nil {
+		encode(w, 0, nil, err)
+		return
+	}
+	encode(w, http.StatusOK, map[string]any{"name": username, "provider": "oauth"}, nil)
+}
+
+func (s *Service) finishOAuthLogin(w http.ResponseWriter, r *http.Request, token *oauth2.Token) (string, error) {
 	// Extract ID token and verify claims (signature + optional iss/aud checks)
 	var sub, email, name, idTokenStr string
-	if raw := token.Extra("id_token"); raw != nil {
-		if idToken, ok := raw.(string); ok && idToken != "" {
-			idTokenStr = idToken
-			sVal, eVal, nVal, vErr := s.verifyIDToken(r.Context(), idToken)
-			if vErr != nil {
-				encode(w, 0, nil, vErr)
-				return
+	if token != nil {
+		if raw := token.Extra("id_token"); raw != nil {
+			if idToken, ok := raw.(string); ok && idToken != "" {
+				idTokenStr = idToken
+				sVal, eVal, nVal, vErr := s.verifyIDToken(r.Context(), idToken)
+				if vErr != nil {
+					return "", vErr
+				}
+				sub, email, name = sVal, eVal, nVal
 			}
-			sub, email, name = sVal, eVal, nVal
 		}
 	}
 	username := strings.TrimSpace(name)
@@ -327,8 +443,7 @@ func (s *Service) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// Upsert user with provider 'oauth'
 	id, err := s.users.UpsertWithProvider(r.Context(), username, name, email, "oauth", sub)
 	if err != nil {
-		encode(w, 0, nil, err)
-		return
+		return "", err
 	}
 	// Compute hash_ip and set session
 	if s.cfg != nil && strings.TrimSpace(s.cfg.IpHashKey) != "" {
@@ -363,25 +478,91 @@ func (s *Service) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// store session with tokens (server-side only)
-	accessToken := token.AccessToken
-	refreshToken := token.RefreshToken
+	var accessToken, refreshToken string
+	var expiry time.Time
+	if token != nil {
+		accessToken = token.AccessToken
+		refreshToken = token.RefreshToken
+		expiry = token.Expiry
+	}
 	prov := strings.TrimSpace(s.cfg.OAuth.Name)
 	if prov == "" {
 		prov = "oauth"
 	}
-	s.sess.CreateWithTokensProvider(w, username, prov, accessToken, refreshToken, idTokenStr, token.Expiry)
+	s.sess.CreateWithTokensProvider(w, username, prov, accessToken, refreshToken, idTokenStr, expiry)
 	// Persist encrypted token server-side to allow refresh across restarts
 	if s.dao != nil && s.cfg != nil && s.cfg.OAuth != nil && s.cfg.OAuth.Client != nil {
 		store := iauth.NewTokenStoreDAO(s.dao, s.cfg.OAuth.Client.ConfigURL)
-		t := &iauth.OAuthToken{AccessToken: accessToken, RefreshToken: refreshToken, IDToken: idTokenStr, ExpiresAt: token.Expiry}
+		t := &iauth.OAuthToken{AccessToken: accessToken, RefreshToken: refreshToken, IDToken: idTokenStr, ExpiresAt: expiry}
 		if err := store.Upsert(r.Context(), id, prov, t); err != nil {
-			encode(w, http.StatusInternalServerError, nil, err)
-			return
+			return "", err
 		}
 	}
-	// Post a tiny HTML that closes the popup
-	w.Header().Set("Content-Type", "text/html")
-	_, _ = w.Write([]byte(`<html><body><script>if (window.opener) { try { window.opener.postMessage({type:'oauth',status:'ok'}, '*'); } catch(e){} } window.close();</script>OK</body></html>`))
+	return username, nil
+}
+
+func (s *Service) finishIDTokenLogin(w http.ResponseWriter, r *http.Request, idToken string) (string, error) {
+	idToken = strings.TrimSpace(idToken)
+	if idToken == "" {
+		return "", errf("id_token is required")
+	}
+	sVal, eVal, nVal, vErr := s.verifyIDToken(r.Context(), idToken)
+	if vErr != nil {
+		return "", vErr
+	}
+	sub, email, name := sVal, eVal, nVal
+	username := strings.TrimSpace(name)
+	if username == "" && email != "" {
+		if i := strings.Index(email, "@"); i > 0 {
+			username = email[:i]
+		}
+	}
+	if username == "" && sub != "" {
+		username = sub
+	}
+	if username == "" {
+		username = "user"
+	}
+	id, err := s.users.UpsertWithProvider(r.Context(), username, name, email, "oauth", sub)
+	if err != nil {
+		return "", err
+	}
+	if s.cfg != nil && strings.TrimSpace(s.cfg.IpHashKey) != "" {
+		ip := iauth.ClientIP(r, s.cfg.TrustedProxies)
+		if h := iauth.HashIP(ip, s.cfg.IpHashKey); h != "" {
+			_ = s.users.UpdateHashIPByID(r.Context(), id, h)
+		}
+	}
+	if item2, _ := s.users.FindByUsername(r.Context(), username); item2 != nil {
+		var da, dm, de *string
+		if item2.DefaultAgentRef == nil || strings.TrimSpace(*item2.DefaultAgentRef) == "" {
+			if s.defAgent != "" {
+				v := s.defAgent
+				da = &v
+			}
+		}
+		if item2.DefaultModelRef == nil || strings.TrimSpace(*item2.DefaultModelRef) == "" {
+			if s.defModel != "" {
+				v := s.defModel
+				dm = &v
+			}
+		}
+		if item2.DefaultEmbedderRef == nil || strings.TrimSpace(*item2.DefaultEmbedderRef) == "" {
+			if s.defEmbed != "" {
+				v := s.defEmbed
+				de = &v
+			}
+		}
+		if da != nil || dm != nil || de != nil {
+			_ = s.users.UpdatePreferencesByUsername(r.Context(), username, nil, nil, da, dm, de)
+		}
+	}
+	prov := strings.TrimSpace(s.cfg.OAuth.Name)
+	if prov == "" {
+		prov = "oauth"
+	}
+	s.sess.CreateWithTokensProvider(w, username, prov, "", "", idToken, time.Now().Add(10*time.Minute))
+	return username, nil
 }
 
 // Helpers for BFF state
@@ -479,16 +660,19 @@ func buildVerifierFromConfig(ctx context.Context, cfg *iauth.Config) *vcfg.Servi
 func (s *Service) verifyIDToken(ctx context.Context, idToken string) (sub, email, name string, err error) {
 	verifier := buildVerifierFromConfig(ctx, s.cfg)
 	if verifier == nil {
+		log.Printf("auth: id token verification failed (no verifier configured)")
 		return "", "", "", errf("oidc verifier not configured")
 	}
 	claims, vErr := verifier.VerifyClaims(ctx, idToken)
 	if vErr != nil {
+		log.Printf("auth: id token verification failed: %v", vErr)
 		return "", "", "", errf("id token verification failed")
 	}
 	// Optional iss/aud checks
 	if s.cfg != nil && s.cfg.OAuth != nil && s.cfg.OAuth.Client != nil {
 		iss := strings.TrimSpace(s.cfg.OAuth.Client.Issuer)
 		if iss != "" && strings.TrimSpace(claims.Issuer) != iss {
+			log.Printf("auth: id token issuer mismatch (got=%q want=%q)", claims.Issuer, iss)
 			return "", "", "", errf("issuer mismatch")
 		}
 		if len(s.cfg.OAuth.Client.Audiences) > 0 {
@@ -500,6 +684,7 @@ func (s *Service) verifyIDToken(ctx context.Context, idToken string) (sub, email
 				}
 			}
 			if !ok {
+				log.Printf("auth: id token audience mismatch (aud=%v)", s.cfg.OAuth.Client.Audiences)
 				return "", "", "", errf("audience mismatch")
 			}
 		}

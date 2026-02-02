@@ -211,8 +211,9 @@ CREATE TABLE IF NOT EXISTS schedule (
                                         description           TEXT,
 
     -- Target agent / model
-                                        agent_ref             TEXT      NOT NULL,        -- agent name or id
-                                        model_override        TEXT,                      -- optional model ref override
+    agent_ref             TEXT      NOT NULL,        -- agent name or id
+    model_override        TEXT,                      -- optional model ref override
+    user_cred_url         TEXT,                      -- scy Basic secret URL for OOB auth
 
     -- Enable/disable + time window
                                         enabled               INTEGER   NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),

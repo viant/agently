@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -138,16 +139,19 @@ func unauthorized(w http.ResponseWriter) {
 // validateBearerWithVerifier verifies token with a pre-initialized verifier.
 func validateBearerWithVerifier(r *http.Request, v *vcfg.Service) bool {
 	if v == nil {
+		log.Printf("auth: bearer verification skipped (no verifier)")
 		return false
 	}
 	authz := strings.TrimSpace(r.Header.Get("Authorization"))
 	parts := strings.SplitN(authz, " ", 2)
 	if len(parts) != 2 {
+		log.Printf("auth: bearer verification failed (invalid Authorization header)")
 		return false
 	}
 	token := strings.TrimSpace(parts[1])
 	claims, err := v.VerifyClaims(r.Context(), token)
 	if err != nil {
+		log.Printf("auth: bearer verification failed: %v", err)
 		return false
 	}
 	// Optional iss/aud checks from workspace config
@@ -155,6 +159,7 @@ func validateBearerWithVerifier(r *http.Request, v *vcfg.Service) bool {
 	if cfg != nil && cfg.OAuth != nil && cfg.OAuth.Client != nil {
 		iss := strings.TrimSpace(cfg.OAuth.Client.Issuer)
 		if iss != "" && strings.TrimSpace(claims.Issuer) != iss {
+			log.Printf("auth: bearer issuer mismatch (got=%q want=%q)", claims.Issuer, iss)
 			return false
 		}
 		if len(cfg.OAuth.Client.Audiences) > 0 {
@@ -166,6 +171,7 @@ func validateBearerWithVerifier(r *http.Request, v *vcfg.Service) bool {
 				}
 			}
 			if !ok {
+				log.Printf("auth: bearer audience mismatch (aud=%v)", cfg.OAuth.Client.Audiences)
 				return false
 			}
 		}

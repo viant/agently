@@ -334,6 +334,11 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 
 		// Handle elicitation inside the loop as a single-turn interaction.
 		if aPlan.Elicitation != nil {
+			if missing := missingRequired(aPlan.Elicitation, binding.Context); len(missing) == 0 {
+				// Elicitation already satisfied by context; re-run plan with updated context.
+				aPlan.Elicitation = nil
+				continue
+			}
 			ectx := ctx
 			var cancel func()
 			if s.defaults != nil && s.defaults.ElicitationTimeoutSec > 0 {

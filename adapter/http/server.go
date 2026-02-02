@@ -715,6 +715,8 @@ func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request
 			lastSeenSeq = seq
 			hasSeq = true
 			sent[seq] = struct{}{}
+		} else if id := s.findLastMessageID(baseCtx, convID, includeModelCallPayload); id != "" {
+			lastSeenID = id
 		}
 	}
 
@@ -737,6 +739,9 @@ func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request
 			return
 		case ev := <-deltaCh:
 			if ev == nil {
+				continue
+			}
+			if isElicitationMessageView(ev.Message) {
 				continue
 			}
 			env := &streamMessageEnvelope{
@@ -769,6 +774,7 @@ func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request
 				return
 			}
 			messages := flattenTranscriptMessages(conv.Conversation)
+			turnElicitation := buildTurnElicitationIndex(messages)
 			start := 0
 			if !hasSeq && lastSeenID != "" {
 				for i, m := range messages {
@@ -786,13 +792,22 @@ func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request
 				if m == nil || strings.TrimSpace(m.Id) == "" {
 					continue
 				}
+				if shouldSuppressAssistantMessage(m, turnElicitation) {
+					continue
+				}
+				if deltaCh != nil && isStreamingInterimMessage(m) {
+					continue
+				}
 				seq := s.nextEventSeq(convID, m)
 				if hasSeq && seq <= lastSeenSeq {
 					continue
 				}
 				if len(includeTypes) > 0 {
-					if _, ok := includeTypes[strings.ToLower(strings.TrimSpace(m.Type))]; !ok {
-						continue
+					msgType := strings.ToLower(strings.TrimSpace(m.Type))
+					if _, ok := includeTypes[msgType]; !ok {
+						if _, ok := includeTypes["elicitation"]; !ok || !isElicitationMessageView(m) {
+							continue
+						}
 					}
 				}
 				if _, ok := sent[seq]; ok {
@@ -882,6 +897,22 @@ func parseIncludeTypes(raw string) map[string]struct{} {
 	return out
 }
 
+func isStreamingInterimMessage(m *agconv.MessageView) bool {
+	if m == nil {
+		return false
+	}
+	if m.Interim == 0 {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(m.Role)) != "assistant" {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(m.Type)) != "text" {
+		return false
+	}
+	return true
+}
+
 func parseWaitMS(raw string, def int) int {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -932,12 +963,60 @@ func flattenTranscriptMessages(conv *apiconv.Conversation) []*agconv.MessageView
 			continue
 		}
 		for _, m := range turn.Message {
-			if m != nil {
+			if m != nil && !isSummaryMessageView(m) && !isInterimAssistantMessageView(m) {
 				out = append(out, m)
 			}
 		}
 	}
 	return out
+}
+
+func buildTurnElicitationIndex(messages []*agconv.MessageView) map[string]struct{} {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := map[string]struct{}{}
+	for _, m := range messages {
+		if m == nil || !isElicitationMessageView(m) {
+			continue
+		}
+		if m.TurnId == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*m.TurnId)
+		if turnID == "" {
+			continue
+		}
+		out[turnID] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func shouldSuppressAssistantMessage(m *agconv.MessageView, turnElicitation map[string]struct{}) bool {
+	if m == nil || len(turnElicitation) == 0 {
+		return false
+	}
+	if isElicitationMessageView(m) {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(m.Role)) != "assistant" {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(m.Type)) != "text" {
+		return false
+	}
+	if m.TurnId == nil {
+		return false
+	}
+	turnID := strings.TrimSpace(*m.TurnId)
+	if turnID == "" {
+		return false
+	}
+	_, ok := turnElicitation[turnID]
+	return ok
 }
 
 func sanitizeMessageForStream(m *agconv.MessageView) *agconv.MessageView {
@@ -975,6 +1054,35 @@ func (s *Server) nextEventSeq(convID string, msg *agconv.MessageView) uint64 {
 func buildStreamContent(m *agconv.MessageView) (string, interface{}) {
 	if m == nil {
 		return "", nil
+	}
+	if isElicitationMessageView(m) {
+		payload := map[string]interface{}{
+			"type": "elicitation",
+		}
+		if m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
+			payload["elicitationId"] = strings.TrimSpace(*m.ElicitationId)
+		}
+		if m.Status != nil && strings.TrimSpace(*m.Status) != "" {
+			payload["status"] = strings.TrimSpace(*m.Status)
+		}
+		if m.ElicitationPayloadId != nil && strings.TrimSpace(*m.ElicitationPayloadId) != "" {
+			payload["elicitationPayloadId"] = strings.TrimSpace(*m.ElicitationPayloadId)
+		}
+		if m.UserElicitationData != nil && m.UserElicitationData.InlineBody != nil {
+			payload["userPayload"] = *m.UserElicitationData.InlineBody
+			if strings.TrimSpace(m.UserElicitationData.Compression) != "" {
+				payload["userPayloadCompression"] = strings.TrimSpace(m.UserElicitationData.Compression)
+			}
+		}
+		raw := messageTextForElicitation(m)
+		if raw != "" {
+			if elicObj, ok := parseElicitationJSON(raw); ok && elicObj != nil {
+				payload["elicitation"] = elicObj
+			} else {
+				payload["message"] = raw
+			}
+		}
+		return "application/elicitation+json", payload
 	}
 	meta := map[string]interface{}{}
 	content := map[string]interface{}{}
@@ -1023,6 +1131,63 @@ func buildStreamContent(m *agconv.MessageView) (string, interface{}) {
 		return "", nil
 	}
 	return "application/json", content
+}
+
+func isElicitationMessageView(m *agconv.MessageView) bool {
+	if m == nil {
+		return false
+	}
+	if m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
+		return true
+	}
+	raw := messageTextForElicitation(m)
+	if raw == "" {
+		return false
+	}
+	_, ok := parseElicitationJSON(raw)
+	return ok
+}
+
+func messageTextForElicitation(m *agconv.MessageView) string {
+	if m == nil {
+		return ""
+	}
+	if m.Content != nil && strings.TrimSpace(*m.Content) != "" {
+		return strings.TrimSpace(*m.Content)
+	}
+	if m.RawContent != nil && strings.TrimSpace(*m.RawContent) != "" {
+		return strings.TrimSpace(*m.RawContent)
+	}
+	return ""
+}
+
+func parseElicitationJSON(raw string) (map[string]interface{}, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, false
+	}
+	if strings.HasPrefix(raw, "```") {
+		raw = strings.TrimPrefix(raw, "```")
+		raw = strings.TrimSpace(raw)
+		if strings.HasPrefix(raw, "json") {
+			raw = strings.TrimSpace(strings.TrimPrefix(raw, "json"))
+		}
+		if idx := strings.LastIndex(raw, "```"); idx >= 0 {
+			raw = strings.TrimSpace(raw[:idx])
+		}
+	}
+	if !strings.HasPrefix(raw, "{") {
+		return nil, false
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return nil, false
+	}
+	typ, _ := payload["type"].(string)
+	if strings.EqualFold(strings.TrimSpace(typ), "elicitation") {
+		return payload, true
+	}
+	return nil, false
 }
 
 func isPreambleMessage(m *agconv.MessageView) bool {
@@ -1124,6 +1289,7 @@ func (s *Server) collectEventEnvelopes(ctx context.Context, convID string, inclu
 		return nil, lastSeenSeq, lastSeenID, fmt.Errorf("conversation not found")
 	}
 	messages := flattenTranscriptMessages(conv.Conversation)
+	turnElicitation := buildTurnElicitationIndex(messages)
 	start := 0
 	if !hasSeq && lastSeenID != "" {
 		for i, m := range messages {
@@ -1142,13 +1308,19 @@ func (s *Server) collectEventEnvelopes(ctx context.Context, convID string, inclu
 		if m == nil || strings.TrimSpace(m.Id) == "" {
 			continue
 		}
+		if shouldSuppressAssistantMessage(m, turnElicitation) {
+			continue
+		}
 		seq := s.nextEventSeq(convID, m)
 		if hasSeq && seq <= lastSeenSeq {
 			continue
 		}
 		if len(includeTypes) > 0 {
-			if _, ok := includeTypes[strings.ToLower(strings.TrimSpace(m.Type))]; !ok {
-				continue
+			msgType := strings.ToLower(strings.TrimSpace(m.Type))
+			if _, ok := includeTypes[msgType]; !ok {
+				if _, ok := includeTypes["elicitation"]; !ok || !isElicitationMessageView(m) {
+					continue
+				}
 			}
 		}
 		out = append(out, &streamMessageEnvelope{
@@ -1169,6 +1341,8 @@ func (s *Server) collectEventEnvelopes(ctx context.Context, convID string, inclu
 		if seq := s.findLastMessageSeq(ctx, convID, includeModelCallPayload); seq > 0 {
 			lastSeenSeq = seq
 			hasSeq = true
+		} else if id := s.findLastMessageID(ctx, convID, includeModelCallPayload); id != "" {
+			lastSeenID = id
 		}
 	}
 	return out, lastSeenSeq, lastSeenID, nil
@@ -1189,9 +1363,12 @@ func sanitizeConversationForAPI(conv *apiconv.Conversation) *apiconv.Conversatio
 		}
 		tc := *t
 		if t.Message != nil {
-			msgs := make([]*agconv.MessageView, len(t.Message))
-			for j, m := range t.Message {
+			msgs := make([]*agconv.MessageView, 0, len(t.Message))
+			for _, m := range t.Message {
 				if m == nil {
+					continue
+				}
+				if isSummaryMessageView(m) || isInterimAssistantMessageView(m) {
 					continue
 				}
 				mc := *m
@@ -1207,7 +1384,7 @@ func sanitizeConversationForAPI(conv *apiconv.Conversation) *apiconv.Conversatio
 					}
 					mc.Attachment = atts
 				}
-				msgs[j] = &mc
+				msgs = append(msgs, &mc)
 			}
 			tc.Message = msgs
 		}
@@ -1215,6 +1392,35 @@ func sanitizeConversationForAPI(conv *apiconv.Conversation) *apiconv.Conversatio
 	}
 	out.Transcript = tr
 	return &out
+}
+
+func isSummaryMessageView(m *agconv.MessageView) bool {
+	if m == nil {
+		return false
+	}
+	if m.Mode != nil && strings.EqualFold(strings.TrimSpace(*m.Mode), "summary") {
+		return true
+	}
+	if m.Status != nil && strings.EqualFold(strings.TrimSpace(*m.Status), "summary") {
+		return true
+	}
+	return false
+}
+
+func isInterimAssistantMessageView(m *agconv.MessageView) bool {
+	if m == nil {
+		return false
+	}
+	if m.Interim == 0 {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(m.Role)) != "assistant" {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(m.Type)) != "text" {
+		return false
+	}
+	return true
 }
 
 // handleDeleteMessage deletes a specific message by id within a conversation.

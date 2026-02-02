@@ -79,6 +79,11 @@ func (s *SchedulerRunCmd) Execute(_ []string) error {
 	if err != nil {
 		return err
 	}
+	if cfg := exec.Config(); cfg != nil {
+		if svc, ok := orch.(*schsvc.Service); ok {
+			svc.AttachAuthConfig(cfg.Auth)
+		}
+	}
 
 	if s.Once {
 		_, err := orch.RunDue(baseCtx)

@@ -18,6 +18,7 @@ import (
 	convdao "github.com/viant/agently/internal/service/conversation"
 	usersvc "github.com/viant/agently/internal/service/user"
 	tmatch "github.com/viant/agently/internal/tool/matcher"
+	"github.com/viant/agently/internal/workspace"
 	bundlerepo "github.com/viant/agently/internal/workspace/repository/toolbundle"
 )
 
@@ -85,7 +86,9 @@ type Option struct {
 
 // AgentlyResponse is the aggregated workspace metadata payload.
 type AgentlyResponse struct {
-	Defaults struct {
+	// WorkspaceRoot is the absolute path to the current workspace root.
+	WorkspaceRoot string `json:"workspaceRoot,omitempty"`
+	Defaults      struct {
 		Agent    string `json:"agent"`
 		Model    string `json:"model"`
 		Embedder string `json:"embedder,omitempty"`
@@ -522,6 +525,7 @@ func NewAgently(exec *execsvc.Service) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		resp.WorkspaceRoot = workspace.Root()
 		// Populate compiled version without coupling Aggregate to build details.
 		resp.Version = strings.TrimSpace(agently.Version)
 		// Override defaults with user preferences when available

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
+	scyauth "github.com/viant/scy/auth"
 	"github.com/viant/scy/auth/authorizer"
 	"github.com/viant/scy/kms"
 	"github.com/viant/scy/kms/blowfish"
@@ -116,19 +118,32 @@ func (s *TokenStoreDAO) Upsert(ctx context.Context, userID, provider string, tok
 func (s *TokenStoreDAO) EnsureToken(ctx context.Context, userID, provider, configURL string) (*OAuthToken, error) {
 	tok, err := s.Get(ctx, userID, provider)
 	if err != nil || tok == nil {
+		if err != nil {
+			log.Printf("auth: tokenstore get failed (user=%s provider=%s): %v", userID, provider, err)
+		}
 		return nil, err
 	}
-	if tok.AccessToken != "" && tok.ExpiresAt.After(time.Now().Add(60*time.Second)) {
+	if tok.AccessToken != "" && !tok.ExpiresAt.IsZero() && tok.ExpiresAt.After(time.Now().Add(60*time.Second)) {
 		return tok, nil
 	}
+	if tok.ExpiresAt.IsZero() {
+		log.Printf("auth: token expiry missing; forcing refresh (user=%s provider=%s)", userID, provider)
+	}
+	if strings.TrimSpace(tok.RefreshToken) == "" {
+		log.Printf("auth: refresh skipped (missing refresh token) (user=%s provider=%s)", userID, provider)
+		return tok, nil
+	}
+	log.Printf("auth: refreshing token (user=%s provider=%s exp=%s)", userID, provider, tok.ExpiresAt.Format(time.RFC3339))
 	oa := authorizer.New()
 	oc := &authorizer.OAuthConfig{ConfigURL: configURL}
 	if err := oa.EnsureConfig(ctx, oc); err != nil {
+		log.Printf("auth: refresh config load failed (user=%s provider=%s): %v", userID, provider, err)
 		return nil, err
 	}
 	src := oc.Config.TokenSource(ctx, &oauth2.Token{RefreshToken: tok.RefreshToken, Expiry: time.Now().Add(-time.Hour)})
 	nt, err := src.Token()
 	if err != nil {
+		log.Printf("auth: refresh token request failed (user=%s provider=%s): %v", userID, provider, err)
 		return nil, err
 	}
 	tok.AccessToken = nt.AccessToken
@@ -141,9 +156,19 @@ func (s *TokenStoreDAO) EnsureToken(ctx context.Context, userID, provider, confi
 			tok.IDToken = s
 		}
 	}
+	if tok.ExpiresAt.IsZero() && tok.IDToken != "" {
+		if idTok, idErr := scyauth.IdToken(ctx, nt); idErr == nil && idTok != nil && !idTok.Expiry.IsZero() {
+			tok.ExpiresAt = idTok.Expiry
+			log.Printf("auth: refresh token expiry derived from id_token (user=%s provider=%s exp=%s)", userID, provider, tok.ExpiresAt.Format(time.RFC3339))
+		} else if idErr != nil {
+			log.Printf("auth: refresh token expiry derivation failed (user=%s provider=%s): %v", userID, provider, idErr)
+		}
+	}
 	if err := s.Upsert(ctx, userID, provider, tok); err != nil {
+		log.Printf("auth: refresh token upsert failed (user=%s provider=%s): %v", userID, provider, err)
 		return nil, err
 	}
+	log.Printf("auth: refresh token succeeded (user=%s provider=%s newExp=%s)", userID, provider, tok.ExpiresAt.Format(time.RFC3339))
 	return tok, nil
 }
 

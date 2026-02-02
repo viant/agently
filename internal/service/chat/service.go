@@ -490,7 +490,11 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 	if err := s.persistQueuedTurn(ctx, conversationID, msgID, queued, req.Content); err != nil {
 		return "", err
 	}
-	s.triggerQueue(conversationID)
+	if blocked, _, err := s.isConversationBlocked(ctx, conversationID); err == nil && !blocked {
+		go func() { _ = s.executeQueuedTurn(context.Background(), conversationID, msgID) }()
+	} else {
+		s.triggerQueue(conversationID)
+	}
 
 	return msgID, nil
 }
@@ -618,7 +622,7 @@ func (s *Service) runQueue(conversationID string, notify <-chan struct{}) {
 
 			blocked, reason, err := s.isConversationBlocked(context.Background(), conversationID)
 			if err != nil {
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 			if blocked {
@@ -627,13 +631,13 @@ func (s *Service) runQueue(conversationID string, notify <-chan struct{}) {
 				if reason == "waiting_for_user" {
 					break
 				}
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 
 			nextID, err := s.nextQueuedTurnID(context.Background(), conversationID)
 			if err != nil {
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 			if nextID == "" {

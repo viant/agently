@@ -385,6 +385,18 @@ func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]int
 			for k, v := range payload {
 				ctx[k] = v
 			}
+			// Lightweight alias normalization for common elicitation synonyms.
+			// Helps when LLM varies field names across successive elicitations.
+			if _, ok := ctx["favoriteColor"]; !ok {
+				if v, ok := firstValue(payload, "favoriteColor", "favorite_color", "favColor", "fav_color", "color"); ok {
+					ctx["favoriteColor"] = v
+				}
+			}
+			if _, ok := ctx["shade"]; !ok {
+				if v, ok := firstValue(payload, "shade", "shadeOrVariant", "variant"); ok {
+					ctx["shade"] = v
+				}
+			}
 		}
 	}
 
@@ -397,6 +409,23 @@ func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]int
 	if h.Current != nil {
 		consume(h.Current.Messages)
 	}
+}
+
+func firstValue(payload map[string]interface{}, keys ...string) (interface{}, bool) {
+	if len(payload) == 0 {
+		return nil, false
+	}
+	lower := map[string]interface{}{}
+	for k, v := range payload {
+		lower[strings.ToLower(strings.TrimSpace(k))] = v
+	}
+	for _, k := range keys {
+		kk := strings.ToLower(strings.TrimSpace(k))
+		if v, ok := lower[kk]; ok {
+			return v, true
+		}
+	}
+	return nil, false
 }
 
 // fetchConversationWithRetry attempts to fetch a conversation up to three times,

@@ -304,12 +304,6 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			if payload == "" {
 				continue
 			}
-			if observer != nil {
-				if obErr := observer.OnStreamDelta(ctx, []byte(payload+"\n")); obErr != nil {
-					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
-					return
-				}
-			}
 			var evt Response
 			if err := json.Unmarshal([]byte(payload), &evt); err != nil {
 				events <- llm.StreamEvent{Err: fmt.Errorf("failed to unmarshal stream part: %w", err)}

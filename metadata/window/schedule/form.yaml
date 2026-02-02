@@ -66,6 +66,12 @@
         outputs:
           - name: modelOverride
             location: id
+    - id: userCredUrl
+      label: User Cred (scy URL)
+      type: text
+      columnSpan: 2
+      properties:
+        placeholder: scy://secret/path|key
 
 - id: schedule
   title: Schedule

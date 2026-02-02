@@ -71,6 +71,34 @@ for _, ev := range resp.Events {
 }
 ```
 
+### Elicitation (MCP + LLM)
+
+Elicitations are surfaced as assistant/tool messages with `elicitation_id` set.
+You can detect them from the stream or query pending elicitations and then
+accept/decline via the callback endpoint.
+
+```go
+events, errs, err := client.StreamEvents(ctx, conv.ID, "", []string{"control", "text"})
+if err != nil { /* handle */ }
+go func() {
+  for ev := range events {
+    if el := sdk.ElicitationFromEvent(ev); el != nil && sdk.IsElicitationPending(ev.Message) {
+      _ = client.ResolveElicitation(ctx, conv.ID, el.ElicitationID, "accept",
+        map[string]interface{}{"answer": "yes"}, "")
+    }
+  }
+}()
+_ = errs
+```
+
+```go
+pending, err := client.ListPendingElicitations(ctx, conv.ID)
+if err != nil { /* handle */ }
+for _, el := range pending {
+  _ = client.ResolveElicitation(ctx, conv.ID, el.ElicitationID, "decline", nil, "not now")
+}
+```
+
 ### Attachments
 
 ```go
@@ -90,6 +118,39 @@ _, _ = client.PostMessage(ctx, conv.ID, &sdk.PostMessageRequest{
 _ = client.AuthProviders(ctx)
 _ = client.AuthMe(ctx)
 _ = client.AuthLogout(ctx)
+```
+
+### OAuth helpers (BFF + OOB)
+
+Interactive (BFF) flow: request an auth URL and open it in a browser.
+
+```go
+resp, err := client.AuthOAuthInitiate(ctx)
+if err != nil { /* handle */ }
+fmt.Println("Open:", resp.AuthURL)
+```
+
+Out-of-band (OOB) flow (client-side): perform an OAuth login using local secrets
+and install a token provider on the SDK client (auto-refresh when expired).
+
+```go
+_, err := client.AuthOOBLogin(ctx,
+  "/Users/awitas/.secret/idp_local.enc|blowfish://default",
+  "scy://secrets/user/dev|blowfish://default",
+  []string{"openid"},
+)
+if err != nil { /* handle */ }
+```
+
+Out-of-band (OOB) flow (server-side BFF): ask the server to perform OOB using a
+user credential reference and establish a session cookie.
+
+```go
+err := client.AuthOOBSession(ctx,
+  "/Users/awitas/.secret/user_cred.enc|blowfish://default",
+  []string{"openid"},
+)
+if err != nil { /* handle */ }
 ```
 
 ## TypeScript SDK
