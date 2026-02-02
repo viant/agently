@@ -205,6 +205,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		// Mark run as running when task is posted
 		in.SetStatus("running")
 		in.SetStartedAt(time.Now().UTC())
+		log.Printf("scheduler: run started schedule_id=%q run_id=%q conversation_id=%q agent=%q model=%q", schID, strings.TrimSpace(in.Id), strings.TrimSpace(*in.ConversationId), strings.TrimSpace(row.AgentRef), strPtrValue(row.ModelOverride))
 	}
 	// Persist updated state (conversation linkage, running timestamps, etc.)
 	if err := s.sch.PatchRun(ctx, in); err != nil {
