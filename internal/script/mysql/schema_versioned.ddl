@@ -957,10 +957,10 @@ END $$
 CALL schema_upgrade_10() $$
 DROP PROCEDURE schema_upgrade_10 $$
 
-DROP PROCEDURE IF EXISTS schema_upgrade_10 $$
-CREATE PROCEDURE schema_upgrade_10()
+DROP PROCEDURE IF EXISTS schema_upgrade_11 $$
+CREATE PROCEDURE schema_upgrade_11()
 BEGIN
-    IF get_schema_version() = 10 THEN
+    IF get_schema_version() = 11 THEN
 
         IF NOT EXISTS (
             SELECT 1
@@ -984,11 +984,11 @@ BEGIN
                 ADD COLUMN lease_until TIMESTAMP NULL DEFAULT NULL AFTER lease_owner;
         END IF;
 
-        CALL set_schema_version(11);
+        CALL set_schema_version(12);
     END IF;
 END $$
 
-CALL schema_upgrade_10() $$
-DROP PROCEDURE schema_upgrade_10 $$
+CALL schema_upgrade_11() $$
+DROP PROCEDURE schema_upgrade_11 $$
 
 DELIMITER ;
