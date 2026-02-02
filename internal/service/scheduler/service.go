@@ -274,7 +274,7 @@ func (s *Service) applyUserCred(ctx context.Context, credRef string) (context.Co
 			return ctx, fmt.Errorf("schedule user_cred oauth config cast failed: %T", secret.Target)
 		}
 		log.Printf("scheduler: user_cred_url config load ok url=%q duration=%s client_id=%q auth_url=%q token_url=%q redirect_url=%q",
-			cfgURL, time.Since(cfgStart), cfg.Config.ClientID, cfg.Config.AuthURL, cfg.Config.TokenURL, cfg.Config.RedirectURL)
+			cfgURL, time.Since(cfgStart), cfg.Config.ClientID, cfg.Config.Endpoint.AuthURL, cfg.Config.Endpoint.TokenURL, cfg.Config.RedirectURL)
 		cmd.Config = &cfg.Config
 		cmd.ConfigURL = ""
 	}
