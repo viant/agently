@@ -81,7 +81,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 	defer ticker.Stop()
 
 	var err error
-
+	total := 0
 	for {
 		select {
 		case <-allCtx.Done():
@@ -90,6 +90,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 			return
 
 		case <-ticker.C:
+			total = total + 3
 			// Heartbeat: renew the run lease so other scheduler instances can detect liveness.
 			// If we fail to renew because another instance took over, stop this watcher.
 			if strings.TrimSpace(s.leaseOwner) != "" {
@@ -118,8 +119,10 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 				preCancel()
 
 				if pErr == nil && inProgress {
+					fmt.Printf("debug: total = %d watchRunCompletion precheck - active/queued turns found for convID: %v\n", total, conversationID)
 					continue
 				}
+				fmt.Printf("debug: total = %d watchRunCompletion precheck - no active/queued turns found for convID: %v\n", total, conversationID)
 			}
 
 			// Per-tick call budget (prevents a single slow/hung call from blocking the loop forever).
@@ -152,6 +155,8 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 				}
 			}
 
+			fmt.Printf("debug: watchRunCompletion - finalizing runID: %v, scheduleID: %v, convID: %v, stage: %v, status: %v\n", runID, scheduleID, conversationID, stage, status)
+
 			upd := &schapi.MutableRun{}
 			upd.SetId(runID)
 			upd.SetScheduleId(scheduleID)
@@ -169,8 +174,10 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 			if strings.TrimSpace(s.leaseOwner) != "" {
 				relCtx, relCancel := context.WithTimeout(ctx, callTimeout)
 				_, _ = s.sch.ReleaseRunLease(relCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner))
+				fmt.Printf("debug: watchRunCompletion - released lease for runID: %v by owner: %v\n", runID, s.leaseOwner)
 				relCancel()
 			}
+			fmt.Printf("debug: watchRunCompletion - completed runID: %v, scheduleID: %v, convID: %v\n", runID, scheduleID, conversationID)
 			return
 		}
 	}
@@ -201,6 +208,7 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 		_ = s.chat.Cancel(conversationID)
 		upd.SetStatus("failed")
 		msg := fmt.Sprintf("conv. aborted at %q (%v timeout)", stage, timeout)
+		fmt.Printf("debug: TIMEOUT!!! watchRunCompletion finalizeDeadline - conversation still in progress for runID: %v, scheduleID: %v, convID: %v, stage: %v\n", runID, scheduleID, conversationID, stage)
 		if cerr != nil {
 			msg += fmt.Sprintf(": %v", cerr)
 		} else if err != nil {

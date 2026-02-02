@@ -304,18 +304,22 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 		now := time.Now().UTC()
 
 		if sc == nil || !sc.Enabled {
+			fmt.Printf("00 RunDue checking schedule: %v\n", sc.Id)
 			continue
 		}
 
 		due := false
 		// Respect optional schedule time window.
 		if sc.StartAt != nil && now.Before(sc.StartAt.UTC()) {
+			fmt.Printf("01 RunDue checking schedule: %v\n", sc.Id)
 			continue
 		}
 		if sc.EndAt != nil && !now.Before(sc.EndAt.UTC()) {
+			fmt.Printf("02 RunDue checking schedule: %v\n", sc.Id)
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "cron") && sc.CronExpr != nil && strings.TrimSpace(*sc.CronExpr) != "" {
+			fmt.Printf("03A RunDue checking schedule: %v\n", sc.Id)
 			loc, _ := time.LoadLocation(strings.TrimSpace(sc.Timezone))
 			if loc == nil {
 				loc = time.UTC
@@ -340,9 +344,12 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			if !now.Before(next) {
 				due = true
 			}
+			fmt.Printf("03B RunDue checking schedule: %v\n", sc.Id)
 		} else if sc.NextRunAt != nil && !now.Before(sc.NextRunAt.UTC()) {
+			fmt.Printf("04 RunDue checking schedule: %v\n", sc.Id)
 			due = true
 		} else if sc.IntervalSeconds != nil {
+			fmt.Printf("05 RunDue checking schedule: %v\n", sc.Id)
 			base := sc.CreatedAt.UTC()
 			if sc.LastRunAt != nil {
 				base = sc.LastRunAt.UTC()
@@ -352,15 +359,19 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			}
 		}
 		if !due {
+			fmt.Printf("06 RunDue checking schedule: %v\n", sc.Id)
 			continue
 		}
 
+		fmt.Printf("07 RunDue checking schedule: %v\n", sc.Id)
 		leaseUntil := now.Add(s.leaseTTL)
 		claimed, err := s.sch.TryClaimSchedule(ctx, sc.Id, s.leaseOwner, leaseUntil)
 		if err != nil {
+			fmt.Printf("08 RunDue checking schedule: %v\n", sc.Id)
 			return started, err
 		}
 		if !claimed {
+			fmt.Printf("09 RunDue checking schedule: %v\n", sc.Id)
 			continue
 		}
 
@@ -370,7 +381,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 
 		err = func() error {
 			defer releaseLease()
-
+			fmt.Printf("10 RunDue checking schedule: %v\n", sc.Id)
 			runs, err := s.sch.GetRuns(ctx, sc.Id, "")
 			if err != nil {
 				return err
@@ -379,10 +390,12 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() {
 				scheduledFor = sc.NextRunAt.UTC()
 			}
-
+			fmt.Printf("11 RunDue checking schedule: %v\n", sc.Id)
 			var pendingRun *schapi.Run
 			for _, r := range runs {
+				fmt.Printf("12 RunDue checking schedule: %v\n", sc.Id)
 				if r == nil {
+					fmt.Printf("13 RunDue checking schedule: %v\n", sc.Id)
 					continue
 				}
 				// If a run already exists for the current scheduled slot (even completed),
@@ -392,10 +405,13 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 				if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() &&
 					r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) &&
 					r.CompletedAt != nil {
+					fmt.Printf("14 RunDue checking schedule: %v\n", sc.Id)
+
 					mut := &schapi.MutableSchedule{}
 					mut.SetId(sc.Id)
 					mut.SetLastRunAt(now)
 					if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "cron") && sc.CronExpr != nil && strings.TrimSpace(*sc.CronExpr) != "" {
+						fmt.Printf("15 RunDue checking schedule: %v\n", sc.Id)
 						loc, _ := time.LoadLocation(strings.TrimSpace(sc.Timezone))
 						if loc == nil {
 							loc = time.UTC
@@ -405,25 +421,31 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 							mut.SetNextRunAt(cronNext(spec, now.In(loc)).UTC())
 						}
 					} else if sc.IntervalSeconds != nil {
+						fmt.Printf("16 RunDue checking schedule: %v\n", sc.Id)
 						mut.SetNextRunAt(now.Add(time.Duration(*sc.IntervalSeconds) * time.Second))
 					} else if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "adhoc") {
+						fmt.Printf("17 RunDue checking schedule: %v\n", sc.Id)
 						mut.NextRunAt = nil
 						if mut.Has != nil {
 							mut.Has.NextRunAt = true
 						}
 					}
 					if err := s.sch.PatchSchedule(ctx, mut); err != nil {
+						fmt.Printf("18 RunDue checking schedule: %v error %v\n", sc.Id, err)
 						return err
 					}
+					fmt.Printf("19 RunDue checking schedule: %v error %v\n", sc.Id, err)
 					return nil
 				}
 
 				if r.CompletedAt != nil {
+					fmt.Printf("20 RunDue checking schedule: %v error %v\n", sc.Id, err)
 					continue
 				}
 				st := strings.ToLower(strings.TrimSpace(r.Status))
 				switch st {
 				case "running", "prechecking":
+					fmt.Printf("21 RunDue checking schedule: %v error %v\n", sc.Id, err)
 					// If the run is stale (e.g. scheduler crashed and no watcher is running),
 					// mark it failed so it doesn't block future runs.
 					runStart := r.CreatedAt.UTC()
@@ -435,6 +457,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 						timeout = time.Duration(sc.TimeoutSeconds) * time.Second
 					}
 					if now.After(runStart.Add(timeout).Add(15 * time.Second)) {
+						fmt.Printf("22 RunDue checking schedule: %v error %v\n", sc.Id, err)
 						claimCtx, claimCancel := context.WithTimeout(ctx, callTimeout)
 						claimed, claimErr := s.sch.TryClaimRun(claimCtx, strings.TrimSpace(r.Id), s.leaseOwner, now.Add(s.leaseTTL))
 						claimCancel()
@@ -468,12 +491,13 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 						if claimErr == nil && claimed {
 							_, _ = s.sch.ReleaseRunLease(ctx, strings.TrimSpace(r.Id), s.leaseOwner)
 						}
-
+						fmt.Printf("23 RunDue checking schedule: %v error %v\n", sc.Id, err)
 						// If this stale run belongs to the current scheduled slot, treat that slot
 						// as processed by advancing schedule.next_run_at (do not create a new run
 						// for the same scheduled_for).
 						if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() &&
 							r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) {
+							fmt.Printf("24 RunDue checking schedule: %v error %v\n", sc.Id, err)
 							mut := &schapi.MutableSchedule{}
 							mut.SetId(sc.Id)
 							mut.SetLastRunAt(now)
@@ -495,13 +519,18 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 								}
 							}
 							if err := s.sch.PatchSchedule(ctx, mut); err != nil {
+								fmt.Printf("25 RunDue checking schedule: %v error %v\n", sc.Id, err)
 								return err
 							}
+							fmt.Printf("26 RunDue checking schedule: %v error %v\n", sc.Id, err)
 							return nil
 						}
 						// Stale run was for an older slot; continue so a new run can be started.
+						fmt.Printf("27 RunDue checking schedule: %v error %v\n", sc.Id, err)
 						continue
 					}
+
+					fmt.Printf("28 RunDue checking schedule: %v error %v\n", sc.Id, err)
 
 					// Another instance is processing this schedule.
 					// For ad-hoc schedules, clear next_run_at so they don't remain due
@@ -515,6 +544,9 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 						}
 						_ = s.sch.PatchSchedule(ctx, mut)
 					}
+
+					fmt.Printf("29 RunDue checking schedule: %v error %v\n", sc.Id, err)
+
 					// TODO can cause panic in some edge cases; revisit later
 					// emergency lease extension logic could go here
 					//if st == "running" {
@@ -535,8 +567,10 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 					//	}
 					//}
 
+					fmt.Printf("30 RunDue checking schedule: %v error %v\n", sc.Id, err)
 					return nil
 				case "pending":
+					fmt.Printf("31 RunDue checking schedule: %v error %v\n", sc.Id, err)
 					// Prefer a pending run that matches the current scheduled slot.
 					if pendingRun == nil {
 						pendingRun = r
@@ -547,6 +581,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 				}
 			}
 
+			fmt.Printf("40 RunDue checking schedule: %v\n", sc.Id)
 			run := &schapi.MutableRun{}
 			if pendingRun != nil {
 				run.SetId(strings.TrimSpace(pendingRun.Id))
@@ -556,7 +591,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			run.SetScheduleId(sc.Id)
 			run.SetStatus("pending")
 			run.SetScheduledFor(scheduledFor)
-
+			fmt.Printf("41 RunDue checking schedule: %v\n", sc.Id)
 			if err := s.Run(ctx, run); err != nil {
 				return err
 			}
