@@ -319,6 +319,40 @@ Flow: UI may choose either BFF (cookie) or SPA (Bearer). Middleware accepts both
   - upserts user (provider: `oauth`), sets session cookie, stores `hash_ip`
   - returns tiny HTML that posts a message to `window.opener` and closes
 
+### BFF OAuth (server‑side OOB)
+
+- `POST /v1/api/auth/oob` `{ secretsURL, scopes }` → server-side OOB + session cookie
+
+### SDK (Go) OAuth helpers
+
+Interactive BFF flow:
+
+```go
+resp, err := client.AuthOAuthInitiate(ctx)
+if err != nil { /* handle */ }
+fmt.Println("Open:", resp.AuthURL)
+```
+
+Out-of-band (OOB) flow (headless/service use):
+
+```go
+_, err := client.AuthOOBLogin(ctx,
+  "/Users/awitas/.secret/idp_local.enc|blowfish://default",
+  "scy://secrets/user/dev|blowfish://default",
+  []string{"openid"},
+)
+```
+
+Server-side OOB (BFF) flow: request the server to perform OOB using a user
+credential reference and establish a session cookie.
+
+```go
+err := client.AuthOOBSession(ctx,
+  "/Users/awitas/.secret/user_cred.enc|blowfish://default",
+  []string{"openid"},
+)
+```
+
 ### Protection (middleware)
 
 When `auth.enabled`:

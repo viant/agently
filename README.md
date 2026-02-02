@@ -108,7 +108,7 @@ go build -o agently .
 # Start a agently webservice on :8080 port
 ./agently serve
 
-# Start a chat cli session
+# Start a chat cli session (auto-detects local server)
 ./agently chat
 ```
 
@@ -355,10 +355,16 @@ Agently provides a command-line interface for interacting with agents:
 agently chat 
 
 # Chat with an agent with a specific query
-agently chat -l <agent-location> -q "Your query here"
+agently chat -a <agent-id> -q "Your query here"
 
 # Continue a conversation
-agently chat -l <agent-location> -c <conversation-id>
+agently chat -a <agent-id> -c <conversation-id>
+
+# Connect to a specific server (skip auto-detect)
+agently chat --api http://localhost:8080
+
+# OOB auth via server (BFF) using user credential reference
+agently chat --oob --oauth-secrets "/Users/awitas/.secret/user_cred.enc|blowfish://default"
 
 # List existing conversations
 agently list

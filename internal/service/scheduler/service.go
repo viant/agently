@@ -13,10 +13,13 @@ import (
 	apiconv "github.com/viant/agently/client/conversation"
 	schapi "github.com/viant/agently/client/scheduler"
 	schcli "github.com/viant/agently/client/scheduler/store"
+	authctx "github.com/viant/agently/internal/auth"
 	"github.com/viant/agently/internal/codec"
 	chatimpl "github.com/viant/agently/internal/service/chat"
 	convintern "github.com/viant/agently/internal/service/conversation"
 	schedstore "github.com/viant/agently/internal/service/scheduler/store"
+	scyauth "github.com/viant/scy/auth"
+	"github.com/viant/scy/auth/authorizer"
 )
 
 // CRUD operations for schedules and runs are implemented in
@@ -32,6 +35,7 @@ type Service struct {
 
 	leaseOwner string
 	leaseTTL   time.Duration
+	authCfg    *authctx.Config
 }
 
 // New constructs a scheduler service requiring both a schedule store client and a chat client.
@@ -44,6 +48,9 @@ func New(sch schcli.Client, chat chatcli.Client) (schapi.Client, error) {
 	}
 	return &Service{sch: sch, chat: chat}, nil
 }
+
+// AttachAuthConfig sets auth configuration for OOB schedule runs.
+func (s *Service) AttachAuthConfig(cfg *authctx.Config) { s.authCfg = cfg }
 
 // NewFromEnv constructs a scheduler client using env-backed datly and wires
 // an internal chat service instance for optional orchestration.
@@ -113,6 +120,15 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 	}
 	if row == nil {
 		return fmt.Errorf("schedule not found")
+	}
+
+	// Optional: OOB auth for scheduled runs when user credentials are provided.
+	if row.UserCredURL != nil && strings.TrimSpace(*row.UserCredURL) != "" {
+		var err error
+		ctx, err = s.applyUserCred(ctx, strings.TrimSpace(*row.UserCredURL))
+		if err != nil {
+			return err
+		}
 	}
 
 	// Ensure required fields are set before persisting (status + conversationKind are required).
@@ -197,6 +213,58 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		go s.watchRunCompletion(aCtx, strings.TrimSpace(in.Id), schID, strings.TrimSpace(*in.ConversationId), row.TimeoutSeconds)
 	}
 	return nil
+}
+
+func (s *Service) applyUserCred(ctx context.Context, credRef string) (context.Context, error) {
+	if s == nil {
+		return ctx, fmt.Errorf("scheduler service not initialized")
+	}
+	if s.authCfg == nil || s.authCfg.OAuth == nil || s.authCfg.OAuth.Client == nil {
+		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth configuration")
+	}
+	mode := strings.ToLower(strings.TrimSpace(s.authCfg.OAuth.Mode))
+	if mode != "bff" {
+		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth.mode=bff")
+	}
+	cfgURL := strings.TrimSpace(s.authCfg.OAuth.Client.ConfigURL)
+	if cfgURL == "" {
+		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth.client.configURL")
+	}
+
+	cmd := &authorizer.Command{
+		AuthFlow:   "OOB",
+		UsePKCE:    true,
+		SecretsURL: credRef,
+		OAuthConfig: authorizer.OAuthConfig{
+			ConfigURL: cfgURL,
+		},
+	}
+	if scopes := s.authCfg.OAuth.Client.Scopes; len(scopes) > 0 {
+		cmd.Scopes = scopes
+	} else {
+		cmd.Scopes = []string{"openid"}
+	}
+	tok, err := authorizer.New().Authorize(ctx, cmd)
+	if err != nil {
+		return ctx, fmt.Errorf("schedule user_cred authorize failed: %w", err)
+	}
+	if tok == nil {
+		return ctx, fmt.Errorf("schedule user_cred authorize returned empty token")
+	}
+
+	st := &scyauth.Token{Token: *tok}
+	st.PopulateIDToken()
+	ctx = authctx.WithTokens(ctx, st)
+	if strings.TrimSpace(st.AccessToken) != "" {
+		ctx = authctx.WithBearer(ctx, st.AccessToken)
+	}
+	if strings.TrimSpace(st.IDToken) != "" {
+		ctx = authctx.WithIDToken(ctx, st.IDToken)
+		if ui, _ := authctx.DecodeUserInfo(st.IDToken); ui != nil {
+			ctx = authctx.WithUserInfo(ctx, ui)
+		}
+	}
+	return ctx, nil
 }
 
 func strPtrValue(p *string) string {

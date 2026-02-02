@@ -141,13 +141,6 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			if data == "[DONE]" {
 				break
 			}
-			// forward raw stream chunk to observer/persistence
-			if observer != nil && strings.TrimSpace(data) != "" {
-				if err := observer.OnStreamDelta(ctx, []byte(data+"\n")); err != nil {
-					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
-					return
-				}
-			}
 			var ch chunk
 			if err := json.Unmarshal([]byte(data), &ch); err != nil {
 				// tolerate unrecognized payloads
@@ -172,6 +165,12 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				}
 				if cch.Delta.Content != "" {
 					ac.content.WriteString(cch.Delta.Content)
+					if observer != nil {
+						if err := observer.OnStreamDelta(ctx, []byte(cch.Delta.Content)); err != nil {
+							events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
+							return
+						}
+					}
 				}
 				if cch.FinishReason != nil {
 					// finalize this choice

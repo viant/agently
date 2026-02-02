@@ -10,6 +10,7 @@ type Schedule struct {
 	Description     *string      `sqlx:"description" json:",omitempty"`
 	AgentRef        string       `sqlx:"agent_ref" validate:"required"`
 	ModelOverride   *string      `sqlx:"model_override" json:",omitempty"`
+	UserCredURL     *string      `sqlx:"user_cred_url" json:",omitempty"`
 	Enabled         bool         `sqlx:"enabled" `
 	StartAt         *time.Time   `sqlx:"start_at" json:",omitempty"`
 	EndAt           *time.Time   `sqlx:"end_at" json:",omitempty"`
@@ -41,6 +42,7 @@ type ScheduleHas struct {
 	Description     bool
 	AgentRef        bool
 	ModelOverride   bool
+	UserCredURL     bool
 	Enabled         bool
 	StartAt         bool
 	EndAt           bool
@@ -78,6 +80,11 @@ func (m *Schedule) SetModelOverride(v string) {
 	m.ModelOverride = &v
 	m.ensureHas()
 	m.Has.ModelOverride = true
+}
+func (m *Schedule) SetUserCredURL(v string) {
+	m.UserCredURL = &v
+	m.ensureHas()
+	m.Has.UserCredURL = true
 }
 func (m *Schedule) SetEnabled(v bool)      { m.Enabled = v; m.ensureHas(); m.Has.Enabled = true }
 func (m *Schedule) SetStartAt(v time.Time) { m.StartAt = &v; m.ensureHas(); m.Has.StartAt = true }

@@ -48,6 +48,7 @@ type ServeCmd struct {
 
 func (s *ServeCmd) Execute(_ []string) error {
 	applyRuntimeConfig()
+	log.Printf("[workspace] %s", workspace.Root())
 	// Construct shared MCP router and per-conversation manager before executor init
 	r := elicrouter.New()
 	prov := mcpmgr.NewRepoProvider()

@@ -6,14 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	conv "github.com/viant/agently/client/conversation"
+	"github.com/viant/scy/auth/authorizer"
+	"golang.org/x/oauth2"
 )
 
 // Client is a minimal HTTP SDK for Agently REST APIs.
@@ -59,10 +63,22 @@ func New(baseURL string, opts ...Option) *Client {
 // CreateConversation creates a new conversation.
 func (c *Client) CreateConversation(ctx context.Context, req *CreateConversationRequest) (*CreateConversationResponse, error) {
 	var resp CreateConversationResponse
-	if err := c.doJSON(ctx, http.MethodPost, "/v1/api/conversations", req, &resp); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/api/conversations", req, &resp); err == nil {
+		if strings.TrimSpace(resp.ID) != "" {
+			return &resp, nil
+		}
+	}
+	var wrapped struct {
+		Status string                      `json:"status"`
+		Data   *CreateConversationResponse `json:"data"`
+	}
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/api/conversations", req, &wrapped); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	if wrapped.Data == nil || strings.TrimSpace(wrapped.Data.ID) == "" {
+		return nil, fmt.Errorf("create conversation: empty response")
+	}
+	return wrapped.Data, nil
 }
 
 // ListConversations lists conversation summaries.
@@ -81,10 +97,22 @@ func (c *Client) PostMessage(ctx context.Context, conversationID string, req *Po
 	}
 	uri := fmt.Sprintf("/v1/api/conversations/%s/messages", url.PathEscape(conversationID))
 	var resp PostMessageResponse
-	if err := c.doJSON(ctx, http.MethodPost, uri, req, &resp); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, uri, req, &resp); err == nil {
+		if strings.TrimSpace(resp.ID) != "" {
+			return &resp, nil
+		}
+	}
+	var wrapped struct {
+		Status string               `json:"status"`
+		Data   *PostMessageResponse `json:"data"`
+	}
+	if err := c.doJSON(ctx, http.MethodPost, uri, req, &wrapped); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	if wrapped.Data == nil || strings.TrimSpace(wrapped.Data.ID) == "" {
+		return nil, fmt.Errorf("post message: empty response")
+	}
+	return wrapped.Data, nil
 }
 
 // GetMessages fetches a conversation transcript via GET /messages.
@@ -103,11 +131,77 @@ func (c *Client) GetMessages(ctx context.Context, conversationID string, since s
 	if err == nil && wrapped.Conversation != nil {
 		return wrapped.Conversation, nil
 	}
+	var wrappedData struct {
+		Status string             `json:"status"`
+		Data   *conv.Conversation `json:"data"`
+	}
+	if err2 := c.doJSON(ctx, http.MethodGet, uri, nil, &wrappedData); err2 == nil {
+		if wrappedData.Data != nil {
+			return wrappedData.Data, nil
+		}
+	}
 	var convo conv.Conversation
-	if err2 := c.doJSON(ctx, http.MethodGet, uri, nil, &convo); err2 == nil {
+	if err3 := c.doJSON(ctx, http.MethodGet, uri, nil, &convo); err3 == nil {
 		return &convo, nil
 	}
 	return nil, err
+}
+
+// ListPendingElicitations scans the transcript and returns active elicitation requests.
+func (c *Client) ListPendingElicitations(ctx context.Context, conversationID string) ([]*Elicitation, error) {
+	if strings.TrimSpace(conversationID) == "" {
+		return nil, fmt.Errorf("conversationID is required")
+	}
+	convView, err := c.GetMessages(ctx, conversationID, "")
+	if err != nil {
+		return nil, err
+	}
+	if convView == nil {
+		return nil, nil
+	}
+	var out []*Elicitation
+	for _, turn := range convView.Transcript {
+		if turn == nil {
+			continue
+		}
+		for _, msg := range turn.Message {
+			if msg == nil {
+				continue
+			}
+			cmsg := conv.Message(*msg)
+			if !IsElicitationPending(&cmsg) {
+				continue
+			}
+			if el := ElicitationFromMessage(conversationID, &cmsg); el != nil {
+				out = append(out, el)
+			}
+		}
+	}
+	return out, nil
+}
+
+// ResolveElicitation posts an accept/decline action for an elicitation request.
+func (c *Client) ResolveElicitation(ctx context.Context, conversationID, elicitationID, action string, payload map[string]interface{}, reason string) error {
+	if strings.TrimSpace(conversationID) == "" {
+		return fmt.Errorf("conversationID is required")
+	}
+	if strings.TrimSpace(elicitationID) == "" {
+		return fmt.Errorf("elicitationID is required")
+	}
+	if strings.TrimSpace(action) == "" {
+		return fmt.Errorf("action is required")
+	}
+	uri := fmt.Sprintf("/v1/api/conversations/%s/elicitation/%s", url.PathEscape(conversationID), url.PathEscape(elicitationID))
+	body := map[string]interface{}{
+		"action": action,
+	}
+	if payload != nil {
+		body["payload"] = payload
+	}
+	if strings.TrimSpace(reason) != "" {
+		body["reason"] = reason
+	}
+	return c.doJSON(ctx, http.MethodPost, uri, body, nil)
 }
 
 // GetMessagesWithOptions fetches messages with extended query options.
@@ -148,6 +242,11 @@ func (c *Client) GetMessagesWithOptions(ctx context.Context, conversationID stri
 // StreamEvents opens an SSE stream to /events and emits envelopes and deltas.
 // The caller should cancel ctx to stop the stream.
 func (c *Client) StreamEvents(ctx context.Context, conversationID string, since string, include []string) (<-chan *StreamEventEnvelope, <-chan error, error) {
+	return c.StreamEventsWithOptions(ctx, conversationID, since, include, false)
+}
+
+// StreamEventsWithOptions opens an SSE stream with additional query options.
+func (c *Client) StreamEventsWithOptions(ctx context.Context, conversationID string, since string, include []string, includeHistory bool) (<-chan *StreamEventEnvelope, <-chan error, error) {
 	if strings.TrimSpace(conversationID) == "" {
 		return nil, nil, fmt.Errorf("conversationID is required")
 	}
@@ -157,6 +256,9 @@ func (c *Client) StreamEvents(ctx context.Context, conversationID string, since 
 	}
 	if len(include) > 0 {
 		qs = append(qs, "include="+url.QueryEscape(strings.Join(include, ",")))
+	}
+	if includeHistory {
+		qs = append(qs, "history=1")
 	}
 	uri := fmt.Sprintf("/v1/api/conversations/%s/events", url.PathEscape(conversationID))
 	if len(qs) > 0 {
@@ -387,10 +489,179 @@ func (c *Client) AuthLocalLogin(ctx context.Context, name string) error {
 // AuthOAuthInitiate returns an auth URL for BFF OAuth flows.
 func (c *Client) AuthOAuthInitiate(ctx context.Context) (*OAuthInitiateResponse, error) {
 	var out OAuthInitiateResponse
-	if err := c.doJSON(ctx, http.MethodPost, "/v1/api/auth/oauth/initiate", map[string]string{}, &out); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/api/auth/oauth/initiate", map[string]string{}, &out); err == nil {
+		if strings.TrimSpace(out.AuthURL) != "" {
+			return &out, nil
+		}
+	}
+	// fallback for wrapped response {status, data:{authURL}}
+	var wrapped struct {
+		Status string                 `json:"status"`
+		Data   *OAuthInitiateResponse `json:"data"`
+	}
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/api/auth/oauth/initiate", map[string]string{}, &wrapped); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	if wrapped.Data != nil {
+		return wrapped.Data, nil
+	}
+	return nil, fmt.Errorf("oauth initiate returned empty auth URL")
+}
+
+// AuthOAuthConfig fetches server OAuth config (ConfigURL and scopes).
+func (c *Client) AuthOAuthConfig(ctx context.Context) (*OAuthConfigResponse, error) {
+	var out OAuthConfigResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/api/auth/oauth/config", nil, &out); err == nil {
+		if strings.TrimSpace(out.ConfigURL) != "" {
+			return &out, nil
+		}
+	}
+	var wrapped struct {
+		Status string               `json:"status"`
+		Data   *OAuthConfigResponse `json:"data"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/api/auth/oauth/config", nil, &wrapped); err != nil {
+		return nil, err
+	}
+	if wrapped.Data != nil && strings.TrimSpace(wrapped.Data.ConfigURL) != "" {
+		return wrapped.Data, nil
+	}
+	return nil, fmt.Errorf("oauth config not available")
+}
+
+// AuthSessionExchange posts a bearer id_token to /v1/api/auth/session and expects a session cookie.
+func (c *Client) AuthSessionExchange(ctx context.Context, idToken string) error {
+	if strings.TrimSpace(idToken) == "" {
+		return fmt.Errorf("id token is required")
+	}
+	req, err := c.newRequest(ctx, http.MethodPost, "/v1/api/auth/session", map[string]string{})
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(idToken))
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		b, _ := io.ReadAll(resp.Body)
+		return &HTTPError{StatusCode: resp.StatusCode, Status: resp.Status, Body: strings.TrimSpace(string(b))}
+	}
+	return nil
+}
+
+// AuthBrowserSession performs browser OAuth (PKCE) on the client, then exchanges id_token for a session cookie.
+func (c *Client) AuthBrowserSession(ctx context.Context) error {
+	cfg, err := c.AuthOAuthConfig(ctx)
+	if err != nil {
+		return err
+	}
+	cmd := &authorizer.Command{
+		AuthFlow: "BrowserFlow",
+		UsePKCE:  true,
+		OAuthConfig: authorizer.OAuthConfig{
+			ConfigURL: strings.TrimSpace(cfg.ConfigURL),
+		},
+	}
+	if cfg.Scopes != nil && len(cfg.Scopes) > 0 {
+		cmd.Scopes = cfg.Scopes
+	} else {
+		cmd.Scopes = []string{"openid"}
+	}
+	tok, err := authorizer.New().Authorize(ctx, cmd)
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		return fmt.Errorf("oauth authorize returned empty token")
+	}
+	var idToken string
+	if raw := tok.Extra("id_token"); raw != nil {
+		if v, ok := raw.(string); ok {
+			idToken = v
+		}
+	}
+	if strings.TrimSpace(idToken) == "" {
+		return fmt.Errorf("id_token missing from oauth response")
+	}
+	return c.AuthSessionExchange(ctx, idToken)
+}
+
+// AuthOOBLogin performs an out-of-band OAuth login using scy and installs a token provider.
+// It prefers id_token when available; otherwise it falls back to access_token.
+// The provider refreshes the token when expired if a refresh token is present.
+func (c *Client) AuthOOBLogin(ctx context.Context, configURL, secretsURL string, scopes []string) (*oauth2.Token, error) {
+	if strings.TrimSpace(configURL) == "" {
+		return nil, fmt.Errorf("configURL is required")
+	}
+	if strings.TrimSpace(secretsURL) == "" {
+		return nil, fmt.Errorf("secretsURL is required")
+	}
+	cmd := &authorizer.Command{
+		AuthFlow:   "OOB",
+		UsePKCE:    true,
+		SecretsURL: strings.TrimSpace(secretsURL),
+		OAuthConfig: authorizer.OAuthConfig{
+			ConfigURL: strings.TrimSpace(configURL),
+		},
+	}
+	if len(scopes) > 0 {
+		cmd.Scopes = scopes
+	} else {
+		cmd.Scopes = []string{"openid"}
+	}
+	svc := authorizer.New()
+	tok, err := svc.Authorize(ctx, cmd)
+	if err != nil {
+		return nil, err
+	}
+	if tok == nil {
+		return nil, fmt.Errorf("oauth token was nil")
+	}
+	// Capture for refresh within the provider.
+	var mu sync.Mutex
+	setBearerFromToken := func(t *oauth2.Token) string {
+		if t == nil {
+			return ""
+		}
+		if v := t.Extra("id_token"); v != nil {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				return strings.TrimSpace(s)
+			}
+		}
+		return strings.TrimSpace(t.AccessToken)
+	}
+	bearer := setBearerFromToken(tok)
+	c.tokenProvider = func(reqCtx context.Context) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if tok != nil && tok.RefreshToken != "" && !tok.Expiry.IsZero() && time.Now().After(tok.Expiry.Add(-10*time.Second)) {
+			refreshed, rerr := svc.RefreshToken(reqCtx, tok, &authorizer.OAuthConfig{ConfigURL: cmd.ConfigURL})
+			if rerr == nil && refreshed != nil {
+				if refreshed.RefreshToken == "" {
+					refreshed.RefreshToken = tok.RefreshToken
+				}
+				tok = refreshed
+				bearer = setBearerFromToken(tok)
+			}
+		}
+		return bearer, nil
+	}
+	return tok, nil
+}
+
+// AuthOOBSession performs server-side OOB login and establishes a session cookie.
+// It requires a BFF-capable server with /v1/api/auth/oob enabled.
+func (c *Client) AuthOOBSession(ctx context.Context, secretsURL string, scopes []string) error {
+	if strings.TrimSpace(secretsURL) == "" {
+		return fmt.Errorf("secretsURL is required")
+	}
+	req := &OOBRequest{SecretsURL: strings.TrimSpace(secretsURL)}
+	if len(scopes) > 0 {
+		req.Scopes = scopes
+	}
+	return c.doJSON(ctx, http.MethodPost, "/v1/api/auth/oob", req, nil)
 }
 
 // NewMessageBuffer creates a message buffer for delta reconciliation.
@@ -410,24 +681,101 @@ func (b *MessageBuffer) ApplyEvent(ev *StreamEventEnvelope) (string, string, boo
 	}
 	text := b.ByMessageID[msgID]
 	if ev.Content != nil {
-		if delta, ok := ev.Content["delta"].(string); ok && delta != "" {
-			text += delta
+		if t, appendDelta, ok := extractStreamText(ev.Content); ok {
+			if appendDelta {
+				text += t
+			} else {
+				text = t
+			}
 			b.ByMessageID[msgID] = text
 			return msgID, text, true
 		}
-		if t, ok := ev.Content["text"].(string); ok && t != "" {
-			text = t
-			b.ByMessageID[msgID] = text
-			return msgID, text, true
-		}
+		// When provider stream content is present, avoid falling back to raw message content.
+		return "", "", false
 	}
-	// Fallback to message content when present.
-	if ev.Message.Content != nil && strings.TrimSpace(*ev.Message.Content) != "" {
-		text = strings.TrimSpace(*ev.Message.Content)
-		b.ByMessageID[msgID] = text
-		return msgID, text, true
+	// Some providers embed raw stream JSON in message content.
+	if ev.Message.Content != nil {
+		raw := strings.TrimSpace(*ev.Message.Content)
+		if strings.HasPrefix(raw, "{") {
+			if t, appendDelta, ok := extractStreamTextJSON(raw); ok {
+				if appendDelta {
+					text += t
+				} else {
+					text = t
+				}
+				b.ByMessageID[msgID] = text
+				return msgID, text, true
+			}
+			// Looks like a provider stream payload; suppress raw JSON output.
+			if strings.Contains(raw, "\"type\"") && (strings.Contains(raw, "\"response.") || strings.Contains(raw, "\"content_block_") || strings.Contains(raw, "\"message_") || strings.Contains(raw, "\"response_")) {
+				return "", "", false
+			}
+		}
+		if raw != "" {
+			text = raw
+			b.ByMessageID[msgID] = text
+			return msgID, text, true
+		}
 	}
 	return "", "", false
+}
+
+func extractStreamTextJSON(raw string) (string, bool, bool) {
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return "", false, false
+	}
+	return extractStreamText(payload)
+}
+
+func extractStreamText(content map[string]interface{}) (string, bool, bool) {
+	if content == nil {
+		return "", false, false
+	}
+	if typ, ok := content["type"].(string); ok {
+		tt := strings.TrimSpace(typ)
+		// OpenAI Responses stream events
+		if strings.HasPrefix(tt, "response.") {
+			switch tt {
+			case "response.output_text.delta":
+				if d, ok := content["delta"].(string); ok && d != "" {
+					return d, true, true
+				}
+			case "response.output_text":
+				if t, ok := content["text"].(string); ok && t != "" {
+					return t, false, true
+				}
+			default:
+				// ignore non-text response.* events
+				return "", false, false
+			}
+		}
+		switch strings.TrimSpace(typ) {
+		case "content_block_delta":
+			if d, ok := content["delta"].(map[string]interface{}); ok {
+				if dt, ok := d["type"].(string); ok && strings.TrimSpace(dt) == "text_delta" {
+					if t, ok := d["text"].(string); ok && t != "" {
+						return t, true, true
+					}
+				}
+			}
+		case "content_block_start":
+			if cb, ok := content["content_block"].(map[string]interface{}); ok {
+				if ct, ok := cb["type"].(string); ok && strings.TrimSpace(ct) == "text" {
+					if t, ok := cb["text"].(string); ok && t != "" {
+						return t, true, true
+					}
+				}
+			}
+		}
+	}
+	if delta, ok := content["delta"].(string); ok && delta != "" {
+		return delta, true, true
+	}
+	if t, ok := content["text"].(string); ok && t != "" {
+		return t, false, true
+	}
+	return "", false, false
 }
 
 // ReconcileFromTranscript replaces buffered text with final assistant messages.
@@ -488,6 +836,7 @@ func (c *Client) doJSON(ctx context.Context, method, uri string, in, out interfa
 			b, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			herr := &HTTPError{StatusCode: resp.StatusCode, Status: resp.Status, Body: strings.TrimSpace(string(b))}
+			log.Printf("sdk: request failed (method=%s uri=%s status=%d body=%q)", method, uri, resp.StatusCode, herr.Body)
 			lastErr = herr
 			if !c.shouldRetry(method, resp.StatusCode, herr) || attempt == attempts {
 				return herr
@@ -592,6 +941,18 @@ func readSSE(ctx context.Context, r io.Reader, out chan<- *StreamEventEnvelope) 
 					if len(data) > 0 {
 						var env StreamEventEnvelope
 						if jerr := json.Unmarshal(data, &env); jerr == nil {
+							env.Event = strings.TrimSpace(event)
+							if strings.EqualFold(env.Event, "delta") && env.Content == nil && env.Message != nil && env.Message.Content != nil {
+								raw := strings.TrimSpace(*env.Message.Content)
+								if strings.HasPrefix(raw, "{") {
+									var payload map[string]interface{}
+									if perr := json.Unmarshal([]byte(raw), &payload); perr == nil {
+										env.Content = payload
+										env.ContentType = "application/json"
+										env.Message.Content = nil
+									}
+								}
+							}
 							out <- &env
 						}
 					}

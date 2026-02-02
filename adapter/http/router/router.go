@@ -194,6 +194,9 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR
 		if err != nil {
 			return nil, err
 		}
+		if svc, ok := orch.(*schsvc.Service); ok {
+			svc.AttachAuthConfig(authCfg)
+		}
 		schedulerStore = client
 		schedulerOrch = orch
 	}

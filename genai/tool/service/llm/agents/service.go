@@ -100,6 +100,12 @@ func (s *Service) Methods() svc.Signatures {
 			Output:      reflect.TypeOf(&ListOutput{}),
 		},
 		{
+			Name:        "me",
+			Description: "Return conversation id, agent name, and model used for the current context",
+			Input:       reflect.TypeOf(&struct{}{}),
+			Output:      reflect.TypeOf(&MeOutput{}),
+		},
+		{
 			Name:        "run",
 			Description: "Run an agent by id with an objective and optional context",
 			Input:       reflect.TypeOf(&RunInput{}),
@@ -113,6 +119,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 	switch strings.ToLower(name) {
 	case "list":
 		return s.list, nil
+	case "me":
+		return s.me, nil
 	case "run":
 		return s.run, nil
 	default:
@@ -133,6 +141,34 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		return nil
 	}
 	lo.Items = nil
+	return nil
+}
+
+// me returns the current conversation id, agent name, and model used (best-effort).
+func (s *Service) me(ctx context.Context, in, out interface{}) error {
+	mo, ok := out.(*MeOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	mo.ConversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	// Best-effort: load conversation to get agent id + model
+	if s.conv != nil && mo.ConversationID != "" {
+		if c, err := s.conv.GetConversation(ctx, mo.ConversationID); err == nil && c != nil {
+			if c.AgentId != nil && strings.TrimSpace(*c.AgentId) != "" {
+				if s.agent != nil && s.agent.Finder() != nil {
+					if ag, err := s.agent.Finder().Find(ctx, strings.TrimSpace(*c.AgentId)); err == nil && ag != nil && ag.Profile != nil {
+						mo.AgentName = strings.TrimSpace(ag.Profile.Name)
+					}
+				}
+				if mo.AgentName == "" {
+					mo.AgentName = strings.TrimSpace(*c.AgentId)
+				}
+			}
+			if c.DefaultModel != nil && strings.TrimSpace(*c.DefaultModel) != "" {
+				mo.Model = strings.TrimSpace(*c.DefaultModel)
+			}
+		}
+	}
 	return nil
 }
 

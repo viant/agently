@@ -1,6 +1,10 @@
 package sdk
 
-import conv "github.com/viant/agently/client/conversation"
+import (
+	"time"
+
+	conv "github.com/viant/agently/client/conversation"
+)
 
 // CreateConversationRequest mirrors POST /v1/api/conversations.
 type CreateConversationRequest struct {
@@ -58,7 +62,9 @@ type PostMessageRequest struct {
 
 // PostMessageResponse is a minimal wrapper for message id.
 type PostMessageResponse struct {
-	ID string `json:"id"`
+	ID             string `json:"id"`
+	TurnID         string `json:"turnId,omitempty"`
+	ConversationID string `json:"conversationId,omitempty"`
 }
 
 // UploadedAttachment mirrors staged upload descriptor for message attachments.
@@ -111,6 +117,18 @@ type OAuthInitiateResponse struct {
 	AuthURL string `json:"authURL"`
 }
 
+// OAuthConfigResponse mirrors /v1/api/auth/oauth/config.
+type OAuthConfigResponse struct {
+	ConfigURL string   `json:"configURL"`
+	Scopes    []string `json:"scopes,omitempty"`
+}
+
+// OOBRequest mirrors /v1/api/auth/oob request payload.
+type OOBRequest struct {
+	SecretsURL string   `json:"secretsURL"`
+	Scopes     []string `json:"scopes,omitempty"`
+}
+
 // StreamEventEnvelope mirrors the server /events envelope.
 type StreamEventEnvelope struct {
 	Seq            uint64                 `json:"seq"`
@@ -119,6 +137,7 @@ type StreamEventEnvelope struct {
 	Message        *conv.Message          `json:"message"`
 	ContentType    string                 `json:"contentType,omitempty"`
 	Content        map[string]interface{} `json:"content,omitempty"`
+	Event          string                 `json:"-"`
 }
 
 // ChatTurnUpdate carries merged output for a message.
@@ -132,6 +151,18 @@ type ChatTurnUpdate struct {
 type PollResponse struct {
 	Events []*StreamEventEnvelope `json:"events"`
 	Since  string                 `json:"since,omitempty"`
+}
+
+// Elicitation represents a pending elicitation request surfaced by the API.
+type Elicitation struct {
+	ConversationID string                 `json:"conversationId,omitempty"`
+	MessageID      string                 `json:"messageId,omitempty"`
+	ElicitationID  string                 `json:"elicitationId,omitempty"`
+	Role           string                 `json:"role,omitempty"`
+	Status         string                 `json:"status,omitempty"`
+	CreatedAt      time.Time              `json:"createdAt,omitempty"`
+	Content        string                 `json:"content,omitempty"`
+	Request        map[string]interface{} `json:"request,omitempty"`
 }
 
 // MessageBuffer accumulates assistant deltas and reconciles with final messages.

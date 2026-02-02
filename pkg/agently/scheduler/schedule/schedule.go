@@ -56,6 +56,7 @@ type ScheduleView struct {
 	LeaseOwner      *string    `sqlx:"lease_owner"`
 	LeaseUntil      *time.Time `sqlx:"lease_until"`
 	ModelOverride   *string    `sqlx:"model_override"`
+	UserCredURL     *string    `sqlx:"user_cred_url"`
 	Name            string     `sqlx:"name"`
 	NextRunAt       *time.Time `sqlx:"next_run_at"`
 	ScheduleType    string     `sqlx:"schedule_type"`
