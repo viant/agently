@@ -155,6 +155,16 @@ func (c *ChatCmd) Execute(_ []string) error {
 
 	var outputOpen bool
 	var lastElicitationPayload map[string]interface{}
+	var queryLog io.Writer
+	if c.Query != "" {
+		logDir := filepath.Join(workspace.Root(), "cli", "logs")
+		_ = os.MkdirAll(logDir, 0o700)
+		logPath := filepath.Join(logDir, "last_query.log")
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600); err == nil {
+			queryLog = f
+			fmt.Fprintf(queryLog, "[query] %s\n", time.Now().Format(time.RFC3339))
+		}
+	}
 	callChat := func(userQuery string) error {
 		ctx := ctxBase
 		if c.Timeout > 0 {
@@ -208,7 +218,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 			}
 		}
 		outputOpen = false
-		if err := streamConversationTurn(ctx, client, convID, msgID, userQuery, !c.Stream, elicitationDefault, postStart, lastAssistant, &outputOpen, &lastElicitationPayload); err != nil {
+		if err := streamConversationTurn(ctx, client, convID, msgID, userQuery, !c.Stream, elicitationDefault, postStart, lastAssistant, &outputOpen, &lastElicitationPayload, queryLog); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 				fmt.Println("[no response] - timeout")
 				return nil
@@ -222,6 +232,9 @@ func (c *ChatCmd) Execute(_ []string) error {
 	if c.Query != "" {
 		if err := callChat(c.Query); err != nil {
 			return err
+		}
+		if c, ok := queryLog.(io.Closer); ok && c != nil {
+			_ = c.Close()
 		}
 		if outputOpen {
 			fmt.Print("\n")
@@ -293,7 +306,7 @@ func cliCookieJar() http.CookieJar {
 	return fallback
 }
 
-func streamConversationTurn(ctx context.Context, client *sdk.Client, convID string, msgID string, userQuery string, allowFallback bool, elicitationDefault map[string]interface{}, postStart time.Time, lastAssistant string, outputOpen *bool, lastElicitationPayload *map[string]interface{}) error {
+func streamConversationTurn(ctx context.Context, client *sdk.Client, convID string, msgID string, userQuery string, allowFallback bool, elicitationDefault map[string]interface{}, postStart time.Time, lastAssistant string, outputOpen *bool, lastElicitationPayload *map[string]interface{}, logw io.Writer) error {
 	since := ""
 	if strings.TrimSpace(msgID) != "" {
 		since = strings.TrimSpace(msgID)
@@ -305,6 +318,7 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 	seenAssistant := false
 	lineOpen := false
 	handledElicitations := map[string]struct{}{}
+	activeElicitationTurns := map[string]struct{}{}
 	lastPrinted := map[string]string{}
 	lastOutputText := ""
 	var lastOutputAt time.Time
@@ -348,7 +362,7 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 			return fallback.C
 		}():
 			if !seenAssistant {
-				return streamConversationPoll(ctx, client, convID, msgID, elicitationDefault, postStart, lastAssistant, outputOpen, lastElicitationPayload)
+				return streamConversationPoll(ctx, client, convID, msgID, elicitationDefault, postStart, lastAssistant, outputOpen, lastElicitationPayload, logw)
 			}
 		case ev, ok := <-events:
 			if !ok {
@@ -364,10 +378,15 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 			if ev == nil {
 				continue
 			}
+			logTurnEvent(logw, ev)
 			switch ev.Type {
 			case sdk.TurnEventElicitation:
 				if ev.Elicitation == nil || strings.TrimSpace(ev.Elicitation.ElicitationID) == "" {
 					continue
+				}
+				logElicitationEvent(logw, ev)
+				if tid := strings.TrimSpace(ev.TurnID); tid != "" {
+					activeElicitationTurns[tid] = struct{}{}
 				}
 				if _, ok := handledElicitations[ev.Elicitation.ElicitationID]; ok {
 					continue
@@ -376,6 +395,9 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 				if err := resolveElicitation(ctx, client, ev.ConversationID, ev.Elicitation, elicitationDefault, lastElicitationPayload); err != nil {
 					return err
 				}
+				if tid := strings.TrimSpace(ev.TurnID); tid != "" {
+					delete(activeElicitationTurns, tid)
+				}
 				continue
 			case sdk.TurnEventTool:
 				phase := strings.TrimSpace(ev.ToolPhase)
@@ -383,6 +405,9 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 					phase = "event"
 				}
 				fmt.Printf("\n[tool] %s %s\n", phase, strings.TrimSpace(ev.ToolName))
+				if logw != nil {
+					fmt.Fprintf(logw, "tool phase=%s name=%s\n", phase, strings.TrimSpace(ev.ToolName))
+				}
 				continue
 			case sdk.TurnEventDelta:
 				// proceed
@@ -398,6 +423,11 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 			}
 			if activeTurnID != "" && strings.TrimSpace(ev.TurnID) != "" && strings.TrimSpace(ev.TurnID) != activeTurnID {
 				continue
+			}
+			if tid := strings.TrimSpace(ev.TurnID); tid != "" {
+				if _, ok := activeElicitationTurns[tid]; ok {
+					continue
+				}
 			}
 			text := ev.TextFull
 			if strings.TrimSpace(text) == "" {
@@ -454,8 +484,11 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 			if !ok {
 				continue
 			}
-			if status != "" {
+			if status != "" && !seenAssistant && !hadOutput {
 				renderStatus(&lastStatus, &statusStart, status)
+			}
+			if logw != nil && status != "" {
+				fmt.Fprintf(logw, "status=%s\n", status)
 			}
 			if status == "failed" {
 				if strings.TrimSpace(errMsg) != "" {
@@ -565,7 +598,7 @@ func streamConversation(ctx context.Context, client *sdk.Client, convID string, 
 			return fallback.C
 		}():
 			if !seenAssistant {
-				return streamConversationPoll(ctx, client, convID, msgID, elicitationDefault, postStart, lastAssistant, outputOpen, lastElicitationPayload)
+				return streamConversationPoll(ctx, client, convID, msgID, elicitationDefault, postStart, lastAssistant, outputOpen, lastElicitationPayload, nil)
 			}
 		case ev, ok := <-events:
 			if !ok {
@@ -604,7 +637,7 @@ func streamConversation(ctx context.Context, client *sdk.Client, convID string, 
 						continue
 					}
 				}
-				if strings.EqualFold(ev.Event, "delta") {
+				if ev.Event.IsDelta() {
 					msgID, text, changed := buf.ApplyEvent(ev)
 					if changed && strings.TrimSpace(text) != "" {
 						if looksLikeProviderJSON(text) {
@@ -874,7 +907,7 @@ func streamConversation(ctx context.Context, client *sdk.Client, convID string, 
 	}
 }
 
-func streamConversationPoll(ctx context.Context, client *sdk.Client, convID string, msgID string, elicitationDefault map[string]interface{}, postStart time.Time, lastAssistant string, outputOpen *bool, lastElicitationPayload *map[string]interface{}) error {
+func streamConversationPoll(ctx context.Context, client *sdk.Client, convID string, msgID string, elicitationDefault map[string]interface{}, postStart time.Time, lastAssistant string, outputOpen *bool, lastElicitationPayload *map[string]interface{}, logw io.Writer) error {
 	buf := sdk.NewMessageBuffer()
 	seenAssistant := false
 	lineOpen := false
@@ -921,6 +954,9 @@ func streamConversationPoll(ctx context.Context, client *sdk.Client, convID stri
 			for _, ev := range resp.Events {
 				if ev == nil || ev.Message == nil {
 					continue
+				}
+				if logw != nil && ev.Event != "" {
+					fmt.Fprintf(logw, "poll event=%s msg=%s\n", ev.Event, ev.Message.Id)
 				}
 				if err := maybeResolveElicitation(ctx, client, ev, handledElicitations, elicitationDefault, lastElicitationPayload); err != nil {
 					return err
@@ -1770,6 +1806,32 @@ func mergePayload(dst *map[string]interface{}, payload map[string]interface{}) {
 	}
 	for k, v := range payload {
 		(*dst)[k] = v
+	}
+}
+
+func logTurnEvent(w io.Writer, ev *sdk.TurnEvent) {
+	if w == nil || ev == nil {
+		return
+	}
+	fmt.Fprintf(w, "event=%s turn=%s msg=%s role=%s\n", ev.Type, ev.TurnID, ev.MessageID, ev.Role)
+	if ev.Type == sdk.TurnEventDelta && strings.TrimSpace(ev.Text) != "" {
+		snippet := ev.Text
+		if len(snippet) > 80 {
+			snippet = snippet[len(snippet)-80:]
+		}
+		fmt.Fprintf(w, "delta len=%d tail=%q\n", len(ev.Text), snippet)
+	}
+}
+
+func logElicitationEvent(w io.Writer, ev *sdk.TurnEvent) {
+	if w == nil || ev == nil || ev.Elicitation == nil {
+		return
+	}
+	fmt.Fprintf(w, "elicitation id=%s\n", ev.Elicitation.ElicitationID)
+	if len(ev.Elicitation.Request) > 0 {
+		if b, err := json.Marshal(ev.Elicitation.Request); err == nil {
+			fmt.Fprintf(w, "elicitation request=%s\n", string(b))
+		}
 	}
 }
 

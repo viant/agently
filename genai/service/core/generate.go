@@ -447,7 +447,9 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	// Attach finish barrier to upstream ctx so recorder observer can signal completion (payload ids, usage).
 	ctx, _ = modelcallctx.WithFinishBarrier(ctx)
 	if s.streamPub != nil {
-		ctx = modelcallctx.WithStreamPublisher(ctx, s.streamPub)
+		if input == nil || input.Options == nil || strings.ToLower(strings.TrimSpace(input.Options.Mode)) != "plan" {
+			ctx = modelcallctx.WithStreamPublisher(ctx, s.streamPub)
+		}
 	}
 	// Retry transient connectivity/network errors up to 3 attempts with
 	// 1s initial delay and exponential backoff (1s, 2s, 4s). Additionally,

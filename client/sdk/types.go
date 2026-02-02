@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"strings"
 	"time"
 
 	conv "github.com/viant/agently/client/conversation"
@@ -137,7 +138,24 @@ type StreamEventEnvelope struct {
 	Message        *conv.Message          `json:"message"`
 	ContentType    string                 `json:"contentType,omitempty"`
 	Content        map[string]interface{} `json:"content,omitempty"`
-	Event          string                 `json:"-"`
+	Event          StreamEventType        `json:"-"`
+}
+
+type StreamEventType string
+
+const (
+	StreamEventMessage     StreamEventType = "message"
+	StreamEventDelta       StreamEventType = "delta"
+	StreamEventElicitation StreamEventType = "elicitation"
+	StreamEventError       StreamEventType = "error"
+)
+
+func (e StreamEventType) IsDelta() bool { return e.normalize() == StreamEventDelta }
+
+func (e StreamEventType) IsElicitation() bool { return e.normalize() == StreamEventElicitation }
+
+func (e StreamEventType) normalize() StreamEventType {
+	return StreamEventType(strings.ToLower(strings.TrimSpace(string(e))))
 }
 
 // ChatTurnUpdate carries merged output for a message.

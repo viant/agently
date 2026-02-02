@@ -296,6 +296,9 @@ func (o *recorderObserver) publishStreamDelta(ctx context.Context, data []byte) 
 	if !ok {
 		return
 	}
+	if looksLikeElicitationDelta(data) {
+		return
+	}
 	convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
 	if convID == "" {
 		return
@@ -332,6 +335,26 @@ func (o *recorderObserver) publishStreamDelta(ctx context.Context, data []byte) 
 		ContentType:    "application/json",
 		Content:        content,
 	})
+}
+
+func looksLikeElicitationDelta(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	raw := strings.ToLower(strings.TrimSpace(string(data)))
+	if raw == "" {
+		return false
+	}
+	if strings.HasPrefix(raw, "```json") {
+		return true
+	}
+	if strings.Contains(raw, "\"requestedSchema\"") && strings.Contains(raw, "\"type\"") && strings.Contains(raw, "elicitation") {
+		return true
+	}
+	if strings.Contains(raw, "\"type\"") && strings.Contains(raw, "elicitation") && strings.HasPrefix(raw, "{") {
+		return true
+	}
+	return false
 }
 
 // WithRecorderObserver injects a recorder-backed Observer into context.

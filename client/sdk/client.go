@@ -941,8 +941,8 @@ func readSSE(ctx context.Context, r io.Reader, out chan<- *StreamEventEnvelope) 
 					if len(data) > 0 {
 						var env StreamEventEnvelope
 						if jerr := json.Unmarshal(data, &env); jerr == nil {
-							env.Event = strings.TrimSpace(event)
-							if strings.EqualFold(env.Event, "delta") && env.Content == nil && env.Message != nil && env.Message.Content != nil {
+							env.Event = StreamEventType(strings.ToLower(strings.TrimSpace(event)))
+							if env.Event.IsDelta() && env.Content == nil && env.Message != nil && env.Message.Content != nil {
 								raw := strings.TrimSpace(*env.Message.Content)
 								if strings.HasPrefix(raw, "{") {
 									var payload map[string]interface{}
