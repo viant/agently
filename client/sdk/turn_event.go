@@ -60,7 +60,7 @@ func (c *Client) StreamTurnEvents(ctx context.Context, conversationID string, si
 				if ev == nil || ev.Message == nil {
 					continue
 				}
-				if IsElicitationPending(ev.Message) {
+				if ev.Event.IsElicitation() || IsElicitationPending(ev.Message) {
 					if el := ElicitationFromEvent(ev); el != nil {
 						out <- &TurnEvent{
 							Type:           TurnEventElicitation,
@@ -93,6 +93,9 @@ func (c *Client) StreamTurnEvents(ctx context.Context, conversationID string, si
 				}
 				msgID, text, changed := buf.ApplyEvent(ev)
 				if !changed || strings.TrimSpace(text) == "" {
+					continue
+				}
+				if strings.TrimSpace(text) == "" {
 					continue
 				}
 				prev := lastByMsg[msgID]

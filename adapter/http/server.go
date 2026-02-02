@@ -741,7 +741,7 @@ func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request
 			if ev == nil {
 				continue
 			}
-			if isElicitationMessageView(ev.Message) {
+			if isElicitationStreamEvent(ev) {
 				continue
 			}
 			env := &streamMessageEnvelope{
@@ -823,7 +823,11 @@ func (s *Server) handleConversationEvents(w http.ResponseWriter, r *http.Request
 					env.ContentType = ctype
 					env.Content = content
 				}
-				if err := writeSSEEvent(w, flusher, "message", strconv.FormatUint(seq, 10), env); err != nil {
+				eventName := "message"
+				if strings.EqualFold(strings.TrimSpace(env.ContentType), "application/elicitation+json") {
+					eventName = "elicitation"
+				}
+				if err := writeSSEEvent(w, flusher, eventName, strconv.FormatUint(seq, 10), env); err != nil {
 					return
 				}
 				lastSeenSeq = seq
@@ -1019,6 +1023,81 @@ func shouldSuppressAssistantMessage(m *agconv.MessageView, turnElicitation map[s
 	return ok
 }
 
+func isElicitationStreamEvent(ev *modelcallctx.StreamEvent) bool {
+	if ev == nil || ev.Message == nil {
+		return false
+	}
+	if isElicitationMessageView(ev.Message) {
+		return true
+	}
+	raw := ""
+	if ev.Message.Content != nil {
+		raw = strings.TrimSpace(*ev.Message.Content)
+	}
+	if raw == "" && ev.Message.RawContent != nil {
+		raw = strings.TrimSpace(*ev.Message.RawContent)
+	}
+	if looksLikeElicitationStream(raw) {
+		return true
+	}
+	if s, ok := ev.Content.(string); ok {
+		if looksLikeElicitationStream(s) {
+			return true
+		}
+	}
+	if m, ok := ev.Content.(map[string]interface{}); ok {
+		if containsElicitationText(m) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeElicitationStream(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	if strings.Contains(raw, "```") && strings.Contains(strings.ToLower(raw), "json") {
+		if strings.Contains(strings.ToLower(raw), "elicitation") {
+			return true
+		}
+	}
+	if strings.Contains(raw, "\"type\"") && strings.Contains(strings.ToLower(raw), "elicitation") {
+		return true
+	}
+	return false
+}
+
+func containsElicitationText(m map[string]interface{}) bool {
+	for k, v := range m {
+		switch vv := v.(type) {
+		case string:
+			if looksLikeElicitationStream(vv) {
+				return true
+			}
+		case map[string]interface{}:
+			if containsElicitationText(vv) {
+				return true
+			}
+		case []interface{}:
+			for _, it := range vv {
+				if s, ok := it.(string); ok && looksLikeElicitationStream(s) {
+					return true
+				}
+				if mm, ok := it.(map[string]interface{}); ok {
+					if containsElicitationText(mm) {
+						return true
+					}
+				}
+			}
+		default:
+			_ = k
+		}
+	}
+	return false
+}
+
 func sanitizeMessageForStream(m *agconv.MessageView) *agconv.MessageView {
 	if m == nil {
 		return nil
@@ -1140,12 +1219,8 @@ func isElicitationMessageView(m *agconv.MessageView) bool {
 	if m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
 		return true
 	}
-	raw := messageTextForElicitation(m)
-	if raw == "" {
-		return false
-	}
-	_, ok := parseElicitationJSON(raw)
-	return ok
+	t := agconv.MessageType(m.Type)
+	return t.IsElicitationRequest() || t.IsElicitationResponse()
 }
 
 func messageTextForElicitation(m *agconv.MessageView) string {
