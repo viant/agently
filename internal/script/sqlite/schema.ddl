@@ -86,7 +86,7 @@ CREATE TABLE message
     status             TEXT CHECK (status IS NULL OR status IN ('', 'pending','accepted','rejected','cancel','open','summary','summarized', 'completed','error')),
     mode               TEXT,
     role               TEXT      NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
-    type               TEXT      NOT NULL DEFAULT 'text' CHECK (type IN ('text', 'tool_op',  'control')),
+    type               TEXT      NOT NULL DEFAULT 'text' CHECK (type IN ('text', 'tool_op',  'control', 'elicitation_request', 'elicitation_response')),
     content            TEXT,
     raw_content        TEXT,
     summary            TEXT,

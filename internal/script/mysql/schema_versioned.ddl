@@ -167,7 +167,7 @@ CREATE TABLE `message`
                                                                   'open', 'summary', 'summarized','completed','error')),
     mode                   VARCHAR(255),
     role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
-    `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control')),
+    `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control', 'elicitation_request', 'elicitation_response')),
     content                MEDIUMTEXT,
     summary                TEXT,
     context_summary        TEXT,
@@ -941,5 +941,20 @@ END $$
 
 CALL schema_upgrade_9() $$
 DROP PROCEDURE schema_upgrade_9 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_10 $$
+CREATE PROCEDURE schema_upgrade_10()
+BEGIN
+    IF get_schema_version() = 10 THEN
+        ALTER TABLE `message`
+            MODIFY COLUMN `type` VARCHAR(255) NOT NULL DEFAULT 'text'
+                CHECK (`type` IN ('text', 'tool_op', 'control', 'elicitation_request', 'elicitation_response'));
+
+        CALL set_schema_version(11);
+    END IF;
+END $$
+
+CALL schema_upgrade_10() $$
+DROP PROCEDURE schema_upgrade_10 $$
 
 DELIMITER ;

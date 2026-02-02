@@ -397,9 +397,29 @@ func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]int
 					ctx["favoriteColor"] = v
 				}
 			}
+			if _, ok := ctx["color"]; !ok {
+				if v, ok := firstValue(payload, "color", "favoriteColor", "favorite_color", "favColor", "fav_color"); ok {
+					ctx["color"] = v
+				}
+			}
 			if _, ok := ctx["shade"]; !ok {
 				if v, ok := firstValue(payload, "shade", "shadeOrVariant", "variant"); ok {
 					ctx["shade"] = v
+				}
+			}
+			if _, ok := ctx["detailLevel"]; !ok {
+				if v, ok := firstValue(payload, "detailLevel", "detail_level", "style", "tone", "toneOrVibe", "vibe"); ok {
+					ctx["detailLevel"] = v
+				}
+			}
+			if _, ok := ctx["style"]; !ok {
+				if v, ok := firstValue(payload, "style", "detailLevel", "detail_level", "tone", "toneOrVibe", "vibe"); ok {
+					ctx["style"] = v
+				}
+			}
+			if _, ok := ctx["descriptionStyle"]; !ok {
+				if v, ok := firstValue(payload, "descriptionStyle", "description_style", "style", "detailLevel", "detail_level", "tone", "toneOrVibe", "vibe"); ok {
+					ctx["descriptionStyle"] = v
 				}
 			}
 			if elicitation.DebugEnabled() {
@@ -1190,7 +1210,9 @@ func (s *Service) buildChronologicalHistory(
 			if m.Content == nil || *m.Content == "" {
 				continue
 			}
-			if strings.ToLower(strings.TrimSpace(m.Type)) != "text" {
+			mtype := strings.ToLower(strings.TrimSpace(m.Type))
+			isElicitationType := mtype == "elicitation_request" || mtype == "elicitation_response"
+			if mtype != "text" && !isElicitationType {
 				continue
 			}
 			role := strings.ToLower(strings.TrimSpace(m.Role))

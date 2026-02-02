@@ -1059,9 +1059,12 @@ func looksLikeElicitationStream(raw string) bool {
 		return false
 	}
 	if strings.Contains(raw, "```") && strings.Contains(strings.ToLower(raw), "json") {
-		if strings.Contains(strings.ToLower(raw), "elicitation") {
+		if strings.Contains(strings.ToLower(raw), "\"type\"") {
 			return true
 		}
+	}
+	if strings.Contains(strings.ToLower(raw), "\"requestedschema\"") {
+		return true
 	}
 	if strings.Contains(raw, "\"type\"") && strings.Contains(strings.ToLower(raw), "elicitation") {
 		return true
