@@ -324,7 +324,10 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 	lineOpen := false
 	handledElicitations := map[string]struct{}{}
 	activeElicitationTurns := map[string]struct{}{}
+	pendingElicitationText := map[string]string{}
 	handledElicitation := false
+	waitingForAssistantAfterElicitation := false
+	lastElicitationTurnID := ""
 	hadOutput := false
 	activeTurnID := ""
 	ticker := time.NewTicker(1 * time.Second)
@@ -391,8 +394,20 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 				if el == nil || strings.TrimSpace(el.ElicitationID) == "" {
 					continue
 				}
+				if waitingForAssistantAfterElicitation && lastElicitationTurnID != "" && turnID != "" && lastElicitationTurnID == turnID {
+					if logw != nil {
+						fmt.Fprintf(logw, "elicitation skipped (already resolved for turn) id=%s turn=%s\n", el.ElicitationID, turnID)
+					}
+					continue
+				}
 				if tid := strings.TrimSpace(turnID); tid != "" {
 					activeElicitationTurns[tid] = struct{}{}
+				}
+				if msg := strings.TrimSpace(el.Content); msg != "" {
+					pendingElicitationText[el.ElicitationID] = msg
+				}
+				if logw != nil {
+					fmt.Fprintf(logw, "elicitation request id=%s turn=%s status=%s\n", el.ElicitationID, turnID, strings.TrimSpace(el.Status))
 				}
 				if _, ok := handledElicitations[el.ElicitationID]; ok {
 					continue
@@ -402,9 +417,12 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 					return err
 				}
 				handledElicitation = true
+				waitingForAssistantAfterElicitation = true
+				lastElicitationTurnID = turnID
 				if tid := strings.TrimSpace(turnID); tid != "" {
 					delete(activeElicitationTurns, tid)
 				}
+				delete(pendingElicitationText, el.ElicitationID)
 				continue
 			}
 			switch strings.ToLower(strings.TrimSpace(string(ev.Event))) {
@@ -460,6 +478,15 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 			if text == "" {
 				continue
 			}
+			for _, pending := range pendingElicitationText {
+				if pending != "" && text == pending {
+					text = ""
+					break
+				}
+			}
+			if text == "" {
+				continue
+			}
 			if looksLikeElicitationStream(text) || looksLikeElicitationJSON(text) {
 				handledElicitation = true
 				continue
@@ -470,6 +497,7 @@ func streamConversationTurn(ctx context.Context, client *sdk.Client, convID stri
 				}
 				seenAssistant = true
 			}
+			waitingForAssistantAfterElicitation = false
 			if lineOpen || (outputOpen != nil && *outputOpen) {
 				fmt.Print("\n")
 				lineOpen = false
@@ -1742,6 +1770,9 @@ func resolveElicitation(ctx context.Context, client *sdk.Client, convID string, 
 	if strings.TrimSpace(req.RequestedSchema.Type) == "" && len(req.RequestedSchema.Properties) == 0 {
 		return nil
 	}
+	if strings.TrimSpace(req.RequestedSchema.Type) == "" && len(req.RequestedSchema.Properties) > 0 {
+		req.RequestedSchema.Type = "object"
+	}
 	if seedPayload != nil {
 		applyElicitationDefaults(req, *seedPayload)
 	}
@@ -1801,6 +1832,9 @@ func planElicitationFromSDK(el *sdk.Elicitation) *plan.Elicitation {
 	}
 	if strings.TrimSpace(req.ElicitationId) == "" {
 		req.ElicitationId = strings.TrimSpace(el.ElicitationID)
+	}
+	if strings.TrimSpace(req.RequestedSchema.Type) == "" && len(req.RequestedSchema.Properties) == 0 {
+		return nil
 	}
 	return req
 }
