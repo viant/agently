@@ -1782,6 +1782,9 @@ func planElicitationFromSDK(el *sdk.Elicitation) *plan.Elicitation {
 		raw = unwrapJSON(raw)
 		_ = json.Unmarshal([]byte(raw), req)
 	}
+	if strings.TrimSpace(req.RequestedSchema.Type) == "" && len(req.RequestedSchema.Properties) > 0 {
+		req.RequestedSchema.Type = "object"
+	}
 	if strings.TrimSpace(req.Message) == "" {
 		req.Message = strings.TrimSpace(el.Content)
 	}
