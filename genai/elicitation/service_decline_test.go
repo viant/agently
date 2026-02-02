@@ -140,7 +140,7 @@ func TestAddUserResponseMessageStoresRawContent(t *testing.T) {
 	srv := &Service{client: fake}
 	turn := &memory.TurnMeta{ConversationID: "c-raw", TurnID: "t-raw"}
 	payload := map[string]interface{}{"field": "value"}
-	assert.NoError(t, srv.AddUserResponseMessage(context.Background(), turn, payload))
+	assert.NoError(t, srv.AddUserResponseMessage(context.Background(), turn, "e1", payload))
 	assert.Contains(t, fake.lastUserContent, "field")
 	assert.EqualValues(t, fake.lastUserContent, fake.lastUserRaw)
 }
