@@ -287,10 +287,12 @@ CREATE TABLE IF NOT EXISTS schedule (
                                         id                    VARCHAR(255) PRIMARY KEY,
                                         name                  VARCHAR(255) NOT NULL UNIQUE,
                                         description           TEXT,
+                                        created_by_user_id    VARCHAR(255),
 
     -- Target agent / model
                                         agent_ref             VARCHAR(255) NOT NULL,
                                         model_override        VARCHAR(255),
+                                        user_cred_url         TEXT,
 
     -- Enable/disable + time window
                                         enabled               TINYINT      NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),

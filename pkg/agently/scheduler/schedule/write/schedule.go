@@ -8,6 +8,7 @@ type Schedule struct {
 	Id              string       `sqlx:"id,primaryKey" validate:"required"`
 	Name            string       `sqlx:"name" validate:"required"`
 	Description     *string      `sqlx:"description" json:",omitempty"`
+	CreatedByUserID *string      `sqlx:"created_by_user_id" json:",omitempty"`
 	AgentRef        string       `sqlx:"agent_ref" validate:"required"`
 	ModelOverride   *string      `sqlx:"model_override" json:",omitempty"`
 	UserCredURL     *string      `sqlx:"user_cred_url" json:",omitempty"`
@@ -40,6 +41,7 @@ type ScheduleHas struct {
 	Id              bool
 	Name            bool
 	Description     bool
+	CreatedByUserID bool
 	AgentRef        bool
 	ModelOverride   bool
 	UserCredURL     bool
@@ -74,6 +76,11 @@ func (m *Schedule) SetDescription(v string) {
 	m.Description = &v
 	m.ensureHas()
 	m.Has.Description = true
+}
+func (m *Schedule) SetCreatedByUserID(v string) {
+	m.CreatedByUserID = &v
+	m.ensureHas()
+	m.Has.CreatedByUserID = true
 }
 func (m *Schedule) SetAgentRef(v string) { m.AgentRef = v; m.ensureHas(); m.Has.AgentRef = true }
 func (m *Schedule) SetModelOverride(v string) {
