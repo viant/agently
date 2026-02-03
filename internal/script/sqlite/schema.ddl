@@ -209,6 +209,7 @@ CREATE TABLE IF NOT EXISTS schedule (
                                         id                    TEXT PRIMARY KEY,
                                         name                  TEXT      NOT NULL UNIQUE,
                                         description           TEXT,
+                                        created_by_user_id    TEXT,
 
     -- Target agent / model
     agent_ref             TEXT      NOT NULL,        -- agent name or id

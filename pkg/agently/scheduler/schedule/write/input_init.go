@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	authctx "github.com/viant/agently/internal/auth"
 	"github.com/viant/xdatly/handler"
 )
 
@@ -17,6 +18,7 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 
 	// Ensure IDs for new schedules prior to validation
 	now := time.Now().UTC()
+	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	for _, rec := range i.Schedules {
 		if rec == nil {
 			continue
@@ -26,6 +28,9 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 		if isInsert {
 			if strings.TrimSpace(rec.Id) == "" {
 				rec.SetId(uuid.NewString())
+			}
+			if strings.TrimSpace(strPtrValue(rec.CreatedByUserID)) == "" && userID != "" {
+				rec.SetCreatedByUserID(userID)
 			}
 			if rec.Timezone == "" {
 				rec.Timezone = "UTC"
@@ -38,12 +43,26 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 			}
 			continue
 		}
+		// Backfill owner for legacy schedules when missing (do not overwrite).
+		if cur := i.CurScheduleById[rec.Id]; cur != nil &&
+			strings.TrimSpace(strPtrValue(cur.CreatedByUserID)) == "" &&
+			strings.TrimSpace(strPtrValue(rec.CreatedByUserID)) == "" &&
+			userID != "" {
+			rec.SetCreatedByUserID(userID)
+		}
 		if rec.UpdatedAt == nil {
 			rec.SetUpdatedAt(now)
 		}
 	}
 
 	return nil
+}
+
+func strPtrValue(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 func (i *Input) indexSlice() {

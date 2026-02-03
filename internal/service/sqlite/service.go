@@ -146,6 +146,7 @@ func applySQLiteMigrations(ctx context.Context, db *sql.DB) error {
 		ensureSQLiteTurnQueueSchema,
 		ensureSQLiteSchedulerLeaseSchema,
 		ensureSQLiteScheduleUserCredURL,
+		ensureSQLiteScheduleCreatedByUserID,
 		ensureSQLiteSessionTable,
 		ensureSQLiteEmbediusTables,
 	}
@@ -184,6 +185,31 @@ func ensureSQLiteScheduleUserCredURL(ctx context.Context, db *sql.DB) error {
 		return nil
 	}
 	if _, err := db.ExecContext(ctx, "ALTER TABLE schedule ADD COLUMN user_cred_url TEXT"); err != nil {
+		return fmt.Errorf("add %s.%s column: %w", table, column, err)
+	}
+	return nil
+}
+
+func ensureSQLiteScheduleCreatedByUserID(ctx context.Context, db *sql.DB) error {
+	const (
+		table  = "schedule"
+		column = "created_by_user_id"
+	)
+	tableExists, err := sqliteTableExists(ctx, db, table)
+	if err != nil {
+		return fmt.Errorf("check %s table: %w", table, err)
+	}
+	if !tableExists {
+		return nil
+	}
+	exists, err := sqliteColumnExists(ctx, db, table, column)
+	if err != nil {
+		return fmt.Errorf("check %s.%s column: %w", table, column, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, "ALTER TABLE schedule ADD COLUMN created_by_user_id TEXT"); err != nil {
 		return fmt.Errorf("add %s.%s column: %w", table, column, err)
 	}
 	return nil

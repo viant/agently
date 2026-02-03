@@ -134,6 +134,25 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		}
 	}
 
+	// Establish an execution user identity for background runs so that:
+	//   - chat.CreateConversation writes conversation.created_by_user_id
+	//   - private scheduled conversations remain visible to the schedule owner
+	runCtx := ctx
+	if owner := strPtrValue(row.CreatedByUserId); owner != "" {
+		runCtx = authctx.WithUserInfo(runCtx, &authctx.UserInfo{Subject: owner})
+	} else if strings.TrimSpace(authctx.EffectiveUserID(runCtx)) == "" {
+		runCtx = authctx.EnsureUser(runCtx, s.authCfg)
+	}
+	// Best-effort backfill for legacy schedules created before created_by_user_id existed.
+	if strings.TrimSpace(strPtrValue(row.CreatedByUserId)) == "" {
+		if uid := strings.TrimSpace(authctx.EffectiveUserID(runCtx)); uid != "" {
+			mut := &schapi.MutableSchedule{}
+			mut.SetId(schID)
+			mut.SetCreatedByUserID(uid)
+			_ = s.sch.PatchSchedule(runCtx, mut)
+		}
+	}
+
 	// Ensure required fields are set before persisting (status + conversationKind are required).
 	if strings.TrimSpace(in.Status) == "" {
 		in.SetStatus("pending")
@@ -156,7 +175,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		if row.ModelOverride != nil && strings.TrimSpace(*row.ModelOverride) != "" {
 			req.Model = strings.TrimSpace(*row.ModelOverride)
 		}
-		resp, err := s.chat.CreateConversation(ctx, req)
+		resp, err := s.chat.CreateConversation(runCtx, req)
 		if err != nil {
 			return err
 		}
@@ -175,6 +194,9 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		if s.conv != nil {
 			c := apiconv.NewConversation()
 			c.SetId(resp.ID)
+			if uid := strings.TrimSpace(authctx.EffectiveUserID(runCtx)); uid != "" {
+				c.SetCreatedByUserID(uid)
+			}
 			c.SetScheduled(1)
 			c.SetScheduleId(schID)
 			c.SetScheduleRunId(in.Id)
@@ -185,7 +207,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 			if row.CronExpr != nil && strings.TrimSpace(*row.CronExpr) != "" {
 				c.SetScheduleCronExpr(strings.TrimSpace(*row.CronExpr))
 			}
-			_ = s.conv.PatchConversations(ctx, c)
+			_ = s.conv.PatchConversations(runCtx, c)
 		}
 	}
 
@@ -198,7 +220,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		taskContent = strings.TrimSpace(*row.TaskPromptUri)
 	}
 	if taskContent != "" && in.ConversationId != nil && strings.TrimSpace(*in.ConversationId) != "" {
-		_, err = s.chat.Post(ctx, *in.ConversationId, chatcli.PostRequest{Content: taskContent, Agent: row.AgentRef, Model: strPtrValue(row.ModelOverride)})
+		_, err = s.chat.Post(runCtx, *in.ConversationId, chatcli.PostRequest{Content: taskContent, Agent: row.AgentRef, Model: strPtrValue(row.ModelOverride)})
 		if err != nil {
 			return err
 		}
@@ -218,7 +240,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 	}
 	// Fire-and-forget watcher to mark completion based on conversation progress
 	if in.ConversationId != nil && strings.TrimSpace(*in.ConversationId) != "" {
-		aCtx := context.WithoutCancel(ctx)
+		aCtx := context.WithoutCancel(runCtx)
 		go s.watchRunCompletion(aCtx, strings.TrimSpace(in.Id), schID, strings.TrimSpace(*in.ConversationId), row.TimeoutSeconds)
 	}
 	return nil

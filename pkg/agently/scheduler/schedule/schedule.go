@@ -44,6 +44,7 @@ type ScheduleOutput struct {
 type ScheduleView struct {
 	AgentRef        string     `sqlx:"agent_ref"`
 	CreatedAt       time.Time  `sqlx:"created_at"`
+	CreatedByUserId *string    `sqlx:"created_by_user_id"`
 	CronExpr        *string    `sqlx:"cron_expr"`
 	Description     *string    `sqlx:"description"`
 	Enabled         bool       `sqlx:"enabled"`

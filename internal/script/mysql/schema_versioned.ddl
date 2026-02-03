@@ -991,4 +991,27 @@ END $$
 CALL schema_upgrade_11() $$
 DROP PROCEDURE schema_upgrade_11 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_12 $$
+CREATE PROCEDURE schema_upgrade_12()
+BEGIN
+    IF get_schema_version() = 12 THEN
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'schedule'
+              AND COLUMN_NAME = 'created_by_user_id'
+        ) THEN
+            ALTER TABLE schedule
+                ADD COLUMN created_by_user_id VARCHAR(255) NULL AFTER description;
+        END IF;
+
+        CALL set_schema_version(13);
+    END IF;
+END $$
+
+CALL schema_upgrade_12() $$
+DROP PROCEDURE schema_upgrade_12 $$
+
 DELIMITER ;
