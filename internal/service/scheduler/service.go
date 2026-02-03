@@ -637,28 +637,6 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 						_ = s.sch.PatchSchedule(scheduleCtx, mut)
 					}
 
-					fmt.Printf("29 RunDue checking schedule: %v error %v\n", sc.Id, err)
-
-					// TODO can cause panic in some edge cases; revisit later
-					// emergency lease extension logic could go here
-					//if st == "running" {
-					//	started := r.StartedAt
-					//	timeoutSec := time.Duration(sc.TimeoutSeconds)
-					//	if timeoutSec <= 0 {
-					//		timeoutSec = watchTimeout
-					//	}
-					//	maxTime := started.Add(timeoutSec * time.Second)
-					//	maxTime = maxTime.Add(15 * time.Second)
-					//	if time.Now().After(maxTime) {
-					//		aCtx := context.WithoutCancel(ctx)
-					//		convId := ""
-					//		if r.ConversationId != nil {
-					//			convId = strings.TrimSpace(*r.ConversationId)
-					//		}
-					//		s.finalizeDeadline(aCtx, r.Id, sc.Id, convId, callTimeout, fmt.Errorf("emergency termination of an abandoned schedule run"), time.Duration(sc.TimeoutSeconds)*time.Second)
-					//	}
-					//}
-
 					fmt.Printf("30 RunDue checking schedule: %v error %v\n", sc.Id, err)
 					return nil
 				case "pending":
