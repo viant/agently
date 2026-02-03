@@ -3,6 +3,8 @@ package write
 import (
 	"context"
 	"database/sql"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -90,8 +92,66 @@ func TestHandler_Exec_PreservesSequence(t *testing.T) {
 	require.Equal(t, int64(42), seq)
 }
 
+func TestHandler_Exec_AssignsSequence_ConcurrentInserts(t *testing.T) {
+	db, _, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-message-write")
+	t.Cleanup(cleanup)
+	dbtest.LoadSQLiteSchema(t, db)
+
+	seedConversationTurn(t, db, "c4", "t4")
+
+	barrier := newInsertBarrier(2)
+	sqlxSvc := sqlx.New(&sqliteMessageSQLX{db: db, insertBarrier: barrier})
+
+	sess1 := newSQLiteSession(&Input{Messages: []*Message{
+		{Id: "m5", ConversationID: "c4", TurnID: strPtr("t4"), Role: "assistant", Type: "text", Content: "a"},
+	}}, sqlxSvc, validator.New(&fakeValidator{}))
+
+	sess2 := newSQLiteSession(&Input{Messages: []*Message{
+		{Id: "m6", ConversationID: "c4", TurnID: strPtr("t4"), Role: "assistant", Type: "text", Content: "b"},
+	}}, sqlxSvc, validator.New(&fakeValidator{}))
+
+	h := &Handler{}
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	type execResult struct {
+		out *Output
+		err error
+	}
+	resCh := make(chan execResult, 2)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		outAny, err := h.Exec(ctx, sess1)
+		out, _ := outAny.(*Output)
+		resCh <- execResult{out: out, err: err}
+	}()
+	go func() {
+		defer wg.Done()
+		outAny, err := h.Exec(ctx, sess2)
+		out, _ := outAny.(*Output)
+		resCh <- execResult{out: out, err: err}
+	}()
+	wg.Wait()
+	close(resCh)
+	for res := range resCh {
+		require.NoError(t, res.err)
+		require.NotNil(t, res.out)
+		require.Equal(t, "ok", res.out.Status.Status, res.out.Status.Message)
+	}
+
+	seq1 := fetchMessageSequence(t, db, "m5")
+	seq2 := fetchMessageSequence(t, db, "m6")
+	require.NotZero(t, seq1)
+	require.NotZero(t, seq2)
+	require.NotEqual(t, seq1, seq2)
+
+	// With two inserts into an empty turn, the only valid sequences are 1 and 2.
+	require.ElementsMatch(t, []int64{1, 2}, []int64{seq1, seq2})
+}
+
 type sqliteMessageSQLX struct {
-	db *sql.DB
+	db            *sql.DB
+	insertBarrier *insertBarrier
 }
 
 func (s *sqliteMessageSQLX) Allocate(ctx context.Context, tableName string, dest interface{}, selector string) error {
@@ -105,6 +165,10 @@ func (s *sqliteMessageSQLX) Insert(tableName string, data interface{}) error {
 	m, ok := data.(*Message)
 	if !ok || m == nil {
 		return nil
+	}
+	if s.insertBarrier != nil {
+		after := s.insertBarrier.Wait()
+		defer after()
 	}
 	createdAt := time.Now().UTC()
 	if m.CreatedAt != nil {
@@ -235,3 +299,49 @@ func fetchMessageSequence(t *testing.T, db *sql.DB, msgID string) int64 {
 
 func strPtr(v string) *string { return &v }
 func intPtr(v int) *int       { return &v }
+
+type insertBarrier struct {
+	n       int32
+	counter atomic.Int32
+	ready   chan struct{}
+	done    chan struct{}
+}
+
+func newInsertBarrier(n int) *insertBarrier {
+	return &insertBarrier{
+		n:     int32(n),
+		ready: make(chan struct{}),
+		done:  make(chan struct{}),
+	}
+}
+
+// Wait coordinates the first N calls so that:
+// - the first caller waits until Nth caller arrives, then proceeds
+// - the Nth caller waits until the first caller signals completion, then proceeds
+// - subsequent callers proceed immediately
+//
+// This keeps inserts serialized (avoids SQLITE_BUSY in tests) while still ensuring
+// all callers computed their sequence before any insert is executed.
+func (b *insertBarrier) Wait() func() {
+	if b == nil || b.n <= 0 {
+		return func() {}
+	}
+	callN := b.counter.Add(1)
+	if callN > b.n {
+		return func() {}
+	}
+
+	// Only supports n=2 for now (used by the concurrent insert regression test).
+	if b.n != 2 {
+		return func() {}
+	}
+
+	if callN == 2 {
+		close(b.ready)
+		<-b.done
+		return func() {}
+	}
+
+	<-b.ready
+	return func() { close(b.done) }
+}

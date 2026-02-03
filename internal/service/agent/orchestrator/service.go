@@ -418,7 +418,11 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 				}
 				// Execute tool; even on error we let the LLM decide next steps.
 				// Errors are persisted on the tool call and exposed via tool result payload.
-				call, _, _ := executil.ExecuteToolStep(runCtx, reg, stepInfo, s.convClient)
+				call, _, err := executil.ExecuteToolStep(runCtx, reg, stepInfo, s.convClient)
+				if err != nil {
+					fmt.Printf("error: tool step %s execution failed: %v\n", step.Name, err)
+				}
+
 				if guard != nil {
 					guard.RegisterResult(step.Name, step.Args, call)
 				}
