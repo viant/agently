@@ -548,7 +548,24 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 					if sc.TimeoutSeconds > 0 {
 						timeout = time.Duration(sc.TimeoutSeconds) * time.Second
 					}
-					if now.After(runStart.Add(timeout).Add(15 * time.Second)) {
+					staleGrace := 15 * time.Second
+					leaseExpired := false
+					if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
+						leaseExpired = now.After(r.LeaseUntil.UTC().Add(staleGrace))
+					}
+					deadlineExceeded := now.After(runStart.Add(timeout).Add(staleGrace))
+
+					stale := false
+					if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
+						// Prefer lease-based detection to quickly recover after crashes.
+						// If the lease is still being heartbeated, another instance is likely alive.
+						stale = leaseExpired
+					} else {
+						// Fallback for legacy runs without a lease.
+						stale = deadlineExceeded
+					}
+
+					if stale {
 						fmt.Printf("22 RunDue checking schedule: %v error %v\n", sc.Id, err)
 						claimCtx, claimCancel := context.WithTimeout(scheduleCtx, callTimeout)
 						claimed, claimErr := s.sch.TryClaimRun(claimCtx, strings.TrimSpace(r.Id), s.leaseOwner, now.Add(s.leaseTTL))
@@ -571,7 +588,11 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 						upd.SetScheduleId(sc.Id)
 						upd.SetStatus("failed")
 						upd.SetCompletedAt(now)
-						upd.SetErrorMessage(fmt.Sprintf("stale run detected: status=%q started_at=%v timeout=%v", strings.TrimSpace(r.Status), runStart, timeout))
+						msg := fmt.Sprintf("stale run detected (current time: %v): status=%q started_at=%v timeout=%v", now, strings.TrimSpace(r.Status), runStart, timeout)
+						if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
+							msg += fmt.Sprintf(" lease_until=%v lease_owner=%q", r.LeaseUntil.UTC(), strPtrValue(r.LeaseOwner))
+						}
+						upd.SetErrorMessage(msg)
 
 						callCtx, callCancel := context.WithTimeout(scheduleCtx, callTimeout)
 						if err := s.sch.PatchRun(callCtx, upd); err != nil {
