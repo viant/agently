@@ -317,15 +317,17 @@ CREATE INDEX idx_tool_call_name ON tool_call (tool_name);
 CREATE INDEX idx_tool_call_op ON tool_call (turn_id, op_id);
 
 
-CREATE TABLE IF NOT EXISTS schedule (
-                                        id                    VARCHAR(255) PRIMARY KEY,
-    name                  VARCHAR(255) NOT NULL UNIQUE,
-    description           TEXT,
+	CREATE TABLE IF NOT EXISTS schedule (
+	                                        id                    VARCHAR(255) PRIMARY KEY,
+	    name                  VARCHAR(255) NOT NULL UNIQUE,
+	    description           TEXT,
+	    created_by_user_id    VARCHAR(255),
+	    visibility            VARCHAR(255) NOT NULL DEFAULT 'private',
 
-    -- Target agent / model
-    agent_ref             VARCHAR(255) NOT NULL,
-    model_override        VARCHAR(255),
-    user_cred_url         TEXT,
+	    -- Target agent / model
+	    agent_ref             VARCHAR(255) NOT NULL,
+	    model_override        VARCHAR(255),
+	    user_cred_url         TEXT,
 
     -- Enable/disable + time window
     enabled               TINYINT      NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
@@ -1013,5 +1015,28 @@ END $$
 
 CALL schema_upgrade_12() $$
 DROP PROCEDURE schema_upgrade_12 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_13 $$
+CREATE PROCEDURE schema_upgrade_13()
+BEGIN
+    IF get_schema_version() = 13 THEN
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'schedule'
+              AND COLUMN_NAME = 'visibility'
+        ) THEN
+            ALTER TABLE schedule
+                ADD COLUMN visibility VARCHAR(255) NOT NULL DEFAULT 'private' AFTER created_by_user_id;
+        END IF;
+
+        CALL set_schema_version(14);
+    END IF;
+END $$
+
+CALL schema_upgrade_13() $$
+DROP PROCEDURE schema_upgrade_13 $$
 
 DELIMITER ;

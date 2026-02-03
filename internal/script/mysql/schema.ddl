@@ -288,6 +288,7 @@ CREATE TABLE IF NOT EXISTS schedule (
                                         name                  VARCHAR(255) NOT NULL UNIQUE,
                                         description           TEXT,
                                         created_by_user_id    VARCHAR(255),
+                                        visibility            VARCHAR(255) NOT NULL DEFAULT 'private',
 
     -- Target agent / model
                                         agent_ref             VARCHAR(255) NOT NULL,

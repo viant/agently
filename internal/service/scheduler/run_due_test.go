@@ -13,6 +13,7 @@ import (
 	core "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/tool"
 	approval "github.com/viant/agently/internal/approval"
+	authctx "github.com/viant/agently/internal/auth"
 	"github.com/viant/agently/internal/codec"
 	runpkg "github.com/viant/agently/pkg/agently/scheduler/run"
 	runwrite "github.com/viant/agently/pkg/agently/scheduler/run/write"
@@ -26,6 +27,7 @@ type fakeScheduleStore struct {
 	schedules []*schedulepkg.ScheduleView
 	schedule  map[string]*schedulepkg.ScheduleView
 	runs      map[string][]*runpkg.RunView
+	getRunsFn func(ctx context.Context, scheduleID string) ([]*runpkg.RunView, error)
 
 	claimResultByScheduleID map[string]bool
 	claimedByScheduleID     map[string]struct{}
@@ -50,7 +52,10 @@ func (f *fakeScheduleStore) GetSchedule(_ context.Context, id string, _ ...codec
 	return f.schedule[id], nil
 }
 
-func (f *fakeScheduleStore) GetRuns(_ context.Context, scheduleID string, _ string, _ ...codec.SessionOption) ([]*runpkg.RunView, error) {
+func (f *fakeScheduleStore) GetRuns(ctx context.Context, scheduleID string, _ string, _ ...codec.SessionOption) ([]*runpkg.RunView, error) {
+	if f.getRunsFn != nil {
+		return f.getRunsFn(ctx, scheduleID)
+	}
 	if f.runs == nil {
 		return nil, nil
 	}
@@ -167,6 +172,7 @@ func (f *fakeScheduleStore) ReleaseRunLease(_ context.Context, runID, _ string) 
 
 type fakeChat struct {
 	createdConversationIDs []string
+	createdConversationReq []chatcli.CreateConversationRequest
 	posted                 []string
 }
 
@@ -183,9 +189,10 @@ func (f *fakeChat) Post(_ context.Context, _ string, req chatcli.PostRequest) (s
 }
 func (f *fakeChat) Cancel(string) bool     { return false }
 func (f *fakeChat) CancelTurn(string) bool { return false }
-func (f *fakeChat) CreateConversation(_ context.Context, _ chatcli.CreateConversationRequest) (*chatcli.CreateConversationResponse, error) {
+func (f *fakeChat) CreateConversation(_ context.Context, req chatcli.CreateConversationRequest) (*chatcli.CreateConversationResponse, error) {
 	id := fmt.Sprintf("conv-%d", len(f.createdConversationIDs)+1)
 	f.createdConversationIDs = append(f.createdConversationIDs, id)
+	f.createdConversationReq = append(f.createdConversationReq, req)
 	return &chatcli.CreateConversationResponse{ID: id}, nil
 }
 func (f *fakeChat) GetConversation(context.Context, string) (*chatcli.ConversationSummary, error) {
@@ -307,6 +314,7 @@ func TestService_RunDue_LeaseAndPending_DataDriven(t *testing.T) {
 				ScheduleType: "cron",
 				CronExpr:     strPtr("* * * * *"),
 				Timezone:     "UTC",
+				Visibility:   "public",
 				NextRunAt:    &dueAt,
 				TaskPrompt:   strPtr("do"),
 				CreatedAt:    dueAt.Add(-time.Hour),
@@ -332,6 +340,7 @@ func TestService_RunDue_LeaseAndPending_DataDriven(t *testing.T) {
 
 			assert.EqualValues(t, tc.expectPatchedRuns, len(store.patchedRuns))
 			if tc.expectPatchedRuns == 0 {
+				assert.EqualValues(t, 0, len(chat.createdConversationReq))
 				return
 			}
 
@@ -346,8 +355,71 @@ func TestService_RunDue_LeaseAndPending_DataDriven(t *testing.T) {
 			if got.ScheduledFor != nil {
 				assert.EqualValues(t, tc.expectScheduledForUTC, got.ScheduledFor.UTC())
 			}
+			assert.GreaterOrEqual(t, len(chat.createdConversationReq), 1)
+			assert.EqualValues(t, "public", chat.createdConversationReq[0].Visibility)
 		})
 	}
+}
+
+func TestService_RunDue_PrivateRuns_NotVisibleWithoutOwnerContext(t *testing.T) {
+	now := time.Now().UTC()
+	dueAt := now.Add(-1 * time.Minute).UTC()
+	activeStartedAt := now.Add(-10 * time.Second).UTC()
+
+	owner := "ppoudyal"
+	store := &fakeScheduleStore{
+		schedule: map[string]*schedulepkg.ScheduleView{},
+		getRunsFn: func(ctx context.Context, scheduleID string) ([]*runpkg.RunView, error) {
+			if scheduleID != "sch-1" {
+				return nil, nil
+			}
+			// Simulate server-side privacy filter: without effective user id, private runs are hidden.
+			if authctx.EffectiveUserID(ctx) == "" {
+				return nil, nil
+			}
+			return []*runpkg.RunView{{
+				Id:               "run-running-1",
+				ScheduleId:       "sch-1",
+				Status:           "running",
+				CreatedAt:        activeStartedAt,
+				StartedAt:        &activeStartedAt,
+				ScheduledFor:     &dueAt,
+				ConversationId:   strPtr("conv-1"),
+				ConversationKind: "scheduled",
+			}}, nil
+		},
+		claimResultByScheduleID: map[string]bool{"sch-1": true},
+	}
+	schedule := &schedulepkg.ScheduleView{
+		Id:              "sch-1",
+		Name:            "s",
+		AgentRef:        "agent",
+		Enabled:         true,
+		ScheduleType:    "interval",
+		Timezone:        "UTC",
+		Visibility:      "private",
+		CreatedByUserId: &owner,
+		NextRunAt:       &dueAt,
+		TaskPrompt:      strPtr("do"),
+		CreatedAt:       dueAt.Add(-time.Hour),
+	}
+	store.schedules = []*schedulepkg.ScheduleView{schedule}
+	store.schedule["sch-1"] = schedule
+
+	chat := &fakeChat{}
+	svc := &Service{
+		sch:        store,
+		chat:       chat,
+		leaseOwner: "owner-1",
+		leaseTTL:   60 * time.Second,
+	}
+
+	started, err := svc.RunDue(context.Background())
+	assert.NoError(t, err)
+	assert.EqualValues(t, 0, started)
+	// If the scheduler fails to impersonate the schedule owner when listing runs,
+	// it won't see the active run and will incorrectly start a new one.
+	assert.EqualValues(t, 0, len(store.patchedRuns))
 }
 
 func TestService_RunDue_CompletedRunForSlot_AdvancesScheduleAndSkips(t *testing.T) {

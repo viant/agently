@@ -32,6 +32,9 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 			if strings.TrimSpace(strPtrValue(rec.CreatedByUserID)) == "" && userID != "" {
 				rec.SetCreatedByUserID(userID)
 			}
+			if strings.TrimSpace(rec.Visibility) == "" {
+				rec.SetVisibility("private")
+			}
 			if rec.Timezone == "" {
 				rec.Timezone = "UTC"
 			}

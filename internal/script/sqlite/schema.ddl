@@ -210,6 +210,7 @@ CREATE TABLE IF NOT EXISTS schedule (
                                         name                  TEXT      NOT NULL UNIQUE,
                                         description           TEXT,
                                         created_by_user_id    TEXT,
+                                        visibility            TEXT      NOT NULL DEFAULT 'private',
 
     -- Target agent / model
     agent_ref             TEXT      NOT NULL,        -- agent name or id
