@@ -533,6 +533,66 @@ func TestService_RunDue_StaleRunningRunForSlot_FailsAndAdvancesSchedule(t *testi
 	assert.True(t, store.patchedSchedules[0].NextRunAt != nil)
 }
 
+func TestService_RunDue_LeaseExpiredRunningRunForSlot_FailsEvenWhenTimeoutNotExceeded(t *testing.T) {
+	now := time.Now().UTC()
+	dueAt := now.Add(-1 * time.Minute).UTC()
+	startedAt := now.Add(-10 * time.Second).UTC()
+	leaseUntil := now.Add(-2 * time.Minute).UTC()
+	intervalSeconds := 60
+
+	staleRunning := &runpkg.RunView{
+		Id:             "run-running-1",
+		ScheduleId:     "sch-1",
+		Status:         "running",
+		ScheduledFor:   &dueAt,
+		StartedAt:      &startedAt,
+		CreatedAt:      startedAt,
+		LeaseOwner:     strPtr("old-owner"),
+		LeaseUntil:     &leaseUntil,
+		ConversationId: strPtr("conv-1"),
+	}
+
+	store := &fakeScheduleStore{
+		schedule: map[string]*schedulepkg.ScheduleView{},
+		runs: map[string][]*runpkg.RunView{
+			"sch-1": {staleRunning},
+		},
+		claimResultByScheduleID: map[string]bool{"sch-1": true},
+	}
+	schedule := &schedulepkg.ScheduleView{
+		Id:              "sch-1",
+		Name:            "s",
+		AgentRef:        "agent",
+		Enabled:         true,
+		ScheduleType:    "interval",
+		Timezone:        "UTC",
+		IntervalSeconds: &intervalSeconds,
+		NextRunAt:       &dueAt,
+		TimeoutSeconds:  3600,
+		TaskPrompt:      strPtr("do"),
+		CreatedAt:       dueAt.Add(-time.Hour),
+	}
+	store.schedules = []*schedulepkg.ScheduleView{schedule}
+	store.schedule["sch-1"] = schedule
+
+	chat := &fakeChat{}
+	svc := &Service{
+		sch:        store,
+		chat:       chat,
+		leaseOwner: "owner-1",
+		leaseTTL:   60 * time.Second,
+	}
+
+	started, err := svc.RunDue(context.Background())
+	assert.NoError(t, err)
+	assert.EqualValues(t, 0, started)
+	assert.EqualValues(t, 1, len(store.patchedRuns))
+	assert.EqualValues(t, "failed", store.patchedRuns[0].Status)
+	assert.True(t, store.patchedRuns[0].CompletedAt != nil)
+	assert.EqualValues(t, 1, len(store.patchedSchedules))
+	assert.True(t, store.patchedSchedules[0].NextRunAt != nil)
+}
+
 func TestService_RunDue_CronWithoutNextOrLastRun_Triggers(t *testing.T) {
 	createdAt := time.Now().UTC().Add(-10 * time.Minute)
 

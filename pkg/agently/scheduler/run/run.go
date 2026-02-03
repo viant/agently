@@ -52,6 +52,8 @@ type RunView struct {
 	CreatedAt          time.Time  `sqlx:"created_at"`
 	ErrorMessage       *string    `sqlx:"error_message"`
 	Id                 string     `sqlx:"id"`
+	LeaseOwner         *string    `sqlx:"lease_owner"`
+	LeaseUntil         *time.Time `sqlx:"lease_until"`
 	PreconditionPassed *int       `sqlx:"precondition_passed"`
 	PreconditionRanAt  *time.Time `sqlx:"precondition_ran_at"`
 	PreconditionResult *string    `sqlx:"precondition_result"`
