@@ -15,6 +15,14 @@
       properties:
         readOnly: true
         leftIcon: key
+    - id: visibility
+      label: Visibility
+      type: select
+      options:
+        - value: private
+          label: Private
+        - value: public
+          label: Public
     - id: name
       label: Name
       type: text

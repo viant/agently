@@ -169,6 +169,9 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 	// polluting/consuming prior agent context across runs.
 	{
 		req := chatcli.CreateConversationRequest{Title: row.Name}
+		if v := strings.TrimSpace(row.Visibility); v != "" {
+			req.Visibility = v
+		}
 		if v := strings.TrimSpace(row.AgentRef); v != "" {
 			req.Agent = v
 		}
@@ -386,6 +389,17 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			continue
 		}
 
+		// Run list/read APIs apply privacy filters based on conversation visibility.
+		// For private scheduled conversations, background scheduler ticks must operate
+		// under the schedule owner identity; otherwise active runs become invisible and
+		// the scheduler can start overlapping runs for the same schedule.
+		scheduleCtx := ctx
+		if owner := strPtrValue(sc.CreatedByUserId); owner != "" {
+			scheduleCtx = authctx.WithUserInfo(scheduleCtx, &authctx.UserInfo{Subject: owner})
+		} else {
+			scheduleCtx = authctx.EnsureUser(scheduleCtx, s.authCfg)
+		}
+
 		due := false
 		// Respect optional schedule time window.
 		if sc.StartAt != nil && now.Before(sc.StartAt.UTC()) {
@@ -443,7 +457,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 
 		fmt.Printf("07 RunDue checking schedule: %v\n", sc.Id)
 		leaseUntil := now.Add(s.leaseTTL)
-		claimed, err := s.sch.TryClaimSchedule(ctx, sc.Id, s.leaseOwner, leaseUntil)
+		claimed, err := s.sch.TryClaimSchedule(scheduleCtx, sc.Id, s.leaseOwner, leaseUntil)
 		if err != nil {
 			fmt.Printf("08 RunDue checking schedule: %v\n", sc.Id)
 			return started, err
@@ -460,7 +474,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 		err = func() error {
 			defer releaseLease()
 			fmt.Printf("10 RunDue checking schedule: %v\n", sc.Id)
-			runs, err := s.sch.GetRuns(ctx, sc.Id, "")
+			runs, err := s.sch.GetRuns(scheduleCtx, sc.Id, "")
 			if err != nil {
 				return err
 			}
@@ -508,7 +522,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 							mut.Has.NextRunAt = true
 						}
 					}
-					if err := s.sch.PatchSchedule(ctx, mut); err != nil {
+					if err := s.sch.PatchSchedule(scheduleCtx, mut); err != nil {
 						fmt.Printf("18 RunDue checking schedule: %v error %v\n", sc.Id, err)
 						return err
 					}
@@ -536,7 +550,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 					}
 					if now.After(runStart.Add(timeout).Add(15 * time.Second)) {
 						fmt.Printf("22 RunDue checking schedule: %v error %v\n", sc.Id, err)
-						claimCtx, claimCancel := context.WithTimeout(ctx, callTimeout)
+						claimCtx, claimCancel := context.WithTimeout(scheduleCtx, callTimeout)
 						claimed, claimErr := s.sch.TryClaimRun(claimCtx, strings.TrimSpace(r.Id), s.leaseOwner, now.Add(s.leaseTTL))
 						claimCancel()
 						// If another instance owns the run lease, let it finalize.
@@ -559,7 +573,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 						upd.SetCompletedAt(now)
 						upd.SetErrorMessage(fmt.Sprintf("stale run detected: status=%q started_at=%v timeout=%v", strings.TrimSpace(r.Status), runStart, timeout))
 
-						callCtx, callCancel := context.WithTimeout(ctx, callTimeout)
+						callCtx, callCancel := context.WithTimeout(scheduleCtx, callTimeout)
 						if err := s.sch.PatchRun(callCtx, upd); err != nil {
 							callCancel()
 							return err
@@ -567,7 +581,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 						callCancel()
 
 						if claimErr == nil && claimed {
-							_, _ = s.sch.ReleaseRunLease(ctx, strings.TrimSpace(r.Id), s.leaseOwner)
+							_, _ = s.sch.ReleaseRunLease(scheduleCtx, strings.TrimSpace(r.Id), s.leaseOwner)
 						}
 						fmt.Printf("23 RunDue checking schedule: %v error %v\n", sc.Id, err)
 						// If this stale run belongs to the current scheduled slot, treat that slot
@@ -596,7 +610,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 									mut.Has.NextRunAt = true
 								}
 							}
-							if err := s.sch.PatchSchedule(ctx, mut); err != nil {
+							if err := s.sch.PatchSchedule(scheduleCtx, mut); err != nil {
 								fmt.Printf("25 RunDue checking schedule: %v error %v\n", sc.Id, err)
 								return err
 							}
@@ -620,7 +634,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 						if mut.Has != nil {
 							mut.Has.NextRunAt = true
 						}
-						_ = s.sch.PatchSchedule(ctx, mut)
+						_ = s.sch.PatchSchedule(scheduleCtx, mut)
 					}
 
 					fmt.Printf("29 RunDue checking schedule: %v error %v\n", sc.Id, err)
@@ -670,7 +684,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			run.SetStatus("pending")
 			run.SetScheduledFor(scheduledFor)
 			fmt.Printf("41 RunDue checking schedule: %v\n", sc.Id)
-			if err := s.Run(ctx, run); err != nil {
+			if err := s.Run(scheduleCtx, run); err != nil {
 				return err
 			}
 
@@ -697,7 +711,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 					mut.Has.NextRunAt = true
 				}
 			}
-			if err := s.sch.PatchSchedule(ctx, mut); err != nil {
+			if err := s.sch.PatchSchedule(scheduleCtx, mut); err != nil {
 				return err
 			}
 
