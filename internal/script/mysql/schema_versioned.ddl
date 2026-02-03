@@ -1039,4 +1039,49 @@ END $$
 CALL schema_upgrade_13() $$
 DROP PROCEDURE schema_upgrade_13 $$
 
+
+DROP PROCEDURE IF EXISTS schema_upgrade_14 $$
+CREATE PROCEDURE schema_upgrade_14()
+BEGIN
+    IF get_schema_version() = 14 THEN
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'investigation'
+              AND COLUMN_NAME = 'conversation_id'
+        ) THEN
+ALTER TABLE investigation
+    ADD COLUMN conversation_id VARCHAR(255) NULL AFTER created_by;
+END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.REFERENTIAL_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND CONSTRAINT_NAME = 'fk_investigation_conversation'
+        ) THEN
+ALTER TABLE investigation
+    ADD CONSTRAINT fk_investigation_conversation
+        FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE SET NULL;
+END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'investigation'
+              AND INDEX_NAME = 'idx_investigation_conversation_id'
+        ) THEN
+CREATE INDEX idx_investigation_conversation_id ON investigation (conversation_id);
+END IF;
+
+CALL set_schema_version(15);
+END IF;
+END $$
+
+CALL schema_upgrade_14() $$
+DROP PROCEDURE schema_upgrade_14 $$
+
 DELIMITER ;
