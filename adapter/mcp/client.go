@@ -120,7 +120,7 @@ func normalizeElicitParams(req *schema.ElicitRequest) (schema.ElicitRequestParam
 	if req == nil {
 		return schema.ElicitRequestParams{}, fmt.Errorf("request is nil")
 	}
-	return req.ElicitRequestParams, nil
+	return req.Params, nil
 }
 
 func fillElicitFallbacks(params schema.ElicitRequestParams, req *schema.ElicitRequest) schema.ElicitRequestParams {

@@ -132,7 +132,22 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 	// Only hydrate from stored tool allow-list when tool auto-selection is not enabled.
 	// When auto-selection is enabled we want tool routing to decide bundles/tools per turn.
 	if !autoSelectTools && len(input.ToolsAllowed) == 0 && input.ToolsAllowed == nil {
-		if len(meta.Tools) > 0 {
+		applyMetaTools := true
+		storedAgent := ""
+		if agentIDPtr != nil {
+			storedAgent = strings.TrimSpace(*agentIDPtr)
+		}
+		reqAgent := strings.TrimSpace(input.AgentID)
+		if storedAgent != "" {
+			if isAutoAgentRef(storedAgent) {
+				applyMetaTools = false
+			} else if reqAgent != "" && !strings.EqualFold(reqAgent, storedAgent) {
+				applyMetaTools = false
+			}
+		} else if reqAgent != "" {
+			applyMetaTools = false
+		}
+		if applyMetaTools && len(meta.Tools) > 0 {
 			input.ToolsAllowed = append([]string(nil), meta.Tools...)
 		}
 	}
