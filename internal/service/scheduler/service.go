@@ -19,6 +19,8 @@ import (
 	chatimpl "github.com/viant/agently/internal/service/chat"
 	convintern "github.com/viant/agently/internal/service/conversation"
 	schedstore "github.com/viant/agently/internal/service/scheduler/store"
+	runpkg "github.com/viant/agently/pkg/agently/scheduler/run"
+	schedulepkg "github.com/viant/agently/pkg/agently/scheduler/schedule"
 	"github.com/viant/scy"
 	scyauth "github.com/viant/scy/auth"
 	"github.com/viant/scy/auth/authorizer"
@@ -360,6 +362,68 @@ func strPtrValue(p *string) string {
 	return strings.TrimSpace(*p)
 }
 
+func (s *Service) getRunsForDueCheck(ctx context.Context, scheduleID string, scheduledFor time.Time, includeScheduledSlot bool) ([]*schapi.Run, error) {
+	if s == nil || s.sch == nil {
+		return nil, nil
+	}
+	var slotRuns []*schapi.Run
+	if includeScheduledSlot {
+		in := &runpkg.RunInput{
+			Id:           scheduleID,
+			ScheduledFor: scheduledFor,
+			Has:          &runpkg.RunInputHas{Id: true, ScheduledFor: true},
+		}
+		out, err := s.sch.ReadRuns(ctx, in, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		if out.Status.Status == "error" {
+			return nil, fmt.Errorf("failed to read runs for schedule %q scheduled_for %s: %s", scheduleID, scheduledFor.Format(time.RFC3339), out.Status.Message)
+		}
+
+		slotRuns = out.Data
+	}
+
+	in := &runpkg.RunInput{
+		Id:              scheduleID,
+		ExcludeStatuses: []string{"succeeded", "failed", "skipped"},
+		Has:             &runpkg.RunInputHas{Id: true, ExcludeStatuses: true},
+	}
+	out, err := s.sch.ReadRuns(ctx, in, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if out.Status.Status == "error" {
+		return nil, fmt.Errorf("failed to read runs for schedule %q scheduled_for %s: %s", scheduleID, scheduledFor.Format(time.RFC3339), out.Status.Message)
+	}
+
+	activeRuns := out.Data
+
+	runs := make([]*schapi.Run, 0, len(slotRuns)+len(activeRuns))
+	seen := map[string]struct{}{}
+	add := func(list []*schapi.Run) {
+		for _, r := range list {
+			if r == nil {
+				continue
+			}
+			id := strings.TrimSpace(r.Id)
+			if id == "" {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			runs = append(runs, r)
+		}
+	}
+	add(slotRuns)
+	add(activeRuns)
+	return runs, nil
+}
+
 // GetRuns lists runs for a schedule, optionally filtered by since id.
 func (s *Service) GetRuns(ctx context.Context, scheduleID, since string, session ...codec.SessionOption) ([]*schapi.Run, error) {
 	return s.sch.GetRuns(ctx, scheduleID, since, session...)
@@ -371,7 +435,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 	if s == nil || s.sch == nil || s.chat == nil {
 		return 0, fmt.Errorf("scheduler service not initialized")
 	}
-	//ctx = authctx.WithInternalAccess(ctx) TODO delete or accept
+
 	s.ensureLeaseConfig()
 
 	rows, err := s.sch.GetSchedules(ctx)
@@ -461,152 +525,51 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 
 		err = func() error {
 			defer releaseLease()
-			runs, err := s.sch.GetRuns(scheduleCtx, sc.Id, "")
+			scheduledFor := now
+			includeScheduledSlot := false
+			if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() {
+				scheduledFor = sc.NextRunAt.UTC()
+				includeScheduledSlot = true
+			}
+
+			runs, err := s.getRunsForDueCheck(scheduleCtx, sc.Id, scheduledFor, includeScheduledSlot)
 			if err != nil {
 				return err
 			}
-			scheduledFor := now
-			if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() {
-				scheduledFor = sc.NextRunAt.UTC()
-			}
+
 			var pendingRun *schapi.Run
 			for _, r := range runs {
 				if r == nil {
 					continue
 				}
+
 				// If a run already exists for the current scheduled slot (even completed),
 				// do not create another run for the same (schedule_id, scheduled_for) slot.
 				// This can happen after a crash where the run completed but the schedule row
 				// didn't advance next_run_at.
-				if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() &&
-					r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) &&
-					r.CompletedAt != nil {
-					mut := &schapi.MutableSchedule{}
-					mut.SetId(sc.Id)
-					mut.SetLastRunAt(now)
-					if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "cron") && sc.CronExpr != nil && strings.TrimSpace(*sc.CronExpr) != "" {
-						loc, _ := time.LoadLocation(strings.TrimSpace(sc.Timezone))
-						if loc == nil {
-							loc = time.UTC
-						}
-						spec, err := parseCron(strings.TrimSpace(*sc.CronExpr))
-						if err == nil {
-							mut.SetNextRunAt(cronNext(spec, now.In(loc)).UTC())
-						}
-					} else if sc.IntervalSeconds != nil {
-						mut.SetNextRunAt(now.Add(time.Duration(*sc.IntervalSeconds) * time.Second))
-					} else if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "adhoc") {
-						mut.NextRunAt = nil
-						if mut.Has != nil {
-							mut.Has.NextRunAt = true
-						}
-					}
-					if err := s.sch.PatchSchedule(scheduleCtx, mut); err != nil {
+				if includeScheduledSlot && r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) && r.CompletedAt != nil {
+					err = s.updateNextRunAt(sc, now, scheduleCtx)
+					if err != nil {
 						return err
 					}
-					return nil
+					return nil //TODO
 				}
 
 				if r.CompletedAt != nil {
 					continue
 				}
-				st := strings.ToLower(strings.TrimSpace(r.Status))
-				switch st {
+
+				status := strings.ToLower(strings.TrimSpace(r.Status))
+				switch status {
 				case "running", "prechecking":
 					// If the run is stale (e.g. scheduler crashed and no watcher is running),
 					// mark it failed so it doesn't block future runs.
-					runStart := r.CreatedAt.UTC()
-					if r.StartedAt != nil && !r.StartedAt.IsZero() {
-						runStart = r.StartedAt.UTC()
-					}
-					timeout := watchTimeout
-					if sc.TimeoutSeconds > 0 {
-						timeout = time.Duration(sc.TimeoutSeconds) * time.Second
-					}
-					staleGrace := 15 * time.Second
-					leaseExpired := false
-					if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
-						leaseExpired = now.After(r.LeaseUntil.UTC().Add(staleGrace))
-					}
-					deadlineExceeded := now.After(runStart.Add(timeout).Add(staleGrace))
-
-					stale := false
-					if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
-						// Prefer lease-based detection to quickly recover after crashes.
-						// If the lease is still being heartbeated, another instance is likely alive.
-						stale = leaseExpired
-					} else {
-						// Fallback for legacy runs without a lease.
-						stale = deadlineExceeded
-					}
+					runStart, timeout, stale := s.isStaleRun(r, sc, now)
 
 					if stale {
-						claimCtx, claimCancel := context.WithTimeout(scheduleCtx, callTimeout)
-						claimed, claimErr := s.sch.TryClaimRun(claimCtx, strings.TrimSpace(r.Id), s.leaseOwner, now.Add(s.leaseTTL))
-						claimCancel()
-						// If another instance owns the run lease, let it finalize.
-						if claimErr == nil && !claimed {
-							return nil
-						}
-
-						convID := ""
-						if r.ConversationId != nil {
-							convID = strings.TrimSpace(*r.ConversationId)
-						}
-						if convID != "" {
-							_ = s.chat.Cancel(convID)
-						}
-
-						upd := &schapi.MutableRun{}
-						upd.SetId(strings.TrimSpace(r.Id))
-						upd.SetScheduleId(sc.Id)
-						upd.SetStatus("failed")
-						upd.SetCompletedAt(now)
-						msg := fmt.Sprintf("stale run detected (current time: %v): status=%q started_at=%v timeout=%v", now, strings.TrimSpace(r.Status), runStart, timeout)
-						if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
-							msg += fmt.Sprintf(" lease_until=%v lease_owner=%q", r.LeaseUntil.UTC(), strPtrValue(r.LeaseOwner))
-						}
-						upd.SetErrorMessage(msg)
-
-						callCtx, callCancel := context.WithTimeout(scheduleCtx, callTimeout)
-						if err := s.sch.PatchRun(callCtx, upd); err != nil {
-							callCancel()
+						err, done := s.handleStaleRun(scheduleCtx, r, now, sc, runStart, timeout, scheduledFor)
+						if done {
 							return err
-						}
-						callCancel()
-
-						if claimErr == nil && claimed {
-							_, _ = s.sch.ReleaseRunLease(scheduleCtx, strings.TrimSpace(r.Id), s.leaseOwner)
-						}
-						// If this stale run belongs to the current scheduled slot, treat that slot
-						// as processed by advancing schedule.next_run_at (do not create a new run
-						// for the same scheduled_for).
-						if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() &&
-							r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) {
-							mut := &schapi.MutableSchedule{}
-							mut.SetId(sc.Id)
-							mut.SetLastRunAt(now)
-							if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "cron") && sc.CronExpr != nil && strings.TrimSpace(*sc.CronExpr) != "" {
-								loc, _ := time.LoadLocation(strings.TrimSpace(sc.Timezone))
-								if loc == nil {
-									loc = time.UTC
-								}
-								spec, err := parseCron(strings.TrimSpace(*sc.CronExpr))
-								if err == nil {
-									mut.SetNextRunAt(cronNext(spec, now.In(loc)).UTC())
-								}
-							} else if sc.IntervalSeconds != nil {
-								mut.SetNextRunAt(now.Add(time.Duration(*sc.IntervalSeconds) * time.Second))
-							} else if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "adhoc") {
-								mut.NextRunAt = nil
-								if mut.Has != nil {
-									mut.Has.NextRunAt = true
-								}
-							}
-							if err := s.sch.PatchSchedule(scheduleCtx, mut); err != nil {
-								return err
-							}
-							return nil
 						}
 						// Stale run was for an older slot; continue so a new run can be started.
 						continue
@@ -651,32 +614,10 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			}
 
 			// Update schedule last_run_at and next_run_at
-			mut := &schapi.MutableSchedule{}
-			mut.SetId(sc.Id)
-			mut.SetLastRunAt(now)
-			if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "cron") && sc.CronExpr != nil && strings.TrimSpace(*sc.CronExpr) != "" {
-				loc, _ := time.LoadLocation(strings.TrimSpace(sc.Timezone))
-				if loc == nil {
-					loc = time.UTC
-				}
-				spec, err := parseCron(strings.TrimSpace(*sc.CronExpr))
-				if err == nil {
-					mut.SetNextRunAt(cronNext(spec, now.In(loc)).UTC())
-				}
-			} else if sc.IntervalSeconds != nil {
-				mut.SetNextRunAt(now.Add(time.Duration(*sc.IntervalSeconds) * time.Second))
-			} else if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "adhoc") {
-				// Ad-hoc schedules are one-shot: once triggered, clear next_run_at so
-				// the runner doesn't keep treating it as perpetually due.
-				mut.NextRunAt = nil
-				if mut.Has != nil {
-					mut.Has.NextRunAt = true
-				}
-			}
-			if err := s.sch.PatchSchedule(scheduleCtx, mut); err != nil {
+			err = s.updateNextRunAt(sc, now, scheduleCtx)
+			if err != nil {
 				return err
 			}
-
 			started++
 			return nil
 		}()
@@ -686,6 +627,121 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 	}
 
 	return started, nil
+}
+
+func (s *Service) handleStaleRun(scheduleCtx context.Context, r *schapi.Run, now time.Time, sc *schedulepkg.ScheduleView, runStart time.Time, timeout time.Duration, scheduledFor time.Time) (error, bool) {
+	claimCtx, claimCancel := context.WithTimeout(scheduleCtx, callTimeout)
+	claimed, claimErr := s.sch.TryClaimRun(claimCtx, strings.TrimSpace(r.Id), s.leaseOwner, now.Add(s.leaseTTL))
+	claimCancel()
+	// If another instance owns the run lease, let it finalize.
+	if claimErr == nil && !claimed {
+		return nil, true
+	}
+
+	convID := ""
+	if r.ConversationId != nil {
+		convID = strings.TrimSpace(*r.ConversationId)
+	}
+	if convID != "" {
+		_ = s.chat.Cancel(convID)
+	}
+
+	upd := &schapi.MutableRun{}
+	upd.SetId(strings.TrimSpace(r.Id))
+	upd.SetScheduleId(sc.Id)
+	upd.SetStatus("failed")
+	upd.SetCompletedAt(now)
+	msg := fmt.Sprintf("stale run detected (current time: %v): status=%q started_at=%v timeout=%v", now, strings.TrimSpace(r.Status), runStart, timeout)
+	if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
+		msg += fmt.Sprintf(" lease_until=%v lease_owner=%q", r.LeaseUntil.UTC(), strPtrValue(r.LeaseOwner))
+	}
+	upd.SetErrorMessage(msg)
+
+	callCtx, callCancel := context.WithTimeout(scheduleCtx, callTimeout)
+	if err := s.sch.PatchRun(callCtx, upd); err != nil {
+		callCancel()
+		return err, true
+	}
+	callCancel()
+
+	if claimErr == nil && claimed {
+		_, _ = s.sch.ReleaseRunLease(scheduleCtx, strings.TrimSpace(r.Id), s.leaseOwner)
+	}
+
+	// If this stale run belongs to the current scheduled slot, treat that slot
+	// as processed by advancing schedule.next_run_at (do not create a new run
+	// for the same scheduled_for).
+	if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() && r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) {
+		err := s.updateNextRunAt(sc, now, scheduleCtx)
+		return err, true
+	}
+	return nil, false
+}
+
+func (s *Service) updateNextRunAt(sc *schedulepkg.ScheduleView, now time.Time, scheduleCtx context.Context) error {
+	mut := &schapi.MutableSchedule{}
+	mut.SetId(sc.Id)
+	mut.SetLastRunAt(now)
+
+	if err := s.setNextRunAt(sc, mut, now); err != nil {
+		return err
+	}
+
+	if err := s.sch.PatchSchedule(scheduleCtx, mut); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) isStaleRun(r *schapi.Run, sc *schedulepkg.ScheduleView, now time.Time) (time.Time, time.Duration, bool) {
+	runStart := r.CreatedAt.UTC()
+	if r.StartedAt != nil && !r.StartedAt.IsZero() {
+		runStart = r.StartedAt.UTC()
+	}
+	timeout := watchTimeout
+	if sc.TimeoutSeconds > 0 {
+		timeout = time.Duration(sc.TimeoutSeconds) * time.Second
+	}
+	staleGrace := 15 * time.Second
+	leaseExpired := false
+	if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
+		leaseExpired = now.After(r.LeaseUntil.UTC().Add(staleGrace))
+	}
+	deadlineExceeded := now.After(runStart.Add(timeout).Add(staleGrace))
+
+	stale := false
+	if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
+		// Prefer lease-based detection to quickly recover after crashes.
+		// If the lease is still being heartbeated, another instance is likely alive.
+		stale = leaseExpired
+	} else {
+		// Fallback for legacy runs without a lease.
+		stale = deadlineExceeded
+	}
+	return runStart, timeout, stale
+}
+
+func (s *Service) setNextRunAt(sc *schedulepkg.ScheduleView, mut *schapi.MutableSchedule, now time.Time) error {
+	if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "cron") && sc.CronExpr != nil && strings.TrimSpace(*sc.CronExpr) != "" {
+		loc, _ := time.LoadLocation(strings.TrimSpace(sc.Timezone))
+		if loc == nil {
+			loc = time.UTC
+		}
+		spec, err := parseCron(strings.TrimSpace(*sc.CronExpr))
+		if err != nil {
+			return fmt.Errorf("invalid cron expr for schedule %s: %w", sc.Id, err)
+		}
+		mut.SetNextRunAt(cronNext(spec, now.In(loc)).UTC())
+	} else if sc.IntervalSeconds != nil {
+		mut.SetNextRunAt(now.Add(time.Duration(*sc.IntervalSeconds) * time.Second))
+	} else if strings.EqualFold(strings.TrimSpace(sc.ScheduleType), "adhoc") {
+		mut.NextRunAt = nil
+		if mut.Has != nil {
+			mut.Has.NextRunAt = true
+		}
+	}
+
+	return nil
 }
 
 func (s *Service) ensureLeaseConfig() {
