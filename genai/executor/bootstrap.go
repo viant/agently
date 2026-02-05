@@ -720,9 +720,9 @@ func (e *Service) initDefaults(ctx context.Context) error {
 		if defaults.ToolCallMaxResults == 0 {
 			defaults.ToolCallMaxResults = 100
 		}
-		// Set a sensible default tool-call timeout when not provided (5 minutes)
+		// Set a sensible default tool-call timeout when not provided (2 minutes)
 		if defaults.ToolCallTimeoutSec <= 0 {
-			defaults.ToolCallTimeoutSec = 300
+			defaults.ToolCallTimeoutSec = 120
 		}
 		tr := &e.config.Default.PreviewSettings
 

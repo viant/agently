@@ -88,7 +88,7 @@ func (s *Service) Name() string { return Name }
 
 // ToolTimeout suggests a larger timeout for llm/agents service tools which run
 // full agent turns.
-func (s *Service) ToolTimeout() time.Duration { return 30 * time.Minute }
+func (s *Service) ToolTimeout() time.Duration { return 5 * time.Minute }
 
 // Methods returns available methods.
 func (s *Service) Methods() svc.Signatures {
