@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,12 +81,54 @@ func (f *fakeScheduleStore) ReadSchedule(_ context.Context, in *schedulelist.Sch
 	return &schedulelist.ScheduleOutput{Data: []*schedulepkg.ScheduleView{row}}, nil
 }
 
-func (f *fakeScheduleStore) ReadRuns(_ context.Context, in *runpkg.RunInput, _ []codec.SessionOption, _ ...datly.OperateOption) (*runpkg.RunOutput, error) {
+func (f *fakeScheduleStore) ReadRuns(ctx context.Context, in *runpkg.RunInput, _ []codec.SessionOption, _ ...datly.OperateOption) (*runpkg.RunOutput, error) {
 	if in == nil {
 		return &runpkg.RunOutput{}, nil
 	}
-	data := f.runs[in.Id]
-	return &runpkg.RunOutput{Data: data}, nil
+	var data []*runpkg.RunView
+	if f.getRunsFn != nil {
+		rows, err := f.getRunsFn(ctx, in.Id)
+		if err != nil {
+			return nil, err
+		}
+		data = rows
+	} else if f.runs != nil {
+		data = f.runs[in.Id]
+	}
+	filtered := data
+	if in.Has != nil {
+		if in.Has.ScheduledFor && !in.ScheduledFor.IsZero() {
+			slot := in.ScheduledFor.UTC()
+			tmp := make([]*runpkg.RunView, 0, len(filtered))
+			for _, r := range filtered {
+				if r == nil || r.ScheduledFor == nil {
+					continue
+				}
+				if r.ScheduledFor.UTC().Equal(slot) {
+					tmp = append(tmp, r)
+				}
+			}
+			filtered = tmp
+		}
+		if in.Has.ExcludeStatuses && len(in.ExcludeStatuses) > 0 {
+			exclude := map[string]struct{}{}
+			for _, st := range in.ExcludeStatuses {
+				exclude[strings.ToLower(strings.TrimSpace(st))] = struct{}{}
+			}
+			tmp := make([]*runpkg.RunView, 0, len(filtered))
+			for _, r := range filtered {
+				if r == nil {
+					continue
+				}
+				if _, ok := exclude[strings.ToLower(strings.TrimSpace(r.Status))]; ok {
+					continue
+				}
+				tmp = append(tmp, r)
+			}
+			filtered = tmp
+		}
+	}
+	return &runpkg.RunOutput{Data: filtered}, nil
 }
 
 func (f *fakeScheduleStore) PatchSchedules(ctx context.Context, in *schedwrite.Input, _ ...datly.OperateOption) (*schedwrite.Output, error) {

@@ -37,7 +37,7 @@ func TestRepository_Load_View(t *testing.T) {
 				"title: Plan\n" +
 				"match:\n  service: orchestration\n  method: updatePlan\n" +
 				"activation:\n  kind: history\n  scope: all\n" +
-				"ui:\n  containers:\n  - id: header\n    items:\n      - id: explanation\n        type: label\n  - id: planTable\n    type: table\n    columns:\n      - id: status\n        name: Status\n",
+				"ui:\n  containers:\n  - id: header\n    items:\n      - id: explanation\n        type: label\n  - id: planTable\n    type: table\n    columns:\n      - id: status\n        name: ExcludeStatuses\n",
 			expectContainerIDs: []string{"header", "planTable"},
 		},
 	}

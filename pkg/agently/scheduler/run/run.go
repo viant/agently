@@ -29,6 +29,8 @@ var RunFS embed.FS
 type RunInput struct {
 	Id               string       `parameter:",kind=path,in=id" predicate:"equal,group=0,t,schedule_id"`
 	Since            string       `parameter:",kind=query,in=since" predicate:"expr,group=1,created_at >= (SELECT created_at FROM turn WHERE id = ?)"`
+	ScheduledFor     time.Time    `parameter:",kind=query,in=scheduled_for" predicate:"equal,group=0,t,scheduled_for"`
+	ExcludeStatuses  []string     `parameter:",kind=query,in=status" predicate:"not_in,group=0,t,status"`
 	DefaultPredicate string       `parameter:",kind=const,in=value" predicate:"handler,group=0,*run.Filter" value:"0"`
 	Has              *RunInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
@@ -36,6 +38,8 @@ type RunInput struct {
 type RunInputHas struct {
 	Id               bool
 	Since            bool
+	ScheduledFor     bool
+	ExcludeStatuses  bool
 	DefaultPredicate bool
 }
 

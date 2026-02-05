@@ -8,6 +8,8 @@
 
 #set($_ = $Id<string>(path/id).WithPredicate(0, 'equal','t', 'schedule_id'))
 #set($_ = $Since<string>(query/since).WithPredicate(1,'expr','created_at >= (SELECT created_at FROM turn WHERE id = ?)'))
+#set($_ = $ScheduledFor<time.Time>(query/scheduled_for).WithPredicate(0, 'equal', 't', 'scheduled_for'))
+#set($_ = $ExcludeStatuses<[]string>(query/status).WithPredicate(0, 'not_in', 't', 'status'))
 
 #set($_ = $DefaultPredicate<bool>(const/value).Value('0').WithPredicate(0,'handler','*run.Filter'))
 

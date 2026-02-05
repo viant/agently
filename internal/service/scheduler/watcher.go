@@ -95,7 +95,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 			if strings.TrimSpace(s.leaseOwner) != "" {
 				now := time.Now().UTC()
 				if !now.Before(nextHeartbeatAt) {
-					log.Printf("watchRunCompletion heartbeat - scheduleID: %v runName %.10s runID: %v by owner: %v\n", scheduleID, runName, runID, s.leaseOwner)
+					log.Printf("watchRunCompletion heartbeat - scheduleName %.20s scheduleID: %v runID: %v by owner: %v\n", scheduleID, runName, runID, s.leaseOwner)
 					callCtx, callCancel := context.WithTimeout(ctx, callTimeout)
 					claimed, err := s.sch.TryClaimRun(callCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner), now.Add(s.leaseTTL))
 					callCancel()
@@ -172,7 +172,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 				_, _ = s.sch.ReleaseRunLease(relCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner))
 				relCancel()
 			}
-			log.Printf("scheduler: run completed schedule_id=%q run_id=%q conversation_id=%q status=%q stage=%q", scheduleID, runID, conversationID, status, stage)
+			log.Printf("scheduler: run completed with status %q schedule_id=%q run_id=%q conversation_id=%q status=%q stage=%q", status, scheduleID, runID, conversationID, stage)
 			return
 		}
 	}
@@ -234,7 +234,7 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 	if pErr != nil {
 		log.Printf("scheduler: run completion finalization failed schedule_id=%q run_id=%q conversation_id=%q status=%q stage=%q timeout=%v error=%v", scheduleID, runID, conversationID, finalStatus, stage, timeout, pErr)
 	} else {
-		log.Printf("scheduler: run completed schedule_id=%q run_id=%q conversation_id=%q status=%q stage=%q timeout=%v", scheduleID, runID, conversationID, finalStatus, stage, timeout)
+		log.Printf("scheduler: run completed with status %q schedule_id=%q run_id=%q conversation_id=%q stage=%q timeout=%v", finalStatus, scheduleID, runID, conversationID, stage, timeout)
 	}
 
 	if strings.TrimSpace(s.leaseOwner) != "" {
