@@ -132,6 +132,8 @@ type (
 		MinScore *float64        `yaml:"minScore,omitempty" json:"minScore,omitempty"`
 		// UpstreamRef links this resource root to a configured upstream sync definition.
 		UpstreamRef string `yaml:"upstreamRef,omitempty" json:"upstreamRef,omitempty"`
+		// DB optionally overrides the embedius sqlite database path for this root.
+		DB string `yaml:"db,omitempty" json:"db,omitempty"`
 
 		// Description is an optional human-friendly label for this resource
 		// root. When provided it is surfaced via tools such as resources.roots

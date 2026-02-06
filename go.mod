@@ -12,7 +12,7 @@ require (
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.16.0
 	github.com/viant/datly v0.35.1-0.20260128170806-3481a39615df
-	github.com/viant/embedius v0.2.11-0.20260128171351-c2bfffb86f56
+	github.com/viant/embedius v0.3.0
 	github.com/viant/fluxor v0.4.3
 	github.com/viant/forge v0.2.17-0.20260105184320-7b9e795ab3ef
 	github.com/viant/jsonrpc v0.17.0
@@ -121,6 +121,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.13.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.2 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect

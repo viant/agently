@@ -15,11 +15,14 @@ type AugmentDocsInput struct {
 	Locations       []string
 	Match           *option.Options
 	Model           string
+	DB              string
 	MaxResponseSize int //size in byte
 	MaxDocuments    int
 	//based on meta['path'] include full path as long it does not go over //max response size
 	IncludeFile bool
 	TrimPath    string //trim path prefix
+	// AllowPartial returns matches from successful roots even if others fail.
+	AllowPartial bool
 }
 
 var (

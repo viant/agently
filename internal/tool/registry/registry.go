@@ -320,6 +320,17 @@ func toolProperties(def *llm.ToolDefinition) map[string]interface{} {
 		}
 		def.Parameters["properties"] = coerced
 		return coerced
+	case map[interface{}]interface{}:
+		coerced := make(map[string]interface{}, len(p))
+		for k, v := range p {
+			ks, ok := k.(string)
+			if !ok {
+				continue
+			}
+			coerced[ks] = v
+		}
+		def.Parameters["properties"] = coerced
+		return coerced
 	case mcpschema.ToolInputSchemaProperties:
 		coerced := make(map[string]interface{}, len(p))
 		for k, v := range p {

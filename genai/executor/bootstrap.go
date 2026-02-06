@@ -720,9 +720,9 @@ func (e *Service) initDefaults(ctx context.Context) error {
 		if defaults.ToolCallMaxResults == 0 {
 			defaults.ToolCallMaxResults = 100
 		}
-		// Set a sensible default tool-call timeout when not provided (2 minutes)
+		// Set a sensible default tool-call timeout when not provided (3 minutes)
 		if defaults.ToolCallTimeoutSec <= 0 {
-			defaults.ToolCallTimeoutSec = 120
+			defaults.ToolCallTimeoutSec = 180
 		}
 		tr := &e.config.Default.PreviewSettings
 
@@ -1092,6 +1092,17 @@ func (e *Service) initAgent(ctx context.Context) {
 			}
 			if !dup {
 				e.config.Agent.Items = append(e.config.Agent.Items, a)
+			}
+			// Ensure finder can resolve by agent ID or name (not just filename).
+			if adder, ok := e.agentFinder.(interface {
+				Add(string, *agent.Agent)
+			}); ok && a != nil {
+				if id := strings.TrimSpace(a.ID); id != "" && !strings.EqualFold(id, n) {
+					adder.Add(id, a)
+				}
+				if nm := strings.TrimSpace(a.Name); nm != "" && !strings.EqualFold(nm, n) && !strings.EqualFold(nm, a.ID) {
+					adder.Add(nm, a)
+				}
 			}
 		}
 	}

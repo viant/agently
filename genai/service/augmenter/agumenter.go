@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	adaptembed "github.com/viant/agently/genai/embedder/adapter"
@@ -21,7 +22,7 @@ import (
 type DocsAugmenter struct {
 	embedder  string
 	options   *option.Options
-	fsIndexer *fs.Indexer
+	fsIndexer indexer.Indexer
 	store     *sqlitevec.Store
 	service   *indexer.Service
 }
@@ -103,11 +104,16 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 	if useMCP && s.mcpMgr == nil {
 		return nil, fmt.Errorf("mcp manager not configured for MCP locations")
 	}
-	// Use a single augmenter per model+options(+mcp) and a shared sqlite store.
+	// Use a single augmenter per model+options(+mcp)+db and a shared sqlite store.
 	key := Key(input.Model, input.Match)
 	if useMCP {
 		key += ":mcp"
 	}
+	store, storeKey, err := s.ensureStoreWithDB(ctx, strings.TrimSpace(input.DB))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create sqlitevec store: %v", err)
+	}
+	key += ":db=" + storeKey
 	augmenter, ok := s.DocsAugmenters.Get(key)
 	if !ok {
 		model, err := s.finder.Find(ctx, input.Model)
@@ -118,7 +124,6 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 		if input.Match != nil {
 			matchOptions = input.Match.Options()
 		}
-		store := s.ensureStore(ctx)
 		if useMCP && s.mcpMgr != nil {
 			baseURL := embeddingBaseURL(ctx)
 			_ = os.MkdirAll(baseURL, 0755)
@@ -132,13 +137,16 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 			if strings.TrimSpace(s.mcpSnapshotCacheRoot) != "" {
 				opts = append(opts, mcpfs.WithSnapshotCacheRoot(s.mcpSnapshotCacheRoot))
 			}
-			idx := fs.NewWithFS(
+			var idx indexer.Indexer = fs.NewWithFS(
 				baseURL,
 				input.Model,
 				matcher,
 				splitterFactory,
 				mcpfs.NewComposite(s.mcpMgr, opts...),
 			)
+			idx = newNamespaceOverrideIndexer(idx, func(ctx context.Context, uri string) (string, bool, error) {
+				return s.resolveMCPRootID(ctx, uri)
+			})
 			ret := &DocsAugmenter{
 				embedder:  input.Model,
 				fsIndexer: idx,
@@ -156,16 +164,37 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 
 // ensureStore initializes a shared sqlite-vec store once per process.
 func (s *Service) ensureStore(ctx context.Context) *sqlitevec.Store {
-	s.storeOnce.Do(func() {
-		baseURL := embeddingBaseURL(ctx)
-		_ = os.MkdirAll(baseURL, 0755)
-		store, err := newSQLiteStore(baseURL)
-		if err != nil {
-			panic(fmt.Sprintf("failed to create sqlitevec store: %v", err))
-		}
-		s.store = store
-	})
-	return s.store
+	store, _, err := s.ensureStoreWithDB(ctx, "")
+	if err != nil {
+		panic(fmt.Sprintf("failed to create sqlitevec store: %v", err))
+	}
+	return store
+}
+
+func (s *Service) ensureStoreWithDB(ctx context.Context, dbPath string) (*sqlitevec.Store, string, error) {
+	baseURL := embeddingBaseURL(ctx)
+	_ = os.MkdirAll(baseURL, 0755)
+	key := strings.TrimSpace(dbPath)
+	if key == "" {
+		key = defaultSQLitePath(baseURL)
+	}
+	if dir := filepath.Dir(key); strings.TrimSpace(dir) != "" {
+		_ = os.MkdirAll(dir, 0755)
+	}
+	s.storeMu.Lock()
+	defer s.storeMu.Unlock()
+	if s.stores == nil {
+		s.stores = map[string]*sqlitevec.Store{}
+	}
+	if store, ok := s.stores[key]; ok && store != nil {
+		return store, key, nil
+	}
+	store, err := newSQLiteStoreWithDB(key)
+	if err != nil {
+		return nil, key, err
+	}
+	s.stores[key] = store
+	return store, key, nil
 }
 
 // debugf prints Embedius-related debug information when AGENTLY_DEBUG_EMBEDIUS=1
