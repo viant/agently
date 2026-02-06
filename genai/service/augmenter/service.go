@@ -42,9 +42,9 @@ type Service struct {
 	// Local (non-MCP) upstream sync configuration.
 	localRoots     []localRoot
 	localUpstreams map[string]LocalUpstream
-	// Global sqlite-vec store reused across all augmenters
-	store     *sqlitevec.Store
-	storeOnce sync.Once
+	// sqlite-vec stores keyed by db path
+	storeMu sync.Mutex
+	stores  map[string]*sqlitevec.Store
 	// Limits parallel upstream sync operations.
 	upstreamSyncConcurrency int
 	// Limits parallel matching operations across roots.
@@ -215,9 +215,11 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 	if limit <= 0 {
 		limit = 1
 	}
-	results := make([][]embSchema.Document, len(input.Locations))
-	var firstErr error
-	var errMu sync.Mutex
+	type matchResult struct {
+		docs []embSchema.Document
+		err  error
+	}
+	results := make([]matchResult, len(input.Locations))
 	sem := make(chan struct{}, limit)
 	var wg sync.WaitGroup
 	for i, location := range input.Locations {
@@ -239,23 +241,28 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 			docs, err := service.Match(matchCtx, input.Query, input.MaxDocuments, location)
 			if err != nil {
 				log.Printf("embedius: match error location=%q err=%v", location, err)
-				errMu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				errMu.Unlock()
+				results[i] = matchResult{err: err}
 				return
 			}
 			log.Printf("embedius: match done location=%q docs=%d", location, len(docs))
-			results[i] = docs
+			results[i] = matchResult{docs: docs}
 		}()
 	}
 	wg.Wait()
-	if firstErr != nil {
-		return fmt.Errorf("failed to augmentDocs documents: %w", firstErr)
+	var firstErr error
+	successes := 0
+	for _, res := range results {
+		if res.err != nil {
+			if firstErr == nil {
+				firstErr = res.err
+			}
+			continue
+		}
+		successes++
+		searchDocuments = append(searchDocuments, res.docs...)
 	}
-	for _, docs := range results {
-		searchDocuments = append(searchDocuments, docs...)
+	if firstErr != nil && (!input.AllowPartial || successes == 0) {
+		return fmt.Errorf("failed to augmentDocs documents: %w", firstErr)
 	}
 	output.Documents = searchDocuments
 	output.DocumentsSize = Documents(searchDocuments).Size()

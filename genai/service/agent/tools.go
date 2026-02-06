@@ -98,7 +98,8 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 		for i := range defs {
 			tools = append(tools, llm.Tool{Type: "function", Definition: defs[i]})
 		}
-		return s.appendRegistryWarnings(ctx, tools), nil
+		tools = s.appendRegistryWarnings(ctx, tools)
+		return tools, nil
 	}
 
 	// Fall back to agent patterns when no explicit allow-list is provided.
@@ -113,7 +114,31 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 		}
 	}
 	// Append any registry warnings raised during matching.
-	return s.appendRegistryWarnings(ctx, out), nil
+	out = s.appendRegistryWarnings(ctx, out)
+	return out, nil
+}
+
+func agentName(qi *QueryInput) string {
+	if qi == nil || qi.Agent == nil {
+		return ""
+	}
+	if strings.TrimSpace(qi.Agent.ID) != "" {
+		return strings.TrimSpace(qi.Agent.ID)
+	}
+	return strings.TrimSpace(qi.Agent.Name)
+}
+
+func toolNames(in []llm.Tool) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for i := range in {
+		if n := strings.TrimSpace(in[i].Definition.Name); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func selectedBundleIDs(qi *QueryInput) []string {
@@ -159,13 +184,23 @@ func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []stri
 	if err != nil {
 		return nil, err
 	}
+	var derived map[string]*toolbundle.Bundle
 	if len(bundles) == 0 {
-		derived := toolbundle.DeriveBundles(s.registry.Definitions())
-		bundles = indexBundlesByID(derived)
+		derived = indexBundlesByID(toolbundle.DeriveBundles(s.registry.Definitions()))
+		bundles = derived
 	}
 	var defs []llm.ToolDefinition
 	for _, id := range bundleIDs {
-		b := bundles[strings.ToLower(strings.TrimSpace(id))]
+		key := strings.ToLower(strings.TrimSpace(id))
+		b := bundles[key]
+		if b == nil && len(bundles) > 0 {
+			// When workspace bundles exist but don't include the requested id,
+			// fall back to derived bundles from tool registry.
+			if derived == nil {
+				derived = indexBundlesByID(toolbundle.DeriveBundles(s.registry.Definitions()))
+			}
+			b = derived[key]
+		}
 		if b == nil {
 			appendWarning(ctx, fmt.Sprintf("unknown tool bundle: %s", id))
 			continue

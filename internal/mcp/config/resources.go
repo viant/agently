@@ -11,6 +11,9 @@ type ResourceRoot struct {
 	ID           string
 	URI          string
 	Description  string
+	Include      []string
+	Exclude      []string
+	MaxSizeBytes int64
 	Vectorize    bool
 	Snapshot     bool
 	SnapshotMD5  bool
@@ -59,6 +62,9 @@ func ResourceRoots(meta map[string]interface{}) []ResourceRoot {
 			ID:           getString(m, "id", "ID"),
 			URI:          getString(m, "uri", "URI"),
 			Description:  getString(m, "description", "Description"),
+			Include:      getStringList(m, "include", "includes", "inclusions"),
+			Exclude:      getStringList(m, "exclude", "excludes", "exclusions"),
+			MaxSizeBytes: getInt64(m, "max_size_bytes", "maxSizeBytes", "maxSize"),
 			Vectorize:    getBool(m, "vectorization", "vectorize"),
 			Snapshot:     getBool(m, "snapshot"),
 			SnapshotMD5:  getBool(m, "snapshotManifest", "snapshot_manifest", "snapshotMD5", "snapshot_md5"),
@@ -212,6 +218,64 @@ func getBool(m map[string]interface{}, keys ...string) bool {
 	return false
 }
 
+func getStringList(m map[string]interface{}, keys ...string) []string {
+	for _, key := range keys {
+		if v, ok := m[key]; ok && v != nil {
+			switch list := v.(type) {
+			case []string:
+				return trimStrings(list)
+			case []interface{}:
+				out := make([]string, 0, len(list))
+				for _, item := range list {
+					if s, ok := item.(string); ok {
+						if strings.TrimSpace(s) != "" {
+							out = append(out, strings.TrimSpace(s))
+						}
+					}
+				}
+				if len(out) > 0 {
+					return out
+				}
+			case string:
+				if strings.TrimSpace(list) != "" {
+					return []string{strings.TrimSpace(list)}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func trimStrings(in []string) []string {
+	var out []string
+	for _, s := range in {
+		if strings.TrimSpace(s) == "" {
+			continue
+		}
+		out = append(out, strings.TrimSpace(s))
+	}
+	return out
+}
+
+func getInt64(m map[string]interface{}, keys ...string) int64 {
+	for _, key := range keys {
+		if v, ok := m[key]; ok && v != nil {
+			switch n := v.(type) {
+			case int:
+				return int64(n)
+			case int64:
+				return n
+			case float64:
+				return int64(n)
+			case string:
+				if parsed, err := strconv.ParseInt(strings.TrimSpace(n), 10, 64); err == nil {
+					return parsed
+				}
+			}
+		}
+	}
+	return 0
+}
 func getOptionalBool(m map[string]interface{}, keys ...string) (bool, bool) {
 	for _, key := range keys {
 		if v, ok := m[key]; ok && v != nil {

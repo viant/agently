@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -72,6 +73,14 @@ func (d *Finder) Find(ctx context.Context, name string) (*agent.Agent, error) {
 	d.mu.RLock()
 	if a, ok := d.items[name]; ok {
 		d.mu.RUnlock()
+		if d.loader != nil && isStubAgent(a) {
+			if loaded, err := d.loader.Load(ctx, name); err == nil && loaded != nil {
+				d.mu.Lock()
+				d.items[name] = loaded
+				d.mu.Unlock()
+				return loaded, nil
+			}
+		}
 		return a, nil
 	}
 	d.mu.RUnlock()
@@ -89,6 +98,34 @@ func (d *Finder) Find(ctx context.Context, name string) (*agent.Agent, error) {
 		d.mu.Unlock()
 	}
 	return a, nil
+}
+
+func isStubAgent(a *agent.Agent) bool {
+	if a == nil {
+		return true
+	}
+	if a.Source != nil && strings.TrimSpace(a.Source.URL) != "" {
+		return false
+	}
+	if a.Prompt != nil && (strings.TrimSpace(a.Prompt.Text) != "" || strings.TrimSpace(a.Prompt.URI) != "") {
+		return false
+	}
+	if a.SystemPrompt != nil && (strings.TrimSpace(a.SystemPrompt.Text) != "" || strings.TrimSpace(a.SystemPrompt.URI) != "") {
+		return false
+	}
+	if len(a.Knowledge) > 0 || len(a.SystemKnowledge) > 0 {
+		return false
+	}
+	if len(a.Tool.Items) > 0 || len(a.Tool.Bundles) > 0 {
+		return false
+	}
+	if len(a.Resources) > 0 || len(a.Chains) > 0 {
+		return false
+	}
+	if a.ContextInputs != nil || a.Attachment != nil || a.Persona != nil {
+		return false
+	}
+	return true
 }
 
 // New creates Finder instance.

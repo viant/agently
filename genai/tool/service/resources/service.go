@@ -534,7 +534,7 @@ func (s *Service) expandMCPResources(ctx context.Context, base *agmodel.Resource
 			Binding:     base.Binding,
 			MaxFiles:    base.MaxFiles,
 			TrimPath:    base.TrimPath,
-			Match:       base.Match,
+			Match:       mergeMatchOptions(base.Match, root.Include, root.Exclude, root.MaxSizeBytes),
 			MinScore:    base.MinScore,
 			Description: strings.TrimSpace(root.Description),
 		}
@@ -556,6 +556,59 @@ func (s *Service) expandMCPResources(ctx context.Context, base *agmodel.Resource
 		out = append(out, res)
 	}
 	return out
+}
+
+func mergeMatchOptions(base *embopt.Options, include, exclude []string, maxSizeBytes int64) *embopt.Options {
+	if base == nil && len(include) == 0 && len(exclude) == 0 && maxSizeBytes <= 0 {
+		return nil
+	}
+	out := &embopt.Options{}
+	if base != nil {
+		*out = *base
+	}
+	if len(out.Inclusions) == 0 && len(include) > 0 {
+		out.Inclusions = append([]string(nil), include...)
+	}
+	if len(out.Exclusions) == 0 && len(exclude) > 0 {
+		out.Exclusions = append([]string(nil), exclude...)
+	}
+	if out.MaxFileSize == 0 && maxSizeBytes > 0 {
+		out.MaxFileSize = int(maxSizeBytes)
+	}
+	return out
+}
+
+func mergeEffectiveMatch(rootMatch, inputMatch *embopt.Options) *embopt.Options {
+	if rootMatch == nil && inputMatch == nil {
+		return nil
+	}
+	out := &embopt.Options{}
+	if rootMatch != nil {
+		*out = *rootMatch
+	}
+	if inputMatch != nil {
+		if len(inputMatch.Inclusions) > 0 {
+			out.Inclusions = append([]string(nil), inputMatch.Inclusions...)
+		}
+		if len(inputMatch.Exclusions) > 0 {
+			out.Exclusions = append([]string(nil), inputMatch.Exclusions...)
+		}
+		if inputMatch.MaxFileSize > 0 {
+			out.MaxFileSize = inputMatch.MaxFileSize
+		}
+	}
+	if len(out.Inclusions) == 0 && len(out.Exclusions) == 0 && out.MaxFileSize == 0 {
+		return nil
+	}
+	return out
+}
+
+func matchKey(rootMatch, inputMatch *embopt.Options) string {
+	eff := mergeEffectiveMatch(rootMatch, inputMatch)
+	if eff == nil {
+		return ""
+	}
+	return fmt.Sprintf("max=%d|incl=%s|excl=%s", eff.MaxFileSize, strings.Join(eff.Inclusions, ","), strings.Join(eff.Exclusions, ","))
 }
 
 func matchesMCPSelector(selectors []string, root mcpcfg.ResourceRoot) bool {
@@ -656,7 +709,13 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 	if len(localRoots) > 0 {
 		ctx = aug.WithLocalRoots(ctx, localRoots)
 	}
+	type locInfo struct {
+		location string
+		db       string
+		match    *embopt.Options
+	}
 	locations := make([]string, 0, len(selectedRoots))
+	locInfos := make([]locInfo, 0, len(selectedRoots))
 	searchRoots := make([]searchRootMeta, 0, len(selectedRoots))
 	for _, root := range selectedRoots {
 		wsRoot := strings.TrimRight(strings.TrimSpace(root.URI), "/")
@@ -677,6 +736,7 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 			}
 		}
 		locations = append(locations, base)
+		locInfos = append(locInfos, locInfo{location: base, db: strings.TrimSpace(root.DB), match: root.Match})
 		searchRoots = append(searchRoots, searchRootMeta{
 			id:     root.ID,
 			wsRoot: wsRoot,
@@ -686,25 +746,46 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 		return nil, fmt.Errorf("no valid roots provided")
 	}
 	trimPrefix := commonPrefix(locations)
-	augIn := &aug.AugmentDocsInput{
-		Query:        query,
-		Locations:    locations,
-		Match:        input.Match,
-		Model:        embedderID,
-		MaxDocuments: input.MaxDocuments,
-		IncludeFile:  input.IncludeFile,
-		TrimPath:     trimPrefix,
+	type matchGroup struct {
+		db    string
+		match *embopt.Options
+		locs  []string
 	}
-	var augOut aug.AugmentDocsOutput
-	if err := s.runAugmentDocs(ctx, augIn, &augOut); err != nil {
-		return nil, err
+	grouped := map[string]*matchGroup{}
+	for _, li := range locInfos {
+		key := li.db + "|" + matchKey(li.match, input.Match)
+		g, ok := grouped[key]
+		if !ok {
+			g = &matchGroup{db: li.db, match: mergeEffectiveMatch(li.match, input.Match)}
+			grouped[key] = g
+		}
+		g.locs = append(g.locs, li.location)
 	}
-	sort.SliceStable(augOut.Documents, func(i, j int) bool { return augOut.Documents[i].Score > augOut.Documents[j].Score })
+	var allDocs []embSchema.Document
+	for _, group := range grouped {
+		augIn := &aug.AugmentDocsInput{
+			Query:        query,
+			Locations:    group.locs,
+			Match:        group.match,
+			Model:        embedderID,
+			DB:           group.db,
+			MaxDocuments: input.MaxDocuments,
+			IncludeFile:  input.IncludeFile,
+			TrimPath:     trimPrefix,
+			AllowPartial: true,
+		}
+		var augOut aug.AugmentDocsOutput
+		if err := s.runAugmentDocs(ctx, augIn, &augOut); err != nil {
+			return nil, err
+		}
+		allDocs = append(allDocs, augOut.Documents...)
+	}
+	sort.SliceStable(allDocs, func(i, j int) bool { return allDocs[i].Score > allDocs[j].Score })
 
 	curAgent := s.currentAgent(ctx)
 	sysPrefixes := systemdoc.Prefixes(curAgent)
-	for i := range augOut.Documents {
-		doc := &augOut.Documents[i]
+	for i := range allDocs {
+		doc := &allDocs[i]
 		if doc.Metadata == nil {
 			doc.Metadata = map[string]any{}
 		}
@@ -719,7 +800,7 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 		assignRootMetadata(doc, searchRoots)
 	}
 	return &augmentedDocuments{
-		documents:      augOut.Documents,
+		documents:      allDocs,
 		trimPrefix:     trimPrefix,
 		systemPrefixes: sysPrefixes,
 	}, nil
@@ -1985,6 +2066,10 @@ type Root struct {
 	Description string `json:"description,omitempty"`
 	// UpstreamRef is an internal-only reference used to resolve local upstream sync.
 	UpstreamRef string `json:"-"`
+	// DB is an optional embedius sqlite database path override for this root.
+	DB string `json:"-"`
+	// Match carries per-root match options (include/exclude/max file size).
+	Match *embopt.Options `json:"match,omitempty"`
 	// AllowedSemanticSearch reports whether semantic match (match)
 	// is permitted for this root in the current agent configuration.
 	AllowedSemanticSearch bool `json:"allowedSemanticSearch"`
@@ -2042,6 +2127,8 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 		role := "user"
 		rootID := wsRoot
 		upstreamRef := ""
+		rootDB := ""
+		var rootMatch *embopt.Options
 		if curAgent != nil {
 			for _, r := range s.agentResources(ctx, curAgent) {
 				if r == nil || strings.TrimSpace(r.URI) == "" {
@@ -2064,6 +2151,12 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 					if strings.TrimSpace(r.UpstreamRef) != "" {
 						upstreamRef = strings.TrimSpace(r.UpstreamRef)
 					}
+					if strings.TrimSpace(r.DB) != "" {
+						rootDB = strings.TrimSpace(r.DB)
+					}
+					if r.Match != nil {
+						rootMatch = r.Match
+					}
 					break
 				}
 			}
@@ -2078,9 +2171,13 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 			URI:                   wsRoot,
 			Description:           desc,
 			UpstreamRef:           upstreamRef,
+			DB:                    rootDB,
 			AllowedSemanticSearch: semAllowed,
 			AllowedGrepSearch:     grepAllowed,
 			Role:                  role,
+		}
+		if semAllowed && rootMatch != nil {
+			rootEntry.Match = rootMatch
 		}
 		if role == "system" {
 			systemRoots = append(systemRoots, rootEntry)
@@ -2158,14 +2255,20 @@ func (s *Service) collectMCPRoots(ctx context.Context) []Root {
 			if rootID == "" {
 				rootID = uri
 			}
-			roots = append(roots, Root{
+			semAllowed := root.Vectorize && root.Snapshot
+			match := mergeMatchOptions(nil, root.Include, root.Exclude, root.MaxSizeBytes)
+			rootEntry := Root{
 				ID:                    rootID,
 				URI:                   uri,
 				Description:           strings.TrimSpace(root.Description),
 				AllowedSemanticSearch: root.Vectorize && root.Snapshot,
 				AllowedGrepSearch:     root.AllowGrep && root.Snapshot,
 				Role:                  "system",
-			})
+			}
+			if semAllowed && match != nil {
+				rootEntry.Match = match
+			}
+			roots = append(roots, rootEntry)
 		}
 	}
 	return roots
