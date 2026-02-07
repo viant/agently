@@ -31,6 +31,7 @@ type Options struct {
 	Temperature    *float64               `yaml:"temperature,omitempty" json:"temperature,omitempty"`
 	MaxTokens      int                    `yaml:"maxTokens,omitempty" json:"maxTokens,omitempty"`
 	TopP           float64                `yaml:"topP,omitempty" json:"topP,omitempty"`
+	UserAgent      string                 `yaml:"userAgent,omitempty" json:"userAgent,omitempty"`
 	Meta           map[string]interface{} `yaml:"meta,omitempty" json:"meta,omitempty"`
 	Region         string                 `yaml:"region,omitempty" json:"region,omitempty"`
 	UsageListener  basecfg.UsageListener  `yaml:"-" json:"-"`
