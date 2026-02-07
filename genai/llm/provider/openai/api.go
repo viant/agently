@@ -276,6 +276,9 @@ func (c *Client) createHTTPResponsesApiRequest(ctx context.Context, data []byte)
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
+	if ua := c.userAgentOverride(); ua != "" {
+		httpReq.Header.Set("User-Agent", ua)
+	}
 	return httpReq, nil
 }
 
@@ -290,6 +293,9 @@ func (c *Client) createHTTPChatCompletionsApiRequest(ctx context.Context, data [
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
+	if ua := c.userAgentOverride(); ua != "" {
+		httpReq.Header.Set("User-Agent", ua)
+	}
 	return httpReq, nil
 }
 

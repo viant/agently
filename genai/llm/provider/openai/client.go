@@ -24,6 +24,8 @@ type Client struct {
 	// APIKeyProvider resolves the API key at call time (e.g., from OAuth token exchange).
 	// When set, it is used only if APIKey is empty.
 	APIKeyProvider APIKeyProvider
+	// UserAgent overrides the default User-Agent header when specified and allowed.
+	UserAgent string
 
 	// Defaults applied when GenerateRequest.Options is nil or leaves the
 	// respective field unset.
@@ -91,6 +93,21 @@ func (c *Client) apiKey(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("API key is required")
 	}
 	return key, nil
+}
+
+func (c *Client) userAgentOverride() string {
+	if c == nil {
+		return ""
+	}
+	ua := strings.TrimSpace(c.UserAgent)
+	if ua == "" {
+		return ""
+	}
+	low := strings.ToLower(ua)
+	if strings.HasPrefix(low, "openai") || strings.HasPrefix(low, "open ai") {
+		return ua
+	}
+	return ""
 }
 
 func (c *Client) ensureStorageManager(ctx context.Context) error {

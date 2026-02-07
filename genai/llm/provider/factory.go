@@ -46,6 +46,9 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 		if options.Temperature != nil {
 			opts = append(opts, openai.WithTemperature(*options.Temperature))
 		}
+		if options.UserAgent != "" {
+			opts = append(opts, openai.WithUserAgent(options.UserAgent))
+		}
 		// Pass through continuation flag; nil means default enabled.
 		opts = append(opts, openai.WithContextContinuation(options.ContextContinuation))
 		return openai.NewClient(apiKey, options.Model, opts...), nil

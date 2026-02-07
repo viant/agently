@@ -54,3 +54,9 @@ func WithAPIKeyProvider(provider APIKeyProvider) ClientOption {
 func WithContextContinuation(enabled *bool) ClientOption {
 	return func(c *Client) { c.ContextContinuation = enabled }
 }
+
+// WithUserAgent sets a User-Agent override for OpenAI requests.
+// The override is applied only when the value starts with "openai" (case-insensitive).
+func WithUserAgent(userAgent string) ClientOption {
+	return func(c *Client) { c.UserAgent = userAgent }
+}
