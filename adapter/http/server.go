@@ -1877,6 +1877,9 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request, convI
 						if token.IDToken != "" {
 							ctx = auth.WithIDToken(ctx, token.IDToken)
 						}
+					} else if err != nil && auth.IsInvalidRefreshToken(err) {
+						encode(w, http.StatusUnauthorized, nil, fmt.Errorf("refresh token invalid; please login again"))
+						return
 					}
 				}
 			}

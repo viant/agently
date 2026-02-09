@@ -74,8 +74,8 @@ view:
                 icon: collapse-all
                 label: Compact
                 properties:
-                  title: Summarize and compact prior messages
-                tooltip: Summarize and compact prior messages
+                  title: Replace older history with a single summary to reduce context size
+                tooltip: Replace older history with a single summary to reduce context size
                 enabled: true
                 align: left
                 on:
@@ -87,8 +87,8 @@ view:
                 icon: trash
                 label: Prune
                 properties:
-                  title: Remove low-value tool outputs
-                tooltip: Remove low-value tool outputs
+                  title: Remove low-value tool outputs (keeps recent context)
+                tooltip: Remove low-value tool outputs (keeps recent context)
                 enabled: true
                 align: left
                 on:

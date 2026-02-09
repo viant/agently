@@ -192,6 +192,37 @@ func (s *Service) handleMe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	// For oauth sessions, validate/refresh token; force re-login on invalid refresh.
+	if session != nil && s.cfg != nil && s.cfg.OAuth != nil && s.dao != nil {
+		prov := strings.TrimSpace(s.cfg.OAuth.Name)
+		if prov == "" {
+			prov = "oauth"
+		}
+		if strings.EqualFold(strings.TrimSpace(item.Provider), prov) {
+			configURL := strings.TrimSpace(s.cfg.OAuth.Client.ConfigURL)
+			if configURL != "" {
+				store := iauth.NewTokenStoreDAO(s.dao, configURL)
+				uid := strings.TrimSpace(item.Id)
+				if uid == "" {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+				if tok, tokErr := store.EnsureToken(r.Context(), uid, prov, configURL); tokErr != nil {
+					if iauth.IsInvalidRefreshToken(tokErr) {
+						s.sess.Destroy(w, r)
+						http.Error(w, "unauthorized", http.StatusUnauthorized)
+						return
+					}
+					encode(w, 0, nil, tokErr)
+					return
+				} else if tok == nil || (strings.TrimSpace(tok.AccessToken) == "" && strings.TrimSpace(tok.IDToken) == "") {
+					s.sess.Destroy(w, r)
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
+		}
+	}
 	// Enrich default refs from executor config when user fields are empty
 	defAgent := value(item.DefaultAgentRef)
 	if strings.TrimSpace(defAgent) == "" && strings.TrimSpace(s.defAgent) != "" {

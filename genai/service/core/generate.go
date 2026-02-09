@@ -566,6 +566,24 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 // exceeding the maximum context window (prompt too long / too many tokens).
 var ErrContextLimitExceeded = errors.New("llm/core: context limit exceeded")
 
+// ContinuationContextLimitError marks context-limit failures during continuation (previous_response_id) calls.
+// It unwraps to ErrContextLimitExceeded so existing recovery flows still trigger.
+type ContinuationContextLimitError struct {
+	Err error
+}
+
+func (e ContinuationContextLimitError) Error() string {
+	return fmt.Sprintf("llm/core: continuation context limit exceeded: %v", e.Err)
+}
+
+func (e ContinuationContextLimitError) Unwrap() error { return ErrContextLimitExceeded }
+
+// IsContinuationContextLimit reports whether the error is a continuation context-limit failure.
+func IsContinuationContextLimit(err error) bool {
+	var e ContinuationContextLimitError
+	return errors.As(err, &e)
+}
+
 // isContextLimitError heuristically classifies provider/model errors indicating
 // the prompt/context exceeded the model's maximum capacity.
 func isContextLimitError(err error) bool {
@@ -772,29 +790,8 @@ func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm
 		sub.PreviousResponseID = anchor
 		resp, gerr := model.Generate(ctx, sub)
 		if gerr != nil {
-			// Fallback: on token limit, retry without tool calls and without previous_response_id
 			if isContextLimitError(gerr) {
-				fb := &llm.GenerateRequest{}
-				if request.Options != nil {
-					opts := *request.Options
-					fb.Options = &opts
-				}
-				// Filter out tool messages (role tool or with ToolCallId)
-				for _, m := range request.Messages {
-					if strings.EqualFold(string(m.Role), "tool") {
-						continue
-					}
-					if strings.TrimSpace(m.ToolCallId) != "" {
-						continue
-					}
-					fb.Messages = append(fb.Messages, m)
-				}
-				// Ensure no previous_response_id on fallback
-				fb.PreviousResponseID = ""
-				fresp, ferr := model.Generate(ctx, fb)
-				if ferr == nil {
-					return fresp, true, nil
-				}
+				return nil, true, ContinuationContextLimitError{Err: gerr}
 			}
 			return nil, true, fmt.Errorf("continuation subcall failed: %w", gerr)
 		}
