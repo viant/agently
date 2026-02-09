@@ -547,6 +547,14 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	req.Stream = true
 	// Ask OpenAI to include usage in the final stream event if supported
 	req.StreamOptions = &StreamOptions{IncludeUsage: true}
+
+	// Scrub fields unsupported by chat/completions when continuation is disabled.
+	if !core.IsContextContinuationEnabled(c) {
+		req.PreviousResponseID = ""
+		req.Instructions = ""
+		req.PromptCacheKey = ""
+		req.Text = nil
+	}
 	payload, err := c.marshalRequestBody(req)
 	if err != nil {
 		return nil, err
