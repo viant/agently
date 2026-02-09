@@ -47,6 +47,10 @@ func (a *Filter) Compute(ctx context.Context, value interface{}) (*codec.Criteri
 	if input.Has.DefaultPredicate && strings.TrimSpace(input.DefaultPredicate) == "1" {
 		return trueCriteria, nil
 	}
+	// If explicitly querying by id, skip visibility/scope filters.
+	if input.Has.Id {
+		return trueCriteria, nil
+	}
 
 	// Limit to top-level, non-scheduled by default (history view),
 	// but DO NOT apply when explicitly querying by parent conversation/turn.
@@ -54,7 +58,7 @@ func (a *Filter) Compute(ctx context.Context, value interface{}) (*codec.Criteri
 		exprParts = append(exprParts, "t.conversation_parent_id = '' AND t.schedule_id IS NULL")
 	}
 
-	// Enforce visibility: allow public (non-private) or created_by current user
+	// Enforce visibility: allow public (non-private) or created_by current user.
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if userID == "" {
 		// Anonymous: only non-private

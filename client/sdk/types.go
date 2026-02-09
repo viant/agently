@@ -14,6 +14,7 @@ type CreateConversationRequest struct {
 	Tools      string `json:"tools,omitempty"` // comma-separated
 	Title      string `json:"title,omitempty"`
 	Visibility string `json:"visibility,omitempty"`
+	Shareable  bool   `json:"shareable,omitempty"`
 }
 
 // CreateConversationResponse mirrors POST /v1/api/conversations response.

@@ -24,7 +24,7 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 		return
 	}
 	// Respect explicit caller selection.
-	if input.ToolsAllowed != nil {
+	if len(input.ToolsAllowed) > 0 {
 		return
 	}
 	if len(input.ToolBundles) > 0 {

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,9 +30,11 @@ import (
 	promptpkg "github.com/viant/agently/genai/prompt"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	agentsrv "github.com/viant/agently/genai/service/agent"
+	"github.com/viant/agently/genai/service/agent/prompts"
 	corellm "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/service/shared"
 	"github.com/viant/agently/genai/tool"
+	msgsvc "github.com/viant/agently/genai/tool/service/message"
 	approval "github.com/viant/agently/internal/approval"
 	authctx "github.com/viant/agently/internal/auth"
 	implconv "github.com/viant/agently/internal/service/conversation"
@@ -56,6 +60,11 @@ import (
 
 //go:embed compact.md
 var compactInstruction string
+
+const (
+	pruneMinRemove = 20
+	pruneMaxRemove = 50
+)
 
 // Service exposes message retrieval independent of HTTP concerns.
 type Service struct {
@@ -255,25 +264,6 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 	conv, err := s.convClient.GetConversation(ctx, req.ConversationID, opts...)
 	if err != nil {
 		return nil, err
-	}
-	// Enforce per-user visibility when conversation was found:
-	// - Private: only creator may access
-	// - Non-private (public/empty): allow read regardless of creator
-	if conv != nil {
-		var userID string
-		if ui := authctx.User(ctx); ui != nil {
-			userID = strings.TrimSpace(ui.Subject)
-			if userID == "" {
-				userID = strings.TrimSpace(ui.Email)
-			}
-		}
-		vis := strings.ToLower(strings.TrimSpace(conv.Visibility))
-		if vis == "private" {
-			if userID == "" || conv.CreatedByUserId == nil || strings.TrimSpace(*conv.CreatedByUserId) != userID {
-				// Deny by returning nil so HTTP handler can map to 404
-				return &GetResponse{Conversation: nil}, nil
-			}
-		}
 	}
 	return &GetResponse{Conversation: conv}, nil
 }
@@ -1133,11 +1123,13 @@ type CreateConversationRequest struct {
 	Tools      string `json:"tools"` // comma-separated
 	Title      string `json:"title"`
 	Visibility string `json:"visibility"`
+	Shareable  bool   `json:"shareable"`
 }
 
 // PatchConversationRequest mirrors HTTP payload for PATCH /conversations/{id}.
 type PatchConversationRequest struct {
 	Visibility string `json:"visibility"`
+	Shareable  *bool  `json:"shareable"`
 }
 
 // CreateConversationResponse echoes created entity details.
@@ -1190,6 +1182,9 @@ func (s *Service) CreateConversation(ctx context.Context, in CreateConversationR
 		vis = convw.VisibilityPrivate
 	}
 	cw.SetVisibility(vis)
+	if in.Shareable {
+		cw.SetShareable(true)
+	}
 	if s := strings.TrimSpace(in.Agent); s != "" {
 		cw.SetAgentId(s)
 	}
@@ -1224,8 +1219,11 @@ func (s *Service) PatchConversation(ctx context.Context, id string, in PatchConv
 		return fmt.Errorf("conversation id is required")
 	}
 	vis := strings.ToLower(strings.TrimSpace(in.Visibility))
-	if vis != convw.VisibilityPublic && vis != convw.VisibilityPrivate {
+	if vis != "" && vis != convw.VisibilityPublic && vis != convw.VisibilityPrivate {
 		return fmt.Errorf("invalid visibility")
+	}
+	if vis == "" && in.Shareable == nil {
+		return fmt.Errorf("no fields to update")
 	}
 	cv, err := s.convClient.GetConversation(ctx, convID)
 	if err != nil {
@@ -1250,7 +1248,12 @@ func (s *Service) PatchConversation(ctx context.Context, id string, in PatchConv
 	}
 	cw := &convw.Conversation{Has: &convw.ConversationHas{}}
 	cw.SetId(convID)
-	cw.SetVisibility(vis)
+	if vis != "" {
+		cw.SetVisibility(vis)
+	}
+	if in.Shareable != nil {
+		cw.SetShareable(*in.Shareable)
+	}
 	cw.SetUpdatedAt(time.Now().UTC())
 	if err := s.convClient.PatchConversations(ctx, (*apiconv.MutableConversation)(cw)); err != nil {
 		return fmt.Errorf("failed to patch conversation: %w", err)
@@ -1277,24 +1280,6 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*Conversation
 	if cv == nil {
 		return nil, nil
 	}
-	// Enforce per-user visibility:
-	// - Private: only creator may view
-	// - Non-private: allow view regardless of creator or identity
-	vis := strings.ToLower(strings.TrimSpace(cv.Visibility))
-	if vis == "private" {
-		if ui := authctx.User(ctx); ui != nil {
-			want := strings.TrimSpace(ui.Subject)
-			if want == "" {
-				want = strings.TrimSpace(ui.Email)
-			}
-			if want == "" || cv.CreatedByUserId == nil || strings.TrimSpace(*cv.CreatedByUserId) != want {
-				return nil, nil
-			}
-		} else {
-			// No identity -> deny private
-			return nil, nil
-		}
-	}
 	t := id
 	if cv.Title != nil && strings.TrimSpace(*cv.Title) != "" {
 		t = *cv.Title
@@ -1315,6 +1300,7 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*Conversation
 	if cv.DefaultModel != nil {
 		model = strings.TrimSpace(*cv.DefaultModel)
 	}
+	vis := strings.ToLower(strings.TrimSpace(cv.Visibility))
 	return &ConversationSummary{ID: id, Title: t, Summary: cv.Summary, CreatedAt: cv.CreatedAt, Visibility: vis, Agent: agentID, Model: model, Tools: tools}, nil
 }
 
@@ -1615,6 +1601,44 @@ func (s *Service) Compact(ctx context.Context, conversationID string) error {
 	return nil
 }
 
+// Prune removes low-value tool outputs and older messages using an LLM-guided selection.
+func (s *Service) Prune(ctx context.Context, conversationID string) error {
+	if s == nil || s.convClient == nil || strings.TrimSpace(conversationID) == "" {
+		return nil
+	}
+	if s.core == nil || s.agentFinder == nil {
+		return fmt.Errorf("missing core or agent finder")
+	}
+
+	conv, err := s.convClient.GetConversation(ctx, conversationID, apiconv.WithIncludeToolCall(true))
+	if err != nil {
+		return fmt.Errorf("failed to get conversation: %v %w", conversationID, err)
+	}
+	if conv.Status != nil && (*conv.Status == "pruning" || *conv.Status == "pruned") {
+		return nil
+	}
+
+	if err := s.SetConversationStatus(ctx, conversationID, "pruning"); err != nil {
+		return err
+	}
+
+	turnID := ""
+	if conv.LastTurnId != nil {
+		turnID = *conv.LastTurnId
+	}
+	ctx = memory.WithConversationID(ctx, conversationID)
+	ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{ConversationID: conversationID, TurnID: turnID, ParentMessageID: turnID})
+
+	if err := s.pruneMessagesLLM(ctx, conv); err != nil {
+		return fmt.Errorf("failed to prune conversation: %w", err)
+	}
+
+	if err := s.SetConversationStatus(ctx, conversationID, "pruned"); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Service) SetConversationStatus(ctx context.Context, conversationID string, status string) error {
 	if err := s.convClient.PatchConversations(ctx, convw.NewConversationStatus(conversationID, status)); err != nil {
 		return fmt.Errorf("failed to update conversation: %w", err)
@@ -1747,4 +1771,125 @@ func (s *Service) compactGenerateSummaryLLM(ctx context.Context, conv *apiconv.C
 		return "", ierr
 	}
 	return id, nil
+}
+
+func (s *Service) pruneMessagesLLM(ctx context.Context, conv *apiconv.Conversation) error {
+	if conv == nil {
+		return fmt.Errorf("missing conversation")
+	}
+	if conv.AgentId == nil {
+		return fmt.Errorf("agent id is missing in conversation: %v", conv.Id)
+	}
+	agentID := *conv.AgentId
+	anAgent, err := s.agentFinder.Find(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("failed to find agent: %v %w", conv.AgentId, err)
+	}
+
+	msgService := msgsvc.New(s.convClient)
+	listExec, err := msgService.Method("listCandidates")
+	if err != nil {
+		return err
+	}
+	var listOut msgsvc.ListCandidatesOutput
+	listIn := &msgsvc.ListCandidatesInput{Limit: pruneMaxRemove, Types: []string{"tool", "assistant", "user"}}
+	if err := listExec(ctx, listIn, &listOut); err != nil {
+		return err
+	}
+	lines, ids := buildPruneCandidateLines(listOut.Candidates)
+	if len(lines) == 0 {
+		return nil
+	}
+	promptText := composePrunePrompt(lines, ids)
+
+	model := ""
+	if s.defaults != nil && strings.TrimSpace(s.defaults.SummaryModel) != "" {
+		model = strings.TrimSpace(s.defaults.SummaryModel)
+	} else if conv.DefaultModel != nil && strings.TrimSpace(*conv.DefaultModel) != "" {
+		model = strings.TrimSpace(*conv.DefaultModel)
+	}
+	in := &corellm.GenerateInput{
+		ModelSelection: llm.ModelSelection{Model: model},
+		Message:        []llm.Message{llm.NewUserMessage(promptText)},
+	}
+	agentsrv.EnsureGenerateOptions(ctx, in, anAgent)
+	in.Options.Mode = "compact"
+	var out corellm.GenerateOutput
+	if err := s.core.Generate(ctx, in, &out); err != nil {
+		return err
+	}
+	payload := strings.TrimSpace(out.Content)
+	if payload == "" {
+		return fmt.Errorf("empty prune response")
+	}
+	jsonBody, err := extractFirstJSON(payload)
+	if err != nil {
+		return err
+	}
+	var removeIn msgsvc.RemoveInput
+	if uerr := json.Unmarshal([]byte(jsonBody), &removeIn); uerr != nil {
+		return fmt.Errorf("failed to parse prune response: %w", uerr)
+	}
+	if len(removeIn.Tuples) == 0 {
+		return fmt.Errorf("prune response missing tuples")
+	}
+	removeExec, err := msgService.Method("remove")
+	if err != nil {
+		return err
+	}
+	var removeOut msgsvc.RemoveOutput
+	if err := removeExec(ctx, &removeIn, &removeOut); err != nil {
+		return err
+	}
+	return nil
+}
+
+func buildPruneCandidateLines(cands []msgsvc.Candidate) ([]string, []string) {
+	lines := make([]string, 0, len(cands))
+	ids := make([]string, 0, len(cands))
+	for _, c := range cands {
+		line := ""
+		switch strings.ToLower(strings.TrimSpace(c.Type)) {
+		case "tool":
+			line = fmt.Sprintf("messageId: %s, type: tool, tool: %s, args_preview: \"%s\", size: %d bytes (~%d tokens)", c.MessageID, c.ToolName, c.Preview, c.ByteSize, c.TokenSize)
+		default:
+			line = fmt.Sprintf("messageId: %s, type: %s, preview: \"%s\", size: %d bytes (~%d tokens)", c.MessageID, c.Type, c.Preview, c.ByteSize, c.TokenSize)
+		}
+		lines = append(lines, line)
+		ids = append(ids, c.MessageID)
+	}
+	return lines, ids
+}
+
+func composePrunePrompt(lines []string, ids []string) string {
+	tpl := prompts.Prune
+	tpl = strings.Replace(tpl, "{{ERROR_MESSAGE}}", "manual prune requested by user", 1)
+	tpl = strings.ReplaceAll(tpl, "{{REMOVE_MIN}}", strconv.Itoa(pruneMinRemove))
+	tpl = strings.ReplaceAll(tpl, "{{REMOVE_MAX}}", strconv.Itoa(pruneMaxRemove))
+	var buf bytes.Buffer
+	if len(ids) > 0 {
+		buf.WriteString("The following message IDs are provided inside a fenced code block.\n")
+		buf.WriteString("Copy them exactly in tool args; do not alter formatting.\n\n")
+		buf.WriteString("```text\n")
+		for _, id := range ids {
+			buf.WriteString(id)
+			buf.WriteByte('\n')
+		}
+		buf.WriteString("```\n\n")
+		buf.WriteString("Candidates for removal:\n")
+	}
+	for _, l := range lines {
+		buf.WriteString(l)
+		buf.WriteByte('\n')
+	}
+	return tpl + "\n\n" + buf.String()
+}
+
+func extractFirstJSON(payload string) (string, error) {
+	start := strings.Index(payload, "{")
+	end := strings.LastIndex(payload, "}")
+	if start == -1 || end == -1 || end <= start {
+		return "", fmt.Errorf("no JSON object found in prune response")
+	}
+	return payload[start : end+1], nil
 }

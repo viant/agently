@@ -26,11 +26,11 @@ func TestFilter_Compute_PrivacyAndScope(t *testing.T) {
 			wantParams: []interface{}{"private", "user1"},
 		},
 		{
-			name:       "single by id still enforces privacy",
+			name:       "single by id skips visibility filter",
 			input:      &ConversationInput{Has: &ConversationInputHas{Id: true}},
 			userID:     "user2",
-			wantExpr:   "(COALESCE(t.visibility, '') <> ? OR t.created_by_user_id = ?)",
-			wantParams: []interface{}{"private", "user2"},
+			wantExpr:   "1=1",
+			wantParams: nil,
 		},
 		{
 			name:       "history without identity returns only non-private",
@@ -39,6 +39,8 @@ func TestFilter_Compute_PrivacyAndScope(t *testing.T) {
 			wantExpr:   "t.conversation_parent_id = '' AND t.schedule_id IS NULL AND COALESCE(t.visibility, '') <> ?",
 			wantParams: []interface{}{"private"},
 		},
+		{
+		}
 	}
 
 	f := &Filter{}

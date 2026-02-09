@@ -67,6 +67,9 @@ type Server struct {
 	// Non-blocking compaction guard per conversation
 	compactGuardMu sync.Mutex
 	compactGuards  map[string]*int32
+	// Non-blocking prune guard per conversation
+	pruneGuardMu sync.Mutex
+	pruneGuards  map[string]*int32
 
 	// Optional auth + dao for token refresh
 	authCfg *auth.Config
@@ -149,6 +152,7 @@ func WithDAO(dao *datly.Service) ServerOption { return func(s *Server) { s.dao =
 func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	s := &Server{mgr: mgr}
 	s.compactGuards = make(map[string]*int32)
+	s.pruneGuards = make(map[string]*int32)
 	s.eventSeq = make(map[string]uint64)
 	s.streamPub = streaming.NewPublisher()
 	for _, o := range opts {
@@ -259,6 +263,10 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	// Compact conversation: generate summary and flag prior messages as compacted
 	mux.HandleFunc("POST /v1/api/conversations/{id}/compact", func(w http.ResponseWriter, r *http.Request) {
 		s.handleCompactConversation(w, r, r.PathValue("id"))
+	})
+	// Prune conversation: remove low-value messages via LLM-guided pruning
+	mux.HandleFunc("POST /v1/api/conversations/{id}/prune", func(w http.ResponseWriter, r *http.Request) {
+		s.handlePruneConversation(w, r, r.PathValue("id"))
 	})
 
 	// ------------------------------------------------------------------
@@ -1993,6 +2001,39 @@ func (s *Server) handleCompactConversation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	encode(w, http.StatusAccepted, map[string]any{"compacted": true}, nil)
+}
+
+// handlePruneConversation processes POST /v1/api/conversations/{id}/prune
+// and triggers server-side pruning: removes low-value messages via LLM selection.
+// Returns 202 on success.
+func (s *Server) handlePruneConversation(w http.ResponseWriter, r *http.Request, convID string) {
+	if s == nil || s.chatSvc == nil || strings.TrimSpace(convID) == "" {
+		encode(w, http.StatusBadRequest, nil, fmt.Errorf("invalid conversation id"))
+		return
+	}
+
+	s.pruneGuardMu.Lock()
+	g := s.pruneGuards[convID]
+	if g == nil {
+		var v int32
+		g = &v
+		s.pruneGuards[convID] = g
+	}
+	s.pruneGuardMu.Unlock()
+
+	if !atomic.CompareAndSwapInt32(g, 0, 1) {
+		// Another prune in progress; treat as success (idempotent)
+		encode(w, http.StatusAccepted, map[string]any{"pruned": true}, nil)
+		return
+	}
+	defer atomic.StoreInt32(g, 0)
+
+	ctx := r.Context()
+	if err := s.chatSvc.Prune(ctx, convID); err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+	encode(w, http.StatusAccepted, map[string]any{"pruned": true}, nil)
 }
 
 // ListenAndServe Simple helper to start the server (blocks).

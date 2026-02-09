@@ -87,6 +87,7 @@ type ConversationView struct {
 	ConversationParentTurnId *string           `sqlx:"conversation_parent_turn_id"`
 	Metadata                 *string           `sqlx:"metadata"`
 	Visibility               string            `sqlx:"visibility"`
+	Shareable                *int              `sqlx:"shareable"`
 	Status                   *string           `sqlx:"status"`
 	Scheduled                *int              `sqlx:"scheduled"`
 	ScheduleId               *string           `sqlx:"schedule_id"`
