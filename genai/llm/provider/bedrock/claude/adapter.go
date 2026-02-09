@@ -68,6 +68,11 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 	firstAdded := false
 	docNr := 1
 
+	if strings.TrimSpace(request.Instructions) != "" {
+		builder.WriteString(strings.TrimSpace(request.Instructions))
+		firstAdded = true
+	}
+
 	// Find system message
 	for _, msg := range request.Messages {
 		if msg.Role != llm.RoleSystem {
@@ -75,11 +80,11 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		}
 
 		if !firstAdded {
-			builder.WriteString(msg.Content)
+			builder.WriteString(llm.MessageText(msg))
 			firstAdded = true
 		} else {
 			builder.WriteString(fmt.Sprintf("\n\n## Document %d:\n", docNr))
-			builder.WriteString(msg.Content)
+			builder.WriteString(llm.MessageText(msg))
 			docNr++
 		}
 	}

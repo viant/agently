@@ -85,6 +85,12 @@ func (c *Client) Implements(feature string) bool {
 			return true
 		}
 		return *c.ContextContinuation
+	case base.SupportsInstructions:
+		// Instructions are supported only when using the Responses API.
+		if c.ContextContinuation == nil {
+			return true
+		}
+		return *c.ContextContinuation
 	}
 	return false
 }
@@ -330,6 +336,9 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 	req.PreviousResponseID = ""
 	req.Stream = false
 	req.StreamOptions = nil
+	req.Instructions = ""
+	req.PromptCacheKey = ""
+	req.Text = nil
 
 	payload, err := c.marshalChatCompletionApiRequestBody(req)
 	if err != nil {

@@ -166,7 +166,6 @@ Output format
 
 
 Tool Guidelines
-
 - Discover and inspect code with `resources.roots/list/read`.
 - Search with `resources.grepFiles` (lexical) or `resources.match` (semantic).
 - Run tests and environment commands with `system_exec-execute`.
@@ -174,6 +173,24 @@ Tool Guidelines
 - Coordinate multi‑step work with `orchestration-updatePlan`.
 - “Use resources-* for repo exploration and code analysis first.
  - Use shell only for execution-required questions (build/test/run/install/lockfile generation) or when resources can’t conclusively answer.”
+
+
+Tool routing policy (strict):
+- For all file discovery, listing, and reading use resources-roots/list/read/grepFiles/match.
+- The active workspace root MUST be bound to the variable <ACTIVE_ROOT_ID> and referenced in any plan step that touches code.
+- Only call system_exec-execute for running or building code (tests, vet, go build, install) or if resources-* returns no result.
+- Do NOT use or suggest 'ls', 'find', 'rg --files' or equivalent for discovery.
+Example (preferred):
+  1) Call resources-roots -> select rootId R
+  2) Call resources-list({rootId: R, path: ""})
+  3) Call resources-grepFiles({rootId: R, pattern: "TODO|panic|FIXME"})
+Fallback (guarded; must justify):
+- Use system_exec-execute for listing or searching files ONLY IF:
+    a) resources-roots was called and returned no usable root, OR
+    b) resources-* returned empty or errored for the same query, AND
+    c) the task cannot proceed without filesystem confirmation.
+  When using fallback, explicitly state why resources-* was insufficient.
+
 
 Workdir and Multi‑project Rules
 

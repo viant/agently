@@ -111,6 +111,9 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 			}
 		}
 	}
+	if req.ToolChoice == nil && len(req.Tools) > 0 {
+		req.ToolChoice = "auto"
+	}
 
 	// Attachment preferences and limits
 	attachMode := "upload" // prefer upload for tool-result PDFs
@@ -144,6 +147,31 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	// Continue previous Responses API call when requested
 	if request != nil && strings.TrimSpace(request.PreviousResponseID) != "" {
 		req.PreviousResponseID = strings.TrimSpace(request.PreviousResponseID)
+	}
+	if request != nil && strings.TrimSpace(request.Instructions) != "" {
+		req.Instructions = strings.TrimSpace(request.Instructions)
+	}
+	if request != nil && strings.TrimSpace(request.PromptCacheKey) != "" {
+		req.PromptCacheKey = strings.TrimSpace(request.PromptCacheKey)
+	}
+	if request != nil && request.Options != nil {
+		verbosity := strings.TrimSpace(request.Options.ResponseVerbosity)
+		schema := request.Options.OutputSchema
+		if verbosity != "" || schema != nil {
+			tc := &TextControls{}
+			if verbosity != "" {
+				tc.Verbosity = verbosity
+			}
+			if schema != nil {
+				tc.Format = &TextFormat{
+					Type:   "json_schema",
+					Strict: true,
+					Schema: schema,
+					Name:   "codex_output_schema",
+				}
+			}
+			req.Text = tc
+		}
 	}
 
 	// Convert messages

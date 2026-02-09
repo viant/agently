@@ -64,6 +64,11 @@ type Options struct {
 	// Reasoning configures the model's reasoning behavior, e.g. summarization of chain-of-thought.
 	Reasoning *Reasoning `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
 
+	// ResponseVerbosity controls response verbosity for providers that support it.
+	ResponseVerbosity string `json:"response_verbosity,omitempty" yaml:"response_verbosity,omitempty"`
+	// OutputSchema requests structured JSON output when supported by a provider.
+	OutputSchema map[string]interface{} `json:"output_schema,omitempty" yaml:"output_schema,omitempty"`
+
 	// Stream enables streaming responses.
 	Stream bool `json:"stream,omitempty" yaml:"stream,omitempty"`
 

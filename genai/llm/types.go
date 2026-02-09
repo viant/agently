@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -156,6 +157,13 @@ type GenerateRequest struct {
 	// Messages is the list of messages in the conversation.
 	Messages []Message `json:"messages"`
 
+	// Instructions provides optional system guidance outside the message list
+	// for providers that support top-level instructions.
+	Instructions string `json:"instructions,omitempty"`
+
+	// PromptCacheKey optionally enables provider-side prompt caching.
+	PromptCacheKey string `json:"prompt_cache_key,omitempty"`
+
 	// Options contains additional options for the request.
 	Options *Options `json:"options,omitempty"`
 
@@ -163,6 +171,39 @@ type GenerateRequest struct {
 	// response when the backend supports incremental continuation (e.g.,
 	// OpenAI Responses API).
 	PreviousResponseID string `json:"previous_response_id,omitempty"`
+}
+
+// MessageText extracts the textual content from a message, preferring
+// the legacy Content field and falling back to text content items.
+func MessageText(msg Message) string {
+	if v := strings.TrimSpace(msg.Content); v != "" {
+		return v
+	}
+	var sb strings.Builder
+	for _, it := range msg.Items {
+		if it.Type != ContentTypeText {
+			continue
+		}
+		if strings.TrimSpace(it.Data) != "" {
+			sb.WriteString(it.Data)
+		} else if strings.TrimSpace(it.Text) != "" {
+			sb.WriteString(it.Text)
+		}
+	}
+	if sb.Len() > 0 {
+		return strings.TrimSpace(sb.String())
+	}
+	for _, it := range msg.ContentItems {
+		if it.Type != ContentTypeText {
+			continue
+		}
+		if strings.TrimSpace(it.Data) != "" {
+			sb.WriteString(it.Data)
+		} else if strings.TrimSpace(it.Text) != "" {
+			sb.WriteString(it.Text)
+		}
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 // GenerateResponse represents a response from a chat-based LLM.

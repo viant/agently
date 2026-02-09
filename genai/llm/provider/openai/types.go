@@ -17,12 +17,32 @@ type Request struct {
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	// Reasoning enables configuration of internal chain-of-thought reasoning features.
 	Reasoning *llm.Reasoning `json:"reasoning,omitempty"`
+	// Instructions provides system guidance for the Responses API.
+	Instructions string `json:"instructions,omitempty"`
+	// PromptCacheKey enables provider-side prompt caching when supported.
+	PromptCacheKey string `json:"prompt_cache_key,omitempty"`
+	// Text controls output formatting/verbosity for the Responses API.
+	Text *TextControls `json:"text,omitempty"`
 
 	ToolChoice        interface{} `json:"tool_choice,omitempty"`
 	ParallelToolCalls bool        `json:"parallel_tool_calls,omitempty"`
 
 	// PreviousResponseID allows continuing a prior Responses API call.
 	PreviousResponseID string `json:"previous_response_id,omitempty"`
+}
+
+// TextControls enables response formatting controls on the Responses API.
+type TextControls struct {
+	Verbosity string      `json:"verbosity,omitempty"`
+	Format    *TextFormat `json:"format,omitempty"`
+}
+
+// TextFormat configures structured text output on the Responses API.
+type TextFormat struct {
+	Type   string                 `json:"type"`
+	Strict bool                   `json:"strict"`
+	Schema map[string]interface{} `json:"schema"`
+	Name   string                 `json:"name,omitempty"`
 }
 
 // StreamOptions controls additional streaming behavior.

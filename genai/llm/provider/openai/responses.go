@@ -10,7 +10,8 @@ import (
 // ResponsesPayload is the request body for the /v1/responses API.
 type ResponsesPayload struct {
 	Model              string          `json:"model"`
-	Input              []interface{}   `json:"input"`
+	Instructions       string          `json:"instructions,omitempty"`
+	Input              []InputItem     `json:"input"`
 	Tools              []ResponsesTool `json:"tools,omitempty"`
 	Temperature        *float64        `json:"temperature,omitempty"`
 	MaxOutputTokens    int             `json:"max_output_tokens,omitempty"`
@@ -22,17 +23,25 @@ type ResponsesPayload struct {
 	Reasoning          *llm.Reasoning  `json:"reasoning,omitempty"`
 	PreviousResponseID string          `json:"previous_response_id,omitempty"`
 	Store              *bool           `json:"store,omitempty"`
+	Include            []string        `json:"include,omitempty"`
+	PromptCacheKey     string          `json:"prompt_cache_key,omitempty"`
+	Text               *TextControls   `json:"text,omitempty"`
 	// Provider-specific metadata passthrough if needed in future
 	Extra map[string]interface{} `json:"-"`
 }
 
-type ResponsesInput struct {
+type InputItem struct {
+	Type string `json:"type"`
+	// Message fields.
 	Role string `json:"role"`
 	// Name is not supported by Responses API and must be omitted.
 	Content []ResponsesContentItem `json:"content"`
 	// ToolCallID is required by OpenAI when role == "tool" to associate
 	// the tool result with a prior assistant tool_call request.
 	ToolCallID string `json:"tool_call_id,omitempty"`
+	// function_call_output fields.
+	CallID string `json:"call_id,omitempty"`
+	Output string `json:"output,omitempty"`
 }
 
 type ResponsesContentItem struct {
@@ -103,6 +112,7 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 	}
 	out := &ResponsesPayload{
 		Model:              req.Model,
+		Instructions:       strings.TrimSpace(req.Instructions),
 		Temperature:        req.Temperature,
 		MaxOutputTokens:    req.MaxTokens,
 		TopP:               req.TopP,
@@ -112,6 +122,11 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 		ParallelToolCalls:  req.ParallelToolCalls,
 		Reasoning:          req.Reasoning,
 		PreviousResponseID: req.PreviousResponseID,
+		PromptCacheKey:     strings.TrimSpace(req.PromptCacheKey),
+		Text:               req.Text,
+	}
+	if req.Reasoning != nil && strings.TrimSpace(req.Reasoning.Summary) != "" {
+		out.Include = []string{"reasoning.encrypted_content"}
 	}
 
 	// Normalize tool_choice for Responses API: {type:"function", name:"..."}
@@ -143,7 +158,7 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 	}
 
 	// Convert Messages to Input content
-	out.Input = make([]interface{}, 0, len(req.Messages))
+	out.Input = make([]InputItem, 0, len(req.Messages))
 	for _, m := range req.Messages {
 		role := strings.TrimSpace(m.Role)
 		isTool := role == "tool"
@@ -172,15 +187,7 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 			}
 			// Only emit function_call_output when continuing a stored response
 			if strings.TrimSpace(req.PreviousResponseID) != "" && strings.TrimSpace(m.ToolCallId) != "" && outTxt != "" {
-				outTxt = strings.TrimSpace(outTxt)
-				if !(strings.HasPrefix(outTxt, "{") || strings.HasPrefix(outTxt, "[")) {
-					var data = map[string]interface{}{
-						"data": outTxt,
-					}
-					payload, _ := json.Marshal(data)
-					outTxt = string(payload)
-				}
-				out.Input = append(out.Input, ResponsesContentItem{Type: "function_call_output", CallID: m.ToolCallId, Output: outTxt})
+				out.Input = append(out.Input, InputItem{Type: "function_call_output", CallID: m.ToolCallId, Output: outTxt})
 				continue
 			}
 			// Otherwise fall through to normal message mapping (as input_text),
@@ -273,7 +280,7 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 		}
 
 		// Responses API does not accept top-level name; omit it.
-		in := ResponsesInput{Role: role, Content: items}
+		in := InputItem{Type: "message", Role: role, Content: items}
 		out.Input = append(out.Input, in)
 	}
 	return out

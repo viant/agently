@@ -166,6 +166,13 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 	}
 
 	wasSystemMsg := false
+	if strings.TrimSpace(request.Instructions) != "" {
+		req.SystemInstruction = &SystemInstruction{
+			Role:  "system",
+			Parts: []Part{{Text: strings.TrimSpace(request.Instructions)}},
+		}
+		wasSystemMsg = true
+	}
 	for _, msg := range request.Messages {
 
 		// Map roles from llms to Gemini
@@ -195,7 +202,7 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 
 			// If caller provided explicit parts, use them, otherwise wrap msg.Content
 			if len(msg.Items) == 0 {
-				req.SystemInstruction.Parts = append(req.SystemInstruction.Parts, Part{Text: msg.Content})
+				req.SystemInstruction.Parts = append(req.SystemInstruction.Parts, Part{Text: llm.MessageText(msg)})
 			} else {
 				for _, item := range msg.Items {
 					if item.Type == llm.ContentTypeText {
