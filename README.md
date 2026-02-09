@@ -1,5 +1,8 @@
 # Agently
 
+Agently is a Go framework for building and interacting with AI agents. It provides a flexible and extensible platform for creating, managing, and communicating with AI agents powered by Large Language Models (LLMs).
+
+
 ## Features
 
 - **Agent-based Architecture**: Create and manage AI agents with different capabilities and personalities
@@ -579,8 +582,6 @@ When using the mic/dictation input in the chat window, you can speak simple cont
 
 - Cancel the draft (clears composer, does not send): "cancel it now", "cancel now", "never mind"
 - Submit the draft (removes the phrase, then sends): "submit it now", "submit now", "send it now"
-
-Agently is a Go framework for building and interacting with AI agents. It provides a flexible and extensible platform for creating, managing, and communicating with AI agents powered by Large Language Models (LLMs).
 
 
 ## License
