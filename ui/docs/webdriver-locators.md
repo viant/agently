@@ -28,6 +28,7 @@ Common locators:
 - Toolbar buttons from metadata ids:
   - New conversation: `{"testID":"toolbar-btn-newconv"}`
   - Compact: `{"testID":"toolbar-btn-compact"}`
+  - Prune: `{"testID":"toolbar-btn-prune"}`
   - Queue: `{"testID":"toolbar-btn-queue"}`
 - Feed: `{"testID":"chat-feed"}`
 - Load previous: `{"testID":"chat-feed-load-previous"}`

@@ -83,6 +83,19 @@ view:
                     handler: chat.compactConversation
                   - event: onReadonly
                     handler: chat.compactReadonly
+              - id: prune
+                icon: trash
+                label: Prune
+                properties:
+                  title: Remove low-value tool outputs
+                tooltip: Remove low-value tool outputs
+                enabled: true
+                align: left
+                on:
+                  - event: onClick
+                    handler: chat.pruneConversation
+                  - event: onReadonly
+                    handler: chat.pruneReadonly
               - id: queue
                 icon: list
                 label: Queue

@@ -215,6 +215,14 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 	if !ok {
 		return fmt.Errorf("failed to get turn meta")
 	}
+	// Propagate context recovery mode into the turn context (agent-level).
+	mode := memory.ContextRecoveryPruneCompact
+	if input != nil && input.Agent != nil {
+		if v := strings.TrimSpace(input.Agent.ContextRecoveryMode); v != "" {
+			mode = v
+		}
+	}
+	ctx = memory.WithContextRecoveryMode(ctx, mode)
 
 	input.RequestTime = time.Now()
 	for {

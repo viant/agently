@@ -3,7 +3,6 @@ package orchestrator
 import (
 	"bytes"
 	"context"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -14,6 +13,7 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/prompt"
+	"github.com/viant/agently/genai/service/agent/prompts"
 	core2 "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/internal/auth"
 )
@@ -76,6 +76,20 @@ func (s *Service) freeMessageTokensLLM(ctx context.Context, conv *apiconv.Conver
 		return err
 	}
 	return nil
+}
+
+// compactHistoryLLM performs a full compaction pass using the compact prompt
+// and internal_message-remove to archive older messages.
+func (s *Service) compactHistoryLLM(ctx context.Context, conv *apiconv.Conversation, errMessage string, oldGenInput *core2.GenerateInput, overlimit int) error {
+	if conv == nil {
+		return fmt.Errorf("missing conversation")
+	}
+	lines, ids := s.buildRemovalCandidates(ctx, conv, compactCandidateLimit)
+	if len(lines) == 0 {
+		lines = []string{"(no removable items identified)"}
+	}
+	instruction := s.composeCompactPrompt(errMessage, lines, ids)
+	return s.freeMessageTokensLLM(ctx, conv, instruction, oldGenInput, overlimit)
 }
 
 func (s *Service) adjustToolDefinitions(genInput *core2.GenerateInput) {
@@ -254,6 +268,8 @@ func (s *Service) stripSystemMessages(in *core2.GenerateInput) {
 func (s *Service) composeFreeTokenPrompt(errMessage string, lines []string, ids []string) string {
 	tpl := freeTokenPrompt
 	tpl = strings.Replace(tpl, "{{ERROR_MESSAGE}}", errMessage, 1)
+	tpl = strings.ReplaceAll(tpl, "{{REMOVE_MIN}}", strconv.Itoa(pruneMinRemove))
+	tpl = strings.ReplaceAll(tpl, "{{REMOVE_MAX}}", strconv.Itoa(pruneMaxRemove))
 	var buf bytes.Buffer
 	if len(ids) > 0 {
 		buf.WriteString("The following message IDs are provided inside a fenced code block.\n")
@@ -271,6 +287,48 @@ func (s *Service) composeFreeTokenPrompt(errMessage string, lines []string, ids 
 		buf.WriteByte('\n')
 	}
 	return strings.Replace(tpl, "{{CANDIDATES}}", buf.String(), 1)
+}
+
+func (s *Service) composeCompactPrompt(errMessage string, lines []string, ids []string) string {
+	var buf bytes.Buffer
+	buf.WriteString("The last LLM call failed due to context overflow. Here is the exact error:\n")
+	buf.WriteString("ERROR_MESSAGE: ")
+	buf.WriteString(errMessage)
+	buf.WriteString("\n\n")
+	buf.WriteString("You must produce a compact handoff summary following these rules:\n\n")
+	buf.WriteString(prompts.Compact)
+	buf.WriteString("\n\n")
+	if len(ids) > 0 {
+		buf.WriteString("The following message IDs are provided inside a fenced code block.\n")
+		buf.WriteString("Copy them exactly in tool args; do not alter formatting.\n\n")
+		buf.WriteString("```text\n")
+		for _, id := range ids {
+			buf.WriteString(id)
+			buf.WriteByte('\n')
+		}
+		buf.WriteString("```\n\n")
+		buf.WriteString("Candidates for removal:\n")
+	}
+	for _, l := range lines {
+		buf.WriteString(l)
+		buf.WriteByte('\n')
+	}
+	buf.WriteString("\n")
+	buf.WriteString("Use the candidates above to select messages for removal and replace them with a single compact summary.\n")
+	buf.WriteString("Return ONLY a call to function tool \"internal_message-remove\" with:\n")
+	buf.WriteString("```json\n")
+	buf.WriteString("{\n")
+	buf.WriteString("  \"tuples\": [\n")
+	buf.WriteString("    {\n")
+	buf.WriteString("      \"messageIds\": [\"<id1>\", \"<id2>\", ...],\n")
+	buf.WriteString("      \"role\": \"assistant\",\n")
+	buf.WriteString("      \"summary\": \"<handoff summary following the required sections>\"\n")
+	buf.WriteString("    }\n")
+	buf.WriteString("  ]\n")
+	buf.WriteString("}\n")
+	buf.WriteString("```\n")
+	buf.WriteString("Output only the tool call, no additional text.\n")
+	return buf.String()
 }
 
 // extractOverlimitTokens tries to compute how many tokens over the limit the request was,

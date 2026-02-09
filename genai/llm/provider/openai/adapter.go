@@ -92,8 +92,8 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 			req.ParallelToolCalls = true
 		}
 
-		// Convert tool choice if provided
-		if request.Options.ToolChoice.Type != "" {
+		// Convert tool choice if provided and tools are present
+		if len(request.Options.Tools) > 0 && request.Options.ToolChoice.Type != "" {
 			switch request.Options.ToolChoice.Type {
 			case "auto":
 				req.ToolChoice = "auto"
@@ -113,6 +113,9 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	}
 	if req.ToolChoice == nil && len(req.Tools) > 0 {
 		req.ToolChoice = "auto"
+	}
+	if len(req.Tools) == 0 {
+		req.ToolChoice = nil
 	}
 
 	// Attachment preferences and limits

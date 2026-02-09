@@ -18,6 +18,7 @@ type Conversation struct {
 	ConversationParentId     string     `sqlx:"conversation_parent_id" `
 	ConversationParentTurnId string     `sqlx:"conversation_parent_turn_id" `
 	Visibility               *string    `sqlx:"visibility" json:",omitempty"`
+	Shareable                int        `sqlx:"shareable" json:",omitempty"`
 	CreatedAt                *time.Time `sqlx:"created_at" json:",omitempty"`
 	UpdatedAt                *time.Time `sqlx:"updated_at" json:",omitempty"`
 	LastActivity             *time.Time `sqlx:"last_activity" json:",omitempty"`
@@ -50,6 +51,7 @@ type ConversationHas struct {
 	ConversationParentTurnId bool
 	Title                    bool
 	Visibility               bool
+	Shareable                bool
 	CreatedAt                bool
 	UpdatedAt                bool
 	LastActivity             bool
@@ -117,6 +119,15 @@ func (c *Conversation) SetTitle(value string) {
 func (c *Conversation) SetVisibility(value string) {
 	c.Visibility = &value
 	c.Has.Visibility = true
+}
+
+func (c *Conversation) SetShareable(value bool) {
+	if value {
+		c.Shareable = 1
+	} else {
+		c.Shareable = 0
+	}
+	c.Has.Shareable = true
 }
 
 func (c *Conversation) SetCreatedAt(value time.Time) {

@@ -2,13 +2,13 @@ package agent
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
 	"strings"
 
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/prompt"
+	"github.com/viant/agently/genai/service/agent/prompts"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/pkg/agently/conversation"
 )
@@ -22,8 +22,7 @@ func (s *Service) summarizeIfNeeded(ctx context.Context, input *QueryInput, conv
 	return nil
 }
 
-//go:embed summary.md
-var summaryPrompt string
+var summaryPrompt = prompts.Summary
 
 func (s *Service) Summarize(ctx context.Context, conv *apiconv.Conversation) error {
 	if conv == nil {

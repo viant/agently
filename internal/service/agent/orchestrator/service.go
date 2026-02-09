@@ -2,10 +2,10 @@ package orchestrator
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +17,7 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/service/agent/prompts"
 	core2 "github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/service/core/stream"
 	executil "github.com/viant/agently/genai/service/shared/executil"
@@ -24,8 +25,7 @@ import (
 	"github.com/viant/agently/shared"
 )
 
-//go:embed free_token_prompt.md
-var freeTokenPrompt string
+var freeTokenPrompt = prompts.Prune
 
 type Service struct {
 	llm        *core2.Service
@@ -48,6 +48,13 @@ const ctxKeyLimitRecoveryAttempted ctxKeyPresentedType = 1
 // protection is disabled in this mode so internal/message tools can iterate
 // freely when trimming history.
 const ctxKeyContinuationMode ctxKeyPresentedType = 2
+
+const (
+	pruneMinRemove        = 20
+	pruneMaxRemove        = 50
+	pruneCandidateLimit   = 50
+	compactCandidateLimit = 200
+)
 
 func inContinuationMode(ctx context.Context) bool {
 	if v, ok := ctx.Value(ctxKeyContinuationMode).(bool); ok {
@@ -173,11 +180,11 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context, oldGenInput *
 	if err != nil || conv == nil {
 		return fmt.Errorf("failed to get conversation: %w", err)
 	}
-	lines, ids := s.buildRemovalCandidates(ctx, conv)
+	lines, ids := s.buildRemovalCandidates(ctx, conv, pruneCandidateLimit)
 	if len(lines) == 0 {
 		lines = []string{"(no removable items identified)"}
 	}
-	promptText := s.composeFreeTokenPrompt(errMessage, lines, ids)
+	prunePrompt := s.composeFreeTokenPrompt(errMessage, lines, ids)
 
 	overlimit := 0
 	if v, ok := extractOverlimitTokens(errMessage); ok {
@@ -185,9 +192,37 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context, oldGenInput *
 		fmt.Printf("[debug] overlimit tokens: %d\n", overlimit)
 	}
 
-	err = s.freeMessageTokensLLM(ctx, conv, promptText, oldGenInput, overlimit)
-	if err != nil {
-		return fmt.Errorf("failed to free message tokens via LLM: %v\n", err)
+	mode := memory.ContextRecoveryPruneCompact
+	if v, ok := memory.ContextRecoveryModeFromContext(ctx); ok && strings.TrimSpace(v) != "" {
+		mode = strings.TrimSpace(v)
+	}
+	promptText := prunePrompt
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case strings.ToLower(memory.ContextRecoveryCompact):
+		compactLines, compactIDs := s.buildRemovalCandidates(ctx, conv, compactCandidateLimit)
+		if len(compactLines) == 0 {
+			compactLines = []string{"(no removable items identified)"}
+		}
+		promptText = s.composeCompactPrompt(errMessage, compactLines, compactIDs)
+		if err = s.compactHistoryLLM(ctx, conv, errMessage, oldGenInput, overlimit); err != nil {
+			return fmt.Errorf("failed to compact history via LLM: %v\n", err)
+		}
+	default:
+		err = s.freeMessageTokensLLM(ctx, conv, prunePrompt, oldGenInput, overlimit)
+		if err != nil {
+			if errors.Is(err, core2.ErrContextLimitExceeded) {
+				compactLines, compactIDs := s.buildRemovalCandidates(ctx, conv, compactCandidateLimit)
+				if len(compactLines) == 0 {
+					compactLines = []string{"(no removable items identified)"}
+				}
+				promptText = s.composeCompactPrompt(errMessage, compactLines, compactIDs)
+				if cerr := s.compactHistoryLLM(ctx, conv, errMessage, oldGenInput, overlimit); cerr != nil {
+					return fmt.Errorf("failed to compact history via LLM: %v\n", cerr)
+				}
+			} else {
+				return fmt.Errorf("failed to free message tokens via LLM: %v\n", err)
+			}
+		}
 	}
 
 	// Insert assistant message in current conversation turn
@@ -205,8 +240,9 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context, oldGenInput *
 	return nil
 }
 
-// buildRemovalCandidates constructs concise one-line entries for removable items excluding the last user message.
-func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conversation) ([]string, []string) {
+// buildRemovalCandidates constructs concise one-line entries for removable items
+// excluding the last user message, capped by limit when > 0.
+func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conversation, limit int) ([]string, []string) {
 	if conv == nil {
 		return nil, nil
 	}
@@ -229,15 +265,23 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 			}
 		}
 	}
-	// Build candidates
+	// Build candidates (prioritize low-value items for pruning)
 	const previewLen = 1000
-	out := []string{}
-	msgIDs := []string{}
+	type cand struct {
+		line  string
+		id    string
+		kind  int
+		size  int
+		order int
+	}
+	var cands []cand
+	order := 0
 	for _, t := range tr {
 		if t == nil || len(t.Message) == 0 {
 			continue
 		}
 		for _, m := range t.Message {
+			order++
 			if m == nil || m.Id == lastUserID || m.Interim != 0 || (m.Archived != nil && *m.Archived == 1) {
 				continue
 			}
@@ -269,6 +313,7 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 				}
 				sz := len(body)
 				line = fmt.Sprintf("messageId: %s, type: tool, tool: %s, args_preview: \"%s\", size: %d bytes (~%d tokens)", m.Id, toolName, ap, sz, estimateTokens(body))
+				cands = append(cands, cand{line: line, id: m.Id, kind: 0, size: sz, order: order})
 			} else if role == "user" || role == "assistant" {
 				body := ""
 				if m.Content != nil {
@@ -277,12 +322,33 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 				pv := shared.RuneTruncate(body, previewLen)
 				sz := len(body)
 				line = fmt.Sprintf("messageId: %s, type: %s, preview: \"%s\", size: %d bytes (~%d tokens)", m.Id, role, pv, sz, estimateTokens(body))
+				kind := 2
+				if role == "assistant" {
+					kind = 1
+				}
+				cands = append(cands, cand{line: line, id: m.Id, kind: kind, size: sz, order: order})
 			} else {
 				continue
 			}
-			out = append(out, line)
-			msgIDs = append(msgIDs, m.Id)
 		}
+	}
+	sort.SliceStable(cands, func(i, j int) bool {
+		if cands[i].kind != cands[j].kind {
+			return cands[i].kind < cands[j].kind
+		}
+		if cands[i].size != cands[j].size {
+			return cands[i].size > cands[j].size
+		}
+		return cands[i].order < cands[j].order
+	})
+	if limit > 0 && len(cands) > limit {
+		cands = cands[:limit]
+	}
+	out := make([]string, 0, len(cands))
+	msgIDs := make([]string, 0, len(cands))
+	for _, c := range cands {
+		out = append(out, c.line)
+		msgIDs = append(msgIDs, c.id)
 	}
 	return out, msgIDs
 }

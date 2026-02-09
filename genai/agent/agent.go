@@ -52,6 +52,9 @@ type (
 		// AutoSummarize controls whether the conversation is automatically
 		// summarized/compacted after a turn (when supported by the runtime).
 		AutoSummarize *bool `yaml:"autoSummarize,omitempty" json:"autoSummarize,omitempty"`
+		// ContextRecoveryMode controls how the agent handles context-limit recovery.
+		// Supported values: "compact", "pruneCompact".
+		ContextRecoveryMode string `yaml:"contextRecoveryMode,omitempty" json:"contextRecoveryMode,omitempty"`
 
 		// UI defaults: whether to show execution details and tool feed in chat
 		ShowExecutionDetails *bool `yaml:"showExecutionDetails,omitempty" json:"showExecutionDetails,omitempty"`

@@ -32,7 +32,7 @@ func (s *Service) WithPath(path string) *Service {
 const (
 	sqliteSchemaVersionTable  = "schema_version"
 	sqliteBaseSchemaVersion   = 1
-	sqliteTargetSchemaVersion = 9
+	sqliteTargetSchemaVersion = 10
 )
 
 // Ensure sets up a SQLite database under $ROOT/db/agently.db when missing and
@@ -148,6 +148,7 @@ func applySQLiteMigrations(ctx context.Context, db *sql.DB) error {
 		ensureSQLiteScheduleUserCredURL,
 		ensureSQLiteScheduleCreatedByUserID,
 		ensureSQLiteScheduleVisibility,
+		ensureSQLiteConversationShareable,
 		ensureSQLiteSessionTable,
 		ensureSQLiteEmbediusTables,
 	}
@@ -236,6 +237,31 @@ func ensureSQLiteScheduleVisibility(ctx context.Context, db *sql.DB) error {
 		return nil
 	}
 	if _, err := db.ExecContext(ctx, "ALTER TABLE schedule ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'"); err != nil {
+		return fmt.Errorf("add %s.%s column: %w", table, column, err)
+	}
+	return nil
+}
+
+func ensureSQLiteConversationShareable(ctx context.Context, db *sql.DB) error {
+	const (
+		table  = "conversation"
+		column = "shareable"
+	)
+	tableExists, err := sqliteTableExists(ctx, db, table)
+	if err != nil {
+		return fmt.Errorf("check %s table: %w", table, err)
+	}
+	if !tableExists {
+		return nil
+	}
+	exists, err := sqliteColumnExists(ctx, db, table, column)
+	if err != nil {
+		return fmt.Errorf("check %s.%s column: %w", table, column, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, "ALTER TABLE conversation ADD COLUMN shareable INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return fmt.Errorf("add %s.%s column: %w", table, column, err)
 	}
 	return nil

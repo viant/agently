@@ -2967,6 +2967,66 @@ export async function compactConversation(props) {
     }
 }
 
+/**
+ * Prunes low-value messages (e.g., tool outputs) using LLM-guided selection.
+ */
+export async function pruneConversation(props) {
+    const {context} = props || {};
+    if (!context || typeof context.Context !== 'function') {
+        log.warn('chatService.pruneConversation: invalid context');
+        return false;
+    }
+    try {
+        const convCtx = context.Context('conversations');
+        const convID = convCtx?.handlers?.dataSource?.peekFormData?.()?.id ||
+            convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id;
+        if (!convID) {
+            log.warn('chatService.pruneConversation – no active conversation');
+            return false;
+        }
+        try {
+            setStage({phase: 'pruning'});
+        } catch (_) {
+        }
+        const base = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
+        const url = `${base}/v1/api/conversations/${encodeURIComponent(convID)}/prune`;
+        const resp = await fetch(url, {method: 'POST', credentials: 'include'});
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            throw new Error(text || `HTTP ${resp.status}`);
+        }
+        try {
+            const msgCtx = context.Context('messages');
+            const inSig = msgCtx?.signals?.input;
+            if (inSig) {
+                const cur = (typeof inSig.peek === 'function') ? (inSig.peek() || {}) : (inSig.value || {});
+                const params = {...(cur.parameters || {}), convID, since: ''};
+                const next = {...cur, parameters: params, fetch: true};
+                if (typeof inSig.set === 'function') inSig.set(next); else inSig.value = next;
+            } else {
+                await msgCtx?.handlers?.dataSource?.getCollection?.();
+            }
+        } catch (_) {
+        }
+        try {
+            setStage({phase: 'done'});
+        } catch (_) {
+        }
+        return true;
+    } catch (e) {
+        log.error('pruneConversation error', e);
+        try {
+            setStage({phase: 'error'});
+        } catch (_) {
+        }
+        try {
+            context?.Context('messages')?.handlers?.dataSource?.setError?.(e);
+        } catch (_) {
+        }
+        return false;
+    }
+}
+
 // Toolbar readonly predicate: return true to disable Compact when fewer than 2 messages
 export function compactReadonly(args) {
     try {
@@ -2980,6 +3040,11 @@ export function compactReadonly(args) {
     } catch (_) {
         return true;
     }
+}
+
+// Toolbar readonly predicate: return true to disable Prune when fewer than 2 messages
+export function pruneReadonly(args) {
+    return compactReadonly(args);
 }
 
 /**
@@ -3584,6 +3649,8 @@ export const chatService = {
     abortConversation,
     compactConversation,
     compactReadonly,
+    pruneConversation,
+    pruneReadonly,
     deleteConversation,
     cancelQueuedTurn,
     cancelQueuedTurnByID,
