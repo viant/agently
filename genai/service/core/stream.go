@@ -87,6 +87,9 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 		}
 
 		if isContextLimitError(err) {
+			if continuationRequest != nil {
+				return cleanup, ContinuationContextLimitError{Err: err}
+			}
 			return cleanup, fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
 		}
 		if advisor, ok := model.(llm.BackoffAdvisor); ok {

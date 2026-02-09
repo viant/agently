@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log"
 	"strings"
 	"time"
@@ -32,6 +33,14 @@ type TokenStoreDAO struct {
 }
 
 var tokCipherDatly = blowfish.Cipher{}
+
+// ErrInvalidRefreshToken indicates the stored refresh token is invalid/expired.
+var ErrInvalidRefreshToken = errors.New("auth: invalid refresh token")
+
+// IsInvalidRefreshToken reports whether the error represents an invalid refresh token.
+func IsInvalidRefreshToken(err error) bool {
+	return errors.Is(err, ErrInvalidRefreshToken)
+}
 
 func (s *TokenStoreDAO) encrypt(ctx context.Context, t *OAuthToken) (string, error) {
 	b, err := json.Marshal(t)
@@ -144,6 +153,15 @@ func (s *TokenStoreDAO) EnsureToken(ctx context.Context, userID, provider, confi
 	nt, err := src.Token()
 	if err != nil {
 		log.Printf("auth: refresh token request failed (user=%s provider=%s): %v", userID, provider, err)
+		if isInvalidRefreshError(err) {
+			// Overwrite stored token to prevent repeated refresh attempts.
+			tok.AccessToken = ""
+			tok.RefreshToken = ""
+			tok.IDToken = ""
+			tok.ExpiresAt = time.Time{}
+			_ = s.Upsert(ctx, userID, provider, tok)
+			return nil, ErrInvalidRefreshToken
+		}
 		return nil, err
 	}
 	tok.AccessToken = nt.AccessToken
@@ -184,4 +202,15 @@ func base64RawURLDecode(s string) ([]byte, error) {
 		s += "="
 	}
 	return base64.URLEncoding.DecodeString(s)
+}
+
+func isInvalidRefreshError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "invalid_grant") ||
+		(strings.Contains(msg, "refresh token") && strings.Contains(msg, "invalid")) ||
+		(strings.Contains(msg, "refresh token") && strings.Contains(msg, "expired")) ||
+		strings.Contains(msg, "401 unauthorized")
 }

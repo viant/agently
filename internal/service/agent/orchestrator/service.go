@@ -84,7 +84,7 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 				// One-shot guard: present only once per Run
 				if ctx.Value(ctxKeyLimitRecoveryAttempted) == nil {
 					ctx = context.WithValue(ctx, ctxKeyLimitRecoveryAttempted, true)
-					if perr := s.presentContextLimitExceeded(ctx, genInput, strings.ReplaceAll(err.Error(), core2.ErrContextLimitExceeded.Error(), "")); perr != nil {
+					if perr := s.presentContextLimitExceeded(ctx, genInput, err, strings.ReplaceAll(err.Error(), core2.ErrContextLimitExceeded.Error(), "")); perr != nil {
 						return nil, fmt.Errorf("failed to handle context limit: %w", perr)
 					}
 				}
@@ -109,7 +109,7 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 				// One-shot guard: present only once per Run
 				if ctx.Value(ctxKeyLimitRecoveryAttempted) == nil {
 					ctx = context.WithValue(ctx, ctxKeyLimitRecoveryAttempted, true)
-					if perr := s.presentContextLimitExceeded(ctx, genInput, strings.ReplaceAll(err.Error(), core2.ErrContextLimitExceeded.Error(), "")); perr != nil {
+					if perr := s.presentContextLimitExceeded(ctx, genInput, err, strings.ReplaceAll(err.Error(), core2.ErrContextLimitExceeded.Error(), "")); perr != nil {
 						return nil, fmt.Errorf("failed to handle context limit: %w", perr)
 					}
 				}
@@ -170,7 +170,7 @@ func hasRemovalTool(p *plan.Plan) bool {
 // presentContextLimitExceeded composes a concise guidance note with removable-candidate lines,
 // then triggers a best‑effort, tool‑driven recovery loop to free tokens (via internal/message tools),
 // and finally inserts an assistant message with the guidance for the user.
-func (s *Service) presentContextLimitExceeded(ctx context.Context, oldGenInput *core2.GenerateInput, errMessage string) error {
+func (s *Service) presentContextLimitExceeded(ctx context.Context, oldGenInput *core2.GenerateInput, err error, errMessage string) error {
 	convID := memory.ConversationIDFromContext(ctx)
 	if strings.TrimSpace(convID) == "" || s.convClient == nil {
 		return fmt.Errorf("missing conversation context")
@@ -195,6 +195,10 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context, oldGenInput *
 	mode := memory.ContextRecoveryPruneCompact
 	if v, ok := memory.ContextRecoveryModeFromContext(ctx); ok && strings.TrimSpace(v) != "" {
 		mode = strings.TrimSpace(v)
+	}
+	// In continuation mode, force compact regardless of configured mode.
+	if core2.IsContinuationContextLimit(err) {
+		mode = memory.ContextRecoveryCompact
 	}
 	promptText := prunePrompt
 	switch strings.ToLower(strings.TrimSpace(mode)) {
