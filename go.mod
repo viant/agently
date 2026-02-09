@@ -12,7 +12,7 @@ require (
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.16.0
 	github.com/viant/datly v0.35.1-0.20260128170806-3481a39615df
-	github.com/viant/embedius v0.3.0
+	github.com/viant/embedius v0.3.1
 	github.com/viant/fluxor v0.4.3
 	github.com/viant/forge v0.2.17-0.20260105184320-7b9e795ab3ef
 	github.com/viant/jsonrpc v0.17.0
@@ -49,7 +49,7 @@ require (
 	golang.org/x/crypto v0.43.0
 	golang.org/x/oauth2 v0.32.0
 	golang.org/x/sync v0.17.0
-	modernc.org/sqlite v1.44.2
+	modernc.org/sqlite v1.45.0
 )
 
 require (
@@ -154,7 +154,7 @@ require (
 	github.com/viant/govalidator v0.3.1 // indirect
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
-	github.com/viant/sqlite-vec v0.1.1 // indirect
+	github.com/viant/sqlite-vec v0.2.0 // indirect
 	github.com/viant/sqlparser v0.9.0 // indirect
 	github.com/viant/sqlx v0.22.0 // indirect
 	github.com/viant/structql v0.5.4 // indirect
@@ -203,5 +203,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace modernc.org/sqlite => gitlab.com/adrianwit/sqlite v1.40.2-0.20260127183639-396307fdbe7c
