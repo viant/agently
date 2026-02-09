@@ -9,4 +9,7 @@ const (
 	// a conversation by passing a prior response identifier (e.g., OpenAI
 	// /v1/responses via previous_response_id).
 	SupportsContextContinuation string = "supports-context-continuation"
+	// SupportsInstructions indicates the provider supports top-level
+	// instructions/system guidance outside the message list.
+	SupportsInstructions string = "supports-instructions"
 )

@@ -29,6 +29,8 @@ func (c *Client) Implements(feature string) bool {
 		return true
 	case base.SupportsContextContinuation:
 		return false
+	case base.SupportsInstructions:
+		return true
 	}
 	return false
 }

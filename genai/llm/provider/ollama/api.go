@@ -12,10 +12,15 @@ import (
 	"time"
 
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/llm/provider/base"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
 )
 
 func (c *Client) Implements(feature string) bool {
+	switch feature {
+	case base.SupportsInstructions:
+		return true
+	}
 	return false
 }
 

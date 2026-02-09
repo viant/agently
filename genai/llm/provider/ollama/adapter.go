@@ -36,9 +36,12 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest, model string) 
 	// Find system message
 	for _, msg := range request.Messages {
 		if msg.Role == llm.RoleSystem {
-			req.System = msg.Content
+			req.System = llm.MessageText(msg)
 			break
 		}
+	}
+	if strings.TrimSpace(request.Instructions) != "" {
+		req.System = strings.TrimSpace(request.Instructions)
 	}
 
 	// Construct prompt from user and assistant messages

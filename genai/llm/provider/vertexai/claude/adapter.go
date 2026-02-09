@@ -82,9 +82,12 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 	}
 
 	// system message ----------------------------------------------------------------
+	if strings.TrimSpace(request.Instructions) != "" {
+		req.System = strings.TrimSpace(request.Instructions)
+	}
 	for _, msg := range request.Messages {
 		if msg.Role == llm.RoleSystem {
-			req.System = msg.Content
+			req.System = llm.MessageText(msg)
 			break
 		}
 	}
