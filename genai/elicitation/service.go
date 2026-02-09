@@ -162,6 +162,7 @@ func (s *Service) Elicit(ctx context.Context, turn *memory.TurnMeta, role string
 			rootConversationMessage.SetTurnID(*root.LastTurnId)
 			rootConversationMessage.SetConversationID(root.Id)
 		}
+		rootConversationMessage.Sequence = nil
 		if err := s.client.PatchMessage(ctx, &rootConversationMessage); err != nil {
 			return "", "", nil, fmt.Errorf("failed to root record message: %w", err)
 		}
