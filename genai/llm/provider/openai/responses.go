@@ -110,9 +110,12 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 	if req == nil {
 		return &ResponsesPayload{}
 	}
+	instructions := strings.TrimSpace(req.Instructions)
+	instructionsNorm := normalizeText(instructions)
+	hasInstructions := instructions != ""
 	out := &ResponsesPayload{
 		Model:              req.Model,
-		Instructions:       strings.TrimSpace(req.Instructions),
+		Instructions:       instructions,
 		Temperature:        req.Temperature,
 		MaxOutputTokens:    req.MaxTokens,
 		TopP:               req.TopP,
@@ -161,6 +164,11 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 	out.Input = make([]InputItem, 0, len(req.Messages))
 	for _, m := range req.Messages {
 		role := strings.TrimSpace(m.Role)
+		if hasInstructions && role == "system" {
+			if normalizeText(extractMessageText(m)) == instructionsNorm {
+				continue
+			}
+		}
 		isTool := role == "tool"
 		if isTool {
 			// Responses API does not accept role "tool"; map to user.
@@ -293,6 +301,44 @@ func coalesce(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+func extractMessageText(m Message) string {
+	switch content := m.Content.(type) {
+	case string:
+		return content
+	case []ContentItem:
+		var sb strings.Builder
+		for _, it := range content {
+			if it.Text != "" {
+				sb.WriteString(it.Text)
+			}
+		}
+		return sb.String()
+	case []interface{}:
+		var sb strings.Builder
+		for _, raw := range content {
+			if mp, ok := raw.(map[string]interface{}); ok {
+				if typ, _ := mp["type"].(string); strings.ToLower(typ) == "text" {
+					if v, _ := mp["text"].(string); v != "" {
+						sb.WriteString(v)
+					}
+				}
+			}
+		}
+		return sb.String()
+	default:
+		return ""
+	}
+}
+
+func normalizeText(s string) string {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return ""
+	}
+	fields := strings.Fields(trimmed)
+	return strings.Join(fields, " ")
 }
 
 // ToLLMSFromResponses converts a Responses API response to llm.GenerateResponse.
