@@ -39,6 +39,18 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 		return
 	}
 
+	debugf(
+		"watchRunCompletion start schedule_id=%q schedule_name=%q run_id=%q conversation_id=%q timeout_seconds=%d lease_owner=%q lease_ttl=%s poll_every=%s",
+		strings.TrimSpace(scheduleID),
+		strings.TrimSpace(runName),
+		strings.TrimSpace(runID),
+		strings.TrimSpace(conversationID),
+		timeoutSeconds,
+		strings.TrimSpace(s.leaseOwner),
+		s.leaseTTL,
+		pollEvery,
+	)
+
 	heartbeatEvery := s.leaseTTL / 2
 	if heartbeatEvery < pollEvery {
 		heartbeatEvery = pollEvery
@@ -49,7 +61,13 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 		callCtx, callCancel := context.WithTimeout(ctx, callTimeout)
 		claimed, err := s.sch.TryClaimRun(callCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner), time.Now().UTC().Add(s.leaseTTL))
 		callCancel()
+		if err != nil {
+			debugf("watchRunCompletion initial run lease claim error schedule_id=%q run_id=%q owner=%q err=%v", strings.TrimSpace(scheduleID), strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner), err)
+		} else {
+			debugf("watchRunCompletion initial run lease claim schedule_id=%q run_id=%q owner=%q claimed=%v", strings.TrimSpace(scheduleID), strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner), claimed)
+		}
 		if err == nil && !claimed {
+			debugf("watchRunCompletion stop: run lease owned by another instance schedule_id=%q run_id=%q owner=%q", strings.TrimSpace(scheduleID), strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner))
 			return
 		}
 	}
@@ -95,16 +113,19 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 			if strings.TrimSpace(s.leaseOwner) != "" {
 				now := time.Now().UTC()
 				if !now.Before(nextHeartbeatAt) {
-					log.Printf("watchRunCompletion heartbeat - scheduleName %.20s scheduleID: %v runID: %v by owner: %v\n", scheduleID, runName, runID, s.leaseOwner)
+					debugf("watchRunCompletion heartbeat schedule_id=%q schedule_name=%q run_id=%q owner=%q", strings.TrimSpace(scheduleID), strings.TrimSpace(runName), strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner))
 					callCtx, callCancel := context.WithTimeout(ctx, callTimeout)
 					claimed, err := s.sch.TryClaimRun(callCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner), now.Add(s.leaseTTL))
 					callCancel()
 					if err == nil && !claimed {
+						debugf("watchRunCompletion stop: lost run lease schedule_id=%q run_id=%q owner=%q", strings.TrimSpace(scheduleID), strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner))
 						return
 					}
 					if err == nil && claimed {
 						nextHeartbeatAt = now.Add(heartbeatEvery)
+						debugf("watchRunCompletion heartbeat ok schedule_id=%q run_id=%q next_heartbeat_at=%s", strings.TrimSpace(scheduleID), strings.TrimSpace(runID), nextHeartbeatAt.UTC().Format(time.RFC3339Nano))
 					} else if err != nil {
+						debugf("watchRunCompletion heartbeat error schedule_id=%q run_id=%q err=%v", strings.TrimSpace(scheduleID), strings.TrimSpace(runID), err)
 						// Retry sooner on transient errors while still avoiding per-tick churn.
 						nextHeartbeatAt = now.Add(pollEvery)
 					}
@@ -131,6 +152,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 
 			conv, err := s.getConversationWithTranscript(callGetConvTransCtx, conversationID, includeTranscript)
 			if err != nil {
+				debugf("watchRunCompletion get conversation error schedule_id=%q run_id=%q conversation_id=%q err=%v", strings.TrimSpace(scheduleID), strings.TrimSpace(runID), strings.TrimSpace(conversationID), err)
 				callGetConvTransCtxCancel()
 				continue
 			}
@@ -139,6 +161,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 
 			// Running stages: keep polling until stage leaves these values or we hit allCtx deadline.
 			if isRunningStage(stage) {
+				debugf("watchRunCompletion still running schedule_id=%q run_id=%q stage=%q", strings.TrimSpace(scheduleID), strings.TrimSpace(runID), stage)
 				callGetConvTransCtxCancel()
 				continue
 			}
@@ -162,6 +185,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 			callCtx, callCancel := context.WithTimeout(ctx, callTimeout)
 			err = s.sch.PatchRun(callCtx, upd)
 			if err != nil {
+				debugf("watchRunCompletion patch run error schedule_id=%q run_id=%q status=%q err=%v", strings.TrimSpace(scheduleID), strings.TrimSpace(runID), status, err)
 				callCancel()
 				continue
 			}
@@ -172,7 +196,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 				_, _ = s.sch.ReleaseRunLease(relCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner))
 				relCancel()
 			}
-			log.Printf("scheduler: run completed with status %q schedule_id=%q run_id=%q conversation_id=%q status=%q stage=%q", status, scheduleID, runID, conversationID, stage)
+			log.Printf("scheduler: run completed with status %q schedule_id=%q run_id=%q conversation_id=%q stage=%q", status, scheduleID, runID, conversationID, stage)
 			return
 		}
 	}
