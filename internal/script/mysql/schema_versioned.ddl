@@ -1084,4 +1084,28 @@ END $$
 CALL schema_upgrade_14() $$
 DROP PROCEDURE schema_upgrade_14 $$
 
+
+DROP PROCEDURE IF EXISTS schema_upgrade_15 $$
+CREATE PROCEDURE schema_upgrade_15()
+BEGIN
+    IF get_schema_version() = 15 THEN
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'conversation'
+              AND COLUMN_NAME = 'shareable'
+        ) THEN
+ALTER TABLE conversation
+    ADD COLUMN shareable TINYINT NOT NULL DEFAULT 0 CHECK (shareable IN (0,1)) AFTER visibility;
+END IF;
+
+CALL set_schema_version(16);
+END IF;
+END $$
+
+CALL schema_upgrade_15() $$
+DROP PROCEDURE schema_upgrade_15 $$
+
 DELIMITER ;
