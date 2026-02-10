@@ -10,7 +10,7 @@ require (
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
-	github.com/viant/afsc v1.16.0
+	github.com/viant/afsc v1.17.0
 	github.com/viant/datly v0.35.1-0.20260128170806-3481a39615df
 	github.com/viant/embedius v0.3.1
 	github.com/viant/fluxor v0.4.3
