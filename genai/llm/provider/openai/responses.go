@@ -33,9 +33,9 @@ type ResponsesPayload struct {
 type InputItem struct {
 	Type string `json:"type"`
 	// Message fields.
-	Role string `json:"role"`
+	Role string `json:"role,omitempty"`
 	// Name is not supported by Responses API and must be omitted.
-	Content []ResponsesContentItem `json:"content"`
+	Content []ResponsesContentItem `json:"content,omitempty"`
 	// ToolCallID is required by OpenAI when role == "tool" to associate
 	// the tool result with a prior assistant tool_call request.
 	ToolCallID string `json:"tool_call_id,omitempty"`
