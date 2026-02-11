@@ -1108,4 +1108,34 @@ END $$
 CALL schema_upgrade_15() $$
 DROP PROCEDURE schema_upgrade_15 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_16 $$
+CREATE PROCEDURE schema_upgrade_16()
+BEGIN
+    IF get_schema_version() = 16 THEN
+    ALTER DATABASE `agently`
+        CHARACTER SET utf8mb4
+        COLLATE utf8mb4_unicode_ci;
+
+    ALTER TABLE emb_root
+        CONVERT TO CHARACTER SET utf8mb4
+        COLLATE utf8mb4_unicode_ci;
+
+    ALTER TABLE emb_asset
+        CONVERT TO CHARACTER SET utf8mb4
+        COLLATE utf8mb4_unicode_ci;
+
+    ALTER TABLE shadow_vec_docs
+        CONVERT TO CHARACTER SET utf8mb4
+        COLLATE utf8mb4_unicode_ci;
+
+    ALTER TABLE vec_shadow_log
+        CONVERT TO CHARACTER SET utf8mb4
+        COLLATE utf8mb4_unicode_ci;
+CALL set_schema_version(17);
+    END IF;
+END $$
+
+CALL schema_upgrade_16() $$
+DROP PROCEDURE schema_upgrade_16 $$
+
 DELIMITER ;
