@@ -17,7 +17,7 @@ import (
 
 // testFS holds our test YAML files
 //
-//go:embed testdata/*
+//go:embed testdata
 var testFS embed.FS
 
 // TestService_Load tests the model loading functionality
@@ -70,5 +70,27 @@ func TestService_Load(t *testing.T) {
 				fmt.Println(string(actualJSON))
 			}
 		})
+	}
+}
+
+func TestService_Load_BareModelIDWithDot(t *testing.T) {
+	ctx := context.Background()
+
+	service := New(fs.WithMetaService[provider.Config](meta.New(afs.New(), "embed:///testdata")))
+
+	loadedModel, err := service.Load(ctx, "openai_gpt-5.2")
+	assert.NoError(t, err)
+	if assert.NotNil(t, loadedModel) {
+		assert.Equal(t, "openai_gpt-5.2", loadedModel.ID)
+		assert.Equal(t, "openai", loadedModel.Options.Provider)
+		assert.Equal(t, "gpt-5.2", loadedModel.Options.Model)
+	}
+
+	loadedModel2, err := service.Load(ctx, "openai_gpt-5_2")
+	assert.NoError(t, err)
+	if assert.NotNil(t, loadedModel2) {
+		assert.Equal(t, "openai_gpt-5.2", loadedModel2.ID)
+		assert.Equal(t, "openai", loadedModel2.Options.Provider)
+		assert.Equal(t, "gpt-5.2", loadedModel2.Options.Model)
 	}
 }

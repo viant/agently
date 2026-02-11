@@ -52,7 +52,7 @@ func (s *scopedRegistry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 // underlying registry.
 func (s *scopedRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	if s.convID != "" {
-		if memory.ModelMessageIDFromContext(ctx) == "" {
+		if memory.ConversationIDFromContext(ctx) == "" {
 			ctx = memory.WithConversationID(ctx, s.convID)
 		}
 	}
