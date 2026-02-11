@@ -700,7 +700,13 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 				// didn't advance next_run_at.
 				if includeScheduledSlot && r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) && r.CompletedAt != nil {
 					debugf("RunDue completed run exists for current slot; advance schedule id=%q run_id=%q scheduled_for=%s", strings.TrimSpace(sc.Id), strings.TrimSpace(r.Id), scheduledFor.UTC().Format(time.RFC3339Nano))
-					err = s.updateNextRunAt(sc, now, scheduleCtx)
+					lastStatus := strings.TrimSpace(r.Status)
+					var lastRunAt *time.Time
+					if r.CompletedAt != nil && !r.CompletedAt.IsZero() {
+						t := r.CompletedAt.UTC()
+						lastRunAt = &t
+					}
+					err = s.updateNextRunAt(sc, now, scheduleCtx, &lastStatus, r.ErrorMessage, lastRunAt)
 					if err != nil {
 						debugf("RunDue advance schedule error id=%q err=%v", strings.TrimSpace(sc.Id), err)
 						return err
@@ -787,7 +793,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			}
 
 			// Update schedule last_run_at and next_run_at
-			err = s.updateNextRunAt(sc, now, scheduleCtx)
+			err = s.updateNextRunAt(sc, now, scheduleCtx, nil, nil, nil)
 			if err != nil {
 				debugf("RunDue update schedule next_run_at error schedule_id=%q run_id=%q err=%v", strings.TrimSpace(sc.Id), strings.TrimSpace(run.Id), err)
 				return err
@@ -868,29 +874,56 @@ func (s *Service) handleStaleRun(scheduleCtx context.Context, r *schapi.Run, now
 	// If this stale run belongs to the current scheduled slot, treat that slot
 	// as processed by advancing schedule.next_run_at (do not create a new run
 	// for the same scheduled_for).
-	if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() && r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) {
+	if r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) {
 		debugf("handleStaleRun stale run belongs to current slot; advancing schedule schedule_id=%q run_id=%q", strings.TrimSpace(sc.Id), strings.TrimSpace(r.Id))
-		err := s.updateNextRunAt(sc, now, scheduleCtx)
+		status := "failed"
+		err := s.updateNextRunAt(sc, now, scheduleCtx, &status, &msg, &now)
 		if err != nil {
 			debugf("handleStaleRun advance schedule error schedule_id=%q err=%v", strings.TrimSpace(sc.Id), err)
 		}
 		return err, true
 	}
+
+	// Older slot: update schedule last result, but do not advance next_run_at so a new run can be started.
+	s.patchScheduleLastResult(scheduleCtx, sc.Id, "failed", now, &msg)
 	debugf("handleStaleRun stale run belonged to older slot; allow new run schedule_id=%q run_id=%q run_scheduled_for=%s current_slot=%s", strings.TrimSpace(sc.Id), strings.TrimSpace(r.Id), timePtrString(r.ScheduledFor), scheduledFor.UTC().Format(time.RFC3339Nano))
 	return nil, false
 }
 
-func (s *Service) updateNextRunAt(sc *schedulepkg.ScheduleView, now time.Time, scheduleCtx context.Context) error {
+func (s *Service) updateNextRunAt(sc *schedulepkg.ScheduleView, now time.Time, scheduleCtx context.Context, lastStatus *string, lastError *string, lastRunAt *time.Time) error {
 	debugf(
-		"updateNextRunAt start schedule_id=%q now=%s prev_last_run_at=%s prev_next_run_at=%s",
+		"updateNextRunAt start schedule_id=%q now=%s prev_last_run_at=%s prev_next_run_at=%s last_status=%q last_run_at=%s",
 		strings.TrimSpace(sc.Id),
 		now.UTC().Format(time.RFC3339Nano),
 		timePtrString(sc.LastRunAt),
 		timePtrString(sc.NextRunAt),
+		strPtrValue(lastStatus),
+		timePtrString(lastRunAt),
 	)
 	mut := &schapi.MutableSchedule{}
 	mut.SetId(sc.Id)
-	mut.SetLastRunAt(now)
+	if lastRunAt != nil && !lastRunAt.IsZero() {
+		mut.SetLastRunAt(lastRunAt.UTC())
+	}
+	if lastStatus != nil && strings.TrimSpace(*lastStatus) != "" {
+		mut.SetLastStatus(strings.TrimSpace(*lastStatus))
+	}
+	if lastError != nil {
+		if strings.TrimSpace(*lastError) == "" {
+			mut.LastError = nil
+			if mut.Has != nil {
+				mut.Has.LastError = true
+			}
+		} else {
+			mut.SetLastError(strings.TrimSpace(*lastError))
+		}
+	} else if lastStatus != nil && strings.EqualFold(strings.TrimSpace(*lastStatus), "succeeded") {
+		// Clear old errors on success so the schedule doesn't show stale failures.
+		mut.LastError = nil
+		if mut.Has != nil {
+			mut.Has.LastError = true
+		}
+	}
 
 	if err := s.setNextRunAt(sc, mut, now); err != nil {
 		return err
@@ -899,7 +932,7 @@ func (s *Service) updateNextRunAt(sc *schedulepkg.ScheduleView, now time.Time, s
 	debugf(
 		"updateNextRunAt patch schedule_id=%q last_run_at=%s next_run_at=%s",
 		strings.TrimSpace(sc.Id),
-		now.UTC().Format(time.RFC3339Nano),
+		timePtrString(mut.LastRunAt),
 		timePtrString(mut.NextRunAt),
 	)
 	if err := s.sch.PatchSchedule(scheduleCtx, mut); err != nil {
