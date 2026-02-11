@@ -75,7 +75,7 @@ const Root = () => {
             conversations: { parameters: { id: convID } },
             messages: { parameters: { convID } },
         };
-        addWindow('Chat', null, 'chat/new', null, false, dsParams, { autoIndexTitle: true });
+        addWindow('Chat', null, 'chat/new', null, true, dsParams, { autoIndexTitle: true });
     }, [deepLink, ready, profile]);
 
     return (

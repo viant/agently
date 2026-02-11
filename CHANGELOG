@@ -2,3 +2,7 @@
    - refactor mcp tool (previously managed by fluxor-mcp)
    - improved code organization
    - fixed -a (custom port as opposed to :8080)
+- v0.2.43
+   - added sharable links
+   - improved scheduler
+   - minor bug fixes
