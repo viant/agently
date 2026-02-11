@@ -1,0 +1,4 @@
+id: openai_gpt-5.2
+options:
+  provider: openai
+  model: gpt-5.2
