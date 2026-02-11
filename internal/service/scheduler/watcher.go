@@ -176,11 +176,15 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 				}
 			}
 
+			completedAt := time.Now().UTC()
 			upd := &schapi.MutableRun{}
 			upd.SetId(runID)
 			upd.SetScheduleId(scheduleID)
 			upd.SetStatus(status)
-			upd.SetCompletedAt(time.Now().UTC())
+			upd.SetCompletedAt(completedAt)
+			if status != "succeeded" {
+				upd.SetErrorMessage(fmt.Sprintf("conversation completed with stage=%q", stage))
+			}
 
 			callCtx, callCancel := context.WithTimeout(ctx, callTimeout)
 			err = s.sch.PatchRun(callCtx, upd)
@@ -196,6 +200,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 				_, _ = s.sch.ReleaseRunLease(relCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner))
 				relCancel()
 			}
+			s.patchScheduleLastResult(ctx, scheduleID, status, completedAt, upd.ErrorMessage)
 			log.Printf("scheduler: run completed with status %q schedule_id=%q run_id=%q conversation_id=%q stage=%q", status, scheduleID, runID, conversationID, stage)
 			return
 		}
@@ -218,10 +223,11 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 
 	status := statusFromStage(stage)
 
+	completedAt := time.Now().UTC()
 	upd := &schapi.MutableRun{}
 	upd.SetId(runID)
 	upd.SetScheduleId(scheduleID)
-	upd.SetCompletedAt(time.Now().UTC())
+	upd.SetCompletedAt(completedAt)
 
 	finalStatus := status
 	if isRunning || stage == "" {
@@ -260,6 +266,7 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 	} else {
 		log.Printf("scheduler: run completed with status %q schedule_id=%q run_id=%q conversation_id=%q stage=%q timeout=%v", finalStatus, scheduleID, runID, conversationID, stage, timeout)
 	}
+	s.patchScheduleLastResult(ctx, scheduleID, finalStatus, completedAt, upd.ErrorMessage)
 
 	if strings.TrimSpace(s.leaseOwner) != "" {
 		relCtx, relCancel := context.WithTimeout(ctx, callTimeout)
@@ -292,6 +299,40 @@ func normalizeStage(conv *apiconv.Conversation) string {
 		return ""
 	}
 	return strings.ToLower(strings.TrimSpace(conv.Stage))
+}
+
+func (s *Service) patchScheduleLastResult(ctx context.Context, scheduleID string, status string, completedAt time.Time, errMsg *string) {
+	if s == nil || s.sch == nil {
+		return
+	}
+	scheduleID = strings.TrimSpace(scheduleID)
+	status = strings.TrimSpace(status)
+	if scheduleID == "" || status == "" {
+		return
+	}
+
+	upd := &schapi.MutableSchedule{}
+	upd.SetId(scheduleID)
+	if !completedAt.IsZero() {
+		upd.SetLastRunAt(completedAt.UTC())
+	}
+	upd.SetLastStatus(status)
+
+	if strings.EqualFold(status, "succeeded") {
+		upd.LastError = nil
+		if upd.Has != nil {
+			upd.Has.LastError = true
+		}
+	} else if errMsg != nil && strings.TrimSpace(*errMsg) != "" {
+		upd.SetLastError(strings.TrimSpace(*errMsg))
+	} else {
+		upd.SetLastError(fmt.Sprintf("run completed with status=%q", status))
+	}
+
+	callCtx, callCancel := context.WithTimeout(ctx, callTimeout)
+	err := s.sch.PatchSchedule(callCtx, upd)
+	callCancel()
+	debugf("watchRunCompletion patch schedule last result schedule_id=%q status=%q err=%v", scheduleID, status, err)
 }
 
 // turnInProgress is a cheap precheck to avoid loading full transcript every tick.
