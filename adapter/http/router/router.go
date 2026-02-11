@@ -252,7 +252,9 @@ func New(exec *execsvc.Service, svc *service.Service, toolPol *tool.Policy, mcpR
 
 	// static content
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
+		path := r.URL.Path
+		if path == "/" || path == "/ui" || path == "/ui/" ||
+			strings.HasPrefix(path, "/conversation/") {
 			w.Header().Set("Content-Type", "text/html")
 			// Do not call WriteHeader after Write; default status is 200
 			if _, err := w.Write(ui.Index); err != nil {
