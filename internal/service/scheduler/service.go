@@ -586,6 +586,25 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			next := computedNext
 			if sc.NextRunAt != nil {
 				next = sc.NextRunAt.UTC()
+			} else {
+				// When next_run_at is NULL, use computedNext as the effective slot for this tick.
+				// Persist it only when the schedule isn't due yet, so subsequent ticks and the UI
+				// have a stable reference (due schedules will be advanced after a run is started).
+				seedNext := computedNext
+				if now.Before(seedNext) {
+					mut := &schapi.MutableSchedule{}
+					mut.SetId(sc.Id)
+					mut.SetNextRunAt(seedNext)
+					if err := s.sch.PatchSchedule(scheduleCtx, mut); err != nil {
+						debugf(
+							"RunDue persist cron next_run_at failed schedule_id=%q next_run_at=%s err=%v",
+							strings.TrimSpace(sc.Id),
+							seedNext.UTC().Format(time.RFC3339Nano),
+							err,
+						)
+					}
+				}
+				sc.NextRunAt = &seedNext
 			}
 			if !now.Before(next) {
 				due = true

@@ -742,6 +742,48 @@ func TestService_RunDue_CronWithoutNextOrLastRun_Triggers(t *testing.T) {
 	assert.EqualValues(t, 1, len(store.patchedSchedules))
 }
 
+func TestService_RunDue_CronWithoutNextRunAt_NotDue_PersistsNextRunAt(t *testing.T) {
+	createdAt := time.Now().UTC()
+
+	store := &fakeScheduleStore{
+		schedule: map[string]*schedulepkg.ScheduleView{},
+	}
+	schedule := &schedulepkg.ScheduleView{
+		Id:           "sch-1",
+		Name:         "s",
+		AgentRef:     "agent",
+		Enabled:      true,
+		ScheduleType: "cron",
+		CronExpr:     strPtr("* * * * *"),
+		Timezone:     "UTC",
+		TaskPrompt:   strPtr("do"),
+		CreatedAt:    createdAt,
+	}
+	store.schedules = []*schedulepkg.ScheduleView{schedule}
+	store.schedule["sch-1"] = schedule
+
+	chat := &fakeChat{}
+	svc := &Service{
+		sch:        store,
+		chat:       chat,
+		leaseOwner: "owner-1",
+		leaseTTL:   60 * time.Second,
+	}
+
+	started, err := svc.RunDue(context.Background())
+	assert.NoError(t, err)
+	assert.EqualValues(t, 0, started)
+	assert.EqualValues(t, 0, len(store.patchedRuns))
+	assert.EqualValues(t, 1, len(store.patchedSchedules))
+	got := store.patchedSchedules[0]
+	assert.EqualValues(t, "sch-1", got.Id)
+	assert.True(t, got.NextRunAt != nil)
+	assert.True(t, got.Has != nil && got.Has.NextRunAt)
+	if got.NextRunAt != nil {
+		assert.True(t, got.NextRunAt.UTC().After(createdAt.UTC()))
+	}
+}
+
 func TestService_RunDue_AdhocClearsNextRunAt(t *testing.T) {
 	now := time.Now().UTC()
 	dueAt := now.Add(-1 * time.Minute).UTC()
