@@ -468,6 +468,7 @@ func TestService_RunDue_PrivateRuns_NotVisibleWithoutOwnerContext(t *testing.T) 
 func TestService_RunDue_CompletedRunForSlot_AdvancesScheduleAndSkips(t *testing.T) {
 	now := time.Now().UTC()
 	dueAt := now.Add(-1 * time.Minute).UTC()
+	startedAt := dueAt.Add(1 * time.Second).UTC()
 	completedAt := dueAt.Add(10 * time.Second).UTC()
 
 	completedMatching := &runpkg.RunView{
@@ -475,6 +476,7 @@ func TestService_RunDue_CompletedRunForSlot_AdvancesScheduleAndSkips(t *testing.
 		ScheduleId:   "sch-1",
 		Status:       "succeeded",
 		ScheduledFor: &dueAt,
+		StartedAt:    &startedAt,
 		CompletedAt:  &completedAt,
 	}
 
@@ -693,17 +695,19 @@ func TestService_RunDue_StaleRunningRunForOlderSlot_UpdatesScheduleLastResultAnd
 
 	// 2) schedule last result updated to reflect stale failure
 	foundLast := false
+	hasLastRunAtOnLastStatusPatch := false
 	for _, s := range store.patchedSchedules {
 		if s == nil || s.LastStatus == nil || strings.TrimSpace(*s.LastStatus) != "failed" {
 			continue
 		}
-		if s.LastRunAt == nil || s.LastRunAt.IsZero() {
-			continue
-		}
 		foundLast = true
+		if s.LastRunAt != nil && !s.LastRunAt.IsZero() && s.Has != nil && s.Has.LastRunAt {
+			hasLastRunAtOnLastStatusPatch = true
+		}
 		break
 	}
 	assert.True(t, foundLast)
+	assert.True(t, hasLastRunAtOnLastStatusPatch)
 }
 
 func TestService_RunDue_CronWithoutNextOrLastRun_Triggers(t *testing.T) {

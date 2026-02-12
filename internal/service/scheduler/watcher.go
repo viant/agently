@@ -25,7 +25,7 @@ const (
 )
 
 // watchRunCompletion polls conversation stage until completion and updates the run status.
-func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, conversationID string, timeoutSeconds int, runName string) {
+func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, conversationID string, timeoutSeconds int, runName string, startedAt *time.Time) {
 	// NOTE: Callers pass ctx as context.WithoutCancel(originalCtx).
 	// That means:
 	//   - ctx carries request-scoped values (trace IDs, auth, etc.)
@@ -104,7 +104,7 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 		select {
 		case <-allCtx.Done():
 			// Stop polling after watchTimeout
-			s.finalizeDeadline(ctx, runID, scheduleID, conversationID, callTimeout, err, timeout)
+			s.finalizeDeadline(ctx, runID, scheduleID, conversationID, callTimeout, err, timeout, startedAt)
 			return
 
 		case <-ticker.C:
@@ -200,14 +200,14 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 				_, _ = s.sch.ReleaseRunLease(relCtx, strings.TrimSpace(runID), strings.TrimSpace(s.leaseOwner))
 				relCancel()
 			}
-			s.patchScheduleLastResult(ctx, scheduleID, status, completedAt, upd.ErrorMessage)
+			s.patchScheduleLastResult(ctx, scheduleID, status, startedAt, upd.ErrorMessage)
 			log.Printf("scheduler: run completed with status %q schedule_id=%q run_id=%q conversation_id=%q stage=%q", status, scheduleID, runID, conversationID, stage)
 			return
 		}
 	}
 }
 
-func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID string, conversationID string, callTimeout time.Duration, err error, timeout time.Duration) {
+func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID string, conversationID string, callTimeout time.Duration, err error, timeout time.Duration, startedAt *time.Time) {
 	// Best-effort: one final attempt to determine conversation stage and finalize the run.
 
 	callGetConvTransCtx, callGetConvTransCtxCancel := context.WithTimeout(ctx, getConvTranscriptTimeout)
@@ -266,7 +266,7 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 	} else {
 		log.Printf("scheduler: run completed with status %q schedule_id=%q run_id=%q conversation_id=%q stage=%q timeout=%v", finalStatus, scheduleID, runID, conversationID, stage, timeout)
 	}
-	s.patchScheduleLastResult(ctx, scheduleID, finalStatus, completedAt, upd.ErrorMessage)
+	s.patchScheduleLastResult(ctx, scheduleID, finalStatus, startedAt, upd.ErrorMessage)
 
 	if strings.TrimSpace(s.leaseOwner) != "" {
 		relCtx, relCancel := context.WithTimeout(ctx, callTimeout)
@@ -301,7 +301,7 @@ func normalizeStage(conv *apiconv.Conversation) string {
 	return strings.ToLower(strings.TrimSpace(conv.Stage))
 }
 
-func (s *Service) patchScheduleLastResult(ctx context.Context, scheduleID string, status string, completedAt time.Time, errMsg *string) {
+func (s *Service) patchScheduleLastResult(ctx context.Context, scheduleID string, status string, startedAt *time.Time, errMsg *string) {
 	if s == nil || s.sch == nil {
 		return
 	}
@@ -313,8 +313,8 @@ func (s *Service) patchScheduleLastResult(ctx context.Context, scheduleID string
 
 	upd := &schapi.MutableSchedule{}
 	upd.SetId(scheduleID)
-	if !completedAt.IsZero() {
-		upd.SetLastRunAt(completedAt.UTC())
+	if startedAt != nil && !startedAt.IsZero() {
+		upd.SetLastRunAt(startedAt.UTC())
 	}
 	upd.SetLastStatus(status)
 
