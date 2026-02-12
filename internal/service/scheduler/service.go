@@ -522,6 +522,45 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			if sc != nil {
 				debugf("RunDue skip schedule disabled id=%q name=%q", strings.TrimSpace(sc.Id), strings.TrimSpace(sc.Name))
 			}
+
+			if sc != nil && !sc.Enabled {
+				// Stale run detection (disabled schedules are skipped by due-check logic).
+				// This handles the case where a schedule was disabled while a run was active
+				// and the scheduler was restarted (watchers are in-memory and won't resume).
+				scheduleCtx := ctx
+				if owner := strPtrValue(sc.CreatedByUserId); owner != "" {
+					scheduleCtx = authctx.WithUserInfo(scheduleCtx, &authctx.UserInfo{Subject: owner})
+				} else {
+					scheduleCtx = authctx.EnsureUser(scheduleCtx, s.authCfg)
+				}
+
+				scheduledFor := now
+				if sc.NextRunAt != nil && !sc.NextRunAt.IsZero() {
+					scheduledFor = sc.NextRunAt.UTC()
+				}
+
+				runs, err := s.getRunsForDueCheck(scheduleCtx, sc.Id, scheduledFor, false)
+				if err != nil {
+					debugf("RunDue disabled schedule stale-check read runs error schedule_id=%q err=%v", strings.TrimSpace(sc.Id), err)
+				} else {
+					for _, r := range runs {
+						if r == nil || r.CompletedAt != nil {
+							continue
+						}
+						status := strings.ToLower(strings.TrimSpace(r.Status))
+						switch status {
+						case "running", "prechecking":
+							runStart, timeout, stale := s.isStaleRun(r, sc, now)
+							if stale {
+								debugf("RunDue disabled schedule stale run detected schedule_id=%q run_id=%q status=%q", strings.TrimSpace(sc.Id), strings.TrimSpace(r.Id), strings.TrimSpace(r.Status))
+								if err, _ := s.handleStaleRun(scheduleCtx, r, now, sc, runStart, timeout, scheduledFor); err != nil {
+									debugf("RunDue disabled schedule stale run handling failed schedule_id=%q run_id=%q err=%v", strings.TrimSpace(sc.Id), strings.TrimSpace(r.Id), err)
+								}
+							}
+						}
+					}
+				}
+			}
 			continue
 		}
 
