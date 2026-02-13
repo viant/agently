@@ -6,6 +6,27 @@ body {
     color: #333;
 }
 
+/* Simple inline fraction rendering for \frac{a}{b} in chat markdown */
+.md-fraction {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1;
+    vertical-align: middle;
+    margin: 0 2px;
+}
+.md-fraction-num,
+.md-fraction-den {
+    font-size: 0.85em;
+    padding: 0 2px;
+}
+.md-fraction-num {
+    border-bottom: 1px solid currentColor;
+}
+.md-fraction-den {
+    margin-top: 1px;
+}
+
 /* Allow interacting with the chat composer while Secure Flow dialog is open */
 .agently-elicitation-portal .bp6-overlay-backdrop {
     display: none;

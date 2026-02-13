@@ -17,6 +17,12 @@ function MinimalText({ text = '' }) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+  const renderFractions = (input = '') => {
+    // Render basic LaTeX-style \frac{a}{b} and \dfrac{a}{b} into HTML spans.
+    return String(input).replace(/\\(?:d)?frac\{([^{}]+)\}\{([^{}]+)\}/g, (m, num, den) => {
+      return `<span class="md-fraction"><span class="md-fraction-num">${num}</span><span class="md-fraction-den">${den}</span></span>`;
+    });
+  };
   const withHeadings = escaped
     .replace(/^######\s+(.+)$/gm, '<h6>$1</h6>')
     .replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>')
@@ -24,7 +30,8 @@ function MinimalText({ text = '' }) {
     .replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
     .replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
     .replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
-  const withInline = withHeadings.replace(/`([^`]+?)`/g, '<code>$1</code>');
+  const withFractions = renderFractions(withHeadings);
+  const withInline = withFractions.replace(/`([^`]+?)`/g, '<code>$1</code>');
   const withBold   = withInline.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   const withItalic = withBold.replace(/\*(.*?)\*/g, '<em>$1</em>');
   const withLinks  = withItalic.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
