@@ -63,7 +63,7 @@ const Root = () => {
     };
 
     useEffect(() => {
-        if (!ready) return;
+        if (!ready || !profile) return;
         const { id: convID } = deepLink;
         if (!convID) return;
 
@@ -92,7 +92,7 @@ const Root = () => {
                 >
                     {profile && isNavigationOpen && <Navigation/>}
                     <div className="main-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-                        {(profile || deepLink.id) ? (
+                        {profile ? (
                           <>
                             <Outlet/>
                             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
