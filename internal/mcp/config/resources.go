@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/viant/scy"
 )
 
 // ResourceRoot describes a root entry under MCP client metadata.resources.roots.
@@ -28,6 +30,7 @@ type Upstream struct {
 	Name               string
 	Driver             string
 	DSN                string
+	Secret             *scy.Resource
 	Shadow             string
 	Batch              int
 	Force              bool
@@ -112,6 +115,7 @@ func Upstreams(meta map[string]interface{}) map[string]Upstream {
 			Name:               getString(m, "name", "Name"),
 			Driver:             getString(m, "driver", "Driver"),
 			DSN:                getString(m, "dsn", "DSN"),
+			Secret:             parseSecretResource(m),
 			Shadow:             getString(m, "shadow", "shadowTable"),
 			Batch:              getInt(m, "batch", "syncBatch"),
 			Force:              getBool(m, "forceSync", "force"),
@@ -182,6 +186,47 @@ func toStringMap(v interface{}) map[string]interface{} {
 			}
 		}
 		return out
+	default:
+		return nil
+	}
+}
+
+func parseSecretResource(m map[string]interface{}) *scy.Resource {
+	if v, ok := m["secret"]; ok {
+		if res := resourceFromAny(v); res != nil {
+			return res
+		}
+	}
+	uri := getString(m, "secretURI", "secretUri", "secretURL", "secretUrl")
+	if strings.TrimSpace(uri) == "" {
+		return nil
+	}
+	res := &scy.Resource{URL: strings.TrimSpace(uri)}
+	if key := getString(m, "secretKey", "secret_key", "key", "Key"); strings.TrimSpace(key) != "" {
+		res.Key = strings.TrimSpace(key)
+	}
+	return res
+}
+
+func resourceFromAny(v interface{}) *scy.Resource {
+	switch val := v.(type) {
+	case string:
+		if strings.TrimSpace(val) == "" {
+			return nil
+		}
+		return &scy.Resource{URL: strings.TrimSpace(val)}
+	case map[string]interface{}:
+		url := getString(val, "url", "uri", "URL", "URI")
+		if strings.TrimSpace(url) == "" {
+			return nil
+		}
+		res := &scy.Resource{URL: strings.TrimSpace(url)}
+		if key := getString(val, "key", "Key", "secretKey", "secret_key"); strings.TrimSpace(key) != "" {
+			res.Key = strings.TrimSpace(key)
+		}
+		return res
+	case map[interface{}]interface{}:
+		return resourceFromAny(toStringMap(val))
 	default:
 		return nil
 	}

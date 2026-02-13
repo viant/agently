@@ -25,6 +25,7 @@ import (
 	embSchema "github.com/viant/embedius/schema"
 	"github.com/viant/embedius/vectordb"
 	"github.com/viant/embedius/vectordb/sqlitevec"
+	"github.com/viant/scy"
 )
 
 const name = "llm/augmenter"
@@ -377,7 +378,16 @@ func (s *Service) upstreamSyncConfig(ctx context.Context, location string, augme
 }
 
 func (s *Service) upstreamDB(ctx context.Context, upstream *mcpcfg.Upstream) (*sql.DB, error) {
-	conn := view.NewConnector("embedius_upstream", upstream.Driver, upstream.DSN)
+	dsn := upstream.DSN
+	if upstream.Secret != nil {
+		secrets := scy.New()
+		secret, err := secrets.Load(ctx, upstream.Secret)
+		if err != nil {
+			return nil, fmt.Errorf("upstream %q secret load failed: %w", upstream.Name, err)
+		}
+		dsn = secret.Expand(dsn)
+	}
+	conn := view.NewConnector("embedius_upstream", upstream.Driver, dsn)
 	db, err := conn.DB()
 	if err != nil {
 		return nil, err
