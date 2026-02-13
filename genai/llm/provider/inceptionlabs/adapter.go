@@ -7,14 +7,6 @@ import (
 	"github.com/viant/agently/genai/llm"
 )
 
-// TODO warning - this file is almost identical to openai/adapter.go
-var modelTemperature = map[string]float64{
-	"o4-mini": 1.0,
-	"o1-mini": 1.0,
-	"o3-mini": 1.0,
-	"o3":      1.0,
-}
-
 // ToRequest converts an llm.ChatRequest to a Request
 func ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	// Create the request with defaults
