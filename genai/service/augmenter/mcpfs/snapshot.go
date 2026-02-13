@@ -72,6 +72,7 @@ func (s *Service) ensureSnapshot(ctx context.Context, snapURI string) (*snapshot
 	}
 	if entry, ok := s.snapshots[snapURI]; ok && entry != nil {
 		s.snapshotMu.Unlock()
+		s.maybeRefreshSnapshot(ctx, snapURI)
 		return entry, nil
 	}
 	if s.snapInFlight == nil {
@@ -215,6 +216,79 @@ func (s *Service) ensureSnapshot(ctx context.Context, snapURI string) (*snapshot
 	}
 	s.snapshotMu.Unlock()
 	return entry, nil
+}
+
+func (s *Service) maybeRefreshSnapshot(ctx context.Context, snapURI string) {
+	if s == nil || s.mgr == nil {
+		return
+	}
+	upToDate, err := s.SnapshotUpToDate(ctx, snapURI)
+	if err != nil || upToDate {
+		return
+	}
+	s.snapshotMu.Lock()
+	if s.snapInFlight != nil {
+		if _, ok := s.snapInFlight[snapURI]; ok {
+			s.snapshotMu.Unlock()
+			return
+		}
+	}
+	if s.snapRefresh == nil {
+		s.snapRefresh = map[string]struct{}{}
+	}
+	if _, ok := s.snapRefresh[snapURI]; ok {
+		s.snapshotMu.Unlock()
+		return
+	}
+	s.snapRefresh[snapURI] = struct{}{}
+	s.snapshotMu.Unlock()
+
+	go func() {
+		defer func() {
+			s.snapshotMu.Lock()
+			delete(s.snapRefresh, snapURI)
+			s.snapshotMu.Unlock()
+		}()
+		bgCtx := context.WithoutCancel(ctx)
+		_ = s.refreshSnapshot(bgCtx, snapURI)
+	}()
+}
+
+func (s *Service) refreshSnapshot(ctx context.Context, snapURI string) error {
+	if s == nil || s.mgr == nil {
+		return fmt.Errorf("mcpfs: manager not configured")
+	}
+	data, err := s.downloadRaw(ctx, snapURI)
+	if err != nil {
+		return err
+	}
+	sharedPath := s.snapshotCachePath(ctx, snapURI)
+	if sharedPath == "" {
+		return fmt.Errorf("mcpfs: snapshot cache path empty")
+	}
+	if err := os.MkdirAll(filepath.Dir(sharedPath), 0o755); err != nil {
+		return err
+	}
+	tmp := sharedPath + ".part"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, sharedPath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	stripPrefix, err := detectStripPrefix(sharedPath)
+	if err != nil {
+		return err
+	}
+	entry := &snapshotCache{path: sharedPath, stripPrefix: stripPrefix, size: int64(len(data))}
+	s.snapshotMu.Lock()
+	if s.snapshots == nil {
+		s.snapshots = map[string]*snapshotCache{}
+	}
+	s.snapshots[snapURI] = entry
+	s.snapshotMu.Unlock()
+	return nil
 }
 
 func (s *Service) snapshotCachePath(ctx context.Context, snapURI string) string {

@@ -28,6 +28,7 @@ type Service struct {
 	snapshotMu       sync.Mutex
 	snapshots        map[string]*snapshotCache
 	snapInFlight     map[string]*snapshotWait
+	snapRefresh      map[string]struct{}
 	snapSizeMu       sync.RWMutex
 	snapSizes        map[string]int64
 }

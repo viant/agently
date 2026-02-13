@@ -111,6 +111,16 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 		if err != nil {
 			return nil, err
 		}
+		// Fallback to environment variable when not provided via secrets.
+		if apiKey == "" {
+			// Prefer explicitly provided EnvKey; otherwise default to INCEPTIONLABS_API_KEY
+			if envKey := options.EnvKey; envKey != "" {
+				apiKey = os.Getenv(envKey)
+			}
+			if apiKey == "" {
+				apiKey = os.Getenv("INCEPTIONLABS_API_KEY")
+			}
+		}
 		return inceptionlabs.NewClient(apiKey, options.Model,
 			inceptionlabs.WithUsageListener(options.UsageListener)), nil
 	case ProviderGrok:
