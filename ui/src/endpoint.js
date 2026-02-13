@@ -31,13 +31,14 @@ try {
     const origFetch = window.fetch.bind(window);
     window.fetch = async (input, init = {}) => {
       let url = '';
+      let matchesAgently = false;
       try {
         url = typeof input === 'string' ? input : (input && input.url) || '';
         const method = (init && init.method) || 'GET';
         const isAbsolute = /^https?:\/\//i.test(url);
         const sameOrigin = isAbsolute ? (origin && url.startsWith(origin)) : true;
         const isAPI = url.startsWith('/v1/') || url.includes('/v1/');
-        const matchesAgently = isAPI || (agentlyBase ? url.startsWith(agentlyBase) : sameOrigin);
+        matchesAgently = isAPI || (agentlyBase ? url.startsWith(agentlyBase) : sameOrigin);
         if (url && matchesAgently) {
           const token = window.AGENTLY_BEARER;
           if (token) {
@@ -58,6 +59,9 @@ try {
           const clone = resp.clone();
           const txt = await clone.text().catch(() => '');
           console.warn('[agently.fetch] ←', status, url, 'content-type:', ct, 'body:', (txt || '').slice(0, 220));
+          if (status === 401 && matchesAgently) {
+            try { window.dispatchEvent(new CustomEvent('agently:unauthorized', { detail: { url, status } })); } catch (_) {}
+          }
         } else {
           console.log('[agently.fetch] ←', status, url);
         }
