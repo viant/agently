@@ -72,6 +72,7 @@ func EnsureDefaultAt(ctx context.Context, fs afs.Service, root string) {
 		{filepath.Join(KindModel, "openai_gpt-5.yaml"), "default/model/openai/gpt-5.yaml"},
 		{filepath.Join(KindModel, "openai_gpt-5_1.yaml"), "default/model/openai/gpt-5_1.yaml"},
 		{filepath.Join(KindModel, "openai_gpt-5_2.yaml"), "default/model/openai/gpt-5_2.yaml"},
+		{filepath.Join(KindModel, "openai_gpt-5_3-codex.yaml"), "default/model/openai/gpt-5_3-codex.yaml"},
 		{filepath.Join(KindModel, "xai_grok-4-latest.yaml"), "default/model/xai/grok_4_latest.yaml"},
 		{filepath.Join(KindModel, "xai_grok-code-fast-1.yaml"), "default/model/xai/grok_code_fast_1.yaml"},
 
