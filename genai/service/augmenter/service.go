@@ -26,6 +26,7 @@ import (
 	"github.com/viant/embedius/vectordb"
 	"github.com/viant/embedius/vectordb/sqlitevec"
 	"github.com/viant/scy"
+	"github.com/viant/scy/cred/secret"
 )
 
 const name = "llm/augmenter"
@@ -380,12 +381,13 @@ func (s *Service) upstreamSyncConfig(ctx context.Context, location string, augme
 func (s *Service) upstreamDB(ctx context.Context, upstream *mcpcfg.Upstream) (*sql.DB, error) {
 	dsn := upstream.DSN
 	if upstream.Secret != nil {
-		secrets := scy.New()
-		secret, err := secrets.Load(ctx, upstream.Secret)
+		secSvc := secret.New()
+		ref := formatSecretRef(upstream.Secret)
+		sec, err := secSvc.Lookup(ctx, secret.Resource(ref))
 		if err != nil {
-			return nil, fmt.Errorf("upstream %q secret load failed: %w", upstream.Name, err)
+			return nil, fmt.Errorf("upstream %q secret load failed (%s): %w", upstream.Name, ref, err)
 		}
-		dsn = secret.Expand(dsn)
+		dsn = sec.Expand(dsn)
 	}
 	conn := view.NewConnector("embedius_upstream", upstream.Driver, dsn)
 	db, err := conn.DB()
@@ -396,6 +398,16 @@ func (s *Service) upstreamDB(ctx context.Context, upstream *mcpcfg.Upstream) (*s
 		return nil, err
 	}
 	return db, nil
+}
+
+func formatSecretRef(res *scy.Resource) string {
+	if res == nil {
+		return ""
+	}
+	if strings.TrimSpace(res.Key) == "" {
+		return strings.TrimSpace(res.URL)
+	}
+	return strings.TrimSpace(res.URL) + "|" + strings.TrimSpace(res.Key)
 }
 
 func (s *Service) pingDB(ctx context.Context, db *sql.DB) error {

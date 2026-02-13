@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -201,7 +202,7 @@ func parseSecretResource(m map[string]interface{}) *scy.Resource {
 	if strings.TrimSpace(uri) == "" {
 		return nil
 	}
-	res := &scy.Resource{URL: strings.TrimSpace(uri)}
+	res := resourceFromString(uri)
 	if key := getString(m, "secretKey", "secret_key", "key", "Key"); strings.TrimSpace(key) != "" {
 		res.Key = strings.TrimSpace(key)
 	}
@@ -211,16 +212,13 @@ func parseSecretResource(m map[string]interface{}) *scy.Resource {
 func resourceFromAny(v interface{}) *scy.Resource {
 	switch val := v.(type) {
 	case string:
-		if strings.TrimSpace(val) == "" {
-			return nil
-		}
-		return &scy.Resource{URL: strings.TrimSpace(val)}
+		return resourceFromString(val)
 	case map[string]interface{}:
 		url := getString(val, "url", "uri", "URL", "URI")
 		if strings.TrimSpace(url) == "" {
 			return nil
 		}
-		res := &scy.Resource{URL: strings.TrimSpace(url)}
+		res := resourceFromString(url)
 		if key := getString(val, "key", "Key", "secretKey", "secret_key"); strings.TrimSpace(key) != "" {
 			res.Key = strings.TrimSpace(key)
 		}
@@ -230,6 +228,49 @@ func resourceFromAny(v interface{}) *scy.Resource {
 	default:
 		return nil
 	}
+}
+
+func resourceFromString(val string) *scy.Resource {
+	if strings.TrimSpace(val) == "" {
+		return nil
+	}
+	url, key := splitEncodedResource(strings.TrimSpace(val))
+	if url == "" {
+		return nil
+	}
+	return &scy.Resource{
+		URL: normalizeScyURL(url),
+		Key: key,
+	}
+}
+
+func normalizeScyURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	if strings.Contains(raw, "://") {
+		return raw
+	}
+	// Preserve short/relative names so scy/cred/secret can resolve via base dir.
+	if strings.HasPrefix(raw, "/") {
+		abs, err := filepath.Abs(raw)
+		if err != nil {
+			return "file://" + raw
+		}
+		return "file://" + abs
+	}
+	return raw
+}
+
+func splitEncodedResource(raw string) (string, string) {
+	if raw == "" {
+		return "", ""
+	}
+	if idx := strings.Index(raw, "|"); idx != -1 {
+		return strings.TrimSpace(raw[:idx]), strings.TrimSpace(raw[idx+1:])
+	}
+	return strings.TrimSpace(raw), ""
 }
 
 func getString(m map[string]interface{}, keys ...string) string {
