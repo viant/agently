@@ -285,6 +285,19 @@ export const AuthProvider = ({children}) => {
     })().catch(e => { setError(e?.message || String(e)); setLoading(false); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Global 401 handler from fetch wrapper
+  useEffect(() => {
+    const onUnauthorized = () => {
+      try {
+        setBearerToken('');
+        setProfile(null);
+        setError(null);
+      } catch (_) {}
+    };
+    window.addEventListener('agently:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('agently:unauthorized', onUnauthorized);
+  }, []);
+
   // Keep a global hint for non-auth-aware datasources (Forge) to attach Authorization
   useEffect(() => {
     try { window.AGENTLY_BEARER = bearerToken || ''; } catch(_) {}
