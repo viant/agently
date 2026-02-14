@@ -68,7 +68,7 @@ func (s *Service) Summarize(ctx context.Context, conv *apiconv.Conversation) err
 	}
 	output := &core.GenerateOutput{}
 
-	agentID, _, err := s.resolveAgentIDForConversation(ctx, conv, "")
+	agentID, _, _, err := s.resolveAgentIDForConversation(ctx, conv, "")
 	if err != nil {
 		return fmt.Errorf("failed to resolve agent: %w", err)
 	}

@@ -7,6 +7,8 @@ type ListItem struct {
 	ID               string                 `json:"id"`
 	Name             string                 `json:"name,omitempty"`
 	Description      string                 `json:"description,omitempty"`
+	Summary          string                 `json:"summary,omitempty"`
+	Internal         bool                   `json:"internal,omitempty"`
 	Tags             []string               `json:"tags,omitempty"`
 	Priority         int                    `json:"priority,omitempty"`
 	Capabilities     map[string]interface{} `json:"capabilities,omitempty"`

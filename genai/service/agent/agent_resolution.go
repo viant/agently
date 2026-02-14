@@ -173,7 +173,7 @@ func autoSelectAgentID(query string, candidates []*agentmdl.Agent) string {
 	return bestID
 }
 
-func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apiconv.Conversation, query string) (string, bool, error) {
+func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apiconv.Conversation, query string) (string, bool, string, error) {
 	providedQuery := strings.TrimSpace(query)
 	if strings.TrimSpace(query) == "" {
 		query = lastUserQueryText(conv)
@@ -189,7 +189,7 @@ func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apico
 	if conv != nil && conv.AgentId != nil {
 		explicitAgent = strings.TrimSpace(*conv.AgentId)
 		if explicitAgent != "" && !isAutoAgentRef(explicitAgent) {
-			return explicitAgent, false, nil
+			return explicitAgent, false, "", nil
 		}
 		autoRequested = isAutoAgentRef(explicitAgent)
 	} else {
@@ -200,12 +200,12 @@ func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apico
 	// executed in this conversation, before falling back to workspace defaults.
 	if !autoRequested {
 		if id := lastTurnAgentIDUsed(conv); id != "" {
-			return id, false, nil
+			return id, false, "", nil
 		}
 		if defaultAgent != "" && !isAutoAgentRef(defaultAgent) {
-			return defaultAgent, false, nil
+			return defaultAgent, false, "", nil
 		}
-		return "", false, fmt.Errorf("agent is required")
+		return "", false, "", fmt.Errorf("agent is required")
 	}
 
 	var candidates []*agentmdl.Agent
@@ -221,21 +221,22 @@ func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apico
 	// where the routing should rely on continuity (last used agent).
 	if providedQuery != "" {
 		if selected, err := s.classifyAgentIDWithLLM(ctx, conv, query, candidates); err != nil {
-			return "", true, err
+			return "", true, "", err
 		} else if selected != "" {
-			return selected, true, nil
+			trimmed := strings.TrimSpace(selected)
+			return trimmed, true, "", nil
 		}
 	}
 	if selected := autoSelectAgentID(query, candidates); selected != "" {
-		return selected, true, nil
+		return selected, true, "", nil
 	}
 
 	// If routing cannot decide, keep continuity as a safe fallback.
 	if id := lastTurnAgentIDUsed(conv); id != "" {
-		return id, false, nil
+		return id, false, "", nil
 	}
 	if defaultAgent != "" && !isAutoAgentRef(defaultAgent) {
-		return defaultAgent, false, nil
+		return defaultAgent, false, "", nil
 	}
-	return "", true, fmt.Errorf("agent is required")
+	return "", true, "", fmt.Errorf("agent is required")
 }

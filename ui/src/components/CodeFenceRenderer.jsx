@@ -33,8 +33,10 @@ function MinimalText({ text = '' }) {
   const withFractions = renderFractions(withHeadings);
   const withInline = withFractions.replace(/`([^`]+?)`/g, '<code>$1</code>');
   const withBold   = withInline.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  const withItalic = withBold.replace(/\*(.*?)\*/g, '<em>$1</em>');
-  const withLinks  = withItalic.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  const withStarItalic = withBold.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  // Underscore italics (avoid mid-word underscores)
+  const withUnderscoreItalic = withStarItalic.replace(/(^|[^\w])_([^_\n]+)_/g, '$1<em>$2</em>');
+  const withLinks  = withUnderscoreItalic.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   const html = withLinks.replace(/\n/g, '<br/>');
   // eslint-disable-next-line react/no-danger
   return <div className="prose max-w-full text-sm" dangerouslySetInnerHTML={{ __html: html }} />;

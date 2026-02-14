@@ -6,6 +6,7 @@ temperature: 0
 persona:
   role: assistant
   actor: Critic
+  summary: Evaluation agent for reviewing responses for accuracy, reasoning, clarity, and safety.
 
 profile:
   publish: true

@@ -10,6 +10,7 @@ import (
 	agentmdl "github.com/viant/agently/genai/agent"
 	"github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/service/agent/prompts"
 )
 
 type agentSelection struct {
@@ -137,6 +138,9 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 	if selected == "" {
 		return "", nil
 	}
+	if strings.EqualFold(strings.TrimSpace(selected), "agent_selector") {
+		return "agent_selector", nil
+	}
 	if canonical, ok := candidateByKey[strings.ToLower(selected)]; ok {
 		return canonical, nil
 	}
@@ -214,19 +218,7 @@ func agentRouterSystemPrompt(defaults *config.Defaults, outputKey string) string
 			return v
 		}
 	}
-	key := strings.TrimSpace(outputKey)
-	if key == "" {
-		key = "agentId"
-	}
-	return strings.Join([]string{
-		"You are an agent router for a developer tool.",
-		"Pick the single best agent id for the user request from the provided list.",
-		"Prefer the most direct specialist for the task.",
-		"For code reading, code analysis, refactors, implementation, debugging, or requests that mention local file paths/repos/packages, prefer a coding-focused agent (e.g. tags containing \"code\" or \"refactor\").",
-		"Only choose orchestration/coordination agents (e.g. ids containing \"orchestrator\") when the user explicitly asks to coordinate multiple agents, run multi-pass verification, or orchestrate a workflow.",
-		"Return ONLY valid JSON in the form: {\"" + key + "\":\"<id>\"}.",
-		"Do not call tools. Do not return any other keys or text.",
-	}, "\n")
+	return prompts.RouterPrompt(outputKey)
 }
 
 func recentNonInterimTurnsText(conv *apiconv.Conversation, lastN int) string {
