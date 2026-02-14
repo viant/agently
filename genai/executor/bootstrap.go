@@ -365,6 +365,10 @@ func (e *Service) newDirectoryProvider(extRoutes map[string]extSpec) func() []ll
 				if desc == "" {
 					desc = strings.TrimSpace(a.Description)
 				}
+				summary := ""
+				if a.Persona != nil {
+					summary = strings.TrimSpace(a.Persona.Summary)
+				}
 				var caps map[string]interface{}
 				if a.Profile != nil && a.Profile.Capabilities != nil {
 					caps = a.Profile.Capabilities
@@ -394,6 +398,8 @@ func (e *Service) newDirectoryProvider(extRoutes map[string]extSpec) func() []ll
 					ID:               id,
 					Name:             name,
 					Description:      desc,
+					Summary:          summary,
+					Internal:         a.Internal,
 					Tags:             tags,
 					Priority:         rank,
 					Capabilities:     caps,
@@ -421,6 +427,7 @@ func (e *Service) newDirectoryProvider(extRoutes map[string]extSpec) func() []ll
 				Tags:         append([]string(nil), s.Directory.Tags...),
 				Priority:     s.Directory.Priority,
 				Capabilities: nil,
+				Internal:     false,
 				Source:       "external",
 			})
 		}

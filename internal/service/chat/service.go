@@ -411,7 +411,7 @@ type UploadedAttachment struct {
 // PreflightPost validates minimal conditions before accepting a post.
 // It ensures an agent can be determined either from request or conversation defaults.
 func (s *Service) PreflightPost(ctx context.Context, conversationID string, req PostRequest) error {
-	_, _, err := s.resolveAgentIDForTurn(ctx, conversationID, req.Agent, req.Content)
+	_, _, _, err := s.resolveAgentIDForTurn(ctx, conversationID, req.Agent, req.Content)
 	return err
 }
 
@@ -731,11 +731,11 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 	if msg.Content != nil {
 		query = *msg.Content
 	}
-	agentID, autoSelected, err := s.resolveAgentIDForTurn(parent, conversationID, meta.Agent, query)
+	agentID, autoSelected, _, err := s.resolveAgentIDForTurn(parent, conversationID, meta.Agent, query)
 	if err != nil {
 		return s.persistTurnFailure(parent, turnID, err)
 	}
-	if autoSelected && strings.TrimSpace(agentID) != "" {
+	if autoSelected && strings.TrimSpace(agentID) != "" && strings.TrimSpace(agentID) != "agent_selector" {
 		upd := apiconv.NewTurn()
 		upd.SetId(turnID)
 		upd.SetConversationID(conversationID)
@@ -744,20 +744,50 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 			return s.persistTurnFailure(parent, turnID, perr)
 		}
 	}
-
-	input := &agentpkg.QueryInput{
-		ConversationID:   conversationID,
-		Query:            query,
-		AgentID:          strings.TrimSpace(agentID),
-		ModelOverride:    meta.Model,
-		ToolsAllowed:     append([]string(nil), meta.Tools...),
-		AutoSelectTools:  meta.AutoSelectTools,
-		Context:          meta.Context,
-		MessageID:        turnID,
-		ToolCallExposure: meta.ToolCallExposure,
-		AutoSummarize:    meta.AutoSummarize,
-		DisableChains:    meta.DisableChains,
-		AllowedChains:    append([]string(nil), meta.AllowedChains...),
+	var input *agentpkg.QueryInput
+	if strings.TrimSpace(agentID) == "agent_selector" {
+		capPrompt := prompts.CapabilityPrompt()
+		if s != nil && s.defaults != nil && strings.TrimSpace(s.defaults.CapabilityPrompt) != "" {
+			capPrompt = strings.TrimSpace(s.defaults.CapabilityPrompt)
+		}
+		capAgent := &agent.Agent{
+			Identity: agent.Identity{ID: "agent_selector", Name: "Agent Selector"},
+			Prompt:   &promptpkg.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
+			SystemPrompt: &promptpkg.Prompt{
+				Text:   capPrompt,
+				Engine: "go",
+			},
+			Persona: &promptpkg.Persona{Role: "assistant", Actor: "Capability"},
+		}
+		autoTools := false
+		input = &agentpkg.QueryInput{
+			ConversationID:   conversationID,
+			Query:            query,
+			Agent:            capAgent,
+			ModelOverride:    meta.Model,
+			ToolsAllowed:     []string{"llm/agents:list"},
+			AutoSelectTools:  &autoTools,
+			Context:          meta.Context,
+			MessageID:        turnID,
+			ToolCallExposure: meta.ToolCallExposure,
+			AutoSummarize:    meta.AutoSummarize,
+			DisableChains:    true,
+		}
+	} else {
+		input = &agentpkg.QueryInput{
+			ConversationID:   conversationID,
+			Query:            query,
+			AgentID:          strings.TrimSpace(agentID),
+			ModelOverride:    meta.Model,
+			ToolsAllowed:     append([]string(nil), meta.Tools...),
+			AutoSelectTools:  meta.AutoSelectTools,
+			Context:          meta.Context,
+			MessageID:        turnID,
+			ToolCallExposure: meta.ToolCallExposure,
+			AutoSummarize:    meta.AutoSummarize,
+			DisableChains:    meta.DisableChains,
+			AllowedChains:    append([]string(nil), meta.AllowedChains...),
+		}
 	}
 
 	// Detach from caller cancellation but preserve identity for per-user jars.

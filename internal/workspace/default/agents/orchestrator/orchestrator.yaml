@@ -6,6 +6,7 @@ temperature: 0
 persona:
   role: assistant
   actor: Orchestrator
+  summary: Multi-agent coordinator for complex tasks, planning, and verification workflows.
 
 profile:
   publish: true

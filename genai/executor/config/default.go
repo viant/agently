@@ -31,6 +31,8 @@ type Defaults struct {
 	SummaryModel  string `yaml:"summaryModel" json:"summaryModel"`
 	SummaryPrompt string `yaml:"summaryPrompt" json:"summaryPrompt"`
 	SummaryLastN  int    `yaml:"summaryLastN" json:"summaryLastN"`
+	// CapabilityPrompt overrides the system prompt used for capability discovery responses.
+	CapabilityPrompt string `yaml:"capabilityPrompt" json:"capabilityPrompt"`
 
 	// ---- Tool-call result controls (grouped) ---------------------
 	PreviewSettings PreviewSettings `yaml:"previewSettings" json:"previewSettings"`
@@ -84,9 +86,10 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		AgentRouter AgentAutoSelectionDefaults `yaml:"agentRouter,omitempty"`
 		ToolRouter  ToolAutoSelectionDefaults  `yaml:"toolRouter,omitempty"`
 
-		SummaryModel  string `yaml:"summaryModel,omitempty"`
-		SummaryPrompt string `yaml:"summaryPrompt,omitempty"`
-		SummaryLastN  int    `yaml:"summaryLastN,omitempty"`
+		SummaryModel     string `yaml:"summaryModel,omitempty"`
+		SummaryPrompt    string `yaml:"summaryPrompt,omitempty"`
+		SummaryLastN     int    `yaml:"summaryLastN,omitempty"`
+		CapabilityPrompt string `yaml:"capabilityPrompt,omitempty"`
 
 		PreviewSettings PreviewSettings `yaml:"previewSettings,omitempty"`
 
@@ -111,9 +114,10 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		StatePath:   tmp.StatePath,
 		DBPath:      tmp.DBPath,
 
-		SummaryModel:  tmp.SummaryModel,
-		SummaryPrompt: tmp.SummaryPrompt,
-		SummaryLastN:  tmp.SummaryLastN,
+		SummaryModel:     tmp.SummaryModel,
+		SummaryPrompt:    tmp.SummaryPrompt,
+		SummaryLastN:     tmp.SummaryLastN,
+		CapabilityPrompt: tmp.CapabilityPrompt,
 
 		PreviewSettings: tmp.PreviewSettings,
 

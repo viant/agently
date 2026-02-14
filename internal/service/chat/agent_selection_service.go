@@ -31,10 +31,10 @@ func (s *Service) agentCatalogSnapshot() []*agent.Agent {
 	return nil
 }
 
-func (s *Service) resolveAgentIDForTurn(ctx context.Context, conversationID string, reqAgent string, query string) (string, bool, error) {
+func (s *Service) resolveAgentIDForTurn(ctx context.Context, conversationID string, reqAgent string, query string) (string, bool, string, error) {
 	conversationAgent, err := s.conversationAgentID(ctx, conversationID)
 	if err != nil {
-		return "", false, err
+		return "", false, "", err
 	}
 	defaultAgent := ""
 	if s != nil && s.defaults != nil {
@@ -45,11 +45,13 @@ func (s *Service) resolveAgentIDForTurn(ctx context.Context, conversationID stri
 	autoRequested := isAutoAgentRef(reqAgent) || (reqAgent == "" && isAutoAgentRef(defaultAgent))
 	if autoRequested {
 		if selected, err := s.classifyAgentIDWithLLM(ctx, conversationID, query, s.agentCatalogSnapshot()); err != nil {
-			return "", true, err
+			return "", true, "", err
 		} else if strings.TrimSpace(selected) != "" {
-			return strings.TrimSpace(selected), true, nil
+			trimmed := strings.TrimSpace(selected)
+			return trimmed, true, "", nil
 		}
 	}
 
-	return resolveAgentID(reqAgent, conversationAgent, defaultAgent, query, s.agentCatalogSnapshot())
+	agentID, autoSelected, err := resolveAgentID(reqAgent, conversationAgent, defaultAgent, query, s.agentCatalogSnapshot())
+	return agentID, autoSelected, "", err
 }

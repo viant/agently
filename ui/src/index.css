@@ -88,6 +88,22 @@ body {
     border-top: 1px solid #dcdcdc;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Chat bubble sizing                                                         */
+/* -------------------------------------------------------------------------- */
+
+/* Allow assistant/tool bubbles to expand to the full available width when needed. */
+.chat-row.assistant .chat-bubble,
+.chat-row.tool .chat-bubble {
+    max-width: 90%;
+}
+
+/* Ensure markdown content can use the full bubble width. */
+.chat-row.assistant .chat-bubble .prose,
+.chat-row.tool .chat-bubble .prose {
+    max-width: 100%;
+}
+
 
 .navigation-drawer {
     position: fixed;
