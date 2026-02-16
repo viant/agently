@@ -120,6 +120,201 @@ func TestStream_ToolCalls_Aggregation(t *testing.T) {
 	}
 }
 
+func TestStream_ResponseFailed_ErrorMessage(t *testing.T) {
+	lines := []string{
+		"event: response.created",
+		`data: {"response":{"id":"resp_1"}}`,
+		"event: response.failed",
+		`data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"code":"model_not_found","message":"The model \\\"gpt-5.3-codex\\\" does not exist or you do not have access to it."}}}`,
+	}
+	body := strings.Join(lines, "\n")
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := &Client{APIKey: "test"}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "o4-mini-2025-04-16"
+
+	req := &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("hi")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ch, err := c.Stream(ctx, req)
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+
+	var gotErr error
+	for ev := range ch {
+		if ev.Err != nil {
+			gotErr = ev.Err
+			break
+		}
+	}
+	if assert.Error(t, gotErr) {
+		assert.Contains(t, gotErr.Error(), "gpt-5.3-codex")
+	}
+}
+
+func TestStream_EventError_Fallback(t *testing.T) {
+	lines := []string{
+		"event: error",
+		`data: {"type":"error","error":{"code":"model_not_found","message":"The model \\\"gpt-5.3-codex\\\" does not exist or you do not have access to it."}}`,
+	}
+	body := strings.Join(lines, "\n")
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := &Client{APIKey: "test"}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "o4-mini-2025-04-16"
+
+	req := &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("hi")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ch, err := c.Stream(ctx, req)
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+
+	var gotErr error
+	for ev := range ch {
+		if ev.Err != nil {
+			gotErr = ev.Err
+			break
+		}
+	}
+	if assert.Error(t, gotErr) {
+		assert.Contains(t, gotErr.Error(), "gpt-5.3-codex")
+	}
+}
+
+func TestStream_NonSSE_JSONError_TopLevel(t *testing.T) {
+	body := `{"error":{"code":"model_not_found","message":"The model \"gpt-5.3-codex\" does not exist or you do not have access to it.","type":"invalid_request_error"}}`
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := &Client{APIKey: "test"}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "o4-mini-2025-04-16"
+
+	req := &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("hi")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ch, err := c.Stream(ctx, req)
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+
+	var gotErr error
+	for ev := range ch {
+		if ev.Err != nil {
+			gotErr = ev.Err
+			break
+		}
+	}
+	if assert.Error(t, gotErr) {
+		assert.Contains(t, gotErr.Error(), "gpt-5.3-codex")
+	}
+}
+
+func TestStream_NonSSE_JSONError_ResponseWrapped(t *testing.T) {
+	body := `{"response":{"error":{"code":"model_not_found","message":"The model \"gpt-5.3-codex\" does not exist or you do not have access to it.","type":"invalid_request_error"}}}`
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := &Client{APIKey: "test"}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "o4-mini-2025-04-16"
+
+	req := &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("hi")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ch, err := c.Stream(ctx, req)
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+
+	var gotErr error
+	for ev := range ch {
+		if ev.Err != nil {
+			gotErr = ev.Err
+			break
+		}
+	}
+	if assert.Error(t, gotErr) {
+		assert.Contains(t, gotErr.Error(), "gpt-5.3-codex")
+	}
+}
+
+func TestStream_NonSSE_ContinuationError(t *testing.T) {
+	body := `{"error":{"code":"invalid_request_error","message":"previous_response_id is invalid"}}`
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := &Client{APIKey: "test"}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "o4-mini-2025-04-16"
+
+	req := &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("hi")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ch, err := c.Stream(ctx, req)
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+
+	var gotErr error
+	for ev := range ch {
+		if ev.Err != nil {
+			gotErr = ev.Err
+			break
+		}
+	}
+	if assert.Error(t, gotErr) {
+		assert.Contains(t, gotErr.Error(), "continuation")
+	}
+}
+
 // Data-driven test: usage in final completed event should be captured.
 func TestStream_UsageOnlyFinalChunk_NoEmptyChoicesEmission(t *testing.T) {
 	testCases := []struct {
