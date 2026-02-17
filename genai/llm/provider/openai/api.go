@@ -61,6 +61,60 @@ func endObserverOnce(observer mcbuf.Observer, ctx context.Context, model string,
 	return nil
 }
 
+type openAIErrorBody struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	Param   string `json:"param"`
+	Code    string `json:"code"`
+}
+
+type openAIErrorEnvelope struct {
+	Error    openAIErrorBody `json:"error"`
+	Response struct {
+		Error openAIErrorBody `json:"error"`
+	} `json:"response"`
+}
+
+func parseOpenAIError(resp []byte) (string, string) {
+	raw := bytes.TrimSpace(resp)
+	if len(raw) == 0 {
+		return "", ""
+	}
+	// Support both top-level error and Responses API wrapper: { response: { error: ... } }
+	var w openAIErrorEnvelope
+	if json.Unmarshal(raw, &w) != nil {
+		return "", ""
+	}
+	errObj := w.Error
+	if strings.TrimSpace(errObj.Message) == "" {
+		errObj = w.Response.Error
+	}
+	msg := strings.TrimSpace(errObj.Message)
+	code := strings.TrimSpace(errObj.Code)
+	if msg == "" {
+		return "", code
+	}
+	if strings.TrimSpace(errObj.Type) != "" || strings.TrimSpace(errObj.Param) != "" {
+		msg = fmt.Sprintf("%s (type=%s, param=%s)", msg, strings.TrimSpace(errObj.Type), strings.TrimSpace(errObj.Param))
+	}
+	return msg, code
+}
+
+func endObserverErrorOnce(observer mcbuf.Observer, ctx context.Context, model string, respJSON []byte, errMsg, errCode string, ended *bool) error {
+	if ended == nil || *ended {
+		return nil
+	}
+	if observer == nil {
+		return nil
+	}
+	info := mcbuf.Info{Provider: "openai", Model: model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), Err: errMsg, ErrorCode: errCode}
+	if err := observer.OnCallEnd(ctx, info); err != nil {
+		return err
+	}
+	*ended = true
+	return nil
+}
+
 // emitResponse wraps publishing a response event.
 func emitResponse(out chan<- llm.StreamEvent, lr *llm.GenerateResponse) {
 	if out == nil || lr == nil {
@@ -619,25 +673,45 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		}
 
 		if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
-			events <- llm.StreamEvent{Err: fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, string(respBody))}
+			msg, code := parseOpenAIError(respBody)
+			if msg == "" {
+				msg = fmt.Sprintf("OpenAI API error (status %d): %s", resp.StatusCode, string(respBody))
+			} else {
+				msg = fmt.Sprintf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
+			}
+			events <- llm.StreamEvent{Err: fmt.Errorf("%s", msg)}
+			if proc.observer != nil && !proc.state.ended {
+				if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, msg, code, &proc.state.ended); obErr != nil {
+					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+					return
+				}
+			}
 			return
 		}
 
 		// If Responses stream returned an immediate JSON error and it's
 		// a continuation error, bubble up an error and do not fallback.
 		if !bytes.Contains(respBody, []byte("data: ")) {
-			type apiErr struct {
-				Error struct {
-					Message string `json:"message"`
-				} `json:"error"`
-			}
-			var e apiErr
-			if json.Unmarshal(bytes.TrimSpace(respBody), &e) == nil && e.Error.Message != "" {
+			if msg, code := parseOpenAIError(respBody); msg != "" {
 				if isContinuationError(respBody) {
-					events <- llm.StreamEvent{Err: fmt.Errorf("openai continuation error: %s", string(respBody))}
+					full := fmt.Sprintf("openai continuation error: %s", msg)
+					events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
+					if proc.observer != nil && !proc.state.ended {
+						if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
+							events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+							return
+						}
+					}
 					return
 				}
-				events <- llm.StreamEvent{Err: fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, string(respBody))}
+				full := fmt.Sprintf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
+				events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
+				if proc.observer != nil && !proc.state.ended {
+					if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+						return
+					}
+				}
 				return
 			}
 		}

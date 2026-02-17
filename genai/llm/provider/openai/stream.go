@@ -118,6 +118,19 @@ func (p *streamProcessor) removeAlreadyEmittedToolCalls(lr *llm.GenerateResponse
 }
 
 func (p *streamProcessor) handleEvent(eventName string, data string) bool {
+	if eventName == "error" {
+		msg, code := parseOpenAIError([]byte(data))
+		if msg == "" {
+			msg = "openai stream error"
+		}
+		p.events <- llm.StreamEvent{Err: fmt.Errorf("%s", msg)}
+		if p.observer != nil && !p.state.ended {
+			if err := endObserverErrorOnce(p.observer, p.ctx, p.state.lastModel, []byte(data), msg, code, &p.state.ended); err != nil {
+				p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
+			}
+		}
+		return false
+	}
 	// Handle Responses API streaming events
 	if strings.HasPrefix(eventName, "response.") {
 		switch eventName {
@@ -318,6 +331,18 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 				return true
 			}
 			return true
+		case "response.failed":
+			msg, code := parseOpenAIError([]byte(data))
+			if msg == "" {
+				msg = "openai response.failed"
+			}
+			p.events <- llm.StreamEvent{Err: fmt.Errorf("%s", msg)}
+			if p.observer != nil && !p.state.ended {
+				if err := endObserverErrorOnce(p.observer, p.ctx, p.state.lastModel, []byte(data), msg, code, &p.state.ended); err != nil {
+					p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
+				}
+			}
+			return false
 		default:
 			// Ignore other response.* events
 			return true
