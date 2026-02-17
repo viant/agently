@@ -6,3 +6,5 @@
    - added sharable links
    - improved scheduler
    - minor bug fixes
+- v0.2.52
+    - Enforce agent resource allowlist for semantic match rootIds to prevent MCP root overrides, and fix forecasting agent resource config to use supported fields with auto‑binding enabled.

@@ -218,6 +218,7 @@ func (s *Service) selectSearchRoots(ctx context.Context, roots []Root, input *Ma
 	if len(roots) == 0 {
 		return nil, fmt.Errorf("no roots configured")
 	}
+	allowed := s.agentAllowed(ctx)
 	var selected []Root
 	seen := map[string]struct{}{}
 	add := func(candidates []Root) {
@@ -254,6 +255,9 @@ func (s *Service) selectSearchRoots(ctx context.Context, roots []Root, input *Ma
 					if err != nil || strings.TrimSpace(uri) == "" {
 						unresolved = append(unresolved, id)
 						continue
+					}
+					if len(allowed) > 0 && !isAllowedWorkspace(uri, allowed) {
+						return nil, fmt.Errorf("rootId not allowed: %s", id)
 					}
 					if !s.semanticAllowedForAgent(ctx, curAgent, uri) {
 						return nil, fmt.Errorf("rootId not semantic-enabled: %s", id)
@@ -671,7 +675,7 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 		return nil, err
 	}
 	availableRoots := collectedRoots.all()
-	if mcpRoots := s.collectMCPRoots(ctx); len(mcpRoots) > 0 {
+	if mcpRoots := s.filterMCPRootsByAllowed(ctx, s.collectMCPRoots(ctx)); len(mcpRoots) > 0 {
 		byURI := map[string]bool{}
 		for _, root := range availableRoots {
 			key := strings.TrimRight(strings.TrimSpace(root.URI), "/")
@@ -2206,7 +2210,7 @@ func (s *Service) roots(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	mcpRoots := s.collectMCPRoots(ctx)
+	mcpRoots := s.filterMCPRootsByAllowed(ctx, s.collectMCPRoots(ctx))
 	var roots []Root
 	seen := map[string]bool{}
 	appendWithLimit := func(source []Root) {
@@ -2274,6 +2278,30 @@ func (s *Service) collectMCPRoots(ctx context.Context) []Root {
 	return roots
 }
 
+func (s *Service) filterMCPRootsByAllowed(ctx context.Context, roots []Root) []Root {
+	allowed := s.agentAllowed(ctx)
+	if len(allowed) == 0 || len(roots) == 0 {
+		return roots
+	}
+	allowedSet := map[string]struct{}{}
+	for _, loc := range allowed {
+		if key := normalizeRootURI(loc); key != "" {
+			allowedSet[key] = struct{}{}
+		}
+	}
+	if len(allowedSet) == 0 {
+		return nil
+	}
+	out := make([]Root, 0, len(roots))
+	for _, root := range roots {
+		if _, ok := allowedSet[normalizeRootURI(root.URI)]; !ok {
+			continue
+		}
+		out = append(out, root)
+	}
+	return out
+}
+
 // normalizeLocation was unused; removed to reduce file size and duplication.
 
 // resolveRootID maps a logical root id to its normalized root URI within the
@@ -2320,7 +2348,21 @@ func (s *Service) resolveRootID(ctx context.Context, id string) (string, error) 
 	}
 	// Check MCP roots defined in MCP client metadata (allows simple IDs like "mediator").
 	if s.mcpMgr != nil {
+		allowed := s.agentAllowed(ctx)
+		allowedSet := map[string]struct{}{}
+		if len(allowed) > 0 {
+			for _, loc := range allowed {
+				if key := normalizeRootURI(loc); key != "" {
+					allowedSet[key] = struct{}{}
+				}
+			}
+		}
 		for _, root := range s.collectMCPRoots(ctx) {
+			if len(allowedSet) > 0 {
+				if _, ok := allowedSet[normalizeRootURI(root.URI)]; !ok {
+					continue
+				}
+			}
 			if normalizeRootID(root.ID) != normalizeRootID(id) {
 				continue
 			}
