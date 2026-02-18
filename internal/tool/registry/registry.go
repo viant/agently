@@ -370,10 +370,11 @@ func (r *Registry) shouldInjectTimeoutMs(server string) bool {
 	if strings.TrimSpace(server) == "" {
 		return false
 	}
-	if r.internal != nil {
-		if _, ok := r.internal[server]; ok {
-			return false
-		}
+	r.mu.RLock()
+	_, ok := r.internal[server]
+	r.mu.RUnlock()
+	if ok {
+		return false
 	}
 	return true
 }
@@ -961,7 +962,10 @@ func (r *Registry) ToolTimeout(name string) (time.Duration, bool) {
 		return 0, false
 	}
 	// Internal service timeout
-	if d, ok := r.internalTimeout[server]; ok && d > 0 {
+	r.mu.RLock()
+	d, ok := r.internalTimeout[server]
+	r.mu.RUnlock()
+	if ok && d > 0 {
 		return d, true
 	}
 	// MCP client config timeout
@@ -1201,7 +1205,10 @@ func splitToolName(name string) (service, method string) {
 // listServerTools queries the server tool registry via MCP ListTools.
 func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpschema.Tool, error) {
 	// Prefer internal client if present
-	if c, ok := r.internal[server]; ok && c != nil {
+	r.mu.RLock()
+	c, ok := r.internal[server]
+	r.mu.RUnlock()
+	if ok && c != nil {
 		px, _ := mcpproxy.NewProxy(ctx, server, c)
 		var opts []mcpclient.RequestOption
 		useID := false
@@ -1269,7 +1276,13 @@ func (r *Registry) listServers(ctx context.Context) ([]string, error) {
 		seen[n] = struct{}{}
 		out = append(out, n)
 	}
+	r.mu.RLock()
+	internalNames := make([]string, 0, len(r.internal))
 	for n := range r.internal {
+		internalNames = append(internalNames, n)
+	}
+	r.mu.RUnlock()
+	for _, n := range internalNames {
 		if _, ok := seen[n]; ok {
 			continue
 		}
@@ -1380,6 +1393,11 @@ func isReconnectableError(err error) bool {
 
 // addInternalMcp registers built-in services as in-memory MCP clients.
 func (r *Registry) addInternalMcp() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.internal == nil {
+		r.internal = map[string]mcpclient.Interface{}
+	}
 	// system/exec
 	{
 		svc := toolExec.New()
