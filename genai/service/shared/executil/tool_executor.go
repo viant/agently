@@ -133,16 +133,20 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if cErr := completeToolCall(finCtx, conv, toolMsgID, status, span.EndedAt, respID, errMsg); cErr != nil {
 		errs = append(errs, fmt.Errorf("complete tool call: %w", cErr))
 	}
-	err2 := conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status))
-	if execErr != nil {
-		errorConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult), err2)
-	} else {
-		infoConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
-	}
+	patchErr := conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status))
+	errs = append(errs, fmt.Errorf("patch conversations call: %w", patchErr))
+
 	var retErr error
 	if len(errs) > 0 {
 		retErr = errors.Join(errs...)
 	}
+
+	if retErr != nil {
+		errorConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult), retErr)
+	} else {
+		infoConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
+	}
+
 	return out, span, retErr
 }
 
