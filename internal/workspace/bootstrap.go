@@ -90,6 +90,11 @@ func EnsureDefaultAt(ctx context.Context, fs afs.Service, root string) {
 		{filepath.Join(KindAgent, "coder/prompt/system.tmpl"), "default/agents/coder/prompt/system.tmpl"},
 		{filepath.Join(KindAgent, "coder/prompt/user.tmpl"), "default/agents/coder/prompt/user.tmpl"},
 		{filepath.Join(KindAgent, "coder/system_knowledge/golang_rules.md"), "default/agents/coder/system_knowledge/golang_rules.md"},
+		{filepath.Join(KindAgent, "coder/knowledge/mcp.md"), "default/agents/coder/knowledge/mcp.md"},
+		{filepath.Join(KindAgent, "coder/knowledge/mcp_build_guide.md"), "default/agents/coder/knowledge/mcp_build_guide.md"},
+		{filepath.Join(KindAgent, "coder/knowledge/mcp_inspector_validation.md"), "default/agents/coder/knowledge/mcp_inspector_validation.md"},
+		{filepath.Join(KindAgent, "coder/knowledge/mcp_webdriver_testing.md"), "default/agents/coder/knowledge/mcp_webdriver_testing.md"},
+		{filepath.Join(KindAgent, "coder/knowledge/advenced_pattern.md"), "default/agents/coder/knowledge/advenced_pattern.md"},
 		{filepath.Join(KindAgent, "coder/coder.yaml"), "default/agents/coder/coder.yaml"},
 
 		{filepath.Join(KindAgent, "orchestrator/prompt/system.tmpl"), "default/agents/orchestrator/prompt/system.tmpl"},

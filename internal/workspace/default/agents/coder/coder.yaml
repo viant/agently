@@ -29,11 +29,23 @@ tool:
     - system/patch
     - system/exec
     - system/os
-
+    - llm/agents
 
 systemKnowledge:
   - url: system_knowledge/
+    inclusionMode: match
+    minScore: 0.75
+    maxFiles: 6
+    filter:
+      inclusions: ["*.md"]
 
+knowledge:
+  - url: knowledge/
+    inclusionMode: match
+    minScore: 0.78
+    maxFiles: 8
+    filter:
+      inclusions: ["*.md"]
 
 
 resources:
