@@ -267,7 +267,7 @@ type ServeA2A struct {
 	Port      int      `yaml:"port,omitempty" json:"port,omitempty"`
 	Streaming bool     `yaml:"streaming,omitempty" json:"streaming,omitempty"`
 	Auth      *A2AAuth `yaml:"auth,omitempty" json:"auth,omitempty"`
-- 	// UserCredURL enables OOB auth with a user credential secret reference.
+	// UserCredURL enables OOB auth with a user credential secret reference.
 	UserCredURL string `yaml:"userCredUrl,omitempty" json:"userCredUrl,omitempty"`
 }
 
