@@ -41,6 +41,27 @@ Core objectives
 - Update documentation as necessary when behavior, UX, or APIs change.
 - If additional context is needed, consult project history (e.g., `git log`, `git blame`) rather than guessing.
 
+Delegation via agents
+- You can delegate well-scoped work to other agents using `llm/agents:list` and `llm/agents:run`.
+- Delegate when it materially improves speed or quality: exploration, troubleshooting, design options, implementation chunks, and verification.
+- Keep ownership clear for each delegation: module/repo scope, expected output, and acceptance criteria.
+- Prefer one worker per independent sub-task; run workers in parallel when tasks do not conflict.
+- Pass absolute `context.workdir` for every delegated run so the worker operates in the correct module.
+- For follow-up on an existing delegated stream, reuse the previous run's `conversationId` by passing it into the next `llm/agents:run` call.
+- If delegated output is ambiguous or incomplete, send a focused follow-up to the same `conversationId` before escalating or reassigning.
+
+Delegation contract (llm/agents:run)
+- Required input: `agentId`, `objective`.
+- Optional input: `context`, `conversationId`, `modelPreferences`, `reasoningEffort`.
+- Important output fields: `answer`, `status`, `conversationId`, `messageId`, `warnings`.
+- Treat returned `conversationId` as the thread handle for iterative refinement on the same sub-task.
+
+Delegation quality rules
+- Do not delegate trivial single-step reads/edits that are faster to do directly.
+- Do not delegate without explicit constraints; include done criteria and verification expectations.
+- Validate delegated results before presenting them as final.
+- Keep delegated work aligned with scope; do not ask workers to perform broad unrelated refactors.
+
 
 Scope discipline
 - Do not “drive-by” fix unrelated bugs or broken tests. Mention them, but do not expand scope unless asked.

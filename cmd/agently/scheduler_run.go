@@ -3,21 +3,34 @@ package agently
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/viant/afs"
+	mcpclienthandler "github.com/viant/agently/adapter/mcp"
 	elicitationpkg "github.com/viant/agently/genai/elicitation"
 	elicrouter "github.com/viant/agently/genai/elicitation/router"
 	"github.com/viant/agently/genai/executor"
 	"github.com/viant/agently/genai/tool"
+	authctx "github.com/viant/agently/internal/auth"
 	iauth "github.com/viant/agently/internal/auth"
+	integrate "github.com/viant/agently/internal/auth/mcp/integrate"
+	mcpcookies "github.com/viant/agently/internal/mcp/cookies"
+	mcpmgr "github.com/viant/agently/internal/mcp/manager"
 	chatsvc "github.com/viant/agently/internal/service/chat"
 	convdao "github.com/viant/agently/internal/service/conversation"
 	schsvc "github.com/viant/agently/internal/service/scheduler"
 	schstore "github.com/viant/agently/internal/service/scheduler/store"
+	"github.com/viant/agently/internal/workspace"
+	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
 	fservice "github.com/viant/forge/backend/service/file"
+	protoclient "github.com/viant/mcp-protocol/client"
+	authtransport "github.com/viant/mcp/client/auth/transport"
 )
 
 // SchedulerRunCmd starts the scheduler watchdog loop as a dedicated process.
@@ -28,6 +41,7 @@ type SchedulerRunCmd struct {
 }
 
 func (s *SchedulerRunCmd) Execute(_ []string) error {
+	applyRuntimeConfig()
 	interval := 30 * time.Second
 	if v := s.Interval; v != "" {
 		parsed, err := time.ParseDuration(v)
@@ -57,6 +71,51 @@ func (s *SchedulerRunCmd) Execute(_ []string) error {
 		registerExecOption(executor.WithConversionClient(convClient))
 	}
 
+	// Wire MCP manager so scheduled runs can discover and call MCP tools.
+	prov := mcpmgr.NewRepoProvider()
+	fs := afs.New()
+	repo := mcprepo.New(fs)
+	cookieProvider := mcpcookies.New(fs, repo)
+	jarProvider := cookieProvider.Jar
+	var (
+		rtMu     sync.Mutex
+		rtByUser = map[string]*authtransport.RoundTripper{}
+	)
+	authRTProvider := func(ctx context.Context) *authtransport.RoundTripper {
+		user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+		if user == "" {
+			user = "anonymous"
+		}
+		rtMu.Lock()
+		defer rtMu.Unlock()
+		if v, ok := rtByUser[user]; ok && v != nil {
+			return v
+		}
+		j, jerr := jarProvider(ctx)
+		if jerr != nil {
+			return nil
+		}
+		rt, _ := integrate.NewAuthRoundTripperWithPrompt(j, http.DefaultTransport, 0, nil)
+		rtByUser[user] = rt
+		return rt
+	}
+
+	mgr, err := mcpmgr.New(
+		prov,
+		mcpmgr.WithHandlerFactory(func() protoclient.Handler {
+			el := elicitationpkg.New(convClient, nil, r, nil)
+			return mcpclienthandler.NewClient(el, convClient, nil)
+		}),
+		mcpmgr.WithCookieJarProvider(jarProvider),
+		mcpmgr.WithAuthRoundTripperProvider(authRTProvider),
+	)
+	if err != nil {
+		return fmt.Errorf("init mcp manager: %w", err)
+	}
+	stopReap := mgr.StartReaper(context.Background(), 0)
+	defer stopReap()
+	registerExecOption(executor.WithMCPManager(mgr))
+
 	exec := executorSingleton()
 	if !exec.IsStarted() {
 		exec.Start(context.Background())
@@ -69,7 +128,7 @@ func (s *SchedulerRunCmd) Execute(_ []string) error {
 	// Chat service that actually executes queued turns.
 	chat := chatsvc.NewServiceWithClient(convClient, dao)
 	chat.AttachManager(exec.Conversation(), &tool.Policy{Mode: tool.ModeAuto})
-	chat.AttachFileService(fservice.New(os.TempDir()))
+	chat.AttachFileService(fservice.New(workspace.Root()))
 
 	store, err := schstore.New(context.Background(), dao)
 	if err != nil {

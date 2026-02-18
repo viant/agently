@@ -41,6 +41,7 @@
   return fmt.Errorf("failed to load config: %w", err)
 ### Avoid:
 "God functions" that do too much
+Inlining similar logic, that could be abstracted out either as method as utility function.
 Over-exporting: expose only what’s needed
 Using interface{} as a shortcut
 

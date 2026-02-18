@@ -274,3 +274,34 @@ uri: workspace://foo`)
 		assert.Error(t, err)
 	})
 }
+
+func TestParseKnowledge_MinScoreAndMaxFiles(t *testing.T) {
+	makeNode := func(doc string) *yml.Node {
+		var root yaml.Node
+		require.NoError(t, yaml.Unmarshal([]byte(doc), &root))
+		require.Greater(t, len(root.Content), 0)
+		return (*yml.Node)(root.Content[0])
+	}
+
+	node := makeNode(`url: knowledge/
+inclusionMode: match
+maxFiles: 7
+minScore: 0.83
+filter:
+  inclusions: ["*.md"]
+  maxFileSize: 4096`)
+
+	kn, err := parseKnowledge(node)
+	require.NoError(t, err)
+	require.NotNil(t, kn)
+	assert.Equal(t, "knowledge/", kn.URL)
+	assert.Equal(t, "match", kn.InclusionMode)
+	assert.Equal(t, 7, kn.MaxFiles)
+	if assert.NotNil(t, kn.MinScore) {
+		assert.InDelta(t, 0.83, *kn.MinScore, 0.0001)
+	}
+	if assert.NotNil(t, kn.Filter) {
+		assert.Equal(t, []string{"*.md"}, kn.Filter.Inclusions)
+		assert.Equal(t, 4096, kn.Filter.MaxFileSize)
+	}
+}
