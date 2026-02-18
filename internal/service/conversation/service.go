@@ -130,6 +130,11 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 var componentsOnce sync.Once
 
 func (s *Service) PatchConversations(ctx context.Context, conversations *convcli.MutableConversation) error {
+	if conversations != nil {
+		debugf("PatchConversations start id=%q status=%q visibility=%q", strings.TrimSpace(conversations.Id), strings.TrimSpace(valueOrEmptyStr(conversations.Status)), strings.TrimSpace(valueOrEmptyStr(conversations.Visibility)))
+	} else {
+		debugf("PatchConversations start id=\"\" status=\"\" visibility=\"\" (nil input)")
+	}
 	conv := []*convw.Conversation{(*convw.Conversation)(conversations)}
 	input := &convw.Input{Conversations: conv}
 	out := &convw.Output{}
@@ -139,11 +144,14 @@ func (s *Service) PatchConversations(ctx context.Context, conversations *convcli
 		datly.WithOutput(out),
 	)
 	if err != nil {
+		errorf("PatchConversations error id=%q err=%v", strings.TrimSpace(conversations.Id), err)
 		return err
 	}
 	if len(out.Violations) > 0 {
+		warnf("PatchConversations violation id=%q msg=%q", strings.TrimSpace(conversations.Id), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
+	debugf("PatchConversations ok id=%q", strings.TrimSpace(conversations.Id))
 	return nil
 }
 
@@ -214,6 +222,7 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 	if payload == nil {
 		return errors.New("invalid payload: nil")
 	}
+	debugf("PatchPayload start id=%q kind=%q mime=%q size_bytes=%d", strings.TrimSpace(payload.Id), strings.TrimSpace(payload.Kind), strings.TrimSpace(payload.MimeType), payload.SizeBytes)
 	// MutablePayload is an alias of pkg/agently/payload.Payload
 	pw := (*payloadwrite.Payload)(payload)
 	input := &payloadwrite.Input{Payloads: []*payloadwrite.Payload{pw}}
@@ -224,11 +233,14 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 		datly.WithOutput(out),
 	)
 	if err != nil {
+		errorf("PatchPayload error id=%q err=%v", strings.TrimSpace(payload.Id), err)
 		return err
 	}
 	if len(out.Violations) > 0 {
+		warnf("PatchPayload violation id=%q msg=%q", strings.TrimSpace(payload.Id), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
+	debugf("PatchPayload ok id=%q", strings.TrimSpace(payload.Id))
 	return nil
 }
 
@@ -286,6 +298,11 @@ func (s *Service) GetMessageByElicitation(ctx context.Context, conversationID, e
 }
 
 func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMessage) error {
+	if message != nil {
+		debugf("PatchMessage start id=%q convo=%q turn=%v role=%q type=%q status=%q", message.Id, message.ConversationID, valueOrEmpty(message.TurnID), strings.TrimSpace(message.Role), strings.TrimSpace(message.Type), strings.TrimSpace(message.Status))
+	} else {
+		debugf("PatchMessage start id=\"\" convo=\"\" turn=\"\" role=\"\" type=\"\" status=\"\" (nil input)")
+	}
 	mm := (*msgwrite.Message)(message)
 	input := &msgwrite.Input{Messages: []*msgwrite.Message{mm}}
 	out := &msgwrite.Output{}
@@ -296,6 +313,7 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 	)
 	if err != nil {
 		// Augment DB/validation error with key message fields to aid diagnosis
+		errorf("PatchMessage error id=%q convo=%q err=%v", message.Id, message.ConversationID, err)
 		return fmt.Errorf(
 			"patch message failed (id=%s convo=%s turn=%v role=%s type=%s status=%q): %w",
 			message.Id,
@@ -308,6 +326,7 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 		)
 	}
 	if len(out.Violations) > 0 {
+		warnf("PatchMessage violation id=%q convo=%q msg=%q", message.Id, message.ConversationID, out.Violations[0].Message)
 		return fmt.Errorf(
 			"patch message violation (id=%s convo=%s turn=%v role=%s type=%s status=%q): %s",
 			message.Id,
@@ -319,11 +338,19 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 			out.Violations[0].Message,
 		)
 	}
+	debugf("PatchMessage ok id=%q convo=%q", message.Id, message.ConversationID)
 	return nil
 }
 
 // valueOrEmpty renders pointer values without exposing nil dereference in logs.
 func valueOrEmpty[T any](p *T) interface{} {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func valueOrEmptyStr(p *string) string {
 	if p == nil {
 		return ""
 	}
@@ -337,6 +364,7 @@ func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.Mutable
 	if modelCall == nil {
 		return errors.New("invalid modelCall: nil")
 	}
+	debugf("PatchModelCall start message_id=%q turn_id=%q provider=%q model=%q status=%q", strings.TrimSpace(modelCall.MessageID), strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), strings.TrimSpace(modelCall.Provider), strings.TrimSpace(modelCall.Model), strings.TrimSpace(modelCall.Status))
 	mc := (*modelcallwrite.ModelCall)(modelCall)
 	input := &modelcallwrite.Input{ModelCalls: []*modelcallwrite.ModelCall{mc}}
 	out := &modelcallwrite.Output{}
@@ -347,11 +375,14 @@ func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.Mutable
 	)
 
 	if err != nil {
+		errorf("PatchModelCall error message_id=%q err=%v", strings.TrimSpace(modelCall.MessageID), err)
 		return err
 	}
 	if len(out.Violations) > 0 {
+		warnf("PatchModelCall violation message_id=%q msg=%q", strings.TrimSpace(modelCall.MessageID), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
+	debugf("PatchModelCall ok message_id=%q status=%q", strings.TrimSpace(modelCall.MessageID), strings.TrimSpace(modelCall.Status))
 	return nil
 }
 
@@ -362,6 +393,7 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 	if toolCall == nil {
 		return errors.New("invalid toolCall: nil")
 	}
+	debugf("PatchToolCall start message_id=%q op_id=%q tool=%q status=%q", strings.TrimSpace(toolCall.MessageID), strings.TrimSpace(toolCall.OpID), strings.TrimSpace(toolCall.ToolName), strings.TrimSpace(toolCall.Status))
 	tc := (*toolcallwrite.ToolCall)(toolCall)
 	input := &toolcallwrite.Input{ToolCalls: []*toolcallwrite.ToolCall{tc}}
 	out := &toolcallwrite.Output{}
@@ -371,11 +403,14 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 		datly.WithOutput(out),
 	)
 	if err != nil {
+		errorf("PatchToolCall error message_id=%q err=%v", strings.TrimSpace(toolCall.MessageID), err)
 		return err
 	}
 	if len(out.Violations) > 0 {
+		warnf("PatchToolCall violation message_id=%q msg=%q", strings.TrimSpace(toolCall.MessageID), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
+	debugf("PatchToolCall ok message_id=%q status=%q", strings.TrimSpace(toolCall.MessageID), strings.TrimSpace(toolCall.Status))
 	return nil
 }
 
@@ -406,6 +441,7 @@ func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) erro
 	if turn == nil {
 		return errors.New("invalid turn: nil")
 	}
+	debugf("PatchTurn start id=%q convo=%q status=%q queue_seq=%v", strings.TrimSpace(turn.Id), strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.Status), valueOrEmpty(turn.QueueSeq))
 	tr := (*turnwrite.Turn)(turn)
 	input := &turnwrite.Input{Turns: []*turnwrite.Turn{tr}}
 	out := &turnwrite.Output{}
@@ -415,11 +451,14 @@ func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) erro
 		datly.WithOutput(out),
 	)
 	if err != nil {
+		errorf("PatchTurn error id=%q err=%v", strings.TrimSpace(turn.Id), err)
 		return err
 	}
 	if len(out.Violations) > 0 {
+		warnf("PatchTurn violation id=%q msg=%q", strings.TrimSpace(turn.Id), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
+	debugf("PatchTurn ok id=%q status=%q", strings.TrimSpace(turn.Id), strings.TrimSpace(turn.Status))
 	return nil
 }
 
