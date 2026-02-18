@@ -38,6 +38,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if input == nil || input.Agent == nil {
 		return fmt.Errorf("invalid input: agent is required")
 	}
+	infof("agent.Query start convo=%q agent_id=%q user_id=%q query_len=%d query_head=%q query_tail=%q tools_allowed=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), strings.TrimSpace(input.UserId), len(input.Query), headString(input.Query, 512), tailString(input.Query, 512), len(input.ToolsAllowed))
 
 	// Bridge auth token from QueryInput.Context when provided (non-HTTP callers).
 	ctx = s.bindAuthFromInputContext(ctx, input)
@@ -58,6 +59,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if input.MessageID == "" {
 		input.MessageID = uuid.New().String()
 	}
+	infof("agent.Query prepared convo=%q turn_id=%q message_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.MessageID))
 
 	ctx, agg := usage.WithAggregator(ctx)
 	turn := memory.TurnMeta{
@@ -83,6 +85,21 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.startTurn(ctx, turn); err != nil {
 		return err
 	}
+	infof("agent.Query startTurn ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+	if d := stuckWarnDuration(); d > 0 {
+		warnCtx, warnCancel := context.WithCancel(ctx)
+		defer warnCancel()
+		go func(convoID, turnID string, dur time.Duration) {
+			timer := time.NewTimer(dur)
+			defer timer.Stop()
+			select {
+			case <-warnCtx.Done():
+				return
+			case <-timer.C:
+				warnf("agent.turn stuck warning convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(convoID), strings.TrimSpace(turnID), dur.String())
+			}
+		}(turn.ConversationID, turn.TurnID, d)
+	}
 	// Best-effort expansion of the user prompt only on the very first turn of a conversation.
 	rawUserContent := input.Query
 	content := strings.TrimSpace(input.Query)
@@ -99,6 +116,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.addUserMessage(ctx, &turn, input.UserId, content, rawUserContent); err != nil {
 		return err
 	}
+	infof("agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 
 	// Persist attachments if any. Once persisted into history, avoid also
 	// sending them as task-scoped attachments to prevent duplicate media in
@@ -106,6 +124,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.processAttachments(ctx, turn, input); err != nil {
 		return err
 	}
+	infof("agent.Query processAttachments ok convo=%q turn_id=%q count=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), len(input.Attachments))
 
 	// TODO delete if not needed
 	//if len(input.Attachments) > 0 {
@@ -120,6 +139,11 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		ctx = executil.WithToolTimeout(ctx, d)
 	}
 	status, err := s.runPlanAndStatus(ctx, input, output)
+	if err != nil {
+		errorf("agent.Query runPlan error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), err)
+	} else {
+		infof("agent.Query runPlan ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
+	}
 
 	if err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("execution of query function failed (context canceled): %w", err)
@@ -131,6 +155,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.finalizeTurn(ctx, turn, status, err); err != nil {
 		return err
 	}
+	infof("agent.Query finalize ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 	// Persist/refresh conversation default model with the actually used model this turn
 	_ = s.updateDefaultModel(ctx, turn, output)
 
@@ -228,6 +253,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 	input.RequestTime = time.Now()
 	for {
 		iter++
+		iterStart := time.Now()
+		debugf("agent.runPlan iter start convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 		binding, bErr := s.BuildBinding(ctx, input)
 		if bErr != nil {
 			return bErr
@@ -322,7 +349,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 		}
 		genOutput := &core.GenerateOutput{}
+		planStart := time.Now()
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
+		debugf("agent.runPlan orchestrator done convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(planStart))
 		if pErr != nil {
 			return pErr
 		}
@@ -337,6 +366,11 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 		}
 		queryOutput.Plan = aPlan
+		stepCount := 0
+		if aPlan != nil {
+			stepCount = len(aPlan.Steps)
+		}
+		debugf("agent.runPlan plan ready convo=%q turn_id=%q iter=%d steps=%d elicitation=%v empty=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, stepCount, aPlan != nil && aPlan.Elicitation != nil, aPlan != nil && aPlan.IsEmpty())
 
 		// Detect duplicated tool steps in the plan and attach warnings to the turn context.
 		s.warnOnDuplicateSteps(ctx, aPlan)
@@ -344,10 +378,12 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		// Handle elicitation inside the loop as a single-turn interaction.
 		if aPlan.Elicitation != nil {
 			if missing := missingRequired(aPlan.Elicitation, binding.Context); len(missing) == 0 {
+				debugf("agent.runPlan elicitation satisfied by context convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				// Elicitation already satisfied by context; re-run plan with updated context.
 				aPlan.Elicitation = nil
 				continue
 			}
+			debugf("agent.runPlan elicitation start convo=%q turn_id=%q iter=%d elicitation_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(aPlan.Elicitation.ElicitationId))
 			ectx := ctx
 			var cancel func()
 			if s.defaults != nil && s.defaults.ElicitationTimeoutSec > 0 {
@@ -355,6 +391,11 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				defer cancel()
 			}
 			_, status, _, err := s.elicitation.Elicit(ectx, &turn, "assistant", aPlan.Elicitation)
+			if err != nil {
+				errorf("agent.runPlan elicitation done convo=%q turn_id=%q iter=%d status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(status), err)
+			} else {
+				infof("agent.runPlan elicitation done convo=%q turn_id=%q iter=%d status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(status))
+			}
 			if err != nil {
 				// If timed out or canceled, auto-decline to avoid getting stuck
 				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
@@ -386,10 +427,12 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					return err
 				}
 			}
+			debugf("agent.runPlan completed convo=%q turn_id=%q iter=%d content_len=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, len(genOutput.Content), time.Since(iterStart))
 			queryOutput.Content = genOutput.Content
 			return nil
 		}
 		// Otherwise, continue loop to allow the orchestrator to perform next step
+		debugf("agent.runPlan continue convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
 	}
 	return err
 }
@@ -498,10 +541,13 @@ func (s *Service) addMessage(ctx context.Context, turn *memory.TurnMeta, role, a
 	if strings.TrimSpace(id) != "" {
 		opts = append(opts, apiconv.WithId(id))
 	}
+	infof("agent.addMessage start convo=%q turn_id=%q role=%q actor=%q mode=%q id=%q content_len=%d content_head=%q content_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(role), strings.TrimSpace(actor), strings.TrimSpace(mode), strings.TrimSpace(id), len(content), headString(content, 512), tailString(content, 512))
 	msg, err := apiconv.AddMessage(ctx, s.conversation, turn, opts...)
 	if err != nil {
+		errorf("agent.addMessage error convo=%q turn_id=%q role=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(role), err)
 		return "", fmt.Errorf("failed to add message: %w", err)
 	}
+	infof("agent.addMessage ok convo=%q turn_id=%q role=%q message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(role), strings.TrimSpace(msg.Id))
 	return msg.Id, nil
 }
 
@@ -574,6 +620,7 @@ func (s *Service) registerTurnCancel(ctx context.Context, turn memory.TurnMeta) 
 			upd.SetStatus("canceled")
 			_ = s.conversation.PatchTurn(context.Background(), upd)
 		}
+		warnf("agent.turn cancel convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
 	if s.cancelReg != nil {
 		s.cancelReg.Register(turn.ConversationID, turn.TurnID, wrappedCancel)
@@ -588,6 +635,7 @@ func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
 	rec.SetConversationID(turn.ConversationID)
 	rec.SetStatus("running")
 	rec.SetCreatedAt(time.Now()) // it overrides queued turns createdAt, don't delete this line
+	debugf("agent.startTurn convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	return s.conversation.PatchTurn(ctx, rec)
 }
 
@@ -597,6 +645,7 @@ func (s *Service) addUserMessage(ctx context.Context, turn *memory.TurnMeta, use
 		rawCopy := raw
 		rawPtr = &rawCopy
 	}
+	debugf("agent.addUserMessage convo=%q turn_id=%q user_id=%q content_len=%d content_head=%q content_tail=%q raw_len=%d raw_head=%q raw_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(userID), len(content), headString(content, 512), tailString(content, 512), len(raw), headString(raw, 512), tailString(raw, 512))
 	_, err := s.addMessage(ctx, turn, "user", userID, content, rawPtr, "task", turn.TurnID)
 	if err != nil {
 		return fmt.Errorf("failed to add message: %w", err)
@@ -686,6 +735,11 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 	}
 	if err := s.conversation.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status)); err != nil {
 		return fmt.Errorf("failed to update conversation: %w", err)
+	}
+	if runErr != nil {
+		errorf("agent.finalizeTurn convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), runErr)
+	} else {
+		infof("agent.finalizeTurn convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 	}
 	return nil
 }

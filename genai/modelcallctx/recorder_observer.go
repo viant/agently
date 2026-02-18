@@ -391,6 +391,7 @@ func WithRecorderObserverWithPrice(ctx context.Context, client apiconv.Client, p
 
 // patchInterimRequestMessage creates an interim assistant message capturing the request payload.
 func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn memory.TurnMeta, msgID string, payload []byte, mode string) error {
+	debugf("patchInterimRequestMessage start convo=%q turn=%q msg=%q mode=%q payload_bytes=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), strings.TrimSpace(mode), len(payload))
 	_, err := apiconv.AddMessage(ctx, o.client, &turn,
 		apiconv.WithId(msgID),
 		apiconv.WithMode(mode),
@@ -399,6 +400,11 @@ func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn 
 		apiconv.WithCreatedByUserID(turn.Assistant),
 		apiconv.WithInterim(1),
 	)
+	if err != nil {
+		errorf("patchInterimRequestMessage error convo=%q turn=%q msg=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), err)
+	} else {
+		debugf("patchInterimRequestMessage ok convo=%q turn=%q msg=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID))
+	}
 	return err
 }
 
@@ -412,13 +418,20 @@ func (o *recorderObserver) patchInterimFlag(ctx context.Context, msgID string) e
 		msg.SetConversationID(turn.ConversationID)
 	}
 	msg.SetInterim(interim)
-	return o.client.PatchMessage(ctx, msg)
+	err := o.client.PatchMessage(ctx, msg)
+	if err != nil {
+		errorf("patchInterimFlag error msg=%q err=%v", strings.TrimSpace(msgID), err)
+	} else {
+		debugf("patchInterimFlag ok msg=%q", strings.TrimSpace(msgID))
+	}
+	return err
 }
 
 //298c12dc-d9d9-45d1-b340-09611803c940
 
 // beginModelCall persists the initial model call and associated request payloads.
 func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, turn memory.TurnMeta, info Info) error {
+	debugf("beginModelCall start convo=%q turn=%q msg=%q provider=%q model=%q kind=%q req_bytes=%d provider_req_bytes=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), strings.TrimSpace(info.Provider), strings.TrimSpace(info.Model), strings.TrimSpace(info.ModelKind), len(info.Payload), len(info.RequestJSON))
 	mc := apiconv.NewModelCall()
 	mc.SetMessageID(msgID)
 	if turn.TurnID != "" {
@@ -437,6 +450,7 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 	if len(info.Payload) > 0 {
 		reqID, err := o.upsertInlinePayload(ctx, "", "model_request", "application/json", info.Payload)
 		if err != nil {
+			errorf("beginModelCall request payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
 			return err
 		}
 		mc.SetRequestPayloadID(reqID)
@@ -445,20 +459,29 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 	if len(info.RequestJSON) > 0 {
 		prID, err := o.upsertInlinePayload(ctx, "", "provider_request", "application/json", info.RequestJSON)
 		if err != nil {
+			errorf("beginModelCall provider payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
 			return err
 		}
 		mc.SetProviderRequestPayloadID(prID)
 	}
 	if err := o.client.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "thinking")); err != nil {
+		errorf("beginModelCall patch conversation status error convo=%q err=%v", strings.TrimSpace(turn.ConversationID), err)
 		return fmt.Errorf("failed to update conversation: %w", err)
 	}
 	// Do not link stream payload at start to avoid FK violation.
 	// Stream payload link will be set after the payload is created (OnStreamDelta/OnCallEnd).
-	return o.client.PatchModelCall(ctx, mc)
+	if err := o.client.PatchModelCall(ctx, mc); err != nil {
+		errorf("beginModelCall patch model call error msg=%q err=%v", strings.TrimSpace(msgID), err)
+		return err
+	}
+	debugf("beginModelCall ok convo=%q turn=%q msg=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID))
+	return nil
 }
 
 // finishModelCall persists final model call updates, including response payloads and usage.
 func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status string, info Info, streamTxt string) error {
+	hasResp := info.LLMResponse != nil
+	debugf("finishModelCall start msg=%q status=%q has_llm_response=%v provider_resp_bytes=%d stream_bytes=%d", strings.TrimSpace(msgID), strings.TrimSpace(status), hasResp, len(info.ResponseJSON), len(streamTxt))
 	upd := apiconv.NewModelCall()
 	upd.SetMessageID(msgID)
 	upd.SetStatus(status)
@@ -477,6 +500,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		if rb, mErr := json.Marshal(info.LLMResponse); mErr == nil {
 			respID, err := o.upsertInlinePayload(ctx, "", "model_response", "application/json", rb)
 			if err != nil {
+				errorf("finishModelCall response payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
 				return err
 			}
 			upd.SetResponsePayloadID(respID)
@@ -492,6 +516,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 	if len(info.ResponseJSON) > 0 {
 		provID, err := o.upsertInlinePayload(ctx, "", "provider_response", "application/json", []byte(info.ResponseJSON))
 		if err != nil {
+			errorf("finishModelCall provider response payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
 			return err
 		}
 		upd.SetProviderResponsePayloadID(provID)
@@ -502,6 +527,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 			sid = uuid.New().String()
 		}
 		if _, err := o.upsertInlinePayload(ctx, sid, "model_stream", "text/plain", []byte(streamTxt)); err != nil {
+			errorf("finishModelCall stream payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
 			return err
 		}
 		upd.SetStreamPayloadID(sid)
@@ -546,7 +572,12 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 			debugPricingf("price provider not set; skipping cost for model=%s", strings.TrimSpace(info.Model))
 		}
 	}
-	return o.client.PatchModelCall(ctx, upd)
+	if err := o.client.PatchModelCall(ctx, upd); err != nil {
+		errorf("finishModelCall patch model call error msg=%q err=%v", strings.TrimSpace(msgID), err)
+		return err
+	}
+	debugf("finishModelCall ok msg=%q status=%q", strings.TrimSpace(msgID), strings.TrimSpace(status))
+	return nil
 }
 
 // upsertInlinePayload creates or updates an inline payload and returns its id.
@@ -555,6 +586,7 @@ func (o *recorderObserver) upsertInlinePayload(ctx context.Context, id, kind, mi
 	if strings.TrimSpace(id) == "" {
 		id = uuid.New().String()
 	}
+	debugf("upsertInlinePayload start id=%q kind=%q mime=%q size_bytes=%d", strings.TrimSpace(id), strings.TrimSpace(kind), strings.TrimSpace(mime), len(body))
 	pw := apiconv.NewPayload()
 	pw.SetId(id)
 	pw.SetKind(kind)
@@ -563,8 +595,10 @@ func (o *recorderObserver) upsertInlinePayload(ctx context.Context, id, kind, mi
 	pw.SetStorage("inline")
 	pw.SetInlineBody(body)
 	if err := o.client.PatchPayload(ctx, pw); err != nil {
+		errorf("upsertInlinePayload error id=%q err=%v", strings.TrimSpace(id), err)
 		return "", err
 	}
+	debugf("upsertInlinePayload ok id=%q", strings.TrimSpace(id))
 	return id, nil
 }
 
