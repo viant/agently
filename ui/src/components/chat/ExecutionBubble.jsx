@@ -11,6 +11,7 @@ import ToolFeed from "./ToolFeed.jsx";
 import { setStage } from '../../utils/stageBus.js';
 import CodeFenceRenderer from '../CodeFenceRenderer.jsx';
 import { useExecVisibility } from '../../utils/execFeedBus.js';
+import { selectedTabId } from 'forge/core';
 // no endpoints import here; backend-only delete is not exposed in UI
 
 // (removed hourglass animation; using a clock icon instead)
@@ -40,6 +41,7 @@ function renderMarkdown(md = "") {
 function ExecutionBubble({ message: msg, context }) {
     log.debug('[chat][render] ExecutionBubble', { id: msg?.id, role: msg?.role, ts: Date.now() });
     const { execution: showExecution, toolFeed: showToolFeed } = useExecVisibility();
+    const bubbleRef = React.useRef(null);
     const avatarColour = msg.role === "user" ? "var(--blue4)"
         : msg.role === "assistant" ? "var(--light-gray4)"
         : "var(--orange3)";
@@ -57,7 +59,7 @@ function ExecutionBubble({ message: msg, context }) {
                       :                            "chat-bubble chat-tool") + " has-executions";
 
     return (
-        <div className={`chat-row ${msg.role}`}> {/* alignment flex row */}
+        <div ref={bubbleRef} className={`chat-row ${msg.role}`}> {/* alignment flex row */}
             <div style={{ display: "flex", alignItems: "center" }}>
                 <div className="avatar" style={{ background: avatarColour, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Icon icon={iconName} color="var(--black)" size={12} />
@@ -66,7 +68,7 @@ function ExecutionBubble({ message: msg, context }) {
                     <CodeFenceRenderer text={msg.content || ''} />
 
                     {showExecution && (
-                        <ExecutionTurnDetails msg={msg} context={context} />
+                        <ExecutionTurnDetails msg={msg} context={context} bubbleRef={bubbleRef} />
                     )}
 
                     {/* Tool feed moved to its own card (ToolFeedBubble). */}
@@ -89,7 +91,7 @@ function areEqual(prev, next) {
     return true;
 }
 export default React.memo(ExecutionBubble, areEqual);
-function ExecutionTurnDetails({ msg, context }) {
+function ExecutionTurnDetails({ msg, context, bubbleRef }) {
     const steps = Array.isArray(msg.executions) && msg.executions[0] && Array.isArray(msg.executions[0].steps)
         ? msg.executions[0].steps
         : [];
@@ -137,6 +139,33 @@ function ExecutionTurnDetails({ msg, context }) {
     // Update global stage based on turn status
     React.useEffect(() => {
         if (!turnStatus) return;
+        // Only update stage for the active (selected) tab window.
+        try {
+            const activeWinId = selectedTabId?.value || '';
+            const winId = context?.identity?.windowId || context?.handlers?.window?.windowId || context?.handlers?.window?.id || '';
+            if (activeWinId && winId && String(activeWinId) !== String(winId)) {
+                return;
+            }
+        } catch (_) {}
+        // Only update stage from the currently visible (active) chat panel.
+        try {
+            const el = bubbleRef?.current;
+            if (el) {
+                const visible = !!(el.offsetParent || el.getClientRects().length);
+                if (!visible) return;
+            }
+        } catch (_) {}
+        // Only update when this bubble belongs to the selected conversation.
+        try {
+            const convCtx = context?.Context?.('conversations');
+            const selectedId = convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id
+                || convCtx?.handlers?.dataSource?.peekFormData?.()?.id
+                || '';
+            const msgConvId = msg?.conversationId || msg?.ConversationId || '';
+            if (selectedId && msgConvId && String(selectedId) !== String(msgConvId)) {
+                return;
+            }
+        } catch (_) {}
         // Update global stage
         const isRunning = (turnStatus === 'running' || turnStatus === 'open' || turnStatus === 'pending' || turnStatus === 'thinking');
         const isDoneOk = (turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted');
