@@ -57,7 +57,7 @@ func AddMessage(ctx context.Context, cl Client, turn *memory.TurnMeta, opts ...M
 	}
 
 	if err := cl.PatchMessage(ctx, m); err != nil {
-		errorf("AddMessage patch message error id=%q convo=%q err=%v", strings.TrimSpace(m.Id), strings.TrimSpace(m.ConversationID), err)
+		errorf("AddMessage patch message error id=%q convo=%q status %q err=%v", strings.TrimSpace(m.Id), strings.TrimSpace(m.ConversationID), m.Status, err)
 		return nil, err
 	}
 	debugf("AddMessage ok id=%q convo=%q", strings.TrimSpace(m.Id), strings.TrimSpace(m.ConversationID))
