@@ -2,6 +2,7 @@ package executil
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -38,6 +39,15 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if !ok {
 		return plan.ToolCall{}, span, fmt.Errorf("turn meta not found")
 	}
+	argsJSON := ""
+	if debugConvEnabled() && len(step.Args) > 0 {
+		if b, jErr := json.Marshal(step.Args); jErr == nil {
+			argsJSON = string(b)
+		} else {
+			argsJSON = fmt.Sprintf("{\"marshal_error\":%q}", jErr.Error())
+		}
+	}
+	debugConvf("tool execute start convo=%q turn=%q op_id=%q tool=%q args_len=%d args_head=%q args_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(argsJSON), headString(argsJSON, 512), tailString(argsJSON, 512))
 
 	// 1) Create tool message
 	toolMsgID, err := createToolMessage(ctx, conv, turn, span.StartedAt)
@@ -123,7 +133,12 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if cErr := completeToolCall(finCtx, conv, toolMsgID, status, span.EndedAt, respID, errMsg); cErr != nil {
 		errs = append(errs, fmt.Errorf("complete tool call: %w", cErr))
 	}
-	_ = conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status))
+	err2 := conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status))
+	if execErr != nil {
+		errorConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult), err2)
+	} else {
+		infoConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
+	}
 	var retErr error
 	if len(errs) > 0 {
 		retErr = errors.Join(errs...)
@@ -139,6 +154,15 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 	if !ok {
 		return fmt.Errorf("turn meta not found")
 	}
+	argsJSON := ""
+	if debugConvEnabled() && len(step.Args) > 0 {
+		if b, jErr := json.Marshal(step.Args); jErr == nil {
+			argsJSON = string(b)
+		} else {
+			argsJSON = fmt.Sprintf("{\"marshal_error\":%q}", jErr.Error())
+		}
+	}
+	debugConvf("tool synth start convo=%q turn=%q op_id=%q tool=%q args_len=%d args_head=%q args_tail=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(argsJSON), headString(argsJSON, 512), tailString(argsJSON, 512), len(toolResult))
 	startedAt := time.Now()
 	toolMsgID, err := createToolMessage(ctx, conv, turn, startedAt)
 	if err != nil {
@@ -167,6 +191,7 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 		return fmt.Errorf("complete tool call: %w", cErr)
 	}
 	_ = conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status))
+	debugConvf("tool synth done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
 	return nil
 }
 

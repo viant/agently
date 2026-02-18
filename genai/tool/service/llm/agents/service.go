@@ -191,9 +191,11 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	ro.ConversationID = convID
+	debugf("agents.run start convo=%q agent_id=%q objective_len=%d objective_head=%q objective_tail=%q context_keys=%d", strings.TrimSpace(convID), strings.TrimSpace(ri.AgentID), len(ri.Objective), headString(ri.Objective, 512), tailString(ri.Objective, 512), len(ri.Context))
 	// Strict routing: require id present in directory
 	if s.strict {
 		if _, ok := s.allowed[strings.TrimSpace(ri.AgentID)]; !ok {
+			errorf("agents.run strict reject agent_id=%q", strings.TrimSpace(ri.AgentID))
 			return svc.NewMethodNotFoundError("agent not registered in directory: " + strings.TrimSpace(ri.AgentID))
 		}
 	}
@@ -204,15 +206,18 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 			intended = v
 		}
 	}
+	debugf("agents.run routing agent_id=%q intended=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(intended))
 
 	// Default to internal when the agent is resolvable locally; only fall back to
 	// external when explicitly routed or when the agent id is not found internally.
 	internalKnown := s.isInternalAgent(ctx, strings.TrimSpace(ri.AgentID))
+	debugf("agents.run route check agent_id=%q internal_known=%v external_enabled=%v", strings.TrimSpace(ri.AgentID), internalKnown, s.runExternal != nil)
 	if s.runExternal != nil && (intended == "external" || (intended == "" && !internalKnown)) {
 		var parent memory.TurnMeta
 		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
 			parent = tm
 		}
+		debugf("agents.run external path parent_convo=%q parent_turn=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID))
 		childConvID := ""
 		statusMsgID := ""
 
@@ -228,6 +233,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 						}
 					}
 				}
+				debugf("agents.run external scope agent_id=%q scope=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(scope))
 				if scope != "new" {
 					in := &agconv.ConversationInput{
 						AgentId:          ri.AgentID,
@@ -239,27 +245,38 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 						in.ParentTurnId = parent.TurnID
 						in.Has.ParentTurnId = true
 					}
+					debugf("agents.run external reuse lookup agent_id=%q parent_convo=%q parent_turn=%q scope=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(scope))
 				}
 			}
 			if strings.TrimSpace(childConvID) == "" {
 				if cid, err := s.linker.CreateLinkedConversation(ctx, parent, false, nil); err == nil {
 					childConvID = cid
+					debugf("agents.run external created child_convo=%q parent_convo=%q", strings.TrimSpace(childConvID), strings.TrimSpace(parent.ConversationID))
 					// Set agent id on newly created conversation
 					if s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
 						upd := convw.Conversation{Has: &convw.ConversationHas{}}
 						upd.SetId(childConvID)
 						upd.SetAgentId(strings.TrimSpace(ri.AgentID))
-						_ = s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd))
+						if perr := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd)); perr != nil {
+							errorf("agents.run external set agent error child_convo=%q agent_id=%q err=%v", strings.TrimSpace(childConvID), strings.TrimSpace(ri.AgentID), perr)
+						}
 					}
 					// Include a compact objective preview in the link message for traceability.
 					preview := shared.RuneTruncate(strings.TrimSpace(ri.Objective), 512)
-					_ = s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec", preview)
+					if lerr := s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec", preview); lerr != nil {
+						errorf("agents.run external link message error child_convo=%q err=%v", strings.TrimSpace(childConvID), lerr)
+					}
+				} else {
+					errorf("agents.run external create child error parent_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), err)
 				}
 			}
 			// Always record a status for this parent step
 			if s.status != nil {
 				if mid, err := s.status.Start(ctx, parent, "llm/agents:run", "assistant", "tool", "exec"); err == nil {
 					statusMsgID = mid
+					debugf("agents.run external status start parent_convo=%q message_id=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(statusMsgID))
+				} else if err != nil {
+					errorf("agents.run external status start error parent_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), err)
 				}
 			}
 		}
@@ -270,8 +287,10 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 			extCtx = memory.WithConversationID(ctx, childConvID)
 			ro.ConversationID = childConvID
 		}
+		debugf("agents.run external invoke agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID))
 		ans, st, taskID, ctxID, streamSupp, warns, err := s.runExternal(extCtx, ri.AgentID, ri.Objective, ri.Context)
 		if err != nil {
+			errorf("agents.run external error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID), err)
 			if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
 				_ = s.status.Finalize(ctx, parent, statusMsgID, "failed", "")
 			}
@@ -280,6 +299,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 			}
 			// If route was unknown, fall through to internal path on error
 		} else if taskID != "" || st != "" {
+			debugf("agents.run external ok agent_id=%q child_convo=%q status=%q task_id=%q context_id=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID), strings.TrimSpace(st), strings.TrimSpace(taskID), strings.TrimSpace(ctxID))
 			ro.Answer = ans
 			ro.Status = st
 			ro.TaskID = taskID
@@ -302,6 +322,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		// If we reach here: either external not declared (intended=="") and failed; try internal fallback.
 	}
 	if s.agent == nil {
+		errorf("agents.run internal error: agent runtime not configured")
 		return svc.NewMethodNotFoundError("agent runtime not configured")
 	}
 	// Internal path via agent.Query. Conversation and user are derived from context by the service.
@@ -323,6 +344,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 				}
 			}
 		}
+		debugf("agents.run internal scope agent_id=%q scope=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(scope))
 		// Reuse based on scope unless "new"
 		if scope != "new" && s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
 			input := &agconv.ConversationInput{
@@ -335,26 +357,37 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 				input.ParentTurnId = parent.TurnID
 				input.Has.ParentTurnId = true
 			}
+			debugf("agents.run internal reuse lookup agent_id=%q parent_convo=%q parent_turn=%q scope=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(scope))
 		}
 		if strings.TrimSpace(childConvID) == "" {
 			if cid, err := s.linker.CreateLinkedConversation(ctx, parent, false, nil); err == nil {
 				childConvID = cid
+				debugf("agents.run internal created child_convo=%q parent_convo=%q", strings.TrimSpace(childConvID), strings.TrimSpace(parent.ConversationID))
 				// Populate agent id on the new conversation when available
 				if s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
 					upd := convw.Conversation{Has: &convw.ConversationHas{}}
 					upd.SetId(childConvID)
 					upd.SetAgentId(strings.TrimSpace(ri.AgentID))
-					_ = s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd))
+					if perr := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd)); perr != nil {
+						errorf("agents.run internal set agent error child_convo=%q agent_id=%q err=%v", strings.TrimSpace(childConvID), strings.TrimSpace(ri.AgentID), perr)
+					}
 				}
 				// Add parent-side link message with objective preview
 				preview := shared.RuneTruncate(strings.TrimSpace(ri.Objective), 512)
-				_ = s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec", preview)
+				if lerr := s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec", preview); lerr != nil {
+					errorf("agents.run internal link message error child_convo=%q err=%v", strings.TrimSpace(childConvID), lerr)
+				}
+			} else {
+				errorf("agents.run internal create child error parent_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), err)
 			}
 		}
 		// Start status message
 		if s.status != nil {
 			if mid, err := s.status.Start(ctx, parent, "llm/agents:run", "assistant", "tool", "exec"); err == nil {
 				statusMsgID = mid
+				debugf("agents.run internal status start parent_convo=%q message_id=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(statusMsgID))
+			} else if err != nil {
+				errorf("agents.run internal status start error parent_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), err)
 			}
 		}
 	}
@@ -375,12 +408,15 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	qo := &agentsvc.QueryOutput{}
 	// Clear any parent tool policy from context to avoid restricting delegated runs.
 	childCtx := toolpol.WithPolicy(ctx, nil)
+	debugf("agents.run internal invoke agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID))
 	if err := s.agent.Query(childCtx, qi, qo); err != nil {
+		errorf("agents.run internal error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID), err)
 		if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
 			_ = s.status.Finalize(ctx, parent, statusMsgID, "failed", "")
 		}
 		return err
 	}
+	debugf("agents.run internal ok agent_id=%q child_convo=%q message_id=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID), strings.TrimSpace(qo.MessageID))
 	ro.Answer = qo.Content
 	ro.Status = "succeeded"
 	if strings.TrimSpace(qo.ConversationID) != "" {
@@ -394,6 +430,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		preview := shared.RuneTruncate(qo.Content, 512)
 		_ = s.status.Finalize(ctx, parent, statusMsgID, "succeeded", preview)
 	}
+	debugf("agents.run done convo=%q agent_id=%q status=%q", strings.TrimSpace(ro.ConversationID), strings.TrimSpace(ri.AgentID), strings.TrimSpace(ro.Status))
 	return nil
 }
 

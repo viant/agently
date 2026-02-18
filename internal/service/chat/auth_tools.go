@@ -76,6 +76,13 @@ func (s *Service) ensureBearerForTools(ctx context.Context, username string) con
 		}
 		return ctx
 	}
+	if tokErr != nil {
+		uid := userID
+		if len(uid) > 8 {
+			uid = uid[:8]
+		}
+		errorf("ensureBearerForTools auth error user=%q user_id=%q provider=%q err=%v", strings.TrimSpace(uname), uid, strings.TrimSpace(prov), tokErr)
+	}
 	if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_MCP_AUTH")) != "" {
 		uid := userID
 		if len(uid) > 8 {

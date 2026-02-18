@@ -1,15 +1,16 @@
-package elicitation
+package agent
 
 import (
 	"log"
 	"os"
-	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // DebugEnabled reports whether conversation debug logging is enabled.
 // Enable with AGENTLY_SCHEDULER_DEBUG=1 (or true/yes/on).
-// Legacy env (deprecated): AGENTLY_CONVERSATION_DEBUG, AGENTLY_DEBUG_ELICITATION.
+// Legacy env (deprecated): AGENTLY_CONVERSATION_DEBUG.
 func DebugEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_DEBUG"))) {
 	case "1", "true", "yes", "y", "on":
@@ -18,9 +19,6 @@ func DebugEnabled() bool {
 		return false
 	}
 }
-
-// DebugConversationEnabled kept for backward compatibility with existing calls.
-func DebugConversationEnabled() bool { return DebugEnabled() }
 
 func debugf(format string, args ...any) { infof(format, args...) }
 
@@ -45,6 +43,18 @@ func errorf(format string, args ...any) {
 	log.Printf("[debug][conversation][ERROR] "+format, args...)
 }
 
+func stuckWarnDuration() time.Duration {
+	v := strings.TrimSpace(os.Getenv("AGENTLY_CONVERSATION_STUCK_WARN_SEC"))
+	if v == "" {
+		return 10 * time.Minute
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return time.Duration(n) * time.Second
+}
+
 func headString(s string, n int) string {
 	if n <= 0 {
 		return ""
@@ -63,16 +73,4 @@ func tailString(s string, n int) string {
 		return s
 	}
 	return s[len(s)-n:]
-}
-
-func PayloadKeys(payload map[string]interface{}) []string {
-	if len(payload) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(payload))
-	for k := range payload {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }

@@ -56,6 +56,7 @@ func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string
 	if strings.TrimSpace(elic.ElicitationId) == "" {
 		elic.ElicitationId = uuid.New().String()
 	}
+	debugf("elicitation record start convo=%q turn=%q elicitation_id=%q role=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(elic.ElicitationId), strings.TrimSpace(role))
 	s.RefineRequestedSchema(&elic.RequestedSchema)
 	// Provide a unified callback URL when not already set
 	if strings.TrimSpace(elic.CallbackURL) == "" && turn != nil {
@@ -75,8 +76,10 @@ func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string
 		apiconv.WithContent(string(raw)),
 	)
 	if err != nil {
+		errorf("elicitation record error convo=%q elicitation_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(elic.ElicitationId), err)
 		return nil, err
 	}
+	debugf("elicitation record ok convo=%q elicitation_id=%q message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(elic.ElicitationId), strings.TrimSpace(msg.Id))
 	return msg, nil
 }
 
@@ -89,6 +92,7 @@ func (s *Service) Wait(ctx context.Context, convID, elicitationID string) (strin
 	if strings.TrimSpace(convID) == "" || strings.TrimSpace(elicitationID) == "" {
 		return "", nil, fmt.Errorf("conversation and elicitation id required")
 	}
+	debugf("elicitation wait start convo=%q elicitation_id=%q", strings.TrimSpace(convID), strings.TrimSpace(elicitationID))
 	ch := make(chan *schema.ElicitResult, 1)
 	s.router.RegisterByElicitationID(convID, elicitationID, ch)
 	defer s.router.RemoveByElicitation(convID, elicitationID)
@@ -131,12 +135,15 @@ func (s *Service) Wait(ctx context.Context, convID, elicitationID string) (strin
 
 	select {
 	case <-ctx.Done():
+		warnf("elicitation wait canceled convo=%q elicitation_id=%q err=%v", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), ctx.Err())
 		return "", nil, ctx.Err()
 	case res := <-ch:
 		if res == nil {
+			warnf("elicitation wait empty result convo=%q elicitation_id=%q", strings.TrimSpace(convID), strings.TrimSpace(elicitationID))
 			return elact.Decline, nil, nil
 		}
 		act := elact.Normalize(string(res.Action))
+		debugf("elicitation wait result convo=%q elicitation_id=%q action=%q payload_keys=%v", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), strings.TrimSpace(act), PayloadKeys(res.Content))
 		return act, res.Content, nil
 	}
 }
@@ -152,6 +159,7 @@ func (s *Service) Elicit(ctx context.Context, turn *memory.TurnMeta, role string
 	if err != nil {
 		return "", "", nil, fmt.Errorf("failed to record message: %w", err)
 	}
+	debugf("elicitation Elicit start convo=%q elicitation_id=%q message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(req.ElicitationId), strings.TrimSpace(msg.Id))
 	root := s.getRootConversation(ctx, turn.ConversationID)
 	// Only duplicate into a different conversation. If getRootConversation returns
 	// the same conversation (e.g. when at the root or due to lookup quirks), skip.
@@ -177,8 +185,10 @@ func (s *Service) Elicit(ctx context.Context, turn *memory.TurnMeta, role string
 
 	status, payload, err := s.Wait(ctx, turn.ConversationID, req.ElicitationId)
 	if err != nil {
+		errorf("elicitation Elicit error convo=%q elicitation_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(req.ElicitationId), err)
 		return msg.Id, "", nil, err
 	}
+	debugf("elicitation Elicit done convo=%q elicitation_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(req.ElicitationId), strings.TrimSpace(status))
 	return msg.Id, status, payload, nil
 }
 
@@ -197,17 +207,21 @@ func (s *Service) getRootConversation(ctx context.Context, conversationId string
 
 func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, action string) error {
 	st := elact.ToStatus(action)
+	debugf("elicitation update status start convo=%q elicitation_id=%q status=%q", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), strings.TrimSpace(st))
 	msg, err := s.client.GetMessageByElicitation(ctx, convID, elicitationID)
 	if err != nil {
+		errorf("elicitation update status get error convo=%q elicitation_id=%q err=%v", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), err)
 		return err
 	}
 	if msg == nil {
+		errorf("elicitation update status missing message convo=%q elicitation_id=%q", strings.TrimSpace(convID), strings.TrimSpace(elicitationID))
 		return fmt.Errorf("elicitation message not found")
 	}
 	upd := apiconv.NewMessage()
 	upd.SetId(msg.Id)
 	upd.SetStatus(st)
 	if err := s.client.PatchMessage(ctx, upd); err != nil {
+		errorf("elicitation update status patch error convo=%q elicitation_id=%q err=%v", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), err)
 		return err
 	}
 
@@ -218,6 +232,7 @@ func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, actio
 			return s.client.DeleteMessage(ctx, dep.ConversationId, dep.Id)
 		}
 	}
+	debugf("elicitation update status ok convo=%q elicitation_id=%q status=%q", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), strings.TrimSpace(st))
 	return nil
 }
 
@@ -233,6 +248,7 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 	if DebugEnabled() {
 		log.Printf("[debug][elicitation] store conv=%s id=%s payload=%s", convID, elicitationID, string(raw))
 	}
+	debugf("elicitation store payload convo=%q elicitation_id=%q payload_len=%d payload_head=%q payload_tail=%q", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), len(raw), headString(string(raw), 512), tailString(string(raw), 512))
 	pid := uuid.New().String()
 	p := apiconv.NewPayload()
 	p.SetId(pid)
@@ -295,6 +311,7 @@ func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action str
 	if DebugEnabled() {
 		log.Printf("[debug][elicitation] resolve conv=%s id=%s action=%s payloadKeys=%v", convID, elicitationID, act, PayloadKeys(payload))
 	}
+	debugf("elicitation resolve convo=%q elicitation_id=%q action=%q payload_keys=%v", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), strings.TrimSpace(act), PayloadKeys(payload))
 	// No logging; caller/UI can inspect status via DAO and router.
 	if err := s.UpdateStatus(ctx, convID, elicitationID, act); err != nil {
 		return err

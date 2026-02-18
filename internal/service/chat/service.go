@@ -430,6 +430,7 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 		return "", fmt.Errorf("chat service not configured: conversation client is nil")
 	}
 	msgID := uuid.New().String()
+	debugf("Post start conversation_id=%q message_id=%q agent=%q model=%q tools=%d content_len=%d content_head=%q content_tail=%q", strings.TrimSpace(conversationID), msgID, strings.TrimSpace(req.Agent), strings.TrimSpace(req.Model), len(req.Tools), len(req.Content), headString(req.Content, 512), tailString(req.Content, 512))
 	queued := queuedRequest{
 		Agent:            defaultLocation(req.Agent),
 		Model:            req.Model,
@@ -475,17 +476,26 @@ func (s *Service) Post(ctx context.Context, conversationID string, req PostReque
 	}
 
 	if err := s.ensureQueueHasCapacity(ctx, conversationID); err != nil {
+		errorf("Post queue capacity error conversation_id=%q message_id=%q err=%v", strings.TrimSpace(conversationID), msgID, err)
 		return "", err
 	}
 	if err := s.persistQueuedTurn(ctx, conversationID, msgID, queued, req.Content); err != nil {
+		errorf("Post persist queued turn error conversation_id=%q message_id=%q err=%v", strings.TrimSpace(conversationID), msgID, err)
 		return "", err
 	}
 	if blocked, _, err := s.isConversationBlocked(ctx, conversationID); err == nil && !blocked {
+		debugf("Post execute queued turn async conversation_id=%q message_id=%q", strings.TrimSpace(conversationID), msgID)
 		go func() { _ = s.executeQueuedTurn(context.Background(), conversationID, msgID) }()
 	} else {
+		if err != nil {
+			errorf("Post queue trigger due to block check error conversation_id=%q message_id=%q err=%v", strings.TrimSpace(conversationID), msgID, err)
+		} else {
+			debugf("Post queue trigger due to blocked conversation conversation_id=%q message_id=%q", strings.TrimSpace(conversationID), msgID)
+		}
 		s.triggerQueue(conversationID)
 	}
 
+	debugf("Post accepted conversation_id=%q message_id=%q", strings.TrimSpace(conversationID), msgID)
 	return msgID, nil
 }
 
@@ -519,6 +529,7 @@ func (s *Service) ensureQueueHasCapacity(ctx context.Context, conversationID str
 	if strings.TrimSpace(conversationID) == "" {
 		return fmt.Errorf("conversationID is required")
 	}
+	debugf("ensureQueueHasCapacity start conversation_id=%q", strings.TrimSpace(conversationID))
 	in := &turnread.QueuedCountInput{
 		ConversationID: conversationID,
 		Has:            &turnread.QueuedCountInputHas{ConversationID: true},
@@ -530,6 +541,7 @@ func (s *Service) ensureQueueHasCapacity(ctx context.Context, conversationID str
 		datly.WithOutput(out),
 	)
 	if err != nil {
+		errorf("ensureQueueHasCapacity read error conversation_id=%q err=%v", strings.TrimSpace(conversationID), err)
 		return err
 	}
 	queued := 0
@@ -537,13 +549,16 @@ func (s *Service) ensureQueueHasCapacity(ctx context.Context, conversationID str
 		queued = out.Data[0].QueuedCount
 	}
 	if queued >= defaultMaxQueuedTurnsPerConversation {
+		debugf("ensureQueueHasCapacity full conversation_id=%q queued=%d max=%d", strings.TrimSpace(conversationID), queued, defaultMaxQueuedTurnsPerConversation)
 		return fmt.Errorf("queue is full: %d queued turns (max %d)", queued, defaultMaxQueuedTurnsPerConversation)
 	}
+	debugf("ensureQueueHasCapacity ok conversation_id=%q queued=%d", strings.TrimSpace(conversationID), queued)
 	return nil
 }
 
 func (s *Service) persistQueuedTurn(ctx context.Context, conversationID, turnID string, queued queuedRequest, content string) error {
 	queueSeq := time.Now().UnixNano()
+	debugf("persistQueuedTurn start conversation_id=%q turn_id=%q queue_seq=%d", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), queueSeq)
 	turn := apiconv.NewTurn()
 	turn.SetId(turnID)
 	turn.SetConversationID(conversationID)
@@ -557,11 +572,14 @@ func (s *Service) persistQueuedTurn(ctx context.Context, conversationID, turnID 
 		turn.SetModelOverride(strings.TrimSpace(queued.Model))
 	}
 	if err := s.convClient.PatchTurn(ctx, turn); err != nil {
+		errorf("persistQueuedTurn patch turn error conversation_id=%q turn_id=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), err)
 		return err
 	}
+	debugf("persistQueuedTurn patched turn conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID))
 
 	raw, err := json.Marshal(queued)
 	if err != nil {
+		errorf("persistQueuedTurn marshal queued error conversation_id=%q turn_id=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), err)
 		return err
 	}
 
@@ -577,13 +595,19 @@ func (s *Service) persistQueuedTurn(ctx context.Context, conversationID, turnID 
 	if uid := strings.TrimSpace(authctx.EffectiveUserID(ctx)); uid != "" {
 		msg.SetCreatedByUserID(uid)
 	}
-	return s.convClient.PatchMessage(ctx, msg)
+	if err := s.convClient.PatchMessage(ctx, msg); err != nil {
+		errorf("persistQueuedTurn patch message error conversation_id=%q turn_id=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), err)
+		return err
+	}
+	debugf("persistQueuedTurn patched message conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID))
+	return nil
 }
 
 func (s *Service) triggerQueue(conversationID string) {
 	if strings.TrimSpace(conversationID) == "" {
 		return
 	}
+	debugf("triggerQueue conversation_id=%q", strings.TrimSpace(conversationID))
 	s.queueMu.Lock()
 	if s.queueByID == nil {
 		s.queueByID = map[string]*conversationQueue{}
@@ -605,17 +629,21 @@ func (s *Service) triggerQueue(conversationID string) {
 
 func (s *Service) runQueue(conversationID string, notify <-chan struct{}) {
 	for range notify {
+		debugf("runQueue notified conversation_id=%q", strings.TrimSpace(conversationID))
 		for {
 			if s.mgr == nil || s.dao == nil {
+				debugf("runQueue stop: missing manager or dao conversation_id=%q", strings.TrimSpace(conversationID))
 				return
 			}
 
 			blocked, reason, err := s.isConversationBlocked(context.Background(), conversationID)
 			if err != nil {
+				errorf("runQueue block check error conversation_id=%q err=%v", strings.TrimSpace(conversationID), err)
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 			if blocked {
+				debugf("runQueue blocked conversation_id=%q reason=%q", strings.TrimSpace(conversationID), reason)
 				// If the conversation is waiting for user input, do not auto-retry. A user action
 				// (elicitation resolution / new message) should re-trigger the queue.
 				if reason == "waiting_for_user" {
@@ -627,12 +655,15 @@ func (s *Service) runQueue(conversationID string, notify <-chan struct{}) {
 
 			nextID, err := s.nextQueuedTurnID(context.Background(), conversationID)
 			if err != nil {
+				errorf("runQueue next queued error conversation_id=%q err=%v", strings.TrimSpace(conversationID), err)
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 			if nextID == "" {
+				debugf("runQueue no queued turn conversation_id=%q", strings.TrimSpace(conversationID))
 				break
 			}
+			debugf("runQueue execute queued turn conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(nextID))
 			_ = s.executeQueuedTurn(context.Background(), conversationID, nextID)
 		}
 	}
@@ -712,35 +743,44 @@ func (s *Service) componentInjector(ctx context.Context, route xhttp.Route) (sta
 }
 
 func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turnID string) error {
+	debugf("executeQueuedTurn start conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID))
 	msg, err := s.convClient.GetMessage(parent, turnID)
 	if err != nil {
+		errorf("executeQueuedTurn get message error conversation_id=%q turn_id=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), err)
 		return s.persistTurnFailure(parent, turnID, err)
 	}
 	if msg == nil {
+		debugf("executeQueuedTurn message missing conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID))
 		return s.persistTurnFailure(parent, turnID, fmt.Errorf("queued turn message not found: %s", turnID))
 	}
 
 	var meta queuedRequest
 	if payload, ok := queuedRequestPayload(msg); ok {
 		if uerr := json.Unmarshal([]byte(payload), &meta); uerr != nil {
+			errorf("executeQueuedTurn decode payload error conversation_id=%q turn_id=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), uerr)
 			return s.persistTurnFailure(parent, turnID, fmt.Errorf("decode queued request: %w", uerr))
 		}
 	}
+	debugf("executeQueuedTurn loaded payload conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID))
 
 	query := ""
 	if msg.Content != nil {
 		query = *msg.Content
 	}
+	debugf("executeQueuedTurn user_prompt conversation_id=%q turn_id=%q prompt_len=%d prompt_head=%q prompt_tail=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), len(query), headString(query, 512), tailString(query, 512))
 	agentID, autoSelected, _, err := s.resolveAgentIDForTurn(parent, conversationID, meta.Agent, query)
 	if err != nil {
+		errorf("executeQueuedTurn resolve agent error conversation_id=%q turn_id=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), err)
 		return s.persistTurnFailure(parent, turnID, err)
 	}
+	debugf("executeQueuedTurn resolved agent conversation_id=%q turn_id=%q agent_id=%q auto_selected=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), strings.TrimSpace(agentID), autoSelected)
 	if autoSelected && strings.TrimSpace(agentID) != "" && strings.TrimSpace(agentID) != "agent_selector" {
 		upd := apiconv.NewTurn()
 		upd.SetId(turnID)
 		upd.SetConversationID(conversationID)
 		upd.SetAgentIDUsed(strings.TrimSpace(agentID))
 		if perr := s.convClient.PatchTurn(parent, upd); perr != nil {
+			errorf("executeQueuedTurn patch agent error conversation_id=%q turn_id=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), perr)
 			return s.persistTurnFailure(parent, turnID, perr)
 		}
 	}
@@ -789,6 +829,7 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 			AllowedChains:    append([]string(nil), meta.AllowedChains...),
 		}
 	}
+	debugf("executeQueuedTurn built input conversation_id=%q turn_id=%q agent_selector=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), strings.TrimSpace(agentID) == "agent_selector")
 
 	// Detach from caller cancellation but preserve identity for per-user jars.
 	base := context.Background()
@@ -877,19 +918,24 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 	// Convert staged uploads into attachments (read + cleanup).
 	// Queueing assumes staged artifacts remain accessible until this turn runs.
 	if err := s.enrichAttachmentIfNeeded(PostRequest{Attachments: meta.Attachments}, runCtx, input); err != nil {
+		errorf("executeQueuedTurn enrich attachments error conversation_id=%q turn_id=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), err)
 		return err
 	}
 
+	debugf("executeQueuedTurn manager accept start conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID))
 	out, err := s.mgr.Accept(runCtx, input)
 	if err != nil {
+		errorf("executeQueuedTurn manager accept error conversation_id=%q turn_id=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), err)
 		return s.persistTurnFailure(runCtx, turnID, err)
 	}
 	if out != nil && out.Elicitation != nil && !out.Elicitation.IsEmpty() {
 		upd := apiconv.NewTurn()
 		upd.SetId(turnID)
 		upd.SetStatus("waiting_for_user")
+		debugf("executeQueuedTurn waiting_for_user conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID))
 		return s.convClient.PatchTurn(context.Background(), upd)
 	}
+	debugf("executeQueuedTurn completed conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID))
 	return nil
 }
 
@@ -924,15 +970,18 @@ func (s *Service) persistTurnFailure(ctx context.Context, turnID string, err err
 	upd.SetId(turnID)
 	if errors.Is(err, context.Canceled) {
 		upd.SetStatus("canceled")
+		warnf("persistTurnFailure canceled turn_id=%q err=%v", strings.TrimSpace(turnID), err)
 		return s.convClient.PatchTurn(context.Background(), upd)
 	}
 	upd.SetStatus("failed")
 	upd.SetErrorMessage(err.Error())
+	errorf("persistTurnFailure failed turn_id=%q err=%v", strings.TrimSpace(turnID), err)
 	patchCtx := ctx
 	if errors.Is(ctx.Err(), context.Canceled) {
 		patchCtx = context.Background()
 	}
 	if pErr := s.convClient.PatchTurn(patchCtx, upd); pErr != nil {
+		errorf("persistTurnFailure patch error turn_id=%q err=%v", strings.TrimSpace(turnID), pErr)
 		return fmt.Errorf("%w: %v", err, pErr)
 	}
 	return err
@@ -1670,9 +1719,12 @@ func (s *Service) Prune(ctx context.Context, conversationID string) error {
 }
 
 func (s *Service) SetConversationStatus(ctx context.Context, conversationID string, status string) error {
+	debugf("SetConversationStatus start conversation_id=%q status=%q", strings.TrimSpace(conversationID), strings.TrimSpace(status))
 	if err := s.convClient.PatchConversations(ctx, convw.NewConversationStatus(conversationID, status)); err != nil {
+		errorf("SetConversationStatus error conversation_id=%q status=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(status), err)
 		return fmt.Errorf("failed to update conversation: %w", err)
 	}
+	debugf("SetConversationStatus ok conversation_id=%q status=%q", strings.TrimSpace(conversationID), strings.TrimSpace(status))
 	return nil
 }
 
