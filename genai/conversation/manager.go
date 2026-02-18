@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	agentdef "github.com/viant/agently/genai/agent"
@@ -91,6 +92,7 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 	if input.ConversationID == "" {
 		input.ConversationID = m.idGen()
 	}
+	debugf("manager accept start convo=%q agent_id=%q message_id=%q", input.ConversationID, strings.TrimSpace(input.AgentID), strings.TrimSpace(input.MessageID))
 
 	// store the ID under both legacy (conversation) and new (convctx)
 	// context keys so that all downstream code can retrieve it without
@@ -98,8 +100,10 @@ func (m *Manager) Accept(ctx context.Context, input *agentpkg.QueryInput) (*agen
 	ctx = memory.WithConversationID(ctx, input.ConversationID)
 	var output agentpkg.QueryOutput
 	if err := m.handler(ctx, input, &output); err != nil {
+		errorf("manager accept error convo=%q err=%v", input.ConversationID, err)
 		return nil, err
 	}
 
+	debugf("manager accept ok convo=%q", input.ConversationID)
 	return &output, nil
 }

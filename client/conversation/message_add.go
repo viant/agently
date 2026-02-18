@@ -15,6 +15,7 @@ import (
 // Returns the message id.
 func AddMessage(ctx context.Context, cl Client, turn *memory.TurnMeta, opts ...MessageOption) (*MutableMessage, error) {
 	if cl == nil || turn == nil {
+		errorf("AddMessage invalid input cl_nil=%v turn_nil=%v", cl == nil, turn == nil)
 		return nil, ErrInvalidInput
 	}
 	m := NewMessage()
@@ -41,6 +42,7 @@ func AddMessage(ctx context.Context, cl Client, turn *memory.TurnMeta, opts ...M
 		m.SetId(uuid.New().String())
 	}
 
+	debugf("AddMessage start id=%q convo=%q turn=%q parent=%q role=%q type=%q status=%q interim=%v", strings.TrimSpace(m.Id), strings.TrimSpace(m.ConversationID), strings.TrimSpace(valueOrEmptyStr(m.TurnID)), strings.TrimSpace(valueOrEmptyStr(m.ParentMessageID)), strings.TrimSpace(m.Role), strings.TrimSpace(m.Type), strings.TrimSpace(m.Status), valueOrZero(m.Interim))
 	// set conversation status to "" (active) if this is a non-interim assistant message and conversation not in summary status
 	if (m.Interim == nil || *m.Interim == 0) && m.Role == "assistant" && m.Status != "summary" {
 		status := ""
@@ -48,13 +50,17 @@ func AddMessage(ctx context.Context, cl Client, turn *memory.TurnMeta, opts ...M
 		patch.SetId(m.ConversationID)
 		patch.SetStatus(status)
 		if err := cl.PatchConversations(ctx, patch); err != nil {
+			errorf("AddMessage patch conversation status error id=%q convo=%q err=%v", strings.TrimSpace(m.Id), strings.TrimSpace(m.ConversationID), err)
 			return nil, fmt.Errorf("failed to update conversation status: %w", err)
 		}
+		debugf("AddMessage patched conversation status id=%q convo=%q status=%q", strings.TrimSpace(m.Id), strings.TrimSpace(m.ConversationID), status)
 	}
 
 	if err := cl.PatchMessage(ctx, m); err != nil {
+		errorf("AddMessage patch message error id=%q convo=%q err=%v", strings.TrimSpace(m.Id), strings.TrimSpace(m.ConversationID), err)
 		return nil, err
 	}
+	debugf("AddMessage ok id=%q convo=%q", strings.TrimSpace(m.Id), strings.TrimSpace(m.ConversationID))
 	return m, nil
 }
 
@@ -64,3 +70,17 @@ var ErrInvalidInput = errInvalidInput{}
 type errInvalidInput struct{}
 
 func (e errInvalidInput) Error() string { return "invalid input" }
+
+func valueOrZero(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+func valueOrEmptyStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
