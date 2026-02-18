@@ -267,6 +267,8 @@ type ServeA2A struct {
 	Port      int      `yaml:"port,omitempty" json:"port,omitempty"`
 	Streaming bool     `yaml:"streaming,omitempty" json:"streaming,omitempty"`
 	Auth      *A2AAuth `yaml:"auth,omitempty" json:"auth,omitempty"`
+- 	// UserCredURL enables OOB auth with a user credential secret reference.
+	UserCredURL string `yaml:"userCredUrl,omitempty" json:"userCredUrl,omitempty"`
 }
 
 // A2AAuth configures per-agent A2A auth middleware.
@@ -315,8 +317,9 @@ func (a *Agent) Init() {
 	}
 }
 
-// WhenSpec specifies a conditional gate for executing a chain. Evaluate Expr first; if empty and Query present,
-// run an LLM prompt and extract a boolean using Expect.
+// WhenSpec specifies a conditional gate for executing a supervised follow-up
+// chain. Evaluate Expr first; if empty and Query present, run an LLM prompt and
+// extract a boolean using Expect.
 type WhenSpec struct {
 	Expr   string         `yaml:"expr,omitempty" json:"expr,omitempty"`
 	Query  *prompt.Prompt `yaml:"query,omitempty" json:"query,omitempty"`
@@ -336,7 +339,7 @@ func (a *Agent) Validate() error {
 	if a == nil {
 		return fmt.Errorf("agent is nil")
 	}
-	// Validate chains: target.agentId must be non-empty when chains are declared
+	// Validate chains (supervised follow-up definitions): target.agentId must be non-empty when chains are declared
 	for i, c := range a.Chains {
 		if c == nil {
 			continue

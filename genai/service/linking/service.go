@@ -47,7 +47,7 @@ func (s *Service) CreateLinkedConversation(ctx context.Context, parent memory.Tu
 		return "", fmt.Errorf("linking: create conversation failed: %w", err)
 	}
 	if cloneTranscript && transcript != nil {
-		// Clone messages (excluding chain-mode) as a single synthetic turn
+		// Clone messages (excluding chain-mode supervised follow-ups) as a single synthetic turn
 		if err := s.cloneMessages(ctx, transcript, childID); err != nil {
 			return "", err
 		}
@@ -86,7 +86,7 @@ func (s *Service) AddLinkMessage(ctx context.Context, parent memory.TurnMeta, ch
 }
 
 // cloneMessages clones the last transcript into a new conversation under a
-// synthetic turn, excluding messages with mode == "chain".
+// synthetic turn, excluding messages with mode == "chain" (supervised follow-ups).
 func (s *Service) cloneMessages(ctx context.Context, transcript apiconv.Transcript, conversationID string) error {
 	if transcript == nil || len(transcript) == 0 {
 		return nil

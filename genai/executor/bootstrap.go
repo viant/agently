@@ -10,6 +10,7 @@ import (
 	neturl "net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -59,6 +60,10 @@ import (
 	a2asrv "github.com/viant/a2a-protocol/server"
 	aauth "github.com/viant/a2a-protocol/server/auth"
 	jsonrpc "github.com/viant/jsonrpc"
+	"github.com/viant/scy"
+	scyauth "github.com/viant/scy/auth"
+	"github.com/viant/scy/auth/authorizer"
+	"github.com/viant/scy/cred"
 	// removed executor options
 	// Helpers for exposing agents as tools
 	//	"github.com/viant/agently/genai/executor/agenttool"
@@ -504,6 +509,45 @@ func (e *Service) startA2AServers(agentSvc *agent2.Service) {
 	if e.config == nil || e.config.Agent == nil {
 		return
 	}
+	// Validate: one A2A agent per port.
+	portOwner := map[int]string{}
+	skip := map[string]struct{}{}
+	agentLabel := func(ag *agent.Agent) string {
+		if ag == nil {
+			return ""
+		}
+		if v := strings.TrimSpace(ag.ID); v != "" {
+			return v
+		}
+		return strings.TrimSpace(ag.Name)
+	}
+	resolveA2APort := func(ag *agent.Agent) (int, bool) {
+		if ag == nil {
+			return 0, false
+		}
+		if ag.Serve != nil && ag.Serve.A2A != nil && ag.Serve.A2A.Enabled && ag.Serve.A2A.Port > 0 {
+			return ag.Serve.A2A.Port, true
+		}
+		if ag.ExposeA2A != nil && ag.ExposeA2A.Enabled && ag.ExposeA2A.Port > 0 {
+			return ag.ExposeA2A.Port, true
+		}
+		return 0, false
+	}
+	for _, a := range e.config.Agent.Items {
+		port, ok := resolveA2APort(a)
+		if !ok {
+			continue
+		}
+		label := agentLabel(a)
+		if prev, exists := portOwner[port]; exists {
+			log.Printf("a2a: invalid config: port %d already assigned to agent %q; skipping agent %q", port, prev, label)
+			if label != "" {
+				skip[label] = struct{}{}
+			}
+			continue
+		}
+		portOwner[port] = label
+	}
 	for _, a := range e.config.Agent.Items {
 		// Prefer Serve.A2A; fallback to legacy ExposeA2A
 		var a2aEnabled bool
@@ -517,6 +561,11 @@ func (e *Service) startA2AServers(agentSvc *agent2.Service) {
 		}
 		if !a2aEnabled {
 			continue
+		}
+		if label := agentLabel(a); label != "" {
+			if _, drop := skip[label]; drop {
+				continue
+			}
 		}
 		// local copy for closure
 		ag := a
@@ -559,12 +608,20 @@ func (e *Service) startA2AServers(agentSvc *agent2.Service) {
 							}
 						}
 					}
+					reqCtx := ctx
+					if ag.Serve != nil && ag.Serve.A2A != nil && strings.TrimSpace(ag.Serve.A2A.UserCredURL) != "" {
+						var err error
+						reqCtx, err = e.applyA2AUserCred(ctx, strings.TrimSpace(ag.Serve.A2A.UserCredURL))
+						if err != nil {
+							return nil, jsonrpc.NewError(-32000, err.Error(), nil)
+						}
+					}
 					qi := &agent2.QueryInput{AgentID: ag.ID, Query: objective}
 					if contextID != nil && strings.TrimSpace(*contextID) != "" {
 						qi.ConversationID = *contextID
 					}
 					var qo agent2.QueryOutput
-					if err := agentSvc.Query(context.Background(), qi, &qo); err != nil {
+					if err := agentSvc.Query(reqCtx, qi, &qo); err != nil {
 						return nil, jsonrpc.NewError(-32000, err.Error(), nil)
 					}
 					// Build completed task with a text artifact
@@ -610,6 +667,107 @@ func (e *Service) startA2AServers(agentSvc *agent2.Service) {
 			_ = http.ListenAndServe(addr, outer)
 		}()
 	}
+}
+
+func (e *Service) applyA2AUserCred(ctx context.Context, credRef string) (context.Context, error) {
+	if e == nil || e.config == nil || e.config.Auth == nil || e.config.Auth.OAuth == nil || e.config.Auth.OAuth.Client == nil {
+		return ctx, fmt.Errorf("a2a userCredUrl requires auth.oauth configuration")
+	}
+	mode := strings.ToLower(strings.TrimSpace(e.config.Auth.OAuth.Mode))
+	if mode != "bff" {
+		return ctx, fmt.Errorf("a2a userCredUrl requires auth.oauth.mode=bff")
+	}
+	cfgURL := strings.TrimSpace(e.config.Auth.OAuth.Client.ConfigURL)
+	if cfgURL == "" {
+		return ctx, fmt.Errorf("a2a userCredUrl requires auth.oauth.client.configURL")
+	}
+
+	cmd := &authorizer.Command{
+		AuthFlow:   "OOB",
+		UsePKCE:    true,
+		SecretsURL: credRef,
+		OAuthConfig: authorizer.OAuthConfig{
+			ConfigURL: cfgURL,
+		},
+	}
+	if scopes := e.config.Auth.OAuth.Client.Scopes; len(scopes) > 0 {
+		cmd.Scopes = scopes
+	} else {
+		cmd.Scopes = []string{"openid"}
+	}
+	// Detach from request cancellation to allow OOB auth to complete; still bound by a short timeout.
+	authCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 1*time.Minute)
+	defer cancel()
+	start := time.Now()
+	log.Printf("a2a: userCredUrl auth start configURL=%q secretsURL=%q scopes=%v", cfgURL, credRef, cmd.Scopes)
+
+	scySvc := scy.New()
+	{
+		cfgStart := time.Now()
+		log.Printf("a2a: userCredUrl config load start url=%q", cfgURL)
+		resource := scy.EncodedResource(cfgURL).Decode(authCtx, reflect.TypeOf(cred.Oauth2Config{}))
+		resource.TimeoutMs = int((1 * time.Minute).Milliseconds())
+		secret, err := scySvc.Load(authCtx, resource)
+		if err != nil {
+			log.Printf("a2a: userCredUrl config load error url=%q duration=%s err=%v", cfgURL, time.Since(cfgStart), err)
+			return ctx, fmt.Errorf("a2a userCredUrl oauth config load failed: %w", err)
+		}
+		cfg, ok := secret.Target.(*cred.Oauth2Config)
+		if !ok {
+			log.Printf("a2a: userCredUrl config load cast failed url=%q target=%T duration=%s", cfgURL, secret.Target, time.Since(cfgStart))
+			return ctx, fmt.Errorf("a2a userCredUrl oauth config cast failed: %T", secret.Target)
+		}
+		log.Printf("a2a: userCredUrl config load ok url=%q duration=%s client_id=%q auth_url=%q token_url=%q redirect_url=%q",
+			cfgURL, time.Since(cfgStart), cfg.Config.ClientID, cfg.Config.Endpoint.AuthURL, cfg.Config.Endpoint.TokenURL, cfg.Config.RedirectURL)
+		cmd.Config = &cfg.Config
+		cmd.ConfigURL = ""
+	}
+
+	{
+		secStart := time.Now()
+		log.Printf("a2a: userCredUrl secret load start url=%q", credRef)
+		resource := scy.EncodedResource(credRef).Decode(authCtx, reflect.TypeOf(cred.Basic{}))
+		resource.TimeoutMs = int((1 * time.Minute).Milliseconds())
+		secret, err := scySvc.Load(authCtx, resource)
+		if err != nil {
+			log.Printf("a2a: userCredUrl secret load error url=%q duration=%s err=%v", credRef, time.Since(secStart), err)
+			return ctx, fmt.Errorf("a2a userCredUrl secret load failed: %w", err)
+		}
+		basic, ok := secret.Target.(*cred.Basic)
+		if !ok {
+			log.Printf("a2a: userCredUrl secret load cast failed url=%q target=%T duration=%s", credRef, secret.Target, time.Since(secStart))
+			return ctx, fmt.Errorf("a2a userCredUrl secret cast failed: %T", secret.Target)
+		}
+		cmd.Secrets = map[string]string{
+			"username": basic.Username,
+			"password": basic.Password,
+		}
+		cmd.SecretsURL = ""
+		log.Printf("a2a: userCredUrl secret load ok url=%q duration=%s", credRef, time.Since(secStart))
+	}
+
+	tok, err := authorizer.New().Authorize(authCtx, cmd)
+	log.Printf("a2a: userCredUrl auth done configURL=%q secretsURL=%q duration=%s err=%v", cfgURL, credRef, time.Since(start), err)
+	if err != nil {
+		return ctx, fmt.Errorf("a2a userCredUrl authorize failed: %w", err)
+	}
+	if tok == nil {
+		return ctx, fmt.Errorf("a2a userCredUrl authorize returned empty token")
+	}
+
+	st := &scyauth.Token{Token: *tok}
+	st.PopulateIDToken()
+	ctx = authctx.WithTokens(ctx, st)
+	if strings.TrimSpace(st.AccessToken) != "" {
+		ctx = authctx.WithBearer(ctx, st.AccessToken)
+	}
+	if strings.TrimSpace(st.IDToken) != "" {
+		ctx = authctx.WithIDToken(ctx, st.IDToken)
+		if ui, _ := authctx.DecodeUserInfo(st.IDToken); ui != nil {
+			ctx = authctx.WithUserInfo(ctx, ui)
+		}
+	}
+	return ctx, nil
 }
 
 func (e *Service) initMessageServiceAndPreviewLimits() {

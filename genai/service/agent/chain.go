@@ -98,7 +98,8 @@ func NewChainContext(in *QueryInput, out *QueryOutput, turn *memory.TurnMeta) Ch
 	return cc
 }
 
-// executeChains filters, evaluates and dispatches chains declared on the parent agent.
+// executeChains filters, evaluates and dispatches supervised follow-up chains
+// declared on the parent agent.
 func (s *Service) executeChains(ctx context.Context, parent ChainContext, status string) error {
 	if parent.Agent == nil || len(parent.Agent.Chains) == 0 {
 		return nil
@@ -141,7 +142,7 @@ func (s *Service) executeChains(ctx context.Context, parent ChainContext, status
 		statusLower := strings.ToLower(status)
 		on := strings.ToLower(strings.TrimSpace(ch.On))
 		// Default policy: when a turn finished with an error or was canceled,
-		// do not run chains unless explicitly allowed via On, or the chain
+		// do not run supervised follow-up chains unless explicitly allowed via On, or the chain
 		// defines an OnError policy. This prevents unintended follow-ups on
 		// failures when On is omitted.
 		if on == "" {
@@ -583,7 +584,8 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 
 }
 
-// fetchChainOutput executes a child chain query and returns trimmed content and resolved role.
+// fetchChainOutput executes a child supervised follow-up chain query and returns
+// trimmed content and resolved role.
 // It centralizes shared logic for sync/async chain execution without applying error policies.
 func (s *Service) fetchChainOutput(ctx context.Context, in *QueryInput, ch *agentmdl.Chain) (string, error) {
 	var out QueryOutput

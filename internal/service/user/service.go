@@ -185,6 +185,7 @@ func (s *Service) UpdatePreferencesByUsername(ctx context.Context, username stri
 
 // UpdateAgentSettingsByUsername merges per-agent settings into users.settings JSON for the given username.
 // The payload shape is expected as: { agentId: { tools: [], toolCallExposure: "turn|conversation", autoSummarize: bool, chainsEnabled: bool }, ... }
+// chainsEnabled controls supervised follow-up chains.
 func (s *Service) UpdateAgentSettingsByUsername(ctx context.Context, username string, agentPrefs map[string]map[string]interface{}) error {
 	if strings.TrimSpace(username) == "" {
 		return fmt.Errorf("username required")
