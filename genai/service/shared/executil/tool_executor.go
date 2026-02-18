@@ -134,14 +134,16 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		errs = append(errs, fmt.Errorf("complete tool call: %w", cErr))
 	}
 	patchErr := conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status))
-	errs = append(errs, fmt.Errorf("patch conversations call: %w", patchErr))
+	if patchErr != nil {
+		errs = append(errs, fmt.Errorf("patch conversations call: %w", patchErr))
+	}
 
 	var retErr error
 	if len(errs) > 0 {
 		retErr = errors.Join(errs...)
 	}
 
-	if retErr != nil {
+	if retErr != nil && len(errs) > 0 {
 		errorConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult), retErr)
 	} else {
 		infoConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
