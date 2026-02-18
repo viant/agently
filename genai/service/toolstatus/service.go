@@ -91,7 +91,7 @@ func (s *Service) Finalize(ctx context.Context, parent memory.TurnMeta, messageI
 	}
 	mu.SetInterim(0)
 	if strings.TrimSpace(status) != "" {
-		mu.SetStatus(strings.TrimSpace(status))
+		mu.SetStatus(normalizeMessageStatus(status))
 	}
 	if err := s.conv.PatchMessage(ctx, mu); err != nil {
 		errorf("status finalize error parent_convo=%q message_id=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID), err)
@@ -99,4 +99,22 @@ func (s *Service) Finalize(ctx context.Context, parent memory.TurnMeta, messageI
 	}
 	debugf("status finalize ok parent_convo=%q message_id=%q status=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID), strings.TrimSpace(status))
 	return nil
+}
+
+func normalizeMessageStatus(status string) string {
+	v := strings.ToLower(strings.TrimSpace(status))
+	switch v {
+	case "succeeded":
+		return "completed"
+	case "failed":
+		return "error"
+	case "canceled", "cancelled":
+		return "cancel"
+	case "running", "processing", "pending":
+		return "open"
+	case "auth-required", "auth_required":
+		return "open"
+	default:
+		return v
+	}
 }
