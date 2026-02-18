@@ -23,6 +23,7 @@ import {setStage} from '../utils/stageBus.js';
 import {setComposerBusy} from '../utils/composerBus.js';
 import {isElicitationSuppressed, markElicitationShown} from '../utils/elicitationBus.js';
 import {detectVoiceControl} from '../utils/voiceControl.js';
+import { selectedTabId } from 'forge/core';
 import {
     setExecutionDetailsEnabled,
     setToolFeedEnabled,
@@ -195,6 +196,23 @@ export async function onInit({context}) {
 
         const convCtx = context.Context('conversations');
         const handlers = convCtx?.handlers?.dataSource;
+        // If this chat window has no conversation selected, reset stage to Ready
+        // when it becomes visible/active.
+        try {
+            const form = handlers?.peekFormData?.() || {};
+            const inSnap = convCtx?.signals?.input?.peek?.() || {};
+            const convID = form.id
+                || inSnap.id
+                || (inSnap.filter && inSnap.filter.id)
+                || (inSnap.parameters && (inSnap.parameters.convID || inSnap.parameters.id));
+            if (!convID) {
+                const activeWinId = selectedTabId?.value || '';
+                const winId = context?.identity?.windowId || context?.handlers?.window?.windowId || context?.handlers?.window?.id || '';
+                if (!activeWinId || !winId || String(activeWinId) === String(winId)) {
+                    setStage({phase: 'ready'});
+                }
+            }
+        } catch (_) {}
         // If a convID was provided via window params, seed the conversations DS immediately
         try {
             const wp = context?.windowParams || {};
@@ -486,7 +504,27 @@ async function dsTick({context}) {
             const conv = json && (json.data ?? json.Data ?? json.conversation ?? json.Conversation ?? json);
             const convStage = conv?.stage || conv?.Stage;
             if (convStage) {
-                setStage({phase: String(convStage)});
+                // Only update global stage for the currently selected conversation.
+                try {
+                    const activeWinId = selectedTabId?.value || '';
+                    const winId = context?.identity?.windowId || context?.handlers?.window?.windowId || context?.handlers?.window?.id || '';
+                    if (activeWinId && winId && String(activeWinId) !== String(winId)) {
+                        // Skip stage updates from background tabs.
+                    } else {
+                    const convCtx = context?.Context?.('conversations');
+                    const selectedId = convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id
+                        || convCtx?.handlers?.dataSource?.peekFormData?.()?.id
+                        || '';
+                    const convId = conv?.id || conv?.Id || convID || '';
+                    if (selectedId && convId && String(selectedId) !== String(convId)) {
+                        // Skip stage updates from background/other tabs.
+                    } else {
+                        setStage({phase: String(convStage)});
+                    }
+                    }
+                } catch (_) {
+                    setStage({phase: String(convStage)});
+                }
             }
 
 

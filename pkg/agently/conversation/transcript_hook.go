@@ -2,9 +2,10 @@ package conversation
 
 import (
 	"context"
-	"github.com/viant/agently/genai/tool"
 	"sort"
 	"strings"
+
+	"github.com/viant/agently/genai/tool"
 )
 
 func (t *TranscriptView) filterInvokedToolFeed() {
@@ -86,9 +87,11 @@ func computeTurnStage(t *TranscriptView) string {
 	}
 	lastRole := ""
 	lastAssistantElic := false
+	lastAssistantElicStopped := false
 	lastToolRunning := false
 	lastToolFailed := false
 	lastModelRunning := false
+	lastModelFailed := false
 	lastAssistantCanceled := false
 
 	// Iterate messages backwards to find cancellation or the latest non-interim one
@@ -102,6 +105,15 @@ func computeTurnStage(t *TranscriptView) string {
 			lastAssistantCanceled = true
 			break
 		}
+
+		if m.ModelCall != nil {
+			mstatus := strings.ToLower(strings.TrimSpace(m.ModelCall.Status))
+			if mstatus == "failed" {
+				lastModelFailed = true
+				break
+			}
+		}
+
 		if m.Interim != 0 {
 			continue
 		}
@@ -125,11 +137,30 @@ func computeTurnStage(t *TranscriptView) string {
 			}
 		}
 		if r == "assistant" && m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
-			lastAssistantElic = true
+			// Consider elicitation active only when status is pending/open (or unset)
+			msgStatus := ""
+			if m.Status != nil {
+				msgStatus = strings.ToLower(strings.TrimSpace(*m.Status))
+			}
+
+			if msgStatus == "" || msgStatus == "pending" || msgStatus == "open" {
+				lastAssistantElic = true
+			}
+			if msgStatus == "rejected" || msgStatus == "cancel" || msgStatus == "failed" {
+				lastAssistantElicStopped = true
+			}
 		}
 		break
 	}
 
+	if lastModelFailed {
+		return StageError
+	}
+
+	if lastAssistantElicStopped {
+		return StageError
+	}
+	//   turnStatus in {'succeeded','completed','done','accepted','failed','error','canceled'}
 	switch {
 	case lastAssistantCanceled:
 		return StageDone

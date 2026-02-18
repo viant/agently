@@ -26,6 +26,7 @@ import {useNavigate} from 'react-router-dom';
 // History drawer removed – chat features now provided by metadata windows.
 import {useSignalEffect} from '@preact/signals-react';
 import logo from '../viant-logo.png'; // Import the logo image
+import { setStage } from '../utils/stageBus';
 
 const MenuBar = ({toggleNavigation}) => {
     const navigate = useNavigate();
@@ -64,6 +65,27 @@ const MenuBar = ({toggleNavigation}) => {
 
     useSignalEffect(() => {
         setWindowList(activeWindows.value);
+    });
+
+    // When switching tabs, if the active window is an empty Chat (no conversation id),
+    // reset stage to Ready so we don't show a stale status from another tab.
+    useSignalEffect(() => {
+        try {
+            const winId = selectedTabId.value;
+            const wins = activeWindows.value || [];
+            const win = wins.find(w => w.windowId === winId) || null;
+            if (!win) return;
+            const key = String(win.windowKey || '').toLowerCase();
+            if (!key.startsWith('chat')) return;
+            const data = win.windowData || win.data || win.dsParams || {};
+            const convId = data?.conversations?.parameters?.id
+                || data?.messages?.parameters?.convID
+                || data?.messages?.parameters?.id
+                || '';
+            if (!convId) {
+                setStage({phase: 'ready'});
+            }
+        } catch (_) {}
     });
 
 

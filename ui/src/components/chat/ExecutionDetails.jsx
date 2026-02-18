@@ -215,6 +215,8 @@ function flattenExecutions(executions = []) {
             const hasBool = typeof s.successBool === 'boolean';
             const successBool = hasBool ? s.successBool : (typeof s.success === 'boolean' ? s.success : undefined);
             let statusText = (s.statusText || (successBool === undefined ? 'pending' : (successBool ? 'completed' : 'error'))).toLowerCase();
+            // Normalize cancel variants so canceled is terminal (not pending).
+            if (statusText === 'rejected' || statusText === 'cancel' || statusText === 'cancelled') statusText = 'canceled';
             // Elicitation special-case: if we have a submitted payload id, treat as accepted
             if (String(s?.reason || '').toLowerCase() === 'elicitation') {
                 try {

@@ -1,6 +1,7 @@
 // Conversation management service
 
 import {saveSettings} from "./chatService.js";
+import {setStage} from "../utils/stageBus.js";
 import { getLogger } from 'forge/utils/logger';
 
 const log = getLogger('agently');
@@ -106,6 +107,8 @@ export async function newConversation({context}) {
     const convContext = context.Context('conversations');
     convContext.handlers.dataSource.setSelection({args: {rowIndex: -1}})
     setActiveConversationID('');
+    // Reset global stage so a new chat starts at Ready.
+    setStage({phase: 'ready'});
     saveSettings({context})
 
 }

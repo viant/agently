@@ -42,9 +42,11 @@ func computeStage(c *ConversationView) string {
 	}
 	lastRole := ""
 	lastAssistantElic := false
+	lastAssistantElicStopped := false
 	lastToolRunning := false
 	lastToolFailed := false
 	lastModelRunning := false
+	lastModelFailed := false
 	lastAssistantCanceled := false
 
 	compacting := c.Status != nil && *c.Status == "compacting"
@@ -69,6 +71,15 @@ func computeStage(c *ConversationView) string {
 				lastAssistantCanceled = true
 				goto DONE
 			}
+
+			if m.ModelCall != nil {
+				mstatus := strings.ToLower(strings.TrimSpace(m.ModelCall.Status))
+				if mstatus == "failed" {
+					lastModelFailed = true
+					goto DONE
+				}
+			}
+
 			// Skip interim entries for other evaluations
 			if m.Interim != 0 && !compacting {
 				continue
@@ -94,6 +105,7 @@ func computeStage(c *ConversationView) string {
 				}
 			}
 			if r == "assistant" && m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
+
 				// Consider elicitation active only when status is pending/open (or unset)
 				msgStatus := ""
 				if m.Status != nil {
@@ -102,12 +114,24 @@ func computeStage(c *ConversationView) string {
 				if msgStatus == "" || msgStatus == "pending" || msgStatus == "open" {
 					lastAssistantElic = true
 				}
+				if msgStatus == "rejected" || msgStatus == "cancel" || msgStatus == "failed" {
+					lastAssistantElicStopped = true
+				}
 			}
 			// Break after inspecting the latest eligible message
 			goto DONE
 		}
 	}
 DONE:
+
+	if lastModelFailed {
+		return StageError
+	}
+
+	if lastAssistantElicStopped {
+		return StageError
+	}
+
 	switch {
 	case lastAssistantCanceled:
 		return StageDone
