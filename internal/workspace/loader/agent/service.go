@@ -1865,11 +1865,56 @@ func parseKnowledge(node *yml.Node) (*agentmdl.Knowledge, error) {
 					case "inclusions":
 						opts.Inclusions = asStrings(optValue)
 					case "maxfilesize":
-						opts.MaxFileSize = int(optValue.Interface().(int64))
+						switch vv := optValue.Interface().(type) {
+						case int:
+							opts.MaxFileSize = vv
+						case int64:
+							opts.MaxFileSize = int(vv)
+						case float64:
+							opts.MaxFileSize = int(vv)
+						case string:
+							if n, err := parseInt64(vv); err == nil {
+								opts.MaxFileSize = int(n)
+							}
+						}
 					}
 					return nil
 				})
 				knowledge.Filter = opts
+			}
+		case "maxfiles":
+			if valueNode.Kind == yaml.ScalarNode {
+				switch vv := valueNode.Interface().(type) {
+				case int:
+					knowledge.MaxFiles = vv
+				case int64:
+					knowledge.MaxFiles = int(vv)
+				case float64:
+					knowledge.MaxFiles = int(vv)
+				case string:
+					if n, err := parseInt64(vv); err == nil {
+						knowledge.MaxFiles = int(n)
+					}
+				}
+			}
+		case "minscore":
+			if valueNode.Kind == yaml.ScalarNode {
+				var f float64
+				switch vv := valueNode.Interface().(type) {
+				case float64:
+					f = vv
+				case int:
+					f = float64(vv)
+				case int64:
+					f = float64(vv)
+				case string:
+					if _, err := fmt.Sscan(strings.TrimSpace(vv), &f); err != nil {
+						return nil
+					}
+				default:
+					return nil
+				}
+				knowledge.MinScore = &f
 			}
 		}
 		return nil
