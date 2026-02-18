@@ -132,6 +132,20 @@ function escapeHTMLCell(str = '') {
     .replace(/'/g, '&#39;');
 }
 
+function renderMarkdownCellHTML(md = '') {
+  const escaped = String(md || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const withCodeBlocks = escaped.replace(/```([\s\S]*?)```/g, (match, p1) => `<pre><code>${p1}</code></pre>`);
+  const withInlineCode = withCodeBlocks.replace(/`([^`]+?)`/g, '<code>$1</code>');
+  const withBold = withInlineCode.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  const withItalic = withBold.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  const withStrike = withItalic.replace(/~~(.*?)~~/g, '<del>$1</del>');
+  const withLinks = withStrike.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  return withLinks.replace(/\n/g, '<br/>');
+}
+
 // Enhanced fenced table with toolbar, column chooser, pagination and expandable cells
 function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
   const pageSize = 40;
@@ -202,10 +216,13 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
       const text = String(raw);
       const isLong = text.length > truncateAt;
       const display = isLong ? (text.slice(0, truncateAt) + '…') : text;
+      const html = renderMarkdownCellHTML(display);
       return (
-        <BpCell style={{ textAlign: align, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: isLong ? 'pointer' : 'default' }}
-                onClick={() => { if (isLong) setExpand({ title: headers[ci], content: text }); }}>
-          {display}
+        <BpCell
+          style={{ textAlign: align, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: isLong ? 'pointer' : 'default' }}
+          onClick={() => { if (isLong) setExpand({ title: headers[ci], content: text }); }}
+        >
+          <span dangerouslySetInnerHTML={{ __html: html }} />
         </BpCell>
       );
     };
@@ -269,7 +286,7 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
 
       <Dialog isOpen={!!expand} onClose={() => setExpand(null)} title={expand?.title || 'Content'} style={{ width: '70vw', minWidth: 480 }}>
         <div style={{ padding: 12 }}>
-          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{expand ? expand.content : ''}</pre>
+          <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: renderMarkdownCellHTML(expand ? expand.content : '') }} />
         </div>
       </Dialog>
     </div>
@@ -303,11 +320,15 @@ function legacyRenderPipeTable(body = '') {
 
   const columns = headers.map((header, ci) => {
     const align = aligns[ci] || 'left';
-    const cellRenderer = (rowIndex) => (
-      <BpCell style={{ textAlign: align, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-        {rows[rowIndex]?.[ci] ?? ''}
-      </BpCell>
-    );
+    const cellRenderer = (rowIndex) => {
+      const raw = rows[rowIndex]?.[ci] ?? '';
+      const html = renderMarkdownCellHTML(String(raw));
+      return (
+        <BpCell style={{ textAlign: align, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          <span dangerouslySetInnerHTML={{ __html: html }} />
+        </BpCell>
+      );
+    };
     const columnHeaderCellRenderer = () => (
       <BpColumnHeaderCell name={header} />
     );

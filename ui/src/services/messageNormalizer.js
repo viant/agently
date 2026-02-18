@@ -247,7 +247,9 @@ export function normalizeMessages(raw = []) {
                     keys.forEach(k => {
                         const cellStyle = 'word-break:break-word;white-space:pre-wrap';
                         const v = payload[k];
-                        const rendered = typeof v === 'string' ? escapeHTML(v) : escapeHTML(JSON.stringify(v, null, 2));
+                        const rendered = typeof v === 'string'
+                            ? renderMarkdownCell(v)
+                            : escapeHTML(JSON.stringify(v, null, 2));
                         html += `<tr><th style="text-align:left;padding-right:8px;white-space:nowrap">${escapeHTML(k)}</th><td style="${cellStyle}">${rendered}</td></tr>`;
                     });
                     html += '</tbody></table>';
@@ -281,6 +283,22 @@ function tryParseJSON(content) {
     } catch {
         return null;
     }
+}
+
+// Minimal markdown -> HTML for safe table cell rendering.
+// Escapes HTML first, then applies markdown transforms.
+function renderMarkdownCell(md = "") {
+    const escaped = String(md || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    const withCodeBlocks = escaped.replace(/```([\s\S]*?)```/g, (match, p1) => `<pre><code>${p1}</code></pre>`);
+    const withInlineCode = withCodeBlocks.replace(/`([^`]+?)`/g, "<code>$1</code>");
+    const withBold = withInlineCode.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+    const withItalic = withBold.replace(/\*(.*?)\*/g, "<em>$1</em>");
+    const withStrike = withItalic.replace(/~~(.*?)~~/g, "<del>$1</del>");
+    const withLinks = withStrike.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    return withLinks.replace(/\n/g, "<br/>");
 }
 
 // Simple HTML escaper

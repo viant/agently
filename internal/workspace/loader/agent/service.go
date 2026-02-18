@@ -226,7 +226,7 @@ func (s *Service) resolvePromptURIs(a *agentmdl.Agent) {
 // (drive/UNC detection is handled by afs/url.IsRelative and ToFileURL)
 
 // normalizeAgent applies generic cleanups that make downstream behavior stable:
-// - trims trailing whitespace/newlines from prompt texts (agent and chains)
+// - trims trailing whitespace/newlines from prompt texts (agent and supervised follow-up chains)
 // - ensures chain.When.Expr is set when a scalar was used
 func normalizeAgent(a *agentmdl.Agent) {
 	trim := func(p *prompt.Prompt) {
@@ -969,6 +969,10 @@ func (s *Service) parseServeBlock(valueNode *yml.Node, agent *agentmdl.Agent) er
 				case "streaming":
 					if av.Kind == yaml.ScalarNode {
 						a2a.Streaming = toBool(av.Value)
+					}
+				case "usercredurl":
+					if av.Kind == yaml.ScalarNode {
+						a2a.UserCredURL = strings.TrimSpace(av.Value)
 					}
 				case "auth":
 					if av.Kind != yaml.MappingNode {

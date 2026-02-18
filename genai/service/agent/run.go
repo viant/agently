@@ -27,7 +27,8 @@ import (
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
-// executeChains filters, evaluates and dispatches chains declared on the parent agent.
+// executeChains filters, evaluates and dispatches supervised follow-up chains
+// declared on the parent agent.
 
 // Query executes a query against an agent.
 func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) error {
@@ -159,7 +160,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	return nil
 }
 
-// loopControls captures continuation flags from Context.chain.loop
+// loopControls captures continuation flags from Context.chain.loop (supervised follow-up chains)
 func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *prompt.Attachment) error {
 	pid := uuid.New().String()
 	payload := apiconv.NewPayload()
