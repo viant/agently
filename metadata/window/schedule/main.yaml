@@ -2,18 +2,18 @@ namespace: Schedules
 
 view:
   content:
-    layout:
-      orientation: vertical
-      rows: 2
+    tabs:
+      vertical: false
 
     containers:
-      - id: schedulesTable
+      - id: schedulesCatalogue
         title: Schedules
         dataSourceRef: schedules
         fetchData: true
         table: $import('table/schedules.yaml')
 
-      - id: details
+      - id: scheduleEditor
+        title: Automation
         dataSourceRef: schedules
         tabs:
           vertical: false
