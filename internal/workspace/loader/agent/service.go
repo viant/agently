@@ -1249,6 +1249,7 @@ func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) e
 		}
 		var c agentmdl.Chain
 		var whenExpr string
+		var disabledOverride *bool
 		for i := 0; i+1 < len(item.Content); i += 2 {
 			k := strings.ToLower(strings.TrimSpace(item.Content[i].Value))
 			if k == "when" {
@@ -1259,6 +1260,13 @@ func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) e
 					item.Content[i+1] = &yaml.Node{Kind: yaml.MappingNode}
 				}
 				break
+			}
+			if k == "disabled" {
+				v := item.Content[i+1]
+				if v != nil && v.Kind == yaml.ScalarNode {
+					b := toBool(v.Value)
+					disabledOverride = &b
+				}
 			}
 		}
 		if err := (*yaml.Node)(item).Decode(&c); err != nil {
@@ -1292,6 +1300,9 @@ func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) e
 		case "":
 		default:
 			return fmt.Errorf("invalid chain.conversation: %s", c.Conversation)
+		}
+		if disabledOverride != nil {
+			c.Disabled = *disabledOverride
 		}
 		agent.Chains = append(agent.Chains, &c)
 	}
