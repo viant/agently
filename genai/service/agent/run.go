@@ -117,12 +117,24 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	rawUserContent := input.Query
 	content := strings.TrimSpace(input.Query)
 	if input.IsNewConversation && s.llm != nil && input.Agent != nil {
+		bStart := time.Now()
+		debugf("agent.Query BuildBinding start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 		b, berr := s.BuildBinding(ctx, input)
-		if berr == nil {
+		if berr != nil {
+			debugf("agent.Query BuildBinding error convo=%q turn_id=%q elapsed=%s err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(bStart).String(), berr)
+		} else {
+			debugf("agent.Query BuildBinding ok convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(bStart).String())
 			var expOut core.ExpandUserPromptOutput
 			expIn := &core.ExpandUserPromptInput{Prompt: input.Agent.Prompt, Binding: b}
+			expStart := time.Now()
+			debugf("agent.Query ExpandUserPrompt start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 			if err := s.llm.ExpandUserPrompt(ctx, expIn, &expOut); err == nil && strings.TrimSpace(expOut.ExpandedUserPrompt) != "" {
+				debugf("agent.Query ExpandUserPrompt ok convo=%q turn_id=%q elapsed=%s expanded_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), len(expOut.ExpandedUserPrompt))
 				content = expOut.ExpandedUserPrompt
+			} else if err != nil {
+				debugf("agent.Query ExpandUserPrompt error convo=%q turn_id=%q elapsed=%s err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), err)
+			} else {
+				debugf("agent.Query ExpandUserPrompt empty convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String())
 			}
 		}
 	}
