@@ -127,6 +127,9 @@ func (s *Service) executeChains(ctx context.Context, parent ChainContext, status
 		if ch == nil {
 			continue
 		}
+		if ch.Disabled {
+			continue
+		}
 		chainID := parent.ParentTurn.ConversationID + strconv.Itoa(idx) + ch.Target.AgentID
 		controls.ensureChainLimit(chainID, ch.Limits)
 		if !controls.canRunChain(chainID) {
