@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/viant/afs"
@@ -427,6 +428,74 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			if valueNode.Kind == yaml.ScalarNode {
 				val := strings.ToLower(strings.TrimSpace(valueNode.Value))
 				agent.RingOnFinish = val == "true" || val == "yes" || val == "on" || val == "1"
+			}
+		case "delegation":
+			switch valueNode.Kind {
+			case yaml.ScalarNode:
+				v := valueNode.Interface()
+				switch actual := v.(type) {
+				case bool:
+					if agent.Delegation == nil {
+						agent.Delegation = &agentmdl.Delegation{}
+					}
+					agent.Delegation.Enabled = actual
+				case string:
+					sv := strings.ToLower(strings.TrimSpace(actual))
+					if agent.Delegation == nil {
+						agent.Delegation = &agentmdl.Delegation{}
+					}
+					agent.Delegation.Enabled = sv == "true" || sv == "yes" || sv == "on" || sv == "1"
+				default:
+					return fmt.Errorf("invalid delegation value: %T %v", v, v)
+				}
+			case yaml.MappingNode:
+				if agent.Delegation == nil {
+					agent.Delegation = &agentmdl.Delegation{}
+				}
+				for i := 0; i < len(valueNode.Content); i += 2 {
+					k := strings.ToLower(strings.TrimSpace(valueNode.Content[i].Value))
+					vn := (*yml.Node)(valueNode.Content[i+1])
+					switch k {
+					case "enabled":
+						if vn.Kind == yaml.ScalarNode {
+							v := vn.Interface()
+							switch actual := v.(type) {
+							case bool:
+								agent.Delegation.Enabled = actual
+							case string:
+								sv := strings.ToLower(strings.TrimSpace(actual))
+								agent.Delegation.Enabled = sv == "true" || sv == "yes" || sv == "on" || sv == "1"
+							default:
+								return fmt.Errorf("invalid delegation.enabled value: %T %v", v, v)
+							}
+						}
+					case "maxdepth":
+						if vn.Kind == yaml.ScalarNode {
+							v := vn.Interface()
+							switch actual := v.(type) {
+							case int:
+								agent.Delegation.MaxDepth = actual
+							case int64:
+								agent.Delegation.MaxDepth = int(actual)
+							case float64:
+								agent.Delegation.MaxDepth = int(actual)
+							case string:
+								sv := strings.TrimSpace(actual)
+								if sv == "" {
+									agent.Delegation.MaxDepth = 0
+									break
+								}
+								n, err := strconv.Atoi(sv)
+								if err != nil {
+									return fmt.Errorf("invalid delegation.maxDepth value: %q", sv)
+								}
+								agent.Delegation.MaxDepth = n
+							default:
+								return fmt.Errorf("invalid delegation.maxDepth value: %T %v", v, v)
+							}
+						}
+					}
+				}
 			}
 		case "knowledge":
 			if err := s.parseKnowledgeBlock(valueNode, agent); err != nil {

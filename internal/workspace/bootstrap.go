@@ -97,13 +97,9 @@ func EnsureDefaultAt(ctx context.Context, fs afs.Service, root string) {
 		{filepath.Join(KindAgent, "coder/knowledge/advenced_pattern.md"), "default/agents/coder/knowledge/advenced_pattern.md"},
 		{filepath.Join(KindAgent, "coder/coder.yaml"), "default/agents/coder/coder.yaml"},
 
-		{filepath.Join(KindAgent, "orchestrator/prompt/system.tmpl"), "default/agents/orchestrator/prompt/system.tmpl"},
-		{filepath.Join(KindAgent, "orchestrator/prompt/user.tmpl"), "default/agents/orchestrator/prompt/user.tmpl"},
-		{filepath.Join(KindAgent, "orchestrator/orchestrator.yaml"), "default/agents/orchestrator/orchestrator.yaml"},
-
-		{filepath.Join(KindAgent, "critic/prompt/system.tmpl"), "default/agents/critic/prompt/system.tmpl"},
-		{filepath.Join(KindAgent, "critic/prompt/user.tmpl"), "default/agents/critic/prompt/user.tmpl"},
-		{filepath.Join(KindAgent, "critic/critic.yaml"), "default/agents/critic/critic.yaml"},
+		{filepath.Join(KindAgent, "supervisor/prompt/system.tmpl"), "default/agents/supervisor/prompt/system.tmpl"},
+		{filepath.Join(KindAgent, "supervisor/prompt/user.tmpl"), "default/agents/supervisor/prompt/user.tmpl"},
+		{filepath.Join(KindAgent, "supervisor/supervisor.yaml"), "default/agents/supervisor/supervisor.yaml"},
 	}
 
 	for _, e := range entries {

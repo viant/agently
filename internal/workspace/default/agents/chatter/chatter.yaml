@@ -1,4 +1,4 @@
-chatter.yaml: Default conversational agent
+chatter.yaml: Default conversational agent - non coder
 id: chatter
 modelRef: openai_gpt-5.1
 name: Chatter

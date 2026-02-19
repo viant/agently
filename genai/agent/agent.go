@@ -92,6 +92,10 @@ type (
 		// Profile controls agent discoverability in the catalog/list (preferred over Directory).
 		Profile *Profile `yaml:"profile,omitempty" json:"profile,omitempty"`
 
+		// Delegation controls whether this agent can delegate to other agents
+		// and the max depth for same-agent-type delegation.
+		Delegation *Delegation `yaml:"delegation,omitempty" json:"delegation,omitempty"`
+
 		// Serve groups serving endpoints (e.g., A2A). Preferred over legacy ExposeA2A.
 		Serve *Serve `yaml:"serve,omitempty" json:"serve,omitempty"`
 
@@ -245,6 +249,12 @@ type Profile struct {
 	//   - "parentTurn" → reuse per parent turn (agentId+parentId+parentTurnId)
 	// When empty, the runtime defaults to "new".
 	ConversationScope string `yaml:"conversationScope,omitempty" json:"conversationScope,omitempty"`
+}
+
+// Delegation controls whether this agent can delegate and how deep delegation can go.
+type Delegation struct {
+	Enabled  bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	MaxDepth int  `yaml:"maxDepth,omitempty" json:"maxDepth,omitempty"`
 }
 
 // ExposeA2A (legacy): retained for backward compatibility; use Serve.A2A instead.

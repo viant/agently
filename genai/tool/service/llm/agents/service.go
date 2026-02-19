@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 )
 
 const Name = "llm/agents"
+const defaultMaxSameAgentDepth = 2
 
 // agentRuntime abstracts the subset of the agent service used by this
 // tool, allowing unit tests to inject a lightweight fake.
@@ -182,6 +184,17 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	ro, ok := out.(*RunOutput)
 	if !ok {
 		return svc.NewInvalidOutputError(out)
+	}
+	parentID := ""
+	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+		parentID = strings.TrimSpace(tm.Assistant)
+	}
+	maxDepth := s.maxDelegationDepth(ctx, strings.TrimSpace(ri.AgentID))
+	depth := delegationDepthFor(ri.Context, strings.TrimSpace(ri.AgentID))
+	if parentID != "" && strings.EqualFold(parentID, strings.TrimSpace(ri.AgentID)) && depth >= maxDepth {
+		ro.Status = "skipped"
+		ro.Answer = "delegation depth reached for agent " + strings.TrimSpace(ri.AgentID)
+		return nil
 	}
 	convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
 	if convID == "" {
@@ -392,6 +405,11 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	qi := &agentsvc.QueryInput{AgentID: ri.AgentID, Query: ri.Objective, Context: ri.Context}
+	// Increment delegation depth for child context.
+	if strings.TrimSpace(ri.AgentID) != "" {
+		ri.Context = setDelegationDepth(ri.Context, strings.TrimSpace(ri.AgentID), depth+1)
+		qi.Context = ri.Context
+	}
 	// llm/agents:run should honor the delegated agent's configured tools (patterns/bundles)
 	qi.ToolsAllowed = []string{}
 	if ri.ModelPreferences != nil {
@@ -432,6 +450,79 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	}
 	debugf("agents.run done convo=%q agent_id=%q status=%q", strings.TrimSpace(ro.ConversationID), strings.TrimSpace(ri.AgentID), strings.TrimSpace(ro.Status))
 	return nil
+}
+
+func (s *Service) maxDelegationDepth(ctx context.Context, agentID string) int {
+	if strings.TrimSpace(agentID) == "" {
+		return defaultMaxSameAgentDepth
+	}
+	if s == nil || s.agent == nil || s.agent.Finder() == nil {
+		return defaultMaxSameAgentDepth
+	}
+	if ag, err := s.agent.Finder().Find(ctx, strings.TrimSpace(agentID)); err == nil && ag != nil && ag.Delegation != nil && ag.Delegation.MaxDepth > 0 {
+		return ag.Delegation.MaxDepth
+	}
+	return defaultMaxSameAgentDepth
+}
+
+func delegationDepthFor(ctx map[string]interface{}, agentID string) int {
+	if ctx == nil || strings.TrimSpace(agentID) == "" {
+		return 0
+	}
+	raw, ok := ctx["DelegationDepths"]
+	if !ok || raw == nil {
+		return 0
+	}
+	switch m := raw.(type) {
+	case map[string]interface{}:
+		if v, ok := m[agentID]; ok {
+			return asInt(v)
+		}
+	case map[string]int:
+		return m[agentID]
+	case map[string]float64:
+		if v, ok := m[agentID]; ok {
+			return int(v)
+		}
+	}
+	return 0
+}
+
+func setDelegationDepth(ctx map[string]interface{}, agentID string, depth int) map[string]interface{} {
+	if ctx == nil {
+		ctx = map[string]interface{}{}
+	}
+	raw, ok := ctx["DelegationDepths"]
+	var m map[string]interface{}
+	if ok {
+		if mm, ok := raw.(map[string]interface{}); ok {
+			m = mm
+		}
+	}
+	if m == nil {
+		m = map[string]interface{}{}
+	}
+	m[agentID] = depth
+	ctx["DelegationDepths"] = m
+	return ctx
+}
+
+func asInt(v interface{}) int {
+	switch t := v.(type) {
+	case int:
+		return t
+	case int64:
+		return int(t)
+	case float64:
+		return int(t)
+	case float32:
+		return int(t)
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(t)); err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 func (s *Service) isInternalAgent(ctx context.Context, agentID string) bool {

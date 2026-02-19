@@ -19,6 +19,11 @@ prompt:
   uri: prompt/user.tmpl
 systemPrompt:
   uri: prompt/system.tmpl
+  engine: go
+
+delegation:
+  enabled: true
+  maxDepth: 2
 
 
 tool:
@@ -34,7 +39,7 @@ tool:
 systemKnowledge:
   - url: system_knowledge/
     inclusionMode: match
-    minScore: 0.75
+    minScore: 0.40
     maxFiles: 6
     filter:
       inclusions: ["*.md"]
@@ -42,7 +47,7 @@ systemKnowledge:
 knowledge:
   - url: knowledge/
     inclusionMode: match
-    minScore: 0.78
+    minScore: 0.40
     maxFiles: 8
     filter:
       inclusions: ["*.md"]

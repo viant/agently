@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -377,6 +378,22 @@ func (e *Service) newDirectoryProvider(extRoutes map[string]extSpec) func() []ll
 				var caps map[string]interface{}
 				if a.Profile != nil && a.Profile.Capabilities != nil {
 					caps = a.Profile.Capabilities
+				}
+				if a.Delegation != nil && (a.Delegation.Enabled || a.Delegation.MaxDepth != 0) {
+					if caps == nil {
+						caps = map[string]interface{}{}
+					}
+					if a.Delegation.Enabled {
+						caps["delegation"] = map[string]interface{}{"enabled": true}
+					}
+					if a.Delegation.MaxDepth > 0 {
+						if caps["delegation"] == nil {
+							caps["delegation"] = map[string]interface{}{}
+						}
+						if m, ok := caps["delegation"].(map[string]interface{}); ok {
+							m["maxDepth"] = a.Delegation.MaxDepth
+						}
+					}
 				}
 				// Optional responsibilities and scope info for better orchestration context
 				var resp, inScope, outScope []string
@@ -1258,6 +1275,19 @@ func (e *Service) initAgent(ctx context.Context) {
 			if !dup {
 				e.config.Agent.Items = append(e.config.Agent.Items, a)
 			}
+			if debugEnabled() {
+				src := ""
+				if a.Source != nil {
+					src = strings.TrimSpace(a.Source.URL)
+				}
+				delegEnabled := false
+				delegDepth := 0
+				if a.Delegation != nil {
+					delegEnabled = a.Delegation.Enabled
+					delegDepth = a.Delegation.MaxDepth
+				}
+				log.Printf("[debug][agent] loaded id=%q name=%q delegation.enabled=%v delegation.maxDepth=%d source=%q", strings.TrimSpace(a.ID), strings.TrimSpace(a.Name), delegEnabled, delegDepth, src)
+			}
 			// Ensure finder can resolve by agent ID or name (not just filename).
 			if adder, ok := e.agentFinder.(interface {
 				Add(string, *agent.Agent)
@@ -1271,6 +1301,23 @@ func (e *Service) initAgent(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func debugEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_DEBUG"))) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_DEBUG"))) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	}
+	if v := strings.TrimSpace(os.Getenv("AGENTLY_CONVERSATION_DEBUG")); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return false
 }
 
 func buildSnapshotResolver(ctx context.Context, mgr *mcpmgr.Manager) mcpfs.SnapshotResolver {

@@ -1967,11 +1967,53 @@ func composePrunePrompt(lines []string, ids []string) string {
 	return tpl + "\n\n" + buf.String()
 }
 
+// extractFirstJSON scans the payload for the first complete JSON object or array.
+// It tolerates leading/trailing noise and respects strings/escapes.
 func extractFirstJSON(payload string) (string, error) {
-	start := strings.Index(payload, "{")
-	end := strings.LastIndex(payload, "}")
-	if start == -1 || end == -1 || end <= start {
-		return "", fmt.Errorf("no JSON object found in prune response")
+	b := []byte(payload)
+	inString := false
+	escape := false
+	depth := 0
+	start := -1
+	for i, c := range b {
+		if inString {
+			if escape {
+				escape = false
+				continue
+			}
+			if c == '\\' {
+				escape = true
+				continue
+			}
+			if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case ' ', '\t', '\r', '\n':
+			// skip whitespace outside strings
+			continue
+		case '"':
+			inString = true
+			if depth == 0 { // strings before JSON start are noise
+				continue
+			}
+		case '{', '[':
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+			if depth == 0 && start >= 0 {
+				return string(b[start : i+1]), nil
+			}
+		default:
+			// other characters before JSON start are ignored
+		}
 	}
-	return payload[start : end+1], nil
+	return "", fmt.Errorf("no JSON object found in prune response")
 }
