@@ -138,7 +138,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		return fmt.Errorf("schedule not found")
 	}
 	debugf(
-		"Run schedule loaded schedule_id=%q name=%q type=%q enabled=%v tz=%q cron=%q interval_seconds=%v start_at=%s end_at=%s visibility=%q created_by_user_id=%q next_run_at=%s last_run_at=%s timeout_seconds=%d user_cred_url=%q task_prompt_len=%d task_prompt_uri=%q model_override=%q",
+		"Run schedule loaded schedule_id=%q name=%q type=%q enabled=%v tz=%q cron=%q interval_seconds=%v start_at=%s end_at=%s visibility=%q created_by_user_id=%q next_run_at=%s last_run_at=%s user_cred_url=%q task_prompt_len=%d task_prompt_uri=%q model_override=%q",
 		strings.TrimSpace(row.Id),
 		strings.TrimSpace(row.Name),
 		strings.TrimSpace(row.ScheduleType),
@@ -152,7 +152,6 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		strPtrValue(row.CreatedByUserId),
 		timePtrString(row.NextRunAt),
 		timePtrString(row.LastRunAt),
-		row.TimeoutSeconds,
 		redactCredRef(strPtrValue(row.UserCredURL)),
 		len(strings.TrimSpace(strPtrValue(row.TaskPrompt))),
 		strPtrValue(row.TaskPromptUri),
@@ -307,7 +306,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 			t := in.StartedAt.UTC()
 			startedAt = &t
 		}
-		go s.watchRunCompletion(aCtx, strings.TrimSpace(in.Id), schID, strings.TrimSpace(*in.ConversationId), row.TimeoutSeconds, row.Name, startedAt)
+		go s.watchRunCompletion(aCtx, strings.TrimSpace(in.Id), schID, strings.TrimSpace(*in.ConversationId), 0, row.Name, startedAt)
 	}
 	return nil
 }
@@ -565,7 +564,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 		}
 
 		debugf(
-			"RunDue schedule check id=%q name=%q type=%q enabled=%v now=%s tz=%q cron=%q interval_seconds=%v start_at=%s end_at=%s created_at=%s last_run_at=%s next_run_at=%s visibility=%q created_by_user_id=%q lease_owner=%q lease_until=%s timeout_seconds=%d user_cred_url=%q",
+			"RunDue schedule check id=%q name=%q type=%q enabled=%v now=%s tz=%q cron=%q interval_seconds=%v start_at=%s end_at=%s created_at=%s last_run_at=%s next_run_at=%s visibility=%q created_by_user_id=%q lease_owner=%q lease_until=%s user_cred_url=%q",
 			strings.TrimSpace(sc.Id),
 			strings.TrimSpace(sc.Name),
 			strings.TrimSpace(sc.ScheduleType),
@@ -583,7 +582,6 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 			strPtrValue(sc.CreatedByUserId),
 			strPtrValue(sc.LeaseOwner),
 			timePtrString(sc.LeaseUntil),
-			sc.TimeoutSeconds,
 			redactCredRef(strPtrValue(sc.UserCredURL)),
 		)
 
@@ -1024,9 +1022,6 @@ func (s *Service) isStaleRun(r *schapi.Run, sc *schedulepkg.ScheduleView, now ti
 		runStart = r.StartedAt.UTC()
 	}
 	timeout := watchTimeout
-	if sc.TimeoutSeconds > 0 {
-		timeout = time.Duration(sc.TimeoutSeconds) * time.Second
-	}
 	staleGrace := 15 * time.Second
 	leaseExpired := false
 	if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
