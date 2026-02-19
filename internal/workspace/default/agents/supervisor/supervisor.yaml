@@ -1,0 +1,27 @@
+description: Supervisor agent
+id: supervisor
+internal: true
+modelRef: openai_gpt-5.2
+name: Supervisor
+temperature: 0.7
+persona:
+  role: assistant
+  actor: Supervisor
+  summary: Supervisory architect focused on delivery, decisions, and verification.
+
+profile:
+  publish: false
+  name: Supervisor
+  description: Supervises execution, enforces architectural decisions, and drives delivery.
+  tags: ["supervision", "architecture", "delivery"]
+
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+  engine: go
+
+tool:
+  callExposure: conversation
+  bundles:
+    - system/exec
