@@ -53,7 +53,6 @@ func (s *Service) fullKnowledge(ctx context.Context, knowledge []*agent.Knowledg
 		if kn == nil || strings.TrimSpace(kn.URL) == "" {
 			continue
 		}
-
 		err := s.fs.Walk(ctx, kn.URL, func(ctx context.Context, baseURL string, parent string, info os.FileInfo, reader io.Reader) (bool, error) {
 			if info == nil || info.IsDir() {
 				return true, nil
@@ -151,7 +150,6 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 		if limit > 0 && len(augmenterOutput.Documents) > limit {
 			augmenterOutput.Documents = augmenterOutput.Documents[:limit]
 		}
-
 		loaded := augmenterOutput.LoadDocuments(ctx, s.fs)
 		// Trim trailing whitespace to stabilize content tokens
 		for i := range loaded {

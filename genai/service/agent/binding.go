@@ -162,6 +162,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if err := s.appendToolPlaybooks(ctx, b.Tools.Signatures, &b.SystemDocuments); err != nil {
 		return nil, err
 	}
+	s.appendAgentDirectoryDoc(ctx, input, &b.SystemDocuments)
 	// Normalize system doc URIs similarly (even if not rendered now)
 	s.normalizeDocURIs(&b.SystemDocuments, workspace.Root())
 	b.Context = input.Context
@@ -171,6 +172,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	b.Context = cloneContextMap(b.Context)
 	mergeElicitationPayloadIntoContext(b.History, &b.Context)
 	applyToolContext(b.Context, b.Tools.Signatures)
+	s.applyDelegationContext(input, b)
 
 	return b, nil
 }
@@ -184,6 +186,113 @@ func cloneContextMap(src map[string]interface{}) map[string]interface{} {
 		dst[k] = v
 	}
 	return dst
+}
+
+func (s *Service) applyDelegationContext(input *QueryInput, b *prompt.Binding) {
+	if input == nil || b == nil || input.Agent == nil {
+		debugf("delegation.context skip missing input/binding/agent")
+		return
+	}
+	if input.Agent.Delegation == nil || !input.Agent.Delegation.Enabled {
+		debugf("delegation.context disabled agent_id=%q", strings.TrimSpace(input.Agent.ID))
+		return
+	}
+	if b.Context == nil {
+		b.Context = map[string]interface{}{}
+	}
+	maxDepth := input.Agent.Delegation.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = 2
+	}
+	b.Context["DelegationEnabled"] = true
+	b.Context["DelegationMaxDepth"] = maxDepth
+	if strings.TrimSpace(input.Agent.ID) != "" {
+		b.Context["DelegationSelfID"] = strings.TrimSpace(input.Agent.ID)
+	}
+	// Seed a depth map if missing so templates can reference it.
+	if _, ok := b.Context["DelegationDepths"]; !ok {
+		b.Context["DelegationDepths"] = map[string]interface{}{}
+	}
+	debugf("delegation.context enabled agent_id=%q maxDepth=%d", strings.TrimSpace(input.Agent.ID), maxDepth)
+}
+
+func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput, docs *prompt.Documents) {
+	if s == nil || s.registry == nil || input == nil || input.Agent == nil || docs == nil {
+		debugf("delegation.directory skip missing service/registry/input/agent/docs")
+		return
+	}
+	if input.Agent.Delegation == nil || !input.Agent.Delegation.Enabled {
+		debugf("delegation.directory disabled agent_id=%q", strings.TrimSpace(input.Agent.ID))
+		return
+	}
+	// Avoid duplicate injection.
+	const sourceURI = "internal://llm/agents/list"
+	if hasDocumentURI(docs.Items, sourceURI) {
+		debugf("delegation.directory skip already_present agent_id=%q", strings.TrimSpace(input.Agent.ID))
+		return
+	}
+	raw, err := s.registry.Execute(ctx, "llm/agents:list", map[string]interface{}{})
+	if err != nil {
+		debugf("delegation.directory list_error agent_id=%q err=%v", strings.TrimSpace(input.Agent.ID), err)
+		return
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		debugf("delegation.directory list_empty agent_id=%q", strings.TrimSpace(input.Agent.ID))
+		return
+	}
+	var lo struct {
+		Items []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name,omitempty"`
+			Description string `json:"description,omitempty"`
+			Summary     string `json:"summary,omitempty"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(raw), &lo); err != nil || len(lo.Items) == 0 {
+		if err != nil {
+			debugf("delegation.directory list_unmarshal_error agent_id=%q err=%v", strings.TrimSpace(input.Agent.ID), err)
+		} else {
+			debugf("delegation.directory list_unmarshal_empty agent_id=%q", strings.TrimSpace(input.Agent.ID))
+		}
+		return
+	}
+	var bld strings.Builder
+	bld.WriteString("# Available Agents\n\n")
+	for _, it := range lo.Items {
+		name := strings.TrimSpace(it.Name)
+		if name == "" {
+			name = strings.TrimSpace(it.ID)
+		}
+		if name == "" {
+			continue
+		}
+		desc := strings.TrimSpace(it.Description)
+		if desc == "" {
+			desc = strings.TrimSpace(it.Summary)
+		}
+		bld.WriteString("- ")
+		bld.WriteString(name)
+		if id := strings.TrimSpace(it.ID); id != "" && id != name {
+			bld.WriteString(" (`")
+			bld.WriteString(id)
+			bld.WriteString("`)")
+		}
+		if desc != "" {
+			bld.WriteString(": ")
+			bld.WriteString(desc)
+		}
+		bld.WriteString("\n")
+	}
+	doc := &prompt.Document{
+		Title:       "agents/directory",
+		PageContent: strings.TrimSpace(bld.String()),
+		SourceURI:   sourceURI,
+		MimeType:    "text/markdown",
+		Metadata:    map[string]string{"kind": "agents_directory"},
+	}
+	docs.Items = append(docs.Items, doc)
+	debugf("delegation.directory injected agent_id=%q count=%d", strings.TrimSpace(input.Agent.ID), len(lo.Items))
 }
 
 func (s *Service) appendToolPlaybooks(ctx context.Context, defs []*llm.ToolDefinition, docs *prompt.Documents) error {

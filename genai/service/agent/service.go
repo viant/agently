@@ -177,7 +177,7 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 			genInput.UserID = strings.TrimSpace(qi.UserId)
 			genInput.AgentID = strings.TrimSpace(ag.ID)
 			EnsureGenerateOptions(ctx, genInput, ag)
-			genInput.Options.Mode = "plan"
+			// genInput.Options.Mode = "plan"
 			return genInput, nil
 		})
 

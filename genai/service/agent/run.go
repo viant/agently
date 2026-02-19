@@ -39,6 +39,19 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return fmt.Errorf("invalid input: agent is required")
 	}
 	infof("agent.Query start convo=%q agent_id=%q user_id=%q query_len=%d query_head=%q query_tail=%q tools_allowed=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), strings.TrimSpace(input.UserId), len(input.Query), headString(input.Query, 512), tailString(input.Query, 512), len(input.ToolsAllowed))
+	sysPromptEngine := ""
+	sysPromptURI := ""
+	if input.Agent.SystemPrompt != nil {
+		sysPromptEngine = strings.TrimSpace(input.Agent.SystemPrompt.Engine)
+		sysPromptURI = strings.TrimSpace(input.Agent.SystemPrompt.URI)
+	}
+	delegEnabled := false
+	delegDepth := 0
+	if input.Agent.Delegation != nil {
+		delegEnabled = input.Agent.Delegation.Enabled
+		delegDepth = input.Agent.Delegation.MaxDepth
+	}
+	infof("agent.Query config agent_id=%q delegation.enabled=%v delegation.maxDepth=%d systemPrompt.engine=%q systemPrompt.uri=%q", strings.TrimSpace(input.Agent.ID), delegEnabled, delegDepth, sysPromptEngine, sysPromptURI)
 
 	// Bridge auth token from QueryInput.Context when provided (non-HTTP callers).
 	ctx = s.bindAuthFromInputContext(ctx, input)
@@ -337,7 +350,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if input.Agent != nil {
 			genInput.AgentID = strings.TrimSpace(input.Agent.ID)
 		}
-		genInput.Options.Mode = "plan"
+		// genInput.Options.Mode = "plan"
 		EnsureGenerateOptions(ctx, genInput, input.Agent)
 		// Apply per-turn override for reasoning effort when requested
 		if input.ReasoningEffort != nil {
