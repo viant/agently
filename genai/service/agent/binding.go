@@ -1311,6 +1311,9 @@ func (s *Service) buildChronologicalHistory(
 			if m == nil {
 				continue
 			}
+			if m.Mode != nil && strings.EqualFold(strings.TrimSpace(*m.Mode), "chain") {
+				continue
+			}
 			// Allow error messages exactly once in the preview/limited
 			// history path; include them even if type is not text,
 			// provided they are not archived.

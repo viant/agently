@@ -28,6 +28,7 @@ type ctxKey int
 
 const (
 	keyToolTimeout ctxKey = iota + 1
+	keyChainMode
 )
 
 // WithToolTimeout attaches a per-tool execution timeout to the context.
@@ -43,4 +44,19 @@ func toolTimeoutFromContext(ctx context.Context) (time.Duration, bool) {
 		}
 	}
 	return 0, false
+}
+
+// WithChainMode marks tool/message execution context as internal chain execution.
+func WithChainMode(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, keyChainMode, enabled)
+}
+
+// IsChainMode reports whether current execution is internal chain execution.
+func IsChainMode(ctx context.Context) bool {
+	if v := ctx.Value(keyChainMode); v != nil {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return false
 }
