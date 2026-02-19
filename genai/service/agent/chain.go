@@ -18,6 +18,7 @@ import (
 	"github.com/viant/agently/genai/prompt"
 	"github.com/viant/agently/genai/service/core"
 	"github.com/viant/agently/genai/service/shared"
+	executil "github.com/viant/agently/genai/service/shared/executil"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
@@ -591,6 +592,7 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 // trimmed content and resolved role.
 // It centralizes shared logic for sync/async chain execution without applying error policies.
 func (s *Service) fetchChainOutput(ctx context.Context, in *QueryInput, ch *agentmdl.Chain) (string, error) {
+	ctx = executil.WithChainMode(ctx, true)
 	var out QueryOutput
 	if err := s.Query(ctx, in, &out); err != nil {
 		return "", fmt.Errorf("failed to run query %w", err)

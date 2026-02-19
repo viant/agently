@@ -550,6 +550,9 @@ func deriveProviderFromModelRef(modelRef string) string {
 // waitForElicitation was inlined into elicitation.Service.Wait
 
 func (s *Service) addMessage(ctx context.Context, turn *memory.TurnMeta, role, actor, content string, raw *string, mode, id string) (string, error) {
+	if executil.IsChainMode(ctx) {
+		mode = "chain"
+	}
 	opts := []apiconv.MessageOption{
 		apiconv.WithRole(role),
 		apiconv.WithCreatedByUserID(actor),
