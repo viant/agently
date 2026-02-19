@@ -299,14 +299,15 @@ function flattenExecutions(executions = []) {
     return rows;
 }
 
-function ExecutionDetails({ executions = [], context, messageId, turnStatus, turnError, onError, useForgeDialog = false, resizable = false, useCodeMirror = false }) {
+function ExecutionDetails({ executions = [], context, messageId, conversationId, turnStatus, turnError, onError, useForgeDialog = false, resizable = false, useCodeMirror = false }) {
     const [dialog, setDialog] = React.useState(null); // Details or generic payload viewer
     const [payloadDialog, setPayloadDialog] = React.useState(null); // Secondary dialog for payloads when details is open
     const [selectedRowId, setSelectedRowId] = React.useState('');
     const [dlgSize, setDlgSize] = React.useState({ width: 960, height: 640 });
     const [dlgPos, setDlgPos] = React.useState({ left: 120, top: 80 });
     const [payloadPos, setPayloadPos] = React.useState({ left: 160, top: 120 });
-    const dataSourceId = `ds${messageId ?? ""}`;
+    const winId = context?.identity?.windowId || context?.handlers?.window?.windowId || context?.handlers?.window?.id || '';
+    const dataSourceId = `ds-${conversationId || ''}-${messageId ?? ""}-${winId}`;
     const rows = useMemo(() => flattenExecutions(executions), [executions]);
     // removed table debug log
     // Derive a single turn-level error message (if any) to render as a table footer.
