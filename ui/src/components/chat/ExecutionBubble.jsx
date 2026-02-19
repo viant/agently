@@ -229,6 +229,7 @@ function ExecutionTurnDetails({ msg, context, bubbleRef }) {
                         executions={msg.executions}
                         context={context}
                         messageId={msg.id}
+                        conversationId={msg.conversationId || msg.ConversationId}
                         turnStatus={msg.turnStatus}
                         turnError={msg.turnError}
                         resizable
