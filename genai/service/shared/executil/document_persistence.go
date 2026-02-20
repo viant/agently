@@ -79,15 +79,20 @@ func persistDocumentsIfNeeded(ctx context.Context, reg tool.Registry, conv apico
 		if strings.EqualFold(strings.TrimSpace(root.Role), "system") {
 			role = "system"
 		}
+		tags := ResourceDocumentTag
+		if role == "system" {
+			tags = tags + "," + SystemDocumentTag
+		}
 		opts := []apiconv.MessageOption{
 			apiconv.WithRole(role),
 			apiconv.WithType("text"),
 			apiconv.WithContextSummary(loc),
 			apiconv.WithContent(formatted),
 			apiconv.WithRawContent(formatted),
+			apiconv.WithTags(tags),
 		}
 		if role == "system" {
-			opts = append(opts, apiconv.WithMode(SystemDocumentMode), apiconv.WithTags(SystemDocumentTag))
+			opts = append(opts, apiconv.WithMode(SystemDocumentMode))
 		}
 		msg, err := apiconv.AddMessage(ctx, conv, &turn, opts...)
 		if err != nil {
@@ -328,7 +333,7 @@ func ensureSystemDocMetadata(ctx context.Context, conv apiconv.Client, messageID
 	upd := apiconv.NewMessage()
 	upd.SetId(messageID)
 	upd.SetMode(SystemDocumentMode)
-	apiconv.WithTags(SystemDocumentTag)(upd)
+	apiconv.WithTags(ResourceDocumentTag + "," + SystemDocumentTag)(upd)
 	if trimmed := strings.TrimSpace(location); trimmed != "" {
 		apiconv.WithContextSummary(trimmed)(upd)
 	}

@@ -104,6 +104,12 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 	if useMCP && s.mcpMgr == nil {
 		return nil, fmt.Errorf("mcp manager not configured for MCP locations")
 	}
+	resolveNamespace := func(ctx context.Context, uri string) (string, bool, error) {
+		if id, ok := s.resolveLocalRootID(ctx, uri); ok {
+			return id, true, nil
+		}
+		return s.resolveMCPRootID(ctx, uri)
+	}
 	// Use a single augmenter per model+options(+mcp)+db and a shared sqlite store.
 	key := Key(input.Model, input.Match)
 	if useMCP {
@@ -144,9 +150,7 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 				splitterFactory,
 				mcpfs.NewComposite(s.mcpMgr, opts...),
 			)
-			idx = newNamespaceOverrideIndexer(idx, func(ctx context.Context, uri string) (string, bool, error) {
-				return s.resolveMCPRootID(ctx, uri)
-			})
+			idx = newNamespaceOverrideIndexer(idx, resolveNamespace)
 			ret := &DocsAugmenter{
 				embedder:  input.Model,
 				fsIndexer: idx,
@@ -156,6 +160,10 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 			augmenter = ret
 		} else {
 			augmenter = NewDocsAugmenterWithStore(ctx, input.Model, model, store, matchOptions...)
+			if augmenter != nil && augmenter.fsIndexer != nil {
+				augmenter.fsIndexer = newNamespaceOverrideIndexer(augmenter.fsIndexer, resolveNamespace)
+				augmenter.service = indexer.NewService(embeddingBaseURL(ctx), augmenter.store, adaptembed.LangchainEmbedderAdapter{Inner: model}, augmenter.fsIndexer)
+			}
 		}
 		s.DocsAugmenters.Set(key, augmenter)
 	}
@@ -196,5 +204,3 @@ func (s *Service) ensureStoreWithDB(ctx context.Context, dbPath string) (*sqlite
 	s.stores[key] = store
 	return store, key, nil
 }
-
-// debugf prints Embedius-related debug information when AGENTLY_DEBUG_EMBEDIUS=1

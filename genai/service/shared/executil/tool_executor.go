@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	SystemDocumentTag  = "system_doc"
-	SystemDocumentMode = "system_document"
+	SystemDocumentTag   = "system_doc"
+	SystemDocumentMode  = "system_document"
+	ResourceDocumentTag = "resource_doc"
 )
 
 // StepInfo carries the tool step data needed for execution.
