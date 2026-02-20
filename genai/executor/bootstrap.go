@@ -166,7 +166,27 @@ func (e *Service) initCoreServices(ctx context.Context) (*agent2.Service, error)
 				ID:          strings.TrimSpace(root.ID),
 				URI:         strings.TrimSpace(root.URI),
 				UpstreamRef: strings.TrimSpace(root.UpstreamRef),
+				SyncEnabled: root.SyncEnabled,
+				MinInterval: root.MinInterval,
+				Batch:       root.Batch,
+				Shadow:      strings.TrimSpace(root.Shadow),
+				Force:       root.Force,
 			})
+		}
+		if e.config.Default.Resources.UpstreamStore != nil {
+			store := e.config.Default.Resources.UpstreamStore
+			if strings.TrimSpace(store.DSN) != "" && strings.TrimSpace(store.Driver) != "" {
+				localUpstreams = append(localUpstreams, augmenter.LocalUpstream{
+					Name:               "default",
+					Driver:             strings.TrimSpace(store.Driver),
+					DSN:                strings.TrimSpace(store.DSN),
+					Shadow:             strings.TrimSpace(store.Shadow),
+					Batch:              store.Batch,
+					Force:              store.Force,
+					Enabled:            nil,
+					MinIntervalSeconds: store.MinIntervalSeconds,
+				})
+			}
 		}
 		for _, upstream := range e.config.Default.Resources.Upstreams {
 			if strings.TrimSpace(upstream.Name) == "" {
@@ -351,6 +371,9 @@ func (e *Service) newDirectoryProvider(extRoutes map[string]extSpec) func() []ll
 		if e.config != nil && e.config.Agent != nil {
 			for _, a := range e.config.Agent.Items {
 				if a == nil || strings.TrimSpace(a.ID) == "" {
+					continue
+				}
+				if a.Profile != nil && !a.Profile.Publish {
 					continue
 				}
 				id := strings.TrimSpace(a.ID)

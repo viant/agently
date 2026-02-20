@@ -178,6 +178,11 @@ type ResourceRoot struct {
 	ID          string `yaml:"id,omitempty" json:"id,omitempty"`
 	URI         string `yaml:"uri,omitempty" json:"uri,omitempty"`
 	UpstreamRef string `yaml:"upstreamRef,omitempty" json:"upstreamRef,omitempty"`
+	SyncEnabled *bool  `yaml:"syncEnabled,omitempty" json:"syncEnabled,omitempty"`
+	MinInterval int    `yaml:"minIntervalSeconds,omitempty" json:"minIntervalSeconds,omitempty"`
+	Batch       int    `yaml:"batch,omitempty" json:"batch,omitempty"`
+	Shadow      string `yaml:"shadow,omitempty" json:"shadow,omitempty"`
+	Force       *bool  `yaml:"force,omitempty" json:"force,omitempty"`
 }
 
 // ResourceUpstream defines an upstream database used for local resource sync.
@@ -192,6 +197,16 @@ type ResourceUpstream struct {
 	MinIntervalSeconds int    `yaml:"minIntervalSeconds,omitempty" json:"minIntervalSeconds,omitempty"`
 }
 
+// ResourceUpstreamStore defines a default upstream used when no upstreamRef is set.
+type ResourceUpstreamStore struct {
+	Driver             string `yaml:"driver,omitempty" json:"driver,omitempty"`
+	DSN                string `yaml:"dsn,omitempty" json:"dsn,omitempty"`
+	Shadow             string `yaml:"shadow,omitempty" json:"shadow,omitempty"`
+	Batch              int    `yaml:"batch,omitempty" json:"batch,omitempty"`
+	Force              bool   `yaml:"force,omitempty" json:"force,omitempty"`
+	MinIntervalSeconds int    `yaml:"minIntervalSeconds,omitempty" json:"minIntervalSeconds,omitempty"`
+}
+
 // ResourcesDefaults defines default resource roots and presentation hints.
 type ResourcesDefaults struct {
 	// Locations are root URIs or paths (relative to workspace) such as
@@ -201,6 +216,8 @@ type ResourcesDefaults struct {
 	Roots []ResourceRoot `yaml:"roots,omitempty" json:"roots,omitempty"`
 	// Upstreams define upstream databases for local/workspace resource sync.
 	Upstreams []ResourceUpstream `yaml:"upstreams,omitempty" json:"upstreams,omitempty"`
+	// UpstreamStore defines the default upstream used when roots omit upstreamRef.
+	UpstreamStore *ResourceUpstreamStore `yaml:"upstreamStore,omitempty" json:"upstreamStore,omitempty"`
 	// IndexPath controls where Embedius stores local indexes. Supports
 	// ${workspaceRoot} and ${user} macros. If empty, defaults to
 	// ${workspaceRoot}/index/${user}.

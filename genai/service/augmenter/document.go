@@ -18,6 +18,7 @@ type AugmentDocsInput struct {
 	DB              string
 	MaxResponseSize int //size in byte
 	MaxDocuments    int
+	Offset          int
 	//based on meta['path'] include full path as long it does not go over //max response size
 	IncludeFile bool
 	TrimPath    string //trim path prefix

@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	pathpkg "path"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -181,6 +182,7 @@ type MatchInput struct {
 	MaxDocuments int             `json:"maxDocuments,omitempty" `
 	IncludeFile  bool            `json:"includeFile,omitempty" internal:"true"`
 	Match        *embopt.Options `json:"match,omitempty"`
+	Exclude      []string        `json:"exclude,omitempty" description:"optional file/path globs to exclude from match results; supports ** for any depth"`
 	// LimitBytes controls the maximum total bytes of matched content returned for the current cursor page.
 	LimitBytes int `json:"limitBytes,omitempty" description:"Max total bytes per page of matched content. Default: 7000."`
 	// Cursor selects the page (1..N) over the ranked documents, grouped by LimitBytes.
@@ -669,6 +671,20 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 		return nil, fmt.Errorf("embedder is required (set default embedder in config or provide internal model)")
 	}
 	input.IncludeFile = true
+	effectiveInputMatch := input.Match
+	if excludes := normalizeListGlobs(input.Exclude); len(excludes) > 0 {
+		if effectiveInputMatch == nil {
+			effectiveInputMatch = &embopt.Options{}
+		} else {
+			copyMatch := *effectiveInputMatch
+			effectiveInputMatch = &copyMatch
+		}
+		if len(effectiveInputMatch.Exclusions) == 0 {
+			effectiveInputMatch.Exclusions = append([]string(nil), excludes...)
+		} else {
+			effectiveInputMatch.Exclusions = append(append([]string(nil), effectiveInputMatch.Exclusions...), excludes...)
+		}
+	}
 
 	collectedRoots, err := s.collectRoots(ctx)
 	if err != nil {
@@ -701,7 +717,7 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 	}
 	var localRoots []aug.LocalRoot
 	for _, root := range selectedRoots {
-		if root.UpstreamRef == "" || mcpuri.Is(root.URI) {
+		if mcpuri.Is(root.URI) {
 			continue
 		}
 		localRoots = append(localRoots, aug.LocalRoot{
@@ -757,32 +773,75 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 	}
 	grouped := map[string]*matchGroup{}
 	for _, li := range locInfos {
-		key := li.db + "|" + matchKey(li.match, input.Match)
+		key := li.db + "|" + matchKey(li.match, effectiveInputMatch)
 		g, ok := grouped[key]
 		if !ok {
-			g = &matchGroup{db: li.db, match: mergeEffectiveMatch(li.match, input.Match)}
+			g = &matchGroup{db: li.db, match: mergeEffectiveMatch(li.match, effectiveInputMatch)}
 			grouped[key] = g
 		}
 		g.locs = append(g.locs, li.location)
 	}
 	var allDocs []embSchema.Document
+	backfill := effectiveInputMatch != nil && len(effectiveInputMatch.Exclusions) > 0
+	targetDocs := input.MaxDocuments
+	if targetDocs <= 0 {
+		targetDocs = 40
+	}
 	for _, group := range grouped {
-		augIn := &aug.AugmentDocsInput{
-			Query:        query,
-			Locations:    group.locs,
-			Match:        group.match,
-			Model:        embedderID,
-			DB:           group.db,
-			MaxDocuments: input.MaxDocuments,
-			IncludeFile:  input.IncludeFile,
-			TrimPath:     trimPrefix,
-			AllowPartial: true,
+		if !backfill {
+			augIn := &aug.AugmentDocsInput{
+				Query:        query,
+				Locations:    group.locs,
+				Match:        group.match,
+				Model:        embedderID,
+				DB:           group.db,
+				MaxDocuments: input.MaxDocuments,
+				IncludeFile:  input.IncludeFile,
+				TrimPath:     trimPrefix,
+				AllowPartial: true,
+			}
+			var augOut aug.AugmentDocsOutput
+			if err := s.runAugmentDocs(ctx, augIn, &augOut); err != nil {
+				return nil, err
+			}
+			allDocs = append(allDocs, augOut.Documents...)
+			continue
 		}
-		var augOut aug.AugmentDocsOutput
-		if err := s.runAugmentDocs(ctx, augIn, &augOut); err != nil {
-			return nil, err
+
+		offset := 0
+		rounds := 0
+		var groupDocs []embSchema.Document
+		for len(groupDocs) < targetDocs {
+			rounds++
+			if rounds > 5 {
+				break
+			}
+			augIn := &aug.AugmentDocsInput{
+				Query:        query,
+				Locations:    group.locs,
+				Match:        group.match,
+				Model:        embedderID,
+				DB:           group.db,
+				MaxDocuments: targetDocs,
+				Offset:       offset,
+				IncludeFile:  input.IncludeFile,
+				TrimPath:     trimPrefix,
+				AllowPartial: true,
+			}
+			var augOut aug.AugmentDocsOutput
+			if err := s.runAugmentDocs(ctx, augIn, &augOut); err != nil {
+				return nil, err
+			}
+			if len(augOut.Documents) == 0 {
+				break
+			}
+			groupDocs = append(groupDocs, augOut.Documents...)
+			offset += len(augOut.Documents)
+			if len(augOut.Documents) < targetDocs {
+				break
+			}
 		}
-		allDocs = append(allDocs, augOut.Documents...)
+		allDocs = append(allDocs, groupDocs...)
 	}
 	sort.SliceStable(allDocs, func(i, j int) bool { return allDocs[i].Score > allDocs[j].Score })
 
@@ -862,6 +921,7 @@ type MatchDocumentsInput struct {
 	Model        string          `json:"model,omitempty" internal:"true"`
 	MaxDocuments int             `json:"maxDocuments,omitempty" description:"maximum number of matched documents (distinct URIs); defaults to 5"`
 	Match        *embopt.Options `json:"match,omitempty" internal:"true"`
+	Exclude      []string        `json:"exclude,omitempty" description:"optional file/path globs to exclude from match results; supports ** for any depth"`
 }
 
 type MatchedDocument struct {
@@ -2440,6 +2500,9 @@ func (s *Service) normalizeUserRoot(ctx context.Context, in string) (string, str
 		// other helpers may still map it to workspace:// for internal use, but
 		// we no longer reject file:// URIs that live outside the workspace.
 		return u, "file", nil
+	}
+	if filepath.IsAbs(u) || isWindowsAbsPath(u) {
+		return "file://localhost" + url.Path(u), "file", nil
 	}
 	// known workspace kinds
 	lower := strings.ToLower(u)
