@@ -24,6 +24,7 @@ type recorderObserver struct {
 	acc             strings.Builder
 	streamPayloadID string
 	streamLinked    bool
+	streamStatusSet bool
 	// Optional: resolve token prices for a model (per 1k tokens).
 	priceProvider TokenPriceProvider
 }
@@ -213,14 +214,62 @@ func messageText(msg llm.Message) string {
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
 
-// OnStreamDelta aggregates streamed chunks. Persisted once in FinishModelCall.
+// OnStreamDelta aggregates streamed chunks. Persistence strategy is controlled
+// by AGENTLY_STREAM_PERSIST_MODE:
+//   - legacy (default): append+upsert on every delta
+//   - final: persist only once on FinishModelCall
 func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
 	o.publishStreamDelta(ctx, data)
 	o.acc.Write(data)
-	// Best-effort append to stream payload inline body using conversation client
+	msgID := memory.ModelMessageIDFromContext(ctx)
+
+	// Attempt to detect provider response id early from OpenAI Responses events.
+	// We look for {"type":"response.created|response.completed","response":{"id":"..."}}.
+	var probe struct {
+		Type     string `json:"type"`
+		Response struct {
+			ID string `json:"id"`
+		} `json:"response"`
+	}
+	// Fast-path check to avoid expensive JSON unmarshal on tiny chunks.
+	// The minimal JSON that would satisfy the probe is:
+	// {"type":"response.created","response":{"id":"x"}} 49 bytes or 48 when id is empty
+	if len(data) >= 48 {
+		if err := json.Unmarshal(data, &probe); err == nil {
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(probe.Type)), "response.") && strings.TrimSpace(probe.Response.ID) != "" {
+				// Always cache in-memory per-turn for quick reuse.
+				if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+					memory.SetTurnTrace(turn.TurnID, strings.TrimSpace(probe.Response.ID))
+				}
+				// In legacy mode, also persist trace id early (one DB write).
+				if !streamPersistFinalOnly() && strings.TrimSpace(msgID) != "" {
+					upd := apiconv.NewModelCall()
+					upd.SetMessageID(msgID)
+					upd.SetTraceID(strings.TrimSpace(probe.Response.ID))
+					_ = o.client.PatchModelCall(ctx, upd)
+				}
+			}
+		}
+	}
+	if streamPersistFinalOnly() {
+		// (1) Final-only mode: skip per-delta persistence.
+		// (2) Best-effort: mark model call as streaming once for status visibility.
+		if !o.streamStatusSet {
+			if strings.TrimSpace(msgID) != "" {
+				upd := apiconv.NewModelCall()
+				upd.SetMessageID(msgID)
+				upd.SetStatus("streaming")
+				_ = o.client.PatchModelCall(ctx, upd)
+			}
+			o.streamStatusSet = true
+		}
+		return nil
+	}
+	// Legacy mode: per-delta persistence (read + append + full rewrite).
+	// (1) Resolve stream payload id (message id or new UUID).
 	id := strings.TrimSpace(o.streamPayloadID)
 	if id == "" {
 		// Prefer using message id as stream payload id on first chunk
@@ -233,50 +282,26 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 
 	}
 
-	msgID := memory.ModelMessageIDFromContext(ctx)
-
+	// (2) Load current payload body (GetPayload).
 	var cur []byte
 	pv, err := o.client.GetPayload(ctx, id)
 	if err == nil && pv != nil && pv.InlineBody != nil {
 		cur = *pv.InlineBody
 	}
 	if pv == nil {
+		// (3) Mark model call as streaming on first payload upsert.
 		modelCall := apiconv.NewModelCall()
 		modelCall.SetMessageID(msgID)
 		modelCall.SetStatus("streaming")
 		o.client.PatchModelCall(ctx, modelCall)
 	}
 
-	// Attempt to detect provider response id early from OpenAI Responses events.
-	// We look for {"type":"response.created|response.completed","response":{"id":"..."}}.
-	var probe struct {
-		Type     string `json:"type"`
-		Response struct {
-			ID string `json:"id"`
-		} `json:"response"`
-	}
-	if err := json.Unmarshal(data, &probe); err == nil {
-		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(probe.Type)), "response.") && strings.TrimSpace(probe.Response.ID) != "" {
-			if strings.TrimSpace(msgID) != "" {
-				upd := apiconv.NewModelCall()
-				upd.SetMessageID(msgID)
-				if probe.Response.ID != "" {
-					upd.SetTraceID(strings.TrimSpace(probe.Response.ID))
-				}
-				_ = o.client.PatchModelCall(ctx, upd)
-				// Also cache in-memory per-turn for quick reuse
-				if turn, ok := memory.TurnMetaFromContext(ctx); ok {
-					memory.SetTurnTrace(turn.TurnID, strings.TrimSpace(probe.Response.ID))
-				}
-			}
-		}
-	}
-
+	// (4) Append delta to current body and upsert full payload.
 	next := append(cur, data...)
 	if _, err := o.upsertInlinePayload(ctx, id, "model_stream", "text/plain", next); err != nil {
 		return fmt.Errorf("failed to update model stream: %w", err)
 	}
-	// Link stream payload to model call upon first successful upsert to satisfy FK early.
+	// (5) Link stream payload to model call once.
 	if !o.streamLinked {
 		if strings.TrimSpace(msgID) != "" {
 			upd := apiconv.NewModelCall()
@@ -609,4 +634,18 @@ func debugPricingf(format string, args ...interface{}) {
 		return
 	}
 	fmt.Printf("[pricing] "+format+"\n", args...)
+}
+
+const streamPersistModeEnv = "AGENTLY_STREAM_PERSIST_MODE"
+
+// streamPersistFinalOnly reports whether we should persist stream payload only once at finish.
+// Accepts: "final" | "finish" | "onfinish". Default (empty/unknown) is legacy per-delta persistence.
+func streamPersistFinalOnly() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(streamPersistModeEnv)))
+	switch v {
+	case "final", "finish", "onfinish":
+		return true
+	default:
+		return false
+	}
 }

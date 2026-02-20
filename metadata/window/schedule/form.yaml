@@ -223,6 +223,14 @@
       type: datetime
       columnSpan: 1
 
+    - id: timeoutSeconds
+      label: Timeout Seconds
+      type: number
+      columnSpan: 1
+      properties:
+        min: 0
+        step: 1
+
     # persisted fields for backend compatibility; hidden from UI
     - id: scheduleType
       type: text
