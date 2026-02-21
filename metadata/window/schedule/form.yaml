@@ -7,8 +7,6 @@
   style:
     maxWidth: 860px
     margin: 0
-    maxHeight: calc(100vh - 320px)
-    overflowY: auto
     paddingRight: 8px
   items:
     - id: name
@@ -72,14 +70,17 @@
   style:
     maxWidth: 860px
     margin: 0
-    maxHeight: calc(100vh - 320px)
-    overflowY: auto
     paddingRight: 8px
   items:
     - id: enabled
       label: Enabled
-      type: checkbox
+      type: select
       columnSpan: 1
+      options:
+        - value: true
+          label: Enabled
+        - value: false
+          label: Disabled
 
     - id: visibility
       label: Visibility
@@ -94,6 +95,7 @@
     - id: scheduleMode
       label: Mode
       type: radio
+      appearance: segmented
       columnSpan: 2
       on:
         - event: onChange
@@ -107,19 +109,6 @@
           label: Daily
         - value: interval
           label: Interval
-        - value: custom
-          label: Custom
-      properties:
-        appearance: segmented
-        style:
-          display: inline-flex
-          alignItems: center
-          gap: 6px
-          padding: 4px
-          border: 1px solid var(--light-gray1)
-          borderRadius: 999px
-          background: '#f3f4f6'
-          justifySelf: start
 
     - id: dailyTime
       label: Run at (HH:MM or HH:MM AM/PM)
@@ -161,6 +150,7 @@
     - id: weekdays
       label: On days
       type: multiSelect
+      appearance: pills
       columnSpan: 2
       on:
         - event: onChange
@@ -180,7 +170,6 @@
         - { value: sat, label: Sa }
         - { value: sun, label: Su }
       properties:
-        appearance: pills
         placeholder: Select weekdays
         style:
           minHeight: 40px
@@ -223,14 +212,6 @@
       type: datetime
       columnSpan: 1
 
-    - id: timeoutSeconds
-      label: Timeout Seconds
-      type: number
-      columnSpan: 1
-      properties:
-        min: 0
-        step: 1
-
     # persisted fields for backend compatibility; hidden from UI
     - id: scheduleType
       type: text
@@ -254,8 +235,6 @@
   style:
     maxWidth: 860px
     margin: 0
-    maxHeight: calc(100vh - 320px)
-    overflowY: auto
     paddingRight: 8px
   items:
     - id: _securityBanner
@@ -288,10 +267,16 @@
   style:
     maxWidth: 860px
     margin: 0
-    maxHeight: calc(100vh - 320px)
-    overflowY: auto
     paddingRight: 8px
   items:
+    - id: timeoutSeconds
+      label: Timeout Seconds
+      type: number
+      columnSpan: 1
+      properties:
+        min: 0
+        step: 1
+
     - id: modelOverride
       label: Model Override (optional)
       type: text
