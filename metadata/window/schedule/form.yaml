@@ -109,6 +109,8 @@
           label: Daily
         - value: interval
           label: Interval
+        - value: custom
+          label: Custom
 
     - id: dailyTime
       label: Run at (HH:MM or HH:MM AM/PM)
@@ -150,7 +152,6 @@
     - id: weekdays
       label: On days
       type: multiSelect
-      appearance: pills
       columnSpan: 2
       on:
         - event: onChange
@@ -170,6 +171,7 @@
         - { value: sat, label: Sa }
         - { value: sun, label: Su }
       properties:
+        appearance: pills
         placeholder: Select weekdays
         style:
           minHeight: 40px

@@ -219,14 +219,19 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 			req.Model = strings.TrimSpace(*row.ModelOverride)
 		}
 		debugf("Run create conversation schedule_id=%q run_id=%q visibility=%q agent=%q model=%q", schID, strings.TrimSpace(in.Id), strings.TrimSpace(req.Visibility), strings.TrimSpace(req.Agent), strings.TrimSpace(req.Model))
-		resp, err := s.chat.CreateConversation(runCtx, req)
+		callCtx, callCancel := context.WithTimeout(runCtx, runStartupTimeout(row.TimeoutSeconds))
+		resp, err := s.chat.CreateConversation(callCtx, req)
+		callCancel()
 		if err != nil {
 			debugf("Run create conversation error schedule_id=%q run_id=%q err=%v", schID, strings.TrimSpace(in.Id), err)
+			s.failRunStart(ctx, in, err)
 			return err
 		}
 		if resp == nil || strings.TrimSpace(resp.ID) == "" {
 			debugf("Run create conversation returned empty id schedule_id=%q run_id=%q", schID, strings.TrimSpace(in.Id))
-			return fmt.Errorf("failed to create conversation")
+			err = fmt.Errorf("failed to create conversation")
+			s.failRunStart(ctx, in, err)
+			return err
 		}
 		debugf("Run created conversation schedule_id=%q run_id=%q conversation_id=%q", schID, strings.TrimSpace(in.Id), strings.TrimSpace(resp.ID))
 		in.SetConversationId(resp.ID)
@@ -276,9 +281,12 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 	debugf("Run task prompt resolved schedule_id=%q run_id=%q source=%q len=%d", schID, strings.TrimSpace(in.Id), taskSource, len(taskContent))
 	if taskContent != "" && in.ConversationId != nil && strings.TrimSpace(*in.ConversationId) != "" {
 		debugf("Run post task prompt schedule_id=%q run_id=%q conversation_id=%q agent=%q model=%q", schID, strings.TrimSpace(in.Id), strings.TrimSpace(*in.ConversationId), strings.TrimSpace(row.AgentRef), strPtrValue(row.ModelOverride))
-		_, err = s.chat.Post(runCtx, *in.ConversationId, chatcli.PostRequest{Content: taskContent, Agent: row.AgentRef, Model: strPtrValue(row.ModelOverride)})
+		callCtx, callCancel := context.WithTimeout(runCtx, runStartupTimeout(row.TimeoutSeconds))
+		_, err = s.chat.Post(callCtx, *in.ConversationId, chatcli.PostRequest{Content: taskContent, Agent: row.AgentRef, Model: strPtrValue(row.ModelOverride)})
+		callCancel()
 		if err != nil {
 			debugf("Run post task prompt error schedule_id=%q run_id=%q conversation_id=%q err=%v", schID, strings.TrimSpace(in.Id), strings.TrimSpace(*in.ConversationId), err)
+			s.failRunStart(ctx, in, err)
 			return err
 		}
 		// Mark run as running when task is posted
@@ -310,6 +318,33 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		go s.watchRunCompletion(aCtx, strings.TrimSpace(in.Id), schID, strings.TrimSpace(*in.ConversationId), row.TimeoutSeconds, row.Name, startedAt)
 	}
 	return nil
+}
+
+func runStartupTimeout(timeoutSeconds int) time.Duration {
+	if timeoutSeconds <= 0 {
+		return 2 * time.Minute
+	}
+	return time.Duration(timeoutSeconds) * time.Second
+}
+
+func (s *Service) failRunStart(ctx context.Context, in *schapi.MutableRun, runErr error) {
+	if s == nil || s.sch == nil || in == nil {
+		return
+	}
+	if strings.TrimSpace(in.Id) == "" || strings.TrimSpace(in.ScheduleId) == "" {
+		return
+	}
+	upd := &schapi.MutableRun{}
+	upd.SetId(strings.TrimSpace(in.Id))
+	upd.SetScheduleId(strings.TrimSpace(in.ScheduleId))
+	upd.SetStatus("failed")
+	upd.SetCompletedAt(time.Now().UTC())
+	if runErr != nil {
+		upd.SetErrorMessage(strings.TrimSpace(runErr.Error()))
+	}
+	patchCtx, patchCancel := context.WithTimeout(context.WithoutCancel(ctx), callTimeout)
+	_ = s.sch.PatchRun(patchCtx, upd)
+	patchCancel()
 }
 
 func (s *Service) applyUserCred(ctx context.Context, credRef string) (context.Context, error) {

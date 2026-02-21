@@ -60,14 +60,14 @@
 
 
 - id: schedules
-  label: Schedules
+  label: Automation
   icon: time
   childNodes:
     - id: list
-      label: Catalogue
+      label: Automation
       icon: list
       windowKey: schedule
-      windowTitle: Schedules
+      windowTitle: Automation
     - id: history
       label: History
       icon: history
