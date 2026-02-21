@@ -33,7 +33,14 @@ const CRON_TO_WEEKDAY = {
 
 // Convert 0/1 or truthy/falsy to strict boolean
 function asBoolean(value) {
-  return (typeof value === 'number') ? value === 1 : !!value;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase();
+    if (v === 'true' || v === '1' || v === 'yes' || v === 'on' || v === 'enabled') return true;
+    if (v === 'false' || v === '0' || v === 'no' || v === 'off' || v === 'disabled') return false;
+  }
+  return !!value;
 }
 
 // Prefer the first defined field from provided keys
@@ -157,7 +164,7 @@ export async function saveSchedule({ context }) {
   // Normalize model: ensure boolean enabled
   const enabled = asBoolean(form.enabled);
   const mode = String(form.scheduleMode || form.scheduleType || '').trim().toLowerCase() || 'daily';
-  const weekdays = Array.isArray(form.weekdays) ? form.weekdays : [];
+  const weekdays = normalizeWeekdays(form.weekdays);
   const intervalHoursRaw = Number(form.intervalHours);
   const intervalHours = Number.isFinite(intervalHoursRaw) && intervalHoursRaw > 0 ? intervalHoursRaw : 24;
   const intervalSeconds = Math.round(intervalHours * 3600);
@@ -220,10 +227,23 @@ function getFormState(ds) {
   return (ds?.peekFormData?.()?.values) || ds?.peekFormData?.() || ds?.getFormData?.() || {};
 }
 
+function normalizeWeekdays(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    return value.split(',').map((v) => String(v || '').trim().toLowerCase()).filter(Boolean);
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value)
+      .filter(([, selected]) => !!selected)
+      .map(([k]) => String(k || '').trim().toLowerCase())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 function normalizeMode(form = {}) {
   const mode = String(form.scheduleMode || form.scheduleType || '').trim().toLowerCase();
   if (mode === 'daily' || mode === 'interval' || mode === 'custom') return mode;
-  if (mode === 'cron') return 'custom';
   return 'daily';
 }
 
@@ -250,8 +270,8 @@ function applyScheduleSync(form = {}) {
 
   if (mode === 'daily') {
     const timeValue = String(next.dailyTime || '').trim() || '09:00 AM';
-    const weekdays = Array.isArray(next.weekdays) && next.weekdays.length
-      ? next.weekdays
+    const weekdays = normalizeWeekdays(next.weekdays).length
+      ? normalizeWeekdays(next.weekdays)
       : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
     const cron = toDailyCron(timeValue, weekdays);
     next.scheduleType = 'cron';
@@ -342,19 +362,21 @@ function applyLiveScheduleInputs(form = {}) {
 function syncOnModeTransition(ds, form = {}) {
   const withLive = applyLiveScheduleInputs(form);
   const mode = normalizeMode(withLive);
-  const prevMode = String(withLive._lastScheduleMode || liveScheduleDraft.lastMode || '').toLowerCase();
+  const prevMode = String(withLive._lastScheduleMode || liveScheduleDraft.lastMode || 'daily').toLowerCase();
   const next = { ...withLive, _lastScheduleMode: mode };
-  if (mode === 'custom' && prevMode && prevMode !== 'custom') {
-    if (prevMode === 'daily') {
+  if (mode !== prevMode) {
+    if (mode === 'daily') {
       const dailyTime = String(withLive.dailyTime || liveScheduleDraft.dailyTime || '09:00 AM').trim() || '09:00 AM';
-      const weekdays = Array.isArray(withLive.weekdays) && withLive.weekdays.length
-        ? withLive.weekdays
+      const weekdays = normalizeWeekdays(withLive.weekdays).length
+        ? normalizeWeekdays(withLive.weekdays)
         : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
       next.cronExpr = toDailyCron(dailyTime, weekdays);
-    } else if (prevMode === 'interval') {
+    } else if (mode === 'interval') {
       const raw = Number(withLive.intervalHours || liveScheduleDraft.intervalHours);
       const intervalHours = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 24;
       next.cronExpr = toIntervalCron(intervalHours);
+    } else if (mode === 'custom') {
+      next.cronExpr = String(withLive.cronExpr || liveScheduleDraft.cronExpr || '').trim();
     }
   }
   liveScheduleDraft.lastMode = mode;
@@ -370,9 +392,9 @@ export const scheduleService = {
         try {
           const ds = ctx?.Context?.('schedules')?.handlers?.dataSource;
           const form = ds?.getFormData?.() || {};
-          const t = String(form?.scheduleMode || form?.scheduleType || '').toLowerCase();
+          const t = normalizeMode(form);
           if (item?.id === 'dailyTime') return t === 'daily';
-          if (item?.id === 'weekdays') return t === 'daily';
+          if (item?.id === 'weekdays') return t === 'daily' || t === 'interval';
           if (item?.id === 'intervalHours') return t === 'interval';
           if (item?.id === 'cronExpr') return t === 'custom';
           if (item?.id === 'scheduleType' || item?.id === 'intervalSeconds') return false;
@@ -498,10 +520,12 @@ export const scheduleService = {
           row.scheduleMode = 'interval';
         } else if (dailyParsed) {
           row.scheduleMode = 'daily';
+        } else if (rawType === 'cron') {
+          row.scheduleMode = 'custom';
         } else if (intervalParsed) {
           row.scheduleMode = 'interval';
         } else {
-          row.scheduleMode = 'custom';
+          row.scheduleMode = 'daily';
         }
         row._lastScheduleMode = row.scheduleMode;
         // Keep cron text aligned with mode for editor round-trips.
@@ -583,7 +607,7 @@ export const scheduleService = {
     try {
       const ds = context?.Context?.('schedules')?.handlers?.dataSource;
       const form = ds?.getFormData?.() || {};
-      const mode = String(form?.scheduleMode || form?.scheduleType || '').toLowerCase();
+      const mode = normalizeMode(form);
       return mode === 'daily' || mode === 'interval';
     } catch (_) {
       return undefined;
@@ -607,17 +631,19 @@ export const scheduleService = {
       const mode = normalizeMode(withLiveInputs);
       const prevMode = String(withLiveInputs._lastScheduleMode || normalizeMode(current)).toLowerCase();
       const synced = applyScheduleSync(withLiveInputs);
-      if (mode === 'custom' && prevMode && prevMode !== 'custom') {
-        if (prevMode === 'daily') {
+      if (mode !== prevMode) {
+        if (mode === 'daily') {
           const dailyTime = String(withLiveInputs.dailyTime || liveScheduleDraft.dailyTime || '09:00 AM').trim() || '09:00 AM';
-          const weekdays = Array.isArray(withLiveInputs.weekdays) && withLiveInputs.weekdays.length
-            ? withLiveInputs.weekdays
+          const weekdays = normalizeWeekdays(withLiveInputs.weekdays).length
+            ? normalizeWeekdays(withLiveInputs.weekdays)
             : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
           synced.cronExpr = toDailyCron(dailyTime, weekdays);
-        } else if (prevMode === 'interval') {
+        } else if (mode === 'interval') {
           const raw = Number(withLiveInputs.intervalHours || liveScheduleDraft.intervalHours);
           const intervalHours = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 24;
           synced.cronExpr = toIntervalCron(intervalHours);
+        } else if (mode === 'custom') {
+          synced.cronExpr = String(withLiveInputs.cronExpr || liveScheduleDraft.cronExpr || '').trim();
         }
       }
       synced._lastScheduleMode = mode;

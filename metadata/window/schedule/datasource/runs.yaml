@@ -4,6 +4,10 @@ service:
   uri: /v1/api/agently/scheduler/run/{id}
   method: GET
 
+paging:
+  size: 10
+  enabled: true
+
 # Bind path parameter {id} from the parent schedules selection using new Parameter API
 parameters:
   - from: schedules:selection
