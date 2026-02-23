@@ -10,5 +10,9 @@ paging:
 selectors:
   data: data
 
+on:
+  - event: onFetch
+    handler: schedule.onFetchSchedules
+
 uniqueKey:
   - field: id
