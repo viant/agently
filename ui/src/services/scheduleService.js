@@ -92,8 +92,8 @@ function toDailyCron(timeValue, weekdays = []) {
   const parsed = parseTimeTo24h(timeValue) || { hh: 9, mm: 0 };
   const days = Array.isArray(weekdays) ? weekdays : [];
   const mapped = days
-    .map((d) => WEEKDAY_TO_CRON[String(d || '').toLowerCase().trim()])
-    .filter((v) => v !== undefined);
+      .map((d) => WEEKDAY_TO_CRON[String(d || '').toLowerCase().trim()])
+      .filter((v) => v !== undefined);
   const uniq = [...new Set(mapped)];
   const dow = uniq.length ? uniq.join(',') : '*';
   return `${parsed.mm} ${parsed.hh} * * ${dow}`;
@@ -116,9 +116,9 @@ function parseDailyCron(cronExpr) {
   const dow = parts[4];
   if (!Number.isFinite(mm) || !Number.isFinite(hh) || dom !== '*' || mon !== '*') return null;
   const weekdays = String(dow || '')
-    .split(',')
-    .map((v) => CRON_TO_WEEKDAY[String(v).trim()])
-    .filter(Boolean);
+      .split(',')
+      .map((v) => CRON_TO_WEEKDAY[String(v).trim()])
+      .filter(Boolean);
   return {
     dailyTime: toAmPm(hh, mm),
     weekdays: weekdays.length ? [...new Set(weekdays)] : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
@@ -156,14 +156,20 @@ export async function saveSchedule({ context }) {
     return false;
   }
   const ds = ctx.handlers?.dataSource;
-  const form = (ds?.peekFormData?.()?.values) || ds?.getFormData?.() || ds?.getSelection?.()?.selected;
-  if (!form) {
+  const editedValues = (ds?.peekFormData?.()?.values) || {};
+  const formData = ds?.getFormData?.() || {};
+  const selected = ds?.peekSelection?.()?.selected || ds?.getSelection?.()?.selected || {};
+  // Some data source implementations expose only changed fields in peekFormData().values.
+  // Merge with selected/full row so save payload preserves untouched fields.
+  const form = { ...selected, ...formData, ...editedValues };
+  if (!form || Object.keys(form).length === 0) {
     log.warn('scheduleService.saveSchedule: no form data');
     return false;
   }
-  // Normalize model: ensure boolean enabled
-  const enabled = asBoolean(form.enabled);
-  const mode = String(form.scheduleMode || form.scheduleType || '').trim().toLowerCase() || 'daily';
+  // Normalize model: ensure boolean enabled even if backend key shape differs.
+  const enabledRaw = firstDefined(form, ['enabled']);
+  const enabled = enabledRaw === undefined ? false : asBoolean(enabledRaw);
+  const mode = normalizeMode(form);
   const weekdays = normalizeWeekdays(form.weekdays);
   const intervalHoursRaw = Number(form.intervalHours);
   const intervalHours = Number.isFinite(intervalHoursRaw) && intervalHoursRaw > 0 ? intervalHoursRaw : 24;
@@ -224,7 +230,12 @@ function getSchedulesDataSource(context) {
 }
 
 function getFormState(ds) {
-  return (ds?.peekFormData?.()?.values) || ds?.peekFormData?.() || ds?.getFormData?.() || {};
+  const peek = ds?.peekFormData?.();
+  const peekValues = (peek && typeof peek === 'object' && peek.values && typeof peek.values === 'object') ? peek.values : {};
+  const get = ds?.getFormData?.() || {};
+  const selected = ds?.peekSelection?.()?.selected || ds?.getSelection?.()?.selected || {};
+  // Merge all known sources to avoid dropping fields when one API returns a partial snapshot.
+  return { ...selected, ...get, ...peekValues };
 }
 
 function normalizeWeekdays(value) {
@@ -234,29 +245,40 @@ function normalizeWeekdays(value) {
   }
   if (value && typeof value === 'object') {
     return Object.entries(value)
-      .filter(([, selected]) => !!selected)
-      .map(([k]) => String(k || '').trim().toLowerCase())
-      .filter(Boolean);
+        .filter(([, selected]) => !!selected)
+        .map(([k]) => String(k || '').trim().toLowerCase())
+        .filter(Boolean);
   }
   return [];
 }
 
 function normalizeMode(form = {}) {
   const mode = String(form.scheduleMode || form.scheduleType || '').trim().toLowerCase();
+  if (mode === 'cron' || mode === 'adhoc') return 'custom';
   if (mode === 'daily' || mode === 'interval' || mode === 'custom') return mode;
   return 'daily';
 }
 
 function applyScheduleSync(form = {}) {
-  const mode = normalizeMode(form);
-  const next = { ...form, scheduleMode: mode };
-  const cronExpr = String(form.cronExpr || '').trim();
+  const scheduleTypeRaw = firstDefined(form, ['scheduleType', 'schedule_type']);
+  const cronRaw = firstDefined(form, ['cronExpr', 'cron_expr']);
+  const intervalSecondsRaw = firstDefined(form, ['intervalSeconds', 'interval_seconds']);
+  const seed = {
+    ...form,
+    scheduleType: scheduleTypeRaw !== undefined ? scheduleTypeRaw : form.scheduleType,
+    cronExpr: cronRaw !== undefined ? cronRaw : form.cronExpr,
+    intervalSeconds: intervalSecondsRaw !== undefined ? intervalSecondsRaw : form.intervalSeconds,
+  };
+
+  const mode = normalizeMode(seed);
+  const next = { ...seed, scheduleMode: mode };
+  const cronExpr = String(next.cronExpr || '').trim();
   const dailyParsed = parseDailyCron(cronExpr);
   const intervalParsed = parseIntervalCron(cronExpr);
-  const intervalFromSeconds = Number(form.intervalSeconds);
+  const intervalFromSeconds = Number(next.intervalSeconds);
   const fallbackIntervalHours = Number.isFinite(intervalFromSeconds) && intervalFromSeconds > 0
-    ? Math.max(1, Math.round(intervalFromSeconds / 3600))
-    : 24;
+      ? Math.max(1, Math.round(intervalFromSeconds / 3600))
+      : 24;
 
   if (dailyParsed) {
     next.dailyTime = dailyParsed.dailyTime;
@@ -271,8 +293,8 @@ function applyScheduleSync(form = {}) {
   if (mode === 'daily') {
     const timeValue = String(next.dailyTime || '').trim() || '09:00 AM';
     const weekdays = normalizeWeekdays(next.weekdays).length
-      ? normalizeWeekdays(next.weekdays)
-      : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        ? normalizeWeekdays(next.weekdays)
+        : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
     const cron = toDailyCron(timeValue, weekdays);
     next.scheduleType = 'cron';
     next.dailyTime = timeValue;
@@ -360,16 +382,20 @@ function applyLiveScheduleInputs(form = {}) {
 }
 
 function syncOnModeTransition(ds, form = {}) {
-  const withLive = applyLiveScheduleInputs(form);
+  const withLive = applyLiveScheduleInputs({ ...getFormState(ds), ...form });
   const mode = normalizeMode(withLive);
   const prevMode = String(withLive._lastScheduleMode || liveScheduleDraft.lastMode || 'daily').toLowerCase();
-  const next = { ...withLive, _lastScheduleMode: mode };
+  const next = {
+    ...withLive,
+    scheduleMode: mode,
+    _lastScheduleMode: mode,
+  };
   if (mode !== prevMode) {
     if (mode === 'daily') {
       const dailyTime = String(withLive.dailyTime || liveScheduleDraft.dailyTime || '09:00 AM').trim() || '09:00 AM';
       const weekdays = normalizeWeekdays(withLive.weekdays).length
-        ? normalizeWeekdays(withLive.weekdays)
-        : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+          ? normalizeWeekdays(withLive.weekdays)
+          : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
       next.cronExpr = toDailyCron(dailyTime, weekdays);
     } else if (mode === 'interval') {
       const raw = Number(withLive.intervalHours || liveScheduleDraft.intervalHours);
@@ -524,6 +550,8 @@ export const scheduleService = {
           row.scheduleMode = 'custom';
         } else if (intervalParsed) {
           row.scheduleMode = 'interval';
+        } else if (String(rawCron || '').trim()) {
+          row.scheduleMode = 'custom';
         } else {
           row.scheduleMode = 'daily';
         }
@@ -635,8 +663,8 @@ export const scheduleService = {
         if (mode === 'daily') {
           const dailyTime = String(withLiveInputs.dailyTime || liveScheduleDraft.dailyTime || '09:00 AM').trim() || '09:00 AM';
           const weekdays = normalizeWeekdays(withLiveInputs.weekdays).length
-            ? normalizeWeekdays(withLiveInputs.weekdays)
-            : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+              ? normalizeWeekdays(withLiveInputs.weekdays)
+              : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
           synced.cronExpr = toDailyCron(dailyTime, weekdays);
         } else if (mode === 'interval') {
           const raw = Number(withLiveInputs.intervalHours || liveScheduleDraft.intervalHours);

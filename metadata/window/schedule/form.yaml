@@ -74,13 +74,8 @@
   items:
     - id: enabled
       label: Enabled
-      type: select
+      type: checkbox
       columnSpan: 1
-      options:
-        - value: true
-          label: Enabled
-        - value: false
-          label: Disabled
 
     - id: visibility
       label: Visibility
