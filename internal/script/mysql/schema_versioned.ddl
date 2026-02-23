@@ -1138,4 +1138,53 @@ END $$
 CALL schema_upgrade_16() $$
 DROP PROCEDURE schema_upgrade_16 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_17 $$
+CREATE PROCEDURE schema_upgrade_17()
+BEGIN
+    IF get_schema_version() = 17 THEN
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'shadow_vec_docs'
+              AND COLUMN_NAME = 'asset_id'
+        ) THEN
+            ALTER TABLE shadow_vec_docs
+                ADD COLUMN asset_id VARCHAR(512) NOT NULL AFTER id;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'shadow_vec_docs'
+              AND INDEX_NAME = 'idx_shadow_vec_docs_asset'
+        ) THEN
+            CREATE INDEX idx_shadow_vec_docs_asset
+                ON shadow_vec_docs(dataset_id, asset_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'vec_sync_state'
+        ) THEN
+            CREATE TABLE vec_sync_state (
+                dataset_id   VARCHAR(255) NOT NULL,
+                shadow_table VARCHAR(255) NOT NULL,
+                last_scn     BIGINT NOT NULL DEFAULT 0,
+                updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY(dataset_id, shadow_table)
+            );
+        END IF;
+
+        CALL set_schema_version(18);
+    END IF;
+END $$
+
+CALL schema_upgrade_17() $$
+DROP PROCEDURE schema_upgrade_17 $$
+
 DELIMITER ;
