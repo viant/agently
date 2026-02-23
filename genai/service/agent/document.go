@@ -26,7 +26,20 @@ func (s *Service) matchDocuments(ctx context.Context, input *QueryInput, knowled
 	}
 
 	// Decide mode: explicit full, explicit match, or auto (default)
-	if !s.shouldUseMatch(ctx, knowledge) {
+	useMatch := s.shouldUseMatch(ctx, knowledge)
+	mode := "full"
+	if useMatch {
+		mode = "match"
+	}
+	debugf("agent.matchDocuments mode=%s embedding_model=%q query_len=%d query_head=%q query_tail=%q knowledge_entries=%d",
+		mode,
+		strings.TrimSpace(input.EmbeddingModel),
+		len(input.Query),
+		headString(strings.TrimSpace(input.Query), 160),
+		tailString(strings.TrimSpace(input.Query), 160),
+		len(knowledge),
+	)
+	if !useMatch {
 		return s.fullKnowledge(ctx, knowledge)
 	}
 
@@ -53,6 +66,12 @@ func (s *Service) fullKnowledge(ctx context.Context, knowledge []*agent.Knowledg
 		if kn == nil || strings.TrimSpace(kn.URL) == "" {
 			continue
 		}
+		debugf("agent.fullKnowledge include location=%q inclusionMode=%q minScore=%v maxFiles=%d",
+			strings.TrimSpace(kn.URL),
+			strings.TrimSpace(kn.InclusionMode),
+			kn.MinScore,
+			kn.EffectiveMaxFiles(),
+		)
 		err := s.fs.Walk(ctx, kn.URL, func(ctx context.Context, baseURL string, parent string, info os.FileInfo, reader io.Reader) (bool, error) {
 			if info == nil || info.IsDir() {
 				return true, nil
@@ -76,6 +95,7 @@ func (s *Service) fullKnowledge(ctx context.Context, knowledge []*agent.Knowledg
 
 	// Sort deterministically by path
 	sort.Strings(files)
+	debugf("agent.fullKnowledge collected_files=%d", len(files))
 
 	// Load file contents into schema.Document with metadata["path"] = file path
 	out := make([]embSchema.Document, 0, len(files))
@@ -104,6 +124,12 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 		if kn == nil {
 			continue
 		}
+		debugf("agent.onlyNeededKnowledge start location=%q minScore=%v maxFiles=%d filter=%+v",
+			strings.TrimSpace(kn.URL),
+			kn.MinScore,
+			kn.EffectiveMaxFiles(),
+			kn.Filter,
+		)
 		augmenterInput.Locations = []string{kn.URL}
 		augmenterInput.Match = kn.Filter
 		// Use augmenter to get relevant documents
@@ -112,15 +138,36 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 		if err != nil {
 			return nil, fmt.Errorf("failed to augment with knowledge %s: %w", kn.URL, err)
 		}
+		debugf("agent.onlyNeededKnowledge augmented location=%q docs_before_minScore=%d",
+			strings.TrimSpace(kn.URL),
+			len(augmenterOutput.Documents),
+		)
+		for i, d := range augmenterOutput.Documents {
+			debugf("agent.onlyNeededKnowledge candidate location=%q idx=%d score=%.4f source=%q",
+				strings.TrimSpace(kn.URL),
+				i,
+				d.Score,
+				extractSourceDoc(d.Metadata),
+			)
+		}
 		// Optional minScore filter
 		if kn.MinScore != nil {
 			filtered := make([]embSchema.Document, 0, len(augmenterOutput.Documents))
+			dropped := 0
 			for _, d := range augmenterOutput.Documents {
 				if d.Score >= float32(*kn.MinScore) {
 					filtered = append(filtered, d)
+				} else {
+					dropped++
 				}
 			}
 			augmenterOutput.Documents = filtered
+			debugf("agent.onlyNeededKnowledge minScore_applied location=%q threshold=%.4f kept=%d dropped=%d",
+				strings.TrimSpace(kn.URL),
+				*kn.MinScore,
+				len(filtered),
+				dropped,
+			)
 		}
 		// Stable order by normalized source URI to maximize cache reuse
 		sort.SliceStable(augmenterOutput.Documents, func(i, j int) bool {
@@ -150,13 +197,19 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 		if limit > 0 && len(augmenterOutput.Documents) > limit {
 			augmenterOutput.Documents = augmenterOutput.Documents[:limit]
 		}
+		debugf("agent.onlyNeededKnowledge post_limit location=%q limit=%d kept=%d",
+			strings.TrimSpace(kn.URL),
+			limit,
+			len(augmenterOutput.Documents),
+		)
 		loaded := augmenterOutput.LoadDocuments(ctx, s.fs)
 		// Trim trailing whitespace to stabilize content tokens
 		for i := range loaded {
 			loaded[i].PageContent = strings.TrimSpace(loaded[i].PageContent)
 		}
-		allDocuments = loaded
+		allDocuments = append(allDocuments, loaded...)
 	}
+	debugf("agent.onlyNeededKnowledge loaded_docs_total=%d", len(allDocuments))
 	return allDocuments, nil
 }
 
@@ -174,8 +227,10 @@ func (s *Service) shouldUseMatch(ctx context.Context, knowledge []*agent.Knowled
 	mode := strings.ToLower(strings.TrimSpace(knowledge[0].InclusionMode))
 	switch mode {
 	case "match":
+		debugf("agent.shouldUseMatch explicit mode=match")
 		return true
 	case "full":
+		debugf("agent.shouldUseMatch explicit mode=full (minScore ignored in full mode)")
 		return false
 	}
 	// Auto/default
@@ -202,9 +257,11 @@ func (s *Service) shouldUseMatch(ctx context.Context, knowledge []*agent.Knowled
 			return true, nil
 		})
 		if count > limit {
+			debugf("agent.shouldUseMatch auto location=%q count=%d limit=%d => mode=match", strings.TrimSpace(kn.URL), count, limit)
 			return true // prefer match when too many resources
 		}
 	}
+	debugf("agent.shouldUseMatch auto => mode=full")
 	return false // small sets -> full mode OK
 }
 

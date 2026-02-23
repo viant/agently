@@ -66,9 +66,17 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 			if valueNode.Kind == yaml.ScalarNode {
 				config.Options.APIKeyURL = strings.TrimSpace(valueNode.Value)
 			}
+		case "envkey":
+			if valueNode.Kind == yaml.ScalarNode {
+				config.Options.EnvKey = strings.TrimSpace(valueNode.Value)
+			}
 		case "credentialsurl":
 			if valueNode.Kind == yaml.ScalarNode {
 				config.Options.CredentialsURL = strings.TrimSpace(valueNode.Value)
+			}
+		case "useragent":
+			if valueNode.Kind == yaml.ScalarNode {
+				config.Options.UserAgent = strings.TrimSpace(valueNode.Value)
 			}
 		case "url":
 			if valueNode.Kind == yaml.ScalarNode {
@@ -200,6 +208,36 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 				}
 
 				config.Options.EnableContinuationFormat = enabled
+			}
+		case "chatgptoauth":
+			if valueNode.Kind == yaml.MappingNode {
+				oauth := &provider.ChatGPTOAuthOptions{}
+				if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+					if v.Kind != yaml.ScalarNode {
+						return nil
+					}
+					switch strings.ToLower(strings.TrimSpace(k)) {
+					case "clienturl":
+						oauth.ClientURL = strings.TrimSpace(v.Value)
+					case "tokensurl":
+						oauth.TokensURL = strings.TrimSpace(v.Value)
+					case "issuer":
+						oauth.Issuer = strings.TrimSpace(v.Value)
+					case "allowedworkspaceid":
+						oauth.AllowedWorkspaceID = strings.TrimSpace(v.Value)
+					case "useaccesstokenfallback":
+						switch strings.ToLower(strings.TrimSpace(v.Value)) {
+						case "1", "true", "yes", "on":
+							oauth.UseAccessTokenFallback = true
+						default:
+							oauth.UseAccessTokenFallback = false
+						}
+					}
+					return nil
+				}); err != nil {
+					return err
+				}
+				config.Options.ChatGPTOAuth = oauth
 			}
 		}
 		return nil

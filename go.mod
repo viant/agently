@@ -120,6 +120,7 @@ require (
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.13.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect

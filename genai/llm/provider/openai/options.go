@@ -49,6 +49,26 @@ func WithAPIKeyProvider(provider APIKeyProvider) ClientOption {
 	return func(c *Client) { c.APIKeyProvider = provider }
 }
 
+// WithAuthSource sets a redacted label describing auth source selection.
+func WithAuthSource(source string) ClientOption {
+	return func(c *Client) { c.AuthSource = source }
+}
+
+// WithAuthDiagnosticsProvider sets runtime auth diagnostics producer.
+func WithAuthDiagnosticsProvider(provider AuthDiagnosticsProvider) ClientOption {
+	return func(c *Client) { c.AuthDiagnosticsProvider = provider }
+}
+
+// WithChatGPTAccountIDProvider sets runtime resolver for ChatGPT workspace/account id.
+func WithChatGPTAccountIDProvider(provider ChatGPTAccountIDProvider) ClientOption {
+	return func(c *Client) { c.ChatGPTAccountIDProvider = provider }
+}
+
+// WithChatGPTAccountID sets static ChatGPT workspace/account id header value.
+func WithChatGPTAccountID(accountID string) ClientOption {
+	return func(c *Client) { c.ChatGPTAccountID = accountID }
+}
+
 // WithContextContinuation sets a client-level toggle for server-side context
 // continuation (continuation by response_id) when supported by the provider.
 func WithContextContinuation(enabled *bool) ClientOption {
@@ -59,4 +79,19 @@ func WithContextContinuation(enabled *bool) ClientOption {
 // The override is applied only when the value starts with "openai" (case-insensitive).
 func WithUserAgent(userAgent string) ClientOption {
 	return func(c *Client) { c.UserAgent = userAgent }
+}
+
+// WithOriginator sets an explicit originator header value.
+func WithOriginator(originator string) ClientOption {
+	return func(c *Client) { c.Originator = originator }
+}
+
+// WithCodexBetaFeatures sets x-codex-beta-features header value.
+func WithCodexBetaFeatures(features string) ClientOption {
+	return func(c *Client) { c.CodexBetaFeatures = features }
+}
+
+// WithLoggingEnabled toggles provider runtime logs.
+func WithLoggingEnabled(enabled bool) ClientOption {
+	return func(c *Client) { c.EnableLogging = enabled }
 }

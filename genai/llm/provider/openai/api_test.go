@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
 )
 
 // roundTripFunc allows using a function as an HTTP RoundTripper.
@@ -66,4 +67,24 @@ func TestGenerate_UsageListener(t *testing.T) {
 			assert.EqualValues(t, tc.expectedUsage, *resp.Usage)
 		})
 	}
+}
+
+func TestCreateHTTPResponsesApiRequest_BackendSessionHeader(t *testing.T) {
+	client := NewClient("api-key", "gpt-5.3-codex")
+	client.BaseURL = "https://chatgpt.com/backend-api/codex"
+
+	ctx := memory.WithConversationID(context.Background(), "conv-123")
+	req, err := client.createHTTPResponsesApiRequest(ctx, []byte(`{"model":"gpt-5.3-codex","input":[]}`))
+	assert.NoError(t, err)
+	assert.EqualValues(t, "conv-123", req.Header.Get("session_id"))
+}
+
+func TestApplyBackendSessionDefaults_PromptCacheKeyFromConversation(t *testing.T) {
+	client := NewClient("api-key", "gpt-5.3-codex")
+	client.BaseURL = "https://chatgpt.com/backend-api/codex"
+
+	req := &Request{Model: "gpt-5.3-codex"}
+	ctx := memory.WithConversationID(context.Background(), "conv-xyz")
+	client.applyBackendSessionDefaults(ctx, req)
+	assert.EqualValues(t, "conv-xyz", req.PromptCacheKey)
 }
