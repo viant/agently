@@ -3,7 +3,9 @@ package provider
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
+	"strings"
 
 	"github.com/viant/agently/genai/llm"
 	bedrockclaude "github.com/viant/agently/genai/llm/provider/bedrock/claude"
@@ -28,18 +30,96 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 	}
 	switch options.Provider {
 	case ProviderOpenAI:
+		loggingEnabled := true
+		if options.OpenAILogging != nil {
+			loggingEnabled = *options.OpenAILogging
+		}
 		apiKey, err := f.apiKey(ctx, options.APIKeyURL)
 		if err != nil {
 			return nil, err
 		}
+		envAPIKey := strings.TrimSpace(os.Getenv(defaultEnvKey(options.EnvKey, "OPENAI_API_KEY")))
 		opts := []openai.ClientOption{openai.WithUsageListener(options.UsageListener)}
-		if apiKey == "" && options.ChatGPTOAuth != nil {
+		authSource := "openai:apiKeyURL_or_env"
+		if strings.TrimSpace(options.URL) != "" {
+			opts = append(opts, openai.WithBaseURL(strings.TrimSpace(options.URL)))
+		}
+		openAILogf(loggingEnabled, "[openai-auth] model=%s provider=%s chatgptOAuth=%t apiKeyURL_set=%t envKey=%s env_present=%t",
+			options.Model,
+			options.Provider,
+			options.ChatGPTOAuth != nil,
+			strings.TrimSpace(options.APIKeyURL) != "",
+			defaultEnvKey(options.EnvKey, "OPENAI_API_KEY"),
+			envAPIKey != "",
+		)
+		if options.ChatGPTOAuth != nil {
 			manager, err := f.chatgptOAuthManager(options.ChatGPTOAuth)
 			if err != nil {
 				return nil, err
 			}
-			opts = append(opts, openai.WithAPIKeyProvider(manager.APIKey))
+			fallbackKey := strings.TrimSpace(apiKey)
+			if fallbackKey == "" {
+				fallbackKey = envAPIKey
+			}
+			backendMode := isChatGPTBackendURL(options.URL)
+			authSource = "openai:chatgptOAuth"
+			if backendMode {
+				authSource += ":backend-api"
+			}
+			if fallbackKey != "" {
+				authSource += "+fallback"
+			}
+			if options.ChatGPTOAuth.UseAccessTokenFallback {
+				authSource += "+access-token"
+			}
+			opts = append(opts, openai.WithAPIKeyProvider(func(ctx context.Context) (string, error) {
+				// For ChatGPT backend API, prefer direct access token and avoid API key mint attempt.
+				if backendMode {
+					if accessToken, err := manager.AccessToken(ctx); err == nil && strings.TrimSpace(accessToken) != "" {
+						openAILogf(loggingEnabled, "[openai-auth] source=chatgptOAuth outcome=access_token")
+						return accessToken, nil
+					} else if err != nil {
+						openAILogf(loggingEnabled, "[openai-auth] source=chatgptOAuth outcome=access_token_error fallback_available=false err=%v", err)
+					}
+					openAILogf(loggingEnabled, "[openai-auth] source=chatgptOAuth outcome=no_key")
+					return "", fmt.Errorf("OpenAI access token unavailable from chatgptOAuth for backend API")
+				}
+
+				// For OpenAI API endpoint, prefer minted API keys; optional access-token fallback.
+				if oauthKey, err := manager.APIKey(ctx); err == nil && strings.TrimSpace(oauthKey) != "" {
+					openAILogf(loggingEnabled, "[openai-auth] source=chatgptOAuth outcome=oauth_key")
+					return oauthKey, nil
+				} else if err != nil {
+					openAILogf(loggingEnabled, "[openai-auth] source=chatgptOAuth outcome=oauth_error fallback_available=%t err=%v", fallbackKey != "", err)
+				}
+				if options.ChatGPTOAuth.UseAccessTokenFallback {
+					if accessToken, err := manager.AccessToken(ctx); err == nil && strings.TrimSpace(accessToken) != "" {
+						openAILogf(loggingEnabled, "[openai-auth] source=chatgptOAuth outcome=access_token")
+						return accessToken, nil
+					} else if err != nil {
+						openAILogf(loggingEnabled, "[openai-auth] source=chatgptOAuth outcome=access_token_error fallback_available=%t err=%v", fallbackKey != "", err)
+					}
+				}
+				if fallbackKey != "" {
+					openAILogf(loggingEnabled, "[openai-auth] source=chatgptOAuth outcome=fallback_key")
+					return fallbackKey, nil
+				}
+				openAILogf(loggingEnabled, "[openai-auth] source=chatgptOAuth outcome=no_key")
+				return "", fmt.Errorf("OpenAI API key unavailable from chatgptOAuth and no fallback key was configured")
+			}))
+			opts = append(opts, openai.WithAuthDiagnosticsProvider(func(ctx context.Context) string {
+				return manager.Diagnostics(ctx)
+			}))
+			opts = append(opts, openai.WithChatGPTAccountIDProvider(func(ctx context.Context) (string, error) {
+				return manager.AccountID(ctx)
+			}))
+			// Force key resolution through provider so oauth can override env/static key.
+			apiKey = ""
+		} else if strings.TrimSpace(apiKey) == "" {
+			apiKey = envAPIKey
 		}
+		opts = append(opts, openai.WithAuthSource(authSource))
+		opts = append(opts, openai.WithLoggingEnabled(loggingEnabled))
 		if options.MaxTokens > 0 {
 			opts = append(opts, openai.WithMaxTokens(options.MaxTokens))
 		}
@@ -48,6 +128,12 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 		}
 		if options.UserAgent != "" {
 			opts = append(opts, openai.WithUserAgent(options.UserAgent))
+		}
+		if strings.TrimSpace(options.Originator) != "" {
+			opts = append(opts, openai.WithOriginator(strings.TrimSpace(options.Originator)))
+		}
+		if strings.TrimSpace(options.CodexBetaFeatures) != "" {
+			opts = append(opts, openai.WithCodexBetaFeatures(strings.TrimSpace(options.CodexBetaFeatures)))
 		}
 		// Pass through continuation flag; nil means default enabled.
 		opts = append(opts, openai.WithContextContinuation(options.ContextContinuation))
@@ -145,6 +231,21 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 	}
 }
 
+func openAILogf(enabled bool, format string, args ...interface{}) {
+	if !enabled {
+		return
+	}
+	log.Printf(format, args...)
+}
+
+func isChatGPTBackendURL(baseURL string) bool {
+	base := strings.ToLower(strings.TrimSpace(baseURL))
+	if base == "" {
+		return false
+	}
+	return strings.Contains(base, "chatgpt.com/backend-api") || strings.Contains(base, "chat.openai.com/backend-api")
+}
+
 func (o *Factory) apiKey(ctx context.Context, APIKeyURL string) (string, error) {
 	if APIKeyURL == "" {
 		return "", nil
@@ -154,6 +255,14 @@ func (o *Factory) apiKey(ctx context.Context, APIKeyURL string) (string, error) 
 		return "", err
 	}
 	return key.Secret, nil
+}
+
+func defaultEnvKey(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func (o *Factory) chatgptOAuthManager(options *ChatGPTOAuthOptions) (*chatgptauth.Manager, error) {

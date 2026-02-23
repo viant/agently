@@ -38,6 +38,9 @@ func (t *Transcript) History(minimal bool) []*prompt.Message {
 		if v == nil || v.IsArchived() || v.IsInterim() || v.Content == nil || *v.Content == "" {
 			return false
 		}
+		if v.Mode != nil && strings.EqualFold(strings.TrimSpace(*v.Mode), "chain") {
+			return false
+		}
 		// Only include regular chat text; exclude elicitation/status/tool/etc.
 		if strings.ToLower(strings.TrimSpace(v.Type)) != "text" {
 			return false

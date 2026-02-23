@@ -962,7 +962,7 @@ func flattenTranscriptMessages(conv *apiconv.Conversation) []*agconv.MessageView
 			continue
 		}
 		for _, m := range turn.Message {
-			if m != nil && !isSummaryMessageView(m) {
+			if m != nil && !isSummaryMessageView(m) && !isResourceDocMessageView(m) {
 				out = append(out, m)
 			}
 		}
@@ -1501,6 +1501,9 @@ func sanitizeConversationForAPI(conv *apiconv.Conversation) *apiconv.Conversatio
 				if isSummaryMessageView(m) {
 					continue
 				}
+				if isResourceDocMessageView(m) {
+					continue
+				}
 				mc := *m
 				if mc.Attachment != nil {
 					atts := make([]*agconv.AttachmentView, len(mc.Attachment))
@@ -1535,6 +1538,17 @@ func isSummaryMessageView(m *agconv.MessageView) bool {
 		return true
 	}
 	return false
+}
+
+func isResourceDocMessageView(m *agconv.MessageView) bool {
+	if m == nil || m.Tags == nil {
+		return false
+	}
+	tags := strings.ToLower(strings.TrimSpace(*m.Tags))
+	if tags == "" {
+		return false
+	}
+	return strings.Contains(tags, "resource_doc")
 }
 
 func isInterimAssistantMessageView(m *agconv.MessageView) bool {

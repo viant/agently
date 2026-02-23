@@ -160,6 +160,7 @@ type (
 	// Chain defines a single post-turn follow-up.
 	Chain struct {
 		On           string      `yaml:"on,omitempty" json:"on,omitempty"`                     // succeeded|failed|canceled|*
+		Disabled     bool        `yaml:"disabled,omitempty" json:"disabled,omitempty"`         // skip this chain when true
 		Target       ChainTarget `yaml:"target" json:"target"`                                 // required: agent to invoke
 		Conversation string      `yaml:"conversation,omitempty" json:"conversation,omitempty"` // reuse|link (default link)
 		When         *WhenSpec   `yaml:"when,omitempty" json:"when,omitempty"`                 // optional condition

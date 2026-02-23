@@ -22,7 +22,7 @@ view:
         selectFirst: true
         layout:
           orientation: horizontal
-          columns: 4
+          columns: 5
           labelPosition: left
           gap: 2
         items:
@@ -36,6 +36,22 @@ view:
               style:
                 fontWeight: 600
             columnSpan: 3
+          - id: chainStatus
+            type: label
+            properties:
+              style:
+                justifySelf: end
+                alignSelf: center
+                fontSize: '11px'
+                fontWeight: 600
+                padding: '2px 8px'
+                borderRadius: '999px'
+                border: '1px solid var(--light-gray1)'
+                background: 'var(--light-gray5)'
+                color: 'var(--gray1)'
+            on:
+              - event: onVisible
+                handler: chat.showHeaderChainStatus
 
       - id: conversationSection
         chat:
@@ -122,6 +138,26 @@ view:
                 on:
                   - event: onChange
                     handler: chat.updateVisibility
+              - id: enableChains
+                icon: git-branch
+                label: Enable Chains
+                tooltip: Enable agent chaining for new turns
+                align: left
+                on:
+                  - event: onClick
+                    handler: chat.enableChains
+                  - event: onVisible
+                    handler: chat.showEnableChains
+              - id: disableChains
+                icon: disable
+                label: Disable Chains
+                tooltip: Disable agent chaining for new turns
+                align: left
+                on:
+                  - event: onClick
+                    handler: chat.disableChains
+                  - event: onVisible
+                    handler: chat.showDisableChains
               # Removed usage dialog trigger
 
           on:

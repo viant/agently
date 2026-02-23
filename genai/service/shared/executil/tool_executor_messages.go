@@ -15,12 +15,16 @@ import (
 // createToolMessage persists a new tool message and returns its ID.
 func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.TurnMeta, startedAt time.Time) (string, error) {
 	toolMsgID := uuid.New().String()
-	msg, err := apiconv.AddMessage(ctx, conv, &turn,
+	opts := []apiconv.MessageOption{
 		apiconv.WithId(toolMsgID),
 		apiconv.WithRole("tool"),
 		apiconv.WithType("tool_op"),
 		apiconv.WithCreatedAt(startedAt),
-	)
+	}
+	if IsChainMode(ctx) {
+		opts = append(opts, apiconv.WithMode("chain"))
+	}
+	msg, err := apiconv.AddMessage(ctx, conv, &turn, opts...)
 	if err != nil {
 		return "", fmt.Errorf("persist tool message: %w", err)
 	}

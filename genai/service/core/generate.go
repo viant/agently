@@ -410,38 +410,40 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		}
 	}
 	// Handle continuation-by-anchor in a dedicated helper for clarity.
-	if lr, handled, cerr := s.tryGenerateContinuationByAnchor(ctx, model, request); handled || cerr != nil {
-		if cerr != nil {
-			return cerr
-		}
-		output.Response = lr
-		if lr != nil {
-			var builder strings.Builder
-			for _, choice := range lr.Choices {
-				if len(choice.Message.ToolCalls) > 0 {
-					continue
-				}
-				if txt := strings.TrimSpace(choice.Message.Content); txt != "" {
-					builder.WriteString(txt)
-					continue
-				}
-				for _, item := range choice.Message.Items {
-					if item.Type != llm.ContentTypeText {
+	if IsAnchorContinuationEnabled(model) {
+		if lr, handled, cerr := s.tryGenerateContinuationByAnchor(ctx, model, request); handled || cerr != nil {
+			if cerr != nil {
+				return cerr
+			}
+			output.Response = lr
+			if lr != nil {
+				var builder strings.Builder
+				for _, choice := range lr.Choices {
+					if len(choice.Message.ToolCalls) > 0 {
 						continue
 					}
-					if item.Data != "" {
-						builder.WriteString(item.Data)
-					} else if item.Text != "" {
-						builder.WriteString(item.Text)
+					if txt := strings.TrimSpace(choice.Message.Content); txt != "" {
+						builder.WriteString(txt)
+						continue
+					}
+					for _, item := range choice.Message.Items {
+						if item.Type != llm.ContentTypeText {
+							continue
+						}
+						if item.Data != "" {
+							builder.WriteString(item.Data)
+						} else if item.Text != "" {
+							builder.WriteString(item.Text)
+						}
 					}
 				}
+				output.Content = strings.TrimSpace(builder.String())
+				if msgID := memory.ModelMessageIDFromContext(ctx); msgID != "" {
+					output.MessageID = msgID
+				}
 			}
-			output.Content = strings.TrimSpace(builder.String())
-			if msgID := memory.ModelMessageIDFromContext(ctx); msgID != "" {
-				output.MessageID = msgID
-			}
+			return nil
 		}
-		return nil
 	}
 
 	// Attach finish barrier to upstream ctx so recorder observer can signal completion (payload ids, usage).

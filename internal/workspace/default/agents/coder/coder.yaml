@@ -61,3 +61,27 @@ resources:
     uri: file://localhost/~/
     description: Local workspace
     allowGrep: true
+
+chains:
+  - on: succeeded
+    conversation: reuse
+    target:
+      agentId: supervisor
+    when:
+      query:
+        text: |
+          Decide if supervisory intervention is needed. Return ONLY true or false.
+          Return true when the task is large or ambiguous, OR when the main agent appears stuck:
+          repeated attempts failed to make progress, loops/retries continue, blockers remain unresolved,
+          verification evidence is missing, or the stated goal is not yet reachable with the current approach.
+    query:
+      text: |
+        Act as a supervisory architect. Continue from the current execution,
+        choose the best architectural decision, break deadlocks, and drive the next step.
+        Babysit execution, accept follow-ups, and identify opportunities to make the deliverable better.
+        Demand concrete verification with shell evidence and finish by asking what's left.
+    publish:
+      role: user
+      name: supervisor
+    limits:
+      maxDepth: 1

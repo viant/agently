@@ -1249,6 +1249,7 @@ func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) e
 		}
 		var c agentmdl.Chain
 		var whenExpr string
+		var disabledOverride *bool
 		for i := 0; i+1 < len(item.Content); i += 2 {
 			k := strings.ToLower(strings.TrimSpace(item.Content[i].Value))
 			if k == "when" {
@@ -1259,6 +1260,13 @@ func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) e
 					item.Content[i+1] = &yaml.Node{Kind: yaml.MappingNode}
 				}
 				break
+			}
+			if k == "disabled" {
+				v := item.Content[i+1]
+				if v != nil && v.Kind == yaml.ScalarNode {
+					b := toBool(v.Value)
+					disabledOverride = &b
+				}
 			}
 		}
 		if err := (*yaml.Node)(item).Decode(&c); err != nil {
@@ -1292,6 +1300,9 @@ func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) e
 		case "":
 		default:
 			return fmt.Errorf("invalid chain.conversation: %s", c.Conversation)
+		}
+		if disabledOverride != nil {
+			c.Disabled = *disabledOverride
 		}
 		agent.Chains = append(agent.Chains, &c)
 	}
@@ -1443,10 +1454,13 @@ func parseEmbediusResourcesEntry(node *yml.Node) ([]*agentmdl.Resource, bool, er
 			continue
 		}
 		res := &agentmdl.Resource{
-			ID:   strings.TrimSpace(id),
-			URI:  strings.TrimSpace(root.Path),
-			Role: spec.Role,
-			DB:   strings.TrimSpace(cfg.DB),
+			ID:          strings.TrimSpace(id),
+			URI:         strings.TrimSpace(root.Path),
+			Role:        spec.Role,
+			Description: strings.TrimSpace(root.Description),
+			DB: func() string {
+				return strings.TrimSpace(cfg.Store.DSN)
+			}(),
 		}
 		if len(root.Include) > 0 || len(root.Exclude) > 0 || root.MaxSizeBytes > 0 {
 			res.Match = &option.Options{
@@ -1697,6 +1711,7 @@ func parseSystemFlag(node *yml.Node) (enabled bool, handled bool, err error) {
 //   - "~/path"
 //   - "file://localhost/~/path"
 //   - "file:///~/path"
+//   - "file:~/path"
 //
 // For non-file schemes (e.g. mcp:), the input is returned unchanged.
 func expandUserHome(u string) string {
@@ -1731,6 +1746,24 @@ func expandUserHome(u string) string {
 			abs := filepath.Join(home, rel)
 			// Reconstruct as file://localhost/abs or file://abs
 			return prefix + "/" + filepath.ToSlash(strings.TrimLeft(abs, "/"))
+		}
+	}
+	// file: URI forms
+	if strings.HasPrefix(trimmed, "file:") {
+		prefix := "file:"
+		rest := strings.TrimPrefix(trimmed, prefix)
+		if rest == "" {
+			return u
+		}
+		rest = strings.TrimLeft(rest, "/")
+		if strings.HasPrefix(rest, "~") {
+			rel := strings.TrimPrefix(rest, "~")
+			abs := filepath.Join(home, rel)
+			absSlash := filepath.ToSlash(abs)
+			if !strings.HasPrefix(absSlash, "/") {
+				absSlash = "/" + absSlash
+			}
+			return prefix + absSlash
 		}
 	}
 	return u

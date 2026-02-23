@@ -12,7 +12,7 @@ require (
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
 	github.com/viant/datly v0.35.1-0.20260128170806-3481a39615df
-	github.com/viant/embedius v0.4.0
+	github.com/viant/embedius v0.5.3-0.20260220183033-bc27e2e18c76
 	github.com/viant/fluxor v0.4.3
 	github.com/viant/forge v0.2.17-0.20260105184320-7b9e795ab3ef
 	github.com/viant/jsonrpc v0.17.0
@@ -120,6 +120,7 @@ require (
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.13.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
@@ -156,7 +157,7 @@ require (
 	github.com/viant/govalidator v0.3.1 // indirect
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
-	github.com/viant/sqlite-vec v0.2.0 // indirect
+	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
 	github.com/viant/sqlparser v0.9.0 // indirect
 	github.com/viant/sqlx v0.22.0 // indirect
 	github.com/viant/structql v0.5.4 // indirect

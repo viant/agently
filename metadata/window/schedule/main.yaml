@@ -1,23 +1,29 @@
-namespace: Schedules
+namespace: Automation
 
 view:
   content:
-    layout:
-      orientation: vertical
-      rows: 2
+    tabs:
+      vertical: false
 
     containers:
-      - id: schedulesTable
-        title: Schedules
+      - id: schedulesCatalogue
+        title: Automation
         dataSourceRef: schedules
         fetchData: true
         table: $import('table/schedules.yaml')
 
-      - id: details
+      - id: scheduleEditor
+        title: Editor
         dataSourceRef: schedules
         tabs:
           vertical: false
         containers: $import('form.yaml')
+
+      - id: scheduleRuns
+        title: Runs
+        dataSourceRef: runs
+        fetchData: true
+        table: $import('table/runs.yaml')
 
 dataSource:
   schedules: $import('datasource/schedules.yaml')

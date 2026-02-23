@@ -185,13 +185,9 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	parentID := ""
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-		parentID = strings.TrimSpace(tm.Assistant)
-	}
 	maxDepth := s.maxDelegationDepth(ctx, strings.TrimSpace(ri.AgentID))
 	depth := delegationDepthFor(ri.Context, strings.TrimSpace(ri.AgentID))
-	if parentID != "" && strings.EqualFold(parentID, strings.TrimSpace(ri.AgentID)) && depth >= maxDepth {
+	if depth >= maxDepth {
 		ro.Status = "skipped"
 		ro.Answer = "delegation depth reached for agent " + strings.TrimSpace(ri.AgentID)
 		return nil
@@ -456,13 +452,30 @@ func (s *Service) maxDelegationDepth(ctx context.Context, agentID string) int {
 	if strings.TrimSpace(agentID) == "" {
 		return defaultMaxSameAgentDepth
 	}
-	if s == nil || s.agent == nil || s.agent.Finder() == nil {
+	if s == nil || isNilAgentRuntime(s.agent) {
 		return defaultMaxSameAgentDepth
 	}
-	if ag, err := s.agent.Finder().Find(ctx, strings.TrimSpace(agentID)); err == nil && ag != nil && ag.Delegation != nil && ag.Delegation.MaxDepth > 0 {
+	finder := s.agent.Finder()
+	if finder == nil {
+		return defaultMaxSameAgentDepth
+	}
+	if ag, err := finder.Find(ctx, strings.TrimSpace(agentID)); err == nil && ag != nil && ag.Delegation != nil && ag.Delegation.MaxDepth > 0 {
 		return ag.Delegation.MaxDepth
 	}
 	return defaultMaxSameAgentDepth
+}
+
+func isNilAgentRuntime(v agentRuntime) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Interface, reflect.Func:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 func delegationDepthFor(ctx map[string]interface{}, agentID string) int {

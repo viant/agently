@@ -250,6 +250,10 @@ Resources tools
   - `summaryFiles`: description lookup order (default: [`.summary`, `.summary.md`, `README.md`])
   - `roots`: optional structured roots (local/workspace) with `upstreamRef`
   - `upstreams`: optional upstream DB definitions for local/workspace resources
+  - `embedius` integration:
+    - You can import an Embedius config via agent resources, e.g. `- embedius: { config: "~/embedius/config.yaml", role: "user" }`.
+    - Embedius roots become `resources:roots` entries and are searchable via `resources:match`.
+    - Root descriptions come from the Embedius config when provided.
 - `indexPath`: optional Embedius index root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`, `${home}`, `~`)
 - `snapshotPath`: optional MCP snapshot cache root (supports `${workspaceRoot}`, `${runtimeRoot}`, `${user}`, `${home}`, `~`)
 - `runtimeRoot`: optional runtime root (supports `${workspaceRoot}`, `${home}`, `~`)

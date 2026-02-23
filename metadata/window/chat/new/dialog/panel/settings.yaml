@@ -146,6 +146,9 @@ items:
     label: Chains Enabled
     type: toggle
     columnSpan: 1
+    on:
+      - event: onVisible
+        handler: chat.hasAgentChains
     properties:
       style:
         marginTop: '6px'
@@ -155,6 +158,9 @@ items:
     label: Allowed Chains
     type: multiSelect
     columnSpan: 2
+    on:
+      - event: onVisible
+        handler: chat.hasAgentChains
     properties:
       placeholder: 'Select allowed chain targets (agent IDs)'
       style:

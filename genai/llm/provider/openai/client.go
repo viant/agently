@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -16,6 +17,8 @@ import (
 )
 
 type APIKeyProvider func(ctx context.Context) (string, error)
+type AuthDiagnosticsProvider func(ctx context.Context) string
+type ChatGPTAccountIDProvider func(ctx context.Context) (string, error)
 
 // Client represents an OpenAI API client
 type Client struct {
@@ -26,6 +29,20 @@ type Client struct {
 	APIKeyProvider APIKeyProvider
 	// UserAgent overrides the default User-Agent header when specified and allowed.
 	UserAgent string
+	// EnableLogging toggles provider runtime logs (auth/ws diagnostics).
+	EnableLogging bool
+	// Originator mirrors Codex default header style for backend-api compatibility.
+	Originator string
+	// CodexBetaFeatures maps to x-codex-beta-features header when set.
+	CodexBetaFeatures string
+	// AuthSource is a redacted label indicating where auth keys are resolved from.
+	AuthSource string
+	// AuthDiagnosticsProvider returns redacted runtime diagnostics for auth decisions.
+	AuthDiagnosticsProvider AuthDiagnosticsProvider
+	// ChatGPTAccountIDProvider resolves workspace/account id for ChatGPT backend requests.
+	ChatGPTAccountIDProvider ChatGPTAccountIDProvider
+	// ChatGPTAccountID is an optional static workspace/account id.
+	ChatGPTAccountID string
 
 	// Defaults applied when GenerateRequest.Options is nil or leaves the
 	// respective field unset.
@@ -49,8 +66,9 @@ func NewClient(apiKey, model string, options ...ClientOption) *Client {
 			BaseURL:    openAIEndpoint,
 			Model:      model,
 		},
-		APIKey:     apiKey,
-		storageMgr: nil,
+		APIKey:        apiKey,
+		EnableLogging: true,
+		storageMgr:    nil,
 	}
 
 	// Apply options
@@ -76,6 +94,13 @@ func NewClient(apiKey, model string, options ...ClientOption) *Client {
 	}
 
 	return client
+}
+
+func (c *Client) logf(format string, args ...interface{}) {
+	if c == nil || !c.EnableLogging {
+		return
+	}
+	log.Printf(format, args...)
 }
 
 func (c *Client) apiKey(ctx context.Context) (string, error) {
@@ -108,6 +133,64 @@ func (c *Client) userAgentOverride() string {
 		return ua
 	}
 	return ""
+}
+
+func (c *Client) originatorHeader() string {
+	if c == nil {
+		return ""
+	}
+	if v := strings.TrimSpace(c.Originator); v != "" {
+		return v
+	}
+	return "codex_cli_rs"
+}
+
+func (c *Client) codexBetaFeaturesHeader() string {
+	if c == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.CodexBetaFeatures)
+}
+
+func (c *Client) authDiagnostics(ctx context.Context) string {
+	if c == nil {
+		return ""
+	}
+	parts := make([]string, 0, 2)
+	if src := strings.TrimSpace(c.AuthSource); src != "" {
+		parts = append(parts, "auth_source="+src)
+	}
+	if c.AuthDiagnosticsProvider != nil {
+		if extra := strings.TrimSpace(c.AuthDiagnosticsProvider(ctx)); extra != "" {
+			parts = append(parts, extra)
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, " "))
+}
+
+func (c *Client) chatGPTAccountID(ctx context.Context) (string, error) {
+	if c == nil {
+		return "", nil
+	}
+	if v := strings.TrimSpace(c.ChatGPTAccountID); v != "" {
+		return v, nil
+	}
+	if c.ChatGPTAccountIDProvider == nil {
+		return "", nil
+	}
+	v, err := c.ChatGPTAccountIDProvider(ctx)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(v), nil
+}
+
+func isChatGPTBackendURL(baseURL string) bool {
+	base := strings.ToLower(strings.TrimSpace(baseURL))
+	if base == "" {
+		return false
+	}
+	return strings.Contains(base, "chatgpt.com/backend-api") || strings.Contains(base, "chat.openai.com/backend-api")
 }
 
 func (c *Client) ensureStorageManager(ctx context.Context) error {

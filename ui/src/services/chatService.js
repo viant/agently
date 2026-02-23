@@ -34,6 +34,83 @@ import {
 // Module-level stash for uploads to avoid relying on mutable message object
 let pendingUploads = [];
 
+function normalizeBool(value) {
+    if (value === true || value === false) return value;
+    if (value == null) return undefined;
+    if (typeof value === 'string') {
+        const s = value.trim().toLowerCase();
+        if (!s) return undefined;
+        if (s === 'true' || s === '1' || s === 'yes' || s === 'on') return true;
+        if (s === 'false' || s === '0' || s === 'no' || s === 'off') return false;
+        return undefined;
+    }
+    if (typeof value === 'number') {
+        if (value === 1) return true;
+        if (value === 0) return false;
+        return undefined;
+    }
+    return undefined;
+}
+
+function currentAgentID(context) {
+    const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+    const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
+    const convForm = convDS?.peekFormData?.() || {};
+    const convSig = context?.Context?.('conversations')?.signals?.form;
+    const convSignalForm = (typeof convSig?.peek === 'function') ? (convSig.peek() || {}) : (convSig?.value || {});
+    return String(metaForm.agent || convSignalForm.agent || convForm.agent || '').trim();
+}
+
+function chainTargetsForAgent(context, agentID) {
+    const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+    const key = String(agentID || '').trim();
+    if (!key) return [];
+    const targets = metaForm?.agentChainTargets?.[key];
+    if (!Array.isArray(targets)) return [];
+    return targets
+        .map((v) => String(v || '').trim())
+        .filter((v) => !!v);
+}
+
+function resolveChainsEnabled(metaForm = {}, convForm = {}) {
+    const chainEnabledCandidates = [metaForm.chainsEnabled, convForm.chainsEnabled];
+    for (const v of chainEnabledCandidates) {
+        const n = normalizeBool(v);
+        if (n !== undefined) return n;
+    }
+    const disableCandidates = [metaForm.disableChains, convForm.disableChains];
+    for (const v of disableCandidates) {
+        const n = normalizeBool(v);
+        if (n !== undefined) return !n;
+    }
+    return true;
+}
+
+function resolveAllowedChains(metaForm = {}, convForm = {}, fallback = []) {
+    if (Array.isArray(metaForm.allowedChains)) return metaForm.allowedChains;
+    if (Array.isArray(convForm.allowedChains)) return convForm.allowedChains;
+    return Array.isArray(fallback) ? fallback : [];
+}
+
+function chainStatusLabel(enabled) {
+    return `Chains: ${enabled ? 'On' : 'Off'}`;
+}
+
+function syncChainStatusToConversation(context) {
+    try {
+        const agentID = currentAgentID(context);
+        const targets = chainTargetsForAgent(context, agentID);
+        const hasChains = targets.length > 0;
+        const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+        const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
+        const convForm = convDS?.peekFormData?.() || {};
+        const enabled = resolveChainsEnabled(metaForm, convForm);
+        const text = hasChains ? chainStatusLabel(enabled) : '';
+        convDS?.setFormField?.({ item: { id: 'chainStatus' }, value: text });
+        convDS?.setFormField?.({ item: { id: 'hasChains' }, value: hasChains });
+    } catch (_) {}
+}
+
 // -------------------------------
 // Window lifecycle helpers
 // -------------------------------
@@ -2394,6 +2471,91 @@ export async function updateVisibility(args) {
     }
 }
 
+function patchChainsState(context, nextEnabled, allowedChains = []) {
+    const normalizedAllowed = Array.isArray(allowedChains) ? allowedChains : [];
+    const patch = {
+        chainsEnabled: !!nextEnabled,
+        disableChains: !nextEnabled,
+        allowedChains: normalizedAllowed,
+    };
+    try {
+        const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
+        const prevMeta = metaDS?.peekFormData?.() || {};
+        metaDS?.setFormData?.({ values: { ...prevMeta, ...patch } });
+    } catch (_) {}
+    try {
+        const convCtx = context?.Context?.('conversations');
+        const convDS = convCtx?.handlers?.dataSource;
+        const prevConv = convDS?.peekFormData?.() || {};
+        convDS?.setFormData?.({ values: { ...prevConv, ...patch } });
+        const formSig = convCtx?.signals?.form;
+        if (formSig) {
+            const prevSig = (typeof formSig.peek === 'function') ? (formSig.peek() || {}) : (formSig.value || {});
+            formSig.value = { ...prevSig, ...patch };
+        }
+    } catch (_) {}
+    syncChainStatusToConversation(context);
+}
+
+export function hasAgentChains(args) {
+    const context = args?.context;
+    if (!context) return false;
+    const agentID = currentAgentID(context);
+    return chainTargetsForAgent(context, agentID).length > 0;
+}
+
+export function showHeaderChainStatus(args) {
+    const context = args?.context;
+    if (!context) return false;
+    const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
+    const convForm = convDS?.peekFormData?.() || {};
+    const hasChains = normalizeBool(convForm.hasChains);
+    if (hasChains !== undefined) return hasChains;
+    return hasAgentChains(args);
+}
+
+export function showEnableChains(args) {
+    const context = args?.context;
+    if (!context || !hasAgentChains(args)) return false;
+    const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+    const convForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+    return !resolveChainsEnabled(metaForm, convForm);
+}
+
+export function showDisableChains(args) {
+    const context = args?.context;
+    if (!context || !hasAgentChains(args)) return false;
+    const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+    const convForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+    return !!resolveChainsEnabled(metaForm, convForm);
+}
+
+export function enableChains(args) {
+    const context = args?.context;
+    if (!context) return false;
+    const agentID = currentAgentID(context);
+    const targets = chainTargetsForAgent(context, agentID);
+    if (targets.length === 0) return false;
+    const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+    const convForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+    const allowed = resolveAllowedChains(metaForm, convForm, targets);
+    patchChainsState(context, true, allowed.length ? allowed : targets);
+    return true;
+}
+
+export function disableChains(args) {
+    const context = args?.context;
+    if (!context) return false;
+    const agentID = currentAgentID(context);
+    const targets = chainTargetsForAgent(context, agentID);
+    if (targets.length === 0) return false;
+    const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+    const convForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+    const allowed = resolveAllowedChains(metaForm, convForm, targets);
+    patchChainsState(context, false, allowed);
+    return true;
+}
+
 export async function cancelQueuedTurnByID({context, conversationID, turnID}) {
     try {
         if (!context) return false;
@@ -2510,6 +2672,11 @@ export async function editQueuedTurn(props) {
         if (currentContent && nextContent === currentContent) return false;
 
         const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+        const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
+        const convForm = convDS?.peekFormData?.() || {};
+        const chainsEnabled = resolveChainsEnabled(metaForm, convForm);
+        const disableChainsFlag = !chainsEnabled;
+        const allowedChainsValue = resolveAllowedChains(metaForm, convForm);
         const overrides = row?.overrides || row?.Overrides || {};
         const toolsOverride = Array.isArray(overrides?.tools) ? overrides.tools : [];
         const body = {
@@ -2520,8 +2687,8 @@ export async function editQueuedTurn(props) {
             toolCallExposure: metaForm.toolCallExposure,
             reasoningEffort: metaForm.reasoningEffort,
             autoSummarize: metaForm.autoSummarize,
-            disableChains: metaForm.disableChains,
-            allowedChains: metaForm.allowedChains || [],
+            disableChains: disableChainsFlag,
+            allowedChains: allowedChainsValue,
         };
 
         // Cancel old queued turn first, then enqueue the edited one.
@@ -2587,6 +2754,7 @@ export function saveSettings(args) {
     const normalized = {...source};
     if (typeof chainsEnabled === 'boolean') {
         normalized.disableChains = !chainsEnabled;
+        normalized.chainsEnabled = chainsEnabled;
     }
     if (Array.isArray(allowedChains)) {
         normalized.allowedChains = allowedChains;
@@ -2599,6 +2767,16 @@ export function saveSettings(args) {
         if (v) normalized.visibility = v;
     }
     signals.form.value = {...patch, ...normalized}
+    try {
+        const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
+        const prevMeta = metaDS?.peekFormData?.() || {};
+        metaDS?.setFormData?.({ values: { ...prevMeta, ...normalized } });
+    } catch (_) {}
+    try {
+        const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
+        const prevConv = convDS?.peekFormData?.() || {};
+        convDS?.setFormData?.({ values: { ...prevConv, ...normalized } });
+    } catch (_) {}
 
     try {
         const convCtx = context?.Context?.('conversations');
@@ -2610,6 +2788,7 @@ export function saveSettings(args) {
             void patchConversationVisibility({context, conversationID: convID, visibility: nextVis});
         }
     } catch (_) {}
+    syncChainStatusToConversation(context);
 }
 
 
@@ -2657,6 +2836,7 @@ export function selectAgent(args) {
         delete (agentValues['tools'])
         const prev = ds.peekFormData()
         ds.setFormData({values: {...prev, ...agentValues}})
+        syncChainStatusToConversation(context);
     };
 
     if (candidate) {
@@ -2698,8 +2878,13 @@ export async function submitMessage(props) {
 
 
     const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+    const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
+    const convForm = convDS?.peekFormData?.() || {};
+    const chainsEnabled = resolveChainsEnabled(metaForm, convForm);
+    const disableChains = !chainsEnabled;
+    const allowedChains = resolveAllowedChains(metaForm, convForm);
 
-    const {agent, model, tool, toolCallExposure, reasoningEffort, autoSummarize, autoSelectTools, disableChains, allowedChains=[]} = metaForm
+    const {agent, model, tool, toolCallExposure, reasoningEffort, autoSummarize, autoSelectTools} = metaForm
 
     const messagesContext = context.Context('messages');
     const messagesAPI = messagesContext.connector;
@@ -3701,6 +3886,12 @@ export const chatService = {
     onFetchHistory,
     onSettings,
     updateVisibility,
+    hasAgentChains,
+    showHeaderChainStatus,
+    showEnableChains,
+    showDisableChains,
+    enableChains,
+    disableChains,
     taskStatusIcon,
     saveSettings,
     debugHistoryOpen,
@@ -3889,23 +4080,6 @@ function onFetchMeta(args) {
         settings.tool = settings.tools
         delete (settings['tools'])
         // Default: tool auto-selection (bundle routing). Prefer user selection when present.
-        const normalizeBool = (v) => {
-            if (v === true || v === false) return v;
-            if (v == null) return undefined;
-            if (typeof v === 'string') {
-                const s = v.trim().toLowerCase();
-                if (!s) return undefined;
-                if (s === 'true') return true;
-                if (s === 'false') return false;
-                return undefined;
-            }
-            if (typeof v === 'number') {
-                if (v === 1) return true;
-                if (v === 0) return false;
-                return undefined;
-            }
-            return undefined;
-        };
         // Auto tool selection (bundle routing): prefer any explicit form value
         // (composer or settings dialog) over defaults. Do not rely on `context.resources`
         // flags because different Forge data-source contexts do not share `resources`.
@@ -3942,21 +4116,35 @@ function onFetchMeta(args) {
             }
         } catch (_) {}
 
-        const disableChains = normalizeBool(settings.disableChains);
-        const chainsEnabled = normalizeBool(settings.chainsEnabled);
-        const finalChainsEnabled = (chainsEnabled !== undefined)
-            ? chainsEnabled
-            : (disableChains !== undefined ? !disableChains : true);
+        const finalChainsEnabled = resolveChainsEnabled(
+            {
+                ...settings,
+                chainsEnabled: currentForm.chainsEnabled ?? settings.chainsEnabled,
+                disableChains: currentForm.disableChains ?? settings.disableChains,
+            },
+            {
+                chainsEnabled: convForm.chainsEnabled,
+                disableChains: convForm.disableChains,
+            },
+        );
         settings.chainsEnabled = finalChainsEnabled;
         settings.disableChains = !finalChainsEnabled;
-        if (!Array.isArray(settings.allowedChains)) settings.allowedChains = [];
-
         const allowedChainsOptions = (agentChainTargets?.[curAgent] || []).map((v) => ({
             id: String(v),
             value: String(v),
             label: String(v),
         }));
+        const hasChains = allowedChainsOptions.length > 0;
+        settings.allowedChains = resolveAllowedChains(currentForm, convForm, allowedChainsOptions.map((v) => v.value));
         settings.allowedChainsOptions = allowedChainsOptions;
+        settings.hasChains = hasChains;
+        settings.chainStatus = hasChains ? chainStatusLabel(finalChainsEnabled) : '';
+        try {
+            if (convDS?.setFormField) {
+                convDS.setFormField({ item: { id: 'hasChains' }, value: hasChains });
+                convDS.setFormField({ item: { id: 'chainStatus' }, value: settings.chainStatus });
+            }
+        } catch (_) {}
 
         return {
             ...data,

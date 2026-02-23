@@ -222,9 +222,21 @@ func workspaceToFile(ws string) string {
 }
 
 func fileToWorkspace(file string) string {
-	base := workspace.Root()
-	file = strings.Replace(file, base, "", 1)
-	return "workspace://localhost" + url.Path(file)
+	file = strings.TrimSpace(file)
+	if file == "" {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(file), "file://") {
+		file = fileURLToPath(file)
+	}
+	base := filepath.Clean(workspace.Root())
+	path := filepath.Clean(file)
+	if path == base || strings.HasPrefix(path, base+string(os.PathSeparator)) {
+		rel := strings.TrimPrefix(path, base)
+		return "workspace://localhost" + url.Path(rel)
+	}
+	// Outside workspace: keep as file:// URL.
+	return "file://localhost" + url.Path(path)
 }
 
 func toWorkspaceURI(value string) string {
