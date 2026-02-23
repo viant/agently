@@ -8,3 +8,5 @@
    - minor bug fixes
 - v0.2.52
    - Enforce agent resource allowlist for semantic match rootIds to prevent MCP root overrides.
+- v0.2.56
+   - Enhance embedius integration (address muli sqlite global vtab issue)

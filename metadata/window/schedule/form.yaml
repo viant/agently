@@ -1,59 +1,29 @@
-- id: basics
-  title: Basics
+- id: general
+  title: General
   layout:
     orientation: horizontal
-    columns: 3
+    columns: 2
     labelPosition: top
   style:
-    maxWidth: 980px
+    maxWidth: 860px
     margin: 0
+    paddingRight: 8px
   items:
-    - id: id
-      label: ID
-      type: text
-      columnSpan: 2
-      properties:
-        readOnly: true
-        leftIcon: key
-    - id: visibility
-      label: Visibility
-      type: select
-      options:
-        - value: private
-          label: Private
-        - value: public
-          label: Public
     - id: name
       label: Name
       type: text
       columnSpan: 2
       properties:
-        placeholder: Enter schedule name
-    - id: description
-      label: Description
-      type: textarea
-      columnSpan: 2
-      properties:
-        rows: 4
-        cols: 80
+        placeholder: Daily bug scan
 
-- id: targeting
-  title: Targeting
-  layout:
-    labelPosition: top
-  style:
-    maxWidth: 980px
-    margin: 0
-  items:
     - id: agentRef
       label: Agent
       type: text
+      columnSpan: 2
       properties:
-        style:
-          backgroundColor: '#f0fff4'   # pastel green background
-          borderColor: '#c6f6d5'       # subtle green border
+        placeholder: Select agent
       lookup:
-        dialogId: agentLov           # prefer Forge Dialog (built-in footer)
+        dialogId: agentLov
         size:
           width: '70%'
           height: '70%'
@@ -62,9 +32,257 @@
         outputs:
           - name: agentRef
             location: id
-    - id: modelOverride
-      label: Model
+
+    - id: taskPrompt
+      label: Prompt
+      type: textarea
+      columnSpan: 2
+      properties:
+        rows: 8
+        cols: 100
+        placeholder: Describe what should run automatically.
+
+    - id: description
+      label: Description (optional)
+      type: textarea
+      columnSpan: 2
+      properties:
+        rows: 3
+        cols: 100
+
+    - id: id
+      label: ID
       type: text
+      columnSpan: 1
+      on:
+        - event: onVisible
+          handler: schedule.showIfEdit
+      properties:
+        readOnly: true
+        leftIcon: key
+
+- id: schedule
+  title: Schedule
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  style:
+    maxWidth: 860px
+    margin: 0
+    paddingRight: 8px
+  items:
+    - id: enabled
+      label: Enabled
+      type: select
+      columnSpan: 1
+      options:
+        - value: true
+          label: Enabled
+        - value: false
+          label: Disabled
+
+    - id: visibility
+      label: Visibility
+      type: select
+      columnSpan: 1
+      options:
+        - value: private
+          label: Private
+        - value: public
+          label: Public
+
+    - id: scheduleMode
+      label: Mode
+      type: radio
+      appearance: segmented
+      columnSpan: 2
+      on:
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onSelection
+          handler: schedule.syncScheduleFields
+        - event: onItemSelect
+          handler: schedule.syncScheduleFields
+      options:
+        - value: daily
+          label: Daily
+        - value: interval
+          label: Interval
+        - value: custom
+          label: Custom
+
+    - id: dailyTime
+      label: Run at (HH:MM or HH:MM AM/PM)
+      type: text
+      columnSpan: 1
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onVisible
+          handler: schedule.showIfDaily
+      properties:
+        placeholder: 09:00 AM
+
+    - id: intervalHours
+      label: Run every (hours)
+      type: number
+      columnSpan: 1
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onVisible
+          handler: schedule.showIfInterval
+      properties:
+        min: 1
+        step: 1
+
+    - id: weekdays
+      label: On days
+      type: multiSelect
+      columnSpan: 2
+      on:
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onSelection
+          handler: schedule.syncScheduleFields
+        - event: onItemSelect
+          handler: schedule.syncScheduleFields
+        - event: onVisible
+          handler: schedule.showIfNonCustom
+      options:
+        - { value: mon, label: Mo }
+        - { value: tue, label: Tu }
+        - { value: wed, label: We }
+        - { value: thu, label: Th }
+        - { value: fri, label: Fr }
+        - { value: sat, label: Sa }
+        - { value: sun, label: Su }
+      properties:
+        appearance: pills
+        placeholder: Select weekdays
+        style:
+          minHeight: 40px
+          borderRadius: 999px
+          paddingLeft: 0px
+          paddingRight: 0px
+
+    - id: cronExpr
+      label: Cron Expression
+      type: text
+      columnSpan: 2
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onVisible
+          handler: schedule.showIfCustom
+      properties:
+        placeholder: 0 9 * * 1-5
+
+    - id: timezone
+      label: Timezone
+      type: text
+      columnSpan: 1
+      properties:
+        placeholder: America/New_York
+
+    - id: startAt
+      label: Start At (UTC)
+      type: datetime
+      columnSpan: 1
+
+    - id: endAt
+      label: End At (UTC)
+      type: datetime
+      columnSpan: 1
+
+    # persisted fields for backend compatibility; hidden from UI
+    - id: scheduleType
+      type: text
+      columnSpan: 1
+      on:
+        - event: onVisible
+          handler: schedule.hideField
+    - id: intervalSeconds
+      type: number
+      columnSpan: 1
+      on:
+        - event: onVisible
+          handler: schedule.hideField
+
+- id: security
+  title: Security
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  style:
+    maxWidth: 860px
+    margin: 0
+    paddingRight: 8px
+  items:
+    - id: _securityBanner
+      type: markdown
+      columnSpan: 2
+      properties:
+        value: "Automations run under the current workspace sandbox policy and use the configured user secrets (`userCredUrl`) for authenticated calls. Use least-privilege secrets and only grant required scopes."
+        style:
+          padding: '10px 12px'
+          border: '1px solid #b7d1ff'
+          borderRadius: '10px'
+          background: '#f7fbff'
+          color: '#1f2937'
+          fontSize: '12px'
+          marginBottom: '4px'
+
+    - id: userCredUrl
+      label: User Secrets URL
+      type: text
+      columnSpan: 2
+      properties:
+        placeholder: scy://secret/path|key
+
+- id: execution
+  title: Execution
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  style:
+    maxWidth: 860px
+    margin: 0
+    paddingRight: 8px
+  items:
+    - id: timeoutSeconds
+      label: Timeout Seconds
+      type: number
+      columnSpan: 1
+      properties:
+        min: 0
+        step: 1
+
+    - id: modelOverride
+      label: Model Override (optional)
+      type: text
+      columnSpan: 2
       lookup:
         dialogId: modelLov
         size:
@@ -74,91 +292,8 @@
         outputs:
           - name: modelOverride
             location: id
-    - id: userCredUrl
-      label: User Cred (scy URL)
-      type: text
-      columnSpan: 2
-      properties:
-        placeholder: scy://secret/path|key
 
-- id: schedule
-  title: Schedule
-  layout:
-    orientation: horizontal
-    columns: 2
-    labelPosition: top
-  style:
-    maxWidth: 980px
-    margin: 0
-  items:
-    - id: enabled
-      label: Enabled
-      type: checkbox
-    - id: timezone
-      label: Timezone
-      type: text
-    - id: startAt
-      label: Start At (UTC)
-      type: datetime
-    - id: endAt
-      label: End At (UTC)
-      type: datetime
-    - id: scheduleType
-      label: Type
-      type: select
-      columnSpan: 2
-      options:
-        - value: cron
-          label: Cron
-        - value: interval
-          label: Interval
-
-    - id: cronExpr
-      label: Cron Expression
-      type: text
-      columnSpan: 2
-      on:
-        - event: onVisible
-          handler: schedule.showIfCron
-    - id: intervalSeconds
-      label: Interval Seconds
-      type: number
-      columnSpan: 2
-      on:
-        - event: onVisible
-          handler: schedule.showIfInterval
-    - id: timeoutSeconds
-      label: Timeout Seconds
-      type: number
-      columnSpan: 2
-      properties:
-        min: 0
-        step: 1
-
-
-- id: task
-  title: Task
-  layout:
-    orientation: horizontal
-    columns: 2
-    labelPosition: top
-  style:
-    maxWidth: 980px
-    margin: 0
-  items:
     - id: taskPromptUri
-      label: Task Prompt (URI)
+      label: Task Prompt URI (optional)
       type: text
       columnSpan: 2
-    - id: taskPrompt
-      label: Task Prompt (Inline)
-      type: textarea
-      columnSpan: 2
-      properties:
-        rows: 4
-        cols: 80
-
-- id: runs
-  title: Runs
-  dataSourceRef: runs
-  table: $import('table/runs.yaml')

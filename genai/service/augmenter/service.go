@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"path"
 	"reflect"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	embSchema "github.com/viant/embedius/schema"
 	"github.com/viant/embedius/vectordb"
 	"github.com/viant/embedius/vectordb/sqlitevec"
+	"github.com/viant/embedius/vectorstores"
 	"github.com/viant/scy"
 	"github.com/viant/scy/cred/secret"
 )
@@ -122,6 +122,11 @@ type LocalRoot struct {
 	ID          string
 	URI         string
 	UpstreamRef string
+	SyncEnabled *bool
+	MinInterval int
+	Batch       int
+	Shadow      string
+	Force       *bool
 }
 
 // LocalUpstream defines a database used to sync local/workspace resources.
@@ -239,14 +244,15 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 			if cfg := s.upstreamSyncConfig(ctx, location, augmenter); cfg != nil {
 				matchCtx = embindexer.WithUpstreamSyncConfig(matchCtx, cfg)
 			}
-			log.Printf("embedius: match start location=%q query=%q max=%d", location, input.Query, input.MaxDocuments)
-			docs, err := service.Match(matchCtx, input.Query, input.MaxDocuments, location)
+			matchOpts := []vectorstores.Option{}
+			if input.Offset > 0 {
+				matchOpts = append(matchOpts, vectorstores.WithOffset(input.Offset))
+			}
+			docs, err := service.Match(matchCtx, input.Query, input.MaxDocuments, location, matchOpts...)
 			if err != nil {
-				log.Printf("embedius: match error location=%q err=%v", location, err)
 				results[i] = matchResult{err: err}
 				return
 			}
-			log.Printf("embedius: match done location=%q docs=%d", location, len(docs))
 			results[i] = matchResult{docs: docs}
 		}()
 	}
@@ -312,7 +318,6 @@ func (s *Service) upstreamSyncConfig(ctx context.Context, location string, augme
 		}
 		up, err := s.upstreamDB(ctx, upstream)
 		if err != nil {
-			log.Printf("embedius upstream open failed for %q: %v", root.URI, err)
 			return nil
 		}
 		minInterval := time.Hour
@@ -330,12 +335,14 @@ func (s *Service) upstreamSyncConfig(ctx context.Context, location string, augme
 			MinInterval: minInterval,
 			LocalShadow: "_vec_emb_docs",
 			AssetTable:  "emb_asset",
-			Logf:        func(format string, args ...any) { log.Printf(format, args...) },
 		}
 	}
 	root, upstream, ok := s.resolveLocalUpstream(ctx, location)
 	if !ok || root == nil || upstream == nil {
 		return nil
+	}
+	if root.SyncEnabled != nil && !*root.SyncEnabled {
+		return &vectordb.UpstreamSyncConfig{Enabled: false}
 	}
 	if !isLocalUpstreamEnabled(upstream) {
 		return &vectordb.UpstreamSyncConfig{Enabled: false}
@@ -356,25 +363,38 @@ func (s *Service) upstreamSyncConfig(ctx context.Context, location string, augme
 	}
 	up, err := s.upstreamDBLocal(ctx, upstream)
 	if err != nil {
-		log.Printf("embedius upstream open failed for %q: %v", root.URI, err)
 		return nil
 	}
-	minInterval := time.Hour
-	if upstream.MinIntervalSeconds > 0 {
-		minInterval = time.Duration(upstream.MinIntervalSeconds) * time.Second
+	minInterval := time.Duration(upstream.MinIntervalSeconds) * time.Second
+	if root.MinInterval > 0 {
+		minInterval = time.Duration(root.MinInterval) * time.Second
+	}
+	if minInterval == 0 {
+		minInterval = time.Hour
+	}
+	batch := upstream.Batch
+	if root.Batch > 0 {
+		batch = root.Batch
+	}
+	shadow := upstream.Shadow
+	if strings.TrimSpace(root.Shadow) != "" {
+		shadow = strings.TrimSpace(root.Shadow)
+	}
+	force := upstream.Force
+	if root.Force != nil {
+		force = *root.Force
 	}
 	return &vectordb.UpstreamSyncConfig{
 		Enabled:     true,
 		DatasetID:   datasetID,
 		UpstreamDB:  up,
-		Shadow:      upstream.Shadow,
-		BatchSize:   upstream.Batch,
-		Force:       upstream.Force,
+		Shadow:      shadow,
+		BatchSize:   batch,
+		Force:       force,
 		Background:  true,
 		MinInterval: minInterval,
 		LocalShadow: "_vec_emb_docs",
 		AssetTable:  "emb_asset",
-		Logf:        func(format string, args ...any) { log.Printf(format, args...) },
 	}
 }
 
@@ -445,17 +465,14 @@ func (s *Service) resolveUpstream(ctx context.Context, location string) (*mcpcfg
 	}
 	opts, err := s.mcpMgr.Options(ctx, locServer)
 	if err != nil || opts == nil {
-		log.Printf("embedius upstream resolve failed server=%q err=%v", locServer, err)
 		return nil, nil, false
 	}
 	roots := mcpcfg.ResourceRoots(opts.Metadata)
 	if len(roots) == 0 {
-		log.Printf("embedius upstream resolve: no roots for server=%q", locServer)
 		return nil, nil, false
 	}
 	upstreams := mcpcfg.Upstreams(opts.Metadata)
 	if len(upstreams) == 0 {
-		log.Printf("embedius upstream resolve: no upstreams for server=%q", locServer)
 		return nil, nil, false
 	}
 	for _, root := range roots {

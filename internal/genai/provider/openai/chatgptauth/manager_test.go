@@ -171,6 +171,72 @@ func TestManager_APIKey(t *testing.T) {
 	}
 }
 
+func TestManager_AccessToken_RefreshTokenReused_ReloadsState(t *testing.T) {
+	var refreshCalls int32
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			rec := newResponseRecorder()
+			if r.URL.Path != "/oauth/token" {
+				rec.WriteHeader(http.StatusNotFound)
+				return rec.Result(r), nil
+			}
+			atomic.AddInt32(&refreshCalls, 1)
+			rec.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(rec).Encode(map[string]any{
+				"error": map[string]any{
+					"message": "Your refresh token has already been used to generate a new access token. Please try signing in again.",
+					"type":    "invalid_request_error",
+					"code":    "refresh_token_reused",
+				},
+			})
+			return rec.Result(r), nil
+		}),
+	}
+
+	tempDir := t.TempDir()
+	clientPath := filepath.Join(tempDir, "client.json")
+	tokensPath := filepath.Join(tempDir, "tokens.json")
+
+	require.NoError(t, os.WriteFile(clientPath, []byte(`{"client_id":"cid"}`), 0o600))
+
+	// Initial stale state forces refresh attempt.
+	stale := &TokenState{
+		IDToken:      fakeJWTWithWorkspaceAndExp("ws-1", time.Now().Add(30*time.Minute)),
+		AccessToken:  "old-access",
+		RefreshToken: "old-refresh",
+		LastRefresh:  time.Now().Add(-8 * 24 * time.Hour),
+	}
+	stateBytes, err := json.Marshal(stale)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(tokensPath, stateBytes, 0o600))
+
+	manager, err := NewManager(
+		&Options{
+			ClientURL:          clientPath,
+			TokensURL:          tokensPath,
+			Issuer:             "https://auth.example",
+			AllowedWorkspaceID: "ws-1",
+		},
+		NewScyOAuthClientLoader(clientPath),
+		NewScyTokenStateStore(tokensPath),
+		httpClient,
+	)
+	require.NoError(t, err)
+
+	// Simulate another process having already rotated tokens.
+	rotated := &TokenState{
+		IDToken:      fakeJWTWithWorkspaceAndExp("ws-1", time.Now().Add(30*time.Minute)),
+		AccessToken:  "new-access",
+		RefreshToken: "new-refresh",
+		LastRefresh:  time.Now().UTC(),
+	}
+	require.NoError(t, NewScyTokenStateStore(tokensPath).Save(context.Background(), rotated))
+
+	token, err := manager.AccessToken(context.Background())
+	require.NoError(t, err)
+	assert.EqualValues(t, "new-access", token)
+}
+
 func TestManager_ExchangeAuthorizationCode_PersistsTokens(t *testing.T) {
 	var tokenCalls int32
 	httpClient := &http.Client{

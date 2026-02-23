@@ -203,6 +203,126 @@ func (m *Manager) APIKey(ctx context.Context) (string, error) {
 	return apiKey, nil
 }
 
+// AccessToken returns a refreshed OAuth access token from the persisted token state.
+// It never mints an API key.
+func (m *Manager) AccessToken(ctx context.Context) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	oauthClient, err := m.client.Load(ctx)
+	if err != nil {
+		return "", err
+	}
+	issuer := m.issuerForClient(oauthClient)
+	state, err := m.store.Load(ctx)
+	if err != nil {
+		return "", err
+	}
+	if state == nil {
+		return "", fmt.Errorf("token state was empty")
+	}
+
+	state, err = m.refreshIfNeeded(ctx, issuer, oauthClient.ClientID, oauthClient.ClientSecret, state)
+	if err != nil {
+		return "", err
+	}
+	if err := ensureWorkspaceAllowed(m.allowedWorkspaceID, state.IDToken); err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(state.AccessToken)
+	if token == "" {
+		return "", fmt.Errorf("access_token is required")
+	}
+	return token, nil
+}
+
+// AccountID returns chatgpt_account_id from the latest available token claims.
+func (m *Manager) AccountID(ctx context.Context) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	oauthClient, err := m.client.Load(ctx)
+	if err != nil {
+		return "", err
+	}
+	issuer := m.issuerForClient(oauthClient)
+	state, err := m.store.Load(ctx)
+	if err != nil {
+		return "", err
+	}
+	if state == nil {
+		return "", fmt.Errorf("token state was empty")
+	}
+
+	state, err = m.refreshIfNeeded(ctx, issuer, oauthClient.ClientID, oauthClient.ClientSecret, state)
+	if err != nil {
+		return "", err
+	}
+
+	candidates := []string{state.AccessToken, state.IDToken}
+	for _, token := range candidates {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		claims, parseErr := parseJWTAuthClaims(token)
+		if parseErr != nil {
+			continue
+		}
+		accountID := strings.TrimSpace(claims.ChatGPTAccountID)
+		if accountID != "" {
+			return accountID, nil
+		}
+	}
+	return "", fmt.Errorf("chatgpt_account_id missing in token claims")
+}
+
+// Diagnostics returns a redacted, human-readable snapshot of token-state health.
+// It never includes token values or API keys.
+func (m *Manager) Diagnostics(ctx context.Context) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state, err := m.store.Load(ctx)
+	if err != nil {
+		return fmt.Sprintf("chatgptOAuth:state_load_error=%q", strings.TrimSpace(err.Error()))
+	}
+	if state == nil {
+		return "chatgptOAuth:state=missing"
+	}
+
+	now := time.Now().UTC()
+	ttl := defaultAPIKeyCacheTTL
+	if state.OpenAIAPIKeyTTLMS > 0 {
+		ttl = time.Duration(state.OpenAIAPIKeyTTLMS) * time.Millisecond
+	}
+
+	apiKeyAge := "unknown"
+	if !state.OpenAIAPIKeyAt.IsZero() {
+		apiKeyAge = now.Sub(state.OpenAIAPIKeyAt).Round(time.Second).String()
+	}
+
+	lastRefreshAge := "unknown"
+	if !state.LastRefresh.IsZero() {
+		lastRefreshAge = now.Sub(state.LastRefresh).Round(time.Second).String()
+	}
+
+	needsRefreshNow := needsRefresh(state)
+	apiKeyExpired := isAPIKeyExpired(state)
+	return fmt.Sprintf(
+		"chatgptOAuth:state=ok has_id_token=%t has_access_token=%t has_refresh_token=%t has_cached_api_key=%t api_key_expired=%t api_key_age=%s api_key_ttl=%s needs_refresh=%t last_refresh_age=%s",
+		strings.TrimSpace(state.IDToken) != "",
+		strings.TrimSpace(state.AccessToken) != "",
+		strings.TrimSpace(state.RefreshToken) != "",
+		strings.TrimSpace(state.OpenAIAPIKey) != "",
+		apiKeyExpired,
+		apiKeyAge,
+		ttl.Round(time.Second).String(),
+		needsRefreshNow,
+		lastRefreshAge,
+	)
+}
+
 type exchangedTokens struct {
 	IDToken      string
 	AccessToken  string
@@ -261,6 +381,37 @@ func (m *Manager) refreshIfNeeded(ctx context.Context, issuer string, clientID s
 		return state, nil
 	}
 
+	refreshed, err := m.refreshOnce(ctx, issuer, clientID, clientSecret, state)
+	if err == nil {
+		return refreshed, nil
+	}
+	if !isRefreshTokenReusedError(err) {
+		return nil, err
+	}
+
+	// Recovery for concurrent refresh rotations:
+	// another process/manager may have already consumed the old refresh token
+	// and stored a newer token state. Reload and retry once with that state.
+	reloaded, loadErr := m.store.Load(ctx)
+	if loadErr != nil {
+		return nil, fmt.Errorf("%w (reload after refresh_token_reused failed: %v)", err, loadErr)
+	}
+	if reloaded == nil {
+		return nil, err
+	}
+	if strings.TrimSpace(reloaded.RefreshToken) == "" {
+		return nil, err
+	}
+	if !needsRefresh(reloaded) {
+		return reloaded, nil
+	}
+	if sameRefreshMaterial(state, reloaded) {
+		return nil, err
+	}
+	return m.refreshOnce(ctx, issuer, clientID, clientSecret, reloaded)
+}
+
+func (m *Manager) refreshOnce(ctx context.Context, issuer string, clientID string, clientSecret string, state *TokenState) (*TokenState, error) {
 	endpoint := issuer + "/oauth/token"
 	payload := map[string]any{
 		"client_id":     clientID,
@@ -313,6 +464,27 @@ func (m *Manager) refreshIfNeeded(ctx context.Context, issuer string, clientID s
 		return nil, err
 	}
 	return state, nil
+}
+
+func sameRefreshMaterial(oldState *TokenState, newState *TokenState) bool {
+	if oldState == nil || newState == nil {
+		return false
+	}
+	return strings.TrimSpace(oldState.RefreshToken) == strings.TrimSpace(newState.RefreshToken) &&
+		strings.TrimSpace(oldState.AccessToken) == strings.TrimSpace(newState.AccessToken) &&
+		oldState.LastRefresh.Equal(newState.LastRefresh)
+}
+
+func isRefreshTokenReusedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if msg == "" {
+		return false
+	}
+	return strings.Contains(msg, "refresh_token_reused") ||
+		(strings.Contains(msg, "refresh token") && strings.Contains(msg, "already been used"))
 }
 
 func (m *Manager) obtainAPIKey(ctx context.Context, issuer string, clientID string, idToken string) (string, error) {

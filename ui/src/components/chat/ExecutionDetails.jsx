@@ -204,6 +204,8 @@ function flattenExecutions(executions = []) {
         .filter(s => allowed.has(String(s?.reason || '').toLowerCase()))
         .map((s, idx) => {
             const reason = String(s?.reason || '').toLowerCase();
+            const linkedConversationId = s.linkedConversationId || s.LinkedConversationId || null;
+            const mode = String(s.mode || s.Mode || '').toLowerCase().trim();
             const rowId = String(
                 s.id ||
                 s.messageId ||
@@ -212,6 +214,7 @@ function flattenExecutions(executions = []) {
                 s.turnID ||
                 `${reason}:${s.name || ''}:${idx}`
             );
+            const isReuseChain = reason !== 'link' && !linkedConversationId && mode === 'chain';
             const hasBool = typeof s.successBool === 'boolean';
             const successBool = hasBool ? s.successBool : (typeof s.success === 'boolean' ? s.success : undefined);
             let statusText = (s.statusText || (successBool === undefined ? 'pending' : (successBool ? 'completed' : 'error'))).toLowerCase();
@@ -262,7 +265,7 @@ function flattenExecutions(executions = []) {
                 name: annotatedName,
                 actor: s.createdByUserId || '',
                 content,
-                chain: (reason === 'link') ? 'Open' : '',
+                chain: (reason === 'link') ? 'Open' : (isReuseChain ? 'Reuse' : ''),
                 status: statusText,
                 elapsed: s.elapsed,
                 requestPayloadId: s.requestPayloadId,
@@ -274,7 +277,9 @@ function flattenExecutions(executions = []) {
                 _provider: s.provider,
                 _model: s.model,
                 _createdByUserId: s.createdByUserId,
-                _linkedConversationId: s.linkedConversationId,
+                _linkedConversationId: linkedConversationId,
+                _isReuseChain: isReuseChain,
+                _mode: mode,
                 _finishReason: s.finishReason,
                 _errorCode: s.errorCode,
                 _error: s.error,
@@ -476,6 +481,7 @@ function ExecutionDetails({ executions = [], context, messageId, conversationId,
                         {rows.map((r, idx) => {
                             const hasContent = String(r?.content || '').trim() !== '';
                             const isLink = !!(r && r._reason === 'link' && r._linkedConversationId);
+                            const isReuse = !!(r && r._isReuseChain);
                             const isSelected = rowIsSelected(r);
                             const isElicitationWithURL = (() => {
                                 try {
@@ -508,7 +514,25 @@ function ExecutionDetails({ executions = [], context, messageId, conversationId,
                                                         execContext.lookupHandler('exec.openLinkedConversation')({ row: r, col: { id: 'chain' } });
                                                     }}
                                                 >Open</button>
-                                            ) : null}
+                                            ) : (isReuse ? (
+                                                <span
+                                                    title="Chain (reuse): executed in this conversation"
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 4,
+                                                        fontSize: 11,
+                                                        color: 'var(--gray1)',
+                                                        padding: '1px 6px',
+                                                        borderRadius: 999,
+                                                        border: '1px solid var(--light-gray1)',
+                                                        background: 'var(--light-gray5)'
+                                                    }}
+                                                >
+                                                    <span aria-hidden>🔁</span>
+                                                    <span>Reuse</span>
+                                                </span>
+                                            ) : null)}
                                         </td>
                                         <td style={{ width: 66 }}>
                                             {isElicitationWithURL ? (
@@ -595,6 +619,7 @@ function ExecutionDetails({ executions = [], context, messageId, conversationId,
                             <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <div><strong>Model:</strong> {r._model || r.name}</div>
                                 <div><strong>Provider:</strong> {r._provider || ''}</div>
+                                {r._isReuseChain && <div><strong>Chain:</strong> reuse (same conversation)</div>}
                                 {r._createdByUserId && <div><strong>Actor:</strong> {r._createdByUserId}</div>}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
                                     {typeof r._promptTokens === 'number' && (
@@ -642,6 +667,7 @@ function ExecutionDetails({ executions = [], context, messageId, conversationId,
                         return (
                             <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <div><strong>Tool:</strong> {r._toolName || r.name}</div>
+                                {r._isReuseChain && <div><strong>Chain:</strong> reuse (same conversation)</div>}
                                 {r._createdByUserId && <div><strong>Actor:</strong> {r._createdByUserId}</div>}
                                 {typeof r._attempt === 'number' && <div><strong>Attempt:</strong> {r._attempt}</div>}
                                 {r._errorCode && <div><strong>Error Code:</strong> {String(r._errorCode)}</div>}

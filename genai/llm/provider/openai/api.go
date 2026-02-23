@@ -14,6 +14,7 @@ import (
 
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/llm/provider/base"
+	"github.com/viant/agently/genai/memory"
 	mcbuf "github.com/viant/agently/genai/modelcallctx"
 	core "github.com/viant/agently/genai/service/core"
 )
@@ -149,6 +150,20 @@ func (c *Client) Implements(feature string) bool {
 	return false
 }
 
+// SupportsAnchorContinuation reports whether previous_response_id-style
+// continuation should be attempted for this client.
+func (c *Client) SupportsAnchorContinuation() bool {
+	if c == nil || !c.Implements(base.SupportsContextContinuation) {
+		return false
+	}
+	// chatgpt backend codex responses rejects or behaves inconsistently with
+	// previous_response_id for this adapter flow; send full transcript instead.
+	if isChatGPTBackendURL(c.BaseURL) {
+		return false
+	}
+	return true
+}
+
 func (c *Client) canMultimodal() bool {
 	//TODO
 	/*
@@ -186,6 +201,7 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 	if err != nil {
 		return nil, err
 	}
+	c.applyBackendSessionDefaults(ctx, req)
 	payload, err := c.marshalRequestBody(req)
 	if err != nil {
 		return nil, err
@@ -242,7 +258,11 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 		if observer != nil {
 			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Err: fmt.Sprintf("status %d", resp.StatusCode)})
 		}
-		return nil, fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, respBytes)
+		msg, _ := parseOpenAIError(respBytes)
+		if msg == "" {
+			msg = string(respBytes)
+		}
+		return nil, fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
 	}
 	lr, perr := c.parseGenerateResponse(req.Model, respBytes)
 	// Observer end
@@ -308,12 +328,81 @@ func (c *Client) marshalRequestBody(req *Request) ([]byte, error) {
 
 // marshalResponsesApiRequestBody marshals a Responses API payload from Request.
 func (c *Client) marshalResponsesApiRequestBody(req *Request) ([]byte, error) {
+	if isChatGPTBackendURL(c.BaseURL) {
+		backendPayload := ToChatGPTBackendResponsesPayload(req)
+		data, err := json.Marshal(backendPayload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal backend request: %w", err)
+		}
+		return data, nil
+	}
 	payload := ToResponsesPayload(req)
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 	return data, nil
+}
+
+// adaptSystemMessagesForChatGPTBackend preserves system guidance without sending
+// forbidden role=system items to chatgpt.com/backend-api/codex/responses.
+// Strategy:
+// - fold system text into top-level instructions (Codex-style),
+// - remap any remaining system message role to developer.
+func adaptSystemMessagesForChatGPTBackend(payload *ResponsesPayload) {
+	if payload == nil || len(payload.Input) == 0 {
+		return
+	}
+	baseInstructions := strings.TrimSpace(payload.Instructions)
+	systemChunks := make([]string, 0, 4)
+	filtered := make([]InputItem, 0, len(payload.Input))
+
+	for i := range payload.Input {
+		item := &payload.Input[i]
+		if strings.ToLower(strings.TrimSpace(item.Type)) != "message" {
+			filtered = append(filtered, *item)
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(item.Role)) != "system" {
+			filtered = append(filtered, *item)
+			continue
+		}
+		kept := make([]ResponsesContentItem, 0, len(item.Content))
+		for _, part := range item.Content {
+			// Preserve textual system guidance in instructions.
+			if txt := strings.TrimSpace(part.Text); txt != "" {
+				systemChunks = append(systemChunks, txt)
+				continue
+			}
+			kept = append(kept, part)
+		}
+		item.Content = kept
+		// Backend rejects role=system; developer is the closest semantic role.
+		item.Role = "developer"
+		// Drop transformed messages that ended up with no content.
+		if len(item.Content) == 0 {
+			continue
+		}
+		filtered = append(filtered, *item)
+	}
+	payload.Input = filtered
+
+	if len(systemChunks) == 0 {
+		return
+	}
+	joined := strings.TrimSpace(strings.Join(systemChunks, "\n\n"))
+	if joined == "" {
+		return
+	}
+	if baseInstructions == "" {
+		payload.Instructions = joined
+		return
+	}
+	if normalizeText(baseInstructions) == normalizeText(joined) {
+		payload.Instructions = baseInstructions
+		return
+	}
+	payload.Instructions = baseInstructions + "\n\n" + joined
 }
 
 // marshalChatCompletionApiRequestBody marshals a legacy chat/completions payload from Request.
@@ -339,6 +428,29 @@ func (c *Client) createHTTPResponsesApiRequest(ctx context.Context, data []byte)
 	if ua := c.userAgentOverride(); ua != "" {
 		httpReq.Header.Set("User-Agent", ua)
 	}
+	if originator := c.originatorHeader(); originator != "" {
+		httpReq.Header.Set("originator", originator)
+	}
+	if features := c.codexBetaFeaturesHeader(); features != "" {
+		httpReq.Header.Set("x-codex-beta-features", features)
+	}
+	if isChatGPTBackendURL(c.BaseURL) {
+		if accountID, err := c.chatGPTAccountID(ctx); err == nil && accountID != "" {
+			httpReq.Header.Set("ChatGPT-Account-Id", accountID)
+		}
+		if conversationID := strings.TrimSpace(memory.ConversationIDFromContext(ctx)); conversationID != "" {
+			// Codex parity: bind backend requests to a stable conversation/session identity.
+			httpReq.Header.Set("session_id", conversationID)
+			// Replay turn-state token captured during backend websocket handshake.
+			state := getBackendWSState(c.BaseURL, conversationID)
+			state.mu.Lock()
+			turnState := strings.TrimSpace(state.turnState)
+			state.mu.Unlock()
+			if turnState != "" {
+				httpReq.Header.Set("x-codex-turn-state", turnState)
+			}
+		}
+	}
 	return httpReq, nil
 }
 
@@ -355,6 +467,11 @@ func (c *Client) createHTTPChatCompletionsApiRequest(ctx context.Context, data [
 	httpReq.Header.Set("Content-Type", "application/json")
 	if ua := c.userAgentOverride(); ua != "" {
 		httpReq.Header.Set("User-Agent", ua)
+	}
+	if isChatGPTBackendURL(c.BaseURL) {
+		if accountID, err := c.chatGPTAccountID(ctx); err == nil && accountID != "" {
+			httpReq.Header.Set("ChatGPT-Account-Id", accountID)
+		}
 	}
 	return httpReq, nil
 }
@@ -451,7 +568,11 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 		if observer != nil {
 			_ = observer.OnCallEnd(ctx, mcbuf.Info{Provider: "openai", Model: req.Model, ModelKind: "chat", ResponseJSON: respBytes, CompletedAt: time.Now(), Err: fmt.Sprintf("status %d", resp.StatusCode)})
 		}
-		return nil, fmt.Errorf("OpenAI Chat API (chat.completions) error (status %d): %s", resp.StatusCode, respBytes)
+		msg, _ := parseOpenAIError(respBytes)
+		if msg == "" {
+			msg = string(respBytes)
+		}
+		return nil, fmt.Errorf("OpenAI Chat API (chat.completions) error (status %d): %s", resp.StatusCode, msg)
 	}
 	lr, perr := c.parseGenerateResponse(req.Model, respBytes)
 	// Observer end
@@ -598,6 +719,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if err != nil {
 		return nil, err
 	}
+	c.applyBackendSessionDefaults(ctx, req)
 	req.Stream = true
 	// Ask OpenAI to include usage in the final stream event if supported
 	req.StreamOptions = &StreamOptions{IncludeUsage: true}
@@ -637,6 +759,91 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			ctx = newCtx
 		} else {
 			return nil, fmt.Errorf("observer OnCallStart failed: %w", obErr)
+		}
+	}
+
+	// ChatGPT backend websocket parity path (persistent, conversation-keyed cache).
+	// Falls back to current HTTP/SSE flow on any websocket setup/stream error.
+	if core.IsContextContinuationEnabled(c) && isChatGPTBackendURL(c.BaseURL) && backendWebsocketEnabled() {
+		if disabled, until := isBackendWSDisabled(c.BaseURL); disabled {
+			c.logf("[openai-ws] backend websocket suppressed until=%s; using HTTP/SSE", until.Format(time.RFC3339))
+		} else {
+			events := make(chan llm.StreamEvent)
+			go func() {
+				defer close(events)
+				if err := c.streamViaBackendWebSocket(ctx, req, request, events); err != nil {
+					c.logf("[openai-ws] backend websocket failed, fallback to HTTP/SSE: %v", err)
+					if shouldDisableBackendWS(err) {
+						markBackendWSDisabled(c.BaseURL, err, c)
+					}
+					// Start fallback stream and bridge events through this channel.
+					copiedReq := *req
+					copiedReq.PreviousResponseID = ""
+					copiedReq.Stream = true
+					copiedReq.StreamOptions = &StreamOptions{IncludeUsage: true}
+					fallbackPayload, ferr := c.marshalRequestBody(&copiedReq)
+					if ferr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("websocket fallback marshal failed: %w", ferr)}
+						return
+					}
+					fallbackHTTPReq, ferr := c.createHTTPResponsesApiRequest(ctx, fallbackPayload)
+					if ferr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("websocket fallback request build failed: %w", ferr)}
+						return
+					}
+					fallbackHTTPReq.Header.Set("Accept", "text/event-stream")
+					// Honor configured timeout for fallback stream
+					if c.Timeout > 0 {
+						c.HTTPClient.Timeout = c.Timeout
+					}
+					resp, ferr := c.HTTPClient.Do(fallbackHTTPReq)
+					if ferr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("websocket fallback send failed: %w", ferr)}
+						return
+					}
+					defer resp.Body.Close()
+
+					proc := &streamProcessor{
+						client:   c,
+						ctx:      ctx,
+						observer: observer,
+						events:   events,
+						agg:      newStreamAggregator(),
+						state:    &streamState{},
+						req:      &copiedReq,
+						orig:     request,
+					}
+					respBody, readErr := io.ReadAll(resp.Body)
+					if readErr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("websocket fallback read failed: %w", readErr)}
+						return
+					}
+					proc.respBody = respBody
+					scanner := bufio.NewScanner(bytes.NewReader(respBody))
+					buf := make([]byte, 0, sseInitialBuf)
+					scanner.Buffer(buf, sseMaxBuf)
+					currentEvent := ""
+					for scanner.Scan() {
+						line := scanner.Text()
+						if strings.HasPrefix(line, "event: ") {
+							currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+							continue
+						}
+						if !strings.HasPrefix(line, "data: ") {
+							continue
+						}
+						data := strings.TrimPrefix(line, "data: ")
+						if data == "[DONE]" {
+							break
+						}
+						if ok := proc.handleEvent(currentEvent, data); !ok {
+							return
+						}
+					}
+					proc.finalize(scanner.Err())
+				}
+			}()
+			return events, nil
 		}
 	}
 	// Honor configured timeout for streaming as well
@@ -715,6 +922,20 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				return
 			}
 		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			msg, code := parseOpenAIError(respBody)
+			if msg == "" {
+				msg = strings.TrimSpace(string(respBody))
+			}
+			full := fmt.Sprintf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
+			events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
+			if proc.observer != nil && !proc.state.ended {
+				if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
+					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+				}
+			}
+			return
+		}
 		// Normal SSE handling
 		proc.respBody = respBody
 		// Prepare scanner
@@ -742,6 +963,18 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		proc.finalize(scanner.Err())
 	}()
 	return events, nil
+}
+
+func (c *Client) applyBackendSessionDefaults(ctx context.Context, req *Request) {
+	if c == nil || req == nil || !isChatGPTBackendURL(c.BaseURL) {
+		return
+	}
+	if strings.TrimSpace(req.PromptCacheKey) != "" {
+		return
+	}
+	if conversationID := strings.TrimSpace(memory.ConversationIDFromContext(ctx)); conversationID != "" {
+		req.PromptCacheKey = conversationID
+	}
 }
 
 // ---- Streaming helpers ----

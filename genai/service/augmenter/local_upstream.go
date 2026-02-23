@@ -16,6 +16,11 @@ type localRoot struct {
 	ID          string
 	URI         string
 	UpstreamRef string
+	SyncEnabled *bool
+	MinInterval int
+	Batch       int
+	Shadow      string
+	Force       *bool
 	matchKey    string
 }
 
@@ -59,6 +64,11 @@ func normalizeLocalRoots(roots []LocalRoot) []localRoot {
 			ID:          strings.TrimSpace(root.ID),
 			URI:         uri,
 			UpstreamRef: strings.TrimSpace(root.UpstreamRef),
+			SyncEnabled: root.SyncEnabled,
+			MinInterval: root.MinInterval,
+			Batch:       root.Batch,
+			Shadow:      strings.TrimSpace(root.Shadow),
+			Force:       root.Force,
 			matchKey:    matchKey,
 		})
 	}
@@ -148,6 +158,43 @@ func isLocalUpstreamEnabled(upstream *LocalUpstream) bool {
 	return *upstream.Enabled
 }
 
+func (s *Service) resolveLocalRootID(ctx context.Context, location string) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	locKey := normalizeLocalMatchKey(location)
+	if locKey == "" {
+		return "", false
+	}
+	roots := s.localRoots
+	if extra := normalizeLocalRoots(localRootsFromContext(ctx)); len(extra) > 0 {
+		merged := make([]localRoot, 0, len(roots)+len(extra))
+		merged = append(merged, roots...)
+		merged = append(merged, extra...)
+		roots = merged
+	}
+	if len(roots) == 0 {
+		return "", false
+	}
+	var best *localRoot
+	for i := range roots {
+		root := &roots[i]
+		if root.matchKey == "" {
+			continue
+		}
+		if !isUnderLocalPath(locKey, root.matchKey) {
+			continue
+		}
+		if best == nil || len(root.matchKey) > len(best.matchKey) {
+			best = root
+		}
+	}
+	if best == nil || strings.TrimSpace(best.ID) == "" {
+		return "", false
+	}
+	return best.ID, true
+}
+
 func (s *Service) resolveLocalUpstream(ctx context.Context, location string) (*localRoot, *LocalUpstream, bool) {
 	if s == nil {
 		return nil, nil, false
@@ -169,7 +216,7 @@ func (s *Service) resolveLocalUpstream(ctx context.Context, location string) (*l
 	var best *localRoot
 	for i := range roots {
 		root := &roots[i]
-		if root.UpstreamRef == "" || root.matchKey == "" {
+		if root.matchKey == "" {
 			continue
 		}
 		if !isUnderLocalPath(locKey, root.matchKey) {
@@ -181,6 +228,9 @@ func (s *Service) resolveLocalUpstream(ctx context.Context, location string) (*l
 	}
 	if best == nil {
 		return nil, nil, false
+	}
+	if strings.TrimSpace(best.UpstreamRef) == "" {
+		best.UpstreamRef = "default"
 	}
 	if s.localUpstreams == nil {
 		return best, nil, false
