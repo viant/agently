@@ -68,7 +68,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	}
 
 	var continuationRequest *llm.GenerateRequest
-	if IsContextContinuationEnabled(model) {
+	if IsAnchorContinuationEnabled(model) {
 		continuationRequest = s.BuildContinuationRequest(ctx, req, &input.GenerateInput.Binding.History)
 
 	}

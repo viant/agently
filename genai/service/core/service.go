@@ -164,6 +164,22 @@ func IsContextContinuationEnabled(model llm.Model) bool {
 	return model.Implements(base.SupportsContextContinuation)
 }
 
+// IsAnchorContinuationEnabled reports whether previous_response_id-style anchor
+// continuation should be used. Some providers/endpoints (e.g. ChatGPT backend
+// HTTP responses) support Responses API transport but not anchor continuation.
+func IsAnchorContinuationEnabled(model llm.Model) bool {
+	if model == nil {
+		return false
+	}
+	type anchorAware interface {
+		SupportsAnchorContinuation() bool
+	}
+	if aware, ok := model.(anchorAware); ok {
+		return aware.SupportsAnchorContinuation()
+	}
+	return IsContextContinuationEnabled(model)
+}
+
 // AttachmentUsage returns cumulative attachment bytes recorded for a conversation.
 func (s *Service) AttachmentUsage(convID string) int64 {
 	if s == nil || s.attachUsage == nil || strings.TrimSpace(convID) == "" {

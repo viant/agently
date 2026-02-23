@@ -18,23 +18,30 @@ type ChatGPTOAuthOptions struct {
 
 	// Optional restriction for which ChatGPT workspace/account may be used.
 	AllowedWorkspaceID string `yaml:"allowedWorkspaceID,omitempty" json:"allowedWorkspaceID,omitempty"`
+
+	// When true, if API-key minting fails, provider may use OAuth access_token as Bearer.
+	// Useful for ChatGPT-backend style flows.
+	UseAccessTokenFallback bool `yaml:"useAccessTokenFallback,omitempty" json:"useAccessTokenFallback,omitempty"`
 }
 
 type Options struct {
-	Model          string                 `yaml:"model,omitempty" json:"model,omitempty"`
-	Provider       string                 `yaml:"provider,omitempty" json:"provider,omitempty"`
-	APIKeyURL      string                 `yaml:"apiKeyURL,omitempty" json:"APIKeyURL,omitempty"`
-	EnvKey         string                 `yaml:"envKey,omitempty" json:"envKey,omitempty"` // environment variable key to use for API key
-	CredentialsURL string                 `yaml:"credentialsURL,omitempty" json:"credentialsURL,omitempty"`
-	URL            string                 `yaml:"Paths,omitempty" json:"Paths,omitempty"`
-	ProjectID      string                 `yaml:"projectID,omitempty" json:"projectID,omitempty"`
-	Temperature    *float64               `yaml:"temperature,omitempty" json:"temperature,omitempty"`
-	MaxTokens      int                    `yaml:"maxTokens,omitempty" json:"maxTokens,omitempty"`
-	TopP           float64                `yaml:"topP,omitempty" json:"topP,omitempty"`
-	UserAgent      string                 `yaml:"userAgent,omitempty" json:"userAgent,omitempty"`
-	Meta           map[string]interface{} `yaml:"meta,omitempty" json:"meta,omitempty"`
-	Region         string                 `yaml:"region,omitempty" json:"region,omitempty"`
-	UsageListener  basecfg.UsageListener  `yaml:"-" json:"-"`
+	Model             string                 `yaml:"model,omitempty" json:"model,omitempty"`
+	Provider          string                 `yaml:"provider,omitempty" json:"provider,omitempty"`
+	APIKeyURL         string                 `yaml:"apiKeyURL,omitempty" json:"APIKeyURL,omitempty"`
+	EnvKey            string                 `yaml:"envKey,omitempty" json:"envKey,omitempty"` // environment variable key to use for API key
+	CredentialsURL    string                 `yaml:"credentialsURL,omitempty" json:"credentialsURL,omitempty"`
+	URL               string                 `yaml:"Paths,omitempty" json:"Paths,omitempty"`
+	ProjectID         string                 `yaml:"projectID,omitempty" json:"projectID,omitempty"`
+	Temperature       *float64               `yaml:"temperature,omitempty" json:"temperature,omitempty"`
+	MaxTokens         int                    `yaml:"maxTokens,omitempty" json:"maxTokens,omitempty"`
+	TopP              float64                `yaml:"topP,omitempty" json:"topP,omitempty"`
+	UserAgent         string                 `yaml:"userAgent,omitempty" json:"userAgent,omitempty"`
+	Originator        string                 `yaml:"originator,omitempty" json:"originator,omitempty"`
+	CodexBetaFeatures string                 `yaml:"codexBetaFeatures,omitempty" json:"codexBetaFeatures,omitempty"`
+	OpenAILogging     *bool                  `yaml:"openaiLogging,omitempty" json:"openaiLogging,omitempty"`
+	Meta              map[string]interface{} `yaml:"meta,omitempty" json:"meta,omitempty"`
+	Region            string                 `yaml:"region,omitempty" json:"region,omitempty"`
+	UsageListener     basecfg.UsageListener  `yaml:"-" json:"-"`
 
 	// ---- Pricing ----
 	// Cost per 1,000 input tokens in USD (or chosen currency). Optional.
