@@ -1,4 +1,4 @@
-namespace: Schedules
+namespace: Automation
 
 view:
   content:
@@ -7,17 +7,23 @@ view:
 
     containers:
       - id: schedulesCatalogue
-        title: Schedules
+        title: Automation
         dataSourceRef: schedules
         fetchData: true
         table: $import('table/schedules.yaml')
 
       - id: scheduleEditor
-        title: Automation
+        title: Editor
         dataSourceRef: schedules
         tabs:
           vertical: false
         containers: $import('form.yaml')
+
+      - id: scheduleRuns
+        title: Runs
+        dataSourceRef: runs
+        fetchData: true
+        table: $import('table/runs.yaml')
 
 dataSource:
   schedules: $import('datasource/schedules.yaml')

@@ -27,12 +27,14 @@ func init() {
 var ScheduleFS embed.FS
 
 type ScheduleInput struct {
-	Id  string            `parameter:",kind=path,in=id" predicate:"equal,group=0,t,id"`
-	Has *ScheduleInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	Id               string            `parameter:",kind=path,in=id" predicate:"equal,group=0,t,id"`
+	DefaultPredicate string            `parameter:",kind=const,in=value" predicate:"handler,group=0,*schedule.Filter" value:"0"`
+	Has              *ScheduleInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type ScheduleInputHas struct {
-	Id bool
+	Id               bool
+	DefaultPredicate bool
 }
 
 type ScheduleOutput struct {

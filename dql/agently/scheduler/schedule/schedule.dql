@@ -7,6 +7,7 @@
 #set($_ = $Metrics<?>(output/metrics))
 
 #set($_ = $Id<string>(path/id).WithPredicate(0, 'equal','t', 'id'))
+#set($_ = $DefaultPredicate<bool>(const/value).Value('0').WithPredicate(0,'handler','*schedule.Filter'))
 
 
 SELECT schedule.*,
