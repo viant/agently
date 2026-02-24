@@ -15,6 +15,9 @@ import (
 type Client interface {
 	// Reads
 	GetSchedules(ctx context.Context, session ...codec.SessionOption) ([]*schedulepkg.ScheduleView, error)
+	// GetSchedulesForRunDue returns all schedules for internal scheduler scans.
+	// Unlike GetSchedules, it does not apply user-visibility filtering.
+	GetSchedulesForRunDue(ctx context.Context, session ...codec.SessionOption) ([]*schedulepkg.ScheduleView, error)
 	GetSchedule(ctx context.Context, id string, session ...codec.SessionOption) (*schedulepkg.ScheduleView, error)
 	GetRuns(ctx context.Context, scheduleID string, since string, session ...codec.SessionOption) ([]*runpkg.RunView, error)
 
@@ -22,6 +25,8 @@ type Client interface {
 	ReadSchedules(ctx context.Context, in *schedulepkg.ScheduleListInput, session []codec.SessionOption, extra ...datly.OperateOption) (*schedulepkg.ScheduleOutput, error)
 	ReadSchedule(ctx context.Context, in *schedulepkg.ScheduleInput, session []codec.SessionOption, extra ...datly.OperateOption) (*schedulepkg.ScheduleOutput, error)
 	ReadRuns(ctx context.Context, in *runpkg.RunInput, session []codec.SessionOption, extra ...datly.OperateOption) (*runpkg.RunOutput, error)
+	// ReadRunsForRunDue is an internal scheduler read that bypasses run visibility predicates.
+	ReadRunsForRunDue(ctx context.Context, in *runpkg.RunDueInput, session []codec.SessionOption, extra ...datly.OperateOption) (*runpkg.RunOutput, error)
 
 	// Writes
 	PatchSchedules(ctx context.Context, in *schedwrite.Input, extra ...datly.OperateOption) (*schedwrite.Output, error)

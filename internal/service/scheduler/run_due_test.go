@@ -46,6 +46,10 @@ func (f *fakeScheduleStore) GetSchedules(_ context.Context, _ ...codec.SessionOp
 	return f.schedules, nil
 }
 
+func (f *fakeScheduleStore) GetSchedulesForRunDue(_ context.Context, _ ...codec.SessionOption) ([]*schedulepkg.ScheduleView, error) {
+	return f.schedules, nil
+}
+
 func (f *fakeScheduleStore) GetSchedule(_ context.Context, id string, _ ...codec.SessionOption) (*schedulepkg.ScheduleView, error) {
 	if f.schedule == nil {
 		return nil, nil
@@ -129,6 +133,26 @@ func (f *fakeScheduleStore) ReadRuns(ctx context.Context, in *runpkg.RunInput, _
 		}
 	}
 	return &runpkg.RunOutput{Data: filtered}, nil
+}
+
+func (f *fakeScheduleStore) ReadRunsForRunDue(ctx context.Context, in *runpkg.RunDueInput, _ []codec.SessionOption, _ ...datly.OperateOption) (*runpkg.RunOutput, error) {
+	if in == nil {
+		return &runpkg.RunOutput{}, nil
+	}
+	compat := &runpkg.RunInput{
+		Id:              in.Id,
+		Since:           in.Since,
+		ScheduledFor:    in.ScheduledFor,
+		ExcludeStatuses: in.ExcludeStatuses,
+		Has:             &runpkg.RunInputHas{},
+	}
+	if in.Has != nil {
+		compat.Has.Id = in.Has.Id
+		compat.Has.Since = in.Has.Since
+		compat.Has.ScheduledFor = in.Has.ScheduledFor
+		compat.Has.ExcludeStatuses = in.Has.ExcludeStatuses
+	}
+	return f.ReadRuns(ctx, compat, nil)
 }
 
 func (f *fakeScheduleStore) PatchSchedules(ctx context.Context, in *schedwrite.Input, _ ...datly.OperateOption) (*schedwrite.Output, error) {
