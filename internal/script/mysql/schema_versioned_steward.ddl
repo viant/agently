@@ -1,5 +1,5 @@
-CREATE DATABASE IF NOT EXISTS `agently`;
-USE `agently`;
+CREATE DATABASE IF NOT EXISTS `agently_steward`;
+USE `agently_steward`;
 
 
 DELIMITER $$
@@ -1112,7 +1112,7 @@ DROP PROCEDURE IF EXISTS schema_upgrade_16 $$
 CREATE PROCEDURE schema_upgrade_16()
 BEGIN
     IF get_schema_version() = 16 THEN
-    ALTER DATABASE `agently`
+    ALTER DATABASE `agently_steward`
         CHARACTER SET utf8mb4
         COLLATE utf8mb4_unicode_ci;
 
