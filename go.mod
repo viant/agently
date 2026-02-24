@@ -7,14 +7,14 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.28.0
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.8.1
 	github.com/google/uuid v1.6.0
-	github.com/jessevdk/go-flags v1.5.0
+	github.com/jessevdk/go-flags v1.6.1
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
 	github.com/viant/datly v0.35.1-0.20260128170806-3481a39615df
 	github.com/viant/embedius v0.5.3-0.20260220183033-bc27e2e18c76
 	github.com/viant/fluxor v0.4.3
-	github.com/viant/forge v0.2.17-0.20260105184320-7b9e795ab3ef
+	github.com/viant/forge v0.2.19-0.20260224172419-68a2193e7913
 	github.com/viant/jsonrpc v0.17.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.10.0
@@ -33,7 +33,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.32.2
 	github.com/aws/smithy-go v1.22.0
 	github.com/fsnotify/fsnotify v1.6.0
+	github.com/go-sql-driver/mysql v1.9.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
+	github.com/gorilla/websocket v1.5.3
 	github.com/minio/highwayhash v1.0.3
 	github.com/openai/openai-go/v3 v3.13.0
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
@@ -44,6 +46,7 @@ require (
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.2.4
 	github.com/viant/parsly v0.3.3
+	github.com/viant/sqlx v0.22.0
 	github.com/viant/xdatly v0.5.4-0.20251113181159-0ac8b8b0ff3a
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
 	golang.org/x/crypto v0.43.0
@@ -111,7 +114,6 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-sql-driver/mysql v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
@@ -120,7 +122,6 @@ require (
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.13.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
@@ -159,7 +160,6 @@ require (
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
 	github.com/viant/sqlparser v0.9.0 // indirect
-	github.com/viant/sqlx v0.22.0 // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.0 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
