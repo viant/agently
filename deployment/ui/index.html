@@ -9,5 +9,19 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Enter sends message; Shift+Enter inserts newline in the chat composer.
+      document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter') return;
+        var el = e.target;
+        if (!el || el.getAttribute('data-testid') !== 'chat-composer-input') return;
+        if (e.shiftKey) return; // allow newline
+        e.preventDefault();
+        var form = el.closest('form[data-testid="chat-composer"]');
+        if (form && typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+        }
+      });
+    </script>
   </body>
 </html>
