@@ -465,12 +465,12 @@ func (s *Service) getRunsForDueCheck(ctx context.Context, scheduleID string, sch
 	debugf("getRunsForDueCheck start schedule_id=%q scheduled_for=%s include_slot=%v", strings.TrimSpace(scheduleID), scheduledFor.UTC().Format(time.RFC3339Nano), includeScheduledSlot)
 	var slotRuns []*schapi.Run
 	if includeScheduledSlot {
-		in := &runpkg.RunInput{
+		in := &runpkg.RunDueInput{
 			Id:           scheduleID,
 			ScheduledFor: scheduledFor,
-			Has:          &runpkg.RunInputHas{Id: true, ScheduledFor: true},
+			Has:          &runpkg.RunDueInputHas{Id: true, ScheduledFor: true},
 		}
-		out, err := s.sch.ReadRuns(ctx, in, nil)
+		out, err := s.sch.ReadRunsForRunDue(ctx, in, nil)
 		if err != nil {
 			debugf("getRunsForDueCheck read slot runs error schedule_id=%q scheduled_for=%s err=%v", strings.TrimSpace(scheduleID), scheduledFor.UTC().Format(time.RFC3339Nano), err)
 			return nil, err
@@ -485,12 +485,12 @@ func (s *Service) getRunsForDueCheck(ctx context.Context, scheduleID string, sch
 		debugf("getRunsForDueCheck slot runs loaded schedule_id=%q scheduled_for=%s count=%d", strings.TrimSpace(scheduleID), scheduledFor.UTC().Format(time.RFC3339Nano), len(slotRuns))
 	}
 
-	in := &runpkg.RunInput{
+	in := &runpkg.RunDueInput{
 		Id:              scheduleID,
 		ExcludeStatuses: []string{"succeeded", "failed", "skipped"},
-		Has:             &runpkg.RunInputHas{Id: true, ExcludeStatuses: true},
+		Has:             &runpkg.RunDueInputHas{Id: true, ExcludeStatuses: true},
 	}
-	out, err := s.sch.ReadRuns(ctx, in, nil)
+	out, err := s.sch.ReadRunsForRunDue(ctx, in, nil)
 	if err != nil {
 		debugf("getRunsForDueCheck read active runs error schedule_id=%q err=%v", strings.TrimSpace(scheduleID), err)
 		return nil, err
@@ -543,7 +543,7 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 	s.ensureLeaseConfig()
 	debugf("RunDue tick start lease_owner=%q lease_ttl=%s", strings.TrimSpace(s.leaseOwner), s.leaseTTL)
 
-	rows, err := s.sch.GetSchedules(ctx)
+	rows, err := s.sch.GetSchedulesForRunDue(ctx)
 	if err != nil {
 		return 0, err
 	}
