@@ -1395,12 +1395,14 @@ func (s *Service) ListConversations(ctx context.Context, input *apiconv.Input) (
 	if input != nil && input.HasScheduleId {
 		ownerOnly = false
 	}
-	// Resolve current user
-	var userID string
-	if ui := authctx.User(ctx); ui != nil {
-		userID = strings.TrimSpace(ui.Subject)
-		if userID == "" {
-			userID = strings.TrimSpace(ui.Email)
+	// Resolve current user (effective auth identity used for visibility checks).
+	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	if userID == "" {
+		if ui := authctx.User(ctx); ui != nil {
+			userID = strings.TrimSpace(ui.Subject)
+			if userID == "" {
+				userID = strings.TrimSpace(ui.Email)
+			}
 		}
 	}
 	type convo struct {
@@ -1415,6 +1417,16 @@ func (s *Service) ListConversations(ctx context.Context, input *apiconv.Input) (
 		if ownerOnly {
 			// Default conversation list remains owner-scoped.
 			if userID == "" || v.CreatedByUserId == nil || strings.TrimSpace(*v.CreatedByUserId) != userID {
+				continue
+			}
+		} else {
+			// Schedule history is visibility-scoped: public for everyone,
+			// private only for owner.
+			rowOwner := ""
+			if v.CreatedByUserId != nil {
+				rowOwner = strings.TrimSpace(*v.CreatedByUserId)
+			}
+			if strings.EqualFold(strings.TrimSpace(v.Visibility), "private") && (userID == "" || rowOwner != userID) {
 				continue
 			}
 		}
