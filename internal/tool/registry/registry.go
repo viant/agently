@@ -80,6 +80,8 @@ type Registry struct {
 	discoveryShared    map[string]discoveryIdentity
 	discoveryWarnAt    map[string]time.Time
 	discoveryWarnEvery time.Duration
+	discoveryTimeout   time.Duration
+	discoveryStrictTTL time.Duration
 }
 
 type toolCacheEntry struct {
@@ -135,6 +137,8 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		discoveryWarnAt: map[string]time.Time{},
 		// Cap duplicate warning noise while preserving first signal quickly.
 		discoveryWarnEvery: 30 * time.Second,
+		discoveryTimeout:   15 * time.Second,
+		discoveryStrictTTL: 30 * time.Second,
 	}
 	// Register in-memory MCP clients for built-in services using Service.Name().
 	r.addInternalMcp()
@@ -476,6 +480,10 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 }
 
 func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
+	return r.MatchDefinitionWithContext(context.Background(), pattern)
+}
+
+func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
 	var result []*llm.ToolDefinition
 
 	// removed noisy debug logging
@@ -495,7 +503,7 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 	// Discover matching server tools when pattern specifies an MCP service prefix.
 	if svc := serverFromPattern(pattern); svc != "" {
 		injectTimeoutMs := r.shouldInjectTimeoutMs(svc)
-		tools, err := r.listServerTools(context.Background(), svc)
+		tools, err := r.listServerTools(ctx, svc)
 		if err != nil {
 			r.warnf("list tools failed for %s: %v", svc, err)
 		}
@@ -1229,6 +1237,11 @@ func splitToolName(name string) (service, method string) {
 
 // listServerTools queries the server tool registry via MCP ListTools.
 func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpschema.Tool, error) {
+	var cancel context.CancelFunc
+	ctx, cancel = r.withDiscoveryTimeout(ctx)
+	if cancel != nil {
+		defer cancel()
+	}
 	// Prefer internal client if present
 	r.mu.RLock()
 	c, ok := r.internal[server]
@@ -1270,6 +1283,25 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		return nil, err
 	}
 	return tools, nil
+}
+
+func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, nil
+	}
+	timeout := r.discoveryTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	if mode, ok := memory.DiscoveryModeFromContext(ctx); ok && mode.Strict {
+		if r.discoveryStrictTTL > 0 {
+			timeout = r.discoveryStrictTTL
+		}
+	}
+	return context.WithTimeout(ctx, timeout)
 }
 
 func (r *Registry) observeSharedDiscoveryIdentity(server, userID, token string, useID bool) {

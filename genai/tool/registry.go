@@ -48,6 +48,12 @@ type Registry interface {
 	Initialize(ctx context.Context)
 }
 
+// ContextMatcher is an optional extension for registries that can evaluate
+// tool pattern matches using request-scoped context.
+type ContextMatcher interface {
+	MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition
+}
+
 // TimeoutResolver may be implemented by registries that can suggest per-tool
 // execution timeouts.  The returned duration should be >0 to take effect; the
 // boolean indicates whether a suggestion is available for the given name.
