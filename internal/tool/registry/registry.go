@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"sort"
 	"strconv"
@@ -74,6 +75,11 @@ type Registry struct {
 
 	// background refresh configuration
 	refreshEvery time.Duration // successful refresh cadence
+
+	// shared discovery client diagnostics for mgr.Get(ctx, "", server) path.
+	discoveryShared    map[string]discoveryIdentity
+	discoveryWarnAt    map[string]time.Time
+	discoveryWarnEvery time.Duration
 }
 
 type toolCacheEntry struct {
@@ -92,6 +98,13 @@ type timeoutSupport struct {
 type recentItem struct {
 	when time.Time
 	out  string
+}
+
+type discoveryIdentity struct {
+	userID  string
+	tokenFP string
+	useID   bool
+	seenAt  time.Time
 }
 
 const (
@@ -118,6 +131,10 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		recentTTL:       5 * time.Second,
 		refreshEvery:    30 * time.Second,
 		virtualTimeout:  map[string]timeoutSupport{},
+		discoveryShared: map[string]discoveryIdentity{},
+		discoveryWarnAt: map[string]time.Time{},
+		// Cap duplicate warning noise while preserving first signal quickly.
+		discoveryWarnEvery: 30 * time.Second,
 	}
 	// Register in-memory MCP clients for built-in services using Service.Name().
 	r.addInternalMcp()
@@ -762,8 +779,7 @@ func debugPrintMCPAuthToken(server string, useID bool, token string, ctx context
 	if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_MCP_AUTH")) == "" {
 		return
 	}
-	sum := sha256.Sum256([]byte(token))
-	fp := hex.EncodeToString(sum[:])[:12]
+	fp := tokenFingerprint(token)
 	src := "legacy"
 	if tb := authctx.TokensFromContext(ctx); tb != nil {
 		switch {
@@ -776,6 +792,15 @@ func debugPrintMCPAuthToken(server string, useID bool, token string, ctx context
 		}
 	}
 	fmt.Fprintf(os.Stderr, "[mcp-auth] server=%s useID=%v src=%s tokLen=%d sha256=%s\n", strings.TrimSpace(server), useID, src, len(token), fp)
+}
+
+func tokenFingerprint(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "none"
+	}
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 func (r *Registry) applySelector(out, selector string) (string, error) {
@@ -1223,18 +1248,140 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	if r.mgr == nil {
 		return nil, errors.New("mcp manager not configured")
 	}
+	useID := r.mgr.UseIDToken(ctx, server)
+	token := authctx.MCPAuthToken(ctx, useID)
+	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	r.observeSharedDiscoveryIdentity(server, userID, token, useID)
+
 	ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	cli, err := r.mgr.Get(ctx, "", server)
 	if err != nil {
+		r.warnDiscoveryListIssue(server, "manager_get", err, userID, useID, tokenFingerprint(token))
 		return nil, err
 	}
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
 	var opts []mcpclient.RequestOption
-	useID := r.mgr.UseIDToken(ctx, server)
-	if tok := authctx.MCPAuthToken(ctx, useID); tok != "" {
+	if tok := strings.TrimSpace(token); tok != "" {
 		opts = append(opts, mcpclient.WithAuthToken(tok))
 	}
-	return px.ListAllTools(ctx, opts...)
+	tools, err := px.ListAllTools(ctx, opts...)
+	if err != nil {
+		r.warnDiscoveryListIssue(server, "list_tools", err, userID, useID, tokenFingerprint(token))
+		return nil, err
+	}
+	return tools, nil
+}
+
+func (r *Registry) observeSharedDiscoveryIdentity(server, userID, token string, useID bool) {
+	if r == nil {
+		return
+	}
+	server = strings.TrimSpace(server)
+	if server == "" {
+		return
+	}
+	cur := discoveryIdentity{
+		userID:  strings.TrimSpace(userID),
+		tokenFP: tokenFingerprint(token),
+		useID:   useID,
+		seenAt:  time.Now(),
+	}
+
+	r.mu.Lock()
+	prev, ok := r.discoveryShared[server]
+	if r.discoveryShared == nil {
+		r.discoveryShared = map[string]discoveryIdentity{}
+	}
+	r.discoveryShared[server] = cur
+	r.mu.Unlock()
+
+	if !ok {
+		return
+	}
+	if prev.useID != cur.useID {
+		key := fmt.Sprintf("discovery_identity:%s:useid:%v->%v", server, prev.useID, cur.useID)
+		r.warnDiscoveryf(key, "shared discovery client identity drift server=%q conv_id=%q reason=use_id_token_changed prev=%v curr=%v user_prev=%q user_curr=%q token_prev=%s token_curr=%s", server, "", prev.useID, cur.useID, prev.userID, cur.userID, prev.tokenFP, cur.tokenFP)
+	}
+	if prev.userID != "" && cur.userID != "" && prev.userID != cur.userID {
+		key := fmt.Sprintf("discovery_identity:%s:user:%s->%s", server, prev.userID, cur.userID)
+		r.warnDiscoveryf(key, "shared discovery client identity drift server=%q conv_id=%q reason=user_changed prev=%q curr=%q use_id_token=%v token_prev=%s token_curr=%s", server, "", prev.userID, cur.userID, cur.useID, prev.tokenFP, cur.tokenFP)
+	}
+	if prev.tokenFP != "none" && cur.tokenFP != "none" && prev.tokenFP != cur.tokenFP {
+		key := fmt.Sprintf("discovery_identity:%s:token:%s->%s", server, prev.tokenFP, cur.tokenFP)
+		r.warnDiscoveryf(key, "shared discovery client identity drift server=%q conv_id=%q reason=token_changed user_prev=%q user_curr=%q use_id_token=%v token_prev=%s token_curr=%s", server, "", prev.userID, cur.userID, cur.useID, prev.tokenFP, cur.tokenFP)
+	}
+}
+
+func (r *Registry) warnDiscoveryListIssue(server, stage string, err error, userID string, useID bool, tokenFP string) {
+	if err == nil {
+		return
+	}
+	server = strings.TrimSpace(server)
+	if server == "" {
+		server = "unknown"
+	}
+	kind := classifyDiscoveryError(err)
+	key := fmt.Sprintf("discovery_issue:%s:%s:%s:%s:%v", server, strings.TrimSpace(stage), kind, strings.TrimSpace(userID), useID)
+	r.warnDiscoveryf(key, "shared discovery client issue server=%q conv_id=%q stage=%s kind=%s user=%q use_id_token=%v token=%s err=%v", server, "", stage, kind, strings.TrimSpace(userID), useID, tokenFP, err)
+}
+
+func classifyDiscoveryError(err error) string {
+	if err == nil {
+		return "none"
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "401") ||
+		strings.Contains(msg, "403") ||
+		strings.Contains(msg, "419") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "unauthenticated") ||
+		strings.Contains(msg, "forbidden") ||
+		strings.Contains(msg, "invalid token") ||
+		strings.Contains(msg, "token expired") ||
+		strings.Contains(msg, "id token") ||
+		strings.Contains(msg, "access token") ||
+		strings.Contains(msg, "jwt") ||
+		strings.Contains(msg, "authorization") {
+		return "auth"
+	}
+	if isReconnectableError(err) ||
+		strings.Contains(msg, "deadline exceeded") ||
+		strings.Contains(msg, "timed out") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "no route to host") ||
+		strings.Contains(msg, "tls handshake timeout") {
+		return "transport"
+	}
+	return "other"
+}
+
+func (r *Registry) warnDiscoveryf(key, format string, args ...interface{}) {
+	if r == nil {
+		return
+	}
+	msg := fmt.Sprintf(format, args...)
+	emit := true
+	now := time.Now()
+
+	r.mu.Lock()
+	if r.discoveryWarnAt == nil {
+		r.discoveryWarnAt = map[string]time.Time{}
+	}
+	if key != "" && r.discoveryWarnEvery > 0 {
+		if at, ok := r.discoveryWarnAt[key]; ok && now.Sub(at) < r.discoveryWarnEvery {
+			emit = false
+		}
+	}
+	if emit {
+		r.discoveryWarnAt[key] = now
+		r.warnings = append(r.warnings, msg)
+	}
+	r.mu.Unlock()
+
+	if emit {
+		log.Printf("[warn][mcp-discovery] %s", msg)
+	}
 }
 
 // listServers returns MCP client names from the workspace repository.
