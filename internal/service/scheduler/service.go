@@ -873,11 +873,24 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 					debugf("RunDue active run blocks scheduling schedule_id=%q run_id=%q status=%q", strings.TrimSpace(sc.Id), strings.TrimSpace(r.Id), strings.TrimSpace(r.Status))
 					return nil
 				case "pending":
-					// Prefer a pending run that matches the current scheduled slot.
-					if pendingRun == nil {
-						pendingRun = r
+					if staleMsg, stale := s.pendingRunStaleReason(r, sc, now, scheduledFor); stale {
+						if err := s.failPendingRun(scheduleCtx, sc, r, now, staleMsg); err != nil {
+							return err
+						}
+						// Stale pending row from an older slot should not be reused.
+						continue
 					}
-					if r.ScheduledFor != nil && r.ScheduledFor.UTC().Equal(scheduledFor) {
+
+					// Reuse pending runs only when they clearly belong to the current slot.
+					// This avoids mutating older pending rows into a new slot while keeping
+					// compatibility with legacy rows that may not have scheduled_for set.
+					if r.ScheduledFor != nil && !r.ScheduledFor.IsZero() {
+						if r.ScheduledFor.UTC().Equal(scheduledFor) {
+							pendingRun = r
+						}
+						continue
+					}
+					if !includeScheduledSlot && pendingRun == nil {
 						pendingRun = r
 					}
 				}
@@ -998,6 +1011,82 @@ func (s *Service) handleStaleRun(scheduleCtx context.Context, r *schapi.Run, now
 	s.patchScheduleLastResult(scheduleCtx, sc.Id, "failed", &runStartedAt, &msg)
 	debugf("handleStaleRun stale run belonged to older slot; allow new run schedule_id=%q run_id=%q run_scheduled_for=%s current_slot=%s", strings.TrimSpace(sc.Id), strings.TrimSpace(r.Id), timePtrString(r.ScheduledFor), scheduledFor.UTC().Format(time.RFC3339Nano))
 	return nil, false
+}
+
+func (s *Service) failPendingRun(scheduleCtx context.Context, sc *schedulepkg.ScheduleView, r *schapi.Run, now time.Time, reason string) error {
+	if r == nil || sc == nil {
+		return nil
+	}
+	upd := &schapi.MutableRun{}
+	upd.SetId(strings.TrimSpace(r.Id))
+	upd.SetScheduleId(strings.TrimSpace(sc.Id))
+	upd.SetStatus("failed")
+	upd.SetCompletedAt(now)
+	upd.SetErrorMessage(strings.TrimSpace(reason))
+
+	callCtx, callCancel := context.WithTimeout(scheduleCtx, callTimeout)
+	defer callCancel()
+	if err := s.sch.PatchRun(callCtx, upd); err != nil {
+		debugf("failPendingRun patch run failed schedule_id=%q run_id=%q err=%v", strings.TrimSpace(sc.Id), strings.TrimSpace(r.Id), err)
+		return err
+	}
+	debugf("failPendingRun patched run failed schedule_id=%q run_id=%q reason=%q", strings.TrimSpace(sc.Id), strings.TrimSpace(r.Id), strings.TrimSpace(reason))
+	return nil
+}
+
+func (s *Service) pendingRunStaleReason(r *schapi.Run, sc *schedulepkg.ScheduleView, now, currentSlot time.Time) (string, bool) {
+	if r == nil || sc == nil {
+		return "", false
+	}
+	if !strings.EqualFold(strings.TrimSpace(r.Status), "pending") {
+		return "", false
+	}
+	if r.CompletedAt != nil || r.StartedAt != nil {
+		return "", false
+	}
+	if strings.TrimSpace(strPtrValue(r.ConversationId)) != "" {
+		return "", false
+	}
+	if r.ScheduledFor == nil || r.ScheduledFor.IsZero() {
+		return "", false
+	}
+	slot := r.ScheduledFor.UTC()
+	if !slot.Before(currentSlot.UTC()) {
+		// Never auto-fail current-slot pending rows.
+		return "", false
+	}
+
+	createdAt := r.CreatedAt.UTC()
+	if createdAt.IsZero() {
+		return "", false
+	}
+
+	// Conservative grace window: account for startup work and lease skew so we don't
+	// fail an in-flight run-start attempt by another instance.
+	staleAfter := runStartupTimeout(sc.TimeoutSeconds)
+	if staleAfter < 3*time.Minute {
+		staleAfter = 3 * time.Minute
+	}
+	leaseWindow := s.leaseTTL * 3
+	if leaseWindow > staleAfter {
+		staleAfter = leaseWindow
+	}
+	staleAfter += 15 * time.Second
+
+	age := now.Sub(createdAt)
+	if age < staleAfter {
+		return "", false
+	}
+
+	msg := fmt.Sprintf(
+		"stale pending run detected: pending without conversation/start for %s (created_at=%s scheduled_for=%s current_slot=%s threshold=%s)",
+		age.Round(time.Second),
+		createdAt.UTC().Format(time.RFC3339Nano),
+		slot.UTC().Format(time.RFC3339Nano),
+		currentSlot.UTC().Format(time.RFC3339Nano),
+		staleAfter,
+	)
+	return msg, true
 }
 
 func (s *Service) updateNextRunAt(sc *schedulepkg.ScheduleView, now time.Time, scheduleCtx context.Context, lastStatus *string, lastError *string, lastRunAt *time.Time) error {
