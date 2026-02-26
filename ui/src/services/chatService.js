@@ -58,7 +58,9 @@ function currentAgentID(context) {
     const convForm = convDS?.peekFormData?.() || {};
     const convSig = context?.Context?.('conversations')?.signals?.form;
     const convSignalForm = (typeof convSig?.peek === 'function') ? (convSig.peek() || {}) : (convSig?.value || {});
-    return String(metaForm.agent || convSignalForm.agent || convForm.agent || '').trim();
+    // Prefer the active conversation selection over meta defaults to avoid
+    // showing chain controls for a stale/default agent.
+    return String(convSignalForm.agent || convForm.agent || metaForm.agent || '').trim();
 }
 
 function chainTargetsForAgent(context, agentID) {
@@ -1466,8 +1468,18 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
         const turnRows = [];
         for (const m of messages) {
             const roleLower = String(m.role || m.Role || '').toLowerCase();
+            const modeLower = String(m.mode || m.Mode || '').toLowerCase().trim();
+            const createdByLower = String(m.createdByUserId || m.CreatedByUserId || '').toLowerCase().trim();
+            const linkedConvId = String(m.linkedConversationId || m.LinkedConversationId || '').trim();
+            const toolNameLower = String(m.toolName || m.ToolName || '').toLowerCase().trim();
             const isInterim = !!(m?.interim ?? m?.Interim);
             const hasCall = !!(m?.toolCall || m?.ToolCall || m?.modelCall || m?.ModelCall);
+            // Suppress linked child-agent execution text from regular assistant bubbles.
+            // These records belong in execution/tool-feed surfaces, not transcript prose.
+            const isLinkedExecAssistant =
+                roleLower === 'assistant' &&
+                modeLower === 'exec' &&
+                (linkedConvId !== '' || createdByLower === 'tool' || toolNameLower.includes('llm/agents:run'));
             let suppressBubble = false;
             // Detect and attach a user reply to the most recent elicitation step within this turn
             if (roleLower === 'user') {
@@ -1494,6 +1506,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             }
             if (isInterim) continue;
             if (hasCall) continue; // call content is represented in steps
+            if (isLinkedExecAssistant) continue;
             if (suppressBubble) continue; // answered elicitation → execution details only
 
             const id = m.id || m.Id;
@@ -2556,6 +2569,15 @@ export function disableChains(args) {
     return true;
 }
 
+export function toggleChains(args) {
+    const context = args?.context;
+    if (!context || !hasAgentChains(args)) return false;
+    const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+    const convForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+    const enabled = resolveChainsEnabled(metaForm, convForm);
+    return enabled ? disableChains(args) : enableChains(args);
+}
+
 export async function cancelQueuedTurnByID({context, conversationID, turnID}) {
     try {
         if (!context) return false;
@@ -2742,8 +2764,14 @@ export function saveSettings(args) {
 
     // removed debug snapshot log
     // Avoid updating conversations DS here (would invoke hooks). Preferences are persisted below.
-    setExecutionDetailsEnabled(!!showExecutionDetails);
-    setToolFeedEnabled(!!showToolFeed);
+    const execEnabled = (typeof showExecutionDetails === 'boolean')
+        ? showExecutionDetails
+        : getExecutionDetailsEnabled();
+    const toolFeedEnabled = (typeof showToolFeed === 'boolean')
+        ? showToolFeed
+        : getToolFeedEnabled();
+    setExecutionDetailsEnabled(execEnabled);
+    setToolFeedEnabled(toolFeedEnabled);
     try {
         if (context?.resources) {
             context.resources.autoSelectToolsTouched = true;
@@ -3890,6 +3918,7 @@ export const chatService = {
     showHeaderChainStatus,
     showEnableChains,
     showDisableChains,
+    toggleChains,
     enableChains,
     disableChains,
     taskStatusIcon,
