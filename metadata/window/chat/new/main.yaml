@@ -138,26 +138,16 @@ view:
                 on:
                   - event: onChange
                     handler: chat.updateVisibility
-              - id: enableChains
+              - id: toggleChains
                 icon: git-branch
-                label: Enable Chains
-                tooltip: Enable agent chaining for new turns
+                label: Toggle Chains
+                tooltip: Enable or disable agent chaining for new turns
                 align: left
                 on:
                   - event: onClick
-                    handler: chat.enableChains
+                    handler: chat.toggleChains
                   - event: onVisible
-                    handler: chat.showEnableChains
-              - id: disableChains
-                icon: disable
-                label: Disable Chains
-                tooltip: Disable agent chaining for new turns
-                align: left
-                on:
-                  - event: onClick
-                    handler: chat.disableChains
-                  - event: onVisible
-                    handler: chat.showDisableChains
+                    handler: chat.hasAgentChains
               # Removed usage dialog trigger
 
           on:
