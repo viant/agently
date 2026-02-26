@@ -4,10 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agently</title>
-    <script type="module" crossorigin src="/assets/main-BHiGk6tN.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/style-5jrVOZ6M.css">
+    <script type="module" crossorigin src="/assets/main-CfPoD4Ox.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/style-CZTnKuK2.css">
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Enter sends message; Shift+Enter inserts newline in the chat composer.
+      document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter') return;
+        var el = e.target;
+        if (!el || el.getAttribute('data-testid') !== 'chat-composer-input') return;
+        if (e.shiftKey) return; // allow newline
+        e.preventDefault();
+        var form = el.closest('form[data-testid="chat-composer"]');
+        if (form && typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+        }
+      });
+    </script>
   </body>
 </html>

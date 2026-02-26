@@ -5,6 +5,8 @@ import (
 
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
+	gfread "github.com/viant/agently/pkg/agently/generatedfile/read"
+	gfwrite "github.com/viant/agently/pkg/agently/generatedfile/write"
 	msgw "github.com/viant/agently/pkg/agently/message/write"
 	mcall "github.com/viant/agently/pkg/agently/modelcall/write"
 	payloadread "github.com/viant/agently/pkg/agently/payload/read"
@@ -14,16 +16,18 @@ import (
 )
 
 type (
-	Input               = agconv.ConversationInput
-	MutableConversation = convw.Conversation
-	MutableMessage      = msgw.Message
-	MutableModelCall    = mcall.ModelCall
-	MutableToolCall     = toolcall.ToolCall
-	MutablePayload      = payloadw.Payload
-	MutableTurn         = turnw.Turn
-	Payload             = payloadread.PayloadView
-	ToolCallView        = agconv.ToolCallView
-	ResponsePayloadView = agconv.ResponsePayloadView
+	Input                = agconv.ConversationInput
+	MutableConversation  = convw.Conversation
+	MutableMessage       = msgw.Message
+	MutableModelCall     = mcall.ModelCall
+	MutableToolCall      = toolcall.ToolCall
+	MutablePayload       = payloadw.Payload
+	MutableTurn          = turnw.Turn
+	Payload              = payloadread.PayloadView
+	GeneratedFile        = gfread.GeneratedFileView
+	MutableGeneratedFile = gfwrite.GeneratedFile
+	ToolCallView         = agconv.ToolCallView
+	ResponsePayloadView  = agconv.ResponsePayloadView
 )
 
 type (

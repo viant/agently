@@ -46,6 +46,10 @@ func (f *fakeScheduleStore) GetSchedules(_ context.Context, _ ...codec.SessionOp
 	return f.schedules, nil
 }
 
+func (f *fakeScheduleStore) GetSchedulesForRunDue(_ context.Context, _ ...codec.SessionOption) ([]*schedulepkg.ScheduleView, error) {
+	return f.schedules, nil
+}
+
 func (f *fakeScheduleStore) GetSchedule(_ context.Context, id string, _ ...codec.SessionOption) (*schedulepkg.ScheduleView, error) {
 	if f.schedule == nil {
 		return nil, nil
@@ -129,6 +133,26 @@ func (f *fakeScheduleStore) ReadRuns(ctx context.Context, in *runpkg.RunInput, _
 		}
 	}
 	return &runpkg.RunOutput{Data: filtered}, nil
+}
+
+func (f *fakeScheduleStore) ReadRunsForRunDue(ctx context.Context, in *runpkg.RunDueInput, _ []codec.SessionOption, _ ...datly.OperateOption) (*runpkg.RunOutput, error) {
+	if in == nil {
+		return &runpkg.RunOutput{}, nil
+	}
+	compat := &runpkg.RunInput{
+		Id:              in.Id,
+		Since:           in.Since,
+		ScheduledFor:    in.ScheduledFor,
+		ExcludeStatuses: in.ExcludeStatuses,
+		Has:             &runpkg.RunInputHas{},
+	}
+	if in.Has != nil {
+		compat.Has.Id = in.Has.Id
+		compat.Has.Since = in.Has.Since
+		compat.Has.ScheduledFor = in.Has.ScheduledFor
+		compat.Has.ExcludeStatuses = in.Has.ExcludeStatuses
+	}
+	return f.ReadRuns(ctx, compat, nil)
 }
 
 func (f *fakeScheduleStore) PatchSchedules(ctx context.Context, in *schedwrite.Input, _ ...datly.OperateOption) (*schedwrite.Output, error) {
@@ -463,6 +487,141 @@ func TestService_RunDue_PrivateRuns_NotVisibleWithoutOwnerContext(t *testing.T) 
 	// If the scheduler fails to impersonate the schedule owner when listing runs,
 	// it won't see the active run and will incorrectly start a new one.
 	assert.EqualValues(t, 0, len(store.patchedRuns))
+}
+
+func TestService_RunDue_DoesNotReusePendingRunFromOlderSlot(t *testing.T) {
+	now := time.Now().UTC()
+	currentSlot := now.Add(-1 * time.Minute).UTC()
+	olderSlot := currentSlot.Add(-24 * time.Hour).UTC()
+
+	pendingOlder := &runpkg.RunView{
+		Id:           "run-pending-old",
+		ScheduleId:   "sch-1",
+		Status:       "pending",
+		ScheduledFor: &olderSlot,
+		CreatedAt:    olderSlot,
+	}
+
+	store := &fakeScheduleStore{
+		schedule: map[string]*schedulepkg.ScheduleView{},
+		runs: map[string][]*runpkg.RunView{
+			"sch-1": {pendingOlder},
+		},
+		claimResultByScheduleID: map[string]bool{"sch-1": true},
+	}
+	schedule := &schedulepkg.ScheduleView{
+		Id:           "sch-1",
+		Name:         "s",
+		AgentRef:     "agent",
+		Enabled:      true,
+		ScheduleType: "cron",
+		CronExpr:     strPtr("* * * * *"),
+		Timezone:     "UTC",
+		Visibility:   "public",
+		NextRunAt:    &currentSlot,
+		TaskPrompt:   strPtr("do"),
+		CreatedAt:    currentSlot.Add(-time.Hour),
+	}
+	store.schedules = []*schedulepkg.ScheduleView{schedule}
+	store.schedule["sch-1"] = schedule
+
+	chat := &fakeChat{}
+	svc := &Service{
+		sch:        store,
+		chat:       chat,
+		leaseOwner: "owner-1",
+		leaseTTL:   60 * time.Second,
+	}
+
+	started, err := svc.RunDue(context.Background())
+	assert.NoError(t, err)
+	assert.EqualValues(t, 1, started)
+	assert.EqualValues(t, 3, len(store.patchedRuns))
+
+	// 1) old pending row is explicitly failed with a stale reason
+	assert.EqualValues(t, "run-pending-old", store.patchedRuns[0].Id)
+	assert.EqualValues(t, "failed", store.patchedRuns[0].Status)
+	assert.True(t, store.patchedRuns[0].CompletedAt != nil)
+	assert.True(t, store.patchedRuns[0].ErrorMessage != nil)
+	if store.patchedRuns[0].ErrorMessage != nil {
+		assert.Contains(t, *store.patchedRuns[0].ErrorMessage, "stale pending run detected")
+	}
+
+	// 2) a new run is started for the current slot (not reusing old run id)
+	for _, r := range store.patchedRuns[1:] {
+		assert.NotEqual(t, "run-pending-old", r.Id)
+		assert.True(t, r.ScheduledFor != nil)
+		if r.ScheduledFor != nil {
+			assert.EqualValues(t, currentSlot, r.ScheduledFor.UTC())
+		}
+	}
+}
+
+func TestService_RunDue_DoesNotAutoFailPendingRunForCurrentSlot(t *testing.T) {
+	now := time.Now().UTC()
+	currentSlot := now.Add(-1 * time.Minute).UTC()
+	oldCreatedAt := now.Add(-24 * time.Hour).UTC()
+
+	pendingCurrent := &runpkg.RunView{
+		Id:           "run-pending-current",
+		ScheduleId:   "sch-1",
+		Status:       "pending",
+		ScheduledFor: &currentSlot,
+		CreatedAt:    oldCreatedAt,
+	}
+
+	store := &fakeScheduleStore{
+		schedule: map[string]*schedulepkg.ScheduleView{},
+		runs: map[string][]*runpkg.RunView{
+			"sch-1": {pendingCurrent},
+		},
+		claimResultByScheduleID: map[string]bool{"sch-1": true},
+	}
+	schedule := &schedulepkg.ScheduleView{
+		Id:           "sch-1",
+		Name:         "s",
+		AgentRef:     "agent",
+		Enabled:      true,
+		ScheduleType: "cron",
+		CronExpr:     strPtr("* * * * *"),
+		Timezone:     "UTC",
+		Visibility:   "public",
+		NextRunAt:    &currentSlot,
+		TaskPrompt:   strPtr("do"),
+		CreatedAt:    currentSlot.Add(-time.Hour),
+	}
+	store.schedules = []*schedulepkg.ScheduleView{schedule}
+	store.schedule["sch-1"] = schedule
+
+	chat := &fakeChat{}
+	svc := &Service{
+		sch:        store,
+		chat:       chat,
+		leaseOwner: "owner-1",
+		leaseTTL:   60 * time.Second,
+	}
+
+	started, err := svc.RunDue(context.Background())
+	assert.NoError(t, err)
+	assert.EqualValues(t, 1, started)
+	assert.EqualValues(t, 2, len(store.patchedRuns))
+
+	// Reused same-slot pending row must not be auto-failed.
+	hasFailed := false
+	hasRunning := false
+	for _, r := range store.patchedRuns {
+		if r == nil || r.Id != "run-pending-current" {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(r.Status), "failed") {
+			hasFailed = true
+		}
+		if strings.EqualFold(strings.TrimSpace(r.Status), "running") {
+			hasRunning = true
+		}
+	}
+	assert.False(t, hasFailed)
+	assert.True(t, hasRunning)
 }
 
 func TestService_RunDue_CompletedRunForSlot_AdvancesScheduleAndSkips(t *testing.T) {

@@ -13,6 +13,8 @@ import (
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convdel "github.com/viant/agently/pkg/agently/conversation/delete"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
+	generatedfileread "github.com/viant/agently/pkg/agently/generatedfile/read"
+	generatedfilewrite "github.com/viant/agently/pkg/agently/generatedfile/write"
 	msgdel "github.com/viant/agently/pkg/agently/message/delete"
 	messageread "github.com/viant/agently/pkg/agently/message/read"
 	msgwrite "github.com/viant/agently/pkg/agently/message/write"
@@ -66,6 +68,10 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 			initErr = err
 			return
 		}
+		if err := generatedfileread.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
 
 		if _, err := convw.DefineComponent(ctx, dao); err != nil {
 			initErr = err
@@ -112,6 +118,10 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 			return
 		}
 		if _, err := payloadwrite.DefineComponent(ctx, dao); err != nil {
+			initErr = err
+			return
+		}
+		if _, err := generatedfilewrite.DefineComponent(ctx, dao); err != nil {
 			initErr = err
 			return
 		}
@@ -241,6 +251,51 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 		return errors.New(out.Violations[0].Message)
 	}
 	debugf("PatchPayload ok id=%q", strings.TrimSpace(payload.Id))
+	return nil
+}
+
+func (s *Service) GetGeneratedFiles(ctx context.Context, input *generatedfileread.Input) ([]*generatedfileread.GeneratedFileView, error) {
+	if s == nil || s.dao == nil {
+		return nil, errors.New("conversation service not configured: dao is nil")
+	}
+	in := generatedfileread.Input{}
+	if input != nil {
+		in = *input
+	}
+	if in.Has == nil {
+		in.Has = &generatedfileread.Has{}
+	}
+	out := &generatedfileread.Output{}
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(generatedfileread.URI), datly.WithInput(&in)); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
+func (s *Service) PatchGeneratedFile(ctx context.Context, generatedFile *generatedfilewrite.GeneratedFile) error {
+	if s == nil || s.dao == nil {
+		return errors.New("conversation service not configured: dao is nil")
+	}
+	if generatedFile == nil {
+		return errors.New("invalid generated file: nil")
+	}
+	debugf("PatchGeneratedFile start id=%q provider=%q mode=%q status=%q", strings.TrimSpace(generatedFile.ID), strings.TrimSpace(generatedFile.Provider), strings.TrimSpace(generatedFile.Mode), strings.TrimSpace(generatedFile.Status))
+	input := &generatedfilewrite.Input{GeneratedFiles: []*generatedfilewrite.GeneratedFile{generatedFile}}
+	out := &generatedfilewrite.Output{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath(http.MethodPatch, generatedfilewrite.PathURI)),
+		datly.WithInput(input),
+		datly.WithOutput(out),
+	)
+	if err != nil {
+		errorf("PatchGeneratedFile error id=%q err=%v", strings.TrimSpace(generatedFile.ID), err)
+		return err
+	}
+	if len(out.Violations) > 0 {
+		warnf("PatchGeneratedFile violation id=%q msg=%q", strings.TrimSpace(generatedFile.ID), out.Violations[0].Message)
+		return errors.New(out.Violations[0].Message)
+	}
+	debugf("PatchGeneratedFile ok id=%q", strings.TrimSpace(generatedFile.ID))
 	return nil
 }
 

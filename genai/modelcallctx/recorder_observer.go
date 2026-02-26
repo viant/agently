@@ -122,6 +122,9 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) error {
 	if err := o.client.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status)); err != nil {
 		return fmt.Errorf("failed to update conversation: %w", err)
 	}
+	if err := o.persistOpenAIGeneratedFiles(ctx, msgID, turn, info); err != nil {
+		warnf("persistOpenAIGeneratedFiles failed message=%q err=%v", strings.TrimSpace(msgID), err)
+	}
 	return nil
 }
 

@@ -42,7 +42,13 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 	if err := schedulepkg.DefineScheduleListComponent(ctx, dao); err != nil {
 		return err
 	}
+	if err := schedulepkg.DefineScheduleRunDueListComponent(ctx, dao); err != nil {
+		return err
+	}
 	if err := runpkg.DefineRunComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := runpkg.DefineRunDueComponent(ctx, dao); err != nil {
 		return err
 	}
 	if err := runpkg.DefineRunListComponent(ctx, dao); err != nil {
@@ -281,6 +287,25 @@ func (s *Service) GetSchedules(ctx context.Context, session ...codec.SessionOpti
 	return out.Data, nil
 }
 
+func (s *Service) GetSchedulesForRunDue(ctx context.Context, session ...codec.SessionOption) ([]*schedulepkg.ScheduleView, error) {
+	if s == nil || s.dao == nil {
+		return nil, nil
+	}
+	out := &schedulepkg.ScheduleOutput{}
+	opts := []datly.OperateOption{
+		datly.WithOutput(out),
+		datly.WithURI(schedulepkg.SchedulePathListRunDueURI),
+		datly.WithInput(&schedulepkg.ScheduleRunDueListInput{}),
+	}
+	if len(session) > 0 {
+		opts = append(opts, datly.WithSessionOptions(session...))
+	}
+	if _, err := s.dao.Operate(ctx, opts...); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
 // ReadSchedules executes the schedule list component with input and returns full component output
 func (s *Service) ReadSchedules(ctx context.Context, in *schedulepkg.ScheduleListInput, session []codec.SessionOption, extra ...datly.OperateOption) (*schedulepkg.ScheduleOutput, error) {
 	if s == nil || s.dao == nil {
@@ -337,6 +362,31 @@ func (s *Service) ReadRuns(ctx context.Context, in *runpkg.RunInput, session []c
 	}
 	id := strings.TrimSpace(in.Id)
 	uri := strings.ReplaceAll(runpkg.RunPathURI, "{id}", id)
+	out := &runpkg.RunOutput{}
+	opts := []datly.OperateOption{datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(in)}
+	if len(session) > 0 {
+		opts = append(opts, datly.WithSessionOptions(session...))
+	}
+	if len(extra) > 0 {
+		opts = append(opts, extra...)
+	}
+	if _, err := s.dao.Operate(ctx, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ReadRunsForRunDue executes the internal run-due component (no visibility predicate)
+// and returns full component output.
+func (s *Service) ReadRunsForRunDue(ctx context.Context, in *runpkg.RunDueInput, session []codec.SessionOption, extra ...datly.OperateOption) (*runpkg.RunOutput, error) {
+	if s == nil || s.dao == nil {
+		return nil, nil
+	}
+	if in == nil {
+		in = &runpkg.RunDueInput{}
+	}
+	id := strings.TrimSpace(in.Id)
+	uri := strings.ReplaceAll(runpkg.RunPathRunDueURI, "{id}", id)
 	out := &runpkg.RunOutput{}
 	opts := []datly.OperateOption{datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(in)}
 	if len(session) > 0 {

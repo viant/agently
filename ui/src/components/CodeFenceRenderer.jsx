@@ -5,13 +5,99 @@
 import React from 'react';
 import CodeBlock from './CodeBlock.jsx';
 import Mermaid from './Mermaid.jsx';
-import { Button, Dialog } from '@blueprintjs/core';
+import { Button, Dialog, Tooltip } from '@blueprintjs/core';
 import { Table as BpTable, Column as BpColumn, Cell as BpCell, ColumnHeaderCell as BpColumnHeaderCell } from '@blueprintjs/table';
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  ScatterChart,
+  Scatter,
+  PieChart,
+  Pie,
+  Cell,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip as RcTooltip,
+  Legend as RcLegend,
+} from 'recharts';
 import { findNextPipeTableBlock } from './markdownTableUtils.js';
 
 // Use Editor from forge/components directly (consistent with other imports like Chat).
 
-function MinimalText({ text = '' }) {
+function escapeHTMLAttr(value = '') {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function generatedFileKey(files = []) {
+  if (!Array.isArray(files) || !files.length) return '';
+  return files
+    .map((f) => {
+      const id = String(f?.id || '').trim();
+      const filename = String(f?.filename || '').trim().toLowerCase();
+      const status = String(f?.status || '').trim().toLowerCase();
+      return `${id}|${filename}|${status}`;
+    })
+    .filter(Boolean)
+    .join(',');
+}
+
+function normalizeSandboxFilename(url = '') {
+  let raw = String(url || '').trim();
+  if (!raw) return '';
+  if (!/^sandbox:\//i.test(raw)) return '';
+  raw = raw.replace(/^sandbox:\/*/i, '');
+  const parts = raw.split('/');
+  const last = parts.length ? parts[parts.length - 1] : '';
+  if (!last) return '';
+  try {
+    return decodeURIComponent(last).trim();
+  } catch (_) {
+    return last.trim();
+  }
+}
+
+function resolveMarkdownHref(url = '', generatedFiles = []) {
+  const href = String(url || '').trim();
+  if (!href) return href;
+  if (!/^sandbox:\//i.test(href)) return href;
+  const filename = normalizeSandboxFilename(href);
+  if (!filename) return href;
+  const want = filename.toLowerCase();
+  const files = Array.isArray(generatedFiles) ? generatedFiles : [];
+  const match = files.find((f) => {
+    const id = String(f?.id || '').trim();
+    const name = String(f?.filename || '').trim().toLowerCase();
+    return !!id && name === want;
+  });
+  if (!match || !match.id) return href;
+  return `/v1/api/generated-files/${encodeURIComponent(String(match.id).trim())}/download`;
+}
+
+function renderMarkdownLinks(input = '', generatedFiles = []) {
+  return String(input || '').replace(/\[([^\]]+)\]\(([^\)]+)\)/g, (m, label, url) => {
+    const href = resolveMarkdownHref(url, generatedFiles);
+    return `<a href="${escapeHTMLAttr(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  });
+}
+
+function rewriteSandboxHrefInHTML(html = '', generatedFiles = []) {
+  return String(html || '').replace(/href=(["'])(sandbox:[^"']+)\1/gi, (m, q, url) => {
+    const href = resolveMarkdownHref(url, generatedFiles);
+    return `href=${q}${escapeHTMLAttr(href)}${q}`;
+  });
+}
+
+function MinimalText({ text = '', generatedFiles = [] }) {
   // Escape and apply minimal inline formatting: inline code, bold, italic, links, newlines
   const escaped = String(text)
     .replace(/&/g, '&amp;')
@@ -36,7 +122,7 @@ function MinimalText({ text = '' }) {
   const withStarItalic = withBold.replace(/\*(.*?)\*/g, '<em>$1</em>');
   // Underscore italics (avoid mid-word underscores)
   const withUnderscoreItalic = withStarItalic.replace(/(^|[^\w])_([^_\n]+)_/g, '$1<em>$2</em>');
-  const withLinks  = withUnderscoreItalic.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  const withLinks  = renderMarkdownLinks(withUnderscoreItalic, generatedFiles);
   const html = withLinks.replace(/\n/g, '<br/>');
   // eslint-disable-next-line react/no-danger
   return <div className="prose max-w-full text-sm" dangerouslySetInnerHTML={{ __html: html }} />;
@@ -44,12 +130,12 @@ function MinimalText({ text = '' }) {
 
 // Renders fenced 'markdown' code as preformatted HTML with clickable markdown links only.
 // It preserves monospaced layout while converting [label](url) to <a> anchors.
-function MarkdownLinksPre({ body = '' }) {
+function MarkdownLinksPre({ body = '', generatedFiles = [] }) {
   const escaped = String(body || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  const withLinks = escaped.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  const withLinks = renderMarkdownLinks(escaped, generatedFiles);
   // eslint-disable-next-line react/no-danger
   return <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}><code dangerouslySetInnerHTML={{ __html: withLinks }} /></pre>;
 }
@@ -63,6 +149,311 @@ function languageHint(lang = '') {
   if (v === 'yml') return 'yaml';
   if (v === 'sequence' || v === 'sequencediagram') return 'mermaid';
   return v;
+}
+
+function isObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function parseChartSpecFromFence(lang = '', body = '') {
+  const v = String(lang || '').toLowerCase();
+  const raw = String(body || '').trim();
+  if (!(v === 'json' || v === 'javascript' || v === 'js' || v === 'plaintext' || v === 'md' || v === 'markdown')) return null;
+  if (!raw.startsWith('{') && !raw.startsWith('[')) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!isObject(parsed)) return null;
+    const chart = parsed.chart;
+    const data = Array.isArray(parsed.data) ? parsed.data : (Array.isArray(parsed.rows) ? parsed.rows : null);
+    if (!isObject(chart) || !Array.isArray(data)) return null;
+    const type = String(chart.type || '').trim().toLowerCase();
+    if (!type) return null;
+    return parsed;
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeChartSpec(spec = {}) {
+  const chart = isObject(spec.chart) ? spec.chart : {};
+  const type = String(chart.type || 'line').toLowerCase();
+  const data = Array.isArray(spec.data) ? spec.data : (Array.isArray(spec.rows) ? spec.rows : []);
+  const xKey = String(chart?.x?.key || spec.xKey || 'x');
+  const seriesKey = chart?.series?.key ? String(chart.series.key) : '';
+  const yArr = Array.isArray(chart?.y) ? chart.y : [];
+  const yKeys = yArr.map((v) => String(v?.key || '')).filter(Boolean);
+  const valueKey = String(chart?.valueKey || spec.valueKey || yKeys[0] || 'value');
+  const palette = Array.isArray(spec?.options?.palette) ? spec.options.palette : ['#2563eb', '#ef4444', '#16a34a', '#f59e0b', '#9333ea', '#06b6d4'];
+  return { type, data, xKey, seriesKey, yKeys, valueKey, palette, title: String(spec.title || '') };
+}
+
+function buildChartSeries(normalized) {
+  const { data, xKey, seriesKey, yKeys, valueKey } = normalized;
+  if (!Array.isArray(data) || data.length === 0) return { rows: [], series: [] };
+
+  // Long form: x + series + single value
+  if (seriesKey) {
+    const map = new Map();
+    const order = [];
+    for (const row of data) {
+      const x = row?.[xKey];
+      const s = String(row?.[seriesKey] ?? '');
+      if (!s) continue;
+      if (!order.includes(s)) order.push(s);
+      const k = String(x);
+      if (!map.has(k)) map.set(k, { [xKey]: x });
+      map.get(k)[s] = Number(row?.[valueKey] ?? 0);
+    }
+    return { rows: Array.from(map.values()), series: order };
+  }
+
+  // Wide form: x + multiple y keys
+  const keys = (yKeys.length ? yKeys : Object.keys(data[0] || {}).filter((k) => k !== xKey && typeof data[0][k] === 'number'));
+  return { rows: data, series: keys };
+}
+
+function ChartSpecTable({ rows = [], headers = [], visibleColumns = [], widthByCol = {}, setWidthByCol = () => {}, onExpandCell = () => {} }) {
+  const visible = (Array.isArray(visibleColumns) && visibleColumns.length) ? visibleColumns : headers;
+
+  const columns = visible.map((h, ci) => {
+    const cellRenderer = (rowIndex) => {
+      const raw = rows[rowIndex]?.[h];
+      const text = String(raw ?? '');
+      const isLong = text.length > 120;
+      const display = isLong ? `${text.slice(0, 120)}…` : text;
+      const content = <span>{display}</span>;
+      return (
+        <BpCell
+          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: isLong ? 'pointer' : 'default' }}
+          onClick={() => { if (isLong) onExpandCell({ title: h, content: text }); }}
+        >
+          {isLong ? (
+            <Tooltip content={<div style={{ maxWidth: 640, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{text}</div>}>
+              {content}
+            </Tooltip>
+          ) : content}
+        </BpCell>
+      );
+    };
+    const columnHeaderCellRenderer = () => <BpColumnHeaderCell name={h} />;
+    return <BpColumn key={`c-${ci}`} cellRenderer={cellRenderer} columnHeaderCellRenderer={columnHeaderCellRenderer} />;
+  });
+
+  if (!rows.length || !headers.length || !visible.length) {
+    return <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>No data</div>;
+  }
+  const widths = visible.map((k) => {
+    const persisted = Number(widthByCol[k]);
+    if (Number.isFinite(persisted) && persisted > 60) return persisted;
+    return 180;
+  });
+  return (
+    <div style={{ width: '60vw', overflowX: 'auto' }}>
+      <BpTable
+        numRows={rows.length}
+        columnWidths={widths}
+        onColumnWidthChanged={(indexOrSize, sizeOrIndex) => {
+          let idx = indexOrSize;
+          let next = sizeOrIndex;
+          if (typeof idx === 'number' && typeof next === 'number') {
+            if (idx > 2000 && next < 200) {
+              const t = idx;
+              idx = next;
+              next = t;
+            }
+            const key = visible[idx];
+            if (key && Number.isFinite(next) && next > 60) {
+              setWidthByCol((prev) => ({ ...prev, [key]: next }));
+            }
+          }
+        }}
+        enableGhostCells={false}
+        enableRowHeader={false}
+        defaultRowHeight={28}
+      >
+        {columns}
+      </BpTable>
+    </div>
+  );
+}
+
+function ChartSpecPanel({ spec = {} }) {
+  const [mode, setMode] = React.useState('chart');
+  const [showCols, setShowCols] = React.useState(false);
+  const [widthByCol, setWidthByCol] = React.useState({});
+  const [visibleColumns, setVisibleColumns] = React.useState([]);
+  const [expandedCell, setExpandedCell] = React.useState(null);
+  const n = React.useMemo(() => normalizeChartSpec(spec), [spec]);
+  const { rows, series } = React.useMemo(() => buildChartSeries(n), [n]);
+  const { type, xKey, palette, title } = n;
+  const headers = React.useMemo(() => {
+    const keys = new Set();
+    (n.data || []).forEach((r) => Object.keys(r || {}).forEach((k) => keys.add(k)));
+    return Array.from(keys);
+  }, [n.data]);
+
+  React.useEffect(() => {
+    setVisibleColumns((prev) => {
+      const keep = prev.filter((k) => headers.includes(k));
+      const add = headers.filter((k) => !keep.includes(k));
+      return [...keep, ...add];
+    });
+  }, [headers]);
+
+  const toggleColumn = (key) => {
+    setVisibleColumns((prev) => {
+      if (prev.includes(key)) return prev.filter((k) => k !== key);
+      return [...prev, key];
+    });
+  };
+
+  const downloadCsv = () => {
+    const cols = visibleColumns.length ? visibleColumns : headers;
+    if (!cols.length) return;
+    const esc = (v = '') => {
+      const s = String(v ?? '');
+      if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+    const lines = [cols.map(esc).join(',')];
+    (n.data || []).forEach((row) => {
+      lines.push(cols.map((c) => esc(row?.[c])).join(','));
+    });
+    const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    a.download = `chart-spec-${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const chartCommon = (
+    <>
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey={xKey} />
+      <YAxis />
+      <RcTooltip />
+      <RcLegend />
+    </>
+  );
+
+  const renderChart = () => {
+    if (!rows.length || !series.length) return <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>No chart data</div>;
+    if (type === 'area') {
+      return (
+        <AreaChart data={rows}>
+          {chartCommon}
+          {series.map((s, i) => <Area key={s} type="monotone" dataKey={s} stroke={palette[i % palette.length]} fill={palette[i % palette.length]} fillOpacity={0.2} />)}
+        </AreaChart>
+      );
+    }
+    if (type === 'bar' || type === 'stacked_bar') {
+      const stacked = type === 'stacked_bar';
+      return (
+        <BarChart data={rows}>
+          {chartCommon}
+          {series.map((s, i) => <Bar key={s} dataKey={s} fill={palette[i % palette.length]} stackId={stacked ? 'a' : undefined} />)}
+        </BarChart>
+      );
+    }
+    if (type === 'scatter') {
+      const y = series[0];
+      return (
+        <ScatterChart>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey={xKey} />
+          <YAxis dataKey={y} />
+          <RcTooltip />
+          <RcLegend />
+          <Scatter name={y} data={rows} fill={palette[0]} />
+        </ScatterChart>
+      );
+    }
+    if (type === 'pie') {
+      const nameKey = n.seriesKey || xKey;
+      const valueKey = series[0];
+      return (
+        <PieChart>
+          <RcTooltip />
+          <RcLegend />
+          <Pie data={n.data || []} dataKey={valueKey} nameKey={nameKey} outerRadius={110} label>
+            {(n.data || []).map((_, i) => <Cell key={`cell-${i}`} fill={palette[i % palette.length]} />)}
+          </Pie>
+        </PieChart>
+      );
+    }
+    return (
+      <LineChart data={rows}>
+        {chartCommon}
+        {series.map((s, i) => <Line key={s} type="monotone" dataKey={s} stroke={palette[i % palette.length]} dot={false} />)}
+      </LineChart>
+    );
+  };
+
+  return (
+    <div style={{ width: '60vw', border: '1px solid var(--light-gray2)', borderRadius: 6, padding: 8, margin: '6px 0' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>{title || 'Chart'}</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {mode === 'table' ? <Button small minimal icon="cog" onClick={() => setShowCols(true)}>Columns</Button> : null}
+          {mode === 'table' ? <Button small minimal icon="download" onClick={downloadCsv}>CSV</Button> : null}
+          <Button small minimal={mode !== 'chart'} intent={mode === 'chart' ? 'primary' : 'none'} onClick={() => setMode('chart')}>Chart</Button>
+          <Button small minimal={mode !== 'table'} intent={mode === 'table' ? 'primary' : 'none'} onClick={() => setMode('table')}>Table</Button>
+        </div>
+      </div>
+      {mode === 'chart' ? (
+        <div style={{ width: '100%', height: 320 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            {renderChart()}
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <ChartSpecTable
+          rows={n.data || []}
+          headers={headers}
+          visibleColumns={visibleColumns}
+          widthByCol={widthByCol}
+          setWidthByCol={setWidthByCol}
+          onExpandCell={setExpandedCell}
+        />
+      )}
+      <Dialog isOpen={showCols} onClose={() => setShowCols(false)} title="Visible Columns">
+        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {headers.map((h) => (
+            <div key={h} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <label className="bp4-control bp4-checkbox" style={{ marginBottom: 0 }}>
+                <input type="checkbox" checked={visibleColumns.includes(h)} onChange={() => toggleColumn(h)} />
+                <span className="bp4-control-indicator" />
+                {h}
+              </label>
+              <input
+                className="bp4-input bp4-small"
+                type="number"
+                min={80}
+                max={640}
+                value={Number(widthByCol[h] || 180)}
+                onChange={(e) => {
+                  const v = Number(e.target.value || 0);
+                  if (Number.isFinite(v) && v >= 80) setWidthByCol((prev) => ({ ...prev, [h]: Math.min(640, v) }));
+                }}
+                style={{ width: 90 }}
+              />
+            </div>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button small intent="primary" onClick={() => setShowCols(false)}>Close</Button>
+          </div>
+        </div>
+      </Dialog>
+      <Dialog isOpen={!!expandedCell} onClose={() => setExpandedCell(null)} title={expandedCell?.title || 'Cell content'} style={{ width: '70vw', minWidth: 480 }}>
+        <div style={{ padding: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{expandedCell?.content || ''}</div>
+      </Dialog>
+    </div>
+  );
 }
 
 // Detects GitHub-flavored Markdown pipe table in a fenced block body.
@@ -154,6 +545,7 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
   const [showCols, setShowCols] = React.useState(false);
   const [expand, setExpand] = React.useState(null);
   const [truncateAt, setTruncateAt] = React.useState(100);
+  const [widthByCol, setWidthByCol] = React.useState({});
 
   const total = Array.isArray(rows) ? rows.length : 0;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -177,9 +569,14 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
   });
   const baseWidthPx = 720;
   const totalLens = visIdx.reduce((acc, i) => acc + allMaxLens[i], 0) || visIdx.length;
-  const colWidths = visIdx.map(i => {
+  const computedColWidths = visIdx.map(i => {
     const p = allMaxLens[i] / totalLens;
     return Math.max(80, Math.round(p * baseWidthPx));
+  });
+  const colWidths = visIdx.map((i, j) => {
+    const persisted = Number(widthByCol[i]);
+    if (Number.isFinite(persisted) && persisted > 40) return persisted;
+    return computedColWidths[j];
   });
 
   const downloadCSV = () => {
@@ -217,12 +614,25 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
       const isLong = text.length > truncateAt;
       const display = isLong ? (text.slice(0, truncateAt) + '…') : text;
       const html = renderMarkdownCellHTML(display);
+      const fullHtml = renderMarkdownCellHTML(text);
+      const cellContent = (
+        <span dangerouslySetInnerHTML={{ __html: html }} />
+      );
       return (
         <BpCell
           style={{ textAlign: align, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: isLong ? 'pointer' : 'default' }}
           onClick={() => { if (isLong) setExpand({ title: headers[ci], content: text }); }}
         >
-          <span dangerouslySetInnerHTML={{ __html: html }} />
+          {isLong ? (
+            <Tooltip
+              content={<div style={{ maxWidth: 640, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: fullHtml }} />}
+              hoverOpenDelay={250}
+              placement="auto"
+              interactionKind="hover-target"
+            >
+              {cellContent}
+            </Tooltip>
+          ) : cellContent}
         </BpCell>
       );
     };
@@ -256,6 +666,23 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
       <BpTable
         numRows={pageRows.length}
         columnWidths={colWidths}
+        onColumnWidthChanged={(indexOrSize, sizeOrIndex) => {
+          let idx = indexOrSize;
+          let next = sizeOrIndex;
+          if (typeof idx === 'number' && typeof next === 'number') {
+            // Blueprint may pass (index, size) in current versions.
+            // If values appear reversed, normalize by choosing the small value as index.
+            if (idx > 2000 && next < 200) {
+              const t = idx;
+              idx = next;
+              next = t;
+            }
+            const col = visIdx[idx];
+            if (col !== undefined && Number.isFinite(next) && next > 40) {
+              setWidthByCol((prev) => ({ ...prev, [col]: next }));
+            }
+          }
+        }}
         enableGhostCells={false}
         enableRowHeader={false}
         defaultRowHeight={28}
@@ -386,17 +813,21 @@ function legacyRenderPipeTable(body = '') {
   );
 }
 
-function CodeFenceRenderer({ text = '' }) {
+function CodeFenceRenderer({ text = '', generatedFiles = [] }) {
   // Normalize newlines and run fence detection in two passes (with and without language hint)
-  const textNorm = String(text || '').replace(/\r\n/g, '\n');
+  const textNorm = String(text || '')
+    .replace(/\r\n/g, '\n')
+    // CHART_SPEC marker is control metadata; do not render it as visible prose.
+    .replace(/^\s*<!--\s*CHART_SPEC:v1\s*-->\s*$/gim, '');
   const trimmed = textNorm.trimStart();
 
   // 0) If content is already HTML (<pre>, <code>, <table>), render it as-is
   if (/^</.test(trimmed) && /<(pre|code|table)\b/i.test(trimmed)) {
+    const html = rewriteSandboxHrefInHTML(textNorm, generatedFiles);
     // eslint-disable-next-line react/no-danger
     return (
       <div style={{ width: '60vw', overflowX: 'auto' }}>
-        <div className="prose max-w-full text-sm" dangerouslySetInnerHTML={{ __html: textNorm }} />
+        <div className="prose max-w-full text-sm" dangerouslySetInnerHTML={{ __html: html }} />
       </div>
     );
   }
@@ -407,18 +838,74 @@ function CodeFenceRenderer({ text = '' }) {
   let m;
   let idx = 0;
   let fenceCount = 0;
+  const pushMarkdownBodyWithTables = (body = '', keyPrefix = 'mdf') => {
+    const chunk = String(body || '');
+    if (!chunk) return false;
+    let cursor = 0;
+    let anyTable = false;
+    while (true) {
+      const block = findNextPipeTableBlock(chunk, cursor);
+      if (!block) break;
+      anyTable = true;
+      if (block.start > cursor) {
+        out.push(<MinimalText key={`${keyPrefix}-pre-${idx++}`} text={chunk.slice(cursor, block.start)} generatedFiles={generatedFiles} />);
+      }
+      const tableBody = chunk.slice(block.start, block.end);
+      out.push(
+        <div key={`${keyPrefix}-tbl-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+          {renderPipeTable(tableBody)}
+        </div>
+      );
+      cursor = block.end;
+    }
+    if (anyTable && cursor < chunk.length) {
+      out.push(<MinimalText key={`${keyPrefix}-tail-${idx++}`} text={chunk.slice(cursor)} generatedFiles={generatedFiles} />);
+    }
+    return anyTable;
+  };
+  const pushPlainWithTables = (plain = '', keyPrefix = 'pt') => {
+    const chunk = String(plain || '');
+    if (!chunk) return;
+    let cursor = 0;
+    let anyTable = false;
+    while (true) {
+      const block = findNextPipeTableBlock(chunk, cursor);
+      if (!block) break;
+      anyTable = true;
+      if (block.start > cursor) {
+        out.push(<MinimalText key={`${keyPrefix}-pre-${idx++}`} text={chunk.slice(cursor, block.start)} generatedFiles={generatedFiles} />);
+      }
+      const body = chunk.slice(block.start, block.end);
+      out.push(
+        <div key={`${keyPrefix}-tbl-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
+          {renderPipeTable(body)}
+        </div>
+      );
+      cursor = block.end;
+    }
+    if (anyTable) {
+      if (cursor < chunk.length) {
+        out.push(<MinimalText key={`${keyPrefix}-tail-${idx++}`} text={chunk.slice(cursor)} generatedFiles={generatedFiles} />);
+      }
+      return;
+    }
+    out.push(<MinimalText key={`${keyPrefix}-${idx++}`} text={chunk} generatedFiles={generatedFiles} />);
+  };
   while ((m = pattern.exec(textNorm)) !== null) {
     const [full, langRaw, body] = m;
     const start = m.index;
     const end = start + full.length;
     if (start > lastIndex) {
       const plain = textNorm.slice(lastIndex, start);
-      out.push(<MinimalText key={`t-${idx++}`} text={plain} />);
+      pushPlainWithTables(plain, 'seg');
     }
     const lang = languageHint(langRaw);
     fenceCount += 1;
     // If this fenced block looks like a Markdown pipe table, render as a scrollable HTML table
-    if ((lang === 'markdown' || lang === 'md' || lang === 'plaintext') && looksLikePipeTable(body)) {
+    const chartSpec = parseChartSpecFromFence(lang, body);
+    if (chartSpec) {
+      out.push(<ChartSpecPanel key={`chart-${idx++}`} spec={chartSpec} />);
+    } else if ((lang === 'markdown' || lang === 'md' || lang === 'plaintext') && looksLikePipeTable(body)) {
       out.push(
         <div key={`table-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
           {renderPipeTable(body)}
@@ -433,13 +920,16 @@ function CodeFenceRenderer({ text = '' }) {
       );
     } else {
       const isMarkdownCode = (lang === 'markdown' || lang === 'md');
-      out.push(
-        <div key={`e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
-          {isMarkdownCode
-            ? <MarkdownLinksPre body={body} />
-            : <CodeBlock value={body} language={lang} height={'auto'} />}
-        </div>
-      );
+      const renderedMixedMarkdownTable = isMarkdownCode ? pushMarkdownBodyWithTables(body, `md-main-${idx}`) : false;
+      if (!renderedMixedMarkdownTable) {
+        out.push(
+          <div key={`e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
+            {isMarkdownCode
+              ? <MarkdownLinksPre body={body} generatedFiles={generatedFiles} />
+              : <CodeBlock value={body} language={lang} height={'auto'} />}
+          </div>
+        );
+      }
     }
     lastIndex = end;
   }
@@ -453,7 +943,7 @@ function CodeFenceRenderer({ text = '' }) {
       if (!block) break;
       anyTable = true;
       if (block.start > cursor) {
-        out.push(<MinimalText key={`pt-pre-${idx++}`} text={textNorm.slice(cursor, block.start)} />);
+        pushPlainWithTables(textNorm.slice(cursor, block.start), 'pt-scan-pre');
       }
       const body = textNorm.slice(block.start, block.end);
       out.push(
@@ -465,7 +955,7 @@ function CodeFenceRenderer({ text = '' }) {
     }
     if (anyTable) {
       if (cursor < textNorm.length) {
-        out.push(<MinimalText key={`pt-tail-${idx++}`} text={textNorm.slice(cursor)} />);
+        pushPlainWithTables(textNorm.slice(cursor), 'pt-scan-tail');
       }
       return <div style={{ width: '60vw', overflowX: 'auto' }}>{out}</div>;
     }
@@ -476,7 +966,7 @@ function CodeFenceRenderer({ text = '' }) {
         const chunk = split[i];
         if (i % 2 === 0) {
           // prose chunk
-          if (chunk) out.push(<MinimalText key={`ms-t-${idx++}`} text={chunk} />);
+          if (chunk) pushPlainWithTables(chunk, 'ms');
         } else {
           // code chunk; first line may be language
           const mLang = /\s*^([a-zA-Z0-9_+\-]*)\n([\s\S]*)/m.exec(chunk);
@@ -487,7 +977,10 @@ function CodeFenceRenderer({ text = '' }) {
             body = mLang[2] || '';
           }
           fenceCount += 1;
-          if ((lang === 'markdown' || lang === 'md' || lang === 'plaintext') && looksLikePipeTable(body)) {
+          const chartSpec = parseChartSpecFromFence(lang, body);
+          if (chartSpec) {
+            out.push(<ChartSpecPanel key={`ms-chart-${idx++}`} spec={chartSpec} />);
+          } else if ((lang === 'markdown' || lang === 'md' || lang === 'plaintext') && looksLikePipeTable(body)) {
             out.push(
               <div key={`ms-table-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
                 {renderPipeTable(body)}
@@ -501,13 +994,16 @@ function CodeFenceRenderer({ text = '' }) {
             );
           } else {
             const isMarkdownCode = (lang === 'markdown' || lang === 'md');
-            out.push(
-              <div key={`ms-e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
-                {isMarkdownCode
-                  ? <MarkdownLinksPre body={body} />
-                  : <CodeBlock value={body} language={lang} height={'auto'} />}
-              </div>
-            );
+            const renderedMixedMarkdownTable = isMarkdownCode ? pushMarkdownBodyWithTables(body, `md-split-${idx}`) : false;
+            if (!renderedMixedMarkdownTable) {
+              out.push(
+                <div key={`ms-e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
+                  {isMarkdownCode
+                    ? <MarkdownLinksPre body={body} generatedFiles={generatedFiles} />
+                    : <CodeBlock value={body} language={lang} height={'auto'} />}
+                </div>
+              );
+            }
           }
         }
       }
@@ -519,6 +1015,10 @@ function CodeFenceRenderer({ text = '' }) {
       const lang = languageHint(langLabelMatch[1]);
       const body = langLabelMatch[2] || '';
       fenceCount = 1;
+      const chartSpec = parseChartSpecFromFence(lang, body);
+      if (chartSpec) {
+        return <ChartSpecPanel spec={chartSpec} />;
+      }
       if ((lang === 'markdown' || lang === 'md' || lang === 'plaintext') && looksLikePipeTable(body)) {
         return (
           <div style={{ width: '60vw', overflowX: 'auto' }}>
@@ -538,7 +1038,7 @@ function CodeFenceRenderer({ text = '' }) {
         <div style={{ width: '60vw', overflowX: 'auto' }}>
           <div style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
             {isMarkdownCode
-              ? <MarkdownLinksPre body={body} />
+              ? <MarkdownLinksPre body={body} generatedFiles={generatedFiles} />
               : <CodeBlock value={body} language={lang} height={'auto'} />}
           </div>
         </div>
@@ -555,16 +1055,19 @@ function CodeFenceRenderer({ text = '' }) {
         fenceCount = 1;
         const parts = [];
         if (before.trim()) {
-          parts.push(<MinimalText key={`pre-${idx++}`} text={before} />);
+          parts.push(<MinimalText key={`pre-${idx++}`} text={before} generatedFiles={generatedFiles} />);
         }
         const isMarkdownCode = (lang === 'markdown' || lang === 'md');
-        parts.push(
-          <div key={`e3-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
-            {isMarkdownCode
-              ? <MarkdownLinksPre body={body} />
-              : <CodeBlock value={body} language={lang} height={'auto'} />}
-          </div>
-        );
+        const renderedMixedMarkdownTable = isMarkdownCode ? pushMarkdownBodyWithTables(body, `md-anylang-${idx}`) : false;
+        if (!renderedMixedMarkdownTable) {
+          parts.push(
+            <div key={`e3-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
+              {isMarkdownCode
+                ? <MarkdownLinksPre body={body} />
+                : <CodeBlock value={body} language={lang} height={'auto'} />}
+            </div>
+          );
+        }
         return <div style={{ width: '60vw', overflowX: 'auto' }}>{parts}</div>;
       }
     }
@@ -578,7 +1081,7 @@ function CodeFenceRenderer({ text = '' }) {
       const end = start + full.length;
       if (start > lastIndex) {
         const plain = textNorm.slice(lastIndex, start);
-        out.push(<MinimalText key={`t-${idx++}`} text={plain} />);
+        pushPlainWithTables(plain, 'fb');
       }
       fenceCount += 1;
       if (looksLikePipeTable(body)) {
@@ -587,6 +1090,8 @@ function CodeFenceRenderer({ text = '' }) {
             {renderPipeTable(body)}
           </div>
         );
+      } else if (parseChartSpecFromFence('json', body)) {
+        out.push(<ChartSpecPanel key={`table2-chart-${idx++}`} spec={parseChartSpecFromFence('json', body)} />);
       } else if (/^\s*(sequenceDiagram|flowchart|graph|classDiagram|stateDiagram)/.test(body)) {
         out.push(
           <div key={`m2-${idx++}`} style={{ width: '60vw', overflowX: 'auto', margin: '6px 0' }}>
@@ -606,13 +1111,13 @@ function CodeFenceRenderer({ text = '' }) {
     if (scanned) {
       // append remaining prose after fallback pass
       if (lastIndex < textNorm.length) {
-        out.push(<MinimalText key={`t2-${idx++}`} text={textNorm.slice(lastIndex)} />);
+        pushPlainWithTables(textNorm.slice(lastIndex), 'fb-tail');
       }
       return <div style={{ width: '60vw', overflowX: 'auto' }}>{out}</div>;
     }
   }
   if (lastIndex < textNorm.length) {
-    out.push(<MinimalText key={`t-${idx++}`} text={textNorm.slice(lastIndex)} />);
+    pushPlainWithTables(textNorm.slice(lastIndex), 'tail');
   }
   // If we rendered at least one fence, wrap in a wider container to expand the bubble.
   if (fenceCount > 0) {
@@ -620,4 +1125,8 @@ function CodeFenceRenderer({ text = '' }) {
   }
   return <>{out}</>;
 }
-export default React.memo(CodeFenceRenderer, (a, b) => (a.text || '') === (b.text || ''));
+export default React.memo(CodeFenceRenderer, (a, b) => {
+  if ((a.text || '') !== (b.text || '')) return false;
+  if (generatedFileKey(a.generatedFiles) !== generatedFileKey(b.generatedFiles)) return false;
+  return true;
+});

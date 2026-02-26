@@ -32,7 +32,7 @@ func (s *Service) WithPath(path string) *Service {
 const (
 	sqliteSchemaVersionTable  = "schema_version"
 	sqliteBaseSchemaVersion   = 1
-	sqliteTargetSchemaVersion = 10
+	sqliteTargetSchemaVersion = 11
 )
 
 // Ensure sets up a SQLite database under $ROOT/db/agently.db when missing and
@@ -150,6 +150,7 @@ func applySQLiteMigrations(ctx context.Context, db *sql.DB) error {
 		ensureSQLiteScheduleVisibility,
 		ensureSQLiteConversationShareable,
 		ensureSQLiteSessionTable,
+		ensureSQLiteGeneratedFileTable,
 		ensureSQLiteEmbediusTables,
 	}
 	for _, ensure := range ensures {
@@ -510,6 +511,51 @@ CREATE TABLE session (
 	}
 	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_session_expires_at ON session(expires_at)"); err != nil {
 		return fmt.Errorf("create idx_session_expires_at: %w", err)
+	}
+	return nil
+}
+
+func ensureSQLiteGeneratedFileTable(ctx context.Context, db *sql.DB) error {
+	const table = "generated_file"
+	exists, err := sqliteTableExists(ctx, db, table)
+	if err != nil {
+		return fmt.Errorf("check %s table: %w", table, err)
+	}
+	if !exists {
+		if _, err := db.ExecContext(ctx, `
+CREATE TABLE generated_file
+(
+    id               TEXT PRIMARY KEY,
+    conversation_id  TEXT      NOT NULL REFERENCES conversation (id) ON DELETE CASCADE,
+    turn_id          TEXT      REFERENCES turn (id) ON DELETE SET NULL,
+    message_id       TEXT      REFERENCES message (id) ON DELETE SET NULL,
+    provider         TEXT      NOT NULL,
+    mode             TEXT      NOT NULL CHECK (mode IN ('interpreter', 'inline', 'tool')),
+    copy_mode        TEXT      NOT NULL CHECK (copy_mode IN ('eager', 'lazy', 'lazy_cache')),
+    status           TEXT      NOT NULL DEFAULT 'ready' CHECK (status IN ('pending', 'ready', 'materializing', 'expired', 'failed')),
+    payload_id       TEXT      REFERENCES call_payload (id) ON DELETE SET NULL,
+    container_id     TEXT,
+    provider_file_id TEXT,
+    filename         TEXT,
+    mime_type        TEXT,
+    size_bytes       INTEGER,
+    checksum         TEXT,
+    error_message    TEXT,
+    expires_at       TIMESTAMP,
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP
+);`); err != nil {
+			return fmt.Errorf("create %s table: %w", table, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_generated_file_conversation_created ON generated_file (conversation_id, created_at)"); err != nil {
+		return fmt.Errorf("create idx_generated_file_conversation_created: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_generated_file_message ON generated_file (message_id)"); err != nil {
+		return fmt.Errorf("create idx_generated_file_message: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_generated_file_provider_ref ON generated_file (provider, container_id, provider_file_id)"); err != nil {
+		return fmt.Errorf("create idx_generated_file_provider_ref: %w", err)
 	}
 	return nil
 }
