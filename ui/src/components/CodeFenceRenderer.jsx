@@ -212,29 +212,65 @@ function buildChartSeries(normalized) {
   return { rows: data, series: keys };
 }
 
-function ChartSpecTable({ rows = [] }) {
-  const headers = React.useMemo(() => {
-    const keys = new Set();
-    for (const r of rows) Object.keys(r || {}).forEach((k) => keys.add(k));
-    return Array.from(keys);
-  }, [rows]);
+function ChartSpecTable({ rows = [], headers = [], visibleColumns = [], widthByCol = {}, setWidthByCol = () => {}, onExpandCell = () => {} }) {
+  const visible = (Array.isArray(visibleColumns) && visibleColumns.length) ? visibleColumns : headers;
 
-  const columns = headers.map((h, ci) => {
+  const columns = visible.map((h, ci) => {
     const cellRenderer = (rowIndex) => {
       const raw = rows[rowIndex]?.[h];
-      return <BpCell>{String(raw ?? '')}</BpCell>;
+      const text = String(raw ?? '');
+      const isLong = text.length > 120;
+      const display = isLong ? `${text.slice(0, 120)}…` : text;
+      const content = <span>{display}</span>;
+      return (
+        <BpCell
+          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: isLong ? 'pointer' : 'default' }}
+          onClick={() => { if (isLong) onExpandCell({ title: h, content: text }); }}
+        >
+          {isLong ? (
+            <Tooltip content={<div style={{ maxWidth: 640, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{text}</div>}>
+              {content}
+            </Tooltip>
+          ) : content}
+        </BpCell>
+      );
     };
     const columnHeaderCellRenderer = () => <BpColumnHeaderCell name={h} />;
     return <BpColumn key={`c-${ci}`} cellRenderer={cellRenderer} columnHeaderCellRenderer={columnHeaderCellRenderer} />;
   });
 
-  if (!rows.length || !headers.length) {
+  if (!rows.length || !headers.length || !visible.length) {
     return <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>No data</div>;
   }
-  const widths = headers.map(() => 160);
+  const widths = visible.map((k) => {
+    const persisted = Number(widthByCol[k]);
+    if (Number.isFinite(persisted) && persisted > 60) return persisted;
+    return 180;
+  });
   return (
     <div style={{ width: '60vw', overflowX: 'auto' }}>
-      <BpTable numRows={rows.length} columnWidths={widths} enableGhostCells={false} enableRowHeader={false} defaultRowHeight={28}>
+      <BpTable
+        numRows={rows.length}
+        columnWidths={widths}
+        onColumnWidthChanged={(indexOrSize, sizeOrIndex) => {
+          let idx = indexOrSize;
+          let next = sizeOrIndex;
+          if (typeof idx === 'number' && typeof next === 'number') {
+            if (idx > 2000 && next < 200) {
+              const t = idx;
+              idx = next;
+              next = t;
+            }
+            const key = visible[idx];
+            if (key && Number.isFinite(next) && next > 60) {
+              setWidthByCol((prev) => ({ ...prev, [key]: next }));
+            }
+          }
+        }}
+        enableGhostCells={false}
+        enableRowHeader={false}
+        defaultRowHeight={28}
+      >
         {columns}
       </BpTable>
     </div>
@@ -243,9 +279,57 @@ function ChartSpecTable({ rows = [] }) {
 
 function ChartSpecPanel({ spec = {} }) {
   const [mode, setMode] = React.useState('chart');
+  const [showCols, setShowCols] = React.useState(false);
+  const [widthByCol, setWidthByCol] = React.useState({});
+  const [visibleColumns, setVisibleColumns] = React.useState([]);
+  const [expandedCell, setExpandedCell] = React.useState(null);
   const n = React.useMemo(() => normalizeChartSpec(spec), [spec]);
   const { rows, series } = React.useMemo(() => buildChartSeries(n), [n]);
   const { type, xKey, palette, title } = n;
+  const headers = React.useMemo(() => {
+    const keys = new Set();
+    (n.data || []).forEach((r) => Object.keys(r || {}).forEach((k) => keys.add(k)));
+    return Array.from(keys);
+  }, [n.data]);
+
+  React.useEffect(() => {
+    setVisibleColumns((prev) => {
+      const keep = prev.filter((k) => headers.includes(k));
+      const add = headers.filter((k) => !keep.includes(k));
+      return [...keep, ...add];
+    });
+  }, [headers]);
+
+  const toggleColumn = (key) => {
+    setVisibleColumns((prev) => {
+      if (prev.includes(key)) return prev.filter((k) => k !== key);
+      return [...prev, key];
+    });
+  };
+
+  const downloadCsv = () => {
+    const cols = visibleColumns.length ? visibleColumns : headers;
+    if (!cols.length) return;
+    const esc = (v = '') => {
+      const s = String(v ?? '');
+      if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+    const lines = [cols.map(esc).join(',')];
+    (n.data || []).forEach((row) => {
+      lines.push(cols.map((c) => esc(row?.[c])).join(','));
+    });
+    const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    a.download = `chart-spec-${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const chartCommon = (
     <>
@@ -315,6 +399,8 @@ function ChartSpecPanel({ spec = {} }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>{title || 'Chart'}</div>
         <div style={{ display: 'flex', gap: 6 }}>
+          {mode === 'table' ? <Button small minimal icon="cog" onClick={() => setShowCols(true)}>Columns</Button> : null}
+          {mode === 'table' ? <Button small minimal icon="download" onClick={downloadCsv}>CSV</Button> : null}
           <Button small minimal={mode !== 'chart'} intent={mode === 'chart' ? 'primary' : 'none'} onClick={() => setMode('chart')}>Chart</Button>
           <Button small minimal={mode !== 'table'} intent={mode === 'table' ? 'primary' : 'none'} onClick={() => setMode('table')}>Table</Button>
         </div>
@@ -326,8 +412,46 @@ function ChartSpecPanel({ spec = {} }) {
           </ResponsiveContainer>
         </div>
       ) : (
-        <ChartSpecTable rows={n.data || []} />
+        <ChartSpecTable
+          rows={n.data || []}
+          headers={headers}
+          visibleColumns={visibleColumns}
+          widthByCol={widthByCol}
+          setWidthByCol={setWidthByCol}
+          onExpandCell={setExpandedCell}
+        />
       )}
+      <Dialog isOpen={showCols} onClose={() => setShowCols(false)} title="Visible Columns">
+        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {headers.map((h) => (
+            <div key={h} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <label className="bp4-control bp4-checkbox" style={{ marginBottom: 0 }}>
+                <input type="checkbox" checked={visibleColumns.includes(h)} onChange={() => toggleColumn(h)} />
+                <span className="bp4-control-indicator" />
+                {h}
+              </label>
+              <input
+                className="bp4-input bp4-small"
+                type="number"
+                min={80}
+                max={640}
+                value={Number(widthByCol[h] || 180)}
+                onChange={(e) => {
+                  const v = Number(e.target.value || 0);
+                  if (Number.isFinite(v) && v >= 80) setWidthByCol((prev) => ({ ...prev, [h]: Math.min(640, v) }));
+                }}
+                style={{ width: 90 }}
+              />
+            </div>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button small intent="primary" onClick={() => setShowCols(false)}>Close</Button>
+          </div>
+        </div>
+      </Dialog>
+      <Dialog isOpen={!!expandedCell} onClose={() => setExpandedCell(null)} title={expandedCell?.title || 'Cell content'} style={{ width: '70vw', minWidth: 480 }}>
+        <div style={{ padding: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{expandedCell?.content || ''}</div>
+      </Dialog>
     </div>
   );
 }
