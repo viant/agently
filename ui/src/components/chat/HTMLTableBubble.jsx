@@ -95,6 +95,21 @@ function renderHtmlWithCodeBlocks(html = '', generatedFiles = []) {
   return out.length ? out : [<div key={`h-${idx++}`} dangerouslySetInnerHTML={{ __html: normalizedHTML }} />];
 }
 
+function formatGeneratedFileSize(sizeBytesRaw) {
+  const sizeBytes = Number(sizeBytesRaw);
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) return '';
+  if (sizeBytes < 1024) return `${Math.round(sizeBytes)} B`;
+  const units = ['kB', 'MB', 'GB', 'TB'];
+  let value = sizeBytes / 1024;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
 function HTMLTableBubble({message, context}) {
     const role = String(message?.role || '').toLowerCase();
     const avatarColour = role === 'user' ? 'var(--blue4)'
@@ -140,8 +155,8 @@ function HTMLTableBubble({message, context}) {
                                     if (!id) return null;
                                     const filename = String(f?.filename || 'generated-file.bin').trim();
                                     const status = String(f?.status || '').trim().toLowerCase();
-                                    const sizeBytes = Number.isFinite(Number(f?.sizeBytes)) ? Number(f.sizeBytes) : null;
-                                    const sizeLabel = (sizeBytes !== null && sizeBytes >= 0) ? ` (${sizeBytes} bytes)` : '';
+                                    const sizeText = formatGeneratedFileSize(f?.sizeBytes);
+                                    const sizeLabel = sizeText ? ` (${sizeText})` : '';
                                     const href = `/v1/api/generated-files/${encodeURIComponent(id)}/download`;
                                     const disabled = status === 'failed' || status === 'expired';
                                     return (
