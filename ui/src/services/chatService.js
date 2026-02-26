@@ -1140,6 +1140,38 @@ function computeElapsed(step) {
     return elapsed;
 }
 
+function normalizeGeneratedFiles(message) {
+    const raw = Array.isArray(message?.generatedFiles) ? message.generatedFiles
+        : Array.isArray(message?.GeneratedFiles) ? message.GeneratedFiles
+            : [];
+    if (!raw.length) return [];
+    return raw.map((f) => {
+        const id = String(f?.id || f?.ID || '').trim();
+        const filename = String(f?.filename || f?.Filename || f?.providerFileId || f?.ProviderFileID || id || 'generated-file.bin').trim();
+        const status = String(f?.status || f?.Status || '').trim();
+        const mode = String(f?.mode || f?.Mode || '').trim();
+        const mimeType = String(f?.mimeType || f?.MimeType || '').trim();
+        const sizeBytesRaw = f?.sizeBytes ?? f?.SizeBytes;
+        const sizeBytes = Number.isFinite(Number(sizeBytesRaw)) ? Number(sizeBytesRaw) : undefined;
+        return { id, filename, status, mode, mimeType, sizeBytes };
+    }).filter((f) => !!f.id);
+}
+
+function mergeGeneratedFileLists(...lists) {
+    const out = [];
+    const seen = new Set();
+    for (const list of lists) {
+        if (!Array.isArray(list) || !list.length) continue;
+        for (const item of list) {
+            const id = String(item?.id || '').trim();
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            out.push(item);
+        }
+    }
+    return out;
+}
+
 function mapTranscriptToRowsWithExecutions(transcript = []) {
     const rows = [];
     // Determine the very last message id to decide whether to suppress the inline
@@ -1169,6 +1201,14 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
         const turnElapsedSec = (typeof turnElapsedSecRaw === 'number' && isFinite(turnElapsedSecRaw) && turnElapsedSecRaw >= 0) ? Math.floor(turnElapsedSecRaw) : undefined;
         const messages = Array.isArray(turn?.message) ? turn.message
             : Array.isArray(turn?.Message) ? turn.Message : [];
+        const turnGeneratedFiles = (() => {
+            const collected = [];
+            for (const m of messages) {
+                const files = normalizeGeneratedFiles(m);
+                if (files.length) collected.push(files);
+            }
+            return mergeGeneratedFileLists(...collected);
+        })();
 
         // Gather elicitation inline user bodies in this turn for reliable suppression
         const elicitationUserBodies = new Set();
@@ -1467,6 +1507,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
         //    - plus control elicitations (assistant or tool) so the form/modal can render
         const turnRows = [];
         for (const m of messages) {
+            const messageGeneratedFiles = normalizeGeneratedFiles(m);
             const roleLower = String(m.role || m.Role || '').toLowerCase();
             const modeLower = String(m.mode || m.Mode || '').toLowerCase().trim();
             const createdByLower = String(m.createdByUserId || m.CreatedByUserId || '').toLowerCase().trim();
@@ -1579,6 +1620,9 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             // Row usage derived from model call only when attached to this row later; leave null here.
             const rowRole = (isControlElicitation || (roleLower === 'assistant' && !!elic)) ? 'elicition' : roleLower;
             const prefRaw = (() => { try { const r = m.rawContent || m.RawContent; return (typeof r === 'string' && r.trim().length > 0) ? r : ''; } catch(_) { return ''; } })();
+            const rowGeneratedFiles = rowRole === 'user'
+                ? mergeGeneratedFileLists(messageGeneratedFiles)
+                : mergeGeneratedFileLists(messageGeneratedFiles, turnGeneratedFiles);
             const row = {
                 id,
                 conversationId: m.conversationId || m.ConversationId,
@@ -1602,6 +1646,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 status: String(status).toLowerCase(),
                 elicitation: elic,
                 callbackURL,
+                generatedFiles: rowGeneratedFiles,
             };
             if (rowRole !== 'elicition') {
                 turnRows.push(row);
@@ -1689,6 +1734,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 turnUpdatedAt,
                 turnElapsedSec,
                 isLastTurn,
+                generatedFiles: mergeGeneratedFileLists(turnGeneratedFiles),
             };
             const toolRow = (Array.isArray(toolExec) && toolExec.length > 0 && turnId) ? {
                 id: `${turnId}/toolfeed`,
@@ -1702,6 +1748,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 toolExecutions: toolExecWithPreamble,
                 toolFeed: true,
                 isLastTurn,
+                generatedFiles: mergeGeneratedFileLists(turnGeneratedFiles),
             } : null;
 
             // Reorder within turn: user → execution → tool feed → elicitation dialogs → others
@@ -1763,6 +1810,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 turnUpdatedAt,
                 turnElapsedSec,
                 isLastTurn,
+                generatedFiles: mergeGeneratedFileLists(turnGeneratedFiles),
             };
             rows.push(execRow);
             // Tool feed (if any)
@@ -1803,6 +1851,7 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
                 toolExecutions: toolExecWithPreamble,
                 toolFeed: true,
                 isLastTurn,
+                generatedFiles: mergeGeneratedFileLists(turnGeneratedFiles),
             } : null;
             if (toolRow) rows.push(toolRow);
             // Dialog rows
@@ -2229,6 +2278,12 @@ export function onFetchMessages(props) {
                 const pSig = String(oldRow?._execSignature || '');
                 const nSig = String(newRow?._execSignature || '');
                 if (pSig !== nSig) { return newRow; }
+            } catch(_) {}
+            try {
+                const prevFiles = Array.isArray(oldRow?.generatedFiles) ? oldRow.generatedFiles : [];
+                const nextFiles = Array.isArray(newRow?.generatedFiles) ? newRow.generatedFiles : [];
+                if (nextFiles.length > prevFiles.length) return newRow;
+                if (prevFiles.length > nextFiles.length) return oldRow;
             } catch(_) {}
             try {
                 const pSteps = oldRow?.executions?.[0]?.steps || [];

@@ -11,6 +11,8 @@ import (
 	convcli "github.com/viant/agently/client/conversation"
 	authctx "github.com/viant/agently/internal/auth"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
+	gfread "github.com/viant/agently/pkg/agently/generatedfile/read"
+	gfwrite "github.com/viant/agently/pkg/agently/generatedfile/write"
 	msgw "github.com/viant/agently/pkg/agently/message/write"
 	mcallw "github.com/viant/agently/pkg/agently/modelcall/write"
 	payloadread "github.com/viant/agently/pkg/agently/payload/read"
@@ -25,15 +27,17 @@ type Client struct {
 	mu            sync.RWMutex
 	conversations map[string]*agconv.ConversationView
 	// Indexes for fast lookup
-	messages map[string]*agconv.MessageView
-	payloads map[string]*payloadread.PayloadView
+	messages       map[string]*agconv.MessageView
+	payloads       map[string]*payloadread.PayloadView
+	generatedFiles map[string]*gfread.GeneratedFileView
 }
 
 func New() *Client {
 	return &Client{
-		conversations: map[string]*agconv.ConversationView{},
-		messages:      map[string]*agconv.MessageView{},
-		payloads:      map[string]*payloadread.PayloadView{},
+		conversations:  map[string]*agconv.ConversationView{},
+		messages:       map[string]*agconv.MessageView{},
+		payloads:       map[string]*payloadread.PayloadView{},
+		generatedFiles: map[string]*gfread.GeneratedFileView{},
 	}
 }
 
@@ -50,6 +54,11 @@ func (c *Client) DeleteConversation(_ context.Context, id string) error {
 			delete(c.messages, mid)
 		}
 	}
+	for fid, fv := range c.generatedFiles {
+		if fv != nil && fv.ConversationID == id {
+			delete(c.generatedFiles, fid)
+		}
+	}
 	// Remove conversation entry
 	delete(c.conversations, id)
 	return nil
@@ -64,6 +73,14 @@ func (c *Client) DeleteMessage(_ context.Context, conversationID, messageID stri
 	defer c.mu.Unlock()
 
 	delete(c.messages, messageID)
+	for fid, fv := range c.generatedFiles {
+		if fv == nil || fv.MessageID == nil {
+			continue
+		}
+		if *fv.MessageID == messageID {
+			delete(c.generatedFiles, fid)
+		}
+	}
 	if conv, ok := c.conversations[conversationID]; ok && conv != nil && conv.Transcript != nil {
 		for _, t := range conv.Transcript {
 			if t == nil || t.Message == nil {
@@ -155,8 +172,187 @@ func (c *Client) GetConversation(ctx context.Context, id string, options ...conv
 	cp.Usage = c.aggregateUsage(id)
 	applySinceFilter(cp, &in)
 	applyIncludeFlags(cp, &in)
+	c.attachGeneratedFiles(cp)
 
 	return toClientConversation(cp), nil
+}
+
+func (c *Client) GetGeneratedFiles(_ context.Context, input *gfread.Input) ([]*gfread.GeneratedFileView, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]*gfread.GeneratedFileView, 0, len(c.generatedFiles))
+	for _, item := range c.generatedFiles {
+		if item == nil {
+			continue
+		}
+		if input != nil {
+			if strings.TrimSpace(input.ID) != "" && item.ID != input.ID {
+				continue
+			}
+			if strings.TrimSpace(input.ConversationID) != "" && item.ConversationID != input.ConversationID {
+				continue
+			}
+			if strings.TrimSpace(input.TurnID) != "" {
+				if item.TurnID == nil || strings.TrimSpace(*item.TurnID) != strings.TrimSpace(input.TurnID) {
+					continue
+				}
+			}
+			if strings.TrimSpace(input.MessageID) != "" {
+				if item.MessageID == nil || strings.TrimSpace(*item.MessageID) != strings.TrimSpace(input.MessageID) {
+					continue
+				}
+			}
+			if strings.TrimSpace(input.Provider) != "" && !strings.EqualFold(strings.TrimSpace(item.Provider), strings.TrimSpace(input.Provider)) {
+				continue
+			}
+			if strings.TrimSpace(input.Status) != "" && !strings.EqualFold(strings.TrimSpace(item.Status), strings.TrimSpace(input.Status)) {
+				continue
+			}
+			if input.Since != nil && item.CreatedAt != nil && item.CreatedAt.Before(*input.Since) {
+				continue
+			}
+		}
+		cp := *item
+		out = append(out, &cp)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		ti, tj := out[i].CreatedAt, out[j].CreatedAt
+		if ti == nil || tj == nil {
+			return out[i].ID < out[j].ID
+		}
+		if ti.Equal(*tj) {
+			return out[i].ID < out[j].ID
+		}
+		return ti.Before(*tj)
+	})
+	return out, nil
+}
+
+func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *gfwrite.GeneratedFile) error {
+	if generatedFile == nil || strings.TrimSpace(generatedFile.ID) == "" {
+		return errors.New("generated file id required")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cur := c.generatedFiles[generatedFile.ID]
+	if cur == nil {
+		cur = &gfread.GeneratedFileView{ID: generatedFile.ID}
+		now := time.Now()
+		cur.CreatedAt = &now
+		c.generatedFiles[generatedFile.ID] = cur
+	}
+	if generatedFile.Has == nil {
+		generatedFile.Has = &gfwrite.GeneratedFileHas{}
+	}
+	if generatedFile.Has.ConversationID {
+		cur.ConversationID = generatedFile.ConversationID
+	}
+	if generatedFile.Has.TurnID {
+		cur.TurnID = generatedFile.TurnID
+	}
+	if generatedFile.Has.MessageID {
+		cur.MessageID = generatedFile.MessageID
+	}
+	if generatedFile.Has.Provider {
+		cur.Provider = generatedFile.Provider
+	}
+	if generatedFile.Has.Mode {
+		cur.Mode = generatedFile.Mode
+	}
+	if generatedFile.Has.CopyMode {
+		cur.CopyMode = generatedFile.CopyMode
+	}
+	if generatedFile.Has.Status {
+		cur.Status = generatedFile.Status
+	}
+	if generatedFile.Has.PayloadID {
+		cur.PayloadID = generatedFile.PayloadID
+	}
+	if generatedFile.Has.ContainerID {
+		cur.ContainerID = generatedFile.ContainerID
+	}
+	if generatedFile.Has.ProviderFileID {
+		cur.ProviderFileID = generatedFile.ProviderFileID
+	}
+	if generatedFile.Has.Filename {
+		cur.Filename = generatedFile.Filename
+	}
+	if generatedFile.Has.MimeType {
+		cur.MimeType = generatedFile.MimeType
+	}
+	if generatedFile.Has.SizeBytes {
+		cur.SizeBytes = generatedFile.SizeBytes
+	}
+	if generatedFile.Has.Checksum {
+		cur.Checksum = generatedFile.Checksum
+	}
+	if generatedFile.Has.ErrorMessage {
+		cur.ErrorMessage = generatedFile.ErrorMessage
+	}
+	if generatedFile.Has.ExpiresAt {
+		cur.ExpiresAt = generatedFile.ExpiresAt
+	}
+	if generatedFile.Has.CreatedAt {
+		cur.CreatedAt = generatedFile.CreatedAt
+	}
+	if generatedFile.Has.UpdatedAt {
+		cur.UpdatedAt = generatedFile.UpdatedAt
+	} else {
+		now := time.Now()
+		cur.UpdatedAt = &now
+	}
+	return nil
+}
+
+func (c *Client) attachGeneratedFiles(conv *agconv.ConversationView) {
+	if conv == nil || conv.Transcript == nil || len(c.generatedFiles) == 0 {
+		return
+	}
+	byMessage := map[string][]*agconv.GeneratedFileView{}
+	for _, item := range c.generatedFiles {
+		if item == nil || item.MessageID == nil || strings.TrimSpace(*item.MessageID) == "" {
+			continue
+		}
+		if item.ConversationID != conv.Id {
+			continue
+		}
+		messageID := strings.TrimSpace(*item.MessageID)
+		cp := &agconv.GeneratedFileView{
+			ID:             item.ID,
+			ConversationID: item.ConversationID,
+			TurnID:         item.TurnID,
+			MessageID:      item.MessageID,
+			Provider:       item.Provider,
+			Mode:           item.Mode,
+			CopyMode:       item.CopyMode,
+			Status:         item.Status,
+			PayloadID:      item.PayloadID,
+			ContainerID:    item.ContainerID,
+			ProviderFileID: item.ProviderFileID,
+			Filename:       item.Filename,
+			MimeType:       item.MimeType,
+			SizeBytes:      item.SizeBytes,
+			Checksum:       item.Checksum,
+			ErrorMessage:   item.ErrorMessage,
+			ExpiresAt:      item.ExpiresAt,
+			CreatedAt:      item.CreatedAt,
+			UpdatedAt:      item.UpdatedAt,
+		}
+		byMessage[messageID] = append(byMessage[messageID], cp)
+	}
+	for _, turn := range conv.Transcript {
+		if turn == nil || turn.Message == nil {
+			continue
+		}
+		for _, msg := range turn.Message {
+			if msg == nil {
+				continue
+			}
+			if files := byMessage[msg.Id]; len(files) > 0 {
+				msg.GeneratedFiles = files
+			}
+		}
+	}
 }
 
 // aggregateUsage builds a UsageView equivalent to SQL aggregation for a conversation.

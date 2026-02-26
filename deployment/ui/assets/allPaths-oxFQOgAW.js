@@ -1,1 +1,0 @@
-import{I as s}from"./index-CGmmKhY-.js";import{I as r}from"./index-BdcFHaeT.js";import{bv as n,bw as c}from"./main-X_sslKA2.js";function i(t,a){const o=n(t);return a===c.STANDARD?s[o]:r[o]}export{s as IconSvgPaths16,r as IconSvgPaths20,i as getIconPaths};

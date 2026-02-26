@@ -45,6 +45,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS model_call;
 DROP TABLE IF EXISTS tool_call;
+DROP TABLE IF EXISTS generated_file;
 DROP TABLE IF EXISTS call_payload;
 DROP TABLE IF EXISTS `message`;
 DROP TABLE IF EXISTS turn;
@@ -195,6 +196,41 @@ CREATE TABLE `message`
 
 CREATE UNIQUE INDEX idx_message_turn_seq ON `message` (turn_id, sequence);
 CREATE INDEX idx_msg_conv_created ON `message` (conversation_id, created_at DESC);
+
+CREATE TABLE generated_file
+(
+    id               VARCHAR(255) PRIMARY KEY,
+    conversation_id  VARCHAR(255) NOT NULL,
+    turn_id          VARCHAR(255) NULL,
+    message_id       VARCHAR(255) NULL,
+    provider         VARCHAR(255) NOT NULL,
+    mode             VARCHAR(32)  NOT NULL CHECK (mode IN ('interpreter', 'inline', 'tool')),
+    copy_mode        VARCHAR(32)  NOT NULL CHECK (copy_mode IN ('eager', 'lazy', 'lazy_cache')),
+    status           VARCHAR(32)  NOT NULL DEFAULT 'ready' CHECK (status IN ('pending', 'ready', 'materializing', 'expired', 'failed')),
+    payload_id       VARCHAR(255) NULL,
+    container_id     VARCHAR(255) NULL,
+    provider_file_id VARCHAR(255) NULL,
+    filename         TEXT,
+    mime_type        VARCHAR(255) NULL,
+    size_bytes       BIGINT       NULL,
+    checksum         VARCHAR(255) NULL,
+    error_message    TEXT,
+    expires_at       TIMESTAMP    NULL DEFAULT NULL,
+    created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP    NULL DEFAULT NULL,
+
+    CONSTRAINT fk_generated_file_conversation
+        FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE,
+    CONSTRAINT fk_generated_file_turn
+        FOREIGN KEY (turn_id) REFERENCES turn (id) ON DELETE SET NULL,
+    CONSTRAINT fk_generated_file_message
+        FOREIGN KEY (message_id) REFERENCES `message` (id) ON DELETE SET NULL,
+    CONSTRAINT fk_generated_file_payload
+        FOREIGN KEY (payload_id) REFERENCES call_payload (id) ON DELETE SET NULL
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+CREATE INDEX idx_generated_file_conversation_created ON generated_file (conversation_id, created_at);
+CREATE INDEX idx_generated_file_message ON generated_file (message_id);
+CREATE INDEX idx_generated_file_provider_ref ON generated_file (provider, container_id, provider_file_id);
 
 -- Users table for identity and schedule UX state
 CREATE TABLE users (
