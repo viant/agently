@@ -222,6 +222,14 @@ export class AgentlyClient {
         opts?.onError?.(err);
       }
     });
+    es.addEventListener("generated_file_created", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        opts?.onEvent?.(data);
+      } catch (err) {
+        opts?.onError?.(err);
+      }
+    });
     es.addEventListener("user_message", (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);

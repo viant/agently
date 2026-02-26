@@ -2,6 +2,7 @@ package conversation
 
 import (
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
+	gfwrite "github.com/viant/agently/pkg/agently/generatedfile/write"
 	msgw "github.com/viant/agently/pkg/agently/message/write"
 	mcall "github.com/viant/agently/pkg/agently/modelcall/write"
 	payloadw "github.com/viant/agently/pkg/agently/payload/write"
@@ -43,4 +44,10 @@ func NewPayload() *MutablePayload {
 func NewTurn() *MutableTurn {
 	v := &turnw.Turn{Has: &turnw.TurnHas{}}
 	return (*MutableTurn)(v)
+}
+
+// NewGeneratedFile allocates a mutable generated file with Has populated.
+func NewGeneratedFile() *MutableGeneratedFile {
+	v := &gfwrite.GeneratedFile{Has: &gfwrite.GeneratedFileHas{}}
+	return (*MutableGeneratedFile)(v)
 }

@@ -30,7 +30,74 @@ import { findNextPipeTableBlock } from './markdownTableUtils.js';
 
 // Use Editor from forge/components directly (consistent with other imports like Chat).
 
-function MinimalText({ text = '' }) {
+function escapeHTMLAttr(value = '') {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function generatedFileKey(files = []) {
+  if (!Array.isArray(files) || !files.length) return '';
+  return files
+    .map((f) => {
+      const id = String(f?.id || '').trim();
+      const filename = String(f?.filename || '').trim().toLowerCase();
+      const status = String(f?.status || '').trim().toLowerCase();
+      return `${id}|${filename}|${status}`;
+    })
+    .filter(Boolean)
+    .join(',');
+}
+
+function normalizeSandboxFilename(url = '') {
+  let raw = String(url || '').trim();
+  if (!raw) return '';
+  if (!/^sandbox:\//i.test(raw)) return '';
+  raw = raw.replace(/^sandbox:\/*/i, '');
+  const parts = raw.split('/');
+  const last = parts.length ? parts[parts.length - 1] : '';
+  if (!last) return '';
+  try {
+    return decodeURIComponent(last).trim();
+  } catch (_) {
+    return last.trim();
+  }
+}
+
+function resolveMarkdownHref(url = '', generatedFiles = []) {
+  const href = String(url || '').trim();
+  if (!href) return href;
+  if (!/^sandbox:\//i.test(href)) return href;
+  const filename = normalizeSandboxFilename(href);
+  if (!filename) return href;
+  const want = filename.toLowerCase();
+  const files = Array.isArray(generatedFiles) ? generatedFiles : [];
+  const match = files.find((f) => {
+    const id = String(f?.id || '').trim();
+    const name = String(f?.filename || '').trim().toLowerCase();
+    return !!id && name === want;
+  });
+  if (!match || !match.id) return href;
+  return `/v1/api/generated-files/${encodeURIComponent(String(match.id).trim())}/download`;
+}
+
+function renderMarkdownLinks(input = '', generatedFiles = []) {
+  return String(input || '').replace(/\[([^\]]+)\]\(([^\)]+)\)/g, (m, label, url) => {
+    const href = resolveMarkdownHref(url, generatedFiles);
+    return `<a href="${escapeHTMLAttr(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  });
+}
+
+function rewriteSandboxHrefInHTML(html = '', generatedFiles = []) {
+  return String(html || '').replace(/href=(["'])(sandbox:[^"']+)\1/gi, (m, q, url) => {
+    const href = resolveMarkdownHref(url, generatedFiles);
+    return `href=${q}${escapeHTMLAttr(href)}${q}`;
+  });
+}
+
+function MinimalText({ text = '', generatedFiles = [] }) {
   // Escape and apply minimal inline formatting: inline code, bold, italic, links, newlines
   const escaped = String(text)
     .replace(/&/g, '&amp;')
@@ -55,7 +122,7 @@ function MinimalText({ text = '' }) {
   const withStarItalic = withBold.replace(/\*(.*?)\*/g, '<em>$1</em>');
   // Underscore italics (avoid mid-word underscores)
   const withUnderscoreItalic = withStarItalic.replace(/(^|[^\w])_([^_\n]+)_/g, '$1<em>$2</em>');
-  const withLinks  = withUnderscoreItalic.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  const withLinks  = renderMarkdownLinks(withUnderscoreItalic, generatedFiles);
   const html = withLinks.replace(/\n/g, '<br/>');
   // eslint-disable-next-line react/no-danger
   return <div className="prose max-w-full text-sm" dangerouslySetInnerHTML={{ __html: html }} />;
@@ -63,12 +130,12 @@ function MinimalText({ text = '' }) {
 
 // Renders fenced 'markdown' code as preformatted HTML with clickable markdown links only.
 // It preserves monospaced layout while converting [label](url) to <a> anchors.
-function MarkdownLinksPre({ body = '' }) {
+function MarkdownLinksPre({ body = '', generatedFiles = [] }) {
   const escaped = String(body || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  const withLinks = escaped.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  const withLinks = renderMarkdownLinks(escaped, generatedFiles);
   // eslint-disable-next-line react/no-danger
   return <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}><code dangerouslySetInnerHTML={{ __html: withLinks }} /></pre>;
 }
@@ -622,7 +689,7 @@ function legacyRenderPipeTable(body = '') {
   );
 }
 
-function CodeFenceRenderer({ text = '' }) {
+function CodeFenceRenderer({ text = '', generatedFiles = [] }) {
   // Normalize newlines and run fence detection in two passes (with and without language hint)
   const textNorm = String(text || '')
     .replace(/\r\n/g, '\n')
@@ -632,10 +699,11 @@ function CodeFenceRenderer({ text = '' }) {
 
   // 0) If content is already HTML (<pre>, <code>, <table>), render it as-is
   if (/^</.test(trimmed) && /<(pre|code|table)\b/i.test(trimmed)) {
+    const html = rewriteSandboxHrefInHTML(textNorm, generatedFiles);
     // eslint-disable-next-line react/no-danger
     return (
       <div style={{ width: '60vw', overflowX: 'auto' }}>
-        <div className="prose max-w-full text-sm" dangerouslySetInnerHTML={{ __html: textNorm }} />
+        <div className="prose max-w-full text-sm" dangerouslySetInnerHTML={{ __html: html }} />
       </div>
     );
   }
@@ -656,7 +724,7 @@ function CodeFenceRenderer({ text = '' }) {
       if (!block) break;
       anyTable = true;
       if (block.start > cursor) {
-        out.push(<MinimalText key={`${keyPrefix}-pre-${idx++}`} text={chunk.slice(cursor, block.start)} />);
+        out.push(<MinimalText key={`${keyPrefix}-pre-${idx++}`} text={chunk.slice(cursor, block.start)} generatedFiles={generatedFiles} />);
       }
       const tableBody = chunk.slice(block.start, block.end);
       out.push(
@@ -667,7 +735,7 @@ function CodeFenceRenderer({ text = '' }) {
       cursor = block.end;
     }
     if (anyTable && cursor < chunk.length) {
-      out.push(<MinimalText key={`${keyPrefix}-tail-${idx++}`} text={chunk.slice(cursor)} />);
+      out.push(<MinimalText key={`${keyPrefix}-tail-${idx++}`} text={chunk.slice(cursor)} generatedFiles={generatedFiles} />);
     }
     return anyTable;
   };
@@ -681,7 +749,7 @@ function CodeFenceRenderer({ text = '' }) {
       if (!block) break;
       anyTable = true;
       if (block.start > cursor) {
-        out.push(<MinimalText key={`${keyPrefix}-pre-${idx++}`} text={chunk.slice(cursor, block.start)} />);
+        out.push(<MinimalText key={`${keyPrefix}-pre-${idx++}`} text={chunk.slice(cursor, block.start)} generatedFiles={generatedFiles} />);
       }
       const body = chunk.slice(block.start, block.end);
       out.push(
@@ -693,11 +761,11 @@ function CodeFenceRenderer({ text = '' }) {
     }
     if (anyTable) {
       if (cursor < chunk.length) {
-        out.push(<MinimalText key={`${keyPrefix}-tail-${idx++}`} text={chunk.slice(cursor)} />);
+        out.push(<MinimalText key={`${keyPrefix}-tail-${idx++}`} text={chunk.slice(cursor)} generatedFiles={generatedFiles} />);
       }
       return;
     }
-    out.push(<MinimalText key={`${keyPrefix}-${idx++}`} text={chunk} />);
+    out.push(<MinimalText key={`${keyPrefix}-${idx++}`} text={chunk} generatedFiles={generatedFiles} />);
   };
   while ((m = pattern.exec(textNorm)) !== null) {
     const [full, langRaw, body] = m;
@@ -733,7 +801,7 @@ function CodeFenceRenderer({ text = '' }) {
         out.push(
           <div key={`e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
             {isMarkdownCode
-              ? <MarkdownLinksPre body={body} />
+              ? <MarkdownLinksPre body={body} generatedFiles={generatedFiles} />
               : <CodeBlock value={body} language={lang} height={'auto'} />}
           </div>
         );
@@ -807,7 +875,7 @@ function CodeFenceRenderer({ text = '' }) {
               out.push(
                 <div key={`ms-e-${idx++}`} style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
                   {isMarkdownCode
-                    ? <MarkdownLinksPre body={body} />
+                    ? <MarkdownLinksPre body={body} generatedFiles={generatedFiles} />
                     : <CodeBlock value={body} language={lang} height={'auto'} />}
                 </div>
               );
@@ -846,7 +914,7 @@ function CodeFenceRenderer({ text = '' }) {
         <div style={{ width: '60vw', overflowX: 'auto' }}>
           <div style={{ border: '1px solid var(--light-gray2)', borderRadius: 4, margin: '6px 0', padding: isMarkdownCode ? '8px 10px' : 0 }}>
             {isMarkdownCode
-              ? <MarkdownLinksPre body={body} />
+              ? <MarkdownLinksPre body={body} generatedFiles={generatedFiles} />
               : <CodeBlock value={body} language={lang} height={'auto'} />}
           </div>
         </div>
@@ -863,7 +931,7 @@ function CodeFenceRenderer({ text = '' }) {
         fenceCount = 1;
         const parts = [];
         if (before.trim()) {
-          parts.push(<MinimalText key={`pre-${idx++}`} text={before} />);
+          parts.push(<MinimalText key={`pre-${idx++}`} text={before} generatedFiles={generatedFiles} />);
         }
         const isMarkdownCode = (lang === 'markdown' || lang === 'md');
         const renderedMixedMarkdownTable = isMarkdownCode ? pushMarkdownBodyWithTables(body, `md-anylang-${idx}`) : false;
@@ -933,4 +1001,8 @@ function CodeFenceRenderer({ text = '' }) {
   }
   return <>{out}</>;
 }
-export default React.memo(CodeFenceRenderer, (a, b) => (a.text || '') === (b.text || ''));
+export default React.memo(CodeFenceRenderer, (a, b) => {
+  if ((a.text || '') !== (b.text || '')) return false;
+  if (generatedFileKey(a.generatedFiles) !== generatedFileKey(b.generatedFiles)) return false;
+  return true;
+});

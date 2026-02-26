@@ -221,6 +221,9 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 		mux.HandleFunc("GET /v1/api/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 			s.handleGetMessages(w, r, r.PathValue("id"))
 		})
+		mux.HandleFunc("GET /v1/api/conversations/{id}/generated-files", func(w http.ResponseWriter, r *http.Request) {
+			s.handleGetGeneratedFiles(w, r, r.PathValue("id"))
+		})
 		mux.HandleFunc("GET /v1/api/conversations/{id}/events", func(w http.ResponseWriter, r *http.Request) {
 			s.handleConversationEvents(w, r, r.PathValue("id"))
 		})
@@ -287,6 +290,9 @@ func NewServer(mgr *conversation.Manager, opts ...ServerOption) http.Handler {
 	// ResponsePayload fetch (lazy request/response bodies)
 	mux.HandleFunc("GET /v1/api/payload/{id}", func(w http.ResponseWriter, r *http.Request) {
 		s.handleGetPayload(w, r, r.PathValue("id"))
+	})
+	mux.HandleFunc("GET /v1/api/generated-files/{id}/download", func(w http.ResponseWriter, r *http.Request) {
+		s.handleDownloadGeneratedFile(w, r, r.PathValue("id"))
 	})
 
 	// Policy approval callback (two paths for backwards-compatibility)
@@ -1083,6 +1089,9 @@ func eventNameForMessage(m *agconv.MessageView, contentType string) string {
 	if len(m.Attachment) > 0 {
 		return "attachment_linked"
 	}
+	if len(m.GeneratedFiles) > 0 {
+		return "generated_file_created"
+	}
 	if strings.EqualFold(strings.TrimSpace(m.Role), "assistant") {
 		if m.Interim != 0 {
 			return "interim_message"
@@ -1673,6 +1682,57 @@ func (s *Server) handleGetPayload(w http.ResponseWriter, r *http.Request, id str
 	w.Header().Set("Content-Type", ctype)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(raw)
+}
+
+func (s *Server) handleGetGeneratedFiles(w http.ResponseWriter, r *http.Request, convID string) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if s.chatSvc == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
+		return
+	}
+	files, err := s.chatSvc.ListGeneratedFiles(r.Context(), convID)
+	if err != nil {
+		encode(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+	encode(w, http.StatusOK, files, nil)
+}
+
+func (s *Server) handleDownloadGeneratedFile(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if s.chatSvc == nil {
+		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
+		return
+	}
+	body, contentType, filename, err := s.chatSvc.DownloadGeneratedFile(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, chat.ErrNotFound) {
+			encode(w, http.StatusNotFound, nil, err)
+			return
+		}
+		if errors.Is(err, chat.ErrNoContent) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		encode(w, http.StatusBadGateway, nil, err)
+		return
+	}
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "application/octet-stream"
+	}
+	if strings.TrimSpace(filename) == "" {
+		filename = "generated-file.bin"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }
 
 // dispatchConversationSubroutes routes /v1/api/conversations/{id}/... paths to

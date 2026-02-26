@@ -289,6 +289,9 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			}
 			return true
 		case "response.completed":
+			if strings.TrimSpace(data) != "" {
+				p.state.lastProvider = []byte(data)
+			}
 			// Final full response object; either wrapped or direct
 			// First try wrapped
 			var wrap struct {
@@ -304,7 +307,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 					p.state.lastUsage = lr.Usage
 				}
 				p.client.publishUsageOnce(p.state.lastModel, p.state.lastUsage, &p.state.publishedUsage)
-				if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, lr, p.state.lastUsage, &p.state.ended); err != nil {
+				if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, lr, p.state.lastUsage, []byte(data), &p.state.ended); err != nil {
 					p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
 				}
 				emitResponse(p.events, lr)
@@ -323,7 +326,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 					p.state.lastUsage = lr.Usage
 				}
 				p.client.publishUsageOnce(p.state.lastModel, p.state.lastUsage, &p.state.publishedUsage)
-				if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, lr, p.state.lastUsage, &p.state.ended); err != nil {
+				if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, lr, p.state.lastUsage, []byte(data), &p.state.ended); err != nil {
 					p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
 				}
 				emitResponse(p.events, lr)
@@ -428,7 +431,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 		p.state.lastUsage = lr.Usage
 	}
 	p.client.publishUsageOnce(p.state.lastModel, p.state.lastUsage, &p.state.publishedUsage)
-	if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, lr, p.state.lastUsage, &p.state.ended); err != nil {
+	if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, lr, p.state.lastUsage, nil, &p.state.ended); err != nil {
 		p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
 	}
 	emitResponse(p.events, lr)

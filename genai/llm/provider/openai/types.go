@@ -29,6 +29,9 @@ type Request struct {
 
 	// PreviousResponseID allows continuing a prior Responses API call.
 	PreviousResponseID string `json:"previous_response_id,omitempty"`
+	// EnableCodeInterpreter controls stream-only injection of a default
+	// code_interpreter tool in Responses API payloads.
+	EnableCodeInterpreter bool `json:"-"`
 }
 
 // TextControls enables response formatting controls on the Responses API.

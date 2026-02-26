@@ -65,7 +65,7 @@ function ExecutionBubble({ message: msg, context }) {
                     <Icon icon={iconName} color="var(--black)" size={12} />
                 </div>
                 <div className={bubbleClass} data-ts={(function(){ try { const d = new Date(msg.createdAt); return isNaN(d) ? '' : formatDate(d, 'HH:mm'); } catch(_) { return ''; } })()}> 
-                    <CodeFenceRenderer text={msg.content || ''} />
+                    <CodeFenceRenderer text={msg.content || ''} generatedFiles={msg.generatedFiles || []} />
 
                     {showExecution && (
                         <ExecutionTurnDetails msg={msg} context={context} bubbleRef={bubbleRef} />
@@ -86,6 +86,7 @@ function areEqual(prev, next) {
     if ((a.content || '') !== (b.content || '')) return false;
     if ((a.turnStatus || '') !== (b.turnStatus || '')) return false;
     if ((a._execSignature || '') !== (b._execSignature || '')) return false;
+    if (JSON.stringify(a.generatedFiles || []) !== JSON.stringify(b.generatedFiles || [])) return false;
     if (!!a.isLastTurn !== !!b.isLastTurn) return false;
     if ((a.turnUpdatedAt || '') !== (b.turnUpdatedAt || '')) return false;
     return true;
