@@ -63,6 +63,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		debugf("agent.BuildBinding error convo=%q elapsed=%s err=%v", convoID, time.Since(start).String(), "conversation not found")
 		return nil, fmt.Errorf("conversation not found: %s", strings.TrimSpace(input.ConversationID))
 	}
+	ctx = applySchedulerDiscoveryMode(ctx, conv)
 
 	// Compute effective preview limit using service defaults only
 	histStart := time.Now()
