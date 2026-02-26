@@ -133,3 +133,39 @@ func TestToRequest_ReasoningSummary(t *testing.T) {
 		})
 	}
 }
+
+func TestToRequest_ParallelToolCallsRequiresTools(t *testing.T) {
+	t.Run("parallel tool calls omitted when no tools", func(t *testing.T) {
+		in := llm.GenerateRequest{
+			Messages: []llm.Message{llm.NewUserMessage("summarize")},
+			Options: &llm.Options{
+				Model:             "gpt-5.2",
+				ParallelToolCalls: true,
+			},
+		}
+		got := ToRequest(&in)
+		assert.False(t, got.ParallelToolCalls)
+		assert.Len(t, got.Tools, 0)
+	})
+
+	t.Run("parallel tool calls enabled when tools exist", func(t *testing.T) {
+		in := llm.GenerateRequest{
+			Messages: []llm.Message{llm.NewUserMessage("run tool")},
+			Options: &llm.Options{
+				Model:             "gpt-5.2",
+				ParallelToolCalls: true,
+				Tools: []llm.Tool{{
+					Definition: llm.ToolDefinition{
+						Name: "system_exec-execute",
+						Parameters: map[string]interface{}{
+							"type": "object",
+						},
+					},
+				}},
+			},
+		}
+		got := ToRequest(&in)
+		assert.True(t, got.ParallelToolCalls)
+		assert.Len(t, got.Tools, 1)
+	})
+}
