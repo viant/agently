@@ -5,6 +5,7 @@ foreign_keys = ON;
 
 DROP TABLE IF EXISTS model_call;
 DROP TABLE IF EXISTS tool_call;
+DROP TABLE IF EXISTS generated_file;
 DROP TABLE IF EXISTS call_payload;
 DROP TABLE IF EXISTS turn;
 DROP TABLE IF EXISTS message;
@@ -136,6 +137,32 @@ CREATE TABLE call_payload
 );
 CREATE INDEX idx_payload_tenant_kind ON call_payload (tenant_id, kind, created_at);
 CREATE INDEX idx_payload_digest ON call_payload (digest);
+
+CREATE TABLE generated_file
+(
+    id               TEXT PRIMARY KEY,
+    conversation_id  TEXT      NOT NULL REFERENCES conversation (id) ON DELETE CASCADE,
+    turn_id          TEXT      REFERENCES turn (id) ON DELETE SET NULL,
+    message_id       TEXT      REFERENCES message (id) ON DELETE SET NULL,
+    provider         TEXT      NOT NULL,
+    mode             TEXT      NOT NULL CHECK (mode IN ('interpreter', 'inline', 'tool')),
+    copy_mode        TEXT      NOT NULL CHECK (copy_mode IN ('eager', 'lazy', 'lazy_cache')),
+    status           TEXT      NOT NULL DEFAULT 'ready' CHECK (status IN ('pending', 'ready', 'materializing', 'expired', 'failed')),
+    payload_id       TEXT      REFERENCES call_payload (id) ON DELETE SET NULL,
+    container_id     TEXT,
+    provider_file_id TEXT,
+    filename         TEXT,
+    mime_type        TEXT,
+    size_bytes       INTEGER,
+    checksum         TEXT,
+    error_message    TEXT,
+    expires_at       TIMESTAMP,
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP
+);
+CREATE INDEX idx_generated_file_conversation_created ON generated_file (conversation_id, created_at);
+CREATE INDEX idx_generated_file_message ON generated_file (message_id);
+CREATE INDEX idx_generated_file_provider_ref ON generated_file (provider, container_id, provider_file_id);
 
 CREATE TABLE model_call
 (

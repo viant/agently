@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently/genai/memory"
+	toolctx "github.com/viant/agently/genai/tool"
 	toolbundle "github.com/viant/agently/genai/tool/bundle"
 	mcpname "github.com/viant/agently/pkg/mcpname"
 )
@@ -48,6 +50,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 
 	if len(qi.ToolsAllowed) > 0 {
 		var out []llm.Tool
+		var missing []string
 		for _, n := range qi.ToolsAllowed {
 			name := strings.TrimSpace(n)
 			if name == "" {
@@ -59,6 +62,10 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 			}
 			// Allowed tool not found: add a warning to query output via context.
 			appendWarning(ctx, fmt.Sprintf("allowed tool not found: %s", name))
+			missing = append(missing, name)
+		}
+		if strictDiscoveryMode(ctx) && len(missing) > 0 {
+			return nil, strictToolDiscoveryError(ctx, strings.Join(missing, ", "))
 		}
 		// Append any registry warnings (e.g., unreachable servers) to output warnings via context.
 		if w, ok := s.registry.(interface {
@@ -85,7 +92,11 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 		extra := toolPatterns(qi)
 		if len(extra) > 0 {
 			for _, p := range extra {
-				for _, def := range s.registry.MatchDefinition(p) {
+				matched := s.matchDefinitions(ctx, p)
+				if strictDiscoveryMode(ctx) && len(matched) == 0 {
+					return nil, strictToolDiscoveryError(ctx, p)
+				}
+				for _, def := range matched {
 					if def == nil {
 						continue
 					}
@@ -109,7 +120,11 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 	}
 	var out []llm.Tool
 	for _, p := range patterns {
-		for _, def := range s.registry.MatchDefinition(p) {
+		matched := s.matchDefinitions(ctx, p)
+		if strictDiscoveryMode(ctx) && len(matched) == 0 {
+			return nil, strictToolDiscoveryError(ctx, p)
+		}
+		for _, def := range matched {
 			out = append(out, llm.Tool{Type: "function", Definition: *def})
 		}
 	}
@@ -205,7 +220,9 @@ func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []stri
 			appendWarning(ctx, fmt.Sprintf("unknown tool bundle: %s", id))
 			continue
 		}
-		defs = append(defs, toolbundle.ResolveDefinitions(b, s.registry.MatchDefinition)...)
+		defs = append(defs, toolbundle.ResolveDefinitions(b, func(pattern string) []*llm.ToolDefinition {
+			return s.matchDefinitions(ctx, pattern)
+		})...)
 	}
 	return dedupeDefinitions(defs), nil
 }
@@ -270,4 +287,22 @@ func (s *Service) appendRegistryWarnings(ctx context.Context, tools []llm.Tool) 
 		w.ClearWarnings()
 	}
 	return tools
+}
+
+func (s *Service) matchDefinitions(ctx context.Context, pattern string) []*llm.ToolDefinition {
+	if cm, ok := s.registry.(toolctx.ContextMatcher); ok {
+		return cm.MatchDefinitionWithContext(ctx, pattern)
+	}
+	return s.registry.MatchDefinition(pattern)
+}
+
+func strictDiscoveryMode(ctx context.Context) bool {
+	mode, ok := memory.DiscoveryModeFromContext(ctx)
+	return ok && mode.Scheduler && mode.Strict
+}
+
+func strictToolDiscoveryError(ctx context.Context, pattern string) error {
+	mode, _ := memory.DiscoveryModeFromContext(ctx)
+	pattern = strings.TrimSpace(pattern)
+	return fmt.Errorf("strict tool discovery: required scheduler tool unavailable pattern=%q schedule_id=%q schedule_run_id=%q", pattern, strings.TrimSpace(mode.ScheduleID), strings.TrimSpace(mode.ScheduleRunID))
 }

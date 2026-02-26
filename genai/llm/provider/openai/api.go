@@ -41,15 +41,18 @@ func (c *Client) publishUsageOnce(model string, usage *llm.Usage, published *boo
 }
 
 // endObserverOnce emits OnCallEnd once with the provided final response.
-func endObserverOnce(observer mcbuf.Observer, ctx context.Context, model string, lr *llm.GenerateResponse, usage *llm.Usage, ended *bool) error {
+// If providerRespJSON is set, it is used as ResponseJSON; otherwise we marshal lr.
+func endObserverOnce(observer mcbuf.Observer, ctx context.Context, model string, lr *llm.GenerateResponse, usage *llm.Usage, providerRespJSON []byte, ended *bool) error {
 	if ended == nil || *ended {
 		return nil
 	}
 	if observer != nil {
-		var respJSON []byte
+		respJSON := providerRespJSON
 		var finish string
-		if lr != nil {
+		if len(respJSON) == 0 && lr != nil {
 			respJSON, _ = json.Marshal(lr)
+		}
+		if lr != nil {
 			if len(lr.Choices) > 0 {
 				finish = lr.Choices[0].FinishReason
 			}
@@ -721,6 +724,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	}
 	c.applyBackendSessionDefaults(ctx, req)
 	req.Stream = true
+	req.EnableCodeInterpreter = true
 	// Ask OpenAI to include usage in the final stream event if supported
 	req.StreamOptions = &StreamOptions{IncludeUsage: true}
 

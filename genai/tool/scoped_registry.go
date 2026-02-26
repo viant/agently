@@ -38,6 +38,15 @@ func (s *scopedRegistry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 	return s.inner.MatchDefinition(pattern)
 }
 
+// MatchDefinitionWithContext delegates to the underlying registry when it
+// supports ContextMatcher; otherwise falls back to MatchDefinition.
+func (s *scopedRegistry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
+	if cm, ok := s.inner.(ContextMatcher); ok {
+		return cm.MatchDefinitionWithContext(ctx, pattern)
+	}
+	return s.inner.MatchDefinition(pattern)
+}
+
 // GetDefinition delegates to the underlying registry.
 func (s *scopedRegistry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 	return s.inner.GetDefinition(name)

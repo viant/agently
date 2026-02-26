@@ -3,11 +3,16 @@ package chat
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
+	"net/http"
+	neturl "net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -42,6 +47,7 @@ import (
 	extrepo "github.com/viant/agently/internal/workspace/repository/extension"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 	convw "github.com/viant/agently/pkg/agently/conversation/write"
+	gfread "github.com/viant/agently/pkg/agently/generatedfile/read"
 	msgwrite "github.com/viant/agently/pkg/agently/message/write"
 	toolfeed "github.com/viant/agently/pkg/agently/tool"
 	turnread "github.com/viant/agently/pkg/agently/turn/read"
@@ -64,6 +70,8 @@ var compactInstruction string
 const (
 	pruneMinRemove = 20
 	pruneMaxRemove = 50
+
+	envOpenAIGeneratedFileEnabled = "AGENTLY_OPENAI_GENERATED_FILE_ENABLED"
 )
 
 // Service exposes message retrieval independent of HTTP concerns.
@@ -744,7 +752,7 @@ func (s *Service) componentInjector(ctx context.Context, route xhttp.Route) (sta
 
 func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turnID string) error {
 	debugf("executeQueuedTurn start conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID))
-	msg, err := s.convClient.GetMessage(parent, turnID)
+	msg, err := s.waitForQueuedMessage(parent, turnID)
 	if err != nil {
 		errorf("executeQueuedTurn get message error conversation_id=%q turn_id=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), err)
 		return s.persistTurnFailure(parent, turnID, err)
@@ -937,6 +945,35 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 	}
 	debugf("executeQueuedTurn completed conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID))
 	return nil
+}
+
+func (s *Service) waitForQueuedMessage(ctx context.Context, turnID string) (*apiconv.Message, error) {
+	const (
+		maxAttempts = 5
+		backoff     = 20 * time.Millisecond
+	)
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		msg, err := s.convClient.GetMessage(ctx, turnID)
+		if err == nil && msg != nil {
+			return msg, nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+		if attempt == maxAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, nil
 }
 
 func queuedRequestPayload(msg *apiconv.Message) (string, bool) {
@@ -1389,12 +1426,20 @@ func (s *Service) ListConversations(ctx context.Context, input *apiconv.Input) (
 	if err != nil {
 		return nil, err
 	}
-	// Resolve current user
-	var userID string
-	if ui := authctx.User(ctx); ui != nil {
-		userID = strings.TrimSpace(ui.Subject)
-		if userID == "" {
-			userID = strings.TrimSpace(ui.Email)
+	// Schedule history (hasScheduleId=true) should include all conversations
+	// visible to the caller, not only caller-owned ones.
+	ownerOnly := true
+	if input != nil && input.HasScheduleId {
+		ownerOnly = false
+	}
+	// Resolve current user (effective auth identity used for visibility checks).
+	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	if userID == "" {
+		if ui := authctx.User(ctx); ui != nil {
+			userID = strings.TrimSpace(ui.Subject)
+			if userID == "" {
+				userID = strings.TrimSpace(ui.Email)
+			}
 		}
 	}
 	type convo struct {
@@ -1406,9 +1451,21 @@ func (s *Service) ListConversations(ctx context.Context, input *apiconv.Input) (
 		if v == nil {
 			continue
 		}
-		// Only include user's own conversations
-		if userID == "" || v.CreatedByUserId == nil || strings.TrimSpace(*v.CreatedByUserId) != userID {
-			continue
+		if ownerOnly {
+			// Default conversation list remains owner-scoped.
+			if userID == "" || v.CreatedByUserId == nil || strings.TrimSpace(*v.CreatedByUserId) != userID {
+				continue
+			}
+		} else {
+			// Schedule history is visibility-scoped: public for everyone,
+			// private only for owner.
+			rowOwner := ""
+			if v.CreatedByUserId != nil {
+				rowOwner = strings.TrimSpace(*v.CreatedByUserId)
+			}
+			if strings.EqualFold(strings.TrimSpace(v.Visibility), "private") && (userID == "" || rowOwner != userID) {
+				continue
+			}
 		}
 		t := v.Id
 		if v.Title != nil && strings.TrimSpace(*v.Title) != "" {
@@ -1565,6 +1622,145 @@ func (s *Service) GetPayload(ctx context.Context, id string) ([]byte, string, er
 	return body, ctype, nil
 }
 
+func (s *Service) ListGeneratedFiles(ctx context.Context, conversationID string) ([]*gfread.GeneratedFileView, error) {
+	if s == nil || s.convClient == nil {
+		return nil, nil
+	}
+	store, ok := s.convClient.(apiconv.GeneratedFileClient)
+	if !ok {
+		return nil, nil
+	}
+	in := &gfread.Input{ConversationID: strings.TrimSpace(conversationID), Has: &gfread.Has{}}
+	if in.ConversationID != "" {
+		in.Has.ConversationID = true
+	}
+	return store.GetGeneratedFiles(ctx, in)
+}
+
+func (s *Service) DownloadGeneratedFile(ctx context.Context, id string) ([]byte, string, string, error) {
+	if s == nil || s.convClient == nil {
+		return nil, "", "", ErrNotFound
+	}
+	store, ok := s.convClient.(apiconv.GeneratedFileClient)
+	if !ok {
+		return nil, "", "", ErrNotFound
+	}
+	in := &gfread.Input{ID: strings.TrimSpace(id), Has: &gfread.Has{ID: true}}
+	files, err := store.GetGeneratedFiles(ctx, in)
+	if err != nil || len(files) == 0 || files[0] == nil {
+		return nil, "", "", ErrNotFound
+	}
+	file := files[0]
+
+	filename := strings.TrimSpace(ptrStringOr(file.Filename, ""))
+	if filename == "" {
+		filename = strings.TrimSpace(ptrStringOr(file.ProviderFileID, "generated-file.bin"))
+		if filename == "" {
+			filename = "generated-file.bin"
+		}
+	}
+	contentType := strings.TrimSpace(ptrStringOr(file.MimeType, ""))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	if file.PayloadID != nil && strings.TrimSpace(*file.PayloadID) != "" {
+		payload, pErr := s.convClient.GetPayload(ctx, strings.TrimSpace(*file.PayloadID))
+		if pErr != nil || payload == nil || payload.InlineBody == nil || len(*payload.InlineBody) == 0 {
+			return nil, "", "", ErrNoContent
+		}
+		if strings.TrimSpace(payload.MimeType) != "" {
+			contentType = strings.TrimSpace(payload.MimeType)
+		}
+		return *payload.InlineBody, contentType, filename, nil
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(file.Provider), "openai") || !strings.EqualFold(strings.TrimSpace(file.Mode), "interpreter") {
+		return nil, "", "", ErrNoContent
+	}
+	if !openAIGeneratedFilesEnabled() {
+		return nil, "", "", ErrNoContent
+	}
+	containerID := strings.TrimSpace(ptrStringOr(file.ContainerID, ""))
+	providerFileID := strings.TrimSpace(ptrStringOr(file.ProviderFileID, ""))
+	if containerID == "" || providerFileID == "" {
+		return nil, "", "", ErrNoContent
+	}
+
+	body, downloadedType, dErr := downloadOpenAIContainerFileContent(ctx, containerID, providerFileID)
+	if dErr != nil {
+		status := "failed"
+		msg := strings.ToLower(strings.TrimSpace(dErr.Error()))
+		if strings.Contains(msg, "status=404") {
+			status = "expired"
+		}
+		_ = s.patchGeneratedFileDownloadState(ctx, file.ID, status, dErr.Error(), "", "", 0, "")
+		return nil, "", "", dErr
+	}
+	if strings.TrimSpace(downloadedType) != "" {
+		contentType = strings.TrimSpace(downloadedType)
+	}
+	if strings.EqualFold(strings.TrimSpace(file.CopyMode), "lazy_cache") || strings.EqualFold(strings.TrimSpace(file.CopyMode), "eager") {
+		payloadID, pErr := s.persistGeneratedFilePayload(ctx, body, contentType)
+		if pErr != nil {
+			_ = s.patchGeneratedFileDownloadState(ctx, file.ID, "failed", pErr.Error(), "", contentType, len(body), "")
+		} else {
+			checksum := sha256Hex(body)
+			_ = s.patchGeneratedFileDownloadState(ctx, file.ID, "ready", "", payloadID, contentType, len(body), checksum)
+		}
+	}
+	return body, contentType, filename, nil
+}
+
+func (s *Service) persistGeneratedFilePayload(ctx context.Context, body []byte, contentType string) (string, error) {
+	if len(body) == 0 {
+		return "", ErrNoContent
+	}
+	payload := apiconv.NewPayload()
+	payloadID := uuid.NewString()
+	payload.SetId(payloadID)
+	payload.SetKind("model_response")
+	payload.SetMimeType(strings.TrimSpace(contentType))
+	if strings.TrimSpace(payload.MimeType) == "" {
+		payload.SetMimeType("application/octet-stream")
+	}
+	payload.SetSizeBytes(len(body))
+	payload.SetStorage("inline")
+	payload.SetInlineBody(body)
+	if err := s.convClient.PatchPayload(ctx, payload); err != nil {
+		return "", err
+	}
+	return payloadID, nil
+}
+
+func (s *Service) patchGeneratedFileDownloadState(ctx context.Context, generatedFileID, status, errorMsg, payloadID, mimeType string, sizeBytes int, checksum string) error {
+	store, ok := s.convClient.(apiconv.GeneratedFileClient)
+	if !ok {
+		return nil
+	}
+	upd := apiconv.NewGeneratedFile()
+	upd.SetID(strings.TrimSpace(generatedFileID))
+	if strings.TrimSpace(status) != "" {
+		upd.SetStatus(strings.TrimSpace(status))
+	}
+	if strings.TrimSpace(errorMsg) != "" || strings.EqualFold(strings.TrimSpace(status), "ready") {
+		upd.SetErrorMessage(strings.TrimSpace(errorMsg))
+	}
+	if strings.TrimSpace(payloadID) != "" {
+		upd.SetPayloadID(strings.TrimSpace(payloadID))
+	}
+	if strings.TrimSpace(mimeType) != "" {
+		upd.SetMimeType(strings.TrimSpace(mimeType))
+	}
+	if sizeBytes > 0 {
+		upd.SetSizeBytes(sizeBytes)
+	}
+	if strings.TrimSpace(checksum) != "" {
+		upd.SetChecksum(strings.TrimSpace(checksum))
+	}
+	return store.PatchGeneratedFile(ctx, upd)
+}
+
 // looksLikeJSON performs a quick check if the payload appears to be JSON.
 func looksLikeJSON(b []byte) bool {
 	s := strings.TrimSpace(string(b))
@@ -1573,6 +1769,73 @@ func looksLikeJSON(b []byte) bool {
 	}
 	c := s[0]
 	return c == '{' || c == '['
+}
+
+func openAIGeneratedFilesEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(envOpenAIGeneratedFileEnabled)))
+	switch v {
+	case "", "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func downloadOpenAIContainerFileContent(ctx context.Context, containerID, fileID string) ([]byte, string, error) {
+	containerID = strings.TrimSpace(containerID)
+	fileID = strings.TrimSpace(fileID)
+	if containerID == "" || fileID == "" {
+		return nil, "", fmt.Errorf("container_id and file_id are required")
+	}
+	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	if apiKey == "" {
+		return nil, "", fmt.Errorf("OPENAI_API_KEY is not configured")
+	}
+	base := strings.TrimSpace(os.Getenv("OPENAI_BASE_URL"))
+	if base == "" {
+		base = "https://api.openai.com/v1"
+	}
+	base = strings.TrimRight(base, "/")
+	if !strings.HasSuffix(strings.ToLower(base), "/v1") {
+		base += "/v1"
+	}
+	endpoint := fmt.Sprintf("%s/containers/%s/files/%s/content", base, neturl.PathEscape(containerID), neturl.PathEscape(fileID))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, "", fmt.Errorf("openai download failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+	return body, strings.TrimSpace(resp.Header.Get("Content-Type")), nil
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func ptrStringOr(v *string, fallback string) string {
+	if v == nil {
+		return fallback
+	}
+	if strings.TrimSpace(*v) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(*v)
 }
 
 // ---- Status helpers (implements chat.Client) ----

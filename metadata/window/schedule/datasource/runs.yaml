@@ -18,5 +18,9 @@ parameters:
 selectors:
   data: data
 
+on:
+  - event: onFetch
+    handler: schedule.onFetchRuns
+
 uniqueKey:
   - field: id

@@ -67,7 +67,13 @@ type ResponsesTool struct {
 	Description string                 `json:"description,omitempty"`
 	Parameters  map[string]interface{} `json:"parameters,omitempty"`
 	Required    []string               `json:"required,omitempty"`
-	Strict      bool                   `json:"strict"`
+	Strict      *bool                  `json:"strict,omitempty"`
+	Container   *Container             `json:"container,omitempty"`
+}
+
+type Container struct {
+	Type    string   `json:"type"`
+	FileIds []string `json:"file_ids,omitempty"`
 }
 
 type ResponsesImageURL struct {
@@ -128,8 +134,11 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 		PromptCacheKey:     strings.TrimSpace(req.PromptCacheKey),
 		Text:               req.Text,
 	}
+
+	out.Include = []string{} //"output[*].content[*].annotations"}
+
 	if req.Reasoning != nil && strings.TrimSpace(req.Reasoning.Summary) != "" {
-		out.Include = []string{"reasoning.encrypted_content"}
+		out.Include = append(out.Include, "reasoning.encrypted_content")
 	}
 
 	// Normalize tool_choice for Responses API: {type:"function", name:"..."}
@@ -143,21 +152,15 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 			}
 		}
 	}
-	// Map tools to Responses API schema
-	if len(req.Tools) > 0 {
-		out.Tools = make([]ResponsesTool, 0, len(req.Tools))
-		for _, t := range req.Tools {
-			rt := ResponsesTool{Type: t.Type}
-			// For function tools, move fields to top-level
-			if strings.EqualFold(t.Type, "function") {
-				rt.Name = t.Function.Name
-				rt.Description = t.Function.Description
-				rt.Parameters = t.Function.Parameters
-				rt.Required = t.Function.Required
-				rt.Strict = t.Function.Strict
-			}
-			out.Tools = append(out.Tools, rt)
-		}
+
+	out.Tools = toResponsesTools(req.Tools)
+	if req.EnableCodeInterpreter && !hasResponsesToolType(out.Tools, "code_interpreter") {
+		out.Tools = append(out.Tools, ResponsesTool{
+			Type: "code_interpreter",
+			Container: &Container{
+				Type: "auto",
+			},
+		})
 	}
 
 	// Convert Messages to Input content
@@ -292,6 +295,42 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 		out.Input = append(out.Input, in)
 	}
 	return out
+}
+
+func toResponsesTools(in []Tool) []ResponsesTool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]ResponsesTool, 0, len(in))
+	for _, t := range in {
+		rt := ResponsesTool{Type: strings.TrimSpace(t.Type)}
+		// For function tools, move fields to top-level.
+		if strings.EqualFold(t.Type, "function") {
+			rt.Name = t.Function.Name
+			rt.Description = t.Function.Description
+			rt.Parameters = t.Function.Parameters
+			rt.Required = t.Function.Required
+			rt.Strict = &t.Function.Strict
+		}
+		if strings.EqualFold(rt.Type, "code_interpreter") {
+			rt.Container = &Container{Type: "auto"}
+		}
+		out = append(out, rt)
+	}
+	return out
+}
+
+func hasResponsesToolType(tools []ResponsesTool, typ string) bool {
+	want := strings.TrimSpace(strings.ToLower(typ))
+	if want == "" {
+		return false
+	}
+	for _, tool := range tools {
+		if strings.TrimSpace(strings.ToLower(tool.Type)) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func coalesce(vals ...string) string {

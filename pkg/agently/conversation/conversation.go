@@ -150,6 +150,7 @@ type MessageView struct {
 	UserElicitationData  *UserElicitationDataView `view:",table=message" on:"Id:id=MessageId:m.id" sql:"uri=conversation/user_elicitation_data.sql"`
 	LinkedConversation   *LinkedConversationView  `view:",table=conversation" on:"LinkedConversationId:linked_conversation_id=Id:id" sql:"uri=conversation/linked_conversation.sql"`
 	Attachment           []*AttachmentView        `view:",table=message" on:"Id:id=ParentMessageId:m.parent_message_id" sql:"uri=conversation/attachment.sql"`
+	GeneratedFiles       []*GeneratedFileView     `view:",table=generated_file" on:"Id:id=MessageId:message_id" sql:"uri=conversation/generated_file.sql"`
 	ModelCall            *ModelCallView           `view:",table=model_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/model_call.sql"`
 	ToolCall             *ToolCallView            `view:",table=tool_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
 }
@@ -173,6 +174,28 @@ type AttachmentView struct {
 	Uri             *string  `sqlx:"uri"`
 	MimeType        string   `sqlx:"mime_type"`
 	ParentMessageId *string  `sqlx:"parent_message_id"`
+}
+
+type GeneratedFileView struct {
+	ID             string     `sqlx:"id"`
+	ConversationID string     `sqlx:"conversation_id"`
+	TurnID         *string    `sqlx:"turn_id"`
+	MessageID      *string    `sqlx:"message_id"`
+	Provider       string     `sqlx:"provider"`
+	Mode           string     `sqlx:"mode"`
+	CopyMode       string     `sqlx:"copy_mode"`
+	Status         string     `sqlx:"status"`
+	PayloadID      *string    `sqlx:"payload_id"`
+	ContainerID    *string    `sqlx:"container_id"`
+	ProviderFileID *string    `sqlx:"provider_file_id"`
+	Filename       *string    `sqlx:"filename"`
+	MimeType       *string    `sqlx:"mime_type"`
+	SizeBytes      *int       `sqlx:"size_bytes"`
+	Checksum       *string    `sqlx:"checksum"`
+	ErrorMessage   *string    `sqlx:"error_message"`
+	ExpiresAt      *time.Time `sqlx:"expires_at"`
+	CreatedAt      *time.Time `sqlx:"created_at"`
+	UpdatedAt      *time.Time `sqlx:"updated_at"`
 }
 
 type ModelCallView struct {

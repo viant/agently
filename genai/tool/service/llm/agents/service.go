@@ -323,8 +323,9 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 			ro.StreamSupported = streamSupp
 			ro.Warnings = append(ro.Warnings, warns...)
 			if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
-				preview := shared.RuneTruncate(ans, 512)
-				_ = s.status.Finalize(ctx, parent, statusMsgID, strings.TrimSpace(st), preview)
+				// Do not mirror delegated child answer content into the parent chat stream.
+				// Keep only terminal status so parent remains an orchestrator-level narrative.
+				_ = s.status.Finalize(ctx, parent, statusMsgID, strings.TrimSpace(st), "")
 			}
 			return nil
 		}
@@ -441,8 +442,8 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	}
 	ro.MessageID = qo.MessageID
 	if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
-		preview := shared.RuneTruncate(qo.Content, 512)
-		_ = s.status.Finalize(ctx, parent, statusMsgID, "succeeded", preview)
+		// Keep llm/agents:run parent status rows textless to avoid child-output bubbles.
+		_ = s.status.Finalize(ctx, parent, statusMsgID, "succeeded", "")
 	}
 	debugf("agents.run done convo=%q agent_id=%q status=%q", strings.TrimSpace(ro.ConversationID), strings.TrimSpace(ri.AgentID), strings.TrimSpace(ro.Status))
 	return nil
