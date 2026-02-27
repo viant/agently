@@ -1279,10 +1279,32 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	}
 	tools, err := px.ListAllTools(ctx, opts...)
 	if err != nil {
+		if isReconnectableError(err) {
+			if retried, retryErr := r.retrySharedDiscoveryListTools(ctx, server, opts); retryErr == nil {
+				return retried, nil
+			} else {
+				err = retryErr
+			}
+		}
 		r.warnDiscoveryListIssue(server, "list_tools", err, userID, useID, tokenFingerprint(token))
 		return nil, err
 	}
 	return tools, nil
+}
+
+func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, server string, opts []mcpclient.RequestOption) ([]mcpschema.Tool, error) {
+	if r == nil || r.mgr == nil {
+		return nil, errors.New("mcp manager not configured")
+	}
+	if _, err := r.mgr.Reconnect(ctx, "", server); err != nil {
+		return nil, err
+	}
+	cli, err := r.mgr.Get(ctx, "", server)
+	if err != nil {
+		return nil, err
+	}
+	px, _ := mcpproxy.NewProxy(ctx, server, cli)
+	return px.ListAllTools(ctx, opts...)
 }
 
 func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -1555,6 +1577,7 @@ func isReconnectableError(err error) bool {
 	switch {
 	case strings.Contains(msg, "stream error"),
 		strings.Contains(msg, "internal_error; received from peer"),
+		strings.Contains(msg, "clienthandler is not initialized"),
 		strings.Contains(msg, "rst_stream"),
 		strings.Contains(msg, "goaway"),
 		strings.Contains(msg, "http2"),
