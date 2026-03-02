@@ -3,9 +3,11 @@ package modelcallctx
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +23,9 @@ type recorderObserver struct {
 	client          apiconv.Client
 	start           Info
 	hasBeg          bool
+	mu              sync.Mutex
+	msgID           string
+	ended           bool
 	acc             strings.Builder
 	streamPayloadID string
 	streamLinked    bool
@@ -32,6 +37,10 @@ type recorderObserver struct {
 func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.Context, error) {
 	o.start = info
 	o.hasBeg = true
+	o.acc.Reset()
+	o.streamPayloadID = ""
+	o.streamLinked = false
+	o.streamStatusSet = false
 	if info.StartedAt.IsZero() {
 		o.start.StartedAt = time.Now()
 	}
@@ -46,6 +55,10 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 	ctx, _ = WithFinishBarrier(ctx)
 	msgID := uuid.NewString()
 	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, msgID)
+	o.mu.Lock()
+	o.msgID = msgID
+	o.ended = false
+	o.mu.Unlock()
 	turn, _ := memory.TurnMetaFromContext(ctx)
 
 	// Create interim assistant message to capture request payload in transcript
@@ -75,24 +88,79 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) error {
 	if !o.hasBeg { // tolerate missing start
 		o.start = Info{}
 	}
-	turn, _ := memory.TurnMetaFromContext(ctx)
+	if info.CompletedAt.IsZero() {
+		info.CompletedAt = time.Now()
+	}
 	// attach to message/turn from context
-	msgID := memory.ModelMessageIDFromContext(ctx)
+	msgID := o.resolveMessageID(ctx)
 	if msgID == "" {
 		return nil
 	}
+	if o.isEnded(msgID) {
+		return nil
+	}
+
+	return o.finalizeOpenCall(ctx, msgID, info)
+}
+
+// CloseIfOpen force-closes the current model call when it was started but did not
+// reach a terminal state. It is used as a fallback from upper layers when providers
+// exit early without invoking OnCallEnd.
+func (o *recorderObserver) CloseIfOpen(ctx context.Context, info Info) error {
+	msgID := o.resolveMessageID(ctx)
+	if msgID == "" || o.isEnded(msgID) {
+		return nil
+	}
+	if info.CompletedAt.IsZero() {
+		info.CompletedAt = time.Now()
+	}
+	if strings.TrimSpace(info.Err) == "" {
+		if cerr := ctx.Err(); cerr != nil {
+			info.Err = cerr.Error()
+		} else {
+			info.Err = "forced close"
+		}
+	}
+	return o.finalizeOpenCall(ctx, msgID, info)
+}
+
+func (o *recorderObserver) resolveMessageID(ctx context.Context) string {
+	if msgID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)); msgID != "" {
+		return msgID
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return strings.TrimSpace(o.msgID)
+}
+
+func (o *recorderObserver) isEnded(msgID string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.ended && strings.TrimSpace(o.msgID) == strings.TrimSpace(msgID)
+}
+
+func (o *recorderObserver) markEnded(msgID string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if strings.TrimSpace(o.msgID) == strings.TrimSpace(msgID) {
+		o.ended = true
+	}
+}
+
+func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, info Info) error {
+	persistCtx := context.WithoutCancel(ctx)
+	turn, _ := memory.TurnMetaFromContext(persistCtx)
 
 	// Persist assistant content (including tool_calls responses) so the UI can show it.
 	// When content exists, clear Interim flag to make it visible in the transcript.
 	if info.LLMResponse != nil || len(info.ResponseJSON) > 0 {
-		madeVisible, err := o.patchAssistantMessageFromInfo(ctx, msgID, info)
+		madeVisible, err := o.patchAssistantMessageFromInfo(persistCtx, msgID, info)
 		if err != nil {
-			return err
-		}
-		// Keep interim flag only when there is no user-visible content to render.
-		if !madeVisible {
-			if err := o.patchInterimFlag(ctx, msgID); err != nil {
-				return err
+			warnf("patchAssistantMessageFromInfo failed message=%q err=%v", strings.TrimSpace(msgID), err)
+		} else if !madeVisible {
+			// Keep interim flag only when there is no user-visible content to render.
+			if err := o.patchInterimFlag(persistCtx, msgID); err != nil {
+				warnf("patchInterimFlag failed message=%q err=%v", strings.TrimSpace(msgID), err)
 			}
 		}
 	}
@@ -104,27 +172,30 @@ func (o *recorderObserver) OnCallEnd(ctx context.Context, info Info) error {
 
 	// Finish model call with response/providerResponse and stream payload
 	status := "completed"
-	// Treat context cancellation as terminated
-	if ctx.Err() == context.Canceled {
+	// Treat context cancellation and deadlines as terminated.
+	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		status = "canceled"
 	} else if strings.TrimSpace(info.Err) != "" {
-		status = "failed"
+		lowErr := strings.ToLower(strings.TrimSpace(info.Err))
+		if strings.Contains(lowErr, "context canceled") || strings.Contains(lowErr, "context deadline exceeded") {
+			status = "canceled"
+		} else {
+			status = "failed"
+		}
 	}
 
-	// Use background context for persistence when terminated to avoid cancellation issues
-	finCtx := ctx
-	if status == "canceled" {
-		finCtx = context.Background()
-	}
-	if err := o.finishModelCall(finCtx, msgID, status, info, streamTxt); err != nil {
+	if err := o.finishModelCall(persistCtx, msgID, status, info, streamTxt); err != nil {
 		return err
 	}
-	if err := o.client.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status)); err != nil {
-		return fmt.Errorf("failed to update conversation: %w", err)
+	if strings.TrimSpace(turn.ConversationID) != "" {
+		if err := o.client.PatchConversations(persistCtx, convw.NewConversationStatus(turn.ConversationID, status)); err != nil {
+			return fmt.Errorf("failed to update conversation: %w", err)
+		}
 	}
-	if err := o.persistOpenAIGeneratedFiles(ctx, msgID, turn, info); err != nil {
+	if err := o.persistOpenAIGeneratedFiles(persistCtx, msgID, turn, info); err != nil {
 		warnf("persistOpenAIGeneratedFiles failed message=%q err=%v", strings.TrimSpace(msgID), err)
 	}
+	o.markEnded(msgID)
 	return nil
 }
 

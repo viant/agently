@@ -31,7 +31,7 @@ import (
 // declared on the parent agent.
 
 // Query executes a query against an agent.
-func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) error {
+func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) (retErr error) {
 	if err := s.ensureEnvironment(ctx, input); err != nil {
 		return err
 	}
@@ -87,6 +87,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	var cancel func()
 	ctx, cancel = s.registerTurnCancel(ctx, turn)
 	defer cancel()
+	var turnStatus string
+	var turnRunErr error
+	turnFinalized := false
 	if len(input.ToolsAllowed) > 0 {
 		pol := &tool.Policy{Mode: tool.ModeAuto, AllowList: input.ToolsAllowed}
 		ctx = tool.WithPolicy(ctx, pol)
@@ -98,6 +101,30 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.startTurn(ctx, turn); err != nil {
 		return err
 	}
+	defer func() {
+		if turnFinalized {
+			return
+		}
+		finalStatus := strings.TrimSpace(turnStatus)
+		finalErr := turnRunErr
+		if finalStatus == "" {
+			if finalErr == nil {
+				finalErr = retErr
+			}
+			finalStatus = "failed"
+			if errors.Is(finalErr, context.Canceled) || errors.Is(finalErr, context.DeadlineExceeded) {
+				finalStatus = "canceled"
+			}
+		}
+		if err := s.finalizeTurn(ctx, turn, finalStatus, finalErr); err != nil {
+			if retErr == nil {
+				retErr = err
+			}
+			return
+		}
+		turnFinalized = true
+		infof("agent.Query finalize ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(finalStatus))
+	}()
 	infof("agent.Query startTurn ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	if d := stuckWarnDuration(); d > 0 {
 		warnCtx, warnCancel := context.WithCancel(ctx)
@@ -164,6 +191,8 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		ctx = executil.WithToolTimeout(ctx, d)
 	}
 	status, err := s.runPlanAndStatus(ctx, input, output)
+	turnStatus = status
+	turnRunErr = err
 	if err != nil {
 		errorf("agent.Query runPlan error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), err)
 	} else {
@@ -176,10 +205,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err != nil {
 		return fmt.Errorf("execution of query function failed: %w", err)
 	}
-
 	if err := s.finalizeTurn(ctx, turn, status, err); err != nil {
 		return err
 	}
+	turnFinalized = true
 	infof("agent.Query finalize ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 	// Persist/refresh conversation default model with the actually used model this turn
 	_ = s.updateDefaultModel(ctx, turn, output)
