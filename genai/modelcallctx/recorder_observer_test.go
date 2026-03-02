@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently/genai/llm"
@@ -193,6 +194,63 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 				assert.EqualValues(t, "", actualRaw)
 			}
 			assert.EqualValues(t, tc.expectInterim, msg.Interim)
+		})
+	}
+}
+
+func TestCloseIfOpen_ClosesStartedModelCall(t *testing.T) {
+	cases := []struct {
+		name           string
+		cancelContext  bool
+		expectedStatus string
+	}{
+		{name: "failed fallback", cancelContext: false, expectedStatus: "failed"},
+		{name: "canceled fallback", cancelContext: true, expectedStatus: "canceled"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := convmem.New()
+			base := memory.WithConversationID(context.Background(), "conv-1")
+			if err := client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+				t.Fatalf("failed to seed conversation: %v", err)
+			}
+
+			runCtx := base
+			var cancel func()
+			if tc.cancelContext {
+				runCtx, cancel = context.WithCancel(base)
+			}
+			if cancel != nil {
+				defer cancel()
+			}
+
+			ctx := WithRecorderObserver(runCtx, client)
+			ob := ObserverFromContext(ctx)
+			if ob == nil {
+				t.Fatalf("observer not injected")
+			}
+			ctx2, err := ob.OnCallStart(ctx, Info{Provider: "test", Model: "test-model", LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}}})
+			if err != nil {
+				t.Fatalf("OnCallStart error: %v", err)
+			}
+			if tc.cancelContext && cancel != nil {
+				cancel()
+			}
+
+			if err := CloseIfOpen(ctx2, Info{Err: "forced close", CompletedAt: time.Now()}); err != nil {
+				t.Fatalf("CloseIfOpen error: %v", err)
+			}
+
+			msgID := memory.ModelMessageIDFromContext(ctx2)
+			if msgID == "" {
+				t.Fatalf("message id not set in context")
+			}
+			msg, err := client.GetMessage(context.Background(), msgID)
+			if err != nil || msg == nil || msg.ModelCall == nil {
+				t.Fatalf("missing model call after CloseIfOpen: %v", err)
+			}
+			assert.EqualValues(t, tc.expectedStatus, msg.ModelCall.Status)
 		})
 	}
 }

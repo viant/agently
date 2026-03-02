@@ -383,7 +383,7 @@ func (s *Service) expandUserPrompt(ctx context.Context, in, out interface{}) err
 	return nil
 }
 
-func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) error {
+func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) (retErr error) {
 
 	// Inject recorder observer with price resolver (if available) so per-call cost is computed.
 	if tp, ok := s.llmFinder.(modelcallctx.TokenPriceProvider); ok {
@@ -395,6 +395,15 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	} else {
 		ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
 	}
+	defer func() {
+		if retErr == nil {
+			return
+		}
+		_ = modelcallctx.CloseIfOpen(ctx, modelcallctx.Info{
+			CompletedAt: time.Now(),
+			Err:         strings.TrimSpace(retErr.Error()),
+		})
+	}()
 	request, model, err := s.prepareGenerateRequest(ctx, input)
 	if err != nil {
 		return err

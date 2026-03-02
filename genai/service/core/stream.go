@@ -66,6 +66,16 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	} else {
 		ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
 	}
+	var retErr error
+	defer func() {
+		if retErr == nil {
+			return
+		}
+		_ = modelcallctx.CloseIfOpen(ctx, modelcallctx.Info{
+			CompletedAt: time.Now(),
+			Err:         strings.TrimSpace(retErr.Error()),
+		})
+	}()
 
 	var continuationRequest *llm.GenerateRequest
 	if IsAnchorContinuationEnabled(model) {
@@ -88,27 +98,32 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 
 		if isContextLimitError(err) {
 			if continuationRequest != nil {
-				return cleanup, ContinuationContextLimitError{Err: err}
+				retErr = ContinuationContextLimitError{Err: err}
+				return cleanup, retErr
 			}
-			return cleanup, fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
+			retErr = fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
+			return cleanup, retErr
 		}
 		if advisor, ok := model.(llm.BackoffAdvisor); ok {
 			if delay, retry := advisor.AdviseBackoff(err, attempt); retry {
 				if attempt == 2 || ctx.Err() != nil {
-					return cleanup, fmt.Errorf("failed to start Stream: %w", err)
+					retErr = fmt.Errorf("failed to start Stream: %w", err)
+					return cleanup, retErr
 				}
 				// Set model_call status to retrying before waiting
 				s.setModelCallStatus(ctx, "retrying")
 				select {
 				case <-time.After(delay):
 				case <-ctx.Done():
-					return cleanup, fmt.Errorf("failed to start Stream: %w", err)
+					retErr = fmt.Errorf("failed to start Stream: %w", err)
+					return cleanup, retErr
 				}
 				continue
 			}
 		}
 		if !isTransientNetworkError(err) || attempt == 2 || ctx.Err() != nil {
-			return cleanup, fmt.Errorf("failed to start Stream: %w", err)
+			retErr = fmt.Errorf("failed to start Stream: %w", err)
+			return cleanup, retErr
 		}
 		// Backoff: 1s, 2s, 4s
 		delay := time.Second << attempt
@@ -117,11 +132,13 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 		select {
 		case <-time.After(delay):
 		case <-ctx.Done():
-			return cleanup, fmt.Errorf("failed to start Stream: %w", err)
+			retErr = fmt.Errorf("failed to start Stream: %w", err)
+			return cleanup, retErr
 		}
 	}
 	if err := s.consumeEvents(ctx, streamCh, handler, output); err != nil {
-		return cleanup, err
+		retErr = err
+		return cleanup, retErr
 	}
 
 	var b strings.Builder
