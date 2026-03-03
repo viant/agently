@@ -206,7 +206,6 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	// Avoid mutating input.Context directly by working on a copy.
 	b.Context = cloneContextMap(b.Context)
 	mergeElicitationPayloadIntoContext(b.History, &b.Context)
-	applyToolContext(b.Context, b.Tools.Signatures)
 	s.applyDelegationContext(input, b)
 
 	debugf("agent.BuildBinding ok convo=%q elapsed=%s history_msgs=%d sys_docs=%d docs=%d tools=%d", convoID, time.Since(start).String(), len(b.History.Messages), len(b.SystemDocuments.Items), len(b.Documents.Items), len(b.Tools.Signatures))
@@ -378,31 +377,6 @@ func hasDocumentURI(items []*prompt.Document, uri string) bool {
 	return false
 }
 
-func applyToolContext(ctx map[string]interface{}, defs []*llm.ToolDefinition) {
-	if ctx == nil {
-		return
-	}
-	toolsCtx := ensureToolsContextMap(ctx)
-	presentSet, serviceSet := collectToolPresence(defs)
-	present := make(map[string]interface{}, len(presentSet))
-	services := make(map[string]interface{}, len(serviceSet))
-	for k, v := range presentSet {
-		if v {
-			present[k] = true
-		}
-	}
-	for k, v := range serviceSet {
-		if v {
-			services[k] = true
-		}
-	}
-
-	toolsCtx["present"] = present
-	toolsCtx["services"] = services
-	toolsCtx["hasWebdriver"] = serviceSet["webdriver"]
-	toolsCtx["hasResources"] = serviceSet["resources"]
-}
-
 func collectToolPresence(defs []*llm.ToolDefinition) (map[string]bool, map[string]bool) {
 	present := map[string]bool{}
 	services := map[string]bool{}
@@ -425,29 +399,6 @@ func collectToolPresence(defs []*llm.ToolDefinition) (map[string]bool, map[strin
 		}
 	}
 	return present, services
-}
-
-func ensureToolsContextMap(ctx map[string]interface{}) map[string]interface{} {
-	if ctx == nil {
-		return map[string]interface{}{}
-	}
-	if v, ok := ctx["tools"]; ok && v != nil {
-		if m, ok := v.(map[string]interface{}); ok {
-			return m
-		}
-		// Preserve existing "tools" key when not an object.
-		if v2, ok := ctx["agentlyTools"]; ok && v2 != nil {
-			if m, ok := v2.(map[string]interface{}); ok {
-				return m
-			}
-		}
-		m := map[string]interface{}{}
-		ctx["agentlyTools"] = m
-		return m
-	}
-	m := map[string]interface{}{}
-	ctx["tools"] = m
-	return m
 }
 
 func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
