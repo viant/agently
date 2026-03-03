@@ -1,6 +1,11 @@
 package agents
 
-import "github.com/viant/agently/genai/llm"
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/viant/agently/genai/llm"
+)
 
 // ListItem is a directory entry describing an agent option for selection.
 type ListItem struct {
@@ -42,6 +47,58 @@ type RunInput struct {
 	// ReasoningEffort optionally overrides agent-level reasoning effort
 	// (e.g., low|medium|high) for this run when supported by the backend.
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
+}
+
+// UnmarshalJSON tolerates legacy/model-emitted string context values by
+// accepting either:
+// - context: { ... } (preferred)
+// - context: "{\"k\":\"v\"}" (JSON object encoded as string)
+// - context: "map[...]" (ignored as unusable; treated as empty context)
+func (r *RunInput) UnmarshalJSON(data []byte) error {
+	type Alias RunInput
+	aux := &struct {
+		Context json.RawMessage `json:"context,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(r),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	r.Context = nil
+	raw := strings.TrimSpace(string(aux.Context))
+	if raw == "" || raw == "null" {
+		return nil
+	}
+	if strings.HasPrefix(raw, "{") {
+		var m map[string]interface{}
+		if err := json.Unmarshal(aux.Context, &m); err != nil {
+			return err
+		}
+		r.Context = m
+		return nil
+	}
+	if strings.HasPrefix(raw, "\"") {
+		var s string
+		if err := json.Unmarshal(aux.Context, &s); err != nil {
+			return err
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return nil
+		}
+		if strings.HasPrefix(s, "{") {
+			var m map[string]interface{}
+			if err := json.Unmarshal([]byte(s), &m); err != nil {
+				// Non-JSON string payloads are ignored to avoid hard tool failure.
+				return nil
+			}
+			r.Context = m
+		}
+		return nil
+	}
+	// Unknown/non-object context shapes are ignored.
+	return nil
 }
 
 // RunOutput defines the response payload for agents:run.
