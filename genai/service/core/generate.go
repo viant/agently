@@ -731,24 +731,6 @@ func applyInstructionsDefaults(request *llm.GenerateRequest, model llm.Model) {
 	}
 	supportsInstructions := model != nil && model.Implements(base.SupportsInstructions)
 
-	// Derive instructions from the first system message when unset.
-	if strings.TrimSpace(request.Instructions) == "" {
-		for i, msg := range request.Messages {
-			if msg.Role != llm.RoleSystem {
-				continue
-			}
-			text := llm.MessageText(msg)
-			if strings.TrimSpace(text) == "" {
-				break
-			}
-			request.Instructions = text
-			if supportsInstructions {
-				request.Messages = append(request.Messages[:i], request.Messages[i+1:]...)
-			}
-			break
-		}
-	}
-
 	// For providers that do not support top-level instructions, ensure the
 	// guidance is present as the first system message.
 	if !supportsInstructions && strings.TrimSpace(request.Instructions) != "" {
