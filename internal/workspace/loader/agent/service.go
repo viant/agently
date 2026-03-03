@@ -525,6 +525,14 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			if agent.SystemPrompt, err = s.getPrompt(valueNode); err != nil {
 				return err
 			}
+		case "instructionprompt":
+			if agent.InstructionPrompt, err = s.getPrompt(valueNode); err != nil {
+				return err
+			}
+		case "instruction":
+			if agent.Instruction, err = s.getPrompt(valueNode); err != nil {
+				return err
+			}
 
 		case "tool":
 			switch valueNode.Kind {
@@ -746,6 +754,10 @@ func (s *Service) parsePromptFields(agent *agentmdl.Agent, key string, valueNode
 		agent.Prompt, err = s.getPrompt(valueNode)
 	case "systemprompt":
 		agent.SystemPrompt, err = s.getPrompt(valueNode)
+	case "instructionprompt":
+		agent.InstructionPrompt, err = s.getPrompt(valueNode)
+	case "instruction":
+		agent.Instruction, err = s.getPrompt(valueNode)
 	}
 	return err
 }
