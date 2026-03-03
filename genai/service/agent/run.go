@@ -41,9 +41,15 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	infof("agent.Query start convo=%q agent_id=%q user_id=%q query_len=%d query_head=%q query_tail=%q tools_allowed=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), strings.TrimSpace(input.UserId), len(input.Query), headString(input.Query, 512), tailString(input.Query, 512), len(input.ToolsAllowed))
 	sysPromptEngine := ""
 	sysPromptURI := ""
+	instructionEngine := ""
+	instructionURI := ""
 	if input.Agent.SystemPrompt != nil {
 		sysPromptEngine = strings.TrimSpace(input.Agent.SystemPrompt.Engine)
 		sysPromptURI = strings.TrimSpace(input.Agent.SystemPrompt.URI)
+	}
+	if ip := input.Agent.EffectiveInstructionPrompt(); ip != nil {
+		instructionEngine = strings.TrimSpace(ip.Engine)
+		instructionURI = strings.TrimSpace(ip.URI)
 	}
 	delegEnabled := false
 	delegDepth := 0
@@ -51,7 +57,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		delegEnabled = input.Agent.Delegation.Enabled
 		delegDepth = input.Agent.Delegation.MaxDepth
 	}
-	infof("agent.Query config agent_id=%q delegation.enabled=%v delegation.maxDepth=%d systemPrompt.engine=%q systemPrompt.uri=%q", strings.TrimSpace(input.Agent.ID), delegEnabled, delegDepth, sysPromptEngine, sysPromptURI)
+	infof("agent.Query config agent_id=%q delegation.enabled=%v delegation.maxDepth=%d systemPrompt.engine=%q systemPrompt.uri=%q instruction.engine=%q instruction.uri=%q", strings.TrimSpace(input.Agent.ID), delegEnabled, delegDepth, sysPromptEngine, sysPromptURI, instructionEngine, instructionURI)
 
 	// Bridge auth token from QueryInput.Context when provided (non-HTTP callers).
 	ctx = s.bindAuthFromInputContext(ctx, input)
@@ -379,6 +385,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		genInput := &core.GenerateInput{
 			Prompt:         input.Agent.Prompt,
 			SystemPrompt:   input.Agent.SystemPrompt,
+			Instruction:    input.Agent.EffectiveInstructionPrompt(),
 			Binding:        binding,
 			ModelSelection: modelSelection,
 		}

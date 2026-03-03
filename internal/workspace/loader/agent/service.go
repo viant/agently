@@ -214,6 +214,8 @@ func (s *Service) resolvePromptURIs(a *agentmdl.Agent) {
 	}
 	resolvePath(a.Prompt)
 	resolvePath(a.SystemPrompt)
+	resolvePath(a.InstructionPrompt)
+	resolvePath(a.Instruction)
 	for _, chain := range a.Chains {
 		if query := chain.Query; query != nil && query.URI != "" {
 			resolvePath(query)
@@ -240,6 +242,11 @@ func normalizeAgent(a *agentmdl.Agent) {
 	}
 	trim(a.Prompt)
 	trim(a.SystemPrompt)
+	trim(a.InstructionPrompt)
+	trim(a.Instruction)
+	if a.InstructionPrompt == nil && a.Instruction != nil {
+		a.InstructionPrompt = a.Instruction
+	}
 	for _, c := range a.Chains {
 		if c == nil {
 			continue

@@ -64,7 +64,11 @@ type (
 		// completes (done or error). Consumed by the UI via metadata.AgentInfo.
 		RingOnFinish bool `yaml:"ringOnFinish,omitempty" json:"ringOnFinish,omitempty"`
 
-		SystemPrompt    *prompt.Prompt `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
+		SystemPrompt *prompt.Prompt `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
+		// InstructionPrompt is preferred for top-level model instructions.
+		InstructionPrompt *prompt.Prompt `yaml:"instructionPrompt,omitempty" json:"instructionPrompt,omitempty"`
+		// Instruction is a backward-compatible alias of InstructionPrompt.
+		Instruction     *prompt.Prompt `yaml:"instruction,omitempty" json:"instruction,omitempty"`
 		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
 		// Tool defines the serialized tool configuration block using the new
 		// contract: tool: { items: [], callExposure }.
@@ -206,6 +210,18 @@ func (r *Resource) GrepAllowed() bool {
 		return true
 	}
 	return *r.AllowGrep
+}
+
+// EffectiveInstructionPrompt returns the configured instruction prompt, with
+// InstructionPrompt taking precedence over the legacy Instruction alias.
+func (a *Agent) EffectiveInstructionPrompt() *prompt.Prompt {
+	if a == nil {
+		return nil
+	}
+	if a.InstructionPrompt != nil {
+		return a.InstructionPrompt
+	}
+	return a.Instruction
 }
 
 type Tool struct {

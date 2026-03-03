@@ -155,9 +155,25 @@ function isObject(v) {
   return !!v && typeof v === 'object' && !Array.isArray(v);
 }
 
+function inferFirstStringKey(row = {}) {
+  const keys = Object.keys(row || {});
+  return keys.find((k) => typeof row?.[k] === 'string') || keys[0] || 'x';
+}
+
+function inferFirstNumericKey(row = {}, exclude = []) {
+  const deny = new Set(Array.isArray(exclude) ? exclude : []);
+  const keys = Object.keys(row || {});
+  const found = keys.find((k) => !deny.has(k) && typeof row?.[k] === 'number');
+  if (found) return found;
+  return keys.find((k) => !deny.has(k)) || 'value';
+}
+
 function parseChartSpecFromFence(lang = '', body = '') {
   const v = String(lang || '').toLowerCase();
-  const raw = String(body || '').trim();
+  const raw = String(body || '')
+    // Some copied markdown includes NBSP/Unicode spaces that break JSON.parse.
+    .replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000]/g, ' ')
+    .trim();
   if (!(v === 'json' || v === 'javascript' || v === 'js' || v === 'plaintext' || v === 'md' || v === 'markdown')) return null;
   if (!raw.startsWith('{') && !raw.startsWith('[')) return null;
   try {
@@ -165,10 +181,28 @@ function parseChartSpecFromFence(lang = '', body = '') {
     if (!isObject(parsed)) return null;
     const chart = parsed.chart;
     const data = Array.isArray(parsed.data) ? parsed.data : (Array.isArray(parsed.rows) ? parsed.rows : null);
-    if (!isObject(chart) || !Array.isArray(data)) return null;
-    const type = String(chart.type || '').trim().toLowerCase();
-    if (!type) return null;
-    return parsed;
+    if (isObject(chart) && Array.isArray(data)) {
+      const type = String(chart.type || '').trim().toLowerCase();
+      if (!type) return null;
+      return parsed;
+    }
+    // Accept top-level shape: { type, data, x?:{field}, y?:{field} }
+    const topType = String(parsed.type || '').trim().toLowerCase();
+    if (topType && Array.isArray(parsed.data)) {
+      const firstRow = isObject(parsed.data[0]) ? parsed.data[0] : {};
+      const xKey = String(parsed?.x?.field || parsed?.xKey || inferFirstStringKey(firstRow));
+      const yField = String(parsed?.y?.field || '');
+      const yKey = yField || inferFirstNumericKey(firstRow, [xKey]);
+      const normalized = {
+        chart: { type: topType, x: { key: xKey }, y: [{ key: yKey }] },
+        data: parsed.data,
+      };
+      if (parsed.title != null) normalized.title = String(parsed.title);
+      if (parsed.notes != null) normalized.notes = String(parsed.notes);
+      if (parsed.yAxisTitle != null) normalized.yAxisTitle = String(parsed.yAxisTitle);
+      return normalized;
+    }
+    return null;
   } catch (_) {
     return null;
   }

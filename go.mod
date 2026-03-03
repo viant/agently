@@ -11,18 +11,18 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/datly v0.35.1-0.20260128170806-3481a39615df
+	github.com/viant/datly v0.37.1-0.20260227223537-1cbc10fdaa4b
 	github.com/viant/embedius v0.5.3-0.20260220183033-bc27e2e18c76
 	github.com/viant/fluxor v0.4.3
 	github.com/viant/forge v0.2.19-0.20260224172419-68a2193e7913
 	github.com/viant/jsonrpc v0.17.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.10.0
-	github.com/viant/mcp-protocol v0.10.0
+	github.com/viant/mcp v0.11.0
+	github.com/viant/mcp-protocol v0.11.0
 	github.com/viant/scy v0.25.3
 	github.com/viant/structology v0.8.0 // indirect
-	github.com/viant/velty v0.2.1-0.20230927172116-ba56497b5c85
-	github.com/viant/x v0.3.0 // indirect
+	github.com/viant/velty v0.4.0
+	github.com/viant/x v0.4.0 // indirect
 	github.com/viant/xdatly/handler v0.0.0-20251208172928-dd34b7f09fd5
 	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect -- replaced with internal stub, see below
@@ -158,7 +158,7 @@ require (
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
-	github.com/viant/sqlparser v0.9.0 // indirect
+	github.com/viant/sqlparser v0.11.1-0.20260224194657-0470849e3588 // indirect
 	github.com/viant/sqlx v0.22.0 // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.0 // indirect

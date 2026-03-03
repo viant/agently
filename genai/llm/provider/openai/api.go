@@ -357,6 +357,7 @@ func adaptSystemMessagesForChatGPTBackend(payload *ResponsesPayload) {
 		return
 	}
 	baseInstructions := strings.TrimSpace(payload.Instructions)
+	hasBaseInstructions := baseInstructions != ""
 	systemChunks := make([]string, 0, 4)
 	filtered := make([]InputItem, 0, len(payload.Input))
 
@@ -374,6 +375,12 @@ func adaptSystemMessagesForChatGPTBackend(payload *ResponsesPayload) {
 		for _, part := range item.Content {
 			// Preserve textual system guidance in instructions.
 			if txt := strings.TrimSpace(part.Text); txt != "" {
+				// If explicit instructions were already provided, keep system text in
+				// the remapped developer message instead of merging into instructions.
+				if hasBaseInstructions {
+					kept = append(kept, part)
+					continue
+				}
 				systemChunks = append(systemChunks, txt)
 				continue
 			}

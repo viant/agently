@@ -170,6 +170,7 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 			genInput := &core.GenerateInput{
 				Prompt:         ag.Prompt,
 				SystemPrompt:   ag.SystemPrompt,
+				Instruction:    ag.EffectiveInstructionPrompt(),
 				Binding:        binding,
 				ModelSelection: modelSel,
 			}

@@ -34,8 +34,9 @@ type SourceMeta struct {
 }
 
 type PromptMeta struct {
-	User   PathMeta `json:"user"`
-	System PathMeta `json:"system"`
+	User        PathMeta `json:"user"`
+	System      PathMeta `json:"system"`
+	Instruction PathMeta `json:"instruction"`
 }
 
 type PathMeta struct {
@@ -185,7 +186,7 @@ func buildAgentEditView(ctx context.Context, ag *agentmdl.Agent, repoFilename st
 		return string(data), len(data), false
 	}
 	// Prompts meta
-	var pUser, pSys PathMeta
+	var pUser, pSys, pInstruction PathMeta
 	if ag != nil && ag.Prompt != nil {
 		pUser.Display, pUser.Resolved, pUser.Exists = resolve(ag.Prompt.URI)
 		if pUser.Exists && strings.TrimSpace(pUser.Resolved) != "" {
@@ -196,6 +197,12 @@ func buildAgentEditView(ctx context.Context, ag *agentmdl.Agent, repoFilename st
 		pSys.Display, pSys.Resolved, pSys.Exists = resolve(ag.SystemPrompt.URI)
 		if pSys.Exists && strings.TrimSpace(pSys.Resolved) != "" {
 			pSys.Content, pSys.ContentSize, pSys.Truncated = readPreview(pSys.Resolved, 64*1024)
+		}
+	}
+	if ip := ag.EffectiveInstructionPrompt(); ip != nil {
+		pInstruction.Display, pInstruction.Resolved, pInstruction.Exists = resolve(ip.URI)
+		if pInstruction.Exists && strings.TrimSpace(pInstruction.Resolved) != "" {
+			pInstruction.Content, pInstruction.ContentSize, pInstruction.Truncated = readPreview(pInstruction.Resolved, 64*1024)
 		}
 	}
 
@@ -258,7 +265,7 @@ func buildAgentEditView(ctx context.Context, ag *agentmdl.Agent, repoFilename st
 		Agent: ag,
 		Meta: &AgentAuthoringMeta{
 			Source:        SourceMeta{URL: repoFilename, BaseDir: baseDir},
-			Prompts:       PromptMeta{User: pUser, System: pSys},
+			Prompts:       PromptMeta{User: pUser, System: pSys, Instruction: pInstruction},
 			Knowledge:     KnowledgeMeta{Roots: roots},
 			Capabilities:  caps,
 			ContextInputs: buildContextInputsMeta(ag),

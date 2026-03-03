@@ -134,11 +134,14 @@ export async function loadAgentEdit({ context }) {
             next.userPromptExists = !!data?.meta?.prompts?.user?.exists;
             next.systemPromptResolved = (data?.meta?.prompts?.system?.resolved || '').toString();
             next.systemPromptExists = !!data?.meta?.prompts?.system?.exists;
+            next.instructionPromptResolved = (data?.meta?.prompts?.instruction?.resolved || '').toString();
+            next.instructionPromptExists = !!data?.meta?.prompts?.instruction?.exists;
         } catch (_) {}
         try {
             console.log('[agent.loadAgentEdit] loaded meta.prompts', {
                 user: data?.meta?.prompts?.user,
                 system: data?.meta?.prompts?.system,
+                instruction: data?.meta?.prompts?.instruction,
             });
         } catch(_) {}
         handlers?.setFormData?.({ values: next });
