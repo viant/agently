@@ -491,6 +491,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 							warnings = append(warnings, fmt.Sprintf("System Prompt URI not found: %s (resolved %s)", strings.TrimSpace(ag.SystemPrompt.URI), p))
 						}
 					}
+					if ip := ag.EffectiveInstructionPrompt(); ip != nil && strings.TrimSpace(ip.URI) != "" {
+						p := resolve(ip.URI)
+						if ok, _ := afs.New().Exists(ctx, p); !ok {
+							warnings = append(warnings, fmt.Sprintf("Instruction URI not found: %s (resolved %s)", strings.TrimSpace(ip.URI), p))
+						}
+					}
 					// knowledge existence
 					for i, k := range ag.Knowledge {
 						if k == nil || strings.TrimSpace(k.URL) == "" {

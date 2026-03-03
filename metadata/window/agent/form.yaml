@@ -185,6 +185,17 @@
           type: text
           properties:
             readOnly: true
+        - id: instructionPrompt.uri
+          label: Instruction Prompt (URI)
+          type: text
+          on:
+            - event: onChange
+              handler: agent.loadAgentEdit
+        - id: instructionPromptResolved
+          label: Instruction Resolved Path
+          type: text
+          properties:
+            readOnly: true
       containers:
         - id: systemPreview
           editor:
