@@ -373,10 +373,10 @@ func adaptSystemMessagesForChatGPTBackend(payload *ResponsesPayload) {
 		}
 		kept := make([]ResponsesContentItem, 0, len(item.Content))
 		for _, part := range item.Content {
-			// Preserve textual system guidance in instructions.
+			// Keep channels separate: never merge system text into existing
+			// explicit instructions. Only rewrite to instructions when no
+			// explicit instructions were provided.
 			if txt := strings.TrimSpace(part.Text); txt != "" {
-				// If explicit instructions were already provided, keep system text in
-				// the remapped developer message instead of merging into instructions.
 				if hasBaseInstructions {
 					kept = append(kept, part)
 					continue
@@ -404,15 +404,7 @@ func adaptSystemMessagesForChatGPTBackend(payload *ResponsesPayload) {
 	if joined == "" {
 		return
 	}
-	if baseInstructions == "" {
-		payload.Instructions = joined
-		return
-	}
-	if normalizeText(baseInstructions) == normalizeText(joined) {
-		payload.Instructions = baseInstructions
-		return
-	}
-	payload.Instructions = baseInstructions + "\n\n" + joined
+	payload.Instructions = joined
 }
 
 // marshalChatCompletionApiRequestBody marshals a legacy chat/completions payload from Request.
