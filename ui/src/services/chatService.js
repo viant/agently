@@ -1157,10 +1157,11 @@ function parseValidDate(value) {
 // Primary policy for execution header:
 // elapsed = max(step.end) - min(step.start), with fallback when timestamps are missing.
 function computeStepTimeline(steps = []) {
-    const includeReasons = new Set(['thinking', 'tool_call', 'elicitation', 'link', 'error']);
+    // Header fallback timeline only. Exclude mirrored link/thread rows to avoid
+    // counting child-conversation copies in aggregate timing.
+    const includeReasons = new Set(['thinking', 'tool_call', 'elicitation', 'error']);
     let minStart = null;
     let maxEnd = null;
-    let activeMs = 0;
     let starts = 0;
     let ends = 0;
 
@@ -1178,9 +1179,6 @@ function computeStepTimeline(steps = []) {
             ends++;
             if (!maxEnd || ended > maxEnd) maxEnd = ended;
         }
-        if (started && ended && ended >= started) {
-            activeMs += (ended - started);
-        }
     }
 
     if (!minStart) return null;
@@ -1192,7 +1190,6 @@ function computeStepTimeline(steps = []) {
         startedAt: minStart,
         endedAt: maxEnd,
         elapsedSec: Math.max(0, Math.floor((maxEnd - minStart) / 1000)),
-        activeSec: Math.max(0, Math.floor(activeMs / 1000)),
         starts,
         ends,
     };
@@ -1557,31 +1554,37 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
             // removed per-turn debug log
         } catch(_) {}
 
-        // Execution header time should be based on step timeline first:
-        // max(step.end) - min(step.start). Fallback to turn/message-derived values when unavailable.
+        // Execution header time policy:
+        // 1) prefer turn wall-clock duration (DB turn elapsed or turn created/updated span)
+        // 2) fallback to step timeline span (max end - min start), excluding link rows
         const stepTimeline = computeStepTimeline(steps);
         const fallbackTurnCreatedAt = toISOSafe(turnCreatedAtRaw);
         const fallbackTurnUpdatedAt = toISOSafe(turnUpdatedAtRaw);
+        const turnCreatedDate = parseValidDate(turnCreatedAtRaw);
+        const turnUpdatedDate = parseValidDate(turnUpdatedAtRaw);
         const fallbackTurnElapsedSec = (typeof turnElapsedSecRaw === 'number' && isFinite(turnElapsedSecRaw) && turnElapsedSecRaw >= 0)
             ? Math.floor(turnElapsedSecRaw)
             : undefined;
-        const turnCreatedAt = stepTimeline?.startedAt
-            ? toISOSafe(stepTimeline.startedAt)
-            : fallbackTurnCreatedAt;
-        const turnUpdatedAt = stepTimeline?.endedAt
-            ? toISOSafe(stepTimeline.endedAt)
-            : fallbackTurnUpdatedAt;
-        const stepActiveSec = (typeof stepTimeline?.activeSec === 'number' && isFinite(stepTimeline.activeSec))
-            ? stepTimeline.activeSec
-            : undefined;
+        const turnWallSec = (typeof fallbackTurnElapsedSec === 'number')
+            ? fallbackTurnElapsedSec
+            : ((turnCreatedDate && turnUpdatedDate && turnUpdatedDate >= turnCreatedDate)
+                ? Math.max(0, Math.floor((turnUpdatedDate - turnCreatedDate) / 1000))
+                : undefined);
+        const turnCreatedAt = fallbackTurnCreatedAt || (stepTimeline?.startedAt ? toISOSafe(stepTimeline.startedAt) : toISOSafe(new Date()));
+        const turnUpdatedAt = fallbackTurnUpdatedAt || (stepTimeline?.endedAt ? toISOSafe(stepTimeline.endedAt) : turnCreatedAt);
         const stepSpanSec = (typeof stepTimeline?.elapsedSec === 'number' && isFinite(stepTimeline.elapsedSec))
             ? stepTimeline.elapsedSec
             : undefined;
-        const turnElapsedSec = (typeof stepActiveSec === 'number' && stepActiveSec > 0)
-            ? stepActiveSec
-            : (typeof stepSpanSec === 'number'
-                ? stepSpanSec
-                : fallbackTurnElapsedSec);
+        // Guard against stale/under-reported turn elapsed values: when step span
+        // is larger, prefer it so terminal header time doesn't regress (e.g. child
+        // conversations where turn elapsed may lag behind persisted step timings).
+        const turnElapsedSec = (typeof turnWallSec === 'number' && typeof stepSpanSec === 'number')
+            ? Math.max(turnWallSec, stepSpanSec)
+            : (typeof turnWallSec === 'number'
+                ? turnWallSec
+                : (typeof stepSpanSec === 'number'
+                    ? stepSpanSec
+                    : fallbackTurnElapsedSec));
 
         // Keep error rendering in the table footer (ExecutionDetails) rather than as a step.
 
