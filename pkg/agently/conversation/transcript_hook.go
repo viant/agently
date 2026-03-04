@@ -81,9 +81,9 @@ func computeTurnStage(t *TranscriptView) string {
 	if t == nil || len(t.Message) == 0 {
 		return StageWaiting
 	}
-	// If turn itself is canceled, treat as completed
+	// Preserve cancellation semantics for stage consumers.
 	if strings.EqualFold(strings.TrimSpace(t.Status), "canceled") {
-		return StageDone
+		return StageCanceled
 	}
 	lastRole := ""
 	lastAssistantElic := false
@@ -100,7 +100,7 @@ func computeTurnStage(t *TranscriptView) string {
 		if m == nil {
 			continue
 		}
-		// If the latest assistant message is explicitly canceled (even interim), drop to waiting
+		// If the latest assistant message is explicitly canceled (even interim), keep canceled stage.
 		if strings.EqualFold(strings.TrimSpace(m.Role), "assistant") && m.Status != nil && strings.EqualFold(strings.TrimSpace(*m.Status), "canceled") {
 			lastAssistantCanceled = true
 			break
@@ -163,7 +163,7 @@ func computeTurnStage(t *TranscriptView) string {
 	//   turnStatus in {'succeeded','completed','done','accepted','failed','error','canceled'}
 	switch {
 	case lastAssistantCanceled:
-		return StageDone
+		return StageCanceled
 	case lastToolRunning:
 		return StageExecuting
 	case lastAssistantElic:

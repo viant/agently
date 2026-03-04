@@ -8,7 +8,7 @@ import { format as formatDate } from "date-fns";
 import ExecutionDetails from "./ExecutionDetails.jsx";
 import CollapsibleCard from "./CollapsibleCard.jsx";
 import ToolFeed from "./ToolFeed.jsx";
-import { setStage } from '../../utils/stageBus.js';
+import { setStage, normalizeStagePhase } from '../../utils/stageBus.js';
 import CodeFenceRenderer from '../CodeFenceRenderer.jsx';
 import { useExecVisibility } from '../../utils/execFeedBus.js';
 import { selectedTabId } from 'forge/core';
@@ -103,39 +103,67 @@ function ExecutionTurnDetails({ msg, context, bubbleRef }) {
     const isDone = turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted' || turnStatus === 'failed' || turnStatus === 'error' || turnStatus === 'canceled';
     const isError = turnStatus === 'failed' || turnStatus === 'error';
 
+    const formatElapsed = React.useCallback((seconds) => {
+        const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+        const mm = String(Math.floor(safe / 60)).padStart(2, '0');
+        const ss = String(safe % 60).padStart(2, '0');
+        return `${mm}:${ss}`;
+    }, []);
+
     const [tick, setTick] = React.useState(0);
     const [elapsed, setElapsed] = React.useState('');
+    const maxElapsedRef = React.useRef(0);
+
+    React.useEffect(() => {
+        maxElapsedRef.current = 0;
+        setTick(0);
+        setElapsed('');
+    }, [msg.id]);
+
     React.useEffect(() => {
         const providedSec = (typeof msg.turnElapsedSec === 'number' && isFinite(msg.turnElapsedSec) && msg.turnElapsedSec >= 0) ? Math.floor(msg.turnElapsedSec) : undefined;
-        if (isDone && typeof providedSec === 'number') {
-            const mm = String(Math.floor(providedSec / 60)).padStart(2, '0');
-            const ss = String(providedSec % 60).padStart(2, '0');
-            setElapsed(`${mm}:${ss}`);
-            setTick(providedSec);
-            return; // no interval
-        }
         const start = msg.turnCreatedAt ? new Date(msg.turnCreatedAt) : (msg.createdAt ? new Date(msg.createdAt) : null);
         let endFixed = null;
         if (isDone) {
             endFixed = msg.turnUpdatedAt ? new Date(msg.turnUpdatedAt) : new Date();
         }
+        const datedSec = (() => {
+            try {
+                if (!start || isNaN(start)) return undefined;
+                const end = endFixed || new Date();
+                if (!end || isNaN(end)) return undefined;
+                return Math.max(0, Math.floor((end - start) / 1000));
+            } catch (_) {
+                return undefined;
+            }
+        })();
+
+        if (isDone) {
+            const candidates = [providedSec, datedSec, maxElapsedRef.current].filter((v) => typeof v === 'number' && isFinite(v));
+            const finalSec = candidates.length ? Math.max(...candidates) : 0;
+            maxElapsedRef.current = finalSec;
+            setTick(finalSec);
+            setElapsed(formatElapsed(finalSec));
+            return; // no interval
+        }
+
         function update() {
             try {
                 const now = endFixed || new Date();
                 if (!start || isNaN(start)) { setElapsed(''); return; }
                 const diff = Math.max(0, now - start);
                 const secs = Math.floor(diff / 1000);
-                setTick(secs);
-                const mm = String(Math.floor(secs / 60)).padStart(2, '0');
-                const ss = String(secs % 60).padStart(2, '0');
-                setElapsed(`${mm}:${ss}`);
+                const next = Math.max(maxElapsedRef.current, secs);
+                maxElapsedRef.current = next;
+                setTick(next);
+                setElapsed(formatElapsed(next));
             } catch(_) {}
         }
         update();
         if (isDone) return; // freeze when done
         const t = setInterval(update, 1000);
         return () => clearInterval(t);
-    }, [msg.turnCreatedAt, msg.turnUpdatedAt, msg.createdAt, msg.turnElapsedSec, isDone]);
+    }, [msg.turnCreatedAt, msg.turnUpdatedAt, msg.createdAt, msg.turnElapsedSec, isDone, formatElapsed]);
 
     // Update global stage based on turn status
     React.useEffect(() => {
@@ -167,11 +195,11 @@ function ExecutionTurnDetails({ msg, context, bubbleRef }) {
                 return;
             }
         } catch (_) {}
-        // Update global stage
-        const isRunning = (turnStatus === 'running' || turnStatus === 'open' || turnStatus === 'pending' || turnStatus === 'thinking');
-        const isDoneOk = (turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted');
-        const isErrored = (turnStatus === 'failed' || turnStatus === 'error');
-        
+        // Update global stage from normalized turn status.
+        const phaseFromTurn = normalizeStagePhase(turnStatus);
+        const isRunning = (phaseFromTurn === 'executing' || phaseFromTurn === 'thinking' || phaseFromTurn === 'elicitation');
+        const isTerminal = (phaseFromTurn === 'done' || phaseFromTurn === 'error' || phaseFromTurn === 'terminated');
+
         // Determine whether finish ring is enabled for the current agent
         let ringEnabled = false;
         try {
@@ -191,19 +219,15 @@ function ExecutionTurnDetails({ msg, context, bubbleRef }) {
         } catch(_) {}
 
         const stagePayload = { turnId: (msg.turnId || msg.TurnId || msg.id || msg.Id), ringEnabled };
-        if (isRunning) {
-            setStage({phase: 'executing', ...stagePayload});
-        } else if (isErrored) {
-            setStage({phase: 'error', ...stagePayload});
-        } else {
-            setStage({phase: 'done', ...stagePayload});
+        if (phaseFromTurn !== 'ready') {
+            setStage({phase: phaseFromTurn, ...stagePayload});
         }
 
         // Also update conversations form running flag to drive data-driven abort visibility
         try {
             const convCtx = context?.Context?.('conversations');
             if (convCtx?.handlers?.dataSource?.setFormField) {
-                const value = isRunning ? true : (isDoneOk || isErrored) ? false : undefined;
+                const value = isRunning ? true : isTerminal ? false : undefined;
                 if (value !== undefined) {
                     convCtx.handlers.dataSource.setFormField({ item: { id: 'running' }, value });
                     

@@ -409,6 +409,13 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
 	}
 	defer func() {
+		if r := recover(); r != nil {
+			_ = modelcallctx.CloseIfOpen(ctx, modelcallctx.Info{
+				CompletedAt: time.Now(),
+				Err:         fmt.Sprintf("panic: %v", r),
+			})
+			panic(r)
+		}
 		if retErr == nil {
 			return
 		}

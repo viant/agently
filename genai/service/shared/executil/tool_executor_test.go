@@ -173,6 +173,96 @@ func TestExecuteToolStep_RetryBehavior(t *testing.T) {
 	}
 }
 
+func TestExecuteToolStep_ForceTerminalCloseWhenCompleteWriteFails(t *testing.T) {
+	cases := []struct {
+		name           string
+		script         []scriptedResult
+		expectedStatus string
+		errContains    string
+	}{
+		{
+			name: "completed fallback",
+			script: []scriptedResult{
+				{result: `{"status":"ok"}`},
+			},
+			expectedStatus: "completed",
+		},
+		{
+			name: "canceled fallback",
+			script: []scriptedResult{
+				{err: context.Canceled},
+				{err: context.Canceled},
+			},
+			expectedStatus: "canceled",
+		},
+		{
+			name: "failed fallback carries return error",
+			script: []scriptedResult{
+				{err: fmt.Errorf("invalid request")},
+			},
+			expectedStatus: "failed",
+			errContains:    "execute tool",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			turn := memory.TurnMeta{ConversationID: "c-force", TurnID: "t-force", ParentMessageID: "p-force"}
+			ctx := memory.WithTurnMeta(context.Background(), turn)
+			step := StepInfo{
+				ID:         "call-force",
+				Name:       "flaky.tool",
+				Args:       map[string]interface{}{"foo": "bar"},
+				ResponseID: "resp-force",
+			}
+			conv := &stubConv{
+				failPatchToolCallAt: map[int]error{
+					3: fmt.Errorf("simulated terminal write failure"),
+				},
+			}
+			reg := &scriptedRegistry{script: tc.script}
+
+			_, _, err := ExecuteToolStep(ctx, reg, step, conv)
+			require.Error(t, err)
+			require.GreaterOrEqual(t, conv.patchToolCallCount, 3)
+			require.NotEmpty(t, conv.patchedToolCalls)
+
+			last := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
+			require.NotNil(t, last)
+			assert.EqualValues(t, tc.expectedStatus, strings.ToLower(strings.TrimSpace(last.Status)))
+			require.NotNil(t, last.CompletedAt)
+			if tc.errContains != "" {
+				require.NotNil(t, last.ErrorMessage)
+				assert.Contains(t, strings.ToLower(strings.TrimSpace(*last.ErrorMessage)), strings.ToLower(strings.TrimSpace(tc.errContains)))
+			}
+		})
+	}
+}
+
+func TestExecuteToolStep_ForceConversationPatchWhenFirstPatchFails(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-force-conv", TurnID: "t-force-conv", ParentMessageID: "p-force-conv"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	step := StepInfo{
+		ID:         "call-force-conv",
+		Name:       "flaky.tool",
+		Args:       map[string]interface{}{"foo": "bar"},
+		ResponseID: "resp-force-conv",
+	}
+	conv := &stubConv{
+		failPatchConversationAt: map[int]error{
+			2: fmt.Errorf("simulated conversation patch failure"),
+		},
+	}
+	reg := &scriptedRegistry{script: []scriptedResult{
+		{result: `{"status":"ok"}`},
+	}}
+
+	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
+	require.Error(t, err)
+	assert.GreaterOrEqual(t, conv.patchConversationCount, 3)
+}
+
 func TestExecuteToolStep_PersistsReadImageAsAttachment(t *testing.T) {
 	turn := memory.TurnMeta{ConversationID: "c-img", TurnID: "t-img", ParentMessageID: "p-img", Assistant: "agent-test"}
 	ctx := memory.WithTurnMeta(context.Background(), turn)
@@ -236,6 +326,14 @@ type stubConv struct {
 	patchedMessages  []*apiconv.MutableMessage
 	insertedMessages []*apiconv.MutableMessage
 	patchedPayloads  []*apiconv.MutablePayload
+	patchedToolCalls []*apiconv.MutableToolCall
+	patchedConvs     []*apiconv.MutableConversation
+
+	patchToolCallCount     int
+	patchConversationCount int
+
+	failPatchToolCallAt     map[int]error
+	failPatchConversationAt map[int]error
 }
 
 func (s *stubConv) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
@@ -246,7 +344,14 @@ func (s *stubConv) GetConversations(context.Context, *apiconv.Input) ([]*apiconv
 	return nil, nil
 }
 
-func (s *stubConv) PatchConversations(context.Context, *apiconv.MutableConversation) error {
+func (s *stubConv) PatchConversations(_ context.Context, conv *apiconv.MutableConversation) error {
+	s.patchConversationCount++
+	s.patchedConvs = append(s.patchedConvs, conv)
+	if s.failPatchConversationAt != nil {
+		if err, ok := s.failPatchConversationAt[s.patchConversationCount]; ok {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -279,7 +384,14 @@ func (s *stubConv) PatchModelCall(context.Context, *apiconv.MutableModelCall) er
 	return nil
 }
 
-func (s *stubConv) PatchToolCall(context.Context, *apiconv.MutableToolCall) error {
+func (s *stubConv) PatchToolCall(_ context.Context, call *apiconv.MutableToolCall) error {
+	s.patchToolCallCount++
+	s.patchedToolCalls = append(s.patchedToolCalls, call)
+	if s.failPatchToolCallAt != nil {
+		if err, ok := s.failPatchToolCallAt[s.patchToolCallCount]; ok {
+			return err
+		}
+	}
 	return nil
 }
 

@@ -50,6 +50,9 @@ func computeStage(c *ConversationView) string {
 	lastAssistantCanceled := false
 
 	compacting := c.Status != nil && *c.Status == "compacting"
+	if c.Status != nil && strings.EqualFold(strings.TrimSpace(*c.Status), "canceled") {
+		return StageCanceled
+	}
 
 	// Iterate turns backwards, then messages backwards within the turn
 	for ti := len(c.Transcript) - 1; ti >= 0; ti-- {
@@ -57,16 +60,16 @@ func computeStage(c *ConversationView) string {
 		if t == nil || len(t.Message) == 0 {
 			continue
 		}
-		// If entire turn was canceled, treat conversation as completed
+		// Preserve cancellation semantics for stage consumers.
 		if strings.EqualFold(strings.TrimSpace(t.Status), "canceled") {
-			return StageDone
+			return StageCanceled
 		}
 		for mi := len(t.Message) - 1; mi >= 0; mi-- {
 			m := t.Message[mi]
 			if m == nil {
 				continue
 			}
-			// If latest assistant message is canceled (even interim), drop to waiting
+			// If latest assistant message is canceled (even interim), keep canceled stage.
 			if strings.EqualFold(strings.TrimSpace(m.Role), "assistant") && m.Status != nil && strings.EqualFold(strings.TrimSpace(*m.Status), "canceled") {
 				lastAssistantCanceled = true
 				goto DONE
@@ -134,7 +137,7 @@ DONE:
 
 	switch {
 	case lastAssistantCanceled:
-		return StageDone
+		return StageCanceled
 	case lastToolRunning:
 		return StageExecuting
 	case lastAssistantElic:

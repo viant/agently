@@ -3,10 +3,13 @@ package modelcallctx
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	convmem "github.com/viant/agently/internal/service/conversation/memory"
@@ -253,4 +256,66 @@ func TestCloseIfOpen_ClosesStartedModelCall(t *testing.T) {
 			assert.EqualValues(t, tc.expectedStatus, msg.ModelCall.Status)
 		})
 	}
+}
+
+func TestOnCallEnd_PatchesConversationEvenWhenFinishModelCallFails(t *testing.T) {
+	baseClient := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	if err := baseClient.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+		t.Fatalf("failed to seed conversation: %v", err)
+	}
+
+	client := &failingPayloadClient{
+		Client:      baseClient,
+		failAtCount: 2, // first payload in OnCallStart, second in OnCallEnd
+	}
+	ctx := WithRecorderObserver(base, client)
+	ob := ObserverFromContext(ctx)
+	if ob == nil {
+		t.Fatalf("observer not injected")
+	}
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	if err != nil {
+		t.Fatalf("OnCallStart error: %v", err)
+	}
+
+	endErr := ob.OnCallEnd(ctx2, Info{
+		Model:        "test-model",
+		LLMResponse:  &llm.GenerateResponse{},
+		ResponseJSON: []byte(`{"response":{"id":"r1"}}`),
+	})
+	if endErr == nil {
+		t.Fatalf("expected OnCallEnd error")
+	}
+	assert.Contains(t, strings.ToLower(endErr.Error()), "finish model call")
+	assert.GreaterOrEqual(t, client.patchConversationCount, 2)
+	assert.EqualValues(t, "completed", strings.ToLower(strings.TrimSpace(client.lastConversationStatus)))
+}
+
+type failingPayloadClient struct {
+	apiconv.Client
+	failAtCount            int
+	callCount              int
+	patchConversationCount int
+	lastConversationStatus string
+}
+
+func (f *failingPayloadClient) PatchPayload(ctx context.Context, payload *apiconv.MutablePayload) error {
+	f.callCount++
+	if f.failAtCount > 0 && f.callCount == f.failAtCount {
+		return fmt.Errorf("simulated payload patch failure")
+	}
+	return f.Client.PatchPayload(ctx, payload)
+}
+
+func (f *failingPayloadClient) PatchConversations(ctx context.Context, conversations *apiconv.MutableConversation) error {
+	f.patchConversationCount++
+	if conversations != nil && conversations.Status != nil {
+		f.lastConversationStatus = *conversations.Status
+	}
+	return f.Client.PatchConversations(ctx, conversations)
 }

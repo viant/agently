@@ -25,10 +25,24 @@ func executeToolWithRetry(ctx context.Context, reg tool.Registry, step StepInfo)
 	var execErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
 		attemptCtx, cancel := toolExecContext(ctx)
+		parentDeadline, parentRemaining := formatContextDeadline(ctx)
+		attemptDeadline, attemptRemaining := formatContextDeadline(attemptCtx)
+		if argsTimeoutMs, ok := timeoutMsFromArgs(step.Args); ok {
+			debugConvf("tool attempt start tool=%q op_id=%q attempt=%d/%d args_timeout_ms=%d parent_deadline=%q parent_remaining=%q attempt_deadline=%q attempt_remaining=%q", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, argsTimeoutMs, parentDeadline, parentRemaining, attemptDeadline, attemptRemaining)
+		} else {
+			debugConvf("tool attempt start tool=%q op_id=%q attempt=%d/%d args_timeout_ms=none parent_deadline=%q parent_remaining=%q attempt_deadline=%q attempt_remaining=%q", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, parentDeadline, parentRemaining, attemptDeadline, attemptRemaining)
+		}
 		started := time.Now()
 		out, result, execErr = executeTool(attemptCtx, reg, step)
+		attemptCtxErr := attemptCtx.Err()
 		cancel()
 		elapsed := time.Since(started)
+		if execErr != nil {
+			cause := classifyTimeoutCause(ctx, attemptCtxErr, execErr)
+			warnConvf("tool attempt end tool=%q op_id=%q attempt=%d/%d elapsed=%s cause=%q err=%q attempt_ctx_err=%q parent_ctx_err=%q", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, elapsed.String(), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(errorString(attemptCtxErr)), strings.TrimSpace(formatContextErr(ctx)))
+		} else {
+			debugConvf("tool attempt end tool=%q op_id=%q attempt=%d/%d elapsed=%s status=ok", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, elapsed.String())
+		}
 		if execErr == nil || !shouldRetryToolCall(ctx, execErr, elapsed, attempt, attempts) {
 			break
 		}
@@ -62,4 +76,11 @@ func isContextCancellationError(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "context canceled") || strings.Contains(msg, "context deadline")
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

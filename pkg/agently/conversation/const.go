@@ -5,6 +5,7 @@ const (
 	StageThinking  = "thinking"
 	StageExecuting = "executing"
 	StageEliciting = "elicitation"
+	StageCanceled  = "canceled"
 	StageDone      = "done"
 	StageError     = "error"
 )

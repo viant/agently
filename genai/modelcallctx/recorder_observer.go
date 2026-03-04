@@ -34,6 +34,8 @@ type recorderObserver struct {
 	priceProvider TokenPriceProvider
 }
 
+const finalizePersistTimeout = 15 * time.Second
+
 func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.Context, error) {
 	o.start = info
 	o.hasBeg = true
@@ -148,7 +150,8 @@ func (o *recorderObserver) markEnded(msgID string) {
 }
 
 func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, info Info) error {
-	persistCtx := context.WithoutCancel(ctx)
+	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(ctx), finalizePersistTimeout)
+	defer cancelPersist()
 	turn, _ := memory.TurnMetaFromContext(persistCtx)
 
 	// Persist assistant content (including tool_calls responses) so the UI can show it.
@@ -170,7 +173,11 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 		streamTxt = o.acc.String()
 	}
 
-	// Finish model call with response/providerResponse and stream payload
+	// Finish model call with response/providerResponse and stream payload.
+	// Conversation status is patched separately right after this call on purpose:
+	// model_call is per-call truth, conversation.status is aggregate/UI truth.
+	// We attempt both writes even when one fails so terminal state does not get
+	// lost at conversation level due to partial persistence errors.
 	status := "completed"
 	// Treat context cancellation and deadlines as terminated.
 	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -184,16 +191,20 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 		}
 	}
 
+	errs := make([]error, 0, 2)
 	if err := o.finishModelCall(persistCtx, msgID, status, info, streamTxt); err != nil {
-		return err
+		errs = append(errs, fmt.Errorf("finish model call: %w", err))
 	}
 	if strings.TrimSpace(turn.ConversationID) != "" {
 		if err := o.client.PatchConversations(persistCtx, convw.NewConversationStatus(turn.ConversationID, status)); err != nil {
-			return fmt.Errorf("failed to update conversation: %w", err)
+			errs = append(errs, fmt.Errorf("failed to update conversation: %w", err))
 		}
 	}
 	if err := o.persistOpenAIGeneratedFiles(persistCtx, msgID, turn, info); err != nil {
 		warnf("persistOpenAIGeneratedFiles failed message=%q err=%v", strings.TrimSpace(msgID), err)
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 	o.markEnded(msgID)
 	return nil

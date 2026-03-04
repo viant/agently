@@ -42,4 +42,15 @@ func TestComputeStage_ElicitationStatus(t *testing.T) {
 		c.OnRelation(nil)
 		assert.EqualValues(t, StageDone, c.Stage)
 	})
+
+	t.Run("canceled turn -> canceled", func(t *testing.T) {
+		turnStatus := "canceled"
+		c := &ConversationView{Transcript: []*TranscriptView{{
+			CreatedAt: now,
+			Status:    turnStatus,
+			Message:   []*MessageView{mkMsg("canceled")},
+		}}}
+		c.OnRelation(nil)
+		assert.EqualValues(t, StageCanceled, c.Stage)
+	})
 }
