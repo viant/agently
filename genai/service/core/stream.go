@@ -34,6 +34,11 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	if err != nil {
 		return nop, err
 	}
+	// StreamOutput is an accumulator for this invocation only. Reject reused
+	// outputs to keep retry behavior deterministic and avoid mixing old events.
+	if len(output.Events) > 0 {
+		return nop, fmt.Errorf("stream output must be empty at start")
+	}
 	handler, cleanup, err := stream.PrepareStreamHandler(ctx, input.StreamID)
 	if err != nil {
 		return nop, err
@@ -92,60 +97,65 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 
 	// Retry starting stream up to 3 attempts. Consult provider-specific
 	// BackoffAdvisor (e.g., Bedrock ThrottlingException -> 30s) when available.
+	// For retry-safe transient failures while consuming events (before meaningful
+	// output), restart the stream using the same retry budget.
+	const maxStreamAttempts = 3
 	var streamCh <-chan llm.StreamEvent
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < maxStreamAttempts; attempt++ {
 		llmRequest := req
 		if continuationRequest != nil {
 			llmRequest = continuationRequest
 		}
-		streamCh, err = streamer.Stream(ctx, llmRequest)
-		if err == nil {
-			break
-		}
 
-		if isContextLimitError(err) {
-			if continuationRequest != nil {
-				retErr = ContinuationContextLimitError{Err: err}
+		// Phase 1: establish provider stream for this attempt.
+		streamCh, err = streamer.Stream(ctx, llmRequest)
+		if err != nil {
+			if isContextLimitError(err) {
+				if continuationRequest != nil {
+					retErr = ContinuationContextLimitError{Err: err}
+					return cleanup, retErr
+				}
+				retErr = fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
 				return cleanup, retErr
 			}
-			retErr = fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
-			return cleanup, retErr
-		}
-		if advisor, ok := model.(llm.BackoffAdvisor); ok {
-			if delay, retry := advisor.AdviseBackoff(err, attempt); retry {
-				if attempt == 2 || ctx.Err() != nil {
-					retErr = fmt.Errorf("failed to start Stream: %w", err)
-					return cleanup, retErr
-				}
-				// Set model_call status to retrying before waiting
-				s.setModelCallStatus(ctx, "retrying")
-				select {
-				case <-time.After(delay):
-				case <-ctx.Done():
-					retErr = fmt.Errorf("failed to start Stream: %w", err)
-					return cleanup, retErr
-				}
-				continue
+			delay, retry := modelRetryDelay(model, err, attempt)
+			if !retry || attempt == maxStreamAttempts-1 || ctx.Err() != nil {
+				retErr = fmt.Errorf("failed to start Stream: %w", err)
+				return cleanup, retErr
 			}
+			// Set model_call status to retrying before waiting
+			s.setModelCallStatus(ctx, "retrying")
+			if !waitRetryDelay(ctx, delay) {
+				retErr = fmt.Errorf("failed to start Stream: %w", err)
+				return cleanup, retErr
+			}
+			continue
 		}
-		if !isTransientNetworkError(err) || attempt == 2 || ctx.Err() != nil {
-			retErr = fmt.Errorf("failed to start Stream: %w", err)
+
+		// Phase 2: consume events from this stream attempt.
+		consumeErr := s.consumeEvents(ctx, streamCh, handler, output)
+		if consumeErr == nil {
+			break
+		}
+		if attempt == maxStreamAttempts-1 || ctx.Err() != nil || !canRetryStreamConsume(consumeErr, output) {
+			retErr = consumeErr
 			return cleanup, retErr
 		}
-		// Backoff: 1s, 2s, 4s
-		delay := time.Second << attempt
-		// Set model_call status to retrying before waiting
+		delay, retry := modelRetryDelay(model, consumeErr, attempt)
+		if !retry {
+			retErr = consumeErr
+			return cleanup, retErr
+		}
+		// Safe-retry consume failures can only carry empty/error-only attempt
+		// output, so clear accumulated events before starting the next stream.
+		if len(output.Events) > 0 {
+			output.Events = output.Events[:0]
+		}
 		s.setModelCallStatus(ctx, "retrying")
-		select {
-		case <-time.After(delay):
-		case <-ctx.Done():
-			retErr = fmt.Errorf("failed to start Stream: %w", err)
+		if !waitRetryDelay(ctx, delay) {
+			retErr = consumeErr
 			return cleanup, retErr
 		}
-	}
-	if err := s.consumeEvents(ctx, streamCh, handler, output); err != nil {
-		retErr = err
-		return cleanup, retErr
 	}
 
 	var b strings.Builder
@@ -287,4 +297,43 @@ func (s *Service) toolCallEvents(responseID string, choice *llm.Choice) []stream
 		out = append(out, stream.Event{ID: tc.ID, Type: "function_call", Name: name, Arguments: args, ResponseID: strings.TrimSpace(responseID)})
 	}
 	return out
+}
+
+func waitRetryDelay(ctx context.Context, delay time.Duration) bool {
+	select {
+	case <-time.After(delay):
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func modelRetryDelay(model llm.Model, err error, attempt int) (time.Duration, bool) {
+	if advisor, ok := model.(llm.BackoffAdvisor); ok {
+		if delay, retry := advisor.AdviseBackoff(err, attempt); retry {
+			return delay, true
+		}
+	}
+	if isTransientNetworkError(err) {
+		// Backoff: 1s, 2s, 4s
+		return time.Second << attempt, true
+	}
+	return 0, false
+}
+
+// canRetryStreamConsume returns true when a consume-time failure can be retried
+// by restarting the stream without risking duplicate meaningful output.
+func canRetryStreamConsume(err error, output *StreamOutput) bool {
+	if isContextLimitError(err) || output == nil {
+		return false
+	}
+	if len(output.Events) == 0 {
+		return true
+	}
+	for _, ev := range output.Events {
+		if strings.TrimSpace(ev.Type) != "" && ev.Type != "error" {
+			return false
+		}
+	}
+	return true
 }
