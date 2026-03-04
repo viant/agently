@@ -15,6 +15,31 @@ import {
 } from "forge/core";
 
 // no extra util needed
+const ACTIVE_STEP_STATUSES = new Set(['running', 'thinking', 'streaming', 'retrying', 'pending', 'queued']);
+
+function parseSafeDate(value) {
+    if (!value) return null;
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function formatElapsedSeconds(totalSec) {
+    const safe = Math.max(0, Number(totalSec) || 0);
+    return `${safe.toFixed(2)}s`;
+}
+
+function computeLiveElapsed(statusText, startedAt, endedAt, nowMs = Date.now()) {
+    const started = parseSafeDate(startedAt);
+    if (!started) return '';
+    const status = String(statusText || '').toLowerCase().trim();
+    const isActive = ACTIVE_STEP_STATUSES.has(status);
+    if (isActive) {
+        return formatElapsedSeconds(Math.max(0, (nowMs - started.getTime()) / 1000));
+    }
+    const ended = parseSafeDate(endedAt);
+    if (!ended) return '';
+    return formatElapsedSeconds(Math.max(0, (ended.getTime() - started.getTime()) / 1000));
+}
 
 // Column template; dynamic handlers injected later
 const COLUMNS_BASE = [
@@ -197,7 +222,7 @@ function buildExecutionContext(parentContext, dataSourceId, openDialog, viewPart
     };
 }
 
-function flattenExecutions(executions = []) {
+function flattenExecutions(executions = [], nowMs = Date.now()) {
     if (!executions) return [];
     const allowed = new Set([ 'thinking', 'tool_call', 'elicitation', 'link', 'error' ]);
     const rows = executions.flatMap(exe => (exe.steps || [])
@@ -245,7 +270,7 @@ function flattenExecutions(executions = []) {
                 : reason === 'link' ? 'Thread'
                 : reason === 'error' ? (s.error || 'Error')
                 : (s.name || reason);
-            const elapsedDisplay = reason === 'link' ? '🔗' : s.elapsed;
+            const elapsed = computeLiveElapsed(statusText, s.startedAt, s.endedAt, nowMs) || s.elapsed || '';
             // Derive human content when available (elicitation prompt, error message, etc.)
             let content = '';
             try {
@@ -267,7 +292,7 @@ function flattenExecutions(executions = []) {
                 content,
                 chain: (reason === 'link') ? 'Open' : (isReuseChain ? 'Reuse' : ''),
                 status: statusText,
-                elapsed: s.elapsed,
+                elapsed,
                 requestPayloadId: s.requestPayloadId,
                 responsePayloadId: s.responsePayloadId,
                 streamPayloadId: s.streamPayloadId,
@@ -311,9 +336,18 @@ function ExecutionDetails({ executions = [], context, messageId, conversationId,
     const [dlgSize, setDlgSize] = React.useState({ width: 960, height: 640 });
     const [dlgPos, setDlgPos] = React.useState({ left: 120, top: 80 });
     const [payloadPos, setPayloadPos] = React.useState({ left: 160, top: 120 });
+    const [elapsedTick, setElapsedTick] = React.useState(0);
     const winId = context?.identity?.windowId || context?.handlers?.window?.windowId || context?.handlers?.window?.id || '';
     const dataSourceId = `ds-${conversationId || ''}-${messageId ?? ""}-${winId}`;
-    const rows = useMemo(() => flattenExecutions(executions), [executions]);
+    React.useEffect(() => {
+        const hasActive = (Array.isArray(executions) ? executions : []).some((exe) =>
+            Array.isArray(exe?.steps) && exe.steps.some((s) => ACTIVE_STEP_STATUSES.has(String(s?.statusText || '').toLowerCase().trim()))
+        );
+        if (!hasActive) return;
+        const timer = setInterval(() => setElapsedTick((v) => v + 1), 1000);
+        return () => clearInterval(timer);
+    }, [executions]);
+    const rows = useMemo(() => flattenExecutions(executions, Date.now()), [executions, elapsedTick]);
     // removed table debug log
     // Derive a single turn-level error message (if any) to render as a table footer.
     const errorFooter = React.useMemo(() => {

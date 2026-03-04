@@ -240,29 +240,6 @@ func TestExecuteToolStep_ForceTerminalCloseWhenCompleteWriteFails(t *testing.T) 
 	}
 }
 
-func TestExecuteToolStep_ForceConversationPatchWhenFirstPatchFails(t *testing.T) {
-	turn := memory.TurnMeta{ConversationID: "c-force-conv", TurnID: "t-force-conv", ParentMessageID: "p-force-conv"}
-	ctx := memory.WithTurnMeta(context.Background(), turn)
-	step := StepInfo{
-		ID:         "call-force-conv",
-		Name:       "flaky.tool",
-		Args:       map[string]interface{}{"foo": "bar"},
-		ResponseID: "resp-force-conv",
-	}
-	conv := &stubConv{
-		failPatchConversationAt: map[int]error{
-			2: fmt.Errorf("simulated conversation patch failure"),
-		},
-	}
-	reg := &scriptedRegistry{script: []scriptedResult{
-		{result: `{"status":"ok"}`},
-	}}
-
-	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
-	require.Error(t, err)
-	assert.GreaterOrEqual(t, conv.patchConversationCount, 3)
-}
-
 func TestExecuteToolStep_PersistsReadImageAsAttachment(t *testing.T) {
 	turn := memory.TurnMeta{ConversationID: "c-img", TurnID: "t-img", ParentMessageID: "p-img", Assistant: "agent-test"}
 	ctx := memory.WithTurnMeta(context.Background(), turn)

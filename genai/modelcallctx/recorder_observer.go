@@ -15,7 +15,6 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	agconv "github.com/viant/agently/pkg/agently/conversation"
-	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 // recorderObserver writes model-call data directly using conversation client.
@@ -174,10 +173,8 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 	}
 
 	// Finish model call with response/providerResponse and stream payload.
-	// Conversation status is patched separately right after this call on purpose:
-	// model_call is per-call truth, conversation.status is aggregate/UI truth.
-	// We attempt both writes even when one fails so terminal state does not get
-	// lost at conversation level due to partial persistence errors.
+	// Conversation terminal status is owned by turn finalization, not per-call
+	// model lifecycle events.
 	status := "completed"
 	// Treat context cancellation and deadlines as terminated.
 	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -191,14 +188,9 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 		}
 	}
 
-	errs := make([]error, 0, 2)
+	errs := make([]error, 0, 1)
 	if err := o.finishModelCall(persistCtx, msgID, status, info, streamTxt); err != nil {
 		errs = append(errs, fmt.Errorf("finish model call: %w", err))
-	}
-	if strings.TrimSpace(turn.ConversationID) != "" {
-		if err := o.client.PatchConversations(persistCtx, convw.NewConversationStatus(turn.ConversationID, status)); err != nil {
-			errs = append(errs, fmt.Errorf("failed to update conversation: %w", err))
-		}
 	}
 	if err := o.persistOpenAIGeneratedFiles(persistCtx, msgID, turn, info); err != nil {
 		warnf("persistOpenAIGeneratedFiles failed message=%q err=%v", strings.TrimSpace(msgID), err)
@@ -573,10 +565,6 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 			return err
 		}
 		mc.SetProviderRequestPayloadID(prID)
-	}
-	if err := o.client.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "thinking")); err != nil {
-		errorf("beginModelCall patch conversation status error convo=%q err=%v", strings.TrimSpace(turn.ConversationID), err)
-		return fmt.Errorf("failed to update conversation: %w", err)
 	}
 	// Do not link stream payload at start to avoid FK violation.
 	// Stream payload link will be set after the payload is created (OnStreamDelta/OnCallEnd).

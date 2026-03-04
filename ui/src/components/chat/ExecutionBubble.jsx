@@ -139,8 +139,12 @@ function ExecutionTurnDetails({ msg, context, bubbleRef }) {
         })();
 
         if (isDone) {
-            const candidates = [providedSec, datedSec, maxElapsedRef.current].filter((v) => typeof v === 'number' && isFinite(v));
-            const finalSec = candidates.length ? Math.max(...candidates) : 0;
+            // Prefer upstream-computed elapsed (derived from execution steps) when available.
+            // Fall back to date span only when no computed elapsed is provided.
+            const base = (typeof providedSec === 'number' && isFinite(providedSec))
+                ? providedSec
+                : ((typeof datedSec === 'number' && isFinite(datedSec)) ? datedSec : 0);
+            const finalSec = Math.max(maxElapsedRef.current, base);
             maxElapsedRef.current = finalSec;
             setTick(finalSec);
             setElapsed(formatElapsed(finalSec));

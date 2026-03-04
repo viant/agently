@@ -258,7 +258,7 @@ func TestCloseIfOpen_ClosesStartedModelCall(t *testing.T) {
 	}
 }
 
-func TestOnCallEnd_PatchesConversationEvenWhenFinishModelCallFails(t *testing.T) {
+func TestOnCallEnd_DoesNotPatchConversationWhenFinishModelCallFails(t *testing.T) {
 	baseClient := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
 	if err := baseClient.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
@@ -292,8 +292,7 @@ func TestOnCallEnd_PatchesConversationEvenWhenFinishModelCallFails(t *testing.T)
 		t.Fatalf("expected OnCallEnd error")
 	}
 	assert.Contains(t, strings.ToLower(endErr.Error()), "finish model call")
-	assert.GreaterOrEqual(t, client.patchConversationCount, 2)
-	assert.EqualValues(t, "completed", strings.ToLower(strings.TrimSpace(client.lastConversationStatus)))
+	assert.EqualValues(t, 0, client.patchConversationCount)
 }
 
 type failingPayloadClient struct {
@@ -301,7 +300,6 @@ type failingPayloadClient struct {
 	failAtCount            int
 	callCount              int
 	patchConversationCount int
-	lastConversationStatus string
 }
 
 func (f *failingPayloadClient) PatchPayload(ctx context.Context, payload *apiconv.MutablePayload) error {
@@ -314,8 +312,5 @@ func (f *failingPayloadClient) PatchPayload(ctx context.Context, payload *apicon
 
 func (f *failingPayloadClient) PatchConversations(ctx context.Context, conversations *apiconv.MutableConversation) error {
 	f.patchConversationCount++
-	if conversations != nil && conversations.Status != nil {
-		f.lastConversationStatus = *conversations.Status
-	}
 	return f.Client.PatchConversations(ctx, conversations)
 }

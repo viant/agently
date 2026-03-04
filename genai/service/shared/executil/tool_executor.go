@@ -12,7 +12,6 @@ import (
 	plan "github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	"github.com/viant/agently/genai/tool"
-	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 const (
@@ -54,13 +53,9 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	toolMsgID := ""
 	toolCallStarted := false
 	toolCallClosed := false
-	conversationPatched := false
 	forcedStatus := ""
 	// Ensure started tool calls never remain non-terminal on abort/early exits.
-	// We also patch conversation status independently because it is the aggregate
-	// status shown in UI/history and can drift if only tool_call is closed.
-	// Running both writes (tool_call + conversation) keeps local call truth and
-	// top-level conversation truth aligned as much as possible.
+	// Conversation terminal status is owned by turn finalization.
 	defer func() {
 		if !toolCallStarted || strings.TrimSpace(toolMsgID) == "" {
 			return
@@ -88,9 +83,6 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		warnConvf("tool force close convo=%q turn=%q op_id=%q tool=%q status=%q ret_err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), strings.TrimSpace(errMsg), strings.TrimSpace(formatContextErr(ctx)))
 		if !toolCallClosed {
 			_ = completeToolCall(finCtx, conv, toolMsgID, status, time.Now(), "", errMsg)
-		}
-		if !conversationPatched {
-			_ = conv.PatchConversations(finCtx, convw.NewConversationStatus(turn.ConversationID, status))
 		}
 	}()
 
@@ -178,10 +170,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	//	errs = append(errs, fmt.Errorf("update tool message: %w", uErr))
 	//}
 
-	// 7) Finish tool call and conversation status together.
-	// They are intentionally separate writes: one can fail while the other succeeds.
-	// We still attempt both so terminal state is propagated to conversation-level
-	// status even if tool_call persistence has partial failures (and vice versa).
+	// 7) Finish tool call. Conversation terminal status is finalized at turn level.
 	status, errMsg := resolveToolStatus(execErr, ctx)
 	forcedStatus = status
 	// Use detached + bounded context for terminal writes.
@@ -191,12 +180,6 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		errs = append(errs, fmt.Errorf("complete tool call: %w", cErr))
 	} else {
 		toolCallClosed = true
-	}
-	patchErr := conv.PatchConversations(finCtx, convw.NewConversationStatus(turn.ConversationID, status))
-	if patchErr != nil {
-		errs = append(errs, fmt.Errorf("patch conversations call: %w", patchErr))
-	} else {
-		conversationPatched = true
 	}
 
 	if len(errs) > 0 {
@@ -258,7 +241,6 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 	if cErr := completeToolCall(finCtx, conv, toolMsgID, status, completedAt, respID, ""); cErr != nil {
 		return fmt.Errorf("complete tool call: %w", cErr)
 	}
-	_ = conv.PatchConversations(finCtx, convw.NewConversationStatus(turn.ConversationID, status))
 	debugConvf("tool synth done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
 	return nil
 }

@@ -703,7 +703,21 @@ func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
 	rec.SetStatus("running")
 	rec.SetCreatedAt(time.Now()) // it overrides queued turns createdAt, don't delete this line
 	debugf("agent.startTurn convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
-	return s.conversation.PatchTurn(ctx, rec)
+	turnErr := s.conversation.PatchTurn(ctx, rec)
+	convErr := s.conversation.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running"))
+	if turnErr == nil && convErr == nil {
+		return nil
+	}
+	if turnErr != nil && convErr != nil {
+		return errors.Join(
+			fmt.Errorf("failed to create turn: %w", turnErr),
+			fmt.Errorf("failed to update conversation status: %w", convErr),
+		)
+	}
+	if turnErr != nil {
+		return fmt.Errorf("failed to create turn: %w", turnErr)
+	}
+	return fmt.Errorf("failed to update conversation status: %w", convErr)
 }
 
 func (s *Service) addUserMessage(ctx context.Context, turn *memory.TurnMeta, userID, content, raw string) error {
