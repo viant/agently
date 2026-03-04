@@ -487,7 +487,8 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	// consult provider-specific backoff advisor when available (e.g., Bedrock
 	// ThrottlingException -> 30s wait) before the next attempt.
 	var response *llm.GenerateResponse
-	for attempt := 0; attempt < 3; attempt++ {
+	const maxGenerateAttempts = 3
+	for attempt := 0; attempt < maxGenerateAttempts; attempt++ {
 		response, err = model.Generate(ctx, request)
 		if err == nil {
 			break
@@ -496,32 +497,14 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		if isContextLimitError(err) {
 			return fmt.Errorf("%w: %v", ErrContextLimitExceeded, err)
 		}
-		// Provider-specific backoff advice (optional)
-		if advisor, ok := model.(llm.BackoffAdvisor); ok {
-			if delay, retry := advisor.AdviseBackoff(err, attempt); retry {
-				if attempt == 2 || ctx.Err() != nil {
-					return fmt.Errorf("failed to generate content: %w", err)
-				}
-				// Set model_call status to retrying before waiting
-				s.setModelCallStatus(ctx, "retrying")
-				select {
-				case <-time.After(delay):
-				case <-ctx.Done():
-					return fmt.Errorf("failed to generate content: %w", err)
-				}
-				continue
-			}
-		}
-		if !isTransientNetworkError(err) || attempt == 2 || ctx.Err() != nil {
+
+		delay, retry := modelRetryDelay(model, err, attempt)
+		if !retry || attempt == maxGenerateAttempts-1 || ctx.Err() != nil {
 			return fmt.Errorf("failed to generate content: %w", err)
 		}
-		// 1s, 2s, 4s backoff
-		delay := time.Second << attempt
 		// Set model_call status to retrying before waiting
 		s.setModelCallStatus(ctx, "retrying")
-		select {
-		case <-time.After(delay):
-		case <-ctx.Done():
+		if !waitRetryDelay(ctx, delay) {
 			return fmt.Errorf("failed to generate content: %w", err)
 		}
 	}
@@ -681,8 +664,11 @@ func isTransientNetworkError(err error) bool {
 		strings.Contains(msg, "temporary network error"),
 		strings.Contains(msg, "server closed idle connection"):
 		return true
-	// Treat common HTTP 5xx gateway/availability errors as transient
-	case strings.Contains(msg, "status 502"),
+	// Treat common HTTP 5xx provider availability errors as transient
+	case strings.Contains(msg, "status 500"),
+		strings.Contains(msg, "internal server error"),
+		strings.Contains(msg, "type=server_error"),
+		strings.Contains(msg, "status 502"),
 		strings.Contains(msg, "502 bad gateway"),
 		strings.Contains(msg, "bad gateway"),
 		strings.Contains(msg, "status 503"),
