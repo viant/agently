@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/viant/afs"
@@ -82,6 +83,9 @@ type Registry struct {
 	discoveryWarnEvery time.Duration
 	discoveryTimeout   time.Duration
 	discoveryStrictTTL time.Duration
+
+	// jsonRPCRequestSeq provides unique JSON-RPC request ids for local MCP calls.
+	jsonRPCRequestSeq uint64
 }
 
 type toolCacheEntry struct {
@@ -666,6 +670,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			fmt.Fprintf(os.Stderr, "[mcp-auth] server=%s useID=%v src=none\n", strings.TrimSpace(server), useID)
 		}
 	}
+	options = append(options, mcpclient.WithJsonRpcRequestId(r.nextJSONRPCRequestID()))
 	// Acquire appropriate client: internal or per-conversation via manager.
 	var cli mcpclient.Interface
 	var err error
@@ -781,6 +786,13 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return out, nil
 	}
 	return "", nil
+}
+
+func (r *Registry) nextJSONRPCRequestID() int {
+	if r == nil {
+		return int(time.Now().UnixNano())
+	}
+	return int(atomic.AddUint64(&r.jsonRPCRequestSeq, 1))
 }
 
 func debugPrintMCPAuthToken(server string, useID bool, token string, ctx context.Context) {

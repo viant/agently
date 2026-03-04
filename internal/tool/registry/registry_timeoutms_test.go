@@ -3,12 +3,14 @@ package tool
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/internal/mcp/manager"
+	"github.com/viant/jsonrpc"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -278,6 +280,68 @@ func TestDefinitions_SkipsTimeoutMsForInternalTools(t *testing.T) {
 	require.False(t, hasTimeoutMs, "timeoutMs should not be injected for internal tools")
 	_, hasCommand := props["command"]
 	require.True(t, hasCommand, "expected original properties to remain")
+}
+
+func TestExecute_AssignsUniqueJSONRPCRequestID(t *testing.T) {
+	client := &requestIDCapturingClient{toolListClient: &toolListClient{}}
+	reg := &Registry{
+		internal:       map[string]mcpclient.Interface{"db": client},
+		cache:          map[string]*toolCacheEntry{},
+		virtualTimeout: map[string]timeoutSupport{},
+		recentResults:  map[string]map[string]recentItem{},
+	}
+	const calls = 12
+	var wg sync.WaitGroup
+	errCh := make(chan error, calls)
+	for i := 0; i < calls; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := reg.Execute(context.Background(), "db/ping", map[string]interface{}{"seq": i})
+			if err != nil {
+				errCh <- err
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+	ids := client.requestIDs()
+	require.Len(t, ids, calls)
+	seen := map[int]bool{}
+	for _, id := range ids {
+		require.NotZero(t, id)
+		require.False(t, seen[id], "duplicate request id detected: %d", id)
+		seen[id] = true
+	}
+}
+
+type requestIDCapturingClient struct {
+	*toolListClient
+	mu  sync.Mutex
+	ids []int
+}
+
+func (c *requestIDCapturingClient) CallTool(ctx context.Context, params *mcpschema.CallToolRequestParams, options ...mcpclient.RequestOption) (*mcpschema.CallToolResult, error) {
+	ro := mcpclient.NewRequestOptions(options)
+	if ro != nil {
+		if id, ok := jsonrpc.AsRequestIntId(ro.RequestId); ok {
+			c.mu.Lock()
+			c.ids = append(c.ids, id)
+			c.mu.Unlock()
+		}
+	}
+	return &mcpschema.CallToolResult{}, nil
+}
+
+func (c *requestIDCapturingClient) requestIDs() []int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ret := make([]int, len(c.ids))
+	copy(ret, c.ids)
+	return ret
 }
 
 type toolListClient struct {
