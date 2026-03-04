@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently/client/conversation"
 	"github.com/viant/agently/genai/memory"
-	convw "github.com/viant/agently/pkg/agently/conversation/write"
 )
 
 // createToolMessage persists a new tool message and returns its ID.
@@ -60,9 +59,6 @@ func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID stri
 		return fmt.Errorf("persist tool call start: %w", err)
 	}
 
-	if err := conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running")); err != nil {
-		return fmt.Errorf("failed to update conversation: %w", err)
-	}
 	return nil
 }
 

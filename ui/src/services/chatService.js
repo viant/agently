@@ -1146,6 +1146,58 @@ function computeElapsed(step) {
     return elapsed;
 }
 
+function parseValidDate(value) {
+    if (!value) return null;
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return null;
+    return d;
+}
+
+// Build execution timeline from step timestamps.
+// Primary policy for execution header:
+// elapsed = max(step.end) - min(step.start), with fallback when timestamps are missing.
+function computeStepTimeline(steps = []) {
+    const includeReasons = new Set(['thinking', 'tool_call', 'elicitation', 'link', 'error']);
+    let minStart = null;
+    let maxEnd = null;
+    let activeMs = 0;
+    let starts = 0;
+    let ends = 0;
+
+    for (const s of (Array.isArray(steps) ? steps : [])) {
+        const reason = String(s?.reason || '').toLowerCase().trim();
+        if (!includeReasons.has(reason)) continue;
+
+        const started = parseValidDate(s?.startedAt);
+        const ended = parseValidDate(s?.endedAt);
+        if (started) {
+            starts++;
+            if (!minStart || started < minStart) minStart = started;
+        }
+        if (ended) {
+            ends++;
+            if (!maxEnd || ended > maxEnd) maxEnd = ended;
+        }
+        if (started && ended && ended >= started) {
+            activeMs += (ended - started);
+        }
+    }
+
+    if (!minStart) return null;
+    // If no explicit end exists yet, keep start as lower bound; live ticker uses now-start while running.
+    if (!maxEnd) maxEnd = minStart;
+    if (maxEnd < minStart) maxEnd = minStart;
+
+    return {
+        startedAt: minStart,
+        endedAt: maxEnd,
+        elapsedSec: Math.max(0, Math.floor((maxEnd - minStart) / 1000)),
+        activeSec: Math.max(0, Math.floor(activeMs / 1000)),
+        starts,
+        ends,
+    };
+}
+
 function normalizeGeneratedFiles(message) {
     const raw = Array.isArray(message?.generatedFiles) ? message.generatedFiles
         : Array.isArray(message?.GeneratedFiles) ? message.GeneratedFiles
@@ -1201,10 +1253,9 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
         const isLastTurn = !!globalLastTurnId && (turnId === globalLastTurnId);
         const turnStatus = String(turn?.status || turn?.Status || '').toLowerCase();
         const turnError = (turn?.errorMessage || turn?.ErrorMessage || '') + '';
-        const turnCreatedAt = toISOSafe(turn?.createdAt || turn?.CreatedAt);
-        const turnUpdatedAt = toISOSafe(turn?.updatedAt || turn?.UpdatedAt || turn?.completedAt || turn?.CompletedAt || turn?.createdAt || turn?.CreatedAt);
+        const turnCreatedAtRaw = turn?.createdAt || turn?.CreatedAt;
+        const turnUpdatedAtRaw = turn?.updatedAt || turn?.UpdatedAt || turn?.completedAt || turn?.CompletedAt || turn?.createdAt || turn?.CreatedAt;
         const turnElapsedSecRaw = (turn?.elapsedInSec ?? turn?.ElapsedInSec);
-        const turnElapsedSec = (typeof turnElapsedSecRaw === 'number' && isFinite(turnElapsedSecRaw) && turnElapsedSecRaw >= 0) ? Math.floor(turnElapsedSecRaw) : undefined;
         const messages = Array.isArray(turn?.message) ? turn.message
             : Array.isArray(turn?.Message) ? turn.Message : [];
         const turnGeneratedFiles = (() => {
@@ -1505,6 +1556,32 @@ function mapTranscriptToRowsWithExecutions(transcript = []) {
         try {
             // removed per-turn debug log
         } catch(_) {}
+
+        // Execution header time should be based on step timeline first:
+        // max(step.end) - min(step.start). Fallback to turn/message-derived values when unavailable.
+        const stepTimeline = computeStepTimeline(steps);
+        const fallbackTurnCreatedAt = toISOSafe(turnCreatedAtRaw);
+        const fallbackTurnUpdatedAt = toISOSafe(turnUpdatedAtRaw);
+        const fallbackTurnElapsedSec = (typeof turnElapsedSecRaw === 'number' && isFinite(turnElapsedSecRaw) && turnElapsedSecRaw >= 0)
+            ? Math.floor(turnElapsedSecRaw)
+            : undefined;
+        const turnCreatedAt = stepTimeline?.startedAt
+            ? toISOSafe(stepTimeline.startedAt)
+            : fallbackTurnCreatedAt;
+        const turnUpdatedAt = stepTimeline?.endedAt
+            ? toISOSafe(stepTimeline.endedAt)
+            : fallbackTurnUpdatedAt;
+        const stepActiveSec = (typeof stepTimeline?.activeSec === 'number' && isFinite(stepTimeline.activeSec))
+            ? stepTimeline.activeSec
+            : undefined;
+        const stepSpanSec = (typeof stepTimeline?.elapsedSec === 'number' && isFinite(stepTimeline.elapsedSec))
+            ? stepTimeline.elapsedSec
+            : undefined;
+        const turnElapsedSec = (typeof stepActiveSec === 'number' && stepActiveSec > 0)
+            ? stepActiveSec
+            : (typeof stepSpanSec === 'number'
+                ? stepSpanSec
+                : fallbackTurnElapsedSec);
 
         // Keep error rendering in the table footer (ExecutionDetails) rather than as a step.
 
