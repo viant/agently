@@ -34,7 +34,7 @@ func (m *Memory) Register(convID, turnID string, cancel context.CancelFunc) {
 	m.mu.Unlock()
 }
 
-func (m *Memory) Complete(convID, turnID string, cancel context.CancelFunc) {
+func (m *Memory) Complete(_ string, turnID string, cancel context.CancelFunc) {
 	if m == nil {
 		return
 	}

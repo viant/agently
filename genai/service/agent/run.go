@@ -205,10 +205,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		infof("agent.Query runPlan ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 	}
 
-	if err != nil && !errors.Is(err, context.Canceled) {
-		return fmt.Errorf("execution of query function failed (context canceled): %w", err)
-	}
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("execution of query function canceled: %w", err)
+		}
 		return fmt.Errorf("execution of query function failed: %w", err)
 	}
 	if err := s.finalizeTurn(ctx, turn, status, err); err != nil {
@@ -676,7 +676,8 @@ func (s *Service) buildTurnMeta(input *QueryInput) memory.TurnMeta {
 // registerTurnCancel returns a derived context and a deferred cancel wrapper that patches status=canceled.
 func (s *Service) registerTurnCancel(ctx context.Context, turn memory.TurnMeta) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(ctx)
-	wrappedCancel := func() {
+	var wrappedCancel func()
+	wrappedCancel = func() {
 		cancel()
 		if s.conversation != nil {
 			upd := apiconv.NewTurn()
@@ -688,7 +689,9 @@ func (s *Service) registerTurnCancel(ctx context.Context, turn memory.TurnMeta) 
 	}
 	if s.cancelReg != nil {
 		s.cancelReg.Register(turn.ConversationID, turn.TurnID, wrappedCancel)
-		return ctx, func() { s.cancelReg.Complete(turn.ConversationID, turn.TurnID, wrappedCancel) }
+		return ctx, func() {
+			s.cancelReg.Complete(turn.ConversationID, turn.TurnID, wrappedCancel)
+		}
 	}
 	return ctx, wrappedCancel
 }
@@ -768,7 +771,7 @@ func (s *Service) processAttachments(ctx context.Context, turn memory.TurnMeta, 
 
 func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, output *QueryOutput) (string, error) {
 	if err := s.runPlanLoop(ctx, input, output); err != nil {
-		if errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return "canceled", err
 		}
 		return "failed", err
@@ -778,13 +781,11 @@ func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, outpu
 
 func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status string, runErr error) error {
 	var emsg string
-	if runErr != nil && !errors.Is(runErr, context.Canceled) {
+	if runErr != nil && !errors.Is(runErr, context.Canceled) && !errors.Is(runErr, context.DeadlineExceeded) {
 		emsg = runErr.Error()
 	}
-	patchCtx := ctx
-	if status == "canceled" {
-		patchCtx = context.Background()
-	}
+	patchCtx, cancelPatch := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancelPatch()
 	upd := apiconv.NewTurn()
 	upd.SetId(turn.TurnID)
 	upd.SetStatus(status)
@@ -792,19 +793,31 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 		upd.SetErrorMessage(emsg)
 	}
 
-	if err := s.conversation.PatchTurn(patchCtx, upd); runErr != nil {
-		return runErr
-	} else if err != nil {
-		return err
+	turnPatchErr := s.conversation.PatchTurn(patchCtx, upd)
+	if turnPatchErr != nil {
+		errorf("agent.finalizeTurn patch turn failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), turnPatchErr)
 	}
-	if err := s.conversation.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status)); err != nil {
-		return fmt.Errorf("failed to update conversation: %w", err)
+	conversationPatchErr := s.conversation.PatchConversations(patchCtx, convw.NewConversationStatus(turn.ConversationID, status))
+	if conversationPatchErr != nil {
+		errorf("agent.finalizeTurn patch conversation failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), conversationPatchErr)
 	}
+
+	errs := make([]error, 0, 3)
 	if runErr != nil {
 		errorf("agent.finalizeTurn convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), runErr)
-	} else {
-		infof("agent.finalizeTurn convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
+		errs = append(errs, runErr)
 	}
+	if turnPatchErr != nil {
+		errs = append(errs, fmt.Errorf("failed to update turn: %w", turnPatchErr))
+	}
+	if conversationPatchErr != nil {
+		errs = append(errs, fmt.Errorf("failed to update conversation: %w", conversationPatchErr))
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	infof("agent.finalizeTurn convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 	return nil
 }
 

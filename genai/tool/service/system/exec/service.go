@@ -112,8 +112,19 @@ func (s *Service) Execute(ctx context.Context, input *Input, output *Output) err
 	output.Stdout = strings.TrimSpace(combinedStdout.String())
 	output.Stderr = strings.TrimSpace(combinedStderr.String())
 	output.Status = lastExitCode
+	if lastErrorCode != 0 {
+		output.Status = lastErrorCode
+	}
 	if lastErrorCode != 0 && output.Stderr == "" {
 		output.Stderr = fmt.Sprintf("command %s exited with non-zero exit code", errorCodeCmd)
+	}
+	// Parent cancellation/deadline should win over command-level error mapping,
+	// so the caller can classify terminal state as canceled.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if lastErrorCode != 0 {
+		return fmt.Errorf("%s", output.Stderr)
 	}
 	return nil
 }

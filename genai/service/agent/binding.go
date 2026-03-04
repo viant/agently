@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"path"
@@ -557,18 +558,40 @@ func firstValue(payload map[string]interface{}, keys ...string) (interface{}, bo
 // when the conversation is missing or on non-transient failures.
 func (s *Service) fetchConversationWithRetry(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Conversation, error) {
 	var lastErr error
+	done := (<-chan struct{})(nil)
+	if ctx != nil {
+		done = ctx.Done()
+	}
 	for attempt := 0; attempt < 3; attempt++ {
+		if ctx != nil && ctx.Err() != nil {
+			return nil, fmt.Errorf("conversation fetch canceled: %w", ctx.Err())
+		}
 		conv, err := s.conversation.GetConversation(ctx, id, options...)
 		if err == nil {
 			if conv == nil {
+				if ctx != nil && ctx.Err() != nil {
+					return nil, fmt.Errorf("conversation fetch canceled: %w", ctx.Err())
+				}
 				lastErr = fmt.Errorf("conversation not found: %s", strings.TrimSpace(id))
+				if attempt < 2 {
+					delay := 200 * time.Millisecond << attempt
+					select {
+					case <-time.After(delay):
+						continue
+					case <-done:
+						return nil, fmt.Errorf("conversation fetch canceled: %w", ctx.Err())
+					}
+				}
 				break
 			}
 			return conv, nil
 		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("conversation fetch canceled: %w", err)
+		}
 		lastErr = err
 		// Do not keep retrying if context is done
-		if ctx.Err() != nil {
+		if ctx != nil && ctx.Err() != nil {
 			break
 		}
 		if !isTransientDBOrNetworkError(err) || attempt == 2 {
@@ -578,9 +601,12 @@ func (s *Service) fetchConversationWithRetry(ctx context.Context, id string, opt
 		delay := 200 * time.Millisecond << attempt
 		select {
 		case <-time.After(delay):
-		case <-ctx.Done():
+		case <-done:
 			return nil, fmt.Errorf("conversation fetch canceled: %w", err)
 		}
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return nil, fmt.Errorf("conversation fetch canceled: %w", ctx.Err())
 	}
 	if lastErr != nil {
 		return nil, fmt.Errorf("failed to fetch conversation: %w", lastErr)

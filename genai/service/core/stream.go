@@ -68,6 +68,13 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	}
 	var retErr error
 	defer func() {
+		if r := recover(); r != nil {
+			_ = modelcallctx.CloseIfOpen(ctx, modelcallctx.Info{
+				CompletedAt: time.Now(),
+				Err:         fmt.Sprintf("panic: %v", r),
+			})
+			panic(r)
+		}
 		if retErr == nil {
 			return
 		}

@@ -890,7 +890,9 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 	defer cancel()
 	if s.reg != nil {
 		s.reg.Register(conversationID, turnID, cancel)
-		defer s.reg.Complete(conversationID, turnID, cancel)
+		defer func() {
+			s.reg.Complete(conversationID, turnID, cancel)
+		}()
 	}
 
 	// Best-effort: attach an access token for MCP/tool auth when BFF/OAuth is configured.
@@ -1077,7 +1079,8 @@ func (s *Service) Cancel(conversationID string) bool {
 	if s == nil || s.reg == nil {
 		return false
 	}
-	return s.reg.CancelConversation(conversationID)
+	canceled := s.reg.CancelConversation(conversationID)
+	return canceled
 }
 
 // CancelTurn aborts a specific user turn (keyed by messageId) if running.
@@ -1085,7 +1088,8 @@ func (s *Service) CancelTurn(turnID string) bool {
 	if s == nil || s.reg == nil {
 		return false
 	}
-	return s.reg.CancelTurn(turnID)
+	canceled := s.reg.CancelTurn(turnID)
+	return canceled
 }
 
 // CancelQueuedTurn cancels a queued (not yet running) turn and marks its

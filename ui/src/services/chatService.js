@@ -581,7 +581,13 @@ async function dsTick({context}) {
                 json = await resp.json();
             }
             const conv = json && (json.data ?? json.Data ?? json.conversation ?? json.Conversation ?? json);
-            const convStage = conv?.stage || conv?.Stage;
+            const convStatus = String(conv?.status || conv?.Status || '').toLowerCase().trim();
+            let convStage = conv?.stage || conv?.Stage;
+            if (convStatus === 'canceled' || convStatus === 'cancelled') {
+                convStage = 'canceled';
+            } else if (!convStage && convStatus) {
+                convStage = convStatus;
+            }
             if (convStage) {
                 // Only update global stage for the currently selected conversation.
                 try {

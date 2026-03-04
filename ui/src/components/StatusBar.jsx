@@ -18,6 +18,8 @@ const phaseMap = {
     thinking: {icon: '🤔', label: 'Assistant thinking…'},
     executing:{icon: '⚙️', label: 'Executing…'},
     elicitation:{icon: '✍️', label: 'Awaiting your input…'},
+    compacting:{icon: '🗜️', label: 'Compacting…'},
+    pruning:  {icon: '🧹', label: 'Pruning…'},
     done:     {icon: '✅', label: 'Done'},
     error:    {icon: '❌', label: 'Error'},
     ready:    {icon: '🟢', label: 'Ready'},
