@@ -299,15 +299,6 @@ func (r *Registry) InjectVirtualAgentTools(agents []*agent.Agent, domain string)
 	}
 }
 
-func contains(arr []string, s string) bool {
-	for _, v := range arr {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
-
 func ensureTimeoutMs(def *llm.ToolDefinition) timeoutSupport {
 	if def == nil {
 		return timeoutSupport{}
@@ -402,10 +393,7 @@ func (r *Registry) shouldInjectTimeoutMs(server string) bool {
 	r.mu.RLock()
 	_, ok := r.internal[server]
 	r.mu.RUnlock()
-	if ok {
-		return false
-	}
-	return true
+	return !ok
 }
 
 func newToolCacheEntry(def *llm.ToolDefinition, mcpDef mcpschema.Tool, inject bool) *toolCacheEntry {
@@ -452,14 +440,20 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 	r.mu.RUnlock()
 
 	// Try to aggregate current server tools; merge with cache, but never remove on failure.
-	servers, err := r.listServers(context.Background())
+	discoveryCtx, cancel := r.withDiscoveryTimeout(context.TODO())
+	defer func() {
+		if cancel != nil {
+			cancel()
+		}
+	}()
+	servers, err := r.listServers(discoveryCtx)
 	if err != nil {
 		r.warnf("tools: list servers failed: %v", err)
 		return defs
 	}
 	for _, s := range servers {
 		injectTimeoutMs := r.shouldInjectTimeoutMs(s)
-		tools, err := r.listServerTools(context.Background(), s)
+		tools, err := r.listServerTools(discoveryCtx, s)
 		if err != nil {
 			// Keep cached entries; just warn on failure.
 			r.warnf("tools: list %s failed: %v", s, err)
@@ -488,7 +482,13 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 }
 
 func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
-	return r.MatchDefinitionWithContext(context.Background(), pattern)
+	ctx, cancel := r.withDiscoveryTimeout(context.TODO())
+	defer func() {
+		if cancel != nil {
+			cancel()
+		}
+	}()
+	return r.MatchDefinitionWithContext(ctx, pattern)
 }
 
 func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
@@ -508,12 +508,21 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 		}
 	}
 	r.mu.RUnlock()
+	// When an explicit tool id already matches a virtual definition,
+	// do not probe MCP discovery for that service. This avoids spurious
+	// warnings for internal tools such as llm/agents:list where no MCP
+	// config file is expected.
+	if len(result) > 0 && isExplicitPattern(pattern) {
+		return result
+	}
 	// Discover matching server tools when pattern specifies an MCP service prefix.
 	if svc := serverFromPattern(pattern); svc != "" {
 		injectTimeoutMs := r.shouldInjectTimeoutMs(svc)
 		tools, err := r.listServerTools(ctx, svc)
 		if err != nil {
-			r.warnf("list tools failed for %s: %v", svc, err)
+			if !shouldSuppressMissingMCPConfigWarning(svc, err) {
+				r.warnf("list tools failed for %s: %v", svc, err)
+			}
 		}
 		for _, t := range tools {
 			full := svc + "/" + t.Name
@@ -544,6 +553,17 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 	return result
 }
 
+func isExplicitPattern(pattern string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return false
+	}
+	if strings.ContainsAny(pattern, "*?[]") {
+		return false
+	}
+	return strings.Contains(pattern, ":")
+}
+
 func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 	// Lightweight debug hook to trace how tool definitions are resolved.
 	r.mu.RLock()
@@ -563,7 +583,13 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 		return nil, false
 	}
 	injectTimeoutMs := r.shouldInjectTimeoutMs(svc)
-	tools, err := r.listServerTools(context.Background(), svc)
+	discoveryCtx, cancel := r.withDiscoveryTimeout(context.TODO())
+	defer func() {
+		if cancel != nil {
+			cancel()
+		}
+	}()
+	tools, err := r.listServerTools(discoveryCtx, svc)
 	if err != nil {
 		r.warnf("list tools failed for %s: %v", svc, err)
 		return nil, false
@@ -634,7 +660,10 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	convID := memory.ConversationIDFromContext(ctx)
 
 	// virtual tool?
-	if h, ok := r.virtualExec[baseName]; ok {
+	r.mu.RLock()
+	h, ok := r.virtualExec[baseName]
+	r.mu.RUnlock()
+	if ok {
 		out, err := h(ctx, callArgs)
 		if err != nil || selector == "" {
 			return out, err
@@ -1226,24 +1255,6 @@ func serverFromPattern(pattern string) string {
 	return pattern
 }
 
-// matchPattern supports '*' suffix matching for convenience.
-func matchPattern(pattern, name string) bool {
-	if pattern == name {
-		return true
-	}
-	if strings.Contains(pattern, "*") {
-		prefix := strings.TrimSuffix(pattern, "*")
-		return strings.HasPrefix(name, prefix)
-	}
-	// Service-only pattern (no colon, no wildcard): match any method under service
-	if noColon(pattern) {
-		return serverFromName(name) == pattern
-	}
-	return false
-}
-
-func noColon(s string) bool { return !strings.Contains(s, ":") }
-
 // splitToolName returns service path and method given a name like "service/path:method".
 func splitToolName(name string) (service, method string) {
 	can := mcpnames.Canonical(name)
@@ -1649,6 +1660,9 @@ func (r *Registry) warnDiscoveryListIssue(server, stage string, err error, userI
 	if err == nil {
 		return
 	}
+	if shouldSuppressMissingMCPConfigWarning(server, err) {
+		return
+	}
 	server = strings.TrimSpace(server)
 	if server == "" {
 		server = "unknown"
@@ -1656,6 +1670,18 @@ func (r *Registry) warnDiscoveryListIssue(server, stage string, err error, userI
 	kind := classifyDiscoveryError(err)
 	key := fmt.Sprintf("discovery_issue:%s:%s:%s:%s:%v", server, strings.TrimSpace(stage), kind, strings.TrimSpace(userID), useID)
 	r.warnDiscoveryf(key, "shared discovery client issue server=%q conv_id=%q stage=%s kind=%s user=%q use_id_token=%v token=%s err=%v", server, "", stage, kind, strings.TrimSpace(userID), useID, tokenFP, err)
+}
+
+func shouldSuppressMissingMCPConfigWarning(server string, err error) bool {
+	if err == nil {
+		return false
+	}
+	if strings.TrimSpace(server) != "llm/agents" {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "mcp/llm/agents.yaml") &&
+		strings.Contains(msg, "no such file or directory")
 }
 
 func classifyDiscoveryError(err error) string {
