@@ -1,7 +1,7 @@
 description: Supervisor agent
 id: supervisor
 internal: true
-modelRef: openai_gpt-5.2
+modelRef: openai_gpt-5.4
 name: Supervisor
 temperature: 0.7
 persona:

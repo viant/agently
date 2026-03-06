@@ -111,14 +111,46 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 		return nil, errors.New("mcp manager: provider not configured")
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	// Intentionally avoid `defer m.mu.Unlock()` here.
+	// This lock must be released before client creation/network setup
+	// (provider options, transport init) to prevent global manager stalls.
 	// Maintain per-conversation client to correlate elicitation correctly.
 	if m.pool[convID] == nil {
 		m.pool[convID] = map[string]*entry{}
 	}
 	if e := m.pool[convID][serverName]; e != nil && e.client != nil {
 		e.usedAt = time.Now()
-		return e.client, nil
+		client := e.client
+		m.mu.Unlock()
+		return client, nil
+	}
+	m.mu.Unlock()
+
+	client, err := m.newClient(ctx, convID, serverName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Double-check under lock: another goroutine may have inserted meanwhile.
+	m.mu.Lock()
+	if m.pool[convID] == nil {
+		m.pool[convID] = map[string]*entry{}
+	}
+	if e := m.pool[convID][serverName]; e != nil && e.client != nil {
+		e.usedAt = time.Now()
+		existing := e.client
+		m.mu.Unlock()
+		closeClientBestEffort(client)
+		return existing, nil
+	}
+	m.pool[convID][serverName] = &entry{client: client, usedAt: time.Now()}
+	m.mu.Unlock()
+	return client, nil
+}
+
+func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
+	if m.prov == nil {
+		return nil, errors.New("mcp manager: provider not configured")
 	}
 	opts, err := m.prov.Options(ctx, serverName)
 	if err != nil {
@@ -187,9 +219,25 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 		// apply option to concrete client
 		mcpclient.WithAuthInterceptor(authorizer)(cli)
 	}
-	ent := &entry{client: cli, usedAt: time.Now()}
-	m.pool[convID][serverName] = ent
 	return cli, nil
+}
+
+func closeClientBestEffort(client mcpclient.Interface) {
+	if client == nil {
+		return
+	}
+	if c, ok := client.(interface{ Close() error }); ok {
+		_ = c.Close()
+		return
+	}
+	if c, ok := client.(interface{ Close() }); ok {
+		c.Close()
+		return
+	}
+	if s, ok := client.(interface{ Shutdown(context.Context) error }); ok {
+		_ = s.Shutdown(context.Background())
+		return
+	}
 }
 
 // Touch updates last-used time for (convID, serverName).
@@ -204,42 +252,33 @@ func (m *Manager) Touch(convID, serverName string) {
 // CloseConversation drops all clients for a conversation.
 // Note: underlying transports may keep connections if the library doesn't expose Close.
 func (m *Manager) CloseConversation(convID string) {
+	var toClose []mcpclient.Interface
 	m.mu.Lock()
 	if perServer, ok := m.pool[convID]; ok {
 		for server, e := range perServer {
 			if e != nil && e.client != nil {
-				// Best-effort disconnect of client if supported.
-				if c, ok := e.client.(interface{ Close() error }); ok {
-					_ = c.Close()
-				} else if c2, ok := e.client.(interface{ Close() }); ok {
-					c2.Close()
-				} else if s, ok := e.client.(interface{ Shutdown(context.Context) error }); ok {
-					_ = s.Shutdown(context.Background())
-				}
+				toClose = append(toClose, e.client)
 			}
 			delete(perServer, server)
 		}
 		delete(m.pool, convID)
 	}
 	m.mu.Unlock()
+	for _, client := range toClose {
+		closeClientBestEffort(client)
+	}
 }
 
 // Reap closes idle clients beyond TTL by dropping references.
 func (m *Manager) Reap() {
 	cutoff := time.Now().Add(-m.ttl)
+	var toClose []mcpclient.Interface
 	m.mu.Lock()
 	for convID, perServer := range m.pool {
 		for server, e := range perServer {
 			if e == nil || e.usedAt.Before(cutoff) {
-				// Attempt to gracefully disconnect before removing.
 				if e != nil && e.client != nil {
-					if c, ok := e.client.(interface{ Close() error }); ok {
-						_ = c.Close()
-					} else if c2, ok := e.client.(interface{ Close() }); ok {
-						c2.Close()
-					} else if s, ok := e.client.(interface{ Shutdown(context.Context) error }); ok {
-						_ = s.Shutdown(context.Background())
-					}
+					toClose = append(toClose, e.client)
 				}
 				delete(perServer, server)
 			}
@@ -249,6 +288,9 @@ func (m *Manager) Reap() {
 		}
 	}
 	m.mu.Unlock()
+	for _, client := range toClose {
+		closeClientBestEffort(client)
+	}
 }
 
 // Reconnect drops the cached client for (convID, serverName) and creates a new one.
@@ -258,17 +300,11 @@ func (m *Manager) Reconnect(ctx context.Context, convID, serverName string) (mcp
 		return nil, errors.New("mcp manager: nil manager")
 	}
 	// Drop existing entry to force re-creation
+	var toClose mcpclient.Interface
 	m.mu.Lock()
 	if m.pool[convID] != nil {
 		if e := m.pool[convID][serverName]; e != nil && e.client != nil {
-			// Best-effort disconnect of current client before replacing.
-			if c, ok := e.client.(interface{ Close() error }); ok {
-				_ = c.Close()
-			} else if c2, ok := e.client.(interface{ Close() }); ok {
-				c2.Close()
-			} else if s, ok := e.client.(interface{ Shutdown(context.Context) error }); ok {
-				_ = s.Shutdown(context.Background())
-			}
+			toClose = e.client
 		}
 		delete(m.pool[convID], serverName)
 		if len(m.pool[convID]) == 0 {
@@ -276,6 +312,7 @@ func (m *Manager) Reconnect(ctx context.Context, convID, serverName string) (mcp
 		}
 	}
 	m.mu.Unlock()
+	closeClientBestEffort(toClose)
 	// Recreate
 	return m.Get(ctx, convID, serverName)
 }

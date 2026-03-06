@@ -661,6 +661,28 @@ async function dsTick({context}) {
                 const executions = Array.isArray(row?.executions) ? row.executions : [];
                 return executions.some((ex) => hasActiveSteps(ex?.steps || []));
             });
+            // If any execution step is active, prefer step-derived phase over
+            // conversation-level stage to avoid transient "Done" while a model/tool
+            // step still reports thinking/running.
+            if (anyActiveSteps) {
+                const phaseFromSteps = deriveActivePhaseFromRows(rows) || 'executing';
+                try {
+                    const activeWinId = selectedTabId?.value || '';
+                    const winId = context?.identity?.windowId || context?.handlers?.window?.windowId || context?.handlers?.window?.id || '';
+                    if (!activeWinId || !winId || String(activeWinId) === String(winId)) {
+                        const convCtx = context?.Context?.('conversations');
+                        const selectedId = convCtx?.handlers?.dataSource?.getSelection?.()?.selected?.id
+                            || convCtx?.handlers?.dataSource?.peekFormData?.()?.id
+                            || '';
+                        const convId = conv?.id || conv?.Id || convID || '';
+                        if (!selectedId || !convId || String(selectedId) === String(convId)) {
+                            setStage({phase: phaseFromSteps});
+                        }
+                    }
+                } catch (_) {
+                    setStage({phase: phaseFromSteps});
+                }
+            }
             // Optional debug: log current turn + step status histogram
             try {
                 // removed debug summary
@@ -2147,20 +2169,81 @@ function buildElicitationDialogRows(messages = [], turnIdHint = '', convIdHint =
 }
 
 // Detect if any step remains active
+function isStepActive(step) {
+    if (!step || typeof step !== 'object') return false;
+    const reason = String(step?.reason || '').toLowerCase();
+    if (!reason || reason === 'error' || reason === 'link') return false;
+
+    const stText = String(step?.statusText || step?.StatusText || '').toLowerCase().trim();
+    const stNorm = String(step?.status || step?.Status || normalizeStepStatusForForge(stText)).toLowerCase().trim();
+    if (FORGE_TERMINAL_STEP_STATUSES.has(stText) || FORGE_TERMINAL_STEP_STATUSES.has(stNorm)) {
+        return false;
+    }
+
+    const ended = parseValidDate(step?.endedAt || step?.EndedAt || step?.completedAt || step?.CompletedAt);
+    if (ended) return false;
+
+    const started = parseValidDate(step?.startedAt || step?.StartedAt);
+    const activeRaw = new Set([
+        'pending',
+        'open',
+        'queued',
+        'running',
+        'processing',
+        'thinking',
+        'streaming',
+        'retrying',
+        'in_progress',
+        'waiting',
+        'waiting_for_user',
+        'elicitation',
+    ]);
+    if (activeRaw.has(stText) || activeRaw.has(stNorm)) {
+        return true;
+    }
+    if (typeof step?.successBool === 'boolean') {
+        return !step.successBool;
+    }
+    if (typeof step?.success === 'boolean') {
+        return !step.success;
+    }
+    return !!started;
+}
+
 export function hasActiveSteps(steps) {
     try {
         const arr = Array.isArray(steps) ? steps : [];
         for (const s of arr) {
-            const reason = String(s?.reason || '').toLowerCase();
-            if (!reason || reason === 'error' || reason === 'link') continue;
-            const st = String(s?.statusText || '').toLowerCase();
-            if (st === '' || st === 'pending' || st === 'open' || st === 'running' || st === 'processing' || (typeof s.successBool === 'boolean' && s.successBool === false)) {
+            if (isStepActive(s)) {
                 return true;
             }
         }
         return false;
     } catch(_) {
         return false;
+    }
+}
+
+function deriveActivePhaseFromRows(rows) {
+    try {
+        const list = Array.isArray(rows) ? rows : [];
+        for (let i = list.length - 1; i >= 0; i--) {
+            const executions = Array.isArray(list[i]?.executions) ? list[i].executions : [];
+            for (let j = executions.length - 1; j >= 0; j--) {
+                const steps = Array.isArray(executions[j]?.steps) ? executions[j].steps : [];
+                for (let k = steps.length - 1; k >= 0; k--) {
+                    const step = steps[k];
+                    if (!isStepActive(step)) continue;
+                    const reason = String(step?.reason || '').toLowerCase().trim();
+                    if (reason === 'thinking') return 'thinking';
+                    if (reason === 'elicitation') return 'elicitation';
+                    return 'executing';
+                }
+            }
+        }
+        return '';
+    } catch(_) {
+        return '';
     }
 }
 

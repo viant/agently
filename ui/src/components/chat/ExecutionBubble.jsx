@@ -38,6 +38,82 @@ function renderMarkdown(md = "") {
     return withLinks.replace(/\n/g, "<br/>");
 }
 
+const ACTIVE_STEP_STATUSES = new Set([
+    'pending',
+    'open',
+    'queued',
+    'running',
+    'processing',
+    'thinking',
+    'streaming',
+    'retrying',
+    'in_progress',
+    'waiting',
+    'waiting_for_user',
+    'elicitation',
+]);
+
+const TERMINAL_STEP_STATUSES = new Set([
+    'completed',
+    'done',
+    'succeeded',
+    'success',
+    'failed',
+    'error',
+    'canceled',
+    'cancelled',
+    'skipped',
+    'accepted',
+    'rejected',
+    'declined',
+]);
+
+function parseValidDate(value) {
+    if (!value) return null;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function isStepActive(step) {
+    if (!step || typeof step !== 'object') return false;
+    const reason = String(step?.reason || '').toLowerCase().trim();
+    if (!reason || reason === 'error' || reason === 'link') return false;
+
+    const stText = String(step?.statusText || step?.StatusText || '').toLowerCase().trim();
+    const stNorm = String(step?.status || step?.Status || '').toLowerCase().trim();
+    if (TERMINAL_STEP_STATUSES.has(stText) || TERMINAL_STEP_STATUSES.has(stNorm)) {
+        return false;
+    }
+
+    const ended = parseValidDate(step?.endedAt || step?.EndedAt || step?.completedAt || step?.CompletedAt);
+    if (ended) return false;
+
+    if (ACTIVE_STEP_STATUSES.has(stText) || ACTIVE_STEP_STATUSES.has(stNorm)) {
+        return true;
+    }
+    if (typeof step?.successBool === 'boolean') return !step.successBool;
+    if (typeof step?.success === 'boolean') return !step.success;
+    return !!parseValidDate(step?.startedAt || step?.StartedAt);
+}
+
+function getActivePhaseFromExecutions(executions) {
+    const list = Array.isArray(executions) ? executions : [];
+    for (let i = list.length - 1; i >= 0; i--) {
+        const steps = Array.isArray(list[i]?.steps) ? list[i].steps : [];
+        for (let j = steps.length - 1; j >= 0; j--) {
+            const s = steps[j] || {};
+            if (!isStepActive(s)) {
+                continue;
+            }
+            const reason = String(s?.reason || '').toLowerCase().trim();
+            if (reason === 'thinking') return 'thinking';
+            if (reason === 'elicitation') return 'elicitation';
+            return 'executing';
+        }
+    }
+    return '';
+}
+
 function ExecutionBubble({ message: msg, context }) {
     log.debug('[chat][render] ExecutionBubble', { id: msg?.id, role: msg?.role, ts: Date.now() });
     const { execution: showExecution, toolFeed: showToolFeed } = useExecVisibility();
@@ -48,7 +124,8 @@ function ExecutionBubble({ message: msg, context }) {
 
     // Role-based icon with execution status awareness
     const turnStatus = (msg.turnStatus || '').toLowerCase();
-    const isDone = turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted';
+    const activePhase = getActivePhaseFromExecutions(msg?.executions);
+    const isDone = !activePhase && (turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted');
     const isError = turnStatus === 'failed' || turnStatus === 'error' || turnStatus === 'canceled';
     const iconName = msg.role === "execution"
         ? (isError ? 'issue' : (isDone ? 'tick-circle' : 'time'))
@@ -100,7 +177,8 @@ function ExecutionTurnDetails({ msg, context, bubbleRef }) {
     const totalCount = steps.filter(s => allowed.has(String(s?.reason || '').toLowerCase())).length;
     const countLabel = String(totalCount);
     const turnStatus = (msg.turnStatus || '').toLowerCase();
-    const isDone = turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted' || turnStatus === 'failed' || turnStatus === 'error' || turnStatus === 'canceled';
+    const activePhase = getActivePhaseFromExecutions(msg?.executions);
+    const isDone = !activePhase && (turnStatus === 'succeeded' || turnStatus === 'completed' || turnStatus === 'done' || turnStatus === 'accepted' || turnStatus === 'failed' || turnStatus === 'error' || turnStatus === 'canceled');
     const isError = turnStatus === 'failed' || turnStatus === 'error';
 
     const formatElapsed = React.useCallback((seconds) => {
@@ -201,8 +279,9 @@ function ExecutionTurnDetails({ msg, context, bubbleRef }) {
         } catch (_) {}
         // Update global stage from normalized turn status.
         const phaseFromTurn = normalizeStagePhase(turnStatus);
-        const isRunning = (phaseFromTurn === 'executing' || phaseFromTurn === 'thinking' || phaseFromTurn === 'elicitation');
-        const isTerminal = (phaseFromTurn === 'done' || phaseFromTurn === 'error' || phaseFromTurn === 'terminated');
+        const effectivePhase = activePhase || phaseFromTurn;
+        const isRunning = (effectivePhase === 'executing' || effectivePhase === 'thinking' || effectivePhase === 'elicitation');
+        const isTerminal = (effectivePhase === 'done' || effectivePhase === 'error' || effectivePhase === 'terminated');
 
         // Determine whether finish ring is enabled for the current agent
         let ringEnabled = false;
@@ -223,8 +302,8 @@ function ExecutionTurnDetails({ msg, context, bubbleRef }) {
         } catch(_) {}
 
         const stagePayload = { turnId: (msg.turnId || msg.TurnId || msg.id || msg.Id), ringEnabled };
-        if (phaseFromTurn !== 'ready') {
-            setStage({phase: phaseFromTurn, ...stagePayload});
+        if (effectivePhase !== 'ready') {
+            setStage({phase: effectivePhase, ...stagePayload});
         }
 
         // Also update conversations form running flag to drive data-driven abort visibility
@@ -238,7 +317,7 @@ function ExecutionTurnDetails({ msg, context, bubbleRef }) {
                 }
             }
         } catch(_) { /* ignore */ }
-    }, [turnStatus]);
+    }, [turnStatus, activePhase]);
 
     // header uses a clock icon via CollapsibleCard
 
