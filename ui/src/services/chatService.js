@@ -24,6 +24,40 @@ import {setComposerBusy} from '../utils/composerBus.js';
 import {isElicitationSuppressed, markElicitationShown} from '../utils/elicitationBus.js';
 import {detectVoiceControl} from '../utils/voiceControl.js';
 import { selectedTabId } from 'forge/core';
+
+const COMPOSER_HISTORY_KEY = 'agently_composer_history';
+const COMPOSER_HISTORY_MAX = 10;
+
+function saveMessageToHistory(text) {
+    const t = String(text || '').trim();
+    if (!t) return;
+    try {
+        const raw = localStorage.getItem(COMPOSER_HISTORY_KEY);
+        const list = raw ? JSON.parse(raw) : [];
+        const next = [...list.filter((item) => item !== t), t].slice(-COMPOSER_HISTORY_MAX);
+        localStorage.setItem(COMPOSER_HISTORY_KEY, JSON.stringify(next));
+    } catch (_) {}
+}
+
+/**
+ * Returns last 10 composer messages, optionally filtered by prefix (case-insensitive).
+ * Used by the chat composer for local history/autocomplete.
+ * @param {string} [prefix] - Filter entries that contain this string (optional)
+ * @returns {string[]}
+ */
+export function getComposerHistory(prefix) {
+    try {
+        const raw = localStorage.getItem(COMPOSER_HISTORY_KEY);
+        const list = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(list)) return [];
+        const p = String(prefix || '').trim().toLowerCase();
+        if (!p) return list.slice(-COMPOSER_HISTORY_MAX);
+        return list.filter((item) => String(item || '').toLowerCase().includes(p)).slice(-COMPOSER_HISTORY_MAX);
+    } catch (_) {
+        return [];
+    }
+}
+
 import {
     setExecutionDetailsEnabled,
     setToolFeedEnabled,
@@ -3151,6 +3185,7 @@ export async function submitMessage(props) {
             log.error('Message accepted but no id returned', postResp);
             return;
         }
+        saveMessageToHistory(originalContent || body.content);
 
         // Ask DS to refresh from backend so DataSource stays the single source of truth
         // Trigger immediate messages refresh: reset since cursor and fetch
@@ -4037,6 +4072,7 @@ export function prepareFileTree({workdir, collection = []}) {
  */
 export const chatService = {
     submitMessage,
+    getComposerHistory,
     upload,
     abortConversation,
     compactConversation,

@@ -339,9 +339,9 @@ func (s *Service) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		encode(w, 0, nil, err)
 		return
 	}
-	// Post a tiny HTML that closes the popup
+	// Post a tiny HTML: popup → notify opener and close; same-tab redirect → go back to app root
 	w.Header().Set("Content-Type", "text/html")
-	_, _ = w.Write([]byte(`<html><body><script>if (window.opener) { try { window.opener.postMessage({type:'oauth',status:'ok'}, '*'); } catch(e){} } window.close();</script>OK</body></html>`))
+	_, _ = w.Write([]byte(`<html><body><script>if (window.opener) { try { window.opener.postMessage({type:'oauth',status:'ok'}, '*'); } catch(e){} window.close(); } else { window.location.href = '/'; }</script>OK</body></html>`))
 }
 
 // OAuth (BFF) – OOB login using user secrets URL (client-provided)
@@ -743,15 +743,15 @@ func (s *Service) handleProviders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type provider struct {
-		Name            string `json:"name"`
-		Label           string `json:"label"`
-		Type            string `json:"type"` // local|bff|oidc
-		DefaultUsername string `json:"defaultUsername,omitempty"`
-		// SPA public client metadata (non-secret)
-		ClientID     string   `json:"clientID,omitempty"`
-		DiscoveryURL string   `json:"discoveryURL,omitempty"`
-		RedirectURI  string   `json:"redirectURI,omitempty"`
-		Scopes       []string `json:"scopes,omitempty"`
+		Name              string   `json:"name"`
+		Label             string   `json:"label"`
+		Type              string   `json:"type"` // local|bff|oidc
+		DefaultUsername   string   `json:"defaultUsername,omitempty"`
+		RedirectSameTab   bool     `json:"redirectSameTab,omitempty"`   // when true, frontend should use same-tab redirect instead of popup
+		ClientID          string   `json:"clientID,omitempty"`
+		DiscoveryURL      string   `json:"discoveryURL,omitempty"`
+		RedirectURI       string   `json:"redirectURI,omitempty"`
+		Scopes            []string `json:"scopes,omitempty"`
 	}
 	var items []provider
 	letMode := func() string {
@@ -781,7 +781,8 @@ func (s *Service) handleProviders(w http.ResponseWriter, r *http.Request) {
 			if label == "" {
 				label = "OAuth2"
 			}
-			items = append(items, provider{Name: name, Label: label, Type: "bff"})
+			p := provider{Name: name, Label: label, Type: "bff", RedirectSameTab: s.cfg.OAuth.RedirectSameTab}
+			items = append(items, p)
 		}
 	}
 	// OIDC (SPA/bearer) provider from workspace config (unified oauth)
