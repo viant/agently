@@ -140,6 +140,10 @@ func (t *TranscriptView) computeToolFeed(ctx context.Context) ([]*tool.Feed, err
 			"input":  mergedInput,
 			"output": mergedOutput,
 		}
+		// Plan feed: add a "content" field to each plan step so the Full Content dialog shows status + step.
+		if strings.EqualFold(strings.TrimSpace(feed.ID), "plan") || (strings.EqualFold(strings.TrimSpace(feed.Match.Service), "orchestration") && strings.EqualFold(strings.TrimSpace(feed.Match.Method), "updatePlan")) {
+			enrichPlanStepsWithContent(rootData)
+		}
 		// Built-in: Explorer feed is expected to provide entries and ops,
 		// even when legacy workspace specs don't explicitly declare them.
 		if strings.EqualFold(strings.TrimSpace(feed.ID), "explorer") {
@@ -329,6 +333,41 @@ func shortTraceID(traceID string) string {
 
 func summarizeTraceLabel(content string) string {
 	return strings.TrimSpace(content)
+}
+
+// enrichPlanStepsWithContent adds a "content" field to each plan step so UI "Full Content" dialog shows text.
+func enrichPlanStepsWithContent(rootData map[string]interface{}) {
+	if rootData == nil {
+		return
+	}
+	output, _ := rootData["output"].(map[string]interface{})
+	if output == nil {
+		return
+	}
+	planRaw := output["plan"]
+	if planRaw == nil {
+		planRaw = output["Plan"]
+	}
+	plan, ok := planRaw.([]interface{})
+	if !ok || len(plan) == 0 {
+		return
+	}
+	for _, item := range plan {
+		stepMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		status := trimString(stepMap["status"])
+		if status == "" {
+			status = trimString(stepMap["Status"])
+		}
+		step := trimString(stepMap["step"])
+		if step == "" {
+			step = trimString(stepMap["Step"])
+		}
+		content := "**Status:** " + status + "\n\n**Step:** " + step
+		stepMap["content"] = content
+	}
 }
 
 func feedWantsDataKey(feed *extx.FeedSpec, key string) bool {

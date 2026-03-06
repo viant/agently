@@ -166,7 +166,12 @@ const Navigation = () => {
             }}
         >
             <div className="navigation-tree">
-                <Tree contents={treeData} onNodeClick={handleNodeClick}/>
+                <Tree
+                    contents={treeData}
+                    onNodeClick={handleNodeClick}
+                    onNodeCollapse={handleNodeClick}
+                    onNodeExpand={handleNodeClick}
+                />
             </div>
         </div>
     );

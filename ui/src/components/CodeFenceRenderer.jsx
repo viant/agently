@@ -652,14 +652,18 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
       const cellContent = (
         <span dangerouslySetInnerHTML={{ __html: html }} />
       );
+      // Tooltip for all cells so every column (e.g. Entity Scope, Recommendation) expands on hover when truncated
+      const tooltipContent = text ? (
+        <div style={{ maxWidth: 640, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: fullHtml }} />
+      ) : null;
       return (
         <BpCell
           style={{ textAlign: align, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: isLong ? 'pointer' : 'default' }}
           onClick={() => { if (isLong) setExpand({ title: headers[ci], content: text }); }}
         >
-          {isLong ? (
+          {tooltipContent ? (
             <Tooltip
-              content={<div style={{ maxWidth: 640, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: fullHtml }} />}
+              content={tooltipContent}
               hoverOpenDelay={250}
               placement="auto"
               interactionKind="hover-target"

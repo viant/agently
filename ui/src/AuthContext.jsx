@@ -221,19 +221,41 @@ export const AuthProvider = ({children}) => {
     try { window.AGENTLY_BEARER = ''; } catch(_) {}
   }, [apiURL]);
 
-  // BFF OAuth popup init
+  // BFF OAuth: popup or same-tab redirect (when redirectSameTab from workspace config)
   const loginBFF = useCallback(async () => {
-    // Open a popup immediately on user gesture to avoid blockers
-    const popup = window.open('about:blank', 'oauth_bff', 'width=520,height=640');
+    const bffProvider = providers.find(p => p.type === 'bff');
+    const useRedirect = bffProvider?.redirectSameTab === true;
+
+    let popup = null;
+    if (!useRedirect) {
+      // Open popup on user gesture to avoid blockers
+      popup = window.open('about:blank', 'oauth_bff', 'width=520,height=640');
+    }
+
+    const url = apiURL('/v1/api/auth/oauth/initiate');
+    let ok, body;
     try {
-      const url = apiURL('/v1/api/auth/oauth/initiate');
-      const { ok, body } = await fetchJSON(url, { method: 'POST' });
-      const authURL = body?.data?.authURL || '';
-      if (!ok || !authURL || !/^https?:/i.test(authURL)) {
-        try { popup && popup.close(); } catch(_) {}
-        return false;
-      }
-      try { if (popup) popup.location.href = authURL; } catch(_) {}
+      const res = await fetchJSON(url, { method: 'POST' });
+      ok = res.ok;
+      body = res.body;
+    } catch (e) {
+      try { if (popup) popup.close(); } catch(_) {}
+      return false;
+    }
+    const authURL = body?.data?.authURL || '';
+    if (!ok || !authURL || !/^https?:/i.test(authURL)) {
+      try { if (popup) popup.close(); } catch(_) {}
+      return false;
+    }
+
+    if (useRedirect) {
+      // Same-tab redirect: page will navigate to IdP then back; bootstrap will run getMe()
+      window.location.href = authURL;
+      return new Promise(() => {}); // never resolve (we navigated away)
+    }
+
+    try {
+      if (popup) popup.location.href = authURL;
       return new Promise((resolve) => {
         const handler = async (ev) => {
           try {
@@ -252,10 +274,10 @@ export const AuthProvider = ({children}) => {
         }, 500);
       });
     } catch (e) {
-      try { popup && popup.close(); } catch(_) {}
+      try { if (popup) popup.close(); } catch(_) {}
       return false;
     }
-  }, [apiURL, fetchJSON, getMe, setProfile]);
+  }, [apiURL, fetchJSON, getMe, setProfile, providers]);
 
   // (moved above) loginSPAWithToken
 
