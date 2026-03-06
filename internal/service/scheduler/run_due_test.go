@@ -241,6 +241,10 @@ type fakeChat struct {
 	createdConversationIDs []string
 	createdConversationReq []chatcli.CreateConversationRequest
 	posted                 []string
+	cancelReturn           bool
+	canceledConversationID []string
+	lastAssistantStatus    []string
+	convClient             agconversation.Client
 }
 
 func (f *fakeChat) AttachManager(_ *conversation.Manager, _ *tool.Policy) {}
@@ -254,8 +258,14 @@ func (f *fakeChat) Post(_ context.Context, _ string, req chatcli.PostRequest) (s
 	f.posted = append(f.posted, req.Content)
 	return "msg", nil
 }
-func (f *fakeChat) Cancel(string) bool     { return false }
+func (f *fakeChat) Cancel(conversationID string) bool {
+	f.canceledConversationID = append(f.canceledConversationID, conversationID)
+	return f.cancelReturn
+}
 func (f *fakeChat) CancelTurn(string) bool { return false }
+func (f *fakeChat) ConversationClient() agconversation.Client {
+	return f.convClient
+}
 func (f *fakeChat) CreateConversation(_ context.Context, req chatcli.CreateConversationRequest) (*chatcli.CreateConversationResponse, error) {
 	id := fmt.Sprintf("conv-%d", len(f.createdConversationIDs)+1)
 	f.createdConversationIDs = append(f.createdConversationIDs, id)
@@ -286,8 +296,9 @@ func (f *fakeChat) SetTurnStatus(context.Context, string, string, ...string) err
 func (f *fakeChat) SetMessageStatus(context.Context, string, string) error {
 	return fmt.Errorf("not implemented")
 }
-func (f *fakeChat) SetLastAssistentMessageStatus(context.Context, string, string) error {
-	return fmt.Errorf("not implemented")
+func (f *fakeChat) SetLastAssistentMessageStatus(_ context.Context, conversationID, status string) error {
+	f.lastAssistantStatus = append(f.lastAssistantStatus, fmt.Sprintf("%s:%s", strings.TrimSpace(conversationID), strings.TrimSpace(status)))
+	return nil
 }
 func (f *fakeChat) Generate(context.Context, *chatcli.GenerateInput) (*chatcli.GenerateOutput, error) {
 	return nil, fmt.Errorf("not implemented")
@@ -795,6 +806,8 @@ func TestService_RunDue_LeaseExpiredRunningRunForSlot_FailsEvenWhenTimeoutNotExc
 	assert.True(t, store.patchedRuns[0].CompletedAt != nil)
 	assert.EqualValues(t, 1, len(store.patchedSchedules))
 	assert.True(t, store.patchedSchedules[0].NextRunAt != nil)
+	assert.EqualValues(t, []string{"conv-1"}, chat.canceledConversationID)
+	assert.EqualValues(t, []string{"conv-1:canceled"}, chat.lastAssistantStatus)
 }
 
 func TestService_RunDue_StaleRunningRunForOlderSlot_UpdatesScheduleLastResultAndStartsNewRun(t *testing.T) {

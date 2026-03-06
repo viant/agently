@@ -51,7 +51,9 @@ func New(sch schcli.Client, chat chatcli.Client) (schapi.Client, error) {
 	if chat == nil {
 		return nil, fmt.Errorf("chat client is required")
 	}
-	return &Service{sch: sch, chat: chat}, nil
+	svc := &Service{sch: sch, chat: chat}
+	svc.ensureConversationClient()
+	return svc, nil
 }
 
 // AttachAuthConfig sets auth configuration for OOB schedule runs.
@@ -108,6 +110,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		return fmt.Errorf("scheduler service not initialized")
 	}
 	s.ensureLeaseConfig()
+	s.ensureConversationClient()
 	if in == nil {
 		return fmt.Errorf("run is required")
 	}
@@ -236,13 +239,7 @@ func (s *Service) Run(ctx context.Context, in *schapi.MutableRun) error {
 		debugf("Run created conversation schedule_id=%q run_id=%q conversation_id=%q", schID, strings.TrimSpace(in.Id), strings.TrimSpace(resp.ID))
 		in.SetConversationId(resp.ID)
 		// Best-effort: annotate conversation with schedule linkage
-		// Try to obtain a conversation client if not provided
-		if s.conv == nil {
-			type chatConv interface{ ConversationClient() apiconv.Client }
-			if c, ok := s.chat.(chatConv); ok {
-				s.conv = c.ConversationClient()
-			}
-		}
+		s.ensureConversationClient()
 		if s.conv != nil {
 			c := apiconv.NewConversation()
 			c.SetId(resp.ID)
@@ -456,6 +453,44 @@ func strPtrValue(p *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*p)
+}
+
+func (s *Service) ensureConversationClient() {
+	if s == nil || s.conv != nil || s.chat == nil {
+		return
+	}
+	type chatConv interface{ ConversationClient() apiconv.Client }
+	if c, ok := s.chat.(chatConv); ok {
+		s.conv = c.ConversationClient()
+	}
+}
+
+func (s *Service) cancelConversationAndMark(ctx context.Context, conversationID string) {
+	if s == nil || s.chat == nil {
+		return
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return
+	}
+
+	canceled := s.chat.Cancel(conversationID)
+	debugf("cancelConversationAndMark cancel signal conversation_id=%q canceled=%v", conversationID, canceled)
+
+	if err := s.chat.SetLastAssistentMessageStatus(ctx, conversationID, "canceled"); err != nil {
+		debugf("cancelConversationAndMark set last assistant status failed conversation_id=%q err=%v", conversationID, err)
+	}
+
+	s.ensureConversationClient()
+	if s.conv == nil {
+		return
+	}
+	upd := apiconv.NewConversation()
+	upd.SetId(conversationID)
+	upd.SetStatus("canceled")
+	if err := s.conv.PatchConversations(ctx, upd); err != nil {
+		debugf("cancelConversationAndMark patch conversation status failed conversation_id=%q err=%v", conversationID, err)
+	}
 }
 
 func (s *Service) getRunsForDueCheck(ctx context.Context, scheduleID string, scheduledFor time.Time, includeScheduledSlot bool) ([]*schapi.Run, error) {
@@ -962,9 +997,17 @@ func (s *Service) handleStaleRun(scheduleCtx context.Context, r *schapi.Run, now
 	if r.ConversationId != nil {
 		convID = strings.TrimSpace(*r.ConversationId)
 	}
+
+	msg := fmt.Sprintf("stale run detected (current time: %v): status=%q started_at=%v timeout=%v", now, strings.TrimSpace(r.Status), runStart, timeout)
+	if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
+		msg += fmt.Sprintf(" lease_until=%v lease_owner=%q", r.LeaseUntil.UTC(), strPtrValue(r.LeaseOwner))
+	}
+
 	if convID != "" {
 		debugf("handleStaleRun cancel conversation schedule_id=%q run_id=%q conv_id=%q", strings.TrimSpace(sc.Id), strings.TrimSpace(r.Id), convID)
-		_ = s.chat.Cancel(convID)
+		cancelCtx, cancelCancel := context.WithTimeout(scheduleCtx, callTimeout)
+		s.cancelConversationAndMark(cancelCtx, convID)
+		cancelCancel()
 	}
 
 	upd := &schapi.MutableRun{}
@@ -972,10 +1015,6 @@ func (s *Service) handleStaleRun(scheduleCtx context.Context, r *schapi.Run, now
 	upd.SetScheduleId(sc.Id)
 	upd.SetStatus("failed")
 	upd.SetCompletedAt(now)
-	msg := fmt.Sprintf("stale run detected (current time: %v): status=%q started_at=%v timeout=%v", now, strings.TrimSpace(r.Status), runStart, timeout)
-	if r.LeaseUntil != nil && !r.LeaseUntil.IsZero() {
-		msg += fmt.Sprintf(" lease_until=%v lease_owner=%q", r.LeaseUntil.UTC(), strPtrValue(r.LeaseOwner))
-	}
 	upd.SetErrorMessage(msg)
 
 	callCtx, callCancel := context.WithTimeout(scheduleCtx, callTimeout)

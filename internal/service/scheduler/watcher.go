@@ -35,7 +35,9 @@ func (s *Service) watchRunCompletion(ctx context.Context, runID, scheduleID, con
 		return
 	}
 	s.ensureLeaseConfig()
+	s.ensureConversationClient()
 	if s.conv == nil {
+		debugf("watchRunCompletion stop: conversation client unavailable schedule_id=%q run_id=%q", strings.TrimSpace(scheduleID), strings.TrimSpace(runID))
 		return
 	}
 
@@ -231,7 +233,7 @@ func (s *Service) finalizeDeadline(ctx context.Context, runID string, scheduleID
 
 	finalStatus := status
 	if isRunning || stage == "" {
-		_ = s.chat.Cancel(conversationID)
+		s.cancelConversationAndMark(ctx, conversationID)
 		finalStatus = "failed"
 		upd.SetStatus(finalStatus)
 		msg := fmt.Sprintf("conv. aborted at %q (%v timeout)", stage, timeout)
