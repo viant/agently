@@ -19,3 +19,8 @@ package-lock.json
 yarn.lock
 agently.sql
 e2e/database/agently/script/schema.ddl
+
+# Built UI embed (run scripts/build-ui-embed.sh to generate; do not commit)
+deployment/ui/assets/
+deployment/ui/index.html
+deployment/ui/favicon.ico
