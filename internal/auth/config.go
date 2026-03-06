@@ -26,10 +26,11 @@ type Config struct {
 
 // New unified structures
 type OAuth struct {
-	Mode   string       `yaml:"mode" json:"mode"` // bearer|spa|bff|mixed
-	Name   string       `yaml:"name" json:"name"`
-	Label  string       `yaml:"label" json:"label"`
-	Client *OAuthClient `yaml:"client" json:"client"`
+	Mode            string       `yaml:"mode" json:"mode"` // bearer|spa|bff|mixed
+	Name            string       `yaml:"name" json:"name"`
+	Label           string       `yaml:"label" json:"label"`
+	RedirectSameTab bool         `yaml:"redirectSameTab" json:"redirectSameTab"` // when true, frontend uses same-tab redirect instead of popup (for automation)
+	Client          *OAuthClient `yaml:"client" json:"client"`
 }
 
 type OAuthClient struct {
