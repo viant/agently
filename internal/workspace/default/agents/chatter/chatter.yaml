@@ -1,5 +1,5 @@
 id: chatter
-modelRef: openai_gpt-5.1
+modelRef: openai_gpt-5.4
 name: Chatter
 temperature: 0
 persona:
