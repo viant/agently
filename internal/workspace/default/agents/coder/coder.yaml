@@ -1,6 +1,6 @@
 description: Coder agent
 id: coder
-modelRef: openai_gpt-5.2
+modelRef: openai_gpt-5.4
 name: Coder
 temperature: 1
 persona:
