@@ -10,7 +10,7 @@ pipeline:
     - rm -rf dist
     - npm run build
     - rm -rf $repoPath/deployment/ui/assets
-    - rm $repoPath/deployment/ui/index.html
+    - rm -f $repoPath/deployment/ui/index.html
     - cp -rf dist/ $repoPath/deployment/ui
 
   build:
