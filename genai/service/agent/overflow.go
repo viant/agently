@@ -13,6 +13,9 @@ import (
 // overflow=false so the paging tool is not exposed.
 func buildOverflowPreview(body string, threshold int, refMessageID string, allowContinuation bool) (string, bool) {
 	body = strings.TrimSpace(body)
+	if allowContinuation {
+		body = annotateNativeContinuationJSON(body)
+	}
 	if threshold <= 0 || len(body) <= threshold {
 		return body, false
 	}
@@ -53,6 +56,95 @@ content: |
 	chunk := strings.TrimSpace(body[:returned])
 	chunk += "[... omitted " + fmt.Sprintf("%d", size-returned) + " of " + fmt.Sprintf("%d", size) + "]"
 	return chunk, false
+}
+
+// annotateNativeContinuationJSON adds an explicit follow-up hint for tool
+// results that already expose native continuation ranges. This keeps the body
+// JSON so downstream prompt handling still sees structured data, while making
+// the next call args obvious to the model.
+func annotateNativeContinuationJSON(body string) string {
+	if !strings.HasPrefix(strings.TrimSpace(body), "{") {
+		return body
+	}
+	var root map[string]interface{}
+	if err := json.Unmarshal([]byte(body), &root); err != nil || root == nil {
+		return body
+	}
+	cont, _ := root["continuation"].(map[string]interface{})
+	if cont == nil {
+		return body
+	}
+	hasMore, _ := cont["hasMore"].(bool)
+	if !hasMore {
+		return body
+	}
+	nextRange, _ := cont["nextRange"].(map[string]interface{})
+	if nextRange == nil {
+		return body
+	}
+	if bytesHint, ok := nextRange["bytes"].(map[string]interface{}); ok && bytesHint != nil {
+		offset := intFromAny(bytesHint["offset"])
+		if offset == 0 {
+			offset = intFromAny(bytesHint["offsetBytes"])
+		}
+		length := intFromAny(bytesHint["length"])
+		if length == 0 {
+			length = intFromAny(bytesHint["lengthBytes"])
+		}
+		if offset > 0 && length > 0 {
+			if _, exists := root["continuationHint"]; !exists {
+				root["continuationHint"] = fmt.Sprintf("Call the same tool again with offsetBytes=%d, lengthBytes=%d, maxBytes=%d. Do not restart at 0.", offset, length, length)
+			}
+			if _, exists := root["nextArgs"]; !exists {
+				root["nextArgs"] = map[string]interface{}{
+					"offsetBytes": offset,
+					"lengthBytes": length,
+					"maxBytes":    length,
+				}
+			}
+			if out, err := json.Marshal(root); err == nil {
+				return string(out)
+			}
+		}
+	}
+	if linesHint, ok := nextRange["lines"].(map[string]interface{}); ok && linesHint != nil {
+		start := intFromAny(linesHint["start"])
+		if start == 0 {
+			start = intFromAny(linesHint["startLine"])
+		}
+		count := intFromAny(linesHint["count"])
+		if count == 0 {
+			count = intFromAny(linesHint["lineCount"])
+		}
+		if start > 0 && count > 0 {
+			if _, exists := root["continuationHint"]; !exists {
+				root["continuationHint"] = fmt.Sprintf("Call the same tool again with startLine=%d and lineCount=%d.", start, count)
+			}
+			if _, exists := root["nextArgs"]; !exists {
+				root["nextArgs"] = map[string]interface{}{
+					"startLine": start,
+					"lineCount": count,
+				}
+			}
+			if out, err := json.Marshal(root); err == nil {
+				return string(out)
+			}
+		}
+	}
+	return body
+}
+
+func intFromAny(v interface{}) int {
+	switch t := v.(type) {
+	case int:
+		return t
+	case int64:
+		return int(t)
+	case float64:
+		return int(t)
+	default:
+		return 0
+	}
 }
 
 // truncateContinuationJSON attempts to truncate the largest string field within
