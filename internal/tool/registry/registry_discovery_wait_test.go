@@ -3,6 +3,7 @@ package tool
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log"
 	"strings"
 	"testing"
@@ -61,6 +62,73 @@ func TestWaitDiscoveryStage_LegacyWhenSchedulerDebugDisabled(t *testing.T) {
 
 	if strings.Contains(buf.String(), "stage=wait_test_legacy") {
 		t.Fatalf("unexpected wait log in legacy mode: %s", buf.String())
+	}
+}
+
+func TestWaitDiscoveryStage_ReturnsOnContextDeadlineEvenIfStageIgnoresContext(t *testing.T) {
+	t.Setenv("AGENTLY_SCHEDULER_DEBUG", "1")
+	reg := &Registry{discoveryWaitEvery: 10 * time.Millisecond}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	block := make(chan struct{})
+	defer close(block)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- reg.waitDiscoveryStage(ctx, "guardian", "wait_test_ctx_done", func(context.Context) error {
+			<-block
+			return nil
+		})
+	}()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected deadline exceeded, got %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("waitDiscoveryStage did not return promptly on context deadline")
+	}
+}
+
+func TestWaitDiscoveryStage_CancelsChildContextOnParentCancel(t *testing.T) {
+	t.Setenv("AGENTLY_SCHEDULER_DEBUG", "1")
+	reg := &Registry{discoveryWaitEvery: 10 * time.Millisecond}
+
+	parentCtx, parentCancel := context.WithCancel(context.Background())
+	defer parentCancel()
+
+	childDone := make(chan error, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- reg.waitDiscoveryStage(parentCtx, "guardian", "wait_test_child_cancel", func(ctx context.Context) error {
+			<-ctx.Done()
+			childDone <- ctx.Err()
+			return ctx.Err()
+		})
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	parentCancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context canceled, got %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("waitDiscoveryStage did not return promptly on parent cancel")
+	}
+
+	select {
+	case err := <-childDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected child context canceled, got %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("child discovery context was not canceled")
 	}
 }
 
