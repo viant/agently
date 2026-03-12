@@ -26,7 +26,7 @@ import {detectVoiceControl} from '../utils/voiceControl.js';
 import { selectedTabId } from 'forge/core';
 
 const COMPOSER_HISTORY_KEY = 'agently_composer_history';
-const COMPOSER_HISTORY_MAX = 10;
+const COMPOSER_HISTORY_MAX = 30;
 
 function saveMessageToHistory(text) {
     const t = String(text || '').trim();
