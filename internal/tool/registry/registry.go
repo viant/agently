@@ -24,6 +24,7 @@ import (
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
 	authctx "github.com/viant/agently/internal/auth"
+	mcpcfg "github.com/viant/agently/internal/mcp/config"
 	"github.com/viant/agently/internal/mcp/manager"
 	tmatch "github.com/viant/agently/internal/tool/matcher"
 	transform "github.com/viant/agently/internal/transform"
@@ -42,6 +43,15 @@ import (
 	mcpproxy "github.com/viant/agently/internal/mcp/proxy"
 )
 
+type mcpManager interface {
+	Get(ctx context.Context, convID, serverName string) (mcpclient.Interface, error)
+	Reconnect(ctx context.Context, convID, serverName string) (mcpclient.Interface, error)
+	Touch(convID, serverName string)
+	Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error)
+	UseIDToken(ctx context.Context, serverName string) bool
+	WithAuthTokenContext(ctx context.Context, serverName string) context.Context
+}
+
 // Registry bridges per-server MCP tools and internal services to the generic
 // tool.Registry interface so that callers can use dependency injection.
 type Registry struct {
@@ -54,7 +64,7 @@ type Registry struct {
 	// Optional per-conversation MCP client manager. When set, Execute will
 	// inject the appropriate client and auth token into context so that the
 	// underlying proxy can use them.
-	mgr *manager.Manager
+	mgr mcpManager
 
 	// in-memory MCP clients for internal services (server name -> client)
 	internal        map[string]mcpclient.Interface
@@ -79,13 +89,14 @@ type Registry struct {
 	// background refresh configuration
 	refreshEvery time.Duration // successful refresh cadence
 
-	// shared discovery client diagnostics for mgr.Get(ctx, "", server) path.
+	// scoped discovery client diagnostics for manager-backed list_tools path.
 	discoveryShared    map[string]discoveryIdentity
 	discoveryWarnAt    map[string]time.Time
 	discoveryWarnEvery time.Duration
 	discoveryWaitEvery time.Duration
 	discoveryTimeout   time.Duration
 	discoveryStrictTTL time.Duration
+	discoveryScopeSeq  uint64
 
 	// jsonRPCRequestSeq provides unique JSON-RPC request ids for local MCP calls.
 	jsonRPCRequestSeq uint64
@@ -1300,17 +1311,18 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	useID := r.mgr.UseIDToken(ctx, server)
 	token := authctx.MCPAuthToken(ctx, useID)
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
-	r.observeSharedDiscoveryIdentity(server, userID, token, useID)
+	scope := r.discoveryClientScope(ctx, server)
+	r.observeSharedDiscoveryIdentity(server, scope, userID, token, useID)
 
 	ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	var cli mcpclient.Interface
 	err := r.waitDiscoveryStage(ctx, server, "manager_get", func(callCtx context.Context) error {
 		var getErr error
-		cli, getErr = r.mgr.Get(callCtx, "", server)
+		cli, getErr = r.mgr.Get(callCtx, scope, server)
 		return getErr
 	})
 	if err != nil {
-		r.warnDiscoveryListIssue(server, "manager_get", err, userID, useID, tokenFingerprint(token))
+		r.warnDiscoveryListIssue(server, scope, "manager_get", err, userID, useID, tokenFingerprint(token))
 		return nil, err
 	}
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
@@ -1326,29 +1338,29 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	})
 	if err != nil {
 		if isReconnectableError(err) {
-			if retried, retryErr := r.retrySharedDiscoveryListTools(ctx, server, opts); retryErr == nil {
+			if retried, retryErr := r.retrySharedDiscoveryListTools(ctx, scope, server, opts); retryErr == nil {
 				return retried, nil
 			} else {
 				err = retryErr
 			}
 		}
-		r.warnDiscoveryListIssue(server, "list_tools", err, userID, useID, tokenFingerprint(token))
+		r.warnDiscoveryListIssue(server, scope, "list_tools", err, userID, useID, tokenFingerprint(token))
 		return nil, err
 	}
 	return tools, nil
 }
 
-func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, server string, opts []mcpclient.RequestOption) ([]mcpschema.Tool, error) {
+func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, server string, opts []mcpclient.RequestOption) ([]mcpschema.Tool, error) {
 	if r == nil || r.mgr == nil {
 		return nil, errors.New("mcp manager not configured")
 	}
-	if _, err := r.mgr.Reconnect(ctx, "", server); err != nil {
+	if _, err := r.mgr.Reconnect(ctx, scope, server); err != nil {
 		return nil, err
 	}
 	var cli mcpclient.Interface
 	err := r.waitDiscoveryStage(ctx, server, "manager_get_retry", func(callCtx context.Context) error {
 		var getErr error
-		cli, getErr = r.mgr.Get(callCtx, "", server)
+		cli, getErr = r.mgr.Get(callCtx, scope, server)
 		return getErr
 	})
 	if err != nil {
@@ -1386,6 +1398,18 @@ func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, c
 	return context.WithTimeout(ctx, timeout)
 }
 
+func (r *Registry) discoveryClientScope(ctx context.Context, server string) string {
+	if convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx)); convID != "" {
+		return convID
+	}
+	server = strings.TrimSpace(server)
+	if server == "" {
+		server = "unknown"
+	}
+	seq := atomic.AddUint64(&r.discoveryScopeSeq, 1)
+	return fmt.Sprintf("mcp-discovery:%s:%d", server, seq)
+}
+
 func (r *Registry) waitDiscoveryStage(ctx context.Context, server, stage string, fn func(context.Context) error) error {
 	if fn == nil {
 		return nil
@@ -1393,34 +1417,40 @@ func (r *Registry) waitDiscoveryStage(ctx context.Context, server, stage string,
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Legacy mode (default): execute stage directly with no wait-wrapper diagnostics.
 	// Diagnostic wait logging/dumps are enabled only when AGENTLY_SCHEDULER_DEBUG=1.
 	if strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_DEBUG")) != "1" {
 		return fn(ctx)
 	}
+	callCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	waitEvery := 30 * time.Second
 	if r != nil && r.discoveryWaitEvery > 0 {
 		waitEvery = r.discoveryWaitEvery
 	}
 	started := time.Now()
-	done := make(chan struct{})
-	var err error
+	result := make(chan error, 1)
 	go func() {
-		defer close(done)
-		err = fn(ctx)
+		result <- fn(callCtx)
 	}()
 
 	ticker := time.NewTicker(waitEvery)
 	defer ticker.Stop()
 	logEvery := 5 * time.Minute
-	dumpEvery := 15 * time.Minute
+	dumpEvery := 30 * time.Minute
 	lastLogged := time.Time{}
 	nextDumpAt := started.Add(dumpEvery)
 
 	for {
 		select {
-		case <-done:
+		case err := <-result:
 			return err
+		case <-ctx.Done():
+			cancel()
+			return ctx.Err()
 		case <-ticker.C:
 			now := time.Now()
 			shouldLog := lastLogged.IsZero() || now.Sub(lastLogged) >= logEvery
@@ -1438,7 +1468,7 @@ func (r *Registry) waitDiscoveryStage(ctx context.Context, server, stage string,
 				for !now.Before(nextDumpAt) {
 					nextDumpAt = nextDumpAt.Add(dumpEvery)
 				}
-				logDiscoveryWait("wait_dump_15m", server, stage, waited, diag)
+				logDiscoveryWait("wait_dump_30m", server, stage, waited, diag)
 				logDiscoveryGoroutineDump(server, stage, waited)
 			}
 		}
@@ -1616,7 +1646,7 @@ func guessDiscoveryMode(diag discoveryWaitDiag) (string, string) {
 	return "unknown", "non_scheduler_ctx_without_user_or_token"
 }
 
-func (r *Registry) observeSharedDiscoveryIdentity(server, userID, token string, useID bool) {
+func (r *Registry) observeSharedDiscoveryIdentity(server, scope, userID, token string, useID bool) {
 	if r == nil {
 		return
 	}
@@ -1624,39 +1654,44 @@ func (r *Registry) observeSharedDiscoveryIdentity(server, userID, token string, 
 	if server == "" {
 		return
 	}
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = discoveryCtxMissing
+	}
 	cur := discoveryIdentity{
 		userID:  strings.TrimSpace(userID),
 		tokenFP: tokenFingerprint(token),
 		useID:   useID,
 		seenAt:  time.Now(),
 	}
+	identityKey := discoveryIdentityKey(server, scope)
 
 	r.mu.Lock()
-	prev, ok := r.discoveryShared[server]
+	prev, ok := r.discoveryShared[identityKey]
 	if r.discoveryShared == nil {
 		r.discoveryShared = map[string]discoveryIdentity{}
 	}
-	r.discoveryShared[server] = cur
+	r.discoveryShared[identityKey] = cur
 	r.mu.Unlock()
 
 	if !ok {
 		return
 	}
 	if prev.useID != cur.useID {
-		key := fmt.Sprintf("discovery_identity:%s:useid:%v->%v", server, prev.useID, cur.useID)
-		r.warnDiscoveryf(key, "shared discovery client identity drift server=%q conv_id=%q reason=use_id_token_changed prev=%v curr=%v user_prev=%q user_curr=%q token_prev=%s token_curr=%s", server, "", prev.useID, cur.useID, prev.userID, cur.userID, prev.tokenFP, cur.tokenFP)
+		key := fmt.Sprintf("discovery_identity:%s:%s:useid:%v->%v", server, scope, prev.useID, cur.useID)
+		r.warnDiscoveryf(key, "discovery client identity drift server=%q scope=%q reason=use_id_token_changed prev=%v curr=%v user_prev=%q user_curr=%q token_prev=%s token_curr=%s", server, scope, prev.useID, cur.useID, prev.userID, cur.userID, prev.tokenFP, cur.tokenFP)
 	}
 	if prev.userID != "" && cur.userID != "" && prev.userID != cur.userID {
-		key := fmt.Sprintf("discovery_identity:%s:user:%s->%s", server, prev.userID, cur.userID)
-		r.warnDiscoveryf(key, "shared discovery client identity drift server=%q conv_id=%q reason=user_changed prev=%q curr=%q use_id_token=%v token_prev=%s token_curr=%s", server, "", prev.userID, cur.userID, cur.useID, prev.tokenFP, cur.tokenFP)
+		key := fmt.Sprintf("discovery_identity:%s:%s:user:%s->%s", server, scope, prev.userID, cur.userID)
+		r.warnDiscoveryf(key, "discovery client identity drift server=%q scope=%q reason=user_changed prev=%q curr=%q use_id_token=%v token_prev=%s token_curr=%s", server, scope, prev.userID, cur.userID, cur.useID, prev.tokenFP, cur.tokenFP)
 	}
 	if prev.tokenFP != "none" && cur.tokenFP != "none" && prev.tokenFP != cur.tokenFP {
-		key := fmt.Sprintf("discovery_identity:%s:token:%s->%s", server, prev.tokenFP, cur.tokenFP)
-		r.warnDiscoveryf(key, "shared discovery client identity drift server=%q conv_id=%q reason=token_changed user_prev=%q user_curr=%q use_id_token=%v token_prev=%s token_curr=%s", server, "", prev.userID, cur.userID, cur.useID, prev.tokenFP, cur.tokenFP)
+		key := fmt.Sprintf("discovery_identity:%s:%s:token:%s->%s", server, scope, prev.tokenFP, cur.tokenFP)
+		r.warnDiscoveryf(key, "discovery client identity drift server=%q scope=%q reason=token_changed user_prev=%q user_curr=%q use_id_token=%v token_prev=%s token_curr=%s", server, scope, prev.userID, cur.userID, cur.useID, prev.tokenFP, cur.tokenFP)
 	}
 }
 
-func (r *Registry) warnDiscoveryListIssue(server, stage string, err error, userID string, useID bool, tokenFP string) {
+func (r *Registry) warnDiscoveryListIssue(server, scope, stage string, err error, userID string, useID bool, tokenFP string) {
 	if err == nil {
 		return
 	}
@@ -1667,9 +1702,17 @@ func (r *Registry) warnDiscoveryListIssue(server, stage string, err error, userI
 	if server == "" {
 		server = "unknown"
 	}
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = discoveryCtxMissing
+	}
 	kind := classifyDiscoveryError(err)
-	key := fmt.Sprintf("discovery_issue:%s:%s:%s:%s:%v", server, strings.TrimSpace(stage), kind, strings.TrimSpace(userID), useID)
-	r.warnDiscoveryf(key, "shared discovery client issue server=%q conv_id=%q stage=%s kind=%s user=%q use_id_token=%v token=%s err=%v", server, "", stage, kind, strings.TrimSpace(userID), useID, tokenFP, err)
+	key := fmt.Sprintf("discovery_issue:%s:%s:%s:%s:%s:%v", server, scope, strings.TrimSpace(stage), kind, strings.TrimSpace(userID), useID)
+	r.warnDiscoveryf(key, "discovery client issue server=%q scope=%q stage=%s kind=%s user=%q use_id_token=%v token=%s err=%v", server, scope, stage, kind, strings.TrimSpace(userID), useID, tokenFP, err)
+}
+
+func discoveryIdentityKey(server, scope string) string {
+	return strings.TrimSpace(server) + "|" + strings.TrimSpace(scope)
 }
 
 func shouldSuppressMissingMCPConfigWarning(server string, err error) bool {
