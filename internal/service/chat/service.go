@@ -1010,7 +1010,13 @@ func (s *Service) persistTurnFailure(ctx context.Context, turnID string, err err
 	if errors.Is(err, context.Canceled) {
 		upd.SetStatus("canceled")
 		warnf("persistTurnFailure canceled turn_id=%q err=%v", strings.TrimSpace(turnID), err)
-		return s.convClient.PatchTurn(context.Background(), upd)
+		if pErr := s.convClient.PatchTurn(context.Background(), upd); pErr != nil {
+			return pErr
+		}
+		if mErr := s.SetMessageStatus(context.Background(), turnID, "canceled"); mErr != nil {
+			warnf("persistTurnFailure patch message canceled turn_id=%q err=%v", strings.TrimSpace(turnID), mErr)
+		}
+		return err
 	}
 	upd.SetStatus("failed")
 	upd.SetErrorMessage(err.Error())
@@ -1022,6 +1028,9 @@ func (s *Service) persistTurnFailure(ctx context.Context, turnID string, err err
 	if pErr := s.convClient.PatchTurn(patchCtx, upd); pErr != nil {
 		errorf("persistTurnFailure patch error turn_id=%q err=%v", strings.TrimSpace(turnID), pErr)
 		return fmt.Errorf("%w: %v", err, pErr)
+	}
+	if mErr := s.SetMessageStatus(patchCtx, turnID, "failed"); mErr != nil {
+		warnf("persistTurnFailure patch message failed turn_id=%q err=%v", strings.TrimSpace(turnID), mErr)
 	}
 	return err
 }

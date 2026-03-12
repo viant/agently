@@ -57,12 +57,18 @@ func computeStage(c *ConversationView) string {
 	// Iterate turns backwards, then messages backwards within the turn
 	for ti := len(c.Transcript) - 1; ti >= 0; ti-- {
 		t := c.Transcript[ti]
-		if t == nil || len(t.Message) == 0 {
+		if t == nil {
 			continue
 		}
 		// Preserve cancellation semantics for stage consumers.
 		if strings.EqualFold(strings.TrimSpace(t.Status), "canceled") {
 			return StageCanceled
+		}
+		if strings.EqualFold(strings.TrimSpace(t.Status), "failed") || strings.EqualFold(strings.TrimSpace(t.Status), "error") {
+			return StageError
+		}
+		if len(t.Message) == 0 {
+			continue
 		}
 		for mi := len(t.Message) - 1; mi >= 0; mi-- {
 			m := t.Message[mi]

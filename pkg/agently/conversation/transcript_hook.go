@@ -78,12 +78,18 @@ func (t *TranscriptView) normalizeMessages() {
 
 // computeTurnStage determines the stage of a single turn based on its latest non-interim message.
 func computeTurnStage(t *TranscriptView) string {
-	if t == nil || len(t.Message) == 0 {
+	if t == nil {
 		return StageWaiting
 	}
 	// Preserve cancellation semantics for stage consumers.
 	if strings.EqualFold(strings.TrimSpace(t.Status), "canceled") {
 		return StageCanceled
+	}
+	if strings.EqualFold(strings.TrimSpace(t.Status), "failed") || strings.EqualFold(strings.TrimSpace(t.Status), "error") {
+		return StageError
+	}
+	if len(t.Message) == 0 {
+		return StageWaiting
 	}
 	lastRole := ""
 	lastAssistantElic := false

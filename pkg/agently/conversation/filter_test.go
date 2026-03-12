@@ -39,8 +39,6 @@ func TestFilter_Compute_PrivacyAndScope(t *testing.T) {
 			wantExpr:   "t.conversation_parent_id = '' AND t.schedule_id IS NULL AND COALESCE(t.visibility, '') <> ?",
 			wantParams: []interface{}{"private"},
 		},
-		{
-		}
 	}
 
 	f := &Filter{}
