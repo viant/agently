@@ -52,6 +52,9 @@ pipeline:
     user:
       action: run
       request: '@rule/user'
+    generatedfile:
+      action: run
+      request: '@rule/generatedfile'
     sdk:
       action: run
       request: '@rule/sdk'

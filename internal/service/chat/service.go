@@ -1643,7 +1643,7 @@ func (s *Service) ListGeneratedFiles(ctx context.Context, conversationID string)
 	if !ok {
 		return nil, nil
 	}
-	in := &gfread.Input{ConversationID: strings.TrimSpace(conversationID), Has: &gfread.Has{}}
+	in := &gfread.GeneratedFileInput{ConversationID: strings.TrimSpace(conversationID), Has: &gfread.GeneratedFileInputHas{}}
 	if in.ConversationID != "" {
 		in.Has.ConversationID = true
 	}
@@ -1658,7 +1658,7 @@ func (s *Service) DownloadGeneratedFile(ctx context.Context, id string) ([]byte,
 	if !ok {
 		return nil, "", "", ErrNotFound
 	}
-	in := &gfread.Input{ID: strings.TrimSpace(id), Has: &gfread.Has{ID: true}}
+	in := &gfread.GeneratedFileInput{ID: strings.TrimSpace(id), Has: &gfread.GeneratedFileInputHas{ID: true}}
 	files, err := store.GetGeneratedFiles(ctx, in)
 	if err != nil || len(files) == 0 || files[0] == nil {
 		return nil, "", "", ErrNotFound
@@ -1667,7 +1667,7 @@ func (s *Service) DownloadGeneratedFile(ctx context.Context, id string) ([]byte,
 
 	filename := strings.TrimSpace(ptrStringOr(file.Filename, ""))
 	if filename == "" {
-		filename = strings.TrimSpace(ptrStringOr(file.ProviderFileID, "generated-file.bin"))
+		filename = strings.TrimSpace(ptrStringOr(file.ProviderFileId, "generated-file.bin"))
 		if filename == "" {
 			filename = "generated-file.bin"
 		}
@@ -1677,8 +1677,8 @@ func (s *Service) DownloadGeneratedFile(ctx context.Context, id string) ([]byte,
 		contentType = "application/octet-stream"
 	}
 
-	if file.PayloadID != nil && strings.TrimSpace(*file.PayloadID) != "" {
-		payload, pErr := s.convClient.GetPayload(ctx, strings.TrimSpace(*file.PayloadID))
+	if file.PayloadId != nil && strings.TrimSpace(*file.PayloadId) != "" {
+		payload, pErr := s.convClient.GetPayload(ctx, strings.TrimSpace(*file.PayloadId))
 		if pErr != nil || payload == nil || payload.InlineBody == nil || len(*payload.InlineBody) == 0 {
 			return nil, "", "", ErrNoContent
 		}
@@ -1694,8 +1694,8 @@ func (s *Service) DownloadGeneratedFile(ctx context.Context, id string) ([]byte,
 	if !openAIGeneratedFilesEnabled() {
 		return nil, "", "", ErrNoContent
 	}
-	containerID := strings.TrimSpace(ptrStringOr(file.ContainerID, ""))
-	providerFileID := strings.TrimSpace(ptrStringOr(file.ProviderFileID, ""))
+	containerID := strings.TrimSpace(ptrStringOr(file.ContainerId, ""))
+	providerFileID := strings.TrimSpace(ptrStringOr(file.ProviderFileId, ""))
 	if containerID == "" || providerFileID == "" {
 		return nil, "", "", ErrNoContent
 	}
@@ -1707,7 +1707,7 @@ func (s *Service) DownloadGeneratedFile(ctx context.Context, id string) ([]byte,
 		if strings.Contains(msg, "status=404") {
 			status = "expired"
 		}
-		_ = s.patchGeneratedFileDownloadState(ctx, file.ID, status, dErr.Error(), "", "", 0, "")
+		_ = s.patchGeneratedFileDownloadState(ctx, file.Id, status, dErr.Error(), "", "", 0, "")
 		return nil, "", "", dErr
 	}
 	if strings.TrimSpace(downloadedType) != "" {
@@ -1716,10 +1716,10 @@ func (s *Service) DownloadGeneratedFile(ctx context.Context, id string) ([]byte,
 	if strings.EqualFold(strings.TrimSpace(file.CopyMode), "lazy_cache") || strings.EqualFold(strings.TrimSpace(file.CopyMode), "eager") {
 		payloadID, pErr := s.persistGeneratedFilePayload(ctx, body, contentType)
 		if pErr != nil {
-			_ = s.patchGeneratedFileDownloadState(ctx, file.ID, "failed", pErr.Error(), "", contentType, len(body), "")
+			_ = s.patchGeneratedFileDownloadState(ctx, file.Id, "failed", pErr.Error(), "", contentType, len(body), "")
 		} else {
 			checksum := sha256Hex(body)
-			_ = s.patchGeneratedFileDownloadState(ctx, file.ID, "ready", "", payloadID, contentType, len(body), checksum)
+			_ = s.patchGeneratedFileDownloadState(ctx, file.Id, "ready", "", payloadID, contentType, len(body), checksum)
 		}
 	}
 	return body, contentType, filename, nil
