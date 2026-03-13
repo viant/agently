@@ -10,6 +10,6 @@ import (
 // GeneratedFileClient is an optional extension implemented by concrete
 // conversation clients that support generated-file persistence.
 type GeneratedFileClient interface {
-	GetGeneratedFiles(ctx context.Context, input *gfread.Input) ([]*gfread.GeneratedFileView, error)
+	GetGeneratedFiles(ctx context.Context, input *gfread.GeneratedFileInput) ([]*gfread.GeneratedFileView, error)
 	PatchGeneratedFile(ctx context.Context, generatedFile *gfwrite.GeneratedFile) error
 }

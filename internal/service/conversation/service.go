@@ -68,7 +68,7 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 			initErr = err
 			return
 		}
-		if err := generatedfileread.DefineComponent(ctx, dao); err != nil {
+		if err := generatedfileread.DefineGeneratedFileComponent(ctx, dao); err != nil {
 			initErr = err
 			return
 		}
@@ -254,19 +254,19 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 	return nil
 }
 
-func (s *Service) GetGeneratedFiles(ctx context.Context, input *generatedfileread.Input) ([]*generatedfileread.GeneratedFileView, error) {
+func (s *Service) GetGeneratedFiles(ctx context.Context, input *generatedfileread.GeneratedFileInput) ([]*generatedfileread.GeneratedFileView, error) {
 	if s == nil || s.dao == nil {
 		return nil, errors.New("conversation service not configured: dao is nil")
 	}
-	in := generatedfileread.Input{}
+	in := generatedfileread.GeneratedFileInput{}
 	if input != nil {
 		in = *input
 	}
 	if in.Has == nil {
-		in.Has = &generatedfileread.Has{}
+		in.Has = &generatedfileread.GeneratedFileInputHas{}
 	}
-	out := &generatedfileread.Output{}
-	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(generatedfileread.URI), datly.WithInput(&in)); err != nil {
+	out := &generatedfileread.GeneratedFileOutput{}
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(generatedfileread.GeneratedFilePathURI), datly.WithInput(&in)); err != nil {
 		return nil, err
 	}
 	return out.Data, nil

@@ -56,7 +56,7 @@ func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgI
 		return nil
 	}
 
-	input := &gfread.Input{ConversationID: turn.ConversationID, TurnID: turn.TurnID, MessageID: msgID, Has: &gfread.Has{ConversationID: true, TurnID: true, MessageID: true}}
+	input := &gfread.GeneratedFileInput{ConversationID: turn.ConversationID, TurnID: turn.TurnID, MessageID: msgID, Has: &gfread.GeneratedFileInputHas{ConversationID: true, TurnID: true, MessageID: true}}
 	existing, err := store.GetGeneratedFiles(ctx, input)
 	if err != nil {
 		return err
@@ -66,7 +66,7 @@ func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgI
 		if item == nil {
 			continue
 		}
-		key := generatedFileDedupKey(item.Mode, ptrValueString(item.ContainerID), ptrValueString(item.ProviderFileID), ptrValueString(item.Checksum), ptrValueString(item.Filename))
+		key := generatedFileDedupKey(item.Mode, ptrValueString(item.ContainerId), ptrValueString(item.ProviderFileId), ptrValueString(item.Checksum), ptrValueString(item.Filename))
 		if key == "" {
 			continue
 		}
@@ -148,7 +148,7 @@ func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgI
 		key := generatedFileDedupKey(mode, ref.ContainerID, ref.ProviderFileID, checksum, filename)
 		if existingFile, ok := existingByKey[key]; ok && existingFile != nil {
 			upd := apiconv.NewGeneratedFile()
-			upd.SetID(existingFile.ID)
+			upd.SetID(existingFile.Id)
 			upd.SetCopyMode(copyMode)
 			upd.SetStatus(status)
 			if payloadID != "" {
@@ -212,7 +212,7 @@ func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgI
 		if err := store.PatchGeneratedFile(ctx, rec); err != nil {
 			return err
 		}
-		existingByKey[key] = &gfread.GeneratedFileView{ID: rec.ID}
+		existingByKey[key] = &gfread.GeneratedFileView{Id: rec.ID}
 	}
 	return nil
 }
