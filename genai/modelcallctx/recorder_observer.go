@@ -17,6 +17,19 @@ import (
 	agconv "github.com/viant/agently/pkg/agently/conversation"
 )
 
+const streamPersistModeEnv = "AGENTLY_STREAM_PERSIST_MODE"
+
+const (
+	streamPersistLegacy = iota
+	streamPersistFinal
+	streamPersistBuffered
+)
+
+const (
+	streamPersistBufferedInterval = 300 * time.Millisecond
+	streamPersistBufferedMinBytes = 10 * 1024
+)
+
 // recorderObserver writes model-call data directly using conversation client.
 type recorderObserver struct {
 	client          apiconv.Client
@@ -29,6 +42,8 @@ type recorderObserver struct {
 	streamPayloadID string
 	streamLinked    bool
 	streamStatusSet bool
+	lastFlushAt     time.Time
+	lastFlushSize   int
 	// Optional: resolve token prices for a model (per 1k tokens).
 	priceProvider TokenPriceProvider
 }
@@ -42,6 +57,8 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 	o.streamPayloadID = ""
 	o.streamLinked = false
 	o.streamStatusSet = false
+	o.lastFlushAt = time.Time{}
+	o.lastFlushSize = 0
 	if info.StartedAt.IsZero() {
 		o.start.StartedAt = time.Now()
 	}
@@ -293,7 +310,8 @@ func messageText(msg llm.Message) string {
 
 // OnStreamDelta aggregates streamed chunks. Persistence strategy is controlled
 // by AGENTLY_STREAM_PERSIST_MODE:
-//   - legacy (default): append+upsert on every delta
+//   - legacy (default): upsert full accumulated stream on every delta
+//   - buffered: periodic full flush from in-memory buffer
 //   - final: persist only once on FinishModelCall
 func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error {
 	if len(data) == 0 {
@@ -302,6 +320,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 	o.publishStreamDelta(ctx, data)
 	o.acc.Write(data)
 	msgID := memory.ModelMessageIDFromContext(ctx)
+	mode := streamPersistMode()
 
 	// Attempt to detect provider response id early from OpenAI Responses events.
 	// We look for {"type":"response.created|response.completed","response":{"id":"..."}}.
@@ -321,8 +340,8 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 				if turn, ok := memory.TurnMetaFromContext(ctx); ok {
 					memory.SetTurnTrace(turn.TurnID, strings.TrimSpace(probe.Response.ID))
 				}
-				// In legacy mode, also persist trace id early (one DB write).
-				if !streamPersistFinalOnly() && strings.TrimSpace(msgID) != "" {
+				// In non-final modes, also persist trace id early (one DB write).
+				if mode != streamPersistFinal && strings.TrimSpace(msgID) != "" {
 					upd := apiconv.NewModelCall()
 					upd.SetMessageID(msgID)
 					upd.SetTraceID(strings.TrimSpace(probe.Response.ID))
@@ -331,6 +350,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 			}
 		}
 	}
+
 	// (1) Per-delta persistence is best-effort. If the turn context is already
 	// canceled, keep accumulating in-memory only. Finalization uses a detached
 	// context and will persist the full partial stream from o.acc.
@@ -351,8 +371,14 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 			}
 		}
 	}
-	if streamPersistFinalOnly() {
+
+	switch mode {
+	case streamPersistFinal:
 		return nil
+	case streamPersistBuffered:
+		return o.handleStreamDeltaBuffered(ctx, msgID)
+	default:
+		// Legacy mode below.
 	}
 
 	// Legacy mode: per-delta persistence still happens, but we now rebuild from
@@ -390,6 +416,60 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 			}
 			o.streamLinked = true
 		}
+	}
+	return nil
+}
+
+func (o *recorderObserver) handleStreamDeltaBuffered(ctx context.Context, msgID string) error {
+	// Buffered mode: persist periodically from the in-memory accumulator instead
+	// of on every delta. Finalization still writes the full stream at the end.
+
+	// (3) Resolve stream payload id (message id or new UUID).
+	id := strings.TrimSpace(o.streamPayloadID)
+	if id == "" {
+		if strings.TrimSpace(msgID) != "" {
+			id = strings.TrimSpace(msgID)
+		} else {
+			id = uuid.New().String()
+		}
+		o.streamPayloadID = id
+	}
+
+	now := time.Now()
+	accSize := o.acc.Len()
+
+	// (4) First delta starts the buffering window; defer the initial write until
+	// either enough time passes or enough new bytes accumulate.
+	if o.lastFlushAt.IsZero() {
+		o.lastFlushAt = now
+		o.lastFlushSize = accSize
+		return nil
+	}
+
+	// (5) Flush only when the buffer meaningfully advanced since the last write.
+	if now.Sub(o.lastFlushAt) < streamPersistBufferedInterval && accSize-o.lastFlushSize < streamPersistBufferedMinBytes {
+		return nil
+	}
+
+	// (6) Upsert the full accumulated stream body. Failures are logged and
+	// ignored so persistence issues do not abort the provider stream.
+	if _, err := o.upsertInlinePayload(ctx, id, "model_stream", "text/plain", []byte(o.acc.String())); err != nil {
+		warnf("buffered stream payload update failed message=%q err=%v", strings.TrimSpace(msgID), err)
+		return nil
+	}
+	o.lastFlushAt = now
+	o.lastFlushSize = accSize
+
+	// (7) Link stream payload to model call once. This is also best-effort.
+	if !o.streamLinked && strings.TrimSpace(msgID) != "" {
+		upd := apiconv.NewModelCall()
+		upd.SetMessageID(msgID)
+		upd.SetStreamPayloadID(id)
+		if err := o.client.PatchModelCall(ctx, upd); err != nil {
+			warnf("buffered stream payload link failed message=%q payload=%q err=%v", strings.TrimSpace(msgID), strings.TrimSpace(id), err)
+			return nil
+		}
+		o.streamLinked = true
 	}
 	return nil
 }
@@ -710,16 +790,16 @@ func debugPricingf(format string, args ...interface{}) {
 	fmt.Printf("[pricing] "+format+"\n", args...)
 }
 
-const streamPersistModeEnv = "AGENTLY_STREAM_PERSIST_MODE"
-
-// streamPersistFinalOnly reports whether we should persist stream payload only once at finish.
-// Accepts: "final" | "finish" | "onfinish". Default (empty/unknown) is legacy per-delta persistence.
-func streamPersistFinalOnly() bool {
+// streamPersistMode returns the selected persistence mode.
+// Accepts: "legacy" (default), "final|finish|onfinish", "buffered".
+func streamPersistMode() int {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv(streamPersistModeEnv)))
 	switch v {
 	case "final", "finish", "onfinish":
-		return true
+		return streamPersistFinal
+	case "buffered":
+		return streamPersistBuffered
 	default:
-		return false
+		return streamPersistLegacy
 	}
 }
