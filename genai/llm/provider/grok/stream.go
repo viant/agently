@@ -207,8 +207,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			var streamTxt string
 			if lastLR != nil {
 				for _, ch := range lastLR.Choices {
-					if strings.TrimSpace(ch.Message.Content) != "" {
-						streamTxt = strings.TrimSpace(ch.Message.Content)
+					if ch.Message.Content != "" {
+						streamTxt = ch.Message.Content
 						break
 					}
 				}
