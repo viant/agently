@@ -161,7 +161,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	var b strings.Builder
 	// keep for completeness
 	for _, ev := range output.Events {
-		if ev.Type == "chunk" && strings.TrimSpace(ev.Content) != "" {
+		if ev.Type == "chunk" && ev.Content != "" {
 			b.WriteString(ev.Content)
 		}
 	}

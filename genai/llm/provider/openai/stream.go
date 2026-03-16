@@ -107,7 +107,7 @@ func (p *streamProcessor) removeAlreadyEmittedToolCalls(lr *llm.GenerateResponse
 		}
 		msg.ToolCalls = kept
 		// If a choice becomes empty (no tool calls and no text), drop it.
-		hasText := strings.TrimSpace(msg.Content) != ""
+		hasText := msg.Content != ""
 		if hasText || len(msg.ToolCalls) > 0 {
 			ch.Message = msg
 			out = append(out, ch)
@@ -468,8 +468,8 @@ func (p *streamProcessor) finalize(scannerErr error) {
 		var streamTxt string
 		if p.state.lastLR != nil {
 			for _, ch := range p.state.lastLR.Choices {
-				if strings.TrimSpace(ch.Message.Content) != "" {
-					streamTxt = strings.TrimSpace(ch.Message.Content)
+				if ch.Message.Content != "" {
+					streamTxt = ch.Message.Content
 					break
 				}
 			}
