@@ -270,7 +270,7 @@ func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput
 		output.Events = append(output.Events, s.toolCallEvents(resp.ResponseID, &choice)...)
 	}
 	// Text chunk
-	if content := strings.TrimSpace(choice.Message.Content); content != "" {
+	if content := choice.Message.Content; content != "" {
 		output.Events = append(output.Events, stream.Event{Type: "chunk", Content: content})
 	}
 	// Done

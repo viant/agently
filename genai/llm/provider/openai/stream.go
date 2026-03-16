@@ -362,7 +362,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			p.agg.updateDelta(ch)
 			// Emit text stream delta to observer when content arrives
 			if ch.Delta.Content != nil {
-				if txt := strings.TrimSpace(*ch.Delta.Content); txt != "" && p.observer != nil {
+				if txt := *ch.Delta.Content; txt != "" && p.observer != nil {
 					if err := p.observer.OnStreamDelta(p.ctx, []byte(txt)); err != nil {
 						p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
 						return false

@@ -161,6 +161,25 @@ func TestCanRetryStreamConsume(t *testing.T) {
 	assert.False(t, canRetryStreamConsume(err500, &StreamOutput{Events: []stream.Event{{Type: "chunk", Content: "partial"}}}))
 }
 
+func TestService_AppendStreamEvent_PreservesWhitespaceContent(t *testing.T) {
+	svc := &Service{}
+	out := &StreamOutput{}
+
+	err := svc.appendStreamEvent(&llm.StreamEvent{
+		Response: &llm.GenerateResponse{
+			Choices: []llm.Choice{
+				{
+					Message: llm.Message{Content: " "},
+				},
+			},
+		},
+	}, out)
+	require.NoError(t, err)
+	require.Len(t, out.Events, 1)
+	assert.Equal(t, "chunk", out.Events[0].Type)
+	assert.Equal(t, " ", out.Events[0].Content)
+}
+
 func TestIsTransientNetworkError_Status500And503(t *testing.T) {
 	err500 := fmt.Errorf("failed to handle Stream event: OpenAI API error (status 500): server error (type=server_error)")
 	err503 := fmt.Errorf("failed to start Stream: provider unavailable (status 503)")
