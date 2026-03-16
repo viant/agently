@@ -295,6 +295,64 @@ func TestOnCallEnd_DoesNotPatchConversationWhenFinishModelCallFails(t *testing.T
 	assert.EqualValues(t, 0, client.patchConversationCount)
 }
 
+func TestRecorderObserver_OnStreamDelta_IgnoresCanceledPersistenceAndFinalizesAccumulatedStream(t *testing.T) {
+	t.Setenv(streamPersistModeEnv, "")
+
+	baseClient := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	if err := baseClient.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+		t.Fatalf("failed to seed conversation: %v", err)
+	}
+
+	runCtx, cancel := context.WithCancel(base)
+	client := &cancelAwarePayloadClient{Client: baseClient}
+	ctx := WithRecorderObserver(runCtx, client)
+	ob := ObserverFromContext(ctx)
+	if ob == nil {
+		t.Fatalf("observer not injected")
+	}
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	if err != nil {
+		t.Fatalf("OnCallStart error: %v", err)
+	}
+
+	cancel()
+
+	if err := ob.OnStreamDelta(ctx2, []byte("Hello")); err != nil {
+		t.Fatalf("OnStreamDelta first chunk error: %v", err)
+	}
+	if err := ob.OnStreamDelta(ctx2, []byte(" world")); err != nil {
+		t.Fatalf("OnStreamDelta second chunk error: %v", err)
+	}
+
+	if err := CloseIfOpen(ctx2, Info{CompletedAt: time.Now()}); err != nil {
+		t.Fatalf("CloseIfOpen error: %v", err)
+	}
+
+	msgID := memory.ModelMessageIDFromContext(ctx2)
+	if msgID == "" {
+		t.Fatalf("message id not set in context")
+	}
+	msg, err := baseClient.GetMessage(context.Background(), msgID)
+	if err != nil || msg == nil || msg.ModelCall == nil {
+		t.Fatalf("missing model call after CloseIfOpen: %v", err)
+	}
+	assert.EqualValues(t, "canceled", msg.ModelCall.Status)
+	if msg.ModelCall.StreamPayloadId == nil || strings.TrimSpace(*msg.ModelCall.StreamPayloadId) == "" {
+		t.Fatalf("expected stream payload id")
+	}
+	payload, err := baseClient.GetPayload(context.Background(), *msg.ModelCall.StreamPayloadId)
+	if err != nil || payload == nil || payload.InlineBody == nil {
+		t.Fatalf("missing stream payload: %v", err)
+	}
+	assert.Equal(t, "Hello world", string(*payload.InlineBody))
+}
+
 type failingPayloadClient struct {
 	apiconv.Client
 	failAtCount            int
@@ -313,4 +371,15 @@ func (f *failingPayloadClient) PatchPayload(ctx context.Context, payload *apicon
 func (f *failingPayloadClient) PatchConversations(ctx context.Context, conversations *apiconv.MutableConversation) error {
 	f.patchConversationCount++
 	return f.Client.PatchConversations(ctx, conversations)
+}
+
+type cancelAwarePayloadClient struct {
+	apiconv.Client
+}
+
+func (c *cancelAwarePayloadClient) PatchPayload(ctx context.Context, payload *apiconv.MutablePayload) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return c.Client.PatchPayload(ctx, payload)
 }

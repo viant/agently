@@ -331,61 +331,62 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 			}
 		}
 	}
-	if streamPersistFinalOnly() {
-		// (1) Final-only mode: skip per-delta persistence.
-		// (2) Best-effort: mark model call as streaming once for status visibility.
-		if !o.streamStatusSet {
-			if strings.TrimSpace(msgID) != "" {
-				upd := apiconv.NewModelCall()
-				upd.SetMessageID(msgID)
-				upd.SetStatus("streaming")
-				_ = o.client.PatchModelCall(ctx, upd)
-			}
-			o.streamStatusSet = true
-		}
+	// (1) Per-delta persistence is best-effort. If the turn context is already
+	// canceled, keep accumulating in-memory only. Finalization uses a detached
+	// context and will persist the full partial stream from o.acc.
+	if ctx.Err() != nil {
 		return nil
 	}
-	// Legacy mode: per-delta persistence (read + append + full rewrite).
-	// (1) Resolve stream payload id (message id or new UUID).
+
+	// (2) Mark model call as streaming once for status visibility. This remains
+	// best-effort because a status write failure should not abort the stream.
+	if !o.streamStatusSet {
+		o.streamStatusSet = true
+		if strings.TrimSpace(msgID) != "" {
+			upd := apiconv.NewModelCall()
+			upd.SetMessageID(msgID)
+			upd.SetStatus("streaming")
+			if err := o.client.PatchModelCall(ctx, upd); err != nil {
+				warnf("patchModelCall streaming status failed message=%q err=%v", strings.TrimSpace(msgID), err)
+			}
+		}
+	}
+	if streamPersistFinalOnly() {
+		return nil
+	}
+
+	// Legacy mode: per-delta persistence still happens, but we now rebuild from
+	// the in-memory accumulator instead of read-append-rewrite via GetPayload.
+	// This avoids extra DB reads and keeps the full partial stream available
+	// even when an intermediate write is skipped or fails.
+
+	// (3) Resolve stream payload id (message id or new UUID).
 	id := strings.TrimSpace(o.streamPayloadID)
 	if id == "" {
-		// Prefer using message id as stream payload id on first chunk
 		if msgID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)); msgID != "" {
 			id = msgID
 		} else {
 			id = uuid.New().String()
 		}
 		o.streamPayloadID = id
-
 	}
 
-	// (2) Load current payload body (GetPayload).
-	var cur []byte
-	pv, err := o.client.GetPayload(ctx, id)
-	if err == nil && pv != nil && pv.InlineBody != nil {
-		cur = *pv.InlineBody
-	}
-	if pv == nil {
-		// (3) Mark model call as streaming on first payload upsert.
-		modelCall := apiconv.NewModelCall()
-		modelCall.SetMessageID(msgID)
-		modelCall.SetStatus("streaming")
-		o.client.PatchModelCall(ctx, modelCall)
+	// (4) Upsert the full accumulated stream body. Failures are logged and
+	// ignored so persistence issues do not abort the provider stream.
+	if _, err := o.upsertInlinePayload(ctx, id, "model_stream", "text/plain", []byte(o.acc.String())); err != nil {
+		warnf("stream delta payload update failed message=%q err=%v", strings.TrimSpace(msgID), err)
+		return nil
 	}
 
-	// (4) Append delta to current body and upsert full payload.
-	next := append(cur, data...)
-	if _, err := o.upsertInlinePayload(ctx, id, "model_stream", "text/plain", next); err != nil {
-		return fmt.Errorf("failed to update model stream: %w", err)
-	}
-	// (5) Link stream payload to model call once.
+	// (5) Link stream payload to model call once. This is also best-effort.
 	if !o.streamLinked {
 		if strings.TrimSpace(msgID) != "" {
 			upd := apiconv.NewModelCall()
 			upd.SetMessageID(msgID)
 			upd.SetStreamPayloadID(id)
 			if err := o.client.PatchModelCall(ctx, upd); err != nil {
-				return fmt.Errorf("failed to update model payload: %w", err)
+				warnf("stream payload link failed message=%q payload=%q err=%v", strings.TrimSpace(msgID), strings.TrimSpace(id), err)
+				return nil
 			}
 			o.streamLinked = true
 		}
