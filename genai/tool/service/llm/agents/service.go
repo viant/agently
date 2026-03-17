@@ -90,7 +90,7 @@ func (s *Service) Name() string { return Name }
 
 // ToolTimeout suggests a larger timeout for llm/agents service tools which run
 // full agent turns.
-func (s *Service) ToolTimeout() time.Duration { return 15 * time.Minute } // TODO UNCOMMENT
+func (s *Service) ToolTimeout() time.Duration { return 20 * time.Minute } // TODO UNCOMMENT
 //func (s *Service) ToolTimeout() time.Duration { return 60 * time.Second } // TODO DELETE
 
 // Methods returns available methods.
