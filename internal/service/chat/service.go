@@ -32,6 +32,7 @@ import (
 	execcfg "github.com/viant/agently/genai/executor/config"
 	"github.com/viant/agently/genai/llm"
 	"github.com/viant/agently/genai/memory"
+	"github.com/viant/agently/genai/modelcallctx"
 	promptpkg "github.com/viant/agently/genai/prompt"
 	agentpkg "github.com/viant/agently/genai/service/agent"
 	agentsrv "github.com/viant/agently/genai/service/agent"
@@ -900,6 +901,7 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 
 	// Apply policy and conversation ID.
 	runCtx = memory.WithConversationID(runCtx, conversationID)
+	runCtx = s.applyScheduledStreamPersistMode(runCtx, conversationID, turnID)
 	if s.toolPolicy != nil {
 		runCtx = tool.WithPolicy(runCtx, s.toolPolicy)
 	} else {
@@ -947,6 +949,51 @@ func (s *Service) executeQueuedTurn(parent context.Context, conversationID, turn
 	}
 	debugf("executeQueuedTurn completed conversation_id=%q turn_id=%q", strings.TrimSpace(conversationID), strings.TrimSpace(turnID))
 	return nil
+}
+
+func (s *Service) applyScheduledStreamPersistMode(ctx context.Context, conversationID, turnID string) context.Context {
+	if s == nil || s.convClient == nil || strings.TrimSpace(conversationID) == "" {
+		return ctx
+	}
+	conv, err := s.convClient.GetConversation(ctx, conversationID)
+	if err != nil {
+		debugf("executeQueuedTurn load conversation for stream persist mode error conversation_id=%q turn_id=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), err)
+		return ctx
+	}
+	if !isScheduledConversation(conv) {
+		return ctx
+	}
+	debugf(
+		"executeQueuedTurn forcing buffered stream persistence conversation_id=%q turn_id=%q schedule_id=%q schedule_run_id=%q",
+		strings.TrimSpace(conversationID),
+		strings.TrimSpace(turnID),
+		trimmedPtr(conv.ScheduleId),
+		trimmedPtr(conv.ScheduleRunId),
+	)
+	return modelcallctx.WithStreamPersistMode(ctx, "buffered")
+}
+
+func isScheduledConversation(conv *apiconv.Conversation) bool {
+	if conv == nil {
+		return false
+	}
+	if conv.Scheduled != nil && *conv.Scheduled == 1 {
+		return true
+	}
+	if trimmedPtr(conv.ScheduleId) != "" {
+		return true
+	}
+	if trimmedPtr(conv.ScheduleRunId) != "" {
+		return true
+	}
+	return false
+}
+
+func trimmedPtr(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return strings.TrimSpace(*v)
 }
 
 func (s *Service) waitForQueuedMessage(ctx context.Context, turnID string) (*apiconv.Message, error) {

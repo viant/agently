@@ -119,3 +119,47 @@ func TestService_PersistTurnFailure_UpdatesSeedMessageStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestIsScheduledConversation(t *testing.T) {
+	one := 1
+	scheduleID := "sched-1"
+	runID := "run-1"
+
+	testCases := []struct {
+		name string
+		conv *apiconv.Conversation
+		want bool
+	}{
+		{
+			name: "scheduled flag",
+			conv: &apiconv.Conversation{Scheduled: &one},
+			want: true,
+		},
+		{
+			name: "schedule id only",
+			conv: &apiconv.Conversation{ScheduleId: &scheduleID},
+			want: true,
+		},
+		{
+			name: "schedule run id only",
+			conv: &apiconv.Conversation{ScheduleRunId: &runID},
+			want: true,
+		},
+		{
+			name: "manual conversation",
+			conv: &apiconv.Conversation{},
+			want: false,
+		},
+		{
+			name: "nil conversation",
+			conv: nil,
+			want: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, isScheduledConversation(tc.conv))
+		})
+	}
+}
