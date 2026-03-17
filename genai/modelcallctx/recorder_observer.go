@@ -19,6 +19,8 @@ import (
 
 const streamPersistModeEnv = "AGENTLY_STREAM_PERSIST_MODE"
 
+type streamPersistModeOverrideKey struct{}
+
 const (
 	streamPersistLegacy = iota
 	streamPersistFinal
@@ -309,7 +311,7 @@ func messageText(msg llm.Message) string {
 }
 
 // OnStreamDelta aggregates streamed chunks. Persistence strategy is controlled
-// by AGENTLY_STREAM_PERSIST_MODE:
+// by a context override when present, otherwise AGENTLY_STREAM_PERSIST_MODE:
 //   - legacy (default): upsert full accumulated stream on every delta
 //   - buffered: periodic full flush from in-memory buffer
 //   - final: persist only once on FinishModelCall
@@ -320,7 +322,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 	o.publishStreamDelta(ctx, data)
 	o.acc.Write(data)
 	msgID := memory.ModelMessageIDFromContext(ctx)
-	mode := streamPersistMode()
+	mode := streamPersistMode(ctx)
 
 	// Attempt to detect provider response id early from OpenAI Responses events.
 	// We look for {"type":"response.created|response.completed","response":{"id":"..."}}.
@@ -790,16 +792,43 @@ func debugPricingf(format string, args ...interface{}) {
 	fmt.Printf("[pricing] "+format+"\n", args...)
 }
 
-// streamPersistMode returns the selected persistence mode.
-// Accepts: "legacy" (default), "final|finish|onfinish", "buffered".
-func streamPersistMode() int {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv(streamPersistModeEnv)))
-	switch v {
+// WithStreamPersistMode overrides stream persistence mode for the current call
+// context. Invalid values are ignored so callers can safely pass best-effort
+// scheduler hints.
+func WithStreamPersistMode(ctx context.Context, mode string) context.Context {
+	parsed, ok := parseStreamPersistMode(mode)
+	if !ok {
+		return ctx
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, streamPersistModeOverrideKey{}, parsed)
+}
+
+// streamPersistMode returns the selected persistence mode. Context override
+// wins over AGENTLY_STREAM_PERSIST_MODE.
+func streamPersistMode(ctx context.Context) int {
+	if ctx != nil {
+		if mode, ok := ctx.Value(streamPersistModeOverrideKey{}).(int); ok {
+			return mode
+		}
+	}
+	if mode, ok := parseStreamPersistMode(os.Getenv(streamPersistModeEnv)); ok {
+		return mode
+	}
+	return streamPersistLegacy
+}
+
+func parseStreamPersistMode(v string) (int, bool) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "legacy":
+		return streamPersistLegacy, true
 	case "final", "finish", "onfinish":
-		return streamPersistFinal
+		return streamPersistFinal, true
 	case "buffered":
-		return streamPersistBuffered
+		return streamPersistBuffered, true
 	default:
-		return streamPersistLegacy
+		return 0, false
 	}
 }

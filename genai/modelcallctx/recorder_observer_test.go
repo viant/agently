@@ -420,6 +420,61 @@ func TestRecorderObserver_OnStreamDelta_BufferedModeFlushesOnInterval(t *testing
 	assert.Equal(t, recorder.streamPayloadID, strings.TrimSpace(*msg.ModelCall.StreamPayloadId))
 }
 
+func TestRecorderObserver_OnStreamDelta_ContextOverrideBufferedModeWinsOverEnv(t *testing.T) {
+	t.Setenv(streamPersistModeEnv, "final")
+
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	base = WithStreamPersistMode(base, "buffered")
+	if err := client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+		t.Fatalf("failed to seed conversation: %v", err)
+	}
+
+	ctx := WithRecorderObserver(base, client)
+	ob := ObserverFromContext(ctx)
+	if ob == nil {
+		t.Fatalf("observer not injected")
+	}
+	recorder, ok := ob.(*recorderObserver)
+	if !ok {
+		t.Fatalf("expected recorderObserver, got %T", ob)
+	}
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	if err != nil {
+		t.Fatalf("OnCallStart error: %v", err)
+	}
+
+	if err := ob.OnStreamDelta(ctx2, []byte("Hello")); err != nil {
+		t.Fatalf("OnStreamDelta first chunk error: %v", err)
+	}
+	if strings.TrimSpace(recorder.streamPayloadID) == "" {
+		t.Fatalf("expected buffered stream payload id")
+	}
+	payload, err := client.GetPayload(context.Background(), recorder.streamPayloadID)
+	if err != nil {
+		t.Fatalf("GetPayload error: %v", err)
+	}
+	if payload != nil {
+		t.Fatalf("expected buffered override to defer first payload write")
+	}
+
+	recorder.lastFlushAt = time.Now().Add(-streamPersistBufferedInterval)
+	if err := ob.OnStreamDelta(ctx2, []byte(" world")); err != nil {
+		t.Fatalf("OnStreamDelta second chunk error: %v", err)
+	}
+
+	payload, err = client.GetPayload(context.Background(), recorder.streamPayloadID)
+	if err != nil || payload == nil || payload.InlineBody == nil {
+		t.Fatalf("missing buffered stream payload: %v", err)
+	}
+	assert.Equal(t, "Hello world", string(*payload.InlineBody))
+}
+
 type failingPayloadClient struct {
 	apiconv.Client
 	failAtCount            int
