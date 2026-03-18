@@ -1988,14 +1988,8 @@ func (s *Server) handleTerminateConversation(w http.ResponseWriter, r *http.Requ
 		encode(w, http.StatusInternalServerError, nil, fmt.Errorf("chat service not initialised"))
 		return
 	}
-	cancelled = s.chatSvc.Cancel(convID)
-	// Preserve request context (auth/user) when patching the last turn/message; fall back to background only
-	// if the request context is already canceled.
-	ctx := r.Context()
-	if ctx.Err() != nil {
-		ctx = context.Background()
-	}
-	if err := s.chatSvc.SetLastAssistentMessageStatus(ctx, convID, "canceled"); err != nil {
+	cancelled, err := s.chatSvc.TerminateConversation(r.Context(), convID)
+	if err != nil {
 		encode(w, http.StatusInternalServerError, nil, err)
 		return
 	}

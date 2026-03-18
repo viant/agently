@@ -43,6 +43,10 @@ type Service struct {
 	authCfg    *authctx.Config
 }
 
+type conversationTerminator interface {
+	TerminateConversation(context.Context, string) (bool, error)
+}
+
 // New constructs a scheduler service requiring both a schedule store client and a chat client.
 func New(sch schcli.Client, chat chatcli.Client) (schapi.Client, error) {
 	if sch == nil {
@@ -471,6 +475,12 @@ func (s *Service) cancelConversationAndMark(ctx context.Context, conversationID 
 	}
 	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
+		return
+	}
+
+	if terminator, ok := s.chat.(conversationTerminator); ok {
+		canceled, err := terminator.TerminateConversation(ctx, conversationID)
+		debugf("cancelConversationAndMark terminate conversation conversation_id=%q canceled=%v err=%v", conversationID, canceled, err)
 		return
 	}
 
