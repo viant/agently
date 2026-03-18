@@ -1139,6 +1139,195 @@ func (s *Service) Cancel(conversationID string) bool {
 	return canceled
 }
 
+// TerminateConversation applies the shared termination path used by manual UI
+// aborts and scheduler-driven stale/watchdog cleanup. It sends a best-effort
+// live cancel signal and then persists terminal canceled state for the root
+// conversation plus any linked child conversations that did not finalize on
+// their own.
+func (s *Service) TerminateConversation(ctx context.Context, conversationID string) (bool, error) {
+	if s == nil {
+		return false, fmt.Errorf("chat service not configured")
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return false, fmt.Errorf("conversation id required")
+	}
+
+	canceled := s.Cancel(conversationID)
+
+	persistCtx := context.Background()
+	if ctx != nil {
+		persistCtx = context.WithoutCancel(ctx)
+	}
+
+	var errs []error
+	conversationIDs, err := s.listConversationTreeIDs(persistCtx, conversationID)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	completedAt := time.Now()
+	for _, currentID := range conversationIDs {
+		if currentID == "" {
+			continue
+		}
+		if currentID != conversationID {
+			canceled = s.Cancel(currentID) || canceled
+		}
+		if err := s.persistConversationTermination(persistCtx, currentID, completedAt); err != nil {
+			errs = append(errs, fmt.Errorf("terminate conversation %s: %w", currentID, err))
+		}
+	}
+	return canceled, errors.Join(errs...)
+}
+
+func (s *Service) listConversationTreeIDs(ctx context.Context, rootID string) ([]string, error) {
+	if s == nil || s.convClient == nil {
+		return []string{rootID}, nil
+	}
+	visited := map[string]struct{}{rootID: {}}
+	queue := []string{rootID}
+	ret := []string{rootID}
+	var errs []error
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		input := &apiconv.Input{ParentId: current, Has: &agconv.ConversationInputHas{ParentId: true}}
+		rows, err := s.convClient.GetConversations(ctx, input)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("list children for %s: %w", current, err))
+			continue
+		}
+
+		children := make([]string, 0, len(rows))
+		for _, conv := range rows {
+			if conv == nil {
+				continue
+			}
+			id := strings.TrimSpace(conv.Id)
+			parentID := ptrStringOr(conv.ConversationParentId, "")
+			if id == "" || parentID != current {
+				continue
+			}
+			children = append(children, id)
+		}
+		sort.Strings(children)
+		for _, childID := range children {
+			if _, ok := visited[childID]; ok {
+				continue
+			}
+			visited[childID] = struct{}{}
+			ret = append(ret, childID)
+			queue = append(queue, childID)
+		}
+	}
+	return ret, errors.Join(errs...)
+}
+
+func (s *Service) persistConversationTermination(ctx context.Context, conversationID string, completedAt time.Time) error {
+	if s == nil || s.convClient == nil || strings.TrimSpace(conversationID) == "" {
+		return nil
+	}
+
+	conv, err := s.convClient.GetConversation(ctx, conversationID, apiconv.WithIncludeToolCall(true))
+	if err != nil {
+		return err
+	}
+	if conv == nil {
+		return nil
+	}
+
+	var errs []error
+	transcript := conv.GetTranscript()
+	if len(transcript) > 0 && transcript[len(transcript)-1] != nil {
+		last := transcript[len(transcript)-1]
+		if !isTerminalTurnStatus(last.Status) {
+			if err := s.SetTurnStatus(ctx, last.Id, "canceled"); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if msg := latestAssistantMessage(last.Message); msg != nil && !isTerminalMessageStatus(ptrStringOr(msg.Status, "")) {
+			if err := s.SetMessageStatus(ctx, msg.Id, "canceled"); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		for _, msg := range last.Message {
+			if msg == nil || msg.ToolCall == nil || isTerminalToolStatus(msg.ToolCall.Status) {
+				continue
+			}
+			upd := apiconv.NewToolCall()
+			upd.SetMessageID(msg.ToolCall.MessageId)
+			upd.SetOpID(msg.ToolCall.OpId)
+			upd.SetStatus("canceled")
+			errorMessage := "conversation terminated"
+			upd.ErrorMessage = &errorMessage
+			upd.Has.ErrorMessage = true
+			upd.CompletedAt = &completedAt
+			upd.Has.CompletedAt = true
+			if err := s.convClient.PatchToolCall(ctx, upd); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	if !isTerminalConversationStatus(ptrStringOr(conv.Status, "")) {
+		if err := s.SetConversationStatus(ctx, conversationID, "canceled"); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func latestAssistantMessage(messages []*agconv.MessageView) *agconv.MessageView {
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg == nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+			return msg
+		}
+	}
+	return nil
+}
+
+func isTerminalConversationStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed", "succeeded", "failed", "canceled", "cancelled", "pruned", "compacted":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTerminalTurnStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed", "succeeded", "failed", "canceled", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTerminalMessageStatus(status string) bool {
+	switch shared.NormalizeMessageStatus(status) {
+	case "accepted", "rejected", "cancel", "completed", "summary", "summarized":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTerminalToolStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed", "failed", "canceled", "cancelled", "succeeded":
+		return true
+	default:
+		return false
+	}
+}
+
 // CancelTurn aborts a specific user turn (keyed by messageId) if running.
 func (s *Service) CancelTurn(turnID string) bool {
 	if s == nil || s.reg == nil {

@@ -886,6 +886,9 @@ func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableCo
 	if src.Has.Metadata {
 		dst.Metadata = src.Metadata
 	}
+	if src.Has.Status {
+		dst.Status = src.Status
+	}
 }
 
 func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {

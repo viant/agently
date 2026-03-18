@@ -238,13 +238,14 @@ func (f *fakeScheduleStore) ReleaseRunLease(_ context.Context, runID, _ string) 
 }
 
 type fakeChat struct {
-	createdConversationIDs []string
-	createdConversationReq []chatcli.CreateConversationRequest
-	posted                 []string
-	cancelReturn           bool
-	canceledConversationID []string
-	lastAssistantStatus    []string
-	convClient             agconversation.Client
+	createdConversationIDs   []string
+	createdConversationReq   []chatcli.CreateConversationRequest
+	posted                   []string
+	cancelReturn             bool
+	canceledConversationID   []string
+	lastAssistantStatus      []string
+	terminatedConversationID []string
+	convClient               agconversation.Client
 }
 
 func (f *fakeChat) AttachManager(_ *conversation.Manager, _ *tool.Policy) {}
@@ -261,6 +262,10 @@ func (f *fakeChat) Post(_ context.Context, _ string, req chatcli.PostRequest) (s
 func (f *fakeChat) Cancel(conversationID string) bool {
 	f.canceledConversationID = append(f.canceledConversationID, conversationID)
 	return f.cancelReturn
+}
+func (f *fakeChat) TerminateConversation(_ context.Context, conversationID string) (bool, error) {
+	f.terminatedConversationID = append(f.terminatedConversationID, strings.TrimSpace(conversationID))
+	return f.cancelReturn, nil
 }
 func (f *fakeChat) CancelTurn(string) bool { return false }
 func (f *fakeChat) ConversationClient() agconversation.Client {
@@ -806,8 +811,7 @@ func TestService_RunDue_LeaseExpiredRunningRunForSlot_FailsEvenWhenTimeoutNotExc
 	assert.True(t, store.patchedRuns[0].CompletedAt != nil)
 	assert.EqualValues(t, 1, len(store.patchedSchedules))
 	assert.True(t, store.patchedSchedules[0].NextRunAt != nil)
-	assert.EqualValues(t, []string{"conv-1"}, chat.canceledConversationID)
-	assert.EqualValues(t, []string{"conv-1:canceled"}, chat.lastAssistantStatus)
+	assert.EqualValues(t, []string{"conv-1"}, chat.terminatedConversationID)
 }
 
 func TestService_RunDue_StaleRunningRunForOlderSlot_UpdatesScheduleLastResultAndStartsNewRun(t *testing.T) {
