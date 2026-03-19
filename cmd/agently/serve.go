@@ -32,10 +32,12 @@ import (
 	protoclient "github.com/viant/mcp-protocol/client"
 	authtransport "github.com/viant/mcp/client/auth/transport"
 	"gopkg.in/yaml.v3"
+
+	v1app "github.com/viant/agently/v1"
 )
 
 // ServeCmd starts the embedded HTTP server.
-// Usage: agently serve --addr :8080
+// Usage: agently serve [legacy] --addr :8080
 type ServeCmd struct {
 	Addr      string `short:"a" long:"addr" description:"listen address" default:":8080"`
 	Policy    string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
@@ -46,7 +48,15 @@ type ServeCmd struct {
 	Log string `long:"log" description:"unified log (LLM, TOOL, TASK)" default:"agently.log"`
 }
 
-func (s *ServeCmd) Execute(_ []string) error {
+func (s *ServeCmd) Execute(args []string) error {
+	target, err := serveTarget(args)
+	if err != nil {
+		return err
+	}
+	if target == "v1" {
+		return v1app.Serve(v1app.ServeOptions{Addr: s.Addr})
+	}
+
 	applyRuntimeConfig()
 	log.Printf("[workspace] %s", workspace.Root())
 	// Construct shared MCP router and per-conversation manager before executor init
@@ -207,6 +217,23 @@ func (s *ServeCmd) Execute(_ []string) error {
 		}
 		return err
 	}
+}
+
+func serveTarget(args []string) (string, error) {
+	if len(args) == 0 {
+		return "v1", nil
+	}
+	target := strings.TrimSpace(args[0])
+	if target == "" {
+		return "v1", nil
+	}
+	if (target == "v1" || target == "legacy") && len(args) == 1 {
+		return target, nil
+	}
+	if target == "v1" || target == "legacy" {
+		return "", fmt.Errorf("unsupported serve target arguments %q: use `agently serve`, `agently serve v1`, or `agently serve legacy`", strings.Join(args, " "))
+	}
+	return "", fmt.Errorf("unsupported serve target %q: use `agently serve`, `agently serve v1`, or `agently serve legacy`", target)
 }
 
 func applyRuntimeConfig() {

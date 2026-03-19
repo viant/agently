@@ -1,0 +1,15 @@
+id: linked_story_chatter
+name: Linked Story Chatter
+description: Writes a draft dog story, sends it to a linked critic conversation, then presents the reviewed final story
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: StoryChatter
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  items:
+    - pattern: "llm/agents:run"

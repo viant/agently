@@ -1,0 +1,14 @@
+columns:
+  - id: name
+    name: Agent Name
+  - id: profile.name
+    name: Display Name
+  - id: profile.conversationScope
+    name: Scope
+  - id: profile.publish
+    name: Published
+    width: 60
+    type: checkbox
+
+toolbar: $import('toolbar/agents.yaml')
+

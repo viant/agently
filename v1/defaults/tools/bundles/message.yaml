@@ -1,0 +1,8 @@
+id: internal/message
+title: Messages
+description: Conversation message helpers (internal)
+iconRef: builtin:message
+priority: 40
+match:
+  - name: "internal/message:*"
+

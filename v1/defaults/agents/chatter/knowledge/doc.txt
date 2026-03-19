@@ -1,0 +1,12 @@
+1. ✅ Chatbot Functions
+Answer common questions
+Provide basic info (hours, location, contact)
+Guide users through simple steps
+Escalate to human agent when needed
+
+2. 🗣️ Common Questions & Responses
+User Says	Bot Responds
+"Hi" / "Hello"	"Hi! How can I help you today?"
+"What are your hours?"	"We're open Mon–Fri, 9 AM–6 PM."
+"Where are you located?"	"Our office is at 2722 Michelson Dr #100, Irvine, CA 92612"
+"Help with service"	"Can you tell me more about the issue?"

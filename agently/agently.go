@@ -12,6 +12,7 @@ import (
 	_ "github.com/viant/afsc/s3"
 	"github.com/viant/agently"
 	cagently "github.com/viant/agently/cmd/agently"
+	"github.com/viant/agently/internal/gobootstrap"
 	_ "github.com/viant/bigquery"
 )
 
@@ -20,6 +21,7 @@ import (
 var Version = agently.Version
 
 func main() {
+	gobootstrap.EnableDiagnostics()
 
 	// Expose version to the CLI layer so `-v/--version` can print it.
 	cagently.SetVersion(Version)

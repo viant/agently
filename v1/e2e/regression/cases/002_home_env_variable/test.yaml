@@ -1,0 +1,30 @@
+pipeline:
+  homeEnv:
+    action: webdriver:run
+    description: ask chatter to resolve HOME env variable through the browser UI
+    Browser: chrome
+    SessionID: localhost:${webdriverPort}
+    navigation:
+      TimeoutMs: 30000
+    commands:
+      - get(${appURL})
+      - (xpath://button[contains(.,'New Conversation')]).click
+      - (xpath://*[@data-testid='chat-composer-input']).clear
+      - (xpath://*[@data-testid='chat-composer-input']).sendKeys(show me HOME env variable)
+      - (xpath://*[@data-testid='chat-composer-send']).click
+      - command: execution = (xpath://body).text
+        exit: $execution.Text:/Execution details/
+        waitTimeMs: 120000
+        repeat: 120
+      - command: toolRow = (xpath://body).text
+        exit: $toolRow.Text:/system\\/os\\/getEnv|system_os-getEnv/
+        waitTimeMs: 120000
+        repeat: 120
+      - command: body = (xpath://body).text
+        exit: $body.Text:/Users\\/awitas/
+        waitTimeMs: 120000
+        repeat: 120
+      - close
+    expect:
+      body:
+        Text: /Users\/awitas/

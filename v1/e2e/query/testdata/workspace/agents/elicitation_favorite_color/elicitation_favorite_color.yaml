@@ -1,0 +1,13 @@
+id: elicitation_favorite_color
+name: Elicitation Favorite Color
+description: Agent that must request favorite color via structured elicitation before answering.
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: ElicitationProbe
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

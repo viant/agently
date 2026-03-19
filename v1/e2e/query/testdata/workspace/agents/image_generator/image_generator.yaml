@@ -1,0 +1,13 @@
+id: image_generator
+name: Image Generator
+description: Generates deterministic image artifacts for terminal e2e validation
+modelRef: openai_gpt-5.2
+temperature: 0
+persona:
+  role: assistant
+  actor: ImageBot
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

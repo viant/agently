@@ -3,6 +3,7 @@ package agently
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	urlpkg "net/url"
@@ -11,7 +12,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/viant/agently/genai/agent/plan"
+	coreplan "github.com/viant/agently-core/protocol/agent/plan"
+	legacyplan "github.com/viant/agently/genai/agent/plan"
 	"github.com/viant/agently/genai/elicitation"
 )
 
@@ -26,8 +28,7 @@ type stdinAwaiter struct{}
 // the same elicitation repeats (e.g. due to planning retries).
 var openedURLs = map[string]struct{}{}
 
-// AwaitElicitation implements elicitation.Awaiter.
-func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitation) (*plan.ElicitResult, error) {
+func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *coreplan.Elicitation) (*coreplan.ElicitResult, error) {
 	// When the request contains an external URL we first inform the user and
 	// optionally attempt to open it with the system browser. The actual payload
 	// still has to be entered/pasted afterwards.
@@ -52,20 +53,26 @@ func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitati
 				if sel == "" || sel == "o" || sel == "open" {
 					_ = launchBrowser(url)
 					// Do not resolve here; UI callback will resolve elicitation
-					return &plan.ElicitResult{Action: plan.ElicitResultActionAccept}, nil
+					return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionAccept}, nil
 				}
 				if sel == "d" || sel == "decline" || sel == "r" || sel == "reject" {
 					// Ask for an optional decline reason to help the agent react appropriately.
 					fmt.Fprint(os.Stdout, "Enter decline reason (optional): ")
 					reason, _ := reader.ReadString('\n')
-					return &plan.ElicitResult{Action: plan.ElicitResultActionDecline, Reason: strings.TrimSpace(reason)}, nil
+					return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionDecline, Reason: strings.TrimSpace(reason)}, nil
 				}
 				fmt.Fprintln(os.Stdout, "Invalid choice. Please enter o or d.")
 			}
 		}
 	}
 	var w io.Writer = os.Stdout // ensure stdout flushing
-	res, err := elicitation.Prompt(ctx, w, os.Stdin, req)
+	legacyReq := &legacyplan.Elicitation{}
+	if req != nil {
+		if data, err := json.Marshal(req); err == nil {
+			_ = json.Unmarshal(data, legacyReq)
+		}
+	}
+	res, err := elicitation.Prompt(ctx, w, os.Stdin, legacyReq)
 	if err != nil {
 		return nil, err
 	}
@@ -76,19 +83,49 @@ func (a *stdinAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitati
 		line, _ := reader.ReadString('\n')
 		sel := strings.ToLower(strings.TrimSpace(line))
 		if sel == "" || sel == "a" || sel == "accept" {
-			return res, nil
+			out := &coreplan.ElicitResult{}
+			if data, err := json.Marshal(res); err == nil {
+				_ = json.Unmarshal(data, out)
+			}
+			return out, nil
 		}
 		if sel == "r" || sel == "reject" || sel == "decline" {
 			fmt.Fprint(os.Stdout, "Enter decline reason (optional): ")
 			reason, _ := reader.ReadString('\n')
-			return &plan.ElicitResult{Action: plan.ElicitResultActionDecline, Reason: strings.TrimSpace(reason)}, nil
+			return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionDecline, Reason: strings.TrimSpace(reason)}, nil
 		}
 		fmt.Fprintln(os.Stdout, "Invalid choice. Please enter a or r.")
 	}
 }
 
-// newStdinAwaiter is a helper for neat option wiring.
-func newStdinAwaiter() elicitation.Awaiter { return &stdinAwaiter{} }
+func awaitCoreElicitation(ctx context.Context, req *coreplan.Elicitation) (*coreplan.ElicitResult, error) {
+	return (&stdinAwaiter{}).AwaitElicitation(ctx, req)
+}
+
+// newStdinAwaiter is a helper for legacy runtime wiring.
+func newStdinAwaiter() elicitation.Awaiter { return &stdinAwaiterAdapter{} }
+
+type stdinAwaiterAdapter struct{}
+
+func (a *stdinAwaiterAdapter) AwaitElicitation(ctx context.Context, req *legacyplan.Elicitation) (*legacyplan.ElicitResult, error) {
+	coreReq := &coreplan.Elicitation{}
+	if req != nil {
+		if data, err := json.Marshal(req); err == nil {
+			_ = json.Unmarshal(data, coreReq)
+		}
+	}
+	coreRes, err := (&stdinAwaiter{}).AwaitElicitation(ctx, coreReq)
+	if err != nil {
+		return nil, err
+	}
+	legacyRes := &legacyplan.ElicitResult{}
+	if coreRes != nil {
+		if data, err := json.Marshal(coreRes); err == nil {
+			_ = json.Unmarshal(data, legacyRes)
+		}
+	}
+	return legacyRes, nil
+}
 
 // launchBrowser attempts to open the supplied URL using the platform default
 // command. It returns error only when the OS command execution itself fails –
@@ -109,5 +146,4 @@ func launchBrowser(url string) error {
 	return cmd.Start() // do not wait
 }
 
-// Compile-time assertion.
-var _ elicitation.Awaiter = (*stdinAwaiter)(nil)
+var _ elicitation.Awaiter = (*stdinAwaiterAdapter)(nil)

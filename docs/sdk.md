@@ -2,7 +2,7 @@
 
 This repo ships two client SDKs:
 
-- Go: `client/sdk`
+- Go: `agently-core/sdk`
 - TypeScript (browser): `ui/src/sdk/agentlyClient.ts`
 
 Both target the same HTTP APIs and event stream endpoints.
@@ -11,38 +11,28 @@ Both target the same HTTP APIs and event stream endpoints.
 
 ### Install
 
-This SDK is part of the Agently repo; import it directly:
+Use the core Go SDK directly:
 
 ```go
-import "github.com/viant/agently/client/sdk"
+import "github.com/viant/agently-core/sdk"
+import agentsvc "github.com/viant/agently-core/service/agent"
 ```
 
 ### Create a client
 
 ```go
-client := sdk.New(
-  "http://localhost:8080",
-  sdk.WithTimeout(30*time.Second),
-  sdk.WithTokenProvider(func(ctx context.Context) (string, error) {
-    return os.Getenv("AGENTLY_TOKEN"), nil
-  }),
-)
+client, err := sdk.NewHTTP("http://localhost:8585")
 ```
 
-### Create a conversation and send a message
+### Query an agent
 
 ```go
-conv, err := client.CreateConversation(ctx, &sdk.CreateConversationRequest{
-  Model: "gpt-4.1",
-  Agent: "default",
+out, err := client.Query(ctx, &agentsvc.QueryInput{
+  AgentID: "chatter",
+  Query:   "Hello!",
+  UserId:  "sdk-user",
 })
-if err != nil { /* handle */ }
-
-msg, err := client.PostMessage(ctx, conv.ID, &sdk.PostMessageRequest{
-  Content: "Hello!",
-})
-if err != nil { /* handle */ }
-_ = msg.ID
+_ = out.ConversationID
 ```
 
 ### Stream events (SSE)

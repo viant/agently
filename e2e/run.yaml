@@ -34,6 +34,11 @@ pipeline:
     description: app
     request: '@app/app'
 
+  regression:
+    action: run
+    description: run v1 browser regression tests
+    request: '@../v1/e2e/regression/regression'
+
   rule:
     cleanup:
       action: exec:run

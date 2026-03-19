@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/viant/agently/client/sdk"
+	"github.com/viant/agently-core/sdk"
+	agentsvc "github.com/viant/agently-core/service/agent"
 )
 
 func main() {
@@ -20,24 +21,32 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := sdk.New(*baseURL)
-	conv, err := client.CreateConversation(ctx, &sdk.CreateConversationRequest{Title: "e2e sdk cli"})
+	client, err := sdk.NewHTTP(*baseURL)
 	if err != nil {
-		log.Fatalf("create conversation failed: %v", err)
+		log.Fatalf("new http client failed: %v", err)
 	}
-	fmt.Printf("conversation:%s\n", conv.ID)
 
+	conversationID := ""
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		msg, err := client.PostMessage(ctx, conv.ID, &sdk.PostMessageRequest{Content: line})
+		out, err := client.Query(ctx, &agentsvc.QueryInput{
+			AgentID:        "chatter",
+			ConversationID: conversationID,
+			Query:          line,
+			UserId:         "e2e-sdk-cli",
+		})
 		if err != nil {
-			log.Fatalf("post message failed: %v", err)
+			log.Fatalf("query failed: %v", err)
 		}
-		fmt.Printf("sent:%s\n", msg.ID)
+		conversationID = out.ConversationID
+		if conversationID != "" {
+			fmt.Printf("conversation:%s\n", conversationID)
+		}
+		fmt.Printf("sent:%s\n", out.MessageID)
 	}
 	if err := scanner.Err(); err != nil {
 		log.Fatalf("read stdin failed: %v", err)

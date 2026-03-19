@@ -1,0 +1,44 @@
+init:
+  serverURL: '$serverURL ? $serverURL : http://127.0.0.1:9091'
+  appURL: '$appURL ? $appURL : ${serverURL}/ui'
+  webdriverPort: '$webdriverPort ? $webdriverPort : 4444'
+
+pipeline:
+  health:
+    action: http/runner:send
+    description: verify v1 server health endpoint
+    requests:
+      - Method: GET
+        URL: ${serverURL}/healthz
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
+
+  webdriver:
+    start:
+      action: webdriver:start
+      description: start webdriver server for browser regression tests
+      Port: ${webdriverPort}
+
+  testCases:
+    tag: $pathMatch
+    subPath: 'cases/${index}_*'
+    template:
+      checkSkip:
+        action: nop
+        skip: $HasResource(${path}/skip.txt)
+      runTest:
+        action: run
+        init:
+          parentPath: $path
+          appURL: $appURL
+          serverURL: $serverURL
+          webdriverPort: $webdriverPort
+          tag: $tag
+        request: '@test'
+
+  defer:
+    action: webdriver:stop
+    description: stop webdriver server after browser regression tests
+    Port: ${webdriverPort}

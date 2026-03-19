@@ -1,0 +1,45 @@
+title: Run Tool
+id: runToolDialog
+dataSourceRef: tools
+
+content:
+  containers:
+    - id: schema
+      dataSourceRef: tools
+      title: Parameters
+      schemaBasedForm:
+        dataBinding: schema
+        on:
+        - event: submit
+          handler: toolRunner.runSelected
+
+    # Result display – simple read-only textarea
+    - id: outputPanel
+      title: Result
+      layout:
+        orientation: horizontal
+        columns: 1
+      items:
+        - id: result
+          label: Result
+          type: object
+          properties:
+            rows: 10
+            cols: 100
+          readonly: true
+
+
+
+# Footer buttons
+actions:
+  - id: close
+    icon: cross
+    label: Close
+    on:
+      - event: onClick
+        handler: dialog.close
+
+# Dialog dimensions
+style:
+  minWidth: 70vw
+  minHeight: 70vh

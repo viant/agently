@@ -1,0 +1,15 @@
+id: pdf_ref
+name: PDF Ref
+description: Deterministic PDF reference attachment test agent for terminal e2e validation
+modelRef: openai_gpt-5.2
+temperature: 0
+persona:
+  role: assistant
+  actor: PDFRefBot
+attachment:
+  mode: ref
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

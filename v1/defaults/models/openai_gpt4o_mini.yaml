@@ -1,0 +1,13 @@
+id: openai_gpt4o_mini
+name: GPT-4o Mini
+description: OpenAI GPT-4o Mini model
+intelligence: 0.80
+speed: 0.95
+options:
+  provider: openai
+  model: gpt-4o-mini
+  envKey: OPENAI_API_KEY
+  contextContinuation: false
+  maxTokens: 16384
+  inputTokenPrice: 0.00015   # $0.15 per 1M tokens
+  outputTokenPrice: 0.0006   # $0.60 per 1M tokens

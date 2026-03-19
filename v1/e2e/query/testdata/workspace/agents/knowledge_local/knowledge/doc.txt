@@ -1,0 +1,10 @@
+Viant Product Information
+========================
+
+Viant is a technology company headquartered in Irvine, California.
+Founded in 2005, Viant specializes in building enterprise software solutions.
+
+Key Products:
+- Datly: A high-performance data access layer for Go applications
+- Endly: An end-to-end testing and automation framework
+- Agently: An AI agent orchestration platform

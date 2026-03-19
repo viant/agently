@@ -1,0 +1,16 @@
+default:
+  agent: chatter
+  model: openai_gpt-5.2
+  embedder: openai_text
+
+models:
+  url: models
+embedders:
+  url: embedders
+agents:
+  url: agents
+
+internalMCP:
+  services:
+    - system/exec
+    - system/os

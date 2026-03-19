@@ -27,10 +27,20 @@ func (m *Manager) UseIDToken(ctx context.Context, serverName string) bool {
 
 // WithAuthTokenContext injects the selected auth token into context under the
 // MCP auth transport key so HTTP transports can emit the appropriate Bearer header.
-// This is a best-effort helper; when no token is available it returns ctx as-is.
+// Respects the per-server PassUserToken config: when explicitly set to false,
+// the user's token is NOT forwarded. When nil (default), the token IS forwarded.
 func (m *Manager) WithAuthTokenContext(ctx context.Context, serverName string) context.Context {
 	if ctx == nil || m == nil {
 		return ctx
+	}
+	// Check PassUserToken config — skip when explicitly disabled.
+	name := strings.TrimSpace(serverName)
+	if name != "" {
+		if cfg, err := m.Options(ctx, name); err == nil && cfg != nil && cfg.ClientOptions != nil {
+			if cfg.ClientOptions.Auth != nil && !cfg.ClientOptions.Auth.ShouldPassUserToken() {
+				return ctx
+			}
+		}
 	}
 	useID := m.UseIDToken(ctx, serverName)
 	tok := authctx.MCPAuthToken(ctx, useID)

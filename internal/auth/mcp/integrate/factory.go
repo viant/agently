@@ -41,6 +41,27 @@ func NewAuthRoundTripperWithPrompt(jar http.CookieJar, base http.RoundTripper, r
 	return NewAuthRoundTripper(jar, base, rejectTTL)
 }
 
+// NewAuthRoundTripperWithElicitation builds an auth RoundTripper that surfaces
+// OAuth authorization URLs via a callback instead of opening a CLI browser.
+// Use this in web UI contexts where the auth URL should be shown to the user
+// in a popup window via an MCP elicitation.
+func NewAuthRoundTripperWithElicitation(jar http.CookieJar, base http.RoundTripper, rejectTTL time.Duration, urlHandler authtransport.AuthURLHandler) (*authtransport.RoundTripper, error) {
+	opts := []authtransport.Option{
+		authtransport.WithBackendForFrontendAuth(),
+	}
+	if jar != nil {
+		opts = append(opts, authtransport.WithCookieJar(jar))
+	}
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	opts = append(opts, authtransport.WithTransport(base))
+	if urlHandler != nil {
+		opts = append(opts, authtransport.WithElicitationAuthFlow(urlHandler))
+	}
+	return authtransport.New(opts...)
+}
+
 // NewClientWithAuthInterceptor attaches an Authorizer that auto-retries once on 401.
 // Provide a pre-built transport.Transport when constructing the MCP client elsewhere; this helper
 // only binds the interceptor to the MCP client.

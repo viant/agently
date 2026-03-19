@@ -1,9 +1,15 @@
-{{- if and (not .Flags.CanUseTool) (gt (len .Tools.Executions) 0) }}
-Previous Tool Executions:
-{{- range .Tools.Executions }}
-- tool: {{.Name}} args: {{.Arguments}}{{if .Result}} => {{.Result}}{{end}}{{if .Error}} Error: {{.Error}}{{end}}
-{{- end}}
-End of Previous Tool Executions.
+{{- $hasToolResult := false }}
+{{- range .History.Messages }}
+  {{- if eq .Kind "tool_result" }}{{ $hasToolResult = true }}{{ end }}
+{{- end }}
+{{- if and (not .Flags.CanUseTool) $hasToolResult }}
+Previous Tool Results:
+{{- range .History.Messages }}
+  {{- if eq .Kind "tool_result" }}
+- tool: {{.ToolName}}{{if .ToolArgs}} args: {{.ToolArgs}}{{end}}{{if .Content}} => {{.Content}}{{end}}
+  {{- end }}
+{{- end }}
+End of Previous Tool Results.
 {{- end}}
 
 {{- if .Context }}

@@ -7,7 +7,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/viant/agently/client/sdk"
+	"github.com/viant/agently-core/sdk"
+	agentsvc "github.com/viant/agently-core/service/agent"
 )
 
 func main() {
@@ -17,22 +18,18 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	client := sdk.New(*baseURL)
-
-	conv, err := client.CreateConversation(ctx, &sdk.CreateConversationRequest{Title: "e2e sdk"})
+	client, err := sdk.NewHTTP(*baseURL)
 	if err != nil {
-		log.Fatalf("create conversation failed: %v", err)
+		log.Fatalf("new http client failed: %v", err)
 	}
-	fmt.Printf("conversation: %s\n", conv.ID)
-
-	msg, err := client.PostMessage(ctx, conv.ID, &sdk.PostMessageRequest{Content: "hello from e2e"})
+	out, err := client.Query(ctx, &agentsvc.QueryInput{
+		AgentID: "chatter",
+		Query:   "hello from e2e",
+		UserId:  "e2e-sdk",
+	})
 	if err != nil {
-		log.Fatalf("post message failed: %v", err)
+		log.Fatalf("query failed: %v", err)
 	}
-	fmt.Printf("message: %s\n", msg.ID)
-
-	// Long-poll once to ensure /events is reachable.
-	if _, err := client.PollEvents(ctx, conv.ID, "", []string{"text", "tool_op", "control"}, 2*time.Second); err != nil {
-		log.Fatalf("poll events failed: %v", err)
-	}
+	fmt.Printf("conversation: %s\n", out.ConversationID)
+	fmt.Printf("message: %s\n", out.MessageID)
 }

@@ -1,0 +1,319 @@
+- id: general
+  title: General
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  style:
+    maxWidth: 860px
+    margin: 0
+    paddingRight: 8px
+  items:
+    - id: name
+      label: Schedule Name
+      type: text
+      columnSpan: 2
+      properties:
+        placeholder: "e.g. Daily bug scan"
+        helperText: A short, descriptive name for this automation
+
+    - id: agentRef
+      label: Agent
+      type: text
+      columnSpan: 2
+      properties:
+        placeholder: Select an agent to run
+        helperText: The agent that will execute on this schedule
+      lookup:
+        dialogId: agentLov
+        size:
+          width: '70%'
+          height: '70%'
+        title: Select Agent
+        intent: success
+        outputs:
+          - name: agentRef
+            location: id
+
+    - id: taskPrompt
+      label: Task Prompt
+      type: textarea
+      columnSpan: 2
+      properties:
+        rows: 8
+        cols: 100
+        placeholder: "Describe the task the agent should perform each run..."
+        helperText: This prompt is sent to the agent every time the schedule fires
+
+    - id: description
+      label: Description (optional)
+      type: textarea
+      columnSpan: 2
+      properties:
+        rows: 3
+        cols: 100
+        placeholder: "Internal notes about this schedule's purpose"
+        helperText: Only visible to workspace members
+
+    - id: id
+      label: Schedule ID
+      type: text
+      columnSpan: 1
+      on:
+        - event: onVisible
+          handler: schedule.showIfEdit
+      properties:
+        readOnly: true
+        leftIcon: key
+
+- id: schedule
+  title: Schedule
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  style:
+    maxWidth: 860px
+    margin: 0
+    paddingRight: 8px
+  items:
+    - id: enabled
+      label: Enabled
+      type: checkbox
+      columnSpan: 1
+
+    - id: visibility
+      label: Visibility
+      type: select
+      columnSpan: 1
+      properties:
+        helperText: Private schedules are only visible to you
+      options:
+        - value: private
+          label: Private
+        - value: public
+          label: Public
+
+    - id: scheduleMode
+      label: Schedule Mode
+      type: radio
+      appearance: segmented
+      columnSpan: 2
+      on:
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onSelection
+          handler: schedule.syncScheduleFields
+        - event: onItemSelect
+          handler: schedule.syncScheduleFields
+      options:
+        - value: daily
+          label: Daily
+        - value: interval
+          label: Interval
+        - value: custom
+          label: Custom (Cron)
+
+    - id: dailyTime
+      label: Run at (HH:MM or HH:MM AM/PM)
+      type: text
+      columnSpan: 1
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onVisible
+          handler: schedule.showIfDaily
+      properties:
+        placeholder: "09:00 AM"
+        helperText: "Time of day the agent will run (e.g. 09:00 AM, 14:30)"
+
+    - id: intervalHours
+      label: Repeat every (hours)
+      type: number
+      columnSpan: 1
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onVisible
+          handler: schedule.showIfInterval
+      properties:
+        min: 1
+        step: 1
+        placeholder: "24"
+        helperText: "Number of hours between each run"
+
+    - id: weekdays
+      label: Active Days
+      type: multiSelect
+      columnSpan: 2
+      on:
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onSelection
+          handler: schedule.syncScheduleFields
+        - event: onItemSelect
+          handler: schedule.syncScheduleFields
+        - event: onVisible
+          handler: schedule.showIfNonCustom
+      options:
+        - { value: mon, label: Mo }
+        - { value: tue, label: Tu }
+        - { value: wed, label: We }
+        - { value: thu, label: Th }
+        - { value: fri, label: Fr }
+        - { value: sat, label: Sa }
+        - { value: sun, label: Su }
+      properties:
+        appearance: pills
+        placeholder: Select active days
+        helperText: Leave empty for every day
+        style:
+          minHeight: 40px
+          borderRadius: 999px
+          paddingLeft: 0px
+          paddingRight: 0px
+
+    - id: cronExpr
+      label: Cron Expression
+      type: text
+      columnSpan: 2
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onVisible
+          handler: schedule.showIfCustom
+      properties:
+        placeholder: "0 9 * * 1-5"
+        helperText: "Standard five-field cron: minute hour day-of-month month day-of-week"
+
+    - id: timezone
+      label: Timezone
+      type: text
+      columnSpan: 1
+      properties:
+        placeholder: America/New_York
+        helperText: "IANA timezone (e.g. UTC, Europe/London)"
+
+    - id: startAt
+      label: Start Date (UTC)
+      type: datetime
+      columnSpan: 1
+      properties:
+        helperText: Schedule will not fire before this date
+
+    - id: endAt
+      label: End Date (UTC)
+      type: datetime
+      columnSpan: 1
+      properties:
+        helperText: Schedule will stop firing after this date
+
+    # persisted fields for backend compatibility; hidden from UI
+    - id: scheduleType
+      type: text
+      columnSpan: 1
+      on:
+        - event: onVisible
+          handler: schedule.hideField
+    - id: intervalSeconds
+      type: number
+      columnSpan: 1
+      on:
+        - event: onVisible
+          handler: schedule.hideField
+
+- id: security
+  title: Security
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  style:
+    maxWidth: 860px
+    margin: 0
+    paddingRight: 8px
+  items:
+    - id: _securityBanner
+      type: markdown
+      columnSpan: 2
+      properties:
+        value: "Automations run under the current workspace sandbox policy and use the configured user secrets (`userCredUrl`) for authenticated calls. Use least-privilege secrets and only grant required scopes."
+        style:
+          padding: '10px 12px'
+          border: '1px solid #b7d1ff'
+          borderRadius: '10px'
+          background: '#f7fbff'
+          color: '#1f2937'
+          fontSize: '12px'
+          marginBottom: '4px'
+
+    - id: userCredUrl
+      label: User Secrets URL
+      type: text
+      columnSpan: 2
+      properties:
+        placeholder: "scy://secret/path|key"
+        helperText: "Credential reference for authenticated API calls during execution"
+
+- id: execution
+  title: Execution
+  layout:
+    orientation: horizontal
+    columns: 2
+    labelPosition: top
+  style:
+    maxWidth: 860px
+    margin: 0
+    paddingRight: 8px
+  items:
+    - id: timeoutSeconds
+      label: Timeout (seconds)
+      type: number
+      columnSpan: 1
+      properties:
+        min: 0
+        step: 1
+        placeholder: "300"
+        helperText: "Max run duration in seconds (0 = no limit)"
+
+    - id: modelOverride
+      label: Model Override (optional)
+      type: text
+      columnSpan: 2
+      properties:
+        helperText: "Override the agent's default model for scheduled runs"
+      lookup:
+        dialogId: modelLov
+        size:
+          width: '70%'
+          height: '70%'
+        title: Select Model
+        outputs:
+          - name: modelOverride
+            location: id
+
+    - id: taskPromptUri
+      label: Task Prompt URI (optional)
+      type: text
+      columnSpan: 2
+      properties:
+        placeholder: "gs://bucket/path/prompt.txt"
+        helperText: "External URI containing the task prompt (overrides inline prompt)"

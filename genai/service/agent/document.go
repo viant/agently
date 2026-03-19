@@ -202,6 +202,14 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 			limit,
 			len(augmenterOutput.Documents),
 		)
+		for i, d := range augmenterOutput.Documents {
+			debugf("agent.onlyNeededKnowledge selected location=%q idx=%d score=%.4f source=%q",
+				strings.TrimSpace(kn.URL),
+				i,
+				d.Score,
+				extractSourceDoc(d.Metadata),
+			)
+		}
 		loaded := augmenterOutput.LoadDocuments(ctx, s.fs)
 		// Trim trailing whitespace to stabilize content tokens
 		for i := range loaded {
