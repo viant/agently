@@ -7,6 +7,8 @@ Agently supports schedules stored in the database (`schedule`, `schedule_run`). 
 ### 1) Serverless / horizontally scaled `serve`
 
 - Run `agently serve` without the watchdog.
+- `agently serve` uses the core-backed runtime by default. Use `agently serve legacy`
+  only if you explicitly need the original server stack.
 - Run the scheduler runner as a single instance (separate deployment).
 
 Environment (serve):
@@ -37,4 +39,3 @@ The runner uses a DB-backed lease (`schedule.lease_owner`, `schedule.lease_until
 ## Run-now semantics
 
 `POST /v1/api/agently/scheduler/run-now` enqueues a `schedule_run` row (`status=pending`) even when no orchestration scheduler is wired. If a scheduler runner is present, it can pick up and execute the run.
-

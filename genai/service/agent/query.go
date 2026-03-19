@@ -70,6 +70,9 @@ type QueryInput struct {
 
 	// IsNewConversation indicates if this is a new conversation without prior history.
 	IsNewConversation bool `json:"-"`
+	// SkipInitialUserMessage tells Query to reuse an already persisted starter
+	// user message instead of adding a duplicate/internal follow-up.
+	SkipInitialUserMessage bool `json:"-"`
 }
 
 // QueryOutput represents the result of an agent knowledge query

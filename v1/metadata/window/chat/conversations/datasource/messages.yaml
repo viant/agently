@@ -1,0 +1,27 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/conversations/{convID}/transcript
+  method: GET
+
+selectors:
+  data: turns
+
+parameters:
+  - name: convID
+    kind: path
+    in: dataSource
+    location: conversations.id
+
+selectors:
+  data: data
+
+uniqueKey:
+  - field: id
+
+on:
+  - event: onSuccess
+    handler: chat.hydrateMessagesCollection
+  - event: onSuccess
+    handler: chat.debugMessagesLoaded
+  - event: onError
+    handler: chat.debugMessagesError

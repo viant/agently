@@ -171,10 +171,14 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			}
 		}
 	}
-	if err := s.addUserMessage(ctx, &turn, input.UserId, content, rawUserContent); err != nil {
-		return err
+	if input.SkipInitialUserMessage {
+		infof("agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+	} else {
+		if err := s.addUserMessage(ctx, &turn, input.UserId, content, rawUserContent); err != nil {
+			return err
+		}
+		infof("agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
-	infof("agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 
 	// Persist attachments if any. Once persisted into history, avoid also
 	// sending them as task-scoped attachments to prevent duplicate media in

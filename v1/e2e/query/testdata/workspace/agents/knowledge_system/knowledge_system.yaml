@@ -1,0 +1,16 @@
+id: knowledge_system
+name: Knowledge System
+description: Agent with system knowledge for e2e testing
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: SystemKnowledgeBot
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+systemKnowledge:
+  - inclusionMode: full
+    url: system_knowledge/
+tool: {}

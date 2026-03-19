@@ -1,28 +1,29 @@
 module github.com/viant/agently
 
-go 1.25.1
+go 1.25.5
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.32.2
+	github.com/aws/aws-sdk-go-v2 v1.41.2
 	github.com/aws/aws-sdk-go-v2/config v1.28.0
-	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.8.1
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.0
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/datly v0.37.1-0.20260227223537-1cbc10fdaa4b
-	github.com/viant/embedius v0.5.3-0.20260220183033-bc27e2e18c76
+	github.com/viant/agently-core v0.0.0-20260319160203-815d8a98c6ae
+	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
+	github.com/viant/embedius v0.5.3
 	github.com/viant/fluxor v0.4.3
-	github.com/viant/forge v0.2.19-0.20260306045720-037e570a3cdd
-	github.com/viant/jsonrpc v0.17.0
+	github.com/viant/forge v0.2.19
+	github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.11.0
+	github.com/viant/mcp v0.14.0
 	github.com/viant/mcp-protocol v0.11.0
 	github.com/viant/scy v0.25.3
 	github.com/viant/structology v0.8.0 // indirect
 	github.com/viant/velty v0.4.0
-	github.com/viant/x v0.4.0 // indirect
+	github.com/viant/x v0.4.1-0.20260306005005-975ded1e1bef // indirect
 	github.com/viant/xdatly/handler v0.0.0-20251208172928-dd34b7f09fd5
 	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect -- replaced with internal stub, see below
@@ -31,21 +32,22 @@ require (
 
 require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.32.2
-	github.com/aws/smithy-go v1.22.0
-	github.com/fsnotify/fsnotify v1.6.0
+	github.com/aws/smithy-go v1.24.1
+	github.com/fsnotify/fsnotify v1.8.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
+	github.com/google/gops v0.3.29
 	github.com/gorilla/websocket v1.5.3
 	github.com/minio/highwayhash v1.0.3
-	github.com/openai/openai-go/v3 v3.13.0
+	github.com/openai/openai-go/v3 v3.24.0
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/rwtodd/Go.Sed v0.0.0-20250326002959-ba712dc84b62
 	github.com/sourcegraph/go-diff v0.7.0
 	github.com/viant/a2a-protocol v0.1.0
 	github.com/viant/bigquery v0.5.1
 	github.com/viant/gds v0.6.0
-	github.com/viant/gosh v0.2.4
+	github.com/viant/gosh v0.3.0
 	github.com/viant/parsly v0.3.3
-	github.com/viant/xdatly v0.5.4-0.20251113181159-0ac8b8b0ff3a
+	github.com/viant/xdatly v0.5.4-0.20260306062123-17850ac34977
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
 	golang.org/x/crypto v0.43.0
 	golang.org/x/oauth2 v0.32.0
@@ -76,13 +78,13 @@ require (
 	github.com/aerospike/aerospike-client-go/v6 v6.15.1 // indirect
 	github.com/aws/aws-lambda-go v1.31.0 // indirect
 	github.com/aws/aws-sdk-go v1.51.23 // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.6 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.5 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.41 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.10.7 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.17 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.33 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.21 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.6.21 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.18 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.18 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.1 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.3.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.17.8 // indirect
@@ -167,7 +169,7 @@ require (
 	github.com/viant/xdatly/extension v0.0.0-20231013204918-ecf3c2edf259 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.1 // indirect
-	github.com/viant/xreflect v0.7.3 // indirect
+	github.com/viant/xreflect v0.7.5-0.20260314170600-13f09f37d46e // indirect
 	github.com/viant/xunsafe v0.10.3 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
@@ -200,9 +202,16 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251022142026-3a174f9686a8 // indirect
 	google.golang.org/grpc v1.77.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
-	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/viant/agently-core => ../agently-core
+
+replace github.com/viant/afsc => ../afsc
+
+replace github.com/viant/datly => ../datly
+
+replace github.com/viant/xreflect => ../xreflect

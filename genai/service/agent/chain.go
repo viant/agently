@@ -548,15 +548,21 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 		actor = "chain"
 	}
 
-	if _, err := apiconv.AddMessage(ctx, s.conversation, parent.ParentTurn,
-		apiconv.WithId(uuid.New().String()),
-		apiconv.WithRole(role),
-		apiconv.WithInterim(1),
-		apiconv.WithContent(""),
-		apiconv.WithCreatedByUserID(actor),
-		apiconv.WithMode("chain"),
-		apiconv.WithLinkedConversationID(childIn.ConversationID)); err != nil {
-		return err
+	parentConversationID := strings.TrimSpace(parent.ParentTurn.ConversationID)
+	childConversationID := strings.TrimSpace(childIn.ConversationID)
+	hasDistinctChildConversation := childConversationID != "" && childConversationID != parentConversationID
+
+	if hasDistinctChildConversation {
+		if _, err := apiconv.AddMessage(ctx, s.conversation, parent.ParentTurn,
+			apiconv.WithId(uuid.New().String()),
+			apiconv.WithRole(role),
+			apiconv.WithInterim(1),
+			apiconv.WithContent(""),
+			apiconv.WithCreatedByUserID(actor),
+			apiconv.WithMode("chain"),
+			apiconv.WithLinkedConversationID(childConversationID)); err != nil {
+			return err
+		}
 	}
 
 	content, err := s.fetchChainOutput(ctx, childIn, chain)
@@ -571,17 +577,18 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 	}
 	// Continue parent as new user turn
 	next := &QueryInput{
-		ConversationID: parent.Conversation.Id,
-		AgentID:        parent.Agent.ID,
-		UserId:         strings.TrimSpace(chain.Publish.Name),
-		Query:          content,
-		Context:        map[string]interface{}{},
+		ConversationID:         parent.Conversation.Id,
+		AgentID:                parent.Agent.ID,
+		UserId:                 strings.TrimSpace(chain.Publish.Name),
+		Query:                  content,
+		Context:                map[string]interface{}{},
+		SkipInitialUserMessage: true,
 	}
 	for k, v := range parent.Context {
 		next.Context[k] = v
 	}
 	var out QueryOutput
-	if err := s.Query(ctx, next, &out); err != nil {
+	if err := s.Query(executil.WithChainMode(ctx, true), next, &out); err != nil {
 		return fmt.Errorf("continuation error: %w", err)
 	}
 	return nil

@@ -6,6 +6,7 @@ persona:
   role: assistant
   actor: Chat
   summary: General-purpose assistant for conversation, guidance, and everyday tasks - non coder
+parallelToolCalls: true
 prompt:
   uri: prompt/user.tmpl
 systemPrompt:

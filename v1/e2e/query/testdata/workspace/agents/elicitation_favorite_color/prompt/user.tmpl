@@ -1,0 +1,11 @@
+{{- if .Context }}
+Context:
+{{.Context}}
+{{- end}}
+
+User Query:
+{{.Task.Prompt}}
+
+Important:
+- If favoriteColor is not present in context, output only the elicitation JSON object.
+- If favoriteColor is present, answer in exactly 3 sentences.

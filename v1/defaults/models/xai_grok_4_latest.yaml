@@ -1,0 +1,11 @@
+id: xai_grok-4-latest
+name: Grok 4 (xAI)
+description: xAI Grok-4 latest general model
+intelligence: 0.9
+speed: 0.9
+options:
+  provider: grok
+  model: grok-4-latest
+  envKey: XAI_API_KEY
+  temperature: 0
+

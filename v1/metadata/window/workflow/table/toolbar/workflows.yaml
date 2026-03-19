@@ -1,0 +1,17 @@
+items:
+  # Refresh list of workflows
+  - id: refresh
+    icon: refresh
+    align: left
+
+  # Run selected workflow
+  - id: runWorkflow
+    icon: play
+    align: left
+    on:
+      - event: onReadonly
+        handler: dataSource.noSelection
+      - event: onClick
+        handler: window.openDialog
+        args:
+          - runWorkflowDialog

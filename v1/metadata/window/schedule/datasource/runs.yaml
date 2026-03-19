@@ -1,0 +1,42 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/conversations
+  method: GET
+
+paging:
+  size: 25
+  enabled: true
+  dataInfoSelectors:
+    pageCount: pageCount
+    totalCount: totalCount
+
+parameters:
+  - from: schedules:selection
+    to: :query
+    name: scheduleId
+    location: id
+  - from: const
+    to: :query
+    name: hasScheduleId
+    location: "true"
+
+selectors:
+  data: Rows
+  dataInfo: ''
+
+on:
+  - event: onFetch
+    handler: schedule.onFetchRuns
+
+filterSet:
+  - name: default
+    default: true
+    template:
+      - id: status
+        label: Filter by status...
+        operator: eq
+
+quickFilterSet: default
+
+uniqueKey:
+  - field: id

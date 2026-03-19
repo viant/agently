@@ -1,0 +1,11 @@
+id: system/patch
+title: System Patch
+description: Apply diffs/patches to workspace files
+iconRef: builtin:system-patch
+priority: 80
+match:
+  - name: "system/patch:apply"
+  - name: "system/patch:snapshot"
+  - name: "system/patch:commit"
+  - name: "system/patch:rollback"
+  - name: "system/patch:diff"

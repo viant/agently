@@ -1,9 +1,11 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -389,8 +391,6 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 
 // uploadFiledAndGetID uploads a base64-encoded PDF to OpenAI assets and returns its file_id.
 func (c *Client) uploadFiledAndGetID(ctx context.Context, base64Data string, name string, agentID string, ttlSec int64) (string, error) {
-	// TODO detect duplicates, user
-
 	var attachmentTTLSec int64 = ttlSec
 	// Apply provider default TTL (86400 sec = 1 day) when not specified
 	if attachmentTTLSec <= 0 {
@@ -418,7 +418,18 @@ func (c *Client) uploadFiledAndGetID(ctx context.Context, base64Data string, nam
 		return "", fmt.Errorf("failed to determine host ip prefix: %w", err)
 	}
 
-	filename := fmt.Sprintf("agently/%s/%s/%s/%s", user, agentID, c.Model, name)
+	baseName := path.Base(strings.TrimSpace(name))
+	if baseName == "" || baseName == "." || baseName == "/" || !strings.HasSuffix(strings.ToLower(baseName), ".pdf") {
+		baseName = "attachment.pdf"
+	}
+	sanitize := strings.NewReplacer("/", "_", "\\", "_", " ", "_", ":", "_")
+	filename := fmt.Sprintf("agently_%s_%s_%s_%s",
+		sanitize.Replace(strings.TrimSpace(user)),
+		sanitize.Replace(strings.TrimSpace(agentID)),
+		sanitize.Replace(strings.TrimSpace(c.Model)),
+		sanitize.Replace(baseName),
+	)
+
 	dest := "openai://assets/" + filename
 	if err := c.ensureStorageManager(ctx); err != nil {
 		return "", err
@@ -426,14 +437,12 @@ func (c *Client) uploadFiledAndGetID(ctx context.Context, base64Data string, nam
 	// Build options with optional TTL
 	var opts []storage.Option
 	opts = append(opts, &content.Meta{Values: map[string]string{"purpose": string(openai.FilePurposeUserData)}})
-	// Always include TTL (provider default baked above)
 	opts = append(opts, &openai.FileNewParamsExpiresAfter{Seconds: attachmentTTLSec})
 
-	if err := c.storageMgr.Upload(ctx, dest, 0644, strings.NewReader(string(data)), opts...); err != nil {
+	if err := c.storageMgr.Upload(ctx, dest, 0644, bytes.NewReader(data), opts...); err != nil {
 		return "", err
 	}
 
-	// Find created file id by listing (with small retries)
 	var fileID string
 	for attempt := 0; attempt < 2 && fileID == ""; attempt++ {
 		files, err := c.storageMgr.List(ctx, "openai://assets/")

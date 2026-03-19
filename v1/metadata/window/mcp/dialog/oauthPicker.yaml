@@ -1,0 +1,42 @@
+title: Select OAuth Credential
+id: oauthPicker
+
+# Simple picker dialog that shows the list of OAuth2 credentials and returns
+# the selected record to the caller.
+
+content:
+  containers:
+    - id: oauthTable
+      title: OAuth2 Credentials
+      dataSourceRef: oauth
+      table: $import('../../oauth/table/oauth_picker.yaml')
+
+# Footer buttons
+actions:
+  - id: select
+    icon: confirm
+    label: Select
+    intent: primary
+    on:
+      - event: onClick
+        handler: dialog.commit
+        parameters:
+          - name: ...              # pass full record back
+            from: :selection
+            to: :output
+
+  - id: cancel
+    icon: cross
+    label: Cancel
+    on:
+      - event: onClick
+        handler: dialog.close
+
+# Data sources used by the dialog
+dataSource:
+  oauth: $import('../../oauth/datasource/oauth.yaml')
+
+# Dialog sizing
+style:
+  width: 40vw
+  height: 60vh

@@ -1,0 +1,15 @@
+id: pdf_inline
+name: PDF Inline
+description: Deterministic PDF attachment test agent for terminal e2e validation
+modelRef: openai_gpt-5.2
+temperature: 0
+persona:
+  role: assistant
+  actor: PDFBot
+attachment:
+  mode: inline
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

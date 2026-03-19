@@ -99,8 +99,11 @@ go build -o agently .
 ./agently -h
 
 
-# Start a agently webservice on :8080 port
+# Start the core-backed Agently web service on :8080
 ./agently serve
+
+# Start the legacy/original server explicitly
+./agently serve legacy
 
 # Start a chat cli session (auto-detects local server)
 ./agently chat
@@ -383,8 +386,11 @@ agently list-tools -n system/exec.execute --json
 # Run an agentic workflow from JSON input
 agently run -i <input-file>
 
-# Start HTTP server
+# Start the core-backed HTTP server (default)
 agently serve
+
+# Start the legacy/original HTTP server explicitly
+agently serve legacy
 
 # Run schedule watchdog in a dedicated process
 agently scheduler run --interval 30s

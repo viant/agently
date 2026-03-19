@@ -1,0 +1,14 @@
+id: openai_gpt-5.2
+name: GPT-5.2
+description: OpenAI GPT-5.2 model
+intelligence: 0.96
+speed: 0.9
+options:
+  provider: openai
+  model: gpt-5.2
+  envKey: OPENAI_API_KEY
+  maxTokens: 100000
+  inputTokenPrice: 0.00175   # $1.75 per 1M tokens
+  outputTokenPrice: 0.014    # $14 per 1M tokens
+  contextContinuation: true
+  enableContinuationFormat: false
