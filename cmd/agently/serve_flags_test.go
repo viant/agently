@@ -67,3 +67,10 @@ func TestServeTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestOptionsInit_QueryAlias(t *testing.T) {
+	opts := &Options{}
+	opts.Init("query")
+	assert.NotNil(t, opts.Query)
+	assert.Nil(t, opts.Chat)
+}

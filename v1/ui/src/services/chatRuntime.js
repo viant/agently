@@ -3,7 +3,7 @@ import { rememberConversationSeedTitle } from './conversationTitle';
 import { clearChangeFeed, publishChangeFeed } from './changeFeedBus';
 import { clearPlanFeed, publishPlanFeed } from './planFeedBus';
 import { setPendingElicitation, clearPendingElicitation } from './elicitationBus';
-import { feedTracker } from './toolFeedBus';
+import { applyFeedEvent } from './toolFeedBus';
 import {
   queueTranscriptRefresh as queueTranscriptRefreshStore,
   resetTranscriptState,
@@ -119,12 +119,16 @@ function shortModelLabel(label, value) {
 }
 
 function draftConversationValues(current = {}, defaults = {}) {
+  // Preserve the user's current agent/model selection when starting a new
+  // conversation. Read from localStorage as the most reliable source (set by selectAgent).
+  let persistedAgent = '';
+  try { persistedAgent = localStorage.getItem('agently.selectedAgent') || ''; } catch (_) {}
   const values = {
     ...current,
     id: '',
     title: 'New conversation',
-    agent: defaults?.agent || '',
-    model: defaults?.model || '',
+    agent: persistedAgent || current?.agent || defaults?.agent || '',
+    model: current?.model || defaults?.model || '',
     embedder: defaults?.embedder || ''
   };
   return values;
@@ -1436,8 +1440,8 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
       } else {
         setStage({ phase: 'done', text: 'Done' });
       }
-      // Clear tool feeds — the next turn will re-activate any that still apply.
-      feedTracker.clear();
+      // Don't clear feeds on turn end — they persist until a tool_feed_inactive
+      // SSE event arrives (e.g., after revert/commit removes the feed's data).
       window.setTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 1100);
       renderMergedRowsForContext(context);
       return;
@@ -1573,7 +1577,7 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
 
     if (type === 'tool_feed_active' || type === 'tool_feed_inactive') {
       chatState.lastStreamEventAt = Date.now();
-      feedTracker.applyEvent(payload);
+      applyFeedEvent(payload);
       return;
     }
 
@@ -1804,9 +1808,15 @@ export async function createNewConversation(context) {
     chatState.stream = null;
   }
   const current = conversationsDS.peekFormData?.() || {};
-  const metaDefaults = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.()?.defaults || {};
+  const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+  const metaDefaults = metaForm?.defaults || {};
+  // Merge the user's current agent/model selection from meta into current
+  // so draftConversationValues preserves it for the new conversation.
+  const merged = { ...current };
+  if (metaForm?.agent) merged.agent = metaForm.agent;
+  if (metaForm?.model) merged.model = metaForm.model;
   conversationsDS.setFormData?.({
-    values: draftConversationValues(current, metaDefaults)
+    values: draftConversationValues(merged, metaDefaults)
   });
   const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
   messagesDS?.setCollection?.([]);

@@ -12,6 +12,7 @@ import FileViewDialog from './FileViewDialog';
 import MenuBar from './MenuBar';
 import PlanFeed from './PlanFeed';
 import ToolFeedBar from './ToolFeedBar';
+import UsageBar from './UsageBar';
 import StatusBar from './StatusBar';
 import Sidebar from './Sidebar';
 import ElicitationOverlay from './ElicitationOverlay';
@@ -198,10 +199,10 @@ export default function Root() {
               ) : null}
               <WindowManager />
             </div>
-            <ToolFeedBar />
             <ChangeFeed anchor="composer_top" />
-            <PlanFeed anchor="composer_top" />
+            <ToolFeedBar />
           </main>
+          <UsageBar />
         </div>
 
         <StatusBar backendUnavailable={!!approvals?.backendUnavailable} approvals={approvals} />

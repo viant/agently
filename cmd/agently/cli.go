@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/jessevdk/go-flags"
-	"github.com/viant/agently/internal/workspace"
 )
 
 // Run parses flags and executes the selected command.
@@ -28,8 +27,6 @@ func Run(args []string) {
 		os.Exit(0)
 	}
 
-	// Calling Root also ensures the workspace exists.
-	workspace.Root()
 	parser := flags.NewParser(opts, flags.HelpFlag|flags.PassDoubleDash)
 	if _, err := parser.ParseArgs(args); err != nil {
 		// flags already prints user-friendly message; we only exit with code 1

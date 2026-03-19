@@ -243,7 +243,7 @@ export async function submitMessage({ context, message, model, agent }) {
   const payload = {
     conversationId: conversationID,
     query,
-    agentId: selectedAgent || sanitizeAutoSelection(convForm?.agent || metaForm?.defaults?.agent || ''),
+    agentId: selectedAgent || sanitizeAutoSelection(metaForm?.agent || convForm?.agent || metaForm?.defaults?.agent || ''),
     model: effectiveModel || sanitizeAutoSelection(convForm?.model || ''),
     tools: Array.isArray(metaForm?.tool) ? metaForm.tool : undefined,
     reasoningEffort: metaForm?.reasoningEffort || undefined,
@@ -456,6 +456,8 @@ export function selectAgent({ context, value }) {
   }
   ds.setFormData?.({ values: next });
   metaDS?.setFormData?.({ values: nextMeta });
+  // Persist selection so new conversations inherit it.
+  try { localStorage.setItem('agently.selectedAgent', nextAgent); } catch (_) {}
   return true;
 }
 

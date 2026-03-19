@@ -6,6 +6,7 @@ import { fetchTranscript } from '../../services/chatRuntime';
 import { displayStepIcon, displayStepTitle, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
 import BubbleMessage from './BubbleMessage';
 import ElicitationForm from './ElicitationForm';
+import ToolFeedDetail from '../ToolFeedDetail';
 
 const GROUPS_VISIBLE = 'all';
 const TOOLS_PER_GROUP = 3;
@@ -119,7 +120,15 @@ function latencyLabel(step, now = Date.now()) {
   const explicit = formatDurationClock(totalLatencyMs([step]));
   if (explicit) return explicit;
   if (!isActiveStatus(step?.status)) return '';
-  const startedAt = earliestStartedAt([step]);
+  // For active model steps, use the row's createdAt as fallback if startedAt
+  // is not parseable (e.g., Go time.Time serialized with nanoseconds).
+  let startedAt = earliestStartedAt([step]);
+  if (!startedAt && step?.startedAt) {
+    // Try parsing just the date portion (strip nanoseconds).
+    const cleaned = String(step.startedAt).replace(/(\.\d{3})\d+/, '$1');
+    startedAt = Date.parse(cleaned);
+    if (!Number.isFinite(startedAt)) startedAt = 0;
+  }
   if (!startedAt) return '';
   return formatDurationClock(Math.max(0, now - startedAt));
 }
@@ -133,9 +142,9 @@ function totalLatencyMs(steps = []) {
     .map((item) => {
       const explicit = Number(item?.latencyMs || item?.durationMs || 0);
       if (Number.isFinite(explicit) && explicit > 0) return explicit;
-      const startedAt = Date.parse(String(item?.startedAt || item?.StartedAt || ''));
-      const completedAt = Date.parse(String(item?.completedAt || item?.CompletedAt || ''));
-      if (Number.isFinite(startedAt) && Number.isFinite(completedAt) && completedAt >= startedAt) {
+      const startedAt = parseTimestamp(item?.startedAt || item?.StartedAt);
+      const completedAt = parseTimestamp(item?.completedAt || item?.CompletedAt);
+      if (startedAt && completedAt && completedAt >= startedAt) {
         return completedAt - startedAt;
       }
       return 0;
@@ -144,11 +153,23 @@ function totalLatencyMs(steps = []) {
     .reduce((sum, value) => sum + value, 0);
 }
 
+function parseTimestamp(raw) {
+  if (!raw) return 0;
+  let str = String(raw).trim();
+  if (!str) return 0;
+  let v = Date.parse(str);
+  if (Number.isFinite(v)) return v;
+  // Go time.Time may include nanoseconds (e.g. ".123456789Z") — trim to 3.
+  v = Date.parse(str.replace(/(\.\d{3})\d+/, '$1'));
+  if (Number.isFinite(v)) return v;
+  return 0;
+}
+
 function earliestStartedAt(steps = []) {
   let earliest = 0;
   for (const item of Array.isArray(steps) ? steps : []) {
-    const value = Date.parse(String(item?.startedAt || item?.StartedAt || item?.createdAt || item?.CreatedAt || ''));
-    if (!Number.isFinite(value)) continue;
+    const value = parseTimestamp(item?.startedAt || item?.StartedAt || item?.createdAt || item?.CreatedAt);
+    if (!value) continue;
     if (earliest === 0 || value < earliest) {
       earliest = value;
     }
@@ -1015,6 +1036,7 @@ export default function IterationBlock({ message, context }) {
             <div className="app-iteration-groups">
               {visibleGroups.map((group, index) => renderGroupRow(group, index))}
             </div>
+            <ToolFeedDetail />
             {canonicalTotal > effectiveVisibleCount ? (
               <div className="app-iteration-inline-paginator">
                 <Button minimal small className="app-iteration-link app-iteration-link-subtle" disabled={groupsPage.start <= 0} onClick={goToOlderPreambles}>

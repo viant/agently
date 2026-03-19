@@ -89,7 +89,7 @@ func RunChatResult(t *testing.T, workspacePath, baseURL string, args []string, s
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmdArgs := append([]string{"chat", "--api", baseURL}, args...)
+	cmdArgs := append([]string{"query", "--api", baseURL}, args...)
 	cmd := exec.CommandContext(ctx, agentlyBinary(t), cmdArgs...)
 	cmd.Dir = RepoRoot()
 	configureProcessGroup(cmd)
@@ -99,15 +99,15 @@ func RunChatResult(t *testing.T, workspacePath, baseURL string, args []string, s
 	} else {
 		cmd.Stdin = strings.NewReader("")
 	}
-	logFile := DebugLogPath(t, "chat.log")
+	logFile := DebugLogPath(t, "query.log")
 	defer stopCommand(cmd, 2*time.Second)
 	output, err := cmd.CombinedOutput()
 	writeDebugLog(t, logFile, fmt.Sprintf("baseURL=%s\ntimeout=%s\nargs=%q\n\n%s", baseURL, timeout, args, string(output)))
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return string(output), fmt.Errorf("run chat timed out after %s (log: %s)\n%s", timeout, logFile, string(output))
+			return string(output), fmt.Errorf("run query timed out after %s (log: %s)\n%s", timeout, logFile, string(output))
 		}
-		return string(output), fmt.Errorf("run chat failed: %v (log: %s)\n%s", err, logFile, string(output))
+		return string(output), fmt.Errorf("run query failed: %v (log: %s)\n%s", err, logFile, string(output))
 	}
 	return string(output), nil
 }
