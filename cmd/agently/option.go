@@ -5,7 +5,8 @@ package agently
 type Options struct {
 	Version      bool             `short:"v" long:"version" description:"Show agently version and exit"`
 	Config       string           `short:"f" long:"config" description:"executor config YAML/JSON path"`
-	Chat         *ChatCmd         `command:"chat"  description:"Chat with an agent (single turn or continuation)"`
+	Query        *ChatCmd         `command:"query" description:"Query an agent (single turn or continuation)"`
+	Chat         *ChatCmd         `command:"chat"  description:"Deprecated alias of query"`
 	List         *ListCmd         `command:"list"  description:"List existing conversations"`
 	ListTools    *ListToolsCmd    `command:"list-tools" description:"List available tools"`
 	Exec         *ExecCmd         `command:"exec" description:"Execute a tool"`
@@ -30,6 +31,8 @@ func (o *Options) Init(firstArg string) {
 	switch firstArg {
 	case "chat":
 		o.Chat = &ChatCmd{}
+	case "query":
+		o.Query = &ChatCmd{}
 	case "list":
 		o.List = &ListCmd{}
 	case "list-tools":

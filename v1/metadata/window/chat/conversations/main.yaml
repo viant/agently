@@ -19,7 +19,7 @@ view:
       - id: conversationSection
         chat:
           dataSourceRef: messages
-          showSettings: true
+          showSettings: false
           abortVisible:
             dataSourceRef: conversations
             selector: running

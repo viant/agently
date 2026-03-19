@@ -618,23 +618,21 @@ body {
  *   - Side borders taper into the composer's top edge
  *   - No gap — the feed bar bottom overlaps the composer top via negative margin
  */
+/*
+ * ToolFeedBar: sticky above the composer, narrower, open bottom edge.
+ * Connected visually to the composer — no gap.
+ */
 .app-tool-feed-bar {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: var(--app-plan-feed-bottom);
-  /* Narrower than composer — inset 24px on each side relative to the
-     plan-feed/composer width of min(980px, calc(100% - 32px)). */
+  position: sticky;
+  bottom: 0;
   width: min(932px, calc(100% - 80px));
-  z-index: 12;
+  margin: 0 auto;
+  z-index: 11;
   border: 1px solid rgba(0, 0, 0, 0.10);
   border-bottom: none;
   border-radius: 14px 14px 0 0;
   background: #fff;
-  padding: 4px 0 0;
-  /* Overlap into the composer so there's no gap — the open bottom
-     visually merges into the composer's top edge. */
-  margin-bottom: -16px;
+  padding: 4px 0 2px;
 }
 
 .app-tool-feed-bar-item {
@@ -684,76 +682,115 @@ body {
   line-height: 1;
 }
 
-.app-tool-feed-bar-expand {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: #9ca3af;
-  font-size: 13px;
-  padding: 2px 4px;
+.app-tool-feed-bar-toggle {
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+  background: #d1d5db;
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.15s;
   cursor: pointer;
-  line-height: 1;
-  transition: color 0.12s, transform 0.2s;
 }
-
-.app-tool-feed-bar-expand:hover {
-  color: #3d4b66;
+.app-tool-feed-bar-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.app-tool-feed-bar-toggle.is-on {
+  background: #3b82f6;
+}
+.app-tool-feed-bar-toggle.is-on::after {
+  transform: translateX(12px);
 }
 
 /* Subtle bottom separator between feed items (not on last) */
-.app-tool-feed-bar-entry:not(:last-child) .app-tool-feed-bar-item {
+.app-tool-feed-bar-item:not(:last-child) {
   border-bottom: 1px solid rgba(0, 0, 0, 0.04);
 }
 
-.app-tool-feed-bar-detail {
-  padding: 4px 14px 8px;
+/* Feed detail (compact, below execution groups in IterationBlock) */
+.app-tool-feed-detail {
+  padding: 6px 12px 8px;
   font-size: 12px;
   color: #4a5568;
-  max-height: min(30vh, 260px);
-  overflow-y: auto;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.app-tool-feed-detail-explanation {
+  font-size: 11px;
+  color: #6b7280;
+  margin-bottom: 4px;
+  line-height: 1.4;
 }
 
 .app-tool-feed-detail-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .app-tool-feed-detail-step {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  line-height: 1.5;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+  font-size: 12px;
 }
 
 .app-tool-feed-detail-status {
   flex-shrink: 0;
-  width: 16px;
+  width: 14px;
   text-align: center;
-  color: #7b879c;
-}
-
-.app-tool-feed-detail-terminal {
-  font-family: 'SF Mono', 'Menlo', monospace;
   font-size: 11px;
-  background: #1e1e2e;
-  color: #cdd6f4;
-  border-radius: 8px;
-  padding: 8px 10px;
-  max-height: 200px;
-  overflow-y: auto;
+}
+.app-tool-feed-detail-status.status-completed,
+.app-tool-feed-detail-status.status-done {
+  color: #16a34a;
+}
+.app-tool-feed-detail-status.status-in_progress,
+.app-tool-feed-detail-status.status-running {
+  color: #2563eb;
+}
+.app-tool-feed-detail-status.status-pending {
+  color: #9ca3af;
 }
 
-.app-tool-feed-detail-cmd {
-  padding: 2px 0;
-  white-space: pre-wrap;
-  word-break: break-all;
+/* ── Usage Bar (below composer) ────────────────────────────────── */
+
+.app-usage-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: #8b95a8;
+  user-select: none;
 }
 
-.app-tool-feed-detail-empty {
+.app-usage-bar-cost {
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.app-usage-bar-sep {
+  color: #d1d5db;
+}
+
+.app-usage-bar-tokens {
+  color: #8b95a8;
+}
+
+.app-usage-bar-model {
   color: #9ca3af;
   font-style: italic;
-  padding: 4px 0;
 }
 
 /* ── Plan Feed ────────────────────────────────────────────────── */
@@ -1698,6 +1735,13 @@ td[data-col="enabled"] {
 [data-testid="chat-root"] .bp6-tab[aria-selected='true'] {
   color: var(--app-accent);
   box-shadow: inset 0 -2px 0 var(--app-accent);
+}
+
+/* Constrain user and assistant bubbles to roughly match composer width.
+   Execution detail bubbles (.has-executions) stay full width. */
+.chat-row.user .chat-bubble,
+.chat-row.assistant .chat-bubble:not(.has-executions) {
+  max-width: min(980px, calc(100vw - 120px));
 }
 
 [data-testid="chat-feed"] {

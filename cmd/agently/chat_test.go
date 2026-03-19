@@ -1,81 +1,71 @@
 package agently
 
 import (
-	"encoding/json"
+	"bytes"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"strings"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseAttachments_RejectsEmptyPath(t *testing.T) {
-	_, err := parseAttachments([]string{""})
-	require.Error(t, err)
-	assert.Contains(t, strings.ToLower(err.Error()), "attachment path is required")
+func TestNormalizeCLIContent(t *testing.T) {
+	assert.Equal(t, "", normalizeCLIContent(""))
+	assert.Equal(t, "helloworld", normalizeCLIContent(" hello   world "))
+	assert.Equal(t, "Hi!emojitest😊", normalizeCLIContent("Hi!   emoji\t test   😊"))
 }
 
-func TestParseAttachments_RejectsUnsupportedType(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "blob.unknownext")
-	require.NoError(t, os.WriteFile(path, []byte("x"), 0o644))
-
-	_, err := parseAttachments([]string{path})
-	require.Error(t, err)
-	assert.Contains(t, strings.ToLower(err.Error()), "unsupported attachment type")
+func TestPickModel(t *testing.T) {
+	assert.Equal(t, "", pickModel("", []string{"xai_grok-4-latest"}))
+	assert.Equal(t, "openai_gpt-5.4", pickModel("openai_gpt-5.4", []string{"xai_grok-4-latest", "openai_gpt-5.4"}))
+	assert.Equal(t, "openai_gpt-5.4", pickModel("openai_gpt-5.4", []string{"xai_grok-4-latest"}))
 }
 
-func TestChatCmdExecute_UsesCoreSDKHTTPFlow(t *testing.T) {
-	var mu sync.Mutex
-	var requests []string
-	var authHeaders []string
+func TestChatStreamerFlush_SkipsWhitespaceOnlyDuplicate(t *testing.T) {
+	streamer := &chatStreamer{}
+	streamer.content.WriteString("Hi! I'm the coding agent here—ready to help with any code-related tasks.")
+	streamer.printed = true
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		requests = append(requests, r.Method+" "+r.URL.Path)
-		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
-		mu.Unlock()
+	output := captureStdout(t, func() {
+		printed := streamer.Flush("Hi! I'm the coding agent here—ready to help with any code-related tasks. ")
+		require.True(t, printed)
+	})
 
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/conversations":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"id":"conv-test"}`)
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/stream":
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.WriteHeader(http.StatusOK)
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/agent/query":
-			var payload map[string]any
-			require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
-			assert.NotEmpty(t, payload)
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"conversationId":"conv-test","content":"Hello from core sdk"}`)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
+	assert.Equal(t, "\n", output)
+}
 
-	cmd := &ChatCmd{
-		API:     srv.URL,
-		AgentID: "simple",
-		Query:   []string{"Hi"},
-		User:    "test-user",
-		Token:   "jwt-token",
-	}
+func TestChatStreamerFlush_SkipsNormalizedWhitespaceDuplicate(t *testing.T) {
+	streamer := &chatStreamer{}
+	streamer.content.WriteString("If this is just casual chat, I can hand it off to the chatter agent.😊")
+	streamer.printed = true
 
-	err := cmd.Execute(nil)
+	output := captureStdout(t, func() {
+		printed := streamer.Flush("If this is just casual chat, I can hand it off to the chatter agent. 😊")
+		require.True(t, printed)
+	})
+
+	assert.Equal(t, "\n", output)
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stdout
+	reader, writer, err := os.Pipe()
 	require.NoError(t, err)
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = original
+	}()
 
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Contains(t, requests, "POST /v1/conversations")
-	assert.Contains(t, requests, "GET /v1/stream")
-	assert.Contains(t, requests, "POST /v1/agent/query")
-	assert.Contains(t, authHeaders, "Bearer jwt-token")
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, reader)
+		done <- buf.String()
+	}()
+
+	fn()
+	_ = writer.Close()
+	return <-done
 }

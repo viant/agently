@@ -40,6 +40,7 @@ import (
 	mcprepo "github.com/viant/agently/internal/workspace/repository/mcp"
 	coremeta "github.com/viant/agently/v1/metadata"
 	authtransport "github.com/viant/mcp/client/auth/transport"
+	"gopkg.in/yaml.v3"
 )
 
 type servedUIBundle struct {
@@ -198,7 +199,7 @@ func newRuntime(ctx context.Context) (*executor.Runtime, sdk.Client, error) {
 		WithModelFinder(modelFndr).
 		WithEmbedderFinder(embedderFndr).
 		WithCancelRegistry(cancelRegistry).
-		WithDefaults(&execconfig.Defaults{Model: "openai_gpt-5.2", Embedder: "openai_text", Agent: "chatter"}).
+		WithDefaults(loadWorkspaceDefaults(workspace.Root())).
 		WithMCPAuthRTProvider(authRTProvider).
 		WithMCPCookieJarProvider(jarProvider).
 		WithMCPUserIDExtractor(func(ctx context.Context) string {
@@ -216,6 +217,41 @@ func newRuntime(ctx context.Context) (*executor.Runtime, sdk.Client, error) {
 	// Wire the lazy reference so auth elicitations use the proper DB-backed flow.
 	embeddedClient = client
 	return rt, client, nil
+}
+
+// loadWorkspaceDefaults reads the workspace config.yaml and merges with
+// hardcoded fallbacks. Workspace values take priority.
+func loadWorkspaceDefaults(wsRoot string) *execconfig.Defaults {
+	fallback := &execconfig.Defaults{
+		Model:    "openai_gpt-5.2",
+		Embedder: "openai_text",
+		Agent:    "chatter",
+	}
+	configPath := filepath.Join(wsRoot, "config.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fallback
+	}
+	var cfg struct {
+		Default struct {
+			Agent    string `yaml:"agent"`
+			Model    string `yaml:"model"`
+			Embedder string `yaml:"embedder"`
+		} `yaml:"default"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return fallback
+	}
+	if strings.TrimSpace(cfg.Default.Agent) != "" {
+		fallback.Agent = strings.TrimSpace(cfg.Default.Agent)
+	}
+	if strings.TrimSpace(cfg.Default.Model) != "" {
+		fallback.Model = strings.TrimSpace(cfg.Default.Model)
+	}
+	if strings.TrimSpace(cfg.Default.Embedder) != "" {
+		fallback.Embedder = strings.TrimSpace(cfg.Default.Embedder)
+	}
+	return fallback
 }
 
 func newRouter(api http.Handler, meta http.Handler, speech http.Handler, uiDist string, bundle servedUIBundle) http.Handler {

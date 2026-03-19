@@ -13,13 +13,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	coreplan "github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/protocol/prompt"
 	streamingrt "github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/sdk"
 	agentsvc "github.com/viant/agently-core/service/agent"
-	"github.com/viant/agently/internal/workspace"
 	authtransport "github.com/viant/mcp/client/auth/transport"
 )
 
@@ -33,9 +33,8 @@ type ChatCmd struct {
 	User      string   `short:"u" long:"user" description:"user id for the chat" default:"devuser"`
 	API       string   `long:"api" description:"Agently base URL (skips auto-detect)"`
 	Token     string   `long:"token" description:"Bearer token for API requests (overrides AGENTLY_TOKEN)"`
-	OOB       bool     `long:"oob" description:"Use server-side OAuth2 out-of-band login (requires --oauth-secrets)"`
+	OOB       string   `long:"oob" description:"Use server-side OAuth2 out-of-band login with the supplied secrets URL"`
 	OAuthCfg  string   `long:"oauth-config" description:"scy OAuth config URL for client-side OOB login (unused for server OOB)"`
-	OAuthSec  string   `long:"oauth-secrets" description:"scy OAuth secrets URL for OOB login"`
 	OAuthScp  string   `long:"oauth-scopes" description:"comma-separated OAuth scopes for OOB login"`
 	Stream    bool     `long:"stream" description:"reserved for compatibility; CLI output streams automatically"`
 	ElicitDef string   `long:"elicitation-default" description:"JSON or @file to auto-accept elicitations when stdin is not a TTY"`
@@ -70,6 +69,9 @@ func (c *ChatCmd) Execute(_ []string) error {
 		c.AgentID = strings.TrimSpace(defaultAgent)
 	}
 	modelOverride := pickModel(defaultModel, models)
+	if strings.TrimSpace(modelOverride) == "" {
+		return fmt.Errorf("server metadata did not provide a default model")
+	}
 
 	httpClient := &http.Client{Jar: cliCookieJar()}
 	if c.Timeout > 0 {
@@ -90,7 +92,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 	if strings.TrimSpace(workspaceRoot) != "" {
 		fmt.Printf("[workspace] %s\n", workspaceRoot)
 	} else {
-		fmt.Printf("[workspace] %s\n", workspace.Root())
+		fmt.Printf("[workspace] <unknown>\n")
 	}
 	if modelOverride != "" {
 		fmt.Printf("[agent] %s [model] %s\n", c.AgentID, modelOverride)
@@ -230,7 +232,7 @@ func parseJSONArg(raw string) (map[string]interface{}, error) {
 }
 
 func cliCookieJar() http.CookieJar {
-	dir := filepath.Join(workspace.Root(), "cli")
+	dir := cliStateDir()
 	_ = os.MkdirAll(dir, 0o700)
 	path := filepath.Join(dir, "cookies.json")
 	jar, err := authtransport.NewFileJar(path)
@@ -241,8 +243,18 @@ func cliCookieJar() http.CookieJar {
 	return fallback
 }
 
+func cliStateDir() string {
+	if dir, err := os.UserConfigDir(); err == nil && strings.TrimSpace(dir) != "" {
+		return filepath.Join(dir, "agently", "cli")
+	}
+	if dir, err := os.UserHomeDir(); err == nil && strings.TrimSpace(dir) != "" {
+		return filepath.Join(dir, ".agently-cli")
+	}
+	return filepath.Join(os.TempDir(), "agently-cli")
+}
+
 func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, input *agentsvc.QueryInput, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}) (*agentsvc.QueryOutput, bool, error) {
-	if err := ensureConversation(ctx, client, input); err != nil {
+	if err := ensureConversation(ctx, client, input, strings.TrimSpace(input.Query)); err != nil {
 		return nil, false, err
 	}
 	inlineElicitation := len(defaultPayload) > 0 || stdinIsTTY()
@@ -305,14 +317,17 @@ func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, inpu
 	return out, streamer.Flush(out.Content), nil
 }
 
-func ensureConversation(ctx context.Context, client *sdk.HTTPClient, input *agentsvc.QueryInput) error {
+func ensureConversation(ctx context.Context, client *sdk.HTTPClient, input *agentsvc.QueryInput, title string) error {
 	if input == nil {
 		return fmt.Errorf("query input is required")
 	}
 	if strings.TrimSpace(input.ConversationID) != "" {
 		return nil
 	}
-	conversation, err := client.CreateConversation(ctx, &sdk.CreateConversationInput{AgentID: strings.TrimSpace(input.AgentID)})
+	conversation, err := client.CreateConversation(ctx, &sdk.CreateConversationInput{
+		AgentID: strings.TrimSpace(input.AgentID),
+		Title:   strings.TrimSpace(title),
+	})
 	if err != nil {
 		return fmt.Errorf("create conversation: %w", err)
 	}
@@ -397,10 +412,30 @@ func (s *chatStreamer) Flush(final string) bool {
 		fmt.Print("\n")
 		return true
 	}
+	if normalizeCLIContent(streamed) == normalizeCLIContent(final) {
+		fmt.Print("\n")
+		return true
+	}
 	fmt.Print("\n")
 	fmt.Print(final)
 	fmt.Print("\n")
 	return true
+}
+
+func normalizeCLIContent(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	var builder strings.Builder
+	builder.Grow(len(value))
+	for _, r := range value {
+		if unicode.IsSpace(r) {
+			continue
+		}
+		builder.WriteRune(r)
+	}
+	return builder.String()
 }
 
 func (s *chatStreamer) Close() {
@@ -711,42 +746,24 @@ func (c *ChatCmd) resolveBaseURL(ctx context.Context) (string, []authProviderInf
 
 func pickModel(defaultModel string, models []string) string {
 	defaultModel = strings.TrimSpace(defaultModel)
-	if defaultModel != "" {
-		for _, item := range models {
-			if strings.TrimSpace(item) == defaultModel {
-				return defaultModel
-			}
-		}
+	if defaultModel == "" {
+		return ""
 	}
 	for _, item := range models {
-		if value := strings.TrimSpace(item); value != "" {
-			return value
+		if strings.TrimSpace(item) == defaultModel {
+			return defaultModel
 		}
 	}
-	return ""
+	return defaultModel
 }
 
 func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, providers []authProviderInfo) error {
-	if _, err := client.AuthMe(ctx); err == nil {
-		return nil
-	}
-	name := strings.TrimSpace(c.User)
-	if name == "" {
-		if local := findProvider(providers, "local"); local != nil {
-			name = strings.TrimSpace(local.DefaultUsername)
+	hasBFF := findProvider(providers, "bff") != nil
+	if strings.TrimSpace(c.OOB) != "" {
+		if strings.TrimSpace(c.OOB) == "" {
+			return fmt.Errorf("--oob requires a secrets URL value")
 		}
-	}
-	if name == "" {
-		name = "devuser"
-	}
-	if err := client.AuthLocalLogin(ctx, name); err == nil {
-		return nil
-	}
-	if c.OOB {
-		if strings.TrimSpace(c.OAuthSec) == "" {
-			return fmt.Errorf("--oob requires --oauth-secrets")
-		}
-		if err := client.AuthOOBSession(ctx, strings.TrimSpace(c.OAuthSec), parseScopes(c.OAuthScp)); err != nil {
+		if err := client.AuthOOBSession(ctx, strings.TrimSpace(c.OOB), parseScopes(c.OAuthScp)); err != nil {
 			return err
 		}
 		if _, err := client.AuthMe(ctx); err != nil {
@@ -761,14 +778,51 @@ func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, provid
 			}
 		}
 	}
-	if findProvider(providers, "bff") != nil || len(providers) == 0 {
-		if err := client.AuthBrowserSession(ctx); err == nil {
-			if _, err := client.AuthMe(ctx); err == nil {
-				return nil
-			}
+	if hasBFF {
+		if err := client.AuthBrowserSession(ctx); err != nil {
+			return fmt.Errorf("authentication required: browser login failed: %w", err)
+		}
+		if _, err := client.AuthMe(ctx); err != nil {
+			return fmt.Errorf("browser login succeeded, but session was not established")
+		}
+		return nil
+	}
+	if _, err := client.AuthMe(ctx); err == nil {
+		return nil
+	}
+
+	var localErr error
+	if local := findProvider(providers, "local"); local != nil {
+		name := strings.TrimSpace(c.User)
+		if name == "" {
+			name = strings.TrimSpace(local.DefaultUsername)
+		}
+		if name == "" {
+			name = "devuser"
+		}
+		if err := client.AuthLocalLogin(ctx, name); err == nil {
+			return nil
+		} else {
+			localErr = err
 		}
 	}
-	return nil
+
+	if len(providers) == 0 {
+		if err := client.AuthBrowserSession(ctx); err != nil {
+			if localErr != nil {
+				return fmt.Errorf("authentication required: local login failed: %v; browser login failed: %w", localErr, err)
+			}
+			return fmt.Errorf("authentication required: browser login failed: %w", err)
+		}
+		if _, err := client.AuthMe(ctx); err != nil {
+			return fmt.Errorf("browser login succeeded, but session was not established")
+		}
+		return nil
+	}
+	if localErr != nil {
+		return fmt.Errorf("authentication required: local login failed: %w", localErr)
+	}
+	return fmt.Errorf("authentication required")
 }
 
 func findProvider(providers []authProviderInfo, kind string) *authProviderInfo {

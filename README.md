@@ -105,8 +105,8 @@ go build -o agently .
 # Start the legacy/original server explicitly
 ./agently serve legacy
 
-# Start a chat cli session (auto-detects local server)
-./agently chat
+# Start a query cli session (auto-detects local server)
+./agently query
 ```
 
 ### How to run MCP server
@@ -179,7 +179,7 @@ EOF
 
 #### Step 3: Start the Services
 1. Start the MCP server with SQLKit (follow the "How to run MCP server" steps above)
-2. Start Agently (run `./agently chat`)
+2. Start Agently (run `./agently query`)
 
 #### Step 4: Test Database Connectivity
 Ensure your MySQL server is running. For this example, we assume:
@@ -352,20 +352,20 @@ runtimeRoot/ (defaults to workspaceRoot)
 Agently provides a command-line interface for interacting with agents:
 
 ```bash
-# Chat with an agent
-agently chat 
+# Query an agent
+agently query
 
-# Chat with an agent with a specific query
-agently chat -a <agent-id> -q "Your query here"
+# Query an agent with a specific prompt
+agently query -a <agent-id> -q "Your query here"
 
 # Continue a conversation
-agently chat -a <agent-id> -c <conversation-id>
+agently query -a <agent-id> -c <conversation-id>
 
 # Connect to a specific server (skip auto-detect)
-agently chat --api http://localhost:8080
+agently query --api http://localhost:8080
 
 # OOB auth via server (BFF) using user credential reference
-agently chat --oob --oauth-secrets "/Users/awitas/.secret/user_cred.enc|blowfish://default"
+agently query --oob "/Users/awitas/.secret/user_cred.enc|blowfish://default"
 
 # List existing conversations
 agently list
