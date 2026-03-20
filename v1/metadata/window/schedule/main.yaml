@@ -9,7 +9,6 @@ view:
       - id: schedulesCatalogue
         title: Automation
         dataSourceRef: schedules
-        fetchData: true
         table: $import('table/schedules.yaml')
 
       - id: scheduleEditor
