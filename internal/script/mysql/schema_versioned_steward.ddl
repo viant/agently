@@ -1304,4 +1304,499 @@ END $$
 CALL schema_upgrade_18() $$
 DROP PROCEDURE schema_upgrade_18 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_19 $$
+CREATE PROCEDURE schema_upgrade_19()
+BEGIN
+    DECLARE has_constraint INT DEFAULT 0;
+
+    IF get_schema_version() = 19 THEN
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'turn'
+              AND COLUMN_NAME = 'run_id'
+        ) THEN
+            ALTER TABLE turn
+                ADD COLUMN run_id VARCHAR(255) NULL AFTER model_params_override;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'message'
+              AND COLUMN_NAME = 'preamble'
+        ) THEN
+            ALTER TABLE `message`
+                ADD COLUMN preamble TEXT NULL AFTER embedding_index;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'message'
+              AND COLUMN_NAME = 'iteration'
+        ) THEN
+            ALTER TABLE `message`
+                ADD COLUMN iteration INT NULL AFTER preamble;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'message'
+              AND COLUMN_NAME = 'phase'
+        ) THEN
+            ALTER TABLE `message`
+                ADD COLUMN phase VARCHAR(16) NULL DEFAULT 'final' AFTER iteration;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'message'
+              AND INDEX_NAME = 'idx_message_iteration'
+        ) THEN
+            CREATE INDEX idx_message_iteration ON `message` (turn_id, iteration, created_at);
+        END IF;
+
+        SELECT COUNT(*) INTO has_constraint
+        FROM information_schema.TABLE_CONSTRAINTS
+        WHERE CONSTRAINT_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'message'
+          AND CONSTRAINT_NAME = 'message_chk_1'
+          AND CONSTRAINT_TYPE = 'CHECK';
+        IF has_constraint > 0 THEN
+            ALTER TABLE `message` DROP CHECK message_chk_1;
+        END IF;
+
+        SELECT COUNT(*) INTO has_constraint
+        FROM information_schema.TABLE_CONSTRAINTS
+        WHERE CONSTRAINT_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'message'
+          AND CONSTRAINT_NAME = 'message_chk_3'
+          AND CONSTRAINT_TYPE = 'CHECK';
+        IF has_constraint > 0 THEN
+            ALTER TABLE `message` DROP CHECK message_chk_3;
+        END IF;
+
+        SELECT COUNT(*) INTO has_constraint
+        FROM information_schema.TABLE_CONSTRAINTS
+        WHERE CONSTRAINT_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'message'
+          AND CONSTRAINT_NAME = 'message_chk_5'
+          AND CONSTRAINT_TYPE = 'CHECK';
+        IF has_constraint > 0 THEN
+            ALTER TABLE `message` DROP CHECK message_chk_5;
+        END IF;
+
+        ALTER TABLE `message`
+            ADD CONSTRAINT message_chk_1 CHECK ((`status` IS NULL) OR (`status` IN ('', 'pending', 'accepted', 'rejected', 'cancel', 'open', 'summary', 'summarized', 'completed', 'error', 'running', 'failed', 'canceled'))),
+            ADD CONSTRAINT message_chk_3 CHECK ((`type` IN ('text', 'tool_op', 'control', 'task', 'elicitation_request', 'elicitation_response')));
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'model_call'
+              AND COLUMN_NAME = 'run_id'
+        ) THEN
+            ALTER TABLE model_call
+                ADD COLUMN run_id VARCHAR(255) NULL AFTER stream_payload_id;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'model_call'
+              AND COLUMN_NAME = 'iteration'
+        ) THEN
+            ALTER TABLE model_call
+                ADD COLUMN iteration INT NULL AFTER run_id;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'model_call'
+              AND INDEX_NAME = 'idx_model_call_run'
+        ) THEN
+            CREATE INDEX idx_model_call_run ON model_call (run_id, iteration);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_call'
+              AND COLUMN_NAME = 'run_id'
+        ) THEN
+            ALTER TABLE tool_call
+                ADD COLUMN run_id VARCHAR(255) NULL AFTER response_payload_id;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_call'
+              AND COLUMN_NAME = 'iteration'
+        ) THEN
+            ALTER TABLE tool_call
+                ADD COLUMN iteration INT NULL AFTER run_id;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_call'
+              AND INDEX_NAME = 'idx_tool_call_run'
+        ) THEN
+            CREATE INDEX idx_tool_call_run ON tool_call (run_id, iteration);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'user_oauth_token'
+              AND COLUMN_NAME = 'version'
+        ) THEN
+            ALTER TABLE user_oauth_token
+                ADD COLUMN version BIGINT NOT NULL DEFAULT 0 AFTER updated_at;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'user_oauth_token'
+              AND COLUMN_NAME = 'lease_owner'
+        ) THEN
+            ALTER TABLE user_oauth_token
+                ADD COLUMN lease_owner VARCHAR(255) NULL DEFAULT NULL AFTER version;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'user_oauth_token'
+              AND COLUMN_NAME = 'lease_until'
+        ) THEN
+            ALTER TABLE user_oauth_token
+                ADD COLUMN lease_until TIMESTAMP NULL DEFAULT NULL AFTER lease_owner;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'user_oauth_token'
+              AND COLUMN_NAME = 'refresh_status'
+        ) THEN
+            ALTER TABLE user_oauth_token
+                ADD COLUMN refresh_status VARCHAR(32) NOT NULL DEFAULT 'idle' AFTER lease_until;
+        END IF;
+
+        IF EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'generated_file'
+              AND COLUMN_NAME = 'mode'
+        ) THEN
+            ALTER TABLE generated_file
+                MODIFY COLUMN mode VARCHAR(255) NOT NULL;
+        END IF;
+
+        IF EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'generated_file'
+              AND COLUMN_NAME = 'copy_mode'
+        ) THEN
+            ALTER TABLE generated_file
+                MODIFY COLUMN copy_mode VARCHAR(255) NOT NULL;
+        END IF;
+
+        IF EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'generated_file'
+              AND COLUMN_NAME = 'status'
+        ) THEN
+            ALTER TABLE generated_file
+                MODIFY COLUMN status VARCHAR(255) NOT NULL DEFAULT 'ready';
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'generated_file'
+              AND COLUMN_NAME = 'dedup_key'
+        ) THEN
+            ALTER TABLE generated_file
+                ADD COLUMN dedup_key VARCHAR(255) NULL AFTER error_message;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'generated_file'
+              AND INDEX_NAME = 'idx_gf_dedup'
+        ) THEN
+            CREATE INDEX idx_gf_dedup ON generated_file (dedup_key);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'turn_queue'
+        ) THEN
+            CREATE TABLE turn_queue
+            (
+                id              VARCHAR(255) PRIMARY KEY,
+                conversation_id VARCHAR(255) NOT NULL,
+                turn_id         VARCHAR(255) NOT NULL,
+                message_id      VARCHAR(255) NOT NULL,
+                queue_seq       BIGINT       NOT NULL,
+                status          VARCHAR(255) NOT NULL DEFAULT 'queued',
+                created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at      TIMESTAMP    NULL DEFAULT NULL,
+
+                CONSTRAINT fk_turn_queue_conversation
+                    FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE,
+                CONSTRAINT fk_turn_queue_turn
+                    FOREIGN KEY (turn_id) REFERENCES turn (id) ON DELETE CASCADE,
+                CONSTRAINT fk_turn_queue_message
+                    FOREIGN KEY (message_id) REFERENCES `message` (id) ON DELETE CASCADE
+            ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'turn_queue'
+              AND INDEX_NAME = 'ux_turn_queue_turn_id'
+        ) THEN
+            CREATE UNIQUE INDEX ux_turn_queue_turn_id ON turn_queue (turn_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'turn_queue'
+              AND INDEX_NAME = 'ux_turn_queue_message_id'
+        ) THEN
+            CREATE UNIQUE INDEX ux_turn_queue_message_id ON turn_queue (message_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'turn_queue'
+              AND INDEX_NAME = 'idx_turn_queue_conv_status_seq'
+        ) THEN
+            CREATE INDEX idx_turn_queue_conv_status_seq ON turn_queue (conversation_id, status, queue_seq, created_at);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_approval_queue'
+        ) THEN
+            CREATE TABLE tool_approval_queue
+            (
+                id                  VARCHAR(255) PRIMARY KEY,
+                user_id             VARCHAR(255) NOT NULL,
+                conversation_id     VARCHAR(255),
+                turn_id             VARCHAR(255),
+                message_id          VARCHAR(255),
+                tool_name           VARCHAR(255) NOT NULL,
+                title               TEXT,
+                arguments           LONGBLOB     NOT NULL,
+                metadata            LONGBLOB,
+                status              VARCHAR(32)  NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'canceled', 'executed', 'failed')),
+                decision            TEXT,
+                approved_by_user_id VARCHAR(255),
+                approved_at         TIMESTAMP    NULL DEFAULT NULL,
+                executed_at         TIMESTAMP    NULL DEFAULT NULL,
+                error_message       TEXT,
+                created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at          TIMESTAMP    NULL DEFAULT NULL,
+
+                CONSTRAINT fk_taq_conversation
+                    FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE,
+                CONSTRAINT fk_taq_turn
+                    FOREIGN KEY (turn_id) REFERENCES turn (id) ON DELETE SET NULL,
+                CONSTRAINT fk_taq_message
+                    FOREIGN KEY (message_id) REFERENCES `message` (id) ON DELETE SET NULL
+            ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_approval_queue'
+              AND INDEX_NAME = 'idx_taq_user_status_created'
+        ) THEN
+            CREATE INDEX idx_taq_user_status_created ON tool_approval_queue (user_id, status, created_at);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_approval_queue'
+              AND INDEX_NAME = 'idx_taq_conversation_status'
+        ) THEN
+            CREATE INDEX idx_taq_conversation_status ON tool_approval_queue (conversation_id, status, created_at);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_approval_queue'
+              AND INDEX_NAME = 'idx_taq_turn'
+        ) THEN
+            CREATE INDEX idx_taq_turn ON tool_approval_queue (turn_id, created_at);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'run'
+        ) THEN
+            CREATE TABLE run
+            (
+                id                      VARCHAR(255) PRIMARY KEY,
+                turn_id                 VARCHAR(255),
+                schedule_id             VARCHAR(255),
+                conversation_id         VARCHAR(255),
+                conversation_kind       VARCHAR(32)  NOT NULL DEFAULT 'interactive',
+                attempt                 INT          NOT NULL DEFAULT 1,
+                resumed_from_run_id     VARCHAR(255),
+                status                  VARCHAR(32)  NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'prechecking', 'skipped', 'queued', 'running', 'completed', 'succeeded', 'failed', 'interrupted', 'canceled')),
+                error_code              VARCHAR(255),
+                error_message           TEXT,
+                iteration               INT          NOT NULL DEFAULT 0,
+                max_iterations          INT,
+                checkpoint_response_id  VARCHAR(255),
+                checkpoint_message_id   VARCHAR(255),
+                checkpoint_data         MEDIUMTEXT,
+                agent_id                VARCHAR(255),
+                model_provider          VARCHAR(255),
+                model                   VARCHAR(255),
+                worker_id               VARCHAR(255),
+                worker_pid              INT,
+                worker_host             VARCHAR(255),
+                lease_owner             VARCHAR(255),
+                lease_until             TIMESTAMP    NULL DEFAULT NULL,
+                last_heartbeat_at       TIMESTAMP    NULL DEFAULT NULL,
+                security_context        MEDIUMTEXT,
+                effective_user_id       VARCHAR(255),
+                auth_authority          VARCHAR(255),
+                auth_audience           VARCHAR(255),
+                user_cred_url           TEXT,
+                heartbeat_interval_sec  INT DEFAULT 5,
+                scheduled_for           TIMESTAMP    NULL DEFAULT NULL,
+                precondition_ran_at     TIMESTAMP    NULL DEFAULT NULL,
+                precondition_passed     TINYINT      NULL CHECK (precondition_passed IN (0, 1)),
+                precondition_result     MEDIUMTEXT,
+                usage_prompt_tokens     BIGINT DEFAULT 0,
+                usage_completion_tokens BIGINT DEFAULT 0,
+                usage_total_tokens      BIGINT DEFAULT 0,
+                usage_cost              DOUBLE DEFAULT 0,
+                created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at              TIMESTAMP    NULL DEFAULT NULL,
+                started_at              TIMESTAMP    NULL DEFAULT NULL,
+                completed_at            TIMESTAMP    NULL DEFAULT NULL,
+
+                CONSTRAINT fk_core_run_conversation FOREIGN KEY (conversation_id)
+                    REFERENCES conversation (id) ON DELETE CASCADE,
+                CONSTRAINT fk_core_run_turn FOREIGN KEY (turn_id)
+                    REFERENCES turn (id) ON DELETE SET NULL,
+                CONSTRAINT fk_core_run_schedule FOREIGN KEY (schedule_id)
+                    REFERENCES schedule (id) ON DELETE CASCADE
+            ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'run'
+              AND INDEX_NAME = 'idx_run_turn'
+        ) THEN
+            CREATE INDEX idx_run_turn ON run (turn_id, attempt);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'run'
+              AND INDEX_NAME = 'idx_run_worker'
+        ) THEN
+            CREATE INDEX idx_run_worker ON run (worker_id, status);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'run'
+              AND INDEX_NAME = 'idx_run_heartbeat'
+        ) THEN
+            CREATE INDEX idx_run_heartbeat ON run (status, last_heartbeat_at);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'run'
+              AND INDEX_NAME = 'idx_run_conversation'
+        ) THEN
+            CREATE INDEX idx_run_conversation ON run (conversation_id, status);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'run'
+              AND INDEX_NAME = 'idx_run_schedule_status'
+        ) THEN
+            CREATE INDEX idx_run_schedule_status ON run (schedule_id, status);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'run'
+              AND INDEX_NAME = 'ux_run_schedule_slot'
+        ) THEN
+            CREATE UNIQUE INDEX ux_run_schedule_slot ON run (schedule_id, scheduled_for);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'run'
+              AND INDEX_NAME = 'idx_run_pid'
+        ) THEN
+            CREATE INDEX idx_run_pid ON run (worker_pid, worker_host, status);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'workspace_resources'
+        ) THEN
+            CREATE TABLE workspace_resources
+            (
+                kind       VARCHAR(255) NOT NULL,
+                name       VARCHAR(255) NOT NULL,
+                data       MEDIUMBLOB   NOT NULL,
+                updated_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (kind, name)
+            ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+        END IF;
+
+        CALL set_schema_version(20);
+    END IF;
+END $$
+
+CALL schema_upgrade_19() $$
+DROP PROCEDURE schema_upgrade_19 $$
+
 DELIMITER ;
