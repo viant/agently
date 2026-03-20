@@ -2,9 +2,20 @@ import { client } from './agentlyClient';
 import { getLogger } from 'forge/utils/logger';
 import { registerDynamicEvaluator } from 'forge/runtime/binding';
 import { getBusSignal } from 'forge/core';
+import {
+  filterLookupCollection,
+  normalizeWorkspaceAgentInfos,
+  normalizeWorkspaceModelInfos
+} from './workspaceMetadata';
 
 const log = getLogger('agently');
 const liveScheduleDraft = { dailyTime: '', intervalHours: '', cronExpr: '', lastMode: '' };
+
+function newScheduleID() {
+  const generated = globalThis?.crypto?.randomUUID?.();
+  if (generated) return generated;
+  return `sched_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 function joinURL(base, path) {
   const b = (base || '').replace(/\/+$/, '');
@@ -378,6 +389,7 @@ function setupLiveDraftListeners() {
 }
 
 async function saveSchedule({ context }) {
+  if (scheduleService._saveScheduleInFlight) return true;
   const ctx = context?.Context('schedules');
   if (!ctx) {
     log.error('scheduleService.saveSchedule: schedules context not found');
@@ -398,8 +410,10 @@ async function saveSchedule({ context }) {
   const intervalHoursRaw = Number(form.intervalHours);
   const intervalHours = Number.isFinite(intervalHoursRaw) && intervalHoursRaw > 0 ? intervalHoursRaw : 24;
   const computedScheduleType = mode === 'interval' ? 'interval' : 'cron';
+  const existingID = String(form.id || '').trim();
+  const scheduleID = existingID || newScheduleID();
   const payload = {
-    id: form.id || '',
+    id: scheduleID,
     name: form.name,
     description: form.description,
     visibility: String(form.visibility || 'private').trim().toLowerCase(),
@@ -419,7 +433,11 @@ async function saveSchedule({ context }) {
     taskPrompt: form.taskPrompt,
     userCredUrl: form.userCredUrl
   };
+  if (!existingID) {
+    updateFormIfChanged(ds, { ...form, id: scheduleID });
+  }
   ds?.setLoading?.(true);
+  scheduleService._saveScheduleInFlight = true;
   try {
     await client.upsertSchedules([payload]);
     ds?.fetchCollection?.();
@@ -429,6 +447,7 @@ async function saveSchedule({ context }) {
     ds?.setError?.(err);
     return false;
   } finally {
+    scheduleService._saveScheduleInFlight = false;
     ds?.setLoading?.(false);
   }
 }
@@ -695,6 +714,30 @@ export const scheduleService = {
       }));
     } catch (e) {
       log.error('schedule.onFetchRuns error', e);
+      return collection;
+    }
+  },
+  onFetchAgentsLov({ context, collection = [] }) {
+    try {
+      const ds = context?.handlers?.dataSource;
+      const filter = ds?.peekFilter?.() || {};
+      const query = String(filter.name || filter.query || '').trim();
+      const normalized = normalizeWorkspaceAgentInfos(collection);
+      return filterLookupCollection(normalized, query, ['id', 'name', 'modelRef']);
+    } catch (e) {
+      log.error('schedule.onFetchAgentsLov error', e);
+      return collection;
+    }
+  },
+  onFetchModelsLov({ context, collection = [] }) {
+    try {
+      const ds = context?.handlers?.dataSource;
+      const filter = ds?.peekFilter?.() || {};
+      const query = String(filter.name || filter.query || '').trim();
+      const normalized = normalizeWorkspaceModelInfos(collection);
+      return filterLookupCollection(normalized, query, ['id', 'name']);
+    } catch (e) {
+      log.error('schedule.onFetchModelsLov error', e);
       return collection;
     }
   },

@@ -99,8 +99,14 @@ func Serve(options ServeOptions) error {
 	metadataHandler := svcworkspace.NewMetadataHandler(rt.Defaults, rt.Store, "agently-v1").
 		SetStarterTasks(defaultStarterTasks())
 	fileBrowserHandler := svcworkspace.NewFileBrowserHandler()
-	scheduleStore := newFileScheduleStore(workspace.Root())
-	schedulerSvc := svcscheduler.New(scheduleStore, rt.Agent)
+	scheduleStore, err := svcscheduler.NewDatlyStore(ctx, rt.DAO, rt.Data)
+	if err != nil {
+		return fmt.Errorf("failed to initialize scheduler store: %w", err)
+	}
+	schedulerSvc := svcscheduler.New(scheduleStore, rt.Agent,
+		svcscheduler.WithConversationClient(rt.Conversation),
+		svcscheduler.WithTokenProvider(rt.TokenProvider),
+	)
 	schedulerHandler := svcscheduler.NewHandler(schedulerSvc)
 	sdkHandler, err := sdk.NewHandlerWithContext(ctx, client,
 		sdk.WithMetadataHandler(metadataHandler),

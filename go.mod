@@ -11,11 +11,11 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.0.0-20260319160203-815d8a98c6ae
+	github.com/viant/agently-core v0.0.0-20260320104720-31f8a5461444
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3
 	github.com/viant/fluxor v0.4.3
-	github.com/viant/forge v0.2.19
+	github.com/viant/forge v0.2.20-0.20260320103329-bc4f345dcf4f
 	github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.14.0
@@ -34,6 +34,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.32.2
 	github.com/aws/smithy-go v1.24.1
 	github.com/fsnotify/fsnotify v1.8.0
+	github.com/go-sql-driver/mysql v1.9.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/gops v0.3.29
 	github.com/gorilla/websocket v1.5.3
@@ -47,6 +48,7 @@ require (
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
 	github.com/viant/parsly v0.3.3
+	github.com/viant/sqlx v0.22.0
 	github.com/viant/xdatly v0.5.4-0.20260306062123-17850ac34977
 	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
 	golang.org/x/crypto v0.43.0
@@ -58,15 +60,15 @@ require (
 require (
 	cel.dev/expr v0.24.0 // indirect
 	cloud.google.com/go v0.116.0 // indirect
-	cloud.google.com/go/auth v0.9.8 // indirect
-	cloud.google.com/go/auth/oauth2adapt v0.2.4 // indirect
+	cloud.google.com/go/auth v0.13.0 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.2.6 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/firestore v1.17.0 // indirect
-	cloud.google.com/go/iam v1.2.1 // indirect
-	cloud.google.com/go/longrunning v0.6.1 // indirect
-	cloud.google.com/go/monitoring v1.21.1 // indirect
-	cloud.google.com/go/secretmanager v1.14.1 // indirect
-	cloud.google.com/go/storage v1.45.0 // indirect
+	cloud.google.com/go/iam v1.2.2 // indirect
+	cloud.google.com/go/longrunning v0.6.2 // indirect
+	cloud.google.com/go/monitoring v1.21.2 // indirect
+	cloud.google.com/go/secretmanager v1.14.2 // indirect
+	cloud.google.com/go/storage v1.50.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	firebase.google.com/go v3.13.0+incompatible // indirect
 	firebase.google.com/go/v4 v4.14.0 // indirect
@@ -114,7 +116,6 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-sql-driver/mysql v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
@@ -122,7 +123,7 @@ require (
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
-	github.com/googleapis/gax-go/v2 v2.13.0 // indirect
+	github.com/googleapis/gax-go/v2 v2.14.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
@@ -161,7 +162,6 @@ require (
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
 	github.com/viant/sqlparser v0.11.1-0.20260224194657-0470849e3588 // indirect
-	github.com/viant/sqlx v0.22.0 // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.0 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
@@ -192,12 +192,12 @@ require (
 	golang.org/x/net v0.46.1-0.20251013234738-63d1a5100f82 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
-	golang.org/x/time v0.7.0 // indirect
+	golang.org/x/time v0.8.0 // indirect
 	golang.org/x/tools v0.38.0 // indirect
-	google.golang.org/api v0.201.0 // indirect
+	google.golang.org/api v0.214.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/appengine/v2 v2.0.2 // indirect
-	google.golang.org/genproto v0.0.0-20241015192408-796eee8c2d53 // indirect
+	google.golang.org/genproto v0.0.0-20241118233622-e639e219e697 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251022142026-3a174f9686a8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251022142026-3a174f9686a8 // indirect
 	google.golang.org/grpc v1.77.0 // indirect
@@ -208,10 +208,4 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace github.com/viant/agently-core => ../agently-core
 
-replace github.com/viant/afsc => ../afsc
-
-replace github.com/viant/datly => ../datly
-
-replace github.com/viant/xreflect => ../xreflect

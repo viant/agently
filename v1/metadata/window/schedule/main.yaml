@@ -28,8 +28,8 @@ view:
 dataSource:
   schedules: $import('datasource/schedules.yaml')
   runs: $import('datasource/runs.yaml')
-  agentsLov: $import('../agent/datasource/agents.yaml')
-  modelsLov: $import('../model/datasource/models.yaml')
+  agentsLov: $import('datasource/agents_lov.yaml')
+  modelsLov: $import('datasource/models_lov.yaml')
 
 dialogs:
   - id: agentLov
@@ -44,6 +44,8 @@ dialogs:
         columns:
           - id: name
             name: Agent Name
+          - id: id
+            name: Agent ID
 
   - id: modelLov
     title: Select Model
@@ -52,7 +54,7 @@ dialogs:
       fetchData: true
       table:
         columns:
+          - id: name
+            name: Model
           - id: id
             name: Model ID
-          - id: options.provider
-            name: Provider
