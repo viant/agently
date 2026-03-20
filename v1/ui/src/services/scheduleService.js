@@ -17,6 +17,91 @@ function newScheduleID() {
   return `sched_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function normalizeVisibility(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  return value || undefined;
+}
+
+function normalizeScheduleRow(r = {}) {
+  const row = {
+    _rawScheduleType: firstDefined(r, ['scheduleType', 'schedule_type']),
+    _rawCronExpr: firstDefined(r, ['cronExpr', 'cron_expr']),
+    _rawIntervalSeconds: firstDefined(r, ['intervalSeconds', 'interval_seconds']),
+    id: firstDefined(r, ['id']),
+    name: firstDefined(r, ['name']),
+    description: firstDefined(r, ['description']),
+    visibility: firstDefined(r, ['visibility']) || 'private',
+    agentRef: firstDefined(r, ['agentRef', 'agent_ref']),
+    modelOverride: firstDefined(r, ['modelOverride', 'model_override']),
+    enabled: asBoolean(firstDefined(r, ['enabled'])),
+    startAt: firstDefined(r, ['startAt', 'start_at']),
+    endAt: firstDefined(r, ['endAt', 'end_at']),
+    scheduleType: firstDefined(r, ['scheduleType', 'schedule_type']),
+    cronExpr: firstDefined(r, ['cronExpr', 'cron_expr']),
+    intervalSeconds: firstDefined(r, ['intervalSeconds', 'interval_seconds']),
+    timezone: firstDefined(r, ['timezone']),
+    timeoutSeconds: firstDefined(r, ['timeoutSeconds', 'timeout_seconds']),
+    taskPromptUri: firstDefined(r, ['taskPromptUri', 'task_prompt_uri']),
+    taskPrompt: firstDefined(r, ['taskPrompt', 'task_prompt']),
+    nextRunAt: firstDefined(r, ['nextRunAt', 'next_run_at']),
+    lastStatus: firstDefined(r, ['lastStatus', 'last_status']),
+    lastRunAt: firstDefined(r, ['lastRunAt', 'last_run_at']),
+    createdAt: firstDefined(r, ['createdAt', 'created_at']),
+    updatedAt: firstDefined(r, ['updatedAt', 'updated_at']),
+    userCredUrl: firstDefined(r, ['userCredUrl', 'user_cred_url'])
+  };
+  const rawType = String(row._rawScheduleType || row.scheduleType || '').toLowerCase();
+  const rawCron = row._rawCronExpr || row.cronExpr || '';
+  const dailyParsed = parseDailyCron(rawCron);
+  const intervalParsed = parseIntervalCron(rawCron);
+  row.intervalHours = row._rawIntervalSeconds ? Math.max(1, Math.round(Number(row._rawIntervalSeconds) / 3600)) : (intervalParsed?.intervalHours || 24);
+  row.dailyTime = dailyParsed?.dailyTime || '09:00 AM';
+  row.weekdays = dailyParsed?.weekdays || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  if (rawType === 'interval') row.scheduleMode = 'interval';
+  else if (dailyParsed) row.scheduleMode = 'daily';
+  else if (rawType === 'cron') row.scheduleMode = 'custom';
+  else if (intervalParsed) row.scheduleMode = 'interval';
+  else if (String(rawCron || '').trim()) row.scheduleMode = 'custom';
+  else row.scheduleMode = 'daily';
+  row._lastScheduleMode = row.scheduleMode;
+  if (!String(row.cronExpr || '').trim()) {
+    if (row.scheduleMode === 'daily') row.cronExpr = toDailyCron(row.dailyTime, row.weekdays);
+    else if (row.scheduleMode === 'interval') row.cronExpr = toIntervalCron(row.intervalHours);
+  }
+  return row;
+}
+
+function unwrapSchedulePayload(payload) {
+  if (payload && typeof payload === 'object' && payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
+    return payload.data;
+  }
+  return payload && typeof payload === 'object' ? payload : null;
+}
+
+function syncSavedSchedule(ds, payload) {
+  const raw = unwrapSchedulePayload(payload);
+  if (!raw || typeof raw !== 'object') return null;
+  const normalized = normalizeScheduleRow(raw);
+  updateFormIfChanged(ds, normalized);
+
+  const currentCollection = ds?.peekCollection?.() || ds?.getCollection?.();
+  if (Array.isArray(currentCollection) && typeof ds?.setCollection === 'function') {
+    const nextCollection = currentCollection.slice();
+    const index = nextCollection.findIndex((item) => String(item?.id || '') === String(normalized.id || ''));
+    if (index >= 0) {
+      nextCollection[index] = { ...nextCollection[index], ...normalized };
+      ds.setCollection(nextCollection);
+    }
+  }
+
+  const selection = ds?.peekSelection?.() || ds?.getSelection?.() || {};
+  const rowIndex = Number.isInteger(selection?.rowIndex) ? selection.rowIndex : -1;
+  if (typeof ds?.setSelected === 'function') {
+    ds.setSelected({ selected: normalized, rowIndex });
+  }
+  return normalized;
+}
+
 function joinURL(base, path) {
   const b = (base || '').replace(/\/+$/, '');
   const p = (path || '').replace(/^\/+/, '');
@@ -396,10 +481,7 @@ async function saveSchedule({ context }) {
     return false;
   }
   const ds = ctx.handlers?.dataSource;
-  const editedValues = ds?.peekFormData?.()?.values || {};
-  const formData = ds?.getFormData?.() || {};
-  const selected = ds?.peekSelection?.()?.selected || ds?.getSelection?.()?.selected || {};
-  const form = { ...selected, ...formData, ...editedValues };
+  const form = getFormState(ds);
   if (!Object.keys(form).length) {
     log.warn('scheduleService.saveSchedule: no form data');
     return false;
@@ -412,11 +494,11 @@ async function saveSchedule({ context }) {
   const computedScheduleType = mode === 'interval' ? 'interval' : 'cron';
   const existingID = String(form.id || '').trim();
   const scheduleID = existingID || newScheduleID();
+  const visibility = normalizeVisibility(form.visibility);
   const payload = {
     id: scheduleID,
     name: form.name,
     description: form.description,
-    visibility: String(form.visibility || 'private').trim().toLowerCase(),
     agentRef: form.agentRef || form.agent,
     modelOverride: form.modelOverride,
     enabled: enabledRaw === undefined ? false : asBoolean(enabledRaw),
@@ -433,6 +515,9 @@ async function saveSchedule({ context }) {
     taskPrompt: form.taskPrompt,
     userCredUrl: form.userCredUrl
   };
+  if (visibility) {
+    payload.visibility = visibility;
+  }
   if (!existingID) {
     updateFormIfChanged(ds, { ...form, id: scheduleID });
   }
@@ -440,7 +525,15 @@ async function saveSchedule({ context }) {
   scheduleService._saveScheduleInFlight = true;
   try {
     await client.upsertSchedules([payload]);
-    ds?.fetchCollection?.();
+    let synced = null;
+    try {
+      synced = syncSavedSchedule(ds, await client.getSchedule(scheduleID));
+    } catch (refreshErr) {
+      log.warn('scheduleService.saveSchedule refresh error', refreshErr);
+    }
+    if (!existingID || !synced) {
+      ds?.fetchCollection?.();
+    }
     return true;
   } catch (err) {
     log.error('scheduleService.saveSchedule error', err);
@@ -646,54 +739,7 @@ export const scheduleService = {
     try {
       setTimeout(decorateScheduleEmptyStates, 0);
       const incoming = Array.isArray(collection) ? collection : [];
-      const mapped = incoming.map((r) => ({
-        _rawScheduleType: firstDefined(r, ['scheduleType', 'schedule_type']),
-        _rawCronExpr: firstDefined(r, ['cronExpr', 'cron_expr']),
-        _rawIntervalSeconds: firstDefined(r, ['intervalSeconds', 'interval_seconds']),
-        id: firstDefined(r, ['id']),
-        name: firstDefined(r, ['name']),
-        description: firstDefined(r, ['description']),
-        visibility: firstDefined(r, ['visibility']) || 'private',
-        agentRef: firstDefined(r, ['agentRef', 'agent_ref']),
-        modelOverride: firstDefined(r, ['modelOverride', 'model_override']),
-        enabled: asBoolean(firstDefined(r, ['enabled'])),
-        startAt: firstDefined(r, ['startAt', 'start_at']),
-        endAt: firstDefined(r, ['endAt', 'end_at']),
-        scheduleType: firstDefined(r, ['scheduleType', 'schedule_type']),
-        cronExpr: firstDefined(r, ['cronExpr', 'cron_expr']),
-        intervalSeconds: firstDefined(r, ['intervalSeconds', 'interval_seconds']),
-        timezone: firstDefined(r, ['timezone']),
-        timeoutSeconds: firstDefined(r, ['timeoutSeconds', 'timeout_seconds']),
-        taskPromptUri: firstDefined(r, ['taskPromptUri', 'task_prompt_uri']),
-        taskPrompt: firstDefined(r, ['taskPrompt', 'task_prompt']),
-        nextRunAt: firstDefined(r, ['nextRunAt', 'next_run_at']),
-        lastStatus: firstDefined(r, ['lastStatus', 'last_status']),
-        lastRunAt: firstDefined(r, ['lastRunAt', 'last_run_at']),
-        createdAt: firstDefined(r, ['createdAt', 'created_at']),
-        updatedAt: firstDefined(r, ['updatedAt', 'updated_at']),
-        userCredUrl: firstDefined(r, ['userCredUrl', 'user_cred_url'])
-      }));
-      mapped.forEach((row) => {
-        const rawType = String(row._rawScheduleType || row.scheduleType || '').toLowerCase();
-        const rawCron = row._rawCronExpr || row.cronExpr || '';
-        const dailyParsed = parseDailyCron(rawCron);
-        const intervalParsed = parseIntervalCron(rawCron);
-        row.intervalHours = row._rawIntervalSeconds ? Math.max(1, Math.round(Number(row._rawIntervalSeconds) / 3600)) : (intervalParsed?.intervalHours || 24);
-        row.dailyTime = dailyParsed?.dailyTime || '09:00 AM';
-        row.weekdays = dailyParsed?.weekdays || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-        if (rawType === 'interval') row.scheduleMode = 'interval';
-        else if (dailyParsed) row.scheduleMode = 'daily';
-        else if (rawType === 'cron') row.scheduleMode = 'custom';
-        else if (intervalParsed) row.scheduleMode = 'interval';
-        else if (String(rawCron || '').trim()) row.scheduleMode = 'custom';
-        else row.scheduleMode = 'daily';
-        row._lastScheduleMode = row.scheduleMode;
-        if (!String(row.cronExpr || '').trim()) {
-          if (row.scheduleMode === 'daily') row.cronExpr = toDailyCron(row.dailyTime, row.weekdays);
-          else if (row.scheduleMode === 'interval') row.cronExpr = toIntervalCron(row.intervalHours);
-        }
-      });
-      return mapped;
+      return incoming.map((r) => normalizeScheduleRow(r));
     } catch (e) {
       log.error('schedule.onFetchSchedules error', e);
       return collection;
