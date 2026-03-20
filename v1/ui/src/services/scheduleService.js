@@ -9,7 +9,15 @@ import {
 } from './workspaceMetadata';
 
 const log = getLogger('agently');
-const liveScheduleDraft = { dailyTime: '', intervalHours: '', cronExpr: '', lastMode: '' };
+
+const DEFAULT_TIMEZONE = 'UTC';
+const DEFAULT_CALENDAR_TIME = '09:00 AM';
+const DEFAULT_CALENDAR_INTERVAL_HOURS = 2;
+const DEFAULT_ELAPSED_INTERVAL_VALUE = 24;
+const DEFAULT_ELAPSED_INTERVAL_UNIT = 'hours';
+const ALL_WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const CALENDAR_BUILDER_FIELDS = new Set(['calendarPattern', 'calendarTime', 'calendarIntervalHours', 'weekdays']);
+const ELAPSED_BUILDER_FIELDS = new Set(['elapsedIntervalValue', 'elapsedIntervalUnit']);
 
 function newScheduleID() {
   const generated = globalThis?.crypto?.randomUUID?.();
@@ -50,25 +58,7 @@ function normalizeScheduleRow(r = {}) {
     updatedAt: firstDefined(r, ['updatedAt', 'updated_at']),
     userCredUrl: firstDefined(r, ['userCredUrl', 'user_cred_url'])
   };
-  const rawType = String(row._rawScheduleType || row.scheduleType || '').toLowerCase();
-  const rawCron = row._rawCronExpr || row.cronExpr || '';
-  const dailyParsed = parseDailyCron(rawCron);
-  const intervalParsed = parseIntervalCron(rawCron);
-  row.intervalHours = row._rawIntervalSeconds ? Math.max(1, Math.round(Number(row._rawIntervalSeconds) / 3600)) : (intervalParsed?.intervalHours || 24);
-  row.dailyTime = dailyParsed?.dailyTime || '09:00 AM';
-  row.weekdays = dailyParsed?.weekdays || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-  if (rawType === 'interval') row.scheduleMode = 'interval';
-  else if (dailyParsed) row.scheduleMode = 'daily';
-  else if (rawType === 'cron') row.scheduleMode = 'custom';
-  else if (intervalParsed) row.scheduleMode = 'interval';
-  else if (String(rawCron || '').trim()) row.scheduleMode = 'custom';
-  else row.scheduleMode = 'daily';
-  row._lastScheduleMode = row.scheduleMode;
-  if (!String(row.cronExpr || '').trim()) {
-    if (row.scheduleMode === 'daily') row.cronExpr = toDailyCron(row.dailyTime, row.weekdays);
-    else if (row.scheduleMode === 'interval') row.cronExpr = toIntervalCron(row.intervalHours);
-  }
-  return row;
+  return ensureEditorState(row);
 }
 
 function unwrapSchedulePayload(payload) {
@@ -129,6 +119,8 @@ const CRON_TO_WEEKDAY = {
   7: 'sun'
 };
 
+const WEEKDAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
 function asBoolean(value) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value === 1;
@@ -173,6 +165,125 @@ function parseTimeTo24h(value) {
   return null;
 }
 
+function buildUTCDate(year, month, day, hours = 0, minutes = 0, seconds = 0, milliseconds = 0) {
+  const d = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds, milliseconds));
+  if (Number.isNaN(d.getTime())) return null;
+  if (
+    d.getUTCFullYear() !== year ||
+    d.getUTCMonth() !== month - 1 ||
+    d.getUTCDate() !== day ||
+    d.getUTCHours() !== hours ||
+    d.getUTCMinutes() !== minutes ||
+    d.getUTCSeconds() !== seconds
+  ) {
+    return null;
+  }
+  return d;
+}
+
+function toUTCISOStringFromLocalParts(value) {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return null;
+  return buildUTCDate(
+    value.getFullYear(),
+    value.getMonth() + 1,
+    value.getDate(),
+    value.getHours(),
+    value.getMinutes(),
+    value.getSeconds(),
+    value.getMilliseconds()
+  )?.toISOString() || null;
+}
+
+function parseScheduleDateTimeString(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+
+  if (/[zZ]$|[+-]\d{2}:\d{2}$|[+-]\d{4}$/.test(value)) {
+    const explicit = new Date(value);
+    return Number.isNaN(explicit.getTime()) ? null : explicit;
+  }
+
+  let match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    return buildUTCDate(Number(match[1]), Number(match[2]), Number(match[3]));
+  }
+
+  match = value.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?$/);
+  if (match) {
+    return buildUTCDate(
+      Number(match[1]),
+      Number(match[2]),
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5]),
+      Number(match[6] || 0),
+      Number(String(match[7] || '0').padEnd(3, '0'))
+    );
+  }
+
+  match = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:,\s*|\s+)?(?:(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([aApP][mM])?)?$/);
+  if (match) {
+    let hours = Number(match[4] || 0);
+    const minutes = Number(match[5] || 0);
+    const seconds = Number(match[6] || 0);
+    const meridiem = String(match[7] || '').toLowerCase();
+    if (meridiem) {
+      if (hours < 1 || hours > 12) return null;
+      if (meridiem === 'pm' && hours !== 12) hours += 12;
+      if (meridiem === 'am' && hours === 12) hours = 0;
+    }
+    return buildUTCDate(
+      Number(match[3]),
+      Number(match[1]),
+      Number(match[2]),
+      hours,
+      minutes,
+      seconds
+    );
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return buildUTCDate(
+    parsed.getFullYear(),
+    parsed.getMonth() + 1,
+    parsed.getDate(),
+    parsed.getHours(),
+    parsed.getMinutes(),
+    parsed.getSeconds(),
+    parsed.getMilliseconds()
+  );
+}
+
+function normalizeScheduleDateTime(value, label) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string' && !value.trim()) return undefined;
+  if (value instanceof Date) {
+    const normalized = toUTCISOStringFromLocalParts(value);
+    if (normalized) return normalized;
+    throw new Error(`${label} must be a valid date/time`);
+  }
+  if (typeof value === 'number') {
+    const d = new Date(value);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+    throw new Error(`${label} must be a valid date/time`);
+  }
+  if (typeof value === 'string') {
+    const parsed = parseScheduleDateTimeString(value);
+    if (parsed) return parsed.toISOString();
+    throw new Error(`${label} must be a valid date/time`);
+  }
+  if (typeof value === 'object') {
+    if ('date' in value) return normalizeScheduleDateTime(value.date, label);
+    if ('value' in value) return normalizeScheduleDateTime(value.value, label);
+    if (typeof value.toISOString === 'function') {
+      const result = value.toISOString();
+      if (typeof result === 'string' && result.trim()) return result;
+    }
+  }
+  throw new Error(`${label} must be a valid date/time`);
+}
+
 function toAmPm(hh, mm) {
   const safeH = Number.isFinite(hh) ? hh : 9;
   const safeM = Number.isFinite(mm) ? mm : 0;
@@ -188,14 +299,22 @@ function toDailyCron(timeValue, weekdays = []) {
     .map((d) => WEEKDAY_TO_CRON[String(d || '').toLowerCase().trim()])
     .filter((v) => v !== undefined);
   const uniq = [...new Set(mapped)];
-  const dow = uniq.length ? uniq.join(',') : '*';
+  const dow = uniq.length === 0 || uniq.length === ALL_WEEKDAYS.length ? '*' : uniq.join(',');
   return `${parsed.mm} ${parsed.hh} * * ${dow}`;
 }
 
 function toIntervalCron(intervalHoursValue) {
   const raw = Number(intervalHoursValue);
-  const every = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 24;
+  const every = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : DEFAULT_ELAPSED_INTERVAL_VALUE;
   return `0 */${every} * * *`;
+}
+
+function parseCronWeekdays(dowExpr) {
+  const weekdays = String(dowExpr || '')
+    .split(',')
+    .map((v) => CRON_TO_WEEKDAY[String(v).trim()])
+    .filter(Boolean);
+  return weekdays.length ? [...new Set(weekdays)] : [...ALL_WEEKDAYS];
 }
 
 function parseDailyCron(cronExpr) {
@@ -207,35 +326,71 @@ function parseDailyCron(cronExpr) {
   const mon = parts[3];
   const dow = parts[4];
   if (!Number.isFinite(mm) || !Number.isFinite(hh) || dom !== '*' || mon !== '*') return null;
-  const weekdays = String(dow || '')
-    .split(',')
-    .map((v) => CRON_TO_WEEKDAY[String(v).trim()])
-    .filter(Boolean);
   return {
     dailyTime: toAmPm(hh, mm),
-    weekdays: weekdays.length ? [...new Set(weekdays)] : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    weekdays: parseCronWeekdays(dow)
   };
 }
 
-function parseIntervalCron(cronExpr) {
+function parseCalendarEveryCron(cronExpr) {
   const parts = String(cronExpr || '').trim().split(/\s+/).filter(Boolean);
   if (parts.length < 5) return null;
   const [min, hour, dom, mon, dow] = parts;
-  if (dom !== '*' || mon !== '*' || dow !== '*') return null;
-  const topOfHour = min.match(/^0$/);
-  const stepHour = hour.match(/^\*\/(\d{1,2})$/);
-  if (topOfHour && stepHour) {
-    const every = Number(stepHour[1]);
-    if (Number.isFinite(every) && every > 0) return { intervalHours: every };
+  if (dom !== '*' || mon !== '*') return null;
+  const mm = Number(min);
+  if (!Number.isFinite(mm) || mm < 0 || mm > 59) return null;
+  if (hour === '*') {
+    return {
+      everyHours: 1,
+      calendarTime: toAmPm(0, mm),
+      weekdays: parseCronWeekdays(dow)
+    };
   }
-  if (min.match(/^(\d{1,2})$/) && hour.match(/^\*$/)) {
-    return { intervalHours: 1 };
+  let match = hour.match(/^\*\/(\d{1,2})$/);
+  if (match) {
+    const everyHours = Number(match[1]);
+    if (Number.isFinite(everyHours) && everyHours > 0) {
+      return {
+        everyHours,
+        calendarTime: toAmPm(0, mm),
+        weekdays: parseCronWeekdays(dow)
+      };
+    }
+  }
+  match = hour.match(/^(\d{1,2})-23\/(\d{1,2})$/);
+  if (match) {
+    const startHH = Number(match[1]);
+    const everyHours = Number(match[2]);
+    if (Number.isFinite(startHH) && Number.isFinite(everyHours) && startHH >= 0 && startHH <= 23 && everyHours > 0) {
+      return {
+        everyHours,
+        calendarTime: toAmPm(startHH, mm),
+        weekdays: parseCronWeekdays(dow)
+      };
+    }
   }
   return null;
 }
 
+function toCalendarEveryCron(timeValue, everyHoursValue, weekdays = []) {
+  const parsed = parseTimeTo24h(timeValue) || { hh: 0, mm: 0 };
+  const rawEvery = Number(everyHoursValue);
+  const everyHours = Number.isFinite(rawEvery) && rawEvery > 0 ? Math.round(rawEvery) : DEFAULT_CALENDAR_INTERVAL_HOURS;
+  const safeEveryHours = Math.min(Math.max(everyHours, 1), 23);
+  const mapped = (Array.isArray(weekdays) ? weekdays : [])
+    .map((d) => WEEKDAY_TO_CRON[String(d || '').toLowerCase().trim()])
+    .filter((v) => v !== undefined);
+  const uniq = [...new Set(mapped)];
+  const dow = uniq.length === 0 || uniq.length === ALL_WEEKDAYS.length ? '*' : uniq.join(',');
+  let hourExpr = '*';
+  if (safeEveryHours > 1) {
+    hourExpr = parsed.hh === 0 ? `*/${safeEveryHours}` : `${parsed.hh}-23/${safeEveryHours}`;
+  }
+  return `${parsed.mm} ${hourExpr} * * ${dow}`;
+}
+
 function normalizeWeekdays(value) {
-  if (Array.isArray(value)) return value;
+  if (Array.isArray(value)) return value.map((v) => String(v || '').trim().toLowerCase()).filter(Boolean);
   if (typeof value === 'string') {
     return value.split(',').map((v) => String(v || '').trim().toLowerCase()).filter(Boolean);
   }
@@ -248,64 +403,357 @@ function normalizeWeekdays(value) {
   return [];
 }
 
-function normalizeMode(form = {}) {
-  const mode = String(form.scheduleMode || form.scheduleType || '').trim().toLowerCase();
-  if (mode === 'cron' || mode === 'adhoc') return 'custom';
-  if (mode === 'daily' || mode === 'interval' || mode === 'custom') return mode;
-  return 'daily';
+function normalizeWeekdaySelection(value) {
+  const weekdays = normalizeWeekdays(value);
+  return weekdays.length ? [...new Set(weekdays)] : [...ALL_WEEKDAYS];
+}
+
+function normalizeEditorKind(form = {}) {
+  const direct = String(form.scheduleEditorKind || '').trim().toLowerCase();
+  if (direct === 'calendar' || direct === 'elapsed' || direct === 'advanced') return direct;
+  const legacyMode = String(form.scheduleMode || '').trim().toLowerCase();
+  if (legacyMode === 'custom') return 'advanced';
+  if (legacyMode === 'interval') return 'elapsed';
+  if (legacyMode === 'daily') return 'calendar';
+  const rawType = String(firstDefined(form, ['scheduleType', 'schedule_type']) || '').trim().toLowerCase();
+  if (rawType === 'interval') return 'elapsed';
+  return 'calendar';
+}
+
+function normalizeCalendarPattern(form = {}) {
+  const direct = String(form.calendarPattern || '').trim().toLowerCase();
+  if (direct === 'once' || direct === 'every') return direct;
+  const legacyMode = String(form.scheduleMode || '').trim().toLowerCase();
+  if (legacyMode === 'interval') return 'every';
+  return 'once';
+}
+
+function normalizeElapsedUnit(form = {}) {
+  const unit = String(form.elapsedIntervalUnit || '').trim().toLowerCase();
+  if (unit === 'minutes' || unit === 'hours' || unit === 'days') return unit;
+  return DEFAULT_ELAPSED_INTERVAL_UNIT;
+}
+
+function intervalUnitMultiplier(unit) {
+  if (unit === 'minutes') return 60;
+  if (unit === 'days') return 86400;
+  return 3600;
+}
+
+function toElapsedSeconds(value, unit) {
+  const raw = Number(value);
+  const amount = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : DEFAULT_ELAPSED_INTERVAL_VALUE;
+  return amount * intervalUnitMultiplier(unit);
+}
+
+function fromIntervalSeconds(value) {
+  const seconds = Number(value);
+  if (!(Number.isFinite(seconds) && seconds > 0)) {
+    return { elapsedIntervalValue: DEFAULT_ELAPSED_INTERVAL_VALUE, elapsedIntervalUnit: DEFAULT_ELAPSED_INTERVAL_UNIT };
+  }
+  if (seconds % 86400 === 0) {
+    return { elapsedIntervalValue: seconds / 86400, elapsedIntervalUnit: 'days' };
+  }
+  if (seconds % 3600 === 0) {
+    return { elapsedIntervalValue: seconds / 3600, elapsedIntervalUnit: 'hours' };
+  }
+  if (seconds % 60 === 0) {
+    return { elapsedIntervalValue: seconds / 60, elapsedIntervalUnit: 'minutes' };
+  }
+  return { elapsedIntervalValue: Math.max(1, Math.round(seconds / 60)), elapsedIntervalUnit: 'minutes' };
+}
+
+function toElapsedPseudoCron(value, unit) {
+  const raw = Number(value);
+  const amount = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : DEFAULT_ELAPSED_INTERVAL_VALUE;
+  if (unit === 'minutes') return `*/${amount} * * * *`;
+  if (unit === 'days') return `0 0 */${amount} * *`;
+  return toIntervalCron(amount);
+}
+
+function sortWeekdays(value) {
+  const weekdays = normalizeWeekdaySelection(value);
+  return weekdays.slice().sort((a, b) => WEEKDAY_ORDER.indexOf(a) - WEEKDAY_ORDER.indexOf(b));
+}
+
+function formatWeekdaySummary(value) {
+  const weekdays = sortWeekdays(value);
+  const key = weekdays.join(',');
+  if (weekdays.length === ALL_WEEKDAYS.length) return 'every day';
+  if (key === 'mon,tue,wed,thu,fri') return 'weekdays';
+  return weekdays.map((day) => day.charAt(0).toUpperCase() + day.slice(1, 3)).join(', ');
+}
+
+function formatPreciseWeekdaySummary(value) {
+  const weekdays = sortWeekdays(value);
+  const key = weekdays.join(',');
+  if (weekdays.length === ALL_WEEKDAYS.length) return 'every day';
+  if (key === 'mon,tue,wed,thu,fri') return 'Mon-Fri';
+
+  const labels = {
+    mon: 'Mon',
+    tue: 'Tue',
+    wed: 'Wed',
+    thu: 'Thu',
+    fri: 'Fri',
+    sat: 'Sat',
+    sun: 'Sun'
+  };
+
+  const ranges = [];
+  let start = weekdays[0];
+  let prevIndex = WEEKDAY_ORDER.indexOf(start);
+  for (let i = 1; i < weekdays.length; i += 1) {
+    const current = weekdays[i];
+    const currentIndex = WEEKDAY_ORDER.indexOf(current);
+    if (currentIndex !== prevIndex + 1) {
+      ranges.push(start === weekdays[i - 1] ? labels[start] : `${labels[start]}-${labels[weekdays[i - 1]]}`);
+      start = current;
+    }
+    prevIndex = currentIndex;
+  }
+  if (weekdays.length) {
+    const last = weekdays[weekdays.length - 1];
+    ranges.push(start === last ? labels[start] : `${labels[start]}-${labels[last]}`);
+  }
+  return ranges.join(', ');
+}
+
+function formatTime24hLabel(hh, mm) {
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+function formatOrdinal(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  const abs = Math.abs(Math.trunc(n));
+  const mod100 = abs % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${abs}th`;
+  switch (abs % 10) {
+    case 1: return `${abs}st`;
+    case 2: return `${abs}nd`;
+    case 3: return `${abs}rd`;
+    default: return `${abs}th`;
+  }
+}
+
+function buildCalendarEverySummary(calendarTime, everyHours, weekdays, timezone) {
+  const parsed = parseTimeTo24h(calendarTime);
+  const safeEveryHours = Number.isFinite(Number(everyHours)) && Number(everyHours) > 0 ? Math.min(Math.round(Number(everyHours)), 23) : DEFAULT_CALENDAR_INTERVAL_HOURS;
+  const daySummary = formatPreciseWeekdaySummary(weekdays);
+  if (!parsed) {
+    return `Every ${safeEveryHours} hour${safeEveryHours === 1 ? '' : 's'} on ${daySummary} (${timezone})`;
+  }
+  const minuteLabel = String(parsed.mm).padStart(2, '0');
+  if (safeEveryHours === 1) {
+    return `At ${minuteLabel} minutes past every hour on ${daySummary} (${timezone})`;
+  }
+  const endHour = parsed.hh + Math.floor((23 - parsed.hh) / safeEveryHours) * safeEveryHours;
+  return `At ${minuteLabel} minutes past every ${formatOrdinal(safeEveryHours)} hour from ${formatTime24hLabel(parsed.hh, parsed.mm)} through ${formatTime24hLabel(endHour, parsed.mm)} on ${daySummary} (${timezone})`;
+}
+
+function buildScheduleSummary(form = {}, derived = {}) {
+  const kind = normalizeEditorKind(form);
+  const timezone = String(form.timezone || DEFAULT_TIMEZONE).trim() || DEFAULT_TIMEZONE;
+  if (kind === 'advanced') {
+    const cron = String(derived.cronExpr || form.cronExpr || '').trim();
+    const daily = parseDailyCron(cron);
+    if (daily) {
+      return `${daily.dailyTime} on ${formatWeekdaySummary(daily.weekdays)} (${timezone})`;
+    }
+    const calendar = parseCalendarEveryCron(cron);
+    if (calendar) {
+      return buildCalendarEverySummary(calendar.calendarTime, calendar.everyHours, calendar.weekdays, timezone);
+    }
+    return cron ? `Custom cron in ${timezone}` : 'Custom cron schedule';
+  }
+  if (kind === 'elapsed') {
+    const unit = normalizeElapsedUnit(form);
+    const raw = Number(form.elapsedIntervalValue);
+    const value = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : DEFAULT_ELAPSED_INTERVAL_VALUE;
+    return `Every ${value} ${unit} from previous run`;
+  }
+  const pattern = normalizeCalendarPattern(form);
+  const weekdays = normalizeWeekdaySelection(form.weekdays);
+  const calendarTime = String(form.calendarTime || form.dailyTime || DEFAULT_CALENDAR_TIME).trim() || DEFAULT_CALENDAR_TIME;
+  if (pattern === 'every') {
+    const raw = Number(form.calendarIntervalHours);
+    const everyHours = Number.isFinite(raw) && raw > 0 ? Math.min(Math.round(raw), 23) : DEFAULT_CALENDAR_INTERVAL_HOURS;
+    return buildCalendarEverySummary(calendarTime, everyHours, weekdays, timezone);
+  }
+  return `${calendarTime} on ${formatWeekdaySummary(weekdays)} (${timezone})`;
+}
+
+function deriveScheduleFields(form = {}) {
+  const kind = normalizeEditorKind(form);
+  if (kind === 'advanced') {
+    const cronExpr = String(form.cronExpr || '').trim();
+    return {
+      scheduleType: 'cron',
+      cronExpr,
+      intervalSeconds: null,
+      scheduleSummary: buildScheduleSummary(form, { cronExpr })
+    };
+  }
+  if (kind === 'elapsed') {
+    const unit = normalizeElapsedUnit(form);
+    const raw = Number(form.elapsedIntervalValue);
+    const elapsedIntervalValue = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : DEFAULT_ELAPSED_INTERVAL_VALUE;
+    const intervalSeconds = toElapsedSeconds(elapsedIntervalValue, unit);
+    const cronExpr = toElapsedPseudoCron(elapsedIntervalValue, unit);
+    return {
+      scheduleType: 'interval',
+      cronExpr,
+      intervalSeconds,
+      scheduleSummary: buildScheduleSummary({ ...form, elapsedIntervalValue, elapsedIntervalUnit: unit }, { cronExpr, intervalSeconds })
+    };
+  }
+  const pattern = normalizeCalendarPattern(form);
+  const calendarTime = String(form.calendarTime || form.dailyTime || DEFAULT_CALENDAR_TIME).trim() || DEFAULT_CALENDAR_TIME;
+  const weekdays = normalizeWeekdaySelection(form.weekdays);
+  if (pattern === 'every') {
+    const raw = Number(form.calendarIntervalHours || form.intervalHours);
+    const calendarIntervalHours = Number.isFinite(raw) && raw > 0 ? Math.min(Math.round(raw), 23) : DEFAULT_CALENDAR_INTERVAL_HOURS;
+    const cronExpr = toCalendarEveryCron(calendarTime, calendarIntervalHours, weekdays);
+    return {
+      scheduleType: 'cron',
+      cronExpr,
+      intervalSeconds: null,
+      scheduleSummary: buildScheduleSummary({ ...form, calendarTime, calendarIntervalHours, weekdays }, { cronExpr })
+    };
+  }
+  const cronExpr = toDailyCron(calendarTime, weekdays);
+  return {
+    scheduleType: 'cron',
+    cronExpr,
+    intervalSeconds: null,
+    scheduleSummary: buildScheduleSummary({ ...form, calendarTime, weekdays }, { cronExpr })
+  };
+}
+
+function inferEditorState(form = {}) {
+  const rawType = String(firstDefined(form, ['scheduleType', 'schedule_type']) || '').trim().toLowerCase();
+  const rawCron = String(firstDefined(form, ['cronExpr', 'cron_expr']) || '').trim();
+  const intervalSeconds = firstDefined(form, ['intervalSeconds', 'interval_seconds']);
+
+  if (rawType === 'interval') {
+    return {
+      scheduleEditorKind: 'elapsed',
+      calendarPattern: 'once',
+      calendarTime: DEFAULT_CALENDAR_TIME,
+      weekdays: [...ALL_WEEKDAYS],
+      calendarIntervalHours: DEFAULT_CALENDAR_INTERVAL_HOURS,
+      ...fromIntervalSeconds(intervalSeconds)
+    };
+  }
+
+  const daily = parseDailyCron(rawCron);
+  if (daily) {
+    return {
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: daily.dailyTime,
+      weekdays: daily.weekdays,
+      calendarIntervalHours: DEFAULT_CALENDAR_INTERVAL_HOURS,
+      ...fromIntervalSeconds(intervalSeconds)
+    };
+  }
+
+  const calendarEvery = parseCalendarEveryCron(rawCron);
+  if (calendarEvery) {
+    return {
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'every',
+      calendarTime: calendarEvery.calendarTime,
+      weekdays: calendarEvery.weekdays,
+      calendarIntervalHours: calendarEvery.everyHours,
+      ...fromIntervalSeconds(intervalSeconds)
+    };
+  }
+
+  if (rawType === 'cron' || rawCron) {
+    return {
+      scheduleEditorKind: 'advanced',
+      calendarPattern: 'once',
+      calendarTime: DEFAULT_CALENDAR_TIME,
+      weekdays: [...ALL_WEEKDAYS],
+      calendarIntervalHours: DEFAULT_CALENDAR_INTERVAL_HOURS,
+      ...fromIntervalSeconds(intervalSeconds)
+    };
+  }
+
+  return {
+    scheduleEditorKind: 'calendar',
+    calendarPattern: 'once',
+    calendarTime: DEFAULT_CALENDAR_TIME,
+    weekdays: [...ALL_WEEKDAYS],
+    calendarIntervalHours: DEFAULT_CALENDAR_INTERVAL_HOURS,
+    ...fromIntervalSeconds(intervalSeconds)
+  };
+}
+
+function hasEditorState(form = {}) {
+  return form.scheduleEditorKind !== undefined ||
+    form.calendarPattern !== undefined ||
+    form.calendarTime !== undefined ||
+    form.calendarIntervalHours !== undefined ||
+    form.elapsedIntervalValue !== undefined ||
+    form.elapsedIntervalUnit !== undefined ||
+    form.scheduleSummary !== undefined;
+}
+
+function applyLegacyAliases(next = {}) {
+  const kind = normalizeEditorKind(next);
+  const pattern = normalizeCalendarPattern(next);
+  if (kind === 'advanced') {
+    next.scheduleMode = 'custom';
+  } else if (kind === 'elapsed') {
+    next.scheduleMode = 'interval';
+    next.intervalHours = Math.max(1, Math.round((Number(next.intervalSeconds) || 0) / 3600)) || DEFAULT_ELAPSED_INTERVAL_VALUE;
+  } else if (pattern === 'every') {
+    next.scheduleMode = 'interval';
+    next.dailyTime = next.calendarTime;
+    next.intervalHours = next.calendarIntervalHours;
+  } else {
+    next.scheduleMode = 'daily';
+    next.dailyTime = next.calendarTime;
+  }
+}
+
+function ensureEditorState(form = {}) {
+  const next = { ...form };
+  const inferred = hasEditorState(next) ? {} : inferEditorState(next);
+  Object.assign(next, inferred);
+
+  next.scheduleEditorKind = normalizeEditorKind(next);
+  next.calendarPattern = normalizeCalendarPattern(next);
+  next.calendarTime = String(next.calendarTime || next.dailyTime || DEFAULT_CALENDAR_TIME).trim() || DEFAULT_CALENDAR_TIME;
+  next.weekdays = normalizeWeekdaySelection(next.weekdays);
+  const rawCalendarEvery = Number(next.calendarIntervalHours || next.intervalHours);
+  next.calendarIntervalHours = Number.isFinite(rawCalendarEvery) && rawCalendarEvery > 0
+    ? Math.min(Math.round(rawCalendarEvery), 23)
+    : DEFAULT_CALENDAR_INTERVAL_HOURS;
+  const normalizedElapsed = fromIntervalSeconds(next.intervalSeconds);
+  next.elapsedIntervalValue = Number.isFinite(Number(next.elapsedIntervalValue)) && Number(next.elapsedIntervalValue) > 0
+    ? Math.round(Number(next.elapsedIntervalValue))
+    : normalizedElapsed.elapsedIntervalValue;
+  next.elapsedIntervalUnit = normalizeElapsedUnit(next);
+  if (!String(next.timezone || '').trim()) {
+    next.timezone = DEFAULT_TIMEZONE;
+  }
+
+  const derived = deriveScheduleFields(next);
+  next.scheduleType = derived.scheduleType;
+  next.cronExpr = derived.cronExpr;
+  next.intervalSeconds = derived.intervalSeconds;
+  next.scheduleSummary = derived.scheduleSummary;
+
+  applyLegacyAliases(next);
+  return next;
 }
 
 function applyScheduleSync(form = {}) {
-  const scheduleTypeRaw = firstDefined(form, ['scheduleType', 'schedule_type']);
-  const cronRaw = firstDefined(form, ['cronExpr', 'cron_expr']);
-  const intervalSecondsRaw = firstDefined(form, ['intervalSeconds', 'interval_seconds']);
-  const next = {
-    ...form,
-    scheduleType: scheduleTypeRaw !== undefined ? scheduleTypeRaw : form.scheduleType,
-    cronExpr: cronRaw !== undefined ? cronRaw : form.cronExpr,
-    intervalSeconds: intervalSecondsRaw !== undefined ? intervalSecondsRaw : form.intervalSeconds,
-    scheduleMode: normalizeMode(form)
-  };
-
-  const dailyParsed = parseDailyCron(next.cronExpr);
-  const intervalParsed = parseIntervalCron(next.cronExpr);
-  const intervalFromSeconds = Number(next.intervalSeconds);
-  const fallbackIntervalHours = Number.isFinite(intervalFromSeconds) && intervalFromSeconds > 0
-    ? Math.max(1, Math.round(intervalFromSeconds / 3600))
-    : 24;
-
-  if (dailyParsed) {
-    next.dailyTime = dailyParsed.dailyTime;
-    next.weekdays = dailyParsed.weekdays;
-  }
-  if (intervalParsed?.intervalHours) {
-    next.intervalHours = intervalParsed.intervalHours;
-  } else if (!(Number(next.intervalHours) > 0)) {
-    next.intervalHours = fallbackIntervalHours;
-  }
-
-  if (next.scheduleMode === 'daily') {
-    const timeValue = String(next.dailyTime || '').trim() || '09:00 AM';
-    const weekdays = normalizeWeekdays(next.weekdays).length
-      ? normalizeWeekdays(next.weekdays)
-      : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-    next.scheduleType = 'cron';
-    next.dailyTime = timeValue;
-    next.weekdays = weekdays;
-    next.cronExpr = toDailyCron(timeValue, weekdays);
-    next.intervalSeconds = null;
-  } else if (next.scheduleMode === 'interval') {
-    const intervalHours = Number(next.intervalHours) > 0 ? Math.round(Number(next.intervalHours)) : fallbackIntervalHours;
-    next.scheduleType = 'interval';
-    next.intervalHours = intervalHours;
-    next.intervalSeconds = intervalHours * 3600;
-    next.cronExpr = toIntervalCron(intervalHours);
-  } else {
-    next.scheduleType = 'cron';
-    next.intervalSeconds = null;
-  }
-
-  return next;
+  return ensureEditorState(form);
 }
 
 function getSchedulesDataSource(context) {
@@ -318,6 +766,83 @@ function getFormState(ds) {
   const get = ds?.getFormData?.() || {};
   const selected = ds?.peekSelection?.()?.selected || ds?.getSelection?.()?.selected || {};
   return { ...selected, ...get, ...peekValues };
+}
+
+function applyIncomingFieldValue(form = {}, item, value) {
+  const fieldKey = item?.dataField || item?.bindingPath || item?.id;
+  if (!fieldKey) return form;
+  return {
+    ...form,
+    [fieldKey]: value
+  };
+}
+
+function resolveIncomingFieldValue(params = {}) {
+  if (Object.prototype.hasOwnProperty.call(params, 'value') && params.value !== undefined) {
+    return { hasValue: true, value: params.value };
+  }
+  if (Object.prototype.hasOwnProperty.call(params, 'selected') && params.selected !== undefined) {
+    const selected = params.selected;
+    return {
+      hasValue: true,
+      value: selected && selected.value !== undefined ? selected.value : selected
+    };
+  }
+  const event = params.event;
+  if (event && typeof event === 'object') {
+    if (event.target && typeof event.target === 'object') {
+      if (Object.prototype.hasOwnProperty.call(event.target, 'checked')) {
+        return { hasValue: true, value: event.target.checked };
+      }
+      if (Object.prototype.hasOwnProperty.call(event.target, 'value')) {
+        return { hasValue: true, value: event.target.value };
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(event, 'value')) {
+      return { hasValue: true, value: event.value };
+    }
+  }
+  if (event !== undefined) {
+    return { hasValue: true, value: event };
+  }
+  return { hasValue: false, value: undefined };
+}
+
+function deriveCronExprForKind(form = {}, kind) {
+  const source = ensureEditorState({ ...form, scheduleEditorKind: kind });
+  return String(deriveScheduleFields(source).cronExpr || '').trim();
+}
+
+function seedAdvancedCronExpr(current = {}, base = {}, fieldKey = '') {
+  const targetKind = normalizeEditorKind(current);
+  if (fieldKey === 'scheduleEditorKind' && targetKind === 'advanced') {
+    const sourceKind = normalizeEditorKind(base);
+    if (sourceKind !== 'advanced') {
+      return {
+        ...current,
+        cronExpr: deriveCronExprForKind(base, sourceKind)
+      };
+    }
+    return current;
+  }
+
+  if (targetKind !== 'advanced') return current;
+
+  if (ELAPSED_BUILDER_FIELDS.has(fieldKey)) {
+    return {
+      ...current,
+      cronExpr: deriveCronExprForKind(current, 'elapsed')
+    };
+  }
+
+  if (CALENDAR_BUILDER_FIELDS.has(fieldKey)) {
+    return {
+      ...current,
+      cronExpr: deriveCronExprForKind(current, 'calendar')
+    };
+  }
+
+  return current;
 }
 
 function updateFormIfChanged(ds, values) {
@@ -392,87 +917,6 @@ function installScheduleEmptyStateObserver() {
   scheduleService._emptyStateObserverInstalled = true;
 }
 
-function applyLiveScheduleInputs(form = {}) {
-  if (typeof document === 'undefined') return form;
-  const panel = document.querySelector('#bp6-tab-panel_form-tabs_schedule');
-  if (!panel) return form;
-  const next = { ...form };
-  const dailyInput = panel.querySelector("input[placeholder='09:00 AM']");
-  if (dailyInput?.value?.trim()) {
-    next.dailyTime = dailyInput.value.trim();
-    liveScheduleDraft.dailyTime = next.dailyTime;
-  }
-  const cronInput = panel.querySelector("input[placeholder='0 9 * * 1-5']");
-  if (cronInput?.value?.trim()) {
-    next.cronExpr = cronInput.value.trim();
-    liveScheduleDraft.cronExpr = next.cronExpr;
-  }
-  const intervalInput = panel.querySelector("input[type='number']");
-  if (intervalInput?.value?.trim()) {
-    const n = Number(intervalInput.value);
-    if (Number.isFinite(n) && n > 0) {
-      next.intervalHours = Math.round(n);
-      liveScheduleDraft.intervalHours = String(next.intervalHours);
-    }
-  }
-  if (!String(next.dailyTime || '').trim() && liveScheduleDraft.dailyTime) next.dailyTime = liveScheduleDraft.dailyTime;
-  if (!String(next.cronExpr || '').trim() && liveScheduleDraft.cronExpr) next.cronExpr = liveScheduleDraft.cronExpr;
-  if (!(Number(next.intervalHours) > 0) && liveScheduleDraft.intervalHours) {
-    const n = Number(liveScheduleDraft.intervalHours);
-    if (Number.isFinite(n) && n > 0) next.intervalHours = Math.round(n);
-  }
-  return next;
-}
-
-function transitionCronExpr(form = {}, mode, prevMode) {
-  const currentMode = String(mode || '').toLowerCase();
-  const previousMode = String(prevMode || '').toLowerCase();
-  if (currentMode === 'daily' || (currentMode === 'custom' && previousMode === 'daily')) {
-    const dailyTime = String(form.dailyTime || liveScheduleDraft.dailyTime || '09:00 AM').trim() || '09:00 AM';
-    const weekdays = normalizeWeekdays(form.weekdays).length
-      ? normalizeWeekdays(form.weekdays)
-      : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-    return toDailyCron(dailyTime, weekdays);
-  }
-  if (currentMode === 'interval' || (currentMode === 'custom' && previousMode === 'interval')) {
-    const raw = Number(form.intervalHours || liveScheduleDraft.intervalHours);
-    const intervalHours = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 24;
-    return toIntervalCron(intervalHours);
-  }
-  return String(form.cronExpr || liveScheduleDraft.cronExpr || '').trim();
-}
-
-function syncOnModeTransition(ds, form = {}) {
-  const withLive = applyLiveScheduleInputs({ ...getFormState(ds), ...form });
-  const mode = normalizeMode(withLive);
-  const prevMode = String(withLive._lastScheduleMode || liveScheduleDraft.lastMode || 'daily').toLowerCase();
-  const next = { ...withLive, scheduleMode: mode, _lastScheduleMode: mode };
-  if (mode !== prevMode) next.cronExpr = transitionCronExpr(withLive, mode, prevMode);
-  liveScheduleDraft.lastMode = mode;
-  updateFormIfChanged(ds, next);
-}
-
-function setupLiveDraftListeners() {
-  if (typeof document === 'undefined' || setupLiveDraftListeners._installed) return;
-  const capture = (event) => {
-    try {
-      const el = event?.target;
-      if (!el || typeof el.closest !== 'function' || !el.closest('#bp6-tab-panel_form-tabs_schedule')) return;
-      if (el.matches?.("input[placeholder='09:00 AM']")) {
-        liveScheduleDraft.dailyTime = String(el.value || '').trim();
-      } else if (el.matches?.("input[placeholder='0 9 * * 1-5']")) {
-        liveScheduleDraft.cronExpr = String(el.value || '').trim();
-      } else if (el.matches?.("input[type='number']")) {
-        liveScheduleDraft.intervalHours = String(el.value || '').trim();
-      }
-    } catch (_) {}
-  };
-  document.addEventListener('input', capture, true);
-  document.addEventListener('change', capture, true);
-  document.addEventListener('keyup', capture, true);
-  setupLiveDraftListeners._installed = true;
-}
-
 async function saveSchedule({ context }) {
   if (scheduleService._saveScheduleInFlight) return true;
   const ctx = context?.Context('schedules');
@@ -481,49 +925,42 @@ async function saveSchedule({ context }) {
     return false;
   }
   const ds = ctx.handlers?.dataSource;
-  const form = getFormState(ds);
+  const form = ensureEditorState(getFormState(ds));
   if (!Object.keys(form).length) {
     log.warn('scheduleService.saveSchedule: no form data');
     return false;
   }
   const enabledRaw = firstDefined(form, ['enabled']);
-  const mode = normalizeMode(form);
-  const weekdays = normalizeWeekdays(form.weekdays);
-  const intervalHoursRaw = Number(form.intervalHours);
-  const intervalHours = Number.isFinite(intervalHoursRaw) && intervalHoursRaw > 0 ? intervalHoursRaw : 24;
-  const computedScheduleType = mode === 'interval' ? 'interval' : 'cron';
   const existingID = String(form.id || '').trim();
   const scheduleID = existingID || newScheduleID();
   const visibility = normalizeVisibility(form.visibility);
-  const payload = {
-    id: scheduleID,
-    name: form.name,
-    description: form.description,
-    agentRef: form.agentRef || form.agent,
-    modelOverride: form.modelOverride,
-    enabled: enabledRaw === undefined ? false : asBoolean(enabledRaw),
-    startAt: form.startAt,
-    endAt: form.endAt,
-    scheduleType: computedScheduleType,
-    cronExpr: mode === 'custom'
-      ? String(form.cronExpr || '').trim()
-      : (mode === 'interval' ? toIntervalCron(intervalHours) : toDailyCron(form.dailyTime, weekdays)),
-    intervalSeconds: computedScheduleType === 'interval' ? Math.round(intervalHours * 3600) : null,
-    timezone: form.timezone,
-    timeoutSeconds: form.timeoutSeconds,
-    taskPromptUri: form.taskPromptUri,
-    taskPrompt: form.taskPrompt,
-    userCredUrl: form.userCredUrl
-  };
-  if (visibility) {
-    payload.visibility = visibility;
-  }
-  if (!existingID) {
-    updateFormIfChanged(ds, { ...form, id: scheduleID });
-  }
-  ds?.setLoading?.(true);
   scheduleService._saveScheduleInFlight = true;
   try {
+    const payload = {
+      id: scheduleID,
+      name: form.name,
+      description: form.description,
+      agentRef: form.agentRef || form.agent,
+      modelOverride: form.modelOverride,
+      enabled: enabledRaw === undefined ? false : asBoolean(enabledRaw),
+      startAt: normalizeScheduleDateTime(form.startAt, 'Start Date'),
+      endAt: normalizeScheduleDateTime(form.endAt, 'End Date'),
+      scheduleType: form.scheduleType,
+      cronExpr: String(form.cronExpr || '').trim(),
+      intervalSeconds: form.scheduleType === 'interval' ? form.intervalSeconds : null,
+      timezone: form.timezone,
+      timeoutSeconds: form.timeoutSeconds,
+      taskPromptUri: form.taskPromptUri,
+      taskPrompt: form.taskPrompt,
+      userCredUrl: form.userCredUrl
+    };
+    if (visibility) {
+      payload.visibility = visibility;
+    }
+    if (!existingID) {
+      updateFormIfChanged(ds, { ...form, id: scheduleID });
+    }
+    ds?.setLoading?.(true);
     await client.upsertSchedules([payload]);
     let synced = null;
     try {
@@ -620,20 +1057,9 @@ function fmtScheduleType(raw) {
   return String(raw).charAt(0).toUpperCase() + String(raw).slice(1);
 }
 
-function fmtCronSummary(cronExpr) {
-  if (!cronExpr) return '—';
-  const expr = String(cronExpr).trim();
-  const daily = parseDailyCron(expr);
-  if (daily) {
-    const dayCount = (daily.weekdays || []).length;
-    const dayLabel = dayCount === 7 ? 'every day' : (daily.weekdays || []).map(d => d.charAt(0).toUpperCase() + d.slice(1, 3)).join(', ');
-    return `${daily.dailyTime} · ${dayLabel}`;
-  }
-  const interval = parseIntervalCron(expr);
-  if (interval) {
-    return interval.intervalHours === 1 ? 'Every hour' : `Every ${interval.intervalHours}h`;
-  }
-  return expr;
+function fmtCronSummary(row = {}) {
+  const normalized = ensureEditorState(row);
+  return normalized.scheduleSummary || String(normalized.cronExpr || '').trim() || '—';
 }
 
 function fmtDuration(row) {
@@ -654,7 +1080,6 @@ function fmtDuration(row) {
 
 export const scheduleService = {
   onInit({ context }) {
-    setupLiveDraftListeners();
     installScheduleEmptyStateObserver();
     setTimeout(decorateScheduleEmptyStates, 0);
     try {
@@ -662,12 +1087,15 @@ export const scheduleService = {
         registerDynamicEvaluator('onVisible', ({ item, context: ctx }) => {
           try {
             const ds = ctx?.Context?.('schedules')?.handlers?.dataSource;
-            const form = ds?.getFormData?.() || {};
-            const mode = normalizeMode(form);
-            if (item?.id === 'dailyTime') return mode === 'daily';
-            if (item?.id === 'weekdays') return mode === 'daily' || mode === 'interval';
-            if (item?.id === 'intervalHours') return mode === 'interval';
-            if (item?.id === 'cronExpr') return mode === 'custom';
+            const form = ensureEditorState(getFormState(ds));
+            const kind = normalizeEditorKind(form);
+            const calendarPattern = normalizeCalendarPattern(form);
+            if (item?.id === 'calendarPattern') return kind === 'calendar';
+            if (item?.id === 'calendarTime') return kind === 'calendar';
+            if (item?.id === 'calendarIntervalHours') return kind === 'calendar' && calendarPattern === 'every';
+            if (item?.id === 'weekdays') return kind === 'calendar';
+            if (item?.id === 'elapsedIntervalValue' || item?.id === 'elapsedIntervalUnit') return kind === 'elapsed';
+            if (item?.id === 'cronExpr') return kind === 'advanced';
             if (item?.id === 'scheduleType' || item?.id === 'intervalSeconds') return false;
           } catch (_) {}
           return undefined;
@@ -680,8 +1108,7 @@ export const scheduleService = {
     try {
       const ds = getSchedulesDataSource(context);
       if (ds) {
-        const synced = applyScheduleSync(applyLiveScheduleInputs(getFormState(ds)));
-        synced._lastScheduleMode = normalizeMode(synced);
+        const synced = applyScheduleSync(getFormState(ds));
         updateFormIfChanged(ds, synced);
       }
     } catch (_) {}
@@ -787,42 +1214,38 @@ export const scheduleService = {
       return collection;
     }
   },
-  showIfInterval({ context }) {
+  showIfCalendar({ context }) {
     try {
       const ds = context?.Context?.('schedules')?.handlers?.dataSource;
-      const form = ds?.getFormData?.() || {};
-      syncOnModeTransition(ds, form);
-      return normalizeMode(form) === 'interval';
+      const form = ensureEditorState(getFormState(ds));
+      return normalizeEditorKind(form) === 'calendar';
     } catch (_) {
       return undefined;
     }
   },
-  showIfDaily({ context }) {
+  showIfCalendarEvery({ context }) {
     try {
       const ds = context?.Context?.('schedules')?.handlers?.dataSource;
-      const form = ds?.getFormData?.() || {};
-      syncOnModeTransition(ds, form);
-      return normalizeMode(form) === 'daily';
+      const form = ensureEditorState(getFormState(ds));
+      return normalizeEditorKind(form) === 'calendar' && normalizeCalendarPattern(form) === 'every';
     } catch (_) {
       return undefined;
     }
   },
-  showIfCustom({ context }) {
+  showIfElapsed({ context }) {
     try {
       const ds = context?.Context?.('schedules')?.handlers?.dataSource;
-      const form = ds?.getFormData?.() || {};
-      syncOnModeTransition(ds, form);
-      return normalizeMode(form) === 'custom';
+      const form = ensureEditorState(getFormState(ds));
+      return normalizeEditorKind(form) === 'elapsed';
     } catch (_) {
       return undefined;
     }
   },
-  showIfNonCustom({ context }) {
+  showIfAdvanced({ context }) {
     try {
       const ds = context?.Context?.('schedules')?.handlers?.dataSource;
-      const form = ds?.getFormData?.() || {};
-      const mode = normalizeMode(form);
-      return mode === 'daily' || mode === 'interval';
+      const form = ensureEditorState(getFormState(ds));
+      return normalizeEditorKind(form) === 'advanced';
     } catch (_) {
       return undefined;
     }
@@ -836,17 +1259,17 @@ export const scheduleService = {
       return undefined;
     }
   },
-  syncScheduleFields({ context }) {
+  syncScheduleFields(params = {}) {
     try {
+      const { context, item } = params;
       const ds = getSchedulesDataSource(context) || context?.handlers?.dataSource;
       if (!ds) return;
-      const current = getFormState(ds);
-      const withLiveInputs = applyLiveScheduleInputs(current);
-      const mode = normalizeMode(withLiveInputs);
-      const prevMode = String(withLiveInputs._lastScheduleMode || normalizeMode(current)).toLowerCase();
-      const synced = applyScheduleSync(withLiveInputs);
-      if (mode !== prevMode) synced.cronExpr = transitionCronExpr(withLiveInputs, mode, prevMode);
-      synced._lastScheduleMode = mode;
+      const { hasValue, value } = resolveIncomingFieldValue(params);
+      const base = getFormState(ds);
+      const fieldKey = item?.dataField || item?.bindingPath || item?.id || '';
+      let current = hasValue ? applyIncomingFieldValue(base, item, value) : base;
+      current = seedAdvancedCronExpr(current, base, fieldKey);
+      const synced = applyScheduleSync(current);
       updateFormIfChanged(ds, synced);
     } catch (e) {
       log.warn('schedule.syncScheduleFields error', e);
@@ -857,6 +1280,7 @@ export const scheduleService = {
       const ds = getSchedulesDataSource(context);
       if (ds) {
         ds.handleAddNew();
+        updateFormIfChanged(ds, ensureEditorState(getFormState(ds)));
       }
       // Switch to Editor tab via bus message
       const windowId = context?.identity?.windowId;
@@ -892,8 +1316,7 @@ export const scheduleService = {
   },
   formatCronSummary({ row }) {
     try {
-      const raw = row?.cronExpr || row?.cron_expr;
-      return fmtCronSummary(raw);
+      return fmtCronSummary(row);
     } catch (_) { return undefined; }
   },
   formatDuration({ row }) {

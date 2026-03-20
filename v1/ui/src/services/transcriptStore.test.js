@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { syncTranscriptSnapshot } from './transcriptStore';
+import { syncTranscriptSnapshot, tickTranscript } from './transcriptStore';
 
 describe('syncTranscriptSnapshot', () => {
   it('does not clear completed live-session rows after a finished turn', () => {
@@ -81,5 +81,123 @@ describe('syncTranscriptSnapshot', () => {
     expect(chatState.liveRows).toHaveLength(2);
     expect(chatState.liveOwnedTurnIds).toEqual(['turn-1']);
     expect(chatState.activeStreamTurnId).toBeUndefined();
+  });
+});
+
+describe('tickTranscript', () => {
+  it('falls back to a full transcript fetch when incremental polling stalls on a user-only snapshot', async () => {
+    const chatState = {
+      lastSinceCursor: 'msg-user-1',
+      transcriptRows: [
+        {
+          id: 'msg-user-1',
+          role: 'user',
+          turnId: 'turn-1',
+          createdAt: '2026-03-20T10:00:00Z',
+          content: 'run schedule'
+        }
+      ],
+      lastHasRunning: false
+    };
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-1' })
+    };
+    const context = {
+      Context: (name) => {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: conversationsDS } };
+        }
+        return null;
+      }
+    };
+    const fullTurns = [
+      {
+        id: 'turn-1',
+        message: [
+          { id: 'msg-user-1', role: 'user', content: 'run schedule' },
+          { id: 'msg-assistant-1', role: 'assistant', interim: 0, content: 'done' }
+        ]
+      }
+    ];
+    const fetchTranscript = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(fullTurns);
+    const fetchPendingElicitations = vi.fn().mockResolvedValue([]);
+    const resolveLastTranscriptCursor = vi.fn(() => 'msg-assistant-1');
+    const syncTranscriptSnapshot = vi.fn(() => ({ hasRunning: false, conversationID: 'conv-1' }));
+
+    const result = await tickTranscript({
+      context,
+      ensureContextResources: () => chatState,
+      fetchTranscript,
+      fetchPendingElicitations,
+      resolveLastTranscriptCursor,
+      syncTranscriptSnapshot
+    });
+
+    expect(fetchTranscript).toHaveBeenCalledTimes(2);
+    expect(fetchTranscript).toHaveBeenNthCalledWith(1, 'conv-1', 'msg-user-1');
+    expect(fetchTranscript).toHaveBeenNthCalledWith(2, 'conv-1', '');
+    expect(fetchPendingElicitations).toHaveBeenCalledWith('conv-1');
+    expect(resolveLastTranscriptCursor).toHaveBeenCalledWith(fullTurns);
+    expect(syncTranscriptSnapshot).toHaveBeenCalledWith({
+      context,
+      turns: fullTurns,
+      pendingElicitations: [],
+      reason: 'poll'
+    });
+    expect(chatState.lastSinceCursor).toBe('msg-assistant-1');
+    expect(result).toEqual({ hasRunning: false, conversationID: 'conv-1' });
+  });
+
+  it('does not refetch the full transcript when the current snapshot already has an assistant reply', async () => {
+    const chatState = {
+      lastSinceCursor: 'msg-assistant-1',
+      transcriptRows: [
+        {
+          id: 'msg-user-1',
+          role: 'user',
+          turnId: 'turn-1',
+          createdAt: '2026-03-20T10:00:00Z',
+          content: 'run schedule'
+        },
+        {
+          id: 'msg-assistant-1',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-20T10:00:01Z',
+          interim: 0,
+          content: 'done'
+        }
+      ],
+      lastHasRunning: false
+    };
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-1' })
+    };
+    const context = {
+      Context: (name) => {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: conversationsDS } };
+        }
+        return null;
+      }
+    };
+    const fetchTranscript = vi.fn().mockResolvedValue([]);
+    const syncTranscriptSnapshot = vi.fn();
+
+    const result = await tickTranscript({
+      context,
+      ensureContextResources: () => chatState,
+      fetchTranscript,
+      fetchPendingElicitations: vi.fn(),
+      resolveLastTranscriptCursor: vi.fn(),
+      syncTranscriptSnapshot
+    });
+
+    expect(fetchTranscript).toHaveBeenCalledTimes(1);
+    expect(fetchTranscript).toHaveBeenCalledWith('conv-1', 'msg-assistant-1');
+    expect(syncTranscriptSnapshot).not.toHaveBeenCalled();
+    expect(result).toBeUndefined();
   });
 });

@@ -116,6 +116,123 @@ describe('scheduleService saveSchedule', () => {
     expect(state.formValues.id).toBe(upsertSpy.mock.calls[0][0][0].id)
   })
 
+  it('serializes calendar every-N-hours schedules to cron', async () => {
+    const { context } = saveContext({
+      name: 'weekend-poll',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'every',
+      calendarTime: '09:00 AM',
+      calendarIntervalHours: 2,
+      weekdays: ['mon', 'sat'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it'
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(upsertSpy).toHaveBeenCalledTimes(1)
+    expect(upsertSpy.mock.calls[0][0][0].scheduleType).toBe('cron')
+    expect(upsertSpy.mock.calls[0][0][0].cronExpr).toBe('0 9-23/2 * * 1,6')
+    expect(upsertSpy.mock.calls[0][0][0].intervalSeconds).toBeNull()
+  })
+
+  it('serializes elapsed schedules to interval seconds', async () => {
+    const { context } = saveContext({
+      name: 'poller',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'elapsed',
+      elapsedIntervalValue: 15,
+      elapsedIntervalUnit: 'minutes',
+      timezone: 'UTC',
+      taskPrompt: 'Run it'
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(upsertSpy).toHaveBeenCalledTimes(1)
+    expect(upsertSpy.mock.calls[0][0][0].scheduleType).toBe('interval')
+    expect(upsertSpy.mock.calls[0][0][0].intervalSeconds).toBe(900)
+    expect(upsertSpy.mock.calls[0][0][0].cronExpr).toBe('*/15 * * * *')
+  })
+
+  it('serializes localized start and end dates to UTC ISO strings', async () => {
+    const { context } = saveContext({
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it',
+      startAt: '3/1/2026',
+      endAt: '3/31/2026'
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(upsertSpy).toHaveBeenCalledTimes(1)
+    expect(upsertSpy.mock.calls[0][0][0].startAt).toBe('2026-03-01T00:00:00.000Z')
+    expect(upsertSpy.mock.calls[0][0][0].endAt).toBe('2026-03-31T00:00:00.000Z')
+  })
+
+  it('serializes picker Date values without shifting the selected UTC calendar date', async () => {
+    const { context } = saveContext({
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it',
+      startAt: new Date(2026, 2, 1, 0, 0, 0),
+      endAt: new Date(2026, 2, 31, 0, 0, 0)
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(upsertSpy).toHaveBeenCalledTimes(1)
+    expect(upsertSpy.mock.calls[0][0][0].startAt).toBe('2026-03-01T00:00:00.000Z')
+    expect(upsertSpy.mock.calls[0][0][0].endAt).toBe('2026-03-31T00:00:00.000Z')
+  })
+
+  it('rejects invalid start dates before calling the scheduler API', async () => {
+    const { context, state } = saveContext({
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it',
+      startAt: 'not-a-date'
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(false)
+    expect(upsertSpy).not.toHaveBeenCalled()
+    expect(state.errors).toHaveLength(1)
+    expect(String(state.errors[0]?.message || state.errors[0])).toContain('Start Date must be a valid date/time')
+  })
+
   it('does not force private visibility when the form leaves it blank', async () => {
     const { context } = saveContext({
       name: 'nightly',
@@ -302,5 +419,135 @@ describe('scheduleService saveSchedule', () => {
 
     resolveSave()
     await Promise.all([first, second])
+  })
+})
+
+describe('scheduleService editor sync', () => {
+  it('applies radio changes from the in-flight event payload', () => {
+    const { context, state } = saveContext({
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC'
+    })
+
+    scheduleService.syncScheduleFields({
+      context,
+      item: { id: 'scheduleEditorKind' },
+      value: 'elapsed'
+    })
+
+    expect(state.formValues.scheduleEditorKind).toBe('elapsed')
+    expect(state.formValues.scheduleType).toBe('interval')
+    expect(state.formValues.intervalSeconds).toBe(86400)
+  })
+
+  it('switches an existing interval schedule to calendar from a raw radio event payload', () => {
+    const state = {
+      formValues: {},
+      selected: {
+        selected: {
+          id: 'sched-1',
+          scheduleType: 'interval',
+          intervalSeconds: 86400,
+          scheduleEditorKind: 'elapsed',
+          elapsedIntervalValue: 1,
+          elapsedIntervalUnit: 'days',
+          timezone: 'UTC'
+        }
+      }
+    }
+    const ds = {
+      peekFormData() {
+        return { values: state.formValues }
+      },
+      getFormData() {
+        return state.formValues
+      },
+      peekSelection() {
+        return state.selected
+      },
+      getSelection() {
+        return state.selected
+      },
+      setFormData({ values }) {
+        state.formValues = values
+      }
+    }
+    const context = {
+      Context(name) {
+        if (name !== 'schedules') return null
+        return { handlers: { dataSource: ds } }
+      }
+    }
+
+    scheduleService.syncScheduleFields({
+      context,
+      item: { id: 'scheduleEditorKind' },
+      value: undefined,
+      event: 'calendar'
+    })
+
+    expect(state.formValues.scheduleEditorKind).toBe('calendar')
+    expect(state.formValues.scheduleType).toBe('cron')
+    expect(state.formValues.cronExpr).toBe('0 9 * * *')
+    expect(state.formValues.intervalSeconds).toBeNull()
+  })
+
+  it('seeds advanced cron from the current elapsed builder state on first switch', () => {
+    const { context, state } = saveContext({
+      scheduleEditorKind: 'elapsed',
+      elapsedIntervalValue: 5,
+      elapsedIntervalUnit: 'hours',
+      cronExpr: '0 */4 * * *',
+      intervalSeconds: 14400,
+      timezone: 'UTC'
+    })
+
+    scheduleService.syncScheduleFields({
+      context,
+      item: { id: 'scheduleEditorKind' },
+      event: 'advanced'
+    })
+
+    expect(state.formValues.scheduleEditorKind).toBe('advanced')
+    expect(state.formValues.cronExpr).toBe('0 */5 * * *')
+    expect(state.formValues.scheduleSummary).toBe('At 00 minutes past every 5th hour from 00:00 through 20:00 on every day (UTC)')
+  })
+
+  it('refreshes advanced cron when an elapsed blur arrives after the mode switch', () => {
+    const { context, state } = saveContext({
+      scheduleEditorKind: 'advanced',
+      elapsedIntervalValue: 4,
+      elapsedIntervalUnit: 'hours',
+      cronExpr: '0 */4 * * *',
+      timezone: 'UTC'
+    })
+
+    scheduleService.syncScheduleFields({
+      context,
+      item: { id: 'elapsedIntervalValue' },
+      value: 5
+    })
+
+    expect(state.formValues.scheduleEditorKind).toBe('advanced')
+    expect(state.formValues.cronExpr).toBe('0 */5 * * *')
+    expect(state.formValues.scheduleSummary).toBe('At 00 minutes past every 5th hour from 00:00 through 20:00 on every day (UTC)')
+  })
+
+  it('builds a precise summary for calendar every-N-hours schedules', () => {
+    const { context, state } = saveContext({
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'every',
+      calendarTime: '10:00 AM',
+      calendarIntervalHours: 2,
+      weekdays: ['tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+      timezone: 'UTC'
+    })
+
+    scheduleService.syncScheduleFields({ context })
+
+    expect(state.formValues.scheduleSummary).toBe('At 00 minutes past every 2nd hour from 10:00 through 22:00 on Tue-Sun (UTC)')
   })
 })

@@ -70,17 +70,28 @@
   title: Schedule
   layout:
     orientation: horizontal
-    columns: 2
+    columns: 3
     labelPosition: top
   style:
-    maxWidth: 860px
+    maxWidth: 1040px
     margin: 0
     paddingRight: 8px
   items:
-    - id: enabled
-      label: Enabled
-      type: checkbox
+    - id: scheduleEditorKind
+      label: Schedule Type
+      type: radio
+      appearance: segmented
       columnSpan: 1
+      on:
+        - event: onChange
+          handler: schedule.syncScheduleFields
+      options:
+        - value: calendar
+          label: Calendar
+        - value: elapsed
+          label: Elapsed
+        - value: advanced
+          label: Advanced
 
     - id: visibility
       label: Visibility
@@ -94,28 +105,29 @@
         - value: public
           label: Public
 
-    - id: scheduleMode
-      label: Schedule Mode
+    - id: enabled
+      label: Enabled
+      type: checkbox
+      columnSpan: 1
+
+    - id: calendarPattern
+      label: Pattern
       type: radio
       appearance: segmented
-      columnSpan: 2
+      columnSpan: 1
       on:
         - event: onChange
           handler: schedule.syncScheduleFields
-        - event: onSelection
-          handler: schedule.syncScheduleFields
-        - event: onItemSelect
-          handler: schedule.syncScheduleFields
+        - event: onVisible
+          handler: schedule.showIfCalendar
       options:
-        - value: daily
-          label: Daily
-        - value: interval
-          label: Interval
-        - value: custom
-          label: Custom (Cron)
+        - value: once
+          label: At a time
+        - value: every
+          label: Every N hours
 
-    - id: dailyTime
-      label: Run at (HH:MM or HH:MM AM/PM)
+    - id: calendarTime
+      label: At / Starting At (HH:MM or HH:MM AM/PM)
       type: text
       columnSpan: 1
       on:
@@ -128,13 +140,13 @@
         - event: onChange
           handler: schedule.syncScheduleFields
         - event: onVisible
-          handler: schedule.showIfDaily
+          handler: schedule.showIfCalendar
       properties:
         placeholder: "09:00 AM"
-        helperText: "Time of day the agent will run (e.g. 09:00 AM, 14:30)"
+        helperText: "Calendar schedules use this as the fixed time or hourly anchor"
 
-    - id: intervalHours
-      label: Repeat every (hours)
+    - id: calendarIntervalHours
+      label: Repeat Every (Hours Within The Day)
       type: number
       columnSpan: 1
       on:
@@ -147,17 +159,18 @@
         - event: onChange
           handler: schedule.syncScheduleFields
         - event: onVisible
-          handler: schedule.showIfInterval
+          handler: schedule.showIfCalendarEvery
       properties:
         min: 1
         step: 1
-        placeholder: "24"
-        helperText: "Number of hours between each run"
+        max: 23
+        placeholder: "2"
+        helperText: "Repeats within each selected day starting at the chosen time"
 
     - id: weekdays
-      label: Active Days
+      label: On Days
       type: multiSelect
-      columnSpan: 2
+      columnSpan: 3
       on:
         - event: onChange
           handler: schedule.syncScheduleFields
@@ -166,7 +179,7 @@
         - event: onItemSelect
           handler: schedule.syncScheduleFields
         - event: onVisible
-          handler: schedule.showIfNonCustom
+          handler: schedule.showIfCalendar
       options:
         - { value: mon, label: Mo }
         - { value: tue, label: Tu }
@@ -185,10 +198,10 @@
           paddingLeft: 0px
           paddingRight: 0px
 
-    - id: cronExpr
-      label: Cron Expression
-      type: text
-      columnSpan: 2
+    - id: elapsedIntervalValue
+      label: Repeat Every
+      type: number
+      columnSpan: 1
       on:
         - event: onInput
           handler: schedule.syncScheduleFields
@@ -199,18 +212,75 @@
         - event: onChange
           handler: schedule.syncScheduleFields
         - event: onVisible
-          handler: schedule.showIfCustom
+          handler: schedule.showIfElapsed
+      properties:
+        min: 1
+        step: 1
+        placeholder: "24"
+        helperText: "Elapsed schedules repeat by duration, not by weekday"
+
+    - id: elapsedIntervalUnit
+      label: Interval Unit
+      type: select
+      columnSpan: 1
+      on:
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onSelection
+          handler: schedule.syncScheduleFields
+        - event: onItemSelect
+          handler: schedule.syncScheduleFields
+        - event: onVisible
+          handler: schedule.showIfElapsed
+      options:
+        - value: minutes
+          label: Minutes
+        - value: hours
+          label: Hours
+        - value: days
+          label: Days
+      properties:
+        helperText: "Use elapsed mode for pure duration-based runs"
+
+    - id: cronExpr
+      label: Cron Expression
+      type: text
+      columnSpan: 3
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
+        - event: onVisible
+          handler: schedule.showIfAdvanced
       properties:
         placeholder: "0 9 * * 1-5"
-        helperText: "Standard five-field cron: minute hour day-of-month month day-of-week"
+        helperText: "Use advanced mode for raw cron that does not fit the builder"
+
+    - id: scheduleSummary
+      label: Summary
+      type: text
+      columnSpan: 3
+      properties:
+        readOnly: true
+        helperText: "Generated from the visible editor fields and saved as cron or interval"
 
     - id: timezone
       label: Timezone
       type: text
       columnSpan: 1
+      on:
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
       properties:
         placeholder: America/New_York
-        helperText: "IANA timezone (e.g. UTC, Europe/London)"
+        helperText: "Calendar and advanced schedules interpret times in this zone"
 
     - id: startAt
       label: Start Date (UTC)

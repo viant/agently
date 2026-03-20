@@ -1,5 +1,24 @@
 import { mergeRowSnapshots } from './rowMerge';
 
+function shouldRecoverWithFullTranscript(chatState = {}) {
+  if (chatState?.lastHasRunning) return true;
+  const rows = Array.isArray(chatState?.transcriptRows) ? chatState.transcriptRows : [];
+  if (rows.length === 0) return false;
+  const visibleRows = rows.filter((row) => String(row?._type || '').toLowerCase() !== 'queue');
+  if (visibleRows.length === 0) return false;
+  const lastRow = visibleRows[visibleRows.length - 1];
+  if (String(lastRow?.role || '').toLowerCase() !== 'user') return false;
+  const lastTurnId = String(lastRow?.turnId || '').trim();
+  if (!lastTurnId) return true;
+  const hasAssistantForTurn = visibleRows.some((row) => {
+    if (String(row?.role || '').toLowerCase() !== 'assistant') return false;
+    if (String(row?.turnId || '').trim() !== lastTurnId) return false;
+    if (Number(row?.interim ?? row?.Interim ?? 0) !== 0) return false;
+    return String(row?.content || '').trim() !== '';
+  });
+  return !hasAssistantForTurn;
+}
+
 export function syncTranscriptSnapshot({
   context,
   turns,
@@ -119,13 +138,22 @@ export async function tickTranscript({
   if (!conversationID) return;
   const chatState = ensureContextResources(context);
   const since = String(chatState.lastSinceCursor || '').trim();
-  const turns = await fetchTranscript(conversationID, since);
+  let turns = await fetchTranscript(conversationID, since);
   const currentID = String(conversationsDS?.peekFormData?.()?.id || '').trim();
   if (currentID && currentID !== conversationID) {
     return;
   }
   if (since && turns.length === 0) {
-    return;
+    if (!shouldRecoverWithFullTranscript(chatState)) {
+      return;
+    }
+    turns = await fetchTranscript(conversationID, '');
+    if (currentID && String(conversationsDS?.peekFormData?.()?.id || '').trim() !== conversationID) {
+      return;
+    }
+    if (turns.length === 0) {
+      return;
+    }
   }
   if (turns.length > 0) {
     chatState.lastSinceCursor = resolveLastTranscriptCursor(turns);
