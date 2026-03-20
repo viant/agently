@@ -108,13 +108,19 @@ func Serve(options ServeOptions) error {
 		svcscheduler.WithTokenProvider(rt.TokenProvider),
 	)
 	schedulerHandler := svcscheduler.NewHandler(schedulerSvc)
+	schedulerOpts := schedulerOptionsFromEnv()
+	if schedulerOpts != nil { // TODO delete
+		//TODO
+	}
 	sdkHandler, err := sdk.NewHandlerWithContext(ctx, client,
 		sdk.WithMetadataHandler(metadataHandler),
 		sdk.WithFileBrowser(fileBrowserHandler),
+		// sdk.WithScheduler(schedulerSvc, schedulerHandler, schedulerOpts), // TODO uncomment
+		// TODO replace with line above when works
 		sdk.WithScheduler(schedulerSvc, schedulerHandler, &sdk.SchedulerOptions{
 			EnableAPI:      true,
 			EnableRunNow:   true,
-			EnableWatchdog: false,
+			EnableWatchdog: true,
 		}),
 	)
 	if err != nil {
