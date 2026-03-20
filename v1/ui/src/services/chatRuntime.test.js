@@ -13,13 +13,19 @@ describe('normalizeMetaResponse', () => {
         pruneConversation: true
       },
       agentInfos: [{ id: 'coder', name: 'Coder' }],
-      modelInfos: [{ id: 'openai_gpt-5.2', name: 'GPT-5.2' }]
+      modelInfos: [
+        { id: 'openai_gpt-5.2', name: 'GPT-5.2' },
+        { id: 'openai_o3', name: 'o3 (OpenAI)' }
+      ]
     });
 
     expect(got.defaults.autoSelectTools).toBe(true);
     expect(got.capabilities.agentAutoSelection).toBe(true);
     expect(got.capabilities.modelAutoSelection).toBe(false);
     expect(got.agentOptions[0]).toMatchObject({ value: 'auto', label: 'Auto-select agent' });
+    expect(got.agentOptions[1]).toMatchObject({ value: 'coder', label: 'Coder' });
+    expect(got.modelOptions[0]).toMatchObject({ value: 'openai_gpt-5.2', label: 'GPT-5.2' });
+    expect(got.modelOptions[1]).toMatchObject({ value: 'openai_o3', label: 'o3' });
     expect(got.modelOptions.some((entry) => entry?.value === 'auto')).toBe(false);
   });
 });

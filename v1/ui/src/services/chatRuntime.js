@@ -32,6 +32,13 @@ import {
 } from './conversationWindow';
 import { setStage } from './stageBus';
 import { client } from './agentlyClient';
+import {
+  displayLabel,
+  normalizeWorkspaceAgentInfos,
+  normalizeWorkspaceAgentOptions,
+  normalizeWorkspaceModelInfos,
+  normalizeWorkspaceModelOptions
+} from './workspaceMetadata';
 
 const RUNNING_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
 const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
@@ -70,54 +77,6 @@ export function logStreamDebug(chatState = {}, event, detail = {}) {
   } catch (_) {}
 }
 
-function humanizeKey(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  const spaced = raw
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[._/-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!spaced) return raw;
-  return spaced
-    .split(' ')
-    .filter(Boolean)
-    .map((word) => {
-      const lower = word.toLowerCase();
-      if (lower.length <= 3 && lower === word) return lower.toUpperCase();
-      return lower.charAt(0).toUpperCase() + lower.slice(1);
-    })
-    .join(' ');
-}
-
-function shortModelLabel(label, value) {
-  const rawValue = String(value || '').trim();
-  const rawLabel = String(label || rawValue || '').trim();
-  if (!rawLabel) return 'Model';
-  if (rawValue.toLowerCase() === 'auto' || rawLabel.toLowerCase() === 'auto-select model') return 'Auto-select model';
-
-  let shortened = rawLabel === rawValue ? rawValue : rawLabel;
-  if (shortened.includes('/')) shortened = shortened.split('/').pop() || shortened;
-  shortened = shortened.replace(/^[a-z0-9]+_/i, '');
-  shortened = shortened.replace(/^\s*(openai|anthropic|google|meta|mistral|inceptionlabs|xai|vertexai|bedrock)[\s:/_-]+/i, '');
-  shortened = shortened.replace(/\(([^)]*)\)/g, '');
-  shortened = shortened.replace(/\bOpenAI\b|\bAnthropic\b|\bGoogle\b|\bxAI\b|\bVertex AI\b|\bAWS Bedrock\b/gi, '');
-  shortened = shortened.replace(/_/g, '-');
-  shortened = shortened.replace(/\s+/g, ' ').trim();
-  if (!shortened) return rawLabel;
-  return shortened
-    .replace(/^gpt-?(\d+)-?(\d+)$/i, 'GPT-$1.$2')
-    .replace(/^gpt-?(\d+)$/i, 'GPT-$1')
-    .replace(/^gpt-?(\d+o(?:-mini)?)$/i, 'GPT-$1')
-    .replace(/^o(\d+)(-mini)?$/i, (_, num, suffix = '') => `o${num}${suffix}`)
-    .replace(/^claude[- ]?(.*)$/i, (_, rest = '') => `Claude ${String(rest).trim()}`.trim())
-    .replace(/^gemini[- ]?(.*)$/i, (_, rest = '') => `Gemini ${String(rest).trim()}`.trim())
-    .replace(/^grok[- ]?(.*)$/i, (_, rest = '') => `Grok ${String(rest).trim()}`.trim())
-    .replace(/\bgpt\b/gi, 'GPT')
-    .replace(/-mini\b/gi, ' Mini')
-    .replace(/-codex$/i, ' Codex');
-}
-
 function draftConversationValues(current = {}, defaults = {}) {
   // Preserve the user's current agent/model selection when starting a new
   // conversation. Read from localStorage as the most reliable source (set by selectAgent).
@@ -132,24 +91,6 @@ function draftConversationValues(current = {}, defaults = {}) {
     embedder: defaults?.embedder || ''
   };
   return values;
-}
-
-function displayLabel(entry, kind = 'generic') {
-  if (entry && typeof entry === 'object') {
-    const value = String(entry.id || entry.value || entry.name || '').trim();
-    const explicit = String(entry.label || entry.name || entry.title || '').trim();
-    if (kind === 'model') return shortModelLabel(explicit, value);
-    if (kind === 'agent') {
-      if (!value) return explicit || '';
-      return explicit && explicit !== value ? explicit : humanizeKey(value);
-    }
-    return explicit || value;
-  }
-  const value = String(entry || '').trim();
-  if (!value) return '';
-  if (kind === 'model') return shortModelLabel(value, value);
-  if (kind === 'agent') return humanizeKey(value);
-  return value;
 }
 
 export function sanitizeAutoSelection(value) {
@@ -200,74 +141,10 @@ export function normalizeMetaResponse(payload) {
     return { value, label: value };
   };
 
-  const normalizeAgentOption = (entry) => {
-    if (entry && typeof entry === 'object') {
-      const value = String(entry.id || entry.value || entry.name || '').trim();
-      if (!value) return null;
-      return {
-        ...entry,
-        value,
-        label: displayLabel(entry, 'agent'),
-        modelRef: String(entry.modelRef || entry.model || '').trim(),
-        default: value === defaults.agent
-      };
-    }
-    const value = String(entry || '').trim();
-    if (!value) return null;
-    return { value, label: humanizeKey(value), default: value === defaults.agent };
-  };
-
-  const normalizeModelOption = (entry) => {
-    if (entry && typeof entry === 'object') {
-      const value = String(entry.id || entry.value || entry.name || '').trim();
-      if (!value) return null;
-      return {
-        ...entry,
-        value,
-        label: shortModelLabel(String(entry.label || entry.name || entry.title || value).trim(), value),
-        default: value === defaults.model
-      };
-    }
-    const value = String(entry || '').trim();
-    if (!value) return null;
-    return { value, label: shortModelLabel(value, value), default: value === defaults.model };
-  };
-
-  const normalizedAgentInfos = agents.map((entry) => {
-    if (entry && typeof entry === 'object') {
-      const value = String(entry.id || entry.value || entry.name || '').trim();
-      if (!value) return null;
-      const modelRef = String(entry.modelRef || entry.model || '').trim();
-      return {
-        ...entry,
-        id: value,
-        name: displayLabel(entry, 'agent'),
-        modelRef,
-        model: modelRef
-      };
-    }
-    const value = String(entry || '').trim();
-    if (!value) return null;
-    return { id: value, name: humanizeKey(value), modelRef: '', model: '' };
-  }).filter(Boolean);
-
-  const normalizedModelInfos = models.map((entry) => {
-    if (entry && typeof entry === 'object') {
-      const value = String(entry.id || entry.value || entry.name || '').trim();
-      if (!value) return null;
-      return {
-        ...entry,
-        id: value,
-        name: shortModelLabel(String(entry.label || entry.name || entry.title || value).trim(), value)
-      };
-    }
-    const value = String(entry || '').trim();
-    if (!value) return null;
-    return { id: value, name: shortModelLabel(value, value) };
-  }).filter(Boolean);
-
-  const agentOptions = agents.map(normalizeAgentOption).filter(Boolean);
-  const modelOptions = models.map(normalizeModelOption).filter(Boolean);
+  const normalizedAgentInfos = normalizeWorkspaceAgentInfos(agents);
+  const normalizedModelInfos = normalizeWorkspaceModelInfos(models);
+  const agentOptions = normalizeWorkspaceAgentOptions(agents, defaults.agent);
+  const modelOptions = normalizeWorkspaceModelOptions(models, defaults.model);
 
   return {
     ...data,
