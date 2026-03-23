@@ -26,6 +26,7 @@ import {
 } from './liveStreamStore';
 import { mergeRenderedRows } from './rowMerge';
 import {
+  getWindowById,
   MAIN_CHAT_WINDOW_ID,
   getScopedConversationSelection,
   isMainChatWindowId,
@@ -247,6 +248,9 @@ export function normalizeMetaResponse(payload) {
     ...data,
     capabilities,
     defaults,
+    agent: sanitizeAutoSelection(data?.agent || defaults.agent || ''),
+    model: sanitizeAutoSelection(data?.model || defaults.model || ''),
+    embedder: sanitizeAutoSelection(data?.embedder || defaults.embedder || ''),
     agentInfos: normalizedAgentInfos,
     modelInfos: normalizedModelInfos,
     agentInfo: normalizedAgentInfo,
@@ -860,7 +864,10 @@ export function renderMergedRowsForContext(context) {
     agentInfos: Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [],
     selectedAgent
   });
-  const starterRow = resolvedRows.length === 0 && !queueRow && starterTasks.length > 0 ? {
+  const starterRow = resolvedRows.length === 0
+    && !String(conversationForm?.id || '').trim()
+    && !queueRow
+    && starterTasks.length > 0 ? {
     _type: 'starter',
     id: `starter:${selectedAgent || 'default'}`,
     createdAt: new Date().toISOString(),
@@ -1730,8 +1737,15 @@ export async function ensureConversation(context, options = {}) {
   }
   const preferredAgent = sanitizeAutoSelection(options?.agent || '');
   const preferredModel = sanitizeAutoSelection(options?.model || '');
-  const persistedAgent = sanitizeAutoSelection(getPersistedSelectedAgent());
-  const agentID = String(preferredAgent || persistedAgent || form.agent || metaForm?.agent || metaForm?.defaults?.agent || '').trim();
+  const persistedAgent = resolveVisibleSelectedAgent(metaForm, getPersistedSelectedAgent());
+  const agentID = resolveVisibleSelectedAgent(
+    metaForm,
+    preferredAgent,
+    persistedAgent,
+    form.agent,
+    metaForm?.agent,
+    metaForm?.defaults?.agent
+  );
   const createPromise = (async () => {
     const created = await client.createConversation({ agentId: agentID });
     const id = String(created?.id || created?.Id || '').trim();
@@ -1823,9 +1837,12 @@ export function applyIterationVisibility(context) {
 
 export function bootstrapConversationSelection(context) {
   const windowId = getContextWindowId(context);
+  const win = getWindowById(windowId);
   const bootstrapID = typeof window !== 'undefined'
     ? (
-      (isMainChatWindowId(windowId) ? conversationIDFromPath(window.location.pathname) : '')
+      String(win?.parameters?.conversations?.form?.id || '').trim()
+      || String(win?.parameters?.conversationId || '').trim()
+      || (isMainChatWindowId(windowId) ? conversationIDFromPath(window.location.pathname) : '')
       || getScopedConversationSelection(windowId)
     )
     : '';
@@ -1890,13 +1907,13 @@ export async function createNewConversation(context) {
   const current = conversationsDS.peekFormData?.() || {};
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
   const metaDefaults = metaForm?.defaults || {};
-  const persistedAgent = sanitizeAutoSelection(getPersistedSelectedAgent());
+  const persistedAgent = resolveVisibleSelectedAgent(metaForm, getPersistedSelectedAgent());
   // Merge the user's current agent/model selection from meta into current
   // so draftConversationValues preserves it for the new conversation.
   const merged = { ...current };
   if (persistedAgent) {
     merged.agent = persistedAgent;
-  } else if (metaForm?.agent) {
+  } else if (isVisibleAgent(metaForm, metaForm?.agent)) {
     merged.agent = metaForm.agent;
   }
   if (metaForm?.model) merged.model = metaForm.model;

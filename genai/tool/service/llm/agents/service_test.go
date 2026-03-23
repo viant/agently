@@ -14,6 +14,11 @@ import (
 
 func TestService_List_DataDriven(t *testing.T) {
 	ctx := context.Background()
+	defaultGuidance := &ListOutput{
+		NextAction: "Call llm_agents-run only with an exact items[].id from this list. Call direct tools directly instead of sending tool names to llm_agents-run.",
+		ReuseNote:  "Reuse an existing listed agent id when it matches the requested task; do not invent agent ids.",
+		RunUsage:   "agentId must come from items[].id returned by llm_agents-list. Tool names are never valid agent ids for llm_agents-run.",
+	}
 	testCases := []struct {
 		name     string
 		items    []ListItem
@@ -22,12 +27,12 @@ func TestService_List_DataDriven(t *testing.T) {
 		{
 			name:     "empty list",
 			items:    nil,
-			expected: &ListOutput{Items: nil},
+			expected: &ListOutput{Items: nil, NextAction: defaultGuidance.NextAction, ReuseNote: defaultGuidance.ReuseNote, RunUsage: defaultGuidance.RunUsage},
 		},
 		{
 			name:     "single item",
 			items:    []ListItem{{ID: "coder", Name: "Coder", Description: "Writes code", Priority: 10, Tags: []string{"code"}}},
-			expected: &ListOutput{Items: []ListItem{{ID: "coder", Name: "Coder", Description: "Writes code", Priority: 10, Tags: []string{"code"}}}},
+			expected: &ListOutput{Items: []ListItem{{ID: "coder", Name: "Coder", Description: "Writes code", Priority: 10, Tags: []string{"code"}}}, NextAction: defaultGuidance.NextAction, ReuseNote: defaultGuidance.ReuseNote, RunUsage: defaultGuidance.RunUsage},
 		},
 		{
 			name: "multiple items",
@@ -38,7 +43,7 @@ func TestService_List_DataDriven(t *testing.T) {
 			expected: &ListOutput{Items: []ListItem{
 				{ID: "researcher", Name: "Researcher", Description: "Finds info", Priority: 5, Tags: []string{"research"}},
 				{ID: "coder", Name: "Coder", Description: "Writes code", Priority: 10, Tags: []string{"code"}},
-			}},
+			}, NextAction: defaultGuidance.NextAction, ReuseNote: defaultGuidance.ReuseNote, RunUsage: defaultGuidance.RunUsage},
 		},
 	}
 

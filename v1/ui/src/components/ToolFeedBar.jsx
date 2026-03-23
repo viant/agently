@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getActiveFeeds, onFeedChange, fetchFeedDataNow, getFeedData } from '../services/toolFeedBus';
+import { getScopedConversationSelection, getSelectedWindow } from '../services/conversationWindow';
 
 const FEED_ICONS = {
   plan: '📋',
@@ -48,6 +49,11 @@ function useExpandedFeeds() {
 export default function ToolFeedBar() {
   const [feeds, setFeeds] = useState(getActiveFeeds);
   const expanded = useExpandedFeeds();
+  const selectedWindow = getSelectedWindow();
+  const currentConversationId = String(
+    getScopedConversationSelection(String(selectedWindow?.windowId || '').trim())
+    || ''
+  ).trim();
 
   useEffect(() => {
     return onFeedChange((next) => {
@@ -59,11 +65,17 @@ export default function ToolFeedBar() {
     });
   }, []);
 
-  if (!feeds || feeds.length === 0) return null;
+  const visibleFeeds = (Array.isArray(feeds) ? feeds : []).filter((feed) => {
+    const conversationId = String(feed?.conversationId || '').trim();
+    if (!conversationId) return true;
+    return conversationId === currentConversationId;
+  });
+
+  if (visibleFeeds.length === 0) return null;
 
   return (
     <div className="app-tool-feed-bar">
-      {feeds.map((feed) => {
+      {visibleFeeds.map((feed) => {
         const isExpanded = expanded.has(feed.feedId);
         return (
           <div

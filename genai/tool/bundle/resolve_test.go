@@ -66,6 +66,59 @@ func TestResolveDefinitions(t *testing.T) {
 				{Name: "resources:read"},
 			},
 		},
+		{
+			name: "supports_raw_and_canonical_variants_for_include",
+			bundle: &Bundle{
+				ID: "steward",
+				Match: []MatchRule{
+					{Name: "steward:AdHierarchy"},
+					{Name: "steward-SaveRecommendation"},
+				},
+			},
+			matches: map[string][]*llm.ToolDefinition{
+				"steward:AdHierarchy":        {def("steward-AdHierarchy")},
+				"steward-AdHierarchy":        {def("steward-AdHierarchy")},
+				"steward-SaveRecommendation": {def("steward-SaveRecommendation")},
+			},
+			expected: []llm.ToolDefinition{
+				{Name: "steward-AdHierarchy"},
+				{Name: "steward-SaveRecommendation"},
+			},
+		},
+		{
+			name: "supports_canonical_bundle_names_against_raw_registry_names",
+			bundle: &Bundle{
+				ID: "steward",
+				Match: []MatchRule{
+					{Name: "steward-AdHierarchy"},
+					{Name: "steward-SaveRecommendation"},
+				},
+			},
+			matches: map[string][]*llm.ToolDefinition{
+				"steward:AdHierarchy":        {def("steward:AdHierarchy")},
+				"steward:SaveRecommendation": {def("steward:SaveRecommendation")},
+			},
+			expected: []llm.ToolDefinition{
+				{Name: "steward:AdHierarchy"},
+				{Name: "steward:SaveRecommendation"},
+			},
+		},
+		{
+			name: "supports_raw_and_canonical_variants_for_exclude",
+			bundle: &Bundle{
+				ID: "steward",
+				Match: []MatchRule{
+					{Name: "steward:*", Exclude: []string{"steward-SaveRecommendation"}},
+				},
+			},
+			matches: map[string][]*llm.ToolDefinition{
+				"steward:*":                  {def("steward-AdHierarchy"), def("steward-SaveRecommendation")},
+				"steward-SaveRecommendation": {def("steward-SaveRecommendation")},
+			},
+			expected: []llm.ToolDefinition{
+				{Name: "steward-AdHierarchy"},
+			},
+		},
 	}
 
 	for _, tc := range testCases {

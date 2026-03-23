@@ -545,6 +545,10 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 					// also cache colon alias
 					colon := svc + ":" + t.Name
 					r.cache[colon] = entry
+					hyphen := mcpnames.Canonical(colon)
+					if strings.TrimSpace(hyphen) != "" {
+						r.cache[hyphen] = entry
+					}
 				}
 				r.mu.Unlock()
 			}
@@ -613,6 +617,10 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 				if entry != nil {
 					r.cache[fullSlash] = entry
 					r.cache[colon] = entry
+					hyphen := mcpnames.Canonical(colon)
+					if strings.TrimSpace(hyphen) != "" {
+						r.cache[hyphen] = entry
+					}
 					r.cache[name] = entry
 				}
 				r.mu.Unlock()
@@ -1243,15 +1251,16 @@ func serverFromName(name string) string { svc, _ := splitToolName(name); return 
 
 // serverFromPattern returns service prefix when pattern contains it.
 func serverFromPattern(pattern string) string {
-	// If explicit method present, derive service from canonical name
-	if strings.Contains(pattern, ":") {
-		return serverFromName(pattern)
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return ""
 	}
-	// Strip trailing wildcard for server name
+	if svc, method := splitToolName(pattern); method != "" {
+		return svc
+	}
 	if strings.Contains(pattern, "*") {
 		return strings.TrimSuffix(pattern, "*")
 	}
-	// Service-only token
 	return pattern
 }
 

@@ -630,7 +630,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   bottom: var(--app-plan-feed-bottom);
-  width: min(932px, calc(100% - 80px));
+  width: min(var(--app-chat-max-width), calc(100% - 8px));
   z-index: 12;
   border: 1px solid rgba(0, 0, 0, 0.10);
   border-bottom: none;
@@ -846,16 +846,16 @@ body {
   left: 50%;
   transform: translateX(-50%);
   bottom: var(--app-plan-feed-bottom);
-  width: min(980px, calc(100% - 32px));
+  width: min(var(--app-chat-max-width), calc(100% - 8px));
   z-index: 11;
-  border-radius: 20px 20px 0 0;
-  border-bottom: none;
-  box-shadow: none;
-  backdrop-filter: none;
-  background: rgba(255, 255, 255, 0.985);
+  border-radius: 18px 18px 12px 12px;
+  border-bottom: 1px solid #d8dfef;
+  box-shadow: 0 10px 22px rgba(21, 36, 66, 0.08);
+  backdrop-filter: blur(8px) saturate(115%);
+  background: rgba(255, 255, 255, 0.965);
   max-height: min(42vh, 340px);
   overflow: hidden;
-  margin-bottom: -18px;
+  margin-bottom: 8px;
 }
 
 .app-plan-feed-sidebar_top,
@@ -1089,16 +1089,16 @@ body {
   left: 50%;
   transform: translateX(-50%);
   bottom: calc(var(--app-plan-feed-bottom) + min(42vh, 340px) + 10px);
-  width: min(860px, calc(100% - 72px));
+  width: min(var(--app-chat-max-width), calc(100% - 8px));
   z-index: 12;
-  border-radius: 18px 18px 12px 12px;
-  box-shadow: 0 12px 24px rgba(21, 36, 66, 0.09);
+  border-radius: 18px;
+  box-shadow: 0 10px 22px rgba(21, 36, 66, 0.08);
   max-height: min(26vh, 180px);
   overflow: auto;
 }
 
 .app-change-feed-composer_top + .app-plan-feed-composer_top {
-  bottom: var(--app-plan-feed-bottom);
+  bottom: calc(var(--app-plan-feed-bottom) + 2px);
 }
 
 .app-change-feed-sidebar_top,
@@ -1752,6 +1752,15 @@ td[data-col="enabled"] {
   padding: 16px 20px 0 !important;
   gap: 12px;
   background: transparent;
+}
+
+.app-chat-pane:has(.app-linked-child-banner) [data-testid="chat-root"] {
+  padding-top: 0 !important;
+  gap: 0;
+}
+
+.app-chat-pane:has(.app-linked-child-banner) [data-testid="chat-feed"] {
+  padding-top: 0 !important;
 }
 
 .app-chat-pane > * {

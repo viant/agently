@@ -61,6 +61,15 @@ export default function ToolFeedDetail({ context }) {
   );
 }
 
+export function resolveRootFeedDataSourceName(dataSources = {}) {
+  const dsNames = Object.keys(dataSources || {});
+  return dsNames.find((name) => {
+    const ds = dataSources[name] || {};
+    const source = String(ds?.source || '').trim().toLowerCase();
+    return !String(ds?.dataSourceRef || '').trim() && (source === 'output' || source === 'input');
+  }) || dsNames.find((name) => !String(dataSources[name]?.dataSourceRef || '').trim()) || dsNames[0] || '';
+}
+
 /**
  * Renders a single feed panel. Uses Forge Container when the feed spec
  * includes a `ui` definition; falls back to InlineRenderer otherwise.
@@ -78,8 +87,7 @@ function FeedPanel({ feedId }) {
     const dsNormalized = normalizeDataSources(rawDS);
 
     // Determine the root data source name and its data.
-    const dsNames = Object.keys(dsNormalized);
-    const rootName = dsNames[0] || '';
+    const rootName = resolveRootFeedDataSourceName(dsNormalized);
 
     return {
       id: feedId,

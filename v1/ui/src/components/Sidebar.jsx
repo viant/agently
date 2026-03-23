@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, InputGroup, Spinner } from '@blueprintjs/core';
 import ChangeFeed from './ChangeFeed';
-import PlanFeed from './PlanFeed';
 import { resolveConversationTitle } from '../services/conversationTitle';
 import { isConnectivityError } from '../services/networkError';
 import { client } from '../services/agentlyClient';
@@ -265,7 +264,6 @@ export default function Sidebar({ collapsed = false }) {
       {!collapsed ? (
         <>
           <ChangeFeed anchor="sidebar_top" compact />
-          <PlanFeed anchor="sidebar_top" compact />
           <div className="app-sidebar-section" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <span>Conversations</span>
             <Button minimal small icon="refresh" onClick={() => void reload('latest', '')}>
@@ -274,7 +272,6 @@ export default function Sidebar({ collapsed = false }) {
           </div>
           <div className="app-sidebar-scroll">{content}</div>
           <ChangeFeed anchor="sidebar_bottom" compact />
-          <PlanFeed anchor="sidebar_bottom" compact />
           {showPagination ? (
             <div className="app-sidebar-pagination">
               <Button
