@@ -772,6 +772,18 @@ function getSchedulesDataSource(context) {
   return context?.Context?.('schedules')?.handlers?.dataSource;
 }
 
+function ensureRunsBoundToScheduleForm(context, collection = []) {
+  const incoming = Array.isArray(collection) ? collection : [];
+  if (incoming.length > 0) return;
+  const schedulesDS = getSchedulesDataSource(context);
+  const formID = String(getFormState(schedulesDS)?.id || '').trim();
+  if (!formID) return;
+  const runsDS = context?.handlers?.dataSource;
+  const currentInputID = String(runsDS?.peekInput?.()?.parameters?.scheduleId || '').trim();
+  if (currentInputID === formID) return;
+  schedulesDS?.pushFormDependencies?.();
+}
+
 function getFormState(ds) {
   const peek = ds?.peekFormData?.();
   const peekValues = (peek && typeof peek === 'object' && peek.values && typeof peek.values === 'object') ? peek.values : {};
@@ -1116,6 +1128,10 @@ export const scheduleService = {
       if (ds) {
         const synced = applyScheduleSync(getFormState(ds));
         updateFormIfChanged(ds, synced);
+        const selectedID = String(ds?.peekSelection?.()?.selected?.id || '').trim();
+        if (!selectedID && String(synced?.id || '').trim()) {
+          ds?.pushFormDependencies?.();
+        }
       }
     } catch (_) {}
   },
@@ -1178,10 +1194,11 @@ export const scheduleService = {
       return collection;
     }
   },
-  onFetchRuns({ collection = [] }) {
+  onFetchRuns({ context, collection = [] }) {
     try {
       setTimeout(decorateScheduleEmptyStates, 0);
       const incoming = Array.isArray(collection) ? collection : [];
+      ensureRunsBoundToScheduleForm(context, incoming);
       return incoming.map((r) => {
         const id = firstDefined(r, ['ScheduleRunId', 'scheduleRunId', 'schedule_run_id', 'Id', 'id']);
         const conversationId = firstDefined(r, ['ConversationId', 'conversationId', 'conversation_id', 'Id', 'id']);

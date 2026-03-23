@@ -113,7 +113,7 @@ describe('scheduleService SDK lookups', () => {
     })
 
     expect(rows).toEqual([
-      { id: 'openai_o3', name: 'o3' }
+      { id: 'openai_o3', name: 'o3 (OpenAI)' }
     ])
   })
 
@@ -146,6 +146,49 @@ describe('scheduleService SDK lookups', () => {
         errorMessage: undefined
       }
     ])
+  })
+
+  it('pushes schedule form dependencies when focused schedule runs fetch arrives without a bound schedule id', () => {
+    const pushFormDependencies = vi.fn()
+    const context = {
+      handlers: {
+        dataSource: {
+          peekInput() {
+            return { parameters: {} }
+          }
+        }
+      },
+      Context(name) {
+        if (name !== 'schedules') return null
+        return {
+          handlers: {
+            dataSource: {
+              peekFormData() {
+                return { values: { id: 'sched-1' } }
+              },
+              getFormData() {
+                return { id: 'sched-1' }
+              },
+              peekSelection() {
+                return { selected: {} }
+              },
+              getSelection() {
+                return { selected: {} }
+              },
+              pushFormDependencies
+            }
+          }
+        }
+      }
+    }
+
+    const rows = scheduleService.onFetchRuns({
+      context,
+      collection: []
+    })
+
+    expect(rows).toEqual([])
+    expect(pushFormDependencies).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -571,6 +614,42 @@ describe('scheduleService editor sync', () => {
     scheduleService.onInit({ context })
 
     expect(state.formValues.visibility).toBe('private')
+  })
+
+  it('pushes form dependencies on init when a focused schedule exists without selection', () => {
+    const state = {
+      formValues: { id: 'sched-1', name: 'nightly' },
+      selected: { selected: {} }
+    }
+    const pushFormDependencies = vi.fn()
+    const ds = {
+      peekFormData() {
+        return { values: state.formValues }
+      },
+      getFormData() {
+        return state.formValues
+      },
+      peekSelection() {
+        return state.selected
+      },
+      getSelection() {
+        return state.selected
+      },
+      setFormData({ values }) {
+        state.formValues = values
+      },
+      pushFormDependencies
+    }
+    const context = {
+      Context(name) {
+        if (name !== 'schedules') return null
+        return { handlers: { dataSource: ds } }
+      }
+    }
+
+    scheduleService.onInit({ context })
+
+    expect(pushFormDependencies).toHaveBeenCalledTimes(1)
   })
 
   it('applies radio changes from the in-flight event payload', () => {
