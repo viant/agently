@@ -233,7 +233,7 @@ describe('scheduleService saveSchedule', () => {
     expect(String(state.errors[0]?.message || state.errors[0])).toContain('Start Date must be a valid date/time')
   })
 
-  it('does not force private visibility when the form leaves it blank', async () => {
+  it('defaults blank visibility to private when saving', async () => {
     const { context } = saveContext({
       name: 'nightly',
       agentRef: 'chat',
@@ -251,7 +251,7 @@ describe('scheduleService saveSchedule', () => {
 
     expect(ok).toBe(true)
     expect(upsertSpy).toHaveBeenCalledTimes(1)
-    expect(upsertSpy.mock.calls[0][0][0]).not.toHaveProperty('visibility')
+    expect(upsertSpy.mock.calls[0][0][0].visibility).toBe('private')
   })
 
   it('sends edited description and taskPrompt for an existing schedule', async () => {
@@ -395,6 +395,93 @@ describe('scheduleService saveSchedule', () => {
     expect(state.selected.selected.description).toBe('persisted')
   })
 
+  it('keeps a newly created private schedule selected after save refresh', async () => {
+    const state = {
+      formValues: {
+        name: 'nightly',
+        agentRef: 'chat',
+        enabled: true,
+        scheduleMode: 'daily',
+        dailyTime: '09:00 AM',
+        weekdays: ['mon'],
+        timezone: 'UTC',
+        taskPrompt: 'goodbye',
+        visibility: 'private'
+      },
+      collection: [],
+      selected: { selected: null, rowIndex: -1 },
+      setFormDataCalls: [],
+      setCollectionCalls: [],
+      setSelectedCalls: [],
+      fetches: 0
+    }
+    const ds = {
+      peekFormData() {
+        return state.formValues
+      },
+      getFormData() {
+        return state.formValues
+      },
+      peekSelection() {
+        return state.selected
+      },
+      getSelection() {
+        return state.selected
+      },
+      setFormData({ values }) {
+        state.formValues = values
+        state.setFormDataCalls.push(values)
+      },
+      peekCollection() {
+        return state.collection
+      },
+      getCollection() {
+        return state.collection
+      },
+      setCollection(records) {
+        state.collection = records
+        state.setCollectionCalls.push(records)
+      },
+      setSelected(next) {
+        state.selected = next
+        state.setSelectedCalls.push(next)
+      },
+      fetchCollection() {
+        state.fetches += 1
+      },
+      setLoading() {},
+      setError() {}
+    }
+    const context = {
+      Context(name) {
+        if (name !== 'schedules') return null
+        return { handlers: { dataSource: ds } }
+      }
+    }
+    vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+    vi.spyOn(client, 'getSchedule').mockResolvedValue({
+      id: 'sched-new',
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleType: 'cron',
+      cronExpr: '0 9 * * 1',
+      timezone: 'UTC',
+      taskPrompt: 'goodbye',
+      visibility: 'private'
+    })
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(state.fetches).toBe(1)
+    expect(state.formValues.visibility).toBe('private')
+    expect(state.collection).toHaveLength(1)
+    expect(state.collection[0].visibility).toBe('private')
+    expect(state.selected.rowIndex).toBe(0)
+    expect(state.selected.selected.visibility).toBe('private')
+  })
+
   it('deduplicates concurrent save invocations', async () => {
     const { context } = saveContext({
       name: 'nightly',
@@ -423,6 +510,14 @@ describe('scheduleService saveSchedule', () => {
 })
 
 describe('scheduleService editor sync', () => {
+  it('initializes new schedule drafts with private visibility', () => {
+    const { context, state } = saveContext({})
+
+    scheduleService.onInit({ context })
+
+    expect(state.formValues.visibility).toBe('private')
+  })
+
   it('applies radio changes from the in-flight event payload', () => {
     const { context, state } = saveContext({
       scheduleEditorKind: 'calendar',
