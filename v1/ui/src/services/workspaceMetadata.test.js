@@ -8,7 +8,7 @@ import {
 } from './workspaceMetadata'
 
 describe('workspaceMetadata', () => {
-  it('keeps descriptive backend agent names unchanged and lightly cleans model labels', () => {
+  it('keeps backend agent and model labels unchanged', () => {
     expect(normalizeWorkspaceAgentInfos([
       { id: 'chat-helper', name: 'Chat Helper', modelRef: 'openai_gpt-5.2' }
     ])).toEqual([
@@ -20,8 +20,8 @@ describe('workspaceMetadata', () => {
       { id: 'openai_o4-mini', name: 'o4 - mini (OpenAI)' },
       { id: 'bedrock_claude_4-5', name: 'Claude 4.5 Sonnet' }
     ])).toEqual([
-      { id: 'openai_o3', name: 'o3' },
-      { id: 'openai_o4-mini', name: 'o4 - mini' },
+      { id: 'openai_o3', name: 'o3 (OpenAI)' },
+      { id: 'openai_o4-mini', name: 'o4 - mini (OpenAI)' },
       { id: 'bedrock_claude_4-5', name: 'Claude 4.5 Sonnet' }
     ])
   })

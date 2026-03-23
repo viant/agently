@@ -54,16 +54,7 @@ function displayAgentLabel(entry) {
 function displayModelLabel(entry) {
   const normalized = normalizeEntry(entry)
   if (!normalized.id) return ''
-  const rawLabel = normalized.name || normalized.id
-  if (!rawLabel) return normalized.id
-  if (comparableKey(rawLabel) === comparableKey(normalized.id)) {
-    return normalized.id
-  }
-  const cleaned = rawLabel
-    .replace(/\s+\([^)]*\)\s*$/, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return cleaned || rawLabel
+  return normalized.name || normalized.id
 }
 
 function displayLabel(entry, kind = 'generic') {

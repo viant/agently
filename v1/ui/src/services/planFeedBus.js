@@ -47,6 +47,10 @@ function getSnapshot() {
   return currentPlanFeed;
 }
 
+export function peekPlanFeed() {
+  return getSnapshot();
+}
+
 function parseMaybeJSON(value) {
   if (!value) return null;
   if (typeof value === 'string') {
@@ -117,24 +121,35 @@ function extractPlanPayload(payload = null) {
 function extractLatestPlan(rows = []) {
   for (let rowIndex = rows.length - 1; rowIndex >= 0; rowIndex--) {
     const row = rows[rowIndex];
+    const candidateSteps = [];
     const executions = Array.isArray(row?.executions) ? row.executions : [];
     for (let execIndex = executions.length - 1; execIndex >= 0; execIndex--) {
       const execution = executions[execIndex];
       const steps = Array.isArray(execution?.steps) ? execution.steps : [];
       for (let stepIndex = steps.length - 1; stepIndex >= 0; stepIndex--) {
-        const step = steps[stepIndex];
-        if (!isPlanTool(step)) continue;
-        const parsed = extractPlanPayload(step?.responsePayload)
-          || extractPlanPayload(step?.requestPayload);
-        if (!parsed) continue;
-        return {
-          explanation: parsed.explanation,
-          steps: parsed.steps,
-          source: step,
-          raw: parsed.raw,
-          createdAt: String(row?.createdAt || '').trim()
-        };
+        candidateSteps.push(steps[stepIndex]);
       }
+    }
+    const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
+    for (let groupIndex = groups.length - 1; groupIndex >= 0; groupIndex--) {
+      const group = groups[groupIndex];
+      const toolSteps = Array.isArray(group?.toolSteps) ? group.toolSteps : [];
+      for (let stepIndex = toolSteps.length - 1; stepIndex >= 0; stepIndex--) {
+        candidateSteps.push(toolSteps[stepIndex]);
+      }
+    }
+    for (const step of candidateSteps) {
+      if (!isPlanTool(step)) continue;
+      const parsed = extractPlanPayload(step?.responsePayload)
+        || extractPlanPayload(step?.requestPayload);
+      if (!parsed) continue;
+      return {
+        explanation: parsed.explanation,
+        steps: parsed.steps,
+        source: step,
+        raw: parsed.raw,
+        createdAt: String(row?.createdAt || '').trim()
+      };
     }
   }
   return null;

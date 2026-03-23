@@ -38,7 +38,7 @@ describe('normalizeMetaResponse', () => {
     expect(got.agentOptions[0]).toMatchObject({ value: 'auto', label: 'Auto-select agent' });
     expect(got.agentOptions[1]).toMatchObject({ value: 'coder', label: 'Coder' });
     expect(got.modelOptions[0]).toMatchObject({ value: 'openai_gpt-5.2', label: 'GPT-5.2' });
-    expect(got.modelOptions[1]).toMatchObject({ value: 'openai_o3', label: 'o3' });
+    expect(got.modelOptions[1]).toMatchObject({ value: 'openai_o3', label: 'o3 (OpenAI)' });
     expect(got.modelOptions.some((entry) => entry?.value === 'auto')).toBe(false);
     expect(got.agentInfos[0].starterTasks[0]).toMatchObject({ id: 'analyze', title: 'Analyze' });
   });

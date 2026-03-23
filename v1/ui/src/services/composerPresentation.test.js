@@ -14,7 +14,7 @@ describe('composerPresentation', () => {
       modelOptions: [{ value: 'openai_o3', label: 'o3 (OpenAI)' }],
       modelValue: 'openai_o3',
       currentLabel: 'o3 (OpenAI)'
-    }).text).toBe('o3')
+    }).text).toBe('o3 (OpenAI)')
   })
 
   it('falls back to default option labels for auto selections', () => {
@@ -25,7 +25,7 @@ describe('composerPresentation', () => {
       ],
       agentValue: 'auto',
       currentLabel: ''
-    })).toEqual({ text: 'Coder' })
+    })).toEqual({ text: 'Auto-select agent' })
 
     expect(composerPresentation.getModelButton({
       modelOptions: [

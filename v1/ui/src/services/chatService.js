@@ -18,6 +18,7 @@ import {
   mapTranscriptToRows,
   normalizeMetaResponse,
   publishActiveConversation,
+  renderMergedRowsForContext,
   rememberSeedTitle,
   resolveUserID,
   sanitizeAutoSelection,
@@ -173,6 +174,7 @@ export async function onInit({ context }) {
         publishActiveConversation(conversationID, context);
       }
     }
+    renderMergedRowsForContext(context);
     setStage({ phase: 'ready', text: 'Ready' });
   } catch (err) {
     setStage({ phase: 'error', text: String(err?.message || err || 'Initialization failed') });
@@ -208,6 +210,7 @@ export async function onFetchMeta({ context, data, result }) {
     }
     convDS.setFormData?.({ values: next });
   }
+  renderMergedRowsForContext(context);
   return [payload];
 }
 

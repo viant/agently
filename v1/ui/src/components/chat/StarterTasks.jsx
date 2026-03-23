@@ -1,20 +1,56 @@
 import React from 'react';
+import {
+  BugBeetle,
+  Buildings,
+  CalendarDots,
+  ChartLineUp,
+  ChatCircleText,
+  CirclesThree,
+  FileText,
+  Flask,
+  GlobeHemisphereWest,
+  Handshake,
+  Info,
+  Palette,
+  Path,
+  PencilSimple,
+  RocketLaunch,
+  ShieldWarning,
+  Tag,
+  Target,
+  TrendUp,
+  TreeStructure,
+  Wrench,
+} from '@phosphor-icons/react';
 
-const ICON_LABELS = {
-  bug: '!',
-  chat: '?',
-  document: 'D',
-  flask: 'T',
-  help: 'i',
-  pencil: '+',
-  rocket: '>',
-  'shield-warning': '!',
-  'tree-structure': '#'
+const ICONS = {
+  bug: BugBeetle,
+  buildings: Buildings,
+  chat: ChatCircleText,
+  'calendar-report': CalendarDots,
+  'chart-line': ChartLineUp,
+  document: FileText,
+  flask: Flask,
+  'globe-search': GlobeHemisphereWest,
+  help: Info,
+  handshake: Handshake,
+  palette: Palette,
+  pencil: PencilSimple,
+  radar: Target,
+  rocket: RocketLaunch,
+  route: Path,
+  'shield-warning': ShieldWarning,
+  tags: Tag,
+  'trend-up': TrendUp,
+  'tree-structure': TreeStructure,
+  venn: CirclesThree,
+  wrench: Wrench,
 };
 
 function starterIcon(task = {}) {
   const key = String(task?.icon || '').trim().toLowerCase();
-  return ICON_LABELS[key] || '*';
+  const Icon = ICONS[key] || ChatCircleText;
+  return <Icon size={18} weight="duotone" />;
 }
 
 export default function StarterTasks({ message, context }) {

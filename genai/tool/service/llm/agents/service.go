@@ -98,7 +98,7 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{
 			Name:        "list",
-			Description: "List available agents for selection (filtered directory)",
+			Description: "List available agents for selection (filtered directory). Use the returned items[].id values as the only valid agentId inputs for llm_agents-run.",
 			Input:       reflect.TypeOf(&struct{}{}),
 			Output:      reflect.TypeOf(&ListOutput{}),
 		},
@@ -110,7 +110,7 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "run",
-			Description: "Run an agent by id with an objective and optional context",
+			Description: "Run an agent by id with an objective and optional context. agentId must be an exact items[].id value previously returned by llm_agents-list; tool names are not valid agent ids.",
 			Input:       reflect.TypeOf(&RunInput{}),
 			Output:      reflect.TypeOf(&RunOutput{}),
 		},
@@ -141,9 +141,12 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	}
 	if s.dirProvider != nil {
 		lo.Items = s.dirProvider()
-		return nil
+	} else {
+		lo.Items = nil
 	}
-	lo.Items = nil
+	lo.NextAction = "Call llm_agents-run only with an exact items[].id from this list. Call direct tools directly instead of sending tool names to llm_agents-run."
+	lo.ReuseNote = "Reuse an existing listed agent id when it matches the requested task; do not invent agent ids."
+	lo.RunUsage = "agentId must come from items[].id returned by llm_agents-list. Tool names are never valid agent ids for llm_agents-run."
 	return nil
 }
 

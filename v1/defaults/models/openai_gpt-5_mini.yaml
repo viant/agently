@@ -1,5 +1,5 @@
 id: openai_gpt-5-mini
-name: GPT-5 Mini
+name: gpt-5 mini
 description: OpenAI GPT-5 Mini model
 intelligence: 0.9
 speed: 0.97
