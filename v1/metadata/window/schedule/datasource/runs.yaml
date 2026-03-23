@@ -11,7 +11,7 @@ paging:
     totalCount: totalCount
 
 parameters:
-  - from: schedules:selection
+  - from: schedules:form
     to: :query
     name: scheduleId
     kind: query
