@@ -75,20 +75,29 @@ function syncSavedSchedule(ds, payload) {
   updateFormIfChanged(ds, normalized);
 
   const currentCollection = ds?.peekCollection?.() || ds?.getCollection?.();
+  let nextRowIndex = -1;
   if (Array.isArray(currentCollection) && typeof ds?.setCollection === 'function') {
     const nextCollection = currentCollection.slice();
     const index = nextCollection.findIndex((item) => String(item?.id || '') === String(normalized.id || ''));
     if (index >= 0) {
       nextCollection[index] = { ...nextCollection[index], ...normalized };
-      ds.setCollection(nextCollection);
+      nextRowIndex = index;
+    } else {
+      nextCollection.push(normalized);
+      nextRowIndex = nextCollection.length - 1;
     }
+    ds.setCollection(nextCollection);
   }
 
-  const selection = ds?.peekSelection?.() || ds?.getSelection?.() || {};
-  const rowIndex = Number.isInteger(selection?.rowIndex) ? selection.rowIndex : -1;
-  if (typeof ds?.setSelected === 'function') {
-    ds.setSelected({ selected: normalized, rowIndex });
+  if (nextRowIndex < 0) {
+    const selection = ds?.peekSelection?.() || ds?.getSelection?.() || {};
+    nextRowIndex = Number.isInteger(selection?.rowIndex) ? selection.rowIndex : -1;
   }
+
+  if (typeof ds?.setSelected === 'function' && nextRowIndex >= 0) {
+    ds.setSelected({ selected: normalized, rowIndex: nextRowIndex });
+  }
+
   return normalized;
 }
 
@@ -738,6 +747,9 @@ function ensureEditorState(form = {}) {
     ? Math.round(Number(next.elapsedIntervalValue))
     : normalizedElapsed.elapsedIntervalValue;
   next.elapsedIntervalUnit = normalizeElapsedUnit(next);
+  if (!String(next.visibility || '').trim()) {
+    next.visibility = 'private';
+  }
   if (!String(next.timezone || '').trim()) {
     next.timezone = DEFAULT_TIMEZONE;
   }
