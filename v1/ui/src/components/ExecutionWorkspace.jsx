@@ -6,6 +6,10 @@ import { client } from '../services/agentlyClient';
 import { setStage } from '../services/stageBus';
 import { publishActiveConversation } from '../services/chatRuntime';
 import {
+  normalizeWorkspaceAgentInfos,
+  normalizeWorkspaceModelInfos
+} from '../services/workspaceMetadata';
+import {
   getScopedConversationSelection,
   getSelectedWindow,
   isLinkedChildWindow,
@@ -66,15 +70,16 @@ function relativeTime(value) {
 
 function extractMetadata(payload) {
   const data = payload?.data || payload || {};
+  const defaults = data.defaults || {
+    agent: data.defaultAgent || '',
+    model: data.defaultModel || '',
+    embedder: data.defaultEmbedder || ''
+  };
   return {
-    defaults: data.defaults || {
-      agent: data.defaultAgent || '',
-      model: data.defaultModel || '',
-      embedder: data.defaultEmbedder || ''
-    },
+    defaults,
     capabilities: data.capabilities || {},
-    agentInfos: firstList(data, ['agentInfos', 'AgentInfos']),
-    modelInfos: firstList(data, ['modelInfos', 'ModelInfos'])
+    agentInfos: normalizeWorkspaceAgentInfos(firstList(data, ['agentInfos', 'AgentInfos'])),
+    modelInfos: normalizeWorkspaceModelInfos(firstList(data, ['modelInfos', 'ModelInfos']))
   };
 }
 
@@ -531,8 +536,20 @@ export default function ExecutionWorkspace() {
     const payload = await client.getWorkspaceMetadata();
     const next = extractMetadata(payload);
     setMetadata(next);
-    setSelectedAgent((current) => current || firstString(next.defaults?.agent));
-    setSelectedModel((current) => current || firstString(next.defaults?.model));
+    setSelectedAgent((current) => {
+      const normalizedCurrent = firstString(current);
+      const availableAgents = Array.isArray(next.agentInfos) ? next.agentInfos : [];
+      const hasCurrent = availableAgents.some((item) => firstString(item?.id, item?.ID) === normalizedCurrent);
+      if (hasCurrent) return normalizedCurrent;
+      return firstString(next.defaults?.agent, availableAgents[0]?.id, availableAgents[0]?.ID);
+    });
+    setSelectedModel((current) => {
+      const normalizedCurrent = firstString(current);
+      const availableModels = Array.isArray(next.modelInfos) ? next.modelInfos : [];
+      const hasCurrent = availableModels.some((item) => firstString(item?.id, item?.ID) === normalizedCurrent);
+      if (hasCurrent) return normalizedCurrent;
+      return firstString(next.defaults?.model, availableModels[0]?.id, availableModels[0]?.ID);
+    });
   }, []);
 
   const loadConversation = React.useCallback(async (id) => {

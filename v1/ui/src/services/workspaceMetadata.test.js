@@ -35,4 +35,20 @@ describe('workspaceMetadata', () => {
       { value: 'openai_gpt-5.2', label: 'openai_gpt-5.2', default: true }
     ])
   })
+
+  it('filters internal agents from UI-facing agent infos and options', () => {
+    expect(normalizeWorkspaceAgentInfos([
+      { id: 'public-agent', name: 'Public Agent' },
+      { id: 'internal-agent', name: 'Internal Agent', internal: true }
+    ])).toEqual([
+      { id: 'public-agent', name: 'Public Agent', modelRef: '', model: '' }
+    ])
+
+    expect(normalizeWorkspaceAgentOptions([
+      { id: 'public-agent', name: 'Public Agent' },
+      { id: 'internal-agent', name: 'Internal Agent', internal: true }
+    ], '')).toEqual([
+      { value: 'public-agent', label: 'Public Agent', modelRef: '', default: false, id: 'public-agent', name: 'Public Agent' }
+    ])
+  })
 })

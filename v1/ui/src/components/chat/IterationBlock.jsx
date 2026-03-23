@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Dialog } from '@blueprintjs/core';
 import { DetailContext } from '../../context/DetailContext';
 import { openLinkedConversationWindow } from '../../services/conversationWindow';
+import { client } from '../../services/agentlyClient';
 import { fetchTranscript } from '../../services/chatRuntime';
 import { displayStepIcon, displayStepTitle, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
 import BubbleMessage from './BubbleMessage';
@@ -116,19 +117,11 @@ export function newerToolPageOffset(total = 0, rawOffset = null, pageSize = TOOL
   return next >= maxOffset ? null : next;
 }
 
-function latencyLabel(step, now = Date.now()) {
+function latencyLabel(step, now = Date.now(), fallbackStartedAt = 0) {
   const explicit = formatDurationClock(totalLatencyMs([step]));
   if (explicit) return explicit;
   if (!isActiveStatus(step?.status)) return '';
-  // For active model steps, use the row's createdAt as fallback if startedAt
-  // is not parseable (e.g., Go time.Time serialized with nanoseconds).
-  let startedAt = earliestStartedAt([step]);
-  if (!startedAt && step?.startedAt) {
-    // Try parsing just the date portion (strip nanoseconds).
-    const cleaned = String(step.startedAt).replace(/(\.\d{3})\d+/, '$1');
-    startedAt = Date.parse(cleaned);
-    if (!Number.isFinite(startedAt)) startedAt = 0;
-  }
+  const startedAt = earliestStartedAt([step]) || fallbackStartedAt;
   if (!startedAt) return '';
   return formatDurationClock(Math.max(0, now - startedAt));
 }
@@ -204,6 +197,34 @@ function parseMaybeJSON(value) {
   } catch (_) {
     return null;
   }
+}
+
+function extractAgentIdFromPayload(payload = null) {
+  const parsed = parseMaybeJSON(payload);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return '';
+  return String(
+    parsed?.metadata?.agentId
+    || parsed?.metadata?.agentID
+    || parsed?.agentId
+    || parsed?.agentID
+    || parsed?.AgentID
+    || ''
+  ).trim();
+}
+
+function isRouterPayload(payload = null) {
+  const parsed = parseMaybeJSON(payload);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const options = parsed?.options && typeof parsed.options === 'object' ? parsed.options : null;
+  return String(options?.mode || parsed?.mode || '').trim().toLowerCase() === 'router';
+}
+
+function isRouterSelectionPayload(payload = null) {
+  const parsed = parseMaybeJSON(payload);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const keys = Object.keys(parsed);
+  if (keys.length === 0 || keys.length > 2) return false;
+  return !!String(parsed?.agentId || parsed?.agentID || parsed?.AgentID || '').trim();
 }
 
 function truncate(value, limit = 80) {
@@ -315,20 +336,43 @@ function matchesAgentEntry(entry = {}, target = '') {
 }
 
 export function resolveIterationAgentLabel(data = {}, context = null) {
-  const explicitAgentId = String(data?.agentId || '').trim();
-  const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
-  const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
-  const convForm = conversationsDS?.peekFormData?.() || {};
-  const metaForm = metaDS?.peekFormData?.() || {};
-
-  const selectedAgentId = explicitAgentId
-    || String(convForm?.agent || '').trim()
-    || String(metaForm?.defaults?.agent || '').trim();
-  const explicitAgentName = String(convForm?.agentName || '').trim();
+  const explicitAgentName = String(data?.agentName || data?.AgentName || '').trim();
   if (explicitAgentName) return explicitAgentName;
-  if (!selectedAgentId) return '';
+  const groupDerivedAgent = (() => {
+    const groups = Array.isArray(data?.executionGroups) ? data.executionGroups : [];
+    for (const group of groups) {
+      const modelStep = group?.modelStep
+        || (Array.isArray(group?.modelSteps) ? group.modelSteps[0] : null)
+        || group?.modelCall
+        || null;
+      const fromModel = extractAgentIdFromPayload(modelStep?.requestPayload)
+        || extractAgentIdFromPayload(modelStep?.providerRequestPayload);
+      if (fromModel) return fromModel;
+      const toolSteps = Array.isArray(group?.toolSteps) ? group.toolSteps : [];
+      for (const step of toolSteps) {
+        const fromTool = extractAgentIdFromPayload(step?.requestPayload)
+          || extractAgentIdFromPayload(step?.providerRequestPayload);
+        if (fromTool) return fromTool;
+      }
+    }
+    return '';
+  })();
+  const explicitAgentId = String(
+    data?.agentIdUsed
+    || data?.AgentIdUsed
+    || data?.agentId
+    || data?.AgentId
+    || groupDerivedAgent
+    || ''
+  ).trim();
+  const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
+  const metaForm = metaDS?.peekFormData?.() || {};
+  if (!explicitAgentId) return '';
+  if (String(explicitAgentId).trim().toLowerCase() === 'auto') {
+    return 'Auto-select agent';
+  }
 
-  const byKey = metaForm?.agentInfo?.[selectedAgentId] || null;
+  const byKey = metaForm?.agentInfo?.[explicitAgentId] || null;
   const keyedName = String(byKey?.label || byKey?.name || byKey?.title || '').trim();
   if (keyedName) return keyedName;
 
@@ -336,11 +380,10 @@ export function resolveIterationAgentLabel(data = {}, context = null) {
     ...(Array.isArray(metaForm?.agentOptions) ? metaForm.agentOptions : []),
     ...(Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [])
   ];
-  const matched = optionLists.find((entry) => matchesAgentEntry(entry, selectedAgentId)) || null;
+  const matched = optionLists.find((entry) => matchesAgentEntry(entry, explicitAgentId)) || null;
   const matchedName = String(matched?.label || matched?.name || matched?.title || '').trim();
   if (matchedName) return matchedName;
-
-  return agentLabel(humanizeAgentId(selectedAgentId));
+  return agentLabel(humanizeAgentId(explicitAgentId));
 }
 
 export function resolveIterationModelLabel(context = null) {
@@ -399,6 +442,12 @@ export function mapCanonicalExecutionGroups(groups = []) {
       providerResponsePayload: modelStep0?.modelCallProviderResponsePayload || modelStep0?.ModelCallProviderResponsePayload || null,
       streamPayload: modelStep0?.modelCallStreamPayload || modelStep0?.ModelCallStreamPayload || null
     } : null;
+    const hiddenRouterStep = !!modelStep && (
+      isRouterPayload(modelStep.requestPayload)
+      || isRouterPayload(modelStep.providerRequestPayload)
+      || isRouterSelectionPayload(modelStep.responsePayload)
+      || isRouterSelectionPayload(modelStep.providerResponsePayload)
+    );
     const actualToolSteps = toolStepsRaw.map((ts, toolIndex) => {
       const messageID = String(ts?.toolMessageId || ts?.messageId || ts?.MessageId || '').trim();
       const toolMessage = messageID ? toolMessageByID.get(messageID) : null;
@@ -451,15 +500,16 @@ export function mapCanonicalExecutionGroups(groups = []) {
       id: String(group?.parentMessageId || group?.ParentMessageID || group?.modelMessageId || group?.ModelMessageID || `group:${index}`),
       title,
       fullTitle: plainText(preambleContent || title),
-      preambleContent,
+      preambleContent: hiddenRouterStep ? '' : preambleContent,
       modelStep,
       toolSteps,
       detailStep: modelStep || toolSteps[0] || null,
       status,
-      finalResponse: Boolean(group?.finalResponse || group?.FinalResponse),
-      finalContent: String(group?.content || group?.Content || '').trim(),
+      finalResponse: hiddenRouterStep ? false : Boolean(group?.finalResponse || group?.FinalResponse),
+      finalContent: hiddenRouterStep ? '' : String(group?.content || group?.Content || '').trim(),
       elapsed: aggregateLatencyLabel([...(modelStep ? [modelStep] : []), ...toolSteps]),
-      stepCount: (modelStep ? 1 : 0) + toolSteps.length
+      stepCount: (modelStep ? 1 : 0) + toolSteps.length,
+      hiddenRouterStep
     };
   });
 }
@@ -588,6 +638,7 @@ function paginate(total, visible, offset) {
 }
 
 function isPresentableGroup(group = {}) {
+  if (group?.hiddenRouterStep) return false;
   const preambleText = String(group?.preambleContent || '').trim();
   const finalText = String(group?.finalContent || '').trim();
   const toolCount = Array.isArray(group?.toolSteps) ? group.toolSteps.length : 0;
@@ -657,6 +708,45 @@ function currentConversationId() {
   return match ? decodeURIComponent(match[1]) : '';
 }
 
+function iterationDebugEnabled() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = String(window.localStorage?.getItem('agently.debugIterationCollapse') || '').trim().toLowerCase();
+    return raw === '1' || raw === 'true' || raw === 'on';
+  } catch (_) {
+    return false;
+  }
+}
+
+function logIterationDebug(event, detail = {}) {
+  if (!iterationDebugEnabled()) return;
+  try {
+    // eslint-disable-next-line no-console
+    console.log('[iteration-collapse]', {
+      event,
+      ts: new Date().toISOString(),
+      ...detail
+    });
+  } catch (_) {}
+}
+
+function isLinkedConversationActive(status = '') {
+  const text = String(status || '').trim().toLowerCase();
+  return text === '' || text === 'running' || text === 'thinking' || text === 'processing' || text === 'queued' || text === 'pending' || text === 'in_progress' || text === 'open';
+}
+
+export function isIterationActive(data = {}, groups = [], linkedStatuses = []) {
+  if (isActiveStatus(data?.status)) return true;
+  if ((Array.isArray(linkedStatuses) ? linkedStatuses : []).some((status) => isLinkedConversationActive(status))) {
+    return true;
+  }
+  return (Array.isArray(groups) ? groups : []).some((group) => (
+    isActiveStatus(group?.status)
+    || isActiveStatus(group?.modelStep?.status)
+    || (Array.isArray(group?.toolSteps) && group.toolSteps.some((step) => isActiveStatus(step?.status)))
+  ));
+}
+
 export default function IterationBlock({ message, context }) {
   const { showDetail } = useContext(DetailContext);
   const data = message?._iterationData || {};
@@ -672,6 +762,8 @@ export default function IterationBlock({ message, context }) {
   const [remotePage, setRemotePage] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [isElicitationOpen, setIsElicitationOpen] = useState(false);
+  const [linkedConversationStates, setLinkedConversationStates] = useState([]);
+  const groupsRef = useRef(null);
 
   const stepKey = (step) => {
     const explicitID = String(step?.id || '').trim();
@@ -740,18 +832,37 @@ export default function IterationBlock({ message, context }) {
     },
     [allGroupEntries, context, data, message, visiblePreambleText]
   );
-  const isActiveIteration = useMemo(() => {
-    if (isActiveStatus(data?.status)) return true;
-    return allGroupEntries.some((group) => (
-      isActiveStatus(group?.status)
-      || isActiveStatus(group?.modelStep?.status)
-      || (Array.isArray(group?.toolSteps) && group.toolSteps.some((step) => isActiveStatus(step?.status)))
-    ));
-  }, [allGroupEntries, data?.status]);
+  const linkedConversationIds = useMemo(() => {
+    const ids = [];
+    const seen = new Set();
+    for (const group of allGroupEntries) {
+      for (const step of Array.isArray(group?.toolSteps) ? group.toolSteps : []) {
+        const id = linkedConversationId(step);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+    return ids;
+  }, [allGroupEntries]);
+
+  const isActiveIteration = useMemo(
+    () => isIterationActive(data, allGroupEntries, linkedConversationStates.map((entry) => entry?.status || '')),
+    [allGroupEntries, data, linkedConversationStates]
+  );
   const [collapsed, setCollapsed] = useState(() => !(isLatestIteration && isActiveIteration));
   const prevLatestRef = useRef(isLatestIteration);
   const prevActiveRef = useRef(isActiveIteration);
   const prevTerminalRef = useRef(isTerminalTurnStatus(data?.status));
+
+  // Shared turn start time — used by both the header timer and individual step timers.
+  const turnStartedAt = useMemo(() => {
+    const sourceSteps = allGroupEntries.flatMap((group) => [
+      ...(group?.modelStep ? [group.modelStep] : []),
+      ...(Array.isArray(group?.toolSteps) ? group.toolSteps : [])
+    ]);
+    return earliestStartedAt(sourceSteps) || parseTimestamp(message?.createdAt) || 0;
+  }, [allGroupEntries, message?.createdAt]);
 
   const elapsedLabel = useMemo(() => {
     const sourceSteps = allGroupEntries.flatMap((group) => [
@@ -760,10 +871,9 @@ export default function IterationBlock({ message, context }) {
     ]);
     const explicit = formatDurationClock(totalLatencyMs(sourceSteps));
     if (!isActiveIteration) return explicit;
-    const startedAt = earliestStartedAt(sourceSteps) || Date.parse(String(message?.createdAt || ''));
-    if (!startedAt) return explicit;
-    return formatDurationClock(Math.max(0, now - startedAt)) || explicit;
-  }, [allGroupEntries, isActiveIteration, message?.createdAt, now]);
+    if (!turnStartedAt) return explicit;
+    return formatDurationClock(Math.max(0, now - turnStartedAt)) || explicit;
+  }, [allGroupEntries, isActiveIteration, turnStartedAt, now]);
 
   const canonicalTotal = Number(data?.executionGroupsTotal || 0) || displayGroupEntries.length;
   const effectiveVisibleCount = groupPageSize === 'all' ? canonicalTotal : groupPageSize;
@@ -777,8 +887,17 @@ export default function IterationBlock({ message, context }) {
         if (!seen.has(id)) seen.set(id, step);
       }
     }
+    for (const state of linkedConversationStates) {
+      const id = String(state?.conversationId || '').trim();
+      if (!id || !seen.has(id)) continue;
+      seen.set(id, { ...seen.get(id), status: state?.status || seen.get(id)?.status || '' });
+    }
     return [...seen.values()];
-  }, [allGroupEntries]);
+  }, [allGroupEntries, linkedConversationStates]);
+  const hasActiveLinkedConversation = useMemo(
+    () => linkedConversationStates.some((entry) => isLinkedConversationActive(entry?.status)),
+    [linkedConversationStates]
+  );
 
   const iterationAgentLabel = useMemo(
     () => resolveIterationAgentLabel(data, context),
@@ -870,7 +989,7 @@ export default function IterationBlock({ message, context }) {
           </div>
           <div className="app-iteration-tool-row-meta">
             <span className={`app-iteration-status tone-${statusTone(modelStep?.status)}`}>{statusLabel(modelStep?.status)}</span>
-            <span className="app-iteration-group-time">{latencyLabel(modelStep, now) || '00:00'}</span>
+            <span className="app-iteration-group-time">{latencyLabel(modelStep, now, turnStartedAt) || '00:00'}</span>
             <Button
               minimal
               small
@@ -901,7 +1020,7 @@ export default function IterationBlock({ message, context }) {
                 </div>
                 <div className="app-iteration-tool-row-meta">
                   <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
-                  <span className="app-iteration-group-time">{latencyLabel(toolStep, now) || '00:00'}</span>
+                  <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt) || '00:00'}</span>
                   <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(toolStep)}>Details</Button>
                 </div>
               </div>
@@ -975,19 +1094,107 @@ export default function IterationBlock({ message, context }) {
   };
 
   useEffect(() => {
+    const parentConversationID = currentConversationId();
+    const parentTurnID = String(data?.turnId || '').trim();
+    if (!parentConversationID || !parentTurnID || linkedConversationIds.length === 0) {
+      setLinkedConversationStates([]);
+      return undefined;
+    }
+    let cancelled = false;
+    let timer = null;
+    const loadLinkedStatuses = async () => {
+      try {
+        const page = await client.listLinkedConversations({
+          parentConversationId: parentConversationID,
+          parentTurnId: parentTurnID
+        });
+        if (cancelled) return;
+        const rows = Array.isArray(page?.data) ? page.data : [];
+        setLinkedConversationStates(rows);
+        logIterationDebug('linked-status', {
+          turnId: parentTurnID,
+          messageId: message?.id || '',
+          linked: rows.map((entry) => ({
+            id: entry?.conversationId || '',
+            status: entry?.status || ''
+          }))
+        });
+      } catch (err) {
+        if (cancelled) return;
+        logIterationDebug('linked-status-error', {
+          turnId: parentTurnID,
+          messageId: message?.id || '',
+          error: String(err?.message || err || '')
+        });
+      }
+      if (!cancelled && isLatestIteration && isActiveIteration) {
+        timer = window.setTimeout(loadLinkedStatuses, 1500);
+      }
+    };
+    void loadLinkedStatuses();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [data?.turnId, isActiveIteration, isLatestIteration, linkedConversationIds, message?.id]);
+
+  useEffect(() => {
     // Auto-collapse only when the turn becomes terminal. A completed model/tool
     // phase can be followed by another iteration, so do not treat "inactive"
     // as end-of-turn.
     const turnTerminal = isTerminalTurnStatus(data?.status);
+    const linkedActive = hasActiveLinkedConversation;
     if (isLatestIteration && isActiveIteration) {
+      logIterationDebug('expand-latest-active', {
+        messageId: message?.id || '',
+        turnId: data?.turnId || '',
+        turnStatus: data?.status || '',
+        isLatestIteration,
+        isActiveIteration,
+        linkedActive,
+        linkedConversationStates
+      });
       setCollapsed(false);
-    } else if (!prevTerminalRef.current && turnTerminal) {
+    } else if (!prevTerminalRef.current && turnTerminal && !linkedActive) {
+      logIterationDebug('collapse-terminal', {
+        messageId: message?.id || '',
+        turnId: data?.turnId || '',
+        turnStatus: data?.status || '',
+        previousTerminal: prevTerminalRef.current,
+        isLatestIteration,
+        isActiveIteration,
+        linkedActive,
+        linkedConversationStates
+      });
       setCollapsed(true);
+    } else if (!prevTerminalRef.current && turnTerminal && linkedActive) {
+      logIterationDebug('suppress-collapse-linked-active', {
+        messageId: message?.id || '',
+        turnId: data?.turnId || '',
+        turnStatus: data?.status || '',
+        isLatestIteration,
+        isActiveIteration,
+        linkedActive,
+        linkedConversationStates
+      });
     }
     prevLatestRef.current = isLatestIteration;
     prevActiveRef.current = isActiveIteration;
     prevTerminalRef.current = turnTerminal;
-  }, [data?.status, isActiveIteration, isLatestIteration]);
+  }, [data?.status, isActiveIteration, isLatestIteration, linkedConversationStates, hasActiveLinkedConversation, message?.id, data?.turnId]);
+
+  useEffect(() => {
+    if (!hasActiveLinkedConversation) return;
+    logIterationDebug('expand-linked-active', {
+      messageId: message?.id || '',
+      turnId: data?.turnId || '',
+      turnStatus: data?.status || '',
+      isLatestIteration,
+      isActiveIteration,
+      linkedConversationStates
+    });
+    setCollapsed(false);
+  }, [hasActiveLinkedConversation, message?.id, data?.turnId, data?.status, isLatestIteration, isActiveIteration, linkedConversationStates]);
 
   useEffect(() => {
     if (isLatestIteration && isActiveIteration) {
@@ -1011,6 +1218,14 @@ export default function IterationBlock({ message, context }) {
     }
   }, [hasVisibleElicitation, elicitationStatus, message?.id]);
 
+  useEffect(() => {
+    if (!isActiveIteration || collapsed) return;
+    const el = groupsRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [collapsed, isActiveIteration, visibleGroups]);
+
   return (
     <>
       <section className={`app-iteration-card tone-${statusTone(data?.status)}`}>
@@ -1033,10 +1248,9 @@ export default function IterationBlock({ message, context }) {
 
         {!collapsed && displayGroupEntries.length > 0 ? (
           <>
-            <div className="app-iteration-groups">
+            <div className="app-iteration-groups" ref={groupsRef}>
               {visibleGroups.map((group, index) => renderGroupRow(group, index))}
             </div>
-            <ToolFeedDetail />
             {canonicalTotal > effectiveVisibleCount ? (
               <div className="app-iteration-inline-paginator">
                 <Button minimal small className="app-iteration-link app-iteration-link-subtle" disabled={groupsPage.start <= 0} onClick={goToOlderPreambles}>
@@ -1110,6 +1324,7 @@ export default function IterationBlock({ message, context }) {
           </>
         ) : null}
       </section>
+      <ToolFeedDetail context={context} />
       {!hasVisibleElicitation && shouldShowPreambleBubble(visibleGroups, visibleRenderedText) ? (
         <BubbleMessage
           message={{

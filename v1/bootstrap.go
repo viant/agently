@@ -18,29 +18,35 @@ var defaultSeedAgents = []string{"chatter", "coder"}
 
 func setBootstrapHook() {
 	workspace.SetBootstrapHook(func(store *workspace.BootstrapStore) error {
+		existingWorkspace, err := workspaceRootExists(store.Root())
+		if err != nil {
+			return err
+		}
 		if err := ensureWorkspaceDirs(store.Root()); err != nil {
 			return err
 		}
-		if err := seedFileIfMissing(store.Root(), "config.yaml", "defaults/config.yaml"); err != nil {
-			return err
-		}
-		for _, seed := range []struct {
-			src  string
-			dest string
-		}{
-			{src: "defaults/tools", dest: "tools"},
-			{src: "defaults/models", dest: "models"},
-			{src: "defaults/embedders", dest: "embedders"},
-		} {
-			if err := seedTreeIfMissing(store.Root(), seed.src, seed.dest); err != nil {
+		if !existingWorkspace {
+			if err := seedFileIfMissing(store.Root(), "config.yaml", "defaults/config.yaml"); err != nil {
 				return err
 			}
-		}
-		for _, agent := range defaultSeedAgents {
-			src := filepath.ToSlash(filepath.Join("defaults", "agents", agent))
-			dest := filepath.ToSlash(filepath.Join("agents", agent))
-			if err := seedTreeIfMissing(store.Root(), src, dest); err != nil {
-				return err
+			for _, seed := range []struct {
+				src  string
+				dest string
+			}{
+				{src: "defaults/tools", dest: "tools"},
+				{src: "defaults/models", dest: "models"},
+				{src: "defaults/embedders", dest: "embedders"},
+			} {
+				if err := seedTreeIfMissing(store.Root(), seed.src, seed.dest); err != nil {
+					return err
+				}
+			}
+			for _, agent := range defaultSeedAgents {
+				src := filepath.ToSlash(filepath.Join("defaults", "agents", agent))
+				dest := filepath.ToSlash(filepath.Join("agents", agent))
+				if err := seedTreeIfMissing(store.Root(), src, dest); err != nil {
+					return err
+				}
 			}
 		}
 		if err := ensureInternalMCPConfig(filepath.Join(store.Root(), "config.yaml")); err != nil {
@@ -57,6 +63,17 @@ func setBootstrapHook() {
 // at startup. They are created on-demand when the subsystem actually needs them.
 var skipBootstrapDirs = map[string]bool{
 	workspace.KindMCP: true,
+}
+
+func workspaceRootExists(root string) (bool, error) {
+	_, err := os.Stat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func ensureWorkspaceDirs(root string) error {
@@ -142,7 +159,7 @@ func ensureInternalMCPConfig(path string) error {
 		return err
 	}
 
-	targetServices := []string{"system/exec", "system/os", "system/patch", "orchestration/plan", "llm/agents", "resources", "internal/message"}
+	targetServices := []string{"system/exec", "system/os", "system/patch", "orchestration/plan", "llm/agents", "resources", "message"}
 	changed := false
 
 	// Migrate legacy flat key if present.

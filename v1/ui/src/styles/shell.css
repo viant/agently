@@ -13,7 +13,7 @@
   --app-chat-max-width: 1440px;
   --app-composer-bottom-gap: 16px;
   --app-composer-stack-height: 150px;
-  --app-plan-feed-gap: -8px;
+  --app-plan-feed-gap: -12px;
   --app-plan-feed-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--app-composer-stack-height) + var(--app-plan-feed-gap));
 }
 
@@ -619,27 +619,33 @@ body {
  *   - No gap — the feed bar bottom overlaps the composer top via negative margin
  */
 /*
- * ToolFeedBar: sticky above the composer, narrower, open bottom edge.
- * Connected visually to the composer — no gap.
+ * ToolFeedBar: sits between main and StatusBar, centered.
+ * Narrower than composer, rounded top, open bottom connecting to composer.
+ */
+/*
+ * ToolFeedBar: same positioning as PlanFeed — absolute above composer.
  */
 .app-tool-feed-bar {
-  position: sticky;
-  bottom: 0;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: var(--app-plan-feed-bottom);
   width: min(932px, calc(100% - 80px));
-  margin: 0 auto;
-  z-index: 11;
+  z-index: 12;
   border: 1px solid rgba(0, 0, 0, 0.10);
   border-bottom: none;
   border-radius: 14px 14px 0 0;
   background: #fff;
   padding: 4px 0 2px;
+  margin-bottom: -24px;
+  box-shadow: 0 -8px 20px 8px rgba(255, 255, 255, 1);
 }
 
 .app-tool-feed-bar-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 16px;
+  padding: 6px 24px;
   font-size: 13px;
   color: #3d4b66;
   cursor: pointer;
@@ -649,6 +655,10 @@ body {
 
 .app-tool-feed-bar-item:hover {
   background: rgba(0, 0, 0, 0.028);
+}
+
+.app-tool-feed-bar-item:focus {
+  outline: none;
 }
 
 .app-tool-feed-bar-icon {
@@ -762,9 +772,36 @@ body {
   color: #9ca3af;
 }
 
+.app-tool-feed-page-btn {
+  appearance: none;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 4px;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  color: #4a5568;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.app-tool-feed-page-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+.app-tool-feed-page-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
 /* ── Usage Bar (below composer) ────────────────────────────────── */
 
 .app-usage-bar {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -773,6 +810,7 @@ body {
   font-size: 11px;
   color: #8b95a8;
   user-select: none;
+  z-index: 10;
 }
 
 .app-usage-bar-cost {
@@ -1737,11 +1775,11 @@ td[data-col="enabled"] {
   box-shadow: inset 0 -2px 0 var(--app-accent);
 }
 
-/* Constrain user and assistant bubbles to roughly match composer width.
+/* Constrain user and assistant bubbles to match composer width.
    Execution detail bubbles (.has-executions) stay full width. */
 .chat-row.user .chat-bubble,
 .chat-row.assistant .chat-bubble:not(.has-executions) {
-  max-width: min(980px, calc(100vw - 120px));
+  max-width: min(780px, calc(100vw - 200px));
 }
 
 [data-testid="chat-feed"] {
@@ -1753,7 +1791,8 @@ td[data-col="enabled"] {
   width: min(var(--app-chat-max-width), calc(100% - 8px));
 }
 
-.app-chat-pane:has(.app-plan-feed-composer_top) [data-testid="chat-feed"] {
+.app-chat-pane:has(.app-plan-feed-composer_top) [data-testid="chat-feed"],
+.app-chat-pane:has(.app-tool-feed-bar) [data-testid="chat-feed"] {
   padding-bottom: 360px !important;
 }
 

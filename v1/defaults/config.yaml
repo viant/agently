@@ -1,16 +1,24 @@
 default:
   agent: chatter
-  model: openai_gpt-5.2
+  model: openai_gpt-5.4
   embedder: openai_text
-
-models:
-  url: models
-embedders:
-  url: embedders
-agents:
-  url: agents
+  agentAutoSelection:
+    model: openai_gpt-5-mini
 
 internalMCP:
   services:
     - system/exec
     - system/os
+    - system/patch
+    - orchestration/plan
+    - llm/agents
+    - resources
+    - message
+
+auth:
+  enabled: true
+  cookieName: agently_session
+  defaultUsername: devuser
+  ipHashKey: dev-hmac-salt
+  local:
+    enabled: true

@@ -12,6 +12,11 @@ function normalizeEntry(entry) {
   return { id, name: id, modelRef: '' }
 }
 
+function isInternalEntry(entry) {
+  if (!entry || typeof entry !== 'object') return false
+  return !!(entry.internal || entry.Internal)
+}
+
 function humanizeKey(value) {
   const raw = String(value || '').trim()
   if (!raw) return ''
@@ -71,7 +76,7 @@ function displayLabel(entry, kind = 'generic') {
 }
 
 export function normalizeWorkspaceAgentInfos(entries = []) {
-  return (Array.isArray(entries) ? entries : []).map((entry) => {
+  return (Array.isArray(entries) ? entries : []).filter((entry) => !isInternalEntry(entry)).map((entry) => {
     const normalized = normalizeEntry(entry)
     if (!normalized.id) return null
     return {
@@ -97,7 +102,7 @@ export function normalizeWorkspaceModelInfos(entries = []) {
 }
 
 export function normalizeWorkspaceAgentOptions(entries = [], defaultAgent = '') {
-  return (Array.isArray(entries) ? entries : []).map((entry) => {
+  return (Array.isArray(entries) ? entries : []).filter((entry) => !isInternalEntry(entry)).map((entry) => {
     const normalized = normalizeEntry(entry)
     if (!normalized.id) return null
     return {

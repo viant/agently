@@ -37,10 +37,11 @@ import (
 )
 
 // ServeCmd starts the embedded HTTP server.
-// Usage: agently serve [legacy] --addr :8080
+// Usage: agently serve [v1] --addr :8080
 type ServeCmd struct {
 	Addr      string `short:"a" long:"addr" description:"listen address" default:":8080"`
 	Policy    string `short:"p" long:"policy" description:"tool policy: auto|ask|deny" default:"auto"`
+	Workspace string `short:"w" long:"workspace" description:"workspace root path (overrides AGENTLY_WORKSPACE when set)"`
 	ExposeMCP bool   `long:"expose-mcp" description:"Expose Agently tools over an MCP HTTP server (requires mcpServer.port and tool patterns in config)"`
 
 	// Unified log file capturing LLM, tool and task events. Defaults to
@@ -53,8 +54,11 @@ func (s *ServeCmd) Execute(args []string) error {
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(s.Workspace) != "" {
+		_ = os.Setenv("AGENTLY_WORKSPACE", strings.TrimSpace(s.Workspace))
+	}
 	if target == "v1" {
-		return v1app.Serve(v1app.ServeOptions{Addr: s.Addr})
+		return v1app.Serve(v1app.ServeOptions{Addr: s.Addr, WorkspacePath: s.Workspace})
 	}
 
 	applyRuntimeConfig()
@@ -221,11 +225,11 @@ func (s *ServeCmd) Execute(args []string) error {
 
 func serveTarget(args []string) (string, error) {
 	if len(args) == 0 {
-		return "v1", nil
+		return "legacy", nil
 	}
 	target := strings.TrimSpace(args[0])
 	if target == "" {
-		return "v1", nil
+		return "legacy", nil
 	}
 	if (target == "v1" || target == "legacy") && len(args) == 1 {
 		return target, nil
