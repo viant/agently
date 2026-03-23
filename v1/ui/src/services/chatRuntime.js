@@ -27,6 +27,7 @@ import {
 import { mergeRenderedRows } from './rowMerge';
 import {
   MAIN_CHAT_WINDOW_ID,
+  getWindowById,
   getScopedConversationSelection,
   isMainChatWindowId,
   setScopedConversationSelection
@@ -914,6 +915,22 @@ function getCurrentConversationID(context) {
 
 function getContextWindowId(context) {
   return String(context?.identity?.windowId || '').trim() || MAIN_CHAT_WINDOW_ID;
+}
+
+function conversationIDFromWindowParameters(windowId = '') {
+  const win = getWindowById(windowId);
+  return String(
+    win?.parameters?.conversations?.input?.parameters?.id
+    || win?.parameters?.messages?.input?.parameters?.convID
+    || win?.parameters?.conversations?.form?.id
+    || win?.parameters?.conversations?.input?.id
+    || win?.parameters?.messages?.input?.convID
+    || win?.parameters?.conversationId
+    || win?.parameters?.ConversationId
+    || win?.parameters?.id
+    || win?.parameters?.convID
+    || ''
+  ).trim();
 }
 
 function extractEmbeddedElicitationPayload(text = '') {
@@ -1826,6 +1843,7 @@ export function bootstrapConversationSelection(context) {
   const bootstrapID = typeof window !== 'undefined'
     ? (
       (isMainChatWindowId(windowId) ? conversationIDFromPath(window.location.pathname) : '')
+      || conversationIDFromWindowParameters(windowId)
       || getScopedConversationSelection(windowId)
     )
     : '';
