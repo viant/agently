@@ -460,7 +460,7 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 			continue
 		}
 		for _, t := range tools {
-			disp := s + ":" + t.Name
+			disp := displayToolName(s, strings.TrimSpace(t.Name))
 			if _, ok := seen[disp]; ok {
 				continue
 			}
@@ -541,14 +541,7 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 				result = append(result, &defCopy)
 				r.mu.Lock()
 				if _, ok := r.cache[def.Name]; !ok {
-					r.cache[def.Name] = entry
-					// also cache colon alias
-					colon := svc + ":" + t.Name
-					r.cache[colon] = entry
-					hyphen := mcpnames.Canonical(colon)
-					if strings.TrimSpace(hyphen) != "" {
-						r.cache[hyphen] = entry
-					}
+					cacheToolAliases(r.cache, entry, def.Name)
 				}
 				r.mu.Unlock()
 			}
@@ -605,23 +598,14 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 			tool := llm.ToolDefinitionFromMcpTool(&t)
 			if tool != nil {
 				r.mu.Lock()
-				// Normalise tool name to include service prefix so downstream
-				// callers (agents, adapters) never see bare method names like
-				// "read" without their service context.
-				fullSlash := svc + "/" + t.Name
+				fullSlash := qualifiedToolName(svc, strings.TrimSpace(t.Name))
 				tool.Name = fullSlash
 				_ = maybeInjectTimeoutMs(tool, injectTimeoutMs)
 				entry := newToolCacheEntry(tool, t, injectTimeoutMs)
 				// cache both aliases and the exact name used
-				colon := svc + ":" + t.Name
 				if entry != nil {
-					r.cache[fullSlash] = entry
-					r.cache[colon] = entry
-					hyphen := mcpnames.Canonical(colon)
-					if strings.TrimSpace(hyphen) != "" {
-						r.cache[hyphen] = entry
-					}
-					r.cache[name] = entry
+					cacheToolAliases(r.cache, entry, fullSlash)
+					r.cache[strings.TrimSpace(name)] = entry
 				}
 				r.mu.Unlock()
 			}
@@ -1269,6 +1253,48 @@ func splitToolName(name string) (service, method string) {
 	can := mcpnames.Canonical(name)
 	n := mcpnames.Name(can)
 	return n.Service(), n.Method()
+}
+
+func qualifiedToolName(server, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if svc, method := splitToolName(raw); svc != "" && method != "" {
+		return raw
+	}
+	server = strings.TrimSpace(server)
+	if server == "" {
+		return raw
+	}
+	return server + "/" + raw
+}
+
+func displayToolName(server, raw string) string {
+	qualified := qualifiedToolName(server, raw)
+	svc, method := splitToolName(qualified)
+	if svc == "" || method == "" {
+		return strings.TrimSpace(qualified)
+	}
+	return svc + ":" + method
+}
+
+func cacheToolAliases(cache map[string]*toolCacheEntry, entry *toolCacheEntry, name string) {
+	if cache == nil || entry == nil {
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	cache[name] = entry
+	svc, method := splitToolName(name)
+	if svc == "" || method == "" {
+		return
+	}
+	cache[svc+"/"+method] = entry
+	cache[svc+":"+method] = entry
+	cache[mcpnames.Canonical(name)] = entry
 }
 
 // listServerTools queries the server tool registry via MCP ListTools.
