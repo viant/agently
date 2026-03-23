@@ -150,6 +150,8 @@
       type: number
       columnSpan: 1
       on:
+        - event: onValueChange
+          handler: schedule.syncScheduleFields
         - event: onInput
           handler: schedule.syncScheduleFields
         - event: onKeyUp
@@ -203,6 +205,8 @@
       type: number
       columnSpan: 1
       on:
+        - event: onValueChange
+          handler: schedule.syncScheduleFields
         - event: onInput
           handler: schedule.syncScheduleFields
         - event: onKeyUp
