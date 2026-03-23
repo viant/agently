@@ -12,6 +12,7 @@ import (
 
 	"github.com/viant/agently-core/app/executor"
 	svcauth "github.com/viant/agently-core/service/auth"
+	vauth "github.com/viant/agently/internal/auth"
 	convdao "github.com/viant/agently/internal/service/conversation"
 	sessionread "github.com/viant/agently/pkg/agently/user/session"
 	sessiondelete "github.com/viant/agently/pkg/agently/user/session/delete"
@@ -241,10 +242,15 @@ func withAuthUser(ctx context.Context, user *authUser) context.Context {
 		return ctx
 	}
 	ctx = context.WithValue(ctx, authContextKey{}, *user)
+	ctx = vauth.WithUserInfo(ctx, &vauth.UserInfo{
+		Subject: user.Subject,
+		Email:   user.Email,
+	})
 	// Also inject into agently-core's auth context so EffectiveUserID works for scheduler
 	ctx = svcauth.InjectUser(ctx, user.Subject)
 	// Inject OAuth tokens so MCP clients can forward them (via MCPAuthToken).
 	if user.Tokens != nil {
+		ctx = vauth.WithTokens(ctx, user.Tokens)
 		ctx = svcauth.InjectTokens(ctx, user.Tokens)
 	}
 	return ctx
