@@ -877,18 +877,12 @@ function scheduleEmptyStateConfig(panelId) {
   };
 }
 
-function panelHasRenderableRows(wrapper) {
+export function panelHasRenderableRows(wrapper) {
   const body = wrapper?.querySelector?.('tbody');
   if (!body) return false;
   const rows = Array.from(body.querySelectorAll('tr'));
   if (rows.length === 0) return false;
-  return rows.some((row) => {
-    if (row.classList.contains('empty-row')) return false;
-    const values = Array.from(row.querySelectorAll('.cell-content, td'))
-      .map((cell) => String(cell.textContent || '').replace(/\u00a0/g, ' ').trim())
-      .filter(Boolean);
-    return values.length > 0;
-  });
+  return rows.some((row) => !row.classList?.contains?.('empty-row'));
 }
 
 function decorateScheduleEmptyStates() {
@@ -1188,15 +1182,22 @@ export const scheduleService = {
     try {
       setTimeout(decorateScheduleEmptyStates, 0);
       const incoming = Array.isArray(collection) ? collection : [];
-      return incoming.map((r) => ({
-        id: firstDefined(r, ['ScheduleRunId', 'scheduleRunId', 'schedule_run_id', 'Id', 'id']),
-        conversationId: firstDefined(r, ['Id', 'id', 'ConversationId', 'conversationId', 'conversation_id']),
-        status: firstDefined(r, ['Status', 'status']),
-        createdAt: firstDefined(r, ['CreatedAt', 'createdAt', 'created_at']),
-        startedAt: firstDefined(r, ['LastActivity', 'UpdatedAt', 'updatedAt', 'updated_at', 'StartedAt', 'startedAt', 'started_at']),
-        completedAt: firstDefined(r, ['LastActivity', 'UpdatedAt', 'updatedAt', 'updated_at', 'CompletedAt', 'completedAt', 'completed_at']),
-        errorMessage: firstDefined(r, ['ErrorMessage', 'errorMessage', 'error_message', 'StatusMessage', 'statusMessage', 'status_message'])
-      }));
+      return incoming.map((r) => {
+        const id = firstDefined(r, ['ScheduleRunId', 'scheduleRunId', 'schedule_run_id', 'Id', 'id']);
+        const conversationId = firstDefined(r, ['ConversationId', 'conversationId', 'conversation_id', 'Id', 'id']);
+        const legacyActivity = firstDefined(r, ['LastActivity', 'UpdatedAt', 'updatedAt', 'updated_at']);
+        return {
+          id,
+          scheduleId: firstDefined(r, ['ScheduleId', 'scheduleId', 'schedule_id']),
+          scheduleName: firstDefined(r, ['ScheduleName', 'scheduleName', 'schedule_name']),
+          conversationId,
+          status: firstDefined(r, ['Status', 'status']),
+          createdAt: firstDefined(r, ['CreatedAt', 'createdAt', 'created_at']),
+          startedAt: firstDefined(r, ['StartedAt', 'startedAt', 'started_at']) || (id === conversationId ? legacyActivity : null),
+          completedAt: firstDefined(r, ['CompletedAt', 'completedAt', 'completed_at']) || (id === conversationId ? legacyActivity : null),
+          errorMessage: firstDefined(r, ['ErrorMessage', 'errorMessage', 'error_message', 'StatusMessage', 'statusMessage', 'status_message'])
+        };
+      });
     } catch (e) {
       log.error('schedule.onFetchRuns error', e);
       return collection;

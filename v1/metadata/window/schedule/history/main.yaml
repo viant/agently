@@ -5,27 +5,41 @@ view:
     containers:
       - id: scheduleConversations
         title: Run History
-        dataSourceRef: conversations
+        dataSourceRef: runs
         fetchData: true
         table: $import('table/runs.yaml')
 
 dataSource:
-  conversations:
+  runs:
     service:
       endpoint: agentlyAPI
-      uri: /v1/conversations
+      uri: /v1/api/agently/scheduler/run
       method: GET
-    # Always filter to conversations linked to any schedule (schedule_id IS NOT NULL)
-    parameters:
-      - from: const
-        to: :query
-        name: hasScheduleId
-        location: "true"
+
+    paging:
+      size: 25
+      enabled: true
+      dataInfoSelectors:
+        pageCount: pageCount
+        totalCount: totalCount
+
     selectors:
-      data: Rows
-    uniqueKey:
-      - field: id
+      data: data.runs
+      dataInfo: data
+
     on:
       - event: onFetch
-        handler: chat.onFetchHistory
-    selectionMode: single
+        handler: schedule.onFetchRuns
+
+    filterSet:
+      - name: default
+        default: true
+        template:
+          - id: status
+            label: Filter by status...
+            operator: eq
+
+    quickFilterSet: default
+
+    uniqueKey:
+      - field: id

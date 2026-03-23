@@ -1841,7 +1841,13 @@ export function bootstrapConversationSelection(context) {
   const bootstrapID = typeof window !== 'undefined'
     ? (
       String(win?.parameters?.conversations?.form?.id || '').trim()
+      || String(win?.parameters?.conversations?.input?.parameters?.id || '').trim()
+      || String(win?.parameters?.conversations?.input?.path?.id || '').trim()
+      || String(win?.parameters?.conversations?.input?.id || '').trim()
       || String(win?.parameters?.conversationId || '').trim()
+      || String(win?.parameters?.messages?.input?.parameters?.convID || '').trim()
+      || String(win?.parameters?.messages?.input?.path?.convID || '').trim()
+      || String(win?.parameters?.messages?.input?.convID || '').trim()
       || (isMainChatWindowId(windowId) ? conversationIDFromPath(window.location.pathname) : '')
       || getScopedConversationSelection(windowId)
     )

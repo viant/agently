@@ -5,6 +5,7 @@ import { activeWindows, selectedTabId, selectedWindowId } from 'forge/core';
 import {
   CHAT_WINDOW_KEY,
   MAIN_CHAT_WINDOW_ID,
+  isLinkedChildWindow,
   openLinkedConversationWindow,
   returnToParentConversation
 } from './conversationWindow';
@@ -96,5 +97,21 @@ describe('conversationWindow', () => {
     expect(selectedWindowId.value).toBe(MAIN_CHAT_WINDOW_ID);
     expect(selectedTabId.value).toBe(MAIN_CHAT_WINDOW_ID);
     expect(String(window.localStorage.getItem('agently.selectedConversationId'))).toBe('parent-123');
+  });
+
+  it('does not treat a standalone chat window as a linked child without linkedParent metadata', () => {
+    expect(isLinkedChildWindow({
+      windowId: 'chat/new__123',
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {
+        conversations: {
+          input: {
+            parameters: {
+              id: 'conv-standalone'
+            }
+          }
+        }
+      }
+    })).toBe(false);
   });
 });
