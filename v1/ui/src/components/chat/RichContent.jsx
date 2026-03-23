@@ -1,275 +1,341 @@
+// RichContent – renders assistant message content with syntax-highlighted code,
+// Blueprint tables, Recharts charts, Mermaid diagrams, and inline markdown.
+// Parsing and classification logic comes from the SDK's pluggable richContent module.
+
 import React from 'react';
+import CodeBlock from './CodeBlock.jsx';
+import Mermaid from './Mermaid';
+import { Button, Dialog, Tooltip } from '@blueprintjs/core';
+import { Table as BpTable, Column as BpColumn, Cell as BpCell, ColumnHeaderCell as BpColumnHeaderCell } from '@blueprintjs/table';
 import {
   ResponsiveContainer,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
   LineChart,
   Line,
   AreaChart,
   Area,
   BarChart,
   Bar,
+  ScatterChart,
+  Scatter,
   PieChart,
   Pie,
   Cell,
-  ScatterChart,
-  Scatter
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip as RcTooltip,
+  Legend as RcLegend,
 } from 'recharts';
-import Mermaid from './Mermaid';
 
-function escapeHTML(value = '') {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+// Import all parsing/rendering utilities from SDK
+import {
+  parseFences,
+  languageHint,
+  findNextPipeTableBlock,
+  looksLikePipeTable,
+  parsePipeTable,
+  parseChartSpecFromFence,
+  normalizeChartSpec,
+  buildChartSeries,
+  renderMarkdownBlock,
+  renderMarkdownCellHTML,
+} from 'agently-core-ui-sdk';
+
+function MinimalText({ text = '' }) {
+  const html = renderMarkdownBlock(text);
+  return <div className="app-rich-prose" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-function resolveHref(url = '') {
-  const raw = String(url || '').trim();
-  if (!raw) return '#';
-  if (raw.startsWith('/')) return raw;
-  if (/^(https?:\/\/|mailto:|tel:)/i.test(raw)) return raw;
-  return '#';
-}
+function ChartSpecPanel({ spec = {} }) {
+  const [mode, setMode] = React.useState('chart');
+  const n = React.useMemo(() => normalizeChartSpec(spec), [spec]);
+  const { rows, series } = React.useMemo(() => buildChartSeries(n), [n]);
+  const { type, xKey, palette, title } = n;
+  const headers = React.useMemo(() => {
+    const keys = new Set();
+    (n.data || []).forEach((r) => Object.keys(r || {}).forEach((k) => keys.add(k)));
+    return Array.from(keys);
+  }, [n.data]);
 
-function renderMarkdownInline(value = '') {
-  const escaped = escapeHTML(value);
-  const withHeadings = escaped
-    .replace(/^######\s+(.+)$/gm, '<h6>$1</h6>')
-    .replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>')
-    .replace(/^####\s+(.+)$/gm, '<h4>$1</h4>')
-    .replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
-    .replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
-    .replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
-  const withCode = withHeadings.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
-  const withBold = withCode.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  const withItalic = withBold
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/(^|[^\w])_([^_\n]+)_/g, '$1<em>$2</em>');
-  const withLinks = withItalic.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
-    const href = resolveHref(url);
-    return `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
-  });
-  return withLinks.replace(/\n/g, '<br/>');
-}
+  const chartCommon = (
+    <>
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey={xKey} />
+      <YAxis />
+      <RcTooltip />
+      <RcLegend />
+    </>
+  );
 
-export function parseFences(content = '') {
-  const text = String(content || '');
-  const result = [];
-  const pattern = /```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/g;
-  let index = 0;
-  let match;
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > index) {
-      result.push({ kind: 'text', value: text.slice(index, match.index) });
+  const renderChart = () => {
+    if (!rows.length || !series.length) return <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>No chart data</div>;
+    if (type === 'area') return <AreaChart data={rows}>{chartCommon}{series.map((s, i) => <Area key={s} type="monotone" dataKey={s} stroke={palette[i % palette.length]} fill={palette[i % palette.length]} fillOpacity={0.2} />)}</AreaChart>;
+    if (type === 'bar' || type === 'stacked_bar') {
+      const stacked = type === 'stacked_bar';
+      return <BarChart data={rows}>{chartCommon}{series.map((s, i) => <Bar key={s} dataKey={s} fill={palette[i % palette.length]} stackId={stacked ? 'a' : undefined} />)}</BarChart>;
     }
-    result.push({
-      kind: 'fence',
-      lang: String(match[1] || '').trim().toLowerCase(),
-      body: String(match[2] || '')
-    });
-    index = pattern.lastIndex;
-  }
-  if (index < text.length) {
-    const tail = text.slice(index);
-    const openFence = tail.match(/^```([a-zA-Z0-9_-]*)\r?\n([\s\S]*)$/);
-    if (openFence) {
-      result.push({
-        kind: 'fence',
-        lang: String(openFence[1] || '').trim().toLowerCase(),
-        body: String(openFence[2] || '')
-      });
-    } else {
-      result.push({ kind: 'text', value: tail });
-    }
-  }
-  return result;
-}
-
-function isObject(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function inferStringKey(row = {}) {
-  const keys = Object.keys(row || {});
-  return keys.find((key) => typeof row[key] === 'string') || keys[0] || 'x';
-}
-
-function inferNumberKeys(row = {}, deny = []) {
-  const blocked = new Set(Array.isArray(deny) ? deny : []);
-  return Object.keys(row || {}).filter((key) => !blocked.has(key) && typeof row[key] === 'number');
-}
-
-function parseChartSpec(lang = '', body = '') {
-  const language = String(lang || '').toLowerCase();
-  if (!['chart', 'json', 'javascript', 'js', 'markdown', 'md', 'plaintext'].includes(language)) return null;
-
-  const raw = String(body || '').trim();
-  if (!(raw.startsWith('{') || raw.startsWith('['))) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (_) {
-    return null;
-  }
-
-  if (!isObject(parsed)) return null;
-  if (isObject(parsed.chart) && Array.isArray(parsed.data)) {
-    return parsed;
-  }
-  if (typeof parsed.type === 'string' && isObject(parsed.data) && Array.isArray(parsed.data.labels) && Array.isArray(parsed.data.datasets)) {
-    const labels = parsed.data.labels;
-    const dataset = parsed.data.datasets[0] || {};
-    const values = Array.isArray(dataset.data) ? dataset.data : [];
-    const rows = labels.map((label, idx) => ({
-      label: String(label),
-      value: Number(values[idx] ?? 0)
-    }));
-    return {
-      chart: {
-        type: String(parsed.type || 'bar').toLowerCase(),
-        x: { key: 'label' },
-        y: [{ key: 'value' }]
-      },
-      data: rows,
-      title: parsed.title || dataset.label || ''
-    };
-  }
-  if (typeof parsed.type === 'string' && Array.isArray(parsed.data)) {
-    const row = isObject(parsed.data[0]) ? parsed.data[0] : {};
-    const xKey = String(parsed?.x?.field || parsed?.xKey || inferStringKey(row));
-    const yKeys = Array.isArray(parsed?.y?.fields) ? parsed.y.fields.map(String).filter(Boolean) : [];
-    const inferred = yKeys.length > 0 ? yKeys : inferNumberKeys(row, [xKey]);
-    return {
-      chart: { type: String(parsed.type || 'line').toLowerCase(), x: { key: xKey }, y: inferred.map((key) => ({ key })) },
-      data: parsed.data,
-      title: parsed.title || ''
-    };
-  }
-  return null;
-}
-
-function normalizeSpec(spec = {}) {
-  const chart = isObject(spec?.chart) ? spec.chart : {};
-  const data = Array.isArray(spec?.data) ? spec.data : [];
-  const type = String(chart?.type || 'line').toLowerCase();
-  const xKey = String(chart?.x?.key || 'x');
-  const yKeys = Array.isArray(chart?.y) ? chart.y.map((item) => String(item?.key || '')).filter(Boolean) : [];
-  return {
-    title: String(spec?.title || ''),
-    type,
-    xKey,
-    yKeys,
-    data
+    if (type === 'scatter') return <ScatterChart><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey={xKey} /><YAxis dataKey={series[0]} /><RcTooltip /><RcLegend /><Scatter name={series[0]} data={rows} fill={palette[0]} /></ScatterChart>;
+    if (type === 'pie') return <PieChart><RcTooltip /><RcLegend /><Pie data={n.data || []} dataKey={series[0] || 'value'} nameKey={n.seriesKey || xKey} outerRadius={110} label>{(n.data || []).map((_, i) => <Cell key={`cell-${i}`} fill={palette[i % palette.length]} />)}</Pie></PieChart>;
+    return <LineChart data={rows}>{chartCommon}{series.map((s, i) => <Line key={s} type="monotone" dataKey={s} stroke={palette[i % palette.length]} dot={false} />)}</LineChart>;
   };
-}
-
-const chartPalette = ['#2563eb', '#ef4444', '#16a34a', '#f59e0b', '#7c3aed', '#0f766e'];
-
-function ChartPanel({ spec }) {
-  const normalized = normalizeSpec(spec);
-  const { type, xKey, yKeys, data, title } = normalized;
-  if (!Array.isArray(data) || data.length === 0) return null;
-  const series = yKeys.length > 0 ? yKeys : inferNumberKeys(data[0] || {}, [xKey]);
-  if (series.length === 0 && type !== 'pie') return null;
-
-  const chartProps = { margin: { top: 10, right: 20, left: 0, bottom: 10 } };
 
   return (
     <div className="app-rich-chart">
-      {title ? <div className="app-rich-chart-title">{title}</div> : null}
-      <div className="app-rich-chart-canvas">
-        <ResponsiveContainer width="100%" height="100%">
-          {type === 'bar' ? (
-            <BarChart data={data} {...chartProps}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={xKey} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              {series.map((item, idx) => <Bar key={item} dataKey={item} fill={chartPalette[idx % chartPalette.length]} />)}
-            </BarChart>
-          ) : null}
-          {type === 'area' ? (
-            <AreaChart data={data} {...chartProps}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={xKey} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              {series.map((item, idx) => <Area key={item} type="monotone" dataKey={item} stroke={chartPalette[idx % chartPalette.length]} fill={chartPalette[idx % chartPalette.length]} fillOpacity={0.2} />)}
-            </AreaChart>
-          ) : null}
-          {type === 'pie' ? (
-            <PieChart>
-              <Tooltip />
-              <Legend />
-              <Pie data={data} dataKey={series[0] || 'value'} nameKey={xKey} outerRadius={80} label>
-                {data.map((_, idx) => <Cell key={`cell-${idx}`} fill={chartPalette[idx % chartPalette.length]} />)}
-              </Pie>
-            </PieChart>
-          ) : null}
-          {type === 'scatter' ? (
-            <ScatterChart {...chartProps}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={xKey} />
-              <YAxis dataKey={series[0] || 'value'} />
-              <Tooltip />
-              <Legend />
-              <Scatter name={series[0] || 'value'} data={data} fill={chartPalette[0]} />
-            </ScatterChart>
-          ) : null}
-          {!['bar', 'area', 'pie', 'scatter'].includes(type) ? (
-            <LineChart data={data} {...chartProps}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={xKey} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              {series.map((item, idx) => <Line key={item} type="monotone" dataKey={item} stroke={chartPalette[idx % chartPalette.length]} dot={false} />)}
-            </LineChart>
-          ) : null}
-        </ResponsiveContainer>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div className="app-rich-chart-title">{title || 'Chart'}</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <Button small minimal={mode !== 'chart'} intent={mode === 'chart' ? 'primary' : 'none'} onClick={() => setMode('chart')}>Chart</Button>
+          <Button small minimal={mode !== 'table'} intent={mode === 'table' ? 'primary' : 'none'} onClick={() => setMode('table')}>Table</Button>
+        </div>
       </div>
+      {mode === 'chart' ? (
+        <div className="app-rich-chart-canvas">
+          <ResponsiveContainer width="100%" height="100%">{renderChart()}</ResponsiveContainer>
+        </div>
+      ) : (
+        <FencedPipeTable
+          headers={headers}
+          rows={(n.data || []).map((r) => headers.map((h) => String(r?.[h] ?? '')))}
+          aligns={headers.map(() => 'left')}
+        />
+      )}
     </div>
   );
 }
 
-function FenceBlock({ lang = '', body = '' }) {
-  const language = String(lang || '').trim().toLowerCase();
-  if (language === 'mermaid') {
-    return <Mermaid code={body} />;
-  }
-  const chartSpec = parseChartSpec(language, body);
-  if (chartSpec) {
-    return <ChartPanel spec={chartSpec} />;
-  }
-  if (language === 'markdown' || language === 'md') {
-    const html = renderMarkdownInline(body);
-    return <div className="app-rich-markdown" dangerouslySetInnerHTML={{ __html: html }} />;
-  }
+// ── Pipe table rendering (Blueprint Table) ──
+
+function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
+  const pageSize = 40;
+  const [visible, setVisible] = React.useState(() => new Set(headers.map((_, i) => i)));
+  const [page, setPage] = React.useState(0);
+  const [showCols, setShowCols] = React.useState(false);
+  const [expand, setExpand] = React.useState(null);
+  const [truncateAt, setTruncateAt] = React.useState(100);
+  const [widthByCol, setWidthByCol] = React.useState({});
+
+  const total = Array.isArray(rows) ? rows.length : 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(Math.max(0, page), pageCount - 1);
+  const start = safePage * pageSize;
+  const end = Math.min(total, start + pageSize);
+  const pageRows = React.useMemo(() => rows.slice(start, end), [rows, start, end]);
+
+  const visIdx = headers.map((_, i) => i).filter(i => visible.has(i));
+  const toggleColumn = (i) => setVisible(prev => { const n = new Set(prev); if (n.has(i)) n.delete(i); else n.add(i); return n; });
+
+  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+  const allMaxLens = headers.map((h, i) => {
+    let m = String(h || '').length;
+    for (const r of rows) { const c = String((r || [])[i] ?? '').length; if (c > m) m = c; }
+    return clamp(m, 4, 48);
+  });
+  const baseWidthPx = 720;
+  const totalLens = visIdx.reduce((acc, i) => acc + allMaxLens[i], 0) || visIdx.length;
+  const computedColWidths = visIdx.map(i => Math.max(80, Math.round((allMaxLens[i] / totalLens) * baseWidthPx)));
+  const colWidths = visIdx.map((i, j) => {
+    const persisted = Number(widthByCol[i]);
+    if (Number.isFinite(persisted) && persisted > 40) return persisted;
+    return computedColWidths[j];
+  });
+
+  const downloadCSV = () => {
+    try {
+      const esc = (v = '') => { const s = String(v ?? ''); if (/[,"\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'; return s; };
+      const lines = [visIdx.map(i => esc(headers[i])).join(',')];
+      for (const r of rows) lines.push(visIdx.map(i => esc((r || [])[i] ?? '')).join(','));
+      const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `table-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (_) {}
+  };
+
+  const columns = visIdx.map((ci) => {
+    const align = aligns[ci] || 'left';
+    const cellRenderer = (rowIndex) => {
+      const raw = pageRows[rowIndex]?.[ci] ?? '';
+      const text = String(raw);
+      const isLong = text.length > truncateAt;
+      const display = isLong ? (text.slice(0, truncateAt) + '…') : text;
+      const html = renderMarkdownCellHTML(display);
+      const fullHtml = renderMarkdownCellHTML(text);
+      const cellContent = <span dangerouslySetInnerHTML={{ __html: html }} />;
+      const tooltipContent = text ? <div style={{ maxWidth: 640, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: fullHtml }} /> : null;
+      return (
+        <BpCell
+          style={{ textAlign: align, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: isLong ? 'pointer' : 'default' }}
+          onClick={() => { if (isLong) setExpand({ title: headers[ci], content: text }); }}
+        >
+          {tooltipContent ? <Tooltip content={tooltipContent} hoverOpenDelay={250} placement="auto">{cellContent}</Tooltip> : cellContent}
+        </BpCell>
+      );
+    };
+    const columnHeaderCellRenderer = () => <BpColumnHeaderCell name={headers[ci]} />;
+    return <BpColumn key={`col-${ci}`} cellRenderer={cellRenderer} columnHeaderCellRenderer={columnHeaderCellRenderer} />;
+  });
+
   return (
-    <pre className="app-rich-code">
-      <code>{String(body || '')}</code>
-    </pre>
+    <div style={{ overflowX: 'auto', margin: '6px 0' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Button small minimal icon="cog" onClick={() => setShowCols(true)} title="Columns & display" />
+          {total > pageSize && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Button small minimal icon="double-chevron-left" onClick={() => setPage(0)} disabled={safePage === 0} />
+              <Button small minimal icon="chevron-left" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage === 0} />
+              <span style={{ fontSize: 12 }}>{start + 1}–{end} of {total}</span>
+              <Button small minimal icon="chevron-right" onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={safePage >= pageCount - 1} />
+              <Button small minimal icon="double-chevron-right" onClick={() => setPage(pageCount - 1)} disabled={safePage >= pageCount - 1} />
+            </div>
+          )}
+        </div>
+        <Button small minimal icon="download" onClick={downloadCSV} text="CSV" />
+      </div>
+      <BpTable
+        numRows={pageRows.length}
+        columnWidths={colWidths}
+        onColumnWidthChanged={(idx, next) => {
+          if (typeof idx === 'number' && typeof next === 'number') {
+            if (idx > 2000 && next < 200) { const t = idx; idx = next; next = t; }
+            const col = visIdx[idx];
+            if (col !== undefined && Number.isFinite(next) && next > 40) setWidthByCol((prev) => ({ ...prev, [col]: next }));
+          }
+        }}
+        enableGhostCells={false}
+        enableRowHeader={false}
+        defaultRowHeight={28}
+      >
+        {columns}
+      </BpTable>
+
+      <Dialog isOpen={showCols} onClose={() => setShowCols(false)} title="Visible Columns">
+        <div style={{ padding: 12, display: 'flex', gap: 10, flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ fontSize: 12 }}>Truncate at</label>
+            <input type="number" className="bp5-input bp5-small" min={20} max={1000} value={truncateAt}
+              onChange={e => setTruncateAt(Math.max(20, Math.min(1000, Number(e.target.value) || 120)))} style={{ width: 90 }} />
+            <span style={{ fontSize: 12, color: '#6b7280' }}>(characters)</span>
+          </div>
+          {headers.map((h, i) => (
+            <label key={`opt-${i}`} className="bp5-control bp5-checkbox">
+              <input type="checkbox" checked={visible.has(i)} onChange={() => toggleColumn(i)} />
+              <span className="bp5-control-indicator" />
+              {h}
+            </label>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button small intent="primary" onClick={() => setShowCols(false)}>Close</Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog isOpen={!!expand} onClose={() => setExpand(null)} title={expand?.title || 'Content'} style={{ width: '70vw', minWidth: 480 }}>
+        <div style={{ padding: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: renderMarkdownCellHTML(expand ? expand.content : '') }} />
+      </Dialog>
+    </div>
   );
 }
 
-export default function RichContent({ content = '' }) {
-  const parts = React.useMemo(() => parseFences(content), [content]);
+function renderPipeTable(body = '') {
+  const { headers, rows, aligns } = parsePipeTable(body);
+  return <FencedPipeTable headers={headers} rows={rows} aligns={aligns} />;
+}
+
+// ── Main component ──
+
+function RichContent({ content = '' }) {
+  const textNorm = String(content || '').replace(/\r\n/g, '\n');
+  const parts = React.useMemo(() => parseFences(textNorm), [textNorm]);
+
   if (!parts.length) return <span>&nbsp;</span>;
-  return (
-    <div className="app-rich-content">
-      {parts.map((part, idx) => {
-        if (part.kind === 'fence') {
-          return <FenceBlock key={`fence-${idx}`} lang={part.lang} body={part.body} />;
-        }
-        const html = renderMarkdownInline(part.value);
-        return <div key={`text-${idx}`} className="app-rich-prose" dangerouslySetInnerHTML={{ __html: html }} />;
-      })}
-    </div>
-  );
+
+  const out = [];
+  let idx = 0;
+  let hasFence = false;
+
+  /** Push prose text, auto-detecting pipe tables within it. */
+  const pushPlainWithTables = (text, keyPrefix) => {
+    const chunk = String(text || '');
+    if (!chunk) return;
+    let cursor = 0;
+    let anyTable = false;
+    while (true) {
+      const block = findNextPipeTableBlock(chunk, cursor);
+      if (!block) break;
+      anyTable = true;
+      if (block.start > cursor) {
+        out.push(<MinimalText key={`${keyPrefix}-pre-${idx++}`} text={chunk.slice(cursor, block.start)} />);
+      }
+      out.push(<div key={`${keyPrefix}-tbl-${idx++}`} style={{ overflowX: 'auto', margin: '6px 0' }}>{renderPipeTable(chunk.slice(block.start, block.end))}</div>);
+      cursor = block.end;
+    }
+    if (anyTable && cursor < chunk.length) {
+      out.push(<MinimalText key={`${keyPrefix}-tail-${idx++}`} text={chunk.slice(cursor)} />);
+    }
+    if (!anyTable) {
+      out.push(<MinimalText key={`${keyPrefix}-${idx++}`} text={chunk} />);
+    }
+  };
+
+  for (const part of parts) {
+    if (part.kind === 'text') {
+      pushPlainWithTables(part.value, 'seg');
+      continue;
+    }
+
+    // Fenced block
+    hasFence = true;
+    const lang = languageHint(part.lang);
+    const body = part.body;
+
+    // Chart spec
+    const chartSpec = parseChartSpecFromFence(lang, body);
+    if (chartSpec) {
+      out.push(<ChartSpecPanel key={`chart-${idx++}`} spec={chartSpec} />);
+      continue;
+    }
+
+    // Pipe table inside markdown/plaintext fence
+    if ((lang === 'markdown' || lang === 'md' || lang === 'plaintext') && looksLikePipeTable(body)) {
+      out.push(<div key={`table-${idx++}`} style={{ overflowX: 'auto', margin: '6px 0' }}>{renderPipeTable(body)}</div>);
+      continue;
+    }
+
+    // Mermaid
+    if (lang === 'mermaid' || /^\s*(sequenceDiagram|flowchart|graph|classDiagram|stateDiagram)/.test(body)) {
+      out.push(
+        <div key={`mermaid-${idx++}`} className="app-rich-mermaid">
+          <Mermaid code={body} />
+        </div>
+      );
+      continue;
+    }
+
+    // Markdown fence → render as prose
+    if (lang === 'markdown' || lang === 'md') {
+      const html = renderMarkdownBlock(body);
+      out.push(<div key={`md-${idx++}`} className="app-rich-markdown" dangerouslySetInnerHTML={{ __html: html }} />);
+      continue;
+    }
+
+    // Code block with syntax highlighting
+    out.push(
+      <div key={`code-${idx++}`} style={{ borderRadius: 8, overflow: 'hidden', margin: '6px 0' }}>
+        <CodeBlock value={body} language={lang} height={'auto'} />
+      </div>
+    );
+  }
+
+  return <div className="app-rich-content">{out}</div>;
 }
+
+export default React.memo(RichContent, (a, b) => (a.content || '') === (b.content || ''));
+
+// Re-export parseFences from SDK for consumers that import from this module.
+export { parseFences } from 'agently-core-ui-sdk';

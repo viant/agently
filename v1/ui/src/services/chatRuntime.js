@@ -3,7 +3,8 @@ import { rememberConversationSeedTitle } from './conversationTitle';
 import { clearChangeFeed, publishChangeFeed } from './changeFeedBus';
 import { clearPlanFeed, publishPlanFeed } from './planFeedBus';
 import { setPendingElicitation, clearPendingElicitation } from './elicitationBus';
-import { applyFeedEvent } from './toolFeedBus';
+import { applyFeedEvent, clearFeedState } from './toolFeedBus';
+import { publishUsage } from './usageBus';
 import {
   queueTranscriptRefresh as queueTranscriptRefreshStore,
   resetTranscriptState,
@@ -80,8 +81,7 @@ export function logStreamDebug(chatState = {}, event, detail = {}) {
 function draftConversationValues(current = {}, defaults = {}) {
   // Preserve the user's current agent/model selection when starting a new
   // conversation. Read from localStorage as the most reliable source (set by selectAgent).
-  let persistedAgent = '';
-  try { persistedAgent = localStorage.getItem('agently.selectedAgent') || ''; } catch (_) {}
+  const persistedAgent = getPersistedSelectedAgent();
   const values = {
     ...current,
     id: '',
@@ -93,8 +93,103 @@ function draftConversationValues(current = {}, defaults = {}) {
   return values;
 }
 
+function getPersistedSelectedAgent() {
+  try {
+    return String(localStorage.getItem('agently.selectedAgent') || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+function resolveStreamAgentName(context, agentId = '') {
+  const target = String(agentId || '').trim();
+  if (!target) return '';
+  const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
+  const metaForm = metaDS?.peekFormData?.() || {};
+  const byKey = metaForm?.agentInfo?.[target] || null;
+  const keyedName = String(byKey?.label || byKey?.name || byKey?.title || '').trim();
+  if (keyedName) return keyedName;
+  const optionLists = [
+    ...(Array.isArray(metaForm?.agentOptions) ? metaForm.agentOptions : []),
+    ...(Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [])
+  ];
+  const matched = optionLists.find((entry) => {
+    const candidates = [entry?.id, entry?.value, entry?.name, entry?.label, entry?.title]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    return candidates.includes(target);
+  }) || null;
+  return String(matched?.label || matched?.name || matched?.title || '').trim();
+}
+
+function rememberTurnAgent(chatState = {}, context, payload = {}) {
+  const agentIdUsed = String(
+    payload?.agentIdUsed
+    || payload?.patch?.agentIdUsed
+    || ''
+  ).trim();
+  if (!agentIdUsed) return;
+  chatState.activeTurnAgentId = agentIdUsed;
+  chatState.activeTurnAgentName = String(payload?.agentName || resolveStreamAgentName(context, agentIdUsed) || '').trim();
+}
+
+function enrichPayloadWithTurnAgent(chatState = {}, context, payload = {}) {
+  const enriched = { ...payload };
+  const agentIdUsed = String(enriched?.agentIdUsed || chatState?.activeTurnAgentId || '').trim();
+  if (agentIdUsed) {
+    enriched.agentIdUsed = agentIdUsed;
+  }
+  const agentName = String(enriched?.agentName || chatState?.activeTurnAgentName || resolveStreamAgentName(context, agentIdUsed) || '').trim();
+  if (agentName) {
+    enriched.agentName = agentName;
+  }
+  return enriched;
+}
+
 export function sanitizeAutoSelection(value) {
   return String(value || '').trim();
+}
+
+function matchesVisibleAgentEntry(entry = {}, target = '') {
+  const normalizedTarget = sanitizeAutoSelection(target);
+  if (!normalizedTarget) return false;
+  const candidates = [
+    entry?.id,
+    entry?.value,
+    entry?.name,
+    entry?.label,
+    entry?.title
+  ].map((value) => String(value || '').trim()).filter(Boolean);
+  return candidates.includes(normalizedTarget);
+}
+
+function isVisibleAgent(metaForm = {}, agent = '') {
+  const normalizedAgent = sanitizeAutoSelection(agent);
+  if (!normalizedAgent) return false;
+  if (normalizedAgent === 'auto') return true;
+  const visibleEntries = [
+    ...(Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : []),
+    ...(Array.isArray(metaForm?.agentOptions) ? metaForm.agentOptions : [])
+  ];
+  return visibleEntries.some((entry) => matchesVisibleAgentEntry(entry, normalizedAgent));
+}
+
+function resolveVisibleSelectedAgent(metaForm = {}, ...candidates) {
+  for (const candidate of candidates) {
+    const normalized = sanitizeAutoSelection(candidate);
+    if (!normalized) continue;
+    if (isVisibleAgent(metaForm, normalized)) return normalized;
+  }
+  const defaultAgent = sanitizeAutoSelection(metaForm?.defaults?.agent || '');
+  if (isVisibleAgent(metaForm, defaultAgent)) return defaultAgent;
+  const firstVisible = [
+    ...(Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : []),
+    ...(Array.isArray(metaForm?.agentOptions) ? metaForm.agentOptions : [])
+  ].find((entry) => {
+    const value = sanitizeAutoSelection(entry?.id || entry?.value || '');
+    return value && value !== 'auto';
+  });
+  return sanitizeAutoSelection(firstVisible?.id || firstVisible?.value || '');
 }
 
 export function isRunningStatus(status) {
@@ -127,7 +222,6 @@ export function normalizeMetaResponse(payload) {
   const agents = agentInfos.length > 0 ? agentInfos : (Array.isArray(data?.agents) ? data.agents : []);
   const models = modelInfos.length > 0 ? modelInfos : (Array.isArray(data?.models) ? data.models : []);
   const tools = Array.isArray(data?.tools) ? data.tools : [];
-  const starterTasks = Array.isArray(data?.starterTasks) ? data.starterTasks : [];
 
   const normalizeOption = (entry) => {
     if (entry && typeof entry === 'object') {
@@ -145,17 +239,17 @@ export function normalizeMetaResponse(payload) {
   const normalizedModelInfos = normalizeWorkspaceModelInfos(models);
   const agentOptions = normalizeWorkspaceAgentOptions(agents, defaults.agent);
   const modelOptions = normalizeWorkspaceModelOptions(models, defaults.model);
-
+  const normalizedAgentInfo = normalizedAgentInfos.reduce((acc, entry) => {
+    if (entry?.id) acc[entry.id] = entry;
+    return acc;
+  }, {});
   return {
     ...data,
     capabilities,
     defaults,
     agentInfos: normalizedAgentInfos,
     modelInfos: normalizedModelInfos,
-    agentInfo: normalizedAgentInfos.reduce((acc, entry) => {
-      if (entry?.id) acc[entry.id] = entry;
-      return acc;
-    }, {}),
+    agentInfo: normalizedAgentInfo,
     modelInfo: normalizedModelInfos.reduce((acc, entry) => {
       if (entry?.id) acc[entry.id] = entry;
       return acc;
@@ -166,23 +260,43 @@ export function normalizeMetaResponse(payload) {
     modelOptions: capabilities.modelAutoSelection
       ? [{ value: 'auto', label: 'Auto-select model' }, ...modelOptions]
       : modelOptions,
-    toolOptions: tools.map(normalizeOption).filter(Boolean),
-    starterTasks: starterTasks
-      .map((entry, index) => {
-        if (!entry || typeof entry !== 'object') return null;
-        const prompt = String(entry.prompt || '').trim();
-        const title = String(entry.title || '').trim();
-        if (!prompt || !title) return null;
-        return {
-          id: String(entry.id || `starter-${index + 1}`).trim(),
-          title,
-          prompt,
-          description: String(entry.description || '').trim(),
-          icon: String(entry.icon || '').trim()
-        };
-      })
-      .filter(Boolean)
+    toolOptions: tools.map(normalizeOption).filter(Boolean)
   };
+}
+
+function normalizeStarterTaskEntries(entries = [], agent = null) {
+  return (Array.isArray(entries) ? entries : []).map((entry, index) => {
+    if (!entry || typeof entry !== 'object') return null;
+    const prompt = String(entry.prompt || '').trim();
+    const title = String(entry.title || '').trim();
+    if (!prompt || !title) return null;
+    return {
+      id: String(entry.id || `starter-${index + 1}`).trim(),
+      title,
+      prompt,
+      description: String(entry.description || '').trim(),
+      icon: String(entry.icon || '').trim(),
+      agentId: String(agent?.id || '').trim(),
+      agentName: String(agent?.name || '').trim()
+    };
+  }).filter(Boolean);
+}
+
+export function resolveStarterTasks({ agentInfos = [], selectedAgent = '' } = {}) {
+  const normalizedSelectedAgent = sanitizeAutoSelection(selectedAgent || '');
+  const normalizedAgents = Array.isArray(agentInfos) ? agentInfos : [];
+  const useAllAgents = normalizedSelectedAgent === 'auto';
+  const selectedEntries = useAllAgents
+    ? normalizedAgents
+    : normalizedAgents.filter((entry) => String(entry?.id || '').trim() === normalizedSelectedAgent);
+  const rawTasks = selectedEntries.flatMap((entry) => normalizeStarterTaskEntries(entry?.starterTasks, entry));
+  const seen = new Set();
+  return rawTasks.filter((entry) => {
+    const key = `${String(entry?.id || '').trim()}|${String(entry?.title || '').trim()}|${String(entry?.prompt || '').trim()}`;
+    if (!key.trim() || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function resolvePayload(payload = null) {
@@ -565,6 +679,8 @@ export function mapTranscriptToRows(turns = [], options = {}) {
       const normalized = normalizeOne(role === 'user' ? {
         ...mappedInput,
         errorMessage: turn?.errorMessage || turn?.ErrorMessage || mappedInput?.errorMessage || mappedInput?.ErrorMessage || '',
+        agentIdUsed: turn?.agentIdUsed || turn?.AgentIdUsed || '',
+        AgentIdUsed: turn?.AgentIdUsed || turn?.agentIdUsed || '',
         turnId: turnID,
         turnStatus
       } : {
@@ -581,6 +697,8 @@ export function mapTranscriptToRows(turns = [], options = {}) {
         executionGroupsTotal: suppressExecutionForElicitation ? 0 : (turn?.executionGroupsTotal || turn?.ExecutionGroupsTotal || 0),
         executionGroupsOffset: suppressExecutionForElicitation ? 0 : (turn?.executionGroupsOffset || turn?.ExecutionGroupsOffset || 0),
         executionGroupsLimit: suppressExecutionForElicitation ? 0 : (turn?.executionGroupsLimit || turn?.ExecutionGroupsLimit || 0),
+        agentIdUsed: turn?.agentIdUsed || turn?.AgentIdUsed || '',
+        AgentIdUsed: turn?.AgentIdUsed || turn?.agentIdUsed || '',
         turnId: turnID,
         turnStatus
       });
@@ -688,7 +806,9 @@ export function renderMergedRowsForContext(context) {
   if (!messagesDS) return [];
   const chatState = ensureContextResources(context);
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
+  const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   const conversationForm = conversationsDS?.peekFormData?.() || {};
+  const metaForm = metaDS?.peekFormData?.() || {};
   const hasLiveRows = Array.isArray(chatState.liveRows) && chatState.liveRows.length > 0;
   const mergedRows = mergeRenderedRows({
     transcriptRows: chatState.transcriptRows,
@@ -729,7 +849,30 @@ export function renderMergedRowsForContext(context) {
     running: !!conversationForm?.running,
     queuedTurns
   } : null;
-  const renderCollection = queueRow ? [...resolvedRows, queueRow] : resolvedRows;
+  const selectedAgent = resolveVisibleSelectedAgent(
+    metaForm,
+    conversationForm?.agent,
+    getPersistedSelectedAgent(),
+    metaForm?.agent,
+    metaForm?.defaults?.agent
+  );
+  const starterTasks = resolveStarterTasks({
+    agentInfos: Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [],
+    selectedAgent
+  });
+  const starterRow = resolvedRows.length === 0 && !queueRow && starterTasks.length > 0 ? {
+    _type: 'starter',
+    id: `starter:${selectedAgent || 'default'}`,
+    createdAt: new Date().toISOString(),
+    title: selectedAgent === 'auto' ? 'Explore All Agents' : 'Start With A Prompt',
+    subtitle: selectedAgent === 'auto' ? 'Auto-select agent' : '',
+    starterTasks
+  } : null;
+  const renderCollection = [
+    ...resolvedRows,
+    ...(starterRow ? [starterRow] : []),
+    ...(queueRow ? [queueRow] : [])
+  ];
   messagesDS.setCollection?.(renderCollection);
   return mergedRows;
 }
@@ -867,6 +1010,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     conversationId: conversationID,
     includeModelCalls: true,
     includeToolCalls: true,
+    includeFeeds: true,
     since: since || undefined,
   };
   const transcriptOptions = options?.selectors
@@ -874,6 +1018,21 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     : undefined;
   const payload = await client.getTranscript(transcriptInput, transcriptOptions);
   const data = payload || {};
+  // Populate tool feed bar from transcript feeds (for page reload / conversation switch).
+  if (Array.isArray(data?.feeds) && data.feeds.length > 0) {
+    for (const feed of data.feeds) {
+      if (feed?.feedId) {
+        applyFeedEvent({
+          type: 'tool_feed_active',
+          feedId: feed.feedId,
+          feedTitle: feed.title || feed.feedId,
+          feedItemCount: feed.itemCount || 0,
+          feedData: feed.data || null,
+          conversationId: conversationID,
+        });
+      }
+    }
+  }
   // Canonical ConversationState: extract turns with pages as executionGroups
   if (Array.isArray(data?.turns) && data.turns.length > 0 && ('turnId' in data.turns[0] || 'execution' in data.turns[0])) {
     return data.turns.map((turn) => {
@@ -965,10 +1124,31 @@ export async function fetchConversation(conversationID = '') {
     const data = await client.getConversation(id);
     if (!data || typeof data !== 'object') return null;
     const resolvedID = String(data?.id || data?.Id || '').trim();
-    return resolvedID ? data : null;
+    if (resolvedID) {
+      // Update usage display from conversation data.
+      publishUsage(resolvedID, data);
+      return data;
+    }
+    return null;
   } catch (_) {
     return null;
   }
+}
+
+function applyConversationFormSnapshot(base = {}, conversation = null) {
+  if (!conversation || typeof conversation !== 'object') return { ...base };
+  const next = { ...base };
+  const conversationID = String(conversation?.id || conversation?.Id || '').trim();
+  const title = String(conversation?.title || conversation?.Title || '').trim();
+  const agent = String(conversation?.agentId || conversation?.AgentId || '').trim();
+  const model = String(conversation?.defaultModel || conversation?.DefaultModel || '').trim();
+  const embedder = String(conversation?.defaultEmbedder || conversation?.DefaultEmbedder || '').trim();
+  if (conversationID) next.id = conversationID;
+  if (title) next.title = title;
+  if (agent) next.agent = agent;
+  if (model) next.model = model;
+  if (embedder) next.embedder = embedder;
+  return next;
 }
 
 export async function hydrateMeta(context) {
@@ -1099,8 +1279,15 @@ export function connectStream(context, conversationID) {
   });
 }
 
-function handleStreamEvent(chatState, context, conversationID, payload) {
+export function handleStreamEvent(chatState, context, conversationID, payload) {
     const type = String(payload?.type || '').toLowerCase();
+    const payloadSize = (() => {
+      try {
+        return JSON.stringify(payload || {}).length;
+      } catch (_) {
+        return 0;
+      }
+    })();
     console.log('[stream-event]', type, {
       conversationId: payload?.conversationId || payload?.streamId || conversationID,
       turnId: payload?.turnId,
@@ -1119,7 +1306,7 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
     });
     logStreamDebug(chatState, 'stream-event', {
       type,
-      eventSize: String(event?.data || '').length
+      eventSize: payloadSize
     });
 
     if (type === 'text_delta') {
@@ -1179,7 +1366,7 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
       }
       // Inject the active turn ID when the backend omits it (e.g. status='streaming')
       // so the execution row merges into the existing assistant row for this turn.
-      const enrichedPayload = { ...payload };
+      const enrichedPayload = enrichPayloadWithTurnAgent(chatState, context, payload);
       if (!String(enrichedPayload.turnId || '').trim() && chatState.activeStreamTurnId) {
         enrichedPayload.turnId = chatState.activeStreamTurnId;
       }
@@ -1195,7 +1382,7 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
       if (String(payload?.turnId || '').trim()) {
         markLiveOwnedTurn(chatState, conversationID, String(payload.turnId).trim());
       }
-      const enrichedPayload = { ...payload };
+      const enrichedPayload = enrichPayloadWithTurnAgent(chatState, context, payload);
       if (!String(enrichedPayload.turnId || '').trim() && chatState.activeStreamTurnId) {
         enrichedPayload.turnId = chatState.activeStreamTurnId;
       }
@@ -1217,7 +1404,7 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
       // tool_calls_planned is emitted by the reactor when the LLM plans tool
       // calls. It carries toolCallsPlanned and content/preamble. Update the
       // execution row so planned tools appear immediately in the UI.
-      applyExecutionStreamEvent(chatState, payload, conversationID);
+      applyExecutionStreamEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload), conversationID);
       setStage({ phase: 'executing', text: 'Planning tool calls…' });
       renderMergedRowsForContext(context);
       return;
@@ -1234,7 +1421,7 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
         toolName: String(payload?.toolName || '').trim(),
         status: String(payload?.status || '').trim()
       });
-      const toolPayload = { ...payload };
+      const toolPayload = enrichPayloadWithTurnAgent(chatState, context, payload);
       if (!String(toolPayload.turnId || '').trim() && chatState.activeStreamTurnId) {
         toolPayload.turnId = chatState.activeStreamTurnId;
       }
@@ -1252,6 +1439,7 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
       const op = String(payload?.op || '').toLowerCase();
       if (op === 'turn_started') {
         chatState.lastHasRunning = true;
+        rememberTurnAgent(chatState, context, payload);
         const turnId = String(payload?.patch?.turnId || '').trim();
         if (turnId) {
           chatState.activeStreamTurnId = turnId;
@@ -1263,7 +1451,9 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
         }
         logStreamDebug(chatState, 'stream-control-turn-started', {
           turnId,
-          status: String(payload?.patch?.status || '').trim()
+          status: String(payload?.patch?.status || '').trim(),
+          agentIdUsed: String(payload?.patch?.agentIdUsed || '').trim(),
+          agentName: String(chatState?.activeTurnAgentName || '').trim()
         });
         setStage({ phase: 'executing', text: 'Assistant executing…' });
       } else if (op === 'message_patch') {
@@ -1288,6 +1478,8 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
       });
       finalizeStreamTurn(chatState, payload, conversationID);
       chatState.lastHasRunning = false;
+      chatState.activeTurnAgentId = '';
+      chatState.activeTurnAgentName = '';
       if (String(payload?.turnId || '').trim()) {
         const completedTurnID = String(payload.turnId).trim();
         if (String(chatState.runningTurnId || '').trim() === completedTurnID) {
@@ -1327,12 +1519,14 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
     if (type === 'assistant_preamble') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
+      const preamblePayload = enrichPayloadWithTurnAgent(chatState, context, payload);
       logStreamDebug(chatState, 'stream-assistant-preamble', {
-        turnId: String(payload?.turnId || '').trim(),
-        assistantMessageId: String(payload?.assistantMessageId || '').trim(),
-        preambleLen: String(payload?.content || '').length
+        turnId: String(preamblePayload?.turnId || '').trim(),
+        assistantMessageId: String(preamblePayload?.assistantMessageId || '').trim(),
+        preambleLen: String(preamblePayload?.content || '').length,
+        agentIdUsed: String(preamblePayload?.agentIdUsed || '').trim()
       });
-      applyPreambleEvent(chatState, payload, conversationID);
+      applyPreambleEvent(chatState, preamblePayload, conversationID);
       setStage({ phase: 'streaming', text: 'Assistant thinking…' });
       renderMergedRowsForContext(context);
       return;
@@ -1345,7 +1539,7 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
       // Use applyAssistantFinalEvent (not applyExecutionStreamEvent) to update
       // the existing row's content without creating a new execution group —
       // assistant_final's assistantMessageId may differ from model_started's.
-      applyAssistantFinalEvent(chatState, payload);
+      applyAssistantFinalEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload));
       setStage({ phase: 'executing', text: 'Assistant responding…' });
       renderMergedRowsForContext(context);
       return;
@@ -1354,6 +1548,7 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
     if (type === 'turn_started') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
+      rememberTurnAgent(chatState, context, payload);
       const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
       if (conversationsDS) {
         const convForm = conversationsDS.peekFormData?.() || {};
@@ -1373,6 +1568,11 @@ function handleStreamEvent(chatState, context, conversationID, payload) {
       if (!chatState.activeStreamStartedAt) {
         chatState.activeStreamStartedAt = Date.now();
       }
+      logStreamDebug(chatState, 'stream-turn-started', {
+        turnId,
+        agentIdUsed: String(payload?.agentIdUsed || '').trim(),
+        agentName: String(chatState?.activeTurnAgentName || '').trim()
+      });
       setStage({ phase: 'executing', text: 'Assistant executing…' });
       return;
     }
@@ -1530,7 +1730,8 @@ export async function ensureConversation(context, options = {}) {
   }
   const preferredAgent = sanitizeAutoSelection(options?.agent || '');
   const preferredModel = sanitizeAutoSelection(options?.model || '');
-  const agentID = String(preferredAgent || form.agent || metaForm?.defaults?.agent || '').trim();
+  const persistedAgent = sanitizeAutoSelection(getPersistedSelectedAgent());
+  const agentID = String(preferredAgent || persistedAgent || form.agent || metaForm?.agent || metaForm?.defaults?.agent || '').trim();
   const createPromise = (async () => {
     const created = await client.createConversation({ agentId: agentID });
     const id = String(created?.id || created?.Id || '').trim();
@@ -1565,6 +1766,7 @@ export async function ensureConversation(context, options = {}) {
 export async function switchConversation(context, conversationID = '') {
   const targetID = String(conversationID || '').trim();
   if (!targetID) return;
+  clearFeedState();
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
   if (!conversationsDS || !messagesDS) return;
@@ -1577,6 +1779,9 @@ export async function switchConversation(context, conversationID = '') {
     return;
   }
   if (currentID === targetID) {
+    conversationsDS.setFormData?.({
+      values: applyConversationFormSnapshot(form, existing)
+    });
     resetConversationSnapshotState(context);
     syncConversationTransport(context, targetID);
     await dsTick(context, { conversationID: targetID });
@@ -1585,10 +1790,7 @@ export async function switchConversation(context, conversationID = '') {
   }
 
   conversationsDS.setFormData?.({
-    values: {
-      ...form,
-      id: targetID
-    }
+    values: applyConversationFormSnapshot(form, existing)
   });
   messagesDS.setCollection?.([]);
   messagesDS.setError?.('');
@@ -1670,6 +1872,7 @@ export function unbindConversationWindowEvents(context) {
 }
 
 export async function createNewConversation(context) {
+  clearFeedState();
   const chatState = ensureContextResources(context);
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   if (!conversationsDS) return false;
@@ -1687,14 +1890,27 @@ export async function createNewConversation(context) {
   const current = conversationsDS.peekFormData?.() || {};
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
   const metaDefaults = metaForm?.defaults || {};
+  const persistedAgent = sanitizeAutoSelection(getPersistedSelectedAgent());
   // Merge the user's current agent/model selection from meta into current
   // so draftConversationValues preserves it for the new conversation.
   const merged = { ...current };
-  if (metaForm?.agent) merged.agent = metaForm.agent;
+  if (persistedAgent) {
+    merged.agent = persistedAgent;
+  } else if (metaForm?.agent) {
+    merged.agent = metaForm.agent;
+  }
   if (metaForm?.model) merged.model = metaForm.model;
   conversationsDS.setFormData?.({
     values: draftConversationValues(merged, metaDefaults)
   });
+  if (persistedAgent && context?.Context?.('meta')?.handlers?.dataSource) {
+    context.Context('meta').handlers.dataSource.setFormData?.({
+      values: {
+        ...metaForm,
+        agent: persistedAgent
+      }
+    });
+  }
   const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
   messagesDS?.setCollection?.([]);
   messagesDS?.setError?.('');

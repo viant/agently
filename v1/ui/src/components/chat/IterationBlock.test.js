@@ -10,6 +10,7 @@ import {
   olderToolPageOffset,
   paginateToolSteps,
   buildSyntheticModelGroup,
+  isIterationActive,
   resolveIterationAgentLabel,
   resolveIterationStatusDetail,
   resolveVisibleBubbleContent,
@@ -31,6 +32,16 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(displayLinkedConversationIcon()).toBe('🔗');
     expect(displayItemRowTitle({ toolName: 'resources/list' })).toBe('resources/list');
     expect(displayItemRowIcon({ toolName: 'resources/list' })).toBe('🛠');
+  });
+
+  it('treats terminated iterations as inactive so execution details stop auto-scrolling', () => {
+    expect(isIterationActive({ status: 'terminated' }, [{
+      status: 'terminated',
+      modelStep: { status: 'terminated' },
+      toolSteps: [{ status: 'completed' }]
+    }])).toBe(false);
+
+    expect(isIterationActive({ status: 'running' }, [])).toBe(true);
   });
 
   it('paginates tool calls at three per preamble group and advances offsets correctly', () => {
@@ -107,6 +118,35 @@ describe('mapCanonicalExecutionGroups', () => {
       linkedConversationId: 'child-1'
     });
     expect(groups[0].preambleContent).toBe('I am going to inspect the repository.');
+  });
+
+  it('suppresses router-only model groups from presentable execution output', () => {
+    const groups = mapCanonicalExecutionGroups([
+      {
+        parentMessageId: 'router-1',
+        modelMessageId: 'router-1',
+        sequence: 1,
+        finalResponse: true,
+        status: 'completed',
+        content: '{"agentId":"coder"}',
+        modelCall: {
+          provider: 'openai',
+          model: 'gpt-5.4',
+          status: 'completed',
+          requestPayload: JSON.stringify({
+            options: { mode: 'router' }
+          }),
+          responsePayload: '{"agentId":"coder"}'
+        },
+        toolCalls: []
+      }
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].hiddenRouterStep).toBe(true);
+    expect(groups[0].finalContent).toBe('');
+    expect(groups[0].preambleContent).toBe('');
+    expect(resolveVisibleBubbleContent(groups)).toBe('');
   });
 
   it('keeps the latest visible page on the most recent presentable group when the newest group is model-only', () => {
@@ -281,7 +321,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(shouldShowPreambleBubble([], text)).toBe(true);
   });
 
-  it('resolves the execution header agent label from conversation and meta form data', () => {
+  it('resolves the execution header agent label from explicit iteration agent id using meta labels', () => {
     const context = {
       Context(name) {
         if (name === 'conversations') {
@@ -314,7 +354,204 @@ describe('mapCanonicalExecutionGroups', () => {
       }
     };
 
-    expect(resolveIterationAgentLabel({}, context)).toBe('Chatter');
+    expect(resolveIterationAgentLabel({ agentIdUsed: 'chatter' }, context)).toBe('Chatter');
+  });
+
+  it('shows auto-select label when the iteration explicitly resolved to auto', () => {
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return { agent: 'auto' };
+                }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return {};
+                }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    expect(resolveIterationAgentLabel({ agentIdUsed: 'auto' }, context)).toBe('Auto-select agent');
+  });
+
+  it('shows the resolved agent label when auto-selected turn resolved to coder', () => {
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return { agent: 'auto' };
+                }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return {
+                    agentOptions: [
+                      { value: 'auto', label: 'Auto-select agent' },
+                      { value: 'coder', label: 'Coder' }
+                    ]
+                  };
+                }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    expect(resolveIterationAgentLabel({ agentIdUsed: 'coder' }, context)).toBe('Coder');
+  });
+
+  it('prefers agentIdUsed from iteration data over stale conversation form agent', () => {
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return { agent: 'chatter' };
+                }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return {
+                    agentOptions: [
+                      { value: 'chatter', label: 'Chatter' },
+                      { value: 'coder', label: 'Coder' }
+                    ]
+                  };
+                }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    expect(resolveIterationAgentLabel({ agentIdUsed: 'coder' }, context)).toBe('Coder');
+  });
+
+  it('falls back to execution-group request payload metadata agent id', () => {
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return { agent: 'chatter' };
+                }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return {
+                    agentOptions: [
+                      { value: 'chatter', label: 'Chatter' },
+                      { value: 'coder', label: 'Coder' }
+                    ]
+                  };
+                }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    expect(resolveIterationAgentLabel({
+      executionGroups: [
+        {
+          modelStep: {
+            requestPayload: JSON.stringify({ metadata: { agentId: 'coder' } })
+          }
+        }
+      ]
+    }, context)).toBe('Coder');
+  });
+
+  it('ignores response createdByUserId when there is no execution-derived agent identity', () => {
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return { agent: 'chatter' };
+                }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return {
+                    agentOptions: [
+                      { value: 'chatter', label: 'Chatter' },
+                      { value: 'coder', label: 'Coder' }
+                    ]
+                  };
+                }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    expect(resolveIterationAgentLabel({
+      response: { createdByUserId: 'coder' }
+    }, context)).toBe('');
+  });
+
+  it('prefers explicit streamed agent name when present on the iteration data', () => {
+    expect(resolveIterationAgentLabel({
+      agentIdUsed: 'steward-performance',
+      agentName: 'Steward-performance-Analyzer'
+    }, null)).toBe('Steward-performance-Analyzer');
   });
 
   it('builds a synthetic model group when visible content exists without presentable execution rows', () => {

@@ -10,7 +10,7 @@ import ChangeFeed from './ChangeFeed';
 import CodeDiffDialog from './CodeDiffDialog';
 import FileViewDialog from './FileViewDialog';
 import MenuBar from './MenuBar';
-import PlanFeed from './PlanFeed';
+// PlanFeed replaced by ToolFeedBar + ToolFeedDetail
 import ToolFeedBar from './ToolFeedBar';
 import UsageBar from './UsageBar';
 import StatusBar from './StatusBar';
@@ -201,8 +201,8 @@ export default function Root() {
             </div>
             <ChangeFeed anchor="composer_top" />
             <ToolFeedBar />
+            <UsageBar />
           </main>
-          <UsageBar />
         </div>
 
         <StatusBar backendUnavailable={!!approvals?.backendUnavailable} approvals={approvals} />

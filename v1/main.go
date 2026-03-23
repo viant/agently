@@ -96,8 +96,7 @@ func Serve(options ServeOptions) error {
 	}
 	speechHandler := newSpeechHandler()
 
-	metadataHandler := svcworkspace.NewMetadataHandler(rt.Defaults, rt.Store, "agently-v1").
-		SetStarterTasks(defaultStarterTasks())
+	metadataHandler := svcworkspace.NewMetadataHandler(rt.Defaults, rt.Store, "agently-v1")
 	fileBrowserHandler := svcworkspace.NewFileBrowserHandler()
 	scheduleStore, err := svcscheduler.NewDatlyStore(ctx, rt.DAO, rt.Data)
 	if err != nil {
@@ -245,11 +244,7 @@ func loadWorkspaceDefaults(wsRoot string) *execconfig.Defaults {
 		return fallback
 	}
 	var cfg struct {
-		Default struct {
-			Agent    string `yaml:"agent"`
-			Model    string `yaml:"model"`
-			Embedder string `yaml:"embedder"`
-		} `yaml:"default"`
+		Default execconfig.Defaults `yaml:"default"`
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return fallback
@@ -262,6 +257,39 @@ func loadWorkspaceDefaults(wsRoot string) *execconfig.Defaults {
 	}
 	if strings.TrimSpace(cfg.Default.Embedder) != "" {
 		fallback.Embedder = strings.TrimSpace(cfg.Default.Embedder)
+	}
+	if strings.TrimSpace(cfg.Default.AgentAutoSelection.Model) != "" {
+		fallback.AgentAutoSelection.Model = strings.TrimSpace(cfg.Default.AgentAutoSelection.Model)
+	}
+	if strings.TrimSpace(cfg.Default.AgentAutoSelection.Prompt) != "" {
+		fallback.AgentAutoSelection.Prompt = strings.TrimSpace(cfg.Default.AgentAutoSelection.Prompt)
+	}
+	if strings.TrimSpace(cfg.Default.AgentAutoSelection.OutputKey) != "" {
+		fallback.AgentAutoSelection.OutputKey = strings.TrimSpace(cfg.Default.AgentAutoSelection.OutputKey)
+	}
+	if cfg.Default.AgentAutoSelection.TimeoutSec > 0 {
+		fallback.AgentAutoSelection.TimeoutSec = cfg.Default.AgentAutoSelection.TimeoutSec
+	}
+	if cfg.Default.ToolAutoSelection.Enabled {
+		fallback.ToolAutoSelection.Enabled = true
+	}
+	if strings.TrimSpace(cfg.Default.ToolAutoSelection.Model) != "" {
+		fallback.ToolAutoSelection.Model = strings.TrimSpace(cfg.Default.ToolAutoSelection.Model)
+	}
+	if strings.TrimSpace(cfg.Default.ToolAutoSelection.Prompt) != "" {
+		fallback.ToolAutoSelection.Prompt = strings.TrimSpace(cfg.Default.ToolAutoSelection.Prompt)
+	}
+	if strings.TrimSpace(cfg.Default.ToolAutoSelection.OutputKey) != "" {
+		fallback.ToolAutoSelection.OutputKey = strings.TrimSpace(cfg.Default.ToolAutoSelection.OutputKey)
+	}
+	if cfg.Default.ToolAutoSelection.MaxBundles > 0 {
+		fallback.ToolAutoSelection.MaxBundles = cfg.Default.ToolAutoSelection.MaxBundles
+	}
+	if cfg.Default.ToolAutoSelection.TimeoutSec > 0 {
+		fallback.ToolAutoSelection.TimeoutSec = cfg.Default.ToolAutoSelection.TimeoutSec
+	}
+	if strings.TrimSpace(cfg.Default.CapabilityPrompt) != "" {
+		fallback.CapabilityPrompt = strings.TrimSpace(cfg.Default.CapabilityPrompt)
 	}
 	return fallback
 }

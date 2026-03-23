@@ -31,6 +31,7 @@ import IterationBlock from '../components/chat/IterationBlock';
 import IterationPaginator from '../components/chat/IterationPaginator';
 import BubbleMessage from '../components/chat/BubbleMessage';
 import ElicitationForm from '../components/chat/ElicitationForm';
+import StarterTasks from '../components/chat/StarterTasks';
 import SteerQueue from '../components/chat/SteerQueue';
 import { composerPresentation } from './composerPresentation';
 
@@ -72,6 +73,25 @@ function normalizeUploadItems(raw = null) {
   }).filter((item) => !!(item.uri || item.content || item.data));
 }
 
+function getPersistedSelectedAgent() {
+  try {
+    return String(localStorage.getItem('agently.selectedAgent') || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+export function resolveSubmitAgent({ selectedAgent = '', persistedAgent = '', metaForm = {}, convForm = {} } = {}) {
+  return sanitizeAutoSelection(
+    selectedAgent
+    || persistedAgent
+    || metaForm?.agent
+    || convForm?.agent
+    || metaForm?.defaults?.agent
+    || ''
+  );
+}
+
 function mergeAttachments(primary = [], secondary = []) {
   const out = [];
   const seen = new Set();
@@ -92,6 +112,22 @@ function mergeAttachments(primary = [], secondary = []) {
     }
   }
   return out;
+}
+
+function mergeConversationSnapshot(current = {}, conversation = null) {
+  if (!conversation || typeof conversation !== 'object') return { ...current };
+  const next = { ...current };
+  const id = String(conversation?.id || conversation?.Id || '').trim();
+  const title = String(conversation?.title || conversation?.Title || '').trim();
+  const agent = String(conversation?.agentId || conversation?.AgentId || '').trim();
+  const model = String(conversation?.defaultModel || conversation?.DefaultModel || '').trim();
+  const embedder = String(conversation?.defaultEmbedder || conversation?.DefaultEmbedder || '').trim();
+  if (id) next.id = id;
+  if (title) next.title = title;
+  if (agent) next.agent = agent;
+  if (model) next.model = model;
+  if (embedder) next.embedder = embedder;
+  return next;
 }
 
 function matchesAgentIdentity(entry, selectedAgent) {
@@ -129,6 +165,9 @@ export async function onInit({ context }) {
         messagesDS?.setError?.('');
         publishActiveConversation('', context);
       } else {
+        conversationsDS?.setFormData?.({
+          values: mergeConversationSnapshot(conversationsDS?.peekFormData?.() || {}, existing)
+        });
         syncConversationTransport(context, conversationID);
         await dsTick(context, { conversationID });
         publishActiveConversation(conversationID, context);
@@ -206,6 +245,7 @@ export async function submitMessage({ context, message, model, agent }) {
   setStage({ phase: 'thinking', text: 'Assistant thinking…' });
   const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+  const persistedAgent = sanitizeAutoSelection(getPersistedSelectedAgent());
   const selectedAgent = sanitizeAutoSelection(agent || '');
   const selectedModel = sanitizeAutoSelection(model || '');
   const defaultModel = sanitizeAutoSelection(metaForm?.defaults?.model || metaForm?.defaultModel || '');
@@ -243,7 +283,7 @@ export async function submitMessage({ context, message, model, agent }) {
   const payload = {
     conversationId: conversationID,
     query,
-    agentId: selectedAgent || sanitizeAutoSelection(metaForm?.agent || convForm?.agent || metaForm?.defaults?.agent || ''),
+    agentId: resolveSubmitAgent({ selectedAgent, persistedAgent, metaForm, convForm }),
     model: effectiveModel || sanitizeAutoSelection(convForm?.model || ''),
     tools: Array.isArray(metaForm?.tool) ? metaForm.tool : undefined,
     reasoningEffort: metaForm?.reasoningEffort || undefined,
@@ -523,6 +563,7 @@ export const chatService = {
     elicition: ElicitationForm,
     iteration: IterationBlock,
     paginator: IterationPaginator,
+    starter: StarterTasks,
     queue: SteerQueue
   },
   onInit,

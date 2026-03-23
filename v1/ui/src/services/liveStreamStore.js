@@ -148,6 +148,8 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     id: rowID,
     conversationId: conversationID,
     turnId,
+    agentIdUsed: String(payload?.agentIdUsed || '').trim(),
+    agentName: String(payload?.agentName || '').trim(),
     role: 'assistant',
     type: 'text',
     createdAt,
@@ -180,6 +182,8 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
     const updatedInterim = nextRow.interim === 0 ? 0 : prev.interim;
     existing[index] = {
       ...prev,
+      agentIdUsed: String(nextRow.agentIdUsed || prev?.agentIdUsed || '').trim(),
+      agentName: String(nextRow.agentName || prev?.agentName || '').trim(),
       status: nextRow.status || prev.status,
       turnStatus: nextRow.turnStatus || prev.turnStatus,
       interim: updatedInterim,
@@ -347,6 +351,11 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
     // Suppress raw JSON when it looks like an LLM-generated elicitation block.
     row.content = looksLikeElicitationJSON(row._streamContent) ? '' : row._streamContent;
     row.isStreaming = true;
+    // Clear preamble once real content starts streaming — prevents
+    // concatenated preamble+response in the bubble.
+    if (row.preamble && row._streamContent.length > 0) {
+      row.preamble = '';
+    }
     liveRows[index] = row;
   } else {
     // No execution row yet (text_delta arrived before model_started).
@@ -391,6 +400,8 @@ function applyAssistantFinalToRows(rows = [], payload = {}) {
   }
   existing[index] = {
     ...prev,
+    agentIdUsed: String(payload?.agentIdUsed || prev?.agentIdUsed || '').trim(),
+    agentName: String(payload?.agentName || prev?.agentName || '').trim(),
     content,
     interim: 0,
     isStreaming: false,
@@ -524,6 +535,8 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
     }
     rows[index] = {
       ...prev,
+      agentIdUsed: String(payload?.agentIdUsed || prev?.agentIdUsed || '').trim(),
+      agentName: String(payload?.agentName || prev?.agentName || '').trim(),
       preamble,
       executionGroups: groups
     };
@@ -535,6 +548,8 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
       role: 'assistant',
       turnId,
       conversationId: conversationID,
+      agentIdUsed: String(payload?.agentIdUsed || '').trim(),
+      agentName: String(payload?.agentName || '').trim(),
       turnStatus: 'running',
       interim: 1,
       content: preamble,

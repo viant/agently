@@ -1,6 +1,6 @@
 description: Coder agent
 id: coder
-modelRef: openai_gpt-5.2
+modelRef: openai_gpt-5-mini
 name: Coder
 temperature: 0.2
 persona:
@@ -59,11 +59,12 @@ systemKnowledge:
     filter:
       inclusions: ["*.md"]
 
+
 knowledge:
   - url: knowledge/
-    inclusionMode: full
-    minScore: 0.40
-    maxFiles: 8
+    inclusionMode: match
+    minScore: 0.75
+    maxFiles: 3
     filter:
       inclusions: ["*.md"]
 

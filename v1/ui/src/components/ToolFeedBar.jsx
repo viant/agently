@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getActiveFeeds, onFeedChange } from '../services/toolFeedBus';
+import { getActiveFeeds, onFeedChange, fetchFeedDataNow, getFeedData } from '../services/toolFeedBus';
 
 const FEED_ICONS = {
   plan: '📋',
@@ -23,11 +23,15 @@ function notifyExpand() {
 export function isFeedExpanded(feedId) {
   return expandedFeeds.has(feedId);
 }
-function toggleFeedExpanded(feedId) {
+function toggleFeedExpanded(feedId, conversationId) {
   if (expandedFeeds.has(feedId)) {
     expandedFeeds.delete(feedId);
   } else {
     expandedFeeds.add(feedId);
+    // Always fetch fresh merged data from backend on toggle.
+    if (conversationId) {
+      fetchFeedDataNow(feedId, conversationId);
+    }
   }
   notifyExpand();
 }
@@ -46,7 +50,13 @@ export default function ToolFeedBar() {
   const expanded = useExpandedFeeds();
 
   useEffect(() => {
-    return onFeedChange((next) => setFeeds(next));
+    return onFeedChange((next) => {
+      setFeeds(next);
+      // Clear expand state when feeds are cleared (conversation switch).
+      if (!next || next.length === 0) {
+        expandedFeeds.clear();
+      }
+    });
   }, []);
 
   if (!feeds || feeds.length === 0) return null;
@@ -59,7 +69,7 @@ export default function ToolFeedBar() {
           <div
             className="app-tool-feed-bar-item"
             key={feed.feedId}
-            onClick={() => toggleFeedExpanded(feed.feedId)}
+            onClick={() => toggleFeedExpanded(feed.feedId, feed.conversationId)}
             role="button"
             tabIndex={0}
           >

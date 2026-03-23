@@ -1,5 +1,5 @@
 default:
-  model: openai_gpt-5.4
+  model: openai_gpt-5-mini
   embedder: openai_text
   agent: chatter
   #runtimeRoot: "${workspaceRoot}"

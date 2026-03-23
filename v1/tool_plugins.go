@@ -22,7 +22,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const defaultInternalServices = "system/exec,system/os,system/patch,orchestration/plan,llm/agents,resources,internal/message"
+var allInternalServices = []string{
+	"system/exec",
+	"system/os",
+	"system/patch",
+	"orchestration/plan",
+	"llm/agents",
+	"resources",
+	"message",
+}
 
 func configureRegistry(ctx context.Context, rt *executor.Runtime, workspaceRoot string) {
 	if rt == nil || rt.Registry == nil {
@@ -58,10 +66,15 @@ func debugEnabled() bool {
 func resolveInternalServiceList(workspaceRoot string) []string {
 	raw := strings.TrimSpace(os.Getenv("AGENTLY_INTERNAL_MCP_SERVICES"))
 	if raw == "" {
-		raw = strings.Join(loadInternalServicesFromConfig(workspaceRoot), ",")
+		if cfgServices, ok := loadInternalServicesFromConfig(workspaceRoot); ok {
+			if len(cfgServices) == 0 {
+				return append([]string{}, allInternalServices...)
+			}
+			raw = strings.Join(cfgServices, ",")
+		}
 	}
 	if raw == "" {
-		raw = defaultInternalServices
+		raw = strings.Join(allInternalServices, ",")
 	}
 	parts := strings.Split(raw, ",")
 	seen := map[string]struct{}{}
@@ -80,30 +93,44 @@ func resolveInternalServiceList(workspaceRoot string) []string {
 	return out
 }
 
-func loadInternalServicesFromConfig(workspaceRoot string) []string {
+func loadInternalServicesFromConfig(workspaceRoot string) ([]string, bool) {
 	if strings.TrimSpace(workspaceRoot) == "" {
-		return nil
+		return nil, false
 	}
 	path := filepath.Join(workspaceRoot, "config.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	var cfg map[string]interface{}
 	if err = yaml.Unmarshal(data, &cfg); err != nil {
 		log.Printf("agently-app: failed to parse %s: %v", path, err)
-		return nil
+		return nil, false
 	}
 
 	out := valuesToServices(cfg["internalMCPServices"])
-	if len(out) > 0 {
-		return out
+	if hasKey(cfg, "internalMCPServices") {
+		return out, true
 	}
 	internal := mapLookup(cfg, "internalMCP")
 	if len(internal) == 0 {
 		internal = mapLookup(cfg, "internal_mcp")
 	}
-	return valuesToServices(internal["services"])
+	if internal == nil {
+		return nil, false
+	}
+	if _, ok := internal["services"]; !ok {
+		return nil, false
+	}
+	return valuesToServices(internal["services"]), true
+}
+
+func hasKey(source map[string]interface{}, key string) bool {
+	if source == nil {
+		return false
+	}
+	_, ok := source[key]
+	return ok
 }
 
 func mapLookup(source map[string]interface{}, key string) map[string]interface{} {
@@ -193,7 +220,7 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 			opts = append(opts, resourcesvc.WithDefaultEmbedder(rt.Defaults.Embedder))
 		}
 		return resourcesvc.New(nil, opts...)
-	case "internal/message":
+	case "internal/message", "message":
 		summaryModel := ""
 		defaultModel := ""
 		embedModel := ""

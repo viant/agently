@@ -114,6 +114,10 @@ export function normalizeDataSources(defs = {}) {
  * Wire computed feed data into Forge signals so ForgeContainer can render.
  * Returns the number of data sources wired.
  */
+/**
+ * Wire computed feed data into Forge signals so ForgeContainer can render.
+ * windowId should include conversation ID for isolation: `feed-{feedId}-{convId}`
+ */
 export function wireFeedSignals(exe, windowId) {
   if (!exe) return 0;
   const computed = computeDataMap(exe);
@@ -151,8 +155,8 @@ export function wireFeedSignals(exe, windowId) {
 /**
  * Clean up Forge signals for a feed that became inactive.
  */
-export function cleanupFeedSignals(feedId, dsNames = []) {
-  const windowId = `feed-${feedId}`;
+export function cleanupFeedSignals(feedId, dsNames = [], conversationId = '') {
+  const windowId = conversationId ? `feed-${feedId}-${conversationId}` : `feed-${feedId}`;
   for (const name of dsNames) {
     const dsId = `${windowId}DS${name}`;
     try { getCollectionSignal(dsId).value = []; } catch (_) {}

@@ -3,6 +3,45 @@ import { describe, expect, it } from 'vitest';
 import { normalizeMessages } from './messageNormalizer';
 
 describe('normalizeMessages', () => {
+  it('prefers turn agentIdUsed over createdByUserId when synthesizing iteration data', () => {
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:00Z',
+        content: 'run performance diagnostics'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 1,
+        interim: 1,
+        createdAt: '2026-01-01T10:00:01Z',
+        content: 'Resolving hierarchy first.',
+        createdByUserId: 'steward',
+        agentIdUsed: 'steward-performance'
+      },
+      {
+        id: 'a2',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 1,
+        interim: 0,
+        createdAt: '2026-01-01T10:00:02Z',
+        content: 'done',
+        createdByUserId: 'steward',
+        agentIdUsed: 'steward-performance'
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: 3 });
+    const iteration = normalized.find((entry) => entry?._type === 'iteration');
+
+    expect(iteration?._iterationData?.agentId).toBe('steward-performance');
+  });
+
   it('keeps the backend final model step without fabricating a synthetic final step', () => {
     const messages = [
       {

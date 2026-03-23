@@ -1,5 +1,6 @@
 export function classifyMessage(message) {
   if (!message) return 'bubble';
+  if (message._type === 'starter') return 'starter';
   if (message._type === 'queue') return 'queue';
   if (message._type === 'iteration') return 'iteration';
   if (message.status === 'summarized') return undefined;
@@ -326,6 +327,7 @@ function mergeIterationItems(existing = {}, incoming = {}) {
     ...existing,
     ...incoming,
     turnId: chooseRichString(existing?.turnId, incoming?.turnId),
+    agentId: chooseRichString(incoming?.agentId, existing?.agentId),
     status: chooseRichString(incoming?.status, existing?.status),
     errorMessage: chooseRichString(incoming?.errorMessage, existing?.errorMessage),
     streamContent: chooseRichString(incoming?.streamContent, existing?.streamContent),
@@ -469,7 +471,11 @@ export function groupIntoIterations(messages = []) {
     }
   };
   const attachAgent = (message = {}) => {
-    const agentId = normalizeAgentId(message?.createdByUserId || message?.CreatedByUserId || '');
+    const agentId = normalizeAgentId(
+      message?.agentIdUsed
+      || message?.AgentIdUsed
+      || ''
+    );
     if (!agentId) return;
     const target = ensureCurrent(message);
     if (!String(target.agentId || '').trim()) {

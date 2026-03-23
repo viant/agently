@@ -94,3 +94,17 @@ func TestService_Load_BareModelIDWithDot(t *testing.T) {
 		assert.Equal(t, "gpt-5.2", loadedModel2.Options.Model)
 	}
 }
+
+func TestService_Load_BareModelIDWithHyphenatedSuffix(t *testing.T) {
+	ctx := context.Background()
+
+	service := New(fs.WithMetaService[provider.Config](meta.New(afs.New(), "embed:///testdata")))
+
+	loadedModel, err := service.Load(ctx, "openai_gpt-5-mini")
+	assert.NoError(t, err)
+	if assert.NotNil(t, loadedModel) {
+		assert.Equal(t, "openai_gpt-5-mini", loadedModel.ID)
+		assert.Equal(t, "openai", loadedModel.Options.Provider)
+		assert.Equal(t, "gpt-5-mini", loadedModel.Options.Model)
+	}
+}

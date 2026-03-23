@@ -75,6 +75,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [react(), networkLoggerPlugin()],
     server: {
+      host: 'localhost',
       port: 5173,
       watch: {
         followSymlinks: true,

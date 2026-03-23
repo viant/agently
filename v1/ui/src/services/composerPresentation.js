@@ -10,7 +10,10 @@ function titleCase(value) {
 function resolveAgentLabel(agentOptions, agentValue, currentLabel) {
   const current = String(agentValue || '').trim();
   const list = Array.isArray(agentOptions) ? agentOptions : [];
-  if (!current || current.toLowerCase() === 'auto') {
+  if (current.toLowerCase() === 'auto') {
+    return 'Auto-select agent';
+  }
+  if (!current) {
     const defaultOption = list.find((opt) => !!opt?.default) || list.find((opt) => String(opt?.value ?? opt?.id ?? '').trim().toLowerCase() !== 'auto');
     const fallbackLabel = displayAgentLabel(defaultOption);
     return fallbackLabel || 'Agent';

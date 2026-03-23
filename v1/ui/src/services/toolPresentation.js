@@ -65,7 +65,7 @@ export function delegatedAgentId(step = {}) {
 }
 
 export function delegatedAgentLabel(step = {}) {
-  return humanizeAgentId(delegatedAgentId(step));
+  return delegatedAgentId(step);
 }
 
 export function displayStepTitle(step = {}) {

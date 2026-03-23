@@ -1,6 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, shouldUseLiveStream } from './chatRuntime';
+import { createNewConversation, handleStreamEvent, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, shouldUseLiveStream } from './chatRuntime';
+import { client } from './agentlyClient';
+
+vi.mock('./agentlyClient', () => ({
+  client: {
+    getWorkspaceMetadata: vi.fn(),
+    createConversation: vi.fn(),
+    getConversation: vi.fn()
+  }
+}));
 
 describe('normalizeMetaResponse', () => {
   it('uses backend capabilities to decide auto-select options', () => {
@@ -12,7 +21,11 @@ describe('normalizeMetaResponse', () => {
         compactConversation: true,
         pruneConversation: true
       },
-      agentInfos: [{ id: 'coder', name: 'Coder' }],
+      agentInfos: [{
+        id: 'coder',
+        name: 'Coder',
+        starterTasks: [{ id: 'analyze', title: 'Analyze', prompt: 'Analyze this repo.' }]
+      }],
       modelInfos: [
         { id: 'openai_gpt-5.2', name: 'GPT-5.2' },
         { id: 'openai_o3', name: 'o3 (OpenAI)' }
@@ -27,6 +40,140 @@ describe('normalizeMetaResponse', () => {
     expect(got.modelOptions[0]).toMatchObject({ value: 'openai_gpt-5.2', label: 'GPT-5.2' });
     expect(got.modelOptions[1]).toMatchObject({ value: 'openai_o3', label: 'o3' });
     expect(got.modelOptions.some((entry) => entry?.value === 'auto')).toBe(false);
+    expect(got.agentInfos[0].starterTasks[0]).toMatchObject({ id: 'analyze', title: 'Analyze' });
+  });
+});
+
+describe('resolveStarterTasks', () => {
+  it('merges starter tasks across all agents for auto-select', () => {
+    const got = resolveStarterTasks({
+      selectedAgent: 'auto',
+      agentInfos: [
+        { id: 'coder', name: 'Coder', starterTasks: [{ id: 'analyze', title: 'Analyze', prompt: 'Analyze repo.' }] },
+        { id: 'chatter', name: 'Chatter', starterTasks: [{ id: 'summarize', title: 'Summarize', prompt: 'Summarize this.' }] }
+      ]
+    });
+
+    expect(got).toHaveLength(2);
+    expect(got[0]).toMatchObject({ id: 'analyze', agentId: 'coder', agentName: 'Coder' });
+    expect(got[1]).toMatchObject({ id: 'summarize', agentId: 'chatter', agentName: 'Chatter' });
+  });
+});
+
+describe('handleStreamEvent', () => {
+  it('does not reference a raw MessageEvent when given a parsed SSE payload', () => {
+    const chatState = { liveRows: [], lastHasRunning: false };
+    expect(() => handleStreamEvent(chatState, {}, 'conv-1', {
+      type: 'unknown_event',
+      conversationId: 'conv-1',
+      content: 'hello'
+    })).not.toThrow();
+  });
+});
+
+describe('createNewConversation', () => {
+  it('prefers persisted auto agent for a fresh draft conversation', async () => {
+    const conversationState = { values: { id: 'old', agent: 'chatter', model: 'openai_gpt-5.4' } };
+    const metaState = { values: { agent: 'chatter', defaults: { agent: 'chatter', model: 'openai_gpt-5.4', embedder: 'openai_text' } } };
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => metaState.values,
+                setFormData: ({ values }) => { metaState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    globalThis.localStorage = {
+      getItem: (key) => (key === 'agently.selectedAgent' ? 'auto' : ''),
+      setItem: vi.fn()
+    };
+    await createNewConversation(context);
+
+    expect(conversationState.values.agent).toBe('auto');
+    expect(metaState.values.agent).toBe('auto');
+  });
+});
+
+describe('renderMergedRowsForContext', () => {
+  it('renders a starter row on empty chat and merges all agent tasks for auto-select', () => {
+    const messageState = { collection: [] };
+    const context = {
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: '', agent: 'auto', queuedTurns: [] })
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  agent: 'auto',
+                  defaults: { agent: 'coder' },
+                  agentInfos: [
+                    { id: 'coder', name: 'Coder', starterTasks: [{ id: 'analyze', title: 'Analyze', prompt: 'Analyze repo.' }] },
+                    { id: 'chatter', name: 'Chatter', starterTasks: [{ id: 'summarize', title: 'Summarize', prompt: 'Summarize this.' }] }
+                  ]
+                })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    renderMergedRowsForContext(context);
+
+    expect(messageState.collection).toHaveLength(1);
+    expect(messageState.collection[0]).toMatchObject({
+      _type: 'starter',
+      subtitle: 'Auto-select agent'
+    });
+    expect(messageState.collection[0].starterTasks).toHaveLength(2);
   });
 });
 

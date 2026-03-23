@@ -38,6 +38,14 @@ func TestServeCmd_ExposeMCPFlag_DataDriven(t *testing.T) {
 	}
 }
 
+func TestServeCmd_WorkspaceFlag(t *testing.T) {
+	cmd := &ServeCmd{}
+	parser := flags.NewParser(cmd, flags.HelpFlag|flags.PassDoubleDash)
+	_, err := parser.ParseArgs([]string{"--workspace", "/tmp/agently-workspace"})
+	assert.NoError(t, err)
+	assert.Equal(t, "/tmp/agently-workspace", cmd.Workspace)
+}
+
 func TestServeTarget(t *testing.T) {
 	type testCase struct {
 		name      string
@@ -47,7 +55,8 @@ func TestServeTarget(t *testing.T) {
 	}
 
 	cases := []testCase{
-		{name: "default target", args: nil, expect: "v1"},
+		{name: "default target", args: nil, expect: "legacy"},
+		{name: "empty target", args: []string{""}, expect: "legacy"},
 		{name: "v1 target", args: []string{"v1"}, expect: "v1"},
 		{name: "legacy target", args: []string{"legacy"}, expect: "legacy"},
 		{name: "unknown target", args: []string{"v2"}, expectErr: true},

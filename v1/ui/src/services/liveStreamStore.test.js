@@ -13,6 +13,28 @@ import {
 } from './liveStreamStore';
 
 describe('applyExecutionStreamEvent', () => {
+  it('preserves turn agent identity on execution rows', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      createdAt: '2026-03-16T10:00:01Z',
+      agentIdUsed: 'steward-performance',
+      agentName: 'Steward-performance-Analyzer',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0]).toMatchObject({
+      turnId: 'turn-1',
+      agentIdUsed: 'steward-performance',
+      agentName: 'Steward-performance-Analyzer'
+    });
+  });
+
   it('does not overwrite the user row when model_started uses the turn id', () => {
     const chatState = {
       liveRows: [
@@ -1032,6 +1054,28 @@ describe('applyExecutionStreamEvent', () => {
       role: 'assistant',
       content: 'Hi!',
       turnStatus: 'completed'
+    });
+  });
+});
+
+describe('applyPreambleEvent', () => {
+  it('carries turn agent identity into a new assistant row before model_started arrives', () => {
+    const chatState = { liveRows: [] };
+
+    applyPreambleEvent(chatState, {
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      content: 'Thinking…',
+      createdAt: '2026-03-16T10:00:01Z',
+      agentIdUsed: 'coder',
+      agentName: 'Coder'
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0]).toMatchObject({
+      turnId: 'turn-1',
+      agentIdUsed: 'coder',
+      agentName: 'Coder'
     });
   });
 });

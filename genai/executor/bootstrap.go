@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -45,6 +44,7 @@ import (
 	// mcp client types not used here
 	"gopkg.in/yaml.v3"
 
+	corea2a "github.com/viant/agently-core/service/a2a"
 	"github.com/viant/agently/genai/conversation"
 	"github.com/viant/agently/genai/memory"
 	agent2 "github.com/viant/agently/genai/service/agent"
@@ -58,9 +58,6 @@ import (
 	// External A2A client
 	a2acli "github.com/viant/a2a-protocol/client"
 	a2aschema "github.com/viant/a2a-protocol/schema"
-	a2asrv "github.com/viant/a2a-protocol/server"
-	aauth "github.com/viant/a2a-protocol/server/auth"
-	jsonrpc "github.com/viant/jsonrpc"
 	"github.com/viant/scy"
 	scyauth "github.com/viant/scy/auth"
 	"github.com/viant/scy/auth/authorizer"
@@ -549,164 +546,75 @@ func (e *Service) startA2AServers(agentSvc *agent2.Service) {
 	if e.config == nil || e.config.Agent == nil {
 		return
 	}
-	// Validate: one A2A agent per port.
-	portOwner := map[int]string{}
-	skip := map[string]struct{}{}
-	agentLabel := func(ag *agent.Agent) string {
-		if ag == nil {
-			return ""
-		}
-		if v := strings.TrimSpace(ag.ID); v != "" {
-			return v
-		}
-		return strings.TrimSpace(ag.Name)
-	}
-	resolveA2APort := func(ag *agent.Agent) (int, bool) {
-		if ag == nil {
-			return 0, false
-		}
-		if ag.Serve != nil && ag.Serve.A2A != nil && ag.Serve.A2A.Enabled && ag.Serve.A2A.Port > 0 {
-			return ag.Serve.A2A.Port, true
-		}
-		if ag.ExposeA2A != nil && ag.ExposeA2A.Enabled && ag.ExposeA2A.Port > 0 {
-			return ag.ExposeA2A.Port, true
-		}
-		return 0, false
-	}
+	ids := make([]string, 0, len(e.config.Agent.Items))
 	for _, a := range e.config.Agent.Items {
-		port, ok := resolveA2APort(a)
-		if !ok {
+		if a == nil || strings.TrimSpace(a.ID) == "" {
 			continue
 		}
-		label := agentLabel(a)
-		if prev, exists := portOwner[port]; exists {
-			log.Printf("a2a: invalid config: port %d already assigned to agent %q; skipping agent %q", port, prev, label)
-			if label != "" {
-				skip[label] = struct{}{}
-			}
-			continue
-		}
-		portOwner[port] = label
+		ids = append(ids, strings.TrimSpace(a.ID))
 	}
-	for _, a := range e.config.Agent.Items {
-		// Prefer Serve.A2A; fallback to legacy ExposeA2A
-		var a2aEnabled bool
-		var a2aPort int
-		if a != nil && a.Serve != nil && a.Serve.A2A != nil && a.Serve.A2A.Enabled && a.Serve.A2A.Port > 0 {
-			a2aEnabled = true
-			a2aPort = a.Serve.A2A.Port
-		} else if a != nil && a.ExposeA2A != nil && a.ExposeA2A.Enabled && a.ExposeA2A.Port > 0 {
-			a2aEnabled = true
-			a2aPort = a.ExposeA2A.Port
-		}
-		if !a2aEnabled {
-			continue
-		}
-		if label := agentLabel(a); label != "" {
-			if _, drop := skip[label]; drop {
-				continue
+	corea2a.StartServersGeneric(context.Background(), &corea2a.GenericServerConfig{
+		AgentIDs: ids,
+		ResolveAgent: func(ctx context.Context, agentID string) (*corea2a.ExposedAgent, error) {
+			ag, err := e.agentFinder.Find(ctx, agentID)
+			if err != nil {
+				return nil, err
 			}
-		}
-		// local copy for closure
-		ag := a
-		go func() {
-			base := "/v1"
-			addr := fmt.Sprintf(":%d", a2aPort)
-			// Build AgentCard
-			name := strings.TrimSpace(ag.Name)
-			if name == "" {
-				name = strings.TrimSpace(ag.ID)
+			if ag == nil {
+				return nil, fmt.Errorf("agent %s not found", agentID)
 			}
-			desc := strings.TrimSpace(ag.Description)
-			var descPtr *string
-			if desc != "" {
-				descPtr = &desc
-			}
-			card := a2aschema.AgentCard{Name: name, Description: descPtr}
-			// Prefer Serve.A2A when present
-			sFlag := false
-			if ag.Serve != nil && ag.Serve.A2A != nil {
-				sFlag = ag.Serve.A2A.Streaming
-			} else if ag.ExposeA2A != nil {
-				sFlag = ag.ExposeA2A.Streaming
-			}
-			card.SetCapabilities(a2aschema.AgentCapabilities{Streaming: &sFlag})
-			// Handlers mapping A2A message/send into internal agent runtime
-			newOps := a2asrv.WithDefaultHandler(context.Background(),
-				a2asrv.RegisterMessageSend(func(ctx context.Context, messages []a2aschema.Message, contextID, taskID *string) (*a2aschema.Task, *jsonrpc.Error) {
-					// Collect objective from text parts
-					objective := ""
-					for _, m := range messages {
-						for _, p := range m.Parts {
-							if tp, ok := p.(a2aschema.TextPart); ok {
-								if s := strings.TrimSpace(tp.Text); s != "" {
-									if objective != "" {
-										objective += "\n"
-									}
-									objective += s
-								}
-							}
-						}
-					}
-					reqCtx := ctx
-					if ag.Serve != nil && ag.Serve.A2A != nil && strings.TrimSpace(ag.Serve.A2A.UserCredURL) != "" {
-						var err error
-						reqCtx, err = e.applyA2AUserCred(ctx, strings.TrimSpace(ag.Serve.A2A.UserCredURL))
-						if err != nil {
-							return nil, jsonrpc.NewError(-32000, err.Error(), nil)
-						}
-					}
-					qi := &agent2.QueryInput{AgentID: ag.ID, Query: objective}
-					if contextID != nil && strings.TrimSpace(*contextID) != "" {
-						qi.ConversationID = *contextID
-					}
-					var qo agent2.QueryOutput
-					if err := agentSvc.Query(reqCtx, qi, &qo); err != nil {
-						return nil, jsonrpc.NewError(-32000, err.Error(), nil)
-					}
-					// Build completed task with a text artifact
-					t := &a2aschema.Task{ID: "t-" + qo.MessageID}
-					art := a2aschema.Artifact{ID: "a-" + t.ID, CreatedAt: time.Now().UTC(), Parts: []a2aschema.Part{a2aschema.TextPart{Type: "text", Text: qo.Content}}}
-					art.PartsRaw, _ = a2aschema.MarshalParts(art.Parts)
-					t.Status = a2aschema.TaskStatus{State: a2aschema.TaskCompleted, UpdatedAt: time.Now().UTC()}
-					t.Artifacts = []a2aschema.Artifact{art}
-					return t, nil
-				}),
-				a2asrv.RegisterMessageStream(func(ctx context.Context, messages []a2aschema.Message, contextID, taskID *string) (*a2aschema.Task, *jsonrpc.Error) {
-					return nil, jsonrpc.NewMethodNotFound("message/stream not supported", nil)
-				}),
-			)
-			srv := a2asrv.New(card, a2asrv.WithOperations(newOps))
-			inner := http.NewServeMux()
-			srv.RegisterSSE(inner, base)
-			srv.RegisterStreaming(inner, "/a2a")
-			srv.RegisterREST(inner)
-			outer := http.NewServeMux()
-			outer.HandleFunc("/.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(card)
-			})
-			var authCfg *A2AAuthProxy
+			var authCfg *corea2a.A2AAuthConfig
 			if ag.Serve != nil && ag.Serve.A2A != nil && ag.Serve.A2A.Auth != nil && ag.Serve.A2A.Auth.Enabled {
 				a := ag.Serve.A2A.Auth
-				authCfg = &A2AAuthProxy{Enabled: a.Enabled, Resource: a.Resource, Scopes: a.Scopes, UseIDToken: a.UseIDToken, ExcludePrefix: a.ExcludePrefix}
+				authCfg = &corea2a.A2AAuthConfig{Enabled: a.Enabled, Resource: a.Resource, Scopes: append([]string(nil), a.Scopes...), UseIDToken: a.UseIDToken, ExcludePrefix: a.ExcludePrefix}
 			} else if ag.ExposeA2A != nil && ag.ExposeA2A.Auth != nil && ag.ExposeA2A.Auth.Enabled {
 				a := ag.ExposeA2A.Auth
-				authCfg = &A2AAuthProxy{Enabled: a.Enabled, Resource: a.Resource, Scopes: a.Scopes, UseIDToken: a.UseIDToken, ExcludePrefix: a.ExcludePrefix}
+				authCfg = &corea2a.A2AAuthConfig{Enabled: a.Enabled, Resource: a.Resource, Scopes: append([]string(nil), a.Scopes...), UseIDToken: a.UseIDToken, ExcludePrefix: a.ExcludePrefix}
 			}
-			if authCfg != nil {
-				pol := &aauth.Policy{Metadata: &aauth.ProtectedResourceMetadata{Resource: authCfg.Resource, ScopesSupported: authCfg.Scopes}, UseIDToken: authCfg.UseIDToken}
-				pol.ExcludePrefix = strings.TrimSpace(authCfg.ExcludePrefix)
-				authSvc := aauth.NewService(pol)
-				authSvc.RegisterHandlers(outer)
-				outer.Handle("/", authSvc.Middleware(inner))
-			} else {
-				outer.Handle("/", inner)
+			return &corea2a.ExposedAgent{
+				ID:          strings.TrimSpace(ag.ID),
+				Name:        strings.TrimSpace(ag.Name),
+				Description: strings.TrimSpace(ag.Description),
+				A2A:         effectiveClassicA2A(ag),
+				Auth:        authCfg,
+			}, nil
+		},
+		Query: func(ctx context.Context, agentID, query, conversationID string) (*corea2a.QueryResult, error) {
+			qi := &agent2.QueryInput{AgentID: agentID, Query: query, ConversationID: conversationID}
+			var qo agent2.QueryOutput
+			if err := agentSvc.Query(ctx, qi, &qo); err != nil {
+				return nil, err
 			}
-			log.Printf("A2A agent '%s' on %s (base %s)", name, addr, base)
-			_ = http.ListenAndServe(addr, outer)
-		}()
+			return &corea2a.QueryResult{
+				MessageID:      qo.MessageID,
+				ConversationID: qo.ConversationID,
+				Content:        qo.Content,
+			}, nil
+		},
+		ApplyUserCred: e.applyA2AUserCred,
+	})
+}
+
+func effectiveClassicA2A(ag *agent.Agent) *corea2a.A2AConfig {
+	if ag == nil {
+		return nil
 	}
+	if ag.Serve != nil && ag.Serve.A2A != nil {
+		return &corea2a.A2AConfig{
+			Enabled:     ag.Serve.A2A.Enabled,
+			Port:        ag.Serve.A2A.Port,
+			Streaming:   ag.Serve.A2A.Streaming,
+			UserCredURL: ag.Serve.A2A.UserCredURL,
+		}
+	}
+	if ag.ExposeA2A != nil && ag.ExposeA2A.Enabled {
+		return &corea2a.A2AConfig{
+			Enabled:   ag.ExposeA2A.Enabled,
+			Port:      ag.ExposeA2A.Port,
+			Streaming: ag.ExposeA2A.Streaming,
+		}
+	}
+	return nil
 }
 
 func (e *Service) applyA2AUserCred(ctx context.Context, credRef string) (context.Context, error) {

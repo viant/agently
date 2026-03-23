@@ -19,6 +19,7 @@ import (
 	"github.com/viant/scy"
 	scyauth "github.com/viant/scy/auth"
 	vcfg "github.com/viant/scy/auth/jwt/verifier"
+	"golang.org/x/oauth2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -350,6 +351,41 @@ var workerID = func() string {
 	return fmt.Sprintf("%s:%d", host, os.Getpid())
 }()
 
+// tryLoadFreshTokenFromStore checks the DB token store for a token that was
+// refreshed by another node. Returns the fresh token if found and still valid,
+// or nil if the DB token is also expired/missing.
+func (a *authRuntime) tryLoadFreshTokenFromStore(ctx context.Context, sess *svcauth.Session) *scyauth.Token {
+	if a.ext == nil || a.ext.tokenStore == nil || sess == nil {
+		return nil
+	}
+	username := strings.TrimSpace(sess.Subject)
+	provider := a.ext.oauthProviderName()
+	dbTok, err := a.ext.tokenStore.Get(ctx, username, provider)
+	if err != nil || dbTok == nil {
+		return nil
+	}
+	// Only use the DB token if it's fresher than what we have in memory.
+	if dbTok.ExpiresAt.IsZero() || !dbTok.ExpiresAt.After(time.Now()) {
+		return nil
+	}
+	if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !dbTok.ExpiresAt.After(sess.Tokens.Expiry) {
+		return nil // DB token is not newer
+	}
+	result := &scyauth.Token{
+		Token: oauth2.Token{
+			AccessToken:  dbTok.AccessToken,
+			RefreshToken: dbTok.RefreshToken,
+			Expiry:       dbTok.ExpiresAt,
+		},
+		IDToken: dbTok.IDToken,
+	}
+	// Update session in memory so subsequent requests use the fresh token.
+	sess.Tokens = result
+	a.sessions.Put(ctx, sess)
+	log.Printf("[token-refresh] loaded fresh token from DB user=%q expiry=%v", username, dbTok.ExpiresAt.Format(time.RFC3339))
+	return result
+}
+
 // tryRefreshToken attempts to refresh an expired OAuth token using the token
 // store's distributed lease to prevent multi-node races.
 func (a *authRuntime) tryRefreshToken(ctx context.Context, sess *svcauth.Session) *scyauth.Token {
@@ -359,6 +395,12 @@ func (a *authRuntime) tryRefreshToken(ctx context.Context, sess *svcauth.Session
 	if a.ext == nil || a.ext.cfg == nil || a.ext.cfg.OAuth == nil || a.ext.cfg.OAuth.Client == nil {
 		return nil
 	}
+
+	// First check if another node already refreshed and stored a fresh token in DB.
+	if fresh := a.tryLoadFreshTokenFromStore(ctx, sess); fresh != nil {
+		return fresh
+	}
+
 	username := strings.TrimSpace(sess.Subject)
 	provider := a.ext.oauthProviderName()
 
@@ -371,7 +413,11 @@ func (a *authRuntime) tryRefreshToken(ctx context.Context, sess *svcauth.Session
 			return nil
 		}
 		if !acquired {
-			// Another node is refreshing — skip, it will update the store.
+			// Another node is refreshing — wait briefly and check DB again.
+			time.Sleep(2 * time.Second)
+			if fresh := a.tryLoadFreshTokenFromStore(ctx, sess); fresh != nil {
+				return fresh
+			}
 			return nil
 		}
 		defer func() {
