@@ -525,7 +525,7 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 			}
 		}
 		for _, t := range tools {
-			full := svc + "/" + t.Name
+			full := qualifiedToolName(svc, strings.TrimSpace(t.Name))
 			if tmatch.Match(pattern, full) {
 				def := llm.ToolDefinitionFromMcpTool(&t)
 				if def == nil {
