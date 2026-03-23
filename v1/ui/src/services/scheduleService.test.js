@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { client } from './agentlyClient'
-import { scheduleService } from './scheduleService'
+import { panelHasRenderableRows, scheduleService } from './scheduleService'
 
 function lookupContext(query = '') {
   return {
@@ -65,6 +65,30 @@ afterEach(() => {
 })
 
 describe('scheduleService SDK lookups', () => {
+  it('treats non-empty table rows as renderable even before cell text is populated', () => {
+    const wrapper = {
+      querySelector(selector) {
+        if (selector !== 'tbody') return null
+        return {
+          querySelectorAll(innerSelector) {
+            if (innerSelector !== 'tr') return []
+            return [
+              {
+                classList: {
+                  contains(className) {
+                    return className === 'empty-row' ? false : false
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+
+    expect(panelHasRenderableRows(wrapper)).toBe(true)
+  })
+
   it('normalizes and filters agent LOV rows from workspace metadata', () => {
     const rows = scheduleService.onFetchAgentsLov({
       context: lookupContext('cod'),
@@ -90,6 +114,37 @@ describe('scheduleService SDK lookups', () => {
 
     expect(rows).toEqual([
       { id: 'openai_o3', name: 'o3' }
+    ])
+  })
+
+  it('normalizes scheduler run rows without forcing active runs to look finished', () => {
+    const rows = scheduleService.onFetchRuns({
+      collection: [
+        {
+          id: 'run-1',
+          scheduleId: 'sched-1',
+          scheduleName: 'Nightly',
+          conversationId: 'conv-1',
+          status: 'running',
+          createdAt: '2026-03-23T10:00:00Z',
+          startedAt: '2026-03-23T10:00:05Z',
+          updatedAt: '2026-03-23T10:01:00Z'
+        }
+      ]
+    })
+
+    expect(rows).toEqual([
+      {
+        id: 'run-1',
+        scheduleId: 'sched-1',
+        scheduleName: 'Nightly',
+        conversationId: 'conv-1',
+        status: 'running',
+        createdAt: '2026-03-23T10:00:00Z',
+        startedAt: '2026-03-23T10:00:05Z',
+        completedAt: null,
+        errorMessage: undefined
+      }
     ])
   })
 })

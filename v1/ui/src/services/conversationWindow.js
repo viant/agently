@@ -40,7 +40,8 @@ export function getSelectedWindow() {
 export function isLinkedChildWindow(win = null) {
   if (!win) return false;
   if (String(win?.windowKey || '').trim() !== CHAT_WINDOW_KEY) return false;
-  return !isMainChatWindowId(String(win?.windowId || '').trim());
+  if (isMainChatWindowId(String(win?.windowId || '').trim())) return false;
+  return !!String(win?.parameters?.linkedParent?.conversationId || '').trim();
 }
 
 export function linkedParentConversationId(win = null) {

@@ -1,10 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Dialog } from '@blueprintjs/core';
-import { addWindow, activeWindows, selectedTabId, selectedWindowId } from 'forge/core';
+import { addWindow, activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
 import { client } from '../services/agentlyClient';
 import logo from '../viant-logo.png';
 
-function openWindow(windowKey, windowTitle) {
+export function refreshWindowDataSources(windowId, dataSourceRefs = []) {
+  if (!windowId || !Array.isArray(dataSourceRefs) || dataSourceRefs.length === 0) return;
+  const base = getWindowContext?.(windowId);
+  if (!base?.Context) return;
+  dataSourceRefs.forEach((dataSourceRef) => {
+    if (!dataSourceRef) return;
+    try {
+      base.Context(dataSourceRef)?.handlers?.dataSource?.fetchCollection?.();
+    } catch (_) {}
+  });
+}
+
+export function openWindow(windowKey, windowTitle, refreshDataSources = []) {
   const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
   let existing = windows.find((entry) => entry?.windowKey === windowKey);
   if (!existing) {
@@ -13,6 +25,7 @@ function openWindow(windowKey, windowTitle) {
   if (existing?.windowId) {
     selectedTabId.value = existing.windowId;
     selectedWindowId.value = existing.windowId;
+    refreshWindowDataSources(existing.windowId, refreshDataSources);
   }
 }
 
@@ -67,7 +80,7 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
             text="Automation"
             className="app-topbar-nav-btn"
             data-testid="automation-nav"
-            onClick={() => openWindow('schedule', 'Automation')}
+            onClick={() => openWindow('schedule', 'Automation', ['schedules'])}
           />
           <Button
             minimal
@@ -75,7 +88,7 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
             text="Runs"
             className="app-topbar-nav-btn"
             data-testid="runs-nav"
-            onClick={() => openWindow('schedule/history', 'Runs')}
+            onClick={() => openWindow('schedule/history', 'Runs', ['runs'])}
           />
           <Button
             minimal

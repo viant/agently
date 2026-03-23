@@ -92,6 +92,7 @@ async function archiveConversation(id) {
 
 async function fetchPage({ query = '', direction = 'latest', cursor = '' }) {
   const page = await client.listConversations({
+    excludeScheduled: true,
     query: query || undefined,
     page: { limit: PAGE_SIZE, direction, cursor: cursor || undefined },
   });

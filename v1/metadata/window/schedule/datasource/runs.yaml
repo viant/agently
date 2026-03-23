@@ -1,6 +1,6 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/conversations
+  uri: /v1/api/agently/scheduler/run
   method: GET
 
 paging:
@@ -14,15 +14,17 @@ parameters:
   - from: schedules:selection
     to: :query
     name: scheduleId
+    kind: query
     location: id
   - from: const
     to: :query
-    name: hasScheduleId
+    name: requireScheduleId
+    kind: query
     location: "true"
 
 selectors:
-  data: Rows
-  dataInfo: ''
+  data: data.runs
+  dataInfo: data
 
 on:
   - event: onFetch
