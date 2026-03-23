@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { activeWindows } from 'forge/core';
 
-import { createNewConversation, handleStreamEvent, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, shouldUseLiveStream } from './chatRuntime';
+import { bootstrapConversationSelection, createNewConversation, handleStreamEvent, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, shouldUseLiveStream } from './chatRuntime';
 import { client } from './agentlyClient';
 
 vi.mock('./agentlyClient', () => ({
@@ -10,6 +11,21 @@ vi.mock('./agentlyClient', () => ({
     getConversation: vi.fn()
   }
 }));
+
+function createStorage() {
+  const store = new Map();
+  return {
+    getItem(key) {
+      return store.has(key) ? store.get(key) : null;
+    },
+    setItem(key, value) {
+      store.set(String(key), String(value));
+    },
+    removeItem(key) {
+      store.delete(String(key));
+    }
+  };
+}
 
 describe('normalizeMetaResponse', () => {
   it('uses backend capabilities to decide auto-select options', () => {
@@ -119,6 +135,55 @@ describe('createNewConversation', () => {
 
     expect(conversationState.values.agent).toBe('auto');
     expect(metaState.values.agent).toBe('auto');
+  });
+});
+
+describe('bootstrapConversationSelection', () => {
+  it('hydrates a child chat window from window parameters when no scoped selection exists', () => {
+    const conversationState = { values: {} };
+    activeWindows.value = [{
+      windowId: 'child-window',
+      windowKey: 'chat/new',
+      parameters: {
+        conversations: {
+          input: {
+            parameters: {
+              id: 'conv-from-run'
+            }
+          }
+        },
+        messages: {
+          input: {
+            parameters: {
+              convID: 'conv-from-run'
+            }
+          }
+        }
+      }
+    }];
+    global.window = {
+      location: { pathname: '/' },
+      localStorage: createStorage()
+    };
+
+    bootstrapConversationSelection({
+      identity: { windowId: 'child-window' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    });
+
+    expect(conversationState.values.id).toBe('conv-from-run');
   });
 });
 
