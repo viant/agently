@@ -1,10 +1,10 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/api/agently/scheduler/run
+  uri: /v1/api/agently/scheduler/run/{id}
   method: GET
 
 paging:
-  size: 25
+  size: 10
   enabled: true
   dataInfoSelectors:
     pageCount: pageCount
@@ -12,19 +12,14 @@ paging:
 
 parameters:
   - from: schedules:form
-    to: :query
-    name: scheduleId
-    kind: query
+    to: :path
+    name: id
+    kind: path
     location: id
-  - from: const
-    to: :query
-    name: requireScheduleId
-    kind: query
-    location: "true"
 
 selectors:
-  data: data.runs
-  dataInfo: data
+  data: data
+  dataInfo: info
 
 on:
   - event: onFetch

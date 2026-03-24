@@ -13,19 +13,19 @@ dataSource:
   runs:
     service:
       endpoint: agentlyAPI
-      uri: /v1/api/agently/scheduler/run
+      uri: /v1/api/agently/scheduler/run/
       method: GET
 
     paging:
-      size: 25
+      size: 10
       enabled: true
       dataInfoSelectors:
         pageCount: pageCount
         totalCount: totalCount
 
     selectors:
-      data: data.runs
-      dataInfo: data
+      data: data
+      dataInfo: info
 
     on:
       - event: onFetch

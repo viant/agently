@@ -2,6 +2,7 @@ import { client } from './agentlyClient';
 import { getLogger } from 'forge/utils/logger';
 import { registerDynamicEvaluator } from 'forge/runtime/binding';
 import { getBusSignal } from 'forge/core';
+import { showToast } from './httpClient';
 import {
   filterLookupCollection,
   normalizeWorkspaceAgentInfos,
@@ -15,9 +16,24 @@ const DEFAULT_CALENDAR_TIME = '09:00 AM';
 const DEFAULT_CALENDAR_INTERVAL_HOURS = 2;
 const DEFAULT_ELAPSED_INTERVAL_VALUE = 24;
 const DEFAULT_ELAPSED_INTERVAL_UNIT = 'hours';
+const SCHEDULE_TOAST_TTL_MS = 20000;
 const ALL_WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const CALENDAR_BUILDER_FIELDS = new Set(['calendarPattern', 'calendarTime', 'calendarIntervalHours', 'weekdays']);
 const ELAPSED_BUILDER_FIELDS = new Set(['elapsedIntervalValue', 'elapsedIntervalUnit']);
+const MODE_VALIDATION_FIELDS = new Set(['calendarTime', 'calendarIntervalHours', 'elapsedIntervalValue', 'elapsedIntervalUnit', 'cronExpr']);
+const VALIDATION_FIELD_TAB = {
+  name: 'general',
+  agentRef: 'general',
+  taskPrompt: 'general',
+  taskPromptUri: 'execution',
+  calendarTime: 'schedule',
+  calendarIntervalHours: 'schedule',
+  elapsedIntervalValue: 'schedule',
+  elapsedIntervalUnit: 'schedule',
+  cronExpr: 'schedule',
+  startAt: 'schedule',
+  endAt: 'schedule'
+};
 
 function newScheduleID() {
   const generated = globalThis?.crypto?.randomUUID?.();
@@ -792,6 +808,186 @@ function getFormState(ds) {
   return { ...selected, ...get, ...peekValues };
 }
 
+function hasNonEmptyText(value) {
+  return String(value || '').trim().length > 0;
+}
+
+function hasPositiveNumber(value) {
+  const raw = Number(value);
+  return Number.isFinite(raw) && raw > 0;
+}
+
+function getValidationErrors(form = {}) {
+  return form?.validationErrors && typeof form.validationErrors === 'object' && !Array.isArray(form.validationErrors)
+    ? form.validationErrors
+    : {};
+}
+
+function clearLegacyFormError(next = {}) {
+  if (!Object.prototype.hasOwnProperty.call(next, 'formError')) return next;
+  return { ...next, formError: '' };
+}
+
+function validateScheduleForm(rawForm = {}) {
+  const fieldErrors = {};
+  const orderedFields = [];
+  const kind = normalizeEditorKind(rawForm);
+  const addError = (field, message) => {
+    const key = String(field || '').trim();
+    const text = String(message || '').trim();
+    if (!key || !text || fieldErrors[key]) return;
+    fieldErrors[key] = text;
+    orderedFields.push(key);
+  };
+
+  if (!hasNonEmptyText(rawForm.name)) {
+    addError('name', 'Schedule Name is required');
+  }
+
+  if (!hasNonEmptyText(rawForm.agentRef || rawForm.agent)) {
+    addError('agentRef', 'Agent is required');
+  }
+
+  if (!hasNonEmptyText(rawForm.taskPrompt) && !hasNonEmptyText(rawForm.taskPromptUri)) {
+    addError('taskPrompt', 'Task Prompt or Task Prompt URI is required');
+  }
+
+  if (kind === 'advanced' && !hasNonEmptyText(rawForm.cronExpr)) {
+    addError('cronExpr', 'Cron Expression is required');
+  }
+
+  if (kind === 'calendar' && !hasNonEmptyText(rawForm.calendarTime || rawForm.dailyTime)) {
+    addError('calendarTime', 'At / Starting At is required');
+  }
+
+  if (kind === 'calendar' && normalizeCalendarPattern(rawForm) === 'every' && !hasPositiveNumber(rawForm.calendarIntervalHours || rawForm.intervalHours)) {
+    addError('calendarIntervalHours', 'Repeat Every (Hours Within The Day) is required');
+  }
+
+  if (kind === 'elapsed' && !hasPositiveNumber(firstDefined(rawForm, ['elapsedIntervalValue', 'intervalHours', 'intervalSeconds', 'interval_seconds']))) {
+    addError('elapsedIntervalValue', 'Repeat Every is required');
+  }
+
+  if (kind === 'elapsed' && !hasNonEmptyText(rawForm.elapsedIntervalUnit) && !hasPositiveNumber(firstDefined(rawForm, ['intervalSeconds', 'interval_seconds']))) {
+    addError('elapsedIntervalUnit', 'Interval Unit is required');
+  }
+
+  try {
+    normalizeScheduleDateTime(rawForm.startAt, 'Start Date');
+  } catch (err) {
+    addError('startAt', err?.message || 'Start Date must be a valid date/time');
+  }
+
+  try {
+    normalizeScheduleDateTime(rawForm.endAt, 'End Date');
+  } catch (err) {
+    addError('endAt', err?.message || 'End Date must be a valid date/time');
+  }
+
+  return {
+    fieldErrors,
+    orderedFields,
+    messages: orderedFields.map((field) => fieldErrors[field]).filter(Boolean)
+  };
+}
+
+function setScheduleValidation(ds, validation = {}) {
+  const current = getFormState(ds);
+  const next = clearLegacyFormError({ ...current, validationErrors: { ...(validation?.fieldErrors || {}) } });
+  if (JSON.stringify(current) === JSON.stringify(next)) return false;
+  ds?.setFormData?.({ values: next });
+  return true;
+}
+
+function clearScheduleValidation(ds, { fieldKey = '', baseForm = null } = {}) {
+  const current = baseForm && typeof baseForm === 'object' ? baseForm : getFormState(ds);
+  const existing = getValidationErrors(current);
+  const keys = Object.keys(existing);
+  const clearKey = String(fieldKey || '').trim();
+  if (keys.length === 0 && !hasNonEmptyText(current?.formError)) return false;
+
+  let nextErrors = existing;
+  if (clearKey) {
+    const related = new Set([clearKey]);
+    if (clearKey === 'taskPrompt' || clearKey === 'taskPromptUri') {
+      related.add('taskPrompt');
+      related.add('taskPromptUri');
+    }
+    if (clearKey === 'scheduleEditorKind') {
+      MODE_VALIDATION_FIELDS.forEach((field) => related.add(field));
+    }
+    if (clearKey === 'calendarPattern') {
+      related.add('calendarIntervalHours');
+    }
+    nextErrors = { ...existing };
+    related.forEach((field) => {
+      delete nextErrors[field];
+    });
+  } else {
+    nextErrors = {};
+  }
+
+  const next = clearLegacyFormError({ ...current, validationErrors: nextErrors });
+  if (JSON.stringify(current) === JSON.stringify(next)) return false;
+  ds?.setFormData?.({ values: next });
+  return true;
+}
+
+function summarizeValidationMessages(messages = []) {
+  const cleaned = (Array.isArray(messages) ? messages : []).map((entry) => String(entry || '').trim()).filter(Boolean);
+  if (cleaned.length === 0) return "Schedule can't be saved.";
+  if (cleaned.length === 1) return `Schedule can't be saved. ${cleaned[0]}.`;
+  return `Schedule can't be saved. ${cleaned[0]}. ${cleaned.length - 1} more issue${cleaned.length > 2 ? 's' : ''}.`;
+}
+
+function pushWindowTabSelection(windowId, tabId) {
+  if (!windowId || !tabId) return false;
+  try {
+    const bus = getBusSignal(windowId);
+    const current = bus?.peek?.() || bus?.value || [];
+    bus.value = [...(Array.isArray(current) ? current : []), { type: 'selectTab', tabId }];
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function focusScheduleField(fieldId) {
+  if (typeof document === 'undefined' || !fieldId) return false;
+  const wrapper = document.querySelector(`[data-forge-control-id="${String(fieldId).replace(/"/g, '\\"')}"]`);
+  if (!wrapper) return false;
+  const target = wrapper.querySelector('input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])') || wrapper;
+  try {
+    wrapper.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  } catch (_) {}
+  try {
+    target.focus({ preventScroll: true });
+    return true;
+  } catch (_) {
+    try {
+      target.focus();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+function revealScheduleValidation(context, fieldId = '') {
+  const windowId = context?.identity?.windowId || context?.Context?.('schedules')?.identity?.windowId;
+  if (!windowId) return;
+  pushWindowTabSelection(windowId, 'scheduleEditor');
+  const subtabId = VALIDATION_FIELD_TAB[String(fieldId || '').trim()] || 'general';
+  setTimeout(() => pushWindowTabSelection(windowId, subtabId), 20);
+  setTimeout(() => focusScheduleField(fieldId), 100);
+}
+
+function resetScheduleEditorTab(context) {
+  const windowId = context?.identity?.windowId || context?.Context?.('schedules')?.identity?.windowId;
+  if (!windowId) return;
+  setTimeout(() => pushWindowTabSelection(windowId, 'general'), 20);
+}
+
 function applyIncomingFieldValue(form = {}, item, value) {
   const fieldKey = item?.dataField || item?.bindingPath || item?.id;
   if (!fieldKey) return form;
@@ -944,7 +1140,46 @@ function installScheduleEmptyStateObserver() {
   scheduleService._emptyStateObserverInstalled = true;
 }
 
+function ensureScheduleRuntimeHooks() {
+  try {
+    if (!scheduleService._visibilityHookInstalled) {
+      registerDynamicEvaluator('onVisible', ({ item, context: ctx }) => {
+        try {
+          const ds = ctx?.Context?.('schedules')?.handlers?.dataSource;
+          const form = ensureEditorState(getFormState(ds));
+          const kind = normalizeEditorKind(form);
+          const calendarPattern = normalizeCalendarPattern(form);
+          if (item?.id === 'calendarPattern') return kind === 'calendar';
+          if (item?.id === 'calendarTime') return kind === 'calendar';
+          if (item?.id === 'calendarIntervalHours') return kind === 'calendar' && calendarPattern === 'every';
+          if (item?.id === 'weekdays') return kind === 'calendar';
+          if (item?.id === 'elapsedIntervalValue' || item?.id === 'elapsedIntervalUnit') return kind === 'elapsed';
+          if (item?.id === 'cronExpr') return kind === 'advanced';
+          if (item?.id === 'scheduleType' || item?.id === 'intervalSeconds') return false;
+        } catch (_) {}
+        return undefined;
+      });
+      scheduleService._visibilityHookInstalled = true;
+    }
+    if (!scheduleService._validationHookInstalled) {
+      registerDynamicEvaluator('onValidate', ({ item, context: ctx }) => {
+        try {
+          const ds = getSchedulesDataSource(ctx) || ctx?.handlers?.dataSource;
+          const form = getFormState(ds);
+          return getValidationErrors(form)?.[item?.id] || undefined;
+        } catch (_) {
+          return undefined;
+        }
+      });
+      scheduleService._validationHookInstalled = true;
+    }
+  } catch (e) {
+    log.warn('scheduleService.ensureScheduleRuntimeHooks error', e);
+  }
+}
+
 async function saveSchedule({ context }) {
+  ensureScheduleRuntimeHooks();
   if (scheduleService._saveScheduleInFlight) return true;
   const ctx = context?.Context('schedules');
   if (!ctx) {
@@ -952,9 +1187,21 @@ async function saveSchedule({ context }) {
     return false;
   }
   const ds = ctx.handlers?.dataSource;
-  const form = ensureEditorState(getFormState(ds));
+  const rawForm = getFormState(ds);
+  const form = ensureEditorState(rawForm);
   if (!Object.keys(form).length) {
     log.warn('scheduleService.saveSchedule: no form data');
+    return false;
+  }
+  const validation = validateScheduleForm(rawForm);
+  if (validation.orderedFields.length > 0) {
+    setScheduleValidation(ds, validation);
+    showToast(summarizeValidationMessages(validation.messages), {
+      intent: 'danger',
+      key: `schedule-validation:${validation.orderedFields.join(',')}`,
+      ttlMs: SCHEDULE_TOAST_TTL_MS
+    });
+    revealScheduleValidation(context, validation.orderedFields[0]);
     return false;
   }
   const enabledRaw = firstDefined(form, ['enabled']);
@@ -989,6 +1236,7 @@ async function saveSchedule({ context }) {
     }
     ds?.setLoading?.(true);
     await client.upsertSchedules([payload]);
+    clearScheduleValidation(ds);
     let synced = null;
     try {
       synced = syncSavedSchedule(ds, await client.getSchedule(scheduleID));
@@ -998,10 +1246,16 @@ async function saveSchedule({ context }) {
     if (!existingID || !synced) {
       ds?.fetchCollection?.();
     }
+    resetScheduleEditorTab(context);
     return true;
   } catch (err) {
     log.error('scheduleService.saveSchedule error', err);
-    ds?.setError?.(err);
+    clearScheduleValidation(ds);
+    showToast(String(err?.message || err || 'Failed to save schedule'), {
+      intent: 'danger',
+      key: 'schedule-save-error',
+      ttlMs: SCHEDULE_TOAST_TTL_MS
+    });
     return false;
   } finally {
     scheduleService._saveScheduleInFlight = false;
@@ -1109,29 +1363,7 @@ export const scheduleService = {
   onInit({ context }) {
     installScheduleEmptyStateObserver();
     setTimeout(decorateScheduleEmptyStates, 0);
-    try {
-      if (!scheduleService._visibilityHookInstalled) {
-        registerDynamicEvaluator('onVisible', ({ item, context: ctx }) => {
-          try {
-            const ds = ctx?.Context?.('schedules')?.handlers?.dataSource;
-            const form = ensureEditorState(getFormState(ds));
-            const kind = normalizeEditorKind(form);
-            const calendarPattern = normalizeCalendarPattern(form);
-            if (item?.id === 'calendarPattern') return kind === 'calendar';
-            if (item?.id === 'calendarTime') return kind === 'calendar';
-            if (item?.id === 'calendarIntervalHours') return kind === 'calendar' && calendarPattern === 'every';
-            if (item?.id === 'weekdays') return kind === 'calendar';
-            if (item?.id === 'elapsedIntervalValue' || item?.id === 'elapsedIntervalUnit') return kind === 'elapsed';
-            if (item?.id === 'cronExpr') return kind === 'advanced';
-            if (item?.id === 'scheduleType' || item?.id === 'intervalSeconds') return false;
-          } catch (_) {}
-          return undefined;
-        });
-        scheduleService._visibilityHookInstalled = true;
-      }
-    } catch (e) {
-      log.warn('scheduleService.onInit visibility hook error', e);
-    }
+    ensureScheduleRuntimeHooks();
     try {
       const ds = getSchedulesDataSource(context);
       if (ds) {
@@ -1300,13 +1532,34 @@ export const scheduleService = {
   },
   syncScheduleFields(params = {}) {
     try {
+      ensureScheduleRuntimeHooks();
       const { context, item } = params;
       const ds = getSchedulesDataSource(context) || context?.handlers?.dataSource;
       if (!ds) return;
       const { hasValue, value } = resolveIncomingFieldValue(params);
       const base = getFormState(ds);
       const fieldKey = item?.dataField || item?.bindingPath || item?.id || '';
-      let current = hasValue ? applyIncomingFieldValue(base, item, value) : base;
+      let current = hasValue ? applyIncomingFieldValue(base, item, value) : clearLegacyFormError(base);
+      if (fieldKey) {
+        current = clearLegacyFormError({ ...current, validationErrors: { ...getValidationErrors(current) } });
+        const existingErrors = getValidationErrors(current);
+        if (Object.keys(existingErrors).length > 0) {
+          const nextErrors = { ...existingErrors };
+          const related = new Set([fieldKey]);
+          if (fieldKey === 'taskPrompt' || fieldKey === 'taskPromptUri') {
+            related.add('taskPrompt');
+            related.add('taskPromptUri');
+          }
+          if (fieldKey === 'scheduleEditorKind') {
+            MODE_VALIDATION_FIELDS.forEach((field) => related.add(field));
+          }
+          if (fieldKey === 'calendarPattern') {
+            related.add('calendarIntervalHours');
+          }
+          related.forEach((field) => delete nextErrors[field]);
+          current.validationErrors = nextErrors;
+        }
+      }
       current = seedAdvancedCronExpr(current, base, fieldKey);
       const synced = applyScheduleSync(current);
       updateFormIfChanged(ds, synced);
@@ -1316,16 +1569,17 @@ export const scheduleService = {
   },
   addNewSchedule({ context }) {
     try {
+      ensureScheduleRuntimeHooks();
       const ds = getSchedulesDataSource(context);
       if (ds) {
         ds.handleAddNew();
-        updateFormIfChanged(ds, ensureEditorState(getFormState(ds)));
+        updateFormIfChanged(ds, ensureEditorState({ ...getFormState(ds), validationErrors: {}, formError: '' }));
       }
       // Switch to Editor tab via bus message
       const windowId = context?.identity?.windowId;
       if (windowId) {
-        const bus = getBusSignal(windowId);
-        bus.value = [...(bus.peek() || []), { type: 'selectTab', tabId: 'scheduleEditor' }];
+        pushWindowTabSelection(windowId, 'scheduleEditor');
+        setTimeout(() => pushWindowTabSelection(windowId, 'general'), 20);
       }
     } catch (e) {
       log.warn('schedule.addNewSchedule error', e);
