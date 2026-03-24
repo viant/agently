@@ -1331,21 +1331,6 @@ body {
   position: relative;
 }
 
-#bp6-tab-panel_window-manager-tabs_schedule\/history .table-panel::before {
-  content: 'Runs\A Review completed and in-flight scheduled executions without leaving the workspace.';
-  white-space: pre-line;
-  display: block;
-  color: #2d3a4f;
-  font-size: 14px;
-  line-height: 1.55;
-  padding: 2px 4px 14px;
-  font-weight: 500;
-}
-
-#bp6-tab-panel_window-manager-tabs_schedule\/history .table-panel::before:first-line {
-  font-size: 26px;
-}
-
 #bp6-tab-panel_window-manager-tabs_schedule\/history .table-panel > div,
 #bp6-tab-panel_window-manager-tabs_schedule .table-panel > div {
   overflow: visible !important;
@@ -1461,12 +1446,7 @@ body {
   content: 'Automation\A Create recurring agent jobs, control cadence, and keep the execution policy in one place.';
 }
 
-#bp6-tab-panel_form-tabs_scheduleConversations::before {
-  content: 'Runs\A Review completed and in-flight scheduled executions without leaving the workspace.';
-}
-
-#bp6-tab-panel_form-tabs_schedulesCatalogue::before,
-#bp6-tab-panel_form-tabs_scheduleConversations::before {
+#bp6-tab-panel_form-tabs_schedulesCatalogue::before {
   white-space: pre-line;
   display: block;
   max-width: 1180px;
@@ -1478,8 +1458,7 @@ body {
   font-weight: 500;
 }
 
-#bp6-tab-panel_form-tabs_schedulesCatalogue::first-line,
-#bp6-tab-panel_form-tabs_scheduleConversations::first-line {
+#bp6-tab-panel_form-tabs_schedulesCatalogue::first-line {
   font-size: 26px;
   line-height: 1.15;
   font-weight: 800;
