@@ -4,7 +4,7 @@ service:
   method: GET
 
 paging:
-  size: 25
+  size: 10
   enabled: true
   dataInfoSelectors:
     pageCount: pageCount
@@ -12,7 +12,7 @@ paging:
 
 selectors:
   data: data.schedules
-  dataInfo: ''
+  dataInfo: info
 
 on:
   - event: onFetch
