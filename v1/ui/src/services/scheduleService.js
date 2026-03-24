@@ -894,7 +894,11 @@ export function panelHasRenderableRows(wrapper) {
   if (!body) return false;
   const rows = Array.from(body.querySelectorAll('tr'));
   if (rows.length === 0) return false;
-  return rows.some((row) => !row.classList?.contains?.('empty-row'));
+  return rows.some((row) => {
+    const cells = Array.from(row.querySelectorAll?.('td') || []);
+    if (cells.length === 0) return false;
+    return cells.some((cell) => !cell.classList?.contains?.('empty-row'));
+  });
 }
 
 function decorateScheduleEmptyStates() {
@@ -909,6 +913,11 @@ function decorateScheduleEmptyStates() {
     const wrapper = panel.querySelector('.basic-table-wrapper');
     if (!wrapper) return;
     let empty = wrapper.querySelector('.app-automation-empty-state');
+    if (panelId === 'bp6-tab-panel_window-manager-tabs_schedule/history') {
+      empty?.remove();
+      wrapper.classList.remove('is-empty');
+      return;
+    }
     if (panelHasRenderableRows(wrapper)) {
       empty?.remove();
       wrapper.classList.remove('is-empty');

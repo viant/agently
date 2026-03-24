@@ -74,10 +74,17 @@ describe('scheduleService SDK lookups', () => {
             if (innerSelector !== 'tr') return []
             return [
               {
-                classList: {
-                  contains(className) {
-                    return className === 'empty-row' ? false : false
-                  }
+                querySelectorAll(cellSelector) {
+                  if (cellSelector !== 'td') return []
+                  return [
+                    {
+                      classList: {
+                        contains() {
+                          return false
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             ]
@@ -87,6 +94,37 @@ describe('scheduleService SDK lookups', () => {
     }
 
     expect(panelHasRenderableRows(wrapper)).toBe(true)
+  })
+
+  it('treats backfill empty-row cells as non-renderable', () => {
+    const wrapper = {
+      querySelector(selector) {
+        if (selector !== 'tbody') return null
+        return {
+          querySelectorAll(innerSelector) {
+            if (innerSelector !== 'tr') return []
+            return [
+              {
+                querySelectorAll(cellSelector) {
+                  if (cellSelector !== 'td') return []
+                  return [
+                    {
+                      classList: {
+                        contains(className) {
+                          return className === 'empty-row'
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+
+    expect(panelHasRenderableRows(wrapper)).toBe(false)
   })
 
   it('normalizes and filters agent LOV rows from workspace metadata', () => {
