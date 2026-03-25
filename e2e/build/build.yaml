@@ -8,7 +8,7 @@ pipeline:
     description: build and embed UI (optional - uses pre-built if fails)
     commands:
       - cd $repoPath
-      - ./scripts/build-ui-embed.sh || echo "[build-ui-embed] skipped - using pre-built UI assets"
+      - ./e2e/build-ui-embed.sh || echo "[build-ui-embed] skipped - using pre-built UI assets"
 
   buildAgently:
     action: exec:run

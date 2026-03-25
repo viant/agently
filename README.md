@@ -298,14 +298,14 @@ agently/
   deployment/ui/      # Built UI bundle (embed)
   ui/                 # React/Vite UI source
   e2e/                # End-to-end tests (endly + Go)
-  scripts/            # build-ui-embed.sh
+  e2e/build-ui-embed.sh  # UI build script
 ```
 
 ## UI Development
 
 ```bash
 # Build UI and copy to deployment/ui/
-./scripts/build-ui-embed.sh
+./e2e/build-ui-embed.sh
 
 # Rebuild binary with updated UI
 cd agently && go build -o agently .
