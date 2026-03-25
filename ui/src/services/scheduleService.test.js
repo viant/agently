@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as forgeCore from 'forge/core'
+import * as httpClient from './httpClient'
 
 import { client } from './agentlyClient'
 import { panelHasRenderableRows, scheduleService } from './scheduleService'
@@ -60,8 +62,11 @@ function saveContext(formValues = {}) {
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   scheduleService._saveScheduleInFlight = false
+  scheduleService._visibilityHookInstalled = false
+  scheduleService._validationHookInstalled = false
 })
 
 describe('scheduleService SDK lookups', () => {
@@ -365,8 +370,161 @@ describe('scheduleService saveSchedule', () => {
 
     expect(ok).toBe(false)
     expect(upsertSpy).not.toHaveBeenCalled()
-    expect(state.errors).toHaveLength(1)
-    expect(String(state.errors[0]?.message || state.errors[0])).toContain('Start Date must be a valid date/time')
+    expect(state.errors).toHaveLength(0)
+    expect(String(state.formValues.validationErrors?.startAt || '')).toContain('Start Date must be a valid date/time')
+  })
+
+  it('rejects missing schedule name before calling the scheduler API', async () => {
+    const { context, state } = saveContext({
+      name: '',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it'
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(false)
+    expect(upsertSpy).not.toHaveBeenCalled()
+    expect(state.errors).toHaveLength(0)
+    expect(String(state.formValues.validationErrors?.name || '')).toContain('Schedule Name is required')
+  })
+
+  it('rejects missing agent before calling the scheduler API', async () => {
+    const { context, state } = saveContext({
+      name: 'nightly',
+      agentRef: '',
+      enabled: true,
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it'
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(false)
+    expect(upsertSpy).not.toHaveBeenCalled()
+    expect(state.errors).toHaveLength(0)
+    expect(String(state.formValues.validationErrors?.agentRef || '')).toContain('Agent is required')
+  })
+
+  it('rejects missing task prompt payload before calling the scheduler API', async () => {
+    const { context, state } = saveContext({
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: '',
+      taskPromptUri: ''
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(false)
+    expect(upsertSpy).not.toHaveBeenCalled()
+    expect(state.errors).toHaveLength(0)
+    expect(String(state.formValues.validationErrors?.taskPrompt || '')).toContain('Task Prompt or Task Prompt URI is required')
+  })
+
+  it('allows task prompt uri to satisfy the required task payload', async () => {
+    const { context } = saveContext({
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: '',
+      taskPromptUri: 'gs://bucket/path/prompt.txt'
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(upsertSpy).toHaveBeenCalledTimes(1)
+    expect(upsertSpy.mock.calls[0][0][0].taskPrompt).toBe('')
+    expect(upsertSpy.mock.calls[0][0][0].taskPromptUri).toBe('gs://bucket/path/prompt.txt')
+  })
+
+  it('rejects blank advanced cron expressions before calling the scheduler API', async () => {
+    const { context, state } = saveContext({
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'advanced',
+      cronExpr: '',
+      timezone: 'UTC',
+      taskPrompt: 'Run it'
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(false)
+    expect(upsertSpy).not.toHaveBeenCalled()
+    expect(state.errors).toHaveLength(0)
+    expect(String(state.formValues.validationErrors?.cronExpr || '')).toContain('Cron Expression is required')
+  })
+
+  it('rejects blank calendar time before calling the scheduler API', async () => {
+    const { context, state } = saveContext({
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it'
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(false)
+    expect(upsertSpy).not.toHaveBeenCalled()
+    expect(state.errors).toHaveLength(0)
+    expect(String(state.formValues.validationErrors?.calendarTime || '')).toContain('At / Starting At is required')
+  })
+
+  it('rejects blank elapsed interval before calling the scheduler API', async () => {
+    const { context, state } = saveContext({
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'elapsed',
+      elapsedIntervalValue: '',
+      elapsedIntervalUnit: 'minutes',
+      timezone: 'UTC',
+      taskPrompt: 'Run it'
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(false)
+    expect(upsertSpy).not.toHaveBeenCalled()
+    expect(state.errors).toHaveLength(0)
+    expect(String(state.formValues.validationErrors?.elapsedIntervalValue || '')).toContain('Repeat Every is required')
   })
 
   it('defaults blank visibility to private when saving', async () => {
@@ -642,6 +800,111 @@ describe('scheduleService saveSchedule', () => {
 
     resolveSave()
     await Promise.all([first, second])
+  })
+
+  it('resets the editor subtab to general after a successful save', async () => {
+    vi.useFakeTimers()
+    const { context } = saveContext({
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it'
+    })
+    context.identity = { windowId: 'win-1' }
+
+    const bus = {
+      value: [],
+      peek() {
+        return this.value
+      }
+    }
+    vi.spyOn(forgeCore, 'getBusSignal').mockReturnValue(bus)
+    vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+    vi.spyOn(client, 'getSchedule').mockRejectedValue(new Error('skip refresh'))
+
+    const pending = scheduleService.saveSchedule({ context })
+    await Promise.resolve()
+    await vi.runAllTimersAsync()
+    const ok = await pending
+
+    expect(ok).toBe(true)
+    expect(bus.value).toEqual([
+      { type: 'selectTab', tabId: 'general' }
+    ])
+  })
+
+  it('clears only the edited field validation error', () => {
+    const { context, state } = saveContext({
+      name: '',
+      agentRef: '',
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it',
+      validationErrors: {
+        name: 'Schedule Name is required',
+        agentRef: 'Agent is required'
+      }
+    })
+
+    scheduleService.syncScheduleFields({
+      context,
+      item: { id: 'name' },
+      value: 'nightly'
+    })
+
+    expect(state.formValues.validationErrors?.name).toBeUndefined()
+    expect(state.formValues.validationErrors?.agentRef).toBe('Agent is required')
+    expect(state.formValues.name).toBe('nightly')
+  })
+
+  it('shows a toast and routes invalid saves to the editor tab', async () => {
+    vi.useFakeTimers()
+    const { context, state } = saveContext({
+      name: '',
+      agentRef: '',
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it'
+    })
+    context.identity = { windowId: 'win-1' }
+
+    const bus = {
+      value: [],
+      peek() {
+        return this.value
+      }
+    }
+    const toastSpy = vi.spyOn(httpClient, 'showToast').mockImplementation(() => {})
+    vi.spyOn(forgeCore, 'getBusSignal').mockReturnValue(bus)
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const pending = scheduleService.saveSchedule({ context })
+    await Promise.resolve()
+    await vi.runAllTimersAsync()
+    const ok = await pending
+
+    expect(ok).toBe(false)
+    expect(upsertSpy).not.toHaveBeenCalled()
+    expect(toastSpy).toHaveBeenCalledTimes(1)
+    expect(String(toastSpy.mock.calls[0][0] || '')).toContain("Schedule can't be saved")
+    expect(bus.value).toEqual([
+      { type: 'selectTab', tabId: 'scheduleEditor' },
+      { type: 'selectTab', tabId: 'general' }
+    ])
+    expect(scheduleService._validationHookInstalled).toBe(true)
+    expect(state.formValues.validationErrors?.name).toBe('Schedule Name is required')
+    expect(state.formValues.validationErrors?.agentRef).toBe('Agent is required')
   })
 })
 
