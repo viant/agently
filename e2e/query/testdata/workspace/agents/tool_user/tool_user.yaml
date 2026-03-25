@@ -1,0 +1,17 @@
+id: tool_user
+name: Tool User
+description: Agent with OS tool access for terminal e2e testing
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: ToolBot
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  callExposure: conversation
+  items:
+    - pattern: "system/os:getEnv"
+      type: function

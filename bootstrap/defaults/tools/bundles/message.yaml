@@ -1,0 +1,7 @@
+id: message
+title: Messages
+description: Conversation message helpers
+iconRef: builtin:message
+priority: 40
+match:
+  - name: "message:*"

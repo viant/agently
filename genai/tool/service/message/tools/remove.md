@@ -1,1 +1,0 @@
-Create a summary message and archive selected messages (soft-remove).

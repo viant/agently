@@ -16,49 +16,11 @@ view:
         dataSourceRef: meta
         fetchData: true
 
-      - id: header
-        dataSourceRef: conversations
-        fetchData: true
-        selectFirst: true
-        layout:
-          orientation: horizontal
-          columns: 5
-          labelPosition: left
-          gap: 2
-        items:
-          - id: agentName
-            type: label
-            label: Agent
-
-          - id: title
-            type: label
-            properties:
-              style:
-                fontWeight: 600
-            columnSpan: 3
-          - id: chainStatus
-            type: label
-            properties:
-              style:
-                justifySelf: end
-                alignSelf: center
-                fontSize: '11px'
-                fontWeight: 600
-                padding: '2px 8px'
-                borderRadius: '999px'
-                border: '1px solid var(--light-gray1)'
-                background: 'var(--light-gray5)'
-                color: 'var(--gray1)'
-            on:
-              - event: onVisible
-                handler: chat.showHeaderChainStatus
-
       - id: conversationSection
         chat:
           dataSourceRef: messages
-          #height: 80vh
-          showSettings: true
-          showTools: true
+          showSettings: false
+          showTools: false
           showMic: true
           commandCenter: true
           abortVisible:
@@ -70,86 +32,6 @@ view:
             endpoint: agentlyAPI
             path: upload
           uploadField: files
-          toolbar:
-            dataSourceRef: messages
-            items:
-              - id: newConv
-                icon: plus
-                label: New Chat
-                properties:
-                  title: Start a new conversation
-                tooltip: Start a new conversation
-                enabled: true
-                align: left
-                on:
-                  - event: onClick
-                    handler: chat.newConversation
-                  - event: onReadonly
-                    handler: dataSource.isSelected
-              - id: compact
-                icon: collapse-all
-                label: Compact
-                properties:
-                  title: Replace older history with a single summary to reduce context size
-                tooltip: Replace older history with a single summary to reduce context size
-                enabled: true
-                align: left
-                on:
-                  - event: onClick
-                    handler: chat.compactConversation
-                  - event: onReadonly
-                    handler: chat.compactReadonly
-              - id: prune
-                icon: trash
-                label: Prune
-                properties:
-                  title: Remove low-value tool outputs (keeps recent context)
-                tooltip: Remove low-value tool outputs (keeps recent context)
-                enabled: true
-                align: left
-                on:
-                  - event: onClick
-                    handler: chat.pruneConversation
-                  - event: onReadonly
-                    handler: chat.pruneReadonly
-              - id: queue
-                icon: list
-                label: Queue
-                tooltip: Show queued turns
-                align: left
-                on:
-                  - event: onClick
-                    handler: window.openDialog
-                    args:
-                      - queue
-                    parameters:
-                      - name: parameters.id
-                        to: queueTurns:input
-                        from: conversations:form
-                        location: id
-              - id: visibility
-                type: select
-                icon: eye-open
-                align: left
-                dataSourceRef: conversations
-                options:
-                  - { value: private, label: Private }
-                  - { value: public, label: Public }
-                on:
-                  - event: onChange
-                    handler: chat.updateVisibility
-              - id: toggleChains
-                icon: git-branch
-                label: Toggle Chains
-                tooltip: Enable or disable agent chaining for new turns
-                align: left
-                on:
-                  - event: onClick
-                    handler: chat.toggleChains
-                  - event: onVisible
-                    handler: chat.hasAgentChains
-              # Removed usage dialog trigger
-
           on:
             - event: onSubmit
               handler: chat.submitMessage
@@ -160,6 +42,10 @@ view:
                 - name: agent
                   in: form
                   location: conversations.agent
+            - event: onModelSelect
+              handler: chat.selectModel
+            - event: onAgentSelect
+              handler: chat.selectAgent
             - event: onSettings
               handler: chat.onSettings
             - event: onUpload

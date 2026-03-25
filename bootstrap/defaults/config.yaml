@@ -1,0 +1,47 @@
+
+
+default:
+  agent: chatter
+  model: openai_gpt-5.4
+  summaryModel: openai_gpt-5-mini
+  embedder: openai_text
+  agentAutoSelection:
+    model: openai_gpt-5-mini
+  toolAutoSelection:
+    model: openai_gpt-5-mini
+
+  runtimeRoot: "~/agently/runtime"
+  statePath: "${runtimeRoot}/state"
+  resources:
+    indexPath: "${runtimeRoot}/index/data"
+    snapshotPath: "${runtimeRoot}/snapshots"
+
+internalMCP:
+  services:
+    - system/exec
+    - system/os
+    - system/patch
+    - orchestration/plan
+    - llm/agents
+    - resources
+    - message
+
+auth:
+  enabled: true
+  cookieName: agently_session
+  defaultUsername: devuser
+  ipHashKey: dev-hmac-salt
+  local:
+    enabled: true
+  # OAuth IDP configuration (BFF mode - uncomment and configure to enable SSO)
+  # oauth:
+  #   mode: bff              # bff | spa | bearer | mixed
+  #   name: my-idp           # internal provider identifier
+  #   label: My IDP          # display name shown on the sign-in button
+  #   client:
+  #     configURL: ""        # scy resource URL for OAuth client config (client_id, client_secret, endpoints)
+  #     redirectURI: ""      # OAuth callback URL, e.g. https://your-host/v1/api/auth/oauth/callback
+  #     scopes:
+  #       - openid
+  #       - profile
+  #       - email

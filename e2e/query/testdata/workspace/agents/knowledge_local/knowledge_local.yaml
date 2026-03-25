@@ -1,0 +1,16 @@
+id: knowledge_local
+name: Knowledge Local
+description: Agent with local knowledge for terminal e2e testing
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: KnowledgeBot
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+knowledge:
+  - inclusionMode: full
+    url: knowledge/
+tool: {}

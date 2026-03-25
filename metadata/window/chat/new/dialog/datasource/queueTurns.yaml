@@ -1,6 +1,6 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/api/conversations/{id}/messages
+  uri: /v1/conversations/{id}/transcript
   method: GET
 
 parameters:
@@ -8,9 +8,21 @@ parameters:
     kind: path
     in: input
     location: id
+  - name: includeModelCalls
+    kind: query
+    in: input
+    location: includeModelCalls
+  - name: includeToolCalls
+    kind: query
+    in: input
+    location: includeToolCalls
+
+params:
+  includeModelCalls: "true"
+  includeToolCalls: "true"
 
 selectors:
-  data: data.Transcript
+  data: data.turns
 
 uniqueKey:
   - field: id

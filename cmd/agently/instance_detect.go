@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/viant/agently-core/sdk"
 )
 
 type authProviderInfo struct {
@@ -27,18 +30,6 @@ type instanceInfo struct {
 	DefaultModel  string
 	Models        []string
 	Providers     []authProviderInfo
-}
-
-type workspaceMetadataResponse struct {
-	Status string `json:"status"`
-	Data   struct {
-		WorkspaceRoot string `json:"workspaceRoot"`
-		Defaults      struct {
-			Agent string `json:"agent"`
-			Model string `json:"model"`
-		} `json:"defaults"`
-		Models []string `json:"models"`
-	} `json:"data"`
 }
 
 func detectLocalInstances(ctx context.Context) ([]*instanceInfo, error) {
@@ -62,10 +53,13 @@ func detectLocalInstances(ctx context.Context) ([]*instanceInfo, error) {
 		}
 		baseURL := fmt.Sprintf("http://localhost:%d", port)
 		meta, ok := fetchWorkspaceMetadata(ctx, baseURL)
-		if !ok {
+		providers, providersErr := fetchAuthProviders(ctx, baseURL)
+		if !ok && providersErr != nil {
 			continue
 		}
-		providers, _ := fetchAuthProviders(ctx, baseURL)
+		if meta == nil {
+			meta = &workspaceMetadata{}
+		}
 		out = append(out, &instanceInfo{
 			BaseURL:       baseURL,
 			Port:          port,
@@ -110,8 +104,7 @@ func processesFromPS() []processInfo {
 		if len(fields) < 2 {
 			continue
 		}
-		cmdline := strings.Join(fields[1:], " ")
-		if !strings.Contains(cmdline, "agently") || !strings.Contains(cmdline, "serve") {
+		if !isAgentlyServeProcess(fields[1:]) {
 			continue
 		}
 		pid, err := strconv.Atoi(strings.TrimSpace(fields[0]))
@@ -122,6 +115,29 @@ func processesFromPS() []processInfo {
 		procs = append(procs, processInfo{PID: pid, Port: port})
 	}
 	return procs
+}
+
+func isAgentlyServeProcess(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	hasServe := false
+	hasAgently := false
+	for _, arg := range args {
+		token := strings.TrimSpace(arg)
+		if token == "" {
+			continue
+		}
+		if token == "serve" {
+			hasServe = true
+			continue
+		}
+		base := filepath.Base(trimQuotes(token))
+		if base == "agently" {
+			hasAgently = true
+		}
+	}
+	return hasServe && hasAgently
 }
 
 func parsePortFromArgs(args []string) int {
@@ -257,31 +273,25 @@ type workspaceMetadata struct {
 }
 
 func fetchWorkspaceMetadata(ctx context.Context, baseURL string) (*workspaceMetadata, bool) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/workspace/metadata", nil)
+	client, err := sdk.NewHTTP(baseURL)
 	if err != nil {
 		return nil, false
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Do(req)
+	meta, err := client.GetWorkspaceMetadata(ctx)
 	if err != nil {
 		return nil, false
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+	if meta == nil {
 		return nil, false
 	}
-	var payload workspaceMetadataResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, false
-	}
-	if strings.ToLower(strings.TrimSpace(payload.Status)) != "ok" {
+	if strings.TrimSpace(meta.WorkspaceRoot) == "" && strings.TrimSpace(meta.DefaultAgent) == "" && strings.TrimSpace(meta.DefaultModel) == "" && len(meta.Models) == 0 {
 		return nil, false
 	}
 	return &workspaceMetadata{
-		WorkspaceRoot: strings.TrimSpace(payload.Data.WorkspaceRoot),
-		DefaultAgent:  strings.TrimSpace(payload.Data.Defaults.Agent),
-		DefaultModel:  strings.TrimSpace(payload.Data.Defaults.Model),
-		Models:        payload.Data.Models,
+		WorkspaceRoot: strings.TrimSpace(meta.WorkspaceRoot),
+		DefaultAgent:  strings.TrimSpace(meta.DefaultAgent),
+		DefaultModel:  strings.TrimSpace(meta.DefaultModel),
+		Models:        meta.Models,
 	}, true
 }
 

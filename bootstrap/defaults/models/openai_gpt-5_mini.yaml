@@ -1,0 +1,12 @@
+id: openai_gpt-5-mini
+name: gpt-5 mini
+description: OpenAI GPT-5 Mini model
+intelligence: 0.9
+speed: 0.97
+options:
+  provider: openai
+  model: gpt-5-mini
+  envKey: OPENAI_API_KEY
+  maxTokens: 100000
+  contextContinuation: true
+  enableContinuationFormat: false

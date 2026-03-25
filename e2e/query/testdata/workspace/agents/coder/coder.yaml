@@ -1,0 +1,20 @@
+id: coder
+name: Coder
+description: Coding agent for repository analysis e2e coverage
+modelRef: openai_gpt-5.2
+temperature: 0
+persona:
+  role: assistant
+  actor: Coder
+reasoning:
+  effort: low
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+defaultWorkdir: /tmp
+tool:
+  callExposure: conversation
+  items:
+    - pattern: "system/exec:*"
+      type: function

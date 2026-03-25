@@ -1,0 +1,1 @@
+Browser regression: send `hi` with the default chatter agent and verify the v1 UI shows execution details and a final greeting.

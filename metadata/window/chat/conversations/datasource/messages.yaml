@@ -1,7 +1,10 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/api/conversations/{convID}/messages
+  uri: /v1/conversations/{convID}/transcript
   method: GET
+
+selectors:
+  data: turns
 
 parameters:
   - name: convID

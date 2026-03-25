@@ -1,0 +1,1 @@
+Browser regression: ask chatter to describe the user’s favorite color and verify the browser surfaces a clarification or elicitation asking for the favorite color.

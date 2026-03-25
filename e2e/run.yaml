@@ -2,7 +2,9 @@ init:
   mysqlCred: mysql-e2e.json
   mysqlSecrets: ${secrets.$mysqlCred}
   repoPath: $WorkingDirectory(./..)
-  appURL: http://localhost:8080/
+  serverPort: '$serverPort ? $serverPort : 9091'
+  serverURL: http://127.0.0.1:${serverPort}
+  workspacePath: '${env.AGENTLY_WORKSPACE ? env.AGENTLY_WORKSPACE : ${repoPath}/.agently}'
   dbIP:
     mysql: localhost
     user: ${mysqlSecrets.Username}
@@ -17,56 +19,77 @@ pipeline:
   init:
     system:
       action: run
-      description: init system
+      description: init system (docker mysql)
       request: '@system'
 
     database:
       action: run
-      description: init database
+      description: init database schema
       request: '@database/database'
 
   build:
     action: run
-    description: build application
+    description: build agently binary
     request: '@build/build'
-  app:
-    action: run
-    description: app
-    request: '@app/app'
 
-  rule:
-    cleanup:
+  app:
+    start:
       action: exec:run
-      TimeoutMs: 120000
+      description: start agently server
       checkError: true
       commands:
-        - cd $appPath
-        - rm -rf repo/
+        - |
+          pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
+          if [ -n "$pids" ]; then
+            kill $pids || true
+          fi
+          for i in $(seq 1 20); do
+            if ! lsof -nP -iTCP:${serverPort} -sTCP:LISTEN | grep -q LISTEN; then
+              break
+            fi
+            sleep 0.5
+          done
+        - |
+          (nohup env AGENTLY_WORKSPACE=${workspacePath} \
+            AGENTLY_DB_DRIVER=mysql \
+            AGENTLY_DB_DSN="${dbIP.user}:${dbIP.password}@tcp(${dbIP.mysql}:${dbPort.mysql})/agently?parseTime=true" \
+            ${repoPath}/bin/agently serve -a :${serverPort} >/tmp/agently-e2e.log 2>&1 &)
+        - |
+          for i in $(seq 1 40); do
+            if curl -fsS ${serverURL}/healthz | grep -q '"status":"ok"'; then
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "server failed to start on ${serverURL}/healthz"
+          tail -n 80 /tmp/agently-e2e.log || true
+          exit 1
 
-    transcript:
-      action: run
-      request: '@rule/transcript'
-    schedule:
-      action: run
-      request: '@rule/schedule'
-    user:
-      action: run
-      request: '@rule/user'
-    generatedfile:
-      action: run
-      request: '@rule/generatedfile'
-    sdk:
-      action: run
-      request: '@rule/sdk'
+  health:
+    action: http/runner:send
+    description: verify server health endpoint
+    requests:
+      - Method: GET
+        URL: ${serverURL}/healthz
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
 
-#
-#  test:
-#    action: run
-#    description: run e2e tests
-#    request: '@regression/regression'
-#
-#  validate:
-#    action: print
-#    message: validation ...
-#
-#
+  test:
+    action: run
+    description: run e2e regression tests
+    request: '@regression/regression'
+    params:
+      serverURL: $serverURL
+
+  cleanup:
+    stop:
+      action: exec:run
+      description: stop agently server
+      commands:
+        - |
+          pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
+          if [ -n "$pids" ]; then
+            kill $pids || true
+          fi
