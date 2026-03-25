@@ -267,7 +267,7 @@ func (a *authRuntime) protect(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodOptions || r.URL.Path == "/healthz" {
+		if r.Method == http.MethodOptions || r.URL.Path == "/healthz" || r.URL.Path == "/health" {
 			next.ServeHTTP(w, r)
 			return
 		}
