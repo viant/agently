@@ -19,17 +19,21 @@ view:
       - id: conversationSection
         chat:
           dataSourceRef: messages
-          showSettings: true
+          showSettings: false
           abortVisible:
             dataSourceRef: conversations
             selector: running
           on:
             - event: onSubmit
               handler: chat.submitMessage
+            - event: onModelSelect
+              handler: chat.selectModel
+            - event: onAgentSelect
+              handler: chat.selectAgent
             - event: onSettings
               handler: chat.onSettings
             - event: onUpload
-              handler: chat.upload
+              handler: chat.onUpload
             - event: onAbort
               handler: chat.abortConversation
 

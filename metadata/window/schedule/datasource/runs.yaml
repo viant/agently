@@ -1,26 +1,44 @@
 service:
   endpoint: agentlyAPI
-  # Runs for selected schedule id
-  uri: /v1/api/agently/scheduler/run/{id}
+  uri: /v1/api/agently/scheduler/run
   method: GET
 
 paging:
-  size: 10
+  size: 25
   enabled: true
+  dataInfoSelectors:
+    pageCount: pageCount
+    totalCount: totalCount
 
-# Bind path parameter {id} from the parent schedules selection using new Parameter API
 parameters:
-  - from: schedules:selection
-    to:   :path
-    name: id
+  - from: schedules:form
+    to: :query
+    name: scheduleId
+    kind: query
     location: id
+  - from: const
+    to: :query
+    name: requireScheduleId
+    kind: query
+    location: "true"
 
 selectors:
-  data: data
+  data: data.runs
+  dataInfo: data
 
 on:
   - event: onFetch
     handler: schedule.onFetchRuns
+
+filterSet:
+  - name: default
+    default: true
+    template:
+      - id: status
+        label: Filter by status...
+        operator: eq
+
+quickFilterSet: default
 
 uniqueKey:
   - field: id

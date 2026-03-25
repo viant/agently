@@ -3,24 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <title>Agently</title>
+    <style>html,body{background:#f5f5f5;margin:0;}</style>
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      // Enter sends message; Shift+Enter inserts newline in the chat composer.
-      document.addEventListener('keydown', function(e) {
-        if (e.key !== 'Enter') return;
-        var el = e.target;
-        if (!el || el.getAttribute('data-testid') !== 'chat-composer-input') return;
-        if (e.shiftKey) return; // allow newline
-        e.preventDefault();
-        var form = el.closest('form[data-testid="chat-composer"]');
-        if (form && typeof form.requestSubmit === 'function') {
-          form.requestSubmit();
-        }
-      });
-    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

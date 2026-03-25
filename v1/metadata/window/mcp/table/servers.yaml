@@ -1,5 +1,0 @@
-columns:
-  - id: name
-    name: MCP Server
-
-toolbar: $import('toolbar/servers.yaml')

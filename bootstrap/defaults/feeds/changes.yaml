@@ -1,0 +1,68 @@
+id: changes
+match:
+  service: system/patch
+  method: apply
+activation:
+  kind: tool_call
+  service: system/patch
+  method: snapshot
+
+
+dataSource:
+  snapshot:
+    source: output
+
+  changes:
+    dataSourceRef: snapshot
+    uniqueKey:
+      - field: changes
+    selectors:
+      data: changes
+
+
+ui:
+  title: Changes
+  containers:
+    - id: changes
+      dataSourceRef: changes
+      fileBrowser:
+        title: Browser
+        className: app-feed-browser app-feed-browser-changes
+        style:
+          height: 22vh
+          background: linear-gradient(180deg, #fffaf5 0%, #fff4ea 100%)
+          border: 1px solid #f1d1b2
+          borderRadius: 14px
+          boxShadow: 0 12px 26px rgba(191, 103, 38, 0.10)
+        on:
+          - event: onFileSelect
+            handler: chat.onChangedFileSelect
+          - event: onPrepareTreeData
+            handler: chat.prepareChangeFiles
+    - id: toolbar
+      dataSourceRef: snapshot
+      style:
+        marginTop: 10px
+        background: '#fff'
+        border: 1px solid #f0dcc8
+        borderRadius: 14px
+        padding: 8px 10px
+        boxShadow: 0 10px 22px rgba(15, 23, 42, 0.05)
+      toolbar:
+        className: app-feed-toolbar app-feed-toolbar-changes
+        items:
+          - id: revert
+            label: Revert
+            icon: undo
+            align: right
+            on:
+              - event: onClick
+                handler: chat.runPatchRollback
+
+          - id: apply
+            label: Apply
+            icon: confirm
+            align: right
+            on:
+              - event: onClick
+                handler: chat.runPatchCommit

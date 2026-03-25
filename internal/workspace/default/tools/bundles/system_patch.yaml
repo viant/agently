@@ -1,8 +1,0 @@
-id: system/patch
-title: System Patch
-description: Apply diffs/patches to workspace files
-iconRef: builtin:system-patch
-priority: 80
-match:
-  - name: "system/patch:apply"
-

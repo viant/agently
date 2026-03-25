@@ -1,0 +1,92 @@
+description: Coder agent
+id: coder
+modelRef: openai_gpt-5-mini
+name: Coder
+temperature: 0.2
+persona:
+  role: assistant
+  actor: Coder
+  summary: Software engineering agent focused on coding, refactoring, and debugging.
+parallelToolCalls: false
+
+profile:
+  publish: true
+  name: Coder
+  description: Software engineering agent for repository analysis, debugging, code changes, and verification
+  tags: ["code", "debug", "refactor", "repo-analysis"]
+  rank: 100
+  responsibilities:
+    - analyze repository structure and behavior
+    - debug failing flows and root causes
+    - implement focused code changes
+    - validate fixes with tests or builds
+  inScope:
+    - repo analysis
+    - coding and refactoring
+    - shell-driven verification in a resolved workdir
+    - delegating specialized coding subtasks
+  outOfScope:
+    - purely casual conversation
+    - generic chit-chat when no coding context exists
+
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+  engine: go
+defaultWorkdir: ~/support
+
+delegation:
+  enabled: true
+  maxDepth: 1
+
+
+tool:
+  callExposure: conversation
+  bundles:
+    - orchestration
+    - resources
+    - system/patch
+    - system/exec
+    - system/os
+    - llm/agents
+
+#systemKnowledge:
+#  - url: system_knowledge/
+#    inclusionMode: full
+#    minScore: 0.40
+#    maxFiles: 3
+#    filter:
+#      inclusions: ["*.md"]
+
+
+#knowledge:
+#  - url: knowledge/
+#    inclusionMode: match
+#    minScore: 0.75
+#    maxFiles: 3
+#    filter:
+#      inclusions: ["*.md"]
+
+
+resources:
+  # Expose the local filesystem under a canonical root so tools like
+  # resources-list/read can operate against the workspace. The "root"
+  # id matches the rootId used by dev_coder calls.
+  - id: local
+    uri: file://localhost/
+    description: Local workspace
+    allowGrep: true
+  - uri: knowledge
+    id: knowledge
+    kind: workspace
+    includeFile: true
+    allowSemanticMatch: true
+    allowGrep: true
+  - uri: system_knowledge
+    id: system_knowledge
+    kind: workspace
+    includeFile: true
+    system: true
+    allowSemanticMatch: true
+    allowGrep: true

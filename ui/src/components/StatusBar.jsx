@@ -1,69 +1,55 @@
-// src/components/StatusBar.jsx
 import React from 'react';
-import {useStage} from '../utils/stageBus';
-import { notifyFinishOnce } from '../utils/soundNotifier.js';
+import { useStage } from '../services/stageBus';
 
-// Subtle pulsing glow to accentuate terminated/aborted state
-const pulseStyles = `
-@keyframes pulse-glow {
-  0%   { text-shadow: 0 0 0 rgba(255, 0, 0, 0.0); }
-  50%  { text-shadow: 0 0 8px rgba(255, 0, 0, 0.65); }
-  100% { text-shadow: 0 0 0 rgba(255, 0, 0, 0.0); }
-}
-.glow-pulse { animation: pulse-glow 1.4s ease-in-out infinite; }
-`;
-
-const phaseMap = {
-    waiting:  {icon: '⏳', label: 'Waiting for input…'},
-    thinking: {icon: '🤔', label: 'Assistant thinking…'},
-    executing:{icon: '⚙️', label: 'Executing…'},
-    elicitation:{icon: '✍️', label: 'Awaiting your input…'},
-    compacting:{icon: '🗜️', label: 'Compacting…'},
-    pruning:  {icon: '🧹', label: 'Pruning…'},
-    done:     {icon: '✅', label: 'Done'},
-    error:    {icon: '❌', label: 'Error'},
-    ready:    {icon: '🟢', label: 'Ready'},
-    terminated:{icon: '🛑', label: 'Terminated'},
-    aborted:  {icon: '🛑', label: 'Terminated'}, // backward-compat mapping
+const PHASE_ICON = {
+  ready: '●',
+  waiting: '⏳',
+  thinking: '🤔',
+  executing: '⚙',
+  streaming: '✍',
+  done: '✓',
+  error: '⚠',
+  terminated: '■',
+  offline: '●'
 };
 
-export default function StatusBar() {
-    const stage = useStage();
+const ELAPSED_PHASES = new Set(['waiting', 'thinking', 'executing', 'streaming']);
 
-    // Play a single short ring when a turn finishes (done or error),
-    // gated by stage.ringEnabled and de-duplicated per turnId.
-    React.useEffect(() => {
-        if (!stage) return;
-        const p = String(stage?.phase || '').toLowerCase();
-        const id = stage?.turnId || '';
-        const enabled = !!stage?.ringEnabled;
-        if (p === 'done' || p === 'error') {
-            notifyFinishOnce(id, { enabled });
-        }
-    }, [stage?.phase, stage?.turnId, stage?.ringEnabled]);
+function formatElapsed(ms = 0) {
+  const sec = Math.max(0, Number(ms || 0)) / 1000;
+  if (sec < 10) return `${sec.toFixed(1)}s`;
+  return `${Math.round(sec)}s`;
+}
 
-    if (!stage) {
-        return null; // nothing to show to keep UI clean
-    }
+export default function StatusBar({ backendUnavailable = false, approvals = null }) {
+  const stage = useStage();
+  const [now, setNow] = React.useState(Date.now());
+  const phase = backendUnavailable ? 'offline' : String(stage?.phase || 'ready');
+  const text = backendUnavailable
+    ? 'Service temporarily unavailable. Reconnecting...'
+    : String(stage?.text || 'Ready');
+  const pendingApprovals = Number(approvals?.pendingCount || 0);
+  const isElapsedActive = !backendUnavailable && ELAPSED_PHASES.has(phase);
+  const elapsedMs = isElapsedActive ? Math.max(0, now - Number(stage?.updatedAt || now)) : 0;
 
-    const map = phaseMap[stage.phase] || {icon: '', label: ''};
-    let text = map.label;
-    if (stage.phase === 'executing') {
-        if (stage.tool) {
-            text = `Running ${stage.tool}…`;
-        } else if (stage.task) {
-            text = `Task: ${stage.task}…`;
-        }
-    }
+  React.useEffect(() => {
+    if (!isElapsedActive) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 200);
+    return () => window.clearInterval(timer);
+  }, [isElapsedActive, phase, stage?.updatedAt]);
 
-    const isTerminated = (stage.phase === 'terminated' || stage.phase === 'aborted');
-    const extraStyle = isTerminated ? { color: 'var(--red3)' } : {};
-    return (
-        <div className="status-bar" style={{padding: '4px 8px', fontSize: '0.9em'}}>
-            {/* Inject animation CSS locally */}
-            {isTerminated && <style>{pulseStyles}</style>}
-            <span className={isTerminated ? 'glow-pulse' : ''} style={{marginRight: 6, ...extraStyle}}>{map.icon}</span>
-            <span className={isTerminated ? 'glow-pulse' : ''} style={extraStyle}>{text}</span>
-        </div>
-    );
+  return (
+    <footer className={`app-statusbar phase-${phase}`}>
+      <div className="app-statusbar-main">
+        <span className="app-statusbar-icon">{PHASE_ICON[phase] || '●'}</span>
+        <span className="app-statusbar-text">
+          {text}
+          {isElapsedActive ? ` ${formatElapsed(elapsedMs)}` : ''}
+        </span>
+      </div>
+      <div className="app-statusbar-right">
+        {pendingApprovals > 0 ? <span className="app-status-chip">Approvals {pendingApprovals}</span> : null}
+      </div>
+    </footer>
+  );
 }

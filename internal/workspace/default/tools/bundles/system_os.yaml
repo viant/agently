@@ -1,8 +1,0 @@
-id: system/os
-title: System OS
-description: OS helpers (e.g. environment variables)
-iconRef: builtin:system-os
-priority: 60
-match:
-  - name: "system/os:*"
-

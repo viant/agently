@@ -53,10 +53,13 @@ func detectLocalInstances(ctx context.Context) ([]*instanceInfo, error) {
 		}
 		baseURL := fmt.Sprintf("http://localhost:%d", port)
 		meta, ok := fetchWorkspaceMetadata(ctx, baseURL)
-		if !ok {
+		providers, providersErr := fetchAuthProviders(ctx, baseURL)
+		if !ok && providersErr != nil {
 			continue
 		}
-		providers, _ := fetchAuthProviders(ctx, baseURL)
+		if meta == nil {
+			meta = &workspaceMetadata{}
+		}
 		out = append(out, &instanceInfo{
 			BaseURL:       baseURL,
 			Port:          port,
