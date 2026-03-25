@@ -394,8 +394,25 @@ func (a *authRuntime) tryLoadFreshTokenFromStore(ctx context.Context, sess *svca
 	if err != nil || dbTok == nil {
 		return nil
 	}
-	// Only use the DB token if it's fresher than what we have in memory.
-	if dbTok.ExpiresAt.IsZero() || !dbTok.ExpiresAt.After(time.Now()) {
+	// If the DB token is expired but has a refresh token, try to refresh it
+	// before giving up — this handles the server-restart case where the watcher
+	// was not running to refresh tokens proactively.
+	if !dbTok.ExpiresAt.IsZero() && !dbTok.ExpiresAt.After(time.Now()) {
+		if dbTok.RefreshToken == "" {
+			return nil
+		}
+		sess.Tokens = &scyauth.Token{
+			Token: oauth2.Token{
+				AccessToken:  dbTok.AccessToken,
+				RefreshToken: dbTok.RefreshToken,
+				Expiry:       dbTok.ExpiresAt,
+			},
+			IDToken: dbTok.IDToken,
+		}
+		if refreshed := a.tryRefreshToken(ctx, sess); refreshed != nil {
+			log.Printf("[token-refresh] refreshed expired token on session restore user=%q", strings.TrimSpace(sess.Subject))
+			return refreshed
+		}
 		return nil
 	}
 	if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !dbTok.ExpiresAt.After(sess.Tokens.Expiry) {

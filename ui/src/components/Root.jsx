@@ -39,8 +39,13 @@ export function resolveInitialAuthState(providers, me) {
     const type = String(entry?.type || '').trim().toLowerCase();
     return type === 'bff' || type === 'oidc' || type === 'jwt';
   });
+  const hasAnyProvider = normalized.length > 0;
   if (me) return 'ready';
+  // Auth is enabled (providers configured) but user is not authenticated.
   if (hasOAuthProvider) return 'required';
+  // For local-only auth: if providers are listed but /me returned null,
+  // the session is gone (server restart) — show sign-in prompt.
+  if (hasAnyProvider && !me) return 'required';
   return 'ready';
 }
 
