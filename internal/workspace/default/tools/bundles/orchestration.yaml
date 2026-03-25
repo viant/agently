@@ -1,8 +1,0 @@
-id: orchestration
-title: Orchestration
-description: Plan orchestration helpers
-iconRef: builtin:orchestration
-priority: 50
-match:
-  - name: "orchestration:*"
-

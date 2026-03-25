@@ -1,9 +1,0 @@
-dataSourceRef: agents
-uniqueKey:
-  - field: url
-
-selectors:
-  data: knowledge
-
-
-selectionMode: single

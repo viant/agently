@@ -1,8 +1,0 @@
-id: agent-tool-top
-model: gpt-4o-mini
-toolCallExposure: conversation
-tool:
-  - "sqlkit:*"
-  - pattern: "system/exec:*"
-    type: function
-

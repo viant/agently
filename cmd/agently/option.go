@@ -4,55 +4,25 @@ package agently
 // interpreted by github.com/jessevdk/go-flags.
 type Options struct {
 	Version      bool             `short:"v" long:"version" description:"Show agently version and exit"`
-	Config       string           `short:"f" long:"config" description:"executor config YAML/JSON path"`
+	Serve        *ServeCmd        `command:"serve" description:"Start HTTP server"`
 	Query        *ChatCmd         `command:"query" description:"Query an agent (single turn or continuation)"`
 	Chat         *ChatCmd         `command:"chat"  description:"Deprecated alias of query"`
-	List         *ListCmd         `command:"list"  description:"List existing conversations"`
 	ListTools    *ListToolsCmd    `command:"list-tools" description:"List available tools"`
-	Exec         *ExecCmd         `command:"exec" description:"Execute a tool"`
-	Run          *RunCmd          `command:"run"   description:"Run agentic workflow from JSON input"`
-	ModelSwitch  *ModelSwitchCmd  `command:"model-switch" description:"Switch agent default model"`
-	ModelReset   *ModelResetCmd   `command:"model-reset" description:"Clear agent model override"`
-	Workspace    *WorkspaceCmd    `command:"ws" description:"Workspace CRUD operations"`
-	Serve        *ServeCmd        `command:"serve" description:"StartedAt HTTP server"`
-	Scheduler    *SchedulerCmd    `command:"scheduler" description:"Scheduler runner and utilities"`
-	MCP          *McpCmd          `command:"mcp" description:"Manage MCP servers"`
 	ChatGPTLogin *ChatGPTLoginCmd `command:"chatgpt-login" description:"Login via ChatGPT OAuth and persist tokens for OpenAI providers"`
 }
 
 // Init instantiates the sub-command referenced by the first argument so that
 // flags.Parse can populate its fields.
 func (o *Options) Init(firstArg string) {
-	// Decide whether the CLI session should attach the interactive stdin
-	// awaiter. We do this before executor initialisation so that the option is
-	// in effect when the singleton is created later.
-	attachAwaiter(firstArg)
-
 	switch firstArg {
+	case "serve":
+		o.Serve = &ServeCmd{}
 	case "chat":
 		o.Chat = &ChatCmd{}
 	case "query":
 		o.Query = &ChatCmd{}
-	case "list":
-		o.List = &ListCmd{}
 	case "list-tools":
 		o.ListTools = &ListToolsCmd{}
-	case "exec":
-		o.Exec = &ExecCmd{}
-	case "run":
-		o.Run = &RunCmd{}
-	case "model-switch":
-		o.ModelSwitch = &ModelSwitchCmd{}
-	case "model-reset":
-		o.ModelReset = &ModelResetCmd{}
-	case "ws":
-		o.Workspace = &WorkspaceCmd{}
-	case "serve":
-		o.Serve = &ServeCmd{}
-	case "scheduler":
-		o.Scheduler = &SchedulerCmd{}
-	case "mcp":
-		o.MCP = &McpCmd{}
 	case "chatgpt-login":
 		o.ChatGPTLogin = &ChatGPTLoginCmd{}
 	}

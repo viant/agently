@@ -1,0 +1,21 @@
+/* {"URI":"/"} */
+
+#set($_ = $ResponseStatus<?>(output/status))
+#set($_ = $Data<?>(output/view))
+#set($_ = $Metrics<?>(output/metrics))
+
+#set($_ = $ConversationID<string>(query/conversationId).WithPredicate(0, 'equal', 't', 'conversation_id'))
+#set($_ = $TurnID<string>(query/turnId).WithPredicate(0, 'equal', 't', 'turn_id'))
+#set($_ = $MessageID<string>(query/messageId).WithPredicate(0, 'equal', 't', 'message_id'))
+#set($_ = $ID<string>(query/id).WithPredicate(0, 'equal', 't', 'id'))
+#set($_ = $Provider<string>(query/provider).WithPredicate(0, 'equal', 't', 'provider'))
+#set($_ = $Status<string>(query/status).WithPredicate(0, 'equal', 't', 'status'))
+#set($_ = $Since<time.Time>(query/since).WithPredicate(0, 'greater_or_equal', 't', 'created_at'))
+
+SELECT generated_file.*
+FROM (
+    SELECT t.*
+    FROM generated_file t
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+    ORDER BY t.created_at ASC
+) generated_file

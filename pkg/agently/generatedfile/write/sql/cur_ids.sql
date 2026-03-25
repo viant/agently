@@ -1,1 +1,0 @@
-? SELECT ARRAY_AGG(ID) AS Values FROM  `/` LIMIT 1

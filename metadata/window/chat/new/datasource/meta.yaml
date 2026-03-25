@@ -4,7 +4,7 @@ service:
   method: GET
 
 selectors:
-  data: data
+  data: ''
 
 on:
   - event: onFetch
