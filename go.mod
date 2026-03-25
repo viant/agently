@@ -11,11 +11,11 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.0.0-20260320210956-91754929b440
+	github.com/viant/agently-core v0.1.0
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3
 	github.com/viant/fluxor v0.4.3
-	github.com/viant/forge v0.2.20-0.20260320103329-bc4f345dcf4f
+	github.com/viant/forge v0.3.0
 	github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.14.0
@@ -208,4 +208,4 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace github.com/viant/agently-core => ../agently-core
+

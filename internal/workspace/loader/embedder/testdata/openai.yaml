@@ -1,5 +1,0 @@
-id: embedder
-options:
-  provider: openai
-  apiKeyURL: secrets/openai
-  model: text-embedding-ada-002

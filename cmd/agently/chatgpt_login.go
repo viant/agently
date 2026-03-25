@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/viant/agently/internal/genai/provider/openai/chatgptauth"
+	chatgptauth "github.com/viant/agently-core/service/auth/chatgpt"
 )
 
 type ChatGPTLoginCmd struct {

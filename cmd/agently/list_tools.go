@@ -1,15 +1,17 @@
 package agently
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
+	"strings"
 
-	"github.com/viant/agently/genai/llm"
+	"github.com/viant/agently-core/sdk"
 )
 
 // ListToolsCmd prints all registered tools (service/method) with optional description.
-// ListToolsCmd prints all registered tools or details for a single tool.
 //
 // Without any flags it prints a table containing tool name and description.
 //
@@ -23,11 +25,27 @@ type ListToolsCmd struct {
 }
 
 func (c *ListToolsCmd) Execute(_ []string) error {
-	// Initialise executor & obtain tool definitions in one go.
-	svc := executorSingleton()
+	ctx := context.Background()
 
-	// Load the full catalogue once for list/JSON output and fallback lookup.
-	defs := svc.LLMCore().ToolDefinitions()
+	baseURL, err := resolveBaseURL()
+	if err != nil {
+		return fmt.Errorf("cannot find agently server: %w", err)
+	}
+
+	httpClient := &http.Client{Jar: cliCookieJar()}
+	opts := []sdk.HTTPOption{sdk.WithHTTPClient(httpClient)}
+	if token := resolvedToken(""); token != "" {
+		opts = append(opts, sdk.WithAuthToken(token))
+	}
+	client, err := sdk.NewHTTP(baseURL, opts...)
+	if err != nil {
+		return fmt.Errorf("sdk client: %w", err)
+	}
+
+	defs, err := client.ListToolDefinitions(ctx)
+	if err != nil {
+		return fmt.Errorf("list tools: %w", err)
+	}
 
 	// Name-specific output
 	if c.Name != "" {
@@ -60,7 +78,7 @@ func (c *ListToolsCmd) Execute(_ []string) error {
 
 // printToolDefinition dumps a single tool definition either as JSON or a compact
 // human-readable representation.
-func (c *ListToolsCmd) printToolDefinition(def *llm.ToolDefinition) error {
+func (c *ListToolsCmd) printToolDefinition(def *sdk.ToolDefinitionInfo) error {
 	if c.JSON {
 		data, _ := json.MarshalIndent(def, "", "  ")
 		fmt.Println(string(data))
@@ -84,4 +102,17 @@ func (c *ListToolsCmd) printToolDefinition(def *llm.ToolDefinition) error {
 		}
 	}
 	return nil
+}
+
+// resolveBaseURL finds a running agently server instance.
+func resolveBaseURL() (string, error) {
+	instances, err := detectLocalInstances(context.Background())
+	if err == nil {
+		for _, inst := range instances {
+			if strings.TrimSpace(inst.BaseURL) != "" {
+				return inst.BaseURL, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no running agently server found; start one with 'agently serve'")
 }

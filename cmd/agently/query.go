@@ -68,10 +68,6 @@ func (c *ChatCmd) Execute(_ []string) error {
 	if strings.TrimSpace(defaultAgent) != "" && strings.TrimSpace(c.AgentID) == "chatter" {
 		c.AgentID = strings.TrimSpace(defaultAgent)
 	}
-	modelOverride := pickModel(defaultModel, models)
-	if strings.TrimSpace(modelOverride) == "" {
-		return fmt.Errorf("server metadata did not provide a default model")
-	}
 
 	httpClient := &http.Client{Jar: cliCookieJar()}
 	if c.Timeout > 0 {
@@ -87,6 +83,33 @@ func (c *ChatCmd) Execute(_ []string) error {
 	}
 	if err := c.ensureAuth(ctxBase, client, providers); err != nil {
 		return err
+	}
+	// Protected servers may only expose workspace metadata after auth.
+	if strings.TrimSpace(defaultModel) == "" || len(models) == 0 || strings.TrimSpace(defaultAgent) == "" {
+		if meta, err := client.GetWorkspaceMetadata(ctxBase); err == nil && meta != nil {
+			if strings.TrimSpace(defaultAgent) == "" {
+				defaultAgent = strings.TrimSpace(meta.DefaultAgent)
+				if defaultAgent == "" && meta.Defaults != nil {
+					defaultAgent = strings.TrimSpace(meta.Defaults.Agent)
+				}
+			}
+			if strings.TrimSpace(defaultModel) == "" {
+				defaultModel = strings.TrimSpace(meta.DefaultModel)
+				if defaultModel == "" && meta.Defaults != nil {
+					defaultModel = strings.TrimSpace(meta.Defaults.Model)
+				}
+			}
+			if len(models) == 0 {
+				models = append([]string(nil), meta.Models...)
+			}
+		}
+	}
+	if strings.TrimSpace(defaultAgent) != "" && strings.TrimSpace(c.AgentID) == "chatter" {
+		c.AgentID = strings.TrimSpace(defaultAgent)
+	}
+	modelOverride := pickModel(defaultModel, models)
+	if strings.TrimSpace(modelOverride) == "" {
+		return fmt.Errorf("server metadata did not provide a default model")
 	}
 
 	if strings.TrimSpace(workspaceRoot) != "" {

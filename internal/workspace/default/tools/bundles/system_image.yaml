@@ -1,8 +1,0 @@
-id: system/image
-title: System Image
-description: Load and encode images for vision inputs
-iconRef: builtin:system-image
-priority: 60
-match:
-  - name: "system/image:*"
-

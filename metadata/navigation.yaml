@@ -61,18 +61,18 @@
 
 - id: schedules
   label: Automation
-  icon: time
+  icon: calendar
   childNodes:
     - id: list
-      label: Automation
+      label: Schedules
       icon: list
       windowKey: schedule
       windowTitle: Automation
     - id: history
-      label: History
+      label: Run History
       icon: history
       windowKey: schedule/history
-      windowTitle: Schedule Conversations
+      windowTitle: Scheduled Runs
 
 
 - id: tools

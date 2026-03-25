@@ -1,0 +1,69 @@
+id: plan
+match:
+  service: orchestration
+  method: updatePlan
+activation:
+  kind: history
+  scope: last
+
+
+dataSource:
+  planInfo:
+    source: output
+
+  planDetail:
+    dataSourceRef: planInfo
+    uniqueKey:
+      - field: step
+    selectors:
+      data: plan
+
+
+
+ui:
+  title: Plan
+  containers:
+  - id: header
+    dataSourceRef: planInfo
+    style:
+      background: linear-gradient(180deg, #f7fbff 0%, #eef6ff 100%)
+      border: 1px solid #c9def5
+      borderRadius: 14px
+      padding: 14px 16px
+      boxShadow: 0 10px 24px rgba(44, 102, 173, 0.08)
+    items:
+      - id: explanation
+        dataBind: explanation
+        dataSourceRef: planInfo
+        type: label
+        properties:
+          style:
+            fontSize: 13px
+            lineHeight: 1.55
+            color: '#334e68'
+            fontWeight: 500
+  - id: planTable
+    type: table
+    dataSourceRef: planDetail
+    style:
+      marginTop: 10px
+      background: '#ffffff'
+      border: 1px solid #d8e1ea
+      borderRadius: 14px
+      padding: 8px 10px
+      boxShadow: 0 10px 24px rgba(15, 23, 42, 0.05)
+    table:
+      columns:
+        - id: completed
+          name: ' '
+          type: icon
+          width: 10
+          on:
+            - event: onValue
+              handler: chat.taskStatusIcon
+        - id: status
+          name: Status
+          width: 30
+        - id: step
+          name: Step
+          width: 200

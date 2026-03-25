@@ -1,8 +1,0 @@
-id: agentExec
-title: Agent Exec
-description: Run published internal agents as virtual tools
-iconRef: builtin:agents
-priority: 60
-match:
-  - name: "agentExec:*"
-
