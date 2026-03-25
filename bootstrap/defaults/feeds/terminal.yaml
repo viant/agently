@@ -1,0 +1,30 @@
+id: terminal
+match:
+  service: system/exec
+  method: execute
+
+activation:
+  kind: history
+
+
+dataSource:
+  commands:
+    uniqueKey:
+      - field: input
+      - field: output
+    source: output.commands
+
+
+ui:
+  id: commands
+  title: Terminal
+  terminal:
+    dataSourceRef: commands
+    height: '240px'
+    autoScroll: true
+    showDividers: true
+    className: app-feed-terminal app-feed-terminal-commandlog
+    style:
+      borderRadius: '14px'
+      border: '1px solid #223042'
+      boxShadow: '0 14px 28px rgba(3, 7, 18, 0.24)'

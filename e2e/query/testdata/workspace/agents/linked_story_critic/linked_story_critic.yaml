@@ -1,0 +1,13 @@
+id: linked_story_critic
+name: Linked Story Critic
+description: Reviews a draft dog story and emits the approved reviewed story
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: StoryCritic
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

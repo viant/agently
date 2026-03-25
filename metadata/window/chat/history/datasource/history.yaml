@@ -1,6 +1,6 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/api/conversations
+  uri: /v1/conversations
   method: GET
 
 paging:
@@ -11,8 +11,8 @@ paging:
     totalCount: totalCount
 
 selectors:
-  data: data
-  dataInfo: info
+  data: Rows
+  dataInfo: ''
 
 uniqueKey:
   - field: id

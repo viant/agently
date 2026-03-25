@@ -1,0 +1,15 @@
+id: attachment_combo
+name: Attachment Combo
+description: Deterministic mixed attachment agent for terminal e2e validation
+modelRef: openai_gpt-5.2
+temperature: 0
+persona:
+  role: assistant
+  actor: ComboBot
+attachment:
+  mode: inline
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

@@ -1,0 +1,26 @@
+pipeline:
+  describeFavColor:
+    action: webdriver:run
+    description: ask chatter to describe my fav color and wait for a clarification response
+    Browser: chrome
+    SessionID: localhost:${webdriverPort}
+    navigation:
+      TimeoutMs: 30000
+    commands:
+      - get(${appURL})
+      - (xpath://button[contains(.,'New Conversation')]).click
+      - (xpath://*[@data-testid='chat-composer-input']).clear
+      - (xpath://*[@data-testid='chat-composer-input']).sendKeys(describe my fav color)
+      - (xpath://*[@data-testid='chat-composer-send']).click
+      - command: execution = (xpath://body).text
+        exit: $execution.Text:/Execution details/
+        waitTimeMs: 90000
+        repeat: 90
+      - command: body = (xpath://body).text
+        exit: $body.Text:/(favorite|favourite) color/
+        waitTimeMs: 90000
+        repeat: 90
+      - close
+    expect:
+      body:
+        Text: /(favorite|favourite) color/

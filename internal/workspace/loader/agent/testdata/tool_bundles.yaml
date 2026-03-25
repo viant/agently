@@ -1,8 +1,0 @@
-id: agent-bundles
-name: Agent Bundles
-modelRef: gpt-4o
-tool:
-  callExposure: conversation
-  bundles:
-    - system/exec
-    - system/os

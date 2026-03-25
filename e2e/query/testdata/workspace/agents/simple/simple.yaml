@@ -1,0 +1,13 @@
+id: simple
+name: Simple
+description: Simple conversational agent for terminal e2e testing
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: SimpleBot
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

@@ -1,0 +1,47 @@
+id: chatter
+modelRef: openai_gpt-5-mini
+name: Chatter
+temperature: 0
+persona:
+  role: assistant
+  actor: Chat
+  summary: General-purpose assistant for conversation, guidance, and everyday tasks - non coder
+parallelToolCalls: true
+profile:
+  publish: true
+  name: Chatter
+  description: General-purpose conversational agent for guidance and everyday Q&A, not codebase analysis
+  tags: ["chat", "general", "qa"]
+  rank: 20
+  responsibilities:
+    - answer general questions
+    - provide concise guidance
+    - help with everyday non-coding tasks
+  inScope:
+    - casual conversation
+    - general knowledge questions
+    - environment variable lookup via system_os-getEnv
+  outOfScope:
+    - repository analysis
+    - codebase debugging
+    - build or shell-driven workspace exploration
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+
+
+tool:
+  callExposure: conversation
+  bundles:
+    - system/os
+
+knowledge:
+  - inclusionMode: full
+    url: knowledge/
+
+
+attachment:
+  limitMB: 32
+  tTLSec: 3600    # 3600 seconds = 1 hour (minimum), 86400 seconds = 24 hours (default)
+  mode: inline #  ref, inline

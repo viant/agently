@@ -1,0 +1,80 @@
+id: explorer
+match:
+  service: resources
+  method: "*"
+
+activation:
+  kind: history
+  scope: all
+
+dataSource:
+  ops:
+    source: ops
+  search:
+    source: input
+  results:
+    source: output.files
+    paging:
+      enabled: true
+      size: 3
+    uniqueKey:
+      - field: URI
+      - field: SearchHash
+      - field: RangeKey
+
+ui:
+  title: Explorer
+  containers:
+    - id: searchBar
+      dataSourceRef: search
+      style:
+        background: linear-gradient(180deg, #f5fbf8 0%, #edf9f2 100%)
+        border: 1px solid #cfe8da
+        borderRadius: 14px
+        padding: 12px 14px
+        boxShadow: 0 12px 26px rgba(34, 139, 94, 0.08)
+      items:
+        - id: pattern
+          type: text
+          wrapper: none
+          properties:
+            placeholder: Search in selected file or folder…
+            leftIcon: search
+            fill: true
+
+    - id: results
+      type: table
+      title: Results
+      dataSourceRef: results
+      table:
+        on:
+          - event: onRowSelect
+            handler: dataSource.toggleSelection
+          - event: onRowSelect
+            handler: chat.explorerOpen
+        pagination: {}
+        columns:
+          - id: Path
+            name: File
+            width: 220
+          - id: Matches
+            name: Hits
+            width: 40
+          - id: open
+            name: ' '
+            type: icon
+            width: 10
+            on:
+              - event: onValue
+                handler: chat.explorerOpenIcon
+              - event: onClick
+                handler: chat.explorerOpen
+      style:
+        marginTop: 10px
+        height: 300px
+        overflow: hidden
+        background: '#ffffff'
+        border: 1px solid #dbe7df
+        borderRadius: 14px
+        padding: 8px 10px
+        boxShadow: 0 10px 22px rgba(15, 23, 42, 0.05)

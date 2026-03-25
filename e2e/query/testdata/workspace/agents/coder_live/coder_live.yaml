@@ -1,0 +1,20 @@
+id: coder_live
+name: Coder Live
+description: Coding agent for live repository analysis transcript validation
+modelRef: openai_gpt-5.2
+temperature: 0
+reasoning:
+  effort: low
+persona:
+  role: assistant
+  actor: Coder
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+defaultWorkdir: /tmp
+tool:
+  callExposure: conversation
+  items:
+    - pattern: "system/exec:*"
+      type: function

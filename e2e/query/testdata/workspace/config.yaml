@@ -1,0 +1,17 @@
+default:
+  agent: simple
+  model: openai_gpt4o_mini
+  embedder: openai_text
+
+models:
+  url: models
+embedders:
+  url: embedders
+agents:
+  url: agents
+
+internalMCP:
+  services:
+    - system/exec
+    - system/os
+    - resources
