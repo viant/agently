@@ -169,7 +169,7 @@ type authConfig struct {
 
 func (c *authConfig) tokenRefreshLead() time.Duration {
 	if c == nil || c.TokenRefreshLeadMinutes <= 0 {
-		return 15 * time.Minute
+		return 30 * time.Minute
 	}
 	return time.Duration(c.TokenRefreshLeadMinutes) * time.Minute
 }
@@ -500,6 +500,10 @@ func (a *authRuntime) startTokenRefreshWatcher(ctx context.Context) func() {
 	}
 	done := make(chan struct{})
 	go func() {
+		// Quick initial scan after sessions are first loaded (first request populates memory).
+		// This catches tokens that are about to expire shortly after restart.
+		time.Sleep(10 * time.Second)
+		a.refreshExpiringSessions(ctx)
 		ticker := time.NewTicker(a.cfg.tokenRefreshLead() / 2)
 		defer ticker.Stop()
 		for {
