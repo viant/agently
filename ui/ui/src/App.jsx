@@ -1,5 +1,6 @@
 import React from 'react';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { HotkeysProvider } from '@blueprintjs/core';
 import { SettingProvider } from 'forge/core';
 import 'forge/packs/blueprint/index.jsx';
 import Root from './components/Root';
@@ -8,10 +9,25 @@ import { endpoints } from './endpoint';
 import { connectorConfig } from './connector';
 import { chatService } from './services/chatService';
 import { scheduleService } from './services/scheduleService';
+import { redirectToLogin } from './services/httpClient';
 
 const services = {
   chat: chatService,
   schedule: scheduleService
+};
+
+const AgentlyAuthContext = React.createContext({
+  authStates: {},
+  defaultAuthProvider: 'oauth',
+  handleUnauthorized: () => {}
+});
+
+const authContext = {
+  authStates: {},
+  defaultAuthProvider: 'oauth',
+  handleUnauthorized: () => {
+    redirectToLogin();
+  }
 };
 
 const router = createBrowserRouter([
@@ -25,8 +41,12 @@ const router = createBrowserRouter([
 
 export default function App() {
   return (
-    <SettingProvider endpoints={endpoints} connectorConfig={connectorConfig} services={services}>
-      <RouterProvider router={router} />
-    </SettingProvider>
+    <AgentlyAuthContext.Provider value={authContext}>
+      <SettingProvider endpoints={endpoints} connectorConfig={connectorConfig} authContext={AgentlyAuthContext} services={services}>
+        <HotkeysProvider>
+          <RouterProvider router={router} />
+        </HotkeysProvider>
+      </SettingProvider>
+    </AgentlyAuthContext.Provider>
   );
 }

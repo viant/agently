@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
 
-import { bootstrapConversationSelection, createNewConversation, handleStreamEvent, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, shouldUseLiveStream } from './chatRuntime';
+import { bootstrapConversationSelection, createNewConversation, fetchTranscript, handleStreamEvent, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, shouldUseLiveStream } from './chatRuntime';
 import { client } from './agentlyClient';
 
 vi.mock('./agentlyClient', () => ({
   client: {
     getWorkspaceMetadata: vi.fn(),
     createConversation: vi.fn(),
-    getConversation: vi.fn()
+    getConversation: vi.fn(),
+    getTranscript: vi.fn()
   }
 }));
 
@@ -146,10 +147,8 @@ describe('bootstrapConversationSelection', () => {
       windowKey: 'chat/new',
       parameters: {
         conversations: {
-          input: {
-            parameters: {
-              id: 'conv-from-run'
-            }
+          form: {
+            id: 'conv-from-run'
           }
         },
         messages: {
@@ -240,9 +239,182 @@ describe('renderMergedRowsForContext', () => {
     });
     expect(messageState.collection[0].starterTasks).toHaveLength(2);
   });
+
+  it('does not render starter tasks when a conversation id is already present', () => {
+    const messageState = { collection: [] };
+    const context = {
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-new', agent: 'steward', queuedTurns: [] })
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  agent: 'steward',
+                  defaults: { agent: 'steward' },
+                  agentInfos: [
+                    { id: 'steward', name: 'Steward', starterTasks: [{ id: 'analyze', title: 'Analyze campaign performance', prompt: 'Analyze campaign 12345 performance.' }] },
+                  ]
+                })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    renderMergedRowsForContext(context);
+
+    expect(messageState.collection).toHaveLength(0);
+  });
+
+});
+
+describe('createNewConversation', () => {
+  it('restores starter tasks immediately after switching away from a populated conversation', async () => {
+    const messageState = { collection: [{ id: 'old-msg', role: 'assistant', content: 'existing' }] };
+    const conversationState = { values: { id: 'conv-old', agent: 'steward', queuedTurns: [] } };
+    const metaState = {
+      values: {
+        agent: 'steward',
+        defaults: { agent: 'steward' },
+        agentInfos: [
+          { id: 'steward', name: 'Steward', starterTasks: [{ id: 'analyze', title: 'Analyze campaign performance', prompt: 'Analyze campaign 12345 performance.' }] },
+        ]
+      }
+    };
+
+    const context = {
+      resources: {},
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => metaState.values,
+                setFormData: ({ values }) => { metaState.values = values; }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    await createNewConversation(context);
+
+    expect(conversationState.values.id).toBe('');
+    expect(messageState.collection).toHaveLength(1);
+    expect(messageState.collection[0]).toMatchObject({
+      _type: 'starter',
+    });
+    expect(messageState.collection[0].starterTasks).toHaveLength(1);
+    expect(messageState.collection[0].starterTasks[0]).toMatchObject({
+      title: 'Analyze campaign performance',
+    });
+  });
 });
 
 describe('mapTranscriptToRows', () => {
+  it('keeps canonical iteration-0 summary pages out of the visible assistant message and execution pages', async () => {
+    client.getTranscript.mockResolvedValueOnce({
+      turns: [
+        {
+          turnId: 'turn-1',
+          status: 'completed',
+          createdAt: '2026-01-01T10:00:00Z',
+          user: {
+            messageId: 'u1',
+            content: 'Analyze campaign 547754 performance'
+          },
+          execution: {
+            pages: [
+              {
+                pageId: 'page-final',
+                assistantMessageId: 'page-final',
+                turnId: 'turn-1',
+                iteration: 11,
+                status: 'completed',
+                finalResponse: true,
+                content: '## Highlights\n- Campaign pacing is slightly behind target.'
+              },
+              {
+                pageId: 'page-summary',
+                assistantMessageId: 'page-summary',
+                turnId: 'turn-1',
+                iteration: 0,
+                status: 'completed',
+                finalResponse: true,
+                content: 'Title: Campaign 547754 Performance Analysis and Recommended Next Actions\n\n- Saved 3 actionable recommendations'
+              }
+            ]
+          }
+        }
+      ]
+    });
+
+    const turns = await fetchTranscript('conv-1');
+    expect(turns).toHaveLength(1);
+    expect(turns[0].executionGroups).toHaveLength(1);
+    expect(turns[0].executionGroups[0]).toMatchObject({
+      pageId: 'page-final',
+      iteration: 11
+    });
+    expect(turns[0].message).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'page-final',
+          role: 'assistant',
+          content: '## Highlights\n- Campaign pacing is slightly behind target.'
+        }),
+        expect.objectContaining({
+          id: 'page-summary',
+          role: 'assistant',
+          mode: 'summary'
+        })
+      ])
+    );
+  });
+
   it('preserves backend executionGroup data on assistant rows', () => {
     const turns = [
       {

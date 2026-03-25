@@ -45,6 +45,7 @@ import {
 const RUNNING_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
 const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
 const STREAM_DEBUG_PREFIX = '[agently-stream]';
+const EXECUTOR_DEBUG_PREFIX = '[agently-executor]';
 
 function isStreamDebugEnabled() {
   if (typeof window === 'undefined') return false;
@@ -52,11 +53,31 @@ function isStreamDebugEnabled() {
     const raw = String(window.localStorage?.getItem('agently.debugStream') || '').trim().toLowerCase();
     if (['0', 'false', 'off', 'no'].includes(raw)) return false;
     if (['1', 'true', 'on', 'yes'].includes(raw)) return true;
-    const port = String(window.location?.port || '').trim();
-    return port === '5173';
+    return false;
   } catch (_) {
     return false;
   }
+}
+
+function isExecutorDebugEnabled() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = String(window.localStorage?.getItem('agently.debugExecutor') || '').trim().toLowerCase();
+    return raw === '1' || raw === 'true' || raw === 'on';
+  } catch (_) {
+    return false;
+  }
+}
+
+function logExecutorDebug(event, detail = {}) {
+  if (!isExecutorDebugEnabled()) return;
+  try {
+    console.log(EXECUTOR_DEBUG_PREFIX, {
+      event,
+      ts: new Date().toISOString(),
+      ...detail
+    });
+  } catch (_) {}
 }
 
 export function logStreamDebug(chatState = {}, event, detail = {}) {
@@ -826,16 +847,25 @@ export function renderMergedRowsForContext(context) {
   });
   chatState.renderRows = mergedRows;
   const normalizedRows = normalizeForContext(context, mergedRows);
-  console.log('[render]', {
-    liveCount: Array.isArray(chatState.liveRows) ? chatState.liveRows.length : 0,
-    mergedCount: mergedRows.length,
-    liveRows: chatState.liveRows.map((r) => ({
-      id: r?.id, role: r?.role, turnId: r?.turnId, interim: r?.interim,
-      contentHead: String(r?.content || '').slice(0, 50),
-      groups: (r?.executionGroups || []).length,
-      toolSteps: (r?.executionGroups || []).flatMap((g) => g?.toolSteps || []).length
-    }))
-  });
+  if (isStreamDebugEnabled()) {
+    console.log('[render]', {
+      liveCount: Array.isArray(chatState.liveRows) ? chatState.liveRows.length : 0,
+      mergedCount: mergedRows.length,
+      normalizedCount: normalizedRows.length,
+      normalizedTypes: normalizedRows.map((row) => ({
+        id: row?.id,
+        type: row?._type || row?.role,
+        mode: row?.mode || '',
+        head: String(row?.content || '').slice(0, 60)
+      })),
+      liveRows: chatState.liveRows.map((r) => ({
+        id: r?.id, role: r?.role, turnId: r?.turnId, interim: r?.interim,
+        contentHead: String(r?.content || '').slice(0, 50),
+        groups: (r?.executionGroups || []).length,
+        toolSteps: (r?.executionGroups || []).flatMap((g) => g?.toolSteps || []).length
+      }))
+    });
+  }
   // Resolve _streamContent → content for streaming rows so the rendering
   // layer shows the live streamed text instead of the preamble.
   const resolvedRows = mergedRows.map((row) => {
@@ -864,8 +894,14 @@ export function renderMergedRowsForContext(context) {
     agentInfos: Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [],
     selectedAgent
   });
+  const hasConversationId = String(conversationForm?.id || '').trim() !== '';
+  const hasVisibleConversationContent = resolvedRows.some((row) => {
+    const type = String(row?._type || '').toLowerCase();
+    return type !== 'starter' && type !== 'queue';
+  });
   const starterRow = resolvedRows.length === 0
-    && !String(conversationForm?.id || '').trim()
+    && !hasConversationId
+    && !hasVisibleConversationContent
     && !queueRow
     && starterTasks.length > 0 ? {
     _type: 'starter',
@@ -1012,7 +1048,9 @@ export function resolveUserID(context) {
 }
 
 export async function fetchTranscript(conversationID, since = '', options = {}) {
-  console.log('[transcript-fetch]', { conversationID, since });
+  if (isStreamDebugEnabled()) {
+    console.log('[transcript-fetch]', { conversationID, since });
+  }
   const transcriptInput = {
     conversationId: conversationID,
     includeModelCalls: true,
@@ -1043,7 +1081,9 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   // Canonical ConversationState: extract turns with pages as executionGroups
   if (Array.isArray(data?.turns) && data.turns.length > 0 && ('turnId' in data.turns[0] || 'execution' in data.turns[0])) {
     return data.turns.map((turn) => {
-      const pages = turn.execution?.pages || [];
+      const pages = Array.isArray(turn.execution?.pages) ? turn.execution.pages : [];
+      const summaryPages = pages.filter((page) => Number(page?.iteration || 0) === 0);
+      const visiblePages = pages.filter((page) => Number(page?.iteration || 0) !== 0);
       const messages = [];
       if (turn.user) {
         messages.push({
@@ -1057,17 +1097,30 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
       // Create one assistant message per turn carrying execution pages.
       // The pages themselves hold all model/tool step data — no per-page
       // assistant messages to avoid duplicate rendering.
-      if (pages.length > 0) {
-        const lastPage = pages[pages.length - 1];
-        const finalPage = pages.find((p) => p.finalResponse) || lastPage;
+      if (visiblePages.length > 0) {
+        const lastPage = visiblePages[visiblePages.length - 1];
+        const finalPage = [...visiblePages].reverse().find((p) => p.finalResponse) || lastPage;
         messages.push({
           id: finalPage?.assistantMessageId || finalPage?.pageId || turn.turnId || '',
           role: 'assistant',
           interim: finalPage?.finalResponse ? 0 : 1,
           content: finalPage?.content || '',
-          preamble: pages[0]?.preamble || '',
+          preamble: visiblePages[0]?.preamble || '',
           turnId: turn.turnId || '',
           status: finalPage?.status || '',
+          createdAt: turn.createdAt || ''
+        });
+      }
+      if (summaryPages.length > 0) {
+        const summaryPage = summaryPages[summaryPages.length - 1];
+        messages.push({
+          id: summaryPage?.assistantMessageId || summaryPage?.pageId || `summary:${turn.turnId || ''}`,
+          role: 'assistant',
+          mode: 'summary',
+          interim: 0,
+          content: summaryPage?.content || '',
+          turnId: turn.turnId || '',
+          status: summaryPage?.status || '',
           createdAt: turn.createdAt || ''
         });
       }
@@ -1108,10 +1161,10 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
         status: turn.status || '',
         createdAt: turn.createdAt || '',
         message: messages,
-        executionGroups: pages,
-        executionGroupsTotal: pages.length,
+        executionGroups: visiblePages,
+        executionGroupsTotal: visiblePages.length,
         executionGroupsOffset: 0,
-        executionGroupsLimit: pages.length
+        executionGroupsLimit: visiblePages.length
       };
     });
   }
@@ -1147,11 +1200,13 @@ function applyConversationFormSnapshot(base = {}, conversation = null) {
   const next = { ...base };
   const conversationID = String(conversation?.id || conversation?.Id || '').trim();
   const title = String(conversation?.title || conversation?.Title || '').trim();
+  const summary = String(conversation?.summary || conversation?.Summary || '').trim();
   const agent = String(conversation?.agentId || conversation?.AgentId || '').trim();
   const model = String(conversation?.defaultModel || conversation?.DefaultModel || '').trim();
   const embedder = String(conversation?.defaultEmbedder || conversation?.DefaultEmbedder || '').trim();
   if (conversationID) next.id = conversationID;
   if (title) next.title = title;
+  if (summary) next.summary = summary;
   if (agent) next.agent = agent;
   if (model) next.model = model;
   if (embedder) next.embedder = embedder;
@@ -1288,6 +1343,20 @@ export function connectStream(context, conversationID) {
 
 export function handleStreamEvent(chatState, context, conversationID, payload) {
     const type = String(payload?.type || '').toLowerCase();
+    const eventConversationID = String(payload?.conversationId || payload?.streamId || conversationID || '').trim();
+    const contextWindowID = getContextWindowId(context);
+    const scopedConversationID = getScopedConversationSelection(contextWindowID);
+    const formConversationID = getCurrentConversationID(context);
+    const visibleConversationID = String(formConversationID || scopedConversationID || '').trim();
+    if (eventConversationID && visibleConversationID && eventConversationID !== visibleConversationID) {
+      logStreamDebug(chatState, 'stream-event-ignored', {
+        type,
+        eventConversationId: eventConversationID,
+        visibleConversationId: visibleConversationID,
+        windowId: contextWindowID,
+      });
+      return;
+    }
     const payloadSize = (() => {
       try {
         return JSON.stringify(payload || {}).length;
@@ -1295,22 +1364,35 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         return 0;
       }
     })();
-    console.log('[stream-event]', type, {
-      conversationId: payload?.conversationId || payload?.streamId || conversationID,
-      turnId: payload?.turnId,
-      assistantMessageId: payload?.assistantMessageId,
-      status: payload?.status,
-      finalResponse: payload?.finalResponse,
-      interim: payload?.patch?.interim ?? payload?.interim,
-      contentLen: String(payload?.content || payload?.patch?.content || '').length,
-      toolCallsPlanned: payload?.toolCallsPlanned?.length,
-      toolCallId: payload?.toolCallId,
-      toolName: payload?.toolName,
-      linkedConversationId: payload?.linkedConversationId,
-      elicitationId: payload?.elicitationId,
-      op: payload?.op,
-      id: payload?.id
-    });
+    const turnId = String(payload?.turnId || payload?.patch?.turnId || '').trim();
+    chatState.terminalTurns = chatState.terminalTurns || {};
+    if (turnId && chatState.terminalTurns[turnId] && type !== 'turn_completed' && type !== 'turn_failed' && type !== 'turn_canceled') {
+      logExecutorDebug('post-terminal-event', {
+        type,
+        conversationId: payload?.conversationId || payload?.streamId || conversationID,
+        turnId,
+        terminalAt: chatState.terminalTurns[turnId],
+        status: String(payload?.status || payload?.patch?.status || '').trim()
+      });
+    }
+    if (isStreamDebugEnabled()) {
+      console.log('[stream-event]', type, {
+        conversationId: payload?.conversationId || payload?.streamId || conversationID,
+        turnId: payload?.turnId,
+        assistantMessageId: payload?.assistantMessageId,
+        status: payload?.status,
+        finalResponse: payload?.finalResponse,
+        interim: payload?.patch?.interim ?? payload?.interim,
+        contentLen: String(payload?.content || payload?.patch?.content || '').length,
+        toolCallsPlanned: payload?.toolCallsPlanned?.length,
+        toolCallId: payload?.toolCallId,
+        toolName: payload?.toolName,
+        linkedConversationId: payload?.linkedConversationId,
+        elicitationId: payload?.elicitationId,
+        op: payload?.op,
+        id: payload?.id
+      });
+    }
     logStreamDebug(chatState, 'stream-event', {
       type,
       eventSize: payloadSize
@@ -1480,6 +1562,33 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     }
 
     if (type === 'turn_completed' || type === 'turn_failed' || type === 'turn_canceled') {
+      const finalRow = Array.isArray(chatState.liveRows)
+        ? [...chatState.liveRows].reverse().find((row) => String(row?.turnId || '').trim() === String(payload?.turnId || '').trim() && String(row?.role || '').toLowerCase() === 'assistant')
+        : null;
+      const finalContent = String(payload?.content || finalRow?.content || '').trim();
+      logExecutorDebug('turn-terminal', {
+        type,
+        conversationId: payload?.conversationId || payload?.streamId || conversationID,
+        turnId: String(payload?.turnId || '').trim(),
+        runningTurnId: String(chatState.runningTurnId || '').trim(),
+        activeStreamTurnId: String(chatState.activeStreamTurnId || '').trim(),
+        status: String(payload?.status || type).trim(),
+        hasFinalContent: finalContent !== '',
+        linkedConversationCount: Array.isArray(finalRow?.executionGroups)
+          ? finalRow.executionGroups.flatMap((group) => group?.toolSteps || []).filter((step) => String(step?.linkedConversationId || '').trim()).length
+          : 0
+      });
+      if (finalContent === '') {
+        logExecutorDebug('phantom-terminal', {
+          type,
+          conversationId: payload?.conversationId || payload?.streamId || conversationID,
+          turnId: String(payload?.turnId || '').trim(),
+          reason: 'terminal-event-without-final-content'
+        });
+      }
+      if (turnId) {
+        chatState.terminalTurns[turnId] = new Date().toISOString();
+      }
       logStreamDebug(chatState, 'stream-done', {
         status: String(payload?.status || type).trim()
       });
@@ -1568,6 +1677,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       }
       const turnId = String(payload?.turnId || '').trim();
       if (turnId) {
+        delete chatState.terminalTurns[turnId];
         chatState.activeStreamTurnId = turnId;
         chatState.runningTurnId = turnId;
         markLiveOwnedTurn(chatState, conversationID, turnId);
@@ -1603,16 +1713,18 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         || elicitationData
         || null;
       const elicitationId = String(payload?.elicitationId || '').trim();
-      console.log('[elicitation-overlay-debug]', {
-        elicitationId,
-        hasElicitationData: !!elicitationData,
-        elicitationDataKeys: elicitationData ? Object.keys(elicitationData) : [],
-        hasRequestedSchema: !!requestedSchema,
-        requestedSchemaType: requestedSchema ? typeof requestedSchema : 'none',
-        requestedSchemaKeys: requestedSchema && typeof requestedSchema === 'object' ? Object.keys(requestedSchema) : [],
-        content: String(payload?.content || '').slice(0, 100),
-        rawElicitationData: JSON.stringify(elicitationData).slice(0, 300)
-      });
+      if (isStreamDebugEnabled()) {
+        console.log('[elicitation-overlay-debug]', {
+          elicitationId,
+          hasElicitationData: !!elicitationData,
+          elicitationDataKeys: elicitationData ? Object.keys(elicitationData) : [],
+          hasRequestedSchema: !!requestedSchema,
+          requestedSchemaType: requestedSchema ? typeof requestedSchema : 'none',
+          requestedSchemaKeys: requestedSchema && typeof requestedSchema === 'object' ? Object.keys(requestedSchema) : [],
+          content: String(payload?.content || '').slice(0, 100),
+          rawElicitationData: JSON.stringify(elicitationData).slice(0, 300)
+        });
+      }
       if (elicitationId) {
         const elicUrl = String(elicitationData?.url || elicitationData?.Url || '').trim();
         const elicMode = String(elicitationData?.mode || elicitationData?.Mode || '').trim();
@@ -1938,6 +2050,7 @@ export async function createNewConversation(context) {
   messagesDS?.setCollection?.([]);
   messagesDS?.setError?.('');
   resetConversationSnapshotState(context);
+  renderMergedRowsForContext(context);
   setStage({ phase: 'ready', text: 'Ready' });
   publishActiveConversation('', context);
   return true;
@@ -1946,6 +2059,10 @@ export async function createNewConversation(context) {
 export function startPolling(context) {
   const chatState = ensureContextResources(context);
   const windowId = getContextWindowId(context);
+  logExecutorDebug('polling-start', {
+    windowId,
+    conversationId: getCurrentConversationID(context)
+  });
   if (chatState.timer) {
     clearInterval(chatState.timer);
     chatState.timer = null;
@@ -1971,6 +2088,12 @@ export function startPolling(context) {
 
 export function stopPolling(context) {
   const chatState = ensureContextResources(context);
+  logExecutorDebug('polling-stop', {
+    conversationId: getCurrentConversationID(context),
+    hadTimer: !!chatState.timer,
+    hadRefreshTimer: !!chatState.refreshTimer,
+    hadStream: !!chatState.stream
+  });
   if (chatState.timer) {
     clearInterval(chatState.timer);
     chatState.timer = null;

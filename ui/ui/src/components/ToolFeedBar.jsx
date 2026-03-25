@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getActiveFeeds, onFeedChange, fetchFeedDataNow, getFeedData } from '../services/toolFeedBus';
+import { getActiveFeeds, onFeedChange, fetchFeedDataNow, makeFeedKey, splitFeedKey } from '../services/toolFeedBus';
+import { usePlanFeed } from '../services/planFeedBus';
 import { getScopedConversationSelection, getSelectedWindow } from '../services/conversationWindow';
 
 const FEED_ICONS = {
@@ -10,13 +11,25 @@ const FEED_ICONS = {
 };
 
 function feedIcon(feedId) {
-  return FEED_ICONS[feedId] || '📊';
+  const rawFeedId = splitFeedKey(feedId).feedId || String(feedId || '').trim();
+  return FEED_ICONS[rawFeedId] || '📊';
+}
+
+function dedupeFeeds(feeds = []) {
+  const seen = new Map();
+  for (const feed of Array.isArray(feeds) ? feeds : []) {
+    const id = String(feed?.feedId || '').trim();
+    if (!id) continue;
+    seen.set(id, { ...(seen.get(id) || {}), ...(feed || {}) });
+  }
+  return Array.from(seen.values());
 }
 
 /**
  * Tracks which feeds are expanded (shown below execution details).
  */
 let expandedFeeds = new Set();
+let selectedFeedId = '';
 const expandListeners = new Set();
 function notifyExpand() {
   for (const fn of expandListeners) fn();
@@ -24,11 +37,28 @@ function notifyExpand() {
 export function isFeedExpanded(feedId) {
   return expandedFeeds.has(feedId);
 }
+export function getSelectedFeedId() {
+  return selectedFeedId;
+}
+const selectedFeedListeners = new Set();
+function notifySelectedFeed() {
+  for (const fn of selectedFeedListeners) fn(selectedFeedId);
+}
+export function onSelectedFeedChange(fn) {
+  selectedFeedListeners.add(fn);
+  return () => selectedFeedListeners.delete(fn);
+}
 function toggleFeedExpanded(feedId, conversationId) {
   if (expandedFeeds.has(feedId)) {
     expandedFeeds.delete(feedId);
+    if (selectedFeedId === feedId) {
+      selectedFeedId = Array.from(expandedFeeds)[0] || '';
+      notifySelectedFeed();
+    }
   } else {
     expandedFeeds.add(feedId);
+    selectedFeedId = feedId;
+    notifySelectedFeed();
     // Always fetch fresh merged data from backend on toggle.
     if (conversationId) {
       fetchFeedDataNow(feedId, conversationId);
@@ -48,6 +78,7 @@ function useExpandedFeeds() {
 
 export default function ToolFeedBar() {
   const [feeds, setFeeds] = useState(getActiveFeeds);
+  const planFeed = usePlanFeed();
   const expanded = useExpandedFeeds();
   const selectedWindow = getSelectedWindow();
   const currentConversationId = String(
@@ -61,6 +92,7 @@ export default function ToolFeedBar() {
       // Clear expand state when feeds are cleared (conversation switch).
       if (!next || next.length === 0) {
         expandedFeeds.clear();
+        selectedFeedId = '';
       }
     });
   }, []);
@@ -70,12 +102,27 @@ export default function ToolFeedBar() {
     if (!conversationId) return true;
     return conversationId === currentConversationId;
   });
+  const planConversationId = String(planFeed?.conversationId || '').trim();
+  const hasPlanData = !!String(planFeed?.explanation || '').trim()
+    || (Array.isArray(planFeed?.steps) && planFeed.steps.length > 0);
+  const mergedFeeds = dedupeFeeds([
+    ...(hasPlanData && (!planConversationId || planConversationId === currentConversationId)
+      ? [{
+          feedId: makeFeedKey('plan', planConversationId),
+          title: 'Plan',
+          itemCount: Array.isArray(planFeed?.steps) ? planFeed.steps.length : 0,
+          conversationId: planConversationId,
+          rawFeedId: 'plan',
+        }]
+      : []),
+    ...visibleFeeds,
+  ]);
 
-  if (visibleFeeds.length === 0) return null;
+  if (mergedFeeds.length === 0) return null;
 
   return (
     <div className="app-tool-feed-bar">
-      {visibleFeeds.map((feed) => {
+      {mergedFeeds.map((feed) => {
         const isExpanded = expanded.has(feed.feedId);
         return (
           <div
@@ -85,7 +132,7 @@ export default function ToolFeedBar() {
             role="button"
             tabIndex={0}
           >
-            <span className="app-tool-feed-bar-icon">{feedIcon(feed.feedId)}</span>
+            <span className="app-tool-feed-bar-icon">{feedIcon(feed.rawFeedId || feed.feedId)}</span>
             <span className="app-tool-feed-bar-title">{feed.title || feed.feedId}</span>
             {feed.itemCount > 0 ? (
               <span className="app-tool-feed-bar-badge">{feed.itemCount}</span>

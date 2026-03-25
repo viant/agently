@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Tabs, Tab } from '@blueprintjs/core';
 import { Container as ForgeContainer } from 'forge/components';
-import { getFeedData, onFeedDataChange, getActiveFeeds, onFeedChange } from '../services/toolFeedBus';
-import { isFeedExpanded } from './ToolFeedBar';
+import { getFeedData, onFeedDataChange, getActiveFeeds, onFeedChange, makeFeedKey, splitFeedKey } from '../services/toolFeedBus';
+import { getSelectedFeedId, isFeedExpanded, onSelectedFeedChange } from './ToolFeedBar';
+import { usePlanFeed } from '../services/planFeedBus';
 import {
   wireFeedSignals,
   normalizeDataSources,
@@ -10,6 +11,16 @@ import {
   applyAutoTableColumns,
 } from '../services/feedForgeWiring';
 import { createFeedContext } from '../services/feedForgeContext';
+
+function dedupeFeeds(feeds = []) {
+  const seen = new Map();
+  for (const feed of Array.isArray(feeds) ? feeds : []) {
+    const id = String(feed?.feedId || '').trim();
+    if (!id) continue;
+    seen.set(id, { ...(seen.get(id) || {}), ...(feed || {}) });
+  }
+  return Array.from(seen.values());
+}
 
 /**
  * Tabbed feed detail panel rendered below execution details in IterationBlock.
@@ -21,17 +32,36 @@ export default function ToolFeedDetail({ context }) {
   const [feeds, setFeeds] = useState(getActiveFeeds);
   const [dataVersion, setDataVersion] = useState(0);
   const [, setExpandVersion] = useState(0);
+  const [selectedFeedId, setSelectedFeedId] = useState(getSelectedFeedId);
+  const planFeed = usePlanFeed();
 
   useEffect(() => {
     const u1 = onFeedChange((next) => setFeeds(next));
     const u2 = onFeedDataChange(() => setDataVersion((n) => n + 1));
+    const u3 = onSelectedFeedChange((next) => setSelectedFeedId(next || ''));
     // Poll expand state changes (shared global, no subscription).
     const interval = setInterval(() => setExpandVersion((n) => n + 1), 300);
-    return () => { u1(); u2(); clearInterval(interval); };
+    return () => { u1(); u2(); u3(); clearInterval(interval); };
   }, []);
 
   // Collect expanded feeds that have data.
-  const visibleFeeds = (feeds || []).filter((f) => isFeedExpanded(f.feedId) && getFeedData(f.feedId));
+  const planFeedKey = makeFeedKey('plan', String(planFeed?.conversationId || '').trim());
+  const planData = getFeedData(planFeedKey, String(planFeed?.conversationId || '').trim());
+  const hasPlanBusData = !!String(planFeed?.explanation || '').trim()
+    || (Array.isArray(planFeed?.steps) && planFeed.steps.length > 0);
+  const hasPlanPayloadData = !!String(planData?.data?.output?.explanation || planData?.data?.input?.explanation || '').trim()
+    || Array.isArray(planData?.data?.output?.plan)
+    || Array.isArray(planData?.data?.input?.plan);
+  const hasPlanData = hasPlanBusData || hasPlanPayloadData;
+  const visibleFeeds = dedupeFeeds([
+    ...(hasPlanData && isFeedExpanded(planFeedKey) ? [{
+      feedId: planFeedKey,
+      title: 'Plan',
+      rawFeedId: 'plan',
+      conversationId: String(planFeed?.conversationId || '').trim(),
+    }] : []),
+    ...((feeds || []).filter((f) => isFeedExpanded(f.feedId) && getFeedData(f.feedId, f.conversationId))),
+  ]);
 
   if (visibleFeeds.length === 0) return null;
 
@@ -39,7 +69,7 @@ export default function ToolFeedDetail({ context }) {
   if (visibleFeeds.length === 1) {
     return (
       <div className="app-tool-feed-detail">
-        <FeedPanel feedId={visibleFeeds[0].feedId} />
+        <FeedPanel feedId={visibleFeeds[0].feedId} planFeed={planFeed} />
       </div>
     );
   }
@@ -47,13 +77,17 @@ export default function ToolFeedDetail({ context }) {
   // Multiple feeds: tabbed.
   return (
     <div className="app-tool-feed-detail">
-      <Tabs id="tool-feed-tabs" renderActiveTabPanelOnly>
+      <Tabs
+        id="tool-feed-tabs"
+        renderActiveTabPanelOnly
+        selectedTabId={visibleFeeds.some((feed) => feed.feedId === selectedFeedId) ? selectedFeedId : visibleFeeds[0].feedId}
+      >
         {visibleFeeds.map((feed) => (
           <Tab
             key={feed.feedId}
             id={feed.feedId}
             title={feed.title || feed.feedId}
-            panel={<FeedPanel feedId={feed.feedId} />}
+            panel={<FeedPanel feedId={feed.feedId} rawFeedId={feed.rawFeedId || splitFeedKey(feed.feedId).feedId} planFeed={planFeed} />}
           />
         ))}
       </Tabs>
@@ -74,9 +108,12 @@ export function resolveRootFeedDataSourceName(dataSources = {}) {
  * Renders a single feed panel. Uses Forge Container when the feed spec
  * includes a `ui` definition; falls back to InlineRenderer otherwise.
  */
-function FeedPanel({ feedId }) {
-  const data = getFeedData(feedId);
-  const [ready, setReady] = useState(false);
+function FeedPanel({ feedId, rawFeedId, planFeed }) {
+  const scopedConversationId = String(splitFeedKey(feedId).conversationId || '').trim();
+  const data = getFeedData(feedId, scopedConversationId);
+  if ((rawFeedId || splitFeedKey(feedId).feedId) === 'plan') {
+    return <PlanFeedPanel planFeed={planFeed} feedData={data} />;
+  }
 
   // Build the execution shape that wireFeedSignals expects.
   const exe = useMemo(() => {
@@ -107,33 +144,97 @@ function FeedPanel({ feedId }) {
     return uiClone;
   }, [exe]);
 
+  // Build Forge context for this feed.
+  const conversationId = data?._conversationId || scopedConversationId || '';
+  const forgeContext = useMemo(
+    () => createFeedContext(feedId, exe?.dataSources || {}, conversationId),
+    [conversationId, exe?.dataSources, feedId]
+  );
+
   // Wire Forge signals whenever data changes.
   useEffect(() => {
-    if (!exe || !uiContainer) { setReady(false); return; }
-    const conversationId = data?._conversationId || '';
-    const windowId = conversationId ? `feed-${feedId}-${conversationId}` : `feed-${feedId}`;
-    wireFeedSignals(exe, windowId);
-    setReady(true);
-  }, [exe, uiContainer, feedId, data]);
+    if (!exe || !uiContainer) { return; }
+    const timer = setTimeout(() => {
+      const windowId = conversationId ? `feed-${feedId}-${conversationId}` : `feed-${feedId}`;
+      wireFeedSignals(exe, windowId);
+      const dataMap = computeDataMap(exe);
+      for (const [dsRef, rows] of Object.entries(dataMap || {})) {
+        try {
+          forgeContext.Context(dsRef)?.handlers?.dataSource?.setCollection?.(Array.isArray(rows) ? rows : []);
+        } catch (_) {}
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [exe, uiContainer, feedId, data, forgeContext]);
 
   if (!data) return null;
+
+  const hasFullFeedSpec = !!(data?.ui && data?.dataSources);
+
+  if (!hasFullFeedSpec) {
+    return <div style={{ padding: 8, color: 'var(--gray2)' }}>Loading feed…</div>;
+  }
 
   // No UI spec → fall back to generic InlineRenderer.
   if (!uiContainer) {
     return <InlineRenderer data={data} />;
   }
 
-  // Build Forge context for this feed.
-  const conversationId = data?._conversationId || '';
-  const forgeContext = createFeedContext(feedId, exe?.dataSources || {}, conversationId);
-
-  if (!ready) {
-    return <div style={{ padding: 8, color: 'var(--gray2)' }}>Initializing data sources…</div>;
-  }
-
   return (
-    <div className="app-tool-feed-detail-list" style={{ maxHeight: '18vh', overflowY: 'auto' }}>
+    <div className="app-tool-feed-detail-list" style={{ maxHeight: 'min(42vh, 360px)', overflowY: 'auto', paddingRight: 4 }}>
       <ForgeContainer container={uiContainer} context={forgeContext} />
+    </div>
+  );
+}
+
+function normalizePlanFeedData(planFeed = {}, feedData = null) {
+  const currentExplanation = String(planFeed?.explanation || '').trim();
+  const currentSteps = Array.isArray(planFeed?.steps) ? planFeed.steps : [];
+  if (currentExplanation || currentSteps.length > 0) {
+    return { explanation: currentExplanation, steps: currentSteps };
+  }
+  const payload = feedData?.data || {};
+  const source = payload?.output || payload?.input || payload || {};
+  const explanation = String(source?.explanation || source?.Explanation || '').trim();
+  const rawSteps = Array.isArray(source?.plan || source?.Plan) ? (source.plan || source.Plan) : [];
+  const steps = rawSteps
+    .map((step, index) => {
+      const title = String(step?.step || step?.title || step?.name || '').trim();
+      if (!title) return null;
+      return {
+        id: String(step?.id || `${index}:${title}`),
+        step: title,
+        status: String(step?.status || '').trim().toLowerCase() || 'pending'
+      };
+    })
+    .filter(Boolean);
+  return { explanation, steps };
+}
+
+function PlanFeedPanel({ planFeed, feedData }) {
+  const normalized = normalizePlanFeedData(planFeed, feedData);
+  const explanation = String(normalized?.explanation || '').trim();
+  const steps = Array.isArray(normalized?.steps) ? normalized.steps : [];
+  if (!explanation && steps.length === 0) return null;
+  return (
+    <div className="app-tool-feed-detail-list" style={{ maxHeight: 'min(42vh, 360px)', overflowY: 'auto', paddingRight: 4 }}>
+      {explanation ? (
+        <div className="app-tool-feed-detail-explanation" style={{ marginBottom: 8 }}>
+          {explanation}
+        </div>
+      ) : null}
+      {steps.map((step, index) => {
+        const status = String(step?.status || '').trim().toLowerCase();
+        const icon = status === 'completed' || status === 'done' ? '✓'
+          : status === 'in_progress' || status === 'running' ? '▶'
+          : '○';
+        return (
+          <div className="app-tool-feed-detail-step" key={step?.id || `${index}:${step?.step || 'plan'}`}>
+            <span className={`app-tool-feed-detail-status status-${status || 'pending'}`}>{icon}</span>
+            <span style={{ flex: 1 }}>{String(step?.step || '').trim()}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

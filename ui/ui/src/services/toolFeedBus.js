@@ -16,6 +16,24 @@ export const feedTracker = new FeedTracker();
 let feedDataCache = {};
 const dataListeners = new Set();
 
+export function makeFeedKey(feedId = '', conversationId = '') {
+  const rawFeedId = String(feedId || '').trim();
+  const rawConversationId = String(conversationId || '').trim();
+  if (!rawFeedId) return '';
+  return rawConversationId ? `${rawConversationId}::${rawFeedId}` : rawFeedId;
+}
+
+export function splitFeedKey(feedKey = '') {
+  const raw = String(feedKey || '').trim();
+  if (!raw) return { feedId: '', conversationId: '' };
+  const idx = raw.indexOf('::');
+  if (idx === -1) return { feedId: raw, conversationId: '' };
+  return {
+    conversationId: raw.slice(0, idx).trim(),
+    feedId: raw.slice(idx + 2).trim()
+  };
+}
+
 function notifyDataChange() {
   for (const fn of dataListeners) fn();
 }
@@ -29,8 +47,24 @@ export function onFeedChange(fn) {
 }
 
 /** Get cached feed data. */
-export function getFeedData(feedId) {
-  return feedDataCache[feedId] || null;
+export function getFeedData(feedId, conversationId = '') {
+  const scopedKey = makeFeedKey(feedId, conversationId);
+  if (scopedKey && feedDataCache[scopedKey]) return feedDataCache[scopedKey] || null;
+  const directKey = String(feedId || '').trim();
+  return directKey ? (feedDataCache[directKey] || null) : null;
+}
+
+export function updateFeedData(feedId, patch = {}, conversationId = '') {
+  const scopedKey = makeFeedKey(feedId, conversationId || patch?._conversationId || '');
+  if (!scopedKey) return;
+  const identity = splitFeedKey(scopedKey);
+  const current = feedDataCache[scopedKey] || {
+    feedKey: scopedKey,
+    feedId: identity.feedId,
+    _conversationId: identity.conversationId
+  };
+  feedDataCache[scopedKey] = { ...current, ...(patch || {}), feedKey: scopedKey, feedId: identity.feedId, _conversationId: identity.conversationId };
+  notifyDataChange();
 }
 
 /** Subscribe to feed data changes. Returns unsubscribe function. */
@@ -41,12 +75,13 @@ export function onFeedDataChange(fn) {
 
 /** Fetch fresh feed data from backend (always makes a call, no cache check). */
 export function fetchFeedDataNow(feedId, conversationId) {
-  if (!feedId || !conversationId) return;
+  const scopedKey = makeFeedKey(feedId, conversationId);
+  if (!scopedKey || !conversationId) return;
   // Clear stale cache entry before fetch.
-  delete feedDataCache[feedId];
+  delete feedDataCache[scopedKey];
   client.getFeedData(feedId, conversationId).then((data) => {
     if (data) {
-      feedDataCache[feedId] = { ...data, _conversationId: conversationId };
+      feedDataCache[scopedKey] = { ...data, feedKey: scopedKey, feedId: String(feedId || '').trim(), _conversationId: conversationId };
     }
     notifyDataChange();
   }).catch(() => {
@@ -60,7 +95,7 @@ export function fetchFeedDataNow(feedId, conversationId) {
 export function clearFeedState() {
   for (const [id, cached] of Object.entries(feedDataCache)) {
     if (cached?.dataSources) {
-      cleanupFeedSignals(id, Object.keys(cached.dataSources));
+      cleanupFeedSignals(id, Object.keys(cached.dataSources), cached?._conversationId || '');
     }
   }
   feedDataCache = {};
@@ -72,34 +107,48 @@ export function clearFeedState() {
  * Called when tool_feed_active/inactive SSE arrives.
  */
 export function applyFeedEvent(payload) {
-  feedTracker.applyEvent(payload);
-
-  const feedId = payload?.feedId;
+  const feedId = String(payload?.feedId || '').trim();
   const conversationId = payload?.conversationId || payload?.streamId || '';
+  const scopedKey = makeFeedKey(feedId, conversationId);
+  if (!scopedKey) return;
+  const trackerEvent = {
+    ...payload,
+    feedId: scopedKey,
+    rawFeedId: feedId,
+    conversationId: String(conversationId || '').trim(),
+    feedTitle: payload?.feedTitle || feedId,
+  };
+  feedTracker.applyEvent(trackerEvent);
 
-  if (feedId && payload?.type === 'tool_feed_active') {
+  if (payload?.type === 'tool_feed_active') {
     // Set inline data immediately for fast rendering.
     if (payload.feedData) {
-      feedDataCache[feedId] = { data: payload.feedData, feedId, title: payload.feedTitle || feedId, _conversationId: conversationId };
+      feedDataCache[scopedKey] = {
+        data: payload.feedData,
+        feedKey: scopedKey,
+        feedId,
+        title: payload.feedTitle || feedId,
+        _conversationId: conversationId
+      };
       notifyDataChange();
     }
     // Always fetch from API to get the full spec (dataSources + ui from YAML).
     if (conversationId) {
       client.getFeedData(feedId, conversationId).then((data) => {
         if (data) {
-          feedDataCache[feedId] = { ...data, _conversationId: conversationId };
+          feedDataCache[scopedKey] = { ...data, feedKey: scopedKey, feedId, _conversationId: conversationId };
           notifyDataChange();
         }
       }).catch(() => {});
     }
   }
 
-  if (payload?.type === 'tool_feed_inactive' && feedId) {
-    const cached = feedDataCache[feedId];
+  if (payload?.type === 'tool_feed_inactive') {
+    const cached = feedDataCache[scopedKey];
     if (cached?.dataSources) {
-      cleanupFeedSignals(feedId, Object.keys(cached.dataSources));
+      cleanupFeedSignals(scopedKey, Object.keys(cached.dataSources), conversationId);
     }
-    delete feedDataCache[feedId];
+    delete feedDataCache[scopedKey];
     notifyDataChange();
   }
 }
