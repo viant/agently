@@ -324,15 +324,16 @@ func (a *authRuntime) authenticate(r *http.Request) *authUser {
 					a.sessions.Delete(r.Context(), strings.TrimSpace(c.Value))
 					return nil
 				}
-				// If tokens exist but are expired, try inline refresh as last resort.
+				// Inline refresh only when token is actually expired (not just near-expiry).
+				// Near-expiry refresh is handled by the background watcher to avoid
+				// request-context cancellation storms on concurrent requests.
 				if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !sess.Tokens.Valid() {
-					refreshed := a.tryRefreshToken(r.Context(), sess)
-					if refreshed != nil {
+					refreshCtx := context.Background()
+					if refreshed := a.tryRefreshToken(refreshCtx, sess); refreshed != nil {
 						sess.Tokens = refreshed
 					} else {
-						// Refresh failed — invalidate session, force re-login.
 						log.Printf("[v1-auth] token expired and refresh failed, invalidating session user=%q", sess.Subject)
-						a.sessions.Delete(r.Context(), c.Value)
+						a.sessions.Delete(refreshCtx, c.Value)
 						return nil
 					}
 				}
