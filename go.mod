@@ -15,7 +15,7 @@ require (
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3
 	github.com/viant/fluxor v0.4.3
-	github.com/viant/forge v0.2.20-0.20260320103329-bc4f345dcf4f
+	github.com/viant/forge v0.3.0
 	github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.14.0
@@ -209,3 +209,4 @@ require (
 )
 
 replace github.com/viant/agently-core => ../agently-core
+replace github.com/viant/mcp => ../mcp

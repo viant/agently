@@ -1,5 +1,0 @@
-agent:
-  id: internal-demo
-  name: Internal Demo
-  internal: true
-  modelRef: gpt-4o

@@ -1,8 +1,0 @@
-id: openai_gpt-5-mini
-description: GPT-5 mini model from OpenAI
-options:
-  provider: openai
-  model: gpt-5-mini
-  apiKeyURL: secrets/openai
-  temperature: 0.2
-  maxTokens: 8192

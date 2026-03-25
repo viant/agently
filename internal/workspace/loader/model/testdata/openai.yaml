@@ -1,8 +1,0 @@
-id: gpt-4
-options:
-  description: GPT-4 model from OpenAI
-  provider: openai
-  apiKeyURL: secrets/openai
-  model: gpt-4
-  temperature: 0.7
-  maxTokens: 4096

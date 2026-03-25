@@ -1,6 +1,6 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/api/conversations/{convID}/messages
+  uri: /v1/conversations/{convID}/transcript
   method: GET
 
 # No automatic parameter binding from other DataSources. Polling logic drives
@@ -13,6 +13,14 @@ parameters:
     kind: path
     in: input
     location: convID
+  - name: includeModelCalls
+    kind: query
+    in: input
+    location: includeModelCalls
+  - name: includeToolCalls
+    kind: query
+    in: input
+    location: includeToolCalls
   - name: since
     kind: query
     in: input
@@ -22,12 +30,12 @@ parameters:
 # "since" as missing. The connector wrapper still swallows network calls that
 # come without a real cursor (since == '').
 params:
+  includeModelCalls: "true"
+  includeToolCalls: "true"
   since: ""
 
 selectors:
-  # Extract turns from the unwrapped API payload (status/data envelope):
-  # use data.Transcript so DS receives an array for onFetch transformation.
-  data: data.Transcript
+  data: data.turns
 
 uniqueKey:
   - field: id

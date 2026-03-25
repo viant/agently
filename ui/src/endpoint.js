@@ -1,73 +1,33 @@
+/**
+ * Single source of truth for all API base URLs.
+ *
+ * All browser-side URLs use relative paths so requests go through the
+ * Vite dev proxy (localhost:5173 → backend) in development and stay
+ * same-origin in production. This avoids CORS issues entirely.
+ */
+
+/**
+ * SDK base URL — always relative.
+ */
+export const sdkBaseURL = '/v1';
+
+/**
+ * Forge SettingProvider endpoint map — also relative.
+ */
 export const endpoints = {
-    appAPI: {
-        baseURL: process.env.APP_URL,
-        output: {
-            statusField: "status",
-            dataField: "data"
-        }
-    },
-    dataAPI: {
-        baseURL: process.env.DATA_URL,
-        output: {
-            statusField: "status",
-            dataField: "data"
-        }
-    },
-    agentlyAPI: {
-        baseURL: process.env.DATA_URL,
-        output: {
-            statusField: "status",
-            dataField: "data"
-        }
-    }
-};
-
-// Lightweight header hook for Forge datasources hitting agentlyAPI.
-// If a global AGENTLY_BEARER is present, attach Authorization automatically.
-try {
-  if (!window.__agentlyFetchWrapped) {
-    const agentlyBase = (endpoints?.agentlyAPI?.baseURL || '').replace(/\/+$/, '');
-    const origin = (typeof location !== 'undefined' && location.origin) ? location.origin : '';
-    const origFetch = window.fetch.bind(window);
-    window.fetch = async (input, init = {}) => {
-      let url = '';
-      let matchesAgently = false;
-      try {
-        url = typeof input === 'string' ? input : (input && input.url) || '';
-        const method = (init && init.method) || 'GET';
-        const isAbsolute = /^https?:\/\//i.test(url);
-        const sameOrigin = isAbsolute ? (origin && url.startsWith(origin)) : true;
-        const isAPI = url.startsWith('/v1/') || url.includes('/v1/');
-        matchesAgently = isAPI || (agentlyBase ? url.startsWith(agentlyBase) : sameOrigin);
-        if (url && matchesAgently) {
-          const token = window.AGENTLY_BEARER;
-          if (token) {
-            const hdrs = new Headers(init.headers || (typeof input !== 'string' ? input.headers : undefined) || {});
-            if (!hdrs.has('Authorization')) hdrs.set('Authorization', `Bearer ${token}`);
-            init.headers = hdrs;
-          }
-        }
-        console.log('[agently.fetch] →', method, url);
-      } catch (_) {}
-
-      const resp = await origFetch(input, init);
-      try {
-        const ct = resp.headers.get('Content-Type') || '';
-        const status = resp.status;
-        if (!resp.ok) {
-          // clone and log a small snippet to avoid consuming body
-          const clone = resp.clone();
-          const txt = await clone.text().catch(() => '');
-          console.warn('[agently.fetch] ←', status, url, 'content-type:', ct, 'body:', (txt || '').slice(0, 220));
-          if (status === 401 && matchesAgently) {
-            try { window.dispatchEvent(new CustomEvent('agently:unauthorized', { detail: { url, status } })); } catch (_) {}
-          }
-        } else {
-          console.log('[agently.fetch] ←', status, url);
-        }
-      } catch (_) {}
-      return resp;
-    };
-    window.__agentlyFetchWrapped = true;
+  appAPI: {
+    baseURL: '/v1/api/',
+    statusField: 'status',
+    dataField: 'data'
+  },
+  dataAPI: {
+    baseURL: '/',
+    statusField: 'status',
+    dataField: 'data'
+  },
+  agentlyAPI: {
+    baseURL: '/',
+    statusField: 'status',
+    dataField: 'data'
   }
-} catch (_) {}
+};

@@ -1,36 +1,24 @@
-
+init:
+  repoPath: $WorkingDirectory(../..)
 
 pipeline:
-
   buildUI:
     action: exec:run
     TimeoutMs: 120000
+    description: build and embed UI (optional - uses pre-built if fails)
     commands:
-    - cd $repoPath
-    - ./scripts/build-ui-embed.sh current
-    - ./scripts/build-ui-embed.sh v1
+      - cd $repoPath
+      - ./scripts/build-ui-embed.sh || echo "[build-ui-embed] skipped - using pre-built UI assets"
 
-  build:
+  buildAgently:
     action: exec:run
-    TimeoutMs: 120000
+    TimeoutMs: 180000
+    description: build agently binary
     checkError: true
     commands:
       - cd $repoPath
       - export PATH=/usr/local/go/bin:$PATH
       - export GOPATH=${env.GOPATH}
-      - export GOROOT=/usr/local/go
       - mkdir -p $repoPath/bin
-      - cd ${repoPath}
-      - ./scripts/build-ui-embed.sh current
-      - ./scripts/build-ui-embed.sh v1
-      - cd ${repoPath}/datly
-      - go mod tidy
-      - /usr/local/go/bin/go build -o $repoPath/bin/datly
-      # Build agently last so embedded UI reflects latest deployment/ui and deployment/ui/v1.
-      # Keep both binary locations:
-      # - $repoPath/bin/agently for direct/manual usage
-      # - $repoPath/agently/agently for the existing Endly app runner
-      - cd ${repoPath}
-      - /usr/local/go/bin/go build -o $repoPath/bin/agently ./agently
+      - go build -o $repoPath/bin/agently ./agently
       - cp $repoPath/bin/agently $repoPath/agently/agently
-      - test -x $repoPath/bin/agently
