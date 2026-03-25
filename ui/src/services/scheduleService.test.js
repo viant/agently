@@ -548,6 +548,27 @@ describe('scheduleService saveSchedule', () => {
     expect(upsertSpy.mock.calls[0][0][0].visibility).toBe('private')
   })
 
+  it('defaults blank timeout to 300 seconds when saving', async () => {
+    const { context } = saveContext({
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleMode: 'daily',
+      dailyTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it',
+      timeoutSeconds: ''
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(upsertSpy).toHaveBeenCalledTimes(1)
+    expect(upsertSpy.mock.calls[0][0][0].timeoutSeconds).toBe(300)
+  })
+
   it('sends edited description and taskPrompt for an existing schedule', async () => {
     const existing = {
       id: 'sched-1',
@@ -915,6 +936,7 @@ describe('scheduleService editor sync', () => {
     scheduleService.onInit({ context })
 
     expect(state.formValues.visibility).toBe('private')
+    expect(state.formValues.timeoutSeconds).toBe(300)
   })
 
   it('pushes form dependencies on init when a focused schedule exists without selection', () => {
