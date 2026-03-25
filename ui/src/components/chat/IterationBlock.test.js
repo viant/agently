@@ -335,6 +335,25 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(shouldShowPreambleBubble([], text)).toBe(true);
   });
 
+  it('falls back to the latest tool-derived group title when newer groups have no preamble text', () => {
+    const text = resolveVisibleBubbleContent([
+      {
+        finalResponse: false,
+        preambleContent: 'Calling updatePlan.',
+        title: 'Calling updatePlan.',
+        toolSteps: []
+      },
+      {
+        finalResponse: false,
+        preambleContent: '',
+        title: 'Using llm/agents/run.',
+        toolSteps: [{ toolName: 'llm/agents/run' }]
+      }
+    ]);
+
+    expect(text).toBe('Using llm/agents/run.');
+  });
+
   it('falls back to iteration stream content when there are no presentable execution groups yet', () => {
     const text = resolveIterationBubbleContent({
       visibleGroups: [],

@@ -604,6 +604,11 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
     if (preambleText) {
       return preambleText;
     }
+    const hasTools = Array.isArray(group?.toolSteps) && group.toolSteps.length > 0;
+    const derivedTitle = String(group?.title || '').trim();
+    if (hasTools && derivedTitle) {
+      return derivedTitle;
+    }
   }
   return '';
 }
