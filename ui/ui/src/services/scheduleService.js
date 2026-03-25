@@ -16,6 +16,7 @@ const DEFAULT_CALENDAR_TIME = '09:00 AM';
 const DEFAULT_CALENDAR_INTERVAL_HOURS = 2;
 const DEFAULT_ELAPSED_INTERVAL_VALUE = 24;
 const DEFAULT_ELAPSED_INTERVAL_UNIT = 'hours';
+const DEFAULT_TIMEOUT_SECONDS = 300;
 const SCHEDULE_TOAST_TTL_MS = 20000;
 const ALL_WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const CALENDAR_BUILDER_FIELDS = new Set(['calendarPattern', 'calendarTime', 'calendarIntervalHours', 'weekdays']);
@@ -763,6 +764,16 @@ function ensureEditorState(form = {}) {
     ? Math.round(Number(next.elapsedIntervalValue))
     : normalizedElapsed.elapsedIntervalValue;
   next.elapsedIntervalUnit = normalizeElapsedUnit(next);
+  const timeoutCandidate = firstDefined(next, ['timeoutSeconds', 'timeout_seconds']);
+  const timeoutNumber = Number(timeoutCandidate);
+  next.timeoutSeconds =
+    timeoutCandidate !== undefined &&
+    timeoutCandidate !== null &&
+    String(timeoutCandidate).trim() !== '' &&
+    Number.isFinite(timeoutNumber) &&
+    timeoutNumber >= 0
+      ? Math.round(timeoutNumber)
+      : DEFAULT_TIMEOUT_SECONDS;
   if (!String(next.visibility || '').trim()) {
     next.visibility = 'private';
   }
