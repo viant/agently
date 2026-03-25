@@ -7,7 +7,7 @@ persona:
   role: assistant
   actor: Coder
   summary: Software engineering agent focused on coding, refactoring, and debugging.
-parallelToolCalls: false
+parallelToolCalls: true
 
 profile:
   publish: true
