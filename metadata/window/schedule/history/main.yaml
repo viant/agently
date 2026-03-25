@@ -17,15 +17,15 @@ dataSource:
       method: GET
 
     paging:
-      size: 25
+      size: 10
       enabled: true
       dataInfoSelectors:
         pageCount: pageCount
         totalCount: totalCount
 
     selectors:
-      data: data.runs
-      dataInfo: data
+      data: data
+      dataInfo: info
 
     on:
       - event: onFetch

@@ -1390,14 +1390,8 @@ body {
 }
 
 #bp6-tab-panel_window-manager-tabs_schedule\/history .table-panel::before {
-  content: 'Runs\A Review completed and in-flight scheduled executions without leaving the workspace.';
-  white-space: pre-line;
-  display: block;
-  color: #2d3a4f;
-  font-size: 14px;
-  line-height: 1.55;
-  padding: 2px 4px 14px;
-  font-weight: 500;
+  content: '';
+  display: none;
 }
 
 #bp6-tab-panel_window-manager-tabs_schedule\/history .table-panel::before:first-line {
@@ -1520,7 +1514,7 @@ body {
 }
 
 #bp6-tab-panel_form-tabs_scheduleConversations::before {
-  content: 'Runs\A Review completed and in-flight scheduled executions without leaving the workspace.';
+  content: '';
 }
 
 #bp6-tab-panel_form-tabs_schedulesCatalogue::before,
