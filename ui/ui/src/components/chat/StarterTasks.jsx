@@ -60,18 +60,68 @@ export default function StarterTasks({ message, context }) {
 
   if (tasks.length === 0) return null;
 
-  const onSelectTask = (task) => {
+  const resolveVisibleComposer = (origin) => {
+    if (typeof document === 'undefined') return null;
+    const candidates = Array.from(document.querySelectorAll('[data-testid="chat-composer-input"]'));
+    const visible = candidates.filter((node) => {
+      try {
+        const rect = node.getBoundingClientRect?.();
+        return !!rect && rect.width > 0 && rect.height > 0;
+      } catch (_) {
+        return false;
+      }
+    });
+    const localRoot = origin?.closest?.('[role="tabpanel"], .app-chat-pane, .chat-starter-stage, .app-shell');
+    if (localRoot) {
+      const localComposer = visible.find((node) => localRoot.contains(node));
+      if (localComposer) return localComposer;
+    }
+    return visible[visible.length - 1] || candidates[candidates.length - 1] || null;
+  };
+
+  const currentConversationId = () => {
+    try {
+      const form = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+      return String(form?.id || '').trim();
+    } catch (_) {
+      return '';
+    }
+  };
+
+  const persistStarterPrompt = (prompt, conversationId = '') => {
+    if (typeof window === 'undefined') return;
+    try {
+      const key = 'agently.composerDrafts.v1';
+      const raw = window.sessionStorage?.getItem(key) || '{}';
+      const parsed = JSON.parse(raw);
+      const next = parsed && typeof parsed === 'object' ? parsed : {};
+      const targetId = String(conversationId || '__pending__').trim() || '__pending__';
+      next[targetId] = String(prompt || '');
+      window.sessionStorage?.setItem(key, JSON.stringify(next));
+    } catch (_) {}
+  };
+
+  const onSelectTask = (task, event) => {
     const prompt = String(task?.prompt || '').trim();
     if (!prompt || typeof document === 'undefined') return;
-    const composer = document.querySelector('[data-testid="chat-composer-input"]');
+    const conversationId = currentConversationId();
+    persistStarterPrompt(prompt, conversationId);
+    try {
+      window.dispatchEvent(new CustomEvent('agently:composer-prefill', {
+        detail: { prompt, conversationId }
+      }));
+    } catch (_) {}
+    const composer = resolveVisibleComposer(event?.currentTarget || event?.target || null);
     if (!composer) return;
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+    const proto = Object.getPrototypeOf(composer) || window.HTMLTextAreaElement?.prototype || window.HTMLInputElement?.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
     if (typeof setter === 'function') {
       setter.call(composer, prompt);
     } else {
       composer.value = prompt;
     }
     composer.dispatchEvent(new Event('input', { bubbles: true }));
+    composer.dispatchEvent(new Event('change', { bubbles: true }));
     composer.focus();
     const end = prompt.length;
     if (typeof composer.setSelectionRange === 'function') {
@@ -92,7 +142,7 @@ export default function StarterTasks({ message, context }) {
               key={String(task?.id || `${task?.title || 'starter'}-${index}`)}
               type="button"
               className="chat-starter-task-card"
-              onClick={() => onSelectTask(task)}
+              onClick={(event) => onSelectTask(task, event)}
             >
               <span className="chat-starter-task-icon" aria-hidden="true">{starterIcon(task)}</span>
               <div className="chat-starter-task-title">{String(task?.title || '').trim()}</div>

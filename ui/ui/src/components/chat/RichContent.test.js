@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { parseFences } from './RichContent';
+import { renderMarkdownBlock } from 'agently-core-ui-sdk';
 
 describe('RichContent fence parsing', () => {
   it('parses a closed fenced code block', () => {
@@ -24,5 +25,11 @@ describe('RichContent fence parsing', () => {
     });
     expect(parts[0].body).toContain('fmt.Println("streaming")');
     expect(parts[0].body).toContain('for i := 0; i < 3; i++ {');
+  });
+
+  it('renders markdown headings as heading tags', () => {
+    const html = renderMarkdownBlock('## Cat Story\n\nA short paragraph.');
+    expect(html).toContain('<h2>Cat Story</h2>');
+    expect(html).toContain('A short paragraph.');
   });
 });

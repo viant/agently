@@ -7,6 +7,7 @@ import { fetchTranscript } from '../../services/chatRuntime';
 import { displayStepIcon, displayStepTitle, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
 import BubbleMessage from './BubbleMessage';
 import ElicitationForm from './ElicitationForm';
+import RichContent from './RichContent';
 import ToolFeedDetail from '../ToolFeedDetail';
 
 const GROUPS_VISIBLE = 'all';
@@ -61,6 +62,10 @@ function stepTitle(step) {
   return displayStepTitle(step);
 }
 
+function isPlanToolName(name = '') {
+  return normalizeToolName(name).includes('orchestrationupdateplan');
+}
+
 function rawToolTitle(step = {}) {
   return String(step?.toolName || step?.ToolName || 'tool');
 }
@@ -77,7 +82,22 @@ export function displayItemRowIcon(step = {}) {
   return '🛠';
 }
 
-export function displayLinkedConversationTitle() {
+function linkedConversationLabel(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return agentLabel(humanizeAgentId(text));
+}
+
+export function displayLinkedConversationTitle(step = {}, context = null) {
+  const explicitTitle = String(step?.title || step?.Title || '').trim();
+  if (explicitTitle) return explicitTitle;
+  const explicitAgent = String(step?.agentName || step?.agentId || step?.AgentId || '').trim();
+  if (explicitAgent) return linkedConversationLabel(explicitAgent);
+  const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
+  const metaForm = metaDS?.peekFormData?.() || {};
+  const byKey = metaForm?.agentInfo?.[explicitAgent] || null;
+  const keyedName = String(byKey?.label || byKey?.name || byKey?.title || '').trim();
+  if (keyedName) return keyedName;
   return 'Linked conversation';
 }
 
@@ -118,8 +138,11 @@ export function newerToolPageOffset(total = 0, rawOffset = null, pageSize = TOOL
 }
 
 function latencyLabel(step, now = Date.now(), fallbackStartedAt = 0) {
-  const explicit = formatDurationClock(totalLatencyMs([step]));
-  if (explicit) return explicit;
+  const explicitMs = totalLatencyMs([step]);
+  if (explicitMs >= 1000) {
+    const explicit = formatDurationClock(explicitMs);
+    if (explicit) return explicit;
+  }
   if (!isActiveStatus(step?.status)) return '';
   const startedAt = earliestStartedAt([step]) || fallbackStartedAt;
   if (!startedAt) return '';
@@ -296,7 +319,7 @@ function groupTitleFromSteps({ preamble, modelStep, toolSteps = [] } = {}) {
 }
 
 function normalizeToolName(name) {
-  return String(name || '').trim().toLowerCase().replace(/[:\-_]/g, '');
+  return String(name || '').trim().toLowerCase().replace(/[\/:\-_]/g, '');
 }
 
 function toolStepKey(step = {}) {
@@ -365,14 +388,23 @@ export function resolveIterationAgentLabel(data = {}, context = null) {
     || groupDerivedAgent
     || ''
   ).trim();
+  const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
+  const convForm = conversationsDS?.peekFormData?.() || {};
   const metaForm = metaDS?.peekFormData?.() || {};
-  if (!explicitAgentId) return '';
-  if (String(explicitAgentId).trim().toLowerCase() === 'auto') {
+  const fallbackAgentId = String(
+    convForm?.agent
+    || metaForm?.agent
+    || metaForm?.defaults?.agent
+    || ''
+  ).trim();
+  const resolvedAgentId = explicitAgentId || fallbackAgentId;
+  if (!resolvedAgentId) return '';
+  if (String(resolvedAgentId).trim().toLowerCase() === 'auto') {
     return 'Auto-select agent';
   }
 
-  const byKey = metaForm?.agentInfo?.[explicitAgentId] || null;
+  const byKey = metaForm?.agentInfo?.[resolvedAgentId] || null;
   const keyedName = String(byKey?.label || byKey?.name || byKey?.title || '').trim();
   if (keyedName) return keyedName;
 
@@ -380,10 +412,10 @@ export function resolveIterationAgentLabel(data = {}, context = null) {
     ...(Array.isArray(metaForm?.agentOptions) ? metaForm.agentOptions : []),
     ...(Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [])
   ];
-  const matched = optionLists.find((entry) => matchesAgentEntry(entry, explicitAgentId)) || null;
+  const matched = optionLists.find((entry) => matchesAgentEntry(entry, resolvedAgentId)) || null;
   const matchedName = String(matched?.label || matched?.name || matched?.title || '').trim();
   if (matchedName) return matchedName;
-  return agentLabel(humanizeAgentId(explicitAgentId));
+  return agentLabel(humanizeAgentId(resolvedAgentId));
 }
 
 export function resolveIterationModelLabel(context = null) {
@@ -467,7 +499,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
         responsePayload: ts?.responsePayload || ts?.ResponsePayload || null,
         linkedConversationId: ts?.linkedConversationId || ts?.LinkedConversationId || toolMessage?.linkedConversationId || toolMessage?.LinkedConversationId || ''
       };
-    });
+    }).filter((step) => !isPlanToolName(step?.toolName));
     const actualByKey = new Set(actualToolSteps.map((step) => toolStepKey(step)));
     const plannedToolSteps = plannedToolCalls
       .map((call, toolIndex) => ({
@@ -484,12 +516,15 @@ export function mapCanonicalExecutionGroups(groups = []) {
         responsePayload: null,
         linkedConversationId: ''
       }))
+      .filter((step) => !isPlanToolName(step?.toolName))
       .filter((step) => {
         const key = toolStepKey(step);
         return key && !actualByKey.has(key);
       });
     const toolSteps = [...actualToolSteps, ...plannedToolSteps];
-    const preambleContent = String(group?.preamble || group?.Preamble || '').trim();
+    const rawPreambleContent = String(group?.preamble || group?.Preamble || '').trim();
+    const onlyPlanTools = (toolStepsRaw.length > 0 || plannedToolCalls.length > 0) && toolSteps.length === 0;
+    const preambleContent = hiddenRouterStep || onlyPlanTools ? '' : rawPreambleContent;
     const status = String(group?.status || group?.Status || modelStep?.status || '').trim();
     const title = groupTitleFromSteps({
       preamble: preambleContent ? { content: preambleContent } : null,
@@ -500,7 +535,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
       id: String(group?.parentMessageId || group?.ParentMessageID || group?.modelMessageId || group?.ModelMessageID || `group:${index}`),
       title,
       fullTitle: plainText(preambleContent || title),
-      preambleContent: hiddenRouterStep ? '' : preambleContent,
+      preambleContent,
       modelStep,
       toolSteps,
       detailStep: modelStep || toolSteps[0] || null,
@@ -509,8 +544,16 @@ export function mapCanonicalExecutionGroups(groups = []) {
       finalContent: hiddenRouterStep ? '' : String(group?.content || group?.Content || '').trim(),
       elapsed: aggregateLatencyLabel([...(modelStep ? [modelStep] : []), ...toolSteps]),
       stepCount: (modelStep ? 1 : 0) + toolSteps.length,
-      hiddenRouterStep
+      hiddenRouterStep,
+      hiddenPlanOnlyStep: onlyPlanTools && !Boolean(group?.finalResponse || group?.FinalResponse)
     };
+  }).filter((group) => {
+    if (group?.hiddenPlanOnlyStep) return false;
+    const hasModel = !!group?.modelStep;
+    const hasTools = Array.isArray(group?.toolSteps) && group.toolSteps.length > 0;
+    const hasPreamble = String(group?.preambleContent || '').trim() !== '';
+    const hasFinal = !!group?.finalResponse || String(group?.finalContent || '').trim() !== '';
+    return hasModel || hasTools || hasPreamble || hasFinal;
   });
 }
 
@@ -561,6 +604,11 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
     if (preambleText) {
       return preambleText;
     }
+    const hasTools = Array.isArray(group?.toolSteps) && group.toolSteps.length > 0;
+    const derivedTitle = String(group?.title || '').trim();
+    if (hasTools && derivedTitle) {
+      return derivedTitle;
+    }
   }
   return '';
 }
@@ -586,8 +634,20 @@ export function shouldShowPreambleBubble(visibleGroups = [], visibleText = '') {
   return String(visibleText || '').trim() !== '';
 }
 
+function summaryModeMessageContent(value = {}) {
+  return String(value?.content || '').trim();
+}
+
 function linkedConversationId(step = {}) {
   return String(step?.linkedConversationId || step?.LinkedConversationId || '').trim();
+}
+
+function linkedConversationStartedAt(step = {}) {
+  return parseTimestamp(step?.startedAt || step?.StartedAt || step?.createdAt || step?.CreatedAt || '');
+}
+
+export function linkedConversationLatencyLabel(step = {}, now = Date.now(), fallbackStartedAt = 0) {
+  return latencyLabel(step, now, linkedConversationStartedAt(step) || fallbackStartedAt);
 }
 
 function canOpenLinkedConversation(step = {}) {
@@ -853,7 +913,6 @@ export default function IterationBlock({ message, context }) {
   const [collapsed, setCollapsed] = useState(() => !(isLatestIteration && isActiveIteration));
   const prevLatestRef = useRef(isLatestIteration);
   const prevActiveRef = useRef(isActiveIteration);
-  const prevTerminalRef = useRef(isTerminalTurnStatus(data?.status));
 
   // Shared turn start time — used by both the header timer and individual step timers.
   const turnStartedAt = useMemo(() => {
@@ -861,8 +920,13 @@ export default function IterationBlock({ message, context }) {
       ...(group?.modelStep ? [group.modelStep] : []),
       ...(Array.isArray(group?.toolSteps) ? group.toolSteps : [])
     ]);
-    return earliestStartedAt(sourceSteps) || parseTimestamp(message?.createdAt) || 0;
-  }, [allGroupEntries, message?.createdAt]);
+    const linkedStartedAt = earliestStartedAt(linkedConversationStates);
+    return earliestStartedAt(sourceSteps)
+      || linkedStartedAt
+      || parseTimestamp(data?.startedAt || data?.StartedAt || '')
+      || parseTimestamp(message?.createdAt)
+      || 0;
+  }, [allGroupEntries, linkedConversationStates, data?.startedAt, data?.StartedAt, message?.createdAt]);
 
   const elapsedLabel = useMemo(() => {
     const sourceSteps = allGroupEntries.flatMap((group) => [
@@ -890,7 +954,14 @@ export default function IterationBlock({ message, context }) {
     for (const state of linkedConversationStates) {
       const id = String(state?.conversationId || '').trim();
       if (!id || !seen.has(id)) continue;
-      seen.set(id, { ...seen.get(id), status: state?.status || seen.get(id)?.status || '' });
+      seen.set(id, {
+        ...seen.get(id),
+        status: state?.status || seen.get(id)?.status || '',
+        createdAt: state?.createdAt || seen.get(id)?.createdAt || '',
+        updatedAt: state?.updatedAt || seen.get(id)?.updatedAt || '',
+        agentId: state?.agentId || seen.get(id)?.agentId || '',
+        title: state?.title || seen.get(id)?.title || ''
+      });
     }
     return [...seen.values()];
   }, [allGroupEntries, linkedConversationStates]);
@@ -972,6 +1043,7 @@ export default function IterationBlock({ message, context }) {
   }), [data?.preamble?.content, data?.response?.content, data?.streamContent, message?.content, visibleGroups]);
   const hasVisibleElicitation = !!data?.response?.elicitation?.requestedSchema;
   const elicitationStatus = String(data?.response?.status || '').trim().toLowerCase();
+  const summaryContent = String(summaryModeMessageContent(data?.summary)).trim();
 
   const renderGroupRow = (group, groupIndex) => (
     (() => {
@@ -989,7 +1061,9 @@ export default function IterationBlock({ message, context }) {
           </div>
           <div className="app-iteration-tool-row-meta">
             <span className={`app-iteration-status tone-${statusTone(modelStep?.status)}`}>{statusLabel(modelStep?.status)}</span>
-            <span className="app-iteration-group-time">{latencyLabel(modelStep, now, turnStartedAt) || '00:00'}</span>
+            {latencyLabel(modelStep, now, turnStartedAt) ? (
+              <span className="app-iteration-group-time">{latencyLabel(modelStep, now, turnStartedAt)}</span>
+            ) : null}
             <Button
               minimal
               small
@@ -1020,7 +1094,9 @@ export default function IterationBlock({ message, context }) {
                 </div>
                 <div className="app-iteration-tool-row-meta">
                   <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
-                  <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt) || '00:00'}</span>
+                  {latencyLabel(toolStep, now, turnStartedAt) ? (
+                    <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt)}</span>
+                  ) : null}
                   <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(toolStep)}>Details</Button>
                 </div>
               </div>
@@ -1139,9 +1215,6 @@ export default function IterationBlock({ message, context }) {
   }, [data?.turnId, isActiveIteration, isLatestIteration, linkedConversationIds, message?.id]);
 
   useEffect(() => {
-    // Auto-collapse only when the turn becomes terminal. A completed model/tool
-    // phase can be followed by another iteration, so do not treat "inactive"
-    // as end-of-turn.
     const turnTerminal = isTerminalTurnStatus(data?.status);
     const linkedActive = hasActiveLinkedConversation;
     if (isLatestIteration && isActiveIteration) {
@@ -1155,20 +1228,8 @@ export default function IterationBlock({ message, context }) {
         linkedConversationStates
       });
       setCollapsed(false);
-    } else if (!prevTerminalRef.current && turnTerminal && !linkedActive) {
-      logIterationDebug('collapse-terminal', {
-        messageId: message?.id || '',
-        turnId: data?.turnId || '',
-        turnStatus: data?.status || '',
-        previousTerminal: prevTerminalRef.current,
-        isLatestIteration,
-        isActiveIteration,
-        linkedActive,
-        linkedConversationStates
-      });
-      setCollapsed(true);
-    } else if (!prevTerminalRef.current && turnTerminal && linkedActive) {
-      logIterationDebug('suppress-collapse-linked-active', {
+    } else if (turnTerminal) {
+      logIterationDebug('terminal-no-autocollapse', {
         messageId: message?.id || '',
         turnId: data?.turnId || '',
         turnStatus: data?.status || '',
@@ -1180,7 +1241,6 @@ export default function IterationBlock({ message, context }) {
     }
     prevLatestRef.current = isLatestIteration;
     prevActiveRef.current = isActiveIteration;
-    prevTerminalRef.current = turnTerminal;
   }, [data?.status, isActiveIteration, isLatestIteration, linkedConversationStates, hasActiveLinkedConversation, message?.id, data?.turnId]);
 
   useEffect(() => {
@@ -1307,10 +1367,10 @@ export default function IterationBlock({ message, context }) {
                         <div className="app-iteration-linked-conv-icon">{displayLinkedConversationIcon()}</div>
                         <div className="app-iteration-linked-conv-info">
                           <div className="app-iteration-linked-conv-head">
-                            <span className="app-iteration-linked-conv-title">{displayLinkedConversationTitle()}</span>
+                            <span className="app-iteration-linked-conv-title">{displayLinkedConversationTitle(step, context)}</span>
                             <div className="app-iteration-linked-conv-meta">
                               <span className={`app-iteration-status tone-${statusTone(step?.status)}`}>{statusLabel(step?.status)}</span>
-                              {latencyLabel(step) ? <span className="app-iteration-linked-conv-time">{latencyLabel(step)}</span> : null}
+                              {linkedConversationLatencyLabel(step, now, turnStartedAt) ? <span className="app-iteration-linked-conv-time">{linkedConversationLatencyLabel(step, now, turnStartedAt)}</span> : null}
                             </div>
                           </div>
                         </div>
@@ -1320,6 +1380,16 @@ export default function IterationBlock({ message, context }) {
                   })}
                 </div>
               </div>
+            ) : null}
+            {summaryContent ? (
+              <details className="app-iteration-summary-section">
+                <summary className="app-iteration-summary-head">Summary</summary>
+                <div className="app-iteration-summary-body">
+                  <div className="app-iteration-summary-content">
+                    <RichContent content={summaryContent} />
+                  </div>
+                </div>
+              </details>
             ) : null}
           </>
         ) : null}

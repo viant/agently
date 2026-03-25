@@ -41,13 +41,41 @@ import {
   renderMarkdownCellHTML,
 } from 'agently-core-ui-sdk';
 
+function useMeasuredContainer() {
+  const ref = React.useRef(null);
+  const [size, setSize] = React.useState({ width: 0, height: 0 });
+
+  React.useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof ResizeObserver === 'undefined') return undefined;
+    const update = () => {
+      const nextWidth = Number(node.clientWidth || 0);
+      const nextHeight = Number(node.clientHeight || 0);
+      setSize((prev) => (
+        prev.width === nextWidth && prev.height === nextHeight
+          ? prev
+          : { width: nextWidth, height: nextHeight }
+      ));
+    };
+    update();
+    const observer = new ResizeObserver(() => update());
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, size];
+}
+
 function MinimalText({ text = '' }) {
-  const html = renderMarkdownBlock(text);
+  const cleaned = String(text || '').replace(/^\s*<!--\s*CHART_SPEC:v1\s*-->\s*$/gim, '').trim();
+  const html = renderMarkdownBlock(cleaned);
   return <div className="app-rich-prose" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 function ChartSpecPanel({ spec = {} }) {
   const [mode, setMode] = React.useState('chart');
+  const [canvasRef, canvasSize] = useMeasuredContainer();
+  const [chartReady, setChartReady] = React.useState(false);
   const n = React.useMemo(() => normalizeChartSpec(spec), [spec]);
   const { rows, series } = React.useMemo(() => buildChartSeries(n), [n]);
   const { type, xKey, palette, title } = n;
@@ -56,6 +84,15 @@ function ChartSpecPanel({ spec = {} }) {
     (n.data || []).forEach((r) => Object.keys(r || {}).forEach((k) => keys.add(k)));
     return Array.from(keys);
   }, [n.data]);
+
+  React.useEffect(() => {
+    if (mode !== 'chart' || canvasSize.width <= 0 || canvasSize.height <= 0) {
+      setChartReady(false);
+      return undefined;
+    }
+    const raf = window.requestAnimationFrame(() => setChartReady(true));
+    return () => window.cancelAnimationFrame(raf);
+  }, [mode, canvasSize.width, canvasSize.height]);
 
   const chartCommon = (
     <>
@@ -89,8 +126,10 @@ function ChartSpecPanel({ spec = {} }) {
         </div>
       </div>
       {mode === 'chart' ? (
-        <div className="app-rich-chart-canvas">
-          <ResponsiveContainer width="100%" height="100%">{renderChart()}</ResponsiveContainer>
+        <div className="app-rich-chart-canvas" ref={canvasRef}>
+          {chartReady && canvasSize.width > 0 && canvasSize.height > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">{renderChart()}</ResponsiveContainer>
+          ) : null}
         </div>
       ) : (
         <FencedPipeTable

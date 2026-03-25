@@ -119,8 +119,15 @@ function extractPlanPayload(payload = null) {
 }
 
 function extractLatestPlan(rows = []) {
-  for (let rowIndex = rows.length - 1; rowIndex >= 0; rowIndex--) {
-    const row = rows[rowIndex];
+  const latestByTurn = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const turnId = String(row?.turnId || '').trim();
+    if (!turnId) continue;
+    latestByTurn.set(turnId, row);
+  }
+  const scanRows = latestByTurn.size > 0 ? Array.from(latestByTurn.values()) : (Array.isArray(rows) ? rows : []);
+  for (let rowIndex = scanRows.length - 1; rowIndex >= 0; rowIndex--) {
+    const row = scanRows[rowIndex];
     const candidateSteps = [];
     const executions = Array.isArray(row?.executions) ? row.executions : [];
     for (let execIndex = executions.length - 1; execIndex >= 0; execIndex--) {

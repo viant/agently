@@ -29,6 +29,7 @@ describe('mapCanonicalExecutionGroups', () => {
       linkedConversationId: 'child-123'
     })).toBe('🛠');
     expect(displayLinkedConversationTitle()).toBe('Linked conversation');
+    expect(displayLinkedConversationTitle({ agentId: 'steward-performance' })).toBe('Steward Performance');
     expect(displayLinkedConversationIcon()).toBe('🔗');
     expect(displayItemRowTitle({ toolName: 'resources/list' })).toBe('resources/list');
     expect(displayItemRowIcon({ toolName: 'resources/list' })).toBe('🛠');
@@ -273,10 +274,36 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(groups).toHaveLength(1);
     expect(groups[0].toolSteps.map((step) => step.toolName)).toEqual([
-      'orchestration/updatePlan',
       'resources-list',
       'resources-grepFiles'
     ]);
+  });
+
+  it('suppresses plan-only execution groups from visible execution details', () => {
+    const groups = mapCanonicalExecutionGroups([
+      {
+        parentMessageId: 'm1',
+        modelMessageId: 'm1',
+        sequence: 1,
+        preamble: 'Calling updatePlan.',
+        finalResponse: false,
+        status: 'completed',
+        modelCall: {
+          provider: 'openai',
+          model: 'gpt-5.4',
+          status: 'completed'
+        },
+        toolCalls: [
+          {
+            messageId: 'tm1',
+            toolName: 'orchestration/updatePlan',
+            status: 'completed'
+          }
+        ]
+      }
+    ]);
+
+    expect(groups).toHaveLength(0);
   });
 
   it('uses final content for the visible page bubble when a visible page is final', () => {
@@ -306,6 +333,25 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(text).toBe('Thinking...');
     expect(shouldShowPreambleBubble([], text)).toBe(true);
+  });
+
+  it('falls back to the latest tool-derived group title when newer groups have no preamble text', () => {
+    const text = resolveVisibleBubbleContent([
+      {
+        finalResponse: false,
+        preambleContent: 'Calling updatePlan.',
+        title: 'Calling updatePlan.',
+        toolSteps: []
+      },
+      {
+        finalResponse: false,
+        preambleContent: '',
+        title: 'Using llm/agents/run.',
+        toolSteps: [{ toolName: 'llm/agents/run' }]
+      }
+    ]);
+
+    expect(text).toBe('Using llm/agents/run.');
   });
 
   it('falls back to iteration stream content when there are no presentable execution groups yet', () => {
@@ -463,6 +509,43 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(resolveIterationAgentLabel({ agentIdUsed: 'coder' }, context)).toBe('Coder');
   });
 
+  it('falls back to the selected conversation agent when the turn payload omits agentIdUsed', () => {
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return { agent: 'steward' };
+                }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return {
+                    agentOptions: [
+                      { value: 'steward', label: 'Steward' }
+                    ],
+                    defaults: { agent: 'steward' }
+                  };
+                }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    expect(resolveIterationAgentLabel({}, context)).toBe('Steward');
+  });
+
   it('falls back to execution-group request payload metadata agent id', () => {
     const context = {
       Context(name) {
@@ -544,7 +627,7 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(resolveIterationAgentLabel({
       response: { createdByUserId: 'coder' }
-    }, context)).toBe('');
+    }, context)).toBe('Chatter');
   });
 
   it('prefers explicit streamed agent name when present on the iteration data', () => {
@@ -685,5 +768,29 @@ describe('mapCanonicalExecutionGroups', () => {
       toolName: 'llm/agents/run',
       linkedConversationId: 'child-123'
     });
+  });
+
+  it('skips empty canonical execution pages so phantom zero-time stages do not render', () => {
+    const groups = mapCanonicalExecutionGroups([
+      {
+        parentMessageId: 'p1',
+        iteration: 1,
+        status: 'completed',
+        modelSteps: [{ modelCallId: 'mc-1', provider: 'openai', model: 'gpt-5.4', status: 'completed' }]
+      },
+      {
+        parentMessageId: 'p2',
+        iteration: 2,
+        status: 'completed',
+        modelSteps: [],
+        toolSteps: [],
+        preamble: '',
+        content: '',
+        finalResponse: false
+      }
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].id).toBe('p1');
   });
 });
