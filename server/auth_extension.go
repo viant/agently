@@ -387,7 +387,7 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		if a.tokenStore != nil {
 			_ = a.tokenStore.Put(r.Context(), &svcauth.OAuthToken{
-				Username:     username,
+				Username:     firstNonEmpty(subject, username),
 				Provider:     provider,
 				AccessToken:  token.AccessToken,
 				IDToken:      idToken,
@@ -532,7 +532,7 @@ func (a *authExtension) handleOAuthCallback() http.HandlerFunc {
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		if a.tokenStore != nil {
 			_ = a.tokenStore.Put(r.Context(), &svcauth.OAuthToken{
-				Username:     username,
+				Username:     firstNonEmpty(subject, username),
 				Provider:     provider,
 				AccessToken:  token.AccessToken,
 				IDToken:      idToken,
