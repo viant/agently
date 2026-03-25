@@ -391,7 +391,7 @@ func newRouter(api http.Handler, meta http.Handler, speech http.Handler, uiDist 
 			speech.ServeHTTP(w, r)
 			return
 		}
-		if path == "/healthz" || (strings.HasPrefix(path, "/v1/") && !strings.HasPrefix(path, "/v1/conversation/")) {
+		if path == "/healthz" || path == "/health" || (strings.HasPrefix(path, "/v1/") && !strings.HasPrefix(path, "/v1/conversation/")) {
 			api.ServeHTTP(w, r)
 			return
 		}
