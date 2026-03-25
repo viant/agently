@@ -3,9 +3,9 @@ module github.com/viant/agently
 go 1.25.5
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.41.2
-	github.com/aws/aws-sdk-go-v2/config v1.28.0
-	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.0
+	github.com/aws/aws-sdk-go-v2 v1.41.2 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.28.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.0 // indirect
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/stretchr/testify v1.11.1
@@ -13,46 +13,25 @@ require (
 	github.com/viant/afsc v1.17.0
 	github.com/viant/agently-core v0.1.0
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
-	github.com/viant/embedius v0.5.3
-	github.com/viant/fluxor v0.4.3
-	github.com/viant/forge v0.3.0
-	github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0
-	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
+	github.com/viant/embedius v0.5.3 // indirect
+	github.com/viant/forge v0.3.0 // indirect
+	github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0 // indirect
+	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.14.0
-	github.com/viant/mcp-protocol v0.11.0
+	github.com/viant/mcp-protocol v0.11.0 // indirect
 	github.com/viant/scy v0.25.3
 	github.com/viant/structology v0.8.0 // indirect
-	github.com/viant/velty v0.4.0
+	github.com/viant/velty v0.4.0 // indirect
 	github.com/viant/x v0.4.1-0.20260306005005-975ded1e1bef // indirect
-	github.com/viant/xdatly/handler v0.0.0-20251208172928-dd34b7f09fd5
-	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20
-	github.com/xeipuuv/gojsonschema v1.2.0 // indirect -- replaced with internal stub, see below
+	github.com/viant/xdatly/handler v0.0.0-20251208172928-dd34b7f09fd5 // indirect
+	github.com/viant/xdatly/types/core v0.0.0-20250418144853-029d9a05ae20 // indirect
+	github.com/xeipuuv/gojsonschema v1.2.0 // indirect; indirect -- replaced with internal stub, see below
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
-	github.com/aws/aws-sdk-go-v2/service/sts v1.32.2
-	github.com/aws/smithy-go v1.24.1
-	github.com/fsnotify/fsnotify v1.8.0
-	github.com/golang-jwt/jwt/v5 v5.2.2
-	github.com/google/gops v0.3.29
-	github.com/gorilla/websocket v1.5.3
-	github.com/minio/highwayhash v1.0.3
-	github.com/openai/openai-go/v3 v3.24.0
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
-	github.com/rwtodd/Go.Sed v0.0.0-20250326002959-ba712dc84b62
-	github.com/sourcegraph/go-diff v0.7.0
-	github.com/viant/a2a-protocol v0.1.0
 	github.com/viant/bigquery v0.5.1
-	github.com/viant/gds v0.6.0
-	github.com/viant/gosh v0.3.0
-	github.com/viant/parsly v0.3.3
-	github.com/viant/xdatly v0.5.4-0.20260306062123-17850ac34977
-	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20
-	golang.org/x/crypto v0.43.0
 	golang.org/x/oauth2 v0.32.0
-	golang.org/x/sync v0.17.0
-	modernc.org/sqlite v1.45.0
 )
 
 require (
@@ -101,6 +80,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.55.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.24.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.28.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.32.2 // indirect
+	github.com/aws/smithy-go v1.24.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20251022180443-0feb69152e9f // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -110,6 +91,7 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/francoispqt/gojay v1.2.13 // indirect
+	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -118,11 +100,13 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
@@ -134,14 +118,19 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mazznoer/csscolorparser v0.1.3 // indirect
 	github.com/metakeule/fmtdate v1.1.2 // indirect
+	github.com/minio/highwayhash v1.0.3 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/onsi/ginkgo/v2 v2.25.3 // indirect
+	github.com/openai/openai-go/v3 v3.24.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.4 // indirect
+	github.com/rwtodd/Go.Sed v0.0.0-20250326002959-ba712dc84b62 // indirect
 	github.com/shakinm/xlsReader v0.9.12 // indirect
+	github.com/sourcegraph/go-diff v0.7.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
@@ -149,15 +138,17 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.1 // indirect
 	github.com/viant/aerospike v0.2.11-0.20241108195857-ed524b97800d // indirect
-	github.com/viant/bindly v0.1.0 // indirect
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/cloudless v1.12.0 // indirect
 	github.com/viant/dyndb v0.1.4-0.20221214043424-27654ab6ed9c // indirect
 	github.com/viant/firebase v0.1.1 // indirect
+	github.com/viant/gds v0.6.0 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
 	github.com/viant/godiff v0.4.1 // indirect
+	github.com/viant/gosh v0.3.0 // indirect
 	github.com/viant/govalidator v0.3.1 // indirect
 	github.com/viant/igo v0.2.0 // indirect
+	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
 	github.com/viant/sqlparser v0.11.1-0.20260224194657-0470849e3588 // indirect
@@ -166,7 +157,9 @@ require (
 	github.com/viant/tagly v0.3.0 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
 	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
+	github.com/viant/xdatly v0.5.4-0.20260306062123-17850ac34977 // indirect
 	github.com/viant/xdatly/extension v0.0.0-20231013204918-ecf3c2edf259 // indirect
+	github.com/viant/xdatly/types/custom v0.0.0-20250418144853-029d9a05ae20 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.1 // indirect
 	github.com/viant/xreflect v0.7.5-0.20260314170600-13f09f37d46e // indirect
@@ -187,9 +180,11 @@ require (
 	go.opentelemetry.io/otel/sdk v1.38.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
+	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/net v0.46.1-0.20251013234738-63d1a5100f82 // indirect
+	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	golang.org/x/time v0.8.0 // indirect
@@ -206,6 +201,5 @@ require (
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
+	modernc.org/sqlite v1.45.0 // indirect
 )
-
-
