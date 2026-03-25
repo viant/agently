@@ -4,14 +4,14 @@ service:
   method: GET
 
 paging:
-  size: 25
+  size: 10
   enabled: true
   dataInfoSelectors:
     pageCount: pageCount
     totalCount: totalCount
 
 parameters:
-  - from: schedules:form
+  - from: schedules:selection
     to: :query
     name: scheduleId
     kind: query
@@ -23,8 +23,8 @@ parameters:
     location: "true"
 
 selectors:
-  data: data.runs
-  dataInfo: data
+  data: data
+  dataInfo: info
 
 on:
   - event: onFetch
