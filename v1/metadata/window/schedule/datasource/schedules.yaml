@@ -1,0 +1,34 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/api/agently/scheduler/
+  method: GET
+
+paging:
+  size: 10
+  enabled: true
+  dataInfoSelectors:
+    pageCount: pageCount
+    totalCount: totalCount
+
+selectors:
+  data: data.schedules
+  dataInfo: info
+
+on:
+  - event: onFetch
+    handler: schedule.onFetchSchedules
+
+filterSet:
+  - name: default
+    default: true
+    template:
+      - id: name
+        label: Filter schedules...
+        operator: eq
+
+quickFilterSet: default
+
+uniqueKey:
+  - field: id
+
+selectionMode: single
