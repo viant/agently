@@ -33,6 +33,65 @@ describe('normalizeStreamingMarkdown', () => {
   });
 });
 
+describe('applyStreamChunk', () => {
+  it('updates the active execution group content while streaming', () => {
+    const chatState = {
+      activeStreamTurnId: 'turn-1',
+      liveRows: [{
+        id: 'assistant:turn-1:1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 1,
+        isStreaming: true,
+        content: '',
+        executionGroups: [{
+          assistantMessageId: 'msg-1',
+          content: '',
+          finalResponse: false,
+          status: 'thinking',
+          modelSteps: [{
+            modelCallId: 'msg-1',
+            assistantMessageId: 'msg-1',
+            status: 'thinking'
+          }],
+          toolSteps: [],
+          toolCallsPlanned: []
+        }],
+        createdAt: '2026-03-16T10:00:01Z'
+      }]
+    };
+
+    applyStreamChunk(chatState, {
+      id: 'msg-1',
+      streamId: 'conv-1',
+      content: 'Hello'
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].content).toBe('Hello');
+    expect(chatState.liveRows[0].executionGroups[0].content).toBe('Hello');
+    expect(chatState.liveRows[0].executionGroups[0].status).toBe('streaming');
+    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0].status).toBe('streaming');
+  });
+
+  it('creates a streaming execution group when text arrives before model_started', () => {
+    const chatState = {
+      activeStreamTurnId: 'turn-1',
+      liveRows: []
+    };
+
+    applyStreamChunk(chatState, {
+      id: 'msg-1',
+      streamId: 'conv-1',
+      content: 'Hello'
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0].content).toBe('Hello');
+    expect(chatState.liveRows[0].executionGroups[0].status).toBe('streaming');
+  });
+});
+
 describe('applyExecutionStreamEvent', () => {
   it('preserves turn agent identity on execution rows', () => {
     const chatState = { liveRows: [] };
@@ -429,7 +488,7 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0].executionGroups[0].content).toBe('Here is the final response.');
   });
 
-  it('preserves mode=summary on message_patch rows', () => {
+  it('suppresses mode=summary message_patch rows from live chat state', () => {
     const chatState = { liveRows: [] };
 
     applyMessagePatchEvent(chatState, {
@@ -443,11 +502,69 @@ describe('applyExecutionStreamEvent', () => {
       }
     });
 
-    expect(chatState.liveRows[0]).toMatchObject({
+    expect(chatState.liveRows).toEqual([]);
+  });
+
+  it('ignores later model and patch events once a summary message id has been identified', () => {
+    const chatState = {
+      liveRows: [{
+        id: 'msg-main',
+        role: 'assistant',
+        turnId: 'turn-1',
+        content: 'Hi! How can I help with your campaigns today?',
+        interim: 0,
+        executionGroups: [{
+          assistantMessageId: 'msg-main',
+          content: 'Hi! How can I help with your campaigns today?',
+          finalResponse: true,
+          status: 'completed',
+          modelSteps: [{
+            modelCallId: 'msg-main',
+            status: 'completed',
+            provider: 'openai',
+            model: 'gpt-5.4'
+          }],
+          toolSteps: [],
+          toolCallsPlanned: []
+        }],
+        createdAt: '2026-03-16T10:00:01Z'
+      }]
+    };
+
+    applyMessagePatchEvent(chatState, {
       id: 'summary-msg-1',
-      role: 'assistant',
-      mode: 'summary'
+      patch: {
+        role: 'assistant',
+        mode: 'summary',
+        turnId: 'turn-1',
+        interim: 1,
+        createdAt: '2026-03-16T10:00:02Z'
+      }
     });
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'summary-msg-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'thinking',
+      createdAt: '2026-03-16T10:00:03Z',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    }, 'conv-1');
+
+    applyMessagePatchEvent(chatState, {
+      id: 'summary-msg-1',
+      patch: {
+        turnId: 'turn-1',
+        interim: 0,
+        createdAt: '2026-03-16T10:00:04Z',
+        content: 'Title: Initial Greeting'
+      }
+    });
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0].content).toBe('Hi! How can I help with your campaigns today?');
+    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0].assistantMessageId).toBe('msg-main');
   });
 
   it('message_patch merges into existing execution row for the same turn', () => {

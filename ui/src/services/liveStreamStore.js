@@ -1,5 +1,46 @@
 import { mergeRowSnapshots } from './rowMerge';
 
+function normalizedMessageIds(payload = {}) {
+  const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
+  return [
+    payload?.id,
+    payload?.assistantMessageId,
+    payload?.modelCallId,
+    patch?.id,
+    patch?.assistantMessageId,
+    patch?.modelCallId,
+  ].map((value) => String(value || '').trim()).filter(Boolean);
+}
+
+function normalizedMode(payload = {}) {
+  const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
+  return String(payload?.mode || patch?.mode || '').trim().toLowerCase();
+}
+
+function summarySuppressionSet(chatState = {}) {
+  if (!chatState._suppressedSummaryMessageIds) {
+    chatState._suppressedSummaryMessageIds = new Set();
+  }
+  return chatState._suppressedSummaryMessageIds;
+}
+
+function rememberSuppressedSummary(chatState = {}, payload = {}) {
+  if (normalizedMode(payload) !== 'summary') return;
+  const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
+  const role = String(payload?.role || patch?.role || '').trim().toLowerCase();
+  if (role && role !== 'assistant') return;
+  const suppressed = summarySuppressionSet(chatState);
+  for (const id of normalizedMessageIds(payload)) {
+    suppressed.add(id);
+  }
+}
+
+function isSuppressedSummaryEvent(chatState = {}, payload = {}) {
+  if (normalizedMode(payload) === 'summary') return true;
+  const suppressed = summarySuppressionSet(chatState);
+  return normalizedMessageIds(payload).some((id) => suppressed.has(id));
+}
+
 function mergeCanonicalToolCalls(existing = [], incoming = []) {
   const out = [];
   const seen = new Map();
@@ -292,6 +333,25 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
     const existingIdx = findAssistantRowIndex(filtered, turnId, messageId);
     if (existingIdx !== -1) {
       const prev = filtered[existingIdx];
+      const groups = Array.isArray(prev.executionGroups) ? [...prev.executionGroups] : [];
+      const patchInterim = Number(patch?.interim ?? 0) || 0;
+      const patchStatus = String(patch?.status || '').trim();
+      const patchPreamble = String(patch?.preamble || '').trim();
+      let groupPatched = false;
+      const updatedGroups = groups.map((group, index) => {
+        const assistantMessageId = String(group?.assistantMessageId || '').trim();
+        const shouldPatch = (messageId && assistantMessageId === messageId)
+          || (!messageId && index === groups.length - 1);
+        if (!shouldPatch) return group;
+        groupPatched = true;
+        return {
+          ...group,
+          preamble: patchPreamble || group?.preamble || '',
+          content: patchContent || group?.content || '',
+          finalResponse: patchInterim === 0 && patchContent !== '' ? true : !!group?.finalResponse,
+          status: patchStatus || (patchInterim === 0 ? 'completed' : 'streaming') || group?.status || ''
+        };
+      });
       // Never set interim=0 from message_patch — the backend may
       // prematurely clear interim for tool-call responses. Only
       // assistant_final and turn_completed should mark a row as final.
@@ -302,7 +362,8 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
         rawContent: rawContent || String(prev.rawContent || ''),
         preamble: String(patch?.preamble || '').trim() || prev.preamble,
         status: baseRow.status || prev.status,
-        turnStatus: baseRow.turnStatus || prev.turnStatus
+        turnStatus: baseRow.turnStatus || prev.turnStatus,
+        executionGroups: groupPatched ? updatedGroups : prev.executionGroups
       };
       return filtered;
     }
@@ -329,6 +390,7 @@ export function resetLiveStreamState(chatState = {}, options = {}) {
   if (!options?.preservePrompt) {
     chatState.activeStreamPrompt = '';
   }
+  chatState._suppressedSummaryMessageIds = new Set();
 }
 
 // Detect whether accumulated streaming content looks like an LLM-generated
@@ -374,6 +436,10 @@ export function normalizeStreamingMarkdown(text = '') {
 }
 
 export function applyStreamChunk(chatState = {}, payload = {}, conversationID = '') {
+  if (isSuppressedSummaryEvent(chatState, payload)) {
+    rememberSuppressedSummary(chatState, payload);
+    return chatState.liveRows || [];
+  }
   const turnId = String(chatState.activeStreamTurnId || chatState.runningTurnId || '').trim();
   const streamMessageID = String(payload?.id || '').trim();
   const delta = String(payload?.content || '');
@@ -400,6 +466,25 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
     if (row.preamble && row._streamContent.length > 0) {
       row.preamble = '';
     }
+    const groups = Array.isArray(row.executionGroups) ? [...row.executionGroups] : [];
+    if (groups.length > 0) {
+      const groupIndex = groups.length - 1;
+      const group = { ...groups[groupIndex] };
+      group.content = row.content;
+      group.finalResponse = false;
+      group.status = 'streaming';
+      if (Array.isArray(group.modelSteps) && group.modelSteps.length > 0) {
+        const modelSteps = [...group.modelSteps];
+        const lastModelStepIndex = modelSteps.length - 1;
+        modelSteps[lastModelStepIndex] = {
+          ...modelSteps[lastModelStepIndex],
+          status: 'streaming'
+        };
+        group.modelSteps = modelSteps;
+      }
+      groups[groupIndex] = group;
+      row.executionGroups = groups;
+    }
     liveRows[index] = row;
   } else {
     // No execution row yet (text_delta arrived before model_started).
@@ -422,6 +507,19 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
         language: normalized.language,
       },
       content: visibleContent,
+      executionGroups: [{
+        assistantMessageId: streamMessageID || '',
+        content: visibleContent,
+        finalResponse: false,
+        status: 'streaming',
+        modelSteps: [{
+          modelCallId: streamMessageID || '',
+          assistantMessageId: streamMessageID || '',
+          status: 'streaming'
+        }],
+        toolSteps: [],
+        toolCallsPlanned: []
+      }],
       createdAt: payload?.createdAt || new Date().toISOString()
     });
     liveRows.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
@@ -572,6 +670,10 @@ export function applyElicitationRequestedEvent(chatState = {}, payload = {}) {
 }
 
 export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConversationID = '') {
+  if (isSuppressedSummaryEvent(chatState, payload)) {
+    rememberSuppressedSummary(chatState, payload);
+    return chatState.liveRows || [];
+  }
   const turnId = String(payload?.turnId || '').trim();
   const assistantMessageId = String(payload?.assistantMessageId || '').trim();
   const preamble = String(payload?.content || payload?.preamble || '').trim();
@@ -623,12 +725,20 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
 }
 
 export function applyAssistantFinalEvent(chatState = {}, payload = {}) {
+  if (isSuppressedSummaryEvent(chatState, payload)) {
+    rememberSuppressedSummary(chatState, payload);
+    return chatState.liveRows || [];
+  }
   const nextRows = applyAssistantFinalToRows(chatState.liveRows, payload);
   chatState.liveRows = nextRows;
   return nextRows;
 }
 
 export function applyExecutionStreamEvent(chatState = {}, payload = {}, fallbackConversationID = '') {
+  if (isSuppressedSummaryEvent(chatState, payload)) {
+    rememberSuppressedSummary(chatState, payload);
+    return chatState.liveRows || [];
+  }
   const nextRows = applyExecutionStreamEventToRows(chatState.liveRows, payload, fallbackConversationID);
   chatState.liveRows = nextRows;
   return nextRows;
@@ -641,6 +751,10 @@ export function applyToolStreamEvent(chatState = {}, payload = {}, fallbackConve
 }
 
 export function applyMessagePatchEvent(chatState = {}, payload = {}) {
+  rememberSuppressedSummary(chatState, payload);
+  if (isSuppressedSummaryEvent(chatState, payload)) {
+    return chatState.liveRows || [];
+  }
   const nextRows = applyMessagePatchToRows(chatState.liveRows, payload);
   chatState.liveRows = nextRows;
   return nextRows;

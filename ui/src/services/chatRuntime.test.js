@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
 
-import { bootstrapConversationSelection, createNewConversation, fetchTranscript, handleStreamEvent, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, shouldUseLiveStream } from './chatRuntime';
+import { bootstrapConversationSelection, createNewConversation, ensureConversation, fetchTranscript, handleStreamEvent, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, shouldUseLiveStream } from './chatRuntime';
 import { client } from './agentlyClient';
 
 vi.mock('./agentlyClient', () => ({
@@ -610,6 +610,60 @@ describe('mapTranscriptToRows', () => {
       sequence: 1
     });
     expect(rows[0].executionGroups).toHaveLength(1);
+  });
+
+  it('ensureConversation reuses the scoped active conversation when the form id is transiently empty', async () => {
+    const existingConversation = {
+      id: 'conv-existing',
+      title: 'Existing conversation'
+    };
+    client.getConversation.mockResolvedValueOnce(existingConversation);
+
+    const context = {
+      identity: { windowId: 'chat/main' },
+      resources: {
+        chat: {
+          activeConversationID: 'conv-existing'
+        }
+      },
+      Context: (name) => {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: '', title: 'New conversation', agent: 'steward', model: 'openai_gpt-5_4' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: { agent: 'steward', model: 'openai_gpt-5_4' } })
+              }
+            }
+          };
+        }
+        return { handlers: { dataSource: {} } };
+      }
+    };
+
+    const originalWindow = global.window;
+    global.window = {
+      location: { pathname: '/conversation/conv-existing' },
+      localStorage: { getItem: vi.fn(() => '') },
+      dispatchEvent: vi.fn()
+    };
+
+    try {
+      const id = await ensureConversation(context);
+      expect(id).toBe('conv-existing');
+      expect(client.createConversation).not.toHaveBeenCalled();
+    } finally {
+      global.window = originalWindow;
+    }
   });
 
   it('propagates turn execution groups onto tool rows linked to the group', () => {

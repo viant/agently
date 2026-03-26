@@ -56,6 +56,8 @@ const SIDEBAR_ACTIVITY_EVENT_TYPES = new Set([
 
 function isStreamDebugEnabled() {
   if (typeof window === 'undefined') return false;
+  const envLevel = String(import.meta?.env?.VITE_FORGE_LOG_LEVEL || '').trim().toLowerCase();
+  if (envLevel === 'debug') return true;
   try {
     const raw = String(window.localStorage?.getItem('agently.debugStream') || '').trim().toLowerCase();
     if (['0', 'false', 'off', 'no'].includes(raw)) return false;
@@ -68,6 +70,8 @@ function isStreamDebugEnabled() {
 
 function isExecutorDebugEnabled() {
   if (typeof window === 'undefined') return false;
+  const envLevel = String(import.meta?.env?.VITE_FORGE_LOG_LEVEL || '').trim().toLowerCase();
+  if (envLevel === 'debug') return true;
   try {
     const raw = String(window.localStorage?.getItem('agently.debugExecutor') || '').trim().toLowerCase();
     return raw === '1' || raw === 'true' || raw === 'on';
@@ -948,6 +952,16 @@ function resolveTurnStarterPreview(turn = {}) {
   ).trim();
 }
 
+function isVisibleExecutionPage(page = {}) {
+  if (!page || typeof page !== 'object') return false;
+  const status = String(page?.status || '').trim().toLowerCase();
+  const hasVisibleContent = String(page?.preamble || '').trim() !== '' || String(page?.content || '').trim() !== '';
+  const hasTools = (Array.isArray(page?.toolSteps) && page.toolSteps.length > 0)
+    || (Array.isArray(page?.toolCallsPlanned) && page.toolCallsPlanned.length > 0);
+  const isActive = ['running', 'thinking', 'streaming', 'processing', 'in_progress', 'waiting_for_user', 'tool_calls'].includes(status);
+  return hasVisibleContent || hasTools || isActive;
+}
+
 function resolveActiveStreamTurnId(turns = [], chatState = {}) {
   const explicit = String(chatState?.activeStreamTurnId || '').trim();
   if (explicit) return explicit;
@@ -1097,7 +1111,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     return data.turns.map((turn) => {
       const pages = Array.isArray(turn.execution?.pages) ? turn.execution.pages : [];
       const summaryPages = pages.filter((page) => Number(page?.iteration || 0) === 0);
-      const visiblePages = pages.filter((page) => Number(page?.iteration || 0) !== 0);
+      const visiblePages = pages.filter((page) => Number(page?.iteration || 0) !== 0 && isVisibleExecutionPage(page));
       const messages = [];
       if (turn.user) {
         messages.push({
@@ -1417,7 +1431,15 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     }
     logStreamDebug(chatState, 'stream-event', {
       type,
-      eventSize: payloadSize
+      eventSize: payloadSize,
+      payloadConversationId: eventConversationID,
+      payloadCreatedAt: String(payload?.createdAt || '').trim(),
+      payloadAssistantMessageId: String(payload?.assistantMessageId || '').trim(),
+      payloadRequestPayloadId: String(payload?.requestPayloadId || '').trim(),
+      payloadResponsePayloadId: String(payload?.responsePayloadId || '').trim(),
+      payloadProviderRequestPayloadId: String(payload?.providerRequestPayloadId || '').trim(),
+      payloadProviderResponsePayloadId: String(payload?.providerResponsePayloadId || '').trim(),
+      payloadStreamPayloadId: String(payload?.streamPayloadId || '').trim()
     });
 
     if (type === 'text_delta') {
@@ -1853,11 +1875,27 @@ export async function ensureConversation(context, options = {}) {
   const form = conversationsDS.peekFormData?.() || {};
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   const metaForm = metaDS?.peekFormData?.() || {};
-  if (form?.id) {
-    const existingID = String(form.id);
+  const recoveredExistingID = String(
+    form?.id
+    || chatState?.activeConversationID
+    || getScopedConversationSelection(getContextWindowId(context))
+    || conversationIDFromPath(typeof window !== 'undefined' ? window.location?.pathname : '')
+    || ''
+  ).trim();
+  if (recoveredExistingID) {
+    const existingID = recoveredExistingID;
     try {
       const existing = await fetchConversation(existingID);
       if (existing) {
+        if (String(form?.id || '').trim() !== existingID) {
+          conversationsDS.setFormData?.({
+            values: {
+              ...form,
+              id: existingID,
+              title: existing?.title || existing?.Title || form?.title || 'New conversation'
+            }
+          });
+        }
         publishActiveConversation(existingID, context);
         return existingID;
       }
