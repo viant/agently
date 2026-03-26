@@ -86,6 +86,76 @@ describe('handleStreamEvent', () => {
       content: 'hello'
     })).not.toThrow();
   });
+
+  it('publishes sidebar activity for hidden conversation terminal events', () => {
+    const chatState = { liveRows: [], lastHasRunning: false };
+    const received = [];
+    const eventTarget = new EventTarget();
+    const mockWindow = {
+      addEventListener: eventTarget.addEventListener.bind(eventTarget),
+      removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
+      dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
+      CustomEvent: class extends Event {
+        constructor(name, init = {}) {
+          super(name);
+          this.detail = init.detail;
+        }
+      }
+    };
+    const originalWindow = globalThis.window;
+    const originalCustomEvent = globalThis.CustomEvent;
+    globalThis.window = mockWindow;
+    globalThis.CustomEvent = mockWindow.CustomEvent;
+    const handler = (event) => received.push(event?.detail || {});
+    mockWindow.addEventListener('agently:conversation-activity', handler);
+    try {
+      const context = {
+        identity: { windowId: 'linked-child' },
+        Context(name) {
+          if (name === 'conversations') {
+            return {
+              handlers: {
+                dataSource: {
+                  peekFormData: () => ({ id: 'child-conv' }),
+                  setFormData: vi.fn()
+                }
+              }
+            };
+          }
+          if (name === 'messages') {
+            return {
+              handlers: {
+                dataSource: {
+                  setCollection: vi.fn(),
+                  setError: vi.fn()
+                }
+              }
+            };
+          }
+          return null;
+        }
+      };
+
+      handleStreamEvent(chatState, context, 'child-conv', {
+        type: 'turn_completed',
+        conversationId: 'parent-conv',
+        turnId: 'turn-1',
+        status: 'succeeded'
+      });
+    } finally {
+      mockWindow.removeEventListener('agently:conversation-activity', handler);
+      globalThis.window = originalWindow;
+      globalThis.CustomEvent = originalCustomEvent;
+    }
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      id: 'parent-conv',
+      type: 'turn_completed',
+      turnId: 'turn-1',
+      status: 'succeeded'
+    });
+  });
 });
 
 describe('createNewConversation', () => {
@@ -285,6 +355,68 @@ describe('renderMergedRowsForContext', () => {
     renderMergedRowsForContext(context);
 
     expect(messageState.collection).toHaveLength(0);
+  });
+
+  it('preserves normalized live streaming content instead of raw stream payload', () => {
+    const messageState = { collection: [] };
+    const context = {
+      resources: {
+        chat: {
+          transcriptRows: [],
+          liveRows: [{
+            id: 'assistant:turn-1:1',
+            role: 'assistant',
+            turnId: 'turn-1',
+            createdAt: '2026-03-26T12:00:00Z',
+            interim: 1,
+            isStreaming: true,
+            content: 'hello',
+            _streamContent: '```markdown\nhello\n```'
+          }],
+          renderRows: [],
+          runningTurnId: 'turn-1',
+          lastHasRunning: true,
+          liveOwnedConversationID: 'conv-1',
+          liveOwnedTurnIds: ['turn-1']
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', queuedTurns: [] })
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ agentInfos: [], defaults: {} })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    renderMergedRowsForContext(context);
+
+    expect(messageState.collection).toHaveLength(1);
+    expect(messageState.collection[0].content).toBe('hello');
   });
 
 });

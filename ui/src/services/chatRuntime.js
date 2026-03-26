@@ -46,6 +46,13 @@ const RUNNING_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_
 const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
 const STREAM_DEBUG_PREFIX = '[agently-stream]';
 const EXECUTOR_DEBUG_PREFIX = '[agently-executor]';
+const SIDEBAR_ACTIVITY_EVENT_TYPES = new Set([
+  'turn_started',
+  'turn_completed',
+  'turn_failed',
+  'turn_canceled',
+  'linked_conversation_attached',
+]);
 
 function isStreamDebugEnabled() {
   if (typeof window === 'undefined') return false;
@@ -97,6 +104,17 @@ export function logStreamDebug(chatState = {}, event, detail = {}) {
       runningTurnId: String(chatState?.runningTurnId || '').trim(),
       ...detail
     });
+  } catch (_) {}
+}
+
+function publishConversationActivity(conversationID = '', detail = {}) {
+  if (typeof window === 'undefined') return;
+  const id = String(conversationID || '').trim();
+  if (!id) return;
+  try {
+    window.dispatchEvent(new CustomEvent('agently:conversation-activity', {
+      detail: { id, ...detail }
+    }));
   } catch (_) {}
 }
 
@@ -849,6 +867,7 @@ export function renderMergedRowsForContext(context) {
   const normalizedRows = normalizeForContext(context, mergedRows);
   if (isStreamDebugEnabled()) {
     console.log('[render]', {
+      conversationId: getCurrentConversationID(context),
       liveCount: Array.isArray(chatState.liveRows) ? chatState.liveRows.length : 0,
       mergedCount: mergedRows.length,
       normalizedCount: normalizedRows.length,
@@ -866,15 +885,10 @@ export function renderMergedRowsForContext(context) {
       }))
     });
   }
-  // Resolve _streamContent → content for streaming rows so the rendering
-  // layer shows the live streamed text instead of the preamble.
-  const resolvedRows = mergedRows.map((row) => {
-    const sc = String(row?._streamContent || '').trim();
-    if (sc && row?.isStreaming) {
-      return { ...row, content: sc };
-    }
-    return row;
-  });
+  // liveStreamStore already normalizes streaming content into row.content.
+  // Do not overwrite it with raw _streamContent here, or markdown/chart fences
+  // leak into the bubble during streaming instead of rendering as rich content.
+  const resolvedRows = mergedRows;
   const queuedTurns = Array.isArray(conversationForm?.queuedTurns) ? conversationForm.queuedTurns : [];
   const queueRow = queuedTurns.length > 0 ? {
     _type: 'queue',
@@ -1344,6 +1358,14 @@ export function connectStream(context, conversationID) {
 export function handleStreamEvent(chatState, context, conversationID, payload) {
     const type = String(payload?.type || '').toLowerCase();
     const eventConversationID = String(payload?.conversationId || payload?.streamId || conversationID || '').trim();
+    if (eventConversationID && SIDEBAR_ACTIVITY_EVENT_TYPES.has(type)) {
+      publishConversationActivity(eventConversationID, {
+        type,
+        turnId: String(payload?.turnId || '').trim(),
+        linkedConversationId: String(payload?.linkedConversationId || '').trim(),
+        status: String(payload?.status || '').trim()
+      });
+    }
     const contextWindowID = getContextWindowId(context);
     const scopedConversationID = getScopedConversationSelection(contextWindowID);
     const formConversationID = getCurrentConversationID(context);

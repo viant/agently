@@ -121,6 +121,7 @@ export default function Sidebar({ collapsed = false }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const rowsRef = React.useRef([]);
+  const activityReloadTimerRef = React.useRef(null);
 
   const pageStatusLabel = useMemo(() => {
     if (loading) return 'Loading...';
@@ -235,11 +236,26 @@ export default function Sidebar({ collapsed = false }) {
       // before the sidebar queries the list.
       setTimeout(() => void reload('latest', ''), 300);
     };
+    const onConversationActivity = () => {
+      if (activityReloadTimerRef.current) {
+        clearTimeout(activityReloadTimerRef.current);
+      }
+      activityReloadTimerRef.current = setTimeout(() => {
+        activityReloadTimerRef.current = null;
+        void reload('latest', '');
+      }, 150);
+    };
     window.addEventListener('agently:conversation-active', onActive);
     window.addEventListener('agently:conversation-new', onConversationNew);
+    window.addEventListener('agently:conversation-activity', onConversationActivity);
     return () => {
+      if (activityReloadTimerRef.current) {
+        clearTimeout(activityReloadTimerRef.current);
+        activityReloadTimerRef.current = null;
+      }
       window.removeEventListener('agently:conversation-active', onActive);
       window.removeEventListener('agently:conversation-new', onConversationNew);
+      window.removeEventListener('agently:conversation-activity', onConversationActivity);
     };
   }, []);
 
