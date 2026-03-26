@@ -283,6 +283,13 @@ export async function submitMessage({ context, message, model, agent }) {
   const conversationID = await ensureConversation(context, { agent: selectedAgent, model: effectiveModel || selectedModel });
   rememberSeedTitle(conversationID, query);
   const convForm = convDS?.peekFormData?.() || {};
+  convDS?.setFormData?.({
+    values: {
+      ...convForm,
+      id: conversationID
+    }
+  });
+  publishActiveConversation(conversationID, context);
 
   const messageAttachments = normalizeUploadItems(message?.attachments || message?.files || []);
   const mergedAttachments = mergeAttachments(messageAttachments, pendingUploads);
