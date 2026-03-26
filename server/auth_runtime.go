@@ -27,6 +27,7 @@ type authRuntime struct {
 	sessions    *svcauth.Manager
 	jwtMintKey  string
 	jwtVerifier *vcfg.Service
+	jwtService  *svcauth.JWTService
 	handlerOpts []svcauth.HandlerOption
 	ext         *authExtension
 	stopRefresh func() // stops the background token refresh goroutine
@@ -40,6 +41,15 @@ func WithAuthExtensions(base http.Handler, runtime *authRuntime) http.Handler {
 	runtime.ext.Register(mux)
 	mux.Handle("/", base)
 	return runtime.protect(mux)
+}
+
+// WithAuthProtection wraps an arbitrary handler with auth context injection and
+// strict authentication enforcement for all non-health routes.
+func WithAuthProtection(base http.Handler, runtime *authRuntime) http.Handler {
+	if runtime == nil {
+		return base
+	}
+	return runtime.protectAll(base)
 }
 
 func NewAuthRuntime(ctx context.Context, workspaceRoot string, rt *executor.Runtime) (*authRuntime, error) {
@@ -94,6 +104,7 @@ func NewAuthRuntime(ctx context.Context, workspaceRoot string, rt *executor.Runt
 	}
 
 	var jwtVerifier *vcfg.Service
+	var jwtService *svcauth.JWTService
 	if cfg.JWT != nil && cfg.JWT.Enabled {
 		verifyCfg := &vcfg.Config{CertURL: strings.TrimSpace(cfg.JWT.CertURL)}
 		for _, rsaPath := range cfg.JWT.RSA {
@@ -111,6 +122,16 @@ func NewAuthRuntime(ctx context.Context, workspaceRoot string, rt *executor.Runt
 			return nil, fmt.Errorf("unable to initialize jwt verifier: %w", err)
 		}
 		jwtVerifier = v
+		jwtService = svcauth.NewJWTServiceFromConfigValues(
+			cfg.JWT.Enabled,
+			cfg.JWT.RSA,
+			cfg.JWT.HMAC,
+			cfg.JWT.CertURL,
+			cfg.JWT.RSAPrivateKey,
+		)
+		if err := jwtService.Init(ctx); err != nil {
+			return nil, fmt.Errorf("unable to initialize jwt service: %w", err)
+		}
 	}
 
 	ar := &authRuntime{
@@ -118,12 +139,20 @@ func NewAuthRuntime(ctx context.Context, workspaceRoot string, rt *executor.Runt
 		sessions:    sessions,
 		jwtMintKey:  strings.TrimSpace(jwtPrivateKeyPath(cfg)),
 		jwtVerifier: jwtVerifier,
+		jwtService:  jwtService,
 		handlerOpts: opts,
 		ext:         newAuthExtension(cfg, sessions, strings.TrimSpace(jwtPrivateKeyPath(cfg)), tokenStore),
 	}
 	// Start background token refresh watcher.
 	ar.stopRefresh = ar.startTokenRefreshWatcher(ctx)
 	return ar, nil
+}
+
+func (a *authRuntime) JWTService() *svcauth.JWTService {
+	if a == nil {
+		return nil
+	}
+	return a.jwtService
 }
 
 type workspaceAuthConfig struct {
@@ -290,6 +319,33 @@ func (a *authRuntime) protect(next http.Handler) http.Handler {
 				_, _ = w.Write([]byte(`{"status":"error","message":"authorization required"}`))
 				return
 			}
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (a *authRuntime) protectAll(next http.Handler) http.Handler {
+	if a == nil || a.cfg == nil || !a.cfg.Enabled {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions || r.URL.Path == "/healthz" || r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		user := a.authenticate(r)
+		if user == nil {
+			user = a.ensureDefaultUser(w, r)
+		}
+		ctx := r.Context()
+		if user != nil {
+			ctx = withAuthUser(ctx, user)
+		}
+		if user == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"status":"error","message":"authorization required"}`))
+			return
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

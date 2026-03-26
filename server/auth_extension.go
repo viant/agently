@@ -228,6 +228,11 @@ func (a *authExtension) handleOAuthConfig() http.HandlerFunc {
 
 func (a *authExtension) handleCreateSession() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			httpError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
+			return
+		}
 		var in struct {
 			Username     string `json:"username"`
 			AccessToken  string `json:"accessToken,omitempty"`
@@ -238,17 +243,30 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
+		bearerToken := bearerTokenFromRequest(r)
+		if strings.TrimSpace(in.IDToken) == "" && strings.TrimSpace(in.AccessToken) == "" && bearerToken != "" {
+			in.IDToken = bearerToken
+			in.AccessToken = bearerToken
+		}
 		username := strings.TrimSpace(in.Username)
+		subject := ""
+		email := ""
 		if username == "" {
-			username, _, _, _ = identityFromTokenStrings(strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken))
+			username, subject, email, _ = identityFromTokenStrings(strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken))
+		} else {
+			_, subject, email, _ = identityFromTokenStrings(strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken))
 		}
 		if username == "" {
 			username = "user"
 		}
+		if subject == "" {
+			subject = username
+		}
 		sess := &svcauth.Session{
 			ID:        uuid.New().String(),
 			Username:  username,
-			Subject:   username,
+			Email:     email,
+			Subject:   subject,
 			CreatedAt: time.Now(),
 		}
 		if strings.TrimSpace(in.AccessToken) != "" || strings.TrimSpace(in.IDToken) != "" || strings.TrimSpace(in.RefreshToken) != "" {
@@ -787,6 +805,17 @@ func parseJWTClaims(token string) map[string]interface{} {
 		return map[string]interface{}{}
 	}
 	return out
+}
+
+func bearerTokenFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	if len(header) < 8 || !strings.EqualFold(header[:7], "Bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(header[7:])
 }
 
 func claimString(claims map[string]interface{}, key string) string {

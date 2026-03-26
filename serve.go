@@ -140,6 +140,12 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to create sdk handler: %w", err)
 	}
+	svca2a.StartServers(ctx, &svca2a.ServerConfig{
+		AgentService: rt.Agent,
+		AgentFinder:  agentFndr,
+		AgentIDs:     discoverWorkspaceAgentIDs(workspace.Root()),
+		JWTService:   authRuntime.JWTService(),
+	})
 	apiHandler := server.WithAuthExtensions(sdkHandler, authRuntime)
 	metaRoot := "embed://localhost/"
 	metaHandler := ui.NewEmbeddedHandler(metaRoot, &coremeta.FS)
@@ -152,22 +158,23 @@ func Serve(options ServeOptions) error {
 		_ = srv.Shutdown(context.Background())
 	}()
 
-	// Expose MCP server if requested and configured.
+	// Expose MCP server when explicitly requested or when workspace config
+	// declares an MCP server port.
 	var mcpSrv *http.Server
-	if options.ExposeMCP {
-		mcpCfg := loadMCPServerConfig(workspace.Root())
-		if mcpCfg != nil && mcpCfg.Port > 0 {
-			mcpSrv, err = mcpexpose.NewHTTPServer(ctx, &runtimeExecutorAdapter{rt: rt}, mcpCfg)
-			if err != nil {
-				return fmt.Errorf("init mcp server: %w", err)
-			}
-			go func() {
-				log.Printf("Agently MCP server listening on %s", mcpSrv.Addr)
-				if err := mcpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					log.Printf("MCP server error: %v", err)
-				}
-			}()
+	mcpCfg := loadMCPServerConfig(workspace.Root())
+	exposeMCP := options.ExposeMCP || (mcpCfg != nil && mcpCfg.Port > 0)
+	if exposeMCP && mcpCfg != nil && mcpCfg.Port > 0 {
+		mcpSrv, err = mcpexpose.NewHTTPServer(ctx, &runtimeExecutorAdapter{rt: rt}, mcpCfg)
+		if err != nil {
+			return fmt.Errorf("init mcp server: %w", err)
 		}
+		mcpSrv.Handler = server.WithAuthProtection(mcpSrv.Handler, authRuntime)
+		go func() {
+			log.Printf("Agently MCP server listening on %s", mcpSrv.Addr)
+			if err := mcpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("MCP server error: %v", err)
+			}
+		}()
 	}
 
 	log.Printf("agently serve listening on %s (workspace=%s ui=%s)", addr, workspace.Root(), uiBundle.Name)
@@ -190,6 +197,43 @@ func enableDebugLogging() {
 		}
 	}
 	log.Printf("agently v1 debug logging enabled")
+}
+
+func discoverWorkspaceAgentIDs(workspaceRoot string) []string {
+	root := filepath.Join(strings.TrimSpace(workspaceRoot), "agents")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var ids []string
+	for _, entry := range entries {
+		name := strings.TrimSpace(entry.Name())
+		if name == "" {
+			continue
+		}
+		if entry.IsDir() {
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			ids = append(ids, name)
+			continue
+		}
+		if filepath.Ext(name) != ".yaml" {
+			continue
+		}
+		id := strings.TrimSuffix(name, filepath.Ext(name))
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func newRuntime(ctx context.Context, defaults *execconfig.Defaults) (*executor.Runtime, sdk.Client, agentmodel.Finder, error) {
