@@ -5,6 +5,7 @@ package agently
 type Options struct {
 	Version      bool             `short:"v" long:"version" description:"Show agently version and exit"`
 	Serve        *ServeCmd        `command:"serve" description:"Start HTTP server"`
+	Scheduler    *SchedulerCmd    `command:"scheduler" description:"Scheduler runner and utilities"`
 	Query        *ChatCmd         `command:"query" description:"Query an agent (single turn or continuation)"`
 	Chat         *ChatCmd         `command:"chat"  description:"Deprecated alias of query"`
 	ListTools    *ListToolsCmd    `command:"list-tools" description:"List available tools"`
@@ -17,6 +18,8 @@ func (o *Options) Init(firstArg string) {
 	switch firstArg {
 	case "serve":
 		o.Serve = &ServeCmd{}
+	case "scheduler":
+		o.Scheduler = &SchedulerCmd{}
 	case "chat":
 		o.Chat = &ChatCmd{}
 	case "query":
