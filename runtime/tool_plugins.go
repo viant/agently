@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
 	"os"
 	"path/filepath"
@@ -20,6 +22,8 @@ import (
 	toolexec "github.com/viant/agently-core/protocol/tool/service/system/exec"
 	toolos "github.com/viant/agently-core/protocol/tool/service/system/os"
 	toolpatch "github.com/viant/agently-core/protocol/tool/service/system/patch"
+	svca2a "github.com/viant/agently-core/service/a2a"
+	svcauth "github.com/viant/agently-core/service/auth"
 	"gopkg.in/yaml.v3"
 )
 
@@ -210,6 +214,7 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 		opts := []llmagents.Option{
 			llmagents.WithConversationClient(rt.Conversation),
 			llmagents.WithDirectoryProvider(agentDirectoryProvider(rt, workspaceRoot)),
+			llmagents.WithExternalRunner(externalA2ARunner(workspaceRoot)),
 		}
 		if rt.Streaming != nil {
 			opts = append(opts, llmagents.WithStreamPublisher(rt.Streaming))
@@ -249,27 +254,25 @@ func agentDirectoryProvider(rt *executor.Runtime, workspaceRoot string) func() [
 }
 
 func loadAgentDirectory(rt *executor.Runtime, workspaceRoot string) []llmagents.ListItem {
-	if rt == nil || rt.Agent == nil {
-		return nil
-	}
-	finder := rt.Agent.Finder()
-	if finder == nil {
-		return nil
-	}
-	agentIDs := discoverAgentIDs(workspaceRoot)
-	if len(agentIDs) == 0 {
-		return nil
-	}
-	items := make([]llmagents.ListItem, 0, len(agentIDs))
-	for _, id := range agentIDs {
-		ag, err := finder.Find(context.Background(), id)
-		if err != nil || ag == nil {
-			if debugEnabled() {
-				log.Printf("agently-app: skipped agent directory entry %q: %v", id, err)
+	items := make([]llmagents.ListItem, 0)
+	if rt != nil && rt.Agent != nil {
+		finder := rt.Agent.Finder()
+		if finder != nil {
+			agentIDs := discoverAgentIDs(workspaceRoot)
+			for _, id := range agentIDs {
+				ag, err := finder.Find(context.Background(), id)
+				if err != nil || ag == nil {
+					if debugEnabled() {
+						log.Printf("agently-app: skipped agent directory entry %q: %v", id, err)
+					}
+					continue
+				}
+				items = append(items, agentToListItem(ag))
 			}
-			continue
 		}
-		items = append(items, agentToListItem(ag))
+	}
+	for _, spec := range loadExternalA2ASpecs(workspaceRoot) {
+		items = append(items, externalA2AToListItem(spec))
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Priority != items[j].Priority {
@@ -356,4 +359,150 @@ func agentToListItem(ag *agentmdl.Agent) llmagents.ListItem {
 		item.Summary = item.Description
 	}
 	return item
+}
+
+func externalA2AToListItem(spec *svca2a.ExternalSpec) llmagents.ListItem {
+	item := llmagents.ListItem{
+		ID:       strings.TrimSpace(spec.ID),
+		Name:     strings.TrimSpace(spec.Directory.Name),
+		Internal: false,
+		Source:   "external",
+	}
+	if item.Name == "" {
+		item.Name = item.ID
+	}
+	item.Description = strings.TrimSpace(spec.Directory.Description)
+	item.Tags = append(item.Tags, spec.Directory.Tags...)
+	item.Priority = spec.Directory.Priority
+	item.Summary = item.Description
+	return item
+}
+
+func externalA2ARunner(workspaceRoot string) func(context.Context, string, string, map[string]interface{}) (string, string, string, string, bool, []string, error) {
+	return func(ctx context.Context, agentID, objective string, payload map[string]interface{}) (string, string, string, string, bool, []string, error) {
+		specs := loadExternalA2ASpecs(workspaceRoot)
+		spec, ok := specs[strings.TrimSpace(agentID)]
+		if !ok || spec == nil {
+			return "", "", "", "", false, nil, nil
+		}
+		client := svca2a.NewClient(strings.TrimSpace(spec.JSONRPCURL), svca2a.WithHeaders(spec.Headers))
+		messages := []svca2a.Message{{
+			Role: "user",
+			Parts: []svca2a.Part{{
+				Type: "text",
+				Text: objective,
+			}},
+		}}
+		contextID := payloadString(payload, "conversationId")
+		if contextID == "" {
+			contextID = payloadString(payload, "contextId")
+		}
+		if contextID == "" {
+			contextID = payloadString(payload, "linkedConversationId")
+		}
+		var contextRef *string
+		if contextID != "" {
+			contextRef = &contextID
+		}
+		effectiveUser := strings.TrimSpace(svcauth.EffectiveUserID(ctx))
+		idToken := strings.TrimSpace(svcauth.MCPAuthToken(ctx, true))
+		accessToken := strings.TrimSpace(svcauth.MCPAuthToken(ctx, false))
+		tokenMode := "none"
+		tokenFP := ""
+		if idToken != "" {
+			tokenMode = "id_token"
+			tokenFP = tokenFingerprint(idToken)
+		} else if accessToken != "" {
+			tokenMode = "bearer"
+			tokenFP = tokenFingerprint(accessToken)
+		}
+		log.Printf("[a2a-external] dispatch agent=%q user=%q context_id=%q endpoint=%q token_mode=%s token_fp=%s", strings.TrimSpace(agentID), effectiveUser, contextID, strings.TrimSpace(spec.JSONRPCURL), tokenMode, tokenFP)
+		task, err := client.SendMessage(ctx, messages, contextRef)
+		if err != nil {
+			log.Printf("[a2a-external] error agent=%q user=%q context_id=%q endpoint=%q err=%v", strings.TrimSpace(agentID), effectiveUser, contextID, strings.TrimSpace(spec.JSONRPCURL), err)
+			return "", "", "", "", false, nil, err
+		}
+		answer := extractA2ATaskAnswer(task)
+		status := strings.TrimSpace(string(task.Status.State))
+		if status == "" {
+			status = "completed"
+		}
+		log.Printf("[a2a-external] completed agent=%q user=%q task_id=%q remote_context_id=%q status=%q", strings.TrimSpace(agentID), effectiveUser, strings.TrimSpace(task.ID), strings.TrimSpace(task.ContextID), status)
+		return answer, status, strings.TrimSpace(task.ID), strings.TrimSpace(task.ContextID), strings.TrimSpace(spec.StreamURL) != "", nil, nil
+	}
+}
+
+func extractA2ATaskAnswer(task *svca2a.Task) string {
+	if task == nil {
+		return ""
+	}
+	var parts []string
+	for _, artifact := range task.Artifacts {
+		for _, part := range artifact.Parts {
+			if strings.TrimSpace(part.Text) != "" {
+				parts = append(parts, part.Text)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func payloadString(payload map[string]interface{}, key string) string {
+	if payload == nil {
+		return ""
+	}
+	raw, ok := payload[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	if text, ok := raw.(string); ok {
+		return strings.TrimSpace(text)
+	}
+	return ""
+}
+
+func loadExternalA2ASpecs(workspaceRoot string) map[string]*svca2a.ExternalSpec {
+	root := filepath.Join(strings.TrimSpace(workspaceRoot), "a2a")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	result := map[string]*svca2a.ExternalSpec{}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		path := filepath.Join(root, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if debugEnabled() {
+				log.Printf("agently-app: failed to read external A2A spec %s: %v", path, err)
+			}
+			continue
+		}
+		spec := &svca2a.ExternalSpec{}
+		if err := yaml.Unmarshal(data, spec); err != nil {
+			if debugEnabled() {
+				log.Printf("agently-app: failed to parse external A2A spec %s: %v", path, err)
+			}
+			continue
+		}
+		spec.ID = strings.TrimSpace(spec.ID)
+		if spec.ID == "" {
+			spec.ID = strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		}
+		if spec.ID == "" || !spec.IsEnabled() || strings.TrimSpace(spec.JSONRPCURL) == "" {
+			continue
+		}
+		result[spec.ID] = spec
+	}
+	return result
+}
+
+func tokenFingerprint(token string) string {
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:6])
 }

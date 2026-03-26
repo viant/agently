@@ -3,6 +3,7 @@ package agently
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"mime"
@@ -22,6 +23,8 @@ import (
 	agentsvc "github.com/viant/agently-core/service/agent"
 	authtransport "github.com/viant/mcp/client/auth/transport"
 )
+
+const scyInlineBase64Prefix = "inlined://base64/"
 
 // ChatCmd handles interactive/chat queries.
 type ChatCmd struct {
@@ -786,7 +789,11 @@ func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, provid
 		if strings.TrimSpace(c.OOB) == "" {
 			return fmt.Errorf("--oob requires a secrets URL value")
 		}
-		if err := client.AuthOOBSession(ctx, strings.TrimSpace(c.OOB), parseScopes(c.OAuthScp)); err != nil {
+		oobRef, err := inlineLocalScyResource(strings.TrimSpace(c.OOB))
+		if err != nil {
+			return err
+		}
+		if err := client.AuthOOBSession(ctx, oobRef, parseScopes(c.OAuthScp)); err != nil {
 			return err
 		}
 		if _, err := client.AuthMe(ctx); err != nil {
@@ -795,7 +802,11 @@ func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, provid
 		return nil
 	}
 	if envSec := strings.TrimSpace(os.Getenv("AGENTLY_OOB_SECRETS")); envSec != "" {
-		if err := client.AuthOOBSession(ctx, envSec, parseScopes(os.Getenv("AGENTLY_OOB_SCOPES"))); err == nil {
+		oobRef, err := inlineLocalScyResource(envSec)
+		if err != nil {
+			return err
+		}
+		if err := client.AuthOOBSession(ctx, oobRef, parseScopes(os.Getenv("AGENTLY_OOB_SCOPES"))); err == nil {
 			if _, err := client.AuthMe(ctx); err == nil {
 				return nil
 			}
@@ -846,6 +857,72 @@ func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, provid
 		return fmt.Errorf("authentication required: local login failed: %w", localErr)
 	}
 	return fmt.Errorf("authentication required")
+}
+
+func inlineLocalScyResource(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", fmt.Errorf("empty scy resource")
+	}
+	if strings.HasPrefix(value, scyInlineBase64Prefix) {
+		return value, nil
+	}
+	parts := strings.SplitN(value, "|", 2)
+	resourceURL := strings.TrimSpace(parts[0])
+	resourceKey := ""
+	if len(parts) == 2 {
+		resourceKey = strings.TrimSpace(parts[1])
+	}
+	if resourceURL == "" {
+		return "", fmt.Errorf("empty scy resource url")
+	}
+	if isNonFileResourceURL(resourceURL) {
+		return value, nil
+	}
+	if strings.HasPrefix(resourceURL, "~") {
+		resourceURL = os.Getenv("HOME") + resourceURL[1:]
+	} else if strings.HasPrefix(resourceURL, "/~") {
+		resourceURL = os.Getenv("HOME") + resourceURL[2:]
+	}
+	if strings.HasPrefix(resourceURL, "file://") {
+		resourceURL = strings.TrimPrefix(resourceURL, "file://")
+	}
+	payload, err := os.ReadFile(resourceURL)
+	if err != nil {
+		return "", fmt.Errorf("read local oob secret %q: %w", resourceURL, err)
+	}
+	inlineURL := scyInlineBase64Prefix + base64.StdEncoding.EncodeToString(payload)
+	if resourceKey != "" {
+		inlineURL += "|" + resourceKey
+	}
+	return inlineURL, nil
+}
+
+func isNonFileResourceURL(raw string) bool {
+	value := strings.TrimSpace(strings.ToLower(raw))
+	if value == "" {
+		return false
+	}
+	if strings.HasPrefix(value, "inlined://") {
+		return true
+	}
+	for _, prefix := range []string{
+		"gcp://",
+		"aws://",
+		"s3://",
+		"gs://",
+		"http://",
+		"https://",
+		"scp://",
+		"ssh://",
+		"mem://",
+		"secret://",
+	} {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func findProvider(providers []authProviderInfo, kind string) *authProviderInfo {
