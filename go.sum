@@ -1186,6 +1186,8 @@ github.com/viant/afs v1.30.0 h1:dbgVVSCPwGHUgpgkWJ5gdjKBqssT7OV7Z2M81CjwZEY=
 github.com/viant/afs v1.30.0/go.mod h1:rScbFd9LJPGTM8HOI8Kjwee0AZ+MZMupAvFpPg+Qdj4=
 github.com/viant/afsc v1.17.0 h1:JvQFYIOOPJY0JuL3DoocBbuut5tH0UwwFRYWh1EHfZg=
 github.com/viant/afsc v1.17.0/go.mod h1:Z6fP3VcmzS8Sg2lowctR6KkVEX7XxJ8aNaoHqhUiZkY=
+github.com/viant/agently-core v0.1.1-0.20260326161431-e249b45c249f h1:Vwh68rt+tAursSS5HirhQoLeSzLUCZ9Cye7j5Aj2Xck=
+github.com/viant/agently-core v0.1.1-0.20260326161431-e249b45c249f/go.mod h1:OckUAsVs/dvlm2V+PtZBuScWZ5lgnY51lRMUwQaWlpI=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
@@ -1226,6 +1228,8 @@ github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0 h1:1NhySnsDH+bIew
 github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0/go.mod h1:b214Lo4zBwLqbu6Tf2bRlgQkFfPMBW5ap4qS+I3zcJ8=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 h1:OWMFweaKPIdh1tkbxgb0vJ6YPHoUlZR4yWf9CTntHB4=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99/go.mod h1:7ovJ5fzlXnVcadUr9RjJVwVl2l3wbNvm5i4tSOj+VbE=
+github.com/viant/mcp v0.14.0 h1:knFhVtqPsWpOKGXvC9Y2vZnUau+Y11TbQpKEESocJF0=
+github.com/viant/mcp v0.14.0/go.mod h1:mBSxAq6WvGpKRtWv3jknp+QU/oqjhov2Ab3nM9bp0F0=
 github.com/viant/mcp-protocol v0.11.0 h1:22IuTTlq0L8l08z23TYRvHM/j19gp9UPExQdzwTuxsY=
 github.com/viant/mcp-protocol v0.11.0/go.mod h1:EJPomVw6jnI+4Aa2ONYC3WTvApiF0YeQIiaaEpA54ec=
 github.com/viant/parsly v0.3.3 h1:7ytgfLOG4Ils+wviGacWxRD0gAUvVEH/iGsSE+UI8YM=
