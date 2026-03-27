@@ -111,7 +111,11 @@ func Serve(options ServeOptions) error {
 	}
 	speechHandler := server.NewSpeechHandler()
 
-	metadataHandler := svcworkspace.NewMetadataHandler(rt.Defaults, rt.Store, "agently-v1")
+	metadataVersion := strings.TrimSpace(Version)
+	if metadataVersion == "" {
+		metadataVersion = "agently-v1"
+	}
+	metadataHandler := svcworkspace.NewMetadataHandler(rt.Defaults, rt.Store, metadataVersion)
 	fileBrowserHandler := svcworkspace.NewFileBrowserHandler()
 	scheduleStore, err := svcscheduler.NewDatlyStore(ctx, rt.DAO, rt.Data)
 	if err != nil {
