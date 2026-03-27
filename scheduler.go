@@ -15,6 +15,7 @@ import (
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/agently/bootstrap"
+	agserver "github.com/viant/agently/server"
 )
 
 type SchedulerRunOptions struct {
@@ -46,9 +47,13 @@ func RunScheduler(options SchedulerRunOptions) error {
 	defaults := loadWorkspaceDefaults(workspace.Root())
 	applyWorkspacePathDefaults(defaults)
 
-	rt, _, _, err := newRuntime(ctx, defaults)
+	rt, _, _, err := newRuntimeWithMCPAuthMode(ctx, defaults, true)
 	if err != nil {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
+	}
+	userCredAuthCfg, err := agserver.LoadSchedulerUserCredAuthConfig(workspace.Root())
+	if err != nil {
+		return fmt.Errorf("failed to load scheduler auth config: %w", err)
 	}
 
 	scheduleStore, err := svcscheduler.NewDatlyStore(ctx, rt.DAO, rt.Data)
@@ -60,6 +65,7 @@ func RunScheduler(options SchedulerRunOptions) error {
 		rt.Agent,
 		svcscheduler.WithConversationClient(rt.Conversation),
 		svcscheduler.WithTokenProvider(rt.TokenProvider),
+		svcscheduler.WithUserCredAuthConfig(userCredAuthCfg),
 		svcscheduler.WithInterval(interval),
 	)
 
