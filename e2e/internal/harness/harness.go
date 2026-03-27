@@ -27,7 +27,7 @@ var (
 
 func RepoRoot() string {
 	_, file, _, _ := runtime.Caller(0)
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", ".."))
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 }
 
 func CopyWorkspaceTemplate(t *testing.T, templatePath string) string {
@@ -186,6 +186,10 @@ func agentlyBinary(t *testing.T) string {
 			agentlyBinaryErr = fmt.Errorf("build agently e2e binary: %w\n%s", err, string(output))
 			return
 		}
+		if chmodErr := os.Chmod(agentlyBinaryPath, 0o755); chmodErr != nil {
+			agentlyBinaryErr = fmt.Errorf("make agently e2e binary executable: %w", chmodErr)
+			return
+		}
 	})
 	if agentlyBinaryErr != nil {
 		t.Fatalf("%v", agentlyBinaryErr)
@@ -212,9 +216,11 @@ func rebuildWatchRoots() []string {
 	repoRoot := RepoRoot()
 	parent := filepath.Dir(repoRoot)
 	return []string{
-		filepath.Join(repoRoot, "agently"),
 		filepath.Join(repoRoot, "cmd"),
-		filepath.Join(repoRoot, "v1"),
+		filepath.Join(repoRoot, "e2e"),
+		filepath.Join(repoRoot, "runtime"),
+		filepath.Join(repoRoot, "server"),
+		filepath.Join(repoRoot, "metadata"),
 		filepath.Join(repoRoot, "go.mod"),
 		filepath.Join(repoRoot, "go.sum"),
 		filepath.Join(parent, "agently-core"),

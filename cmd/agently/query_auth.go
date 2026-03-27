@@ -83,7 +83,7 @@ func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, provid
 	}
 	if hasBFF {
 		if err := client.AuthBrowserSession(ctx); err != nil {
-			return fmt.Errorf("authentication required: browser login failed: %w", err)
+			return fmt.Errorf("authorization required: browser login failed: %w", err)
 		}
 		if _, err := client.AuthMe(ctx); err != nil {
 			return fmt.Errorf("browser login succeeded, but session was not established")
@@ -111,21 +111,15 @@ func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, provid
 	}
 
 	if len(providers) == 0 {
-		if err := client.AuthBrowserSession(ctx); err != nil {
-			if localErr != nil {
-				return fmt.Errorf("authentication required: local login failed: %v; browser login failed: %w", localErr, err)
-			}
-			return fmt.Errorf("authentication required: browser login failed: %w", err)
-		}
-		if _, err := client.AuthMe(ctx); err != nil {
-			return fmt.Errorf("browser login succeeded, but session was not established")
-		}
+		// No advertised auth providers means the server is operating without an
+		// interactive auth flow; allow the request path to continue and let the
+		// API itself return 401/403 when applicable.
 		return nil
 	}
 	if localErr != nil {
-		return fmt.Errorf("authentication required: local login failed: %w", localErr)
+		return fmt.Errorf("authorization required: local login failed: %w", localErr)
 	}
-	return fmt.Errorf("authentication required")
+	return fmt.Errorf("authorization required")
 }
 
 func (c *ChatCmd) authenticateWithOOB(ctx context.Context, client *sdk.HTTPClient, secretRef string, scopes []string) error {
