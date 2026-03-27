@@ -29,10 +29,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-replace github.com/viant/agently-core => ../agently-core
-
-replace github.com/viant/scy => ../scy
-
 require (
 	github.com/viant/bigquery v0.5.1
 	golang.org/x/oauth2 v0.32.0
