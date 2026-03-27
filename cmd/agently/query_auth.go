@@ -1,0 +1,151 @@
+package agently
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/viant/agently-core/sdk"
+)
+
+func (c *ChatCmd) resolveBaseURL(ctx context.Context) (string, []authProviderInfo, string, string, string, []string, error) {
+	if strings.TrimSpace(c.API) != "" {
+		baseURL := strings.TrimSpace(c.API)
+		providers, _ := fetchAuthProviders(ctx, baseURL)
+		meta, _ := fetchWorkspaceMetadata(ctx, baseURL)
+		if meta == nil {
+			return baseURL, providers, "", "", "", nil, nil
+		}
+		return baseURL, providers, meta.WorkspaceRoot, meta.DefaultAgent, meta.DefaultModel, meta.Models, nil
+	}
+	instances, err := detectLocalInstances(ctx)
+	if err != nil {
+		return "", nil, "", "", "", nil, err
+	}
+	if len(instances) == 0 {
+		return "", nil, "", "", "", nil, fmt.Errorf("no local agently instance detected; use --api to specify the server URL")
+	}
+	if len(instances) == 1 {
+		inst := instances[0]
+		return inst.BaseURL, inst.Providers, inst.WorkspaceRoot, inst.DefaultAgent, inst.DefaultModel, inst.Models, nil
+	}
+	fmt.Println("Detected Agently instances:")
+	for i, inst := range instances {
+		root := strings.TrimSpace(inst.WorkspaceRoot)
+		if root == "" {
+			root = "<unknown>"
+		}
+		fmt.Printf("  %d) %s (workspace: %s)\n", i+1, inst.BaseURL, root)
+	}
+	fmt.Print("Select instance [1]: ")
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	line = strings.TrimSpace(line)
+	if line == "" {
+		inst := instances[0]
+		return inst.BaseURL, inst.Providers, inst.WorkspaceRoot, inst.DefaultAgent, inst.DefaultModel, inst.Models, nil
+	}
+	choice, err := strconv.Atoi(line)
+	if err != nil || choice < 1 || choice > len(instances) {
+		return "", nil, "", "", "", nil, fmt.Errorf("invalid selection")
+	}
+	inst := instances[choice-1]
+	return inst.BaseURL, inst.Providers, inst.WorkspaceRoot, inst.DefaultAgent, inst.DefaultModel, inst.Models, nil
+}
+
+func pickModel(defaultModel string, models []string) string {
+	defaultModel = strings.TrimSpace(defaultModel)
+	if defaultModel == "" {
+		return ""
+	}
+	for _, item := range models {
+		if strings.TrimSpace(item) == defaultModel {
+			return defaultModel
+		}
+	}
+	return defaultModel
+}
+
+func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, providers []authProviderInfo) error {
+	hasBFF := findProvider(providers, "bff") != nil
+	if strings.TrimSpace(c.OOB) != "" {
+		return c.authenticateWithOOB(ctx, client, strings.TrimSpace(c.OOB), parseScopes(c.OAuthScp))
+	}
+	if envSec := strings.TrimSpace(os.Getenv("AGENTLY_OOB_SECRETS")); envSec != "" {
+		if err := c.authenticateWithOOB(ctx, client, envSec, parseScopes(os.Getenv("AGENTLY_OOB_SCOPES"))); err == nil {
+			if _, err := client.AuthMe(ctx); err == nil {
+				return nil
+			}
+		}
+	}
+	if hasBFF {
+		if err := client.AuthBrowserSession(ctx); err != nil {
+			return fmt.Errorf("authentication required: browser login failed: %w", err)
+		}
+		if _, err := client.AuthMe(ctx); err != nil {
+			return fmt.Errorf("browser login succeeded, but session was not established")
+		}
+		return nil
+	}
+	if _, err := client.AuthMe(ctx); err == nil {
+		return nil
+	}
+
+	var localErr error
+	if local := findProvider(providers, "local"); local != nil {
+		name := strings.TrimSpace(c.User)
+		if name == "" {
+			name = strings.TrimSpace(local.DefaultUsername)
+		}
+		if name == "" {
+			name = "devuser"
+		}
+		if err := client.AuthLocalLogin(ctx, name); err == nil {
+			return nil
+		} else {
+			localErr = err
+		}
+	}
+
+	if len(providers) == 0 {
+		if err := client.AuthBrowserSession(ctx); err != nil {
+			if localErr != nil {
+				return fmt.Errorf("authentication required: local login failed: %v; browser login failed: %w", localErr, err)
+			}
+			return fmt.Errorf("authentication required: browser login failed: %w", err)
+		}
+		if _, err := client.AuthMe(ctx); err != nil {
+			return fmt.Errorf("browser login succeeded, but session was not established")
+		}
+		return nil
+	}
+	if localErr != nil {
+		return fmt.Errorf("authentication required: local login failed: %w", localErr)
+	}
+	return fmt.Errorf("authentication required")
+}
+
+func (c *ChatCmd) authenticateWithOOB(ctx context.Context, client *sdk.HTTPClient, secretRef string, scopes []string) error {
+	secretRef = strings.TrimSpace(secretRef)
+	if secretRef == "" {
+		return fmt.Errorf("--oob requires a secrets URL value")
+	}
+	configURL := strings.TrimSpace(c.OAuthCfg)
+	return client.AuthLocalOOBSession(ctx, &sdk.LocalOOBSessionOptions{
+		ConfigURL:  configURL,
+		SecretsURL: secretRef,
+		Scopes:     scopes,
+	})
+}
+
+func findProvider(providers []authProviderInfo, kind string) *authProviderInfo {
+	for i := range providers {
+		if strings.EqualFold(strings.TrimSpace(providers[i].Type), strings.TrimSpace(kind)) {
+			return &providers[i]
+		}
+	}
+	return nil
+}

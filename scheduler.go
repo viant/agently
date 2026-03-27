@@ -12,10 +12,15 @@ import (
 
 	"github.com/viant/afs"
 	_ "github.com/viant/afs/file"
+	"github.com/viant/agently-core/app/executor"
+	execconfig "github.com/viant/agently-core/app/executor/config"
+	appserver "github.com/viant/agently-core/app/server"
+	svcauth "github.com/viant/agently-core/service/auth"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/workspace"
+	wscfg "github.com/viant/agently-core/workspace/config"
 	"github.com/viant/agently/bootstrap"
-	agserver "github.com/viant/agently/server"
+	agentlyrt "github.com/viant/agently/runtime"
 )
 
 type SchedulerRunOptions struct {
@@ -44,16 +49,42 @@ func RunScheduler(options SchedulerRunOptions) error {
 	workspace.EnsureDefault(afs.New())
 	defer workspace.SetBootstrapHook(nil)
 
-	defaults := loadWorkspaceDefaults(workspace.Root())
-	applyWorkspacePathDefaults(defaults)
+	wsConfig, err := wscfg.Load(workspace.Root())
+	if err != nil {
+		return fmt.Errorf("failed to load workspace config: %w", err)
+	}
+	defaults := (&wscfg.Root{}).DefaultsWithFallback(&execconfig.Defaults{
+		Model:    "openai_gpt-5.2",
+		Embedder: "openai_text",
+		Agent:    "chatter",
+	})
+	if wsConfig != nil {
+		defaults = wsConfig.DefaultsWithFallback(defaults)
+	}
+	wscfg.ApplyPathDefaults(defaults)
 
-	rt, _, _, err := newRuntimeWithMCPAuthMode(ctx, defaults, true)
+	rt, _, _, err := appserver.BuildWorkspaceRuntime(ctx, appserver.RuntimeOptions{
+		WorkspaceRoot:     workspace.Root(),
+		Defaults:          defaults,
+		SchedulerHeadless: true,
+		ConfigureRuntime: func(ctx context.Context, rt *executor.Runtime, workspaceRoot string) {
+			agentlyrt.ConfigureRegistry(ctx, rt, workspaceRoot)
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
-	userCredAuthCfg, err := agserver.LoadSchedulerUserCredAuthConfig(workspace.Root())
+	authCfg, err := svcauth.LoadWorkspaceConfig(workspace.Root())
 	if err != nil {
-		return fmt.Errorf("failed to load scheduler auth config: %w", err)
+		return fmt.Errorf("failed to load workspace auth config: %w", err)
+	}
+	var userCredAuthCfg *svcscheduler.UserCredAuthConfig
+	if authCfg != nil && authCfg.OAuth != nil && authCfg.OAuth.Client != nil {
+		userCredAuthCfg = &svcscheduler.UserCredAuthConfig{
+			Mode:            strings.TrimSpace(authCfg.OAuth.Mode),
+			ClientConfigURL: strings.TrimSpace(authCfg.OAuth.Client.ConfigURL),
+			Scopes:          append([]string(nil), authCfg.OAuth.Client.Scopes...),
+		}
 	}
 
 	scheduleStore, err := svcscheduler.NewDatlyStore(ctx, rt.DAO, rt.Data)

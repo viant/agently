@@ -24,6 +24,7 @@ import (
 	toolpatch "github.com/viant/agently-core/protocol/tool/service/system/patch"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
+	wscfg "github.com/viant/agently-core/workspace/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -105,81 +106,15 @@ func resolveInternalServiceList(workspaceRoot string) []string {
 }
 
 func loadInternalServicesFromConfig(workspaceRoot string) ([]string, bool) {
-	if strings.TrimSpace(workspaceRoot) == "" {
-		return nil, false
-	}
-	path := filepath.Join(workspaceRoot, "config.yaml")
-	data, err := os.ReadFile(path)
+	cfg, err := wscfg.Load(workspaceRoot)
 	if err != nil {
+		log.Printf("agently-app: failed to load workspace config: %v", err)
 		return nil, false
 	}
-	var cfg map[string]interface{}
-	if err = yaml.Unmarshal(data, &cfg); err != nil {
-		log.Printf("agently-app: failed to parse %s: %v", path, err)
+	if cfg == nil {
 		return nil, false
 	}
-
-	out := valuesToServices(cfg["internalMCPServices"])
-	if hasKey(cfg, "internalMCPServices") {
-		return out, true
-	}
-	internal := mapLookup(cfg, "internalMCP")
-	if len(internal) == 0 {
-		internal = mapLookup(cfg, "internal_mcp")
-	}
-	if internal == nil {
-		return nil, false
-	}
-	if _, ok := internal["services"]; !ok {
-		return nil, false
-	}
-	return valuesToServices(internal["services"]), true
-}
-
-func hasKey(source map[string]interface{}, key string) bool {
-	if source == nil {
-		return false
-	}
-	_, ok := source[key]
-	return ok
-}
-
-func mapLookup(source map[string]interface{}, key string) map[string]interface{} {
-	value, ok := source[key]
-	if !ok || value == nil {
-		return nil
-	}
-	result, _ := value.(map[string]interface{})
-	return result
-}
-
-func valuesToServices(value interface{}) []string {
-	switch actual := value.(type) {
-	case []interface{}:
-		out := make([]string, 0, len(actual))
-		for _, item := range actual {
-			if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
-				out = append(out, text)
-			}
-		}
-		return out
-	case []string:
-		return actual
-	case string:
-		if strings.TrimSpace(actual) == "" {
-			return nil
-		}
-		parts := strings.Split(actual, ",")
-		out := make([]string, 0, len(parts))
-		for _, part := range parts {
-			if text := strings.TrimSpace(part); text != "" {
-				out = append(out, text)
-			}
-		}
-		return out
-	default:
-		return nil
-	}
+	return cfg.InternalServiceList()
 }
 
 func normalizeServiceName(value string) string {
