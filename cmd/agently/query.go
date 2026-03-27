@@ -36,8 +36,8 @@ type ChatCmd struct {
 	User      string   `short:"u" long:"user" description:"user id for the chat" default:"devuser"`
 	API       string   `long:"api" description:"Agently base URL (skips auto-detect)"`
 	Token     string   `long:"token" description:"Bearer token for API requests (overrides AGENTLY_TOKEN)"`
-	OOB       string   `long:"oob" description:"Use server-side OAuth2 out-of-band login with the supplied secrets URL"`
-	OAuthCfg  string   `long:"oauth-config" description:"scy OAuth config URL for client-side OOB login (unused for server OOB)"`
+	OOB       string   `long:"oob" description:"Use local scy OAuth2 out-of-band login with the supplied secrets URL"`
+	OAuthCfg  string   `long:"oauth-config" description:"Optional scy OAuth config URL override for client-side OOB login"`
 	OAuthScp  string   `long:"oauth-scopes" description:"comma-separated OAuth scopes for OOB login"`
 	Stream    bool     `long:"stream" description:"reserved for compatibility; CLI output streams automatically"`
 	ElicitDef string   `long:"elicitation-default" description:"JSON or @file to auto-accept elicitations when stdin is not a TTY"`
@@ -786,27 +786,10 @@ func pickModel(defaultModel string, models []string) string {
 func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, providers []authProviderInfo) error {
 	hasBFF := findProvider(providers, "bff") != nil
 	if strings.TrimSpace(c.OOB) != "" {
-		if strings.TrimSpace(c.OOB) == "" {
-			return fmt.Errorf("--oob requires a secrets URL value")
-		}
-		oobRef, err := inlineLocalScyResource(strings.TrimSpace(c.OOB))
-		if err != nil {
-			return err
-		}
-		if err := client.AuthOOBSession(ctx, oobRef, parseScopes(c.OAuthScp)); err != nil {
-			return err
-		}
-		if _, err := client.AuthMe(ctx); err != nil {
-			return fmt.Errorf("oauth login succeeded, but session was not established")
-		}
-		return nil
+		return c.authenticateWithOOB(ctx, client, strings.TrimSpace(c.OOB), parseScopes(c.OAuthScp))
 	}
 	if envSec := strings.TrimSpace(os.Getenv("AGENTLY_OOB_SECRETS")); envSec != "" {
-		oobRef, err := inlineLocalScyResource(envSec)
-		if err != nil {
-			return err
-		}
-		if err := client.AuthOOBSession(ctx, oobRef, parseScopes(os.Getenv("AGENTLY_OOB_SCOPES"))); err == nil {
+		if err := c.authenticateWithOOB(ctx, client, envSec, parseScopes(os.Getenv("AGENTLY_OOB_SCOPES"))); err == nil {
 			if _, err := client.AuthMe(ctx); err == nil {
 				return nil
 			}
@@ -857,6 +840,19 @@ func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, provid
 		return fmt.Errorf("authentication required: local login failed: %w", localErr)
 	}
 	return fmt.Errorf("authentication required")
+}
+
+func (c *ChatCmd) authenticateWithOOB(ctx context.Context, client *sdk.HTTPClient, secretRef string, scopes []string) error {
+	secretRef = strings.TrimSpace(secretRef)
+	if secretRef == "" {
+		return fmt.Errorf("--oob requires a secrets URL value")
+	}
+	configURL := strings.TrimSpace(c.OAuthCfg)
+	return client.AuthLocalOOBSession(ctx, &sdk.LocalOOBSessionOptions{
+		ConfigURL:  configURL,
+		SecretsURL: secretRef,
+		Scopes:     scopes,
+	})
 }
 
 func inlineLocalScyResource(raw string) (string, error) {

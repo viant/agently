@@ -11,7 +11,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.1.2-0.20260327135220-683f4ed1af79
+	github.com/viant/agently-core v0.1.2-0.20260327140422-5ad3052e6451
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3 // indirect
 	github.com/viant/forge v0.3.0 // indirect
@@ -19,7 +19,7 @@ require (
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.14.0
 	github.com/viant/mcp-protocol v0.11.0 // indirect
-	github.com/viant/scy v0.29.0
+	github.com/viant/scy v0.30.0
 	github.com/viant/structology v0.8.0 // indirect
 	github.com/viant/velty v0.4.0 // indirect
 	github.com/viant/x v0.4.1-0.20260306005005-975ded1e1bef // indirect
@@ -28,6 +28,10 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect; indirect -- replaced with internal stub, see below
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+replace github.com/viant/agently-core => ../agently-core
+
+replace github.com/viant/scy => ../scy
 
 require (
 	github.com/viant/bigquery v0.5.1
