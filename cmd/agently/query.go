@@ -100,9 +100,6 @@ func (c *ChatCmd) Execute(_ []string) error {
 		c.AgentID = strings.TrimSpace(defaultAgent)
 	}
 	modelOverride := pickModel(defaultModel, models)
-	if strings.TrimSpace(modelOverride) == "" {
-		return fmt.Errorf("server metadata did not provide a default model")
-	}
 
 	if strings.TrimSpace(workspaceRoot) != "" {
 		fmt.Printf("[workspace] %s\n", workspaceRoot)
@@ -136,7 +133,6 @@ func (c *ChatCmd) Execute(_ []string) error {
 			Query:          query,
 			UserId:         strings.TrimSpace(c.User),
 			Context:        buildQueryContext(contextData, defaultElicitationPayload, lastElicitationPayload),
-			ModelOverride:  modelOverride,
 		}
 		if !sentAttachments && len(attachments) > 0 {
 			input.Attachments = attachments

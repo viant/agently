@@ -132,7 +132,7 @@ func TestTerminalQueryStreamingOutput(t *testing.T) {
 
 	events := readTraceEvents(t)
 	assertTraceHasEvent(t, events, "core", "stream_request")
-	assertTraceHasEvent(t, events, "reactor", "stream_choice")
+	assertTraceHasTimelineType(t, events, "executor", "text_delta")
 }
 
 func TestTerminalQueryJWTUnauthorized(t *testing.T) {
@@ -644,7 +644,7 @@ func transcriptStats(transcript *coresdk.ConversationState) ([]*agconv.ToolCallV
 				if ts == nil {
 					continue
 				}
-				toolCalls = append(toolCalls, &agconv.ToolCallView{})
+				toolCalls = append(toolCalls, &agconv.ToolCallView{Status: ts.Status})
 			}
 		}
 	}
@@ -661,7 +661,7 @@ func writeTranscriptDebug(t *testing.T, transcript *coresdk.ConversationState) {
 
 func setupGroup(t *testing.T) (string, string) {
 	t.Helper()
-	template := filepath.Join(harness.RepoRoot(), "v1", "e2e", "query", "testdata", "workspace")
+	template := filepath.Join(harness.RepoRoot(), "e2e", "query", "testdata", "workspace")
 	workspace := harness.CopyWorkspaceTemplate(t, template)
 	baseURL := harness.StartServer(t, workspace)
 	require.NotEmpty(t, baseURL)
@@ -671,7 +671,7 @@ func setupGroup(t *testing.T) (string, string) {
 
 func setupJWTAuthGroup(t *testing.T) (string, string, string) {
 	t.Helper()
-	template := filepath.Join(harness.RepoRoot(), "v1", "e2e", "query", "testdata", "workspace")
+	template := filepath.Join(harness.RepoRoot(), "e2e", "query", "testdata", "workspace")
 	workspace := harness.CopyWorkspaceTemplate(t, template)
 	privateKeyPath, publicKeyPath := generateRSAKeyPair(t, t.TempDir())
 	writeJWTWorkspaceConfig(t, workspace, publicKeyPath, privateKeyPath)
@@ -761,8 +761,12 @@ func writeTempAttachment(t *testing.T, name string, data []byte) string {
 
 func mustCreatePNG(t *testing.T, fill color.RGBA) []byte {
 	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
-	img.SetRGBA(0, 0, fill)
+	img := image.NewRGBA(image.Rect(0, 0, 32, 32))
+	for y := 0; y < 32; y++ {
+		for x := 0; x < 32; x++ {
+			img.SetRGBA(x, y, fill)
+		}
+	}
 	var buf bytes.Buffer
 	require.NoError(t, png.Encode(&buf, img))
 	return buf.Bytes()
@@ -848,6 +852,21 @@ func assertTraceHasEvent(t *testing.T, events []map[string]interface{}, componen
 		}
 	}
 	t.Fatalf("trace missing %s/%s event", component, event)
+}
+
+func assertTraceHasTimelineType(t *testing.T, events []map[string]interface{}, component, timelineType string) {
+	t.Helper()
+	for _, item := range events {
+		if strings.TrimSpace(toString(item["component"])) != component ||
+			strings.TrimSpace(toString(item["event"])) != "timeline" {
+			continue
+		}
+		fields, _ := item["fields"].(map[string]interface{})
+		if strings.TrimSpace(toString(fields["type"])) == timelineType {
+			return
+		}
+	}
+	t.Fatalf("trace missing %s timeline type %s event", component, timelineType)
 }
 
 func toString(value interface{}) string {

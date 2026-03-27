@@ -5,7 +5,7 @@ pipeline:
     fetchSchema:
       action: storage:copy
       source:
-        URL: ${repoPath}/internal/script/mysql/schema_versioned.ddl
+        URL: ${repoPath}/e2e/scripts/schema.ddl
       dest:
         URL: ${repoPath}/e2e/database/agently/script/schema.ddl
 
