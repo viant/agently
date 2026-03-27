@@ -6,18 +6,18 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.41.2 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.28.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.0 // indirect
-	github.com/google/uuid v1.6.0
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.1.3
+	github.com/viant/agently-core v0.1.4
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3 // indirect
 	github.com/viant/forge v0.3.0 // indirect
 	github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0 // indirect
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
-	github.com/viant/mcp v0.14.0
+	github.com/viant/mcp v0.14.0 // indirect
 	github.com/viant/mcp-protocol v0.11.0 // indirect
 	github.com/viant/scy v0.30.0
 	github.com/viant/structology v0.8.0 // indirect
@@ -29,12 +29,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-
-
-require (
-	github.com/viant/bigquery v0.5.1
-	golang.org/x/oauth2 v0.32.0
-)
+require github.com/viant/bigquery v0.5.1
 
 require (
 	cel.dev/expr v0.24.0 // indirect
@@ -186,6 +181,7 @@ require (
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/net v0.46.1-0.20251013234738-63d1a5100f82 // indirect
+	golang.org/x/oauth2 v0.32.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
