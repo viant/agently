@@ -241,6 +241,10 @@ func discoverWorkspaceAgentIDs(workspaceRoot string) []string {
 }
 
 func newRuntime(ctx context.Context, defaults *execconfig.Defaults) (*executor.Runtime, sdk.Client, agentmodel.Finder, error) {
+	return newRuntimeWithMCPAuthMode(ctx, defaults, false)
+}
+
+func newRuntimeWithMCPAuthMode(ctx context.Context, defaults *execconfig.Defaults, schedulerHeadless bool) (*executor.Runtime, sdk.Client, agentmodel.Finder, error) {
 	fs := afs.New()
 	wsMeta := meta.New(fs, workspace.Root())
 	agentLdr := agentloader.New(agentloader.WithMetaService(wsMeta))
@@ -276,15 +280,20 @@ func newRuntime(ctx context.Context, defaults *execconfig.Defaults) (*executor.R
 		if jerr != nil {
 			return nil
 		}
-		// Use ElicitationFlow so OAuth URLs are surfaced to the web UI as
-		// OOB elicitations (popup) instead of CLI browser.Open().
-		authRT, _ := integrate.NewAuthRoundTripperWithElicitation(j, http.DefaultTransport, 0, func(ctx context.Context, authURL string) error {
-			if embeddedClient != nil {
-				return embeddedClient.RecordOOBAuthElicitation(ctx, authURL)
-			}
-			log.Printf("[mcp-auth] OAuth URL (client not ready): %s", authURL)
-			return nil
-		})
+		var authRT *authtransport.RoundTripper
+		if schedulerHeadless {
+			authRT, _ = integrate.NewHeadlessAuthRoundTripper(j, http.DefaultTransport, 0)
+		} else {
+			// Use ElicitationFlow so OAuth URLs are surfaced to the web UI as
+			// OOB elicitations (popup) instead of CLI browser.Open().
+			authRT, _ = integrate.NewAuthRoundTripperWithElicitation(j, http.DefaultTransport, 0, func(ctx context.Context, authURL string) error {
+				if embeddedClient != nil {
+					return embeddedClient.RecordOOBAuthElicitation(ctx, authURL)
+				}
+				log.Printf("[mcp-auth] OAuth URL (client not ready): %s", authURL)
+				return nil
+			})
+		}
 		rtByUser[user] = authRT
 		return authRT
 	}
