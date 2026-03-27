@@ -238,6 +238,7 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			AccessToken  string `json:"accessToken,omitempty"`
 			IDToken      string `json:"idToken,omitempty"`
 			RefreshToken string `json:"refreshToken,omitempty"`
+			ExpiresAt    string `json:"expiresAt,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			httpError(w, http.StatusBadRequest, err)
@@ -277,8 +278,23 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 				},
 				IDToken: strings.TrimSpace(in.IDToken),
 			}
+			if expiry := strings.TrimSpace(in.ExpiresAt); expiry != "" {
+				if parsed, err := time.Parse(time.RFC3339, expiry); err == nil {
+					sess.Tokens.Expiry = parsed
+				}
+			}
 		}
 		a.sessions.Put(r.Context(), sess)
+		if a.tokenStore != nil && sess.Tokens != nil {
+			_ = a.tokenStore.Put(r.Context(), &svcauth.OAuthToken{
+				Username:     firstNonEmpty(subject, username),
+				Provider:     a.oauthProviderName(),
+				AccessToken:  strings.TrimSpace(in.AccessToken),
+				IDToken:      strings.TrimSpace(in.IDToken),
+				RefreshToken: strings.TrimSpace(in.RefreshToken),
+				ExpiresAt:    sess.Tokens.Expiry,
+			})
+		}
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		httpJSON(w, http.StatusOK, map[string]any{
 			"sessionId": sess.ID,
