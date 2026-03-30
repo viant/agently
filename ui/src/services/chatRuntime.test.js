@@ -163,6 +163,12 @@ describe('createNewConversation', () => {
     const conversationState = { values: { id: 'old', agent: 'chatter', model: 'openai_gpt-5.4' } };
     const metaState = { values: { agent: 'chatter', defaults: { agent: 'chatter', model: 'openai_gpt-5.4', embedder: 'openai_text' } } };
     const context = {
+      resources: {
+        chat: {
+          activeConversationID: 'conv-old',
+          lastConversationID: 'conv-old'
+        }
+      },
       Context(name) {
         if (name === 'conversations') {
           return {
@@ -206,6 +212,9 @@ describe('createNewConversation', () => {
 
     expect(conversationState.values.agent).toBe('auto');
     expect(metaState.values.agent).toBe('auto');
+    expect(context.resources.chat.activeConversationID).toBe('');
+    expect(context.resources.chat.lastConversationID).toBe('');
+    expect(context.resources.chat.explicitNewConversationRequested).toBe(true);
   });
 });
 
@@ -661,6 +670,70 @@ describe('mapTranscriptToRows', () => {
       const id = await ensureConversation(context);
       expect(id).toBe('conv-existing');
       expect(client.createConversation).not.toHaveBeenCalled();
+    } finally {
+      global.window = originalWindow;
+    }
+  });
+
+  it('ensureConversation creates a fresh conversation after explicit new conversation reset', async () => {
+    vi.clearAllMocks();
+    client.createConversation.mockResolvedValueOnce({
+      id: 'conv-new',
+      title: 'New chat'
+    });
+
+    const setFormData = vi.fn();
+    const context = {
+      identity: { windowId: 'chat/main' },
+      resources: {
+        chat: {
+          activeConversationID: 'conv-existing',
+          explicitNewConversationRequested: true
+        }
+      },
+      Context: (name) => {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: '', title: 'New conversation', agent: 'steward', model: 'openai_gpt-5_4' }),
+                setFormData
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: { agent: 'steward', model: 'openai_gpt-5_4' } })
+              }
+            }
+          };
+        }
+        return { handlers: { dataSource: {} } };
+      }
+    };
+
+    const originalWindow = global.window;
+    global.window = {
+      location: { pathname: '/conversation/conv-existing' },
+      localStorage: {
+        getItem: vi.fn(() => ''),
+        setItem: vi.fn(),
+        removeItem: vi.fn()
+      },
+      history: { state: null, replaceState: vi.fn() },
+      dispatchEvent: vi.fn()
+    };
+
+    try {
+      const id = await ensureConversation(context);
+      expect(id).toBe('conv-new');
+      expect(client.getConversation).not.toHaveBeenCalled();
+      expect(client.createConversation).toHaveBeenCalledTimes(1);
+      expect(context.resources.chat.activeConversationID).toBe('conv-new');
+      expect(context.resources.chat.explicitNewConversationRequested).toBe(false);
     } finally {
       global.window = originalWindow;
     }
