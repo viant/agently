@@ -1875,11 +1875,12 @@ export async function ensureConversation(context, options = {}) {
   const form = conversationsDS.peekFormData?.() || {};
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   const metaForm = metaDS?.peekFormData?.() || {};
+  const explicitNewConversation = !!chatState.explicitNewConversationRequested;
   const recoveredExistingID = String(
     form?.id
-    || chatState?.activeConversationID
-    || getScopedConversationSelection(getContextWindowId(context))
-    || conversationIDFromPath(typeof window !== 'undefined' ? window.location?.pathname : '')
+    || (!explicitNewConversation ? chatState?.activeConversationID : '')
+    || (!explicitNewConversation ? getScopedConversationSelection(getContextWindowId(context)) : '')
+    || (!explicitNewConversation ? conversationIDFromPath(typeof window !== 'undefined' ? window.location?.pathname : '') : '')
     || ''
   ).trim();
   if (recoveredExistingID) {
@@ -1897,6 +1898,7 @@ export async function ensureConversation(context, options = {}) {
           });
         }
         publishActiveConversation(existingID, context);
+        chatState.explicitNewConversationRequested = false;
         return existingID;
       }
     } catch (_) {
@@ -1933,6 +1935,8 @@ export async function ensureConversation(context, options = {}) {
       }
     });
     publishActiveConversation(id, context);
+    chatState.activeConversationID = id;
+    chatState.explicitNewConversationRequested = false;
     // Notify sidebar to refresh the conversation list immediately.
     try {
       window.dispatchEvent(new CustomEvent('agently:conversation-new', { detail: { id } }));
@@ -2082,6 +2086,9 @@ export async function createNewConversation(context) {
     chatState.stream.close();
     chatState.stream = null;
   }
+  chatState.activeConversationID = '';
+  chatState.lastConversationID = '';
+  chatState.explicitNewConversationRequested = true;
   const current = conversationsDS.peekFormData?.() || {};
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
   const metaDefaults = metaForm?.defaults || {};

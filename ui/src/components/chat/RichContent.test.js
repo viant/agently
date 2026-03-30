@@ -27,6 +27,17 @@ describe('RichContent fence parsing', () => {
     expect(parts[0].body).toContain('for i := 0; i < 3; i++ {');
   });
 
+  it('parses compact json fence form used by some streamed outputs', () => {
+    const parts = parseFences('<!-- CHART_SPEC:v1 -->\n```json{"version":"1.0"}\n```');
+
+    expect(parts).toHaveLength(2);
+    expect(parts[1]).toMatchObject({
+      kind: 'fence',
+      lang: 'json',
+      body: '{"version":"1.0"}\n'
+    });
+  });
+
   it('renders markdown headings as heading tags', () => {
     const html = renderMarkdownBlock('## Cat Story\n\nA short paragraph.');
     expect(html).toContain('<h2>Cat Story</h2>');
