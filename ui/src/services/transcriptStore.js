@@ -1,37 +1,5 @@
 import { mergeRowSnapshots } from './rowMerge';
 
-const COMPOSER_DRAFTS_KEY = 'agently.composerDrafts.v1';
-
-function readDraftMap() {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = window.sessionStorage?.getItem(COMPOSER_DRAFTS_KEY) || '{}';
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (_) {
-    return {};
-  }
-}
-
-function writeDraftMap(value = {}) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.sessionStorage?.setItem(COMPOSER_DRAFTS_KEY, JSON.stringify(value || {}));
-  } catch (_) {}
-}
-
-function seedComposerDraftFromTranscript(conversationID = '', rows = []) {
-  const id = String(conversationID || '').trim();
-  if (!id || typeof window === 'undefined') return;
-  const map = readDraftMap();
-  if (String(map[id] || '').trim()) return;
-  const firstUser = (Array.isArray(rows) ? rows : []).find((row) => String(row?.role || '').toLowerCase() === 'user' && String(row?.content || '').trim());
-  const prompt = String(firstUser?.content || '').trim();
-  if (!prompt) return;
-  map[id] = prompt;
-  writeDraftMap(map);
-}
-
 function shouldRecoverWithFullTranscript(chatState = {}) {
   if (chatState?.lastHasRunning) return true;
   const rows = Array.isArray(chatState?.transcriptRows) ? chatState.transcriptRows : [];
@@ -125,7 +93,6 @@ export function syncTranscriptSnapshot({
 
   chatState.lastSyncReason = reason;
   chatState.transcriptRows = mergedRows;
-  seedComposerDraftFromTranscript(conversationID, mergedRows);
   chatState.lastQueuedTurns = queuedTurns;
   chatState.lastHasRunning = hasRunning;
   chatState.lastConversationID = conversationID;
