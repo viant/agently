@@ -46,6 +46,11 @@ type ServeOptions struct {
 	ExposeMCP     bool   // expose tools over MCP HTTP server
 }
 
+const (
+	htmlCacheControl  = "no-cache, must-revalidate"
+	assetCacheControl = "public, max-age=31536000, immutable"
+)
+
 func Serve(options ServeOptions) error {
 	addr := envOr("AGENTLY_ADDR", ":8080")
 	if value := strings.TrimSpace(options.Addr); value != "" {
@@ -208,10 +213,21 @@ func newRouter(api http.Handler, meta http.Handler, speech http.Handler, uiDist 
 			return
 		}
 
+		if strings.HasPrefix(path, "/assets/") {
+			w.Header().Set("Cache-Control", assetCacheControl)
+			if local != nil {
+				local.ServeHTTP(w, r)
+				return
+			}
+			embeddedServer.ServeHTTP(w, r)
+			return
+		}
+
 		if path == "/" || path == "/ui" || path == "/ui/" ||
 			strings.HasPrefix(path, "/conversation/") ||
 			strings.HasPrefix(path, "/ui/conversation/") ||
 			strings.HasPrefix(path, "/v1/conversation/") {
+			w.Header().Set("Cache-Control", htmlCacheControl)
 			if localIndex != "" {
 				http.ServeFile(w, r, localIndex)
 				return
