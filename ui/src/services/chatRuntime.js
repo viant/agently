@@ -839,6 +839,32 @@ export function ensureContextResources(context) {
   return context.resources.chat;
 }
 
+function queuePostTurnConversationRefresh(context, conversationID = '', turnID = '') {
+  if (typeof window === 'undefined') return;
+  const chatState = ensureContextResources(context);
+  const targetConversationID = String(conversationID || '').trim();
+  const targetTurnID = String(turnID || '').trim();
+  if (!targetConversationID) return;
+  const refreshKey = `${targetConversationID}:${targetTurnID}`;
+  chatState.postTurnRefreshKey = refreshKey;
+  if (chatState.postTurnRefreshTimer) {
+    clearTimeout(chatState.postTurnRefreshTimer);
+    chatState.postTurnRefreshTimer = null;
+  }
+  chatState.postTurnRefreshTimer = window.setTimeout(async () => {
+    chatState.postTurnRefreshTimer = null;
+    if (String(chatState.postTurnRefreshKey || '').trim() !== refreshKey) return;
+    if (String(getCurrentConversationID(context) || '').trim() !== targetConversationID) return;
+    const activeTurnID = String(chatState.runningTurnId || chatState.activeStreamTurnId || '').trim();
+    if (activeTurnID && activeTurnID !== targetTurnID) return;
+    try {
+      await switchConversation(context, targetConversationID);
+    } catch (_) {
+      // Best-effort: preserve the current live render if refresh fails.
+    }
+  }, 90);
+}
+
 export function getVisibleIterations(context) {
   ensureContextResources(context);
   return DEFAULT_VISIBLE_ITERATIONS;
@@ -1606,14 +1632,16 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     }
 
     if (type === 'turn_completed' || type === 'turn_failed' || type === 'turn_canceled') {
+      const completedTurnID = String(payload?.turnId || '').trim();
+      const resolvedConversationID = String(payload?.conversationId || payload?.streamId || conversationID || '').trim();
       const finalRow = Array.isArray(chatState.liveRows)
-        ? [...chatState.liveRows].reverse().find((row) => String(row?.turnId || '').trim() === String(payload?.turnId || '').trim() && String(row?.role || '').toLowerCase() === 'assistant')
+        ? [...chatState.liveRows].reverse().find((row) => String(row?.turnId || '').trim() === completedTurnID && String(row?.role || '').toLowerCase() === 'assistant')
         : null;
       const finalContent = String(payload?.content || finalRow?.content || '').trim();
       logExecutorDebug('turn-terminal', {
         type,
-        conversationId: payload?.conversationId || payload?.streamId || conversationID,
-        turnId: String(payload?.turnId || '').trim(),
+        conversationId: resolvedConversationID,
+        turnId: completedTurnID,
         runningTurnId: String(chatState.runningTurnId || '').trim(),
         activeStreamTurnId: String(chatState.activeStreamTurnId || '').trim(),
         status: String(payload?.status || type).trim(),
@@ -1625,8 +1653,8 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       if (finalContent === '') {
         logExecutorDebug('phantom-terminal', {
           type,
-          conversationId: payload?.conversationId || payload?.streamId || conversationID,
-          turnId: String(payload?.turnId || '').trim(),
+          conversationId: resolvedConversationID,
+          turnId: completedTurnID,
           reason: 'terminal-event-without-final-content'
         });
       }
@@ -1641,7 +1669,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       chatState.activeTurnAgentId = '';
       chatState.activeTurnAgentName = '';
       if (String(payload?.turnId || '').trim()) {
-        const completedTurnID = String(payload.turnId).trim();
         if (String(chatState.runningTurnId || '').trim() === completedTurnID) {
           chatState.runningTurnId = '';
         }
@@ -1673,6 +1700,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       // SSE event arrives (e.g., after revert/commit removes the feed's data).
       window.setTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 1100);
       renderMergedRowsForContext(context);
+      if (resolvedConversationID && resolvedConversationID === String(getCurrentConversationID(context) || '').trim()) {
+        queuePostTurnConversationRefresh(context, resolvedConversationID, completedTurnID);
+      }
       return;
     }
 
@@ -2168,6 +2198,10 @@ export function stopPolling(context) {
   if (chatState.refreshTimer) {
     clearTimeout(chatState.refreshTimer);
     chatState.refreshTimer = null;
+  }
+  if (chatState.postTurnRefreshTimer) {
+    clearTimeout(chatState.postTurnRefreshTimer);
+    chatState.postTurnRefreshTimer = null;
   }
   if (chatState.stream) {
     chatState.stream.close();
