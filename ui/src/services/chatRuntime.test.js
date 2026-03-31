@@ -9,7 +9,8 @@ vi.mock('./agentlyClient', () => ({
     getWorkspaceMetadata: vi.fn(),
     createConversation: vi.fn(),
     getConversation: vi.fn(),
-    getTranscript: vi.fn()
+    getTranscript: vi.fn(),
+    listPendingElicitations: vi.fn().mockResolvedValue([])
   }
 }));
 
@@ -155,6 +156,152 @@ describe('handleStreamEvent', () => {
       turnId: 'turn-1',
       status: 'succeeded'
     });
+  });
+
+  it('rehydrates the active conversation after terminal events using the sidebar-switch path', async () => {
+    vi.useFakeTimers();
+    client.getConversation.mockReset();
+    client.getTranscript.mockReset();
+    client.getConversation.mockResolvedValueOnce({
+      id: 'conv-1',
+      title: 'Good morning'
+    });
+    client.getTranscript.mockResolvedValueOnce({
+      turns: [
+        {
+          turnId: 'turn-1',
+          status: 'completed',
+          createdAt: '2026-03-31T10:00:00Z',
+          user: {
+            messageId: 'u1',
+            content: 'good morning'
+          },
+          execution: {
+            pages: [
+              {
+                pageId: 'page-final',
+                assistantMessageId: 'page-final',
+                turnId: 'turn-1',
+                iteration: 1,
+                status: 'completed',
+                finalResponse: true,
+                content: 'Good morning! What would you like to work on today?'
+              }
+            ]
+          }
+        }
+      ]
+    });
+
+    const messageState = { collection: [] };
+    const conversationState = { values: { id: 'conv-1', title: 'Good morning', queuedTurns: [], running: true } };
+    const eventTarget = new EventTarget();
+    const originalWindow = globalThis.window;
+    const originalCustomEvent = globalThis.CustomEvent;
+    const mockWindow = {
+      location: { pathname: '/v1/conversation/conv-1' },
+      history: { state: null, replaceState: vi.fn() },
+      localStorage: createStorage(),
+      sessionStorage: createStorage(),
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      addEventListener: eventTarget.addEventListener.bind(eventTarget),
+      removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
+      dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
+      CustomEvent: class extends Event {
+        constructor(name, init = {}) {
+          super(name);
+          this.detail = init.detail;
+        }
+      }
+    };
+    globalThis.window = mockWindow;
+    globalThis.CustomEvent = mockWindow.CustomEvent;
+    const context = {
+      identity: { windowId: 'chat/main' },
+      resources: {
+        chat: {
+          activeConversationID: 'conv-1',
+          liveOwnedConversationID: 'conv-1',
+          liveOwnedTurnIds: ['turn-1'],
+          runningTurnId: 'turn-1',
+          activeStreamTurnId: 'turn-1',
+          lastHasRunning: true,
+          liveRows: [{
+            id: 'live-a1',
+            role: 'assistant',
+            turnId: 'turn-1',
+            content: 'Temporary live content',
+            createdAt: '2026-03-31T10:00:01Z'
+          }],
+          transcriptRows: [],
+          renderRows: []
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      handleStreamEvent(context.resources.chat, context, 'conv-1', {
+        type: 'turn_completed',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        status: 'succeeded'
+      });
+
+      await vi.advanceTimersByTimeAsync(100);
+      await Promise.resolve();
+
+      expect(client.getConversation).toHaveBeenCalledWith('conv-1');
+      expect(client.getTranscript).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: 'conv-1' }),
+        undefined
+      );
+      expect(messageState.collection).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'assistant',
+            content: 'Good morning! What would you like to work on today?'
+          })
+        ])
+      );
+      expect(conversationState.values.running).toBe(false);
+    } finally {
+      globalThis.window = originalWindow;
+      globalThis.CustomEvent = originalCustomEvent;
+      vi.useRealTimers();
+    }
   });
 });
 
