@@ -1,5 +1,14 @@
 import { mergeRowSnapshots } from './rowMerge';
 
+function filterOwnedTurnRows(rows = [], conversationID = '', ownedConversationID = '', ownedTurnIds = []) {
+  const currentID = String(conversationID || '').trim();
+  const liveID = String(ownedConversationID || '').trim();
+  if (!currentID || !liveID || currentID !== liveID) return Array.isArray(rows) ? rows : [];
+  const owned = new Set((Array.isArray(ownedTurnIds) ? ownedTurnIds : []).map((item) => String(item || '').trim()).filter(Boolean));
+  if (owned.size === 0) return Array.isArray(rows) ? rows : [];
+  return (Array.isArray(rows) ? rows : []).filter((row) => !owned.has(String(row?.turnId || '').trim()));
+}
+
 function shouldRecoverWithFullTranscript(chatState = {}) {
   if (chatState?.lastHasRunning) return true;
   const rows = Array.isArray(chatState?.transcriptRows) ? chatState.transcriptRows : [];
@@ -68,11 +77,12 @@ export function syncTranscriptSnapshot({
   const convForm = conversationsDS.peekFormData?.() || {};
   const conversationID = String(convForm?.id || '').trim();
   chatState.activeConversationID = conversationID;
+  const filteredRows = filterOwnedTurnRows(rows, conversationID, chatState.liveOwnedConversationID, chatState.liveOwnedTurnIds);
   const sameConversation = String(chatState.lastConversationID || '').trim() === conversationID;
   const previousTranscriptRows = Array.isArray(chatState.transcriptRows) ? chatState.transcriptRows : [];
   const mergedRows = reason === 'poll' && sameConversation && previousTranscriptRows.length > 0
-    ? mergeRowSnapshots(previousTranscriptRows, rows)
-    : rows;
+    ? mergeRowSnapshots(previousTranscriptRows, filteredRows)
+    : filteredRows;
 
   const hasRunning = turns.some((turn) => {
     const status = String(turn?.status || turn?.Status || '').trim().toLowerCase();

@@ -19,6 +19,7 @@ import {
   applyMessagePatchEvent,
   applyPreambleEvent,
   applyStreamChunk,
+  applyTurnStartedEvent,
   applyToolStreamEvent,
   finalizeStreamTurn,
   markLiveOwnedTurn,
@@ -120,6 +121,158 @@ function publishConversationActivity(conversationID = '', detail = {}) {
       detail: { id, ...detail }
     }));
   } catch (_) {}
+}
+
+export function resolveStreamEventConversationID(payload = {}, subscribedConversationID = '') {
+  return String(payload?.conversationId || payload?.streamId || subscribedConversationID || '').trim();
+}
+
+export function shouldProcessStreamEvent({ payload = {}, subscribedConversationID = '', visibleConversationID = '' } = {}) {
+  const eventConversationID = resolveStreamEventConversationID(payload, subscribedConversationID);
+  const visibleID = String(visibleConversationID || '').trim();
+  if (!eventConversationID) return false;
+  if (!visibleID) return true;
+  return eventConversationID === visibleID;
+}
+
+function streamEventMode(payload = {}) {
+  return String(payload?.mode || payload?.patch?.mode || '').trim().toLowerCase();
+}
+
+function shouldIgnoreExecutionStreamEvent(payload = {}) {
+  const mode = streamEventMode(payload);
+  return mode === 'summary';
+}
+
+function textDeltaQueueKey(payload = {}, fallbackConversationID = '') {
+  return [
+    String(payload?.conversationId || payload?.streamId || fallbackConversationID || '').trim(),
+    String(payload?.turnId || '').trim(),
+    String(payload?.assistantMessageId || payload?.id || '').trim(),
+    String(payload?.mode || payload?.patch?.mode || '').trim()
+  ].join('::');
+}
+
+function enqueueTextDelta(chatState = {}, payload = {}, fallbackConversationID = '') {
+  const queue = Array.isArray(chatState.pendingTextDeltaQueue) ? chatState.pendingTextDeltaQueue : [];
+  const key = textDeltaQueueKey(payload, fallbackConversationID);
+  const content = String(payload?.content || '');
+  if (!content) {
+    chatState.pendingTextDeltaQueue = queue;
+    return queue;
+  }
+  const last = queue[queue.length - 1];
+  if (last && last._queueKey === key) {
+    last.content = `${String(last.content || '')}${content}`;
+    last.createdAt = String(payload?.createdAt || last.createdAt || '').trim() || last.createdAt;
+    if (!String(last.id || '').trim() && String(payload?.id || '').trim()) {
+      last.id = String(payload.id).trim();
+    }
+    if (!String(last.assistantMessageId || '').trim() && String(payload?.assistantMessageId || '').trim()) {
+      last.assistantMessageId = String(payload.assistantMessageId).trim();
+    }
+  } else {
+    queue.push({
+      ...payload,
+      conversationId: String(payload?.conversationId || payload?.streamId || fallbackConversationID || '').trim(),
+      content,
+      _queueKey: key,
+    });
+  }
+  chatState.pendingTextDeltaQueue = queue;
+  return queue;
+}
+
+function flushQueuedTextDeltas(chatState = {}, context = null, conversationID = '') {
+  const queue = Array.isArray(chatState.pendingTextDeltaQueue) ? [...chatState.pendingTextDeltaQueue] : [];
+  if (queue.length === 0) return false;
+  chatState.pendingTextDeltaQueue = [];
+  for (const payload of queue) {
+    applyStreamChunk(chatState, payload, conversationID);
+  }
+  renderMergedRowsForContext(context);
+  return true;
+}
+
+function scheduleTextDeltaFlush(context, chatState = {}, conversationID = '') {
+  if (!chatState) {
+    renderMergedRowsForContext(context);
+    return;
+  }
+  if (chatState.pendingTextDeltaFlush) return;
+  const run = () => {
+    chatState.pendingTextDeltaFlush = null;
+    flushQueuedTextDeltas(chatState, context, conversationID);
+  };
+  const raf = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+    ? window.requestAnimationFrame.bind(window)
+    : null;
+  if (raf) {
+    chatState.pendingTextDeltaFlush = raf(run);
+    return;
+  }
+  chatState.pendingTextDeltaFlush = window.setTimeout(run, 16);
+}
+
+function scheduleStreamRender(context, chatState = {}) {
+  if (!chatState) {
+    renderMergedRowsForContext(context);
+    return;
+  }
+  if (chatState.pendingStreamRender) return;
+  const run = () => {
+    chatState.pendingStreamRender = null;
+    renderMergedRowsForContext(context);
+  };
+  const raf = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+    ? window.requestAnimationFrame.bind(window)
+    : null;
+  if (raf) {
+    chatState.pendingStreamRender = raf(run);
+    return;
+  }
+  chatState.pendingStreamRender = window.setTimeout(run, 16);
+}
+
+function clearPendingStreamScheduling(chatState = {}) {
+  if (!chatState) return;
+  if (chatState.pendingTextDeltaFlush != null) {
+    if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+      try { window.cancelAnimationFrame(chatState.pendingTextDeltaFlush); } catch (_) {}
+    }
+    try { clearTimeout(chatState.pendingTextDeltaFlush); } catch (_) {}
+    chatState.pendingTextDeltaFlush = null;
+  }
+  if (chatState.pendingStreamRender != null) {
+    if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+      try { window.cancelAnimationFrame(chatState.pendingStreamRender); } catch (_) {}
+    }
+    try { clearTimeout(chatState.pendingStreamRender); } catch (_) {}
+    chatState.pendingStreamRender = null;
+  }
+  chatState.pendingTextDeltaQueue = [];
+}
+
+function isLatePostTerminalExecutionEvent(type = '', payload = {}) {
+  const eventType = String(type || '').trim().toLowerCase();
+  if (!eventType) return false;
+  if (eventType === 'text_delta'
+    || eventType === 'reasoning_delta'
+    || eventType === 'tool_call_delta'
+    || eventType === 'model_started'
+    || eventType === 'model_completed'
+    || eventType === 'tool_calls_planned'
+    || eventType === 'tool_call_started'
+    || eventType === 'tool_call_completed'
+    || eventType === 'assistant_preamble'
+    || eventType === 'elicitation_requested'
+    || eventType === 'linked_conversation_attached'
+    || eventType === 'turn_started') {
+    return true;
+  }
+  if (eventType !== 'control') return false;
+  const op = String(payload?.op || '').trim().toLowerCase();
+  return op === 'turn_started';
 }
 
 function draftConversationValues(current = {}, defaults = {}) {
@@ -836,6 +989,7 @@ export function ensureContextResources(context) {
   context.resources.chat.renderRows = Array.isArray(context.resources.chat.renderRows) ? context.resources.chat.renderRows : [];
   context.resources.chat.liveOwnedConversationID = String(context.resources.chat.liveOwnedConversationID || '').trim();
   context.resources.chat.liveOwnedTurnIds = Array.isArray(context.resources.chat.liveOwnedTurnIds) ? context.resources.chat.liveOwnedTurnIds : [];
+  context.resources.chat.pendingTextDeltaQueue = Array.isArray(context.resources.chat.pendingTextDeltaQueue) ? context.resources.chat.pendingTextDeltaQueue : [];
   return context.resources.chat;
 }
 
@@ -865,6 +1019,19 @@ function queuePostTurnConversationRefresh(context, conversationID = '', turnID =
   }, 90);
 }
 
+function filterLiveOwnedTranscriptRows(rows = [], currentConversationID = '', ownedConversationID = '', ownedTurnIds = []) {
+  const currentID = String(currentConversationID || '').trim();
+  const liveID = String(ownedConversationID || '').trim();
+  if (!currentID || !liveID || currentID !== liveID) {
+    return Array.isArray(rows) ? rows : [];
+  }
+  const owned = new Set((Array.isArray(ownedTurnIds) ? ownedTurnIds : []).map((item) => String(item || '').trim()).filter(Boolean));
+  if (owned.size === 0) {
+    return Array.isArray(rows) ? rows : [];
+  }
+  return (Array.isArray(rows) ? rows : []).filter((row) => !owned.has(String(row?.turnId || '').trim()));
+}
+
 export function getVisibleIterations(context) {
   ensureContextResources(context);
   return DEFAULT_VISIBLE_ITERATIONS;
@@ -884,7 +1051,12 @@ export function renderMergedRowsForContext(context) {
   const metaForm = metaDS?.peekFormData?.() || {};
   const hasLiveRows = Array.isArray(chatState.liveRows) && chatState.liveRows.length > 0;
   const mergedRows = mergeRenderedRows({
-    transcriptRows: chatState.transcriptRows,
+    transcriptRows: filterLiveOwnedTranscriptRows(
+      chatState.transcriptRows,
+      getCurrentConversationID(context),
+      chatState.liveOwnedConversationID,
+      chatState.liveOwnedTurnIds
+    ),
     liveRows: chatState.liveRows,
     runningTurnId: chatState.runningTurnId,
     hasRunning: chatState.lastHasRunning || hasLiveRows,
@@ -1322,7 +1494,31 @@ export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingEli
   return renderMergedRowsForContext(context);
 }
 
+function shouldDeferTranscriptToLiveStream(context, conversationID = '') {
+  const chatState = ensureContextResources(context);
+  const targetID = String(conversationID || getCurrentConversationID(context) || '').trim();
+  if (!targetID) return false;
+  if (!shouldUseLiveStream(context, targetID)) return false;
+  return !!(
+    String(chatState.runningTurnId || '').trim()
+    || String(chatState.activeStreamTurnId || '').trim()
+    || chatState.lastHasRunning
+  );
+}
+
 export async function dsTick(context, options = {}) {
+  const requestedConversationID = String(options?.conversationID || getCurrentConversationID(context) || '').trim();
+  if (shouldDeferTranscriptToLiveStream(context, requestedConversationID)) {
+    return {
+      transcriptRows: ensureContextResources(context).transcriptRows,
+      liveRows: ensureContextResources(context).liveRows,
+      queuedTurns: ensureContextResources(context).lastQueuedTurns || [],
+      hasRunning: true,
+      runningTurnId: ensureContextResources(context).runningTurnId || ensureContextResources(context).activeStreamTurnId || '',
+      conversationID: requestedConversationID,
+      deferredToLiveStream: true
+    };
+  }
   const result = await tickTranscript({
     context,
     options,
@@ -1345,6 +1541,7 @@ export async function dsTick(context, options = {}) {
 
 export function resetConversationSnapshotState(context) {
   const chatState = ensureContextResources(context);
+  clearPendingStreamScheduling(chatState);
   resetTranscriptState({
     context,
     ensureContextResources,
@@ -1357,7 +1554,10 @@ export function resetConversationSnapshotState(context) {
 }
 
 export function queueTranscriptRefresh(context, { delay = 120, resetSince = false } = {}) {
-  console.log('[transcript-refresh] queued', { delay, resetSince, stack: new Error().stack?.split('\n').slice(1, 4).map(s => s.trim()).join(' < ') });
+  const currentConversationID = String(getCurrentConversationID(context) || '').trim();
+  if (shouldDeferTranscriptToLiveStream(context, currentConversationID)) {
+    return null;
+  }
   return queueTranscriptRefreshStore({
     context,
     delay,
@@ -1397,7 +1597,7 @@ export function connectStream(context, conversationID) {
 
 export function handleStreamEvent(chatState, context, conversationID, payload) {
     const type = String(payload?.type || '').toLowerCase();
-    const eventConversationID = String(payload?.conversationId || payload?.streamId || conversationID || '').trim();
+    const eventConversationID = resolveStreamEventConversationID(payload, conversationID);
     if (eventConversationID && SIDEBAR_ACTIVITY_EVENT_TYPES.has(type)) {
       publishConversationActivity(eventConversationID, {
         type,
@@ -1410,9 +1610,19 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     const scopedConversationID = getScopedConversationSelection(contextWindowID);
     const formConversationID = getCurrentConversationID(context);
     const visibleConversationID = String(formConversationID || scopedConversationID || '').trim();
-    if (eventConversationID && visibleConversationID && eventConversationID !== visibleConversationID) {
+    if (!shouldProcessStreamEvent({ payload, subscribedConversationID: conversationID, visibleConversationID })) {
       logStreamDebug(chatState, 'stream-event-ignored', {
         type,
+        eventConversationId: eventConversationID,
+        visibleConversationId: visibleConversationID,
+        windowId: contextWindowID,
+      });
+      return;
+    }
+    if (shouldIgnoreExecutionStreamEvent(payload)) {
+      logStreamDebug(chatState, 'stream-event-ignored-mode', {
+        type,
+        mode: streamEventMode(payload),
         eventConversationId: eventConversationID,
         visibleConversationId: visibleConversationID,
         windowId: contextWindowID,
@@ -1436,21 +1646,49 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         terminalAt: chatState.terminalTurns[turnId],
         status: String(payload?.status || payload?.patch?.status || '').trim()
       });
+      if (isLatePostTerminalExecutionEvent(type, payload)) {
+        logStreamDebug(chatState, 'stream-event-ignored-terminal', {
+          type,
+          turnId,
+          terminalAt: chatState.terminalTurns[turnId],
+          eventConversationId: eventConversationID,
+          visibleConversationId: visibleConversationID
+        });
+        return;
+      }
     }
     if (isStreamDebugEnabled()) {
       console.log('[stream-event]', type, {
         conversationId: payload?.conversationId || payload?.streamId || conversationID,
         turnId: payload?.turnId,
+        mode: payload?.mode || payload?.patch?.mode,
+        agentIdUsed: payload?.agentIdUsed,
+        agentName: payload?.agentName,
+        userMessageId: payload?.userMessageId,
         assistantMessageId: payload?.assistantMessageId,
+        parentMessageId: payload?.parentMessageId,
+        modelCallId: payload?.modelCallId,
         status: payload?.status,
         finalResponse: payload?.finalResponse,
+        iteration: payload?.iteration,
+        pageIndex: payload?.pageIndex,
+        pageCount: payload?.pageCount,
         interim: payload?.patch?.interim ?? payload?.interim,
+        createdAt: payload?.createdAt,
+        startedAt: payload?.startedAt,
+        completedAt: payload?.completedAt,
         contentLen: String(payload?.content || payload?.patch?.content || '').length,
         toolCallsPlanned: payload?.toolCallsPlanned?.length,
         toolCallId: payload?.toolCallId,
+        toolMessageId: payload?.toolMessageId,
         toolName: payload?.toolName,
         linkedConversationId: payload?.linkedConversationId,
         elicitationId: payload?.elicitationId,
+        requestPayloadId: payload?.requestPayloadId,
+        responsePayloadId: payload?.responsePayloadId,
+        providerRequestPayloadId: payload?.providerRequestPayloadId,
+        providerResponsePayloadId: payload?.providerResponsePayloadId,
+        streamPayloadId: payload?.streamPayloadId,
         op: payload?.op,
         id: payload?.id
       });
@@ -1459,32 +1697,54 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       type,
       eventSize: payloadSize,
       payloadConversationId: eventConversationID,
+      payloadTurnId: String(payload?.turnId || payload?.patch?.turnId || '').trim(),
+      payloadMode: String(payload?.mode || payload?.patch?.mode || '').trim(),
+      payloadAgentIdUsed: String(payload?.agentIdUsed || '').trim(),
+      payloadAgentName: String(payload?.agentName || '').trim(),
       payloadCreatedAt: String(payload?.createdAt || '').trim(),
+      payloadStartedAt: String(payload?.startedAt || '').trim(),
+      payloadCompletedAt: String(payload?.completedAt || '').trim(),
+      payloadUserMessageId: String(payload?.userMessageId || '').trim(),
       payloadAssistantMessageId: String(payload?.assistantMessageId || '').trim(),
+      payloadParentMessageId: String(payload?.parentMessageId || '').trim(),
+      payloadModelCallId: String(payload?.modelCallId || '').trim(),
+      payloadToolCallId: String(payload?.toolCallId || '').trim(),
+      payloadToolMessageId: String(payload?.toolMessageId || '').trim(),
       payloadRequestPayloadId: String(payload?.requestPayloadId || '').trim(),
       payloadResponsePayloadId: String(payload?.responsePayloadId || '').trim(),
       payloadProviderRequestPayloadId: String(payload?.providerRequestPayloadId || '').trim(),
       payloadProviderResponsePayloadId: String(payload?.providerResponsePayloadId || '').trim(),
-      payloadStreamPayloadId: String(payload?.streamPayloadId || '').trim()
+      payloadStreamPayloadId: String(payload?.streamPayloadId || '').trim(),
+      payloadLinkedConversationId: String(payload?.linkedConversationId || '').trim(),
+      payloadIteration: Number(payload?.iteration || 0) || 0,
+      payloadPageIndex: Number(payload?.pageIndex || 0) || 0,
+      payloadPageCount: Number(payload?.pageCount || 0) || 0
     });
+
+    if (type !== 'text_delta') {
+      flushQueuedTextDeltas(chatState, context, conversationID);
+    }
 
     if (type === 'text_delta') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       setStage({ phase: 'streaming', text: 'Streaming response…' });
-      const nextRows = applyStreamChunk(chatState, payload, conversationID);
-      const streamID = String(payload?.streamId || conversationID);
-      const streamMessageID = String(payload?.id || '').trim();
-      const activeStreamRow = [...nextRows].reverse().find((row) => row?.isStreaming && String(row?.role || '').toLowerCase() === 'assistant');
+      enqueueTextDelta(chatState, payload, conversationID);
+      const queue = Array.isArray(chatState.pendingTextDeltaQueue) ? chatState.pendingTextDeltaQueue : [];
+      const mergedPayload = queue[queue.length - 1] || payload;
+      const streamID = String(mergedPayload?.streamId || conversationID);
+      const streamMessageID = String(mergedPayload?.id || '').trim();
+      const activeStreamRow = [...(Array.isArray(chatState.liveRows) ? chatState.liveRows : [])].reverse().find((row) => row?.isStreaming && String(row?.role || '').toLowerCase() === 'assistant');
       logStreamDebug(chatState, 'stream-chunk-merged', {
         streamId: streamID,
         streamMessageId: streamMessageID,
         chunkChars: String(payload?.content || '').length,
+        queuedChars: String(mergedPayload?.content || '').length,
         totalChars: String(activeStreamRow?._streamContent || '').length,
-        rowCount: nextRows.length,
+        rowCount: Array.isArray(chatState.liveRows) ? chatState.liveRows.length : 0,
         turnId: String(activeStreamRow?.turnId || '').trim()
       });
-      renderMergedRowsForContext(context);
+      scheduleTextDeltaFlush(context, chatState, conversationID);
       return;
     }
 
@@ -1502,7 +1762,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       return;
     }
 
-    if (type === 'model_started') {
+      if (type === 'model_started') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
@@ -1519,6 +1779,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         chatState.activeStreamTurnId = String(payload.turnId).trim();
         chatState.runningTurnId = String(payload.turnId).trim();
         markLiveOwnedTurn(chatState, conversationID, String(payload.turnId).trim());
+        applyTurnStartedEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload), conversationID);
       }
       if (!chatState.activeStreamStartedAt) {
         chatState.activeStreamStartedAt = Date.now();
@@ -1604,6 +1865,13 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
           chatState.activeStreamTurnId = turnId;
           chatState.runningTurnId = turnId;
           markLiveOwnedTurn(chatState, conversationID, turnId);
+          applyTurnStartedEvent(chatState, {
+            ...(payload?.patch && typeof payload.patch === 'object' ? payload.patch : {}),
+            turnId,
+            conversationId: conversationID,
+            createdAt: payload?.createdAt || payload?.patch?.createdAt || new Date().toISOString(),
+            agentName: String(chatState?.activeTurnAgentName || '').trim()
+          }, conversationID);
         }
         if (!chatState.activeStreamStartedAt) {
           chatState.activeStreamStartedAt = Date.now();
@@ -1755,6 +2023,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         chatState.activeStreamTurnId = turnId;
         chatState.runningTurnId = turnId;
         markLiveOwnedTurn(chatState, conversationID, turnId);
+        applyTurnStartedEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload), conversationID);
       }
       if (!chatState.activeStreamStartedAt) {
         chatState.activeStreamStartedAt = Date.now();
@@ -1765,6 +2034,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         agentName: String(chatState?.activeTurnAgentName || '').trim()
       });
       setStage({ phase: 'executing', text: 'Assistant executing…' });
+      renderMergedRowsForContext(context);
       return;
     }
 
@@ -2179,6 +2449,7 @@ export function startPolling(context) {
     const streamIsHot = !!chatState.stream
       && (Date.now() - Number(chatState.lastStreamEventAt || 0) < 6000);
     if (streamIsHot) return;
+    if (shouldDeferTranscriptToLiveStream(context, getCurrentConversationID(context))) return;
     void dsTick(context);
   }, 4000);
 }

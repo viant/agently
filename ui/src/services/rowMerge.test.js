@@ -164,8 +164,40 @@ describe('mergeRenderedRows', () => {
     });
 
     // Stream row should be dropped when transcript already has a final assistant for that message/turn.
-    expect(merged.map((row) => row.id)).toEqual(['user-1', 'assistant-1']);
-    expect(merged.find((row) => row.id === 'assistant-1')).toMatchObject({ _bubbleSource: 'stream' });
+    expect(merged.map((row) => row.id)).toEqual(['assistant-1']);
+  });
+
+  it('keeps the active turn entirely on the live side when the turn is owned by SSE', () => {
+    const transcriptRows = [
+      { id: 'user-db', role: 'user', turnId: 'turn-1', createdAt: '2026-03-16T01:00:00Z', content: 'db hi' },
+      { id: 'assistant-db', role: 'assistant', turnId: 'turn-1', createdAt: '2026-03-16T01:00:02Z', content: 'db answer', interim: 0 }
+    ];
+    const liveRows = [
+      { id: 'user:turn-1', role: 'user', turnId: 'turn-1', createdAt: '2026-03-16T01:00:00Z', content: 'live hi' },
+      {
+        id: 'assistant-live',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-03-16T01:00:01Z',
+        interim: 1,
+        status: 'running',
+        turnStatus: 'running',
+        executionGroups: [{ assistantMessageId: '', status: 'running', modelSteps: [{ status: 'running', startedAt: '2026-03-16T01:00:01Z' }] }]
+      }
+    ];
+
+    const merged = mergeRenderedRows({
+      transcriptRows,
+      liveRows,
+      runningTurnId: 'turn-1',
+      hasRunning: true,
+      findLatestRunningTurnId,
+      currentConversationID: 'conv-1',
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1']
+    });
+
+    expect(merged.map((row) => row.id)).toEqual(['user:turn-1', 'assistant-live']);
   });
 
   it('preserves richer transcript execution-group data over sparse live placeholders', () => {
@@ -290,12 +322,9 @@ describe('mergeRenderedRows', () => {
 
     expect(merged).toHaveLength(1);
     expect(merged[0].turnId).toBe('turn-1');
-    expect(merged[0].executionGroups).toHaveLength(2);
+    expect(merged[0].executionGroups).toHaveLength(1);
     expect(merged[0].executionGroups[0]).toMatchObject({
       preamble: 'Thinking...'
-    });
-    expect(merged[0].executionGroups[1]).toMatchObject({
-      content: 'Final answer'
     });
   });
 });

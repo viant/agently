@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   displayLinkedConversationIcon,
+  displayLinkedConversationSubtitle,
   displayLinkedConversationTitle,
   displayItemRowIcon,
   displayItemRowTitle,
@@ -10,13 +11,17 @@ import {
   olderToolPageOffset,
   paginateToolSteps,
   buildSyntheticModelGroup,
+  statusTone,
   isIterationActive,
+  isActiveStatus,
+  resolveIterationDisplayStatus,
   resolveIterationAgentLabel,
   resolveIterationStatusDetail,
   resolveVisibleBubbleContent,
   resolveIterationBubbleContent,
   shouldShowPreambleBubble
 } from './IterationBlock';
+import { summarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
 
 describe('mapCanonicalExecutionGroups', () => {
   it('keeps tool rows and linked conversation cards on separate presentation helpers', () => {
@@ -29,7 +34,10 @@ describe('mapCanonicalExecutionGroups', () => {
       linkedConversationId: 'child-123'
     })).toBe('🛠');
     expect(displayLinkedConversationTitle()).toBe('Linked conversation');
+    expect(displayLinkedConversationTitle({ title: 'Forecasting Child' })).toBe('Forecasting Child');
     expect(displayLinkedConversationTitle({ agentId: 'steward-performance' })).toBe('Steward Performance');
+    expect(displayLinkedConversationSubtitle({ response: 'Working through the child run.' })).toBe('Working through the child run.');
+    expect(displayLinkedConversationSubtitle({ linkedConversationId: 'child-123' })).toBe('child-123');
     expect(displayLinkedConversationIcon()).toBe('🔗');
     expect(displayItemRowTitle({ toolName: 'resources/list' })).toBe('resources/list');
     expect(displayItemRowIcon({ toolName: 'resources/list' })).toBe('🛠');
@@ -43,6 +51,23 @@ describe('mapCanonicalExecutionGroups', () => {
     }])).toBe(false);
 
     expect(isIterationActive({ status: 'running' }, [])).toBe(true);
+  });
+
+  it('treats streaming execution as active and running-toned', () => {
+    expect(isActiveStatus('streaming')).toBe(true);
+    expect(isIterationActive({ status: 'streaming' }, [])).toBe(true);
+    expect(statusTone('streaming')).toBe('running');
+  });
+
+  it('keeps the iteration display status running while a linked child is still active', () => {
+    const status = resolveIterationDisplayStatus(
+      { status: 'completed' },
+      [{ status: 'completed', modelStep: { status: 'completed' }, toolSteps: [] }],
+      ['running']
+    );
+    expect(status).toBe('running');
+    expect(isIterationActive({ status: 'completed' }, [{ status: 'completed', modelStep: { status: 'completed' }, toolSteps: [] }], ['running'])).toBe(true);
+    expect(statusTone(status)).toBe('running');
   });
 
   it('paginates tool calls at three per preamble group and advances offsets correctly', () => {
@@ -72,6 +97,55 @@ describe('mapCanonicalExecutionGroups', () => {
 
     const newerOffset = newerToolPageOffset(toolSteps.length, olderOffset, 3);
     expect(newerOffset).toBe(null);
+  });
+
+  it('summarizes linked child transcript into compact preview groups', () => {
+    const summary = summarizeLinkedConversationTranscript({
+      turns: [
+        {
+          status: 'completed',
+          agentIdUsed: 'steward-forecasting',
+          execution: {
+            pages: [
+              {
+                assistantMessageId: 'child-1',
+                status: 'completed',
+                preamble: 'Calling roots.',
+                toolSteps: [
+                  { toolName: 'resources/roots', status: 'completed' }
+                ]
+              },
+              {
+                assistantMessageId: 'child-2',
+                status: 'completed',
+                preamble: 'Compiling final answer.',
+                content: 'Forecast returned zero reach.'
+              }
+            ]
+          }
+        }
+      ]
+    });
+
+    expect(summary.agentId).toBe('steward-forecasting');
+    expect(summary.status).toBe('completed');
+    expect(summary.response).toBe('Forecast returned zero reach.');
+    expect(summary.previewGroups).toHaveLength(2);
+    expect(summary.previewGroups[0]).toMatchObject({
+      title: 'Calling roots.',
+      status: 'completed',
+      stepKind: 'tool',
+      stepLabel: 'resources/roots'
+    });
+    expect(summary.previewGroups[0].detailStep).toMatchObject({
+      toolName: 'resources/roots',
+      status: 'completed'
+    });
+    expect(summary.previewGroups[1]).toMatchObject({
+      title: 'Compiling final answer.',
+      status: 'completed',
+      stepKind: 'model'
+    });
   });
 
   it('maps backend executionGroups directly to model and tool rows', () => {

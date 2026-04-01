@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Dialog } from '@blueprintjs/core';
+import { summarizeLinkedConversationTranscript as sdkSummarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
 import { DetailContext } from '../../context/DetailContext';
 import { openLinkedConversationWindow } from '../../services/conversationWindow';
 import { client } from '../../services/agentlyClient';
@@ -21,14 +22,32 @@ function statusLabel(value) {
   return text.replace(/_/g, ' ');
 }
 
-function isActiveStatus(value) {
+export function isActiveStatus(value) {
   const text = String(value || '').trim().toLowerCase();
-  return text === '' || text === 'running' || text === 'thinking' || text === 'processing' || text === 'in_progress' || text === 'queued';
+  return text === ''
+    || text === 'running'
+    || text === 'thinking'
+    || text === 'processing'
+    || text === 'in_progress'
+    || text === 'queued'
+    || text === 'streaming'
+    || text === 'tool_calls'
+    || text === 'pending'
+    || text === 'open';
 }
 
-function statusTone(value) {
+export function statusTone(value) {
   const text = String(value || '').trim().toLowerCase();
-  if (!text || text === 'running' || text === 'thinking' || text === 'processing' || text === 'in_progress') {
+  if (!text
+    || text === 'running'
+    || text === 'thinking'
+    || text === 'processing'
+    || text === 'in_progress'
+    || text === 'streaming'
+    || text === 'tool_calls'
+    || text === 'pending'
+    || text === 'queued'
+    || text === 'open') {
     return 'running';
   }
   if (text === 'completed' || text === 'succeeded' || text === 'success') {
@@ -99,6 +118,17 @@ export function displayLinkedConversationTitle(step = {}, context = null) {
   const keyedName = String(byKey?.label || byKey?.name || byKey?.title || '').trim();
   if (keyedName) return keyedName;
   return 'Linked conversation';
+}
+
+export function displayLinkedConversationSubtitle(step = {}) {
+  const response = String(step?.response || step?.Response || '').trim();
+  if (response) return response;
+  const explicitId = String(step?.linkedConversationId || step?.conversationId || step?.ConversationId || '').trim();
+  return explicitId;
+}
+
+function previewGroupContent(entry = {}) {
+  return String(entry?.content || '').trim();
 }
 
 export function displayLinkedConversationIcon() {
@@ -795,16 +825,53 @@ function isLinkedConversationActive(status = '') {
   return text === '' || text === 'running' || text === 'thinking' || text === 'processing' || text === 'queued' || text === 'pending' || text === 'in_progress' || text === 'open';
 }
 
-export function isIterationActive(data = {}, groups = [], linkedStatuses = []) {
-  if (isActiveStatus(data?.status)) return true;
-  if ((Array.isArray(linkedStatuses) ? linkedStatuses : []).some((status) => isLinkedConversationActive(status))) {
-    return true;
+function isErrorStatus(value = '') {
+  const text = String(value || '').trim().toLowerCase();
+  return text === 'failed' || text === 'error' || text === 'terminated';
+}
+
+export function resolveIterationDisplayStatus(data = {}, groups = [], linkedStatuses = []) {
+  const groupList = Array.isArray(groups) ? groups : [];
+  const linkedList = Array.isArray(linkedStatuses) ? linkedStatuses : [];
+  const dataStatus = String(data?.status || '').trim();
+  if (linkedList.some((status) => isLinkedConversationActive(status))) {
+    return 'running';
   }
-  return (Array.isArray(groups) ? groups : []).some((group) => (
+  if (groupList.some((group) => (
     isActiveStatus(group?.status)
     || isActiveStatus(group?.modelStep?.status)
     || (Array.isArray(group?.toolSteps) && group.toolSteps.some((step) => isActiveStatus(step?.status)))
+  ))) {
+    return 'running';
+  }
+  if (isErrorStatus(dataStatus)) {
+    return dataStatus;
+  }
+  if (groupList.some((group) => (
+    isErrorStatus(group?.status)
+    || isErrorStatus(group?.modelStep?.status)
+    || (Array.isArray(group?.toolSteps) && group.toolSteps.some((step) => isErrorStatus(step?.status)))
+  )) || linkedList.some((status) => isErrorStatus(status))) {
+    return 'failed';
+  }
+  if (String(dataStatus).trim()) {
+    return dataStatus;
+  }
+  const completedGroup = groupList.some((group) => (
+    !isActiveStatus(group?.status)
+    && !isErrorStatus(group?.status)
+    && (String(group?.status || '').trim() !== ''
+      || String(group?.modelStep?.status || '').trim() !== ''
+      || (Array.isArray(group?.toolSteps) && group.toolSteps.some((step) => String(step?.status || '').trim() !== '')))
   ));
+  if (completedGroup || linkedList.some((status) => String(status || '').trim() !== '')) {
+    return 'completed';
+  }
+  return '';
+}
+
+export function isIterationActive(data = {}, groups = [], linkedStatuses = []) {
+  return isActiveStatus(resolveIterationDisplayStatus(data, groups, linkedStatuses));
 }
 
 export default function IterationBlock({ message, context }) {
@@ -823,6 +890,7 @@ export default function IterationBlock({ message, context }) {
   const [now, setNow] = useState(Date.now());
   const [isElicitationOpen, setIsElicitationOpen] = useState(false);
   const [linkedConversationStates, setLinkedConversationStates] = useState([]);
+  const [expandedLinkedIds, setExpandedLinkedIds] = useState({});
   const groupsRef = useRef(null);
 
   const stepKey = (step) => {
@@ -910,6 +978,10 @@ export default function IterationBlock({ message, context }) {
     () => isIterationActive(data, allGroupEntries, linkedConversationStates.map((entry) => entry?.status || '')),
     [allGroupEntries, data, linkedConversationStates]
   );
+  const iterationDisplayStatus = useMemo(
+    () => resolveIterationDisplayStatus(data, allGroupEntries, linkedConversationStates.map((entry) => entry?.status || '')),
+    [allGroupEntries, data, linkedConversationStates]
+  );
   const [collapsed, setCollapsed] = useState(() => !(isLatestIteration && isActiveIteration));
   const prevLatestRef = useRef(isLatestIteration);
   const prevActiveRef = useRef(isActiveIteration);
@@ -960,7 +1032,11 @@ export default function IterationBlock({ message, context }) {
         createdAt: state?.createdAt || seen.get(id)?.createdAt || '',
         updatedAt: state?.updatedAt || seen.get(id)?.updatedAt || '',
         agentId: state?.agentId || seen.get(id)?.agentId || '',
-        title: state?.title || seen.get(id)?.title || ''
+        title: state?.title || seen.get(id)?.title || '',
+        response: state?.response || seen.get(id)?.response || '',
+        previewGroups: Array.isArray(state?.previewGroups) && state.previewGroups.length > 0
+          ? state.previewGroups
+          : (Array.isArray(seen.get(id)?.previewGroups) ? seen.get(id).previewGroups : [])
       });
     }
     return [...seen.values()];
@@ -975,8 +1051,8 @@ export default function IterationBlock({ message, context }) {
     [context, data]
   );
   const iterationStatusDetail = useMemo(
-    () => resolveIterationStatusDetail(data),
-    [data]
+    () => resolveIterationStatusDetail({ ...data, status: iterationDisplayStatus || data?.status || '' }),
+    [data, iterationDisplayStatus]
   );
 
   const getGroupToolPage = (group) => {
@@ -1109,6 +1185,72 @@ export default function IterationBlock({ message, context }) {
     })()
   );
 
+  const renderLinkedPreviewGroup = (preview, previewIndex) => {
+    const modelStep = preview?.modelStep || null;
+    const toolSteps = Array.isArray(preview?.toolSteps) ? preview.toolSteps : [];
+    return (
+      <div className="app-iteration-group app-iteration-linked-preview-group" key={`${String(preview?.id || previewIndex)}:group`}>
+        {modelStep ? (
+          <div className="app-iteration-model-row">
+            <div className="app-iteration-tool-row-main">
+              <span className="app-iteration-model-icon">{displayStepIcon({ ...modelStep, kind: 'model' })}</span>
+              <span className="app-iteration-model-title">{stepTitle({ ...modelStep, kind: 'model' })}</span>
+              {preview?.title && preview.title !== stepTitle({ ...modelStep, kind: 'model' }) ? (
+                <span className="app-iteration-model-summary">{preview.title}</span>
+              ) : null}
+            </div>
+            <div className="app-iteration-tool-row-meta">
+              <span className={`app-iteration-status tone-${statusTone(modelStep?.status)}`}>{statusLabel(modelStep?.status)}</span>
+              <Button
+                minimal
+                small
+                className="app-iteration-link"
+                onClick={() => showDetail?.(modelStep)}
+              >
+                Details
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {toolSteps.length > 0 ? (
+          <div className="app-iteration-tool-list">
+            {toolSteps.map((toolStep, toolIndex) => (
+              <div className="app-iteration-tool-row" key={`${String(preview?.id || previewIndex)}:tool:${toolIndex}`}>
+                <div className="app-iteration-tool-row-main">
+                  <span className="app-iteration-tool-icon">{displayItemRowIcon(toolStep)}</span>
+                  <span className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
+                </div>
+                <div className="app-iteration-tool-row-meta">
+                  <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
+                  <Button
+                    minimal
+                    small
+                    className="app-iteration-link"
+                    onClick={() => showDetail?.(toolStep)}
+                  >
+                    Details
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {!modelStep && toolSteps.length === 0 ? (
+          <div className="app-iteration-linked-conv-expanded-head">
+            <span className="app-iteration-linked-conv-expanded-title-wrap">
+              <span className="app-iteration-linked-conv-expanded-icon">{displayStepIcon({ kind: preview?.stepKind })}</span>
+              <span className="app-iteration-linked-conv-preview-title">{String(preview?.title || '').trim()}</span>
+            </span>
+            <span className={`app-iteration-status tone-${statusTone(preview?.status)}`}>{statusLabel(preview?.status)}</span>
+          </div>
+        ) : null}
+        {previewGroupContent(preview) ? (
+          <div className="app-iteration-linked-conv-expanded-body">{previewGroupContent(preview)}</div>
+        ) : null}
+      </div>
+    );
+  };
+
   const goToOlderPreambles = () => {
     if (displayGroupEntries.length > 0 && canonicalTotal > effectiveVisibleCount) {
       void loadHistoricalPage(Math.max(0, (remotePage ? remotePage.offset : Math.max(0, canonicalTotal - effectiveVisibleCount)) - effectiveVisibleCount));
@@ -1185,7 +1327,41 @@ export default function IterationBlock({ message, context }) {
           parentTurnId: parentTurnID
         });
         if (cancelled) return;
-        const rows = Array.isArray(page?.data) ? page.data : [];
+        const baseRows = Array.isArray(page?.data) ? page.data : [];
+        const rows = await Promise.all(baseRows.map(async (entry) => {
+          const conversationId = String(entry?.conversationId || '').trim();
+          if (!conversationId) return entry;
+          const next = { ...entry };
+          try {
+            const [conversation, transcript] = await Promise.all([
+              String(next?.title || '').trim() ? Promise.resolve(null) : client.getConversation(conversationId).catch(() => null),
+              client.getTranscript({
+                conversationId,
+                includeModelCalls: true,
+                includeToolCalls: true
+              }, {
+                executionGroupLimit: 1,
+                executionGroupOffset: 0
+              }).catch(() => null)
+            ]);
+            if (conversation && !String(next?.title || '').trim()) {
+              next.title = String(conversation?.title || conversation?.Title || '').trim();
+            }
+            if (conversation && !String(next?.agentId || '').trim()) {
+              next.agentId = String(conversation?.agentId || conversation?.AgentId || '').trim();
+            }
+            if (transcript) {
+              const preview = sdkSummarizeLinkedConversationTranscript(transcript);
+              next.status = String(preview.status || next.status || '').trim();
+              next.response = String(preview.response || next.response || '').trim();
+              next.updatedAt = String(preview.updatedAt || next.updatedAt || '').trim();
+              next.agentId = String(preview.agentId || next.agentId || '').trim();
+              next.previewGroups = Array.isArray(preview.previewGroups) ? preview.previewGroups : [];
+            }
+          } catch (_) {}
+          return next;
+        }));
+        if (cancelled) return;
         setLinkedConversationStates(rows);
         logIterationDebug('linked-status', {
           turnId: parentTurnID,
@@ -1215,13 +1391,13 @@ export default function IterationBlock({ message, context }) {
   }, [data?.turnId, isActiveIteration, isLatestIteration, linkedConversationIds, message?.id]);
 
   useEffect(() => {
-    const turnTerminal = isTerminalTurnStatus(data?.status);
+    const turnTerminal = isTerminalTurnStatus(iterationDisplayStatus);
     const linkedActive = hasActiveLinkedConversation;
     if (isLatestIteration && isActiveIteration) {
       logIterationDebug('expand-latest-active', {
         messageId: message?.id || '',
         turnId: data?.turnId || '',
-        turnStatus: data?.status || '',
+        turnStatus: iterationDisplayStatus || '',
         isLatestIteration,
         isActiveIteration,
         linkedActive,
@@ -1232,7 +1408,7 @@ export default function IterationBlock({ message, context }) {
       logIterationDebug('terminal-no-autocollapse', {
         messageId: message?.id || '',
         turnId: data?.turnId || '',
-        turnStatus: data?.status || '',
+        turnStatus: iterationDisplayStatus || '',
         isLatestIteration,
         isActiveIteration,
         linkedActive,
@@ -1241,20 +1417,39 @@ export default function IterationBlock({ message, context }) {
     }
     prevLatestRef.current = isLatestIteration;
     prevActiveRef.current = isActiveIteration;
-  }, [data?.status, isActiveIteration, isLatestIteration, linkedConversationStates, hasActiveLinkedConversation, message?.id, data?.turnId]);
+  }, [iterationDisplayStatus, isActiveIteration, isLatestIteration, linkedConversationStates, hasActiveLinkedConversation, message?.id, data?.turnId]);
 
   useEffect(() => {
     if (!hasActiveLinkedConversation) return;
     logIterationDebug('expand-linked-active', {
       messageId: message?.id || '',
       turnId: data?.turnId || '',
-      turnStatus: data?.status || '',
+      turnStatus: iterationDisplayStatus || '',
       isLatestIteration,
       isActiveIteration,
       linkedConversationStates
     });
     setCollapsed(false);
-  }, [hasActiveLinkedConversation, message?.id, data?.turnId, data?.status, isLatestIteration, isActiveIteration, linkedConversationStates]);
+  }, [hasActiveLinkedConversation, message?.id, data?.turnId, iterationDisplayStatus, isLatestIteration, isActiveIteration, linkedConversationStates]);
+
+  useEffect(() => {
+    const activeIds = linkedConversations
+      .filter((entry) => isLinkedConversationActive(entry?.status))
+      .map((entry) => linkedConversationId(entry))
+      .filter(Boolean);
+    if (activeIds.length === 0) return;
+    setExpandedLinkedIds((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const id of activeIds) {
+        if (!next[id]) {
+          next[id] = true;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [linkedConversations]);
 
   useEffect(() => {
     if (isLatestIteration && isActiveIteration) {
@@ -1273,6 +1468,10 @@ export default function IterationBlock({ message, context }) {
   }, [message?.id, data?.turnId, data?.executionGroupsTotal]);
 
   useEffect(() => {
+    setExpandedLinkedIds({});
+  }, [message?.id, data?.turnId]);
+
+  useEffect(() => {
     if (hasVisibleElicitation && (elicitationStatus === '' || elicitationStatus === 'pending' || elicitationStatus === 'open')) {
       setIsElicitationOpen(true);
     }
@@ -1288,7 +1487,7 @@ export default function IterationBlock({ message, context }) {
 
   return (
     <>
-      <section className={`app-iteration-card tone-${statusTone(data?.status)}`}>
+      <section className={`app-iteration-card tone-${statusTone(iterationDisplayStatus)}`}>
         <button type="button" className="app-iteration-head" onClick={() => setCollapsed((value) => !value)}>
           <span className="app-iteration-head-main">
             <span className="app-iteration-title">
@@ -1354,6 +1553,7 @@ export default function IterationBlock({ message, context }) {
                 <div className="app-iteration-linked-list">
                   {linkedConversations.map((step, idx) => {
                     const id = linkedConversationId(step);
+                    const previewExpanded = !!expandedLinkedIds[id];
                     return (
                       <div
                         key={`${id}:${idx}`}
@@ -1373,6 +1573,36 @@ export default function IterationBlock({ message, context }) {
                               {linkedConversationLatencyLabel(step, now, turnStartedAt) ? <span className="app-iteration-linked-conv-time">{linkedConversationLatencyLabel(step, now, turnStartedAt)}</span> : null}
                             </div>
                           </div>
+                          {displayLinkedConversationSubtitle(step) ? (
+                            <div className="app-iteration-linked-conv-subtitle">{displayLinkedConversationSubtitle(step)}</div>
+                          ) : null}
+                          {Array.isArray(step?.previewGroups) && step.previewGroups.length > 0 ? (
+                            <>
+                              <div className="app-iteration-linked-conv-preview">
+                                {step.previewGroups.map((preview, previewIndex) => (
+                                  <div key={`${String(preview?.id || previewIndex)}:${previewIndex}`} className="app-iteration-linked-conv-preview-row">
+                                    <span className="app-iteration-linked-conv-preview-title">{String(preview?.title || '').trim()}</span>
+                                    <span className={`app-iteration-status tone-${statusTone(preview?.status)}`}>{statusLabel(preview?.status)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <button
+                                type="button"
+                                className="app-iteration-linked-conv-toggle"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setExpandedLinkedIds((current) => ({ ...current, [id]: !current[id] }));
+                                }}
+                              >
+                                {previewExpanded ? 'Hide details' : 'Show details'}
+                              </button>
+                              {previewExpanded ? (
+                                <div className="app-iteration-linked-conv-expanded">
+                                  {step.previewGroups.map((preview, previewIndex) => renderLinkedPreviewGroup(preview, previewIndex))}
+                                </div>
+                              ) : null}
+                            </>
+                          ) : null}
                         </div>
                         <span className="app-iteration-linked-conv-arrow">→</span>
                       </div>

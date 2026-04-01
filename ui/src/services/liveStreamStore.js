@@ -1,5 +1,30 @@
 import { mergeRowSnapshots } from './rowMerge';
 
+function normalizedStatusValue(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isTerminalStatusValue(value = '') {
+  const status = normalizedStatusValue(value);
+  return status === 'completed'
+    || status === 'succeeded'
+    || status === 'success'
+    || status === 'done'
+    || status === 'failed'
+    || status === 'error'
+    || status === 'canceled'
+    || status === 'cancelled'
+    || status === 'terminated';
+}
+
+function normalizeExecutionRowStatus(value = '') {
+  const status = normalizedStatusValue(value);
+  if (!status) return 'running';
+  if (status === 'waiting_for_user' || status === 'blocked') return status;
+  if (isTerminalStatusValue(status)) return 'running';
+  return 'running';
+}
+
 function normalizedMessageIds(payload = {}) {
   const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
   return [
@@ -124,6 +149,27 @@ function mergeCanonicalExecutionGroups(existing = [], incoming = []) {
       }
     }
   }
+  if (out.length >= 2) {
+    const first = out[0] || {};
+    const second = out[1] || {};
+    const firstAssistantId = String(first?.assistantMessageId || '').trim();
+    const secondAssistantId = String(second?.assistantMessageId || '').trim();
+    const firstIsPlaceholder = !firstAssistantId
+      && Array.isArray(first?.modelSteps)
+      && first.modelSteps.length > 0
+      && String(first?.status || '').trim() !== '';
+    if (firstIsPlaceholder && secondAssistantId) {
+      const merged = {
+        ...first,
+        ...second,
+        assistantMessageId: secondAssistantId,
+        modelSteps: mergeCanonicalToolCalls(first?.modelSteps, second?.modelSteps),
+        toolSteps: mergeCanonicalToolCalls(first?.toolSteps, second?.toolSteps),
+        toolCallsPlanned: mergeCanonicalToolCalls(first?.toolCallsPlanned, second?.toolCallsPlanned)
+      };
+      return [merged, ...out.slice(2)];
+    }
+  }
   return out;
 }
 
@@ -197,8 +243,8 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     mode: String(payload?.mode || '').trim().toLowerCase(),
     type: 'text',
     createdAt,
-    status: String(payload?.status || '').trim(),
-    turnStatus: String(payload?.status || '').trim(),
+    status: normalizeExecutionRowStatus(payload?.status),
+    turnStatus: normalizeExecutionRowStatus(payload?.status),
     interim: finalResponse ? 0 : 1,
     content: finalResponse ? normalizedPayloadContent : normalizedVisibleContent,
     preamble: String(payload?.preamble || '').trim(),
@@ -207,6 +253,91 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     executionGroupsOffset: Math.max(0, (Number(payload?.pageCount || 1) || 1) - 1),
     executionGroupsLimit: 1
   };
+}
+
+function turnEventISO(payload = {}, fallback = Date.now()) {
+  const parsed = Date.parse(String(payload?.createdAt || '').trim());
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  return new Date(fallback).toISOString();
+}
+
+function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID = '') {
+  const conversationID = String(payload?.conversationId || fallbackConversationID || '').trim();
+  const turnId = String(payload?.turnId || '').trim();
+  if (!turnId) return Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
+
+  const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
+  const turnStartedAt = turnEventISO(payload, Number(chatState?.activeStreamStartedAt || Date.now()));
+  const prompt = String(chatState?.activeStreamPrompt || '').trim();
+  const existingUserIndex = rows.findIndex((row) => String(row?.id || '').trim() === `user:${turnId}`);
+  if (existingUserIndex === -1 && prompt) {
+    rows.push({
+      id: `user:${turnId}`,
+      role: 'user',
+      type: 'text',
+      turnId,
+      conversationId: conversationID,
+      createdAt: new Date(Math.max(0, Date.parse(turnStartedAt) - 1)).toISOString(),
+      interim: 0,
+      status: 'completed',
+      turnStatus: 'running',
+      content: prompt,
+      rawContent: prompt
+    });
+  }
+
+  const assistantIndex = findAssistantRowIndex(rows, turnId, '');
+  if (assistantIndex === -1) {
+    rows.push({
+      id: `assistant:${turnId}:live`,
+      role: 'assistant',
+      mode: String(payload?.mode || '').trim().toLowerCase(),
+      turnId,
+      conversationId: conversationID,
+      agentIdUsed: String(payload?.agentIdUsed || '').trim(),
+      agentName: String(payload?.agentName || '').trim(),
+      createdAt: new Date(Date.parse(turnStartedAt) + 1).toISOString(),
+      startedAt: turnStartedAt,
+      interim: 1,
+      status: String(payload?.status || 'running').trim(),
+      turnStatus: String(payload?.status || 'running').trim(),
+      content: '',
+      executionGroups: [{
+        assistantMessageId: '',
+        parentMessageId: '',
+        iteration: 1,
+        preamble: '',
+        content: '',
+        finalResponse: false,
+        status: String(payload?.status || 'running').trim(),
+        startedAt: turnStartedAt,
+        modelSteps: [{
+          modelCallId: '',
+          provider: '',
+          model: '',
+          status: String(payload?.status || 'running').trim(),
+          startedAt: turnStartedAt
+        }],
+        toolSteps: [],
+        toolCallsPlanned: []
+      }],
+      executionGroupsTotal: 1,
+      executionGroupsOffset: 0,
+      executionGroupsLimit: 1
+    });
+  } else {
+    const row = { ...rows[assistantIndex] };
+    row.agentIdUsed = String(payload?.agentIdUsed || row?.agentIdUsed || '').trim();
+    row.agentName = String(payload?.agentName || row?.agentName || '').trim();
+    row.turnStatus = String(payload?.status || row?.turnStatus || 'running').trim();
+    row.status = String(payload?.status || row?.status || 'running').trim();
+    row.startedAt = row.startedAt || turnStartedAt;
+    rows[assistantIndex] = row;
+  }
+
+  rows.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+  chatState.liveRows = rows;
+  return rows;
 }
 
 function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConversationID = '') {
@@ -228,8 +359,8 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
       ...prev,
       agentIdUsed: String(nextRow.agentIdUsed || prev?.agentIdUsed || '').trim(),
       agentName: String(nextRow.agentName || prev?.agentName || '').trim(),
-      status: nextRow.status || prev.status,
-      turnStatus: nextRow.turnStatus || prev.turnStatus,
+      status: prev.status || nextRow.status,
+      turnStatus: prev.turnStatus || nextRow.turnStatus,
       interim: updatedInterim,
       content: updatedContent,
       preamble: nextRow.preamble || prev.preamble,
@@ -325,6 +456,34 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
       || (role === 'assistant' && Number(baseRow.interim || 0) === 1 && (baseRow.content || baseRow.preamble));
     return !isExecutionEvidence;
   });
+  if (role === 'user' && turnId) {
+    const existingUserIdx = filtered.findIndex((row) => (
+      String(row?.role || '').trim().toLowerCase() === 'user'
+      && String(row?.turnId || '').trim() === turnId
+    ));
+    if (existingUserIdx !== -1) {
+      const prev = filtered[existingUserIdx];
+      filtered[existingUserIdx] = {
+        ...prev,
+        role: 'user',
+        mode: baseRow.mode || prev.mode,
+        type: baseRow.type || prev.type,
+        turnId,
+        status: baseRow.status || prev.status,
+        turnStatus: baseRow.turnStatus || prev.turnStatus,
+        interim: baseRow.interim,
+        content: patchContent || prev.content,
+        rawContent: rawContent || String(prev.rawContent || ''),
+        preamble: baseRow.preamble || prev.preamble,
+        toolName: baseRow.toolName || prev.toolName,
+        linkedConversationId: baseRow.linkedConversationId || prev.linkedConversationId,
+        parentMessageId: baseRow.parentMessageId || prev.parentMessageId,
+        sequence: baseRow.sequence ?? prev.sequence ?? null,
+        iteration: baseRow.iteration ?? prev.iteration ?? null,
+      };
+      return filtered;
+    }
+  }
   // For assistant messages, merge into an existing execution row for the same
   // turn rather than creating a duplicate row. mergeRowSnapshots matches by id
   // only, so a message_patch with id "msg-123" would not merge into an
@@ -497,6 +656,7 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
       role: 'assistant',
       mode: String(payload?.mode || '').trim().toLowerCase(),
       turnId,
+      status: 'running',
       turnStatus: 'running',
       interim: 1,
       isStreaming: true,
@@ -548,17 +708,17 @@ function applyAssistantFinalToRows(rows = [], payload = {}) {
     };
   }
   existing[index] = {
-      ...prev,
-      agentIdUsed: String(payload?.agentIdUsed || prev?.agentIdUsed || '').trim(),
-      agentName: String(payload?.agentName || prev?.agentName || '').trim(),
-      mode: String(payload?.mode || prev?.mode || '').trim().toLowerCase(),
-      content: normalizeStreamingMarkdown(content).content,
+    ...prev,
+    agentIdUsed: String(payload?.agentIdUsed || prev?.agentIdUsed || '').trim(),
+    agentName: String(payload?.agentName || prev?.agentName || '').trim(),
+    mode: String(payload?.mode || prev?.mode || '').trim().toLowerCase(),
+    content: normalizeStreamingMarkdown(content).content,
     interim: 0,
     isStreaming: false,
     _streamContent: '',
     _streamFence: null,
-    status: String(payload?.status || prev.status || '').trim(),
-    turnStatus: String(payload?.status || prev.turnStatus || '').trim(),
+    status: prev.status || normalizeExecutionRowStatus(payload?.status),
+    turnStatus: prev.turnStatus || normalizeExecutionRowStatus(payload?.status),
     executionGroups: groups
   };
   return existing;
@@ -742,6 +902,10 @@ export function applyExecutionStreamEvent(chatState = {}, payload = {}, fallback
   const nextRows = applyExecutionStreamEventToRows(chatState.liveRows, payload, fallbackConversationID);
   chatState.liveRows = nextRows;
   return nextRows;
+}
+
+export function applyTurnStartedEvent(chatState = {}, payload = {}, fallbackConversationID = '') {
+  return ensureLiveTurnRows(chatState, payload, fallbackConversationID);
 }
 
 export function applyToolStreamEvent(chatState = {}, payload = {}, fallbackConversationID = '') {

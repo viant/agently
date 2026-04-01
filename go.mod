@@ -2,6 +2,8 @@ module github.com/viant/agently
 
 go 1.25.5
 
+replace github.com/viant/agently-core => /Users/awitas/go/src/github.com/viant/agently-core
+
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.2 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.28.0 // indirect
