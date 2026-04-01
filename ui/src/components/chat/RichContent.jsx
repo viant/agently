@@ -41,6 +41,71 @@ import {
   renderMarkdownCellHTML,
 } from 'agently-core-ui-sdk';
 
+function escapeHTMLAttr(value = '') {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function generatedFileKey(files = []) {
+  if (!Array.isArray(files) || !files.length) return '';
+  return files
+    .map((file) => {
+      const id = String(file?.id || '').trim();
+      const filename = String(file?.filename || '').trim().toLowerCase();
+      const status = String(file?.status || '').trim().toLowerCase();
+      return `${id}|${filename}|${status}`;
+    })
+    .filter(Boolean)
+    .join(',');
+}
+
+function normalizeSandboxFilename(url = '') {
+  let raw = String(url || '').trim();
+  if (!raw || !/^sandbox:\//i.test(raw)) return '';
+  raw = raw.replace(/^sandbox:\/*/i, '');
+  const parts = raw.split('/');
+  const last = parts.length ? parts[parts.length - 1] : '';
+  if (!last) return '';
+  try {
+    return decodeURIComponent(last).trim();
+  } catch (_) {
+    return last.trim();
+  }
+}
+
+function resolveMarkdownHref(url = '', generatedFiles = []) {
+  const href = String(url || '').trim();
+  if (!href || !/^sandbox:\//i.test(href)) return href;
+  const filename = normalizeSandboxFilename(href);
+  if (!filename) return href;
+  const want = filename.toLowerCase();
+  const files = Array.isArray(generatedFiles) ? generatedFiles : [];
+  const match = files.find((file) => {
+    const id = String(file?.id || '').trim();
+    const name = String(file?.filename || '').trim().toLowerCase();
+    return !!id && name === want;
+  });
+  if (!match?.id) return href;
+  return `/v1/api/generated-files/${encodeURIComponent(String(match.id).trim())}/download`;
+}
+
+function rewriteSandboxMarkdownLinks(text = '', generatedFiles = []) {
+  return String(text || '').replace(/\[([^\]]+)\]\((sandbox:[^)]+)\)/gi, (match, label, url) => {
+    const href = resolveMarkdownHref(url, generatedFiles);
+    return `[${label}](${href})`;
+  });
+}
+
+function rewriteSandboxHrefInHTML(html = '', generatedFiles = []) {
+  return String(html || '').replace(/href=(["'])(sandbox:[^"']+)\1/gi, (match, quote, url) => {
+    const href = resolveMarkdownHref(url, generatedFiles);
+    return `href=${quote}${escapeHTMLAttr(href)}${quote}`;
+  });
+}
+
 function useMeasuredContainer() {
   const ref = React.useRef(null);
   const [size, setSize] = React.useState({ width: 0, height: 0 });
@@ -66,9 +131,12 @@ function useMeasuredContainer() {
   return [ref, size];
 }
 
-function MinimalText({ text = '' }) {
-  const cleaned = String(text || '').replace(/^\s*<!--\s*CHART_SPEC:v1\s*-->\s*$/gim, '').trim();
-  const html = renderMarkdownBlock(cleaned);
+function MinimalText({ text = '', generatedFiles = [] }) {
+  const cleaned = rewriteSandboxMarkdownLinks(
+    String(text || '').replace(/^\s*<!--\s*CHART_SPEC:v1\s*-->\s*$/gim, '').trim(),
+    generatedFiles
+  );
+  const html = rewriteSandboxHrefInHTML(renderMarkdownBlock(cleaned), generatedFiles);
   return <div className="app-rich-prose" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
@@ -144,7 +212,7 @@ function ChartSpecPanel({ spec = {} }) {
 
 // ── Pipe table rendering (Blueprint Table) ──
 
-function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
+function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles = [] }) {
   const pageSize = 40;
   const [visible, setVisible] = React.useState(() => new Set(headers.map((_, i) => i)));
   const [page, setPage] = React.useState(0);
@@ -202,8 +270,14 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
       const text = String(raw);
       const isLong = text.length > truncateAt;
       const display = isLong ? (text.slice(0, truncateAt) + '…') : text;
-      const html = renderMarkdownCellHTML(display);
-      const fullHtml = renderMarkdownCellHTML(text);
+      const html = rewriteSandboxHrefInHTML(
+        renderMarkdownCellHTML(rewriteSandboxMarkdownLinks(display, generatedFiles)),
+        generatedFiles
+      );
+      const fullHtml = rewriteSandboxHrefInHTML(
+        renderMarkdownCellHTML(rewriteSandboxMarkdownLinks(text, generatedFiles)),
+        generatedFiles
+      );
       const cellContent = <span dangerouslySetInnerHTML={{ __html: html }} />;
       const tooltipContent = text ? <div style={{ maxWidth: 640, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: fullHtml }} /> : null;
       return (
@@ -275,20 +349,28 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [] }) {
       </Dialog>
 
       <Dialog isOpen={!!expand} onClose={() => setExpand(null)} title={expand?.title || 'Content'} style={{ width: '70vw', minWidth: 480 }}>
-        <div style={{ padding: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: renderMarkdownCellHTML(expand ? expand.content : '') }} />
+        <div
+          style={{ padding: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+          dangerouslySetInnerHTML={{
+            __html: rewriteSandboxHrefInHTML(
+              renderMarkdownCellHTML(rewriteSandboxMarkdownLinks(expand ? expand.content : '', generatedFiles)),
+              generatedFiles
+            )
+          }}
+        />
       </Dialog>
     </div>
   );
 }
 
-function renderPipeTable(body = '') {
+function renderPipeTable(body = '', generatedFiles = []) {
   const { headers, rows, aligns } = parsePipeTable(body);
-  return <FencedPipeTable headers={headers} rows={rows} aligns={aligns} />;
+  return <FencedPipeTable headers={headers} rows={rows} aligns={aligns} generatedFiles={generatedFiles} />;
 }
 
 // ── Main component ──
 
-function RichContent({ content = '' }) {
+function RichContent({ content = '', generatedFiles = [] }) {
   const textNorm = String(content || '').replace(/\r\n/g, '\n');
   const parts = React.useMemo(() => parseFences(textNorm), [textNorm]);
 
@@ -309,16 +391,16 @@ function RichContent({ content = '' }) {
       if (!block) break;
       anyTable = true;
       if (block.start > cursor) {
-        out.push(<MinimalText key={`${keyPrefix}-pre-${idx++}`} text={chunk.slice(cursor, block.start)} />);
+        out.push(<MinimalText key={`${keyPrefix}-pre-${idx++}`} text={chunk.slice(cursor, block.start)} generatedFiles={generatedFiles} />);
       }
-      out.push(<div key={`${keyPrefix}-tbl-${idx++}`} style={{ overflowX: 'auto', margin: '6px 0' }}>{renderPipeTable(chunk.slice(block.start, block.end))}</div>);
+      out.push(<div key={`${keyPrefix}-tbl-${idx++}`} style={{ overflowX: 'auto', margin: '6px 0' }}>{renderPipeTable(chunk.slice(block.start, block.end), generatedFiles)}</div>);
       cursor = block.end;
     }
     if (anyTable && cursor < chunk.length) {
-      out.push(<MinimalText key={`${keyPrefix}-tail-${idx++}`} text={chunk.slice(cursor)} />);
+      out.push(<MinimalText key={`${keyPrefix}-tail-${idx++}`} text={chunk.slice(cursor)} generatedFiles={generatedFiles} />);
     }
     if (!anyTable) {
-      out.push(<MinimalText key={`${keyPrefix}-${idx++}`} text={chunk} />);
+      out.push(<MinimalText key={`${keyPrefix}-${idx++}`} text={chunk} generatedFiles={generatedFiles} />);
     }
   };
 
@@ -342,7 +424,7 @@ function RichContent({ content = '' }) {
 
     // Pipe table inside markdown/plaintext fence
     if ((lang === 'markdown' || lang === 'md' || lang === 'plaintext') && looksLikePipeTable(body)) {
-      out.push(<div key={`table-${idx++}`} style={{ overflowX: 'auto', margin: '6px 0' }}>{renderPipeTable(body)}</div>);
+      out.push(<div key={`table-${idx++}`} style={{ overflowX: 'auto', margin: '6px 0' }}>{renderPipeTable(body, generatedFiles)}</div>);
       continue;
     }
 
@@ -358,7 +440,10 @@ function RichContent({ content = '' }) {
 
     // Markdown fence → render as prose
     if (lang === 'markdown' || lang === 'md') {
-      const html = renderMarkdownBlock(body);
+      const html = rewriteSandboxHrefInHTML(
+        renderMarkdownBlock(rewriteSandboxMarkdownLinks(body, generatedFiles)),
+        generatedFiles
+      );
       out.push(<div key={`md-${idx++}`} className="app-rich-markdown" dangerouslySetInnerHTML={{ __html: html }} />);
       continue;
     }
@@ -374,7 +459,10 @@ function RichContent({ content = '' }) {
   return <div className="app-rich-content">{out}</div>;
 }
 
-export default React.memo(RichContent, (a, b) => (a.content || '') === (b.content || ''));
+export default React.memo(RichContent, (a, b) => (
+  (a.content || '') === (b.content || '')
+  && generatedFileKey(a.generatedFiles) === generatedFileKey(b.generatedFiles)
+));
 
 // Re-export parseFences from SDK for consumers that import from this module.
 export { parseFences } from 'agently-core-ui-sdk';

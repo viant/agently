@@ -5,6 +5,7 @@ import { clearPlanFeed, publishPlanFeed } from './planFeedBus';
 import { setPendingElicitation, clearPendingElicitation } from './elicitationBus';
 import { applyFeedEvent, clearFeedState } from './toolFeedBus';
 import { publishUsage } from './usageBus';
+import { request } from './httpClient';
 import {
   queueTranscriptRefresh as queueTranscriptRefreshStore,
   resetTranscriptState,
@@ -54,6 +55,111 @@ const SIDEBAR_ACTIVITY_EVENT_TYPES = new Set([
   'turn_canceled',
   'linked_conversation_attached',
 ]);
+
+function normalizeGeneratedFiles(raw = null) {
+  const list = Array.isArray(raw)
+    ? raw
+    : Array.isArray(raw?.data)
+      ? raw.data
+      : [];
+  return list.map((item) => {
+    const id = String(item?.id || item?.ID || '').trim();
+    const conversationId = String(item?.conversationId || item?.ConversationID || item?.ConversationId || '').trim();
+    const turnId = String(item?.turnId || item?.TurnID || item?.TurnId || '').trim();
+    const messageId = String(item?.messageId || item?.MessageID || item?.MessageId || '').trim();
+    const filename = String(
+      item?.filename
+      || item?.Filename
+      || item?.providerFileId
+      || item?.ProviderFileID
+      || id
+      || 'generated-file.bin'
+    ).trim();
+    const status = String(item?.status || item?.Status || '').trim();
+    const mode = String(item?.mode || item?.Mode || '').trim();
+    const mimeType = String(item?.mimeType || item?.MimeType || '').trim();
+    const sizeBytesRaw = item?.sizeBytes ?? item?.SizeBytes;
+    const sizeBytes = Number.isFinite(Number(sizeBytesRaw)) ? Number(sizeBytesRaw) : undefined;
+    return {
+      id,
+      conversationId,
+      turnId,
+      messageId,
+      filename,
+      status,
+      mode,
+      mimeType,
+      sizeBytes
+    };
+  }).filter((item) => !!item.id);
+}
+
+function mergeGeneratedFileLists(...lists) {
+  const out = [];
+  const seen = new Set();
+  for (const list of lists) {
+    if (!Array.isArray(list) || list.length === 0) continue;
+    for (const item of list) {
+      const id = String(item?.id || '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+async function fetchGeneratedFiles(conversationID = '') {
+  const id = String(conversationID || '').trim();
+  if (!id) return [];
+  try {
+    const payload = await request(`/api/conversations/${encodeURIComponent(id)}/generated-files`, {
+      method: 'GET',
+      notify: false
+    });
+    return normalizeGeneratedFiles(payload);
+  } catch (_) {
+    return [];
+  }
+}
+
+async function refreshGeneratedFiles(context, conversationID = '') {
+  const id = String(conversationID || getCurrentConversationID(context) || '').trim();
+  const chatState = ensureContextResources(context);
+  if (!id) {
+    chatState.generatedFiles = [];
+    return [];
+  }
+  const files = await fetchGeneratedFiles(id);
+  chatState.generatedFiles = files;
+  return files;
+}
+
+function attachGeneratedFilesToRows(rows = [], files = []) {
+  const generatedFiles = Array.isArray(files) ? files : [];
+  if (generatedFiles.length === 0) {
+    return Array.isArray(rows) ? rows : [];
+  }
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const rowId = String(row?.id || '').trim();
+    const turnId = String(row?.turnId || '').trim();
+    const role = String(row?.role || '').trim().toLowerCase();
+    const scopedFiles = generatedFiles.filter((file) => {
+      const fileMessageId = String(file?.messageId || '').trim();
+      const fileTurnId = String(file?.turnId || '').trim();
+      if (fileMessageId && rowId && fileMessageId === rowId) return true;
+      if (role !== 'assistant') return false;
+      return !!fileTurnId && !!turnId && fileTurnId === turnId;
+    });
+    if (scopedFiles.length === 0 && !Array.isArray(row?.generatedFiles)) {
+      return row;
+    }
+    return {
+      ...row,
+      generatedFiles: mergeGeneratedFileLists(row?.generatedFiles, scopedFiles)
+    };
+  });
+}
 
 function isStreamDebugEnabled() {
   if (typeof window === 'undefined') return false;
@@ -990,6 +1096,7 @@ export function ensureContextResources(context) {
   context.resources.chat.liveOwnedConversationID = String(context.resources.chat.liveOwnedConversationID || '').trim();
   context.resources.chat.liveOwnedTurnIds = Array.isArray(context.resources.chat.liveOwnedTurnIds) ? context.resources.chat.liveOwnedTurnIds : [];
   context.resources.chat.pendingTextDeltaQueue = Array.isArray(context.resources.chat.pendingTextDeltaQueue) ? context.resources.chat.pendingTextDeltaQueue : [];
+  context.resources.chat.generatedFiles = Array.isArray(context.resources.chat.generatedFiles) ? context.resources.chat.generatedFiles : [];
   return context.resources.chat;
 }
 
@@ -1090,7 +1197,7 @@ export function renderMergedRowsForContext(context) {
   // liveStreamStore already normalizes streaming content into row.content.
   // Do not overwrite it with raw _streamContent here, or markdown/chart fences
   // leak into the bubble during streaming instead of rendering as rich content.
-  const resolvedRows = mergedRows;
+  const resolvedRows = attachGeneratedFilesToRows(mergedRows, chatState.generatedFiles);
   const queuedTurns = Array.isArray(conversationForm?.queuedTurns) ? conversationForm.queuedTurns : [];
   const queueRow = queuedTurns.length > 0 ? {
     _type: 'queue',
@@ -1536,6 +1643,10 @@ export async function dsTick(context, options = {}) {
   });
   const chatState = ensureContextResources(context);
   const conversationID = String(result?.conversationID || getCurrentConversationID(context) || '').trim();
+  if (conversationID) {
+    await refreshGeneratedFiles(context, conversationID);
+    renderMergedRowsForContext(context);
+  }
   const ownsLiveTransport = shouldUseLiveStream(context, conversationID);
   if (result?.hasRunning && conversationID && !ownsLiveTransport && !chatState.stream) {
     queueTranscriptRefresh(context, { delay: 900 });
@@ -1555,6 +1666,7 @@ export function resetConversationSnapshotState(context) {
   });
   resetLiveStreamState(chatState);
   chatState.renderRows = [];
+  chatState.generatedFiles = [];
 }
 
 export function queueTranscriptRefresh(context, { delay = 120, resetSince = false } = {}) {

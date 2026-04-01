@@ -1095,6 +1095,7 @@ export default function IterationBlock({ message, context }) {
   const hasVisibleElicitation = !!data?.response?.elicitation?.requestedSchema;
   const elicitationStatus = String(data?.response?.status || '').trim().toLowerCase();
   const summaryContent = String(summaryModeMessageContent(data?.summary)).trim();
+  const generatedFiles = Array.isArray(message?.generatedFiles) ? message.generatedFiles : [];
 
   const renderGroupRow = (group, groupIndex) => (
     (() => {
@@ -1591,7 +1592,7 @@ export default function IterationBlock({ message, context }) {
                 <summary className="app-iteration-summary-head">Summary</summary>
                 <div className="app-iteration-summary-body">
                   <div className="app-iteration-summary-content">
-                    <RichContent content={summaryContent} />
+                    <RichContent content={summaryContent} generatedFiles={generatedFiles} />
                   </div>
                 </div>
               </details>
@@ -1605,7 +1606,8 @@ export default function IterationBlock({ message, context }) {
           message={{
             id: `${message?.id || 'iteration'}:preamble`,
             role: 'assistant',
-            content: visibleRenderedText
+            content: visibleRenderedText,
+            generatedFiles
           }}
         />
       ) : null}

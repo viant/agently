@@ -728,4 +728,37 @@ describe('normalizeMessages', () => {
     expect(normalized.filter((entry) => entry?._type === 'iteration')).toHaveLength(1);
     expect(normalized.filter((entry) => entry?.elicitation?.requestedSchema)).toHaveLength(1);
   });
+
+  it('preserves generatedFiles on synthesized iteration rows', () => {
+    const generatedFiles = [{ id: 'gf-1', filename: 'mouse_story.pdf', status: 'ready' }];
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-04-01T18:38:40Z',
+        content: 'make a pdf'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-04-01T18:38:47Z',
+        content: 'Created [mouse_story.pdf](sandbox:/mnt/data/mouse_story.pdf).',
+        generatedFiles,
+        executionGroups: [
+          {
+            assistantMessageId: 'a1',
+            content: 'Created [mouse_story.pdf](sandbox:/mnt/data/mouse_story.pdf).'
+          }
+        ]
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: Number.MAX_SAFE_INTEGER });
+    const iteration = normalized.find((entry) => entry?._type === 'iteration');
+
+    expect(iteration).toBeTruthy();
+    expect(iteration.generatedFiles).toEqual(generatedFiles);
+  });
 });

@@ -37,6 +37,21 @@ export function classifyMessage(message) {
 
 const SYNTHETIC_RENDER_TYPES = new Set(['iteration', 'queue']);
 
+function mergeGeneratedFiles(...lists) {
+  const out = [];
+  const seen = new Set();
+  for (const list of lists) {
+    if (!Array.isArray(list) || list.length === 0) continue;
+    for (const item of list) {
+      const id = String(item?.id || item?.ID || '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
 function debugIterationsEnabled() {
   if (typeof window === 'undefined') return false;
   try {
@@ -722,6 +737,11 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
           role: 'assistant',
           createdAt,
           content: iterationContent,
+          generatedFiles: mergeGeneratedFiles(
+            item?.response?.generatedFiles,
+            item?.preamble?.generatedFiles,
+            ...(Array.isArray(item?.preambles) ? item.preambles.map((entry) => entry?.generatedFiles) : [])
+          ),
           _iterationData: {
             ...item,
             index: seenIterations,
