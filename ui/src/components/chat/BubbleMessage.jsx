@@ -59,7 +59,10 @@ export default function BubbleMessage({ message, messageIndex = 0 }) {
         <div className="app-preamble-bubble">
           <span className="app-preamble-bubble-indicator" />
           <div className="app-preamble-bubble-content">
-            <RichContent content={String(message?.content || '').trim()} />
+            <RichContent
+              content={String(message?.content || '').trim()}
+              generatedFiles={Array.isArray(message?.generatedFiles) ? message.generatedFiles : []}
+            />
           </div>
         </div>
       </div>
@@ -80,7 +83,10 @@ export default function BubbleMessage({ message, messageIndex = 0 }) {
       </div>
       <div className={bubbleClass}>
         <div className="app-bubble-content">
-          <RichContent content={String(message?.content || '').trim()} />
+          <RichContent
+            content={String(message?.content || '').trim()}
+            generatedFiles={Array.isArray(message?.generatedFiles) ? message.generatedFiles : []}
+          />
           {isStreaming ? <span className="app-stream-caret" aria-label="streaming">▍</span> : null}
         </div>
       </div>
