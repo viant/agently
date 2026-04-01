@@ -6,9 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"net/http"
-	"net/http/cookiejar"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,7 +23,6 @@ import (
 	toolexec "github.com/viant/agently-core/protocol/tool/service/system/exec"
 	toolos "github.com/viant/agently-core/protocol/tool/service/system/os"
 	toolpatch "github.com/viant/agently-core/protocol/tool/service/system/patch"
-	coresdk "github.com/viant/agently-core/sdk"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
 	wscfg "github.com/viant/agently-core/workspace/config"
@@ -450,81 +446,6 @@ func executeExternalA2A(ctx context.Context, spec *svca2a.ExternalSpec, fallback
 	if spec == nil {
 		return nil, fmt.Errorf("nil external a2a spec")
 	}
-	if baseURL, routeAgentID, ok := sharedA2ARoute(strings.TrimSpace(spec.JSONRPCURL)); ok {
-		agentID := routeAgentID
-		if agentID == "" {
-			agentID = strings.TrimSpace(fallbackAgentID)
-		}
-		if agentID == "" {
-			return nil, fmt.Errorf("shared a2a route requires agent id")
-		}
-		httpClient, err := newSessionHTTPClient(ctx, baseURL)
-		if err != nil {
-			return nil, err
-		}
-		client, err := coresdk.NewHTTP(baseURL, coresdk.WithHTTPClient(httpClient))
-		if err != nil {
-			return nil, err
-		}
-		req := &svca2a.SendMessageRequest{Messages: messages}
-		if contextRef != nil {
-			req.ContextID = strings.TrimSpace(*contextRef)
-		}
-		resp, err := client.SendA2AMessage(ctx, agentID, req)
-		if err != nil {
-			return nil, err
-		}
-		return &resp.Task, nil
-	}
 	client := svca2a.NewClient(strings.TrimSpace(spec.JSONRPCURL), svca2a.WithHeaders(spec.Headers))
 	return client.SendMessage(ctx, messages, contextRef)
-}
-
-func sharedA2ARoute(raw string) (baseURL, agentID string, ok bool) {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", "", false
-	}
-	const prefix = "/v1/api/a2a/agents/"
-	if !strings.HasPrefix(u.Path, prefix) || !strings.HasSuffix(u.Path, "/message") {
-		return "", "", false
-	}
-	trimmed := strings.TrimSuffix(strings.TrimPrefix(u.Path, prefix), "/message")
-	trimmed = strings.Trim(trimmed, "/")
-	if trimmed == "" {
-		return "", "", false
-	}
-	return (&url.URL{Scheme: u.Scheme, Host: u.Host}).String(), trimmed, true
-}
-
-func newSessionHTTPClient(ctx context.Context, baseURL string) (*http.Client, error) {
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, err
-	}
-	client := &http.Client{Jar: jar, Timeout: 60 * time.Second}
-	idToken := strings.TrimSpace(svcauth.MCPAuthToken(ctx, true))
-	accessToken := strings.TrimSpace(svcauth.MCPAuthToken(ctx, false))
-	bearer := idToken
-	if bearer == "" {
-		bearer = accessToken
-	}
-	if bearer == "" {
-		return nil, fmt.Errorf("missing bearer for shared a2a session bootstrap")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/v1/api/auth/session", strings.NewReader(`{}`))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+bearer)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("shared a2a session bootstrap failed: %s", resp.Status)
-	}
-	return client, nil
 }
