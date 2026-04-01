@@ -79,7 +79,12 @@ export function syncTranscriptSnapshot({
   chatState.activeConversationID = conversationID;
   const filteredRows = filterOwnedTurnRows(rows, conversationID, chatState.liveOwnedConversationID, chatState.liveOwnedTurnIds);
   const sameConversation = String(chatState.lastConversationID || '').trim() === conversationID;
-  const previousTranscriptRows = Array.isArray(chatState.transcriptRows) ? chatState.transcriptRows : [];
+  const previousTranscriptRows = filterOwnedTurnRows(
+    Array.isArray(chatState.transcriptRows) ? chatState.transcriptRows : [],
+    conversationID,
+    chatState.liveOwnedConversationID,
+    chatState.liveOwnedTurnIds
+  );
   const mergedRows = reason === 'poll' && sameConversation && previousTranscriptRows.length > 0
     ? mergeRowSnapshots(previousTranscriptRows, filteredRows)
     : filteredRows;

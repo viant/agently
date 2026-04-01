@@ -82,6 +82,85 @@ describe('syncTranscriptSnapshot', () => {
     expect(chatState.liveOwnedTurnIds).toEqual(['turn-1']);
     expect(chatState.activeStreamTurnId).toBeUndefined();
   });
+
+  it('drops previously cached transcript rows for owned turns once live ownership starts', () => {
+    const publishChangeFeed = vi.fn();
+    const publishPlanFeed = vi.fn();
+    const chatState = {
+      transcriptRows: [
+        {
+          id: 'msg-user-1',
+          role: 'user',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T09:59:59Z',
+          content: 'Analyze performance of ad order 2652066.'
+        }
+      ],
+      liveRows: [
+        {
+          id: 'user:turn-1',
+          role: 'user',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T09:59:58Z',
+          content: 'Analyze performance of ad order 2652066.'
+        }
+      ],
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1'],
+      lastConversationID: 'conv-1',
+      lastQueuedTurns: [],
+      lastHasRunning: true,
+      runningTurnId: 'turn-1'
+    };
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-1' }),
+      setFormData: vi.fn()
+    };
+    const context = {
+      Context: (name) => {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: conversationsDS } };
+        }
+        return null;
+      }
+    };
+
+    const result = syncTranscriptSnapshot({
+      context,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'running'
+        }
+      ],
+      ensureContextResources: () => chatState,
+      resolveActiveStreamTurnId: () => 'turn-1',
+      mapTranscriptToRows: () => ({
+        rows: [
+          {
+            id: 'msg-user-1',
+            role: 'user',
+            turnId: 'turn-1',
+            createdAt: '2026-03-16T09:59:59Z',
+            content: 'Analyze performance of ad order 2652066.'
+          }
+        ],
+        queuedTurns: [],
+        runningTurnId: 'turn-1'
+      }),
+      findLatestRunningTurnIdFromTurns: () => 'turn-1',
+      findLatestRunningTurnId: () => 'turn-1',
+      publishChangeFeed,
+      publishPlanFeed,
+      setStage: vi.fn(),
+      liveRows: chatState.liveRows
+    });
+
+    expect(result?.transcriptRows).toEqual([]);
+    expect(chatState.transcriptRows).toEqual([]);
+    expect(publishChangeFeed).toHaveBeenCalledWith({ conversationId: 'conv-1', rows: [] });
+    expect(publishPlanFeed).toHaveBeenCalledWith({ conversationId: 'conv-1', rows: [] });
+  });
 });
 
 describe('tickTranscript', () => {

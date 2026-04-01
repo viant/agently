@@ -2146,6 +2146,10 @@ export function shouldUseLiveStream(context, conversationID = '') {
   const chatState = ensureContextResources(context);
   const targetID = String(conversationID || '').trim();
   if (!targetID) return false;
+  const currentConversationID = String(getCurrentConversationID(context) || '').trim();
+  if (currentConversationID && currentConversationID === targetID) {
+    return true;
+  }
   const ownedConversationID = String(chatState.liveOwnedConversationID || '').trim();
   if (!ownedConversationID || ownedConversationID !== targetID) return false;
   return true;

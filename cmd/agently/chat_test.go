@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/viant/agently-core/sdk"
 )
 
 func TestNormalizeCLIContent(t *testing.T) {
@@ -46,6 +47,37 @@ func TestChatStreamerFlush_SkipsNormalizedWhitespaceDuplicate(t *testing.T) {
 	})
 
 	assert.Equal(t, "\n", output)
+}
+
+func TestLatestAssistantContentFromState(t *testing.T) {
+	content, ok, err := latestAssistantContentFromState(&sdk.ConversationState{
+		ConversationID: "conv-1",
+		Turns: []*sdk.TurnState{{
+			TurnID: "turn-1",
+			Status: sdk.TurnStatusCompleted,
+			Assistant: &sdk.AssistantState{
+				Final: &sdk.AssistantMessageState{
+					MessageID: "msg-1",
+					Content:   "Final answer",
+				},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "Final answer", content)
+}
+
+func TestLatestAssistantContentFromState_FailedTurn(t *testing.T) {
+	_, ok, err := latestAssistantContentFromState(&sdk.ConversationState{
+		ConversationID: "conv-1",
+		Turns: []*sdk.TurnState{{
+			TurnID: "turn-1",
+			Status: sdk.TurnStatusFailed,
+		}},
+	})
+	require.Error(t, err)
+	assert.False(t, ok)
 }
 
 func captureStdout(t *testing.T, fn func()) string {

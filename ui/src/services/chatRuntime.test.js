@@ -375,7 +375,7 @@ describe('handleStreamEvent', () => {
     });
   });
 
-  it('rehydrates the active conversation after terminal events using the sidebar-switch path', async () => {
+  it('preserves the active conversation render after terminal events without requiring a transcript refetch', async () => {
     vi.useFakeTimers();
     client.getConversation.mockReset();
     client.getTranscript.mockReset();
@@ -500,16 +500,13 @@ describe('handleStreamEvent', () => {
       await vi.advanceTimersByTimeAsync(100);
       await Promise.resolve();
 
-      expect(client.getConversation).toHaveBeenCalledWith('conv-1');
-      expect(client.getTranscript).toHaveBeenCalledWith(
-        expect.objectContaining({ conversationId: 'conv-1' }),
-        undefined
-      );
       expect(messageState.collection).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             role: 'assistant',
-            content: 'Good morning! What would you like to work on today?'
+            content: 'Temporary live content',
+            status: 'succeeded',
+            turnStatus: 'completed'
           })
         ])
       );
@@ -1322,6 +1319,32 @@ describe('shouldUseLiveStream', () => {
 
     expect(shouldUseLiveStream(context, 'conv-live')).toBe(true);
     expect(shouldUseLiveStream(context, 'conv-transcript')).toBe(false);
+  });
+
+  it('uses stream for the visible conversation even when the turn was started elsewhere', () => {
+    const context = {
+      resources: {
+        chat: {
+          liveOwnedConversationID: '',
+          liveOwnedTurnIds: []
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-visible' })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    expect(shouldUseLiveStream(context, 'conv-visible')).toBe(true);
+    expect(shouldUseLiveStream(context, 'conv-other')).toBe(false);
   });
 });
 
