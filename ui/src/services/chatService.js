@@ -218,7 +218,7 @@ export async function onFetchMeta({ context, data, result }) {
 }
 
 export async function onFetchMessages({ context, data, result }) {
-  const turns = Array.isArray(data) ? data : (Array.isArray(result?.data) ? result.data : []);
+  const turns = Array.isArray(data) ? data : [];
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const conversationID = String(conversationsDS?.peekFormData?.()?.id || '').trim();
   const pendingElicitations = conversationID ? await fetchPendingElicitations(conversationID) : [];

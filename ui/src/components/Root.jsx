@@ -20,7 +20,7 @@ import { useApprovalQueue } from '../hooks/useApprovalQueue';
 import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, getSelectedWindow, isLinkedChildWindow, openConversationInMainWindow, requestNewConversationInMainWindow, returnToParentConversation } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath } from '../services/chatRuntime';
-import { client } from '../services/agentlyClient';
+import { client, recoverSessionSilently } from '../services/agentlyClient';
 
 const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -39,8 +39,13 @@ export function resolveInitialAuthState(providers, me) {
     const type = String(entry?.type || '').trim().toLowerCase();
     return type === 'bff' || type === 'oidc' || type === 'jwt';
   });
+  const hasLocalOnlyProvider = normalized.length > 0 && normalized.every((entry) => {
+    const type = String(entry?.type || '').trim().toLowerCase();
+    return type === 'local';
+  });
   const hasAnyProvider = normalized.length > 0;
   if (me) return 'ready';
+  if (hasLocalOnlyProvider) return 'ready';
   // Auth is enabled (providers configured) but user is not authenticated.
   if (hasOAuthProvider) return 'required';
   // For local-only auth: if providers are listed but /me returned null,
@@ -122,10 +127,21 @@ export default function Root() {
   useEffect(() => {
     let mounted = true;
     Promise.allSettled([client.getAuthProviders(), client.getAuthMe()])
-      .then((results) => {
+      .then(async (results) => {
         if (!mounted) return;
         const providers = results[0]?.status === 'fulfilled' ? results[0].value : [];
-        const me = results[1]?.status === 'fulfilled' ? results[1].value : null;
+        let me = results[1]?.status === 'fulfilled' ? results[1].value : null;
+        if (!me && Array.isArray(providers) && providers.length > 0) {
+          const recovered = await recoverSessionSilently();
+          if (!mounted) return;
+          if (recovered) {
+            try {
+              me = await client.getAuthMe();
+            } catch (_) {
+              me = null;
+            }
+          }
+        }
         setOAuthProviderLabel(resolveOAuthProviderLabel(providers));
         setAuthState(resolveInitialAuthState(providers, me));
       })
@@ -141,10 +157,15 @@ export default function Root() {
     const onUnauthorized = () => {
       setAuthState('required');
     };
+    const onAuthorized = () => {
+      setAuthState('ready');
+    };
     window.addEventListener('agently:unauthorized', onUnauthorized);
+    window.addEventListener('agently:authorized', onAuthorized);
     return () => {
       mounted = false;
       window.removeEventListener('agently:unauthorized', onUnauthorized);
+      window.removeEventListener('agently:authorized', onAuthorized);
     };
   }, []);
 

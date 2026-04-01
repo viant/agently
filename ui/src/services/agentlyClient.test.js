@@ -1,0 +1,94 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('agently-core-ui-sdk', () => ({
+  AgentlyClient: class AgentlyClient {
+    constructor(options = {}) {
+      this.options = options;
+    }
+  }
+}));
+
+vi.mock('./httpClient', () => ({
+  showToast: vi.fn(),
+  redirectToLogin: vi.fn()
+}));
+
+describe('recoverSessionSilently', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+  });
+
+  it('recovers an existing cookie-backed session and dispatches authorized', async () => {
+    const listeners = [];
+    globalThis.window = {
+      dispatchEvent: (event) => listeners.push(event?.type || ''),
+      CustomEvent: class extends Event {
+        constructor(name, init = {}) {
+          super(name);
+          this.detail = init.detail;
+        }
+      }
+    };
+    globalThis.CustomEvent = globalThis.window.CustomEvent;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      status: 200
+    });
+
+    const { recoverSessionSilently } = await import('./agentlyClient.js');
+    const ok = await recoverSessionSilently();
+
+    expect(ok).toBe(true);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(listeners).toContain('agently:authorized');
+  });
+
+  it('uses a single in-flight recovery probe for concurrent callers', async () => {
+    globalThis.window = {
+      dispatchEvent: vi.fn(),
+      CustomEvent: class extends Event {
+        constructor(name, init = {}) {
+          super(name);
+          this.detail = init.detail;
+        }
+      }
+    };
+    globalThis.CustomEvent = globalThis.window.CustomEvent;
+    let resolveFetch;
+    globalThis.fetch = vi.fn().mockImplementation(() => new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
+
+    const { recoverSessionSilently } = await import('./agentlyClient.js');
+    const first = recoverSessionSilently();
+    const second = recoverSessionSilently();
+    resolveFetch({ status: 200 });
+
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns false after retrying when auth probe stays unauthorized', async () => {
+    globalThis.window = {
+      dispatchEvent: vi.fn(),
+      CustomEvent: class extends Event {
+        constructor(name, init = {}) {
+          super(name);
+          this.detail = init.detail;
+        }
+      },
+      setTimeout: globalThis.setTimeout.bind(globalThis)
+    };
+    globalThis.CustomEvent = globalThis.window.CustomEvent;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      status: 401
+    });
+
+    const { recoverSessionSilently } = await import('./agentlyClient.js');
+    const ok = await recoverSessionSilently();
+
+    expect(ok).toBe(false);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+});

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { activeWindows, selectedTabId, selectedWindowId } from 'forge/core';
 
@@ -6,7 +6,9 @@ import {
   CHAT_WINDOW_KEY,
   MAIN_CHAT_WINDOW_ID,
   isLinkedChildWindow,
+  openConversationInMainWindow,
   openLinkedConversationWindow,
+  requestNewConversationInMainWindow,
   returnToParentConversation
 } from './conversationWindow';
 
@@ -34,6 +36,8 @@ describe('conversationWindow', () => {
     selectedTabId.value = null;
     selectedWindowId.value = null;
     global.window = {
+      location: { pathname: '/', port: '5176', hostname: '127.0.0.1' },
+      history: { state: null, replaceState: () => {} },
       localStorage: createStorage(),
       dispatchEvent: () => {}
     };
@@ -66,6 +70,41 @@ describe('conversationWindow', () => {
     });
     expect(String(window.localStorage.getItem(`agently.selectedConversationId:${linked.windowId}`))).toBe('child-456');
     expect(selectedWindowId.value).toBe(linked.windowId);
+  });
+
+  it('syncs the browser path when opening a conversation in the main window', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {}
+    }];
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+    const replaceState = vi.fn();
+    window.history.replaceState = replaceState;
+
+    openConversationInMainWindow('conv-123');
+
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/conversation/conv-123');
+    expect(String(window.localStorage.getItem('agently.selectedConversationId'))).toBe('conv-123');
+  });
+
+  it('syncs the browser path back to root for a new main-window conversation', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {}
+    }];
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+    window.location.pathname = '/conversation/conv-123';
+    const replaceState = vi.fn();
+    window.history.replaceState = replaceState;
+
+    requestNewConversationInMainWindow();
+
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/');
+    expect(String(window.localStorage.getItem('agently.selectedConversationId') || '')).toBe('');
   });
 
   it('returns to the parent conversation and focuses the main chat window', () => {

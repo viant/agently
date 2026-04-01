@@ -987,6 +987,7 @@ export function mapTranscriptToRows(turns = [], options = {}) {
         errorMessage: turn?.errorMessage || turn?.ErrorMessage || mappedInput?.errorMessage || mappedInput?.ErrorMessage || '',
         agentIdUsed: turn?.agentIdUsed || turn?.AgentIdUsed || '',
         AgentIdUsed: turn?.AgentIdUsed || turn?.agentIdUsed || '',
+        linkedConversations: Array.isArray(turn?.linkedConversations) ? turn.linkedConversations : [],
         turnId: turnID,
         turnStatus
       } : {
@@ -1005,6 +1006,7 @@ export function mapTranscriptToRows(turns = [], options = {}) {
         executionGroupsLimit: suppressExecutionForElicitation ? 0 : (turn?.executionGroupsLimit || turn?.ExecutionGroupsLimit || 0),
         agentIdUsed: turn?.agentIdUsed || turn?.AgentIdUsed || '',
         AgentIdUsed: turn?.AgentIdUsed || turn?.agentIdUsed || '',
+        linkedConversations: Array.isArray(turn?.linkedConversations) ? turn.linkedConversations : [],
         turnId: turnID,
         turnStatus
       });
@@ -1261,10 +1263,12 @@ function isVisibleExecutionPage(page = {}) {
   if (!page || typeof page !== 'object') return false;
   const status = String(page?.status || '').trim().toLowerCase();
   const hasVisibleContent = String(page?.preamble || '').trim() !== '' || String(page?.content || '').trim() !== '';
+  const hasError = String(page?.errorMessage || page?.ErrorMessage || '').trim() !== '';
   const hasTools = (Array.isArray(page?.toolSteps) && page.toolSteps.length > 0)
     || (Array.isArray(page?.toolCallsPlanned) && page.toolCallsPlanned.length > 0);
   const isActive = ['running', 'thinking', 'streaming', 'processing', 'in_progress', 'waiting_for_user', 'tool_calls'].includes(status);
-  return hasVisibleContent || hasTools || isActive;
+  const isError = status === 'failed' || status === 'error' || status === 'terminated';
+  return hasVisibleContent || hasError || hasTools || isActive || isError;
 }
 
 function resolveActiveStreamTurnId(turns = [], chatState = {}) {
@@ -1396,9 +1400,16 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     : undefined;
   const payload = await client.getTranscript(transcriptInput, transcriptOptions);
   const data = payload || {};
+  const canonicalConversation = data?.conversation && typeof data.conversation === 'object'
+    ? data.conversation
+    : null;
+  const canonicalTurns = Array.isArray(canonicalConversation?.turns) ? canonicalConversation.turns : null;
+  const resolvedFeeds = Array.isArray(data?.feeds)
+    ? data.feeds
+    : (Array.isArray(canonicalConversation?.feeds) ? canonicalConversation.feeds : []);
   // Populate tool feed bar from transcript feeds (for page reload / conversation switch).
-  if (Array.isArray(data?.feeds) && data.feeds.length > 0) {
-    for (const feed of data.feeds) {
+  if (Array.isArray(resolvedFeeds) && resolvedFeeds.length > 0) {
+    for (const feed of resolvedFeeds) {
       if (feed?.feedId) {
         applyFeedEvent({
           type: 'tool_feed_active',
@@ -1412,8 +1423,8 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     }
   }
   // Canonical ConversationState: extract turns with pages as executionGroups
-  if (Array.isArray(data?.turns) && data.turns.length > 0 && ('turnId' in data.turns[0] || 'execution' in data.turns[0])) {
-    return data.turns.map((turn) => {
+  if (Array.isArray(canonicalTurns) && canonicalTurns.length > 0 && ('turnId' in canonicalTurns[0] || 'execution' in canonicalTurns[0])) {
+    return canonicalTurns.map((turn) => {
       const pages = Array.isArray(turn.execution?.pages) ? turn.execution.pages : [];
       const summaryPages = pages.filter((page) => Number(page?.iteration || 0) === 0);
       const visiblePages = pages.filter((page) => Number(page?.iteration || 0) !== 0 && isVisibleExecutionPage(page));
@@ -1445,7 +1456,8 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
           preamble: visiblePages[0]?.preamble || '',
           turnId: turn.turnId || '',
           status: finalPage?.status || '',
-          createdAt: turn.createdAt || ''
+          createdAt: turn.createdAt || '',
+          errorMessage: finalPage?.errorMessage || finalPage?.ErrorMessage || turn?.errorMessage || turn?.ErrorMessage || ''
         });
       }
       if (summaryPages.length > 0) {
@@ -1487,8 +1499,16 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
             id: `linked:${lc.conversationId}`,
             role: 'tool',
             type: 'tool',
+            kind: 'tool',
+            reason: 'link',
+            toolName: 'llm/agents/run',
             turnId: turn.turnId || '',
             linkedConversationId: lc.conversationId,
+            linkedConversationAgentId: lc.agentId || '',
+            linkedConversationTitle: lc.title || '',
+            status: lc.status || '',
+            response: lc.response || '',
+            updatedAt: lc.updatedAt || '',
             createdAt: lc.createdAt || ''
           });
         }
@@ -1497,6 +1517,8 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
         id: turn.turnId || '',
         status: turn.status || '',
         createdAt: turn.createdAt || '',
+        errorMessage: turn.errorMessage || turn.ErrorMessage || '',
+        linkedConversations: Array.isArray(turn.linkedConversations) ? turn.linkedConversations : [],
         message: messages,
         executionGroups: executionPages,
         executionGroupsTotal: executionPages.length,
@@ -1505,7 +1527,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
       };
     });
   }
-  return Array.isArray(data?.turns || data?.Turns) ? (data.turns || data.Turns) : [];
+  return Array.isArray(data?.conversation?.turns) ? data.conversation.turns : [];
 }
 
 export async function fetchPendingElicitations(conversationID = '') {

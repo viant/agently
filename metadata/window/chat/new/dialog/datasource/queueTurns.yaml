@@ -22,7 +22,7 @@ params:
   includeToolCalls: "true"
 
 selectors:
-  data: data.turns
+  data: data.conversation.turns
 
 uniqueKey:
   - field: id

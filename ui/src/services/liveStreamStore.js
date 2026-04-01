@@ -200,6 +200,7 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
   const finalResponse = !!payload?.finalResponse;
   const normalizedPayloadContent = normalizeStreamingMarkdown(String(payload?.content || '').trim()).content;
   const normalizedVisibleContent = normalizeStreamingMarkdown(String(payload?.preamble || payload?.content || '').trim()).content;
+  const errorMessage = String(payload?.error || payload?.errorMessage || '').trim();
   const group = {
     pageId: assistantMessageId || rowID,
     assistantMessageId,
@@ -209,6 +210,7 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     content: finalResponse ? normalizedPayloadContent : '',
     finalResponse,
     status: String(payload?.status || '').trim(),
+    errorMessage,
     modelSteps: [{
       modelCallId: assistantMessageId,
       provider: String(payload?.model?.provider || '').trim(),
@@ -243,6 +245,7 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     mode: String(payload?.mode || '').trim().toLowerCase(),
     type: 'text',
     createdAt,
+    errorMessage,
     status: normalizeExecutionRowStatus(payload?.status),
     turnStatus: normalizeExecutionRowStatus(payload?.status),
     interim: finalResponse ? 0 : 1,
@@ -727,6 +730,8 @@ function applyAssistantFinalToRows(rows = [], payload = {}) {
 export function applyLinkedConversationEvent(chatState = {}, payload = {}) {
   const toolCallId = String(payload?.toolCallId || '').trim();
   const linkedConversationId = String(payload?.linkedConversationId || '').trim();
+  const linkedConversationAgentId = String(payload?.linkedConversationAgentId || '').trim();
+  const linkedConversationTitle = String(payload?.linkedConversationTitle || '').trim();
   const turnId = String(payload?.turnId || '').trim();
   if (!linkedConversationId || (!toolCallId && !turnId)) return chatState.liveRows || [];
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
@@ -745,7 +750,12 @@ export function applyLinkedConversationEvent(chatState = {}, payload = {}) {
         // event may carry either depending on what's in context.
         if (toolCallId && (stepToolCallId === toolCallId || stepToolMessageId === toolCallId)) {
           matched = true;
-          return { ...step, linkedConversationId };
+          return {
+            ...step,
+            linkedConversationId,
+            linkedConversationAgentId: linkedConversationAgentId || step?.linkedConversationAgentId || '',
+            linkedConversationTitle: linkedConversationTitle || step?.linkedConversationTitle || ''
+          };
         }
         return step;
       });
@@ -948,7 +958,9 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
   const turnID = String(payload?.turnId || chatState.activeStreamTurnId || chatState.runningTurnId || '').trim();
   const content = String(payload?.content || '').trim();
   const status = String(payload?.status || 'completed').trim() || 'completed';
+  const errorMessage = String(payload?.error || payload?.errorMessage || '').trim();
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
+  let finalized = false;
 
   // Find the assistant execution row for this turn.
   for (let index = rows.length - 1; index >= 0; index -= 1) {
@@ -967,7 +979,8 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
       ...row,
       mode: String(payload?.mode || row?.mode || '').trim().toLowerCase(),
       status,
-      turnStatus: 'completed',
+      turnStatus: status,
+      errorMessage: errorMessage || row?.errorMessage || '',
       interim: 0,
       isStreaming: false,
       content: finalizedContent,
@@ -988,13 +1001,44 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
         return {
           ...group,
           status,
+          errorMessage: errorMessage || group?.errorMessage || '',
           finalResponse: finalizedContent ? true : Boolean(group?.finalResponse || group?.FinalResponse),
           content: finalizedContent || String(group?.content || ''),
           modelSteps
         };
       })
     };
+    finalized = true;
     break;
+  }
+
+  if (!finalized && turnID) {
+    const fallbackRow = buildCanonicalExecutionRow({
+      ...payload,
+      turnId: turnID,
+      status,
+      finalResponse: false,
+      preamble: '',
+      content: ''
+    }, fallbackConversationID);
+    if (fallbackRow) {
+      rows.push({
+        ...fallbackRow,
+        status,
+        turnStatus: status,
+        interim: 0,
+        errorMessage,
+        content: '',
+        executionGroups: (Array.isArray(fallbackRow.executionGroups) ? fallbackRow.executionGroups : []).map((group) => ({
+          ...group,
+          status,
+          errorMessage,
+          content: '',
+          finalResponse: false
+        }))
+      });
+      rows.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+    }
   }
 
   chatState.liveRows = rows;

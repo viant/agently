@@ -36,8 +36,16 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(displayLinkedConversationTitle()).toBe('Linked conversation');
     expect(displayLinkedConversationTitle({ title: 'Forecasting Child' })).toBe('Forecasting Child');
     expect(displayLinkedConversationTitle({ agentId: 'steward-performance' })).toBe('Steward Performance');
+    expect(displayLinkedConversationTitle({
+      linkedConversationAgentId: 'steward-forecasting'
+    })).toBe('Steward Forecasting');
     expect(displayLinkedConversationSubtitle({ response: 'Working through the child run.' })).toBe('Working through the child run.');
-    expect(displayLinkedConversationSubtitle({ linkedConversationId: 'child-123' })).toBe('child-123');
+    expect(displayLinkedConversationSubtitle({ agentId: 'steward-performance' })).toBe('Steward Performance');
+    expect(displayLinkedConversationSubtitle({
+      linkedConversationAgentId: 'steward-forecasting',
+      linkedConversationId: 'child-123'
+    })).toBe('Steward Forecasting');
+    expect(displayLinkedConversationSubtitle({ linkedConversationId: 'child-123' })).toBe('');
     expect(displayLinkedConversationIcon()).toBe('🔗');
     expect(displayItemRowTitle({ toolName: 'resources/list' })).toBe('resources/list');
     expect(displayItemRowIcon({ toolName: 'resources/list' })).toBe('🛠');
@@ -771,6 +779,48 @@ describe('mapCanonicalExecutionGroups', () => {
       status: 'failed',
       errorMessage: 'Canceled by user request'
     })).toBe('Canceled by user request');
+  });
+
+  it('keeps failed canonical groups presentable and carries the underlying error', () => {
+    const groups = mapCanonicalExecutionGroups([
+      {
+        parentMessageId: 'p-failed',
+        status: 'failed',
+        errorMessage: 'dial tcp: lookup api.openai.com: no such host',
+        modelSteps: [
+          {
+            modelCallId: 'mc-failed',
+            provider: 'openai',
+            model: 'gpt-5.4',
+            status: 'failed'
+          }
+        ],
+        toolSteps: []
+      }
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      status: 'failed',
+      errorMessage: 'dial tcp: lookup api.openai.com: no such host'
+    });
+    expect(groups[0].detailStep).toMatchObject({
+      kind: 'model',
+      errorMessage: 'dial tcp: lookup api.openai.com: no such host'
+    });
+  });
+
+  it('shows a generic failed bubble when execution failed without normal content', () => {
+    const text = resolveIterationBubbleContent({
+      visibleGroups: [{
+        status: 'failed',
+        errorMessage: 'dial tcp: lookup api.openai.com: no such host',
+        toolSteps: []
+      }],
+      errorMessage: 'dial tcp: lookup api.openai.com: no such host'
+    });
+
+    expect(text).toBe('We experienced an error while processing this request.');
   });
 
   it('maps canonical page fields (modelSteps / toolSteps) with camelCase-only keys', () => {

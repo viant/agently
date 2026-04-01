@@ -10,6 +10,37 @@ export const CHAT_WINDOW_KEY = 'chat/new';
 export const MAIN_CHAT_WINDOW_ID = CHAT_WINDOW_KEY;
 const LEGACY_SELECTED_CONVERSATION_KEY = 'agently.selectedConversationId';
 
+function conversationPathForID(conversationId = '') {
+  const id = String(conversationId || '').trim();
+  if (!id) {
+    if (typeof window !== 'undefined') {
+      const current = String(window.location?.pathname || '').trim();
+      if (current.startsWith('/ui/')) return '/ui';
+    }
+    return '/';
+  }
+  const encoded = encodeURIComponent(id);
+  if (typeof window !== 'undefined') {
+    const port = String(window.location?.port || '').trim();
+    const host = String(window.location?.hostname || '').trim();
+    if (port === '5173' || port === '5175' || port === '5176' || host === '127.0.0.1' || host === 'localhost') {
+      return `/conversation/${encoded}`;
+    }
+  }
+  return `/v1/conversation/${encoded}`;
+}
+
+function syncMainConversationPath(conversationId = '') {
+  if (typeof window === 'undefined') return;
+  const target = conversationPathForID(conversationId);
+  const current = String(window.location?.pathname || '').trim();
+  if (current === target) return;
+  if (current.startsWith('/v1/api/')) return;
+  try {
+    window.history.replaceState(window.history.state, '', target);
+  } catch (_) {}
+}
+
 function scopedSelectionKey(windowId = '') {
   const id = String(windowId || '').trim();
   return id ? `${LEGACY_SELECTED_CONVERSATION_KEY}:${id}` : LEGACY_SELECTED_CONVERSATION_KEY;
@@ -92,6 +123,7 @@ export function openConversationInMainWindow(conversationId = '') {
   const targetID = String(conversationId || '').trim();
   const mainWindow = ensureMainChatWindow();
   setScopedConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, targetID);
+  syncMainConversationPath(targetID);
   if (typeof window !== 'undefined') {
     try {
       window.dispatchEvent(new CustomEvent('agently:conversation-select', {
@@ -105,6 +137,7 @@ export function openConversationInMainWindow(conversationId = '') {
 export function requestNewConversationInMainWindow() {
   const mainWindow = ensureMainChatWindow();
   setScopedConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, '');
+  syncMainConversationPath('');
   if (typeof window !== 'undefined') {
     try {
       window.dispatchEvent(new CustomEvent('agently:conversation-new', {

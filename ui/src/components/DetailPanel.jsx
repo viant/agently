@@ -5,6 +5,7 @@ import { json } from '@codemirror/lang-json';
 import { openLinkedConversationWindow } from '../services/conversationWindow';
 import { displayStepIcon, displayStepTitle, isAgentRunTool } from '../services/toolPresentation';
 import { resolvePayload } from '../services/chatRuntime';
+import { flattenCanonicalTranscriptSteps, transcriptConversationTurns } from '../services/canonicalTranscript';
 import { client } from '../services/agentlyClient';
 
 const payloadCache = new Map();
@@ -226,83 +227,6 @@ function toolCallHasPayloads(toolCall = {}) {
   );
 }
 
-function normalizeToolStepFromTranscript(message = {}) {
-  const toolCall = message?.ToolCall || message?.toolCall || {};
-  const requestPayload = resolvePayload(
-    toolCall?.RequestPayload
-    || toolCall?.requestPayload
-    || message?.RequestPayload
-    || message?.requestPayload
-  );
-  const responsePayload = resolvePayload(
-    toolCall?.ResponsePayload
-    || toolCall?.responsePayload
-    || message?.ResponsePayload
-    || message?.responsePayload
-  );
-  const providerRequestPayload = resolvePayload(
-    toolCall?.ProviderRequestPayload
-    || toolCall?.providerRequestPayload
-    || message?.ProviderRequestPayload
-    || message?.providerRequestPayload
-  );
-  const providerResponsePayload = resolvePayload(
-    toolCall?.ProviderResponsePayload
-    || toolCall?.providerResponsePayload
-    || message?.ProviderResponsePayload
-    || message?.providerResponsePayload
-  );
-  const streamPayload = resolvePayload(
-    toolCall?.StreamPayload
-    || toolCall?.streamPayload
-    || message?.StreamPayload
-    || message?.streamPayload
-  );
-  return {
-    id: message?.Id || message?.id || toolCall?.MessageId || toolCall?.messageId || '',
-    kind: 'tool',
-    reason: 'tool_call',
-    toolName: message?.ToolName || message?.toolName || toolCall?.ToolName || toolCall?.toolName || '',
-    status: message?.Status || message?.status || toolCall?.Status || toolCall?.status || '',
-    latencyMs: toolCall?.LatencyMs || toolCall?.latencyMs || message?.LatencyMs || message?.latencyMs || null,
-    linkedConversationId: message?.LinkedConversationId || message?.linkedConversationId || toolCall?.LinkedConversationId || toolCall?.linkedConversationId || '',
-    requestPayloadId: toolCall?.RequestPayloadId || toolCall?.requestPayloadId || message?.RequestPayloadId || message?.requestPayloadId || '',
-    responsePayloadId: toolCall?.ResponsePayloadId || toolCall?.responsePayloadId || message?.ResponsePayloadId || message?.responsePayloadId || '',
-    providerRequestPayloadId: toolCall?.ProviderRequestPayloadId || toolCall?.providerRequestPayloadId || message?.ProviderRequestPayloadId || message?.providerRequestPayloadId || '',
-    providerResponsePayloadId: toolCall?.ProviderResponsePayloadId || toolCall?.providerResponsePayloadId || message?.ProviderResponsePayloadId || message?.providerResponsePayloadId || '',
-    streamPayloadId: toolCall?.StreamPayloadId || toolCall?.streamPayloadId || message?.StreamPayloadId || message?.streamPayloadId || '',
-    requestPayload,
-    responsePayload,
-    providerRequestPayload,
-    providerResponsePayload,
-    streamPayload
-  };
-}
-
-function normalizeModelStepFromTranscript(message = {}) {
-  const modelCall = message?.ModelCall || message?.modelCall || {};
-  return {
-    id: message?.Id || message?.id || modelCall?.MessageId || modelCall?.messageId || '',
-    kind: 'model',
-    reason: Number(message?.Interim || message?.interim || 0) === 1 ? 'thinking' : 'final_response',
-    toolName: `${String(modelCall?.Provider || modelCall?.provider || '').trim() ? `${String(modelCall?.Provider || modelCall?.provider || '').trim()}/` : ''}${String(modelCall?.Model || modelCall?.model || '').trim()}` || 'model',
-    provider: modelCall?.Provider || modelCall?.provider || '',
-    model: modelCall?.Model || modelCall?.model || '',
-    status: modelCall?.Status || modelCall?.status || message?.Status || message?.status || '',
-    latencyMs: modelCall?.LatencyMs || modelCall?.latencyMs || null,
-    requestPayloadId: modelCall?.RequestPayloadId || modelCall?.requestPayloadId || '',
-    responsePayloadId: modelCall?.ResponsePayloadId || modelCall?.responsePayloadId || '',
-    providerRequestPayloadId: modelCall?.ProviderRequestPayloadId || modelCall?.providerRequestPayloadId || '',
-    providerResponsePayloadId: modelCall?.ProviderResponsePayloadId || modelCall?.providerResponsePayloadId || '',
-    streamPayloadId: modelCall?.StreamPayloadId || modelCall?.streamPayloadId || '',
-    requestPayload: resolvePayload(modelCall?.ModelCallRequestPayload || modelCall?.modelCallRequestPayload || modelCall?.RequestPayload || modelCall?.requestPayload),
-    responsePayload: resolvePayload(modelCall?.ModelCallResponsePayload || modelCall?.modelCallResponsePayload || modelCall?.ResponsePayload || modelCall?.responsePayload),
-    providerRequestPayload: resolvePayload(modelCall?.ModelCallProviderRequestPayload || modelCall?.modelCallProviderRequestPayload),
-    providerResponsePayload: resolvePayload(modelCall?.ModelCallProviderResponsePayload || modelCall?.modelCallProviderResponsePayload),
-    streamPayload: resolvePayload(modelCall?.ModelCallStreamPayload || modelCall?.modelCallStreamPayload)
-  };
-}
-
 function currentConversationId() {
   if (typeof window === 'undefined') return '';
   const match = String(window.location?.pathname || '').match(/\/conversation\/([^/?#]+)/);
@@ -318,7 +242,7 @@ async function hydrateToolCallFromTranscript(toolCall = {}) {
   let turns;
   try {
     const transcript = await client.getTranscript({ conversationId, includeModelCalls: true, includeToolCalls: true });
-    turns = Array.isArray(transcript?.turns) ? transcript.turns : [];
+    turns = transcriptConversationTurns(transcript);
   } catch (_) {
     return toolCall;
   }
@@ -330,48 +254,21 @@ async function hydrateToolCallFromTranscript(toolCall = {}) {
     || (toolCall?.toolName ? 'tool' : '')
     || ''
   ).trim().toLowerCase();
-  for (const turn of turns) {
-    const messages = Array.isArray(turn?.Message) ? turn.Message : [];
-    for (const message of messages) {
-      const messageId = String(message?.Id || message?.id || '').trim();
-      if (targetKind === 'model' && (message?.ModelCall || message?.modelCall)) {
-        const candidate = normalizeModelStepFromTranscript(message);
-        const idMatch = targetId && candidate.id === targetId;
-        const modelMatch = toolCall?.model && candidate.model && String(candidate.model).toLowerCase() === String(toolCall.model).toLowerCase();
-        const providerMatch = toolCall?.provider && candidate.provider && String(candidate.provider).toLowerCase() === String(toolCall.provider).toLowerCase();
-        if (idMatch || ((modelMatch || providerMatch) && toolCallHasPayloads(candidate))) {
+  for (const candidate of flattenCanonicalTranscriptSteps(turns)) {
+    const candidateId = String(candidate.id || '').trim();
+    const candidateName = String(candidate.toolName || '').trim().toLowerCase().replace(/[:\-_]/g, '');
+    if (targetKind === 'model' && String(candidate.kind || '').toLowerCase() === 'model') {
+      const idMatch = targetId && candidateId === targetId;
+      const modelMatch = toolCall?.model && candidate.model && String(candidate.model).toLowerCase() === String(toolCall.model).toLowerCase();
+      const providerMatch = toolCall?.provider && candidate.provider && String(candidate.provider).toLowerCase() === String(toolCall.provider).toLowerCase();
+      if (idMatch || ((modelMatch || providerMatch) && toolCallHasPayloads(candidate))) {
+        return mergeHydratedToolCall(toolCall, candidate);
+      }
+    }
+    if ((targetKind === 'tool' || targetKind === '') && String(candidate.kind || '').toLowerCase() === 'tool') {
+      if ((targetId && candidateId === targetId) || (targetName && candidateName === targetName)) {
+        if (toolCallHasPayloads(candidate) || (targetId && candidateId === targetId)) {
           return mergeHydratedToolCall(toolCall, candidate);
-        }
-      }
-      // Also check if a tool-kind step is actually this model's foreground agent run
-      if (targetKind === 'model' && !targetId) {
-        const directName = String(message?.ToolName || message?.toolName || '').trim().toLowerCase().replace(/[:\-_]/g, '');
-        if (directName && targetName && directName === targetName) {
-          const attached = normalizeToolStepFromTranscript(message);
-          if (toolCallHasPayloads(attached)) {
-            return mergeHydratedToolCall(toolCall, attached);
-          }
-        }
-      }
-      if (targetKind === 'tool' || targetKind === '') {
-        const directName = String(message?.ToolName || message?.toolName || '').trim().toLowerCase().replace(/[:\-_]/g, '');
-        if ((targetId && messageId === targetId) || (targetName && directName === targetName)) {
-          const attached = normalizeToolStepFromTranscript(message);
-          // Accept even without payloads if ID matches — tool may still be running.
-          if (toolCallHasPayloads(attached) || (targetId && messageId === targetId)) {
-            return mergeHydratedToolCall(toolCall, attached);
-          }
-        }
-        const toolMessages = Array.isArray(message?.ToolMessage) ? message.ToolMessage : [];
-        for (const item of toolMessages) {
-          const candidate = normalizeToolStepFromTranscript(item);
-          const candidateId = String(candidate.id || '').trim();
-          const candidateName = String(candidate.toolName || '').trim().toLowerCase().replace(/[:\-_]/g, '');
-          if ((targetId && candidateId === targetId) || (targetName && candidateName === targetName)) {
-            if (toolCallHasPayloads(candidate) || (targetId && candidateId === targetId)) {
-              return mergeHydratedToolCall(toolCall, candidate);
-            }
-          }
         }
       }
     }
@@ -399,6 +296,11 @@ export default function DetailPanel({ toolCall, onClose }) {
   const kind = useMemo(() => detailKind(effectiveToolCall), [effectiveToolCall]);
   const tokenUsage = useMemo(() => readTokenUsage(effectiveToolCall || {}), [effectiveToolCall]);
   const linkedConversationId = useMemo(() => findLinkedConversationId(effectiveToolCall || {}), [effectiveToolCall]);
+  const errorText = String(
+    effectiveToolCall?.errorMessage
+    || effectiveToolCall?.ErrorMessage
+    || ''
+  ).trim();
   const canOpenLinkedConversation = Boolean(linkedConversationId)
     && (isAgentRunTool(effectiveToolCall || {}) || kind === 'link');
   const payloadCapable = kind === 'tool_call' || kind === 'thinking';
@@ -484,6 +386,7 @@ export default function DetailPanel({ toolCall, onClose }) {
         {isModel && effectiveToolCall?.provider ? <div><strong>Provider:</strong> {effectiveToolCall.provider}</div> : null}
         {isModel && effectiveToolCall?.model ? <div><strong>Model:</strong> {effectiveToolCall.model}</div> : null}
         {effectiveToolCall?.latencyMs ? <div><strong>Duration:</strong> {Math.round(effectiveToolCall.latencyMs)}ms</div> : null}
+        {errorText ? <div className="app-detail-error"><strong>Error:</strong> {errorText}</div> : null}
         {isModel && tokenUsage ? (
           <div className="app-detail-token-usage">
             <span className="app-detail-token-chip">Prompt {tokenUsage.prompt ?? 'n/a'}</span>
