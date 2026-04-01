@@ -195,7 +195,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(groups[0].preambleContent).toBe('I am going to inspect the repository.');
   });
 
-  it('suppresses router-only model groups from presentable execution output', () => {
+  it('keeps router-only model groups visible in execution details', () => {
     const groups = mapCanonicalExecutionGroups([
       {
         parentMessageId: 'router-1',
@@ -218,10 +218,8 @@ describe('mapCanonicalExecutionGroups', () => {
     ]);
 
     expect(groups).toHaveLength(1);
-    expect(groups[0].hiddenRouterStep).toBe(true);
-    expect(groups[0].finalContent).toBe('');
-    expect(groups[0].preambleContent).toBe('');
-    expect(resolveVisibleBubbleContent(groups)).toBe('');
+    expect(groups[0].finalContent).toBe('{"agentId":"coder"}');
+    expect(resolveVisibleBubbleContent(groups)).toBe('{"agentId":"coder"}');
   });
 
   it('keeps the latest visible page on the most recent presentable group when the newest group is model-only', () => {
@@ -318,7 +316,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(presentable[0].preambleContent).toContain('workspace root');
   });
 
-  it('renders planned tool calls from the model response when persisted tool rows have not arrived yet', () => {
+  it('renders plan and planned tool calls from the model response when persisted tool rows have not arrived yet', () => {
     const groups = mapCanonicalExecutionGroups([
       {
         parentMessageId: 'm1',
@@ -348,12 +346,13 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(groups).toHaveLength(1);
     expect(groups[0].toolSteps.map((step) => step.toolName)).toEqual([
+      'orchestration/updatePlan',
       'resources-list',
       'resources-grepFiles'
     ]);
   });
 
-  it('suppresses plan-only execution groups from visible execution details', () => {
+  it('keeps plan-only execution groups visible in execution details', () => {
     const groups = mapCanonicalExecutionGroups([
       {
         parentMessageId: 'm1',
@@ -377,7 +376,11 @@ describe('mapCanonicalExecutionGroups', () => {
       }
     ]);
 
-    expect(groups).toHaveLength(0);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].toolSteps.map((step) => step.toolName)).toEqual([
+      'orchestration/updatePlan'
+    ]);
+    expect(groups[0].preambleContent).toBe('Calling updatePlan.');
   });
 
   it('uses final content for the visible page bubble when a visible page is final', () => {

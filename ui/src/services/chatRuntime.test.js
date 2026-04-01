@@ -896,7 +896,7 @@ describe('createNewConversation', () => {
 });
 
 describe('mapTranscriptToRows', () => {
-  it('keeps canonical iteration-0 summary pages out of the visible assistant message and execution pages', async () => {
+  it('keeps canonical iteration-0 summary pages out of the visible assistant message but includes them in execution pages', async () => {
     client.getTranscript.mockResolvedValueOnce({
       turns: [
         {
@@ -935,10 +935,14 @@ describe('mapTranscriptToRows', () => {
 
     const turns = await fetchTranscript('conv-1');
     expect(turns).toHaveLength(1);
-    expect(turns[0].executionGroups).toHaveLength(1);
+    expect(turns[0].executionGroups).toHaveLength(2);
     expect(turns[0].executionGroups[0]).toMatchObject({
       pageId: 'page-final',
       iteration: 11
+    });
+    expect(turns[0].executionGroups[1]).toMatchObject({
+      pageId: 'page-summary',
+      iteration: 0
     });
     expect(turns[0].message).toEqual(
       expect.arrayContaining([

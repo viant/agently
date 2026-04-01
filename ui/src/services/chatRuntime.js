@@ -1310,6 +1310,10 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
       const pages = Array.isArray(turn.execution?.pages) ? turn.execution.pages : [];
       const summaryPages = pages.filter((page) => Number(page?.iteration || 0) === 0);
       const visiblePages = pages.filter((page) => Number(page?.iteration || 0) !== 0 && isVisibleExecutionPage(page));
+      const executionPages = [
+        ...visiblePages,
+        ...summaryPages.filter((page) => isVisibleExecutionPage(page) || String(page?.content || '').trim() !== '')
+      ];
       const messages = [];
       if (turn.user) {
         messages.push({
@@ -1387,10 +1391,10 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
         status: turn.status || '',
         createdAt: turn.createdAt || '',
         message: messages,
-        executionGroups: visiblePages,
-        executionGroupsTotal: visiblePages.length,
+        executionGroups: executionPages,
+        executionGroupsTotal: executionPages.length,
         executionGroupsOffset: 0,
-        executionGroupsLimit: visiblePages.length
+        executionGroupsLimit: executionPages.length
       };
     });
   }
