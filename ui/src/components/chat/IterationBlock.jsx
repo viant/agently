@@ -650,12 +650,18 @@ export function resolveIterationBubbleContent({
   preambleContent = '',
   streamContent = ''
 } = {}) {
+  const finalVisibleBubble = String(resolveVisibleBubbleContent(visibleGroups) || '').trim();
+  const hasFinalVisibleGroup = (Array.isArray(visibleGroups) ? visibleGroups : []).some((group) => {
+    const finalText = String(group?.finalContent || '').trim();
+    return !!group?.finalResponse && finalText !== '';
+  });
   return String(
-    resolveVisibleBubbleContent(visibleGroups)
+    (hasFinalVisibleGroup ? finalVisibleBubble : '')
+    || streamContent
+    || finalVisibleBubble
     || iterationContent
     || responseContent
     || preambleContent
-    || streamContent
     || ''
   ).trim();
 }

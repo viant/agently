@@ -441,6 +441,24 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(shouldShowPreambleBubble([], text)).toBe(true);
   });
 
+  it('prefers live stream content over preamble text until a final visible response exists', () => {
+    const text = resolveIterationBubbleContent({
+      visibleGroups: [
+        {
+          finalResponse: false,
+          preambleContent: 'Calling MetricsAdCube.'
+        }
+      ],
+      iterationContent: '',
+      responseContent: '',
+      preambleContent: 'Calling MetricsAdCube.',
+      streamContent: '<!-- CHART_SPEC:v1 -->\n```json\n{"chart":{"type":"bar"},"data":[{"x":"a","value":1}]}\n```'
+    });
+
+    expect(text).toContain('CHART_SPEC:v1');
+    expect(text).not.toBe('Calling MetricsAdCube.');
+  });
+
   it('resolves the execution header agent label from explicit iteration agent id using meta labels', () => {
     const context = {
       Context(name) {
