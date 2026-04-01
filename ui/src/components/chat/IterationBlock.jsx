@@ -81,10 +81,6 @@ function stepTitle(step) {
   return displayStepTitle(step);
 }
 
-function isPlanToolName(name = '') {
-  return normalizeToolName(name).includes('orchestrationupdateplan');
-}
-
 function rawToolTitle(step = {}) {
   return String(step?.toolName || step?.ToolName || 'tool');
 }
@@ -263,21 +259,6 @@ function extractAgentIdFromPayload(payload = null) {
     || parsed?.AgentID
     || ''
   ).trim();
-}
-
-function isRouterPayload(payload = null) {
-  const parsed = parseMaybeJSON(payload);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
-  const options = parsed?.options && typeof parsed.options === 'object' ? parsed.options : null;
-  return String(options?.mode || parsed?.mode || '').trim().toLowerCase() === 'router';
-}
-
-function isRouterSelectionPayload(payload = null) {
-  const parsed = parseMaybeJSON(payload);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
-  const keys = Object.keys(parsed);
-  if (keys.length === 0 || keys.length > 2) return false;
-  return !!String(parsed?.agentId || parsed?.agentID || parsed?.AgentID || '').trim();
 }
 
 function truncate(value, limit = 80) {
@@ -504,12 +485,6 @@ export function mapCanonicalExecutionGroups(groups = []) {
       providerResponsePayload: modelStep0?.modelCallProviderResponsePayload || modelStep0?.ModelCallProviderResponsePayload || null,
       streamPayload: modelStep0?.modelCallStreamPayload || modelStep0?.ModelCallStreamPayload || null
     } : null;
-    const hiddenRouterStep = !!modelStep && (
-      isRouterPayload(modelStep.requestPayload)
-      || isRouterPayload(modelStep.providerRequestPayload)
-      || isRouterSelectionPayload(modelStep.responsePayload)
-      || isRouterSelectionPayload(modelStep.providerResponsePayload)
-    );
     const actualToolSteps = toolStepsRaw.map((ts, toolIndex) => {
       const messageID = String(ts?.toolMessageId || ts?.messageId || ts?.MessageId || '').trim();
       const toolMessage = messageID ? toolMessageByID.get(messageID) : null;
@@ -529,7 +504,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
         responsePayload: ts?.responsePayload || ts?.ResponsePayload || null,
         linkedConversationId: ts?.linkedConversationId || ts?.LinkedConversationId || toolMessage?.linkedConversationId || toolMessage?.LinkedConversationId || ''
       };
-    }).filter((step) => !isPlanToolName(step?.toolName));
+    });
     const actualByKey = new Set(actualToolSteps.map((step) => toolStepKey(step)));
     const plannedToolSteps = plannedToolCalls
       .map((call, toolIndex) => ({
@@ -546,15 +521,13 @@ export function mapCanonicalExecutionGroups(groups = []) {
         responsePayload: null,
         linkedConversationId: ''
       }))
-      .filter((step) => !isPlanToolName(step?.toolName))
       .filter((step) => {
         const key = toolStepKey(step);
         return key && !actualByKey.has(key);
       });
     const toolSteps = [...actualToolSteps, ...plannedToolSteps];
     const rawPreambleContent = String(group?.preamble || group?.Preamble || '').trim();
-    const onlyPlanTools = (toolStepsRaw.length > 0 || plannedToolCalls.length > 0) && toolSteps.length === 0;
-    const preambleContent = hiddenRouterStep || onlyPlanTools ? '' : rawPreambleContent;
+    const preambleContent = rawPreambleContent;
     const status = String(group?.status || group?.Status || modelStep?.status || '').trim();
     const title = groupTitleFromSteps({
       preamble: preambleContent ? { content: preambleContent } : null,
@@ -570,15 +543,12 @@ export function mapCanonicalExecutionGroups(groups = []) {
       toolSteps,
       detailStep: modelStep || toolSteps[0] || null,
       status,
-      finalResponse: hiddenRouterStep ? false : Boolean(group?.finalResponse || group?.FinalResponse),
-      finalContent: hiddenRouterStep ? '' : String(group?.content || group?.Content || '').trim(),
+      finalResponse: Boolean(group?.finalResponse || group?.FinalResponse),
+      finalContent: String(group?.content || group?.Content || '').trim(),
       elapsed: aggregateLatencyLabel([...(modelStep ? [modelStep] : []), ...toolSteps]),
-      stepCount: (modelStep ? 1 : 0) + toolSteps.length,
-      hiddenRouterStep,
-      hiddenPlanOnlyStep: onlyPlanTools && !Boolean(group?.finalResponse || group?.FinalResponse)
+      stepCount: (modelStep ? 1 : 0) + toolSteps.length
     };
   }).filter((group) => {
-    if (group?.hiddenPlanOnlyStep) return false;
     const hasModel = !!group?.modelStep;
     const hasTools = Array.isArray(group?.toolSteps) && group.toolSteps.length > 0;
     const hasPreamble = String(group?.preambleContent || '').trim() !== '';
@@ -734,7 +704,6 @@ function paginate(total, visible, offset) {
 }
 
 function isPresentableGroup(group = {}) {
-  if (group?.hiddenRouterStep) return false;
   const preambleText = String(group?.preambleContent || '').trim();
   const finalText = String(group?.finalContent || '').trim();
   const toolCount = Array.isArray(group?.toolSteps) ? group.toolSteps.length : 0;
