@@ -93,6 +93,36 @@ describe('applyStreamChunk', () => {
 });
 
 describe('applyExecutionStreamEvent', () => {
+  it('keeps the turn-level row running when an intermediate model step completes', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'streaming',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'conv-1');
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'completed',
+      createdAt: '2026-03-16T10:00:04Z',
+      responsePayloadId: 'resp-1'
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0].status).toBe('running');
+    expect(chatState.liveRows[0].turnStatus).toBe('running');
+    expect(chatState.liveRows[0].executionGroups[0].status).toBe('completed');
+    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0].status).toBe('completed');
+  });
+
   it('preserves turn agent identity on execution rows', () => {
     const chatState = { liveRows: [] };
 
@@ -914,6 +944,39 @@ describe('applyExecutionStreamEvent', () => {
     const assistantRow = chatState.liveRows.find((r) => r.role === 'assistant');
     expect(userRow.content).toBe('show me HOME env var');
     expect(assistantRow.executionGroups).toHaveLength(1);
+  });
+
+  it('message_patch for user role merges into an existing synthetic user row for the same turn', () => {
+    const chatState = {
+      liveRows: [{
+        id: 'user:turn-1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-03-16T10:00:00Z',
+        content: 'Forecast inventory and uniques for this targeting set: deal 106171723',
+        rawContent: 'Forecast inventory and uniques for this targeting set: deal 106171723',
+        interim: 0,
+        status: 'completed',
+        turnStatus: 'running',
+      }]
+    };
+
+    applyMessagePatchEvent(chatState, {
+      id: 'turn-1',
+      patch: {
+        role: 'user',
+        turnId: 'turn-1',
+        content: 'Forecast inventory and uniques for this targeting set: deal 106171723',
+        rawContent: 'Forecast inventory and uniques for this targeting set: deal 106171723',
+        interim: 0,
+        createdAt: '2026-03-16T10:00:00Z'
+      }
+    });
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0].id).toBe('user:turn-1');
+    expect(chatState.liveRows[0].role).toBe('user');
+    expect(chatState.liveRows[0].content).toBe('Forecast inventory and uniques for this targeting set: deal 106171723');
   });
 
   it('full 2-iteration turn: preamble replaced by final, tool call visible', () => {

@@ -69,7 +69,7 @@ func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, inpu
 		streamer.Close()
 		return nil, false, fmt.Errorf("elicitation required; run interactively or provide --elicitation-default")
 	}
-	content, err := waitForAssistantContent(ctx, client, strings.TrimSpace(out.ConversationID), startedAt, defaultPayload, seedPayload)
+	content, err := waitForAssistantContent(ctx, client, streamer, strings.TrimSpace(out.ConversationID), startedAt, defaultPayload, seedPayload)
 	if err != nil {
 		return nil, false, err
 	}
@@ -81,6 +81,7 @@ func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, inpu
 type chatStreamer struct {
 	sub     streamingrt.Subscription
 	done    chan struct{}
+	tracker *sdk.ConversationStreamTracker
 	content strings.Builder
 	printed bool
 }
@@ -90,7 +91,11 @@ func startChatStream(ctx context.Context, client *sdk.HTTPClient, conversationID
 	if err != nil {
 		return nil, fmt.Errorf("stream events: %w", err)
 	}
-	streamer := &chatStreamer{sub: sub, done: make(chan struct{})}
+	streamer := &chatStreamer{
+		sub:     sub,
+		done:    make(chan struct{}),
+		tracker: sdk.NewConversationStreamTracker(conversationID),
+	}
 	go streamer.consume()
 	return streamer, nil
 }
@@ -103,6 +108,9 @@ func (s *chatStreamer) consume() {
 	for event := range s.sub.C() {
 		if event == nil {
 			continue
+		}
+		if s.tracker != nil {
+			s.tracker.ApplyEvent(event)
 		}
 		switch event.Type {
 		case streamingrt.EventTypeTextDelta:
@@ -170,7 +178,7 @@ func (s *chatStreamer) Close() {
 	}
 }
 
-func waitForAssistantContent(ctx context.Context, client *sdk.HTTPClient, conversationID string, startedAt time.Time, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}) (string, error) {
+func waitForAssistantContent(ctx context.Context, client *sdk.HTTPClient, streamer *chatStreamer, conversationID string, startedAt time.Time, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}) (string, error) {
 	_ = startedAt
 	if strings.TrimSpace(conversationID) == "" {
 		return "", nil
@@ -182,6 +190,13 @@ func waitForAssistantContent(ctx context.Context, client *sdk.HTTPClient, conver
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-ticker.C:
+			if streamer != nil && streamer.tracker != nil {
+				if content, ok, err := latestAssistantContentFromState(streamer.tracker.State()); err != nil {
+					return "", err
+				} else if ok {
+					return content, nil
+				}
+			}
 			if handled, err := handlePendingElicitation(ctx, client, conversationID, defaultPayload, seedPayload); err != nil {
 				return "", err
 			} else if handled {
@@ -216,6 +231,28 @@ func waitForAssistantContent(ctx context.Context, client *sdk.HTTPClient, conver
 			}
 		}
 	}
+}
+
+func latestAssistantContentFromState(state *sdk.ConversationState) (string, bool, error) {
+	if state == nil || len(state.Turns) == 0 {
+		return "", false, nil
+	}
+	turn := state.Turns[len(state.Turns)-1]
+	if turn == nil {
+		return "", false, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(string(turn.Status))) {
+	case "failed":
+		return "", false, fmt.Errorf("turn failed")
+	case "canceled":
+		return "", false, fmt.Errorf("turn canceled")
+	}
+	if turn.Assistant != nil && turn.Assistant.Final != nil {
+		if content := strings.TrimSpace(turn.Assistant.Final.Content); content != "" {
+			return content, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func handlePendingElicitation(ctx context.Context, client *sdk.HTTPClient, conversationID string, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}) (bool, error) {

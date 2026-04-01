@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
 
-import { bootstrapConversationSelection, createNewConversation, ensureConversation, fetchTranscript, handleStreamEvent, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, shouldUseLiveStream } from './chatRuntime';
+import { bootstrapConversationSelection, createNewConversation, dsTick, ensureConversation, fetchTranscript, handleStreamEvent, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream } from './chatRuntime';
 import { client } from './agentlyClient';
 
 vi.mock('./agentlyClient', () => ({
@@ -79,6 +79,70 @@ describe('resolveStarterTasks', () => {
 });
 
 describe('handleStreamEvent', () => {
+  it('derives missing conversation ids from the subscribed stream conversation', () => {
+    expect(resolveStreamEventConversationID({ type: 'text_delta' }, 'conv-1')).toBe('conv-1');
+    expect(shouldProcessStreamEvent({
+      payload: { type: 'text_delta' },
+      subscribedConversationID: 'conv-1',
+      visibleConversationID: 'conv-1'
+    })).toBe(true);
+  });
+
+  it('ignores events for conversations outside the active subscriber window', () => {
+    expect(shouldProcessStreamEvent({
+      payload: { type: 'text_delta', conversationId: 'conv-2' },
+      subscribedConversationID: 'conv-1',
+      visibleConversationID: 'conv-1'
+    })).toBe(false);
+  });
+
+  it('ignores summary-mode execution events so maintenance work does not reanimate the live card', () => {
+    const chatState = {
+      liveRows: [],
+      lastHasRunning: false,
+      activeConversationID: 'conv-1',
+      runningTurnId: 'turn-1',
+      activeStreamTurnId: 'turn-1'
+    };
+    const context = {
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'model_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'summary-msg-1',
+      status: 'thinking',
+      mode: 'summary'
+    });
+
+    expect(chatState.liveRows).toEqual([]);
+  });
+
   it('does not reference a raw MessageEvent when given a parsed SSE payload', () => {
     const chatState = { liveRows: [], lastHasRunning: false };
     expect(() => handleStreamEvent(chatState, {}, 'conv-1', {
@@ -86,6 +150,159 @@ describe('handleStreamEvent', () => {
       conversationId: 'conv-1',
       content: 'hello'
     })).not.toThrow();
+  });
+
+  it('coalesces text_delta bursts into a single render frame', async () => {
+    vi.useFakeTimers();
+    const setCollection = vi.fn();
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      requestAnimationFrame: (cb) => setTimeout(cb, 16),
+      cancelAnimationFrame: (id) => clearTimeout(id),
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      localStorage: createStorage(),
+      sessionStorage: createStorage(),
+      location: { pathname: '/conversation/conv-1' }
+    };
+    try {
+      const chatState = {
+        liveRows: [],
+        transcriptRows: [],
+        renderRows: [],
+        lastHasRunning: false,
+        activeConversationID: 'conv-1',
+        liveOwnedConversationID: 'conv-1',
+        liveOwnedTurnIds: ['turn-1']
+      };
+      const context = {
+        identity: { windowId: 'chat/main' },
+        resources: { chat: chatState },
+        Context(name) {
+          if (name === 'conversations') {
+            return {
+              handlers: {
+                dataSource: {
+                  peekFormData: () => ({ id: 'conv-1' }),
+                  setFormData: vi.fn()
+                }
+              }
+            };
+          }
+          if (name === 'messages') {
+            return {
+              handlers: {
+                dataSource: {
+                  setCollection,
+                  setError: vi.fn()
+                }
+              }
+            };
+          }
+          if (name === 'meta') {
+            return {
+              handlers: {
+                dataSource: {
+                  peekFormData: () => ({ defaults: {}, agentInfos: [] })
+                }
+              }
+            };
+          }
+          return null;
+        }
+      };
+
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'text_delta',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        id: 'msg-1',
+        content: 'Hello'
+      });
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'text_delta',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        id: 'msg-1',
+        content: ' world'
+      });
+
+      expect(setCollection).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(20);
+
+      expect(setCollection).toHaveBeenCalledTimes(1);
+      expect(chatState.liveRows[0]?.content).toBe('Hello world');
+    } finally {
+      globalThis.window = originalWindow;
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores late execution events after the turn is already terminal', () => {
+    const setCollection = vi.fn();
+    const setFormData = vi.fn();
+    const chatState = {
+      liveRows: [{
+        id: 'assistant:turn-1:live',
+        role: 'assistant',
+        turnId: 'turn-1',
+        status: 'completed',
+        turnStatus: 'completed',
+        content: 'Final answer',
+        executionGroups: [{
+          assistantMessageId: 'msg-1',
+          status: 'completed',
+          modelSteps: [{ modelCallId: 'msg-1', status: 'completed' }],
+          toolSteps: [],
+          toolCallsPlanned: []
+        }],
+        createdAt: '2026-03-31T10:00:00Z'
+      }],
+      lastHasRunning: false,
+      terminalTurns: { 'turn-1': '2026-03-31T10:00:10Z' }
+    };
+    const context = {
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection,
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'model_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'msg-1',
+      status: 'streaming',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    });
+
+    expect(chatState.liveRows[0].status).toBe('completed');
+    expect(chatState.liveRows[0].turnStatus).toBe('completed');
+    expect(chatState.lastHasRunning).toBe(false);
+    expect(setCollection).not.toHaveBeenCalled();
+    expect(setFormData).not.toHaveBeenCalled();
   });
 
   it('publishes sidebar activity for hidden conversation terminal events', () => {
@@ -302,6 +519,45 @@ describe('handleStreamEvent', () => {
       globalThis.CustomEvent = originalCustomEvent;
       vi.useRealTimers();
     }
+  });
+});
+
+describe('dsTick', () => {
+  it('does not fetch transcript for the active live-owned conversation', async () => {
+    client.getTranscript.mockReset();
+    const context = {
+      resources: {
+        chat: {
+          liveOwnedConversationID: 'conv-1',
+          liveOwnedTurnIds: ['turn-1'],
+          runningTurnId: 'turn-1',
+          activeStreamTurnId: 'turn-1',
+          lastHasRunning: true,
+          transcriptRows: [{ id: 'user:turn-1', role: 'user', turnId: 'turn-1', content: 'hi' }],
+          liveRows: [{ id: 'assistant:turn-1:live', role: 'assistant', turnId: 'turn-1' }],
+          lastQueuedTurns: []
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const result = await dsTick(context, { conversationID: 'conv-1' });
+
+    expect(client.getTranscript).not.toHaveBeenCalled();
+    expect(result?.deferredToLiveStream).toBe(true);
+    expect(result?.conversationID).toBe('conv-1');
   });
 });
 

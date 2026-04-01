@@ -338,15 +338,8 @@ export function mergeRenderedRows({
   const transcriptBase = transcriptList
     .map((row) => {
       const turnId = String(row?.turnId || '').trim();
-      const role = String(row?.role || '').toLowerCase();
       if (!hasLiveSession || !ownedTurnIds.has(turnId)) {
         return { ...row, _rowSource: 'transcript' };
-      }
-      if (role === 'user') {
-        return { ...row, _rowSource: 'transcript' };
-      }
-      if (role === 'assistant') {
-        return { ...row, _rowSource: 'transcript', _bubbleSource: 'stream' };
       }
       return null;
     })
