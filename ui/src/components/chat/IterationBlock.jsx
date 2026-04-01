@@ -103,24 +103,36 @@ function linkedConversationLabel(value = '') {
   return agentLabel(humanizeAgentId(text));
 }
 
+function linkedConversationAgent(step = {}) {
+  return String(
+    step?.agentName
+    || step?.agentId
+    || step?.AgentId
+    || step?.linkedConversationAgentId
+    || step?.LinkedConversationAgentId
+    || ''
+  ).trim();
+}
+
 export function displayLinkedConversationTitle(step = {}, context = null) {
-  const explicitTitle = String(step?.title || step?.Title || '').trim();
+  const explicitTitle = String(step?.title || step?.Title || step?.linkedConversationTitle || step?.LinkedConversationTitle || '').trim();
   if (explicitTitle) return explicitTitle;
-  const explicitAgent = String(step?.agentName || step?.agentId || step?.AgentId || '').trim();
-  if (explicitAgent) return linkedConversationLabel(explicitAgent);
+  const explicitAgent = linkedConversationAgent(step);
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   const metaForm = metaDS?.peekFormData?.() || {};
   const byKey = metaForm?.agentInfo?.[explicitAgent] || null;
   const keyedName = String(byKey?.label || byKey?.name || byKey?.title || '').trim();
   if (keyedName) return keyedName;
+  if (explicitAgent) return linkedConversationLabel(explicitAgent);
   return 'Linked conversation';
 }
 
 export function displayLinkedConversationSubtitle(step = {}) {
   const response = String(step?.response || step?.Response || '').trim();
   if (response) return response;
-  const explicitId = String(step?.linkedConversationId || step?.conversationId || step?.ConversationId || '').trim();
-  return explicitId;
+  const explicitAgent = linkedConversationAgent(step);
+  if (explicitAgent) return linkedConversationLabel(explicitAgent);
+  return '';
 }
 
 function previewGroupContent(entry = {}) {
@@ -502,7 +514,9 @@ export function mapCanonicalExecutionGroups(groups = []) {
         responsePayloadId: ts?.responsePayloadId || ts?.ResponsePayloadId || '',
         requestPayload: ts?.requestPayload || ts?.RequestPayload || null,
         responsePayload: ts?.responsePayload || ts?.ResponsePayload || null,
-        linkedConversationId: ts?.linkedConversationId || ts?.LinkedConversationId || toolMessage?.linkedConversationId || toolMessage?.LinkedConversationId || ''
+        linkedConversationId: ts?.linkedConversationId || ts?.LinkedConversationId || toolMessage?.linkedConversationId || toolMessage?.LinkedConversationId || '',
+        linkedConversationAgentId: ts?.linkedConversationAgentId || ts?.LinkedConversationAgentId || toolMessage?.linkedConversationAgentId || toolMessage?.LinkedConversationAgentId || '',
+        linkedConversationTitle: ts?.linkedConversationTitle || ts?.LinkedConversationTitle || toolMessage?.linkedConversationTitle || toolMessage?.LinkedConversationTitle || ''
       };
     });
     const actualByKey = new Set(actualToolSteps.map((step) => toolStepKey(step)));
@@ -529,9 +543,23 @@ export function mapCanonicalExecutionGroups(groups = []) {
     const rawPreambleContent = String(group?.preamble || group?.Preamble || '').trim();
     const preambleContent = rawPreambleContent;
     const status = String(group?.status || group?.Status || modelStep?.status || '').trim();
+    const errorMessage = String(group?.errorMessage || group?.ErrorMessage || modelStep0?.errorMessage || modelStep0?.ErrorMessage || '').trim();
+    const modelStepWithError = modelStep ? {
+      ...modelStep,
+      errorMessage: errorMessage || modelStep?.errorMessage || ''
+    } : null;
+    const effectiveModelStep = modelStepWithError || (errorMessage ? {
+      id: String(group?.pageId || group?.assistantMessageId || group?.parentMessageId || group?.ParentMessageID || `failed-model:${index}`),
+      kind: 'model',
+      reason: 'thinking',
+      provider: '',
+      model: resolveIterationModelLabel(null) || 'model',
+      status,
+      errorMessage
+    } : null);
     const title = groupTitleFromSteps({
       preamble: preambleContent ? { content: preambleContent } : null,
-      modelStep,
+      modelStep: effectiveModelStep,
       toolSteps
     });
     return {
@@ -539,21 +567,23 @@ export function mapCanonicalExecutionGroups(groups = []) {
       title,
       fullTitle: plainText(preambleContent || title),
       preambleContent,
-      modelStep,
+      modelStep: effectiveModelStep,
       toolSteps,
-      detailStep: modelStep || toolSteps[0] || null,
+      detailStep: effectiveModelStep || toolSteps[0] || null,
       status,
+      errorMessage,
       finalResponse: Boolean(group?.finalResponse || group?.FinalResponse),
       finalContent: String(group?.content || group?.Content || '').trim(),
-      elapsed: aggregateLatencyLabel([...(modelStep ? [modelStep] : []), ...toolSteps]),
-      stepCount: (modelStep ? 1 : 0) + toolSteps.length
+      elapsed: aggregateLatencyLabel([...(effectiveModelStep ? [effectiveModelStep] : []), ...toolSteps]),
+      stepCount: (effectiveModelStep ? 1 : 0) + toolSteps.length
     };
   }).filter((group) => {
     const hasModel = !!group?.modelStep;
     const hasTools = Array.isArray(group?.toolSteps) && group.toolSteps.length > 0;
     const hasPreamble = String(group?.preambleContent || '').trim() !== '';
     const hasFinal = !!group?.finalResponse || String(group?.finalContent || '').trim() !== '';
-    return hasModel || hasTools || hasPreamble || hasFinal;
+    const hasError = String(group?.errorMessage || '').trim() !== '';
+    return hasModel || hasTools || hasPreamble || hasFinal || hasError;
   });
 }
 
@@ -613,12 +643,27 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
   return '';
 }
 
+function resolveFailedBubbleContent(visibleGroups = [], fallbackError = '') {
+  const explicit = String(fallbackError || '').trim();
+  if (explicit) return 'We experienced an error while processing this request.';
+  const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
+  const hasError = groups.some((group) => {
+    const status = String(group?.status || group?.modelStep?.status || '').trim().toLowerCase();
+    return status === 'failed'
+      || status === 'error'
+      || status === 'terminated'
+      || String(group?.errorMessage || group?.modelStep?.errorMessage || '').trim() !== '';
+  });
+  return hasError ? 'We experienced an error while processing this request.' : '';
+}
+
 export function resolveIterationBubbleContent({
   visibleGroups = [],
   iterationContent = '',
   responseContent = '',
   preambleContent = '',
-  streamContent = ''
+  streamContent = '',
+  errorMessage = ''
 } = {}) {
   const finalVisibleBubble = String(resolveVisibleBubbleContent(visibleGroups) || '').trim();
   const hasFinalVisibleGroup = (Array.isArray(visibleGroups) ? visibleGroups : []).some((group) => {
@@ -632,6 +677,7 @@ export function resolveIterationBubbleContent({
     || iterationContent
     || responseContent
     || preambleContent
+    || resolveFailedBubbleContent(visibleGroups, errorMessage)
     || ''
   ).trim();
 }
@@ -706,18 +752,21 @@ function paginate(total, visible, offset) {
 function isPresentableGroup(group = {}) {
   const preambleText = String(group?.preambleContent || '').trim();
   const finalText = String(group?.finalContent || '').trim();
+  const errorText = String(group?.errorMessage || group?.modelStep?.errorMessage || '').trim();
   const toolCount = Array.isArray(group?.toolSteps) ? group.toolSteps.length : 0;
   const plannedCount = Array.isArray(group?.toolCallsPlanned) ? group.toolCallsPlanned.length : 0;
   const isFinal = !!group?.modelStep && String(group?.modelStep?.reason || '').toLowerCase() === 'final_response';
-  return isFinal || toolCount > 0 || plannedCount > 0 || preambleText !== '' || finalText !== '';
+  return isFinal || toolCount > 0 || plannedCount > 0 || preambleText !== '' || finalText !== '' || errorText !== '';
 }
 
 export function buildSyntheticModelGroup({ data = {}, message = {}, context = null, visibleText = '' } = {}) {
   const text = String(visibleText || '').trim();
-  if (!text && !isActiveStatus(data?.status || message?.status)) return null;
+  const errorText = String(data?.errorMessage || message?.errorMessage || '').trim();
+  if (!text && !errorText && !isActiveStatus(data?.status || message?.status)) return null;
   const modelLabel = resolveIterationModelLabel(context);
   const status = String(data?.status || message?.turnStatus || message?.status || (text ? 'completed' : 'running')).trim();
-  const finalResponse = text !== '' && !isActiveStatus(status);
+  const isFailed = isErrorStatus(status);
+  const finalResponse = text !== '' && !isActiveStatus(status) && !isFailed;
   const content = finalResponse ? text : '';
   const preambleContent = finalResponse ? '' : text;
   return {
@@ -731,7 +780,8 @@ export function buildSyntheticModelGroup({ data = {}, message = {}, context = nu
       reason: finalResponse ? 'final_response' : 'thinking',
       provider: '',
       model: modelLabel || 'model',
-      status
+      status,
+      errorMessage: errorText
     },
     toolSteps: [],
     detailStep: {
@@ -740,9 +790,11 @@ export function buildSyntheticModelGroup({ data = {}, message = {}, context = nu
       reason: finalResponse ? 'final_response' : 'thinking',
       provider: '',
       model: modelLabel || 'model',
-      status
+      status,
+      errorMessage: errorText
     },
     status,
+    errorMessage: errorText,
     finalResponse,
     finalContent: content,
     elapsed: '',
@@ -866,6 +918,7 @@ export default function IterationBlock({ message, context }) {
   const [isElicitationOpen, setIsElicitationOpen] = useState(false);
   const [linkedConversationStates, setLinkedConversationStates] = useState([]);
   const [expandedLinkedIds, setExpandedLinkedIds] = useState({});
+  const [linkedSectionExpanded, setLinkedSectionExpanded] = useState(false);
   const groupsRef = useRef(null);
 
   const stepKey = (step) => {
@@ -924,8 +977,9 @@ export default function IterationBlock({ message, context }) {
     iterationContent: message?.content,
     responseContent: data?.response?.content,
     preambleContent: data?.preamble?.content,
-    streamContent: data?.streamContent
-  }), [allGroupEntries, data?.preamble?.content, data?.response?.content, data?.streamContent, message?.content]);
+    streamContent: data?.streamContent,
+    errorMessage: data?.errorMessage
+  }), [allGroupEntries, data?.errorMessage, data?.preamble?.content, data?.response?.content, data?.streamContent, message?.content]);
   const displayGroupEntries = useMemo(
     () => {
       const presentable = allGroupEntries.filter((group) => isPresentableGroup(group));
@@ -938,6 +992,12 @@ export default function IterationBlock({ message, context }) {
   const linkedConversationIds = useMemo(() => {
     const ids = [];
     const seen = new Set();
+    for (const entry of Array.isArray(data?.linkedConversations) ? data.linkedConversations : []) {
+      const id = String(entry?.conversationId || entry?.ConversationId || '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
     for (const group of allGroupEntries) {
       for (const step of Array.isArray(group?.toolSteps) ? group.toolSteps : []) {
         const id = linkedConversationId(step);
@@ -991,12 +1051,36 @@ export default function IterationBlock({ message, context }) {
 
   const linkedConversations = useMemo(() => {
     const seen = new Map();
+    const canonicalLinked = Array.isArray(data?.linkedConversations) ? data.linkedConversations : [];
+    for (const entry of canonicalLinked) {
+      const id = String(entry?.conversationId || entry?.ConversationId || '').trim();
+      if (!id) continue;
+      if (!seen.has(id)) {
+        seen.set(id, {
+          linkedConversationId: id,
+          conversationId: id,
+          linkedConversationAgentId: String(entry?.agentId || entry?.AgentId || '').trim(),
+          agentId: String(entry?.agentId || entry?.AgentId || '').trim(),
+          linkedConversationTitle: String(entry?.title || entry?.Title || '').trim(),
+          title: String(entry?.title || entry?.Title || '').trim(),
+          status: String(entry?.status || entry?.Status || '').trim(),
+          response: String(entry?.response || entry?.Response || '').trim(),
+          createdAt: entry?.createdAt || entry?.CreatedAt || '',
+          updatedAt: entry?.updatedAt || entry?.UpdatedAt || '',
+        });
+      }
+    }
     for (const group of allGroupEntries) {
       for (const step of group.toolSteps) {
         const id = linkedConversationId(step);
         if (!id || !canOpenLinkedConversation(step)) continue;
         if (!seen.has(id)) seen.set(id, step);
       }
+    }
+    for (const step of Array.isArray(data?.toolCalls) ? data.toolCalls : []) {
+      const id = linkedConversationId(step);
+      if (!id || !canOpenLinkedConversation(step)) continue;
+      if (!seen.has(id)) seen.set(id, step);
     }
     for (const state of linkedConversationStates) {
       const id = String(state?.conversationId || '').trim();
@@ -1090,8 +1174,9 @@ export default function IterationBlock({ message, context }) {
     iterationContent: message?.content,
     responseContent: data?.response?.content,
     preambleContent: data?.preamble?.content,
-    streamContent: data?.streamContent
-  }), [data?.preamble?.content, data?.response?.content, data?.streamContent, message?.content, visibleGroups]);
+    streamContent: data?.streamContent,
+    errorMessage: data?.errorMessage
+  }), [data?.errorMessage, data?.preamble?.content, data?.response?.content, data?.streamContent, message?.content, visibleGroups]);
   const hasVisibleElicitation = !!data?.response?.elicitation?.requestedSchema;
   const elicitationStatus = String(data?.response?.status || '').trim().toLowerCase();
   const summaryContent = String(summaryModeMessageContent(data?.summary)).trim();
@@ -1409,25 +1494,6 @@ export default function IterationBlock({ message, context }) {
   }, [hasActiveLinkedConversation, message?.id, data?.turnId, iterationDisplayStatus, isLatestIteration, isActiveIteration, linkedConversationStates]);
 
   useEffect(() => {
-    const activeIds = linkedConversations
-      .filter((entry) => isLinkedConversationActive(entry?.status))
-      .map((entry) => linkedConversationId(entry))
-      .filter(Boolean);
-    if (activeIds.length === 0) return;
-    setExpandedLinkedIds((current) => {
-      const next = { ...current };
-      let changed = false;
-      for (const id of activeIds) {
-        if (!next[id]) {
-          next[id] = true;
-          changed = true;
-        }
-      }
-      return changed ? next : current;
-    });
-  }, [linkedConversations]);
-
-  useEffect(() => {
     if (isLatestIteration && isActiveIteration) {
       setCollapsed(false);
     }
@@ -1445,6 +1511,7 @@ export default function IterationBlock({ message, context }) {
 
   useEffect(() => {
     setExpandedLinkedIds({});
+    setLinkedSectionExpanded(false);
   }, [message?.id, data?.turnId]);
 
   useEffect(() => {
@@ -1522,10 +1589,16 @@ export default function IterationBlock({ message, context }) {
             ) : null}
             {linkedConversations.length > 0 ? (
               <div className="app-iteration-linked-section">
-                <div className="app-iteration-linked-label">
+                <button
+                  type="button"
+                  className="app-iteration-linked-label"
+                  onClick={() => setLinkedSectionExpanded((value) => !value)}
+                >
                   <span className="app-iteration-linked-label-icon">🔗</span>
                   <span>Linked conversations</span>
-                </div>
+                  <span className="app-iteration-linked-conv-arrow">{linkedSectionExpanded ? '▾' : '▸'}</span>
+                </button>
+                {linkedSectionExpanded ? (
                 <div className="app-iteration-linked-list">
                   {linkedConversations.map((step, idx) => {
                     const id = linkedConversationId(step);
@@ -1585,6 +1658,7 @@ export default function IterationBlock({ message, context }) {
                     );
                   })}
                 </div>
+                ) : null}
               </div>
             ) : null}
             {summaryContent ? (

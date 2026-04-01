@@ -3,14 +3,14 @@ export function classifyMessage(message) {
   if (message._type === 'starter') return 'starter';
   if (message._type === 'queue') return 'queue';
   if (message._type === 'iteration') return 'iteration';
-  if (String(message.mode || message.Mode || '').trim().toLowerCase() === 'summary') return undefined;
+  if (String(message.mode || '').trim().toLowerCase() === 'summary') return undefined;
   if (message.status === 'summarized') return undefined;
   if (message.status === 'summary') return undefined;
 
   // Elicitation handling — match original agently logic.
   // Consider forms with captured user payload or terminal status as resolved.
-  const hasUED = !!(message?.UserElicitationData || message?.userElicitationData || message?.userData);
-  const hasPayloadId = !!(message?.elicitationPayloadId || message?.ElicitationPayloadId);
+  const hasUED = !!(message?.userElicitationData || message?.userData);
+  const hasPayloadId = !!(message?.elicitationPayloadId);
   const stLower = String(message.status || '').toLowerCase();
   const isResolved = hasUED || hasPayloadId
     || ['accepted', 'done', 'succeeded', 'success', 'failed', 'error', 'canceled', 'declined'].includes(stLower);
@@ -77,10 +77,10 @@ export function normalizeMessages(raw = [], options = {}) {
   });
   if (hasSyntheticRows) {
     const preservedQueueRows = raw
-      .filter((item) => String(item?.status || item?.Status || '').toLowerCase() !== 'summarized')
+      .filter((item) => String(item?.status || '').toLowerCase() !== 'summarized')
       .filter((item) => String(item?._type || '').toLowerCase() === 'queue');
     const rebuiltBase = raw
-      .filter((item) => String(item?.status || item?.Status || '').toLowerCase() !== 'summarized')
+      .filter((item) => String(item?.status || '').toLowerCase() !== 'summarized')
       .filter((item) => {
         const kind = String(item?._type || '').toLowerCase();
         return !SYNTHETIC_RENDER_TYPES.has(kind) && !item?._iterationData;
@@ -100,40 +100,45 @@ export function normalizeMessages(raw = [], options = {}) {
       if (kind === 'iteration' && !item?._iterationData?.optimistic) return false;
       return true;
     })
-    .filter((item) => String(item?.status || item?.Status || '').toLowerCase() !== 'summarized')
+    .filter((item) => String(item?.status || '').toLowerCase() !== 'summarized')
     .map((item) => normalizeOne(item))
     .sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
   return synthesizeIterationMessages(normalized, visibleCount);
 }
 
 export function normalizeOne(message = {}) {
-  const role = String(message.role || message.Role || '').toLowerCase();
-  const turnId = message.turnId || message.TurnId || '';
+  const role = String(message.role || '').toLowerCase();
+  const turnId = message.turnId || '';
   const content = pickString(
     message.rawContent,
-    message.RawContent,
     message.content,
-    message.Content
+    ''
   );
   const embeddedElicitation = extractEmbeddedElicitation(content);
   const createdAt = normalizeTimestamp(message.createdAt || message.CreatedAt);
   const interim = Number(message.interim ?? message.Interim ?? 0) || 0;
+  const userElicitationData = message.userElicitationData || message.UserElicitationData || null;
+  const elicitationPayloadId = String(message.elicitationPayloadId || message.ElicitationPayloadId || '').trim();
   const elicitation = normalizeElicitation(
     mergeEmbeddedElicitation(
-      message.elicitation
-      || message.Elicitation,
+      message.elicitation || message.Elicitation,
       embeddedElicitation,
       message
     )
   );
-  const iterationRaw = message.iteration ?? message.Iteration;
+  const iterationRaw = message.iteration;
   const iterationNum = Number(iterationRaw);
   const iteration = Number.isFinite(iterationNum) && iterationNum > 0 ? iterationNum : null;
-  const mode = String(message.mode || message.Mode || '').trim().toLowerCase();
+  const mode = String(message.mode || '').trim().toLowerCase();
+  const modelCall = message.modelCall || message.ModelCall || null;
+  const toolCall = message.toolCall || message.ToolCall || null;
+  const toolMessage = Array.isArray(message.toolMessage || message.ToolMessage)
+    ? (message.toolMessage || message.ToolMessage)
+    : [];
 
   return {
     ...message,
-    id: message.id || message.Id || message.messageId || message.MessageId || '',
+    id: message.id || message.messageId || '',
     role,
     turnId,
     content,
@@ -141,43 +146,44 @@ export function normalizeOne(message = {}) {
     mode,
     interim,
     iteration,
-    status: message.status || message.Status || '',
-    turnStatus: message.turnStatus || message.TurnStatus || '',
+    status: message.status || '',
+    turnStatus: message.turnStatus || '',
     errorMessage: pickString(
       message.errorMessage,
-      message.ErrorMessage,
       message.statusMessage,
       message.StatusMessage
     ),
-    toolMessage: Array.isArray(message.toolMessage || message.ToolMessage)
-      ? (message.toolMessage || message.ToolMessage)
-      : [],
+    userElicitationData,
+    elicitationPayloadId,
+    modelCall,
+    toolCall,
+    toolMessage,
     executions: Array.isArray(message.executions) ? message.executions : [],
-    executionGroup: message.executionGroup || message.ExecutionGroup || null,
-    executionGroups: Array.isArray(message.executionGroups || message.ExecutionGroups)
-      ? (message.executionGroups || message.ExecutionGroups)
+    executionGroup: message.executionGroup || null,
+    executionGroups: Array.isArray(message.executionGroups)
+      ? message.executionGroups
       : [],
-    executionGroupsTotal: Number(message.executionGroupsTotal || message.ExecutionGroupsTotal || 0) || 0,
-    executionGroupsOffset: Number(message.executionGroupsOffset || message.ExecutionGroupsOffset || 0) || 0,
-    executionGroupsLimit: Number(message.executionGroupsLimit || message.ExecutionGroupsLimit || 0) || 0,
+    executionGroupsTotal: Number(message.executionGroupsTotal || 0) || 0,
+    executionGroupsOffset: Number(message.executionGroupsOffset || 0) || 0,
+    executionGroupsLimit: Number(message.executionGroupsLimit || 0) || 0,
     elicitation,
-    elicitationId: message.elicitationId || message.ElicitationId || elicitation?.elicitationId || '',
-    requestPayload: message.requestPayload || message.RequestPayload || null,
-    responsePayload: message.responsePayload || message.ResponsePayload || null
+    elicitationId: message.elicitationId || elicitation?.elicitationId || '',
+    requestPayload: message.requestPayload || null,
+    responsePayload: message.responsePayload || null
   };
 }
 
 function normalizeElicitation(value = null) {
   if (!value || typeof value !== 'object') return null;
   const requestedSchema = value.requestedSchema || value.RequestedSchema || null;
-  const elicitationId = String(value.elicitationId || value.ElicitationId || '').trim();
+  const elicitationId = String(value.elicitationId || '').trim();
   if (!requestedSchema || !elicitationId) return null;
   return {
     ...value,
     elicitationId,
-    message: String(value.message || value.Message || value.prompt || value.Prompt || '').trim(),
+    message: String(value.message || value.prompt || '').trim(),
     requestedSchema,
-    callbackURL: String(value.callbackURL || value.CallbackURL || '').trim()
+    callbackURL: String(value.callbackURL || '').trim()
   };
 }
 
@@ -188,25 +194,19 @@ function mergeEmbeddedElicitation(explicit = null, embedded = null, message = {}
   };
   const elicitationId = String(
     merged.elicitationId
-    || merged.ElicitationId
     || message?.elicitationId
-    || message?.ElicitationId
     || ''
   ).trim();
   if (elicitationId) {
     merged.elicitationId = elicitationId;
-    merged.ElicitationId = elicitationId;
   }
   const callbackURL = String(
     merged.callbackURL
-    || merged.CallbackURL
     || message?.callbackURL
-    || message?.CallbackURL
     || ''
   ).trim();
   if (callbackURL) {
     merged.callbackURL = callbackURL;
-    merged.CallbackURL = callbackURL;
   }
   return merged;
 }
@@ -266,7 +266,7 @@ function mergeStepFields(existing = {}, incoming = {}) {
   merged.providerRequestPayloadId = chooseRichString(incoming?.providerRequestPayloadId, existing?.providerRequestPayloadId);
   merged.providerResponsePayloadId = chooseRichString(incoming?.providerResponsePayloadId, existing?.providerResponsePayloadId);
   merged.streamPayloadId = chooseRichString(incoming?.streamPayloadId, existing?.streamPayloadId);
-  merged.linkedConversationId = chooseRichString(incoming?.linkedConversationId, existing?.linkedConversationId, incoming?.LinkedConversationId, existing?.LinkedConversationId);
+  merged.linkedConversationId = chooseRichString(incoming?.linkedConversationId, existing?.linkedConversationId);
   merged.latencyMs = Number.isFinite(Number(existing?.latencyMs)) && Number(existing?.latencyMs) > 0
     ? existing.latencyMs
     : (Number.isFinite(Number(incoming?.latencyMs)) ? incoming.latencyMs : null);
@@ -354,11 +354,21 @@ function mergeIterationItems(existing = {}, incoming = {}) {
     preamble: mergePreamble(existing?.preamble, incoming?.preamble),
     preambles: [],
     toolCalls: mergeStepList(existing?.toolCalls, incoming?.toolCalls),
+    linkedConversations: [],
     executionGroups: mergeExecutionGroups(existing?.executionGroups, incoming?.executionGroups),
     executionGroupsTotal: Number(incoming?.executionGroupsTotal || existing?.executionGroupsTotal || 0) || 0,
     executionGroupsOffset: Number(incoming?.executionGroupsOffset || existing?.executionGroupsOffset || 0) || 0,
     executionGroupsLimit: Number(incoming?.executionGroupsLimit || existing?.executionGroupsLimit || 0) || 0
   };
+  const linked = [];
+  const linkedSeen = new Set();
+  for (const item of [...(Array.isArray(existing?.linkedConversations) ? existing.linkedConversations : []), ...(Array.isArray(incoming?.linkedConversations) ? incoming.linkedConversations : [])]) {
+    const id = String(item?.conversationId || item?.linkedConversationId || '').trim();
+    if (!id || linkedSeen.has(id)) continue;
+    linkedSeen.add(id);
+    linked.push(item);
+  }
+  merged.linkedConversations = linked;
   const preambles = [];
   const seen = new Map();
   for (const item of [...(Array.isArray(existing?.preambles) ? existing.preambles : []), ...(Array.isArray(incoming?.preambles) ? incoming.preambles : [])]) {
@@ -389,11 +399,9 @@ function mergeExecutionGroups(existing = [], incoming = []) {
     for (const group of Array.isArray(list) ? list : []) {
       const key = chooseRichString(
         group?.assistantMessageId,
-        group?.AssistantMessageId,
         group?.parentMessageId,
-        group?.ParentMessageID,
         group?.modelMessageId,
-        group?.ModelMessageID
+        ''
       );
       if (!key) {
         out.push(group);
@@ -461,6 +469,7 @@ export function groupIntoIterations(messages = []) {
         preamble: null,
         streamContent: '',
         toolCalls: [],
+        linkedConversations: [],
         executionGroups: [],
         executionGroupsTotal: 0,
         executionGroupsOffset: 0,
@@ -482,6 +491,32 @@ export function groupIntoIterations(messages = []) {
     if (lastPreamble) {
       lastPreamble.steps = mergeStepList(lastPreamble.steps, steps);
     }
+  };
+  const attachLinkedConversations = (message = {}) => {
+    const target = ensureCurrent(message);
+    const next = Array.isArray(target.linkedConversations) ? [...target.linkedConversations] : [];
+    const seen = new Set(next.map((entry) => String(entry?.conversationId || entry?.linkedConversationId || '').trim()).filter(Boolean));
+    const append = (entry = {}) => {
+      const id = String(entry?.conversationId || entry?.linkedConversationId || '').trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      next.push(entry);
+    };
+    (Array.isArray(message?.linkedConversations) ? message.linkedConversations : []).forEach((entry) => append(entry));
+    const directId = String(message?.linkedConversationId || '').trim();
+    if (directId) {
+      append({
+        conversationId: directId,
+        linkedConversationId: directId,
+        agentId: String(message?.linkedConversationAgentId || message?.LinkedConversationAgentId || '').trim(),
+        title: String(message?.linkedConversationTitle || message?.LinkedConversationTitle || '').trim(),
+        status: String(message?.status || message?.turnStatus || '').trim(),
+        response: String(message?.response || '').trim(),
+        createdAt: message?.createdAt || '',
+        updatedAt: message?.updatedAt || ''
+      });
+    }
+    target.linkedConversations = next;
   };
   const attachExecutionGroups = (message = {}) => {
     const groups = Array.isArray(message?.executionGroups) ? message.executionGroups : [];
@@ -526,7 +561,7 @@ export function groupIntoIterations(messages = []) {
     }
 
     const role = String(message?.role || '').toLowerCase();
-    const mode = String(message?.mode || message?.Mode || '').trim().toLowerCase();
+    const mode = String(message?.mode || '').trim().toLowerCase();
     const execSteps = flattenToolSteps(message);
 
     if (role === 'user') {
@@ -548,6 +583,7 @@ export function groupIntoIterations(messages = []) {
       if (String(message?._bubbleSource || '').trim() === 'stream') {
         ensureCurrent(message);
         attachAgent(message);
+        attachLinkedConversations(message);
         current.streamContent = chooseRichString(message?.content, current?.streamContent);
         current.status = String(message.turnStatus || message.status || current.status || 'running');
         if (execSteps.length > 0) {
@@ -563,6 +599,7 @@ export function groupIntoIterations(messages = []) {
       };
       ensureCurrent(message);
       attachAgent(message);
+      attachLinkedConversations(message);
       current.preambles = Array.isArray(current.preambles) ? current.preambles : [];
       if (current.preambles.length > 0) {
         current.preambles[current.preambles.length - 1] = mergePreamble(current.preambles[current.preambles.length - 1], preambleEntry);
@@ -602,6 +639,7 @@ export function groupIntoIterations(messages = []) {
         };
         ensureCurrent(message);
         attachAgent(message);
+        attachLinkedConversations(message);
         current.preambles = Array.isArray(current.preambles) ? current.preambles : [];
         if (current.preambles.length > 0) {
           current.preambles[current.preambles.length - 1] = mergePreamble(current.preambles[current.preambles.length - 1], preambleEntry);
@@ -614,10 +652,12 @@ export function groupIntoIterations(messages = []) {
       } else if (isFinalAssistant && assistantText !== '' && !streamOwnsBubble) {
         ensureCurrent(message);
         attachAgent(message);
+        attachLinkedConversations(message);
         current.response = message;
         current.status = String(message.turnStatus || message.status || current.status || 'completed');
         current.errorMessage = chooseRichString(message?.errorMessage, current?.errorMessage);
       }
+      attachLinkedConversations(message);
       if (execSteps.length > 0) {
         attachSteps(execSteps, message);
       } else {
@@ -644,6 +684,7 @@ export function groupIntoIterations(messages = []) {
         if (hasExecutionGroups) {
           ensureCurrent(message);
           attachAgent(message);
+          attachLinkedConversations(message);
           if (!streamOwnsBubble) {
             current.response = message;
           }
@@ -879,7 +920,9 @@ function flattenToolSteps(message = {}) {
         providerResponsePayloadId: step?.providerResponsePayloadId || '',
         streamPayload: step?.streamPayload || null,
         streamPayloadId: step?.streamPayloadId || '',
-        linkedConversationId: step?.linkedConversationId || step?.LinkedConversationId || '',
+        linkedConversationId: step?.linkedConversationId || '',
+        linkedConversationAgentId: step?.linkedConversationAgentId || '',
+        linkedConversationTitle: step?.linkedConversationTitle || '',
         turnId: message.turnId
       });
     }
@@ -889,73 +932,75 @@ function flattenToolSteps(message = {}) {
 
 function flattenRelatedSteps(message = {}) {
   const out = [];
-  const modelCall = message?.modelCall || message?.ModelCall || null;
+  const modelCall = message?.modelCall || null;
   if (modelCall) {
-    const provider = modelCall?.provider || modelCall?.Provider || '';
-    const model = modelCall?.model || modelCall?.Model || '';
+    const provider = modelCall?.provider || '';
+    const model = modelCall?.model || '';
     out.push({
-      id: modelCall?.messageId || modelCall?.MessageId || message?.id || message?.Id || `model:${model || provider || 'step'}`,
+      id: modelCall?.messageId || message?.id || `model:${model || provider || 'step'}`,
       role: 'tool',
       kind: 'model',
       reason: String(message?.role || '').toLowerCase() === 'assistant' && Number(message?.interim || 0) === 0 ? 'final_response' : 'thinking',
       toolName: model ? `${provider ? `${provider}/` : ''}${model}` : (provider || 'model'),
       provider,
       model,
-      status: modelCall?.status || modelCall?.Status || message?.status || message?.Status || '',
-      latencyMs: modelCall?.latencyMs || modelCall?.LatencyMs || null,
-      startedAt: modelCall?.startedAt || modelCall?.StartedAt || null,
-      completedAt: modelCall?.completedAt || modelCall?.CompletedAt || null,
-      requestPayload: modelCall?.requestPayload || modelCall?.RequestPayload || null,
-      responsePayload: modelCall?.responsePayload || modelCall?.ResponsePayload || null,
-      requestPayloadId: modelCall?.requestPayloadId || modelCall?.RequestPayloadId || '',
-      responsePayloadId: modelCall?.responsePayloadId || modelCall?.ResponsePayloadId || '',
-      providerRequestPayload: modelCall?.providerRequestPayload || modelCall?.ProviderRequestPayload || null,
-      providerResponsePayload: modelCall?.providerResponsePayload || modelCall?.ProviderResponsePayload || null,
-      providerRequestPayloadId: modelCall?.providerRequestPayloadId || modelCall?.ProviderRequestPayloadId || '',
-      providerResponsePayloadId: modelCall?.providerResponsePayloadId || modelCall?.ProviderResponsePayloadId || '',
-      streamPayload: modelCall?.streamPayload || modelCall?.StreamPayload || null,
-      streamPayloadId: modelCall?.streamPayloadId || modelCall?.StreamPayloadId || '',
+      status: modelCall?.status || message?.status || '',
+      latencyMs: modelCall?.latencyMs || null,
+      startedAt: modelCall?.startedAt || null,
+      completedAt: modelCall?.completedAt || null,
+      requestPayload: modelCall?.requestPayload || null,
+      responsePayload: modelCall?.responsePayload || null,
+      requestPayloadId: modelCall?.requestPayloadId || '',
+      responsePayloadId: modelCall?.responsePayloadId || '',
+      providerRequestPayload: modelCall?.providerRequestPayload || null,
+      providerResponsePayload: modelCall?.providerResponsePayload || null,
+      providerRequestPayloadId: modelCall?.providerRequestPayloadId || '',
+      providerResponsePayloadId: modelCall?.providerResponsePayloadId || '',
+      streamPayload: modelCall?.streamPayload || null,
+      streamPayloadId: modelCall?.streamPayloadId || '',
       turnId: message.turnId
     });
   }
 
-  const toolMessages = Array.isArray(message.toolMessage || message.ToolMessage)
-    ? [...(message.toolMessage || message.ToolMessage)]
+  const toolMessages = Array.isArray(message.toolMessage)
+    ? [...message.toolMessage]
     : [];
   toolMessages.sort((a, b) => {
-    const aSequence = Number(a?.sequence ?? a?.Sequence ?? a?.toolCall?.messageSequence ?? a?.ToolCall?.MessageSequence ?? 0);
-    const bSequence = Number(b?.sequence ?? b?.Sequence ?? b?.toolCall?.messageSequence ?? b?.ToolCall?.MessageSequence ?? 0);
+    const aSequence = Number(a?.sequence ?? a?.toolCall?.messageSequence ?? 0);
+    const bSequence = Number(b?.sequence ?? b?.toolCall?.messageSequence ?? 0);
     if (aSequence !== bSequence) return aSequence - bSequence;
-    return Date.parse(a?.createdAt || a?.CreatedAt || 0) - Date.parse(b?.createdAt || b?.CreatedAt || 0);
+    return Date.parse(a?.createdAt || 0) - Date.parse(b?.createdAt || 0);
   });
   for (let index = 0; index < toolMessages.length; index += 1) {
     const entry = toolMessages[index];
-    const call = entry?.toolCall || entry?.ToolCall || {};
-    const toolName = String(call?.toolName || call?.ToolName || entry?.toolName || entry?.ToolName || '').trim();
+    const call = entry?.toolCall || {};
+    const toolName = String(call?.toolName || entry?.toolName || '').trim();
     out.push({
-      id: entry?.id || entry?.Id || `${call?.opId || call?.OpId || toolName || 'tool'}:${index}`,
+      id: entry?.id || `${call?.opId || toolName || 'tool'}:${index}`,
       role: 'tool',
       kind: 'tool',
       reason: 'tool_call',
       toolName: toolName || 'tool',
-      status: call?.status || call?.Status || entry?.status || entry?.Status || '',
-      latencyMs: call?.latencyMs || call?.LatencyMs || entry?.latencyMs || entry?.LatencyMs || null,
-      startedAt: call?.startedAt || call?.StartedAt || entry?.startedAt || entry?.StartedAt || null,
-      completedAt: call?.completedAt || call?.CompletedAt || entry?.completedAt || entry?.CompletedAt || null,
-      requestPayload: call?.requestPayload || call?.RequestPayload || null,
-      responsePayload: call?.responsePayload || call?.ResponsePayload || null,
-      requestPayloadId: call?.requestPayloadId || call?.RequestPayloadId || '',
-      responsePayloadId: call?.responsePayloadId || call?.ResponsePayloadId || '',
-      providerRequestPayload: call?.providerRequestPayload || call?.ProviderRequestPayload || null,
-      providerResponsePayload: call?.providerResponsePayload || call?.ProviderResponsePayload || null,
-      providerRequestPayloadId: call?.providerRequestPayloadId || call?.ProviderRequestPayloadId || '',
-      providerResponsePayloadId: call?.providerResponsePayloadId || call?.ProviderResponsePayloadId || '',
-      streamPayload: call?.streamPayload || call?.StreamPayload || null,
-      streamPayloadId: call?.streamPayloadId || call?.StreamPayloadId || '',
-      linkedConversationId: call?.linkedConversationId || call?.LinkedConversationId || entry?.linkedConversationId || entry?.LinkedConversationId || '',
+      status: call?.status || entry?.status || '',
+      latencyMs: call?.latencyMs || entry?.latencyMs || null,
+      startedAt: call?.startedAt || entry?.startedAt || null,
+      completedAt: call?.completedAt || entry?.completedAt || null,
+      requestPayload: call?.requestPayload || null,
+      responsePayload: call?.responsePayload || null,
+      requestPayloadId: call?.requestPayloadId || '',
+      responsePayloadId: call?.responsePayloadId || '',
+      providerRequestPayload: call?.providerRequestPayload || null,
+      providerResponsePayload: call?.providerResponsePayload || null,
+      providerRequestPayloadId: call?.providerRequestPayloadId || '',
+      providerResponsePayloadId: call?.providerResponsePayloadId || '',
+      streamPayload: call?.streamPayload || null,
+      streamPayloadId: call?.streamPayloadId || '',
+      linkedConversationId: call?.linkedConversationId || entry?.linkedConversationId || '',
+      linkedConversationAgentId: call?.linkedConversationAgentId || entry?.linkedConversationAgentId || '',
+      linkedConversationTitle: call?.linkedConversationTitle || entry?.linkedConversationTitle || '',
       turnId: message.turnId,
-      parentMessageId: entry?.parentMessageId || entry?.ParentMessageId || '',
-      sequence: entry?.sequence || entry?.Sequence || call?.messageSequence || call?.MessageSequence || null
+      parentMessageId: entry?.parentMessageId || '',
+      sequence: entry?.sequence || call?.messageSequence || null
     });
   }
 

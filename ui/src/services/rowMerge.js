@@ -34,7 +34,7 @@ function mergeStep(existing = {}, incoming = {}) {
     status: chooseRichValue(incoming?.status, existing?.status, ''),
     provider: chooseRichValue(incoming?.provider, existing?.provider, ''),
     model: chooseRichValue(incoming?.model, existing?.model, ''),
-    linkedConversationId: chooseRichValue(incoming?.linkedConversationId, existing?.linkedConversationId, incoming?.LinkedConversationId, existing?.LinkedConversationId, ''),
+    linkedConversationId: chooseRichValue(incoming?.linkedConversationId, existing?.linkedConversationId, ''),
     latencyMs: chooseRichValue(incoming?.latencyMs, existing?.latencyMs, null),
     requestPayloadId: chooseRichValue(incoming?.requestPayloadId, existing?.requestPayloadId, ''),
     responsePayloadId: chooseRichValue(incoming?.responsePayloadId, existing?.responsePayloadId, ''),
@@ -76,21 +76,21 @@ function mergeModelCall(existing = {}, incoming = {}) {
   return {
     ...existing,
     ...incoming,
-    Provider: chooseRichValue(incoming?.Provider, incoming?.provider, existing?.Provider, existing?.provider, ''),
-    Model: chooseRichValue(incoming?.Model, incoming?.model, existing?.Model, existing?.model, ''),
-    Status: chooseRichValue(incoming?.Status, incoming?.status, existing?.Status, existing?.status, ''),
-    StartedAt: chooseRichValue(incoming?.StartedAt, incoming?.startedAt, existing?.StartedAt, existing?.startedAt, ''),
-    CompletedAt: chooseRichValue(incoming?.CompletedAt, incoming?.completedAt, existing?.CompletedAt, existing?.completedAt, ''),
-    RequestPayloadId: chooseRichValue(incoming?.RequestPayloadId, incoming?.requestPayloadId, existing?.RequestPayloadId, existing?.requestPayloadId, ''),
-    ResponsePayloadId: chooseRichValue(incoming?.ResponsePayloadId, incoming?.responsePayloadId, existing?.ResponsePayloadId, existing?.responsePayloadId, ''),
-    ProviderRequestPayloadId: chooseRichValue(incoming?.ProviderRequestPayloadId, incoming?.providerRequestPayloadId, existing?.ProviderRequestPayloadId, existing?.providerRequestPayloadId, ''),
-    ProviderResponsePayloadId: chooseRichValue(incoming?.ProviderResponsePayloadId, incoming?.providerResponsePayloadId, existing?.ProviderResponsePayloadId, existing?.providerResponsePayloadId, ''),
-    StreamPayloadId: chooseRichValue(incoming?.StreamPayloadId, incoming?.streamPayloadId, existing?.StreamPayloadId, existing?.streamPayloadId, ''),
-    ModelCallRequestPayload: incoming?.ModelCallRequestPayload ?? existing?.ModelCallRequestPayload ?? null,
-    ModelCallResponsePayload: incoming?.ModelCallResponsePayload ?? existing?.ModelCallResponsePayload ?? null,
-    ModelCallProviderRequestPayload: incoming?.ModelCallProviderRequestPayload ?? existing?.ModelCallProviderRequestPayload ?? null,
-    ModelCallProviderResponsePayload: incoming?.ModelCallProviderResponsePayload ?? existing?.ModelCallProviderResponsePayload ?? null,
-    ModelCallStreamPayload: incoming?.ModelCallStreamPayload ?? existing?.ModelCallStreamPayload ?? null
+    provider: chooseRichValue(incoming?.provider, existing?.provider, ''),
+    model: chooseRichValue(incoming?.model, existing?.model, ''),
+    status: chooseRichValue(incoming?.status, existing?.status, ''),
+    startedAt: chooseRichValue(incoming?.startedAt, existing?.startedAt, ''),
+    completedAt: chooseRichValue(incoming?.completedAt, existing?.completedAt, ''),
+    requestPayloadId: chooseRichValue(incoming?.requestPayloadId, existing?.requestPayloadId, ''),
+    responsePayloadId: chooseRichValue(incoming?.responsePayloadId, existing?.responsePayloadId, ''),
+    providerRequestPayloadId: chooseRichValue(incoming?.providerRequestPayloadId, existing?.providerRequestPayloadId, ''),
+    providerResponsePayloadId: chooseRichValue(incoming?.providerResponsePayloadId, existing?.providerResponsePayloadId, ''),
+    streamPayloadId: chooseRichValue(incoming?.streamPayloadId, existing?.streamPayloadId, ''),
+    requestPayload: incoming?.requestPayload ?? existing?.requestPayload ?? null,
+    responsePayload: incoming?.responsePayload ?? existing?.responsePayload ?? null,
+    providerRequestPayload: incoming?.providerRequestPayload ?? existing?.providerRequestPayload ?? null,
+    providerResponsePayload: incoming?.providerResponsePayload ?? existing?.providerResponsePayload ?? null,
+    streamPayload: incoming?.streamPayload ?? existing?.streamPayload ?? null
   };
 }
 
@@ -98,16 +98,16 @@ function mergeModelStep(existing = {}, incoming = {}) {
   const merged = mergeModelCall(existing, incoming);
   return {
     ...merged,
-    provider: chooseRichValue(merged?.Provider, merged?.provider, ''),
-    model: chooseRichValue(merged?.Model, merged?.model, ''),
-    status: chooseRichValue(merged?.Status, merged?.status, ''),
-    startedAt: chooseRichValue(merged?.StartedAt, merged?.startedAt, ''),
-    completedAt: chooseRichValue(merged?.CompletedAt, merged?.completedAt, ''),
-    requestPayloadId: chooseRichValue(merged?.RequestPayloadId, merged?.requestPayloadId, ''),
-    responsePayloadId: chooseRichValue(merged?.ResponsePayloadId, merged?.responsePayloadId, ''),
-    providerRequestPayloadId: chooseRichValue(merged?.ProviderRequestPayloadId, merged?.providerRequestPayloadId, ''),
-    providerResponsePayloadId: chooseRichValue(merged?.ProviderResponsePayloadId, merged?.providerResponsePayloadId, ''),
-    streamPayloadId: chooseRichValue(merged?.StreamPayloadId, merged?.streamPayloadId, '')
+    provider: chooseRichValue(merged?.provider, ''),
+    model: chooseRichValue(merged?.model, ''),
+    status: chooseRichValue(merged?.status, ''),
+    startedAt: chooseRichValue(merged?.startedAt, ''),
+    completedAt: chooseRichValue(merged?.completedAt, ''),
+    requestPayloadId: chooseRichValue(merged?.requestPayloadId, ''),
+    responsePayloadId: chooseRichValue(merged?.responsePayloadId, ''),
+    providerRequestPayloadId: chooseRichValue(merged?.providerRequestPayloadId, ''),
+    providerResponsePayloadId: chooseRichValue(merged?.providerResponsePayloadId, ''),
+    streamPayloadId: chooseRichValue(merged?.streamPayloadId, '')
   };
 }
 
@@ -128,17 +128,11 @@ function mergeUniqueEntries(existing = [], incoming = []) {
     for (const entry of Array.isArray(list) ? list : []) {
       const key = String(
         entry?.assistantMessageId
-        || entry?.AssistantMessageId
         || entry?.modelMessageId
-        || entry?.ModelMessageId
         || entry?.messageId
-        || entry?.MessageId
         || entry?.toolCallId
-        || entry?.ToolCallId
         || entry?.toolMessageId
-        || entry?.ToolMessageId
         || entry?.id
-        || entry?.Id
         || ''
       ).trim();
       if (!key) {
@@ -161,24 +155,24 @@ function mergeExecutionGroupEntry(existing = {}, incoming = {}) {
   return {
     ...existing,
     ...incoming,
-    assistantMessageId: chooseRichValue(incoming?.assistantMessageId, existing?.assistantMessageId, incoming?.AssistantMessageId, existing?.AssistantMessageId, ''),
-    parentMessageId: chooseRichValue(incoming?.parentMessageId, existing?.parentMessageId, incoming?.ParentMessageID, existing?.ParentMessageID, ''),
-    modelMessageId: chooseRichValue(incoming?.modelMessageId, existing?.modelMessageId, incoming?.ModelMessageID, existing?.ModelMessageID, ''),
+    assistantMessageId: chooseRichValue(incoming?.assistantMessageId, existing?.assistantMessageId, ''),
+    parentMessageId: chooseRichValue(incoming?.parentMessageId, existing?.parentMessageId, ''),
+    modelMessageId: chooseRichValue(incoming?.modelMessageId, existing?.modelMessageId, ''),
     sequence: chooseRichValue(incoming?.sequence, existing?.sequence, null),
     iteration: chooseRichValue(incoming?.iteration, existing?.iteration, null),
-    preamble: chooseRichValue(incoming?.preamble, existing?.preamble, incoming?.Preamble, existing?.Preamble, ''),
-    content: chooseRichValue(incoming?.content, existing?.content, incoming?.Content, existing?.Content, ''),
+    preamble: chooseRichValue(incoming?.preamble, existing?.preamble, ''),
+    content: chooseRichValue(incoming?.content, existing?.content, ''),
     finalResponse: Boolean(existing?.finalResponse || existing?.FinalResponse || incoming?.finalResponse || incoming?.FinalResponse),
-    status: chooseRichValue(incoming?.status, existing?.status, incoming?.Status, existing?.Status, ''),
+    status: chooseRichValue(incoming?.status, existing?.status, ''),
     modelSteps: mergeModelSteps(
-      existing?.modelSteps || (existing?.modelCall ? [existing.modelCall] : []),
-      incoming?.modelSteps || (incoming?.modelCall ? [incoming.modelCall] : [])
+      existing?.modelSteps || [],
+      incoming?.modelSteps || []
     ),
     toolSteps: mergeUniqueEntries(
-      existing?.toolSteps || existing?.toolCalls || existing?.ToolCalls,
-      incoming?.toolSteps || incoming?.toolCalls || incoming?.ToolCalls
+      existing?.toolSteps,
+      incoming?.toolSteps
     ),
-    toolCallsPlanned: mergeUniqueEntries(existing?.toolCallsPlanned || existing?.ToolCallsPlanned, incoming?.toolCallsPlanned || incoming?.ToolCallsPlanned),
+    toolCallsPlanned: mergeUniqueEntries(existing?.toolCallsPlanned, incoming?.toolCallsPlanned),
     pageId: chooseRichValue(incoming?.pageId, existing?.pageId, incoming?.assistantMessageId, existing?.assistantMessageId, '')
   };
 }
@@ -190,11 +184,8 @@ function mergeExecutionGroups(existing = [], incoming = []) {
     for (const group of Array.isArray(list) ? list : []) {
       const key = String(
         group?.assistantMessageId
-        || group?.AssistantMessageId
         || group?.parentMessageId
-        || group?.ParentMessageID
         || group?.modelMessageId
-        || group?.ModelMessageID
         || ''
       ).trim();
       if (!key) {
@@ -214,6 +205,10 @@ function mergeExecutionGroups(existing = [], incoming = []) {
 }
 
 function mergeRow(existing = {}, incoming = {}) {
+  const mergedLinkedConversations = mergeUniqueEntries(
+    existing?.linkedConversations,
+    incoming?.linkedConversations
+  );
   const mergedExecutionGroups = mergeExecutionGroups(existing?.executionGroups, incoming?.executionGroups);
   const mergedExecutionGroup = mergeExecutionGroups(
     existing?.executionGroup ? [existing.executionGroup] : [],
@@ -244,9 +239,9 @@ function mergeRow(existing = {}, incoming = {}) {
     preamble: chooseRichValue(existing?.preamble, incoming?.preamble, ''),
     toolName: chooseRichValue(existing?.toolName, incoming?.toolName, ''),
     linkedConversationId: chooseRichValue(existing?.linkedConversationId, incoming?.linkedConversationId, ''),
-    modelCall: existing?.modelCall || incoming?.modelCall || null,
     modelSteps: mergeUniqueEntries(existing?.modelSteps, incoming?.modelSteps),
     toolSteps: mergeUniqueEntries(existing?.toolSteps, incoming?.toolSteps),
+    linkedConversations: mergedLinkedConversations,
     executionGroup: mergedExecutionGroup,
     executionGroups: mergedExecutionGroups,
     executions: mergeExecutions(existing?.executions, incoming?.executions),

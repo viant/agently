@@ -375,6 +375,90 @@ describe('handleStreamEvent', () => {
     });
   });
 
+  it('creates a failed assistant row on terminal stream failure even without prior execution content', () => {
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      location: { pathname: '/conversation/conv-1' }
+    };
+    const setCollection = vi.fn();
+    const setFormData = vi.fn();
+    const chatState = {
+      liveRows: [{
+        id: 'user:turn-1',
+        role: 'user',
+        turnId: 'turn-1',
+        content: 'Forecast inventory and uniques for deal 106171723',
+        createdAt: '2026-04-01T12:00:00Z'
+      }],
+      lastHasRunning: true,
+      activeConversationID: 'conv-1',
+      activeStreamTurnId: 'turn-1',
+      runningTurnId: 'turn-1'
+    };
+    const context = {
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection,
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'turn_failed',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        status: 'failed',
+        error: 'failed to send request: dial tcp: lookup api.openai.com: no such host'
+      });
+
+      const assistant = chatState.liveRows.find((row) => row?.role === 'assistant');
+      expect(assistant).toBeTruthy();
+      expect(assistant).toMatchObject({
+        turnId: 'turn-1',
+        status: 'failed',
+        turnStatus: 'failed',
+        errorMessage: 'failed to send request: dial tcp: lookup api.openai.com: no such host'
+      });
+      expect(assistant.executionGroups[0]).toMatchObject({
+        status: 'failed',
+        errorMessage: 'failed to send request: dial tcp: lookup api.openai.com: no such host'
+      });
+    } finally {
+      globalThis.window = originalWindow;
+    }
+  });
+
   it('preserves the active conversation render after terminal events without requiring a transcript refetch', async () => {
     vi.useFakeTimers();
     client.getConversation.mockReset();
@@ -506,7 +590,7 @@ describe('handleStreamEvent', () => {
             role: 'assistant',
             content: 'Temporary live content',
             status: 'succeeded',
-            turnStatus: 'completed'
+            turnStatus: 'succeeded'
           })
         ])
       );
@@ -898,39 +982,51 @@ describe('createNewConversation', () => {
 describe('mapTranscriptToRows', () => {
   it('keeps canonical iteration-0 summary pages out of the visible assistant message but includes them in execution pages', async () => {
     client.getTranscript.mockResolvedValueOnce({
-      turns: [
-        {
-          turnId: 'turn-1',
-          status: 'completed',
-          createdAt: '2026-01-01T10:00:00Z',
-          user: {
-            messageId: 'u1',
-            content: 'Analyze campaign 547754 performance'
-          },
-          execution: {
-            pages: [
+      conversation: {
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'completed',
+            createdAt: '2026-01-01T10:00:00Z',
+            linkedConversations: [
               {
-                pageId: 'page-final',
-                assistantMessageId: 'page-final',
-                turnId: 'turn-1',
-                iteration: 11,
+                conversationId: 'child-1',
+                agentId: 'steward-forecasting',
+                title: 'Forecasting Child',
                 status: 'completed',
-                finalResponse: true,
-                content: '## Highlights\n- Campaign pacing is slightly behind target.'
-              },
-              {
-                pageId: 'page-summary',
-                assistantMessageId: 'page-summary',
-                turnId: 'turn-1',
-                iteration: 0,
-                status: 'completed',
-                finalResponse: true,
-                content: 'Title: Campaign 547754 Performance Analysis and Recommended Next Actions\n\n- Saved 3 actionable recommendations'
+                response: 'Forecast completed.',
+                createdAt: '2026-01-01T10:01:00Z'
               }
-            ]
+            ],
+            user: {
+              messageId: 'u1',
+              content: 'Analyze campaign 547754 performance'
+            },
+            execution: {
+              pages: [
+                {
+                  pageId: 'page-final',
+                  assistantMessageId: 'page-final',
+                  turnId: 'turn-1',
+                  iteration: 11,
+                  status: 'completed',
+                  finalResponse: true,
+                  content: '## Highlights\n- Campaign pacing is slightly behind target.'
+                },
+                {
+                  pageId: 'page-summary',
+                  assistantMessageId: 'page-summary',
+                  turnId: 'turn-1',
+                  iteration: 0,
+                  status: 'completed',
+                  finalResponse: true,
+                  content: 'Title: Campaign 547754 Performance Analysis and Recommended Next Actions\n\n- Saved 3 actionable recommendations'
+                }
+              ]
+            }
           }
-        }
-      ]
+        ]
+      }
     });
 
     const turns = await fetchTranscript('conv-1');
@@ -944,6 +1040,14 @@ describe('mapTranscriptToRows', () => {
       pageId: 'page-summary',
       iteration: 0
     });
+    expect(turns[0].linkedConversations).toEqual([
+      expect.objectContaining({
+        conversationId: 'child-1',
+        agentId: 'steward-forecasting',
+        title: 'Forecasting Child',
+        status: 'completed'
+      })
+    ]);
     expect(turns[0].message).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -955,9 +1059,121 @@ describe('mapTranscriptToRows', () => {
           id: 'page-summary',
           role: 'assistant',
           mode: 'summary'
+        }),
+        expect.objectContaining({
+          id: 'linked:child-1',
+          role: 'tool',
+          reason: 'link',
+          toolName: 'llm/agents/run',
+          linkedConversationId: 'child-1',
+          linkedConversationAgentId: 'steward-forecasting',
+          linkedConversationTitle: 'Forecasting Child',
+          status: 'completed',
+          response: 'Forecast completed.'
         })
       ])
     );
+  });
+
+  it('keeps failed canonical execution pages visible and carries turn error text', async () => {
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        turns: [
+          {
+            turnId: 'turn-failed',
+            status: 'failed',
+            createdAt: '2026-04-01T12:00:00Z',
+            errorMessage: 'failed to stream: dial tcp: lookup api.openai.com: no such host',
+            user: {
+              messageId: 'u-failed',
+              content: 'Forecast inventory'
+            },
+            execution: {
+              pages: [
+                {
+                  pageId: 'page-failed',
+                  assistantMessageId: 'page-failed',
+                  turnId: 'turn-failed',
+                  iteration: 1,
+                  status: 'failed',
+                  finalResponse: false,
+                  errorMessage: 'failed to stream: dial tcp: lookup api.openai.com: no such host'
+                }
+              ]
+            }
+          }
+        ]
+      }
+    });
+
+    const turns = await fetchTranscript('conv-failed');
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({
+      status: 'failed',
+      errorMessage: 'failed to stream: dial tcp: lookup api.openai.com: no such host'
+    });
+    expect(turns[0].executionGroups).toHaveLength(1);
+    expect(turns[0].message).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'page-failed',
+          role: 'assistant',
+          status: 'failed',
+          errorMessage: 'failed to stream: dial tcp: lookup api.openai.com: no such host'
+        })
+      ])
+    );
+  });
+
+  it('preserves link-only tool calls on transcript turns with canonical execution groups', () => {
+    const turns = [
+      {
+        id: 'turn-1',
+        status: 'completed',
+        linkedConversations: [
+          {
+            conversationId: 'child-1',
+            agentId: 'steward-inventory',
+            title: 'Inventory Child',
+            status: 'completed',
+            response: 'Blocked on AgencyId.',
+            createdAt: '2026-01-01T10:01:00Z'
+          }
+        ],
+        executionGroups: [
+          {
+            parentMessageId: 'm1',
+            modelMessageId: 'm1',
+            sequence: 1,
+            preamble: 'Calling updatePlan.',
+            finalResponse: false,
+            modelCall: {
+              provider: 'openai',
+              model: 'gpt-5.4',
+              status: 'completed'
+            }
+          }
+        ],
+        message: [
+          {
+            id: 'm1',
+            role: 'assistant',
+            interim: 1,
+            content: 'Calling updatePlan.',
+            createdAt: '2026-01-01T10:00:00Z'
+          }
+        ]
+      }
+    ];
+
+    const { rows } = mapTranscriptToRows(turns);
+    expect(rows[0]?.linkedConversations).toEqual([
+      expect.objectContaining({
+        conversationId: 'child-1',
+        agentId: 'steward-inventory',
+        title: 'Inventory Child'
+      })
+    ]);
   });
 
   it('preserves backend executionGroup data on assistant rows', () => {

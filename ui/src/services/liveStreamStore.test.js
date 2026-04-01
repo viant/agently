@@ -1332,12 +1332,16 @@ describe('applyLinkedConversationEvent', () => {
     applyLinkedConversationEvent(chatState, {
       turnId: 'turn-1',
       toolCallId: 'call-agent-1',
-      linkedConversationId: 'child-conv-1'
+      linkedConversationId: 'child-conv-1',
+      linkedConversationAgentId: 'steward-forecasting',
+      linkedConversationTitle: 'Forecasting Child'
     });
 
     const step = chatState.liveRows[0].executionGroups[0].toolSteps[0];
     expect(step.toolCallId).toBe('call-agent-1');
     expect(step.linkedConversationId).toBe('child-conv-1');
+    expect(step.linkedConversationAgentId).toBe('steward-forecasting');
+    expect(step.linkedConversationTitle).toBe('Forecasting Child');
   });
 
   it('does nothing when no tool step matches the toolCallId', () => {

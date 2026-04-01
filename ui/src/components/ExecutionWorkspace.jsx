@@ -1,10 +1,19 @@
 import React from 'react';
 import { useSignals } from '@preact/signals-react/runtime';
 import { activeWindows, removeWindow, selectedWindowId } from 'forge/core';
+import {
+  applyExecutionStreamEventToGroups,
+  describeExecutionTimelineEvent,
+  isPresentableExecutionGroup,
+  mergeLatestTranscriptAndLiveExecutionGroups,
+  normalizeExecutionPageSize,
+  plannedExecutionToolCalls,
+} from 'agently-core-ui-sdk';
 import { DetailContext } from '../context/DetailContext';
 import { client } from '../services/agentlyClient';
 import { setStage } from '../services/stageBus';
 import { publishActiveConversation } from '../services/chatRuntime';
+import { canonicalExecutionPages, extractCanonicalExecutionGroups, transcriptConversationTurns } from '../services/canonicalTranscript';
 import {
   normalizeWorkspaceAgentInfos,
   normalizeWorkspaceModelInfos
@@ -84,8 +93,7 @@ function extractMetadata(payload) {
 }
 
 function extractTurns(payload) {
-  const data = payload?.data || payload || {};
-  return firstList(data, ['turns', 'Turns']);
+  return transcriptConversationTurns(payload);
 }
 
 function summarizeModel(group) {
@@ -99,7 +107,7 @@ function summarizeModel(group) {
 }
 
 export function plannedToolCalls(group = {}) {
-  return Array.isArray(group?.toolCallsPlanned) ? group.toolCallsPlanned : [];
+  return plannedExecutionToolCalls(group);
 }
 
 function agentLabel(value = '') {
@@ -113,10 +121,7 @@ function agentLabel(value = '') {
 }
 
 function normalizePageSize(value) {
-  const text = String(value || '1').trim().toLowerCase();
-  if (text === 'all') return 'all';
-  if (['1', '5', '10'].includes(text)) return text;
-  return '1';
+  return normalizeExecutionPageSize(value);
 }
 
 function payloadBadges(step = {}) {
@@ -167,94 +172,70 @@ async function fetchFileContent(uri = '') {
 }
 
 function normalizeModelStep(group = {}) {
-  const modelCall = group?.modelCall || {};
+  const modelCall = Array.isArray(group?.modelSteps) && group.modelSteps.length > 0 ? group.modelSteps[0] : {};
   return {
     id: firstString(
-      modelCall?.messageId,
-      modelCall?.MessageId,
+      modelCall?.assistantMessageId,
+      modelCall?.modelCallId,
       group?.assistantMessageId,
-      group?.modelMessageId
+      group?.pageId
     ),
     kind: 'model',
     reason: group?.finalResponse ? 'final_response' : 'thinking',
     toolName: summarizeModel(group),
-    provider: firstString(modelCall?.provider, modelCall?.Provider),
-    model: firstString(modelCall?.model, modelCall?.Model),
-    status: firstString(modelCall?.status, modelCall?.Status, group?.status),
-    latencyMs: firstNumber(modelCall?.latencyMs, modelCall?.LatencyMs),
+    provider: firstString(modelCall?.provider),
+    model: firstString(modelCall?.model),
+    status: firstString(modelCall?.status, group?.status),
+    latencyMs: firstNumber(modelCall?.latencyMs),
+    errorMessage: firstString(modelCall?.errorMessage, group?.errorMessage),
     linkedConversationId: firstString(group?.linkedConversationId),
-    requestPayloadId: firstString(modelCall?.requestPayloadId, modelCall?.RequestPayloadId),
-    responsePayloadId: firstString(modelCall?.responsePayloadId, modelCall?.ResponsePayloadId),
-    providerRequestPayloadId: firstString(modelCall?.providerRequestPayloadId, modelCall?.ProviderRequestPayloadId),
-    providerResponsePayloadId: firstString(modelCall?.providerResponsePayloadId, modelCall?.ProviderResponsePayloadId),
-    streamPayloadId: firstString(modelCall?.streamPayloadId, modelCall?.StreamPayloadId),
-    requestPayload: modelCall?.modelCallRequestPayload || modelCall?.ModelCallRequestPayload || modelCall?.requestPayload || modelCall?.RequestPayload || null,
-    responsePayload: modelCall?.modelCallResponsePayload || modelCall?.ModelCallResponsePayload || modelCall?.responsePayload || modelCall?.ResponsePayload || null,
-    providerRequestPayload: modelCall?.modelCallProviderRequestPayload || modelCall?.ModelCallProviderRequestPayload || null,
-    providerResponsePayload: modelCall?.modelCallProviderResponsePayload || modelCall?.ModelCallProviderResponsePayload || null,
-    streamPayload: modelCall?.modelCallStreamPayload || modelCall?.ModelCallStreamPayload || null,
+    requestPayloadId: firstString(modelCall?.requestPayloadId),
+    responsePayloadId: firstString(modelCall?.responsePayloadId),
+    providerRequestPayloadId: firstString(modelCall?.providerRequestPayloadId),
+    providerResponsePayloadId: firstString(modelCall?.providerResponsePayloadId),
+    streamPayloadId: firstString(modelCall?.streamPayloadId),
+    requestPayload: modelCall?.requestPayload || null,
+    responsePayload: modelCall?.responsePayload || null,
+    providerRequestPayload: modelCall?.providerRequestPayload || null,
+    providerResponsePayload: modelCall?.providerResponsePayload || null,
+    streamPayload: modelCall?.streamPayload || null,
     toolCallsPlanned: plannedToolCalls(group)
   };
 }
 
 function normalizeToolStep(tool = {}, group = {}) {
   return {
-    id: firstString(tool?.messageId, tool?.MessageId, tool?.id, tool?.Id),
+    id: firstString(tool?.toolMessageId, tool?.toolCallId, tool?.id),
     kind: 'tool',
     reason: 'tool_call',
-    toolName: firstString(tool?.toolName, tool?.ToolName, 'tool'),
-    status: firstString(tool?.status, tool?.Status, group?.status),
-    latencyMs: firstNumber(tool?.latencyMs, tool?.LatencyMs),
-    linkedConversationId: firstString(tool?.linkedConversationId, tool?.LinkedConversationId),
-    requestPayloadId: firstString(tool?.requestPayloadId, tool?.RequestPayloadId),
-    responsePayloadId: firstString(tool?.responsePayloadId, tool?.ResponsePayloadId),
-    providerRequestPayloadId: firstString(tool?.providerRequestPayloadId, tool?.ProviderRequestPayloadId),
-    providerResponsePayloadId: firstString(tool?.providerResponsePayloadId, tool?.ProviderResponsePayloadId),
-    streamPayloadId: firstString(tool?.streamPayloadId, tool?.StreamPayloadId),
-    requestPayload: tool?.requestPayload || tool?.RequestPayload || null,
-    responsePayload: tool?.responsePayload || tool?.ResponsePayload || null,
-    providerRequestPayload: tool?.providerRequestPayload || tool?.ProviderRequestPayload || null,
-    providerResponsePayload: tool?.providerResponsePayload || tool?.ProviderResponsePayload || null,
-    streamPayload: tool?.streamPayload || tool?.StreamPayload || null
+    toolName: firstString(tool?.toolName, 'tool'),
+    status: firstString(tool?.status, group?.status),
+    latencyMs: firstNumber(tool?.latencyMs),
+    errorMessage: firstString(tool?.errorMessage, group?.errorMessage),
+    linkedConversationId: firstString(tool?.linkedConversationId),
+    requestPayloadId: firstString(tool?.requestPayloadId),
+    responsePayloadId: firstString(tool?.responsePayloadId),
+    providerRequestPayloadId: firstString(tool?.providerRequestPayloadId),
+    providerResponsePayloadId: firstString(tool?.providerResponsePayloadId),
+    streamPayloadId: firstString(tool?.streamPayloadId),
+    requestPayload: tool?.requestPayload || null,
+    responsePayload: tool?.responsePayload || null,
+    providerRequestPayload: tool?.providerRequestPayload || null,
+    providerResponsePayload: tool?.providerResponsePayload || null,
+    streamPayload: tool?.streamPayload || null
   };
 }
 
 function extractExecutionGroups(turns = []) {
-  const groups = [];
-  for (const turn of turns) {
-    const turnId = firstString(turn?.id, turn?.Id);
-    const turnStatus = firstString(turn?.status, turn?.Status);
-    const executionGroups = firstList(turn, ['executionGroups', 'ExecutionGroups']);
-    for (const group of executionGroups) {
-      groups.push({
-        ...group,
-        turnId,
-        turnStatus,
-        assistantMessageId: firstString(group?.assistantMessageId, group?.pageId),
-        parentMessageId: firstString(group?.parentMessageId),
-        sequence: firstNumber(group?.sequence, group?.iteration),
-        iteration: firstNumber(group?.iteration),
-        preamble: firstString(group?.preamble),
-        content: firstString(group?.content),
-        status: firstString(group?.status, turnStatus),
-        finalResponse: Boolean(group?.finalResponse),
-        modelSteps: Array.isArray(group?.modelSteps) ? group.modelSteps : (group?.modelCall ? [group.modelCall] : []),
-        toolSteps: Array.isArray(group?.toolSteps) ? group.toolSteps : (Array.isArray(group?.toolCalls) ? group.toolCalls : []),
-        toolCallsPlanned: Array.isArray(group?.toolCallsPlanned) ? group.toolCallsPlanned : []
-      });
-    }
-  }
-  return groups.sort((left, right) => {
-    if (left.sequence !== right.sequence) return left.sequence - right.sequence;
-    return String(left.assistantMessageId || '').localeCompare(String(right.assistantMessageId || ''));
-  });
+  return extractCanonicalExecutionGroups(turns);
 }
 
 function transcriptMetaFromTurns(turns = [], pageIndex = 0, pageSize = '1') {
   const firstTurn = Array.isArray(turns) && turns.length > 0 ? turns[0] : null;
-  const total = firstNumber(firstTurn?.executionGroupsTotal, firstTurn?.ExecutionGroupsTotal);
-  const offset = firstNumber(firstTurn?.executionGroupsOffset, firstTurn?.ExecutionGroupsOffset);
-  const limit = firstNumber(firstTurn?.executionGroupsLimit, firstTurn?.ExecutionGroupsLimit);
+  const totalPages = Array.isArray(canonicalExecutionPages(firstTurn)) ? canonicalExecutionPages(firstTurn).length : 0;
+  const total = firstNumber(totalPages);
+  const offset = 0;
+  const limit = totalPages;
   const normalizedPageSize = normalizePageSize(pageSize);
   const effectiveLimit = normalizedPageSize === 'all'
     ? Math.max(total, limit || 1)
@@ -282,201 +263,19 @@ export function modelPreamblePreview(group = {}, limit = 72) {
 }
 
 export function isPresentableGroup(group = {}) {
-  return Boolean(
-    firstString(group?.preamble)
-    || (Array.isArray(group?.toolSteps) && group.toolSteps.length > 0)
-    || (Array.isArray(group?.toolCalls) && group.toolCalls.length > 0)
-    || (Array.isArray(group?.toolCallsPlanned) && group.toolCallsPlanned.length > 0)
-    || (group?.finalResponse && firstString(group?.content))
-  );
-}
-
-function mergeGroup(existing = {}, incoming = {}) {
-  const toolStepsByKey = new Map();
-  const mergedToolSteps = [];
-  const existToolSteps = existing?.toolSteps || existing?.toolCalls || [];
-  const incToolSteps = incoming?.toolSteps || incoming?.toolCalls || [];
-  for (const entry of [...existToolSteps, ...incToolSteps]) {
-    const key = firstString(entry?.toolCallId, entry?.toolMessageId, entry?.id, entry?.toolName);
-    if (!key) {
-      mergedToolSteps.push(entry);
-      continue;
-    }
-    const prior = toolStepsByKey.get(key) || {};
-    toolStepsByKey.set(key, { ...prior, ...entry });
-  }
-  for (const entry of toolStepsByKey.values()) {
-    mergedToolSteps.push(entry);
-  }
-  const existModelSteps = existing?.modelSteps || (existing?.modelCall ? [existing.modelCall] : []);
-  const incModelSteps = incoming?.modelSteps || (incoming?.modelCall ? [incoming.modelCall] : []);
-  const mergedModelSteps = incModelSteps.length > 0 ? incModelSteps.map((ms, i) => ({ ...(existModelSteps[i] || {}), ...ms })) : existModelSteps;
-  return {
-    ...existing,
-    ...incoming,
-    assistantMessageId: firstString(incoming?.assistantMessageId, existing?.assistantMessageId),
-    parentMessageId: firstString(incoming?.parentMessageId, existing?.parentMessageId),
-    sequence: firstNumber(incoming?.sequence, existing?.sequence),
-    iteration: firstNumber(incoming?.iteration, existing?.iteration),
-    preamble: firstString(incoming?.preamble, existing?.preamble),
-    content: firstString(incoming?.content, existing?.content),
-    status: firstString(incoming?.status, existing?.status),
-    finalResponse: Boolean(incoming?.finalResponse ?? existing?.finalResponse),
-    modelSteps: mergedModelSteps,
-    toolSteps: mergedToolSteps,
-    toolCallsPlanned: Array.isArray(incoming?.toolCallsPlanned) && incoming.toolCallsPlanned.length > 0
-      ? incoming.toolCallsPlanned
-      : (Array.isArray(existing?.toolCallsPlanned) ? existing.toolCallsPlanned : [])
-  };
-}
-
-function createLiveGroup(event = {}) {
-  const assistantMessageId = firstString(event?.assistantMessageId, event?.messageId, event?.id);
-  if (!assistantMessageId) return null;
-  return {
-    pageId: assistantMessageId,
-    assistantMessageId,
-    parentMessageId: firstString(event?.parentMessageId),
-    sequence: firstNumber(event?.pageIndex, event?.iteration, 1),
-    iteration: firstNumber(event?.iteration, event?.pageIndex, 1),
-    preamble: firstString(event?.preamble),
-    content: firstString(event?.content),
-    status: firstString(event?.status, 'running'),
-    finalResponse: Boolean(event?.finalResponse),
-    modelSteps: event?.model ? [{
-      modelCallId: assistantMessageId,
-      provider: firstString(event?.model?.provider),
-      model: firstString(event?.model?.model),
-      status: firstString(event?.status, 'running'),
-      requestPayloadId: firstString(event?.requestPayloadId),
-      responsePayloadId: firstString(event?.responsePayloadId),
-      providerRequestPayloadId: firstString(event?.providerRequestPayloadId),
-      providerResponsePayloadId: firstString(event?.providerResponsePayloadId),
-      streamPayloadId: firstString(event?.streamPayloadId)
-    }] : [],
-    toolSteps: [],
-    toolCallsPlanned: Array.isArray(event?.toolCallsPlanned) ? event.toolCallsPlanned : []
-  };
+  return isPresentableExecutionGroup(group);
 }
 
 function applyStreamEventToGroups(groupsById = {}, rawEvent = {}) {
-  const event = rawEvent || {};
-  const type = firstString(event?.type).toLowerCase();
-  const assistantMessageId = firstString(event?.assistantMessageId, event?.messageId, event?.id);
-  const next = { ...groupsById };
-
-  if (type === 'model_started' && assistantMessageId) {
-    next[assistantMessageId] = mergeGroup(next[assistantMessageId], createLiveGroup(event));
-    return next;
-  }
-
-  if ((type === 'model_completed' || type === 'text_delta') && assistantMessageId) {
-    const current = next[assistantMessageId] || createLiveGroup(event);
-    if (!current) return next;
-    current.content = type === 'text_delta'
-      ? `${firstString(current.content)}${firstString(event?.content)}`
-      : firstString(event?.content, current.content);
-    current.preamble = firstString(event?.preamble, current.preamble);
-    current.status = firstString(event?.status, current.status);
-    current.finalResponse = Boolean(event?.finalResponse ?? current.finalResponse);
-    current.toolCallsPlanned = Array.isArray(event?.toolCallsPlanned) && event.toolCallsPlanned.length > 0
-      ? event.toolCallsPlanned
-      : (Array.isArray(current?.toolCallsPlanned) ? current.toolCallsPlanned : []);
-    const existMs = Array.isArray(current.modelSteps) && current.modelSteps.length > 0 ? current.modelSteps[0] : {};
-    current.modelSteps = [{
-      ...existMs,
-      modelCallId: firstString(assistantMessageId, existMs?.modelCallId),
-      provider: firstString(event?.model?.provider, existMs?.provider),
-      model: firstString(event?.model?.model, existMs?.model),
-      status: firstString(event?.status, existMs?.status),
-      requestPayloadId: firstString(event?.requestPayloadId, existMs?.requestPayloadId),
-      responsePayloadId: firstString(event?.responsePayloadId, existMs?.responsePayloadId),
-      providerRequestPayloadId: firstString(event?.providerRequestPayloadId, existMs?.providerRequestPayloadId),
-      providerResponsePayloadId: firstString(event?.providerResponsePayloadId, existMs?.providerResponsePayloadId),
-      streamPayloadId: firstString(event?.streamPayloadId, existMs?.streamPayloadId)
-    }];
-    next[assistantMessageId] = current;
-    return next;
-  }
-
-  if (type === 'reasoning_delta' && assistantMessageId) {
-    const current = next[assistantMessageId] || createLiveGroup(event);
-    if (!current) return next;
-    current.preamble = `${firstString(current.preamble)}${firstString(event?.content)}`;
-    next[assistantMessageId] = current;
-    return next;
-  }
-
-  if ((type === 'tool_call_started' || type === 'tool_call_completed') && assistantMessageId) {
-    const current = next[assistantMessageId] || createLiveGroup(event);
-    if (!current) return next;
-    const toolKey = firstString(event?.toolCallId, event?.toolMessageId, event?.id, event?.toolName);
-    const priorList = Array.isArray(current.toolSteps) ? current.toolSteps : (Array.isArray(current.toolCalls) ? current.toolCalls : []);
-    const existingIndex = priorList.findIndex((entry) => firstString(entry?.toolCallId, entry?.toolMessageId, entry?.id, entry?.toolName) === toolKey);
-    const toolEntry = {
-      toolCallId: firstString(event?.toolCallId),
-      toolMessageId: firstString(event?.toolMessageId, event?.id),
-      toolName: firstString(event?.toolName),
-      status: firstString(event?.status, existingIndex >= 0 ? priorList[existingIndex]?.status : ''),
-      requestPayloadId: firstString(event?.requestPayloadId),
-      responsePayloadId: firstString(event?.responsePayloadId),
-      linkedConversationId: firstString(event?.linkedConversationId)
-    };
-    const nextTools = [...priorList];
-    if (existingIndex >= 0) nextTools[existingIndex] = { ...nextTools[existingIndex], ...toolEntry };
-    else nextTools.push(toolEntry);
-    current.toolSteps = nextTools;
-    current.status = firstString(event?.status, current.status);
-    next[assistantMessageId] = current;
-    return next;
-  }
-
-  if (type === 'turn_completed' && assistantMessageId && next[assistantMessageId]) {
-    next[assistantMessageId] = { ...next[assistantMessageId], status: firstString(event?.status, next[assistantMessageId]?.status) };
-  }
-  return next;
+  return applyExecutionStreamEventToGroups(groupsById, rawEvent);
 }
 
 export function mergeLatestTranscriptAndLiveGroups(transcriptGroups = [], liveGroupsById = {}, pageSize = '1') {
-  const normalizedPageSize = normalizePageSize(pageSize);
-  const mergedById = new Map();
-  for (const group of transcriptGroups) {
-    const key = firstString(group?.assistantMessageId);
-    if (!key) continue;
-    mergedById.set(key, group);
-  }
-  Object.values(liveGroupsById || {}).forEach((liveGroup) => {
-    if (!isPresentableGroup(liveGroup)) return;
-    const key = firstString(liveGroup?.assistantMessageId);
-    if (!key) return;
-    mergedById.set(key, mergeGroup(mergedById.get(key), liveGroup));
-  });
-  const merged = Array.from(mergedById.values()).sort((left, right) => {
-    if (left.sequence !== right.sequence) return left.sequence - right.sequence;
-    return String(left.assistantMessageId || '').localeCompare(String(right.assistantMessageId || ''));
-  });
-  if (normalizedPageSize === 'all') return merged;
-  const limit = Math.max(1, Number(normalizedPageSize || 1));
-  if (limit === 1) {
-    const latestPresentable = [...merged].reverse().find((group) => isPresentableGroup(group));
-    return latestPresentable ? [latestPresentable] : transcriptGroups.slice(-1);
-  }
-  return merged.slice(Math.max(0, merged.length - limit));
+  return mergeLatestTranscriptAndLiveExecutionGroups(transcriptGroups, liveGroupsById, pageSize);
 }
 
 export function describeTimelineEvent(event) {
-  const type = firstString(event?.type, 'event');
-  const status = firstString(event?.status);
-  const toolName = firstString(event?.toolName);
-  const message = firstString(event?.content, event?.preamble, event?.error);
-  const parts = [type];
-  if (status) parts.push(status);
-  if (toolName) parts.push(toolName);
-  if (Array.isArray(event?.toolCallsPlanned) && event.toolCallsPlanned.length > 0) {
-    parts.push(`planned ${event.toolCallsPlanned.map((item) => firstString(item?.toolName, item?.ToolName, 'tool')).join(', ')}`);
-  }
-  if (message) parts.push(message);
-  return parts.join(' · ');
+  return describeExecutionTimelineEvent(event);
 }
 
 function eventKey(event, index) {
@@ -909,7 +708,7 @@ export default function ExecutionWorkspace() {
                           ))}
                           {planned.map((item, index) => (
                             <span key={`${firstString(item?.toolCallId, index)}:${firstString(item?.toolName)}`} className="app-execution-badge planned">
-                              {`Planned ${firstString(item?.toolName, item?.ToolName, 'tool')}`}
+                              {`Planned ${firstString(item?.toolName, 'tool')}`}
                             </span>
                           ))}
                         </div>
@@ -917,7 +716,7 @@ export default function ExecutionWorkspace() {
                     })()}
                   </div>
                 ) : null}
-                {group.toolCalls.map((tool, index) => {
+                {(Array.isArray(group.toolSteps) ? group.toolSteps : []).map((tool, index) => {
                   const step = normalizeToolStep(tool, group);
                   const badges = payloadBadges(step);
                   const hasLinkedConversation = !!firstString(step?.linkedConversationId);
@@ -940,14 +739,14 @@ export default function ExecutionWorkspace() {
                   >
                     <div className="app-execution-step-head">
                       <span>{`${displayStepIcon(step)} ${displayStepTitle(step)}`}</span>
-                      <span>{firstString(tool?.status, tool?.Status, 'unknown')}</span>
+                      <span>{firstString(tool?.status, 'unknown')}</span>
                     </div>
                     <div className="app-execution-step-meta">
-                      {firstString(tool?.responsePayloadId, tool?.ResponsePayloadId) ? (
-                        <span>responsePayloadId: {firstString(tool?.responsePayloadId, tool?.ResponsePayloadId)}</span>
+                      {firstString(tool?.responsePayloadId) ? (
+                        <span>responsePayloadId: {firstString(tool?.responsePayloadId)}</span>
                       ) : null}
-                      {firstString(tool?.traceId, tool?.TraceId) ? (
-                        <span>traceId: {firstString(tool?.traceId, tool?.TraceId)}</span>
+                      {firstString(tool?.traceId) ? (
+                        <span>traceId: {firstString(tool?.traceId)}</span>
                       ) : null}
                     </div>
                     {(badges.length > 0 || hasLinkedConversation || hasFile) ? (

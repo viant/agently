@@ -210,10 +210,10 @@ func waitForAssistantContent(ctx context.Context, client *sdk.HTTPClient, stream
 			if err != nil {
 				return "", err
 			}
-			if transcript == nil || len(transcript.Turns) == 0 {
+			if transcript == nil || transcript.Conversation == nil || len(transcript.Conversation.Turns) == 0 {
 				continue
 			}
-			turn := transcript.Turns[len(transcript.Turns)-1]
+			turn := transcript.Conversation.Turns[len(transcript.Conversation.Turns)-1]
 			if turn == nil {
 				continue
 			}

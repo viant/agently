@@ -3,9 +3,6 @@ service:
   uri: /v1/conversations/{convID}/transcript
   method: GET
 
-selectors:
-  data: turns
-
 parameters:
   - name: convID
     kind: path
@@ -13,7 +10,7 @@ parameters:
     location: conversations.id
 
 selectors:
-  data: data
+  data: data.conversation.turns
 
 uniqueKey:
   - field: id
