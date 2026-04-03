@@ -333,6 +333,12 @@ export function mergeRenderedRows({
   const transcriptBase = transcriptList
     .map((row) => {
       const turnId = String(row?.turnId || '').trim();
+      // During an active live session, exclude transcript rows with no turnId.
+      // They may belong to the current unfinished turn (e.g. user message
+      // fetched before the server assigned a turnId) and will arrive via SSE.
+      // Mixing them in causes the user message to appear after execution rows
+      // because its transcript createdAt is independent of live row timestamps.
+      if (hasLiveSession && !turnId) return null;
       if (!hasLiveSession || !ownedTurnIds.has(turnId)) {
         return { ...row, _rowSource: 'transcript' };
       }
