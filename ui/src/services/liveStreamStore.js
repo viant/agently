@@ -273,7 +273,10 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
   const turnStartedAt = turnEventISO(payload, Number(chatState?.activeStreamStartedAt || Date.now()));
   const prompt = String(chatState?.activeStreamPrompt || '').trim();
   const existingUserIndex = rows.findIndex((row) => String(row?.id || '').trim() === `user:${turnId}`);
-  if (existingUserIndex === -1 && prompt) {
+  if (existingUserIndex === -1) {
+    // Always create the user row so it exists before any execution rows arrive.
+    // The content is backfilled when the message_patch SSE event arrives.
+    // Creating it here guarantees its createdAt < all other rows for this turn.
     rows.push({
       id: `user:${turnId}`,
       role: 'user',
@@ -287,6 +290,8 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
       content: prompt,
       rawContent: prompt
     });
+  } else if (prompt && !rows[existingUserIndex]?.content) {
+    rows[existingUserIndex] = { ...rows[existingUserIndex], content: prompt, rawContent: prompt };
   }
 
   const assistantIndex = findAssistantRowIndex(rows, turnId, '');
@@ -421,13 +426,26 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
   const turnId = String(patch?.turnId || '').trim();
   if (!messageId && !turnId) return Array.isArray(rows) ? rows : [];
 
-  const createdAt = String(patch?.createdAt || new Date().toISOString()).trim();
+  const patchCreatedAt = String(patch?.createdAt || '').trim();
   const role = String(patch?.role || '').trim().toLowerCase();
   const messageType = String(patch?.messageType || '').trim();
   // For user messages, prefer rawContent (original query) over content
   // (which may be the expanded/internal prompt).
   const rawContent = String(patch?.rawContent || '').trim();
   const patchContent = normalizeStreamingMarkdown(rawContent || String(patch?.content || '').trim()).content;
+  // User messages must always sort before the turn's assistant/execution rows.
+  // When the patch arrives after execution events, its server-side createdAt
+  // may be later than execution row timestamps — pin it before all same-turn rows.
+  let createdAt = patchCreatedAt || new Date().toISOString();
+  if (role === 'user' && turnId && Array.isArray(rows) && rows.length > 0) {
+    const turnEarliest = rows
+      .filter((r) => String(r?.turnId || '').trim() === turnId && r?.createdAt)
+      .reduce((min, r) => {
+        const t = Date.parse(r.createdAt);
+        return Number.isFinite(t) && t < min ? t : min;
+      }, Date.parse(createdAt));
+    createdAt = new Date(turnEarliest - 1).toISOString();
+  }
   const baseRow = {
     id: messageId || `patch:${turnId}:${createdAt}`,
     role,
