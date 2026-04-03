@@ -1,3 +1,4 @@
+import { compareExecutionGroups, compareTemporalEntries } from 'agently-core-ui-sdk';
 import { mergeRowSnapshots } from './rowMerge';
 
 function normalizedStatusValue(value = '') {
@@ -21,20 +22,47 @@ function normalizeExecutionRowStatus(value = '') {
   const status = normalizedStatusValue(value);
   if (!status) return 'running';
   if (status === 'waiting_for_user' || status === 'blocked') return status;
-  if (isTerminalStatusValue(status)) return 'running';
+  if (isTerminalStatusValue(status)) return status;
   return 'running';
 }
 
 function normalizedMessageIds(payload = {}) {
   const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
   return [
+    payload?.messageId,
     payload?.id,
     payload?.assistantMessageId,
+    payload?.toolMessageId,
     payload?.modelCallId,
+    patch?.messageId,
     patch?.id,
     patch?.assistantMessageId,
+    patch?.toolMessageId,
     patch?.modelCallId,
   ].map((value) => String(value || '').trim()).filter(Boolean);
+}
+
+function canonicalPayloadMessageId(payload = {}) {
+  const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
+  const explicit = [
+    payload?.messageId,
+    payload?.assistantMessageId,
+    payload?.toolMessageId,
+    payload?.modelCallId,
+    patch?.messageId,
+    patch?.assistantMessageId,
+    patch?.toolMessageId,
+    patch?.modelCallId,
+  ].map((value) => String(value || '').trim()).find(Boolean);
+  if (explicit) return explicit;
+  const type = String(payload?.type || '').trim().toLowerCase();
+  if (type === 'text_delta' || type === 'assistant_preamble' || type === 'assistant_final') {
+    return String(payload?.id || '').trim();
+  }
+  if (String(payload?.op || '').trim().toLowerCase() === 'message_patch') {
+    return String(payload?.id || patch?.id || '').trim();
+  }
+  return '';
 }
 
 function normalizedMode(payload = {}) {
@@ -170,7 +198,7 @@ function mergeCanonicalExecutionGroups(existing = [], incoming = []) {
       return [merged, ...out.slice(2)];
     }
   }
-  return out;
+  return out.sort((left, right) => compareExecutionGroups(left, right));
 }
 
 // Single helper for all handlers to find the assistant row for a given turn.
@@ -193,18 +221,26 @@ function findAssistantRowIndex(rows, turnId, assistantMessageId) {
 function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
   const conversationID = String(payload?.conversationId || fallbackConversationID || '').trim();
   const turnId = String(payload?.turnId || '').trim();
-  const assistantMessageId = String(payload?.assistantMessageId || '').trim();
+  const assistantMessageId = canonicalPayloadMessageId(payload);
   const rowID = assistantMessageId || `assistant:${turnId || conversationID}:${Number(payload?.iteration || payload?.pageIndex || 1) || 1}`;
   if (!rowID) return null;
-  const createdAt = String(payload?.createdAt || new Date().toISOString()).trim();
+  const createdAt = String(payload?.createdAt || '').trim();
   const finalResponse = !!payload?.finalResponse;
   const normalizedPayloadContent = normalizeStreamingMarkdown(String(payload?.content || '').trim()).content;
   const normalizedVisibleContent = normalizeStreamingMarkdown(String(payload?.preamble || payload?.content || '').trim()).content;
   const errorMessage = String(payload?.error || payload?.errorMessage || '').trim();
+  const startedAt = String(payload?.startedAt || payload?.createdAt || '').trim() || undefined;
+  const completedAt = String(
+    payload?.completedAt
+    || (payload?.finalResponse ? (payload?.createdAt || '') : '')
+    || (String(payload?.status || '').toLowerCase() === 'completed' ? (payload?.createdAt || '') : '')
+    || ''
+  ).trim() || undefined;
   const group = {
     pageId: assistantMessageId || rowID,
     assistantMessageId,
     parentMessageId: String(payload?.parentMessageId || '').trim(),
+    sequence: Number(payload?.pageIndex || payload?.iteration || payload?.eventSeq || 0) || undefined,
     iteration: Number(payload?.iteration || 0) || undefined,
     preamble: String(payload?.preamble || '').trim(),
     content: finalResponse ? normalizedPayloadContent : '',
@@ -216,10 +252,8 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
       provider: String(payload?.model?.provider || '').trim(),
       model: String(payload?.model?.model || '').trim(),
       status: String(payload?.status || '').trim(),
-      startedAt: payload?.startedAt || payload?.createdAt || new Date().toISOString(),
-      completedAt: payload?.completedAt
-        || (payload?.finalResponse ? (payload?.createdAt || new Date().toISOString()) : undefined)
-        || (String(payload?.status || '').toLowerCase() === 'completed' ? (payload?.createdAt || new Date().toISOString()) : undefined),
+      startedAt,
+      completedAt,
       requestPayloadId: String(payload?.requestPayloadId || '').trim() || undefined,
       responsePayloadId: String(payload?.responsePayloadId || '').trim() || undefined,
       providerRequestPayloadId: String(payload?.providerRequestPayloadId || '').trim() || undefined,
@@ -246,6 +280,7 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     type: 'text',
     createdAt,
     errorMessage,
+    sequence: Number(payload?.eventSeq || payload?.pageIndex || payload?.iteration || 0) || null,
     status: normalizeExecutionRowStatus(payload?.status),
     turnStatus: normalizeExecutionRowStatus(payload?.status),
     interim: finalResponse ? 0 : 1,
@@ -258,10 +293,9 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
   };
 }
 
-function turnEventISO(payload = {}, fallback = Date.now()) {
-  const parsed = Date.parse(String(payload?.createdAt || '').trim());
-  if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
-  return new Date(fallback).toISOString();
+function payloadSequence(payload = {}) {
+  const value = Number(payload?.eventSeq ?? payload?.pageIndex ?? payload?.iteration ?? 0);
+  return Number.isFinite(value) ? value : 0;
 }
 
 function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID = '') {
@@ -270,20 +304,21 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
   if (!turnId) return Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
 
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
-  const turnStartedAt = turnEventISO(payload, Number(chatState?.activeStreamStartedAt || Date.now()));
+  const turnStartedAt = String(payload?.createdAt || '').trim();
+  const turnSequence = payloadSequence(payload);
+  const userSequence = turnSequence > 0 ? (turnSequence * 2) - 1 : 0;
+  const assistantSequence = turnSequence > 0 ? turnSequence * 2 : 1;
   const prompt = String(chatState?.activeStreamPrompt || '').trim();
   const existingUserIndex = rows.findIndex((row) => String(row?.id || '').trim() === `user:${turnId}`);
   if (existingUserIndex === -1) {
-    // Always create the user row so it exists before any execution rows arrive.
-    // The content is backfilled when the message_patch SSE event arrives.
-    // Creating it here guarantees its createdAt < all other rows for this turn.
     rows.push({
       id: `user:${turnId}`,
       role: 'user',
       type: 'text',
       turnId,
       conversationId: conversationID,
-      createdAt: new Date(Math.max(0, Date.parse(turnStartedAt) - 1)).toISOString(),
+      createdAt: turnStartedAt,
+      sequence: userSequence,
       interim: 0,
       status: 'completed',
       turnStatus: 'running',
@@ -304,8 +339,9 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
       conversationId: conversationID,
       agentIdUsed: String(payload?.agentIdUsed || '').trim(),
       agentName: String(payload?.agentName || '').trim(),
-      createdAt: new Date(Date.parse(turnStartedAt) + 1).toISOString(),
-      startedAt: turnStartedAt,
+      createdAt: turnStartedAt,
+      sequence: assistantSequence,
+      startedAt: turnStartedAt || undefined,
       interim: 1,
       status: String(payload?.status || 'running').trim(),
       turnStatus: String(payload?.status || 'running').trim(),
@@ -318,13 +354,13 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
         content: '',
         finalResponse: false,
         status: String(payload?.status || 'running').trim(),
-        startedAt: turnStartedAt,
+        startedAt: turnStartedAt || undefined,
         modelSteps: [{
           modelCallId: '',
           provider: '',
           model: '',
           status: String(payload?.status || 'running').trim(),
-          startedAt: turnStartedAt
+          startedAt: turnStartedAt || undefined
         }],
         toolSteps: [],
         toolCallsPlanned: []
@@ -343,7 +379,7 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
     rows[assistantIndex] = row;
   }
 
-  rows.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+  rows.sort(compareTemporalEntries);
   chatState.liveRows = rows;
   return rows;
 }
@@ -375,12 +411,12 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
       executionGroups: mergeCanonicalExecutionGroups(prev.executionGroups, nextRow.executionGroups)
     };
   }
-  existing.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+  existing.sort(compareTemporalEntries);
   return existing;
 }
 
 function applyToolStreamEventToRows(rows = [], payload = {}, fallbackConversationID = '') {
-  const assistantMessageId = String(payload?.assistantMessageId || '').trim();
+  const assistantMessageId = canonicalPayloadMessageId(payload);
   if (!assistantMessageId) return Array.isArray(rows) ? rows : [];
   const turnId = String(payload?.turnId || '').trim();
   const existing = Array.isArray(rows) ? [...rows] : [];
@@ -397,7 +433,7 @@ function applyToolStreamEventToRows(rows = [], payload = {}, fallbackConversatio
   if (groupIdx < 0 || !groups[groupIdx]) return existing;
   const group = { ...groups[groupIdx] };
   const toolStep = {
-    toolMessageId: String(payload?.toolMessageId || payload?.id || '').trim(),
+    toolMessageId: String(payload?.toolMessageId || payload?.messageId || payload?.id || '').trim(),
     toolCallId: String(payload?.toolCallId || '').trim(),
     toolName: String(payload?.toolName || '').trim(),
     status: String(payload?.status || '').trim(),
@@ -422,7 +458,7 @@ function applyToolStreamEventToRows(rows = [], payload = {}, fallbackConversatio
 
 function applyMessagePatchToRows(rows = [], payload = {}) {
   const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
-  const messageId = String(payload?.id || '').trim();
+  const messageId = String(payload?.messageId || payload?.id || '').trim();
   const turnId = String(patch?.turnId || '').trim();
   if (!messageId && !turnId) return Array.isArray(rows) ? rows : [];
 
@@ -433,26 +469,19 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
   // (which may be the expanded/internal prompt).
   const rawContent = String(patch?.rawContent || '').trim();
   const patchContent = normalizeStreamingMarkdown(rawContent || String(patch?.content || '').trim()).content;
-  // User messages must always sort before the turn's assistant/execution rows.
-  // When the patch arrives after execution events, its server-side createdAt
-  // may be later than execution row timestamps — pin it before all same-turn rows.
-  let createdAt = patchCreatedAt || new Date().toISOString();
-  if (role === 'user' && turnId && Array.isArray(rows) && rows.length > 0) {
-    const turnEarliest = rows
-      .filter((r) => String(r?.turnId || '').trim() === turnId && r?.createdAt)
-      .reduce((min, r) => {
-        const t = Date.parse(r.createdAt);
-        return Number.isFinite(t) && t < min ? t : min;
-      }, Date.parse(createdAt));
-    createdAt = new Date(turnEarliest - 1).toISOString();
-  }
+  const fallbackPatchId = [
+    'patch',
+    turnId || 'no-turn',
+    role || 'message',
+    messageType || 'text'
+  ].join(':');
   const baseRow = {
-    id: messageId || `patch:${turnId}:${createdAt}`,
+    id: messageId || fallbackPatchId,
     role,
     mode: String(patch?.mode || '').trim().toLowerCase(),
     type: messageType,
     turnId,
-    createdAt,
+    createdAt: patchCreatedAt,
     status: String(patch?.status || '').trim(),
     turnStatus: String(patch?.status || '').trim(),
     interim: Number(patch?.interim ?? 0) || 0,
@@ -620,8 +649,8 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
     rememberSuppressedSummary(chatState, payload);
     return chatState.liveRows || [];
   }
-  const turnId = String(chatState.activeStreamTurnId || chatState.runningTurnId || '').trim();
-  const streamMessageID = String(payload?.id || '').trim();
+  const turnId = String(payload?.turnId || chatState.activeStreamTurnId || chatState.runningTurnId || '').trim();
+  const streamMessageID = canonicalPayloadMessageId(payload);
   const delta = String(payload?.content || '');
   if (!delta) return chatState.liveRows || [];
 
@@ -701,9 +730,10 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
         toolSteps: [],
         toolCallsPlanned: []
       }],
-      createdAt: payload?.createdAt || new Date().toISOString()
+      createdAt: String(payload?.createdAt || '').trim(),
+      sequence: payloadSequence(payload)
     });
-    liveRows.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+    liveRows.sort(compareTemporalEntries);
   }
   chatState.liveRows = liveRows;
   return liveRows;
@@ -714,7 +744,7 @@ function applyAssistantFinalToRows(rows = [], payload = {}) {
   const content = String(payload?.content || '').trim();
   if (!turnId || !content) return Array.isArray(rows) ? rows : [];
   const existing = Array.isArray(rows) ? [...rows] : [];
-  const index = findAssistantRowIndex(existing, turnId, String(payload?.assistantMessageId || '').trim());
+  const index = findAssistantRowIndex(existing, turnId, canonicalPayloadMessageId(payload));
   if (index === -1) return existing;
   const prev = existing[index];
   const groups = Array.isArray(prev.executionGroups) ? [...prev.executionGroups] : [];
@@ -734,7 +764,7 @@ function applyAssistantFinalToRows(rows = [], payload = {}) {
     agentName: String(payload?.agentName || prev?.agentName || '').trim(),
     mode: String(payload?.mode || prev?.mode || '').trim().toLowerCase(),
     content: normalizeStreamingMarkdown(content).content,
-    interim: 0,
+    interim: prev?.interim ?? 1,
     isStreaming: false,
     _streamContent: '',
     _streamFence: null,
@@ -790,7 +820,7 @@ export function applyLinkedConversationEvent(chatState = {}, payload = {}) {
 
 export function applyElicitationRequestedEvent(chatState = {}, payload = {}) {
   const turnId = String(payload?.turnId || '').trim();
-  const assistantMessageId = String(payload?.assistantMessageId || '').trim();
+  const assistantMessageId = canonicalPayloadMessageId(payload);
   const elicitationId = String(payload?.elicitationId || '').trim();
   const elicitationData = payload?.elicitationData && typeof payload.elicitationData === 'object'
     ? payload.elicitationData
@@ -849,9 +879,10 @@ export function applyElicitationRequestedEvent(chatState = {}, payload = {}) {
       elicitationId,
       callbackURL: resolvedCallbackURL,
       conversationId,
-      createdAt: payload?.createdAt || new Date().toISOString()
+      createdAt: String(payload?.createdAt || '').trim(),
+      sequence: payloadSequence(payload)
     });
-    rows.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+    rows.sort(compareTemporalEntries);
   }
   chatState.liveRows = rows;
   return rows;
@@ -863,7 +894,7 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
     return chatState.liveRows || [];
   }
   const turnId = String(payload?.turnId || '').trim();
-  const assistantMessageId = String(payload?.assistantMessageId || '').trim();
+  const assistantMessageId = canonicalPayloadMessageId(payload);
   const preamble = String(payload?.content || payload?.preamble || '').trim();
   if (!preamble) return chatState.liveRows || [];
 
@@ -877,10 +908,14 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
       last.preamble = preamble;
       groups[groups.length - 1] = last;
     }
+    const hasStreamContent = String(prev?._streamContent || '').trim() !== '';
     rows[index] = {
       ...prev,
       agentIdUsed: String(payload?.agentIdUsed || prev?.agentIdUsed || '').trim(),
       agentName: String(payload?.agentName || prev?.agentName || '').trim(),
+      // For active interim pages, the latest preamble should own the bubble
+      // until actual streamed/final content replaces it.
+      content: hasStreamContent ? prev.content : preamble,
       preamble,
       executionGroups: groups
     };
@@ -904,9 +939,10 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
         preamble,
         iteration: Number(payload?.iteration || 0) || undefined
       }],
-      createdAt: payload?.createdAt || new Date().toISOString()
+      createdAt: String(payload?.createdAt || '').trim(),
+      sequence: payloadSequence(payload)
     });
-    rows.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+    rows.sort(compareTemporalEntries);
   }
   chatState.liveRows = rows;
   return rows;
@@ -1005,15 +1041,13 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
       _streamContent: '',
       _streamFence: null,
       executionGroups: groups.map((group) => {
-        // Stamp completedAt on model steps that have startedAt but no completedAt
-        // so the elapsed time displays correctly after finalization.
-        const nowISO = new Date().toISOString();
+        const finalizedAt = String(payload?.completedAt || payload?.createdAt || '').trim();
         const modelSteps = Array.isArray(group?.modelSteps)
           ? group.modelSteps.map((ms) => {
-              if (ms?.startedAt && !ms?.completedAt) {
-                return { ...ms, completedAt: nowISO, status };
+              if (ms?.startedAt && !ms?.completedAt && finalizedAt) {
+                return { ...ms, completedAt: finalizedAt, status };
               }
-              return ms?.status ? ms : { ...ms, status };
+              return ms?.status === status ? ms : { ...ms, status };
             })
           : group?.modelSteps;
         return {
@@ -1055,7 +1089,7 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
           finalResponse: false
         }))
       });
-      rows.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+      rows.sort(compareTemporalEntries);
     }
   }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
 
-import { bootstrapConversationSelection, createNewConversation, dsTick, ensureConversation, fetchTranscript, handleStreamEvent, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream } from './chatRuntime';
+import { bootstrapConversationSelection, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, handleStreamEvent, latestAssistantRowForTurn, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling } from './chatRuntime';
 import { client } from './agentlyClient';
 
 vi.mock('./agentlyClient', () => ({
@@ -79,13 +79,361 @@ describe('resolveStarterTasks', () => {
 });
 
 describe('handleStreamEvent', () => {
-  it('derives missing conversation ids from the subscribed stream conversation', () => {
-    expect(resolveStreamEventConversationID({ type: 'text_delta' }, 'conv-1')).toBe('conv-1');
+  it('updates the sidecar stream tracker with live event identity', () => {
+    const chatState = ensureContextResources({ resources: {} });
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'model_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      messageId: 'msg-1',
+      assistantMessageId: 'msg-1',
+      status: 'thinking',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    });
+
+    expect(chatState.streamTracker?.canonicalState).toMatchObject({
+      conversationId: 'conv-1',
+      activeTurnId: 'turn-1',
+      bufferedMessages: [
+        expect.objectContaining({
+          id: 'msg-1',
+          turnId: 'turn-1'
+        })
+      ]
+    });
+    expect(chatState.runningTurnId).toBe('turn-1');
+  });
+
+  it('syncs local turn state from tracker turn lifecycle events without message ids', () => {
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      location: { pathname: '/conversation/conv-1' }
+    };
+    const chatState = ensureContextResources({ resources: {} });
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'turn_started',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        status: 'running'
+      });
+      expect(chatState.streamTracker?.canonicalState?.activeTurnId).toBe('turn-1');
+      expect(chatState.runningTurnId).toBe('turn-1');
+
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'turn_completed',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        status: 'completed'
+      });
+      expect(chatState.streamTracker?.canonicalState?.activeTurnId).toBeNull();
+      expect(chatState.runningTurnId).toBe('');
+    } finally {
+      globalThis.window = originalWindow;
+    }
+  });
+
+  it('anchors turn_started live rows from activeStreamStartedAt when the control event omits createdAt', () => {
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      location: { pathname: '/conversation/conv-1' }
+    };
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeStreamStartedAt = Date.parse('2026-03-16T10:00:00.000Z');
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'control',
+        op: 'turn_started',
+        conversationId: 'conv-1',
+        patch: { turnId: 'turn-1', status: 'running' }
+      });
+
+      const userRow = chatState.liveRows.find((row) => row?.role === 'user');
+      const assistantRow = chatState.liveRows.find((row) => row?.role === 'assistant');
+      expect(userRow?.createdAt).toBe('');
+      expect(userRow?.sequence).toBe(0);
+      expect(assistantRow?.createdAt).toBe('');
+      expect(assistantRow?.sequence).toBe(1);
+    } finally {
+      globalThis.window = originalWindow;
+    }
+  });
+
+  it('anchors model_started live rows from activeStreamStartedAt when the event omits createdAt', () => {
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      location: { pathname: '/conversation/conv-1' }
+    };
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeStreamStartedAt = Date.parse('2026-03-16T10:00:00.000Z');
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'model_started',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        assistantMessageId: 'msg-1',
+        status: 'thinking',
+        model: { provider: 'openai', model: 'gpt-5.4' }
+      });
+
+      const userRow = chatState.liveRows.find((row) => row?.role === 'user');
+      const assistantRow = chatState.liveRows.find((row) => row?.role === 'assistant');
+      expect(userRow?.createdAt).toBe('');
+      expect(userRow?.sequence).toBe(0);
+      expect(assistantRow?.createdAt).toBe('');
+      expect(assistantRow?.sequence).toBe(1);
+    } finally {
+      globalThis.window = originalWindow;
+    }
+  });
+
+  it('updates conversation form live state from stream lifecycle events', () => {
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      location: { pathname: '/conversation/conv-1' }
+    };
+    const conversationState = { values: { id: 'conv-1', running: false, stage: '', status: '' } };
+    const context = {
+      resources: { chat: ensureContextResources({ resources: {} }) },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      handleStreamEvent(context.resources.chat, context, 'conv-1', {
+        type: 'model_started',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        assistantMessageId: 'msg-1',
+        status: 'thinking',
+        model: { provider: 'openai', model: 'gpt-5.4' }
+      });
+      expect(conversationState.values).toMatchObject({
+        running: true,
+        stage: 'thinking',
+        status: 'thinking'
+      });
+
+      handleStreamEvent(context.resources.chat, context, 'conv-1', {
+        type: 'tool_call_started',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        assistantMessageId: 'msg-1',
+        toolCallId: 'call-1',
+        toolMessageId: 'tool-msg-1',
+        toolName: 'orchestration/updatePlan',
+        status: 'running'
+      });
+      expect(conversationState.values).toMatchObject({
+        running: true,
+        stage: 'executing',
+        status: 'running'
+      });
+
+      handleStreamEvent(context.resources.chat, context, 'conv-1', {
+        type: 'linked_conversation_attached',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        assistantMessageId: 'msg-1',
+        toolCallId: 'call-1',
+        linkedConversationId: 'child-conv-1'
+      });
+      expect(conversationState.values).toMatchObject({
+        running: true,
+        stage: 'executing',
+        status: 'running'
+      });
+
+      handleStreamEvent(context.resources.chat, context, 'conv-1', {
+        type: 'elicitation_requested',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        assistantMessageId: 'msg-1',
+        elicitationId: 'elic-1',
+        status: 'pending',
+        content: 'Need input',
+        elicitationData: { requestedSchema: { type: 'object' } }
+      });
+      expect(conversationState.values).toMatchObject({
+        running: true,
+        stage: 'eliciting',
+        status: 'pending'
+      });
+
+      handleStreamEvent(context.resources.chat, context, 'conv-1', {
+        type: 'turn_completed',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        status: 'succeeded'
+      });
+      expect(conversationState.values).toMatchObject({
+        running: false,
+        stage: 'done',
+        status: 'succeeded'
+      });
+    } finally {
+      globalThis.window = originalWindow;
+    }
+  });
+
+  it('requires conversation ids on stream events instead of deriving them from the subscription', () => {
+    expect(resolveStreamEventConversationID({ type: 'text_delta' }, 'conv-1')).toBe('');
     expect(shouldProcessStreamEvent({
       payload: { type: 'text_delta' },
       subscribedConversationID: 'conv-1',
       visibleConversationID: 'conv-1'
-    })).toBe(true);
+    })).toBe(false);
   });
 
   it('ignores events for conversations outside the active subscriber window', () => {
@@ -94,6 +442,21 @@ describe('handleStreamEvent', () => {
       subscribedConversationID: 'conv-1',
       visibleConversationID: 'conv-1'
     })).toBe(false);
+  });
+
+  it('ignores old-stream events while switching to another conversation', () => {
+    expect(shouldProcessStreamEvent({
+      payload: { type: 'text_delta', conversationId: 'conv-old' },
+      subscribedConversationID: 'conv-old',
+      visibleConversationID: 'conv-old',
+      switchingConversationID: 'conv-new'
+    })).toBe(false);
+    expect(shouldProcessStreamEvent({
+      payload: { type: 'text_delta', conversationId: 'conv-new' },
+      subscribedConversationID: 'conv-new',
+      visibleConversationID: 'conv-old',
+      switchingConversationID: 'conv-new'
+    })).toBe(true);
   });
 
   it('ignores summary-mode execution events so maintenance work does not reanimate the live card', () => {
@@ -375,6 +738,435 @@ describe('handleStreamEvent', () => {
     });
   });
 
+  it('uses tracker-backed assistant rows as the primary active-turn source when live placeholders exist', () => {
+    const setCollection = vi.fn();
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeConversationID = 'conv-1';
+    chatState.liveOwnedConversationID = 'conv-1';
+    chatState.liveOwnedTurnIds = ['turn-1'];
+    chatState.liveRows = [
+      {
+        id: 'assistant:turn-1:live',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-03-16T01:00:00Z',
+        interim: 1,
+        status: 'running',
+        turnStatus: 'running',
+        content: '',
+        executionGroups: []
+      }
+    ];
+    chatState.streamTracker.applyEvent({
+      type: 'assistant_preamble',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      messageId: 'msg-1',
+      assistantMessageId: 'msg-1',
+      content: 'Calling updatePlan.',
+      status: 'running',
+      createdAt: '2026-03-16T01:00:01Z',
+    });
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection,
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({})
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const rows = renderMergedRowsForContext(context);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: 'msg-1',
+      turnId: 'turn-1',
+      content: 'Calling updatePlan.'
+    });
+  });
+
+  it('prefers tracker-backed assistant rows over stale live assistant rows for the same active conversation', () => {
+    const setCollection = vi.fn();
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeConversationID = 'conv-1';
+    chatState.liveOwnedConversationID = 'conv-1';
+    chatState.liveOwnedTurnIds = ['turn-1'];
+    chatState.liveRows = [
+      {
+        id: 'assistant-stale',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-03-16T01:00:00Z',
+        interim: 1,
+        status: 'running',
+        turnStatus: 'running',
+        content: 'stale local row',
+        executionGroups: []
+      }
+    ];
+    chatState.streamTracker.applyEvent({
+      type: 'assistant_preamble',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      messageId: 'msg-1',
+      assistantMessageId: 'msg-1',
+      content: 'Calling updatePlan.',
+      status: 'running',
+      createdAt: '2026-03-16T01:00:01Z',
+    });
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', running: true }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection,
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const rows = renderMergedRowsForContext(context);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: 'msg-1',
+      content: 'Calling updatePlan.'
+    });
+    expect(rows[0].id).not.toBe('assistant-stale');
+  });
+
+  it('preserves transient stream fields from a matching live assistant row when tracker owns the canonical row', () => {
+    const messageState = { collection: [] };
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeConversationID = 'conv-1';
+    chatState.liveOwnedConversationID = 'conv-1';
+    chatState.liveOwnedTurnIds = ['turn-1'];
+    chatState.liveRows = [
+      {
+        id: 'msg-1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-03-16T01:00:02Z',
+        interim: 1,
+        isStreaming: true,
+        content: 'Calling updatePlan.',
+        _streamContent: 'Calling updatePlan. Then streaming...',
+        _streamFence: { hasLeadingFence: false, hasTrailingFence: false, language: '' }
+      }
+    ];
+    chatState.streamTracker.applyEvent({
+      type: 'assistant_preamble',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      messageId: 'msg-1',
+      assistantMessageId: 'msg-1',
+      content: 'Calling updatePlan.',
+      status: 'running',
+      createdAt: '2026-03-16T01:00:01Z',
+    });
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', queuedTurns: [] }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const rows = renderMergedRowsForContext(context);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: 'msg-1',
+      isStreaming: true,
+      _streamContent: 'Calling updatePlan. Then streaming...'
+    });
+    expect(messageState.collection).toHaveLength(1);
+    expect(messageState.collection[0]).toMatchObject({
+      id: 'msg-1',
+      content: 'Calling updatePlan.'
+    });
+  });
+
+  it('keeps explicit live assistant rows for turns not covered by tracker rows', () => {
+    const setCollection = vi.fn();
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeConversationID = 'conv-1';
+    chatState.liveOwnedConversationID = 'conv-1';
+    chatState.liveOwnedTurnIds = ['turn-1', 'turn-2'];
+    chatState.liveRows = [
+      {
+        id: 'assistant-turn-2',
+        role: 'assistant',
+        turnId: 'turn-2',
+        createdAt: '2026-03-16T01:00:03Z',
+        interim: 1,
+        status: 'running',
+        turnStatus: 'running',
+        content: 'Second live turn',
+        executionGroups: []
+      }
+    ];
+    chatState.streamTracker.applyEvent({
+      type: 'assistant_preamble',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      messageId: 'msg-1',
+      assistantMessageId: 'msg-1',
+      content: 'First tracker turn',
+      status: 'running',
+      createdAt: '2026-03-16T01:00:01Z',
+    });
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', running: true }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection,
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const rows = renderMergedRowsForContext(context);
+    expect(rows.map((row) => row.id)).toEqual(['msg-1', 'assistant-turn-2']);
+    expect(rows[0]).toMatchObject({ turnId: 'turn-1', content: 'First tracker turn' });
+    expect(rows[1]).toMatchObject({ turnId: 'turn-2', content: 'Second live turn' });
+  });
+
+  it('prefers the latest same-turn live assistant row when tracker row id has no exact live match', () => {
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeConversationID = 'conv-1';
+    chatState.liveRows = [
+      {
+        id: 'assistant-older',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-03-16T01:00:01Z',
+        isStreaming: true,
+        _streamContent: 'older transient stream'
+      },
+      {
+        id: 'assistant-newer',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-03-16T01:00:03Z',
+        isStreaming: true,
+        _streamContent: 'newer transient stream'
+      }
+    ];
+    chatState.streamTracker.applyEvent({
+      type: 'assistant_preamble',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      messageId: 'msg-tracker',
+      assistantMessageId: 'msg-tracker',
+      content: 'Tracker canonical row',
+      status: 'running',
+      createdAt: '2026-03-16T01:00:02Z',
+    });
+
+    const row = latestAssistantRowForTurn(chatState, 'conv-1', 'turn-1');
+    expect(row).toMatchObject({
+      id: 'assistant-newer',
+      content: 'Tracker canonical row',
+      _streamContent: 'newer transient stream',
+      isStreaming: true
+    });
+    expect(row?._streamContent).not.toBe('older transient stream');
+  });
+
+  it('renders linked conversation metadata from tracker-backed execution groups without requiring a live row patch', () => {
+    const setCollection = vi.fn();
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeConversationID = 'conv-parent';
+    chatState.liveOwnedConversationID = 'conv-parent';
+    chatState.liveOwnedTurnIds = ['turn-1'];
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-parent', running: true }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection,
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    handleStreamEvent(chatState, context, 'conv-parent', {
+      type: 'model_started',
+      conversationId: 'conv-parent',
+      turnId: 'turn-1',
+      assistantMessageId: 'mc-1',
+      messageId: 'mc-1',
+      status: 'thinking',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    });
+    handleStreamEvent(chatState, context, 'conv-parent', {
+      type: 'tool_call_started',
+      conversationId: 'conv-parent',
+      turnId: 'turn-1',
+      assistantMessageId: 'mc-1',
+      toolCallId: 'call-agent-1',
+      toolMessageId: 'tool-msg-1',
+      toolName: 'llm/agents/run',
+      status: 'running'
+    });
+    const assistantBeforeLink = chatState.renderRows.find((row) => String(row?.role || '').toLowerCase() === 'assistant');
+    expect(String(assistantBeforeLink?.executionGroups?.[0]?.toolSteps?.[0]?.linkedConversationId || '')).toBe('');
+
+    handleStreamEvent(chatState, context, 'conv-parent', {
+      type: 'linked_conversation_attached',
+      conversationId: 'conv-parent',
+      turnId: 'turn-1',
+      assistantMessageId: 'mc-1',
+      toolCallId: 'call-agent-1',
+      linkedConversationId: 'child-conv-1',
+      linkedConversationAgentId: 'steward-forecasting',
+      linkedConversationTitle: 'Forecasting Child'
+    });
+
+    const assistant = chatState.renderRows.find((row) => String(row?.role || '').toLowerCase() === 'assistant');
+    expect(assistant?.executionGroups?.[0]?.toolSteps?.[0]).toMatchObject({
+      toolCallId: 'call-agent-1',
+      linkedConversationId: 'child-conv-1',
+      linkedConversationAgentId: 'steward-forecasting',
+      linkedConversationTitle: 'Forecasting Child'
+    });
+  });
+
   it('creates a failed assistant row on terminal stream failure even without prior execution content', () => {
     const originalWindow = globalThis.window;
     globalThis.window = {
@@ -453,6 +1245,64 @@ describe('handleStreamEvent', () => {
       expect(assistant.executionGroups[0]).toMatchObject({
         status: 'failed',
         errorMessage: 'failed to send request: dial tcp: lookup api.openai.com: no such host'
+      });
+    } finally {
+      globalThis.window = originalWindow;
+    }
+  });
+
+  it('stores deterministic terminal turn markers from the terminal payload', () => {
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      location: { pathname: '/conversation/conv-1' }
+    };
+    const chatState = {
+      liveRows: [],
+      lastHasRunning: true,
+      activeConversationID: 'conv-1',
+      activeStreamTurnId: 'turn-1',
+      runningTurnId: 'turn-1'
+    };
+    const context = {
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'turn_completed',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        status: 'succeeded',
+        createdAt: '2026-03-16T10:00:10Z'
+      });
+
+      expect(chatState.terminalTurns).toMatchObject({
+        'turn-1': '2026-03-16T10:00:10Z'
       });
     } finally {
       globalThis.window = originalWindow;
@@ -798,6 +1648,7 @@ describe('renderMergedRowsForContext', () => {
     expect(messageState.collection).toHaveLength(1);
     expect(messageState.collection[0]).toMatchObject({
       _type: 'starter',
+      createdAt: '',
       subtitle: 'Auto-select agent'
     });
     expect(messageState.collection[0].starterTasks).toHaveLength(2);
@@ -912,6 +1763,151 @@ describe('renderMergedRowsForContext', () => {
     expect(messageState.collection[0].content).toBe('hello');
   });
 
+  it('keeps the same-turn user message above assistant iterations even if the user timestamp drifts later', () => {
+    const messageState = { collection: [] };
+    const context = {
+      resources: {
+        chat: {
+          transcriptRows: [],
+          liveRows: [
+            {
+              id: 'assistant-live-1',
+              role: 'assistant',
+              turnId: 'turn-1',
+              createdAt: '2026-03-26T12:00:00Z',
+              interim: 1,
+              status: 'running',
+              turnStatus: 'running',
+              content: 'Calling updatePlan.',
+              preamble: 'Calling updatePlan.',
+              executionGroups: [
+                {
+                  assistantMessageId: 'assistant-live-1',
+                  iteration: 1,
+                  preamble: 'Calling updatePlan.',
+                  status: 'running'
+                }
+              ]
+            },
+            {
+              id: 'user:turn-1',
+              role: 'user',
+              turnId: 'turn-1',
+              createdAt: '2026-03-26T12:00:03Z',
+              content: 'Forecast inventory and uniques for this targeting set: ad deal 147540'
+            }
+          ],
+          renderRows: [],
+          runningTurnId: 'turn-1',
+          lastHasRunning: true,
+          liveOwnedConversationID: 'conv-1',
+          liveOwnedTurnIds: ['turn-1']
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', queuedTurns: [] })
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ agentInfos: [], defaults: {} })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    renderMergedRowsForContext(context);
+
+    expect(messageState.collection).toHaveLength(2);
+    expect(messageState.collection[0]).toMatchObject({
+      role: 'user',
+      turnId: 'turn-1'
+    });
+    expect(messageState.collection[1]).toMatchObject({
+      role: 'assistant',
+      turnId: 'turn-1'
+    });
+  });
+
+});
+
+describe('startPolling', () => {
+  it('does not poll finished conversations once transcript is already loaded', async () => {
+    vi.useFakeTimers();
+    const context = {
+      resources: {
+        chat: {
+          transcriptRows: [{ id: 'm1', role: 'assistant', turnId: 'turn-1', content: 'done' }],
+          liveRows: [],
+          renderRows: [],
+          lastHasRunning: false,
+          activeStreamTurnId: '',
+          runningTurnId: '',
+          lastStreamEventAt: 0,
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', queuedTurns: [] }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    client.getTranscript.mockClear();
+    startPolling(context);
+    await vi.advanceTimersByTimeAsync(4500);
+    expect(client.getTranscript).not.toHaveBeenCalled();
+    stopPolling(context);
+    vi.useRealTimers();
+  });
 });
 
 describe('createNewConversation', () => {
@@ -1541,7 +2537,7 @@ describe('shouldUseLiveStream', () => {
     expect(shouldUseLiveStream(context, 'conv-transcript')).toBe(false);
   });
 
-  it('uses stream for the visible conversation even when the turn was started elsewhere', () => {
+  it('uses stream for the visible conversation only when it is marked running', () => {
     const context = {
       resources: {
         chat: {
@@ -1554,7 +2550,7 @@ describe('shouldUseLiveStream', () => {
           return {
             handlers: {
               dataSource: {
-                peekFormData: () => ({ id: 'conv-visible' })
+                peekFormData: () => ({ id: 'conv-visible', running: true })
               }
             }
           };
@@ -1565,6 +2561,58 @@ describe('shouldUseLiveStream', () => {
 
     expect(shouldUseLiveStream(context, 'conv-visible')).toBe(true);
     expect(shouldUseLiveStream(context, 'conv-other')).toBe(false);
+  });
+
+  it('uses stream for the visible conversation when stage says it is still live', () => {
+    const context = {
+      resources: {
+        chat: {
+          liveOwnedConversationID: '',
+          liveOwnedTurnIds: []
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-visible', running: false, stage: 'executing', status: 'running' })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    expect(shouldUseLiveStream(context, 'conv-visible')).toBe(true);
+  });
+
+  it('does not use stream for a selected finished conversation', () => {
+    const context = {
+      resources: {
+        chat: {
+          liveOwnedConversationID: '',
+          liveOwnedTurnIds: [],
+          runningTurnId: '',
+          activeStreamTurnId: ''
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-finished', running: false })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    expect(shouldUseLiveStream(context, 'conv-finished')).toBe(false);
   });
 });
 
@@ -1638,8 +2686,81 @@ describe('renderMergedRowsForContext', () => {
 
     expect(collection.some((row) => row?._type === 'queue')).toBe(true);
     expect(collection.find((row) => row?._type === 'queue')).toMatchObject({
+      createdAt: '',
       running: true,
       queuedTurns: [{ id: 'turn-q1', preview: 'queued follow-up' }]
     });
+  });
+
+  it('keeps synthetic starter and queue rows deterministic across rerenders', () => {
+    let firstCollection = [];
+    let secondCollection = [];
+    const context = {
+      resources: {
+        chat: {
+          transcriptRows: [],
+          liveRows: [],
+          renderRows: [],
+          runningTurnId: '',
+          lastHasRunning: false,
+          liveOwnedConversationID: '',
+          liveOwnedTurnIds: []
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection(next) {
+                  if (firstCollection.length === 0) {
+                    firstCollection = next;
+                  } else {
+                    secondCollection = next;
+                  }
+                }
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData() {
+                  return {
+                    id: '',
+                    agent: 'auto',
+                    running: true,
+                    queuedTurns: [{ id: 'turn-q1', preview: 'queued follow-up' }]
+                  };
+                }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  agent: 'auto',
+                  defaults: { agent: 'coder' },
+                  agentInfos: [
+                    { id: 'coder', name: 'Coder', starterTasks: [{ id: 'analyze', title: 'Analyze', prompt: 'Analyze repo.' }] }
+                  ]
+                })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    renderMergedRowsForContext(context);
+    renderMergedRowsForContext(context);
+
+    expect(secondCollection).toEqual(firstCollection);
   });
 });

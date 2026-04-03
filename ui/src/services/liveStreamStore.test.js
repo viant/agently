@@ -8,6 +8,7 @@ import {
   applyMessagePatchEvent,
   applyPreambleEvent,
   applyToolStreamEvent,
+  applyTurnStartedEvent,
   applyStreamChunk,
   finalizeStreamTurn,
   normalizeStreamingMarkdown
@@ -89,10 +90,88 @@ describe('applyStreamChunk', () => {
     expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
     expect(chatState.liveRows[0].executionGroups[0].content).toBe('Hello');
     expect(chatState.liveRows[0].executionGroups[0].status).toBe('streaming');
+    expect(chatState.liveRows[0].createdAt).toBe('');
+  });
+
+  it('matches streamed chunks by canonical messageId when assistantMessageId is absent', () => {
+    const chatState = {
+      activeStreamTurnId: 'turn-1',
+      liveRows: [{
+        id: 'assistant:turn-1:1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 1,
+        isStreaming: true,
+        content: '',
+        executionGroups: [{
+          assistantMessageId: 'msg-1',
+          content: '',
+          finalResponse: false,
+          status: 'thinking',
+          modelSteps: [{
+            modelCallId: 'msg-1',
+            assistantMessageId: 'msg-1',
+            status: 'thinking'
+          }],
+          toolSteps: [],
+          toolCallsPlanned: []
+        }],
+        createdAt: '2026-03-16T10:00:01Z'
+      }]
+    };
+
+    applyStreamChunk(chatState, {
+      messageId: 'msg-1',
+      streamId: 'conv-1',
+      content: 'Hello'
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].content).toBe('Hello');
+    expect(chatState.liveRows[0].executionGroups[0].content).toBe('Hello');
   });
 });
 
 describe('applyExecutionStreamEvent', () => {
+  it('creates deterministic synthetic turn rows when turn_started has no timestamps', () => {
+    const chatState = { liveRows: [], activeStreamPrompt: 'hi' };
+
+    applyTurnStartedEvent(chatState, {
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'running'
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(2);
+    expect(chatState.liveRows[0]).toMatchObject({
+      id: 'user:turn-1',
+      createdAt: '',
+      sequence: 0
+    });
+    expect(chatState.liveRows[1]).toMatchObject({
+      id: 'assistant:turn-1:live',
+      createdAt: '',
+      sequence: 1
+    });
+  });
+
+  it('keeps execution row timestamps deterministic when events omit createdAt', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0].createdAt).toBe('');
+    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0].startedAt).toBeUndefined();
+    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0].completedAt).toBeUndefined();
+  });
+
   it('keeps the turn-level row running when an intermediate model step completes', () => {
     const chatState = { liveRows: [] };
 
@@ -264,7 +343,7 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
     // Row content must be the final response
     expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
-    expect(chatState.liveRows[0].interim).toBe(0);
+    expect(chatState.liveRows[0].interim).toBe(1);
     // The existing execution group gets the final content
     expect(chatState.liveRows[0].executionGroups[0].content).toBe('{"HOME": "/Users/awitas"}');
     expect(chatState.liveRows[0].executionGroups[0].finalResponse).toBe(true);
@@ -510,12 +589,58 @@ describe('applyExecutionStreamEvent', () => {
       status: 'completed'
     }, 'conv-1');
 
-    expect(chatState.liveRows).toHaveLength(1);
-    expect(chatState.liveRows[0].content).toBe('Here is the final response.');
-    expect(chatState.liveRows[0].interim).toBe(0);
-    expect(chatState.liveRows[0].isStreaming).toBe(false);
+  expect(chatState.liveRows).toHaveLength(1);
+  expect(chatState.liveRows[0].content).toBe('Here is the final response.');
+  expect(chatState.liveRows[0].interim).toBe(0);
+  expect(chatState.liveRows[0].isStreaming).toBe(false);
     expect(chatState.liveRows[0].turnStatus).toBe('completed');
     expect(chatState.liveRows[0].executionGroups[0].content).toBe('Here is the final response.');
+  });
+
+  it('finalizeStreamTurn keeps model step completedAt deterministic when the terminal payload omits timestamps', () => {
+    const chatState = {
+      liveRows: [
+        {
+          id: 'assistant:turn-1:1',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T10:00:01Z',
+          interim: 1,
+          content: 'Thinking…',
+          _streamContent: 'Final answer.',
+          status: 'thinking',
+          isStreaming: true,
+          executionGroups: [{
+            assistantMessageId: 'msg-1',
+            preamble: 'Thinking…',
+            content: '',
+            finalResponse: false,
+            status: 'thinking',
+            modelSteps: [{
+              modelCallId: 'msg-1',
+              startedAt: '2026-03-16T10:00:01Z',
+              status: 'thinking'
+            }],
+            toolSteps: [],
+            toolCallsPlanned: []
+          }]
+        }
+      ],
+      activeStreamTurnId: 'turn-1',
+      activeStreamPrompt: 'test'
+    };
+
+    finalizeStreamTurn(chatState, {
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'completed'
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0]).toMatchObject({
+      startedAt: '2026-03-16T10:00:01Z',
+      status: 'completed'
+    });
+    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0].completedAt).toBeUndefined();
   });
 
   it('suppresses mode=summary message_patch rows from live chat state', () => {
@@ -533,6 +658,32 @@ describe('applyExecutionStreamEvent', () => {
     });
 
     expect(chatState.liveRows).toEqual([]);
+  });
+
+  it('creates deterministic preamble and elicitation rows when payload timestamps are missing', () => {
+    const preambleState = { liveRows: [] };
+    applyPreambleEvent(preambleState, {
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'msg-1',
+      content: 'Calling updatePlan.'
+    }, 'conv-1');
+
+    expect(preambleState.liveRows).toHaveLength(1);
+    expect(preambleState.liveRows[0].createdAt).toBe('');
+
+    const elicitationState = { liveRows: [] };
+    applyElicitationRequestedEvent(elicitationState, {
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'msg-2',
+      elicitationId: 'elic-1',
+      content: 'Need input',
+      elicitationData: { requestedSchema: { type: 'object' } }
+    });
+
+    expect(elicitationState.liveRows).toHaveLength(1);
+    expect(elicitationState.liveRows[0].createdAt).toBe('');
   });
 
   it('ignores later model and patch events once a summary message id has been identified', () => {
@@ -647,10 +798,10 @@ describe('applyExecutionStreamEvent', () => {
       finalResponse: true
     });
 
-    // Still 1 row, content replaced
-    expect(chatState.liveRows).toHaveLength(1);
-    expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
-    expect(chatState.liveRows[0].interim).toBe(0);
+  // Still 1 row, content replaced
+  expect(chatState.liveRows).toHaveLength(1);
+  expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
+  expect(chatState.liveRows[0].interim).toBe(1);
   });
 
   it('handles 3 parallel tool calls in a single iteration', () => {
@@ -757,8 +908,8 @@ describe('applyExecutionStreamEvent', () => {
       finalResponse: true
     });
 
-    expect(chatState.liveRows[0].content).toBe('Here are the results.');
-    expect(chatState.liveRows[0].interim).toBe(0);
+  expect(chatState.liveRows[0].content).toBe('Here are the results.');
+  expect(chatState.liveRows[0].interim).toBe(1);
   });
 
   it('handles tool call failure without breaking the row', () => {
@@ -813,7 +964,7 @@ describe('applyExecutionStreamEvent', () => {
     });
 
     expect(chatState.liveRows[0].content).toBe('The command failed. Let me try another approach.');
-    expect(chatState.liveRows[0].interim).toBe(0);
+    expect(chatState.liveRows[0].interim).toBe(1);
     // Tool step preserved
     expect(chatState.liveRows[0].executionGroups[0].toolSteps[0].status).toBe('failed');
   });
@@ -904,7 +1055,7 @@ describe('applyExecutionStreamEvent', () => {
     // Turn 1 untouched
     expect(chatState.liveRows[0].turnId).toBe('turn-1');
     expect(chatState.liveRows[0].content).toBe('Hi! How can I help?');
-    expect(chatState.liveRows[0].interim).toBe(0);
+    expect(chatState.liveRows[0].interim).toBe(1);
     // Turn 2 has tool step
     expect(chatState.liveRows[1].turnId).toBe('turn-2');
     expect(chatState.liveRows[1].executionGroups[0].toolSteps).toHaveLength(1);
@@ -977,6 +1128,55 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0].id).toBe('user:turn-1');
     expect(chatState.liveRows[0].role).toBe('user');
     expect(chatState.liveRows[0].content).toBe('Forecast inventory and uniques for this targeting set: deal 106171723');
+  });
+
+  it('message_patch keeps assistant createdAt deterministic when the patch omits timestamps', () => {
+    const chatState = { liveRows: [] };
+
+    applyMessagePatchEvent(chatState, {
+      id: 'assistant-msg-1',
+      patch: {
+        role: 'assistant',
+        turnId: 'turn-1',
+        content: 'Calling updatePlan.',
+        interim: 1
+      }
+    });
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0].id).toBe('assistant-msg-1');
+    expect(chatState.liveRows[0].createdAt).toBe('');
+  });
+
+  it('message_patch for user role keeps createdAt deterministic when the patch omits createdAt', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'conv-1');
+
+    applyMessagePatchEvent(chatState, {
+      id: 'user-msg-1',
+      patch: {
+        role: 'user',
+        turnId: 'turn-1',
+        rawContent: 'Forecast inventory and uniques for this targeting set: deal 106171723'
+      }
+    });
+
+    expect(chatState.liveRows).toHaveLength(2);
+    const userRow = chatState.liveRows.find((row) => row?.role === 'user');
+    expect(userRow).toMatchObject({
+      role: 'user',
+      turnId: 'turn-1',
+      createdAt: ''
+    });
   });
 
   it('full 2-iteration turn: preamble replaced by final, tool call visible', () => {
@@ -1109,7 +1309,7 @@ describe('applyExecutionStreamEvent', () => {
     });
 
     expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
-    expect(chatState.liveRows[0].interim).toBe(0);
+    expect(chatState.liveRows[0].interim).toBe(1);
 
     // 9. model_completed iter 1 (conv service, no model info)
     applyExecutionStreamEvent(chatState, {
@@ -1143,9 +1343,9 @@ describe('applyExecutionStreamEvent', () => {
     // Tool step visible on iter 1
     expect(chatState.liveRows[0].executionGroups[0].toolSteps).toHaveLength(1);
     expect(chatState.liveRows[0].executionGroups[0].toolSteps[0].toolName).toBe('system_os/getEnv');
-    // Content is final response, NOT preamble
-    expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
-    expect(chatState.liveRows[0].interim).toBe(0);
+  // Content is final response, NOT preamble
+  expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
+  expect(chatState.liveRows[0].interim).toBe(0);
     // Model info preserved
     expect(chatState.liveRows[0].executionGroups[0].modelSteps[0].provider).toBe('openai');
     expect(chatState.liveRows[0].executionGroups[1].modelSteps[0].provider).toBe('openai');
@@ -1205,7 +1405,7 @@ describe('applyExecutionStreamEvent', () => {
 
     expect(chatState.liveRows).toHaveLength(1);
     expect(chatState.liveRows[0].content).toBe('Hello world!');
-    expect(chatState.liveRows[0].interim).toBe(0);
+    expect(chatState.liveRows[0].interim).toBe(1);
   });
 
   it('text_delta creates execution row when model_started has not arrived yet', () => {
@@ -1275,8 +1475,76 @@ describe('applyExecutionStreamEvent', () => {
       id: 'assistant:turn-1:1',
       role: 'assistant',
       content: 'Hi!',
-      turnStatus: 'completed'
+      turnStatus: 'succeeded'
     });
+  });
+});
+
+describe('applyPreambleEvent', () => {
+  it('updates the visible assistant bubble when preamble arrives after model_started', () => {
+    const chatState = {
+      liveRows: [{
+        id: 'assistant:turn-1:1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 1,
+        content: '',
+        executionGroups: [{
+          assistantMessageId: 'msg-1',
+          status: 'thinking',
+          modelSteps: [{
+            modelCallId: 'msg-1',
+            assistantMessageId: 'msg-1',
+            status: 'thinking'
+          }]
+        }],
+        createdAt: '2026-03-16T10:00:01Z'
+      }]
+    };
+
+    applyPreambleEvent(chatState, {
+      assistantMessageId: 'msg-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      content: 'Let me analyze this request…'
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].content).toBe('Let me analyze this request…');
+    expect(chatState.liveRows[0].preamble).toBe('Let me analyze this request…');
+    expect(chatState.liveRows[0].executionGroups[0].preamble).toBe('Let me analyze this request…');
+  });
+
+  it('replaces an older interim preamble with the latest one for the same live turn', () => {
+    const chatState = {
+      liveRows: [{
+        id: 'assistant:turn-1:1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 1,
+        content: 'Calling updatePlan.',
+        preamble: 'Calling updatePlan.',
+        executionGroups: [{
+          assistantMessageId: 'msg-1',
+          status: 'completed',
+          preamble: 'Calling updatePlan.'
+        }, {
+          assistantMessageId: 'msg-2',
+          status: 'thinking',
+          preamble: ''
+        }],
+        createdAt: '2026-03-16T10:00:01Z'
+      }]
+    };
+
+    applyPreambleEvent(chatState, {
+      assistantMessageId: 'msg-2',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      content: 'Checking the hierarchy before forecasting.'
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].content).toBe('Checking the hierarchy before forecasting.');
+    expect(chatState.liveRows[0].preamble).toBe('Checking the hierarchy before forecasting.');
   });
 });
 

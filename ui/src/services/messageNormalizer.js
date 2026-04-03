@@ -1,3 +1,5 @@
+import { compareExecutionGroups, compareTemporalEntries } from 'agently-core-ui-sdk';
+
 export function classifyMessage(message) {
   if (!message) return 'bubble';
   if (message._type === 'starter') return 'starter';
@@ -88,10 +90,10 @@ export function normalizeMessages(raw = [], options = {}) {
       .map((item) => {
         return normalizeOne(item);
       })
-      .sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+      .sort(compareTemporalEntries);
     const synthesized = synthesizeIterationMessages(rebuiltBase, visibleCount);
     return [...synthesized, ...preservedQueueRows]
-      .sort((a, b) => Date.parse(a?.createdAt || 0) - Date.parse(b?.createdAt || 0));
+      .sort(compareTemporalEntries);
   }
   const normalized = raw
     .filter((item) => {
@@ -102,7 +104,7 @@ export function normalizeMessages(raw = [], options = {}) {
     })
     .filter((item) => String(item?.status || '').toLowerCase() !== 'summarized')
     .map((item) => normalizeOne(item))
-    .sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+    .sort(compareTemporalEntries);
   return synthesizeIterationMessages(normalized, visibleCount);
 }
 
@@ -416,7 +418,7 @@ function mergeExecutionGroups(existing = [], incoming = []) {
       }
     }
   }
-  return out;
+  return out.sort((left, right) => compareExecutionGroups(left, right));
 }
 
 export function groupIntoIterations(messages = []) {
@@ -763,14 +765,16 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
 
     if (item.type === 'iteration') {
       if (seenIterations >= firstVisibleIndex) {
-        const createdAt = item?.response?.createdAt || item?.preamble?.createdAt || new Date().toISOString();
+        const createdAt = String(item?.response?.createdAt || item?.preamble?.createdAt || '').trim();
         const isLatestIteration = seenIterations === iterations.length - 1;
         const turnId = String(item?.turnId || '').trim();
         const pendingStreams = deferredStreams.get(turnId) || [];
+        const streamContent = pendingStreams.length === 0 ? item?.streamContent || '' : '';
         const iterationContent = String(
           item?.response?.content
+          || streamContent
           || item?.preamble?.content
-          || (pendingStreams.length === 0 ? item?.streamContent || '' : '')
+          || ''
         ).trim();
         out.push({
           _type: 'iteration',
@@ -796,6 +800,12 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
 
       }
       seenIterations++;
+    }
+  }
+
+  for (const pending of deferredStreams.values()) {
+    for (const streamMessage of pending) {
+      out.push(streamMessage);
     }
   }
 
@@ -842,11 +852,7 @@ function collapseTurnIterations(grouped = []) {
       pendingTurnId = turnId;
       continue;
     }
-    if (turnId && pendingTurnId && turnId === pendingTurnId) {
-      if (sameTurnMaybeUnnumbered(pendingIteration, item)) {
-        pendingIteration = mergeIterationItems(pendingIteration, item);
-        continue;
-      }
+    if (turnId && pendingTurnId && turnId === pendingTurnId && sameTurnMaybeUnnumbered(pendingIteration, item)) {
       pendingIteration = mergeIterationItems(pendingIteration, item);
       continue;
     }
@@ -969,7 +975,7 @@ function flattenRelatedSteps(message = {}) {
     const aSequence = Number(a?.sequence ?? a?.toolCall?.messageSequence ?? 0);
     const bSequence = Number(b?.sequence ?? b?.toolCall?.messageSequence ?? 0);
     if (aSequence !== bSequence) return aSequence - bSequence;
-    return Date.parse(a?.createdAt || 0) - Date.parse(b?.createdAt || 0);
+    return compareTemporalEntries(a, b);
   });
   for (let index = 0; index < toolMessages.length; index += 1) {
     const entry = toolMessages[index];

@@ -4,6 +4,12 @@ import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client } from '../services/agentlyClient';
 import { dsTick } from '../services/chatRuntime';
 import {
+  collectElicitationFormValues,
+  elicitationDataBindingKey,
+  prepareRequestedSchema,
+  triggerElicitationFormSubmit
+} from './elicitationHelpers';
+import {
   getPendingElicitation,
   clearPendingElicitation,
   onElicitationChange
@@ -35,90 +41,23 @@ export default function ElicitationOverlay({ context }) {
   const isOOB = !!url || mode === 'oob' || mode === 'webonly' || mode === 'url';
   const hasSchemaProps = !!(schema && typeof schema === 'object' && schema.properties && Object.keys(schema.properties).length > 0);
 
-  const preparedSchema = useMemo(() => {
-    if (!schema || typeof schema !== 'object') return schema;
-    try {
-      const clone = JSON.parse(JSON.stringify(schema));
-      const props = (clone.properties = clone.properties || {});
-      Object.keys(props).forEach((key) => {
-        const p = props[key];
-        if (!p || typeof p !== 'object') return;
-        const t = (p.type || '').toLowerCase();
-        if (t === 'array' && p.default === undefined) p.default = [];
-        if (t === 'object' && p.default === undefined) p.default = {};
-      });
-      return clone;
-    } catch (_) {
-      return schema;
-    }
-  }, [schema]);
+  const preparedSchema = useMemo(() => prepareRequestedSchema(schema), [schema]);
 
-  const dataBindingKey = `window.state.answers.elic_${elicitationId}`;
+  const dataBindingKey = elicitationDataBindingKey(elicitationId);
 
   // Collect form values — try multiple sources in priority order.
   const collectFormValues = useCallback(() => {
-    // 1. Forge dataBinding store (most reliable)
-    try {
-      const path = dataBindingKey.split('.');
-      let obj = window;
-      for (const seg of path.slice(1)) { // skip 'window'
-        obj = obj?.[seg];
-      }
-      if (obj && typeof obj === 'object') {
-        const values = obj?.values || obj?.data || obj;
-        if (Object.keys(values).length > 0) return values;
-      }
-    } catch (_) {}
-
-    // 2. onChange-tracked values
-    const tracked = formValuesRef.current;
-    if (tracked && typeof tracked === 'object' && Object.keys(tracked).length > 0) {
-      return tracked;
-    }
-
-    // 3. DOM fallback — read all inputs from the form wrapper
-    try {
-      const root = document.getElementById(formWrapperId.current);
-      if (!root) return {};
-      const out = {};
-      const fields = root.querySelectorAll('input, select, textarea');
-      fields.forEach((el) => {
-        // Try to match by label text → schema key
-        const name = el.name || el.getAttribute('data-field') || el.id || '';
-        if (!name) return;
-        const type = (el.getAttribute('type') || '').toLowerCase();
-        if (type === 'checkbox') out[name] = !!el.checked;
-        else out[name] = el.value;
-      });
-      // Also try to map by schema property keys
-      if (schema?.properties) {
-        for (const key of Object.keys(schema.properties)) {
-          if (out[key] !== undefined) continue;
-          const sel = [`[name="${key}"]`, `[id="${key}"]`, `[data-field="${key}"]`].join(',');
-          const el = root.querySelector(sel);
-          if (el) out[key] = el.value;
-        }
-      }
-      return out;
-    } catch (_) {
-      return {};
-    }
+    return collectElicitationFormValues({
+      dataBindingKey,
+      formWrapperId: formWrapperId.current,
+      schema,
+      trackedValues: formValuesRef.current
+    });
   }, [schema, dataBindingKey]);
 
   // Trigger SchemaBasedForm's internal submit button (sends properly-keyed values via onSubmit).
   const triggerFormSubmit = useCallback(() => {
-    try {
-      const root = document.getElementById(formWrapperId.current);
-      if (!root) return false;
-      const btn = root.querySelector('button[type="submit"], input[type="submit"]');
-      if (btn) { btn.click(); return true; }
-      const form = root.querySelector('form');
-      if (form) {
-        if (typeof form.requestSubmit === 'function') { form.requestSubmit(); return true; }
-        if (typeof form.submit === 'function') { form.submit(); return true; }
-      }
-    } catch (_) {}
-    return false;
+    return triggerElicitationFormSubmit(formWrapperId.current);
   }, []);
 
   const resolve = useCallback(async (action, payload = null) => {

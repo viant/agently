@@ -9,6 +9,11 @@ import { flattenCanonicalTranscriptSteps, transcriptConversationTurns } from '..
 import { client } from '../services/agentlyClient';
 
 const payloadCache = new Map();
+const MODEL_PRICING_USD_PER_MILLION = {
+  'openai:gpt-5.4': { input: 2.5, output: 15.0 },
+  'openai:gpt-5.4-mini': { input: 0.75, output: 4.5 },
+  'openai:gpt-5.4-nano': { input: 0.2, output: 1.25 }
+};
 
 function parseJSONIfPossible(value) {
   if (typeof value !== 'string') return value;
@@ -186,6 +191,43 @@ function readTokenUsage(toolCall = {}) {
   return null;
 }
 
+function normalizePricingKey(provider = '', model = '') {
+  const normalizedProvider = String(provider || '').trim().toLowerCase().replace(/[_\s]+/g, '-');
+  const normalizedModel = String(model || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-')
+    .replace(/--+/g, '-');
+  if (!normalizedProvider || !normalizedModel) return '';
+  return `${normalizedProvider}:${normalizedModel}`;
+}
+
+export function estimateTokenUsageCost(toolCall = {}) {
+  const usage = readTokenUsage(toolCall);
+  if (!usage) return null;
+  const pricing = MODEL_PRICING_USD_PER_MILLION[normalizePricingKey(toolCall?.provider, toolCall?.model)];
+  if (!pricing) return null;
+  const promptTokens = Number(usage?.prompt || 0) || 0;
+  const completionTokens = Number(usage?.completion || 0) || 0;
+  const promptCost = (promptTokens / 1_000_000) * pricing.input;
+  const completionCost = (completionTokens / 1_000_000) * pricing.output;
+  const total = promptCost + completionCost;
+  return {
+    promptCost,
+    completionCost,
+    total,
+    currency: 'USD'
+  };
+}
+
+export function formatUsdEstimate(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0) return '';
+  if (amount === 0) return '$0.00';
+  if (amount < 0.01) return `$${amount.toFixed(4)}`;
+  return `$${amount.toFixed(2)}`;
+}
+
 function mergeHydratedToolCall(base = {}, incoming = {}) {
   if (!incoming || typeof incoming !== 'object') return base || {};
   return {
@@ -295,6 +337,7 @@ export default function DetailPanel({ toolCall, onClose }) {
   const effectiveToolCall = resolvedToolCall || toolCall || null;
   const kind = useMemo(() => detailKind(effectiveToolCall), [effectiveToolCall]);
   const tokenUsage = useMemo(() => readTokenUsage(effectiveToolCall || {}), [effectiveToolCall]);
+  const tokenCost = useMemo(() => estimateTokenUsageCost(effectiveToolCall || {}), [effectiveToolCall]);
   const linkedConversationId = useMemo(() => findLinkedConversationId(effectiveToolCall || {}), [effectiveToolCall]);
   const errorText = String(
     effectiveToolCall?.errorMessage
@@ -392,6 +435,9 @@ export default function DetailPanel({ toolCall, onClose }) {
             <span className="app-detail-token-chip">Prompt {tokenUsage.prompt ?? 'n/a'}</span>
             <span className="app-detail-token-chip">Completion {tokenUsage.completion ?? 'n/a'}</span>
             <span className="app-detail-token-chip app-detail-token-chip-total">Total {tokenUsage.total ?? 'n/a'}</span>
+            {tokenCost ? (
+              <span className="app-detail-token-chip app-detail-token-chip-total">{`Est. ${formatUsdEstimate(tokenCost.total)}`}</span>
+            ) : null}
           </div>
         ) : null}
         {linkedConversationId ? (

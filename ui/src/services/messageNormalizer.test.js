@@ -195,7 +195,7 @@ describe('normalizeMessages', () => {
     expect(iteration?._iterationData?.toolCalls?.some((step) => String(step?.id || '').endsWith(':final'))).toBe(false);
   });
 
-  it('collapses multiple iterations from the same turn into one execution block without synthetic preamble rows', () => {
+  it('keeps later non-interim assistant messages in the same turn as separate bubbles', () => {
     const messages = [
       {
         id: 'u1',
@@ -240,6 +240,15 @@ describe('normalizeMessages', () => {
         }]
       },
       {
+        id: 'a1-final',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 1,
+        interim: 0,
+        createdAt: '2026-01-01T10:00:02.500Z',
+        content: 'Here is the first answer.'
+      },
+      {
         id: 'a2',
         role: 'assistant',
         turnId: 'turn-1',
@@ -273,25 +282,127 @@ describe('normalizeMessages', () => {
             status: 'completed'
           }]
         }]
+      },
+      {
+        id: 'a2-final',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 2,
+        interim: 0,
+        createdAt: '2026-01-01T10:00:05Z',
+        content: 'Here is the revised answer.'
       }
     ];
 
-    const normalized = normalizeMessages(messages, { visibleCount: 1 });
+    const normalized = normalizeMessages(messages, { visibleCount: Number.MAX_SAFE_INTEGER });
     const iterations = normalized.filter((entry) => entry?._type === 'iteration');
-    const preambles = normalized.filter((entry) => entry?._type === 'preamble-bubble');
+    expect(iterations).toHaveLength(2);
+    expect(iterations[0]?._iterationData?.response?.content).toBe('Here is the first answer.');
+    expect(iterations[1]?._iterationData?.response?.content).toBe('Here is the revised answer.');
+    expect(iterations[1]?._iterationData?.preamble?.content).toBe('Using resources-list and resources-grepFiles.');
+  });
 
-    expect(iterations).toHaveLength(1);
-    expect(preambles).toHaveLength(0);
-    expect(iterations[0]?._iterationData?.preambles?.map((entry) => entry.content)).toEqual([
-      'Using resources-list.',
-      'Using resources-list and resources-grepFiles.'
+  it('keeps synthesized iteration createdAt deterministic when source timestamps are missing', () => {
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:00Z',
+        content: 'analyze repo'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 1,
+        interim: 1,
+        content: 'Calling updatePlan.'
+      },
+      {
+        id: 'a2',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 1,
+        interim: 0,
+        content: 'Done.'
+      }
+    ];
+
+    const first = normalizeMessages(messages, { visibleCount: 3 });
+    const second = normalizeMessages(messages, { visibleCount: 3 });
+    const firstIteration = first.find((entry) => entry?._type === 'iteration');
+    const secondIteration = second.find((entry) => entry?._type === 'iteration');
+
+    expect(firstIteration?.createdAt).toBe('');
+    expect(secondIteration?.createdAt).toBe(firstIteration?.createdAt);
+  });
+
+  it('preserves user steering as its own bubble within a turn before the next assistant response', () => {
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:00Z',
+        content: 'forecast inventory'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 1,
+        interim: 1,
+        createdAt: '2026-01-01T10:00:01Z',
+        content: 'Checking hierarchy.'
+      },
+      {
+        id: 'a1-final',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 1,
+        interim: 0,
+        createdAt: '2026-01-01T10:00:02Z',
+        content: 'First forecast.'
+      },
+      {
+        id: 'u2',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:03Z',
+        content: 'narrow to this targeting set'
+      },
+      {
+        id: 'a2',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 2,
+        interim: 1,
+        createdAt: '2026-01-01T10:00:04Z',
+        content: 'Re-running on the narrowed set.'
+      },
+      {
+        id: 'a2-final',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 2,
+        interim: 0,
+        createdAt: '2026-01-01T10:00:05Z',
+        content: 'Refined forecast.'
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: Number.MAX_SAFE_INTEGER });
+    const userBubbles = normalized.filter((entry) => String(entry?.role || '').toLowerCase() === 'user');
+    const iterations = normalized.filter((entry) => entry?._type === 'iteration');
+
+    expect(userBubbles.map((entry) => entry.content)).toEqual([
+      'forecast inventory',
+      'narrow to this targeting set'
     ]);
-    expect(iterations[0]?._iterationData?.toolCalls?.map((step) => step.id)).toEqual([
-      'model-1',
-      'tool-step-1',
-      'model-2',
-      'tool-step-2'
-    ]);
+    expect(iterations).toHaveLength(2);
+    expect(iterations[0]?._iterationData?.response?.content).toBe('First forecast.');
+    expect(iterations[1]?._iterationData?.response?.content).toBe('Refined forecast.');
   });
 
   it('renders a parent linked tool call as an execution block with linked conversation metadata', () => {
@@ -337,6 +448,43 @@ describe('normalizeMessages', () => {
       status: 'running'
     });
     expect(normalized.some((entry) => entry?._type === 'paginator')).toBe(false);
+  });
+
+  it('prefers live stream content over preamble content for the active iteration bubble', () => {
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:00Z',
+        content: 'say hi'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:01Z',
+        interim: 1,
+        content: 'Let me think about that...',
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:02Z',
+        interim: 1,
+        content: 'Hello there',
+        _bubbleSource: 'stream'
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: 1 });
+    const iteration = normalized.find((entry) => entry?._type === 'iteration');
+
+    expect(iteration).toBeTruthy();
+    expect(iteration.content).toBe('Hello there');
+    expect(iteration._iterationData?.preamble?.content).toBe('Let me think about that...');
+    expect(iteration._iterationData?.streamContent).toBe('Hello there');
   });
 
   it('preserves canonical executionGroups on a tool-only row so execution details can render the parent model call', () => {
@@ -674,6 +822,42 @@ describe('normalizeMessages', () => {
     const normalized = normalizeMessages(messages, { visibleCount: Number.MAX_SAFE_INTEGER });
     expect(normalized.filter((entry) => entry?._type === 'iteration')).toHaveLength(1);
     expect(normalized.filter((entry) => entry?.elicitation?.requestedSchema)).toHaveLength(1);
+  });
+
+  it('does not render literal undefined when an iteration has no visible response yet', () => {
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:00Z',
+        content: 'forecast inventory'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 1,
+        interim: 1,
+        createdAt: '2026-01-01T10:00:01Z',
+        content: '',
+        executions: [{
+          steps: [{
+            id: 'model-1',
+            kind: 'model',
+            reason: 'thinking',
+            toolName: 'openai/gpt-5.4',
+            status: 'thinking'
+          }]
+        }]
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: Number.MAX_SAFE_INTEGER });
+    const iteration = normalized.find((entry) => entry?._type === 'iteration');
+
+    expect(iteration).toBeTruthy();
+    expect(String(iteration?.content || '')).toBe('');
   });
 
   it('treats iteration 0 as unset so same-turn elicitation stays on the active iteration', () => {

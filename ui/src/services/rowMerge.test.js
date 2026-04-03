@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { mergeRenderedRows } from './rowMerge';
+import { mergeRenderedRows, mergeRowSnapshots } from './rowMerge';
 
 function findLatestRunningTurnId(rows = []) {
   for (let index = rows.length - 1; index >= 0; index -= 1) {
@@ -14,6 +14,20 @@ function findLatestRunningTurnId(rows = []) {
 }
 
 describe('mergeRenderedRows', () => {
+  it('keeps createdAt deterministic when merged rows have no timestamp', () => {
+    const first = mergeRowSnapshots(
+      [{ id: 'assistant-1', role: 'assistant', turnId: 'turn-1', content: 'hello' }],
+      [{ id: 'assistant-1', role: 'assistant', turnId: 'turn-1', interim: 1 }]
+    );
+    const second = mergeRowSnapshots(
+      [{ id: 'assistant-1', role: 'assistant', turnId: 'turn-1', content: 'hello' }],
+      [{ id: 'assistant-1', role: 'assistant', turnId: 'turn-1', interim: 1 }]
+    );
+
+    expect(first[0]?.createdAt).toBe('');
+    expect(second[0]?.createdAt).toBe(first[0]?.createdAt);
+  });
+
   it('merges transcript rows and canonical live rows at one boundary', () => {
     const transcriptRows = [
       { id: 'user-1', role: 'user', turnId: 'turn-1', createdAt: '2026-03-16T01:00:00Z', content: 'hi' }
@@ -200,6 +214,39 @@ describe('mergeRenderedRows', () => {
     expect(merged.map((row) => row.id)).toEqual(['user:turn-1', 'assistant-live']);
   });
 
+  it('keeps the user row ahead of assistant rows in the same turn even if the user timestamp drifts later', () => {
+    const merged = mergeRenderedRows({
+      transcriptRows: [],
+      liveRows: [
+        {
+          id: 'assistant-live',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T01:00:01Z',
+          interim: 1,
+          status: 'running',
+          turnStatus: 'running',
+          executionGroups: [{ assistantMessageId: 'assistant-live', status: 'running' }]
+        },
+        {
+          id: 'user:turn-1',
+          role: 'user',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T01:00:02Z',
+          content: 'live hi'
+        }
+      ],
+      runningTurnId: 'turn-1',
+      hasRunning: true,
+      findLatestRunningTurnId,
+      currentConversationID: 'conv-1',
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1']
+    });
+
+    expect(merged.map((row) => row.id)).toEqual(['user:turn-1', 'assistant-live']);
+  });
+
   it('preserves richer transcript execution-group data over sparse live placeholders', () => {
     const transcriptRows = [
       {
@@ -326,5 +373,164 @@ describe('mergeRenderedRows', () => {
     expect(merged[0].executionGroups[0]).toMatchObject({
       preamble: 'Thinking...'
     });
+  });
+
+  it('prefers the latest interim assistant content when collapsing multiple live pages for one owned turn', () => {
+    const liveRows = [
+      {
+        id: 'assistant:turn-1:1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-03-16T01:00:01Z',
+        interim: 1,
+        status: 'running',
+        turnStatus: 'running',
+        content: 'Calling updatePlan.',
+        preamble: 'Calling updatePlan.',
+        executionGroups: [
+          {
+            assistantMessageId: 'assistant-live-1',
+            status: 'completed',
+            preamble: 'Calling updatePlan.'
+          }
+        ]
+      },
+      {
+        id: 'assistant:turn-1:2',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-03-16T01:00:03Z',
+        interim: 1,
+        status: 'running',
+        turnStatus: 'running',
+        content: 'Checking the hierarchy before forecasting.',
+        preamble: 'Checking the hierarchy before forecasting.',
+        executionGroups: [
+          {
+            assistantMessageId: 'assistant-live-2',
+            status: 'completed',
+            preamble: 'Checking the hierarchy before forecasting.'
+          }
+        ]
+      }
+    ];
+
+    const merged = mergeRenderedRows({
+      transcriptRows: [],
+      liveRows,
+      runningTurnId: 'turn-1',
+      hasRunning: true,
+      findLatestRunningTurnId,
+      currentConversationID: 'conv-1',
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1']
+    });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].content).toBe('Checking the hierarchy before forecasting.');
+    expect(merged[0].preamble).toBe('Checking the hierarchy before forecasting.');
+    expect(merged[0].executionGroups).toHaveLength(2);
+  });
+
+  it('keeps distinct non-interim assistant rows in the same owned turn as separate bubbles', () => {
+    const merged = mergeRenderedRows({
+      transcriptRows: [],
+      liveRows: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T01:00:01Z',
+          interim: 0,
+          content: 'First answer',
+          executionGroups: [
+            {
+              assistantMessageId: 'assistant-1',
+              iteration: 1,
+              finalResponse: true,
+              content: 'First answer'
+            }
+          ]
+        },
+        {
+          id: 'assistant-2',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T01:00:03Z',
+          interim: 1,
+          content: 'Thinking about the follow-up...',
+          preamble: 'Thinking about the follow-up...',
+          executionGroups: [
+            {
+              assistantMessageId: 'assistant-2',
+              iteration: 2,
+              preamble: 'Thinking about the follow-up...',
+              status: 'running'
+            }
+          ]
+        },
+        {
+          id: 'assistant-2-final',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T01:00:04Z',
+          interim: 0,
+          content: 'Second answer',
+          executionGroups: [
+            {
+              assistantMessageId: 'assistant-2-final',
+              iteration: 2,
+              finalResponse: true,
+              content: 'Second answer'
+            }
+          ]
+        }
+      ],
+      runningTurnId: 'turn-1',
+      hasRunning: true,
+      findLatestRunningTurnId,
+      currentConversationID: 'conv-1',
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1']
+    });
+
+    expect(merged).toHaveLength(2);
+    expect(merged.map((row) => row.id)).toEqual(['assistant-1', 'assistant-2-final']);
+    expect(merged[1].content).toBe('Second answer');
+  });
+
+  it('uses sequence as a tie-breaker when live rows share the same createdAt', () => {
+    const merged = mergeRenderedRows({
+      transcriptRows: [],
+      liveRows: [
+        {
+          id: 'assistant-late',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T01:00:01Z',
+          sequence: 2,
+          interim: 1,
+          content: 'second'
+        },
+        {
+          id: 'assistant-early',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T01:00:01Z',
+          sequence: 1,
+          interim: 1,
+          content: 'first'
+        }
+      ],
+      runningTurnId: 'turn-1',
+      hasRunning: true,
+      findLatestRunningTurnId,
+      currentConversationID: 'conv-1',
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1']
+    });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].content).toBe('second');
   });
 });

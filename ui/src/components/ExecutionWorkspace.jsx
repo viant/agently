@@ -171,8 +171,20 @@ async function fetchFileContent(uri = '') {
   return client.downloadWorkspaceFile(value);
 }
 
-function normalizeModelStep(group = {}) {
+export function normalizeModelStep(group = {}) {
   const modelCall = Array.isArray(group?.modelSteps) && group.modelSteps.length > 0 ? group.modelSteps[0] : {};
+  const status = firstString(modelCall?.status, group?.status);
+  const finalResponse = Boolean(group?.finalResponse);
+  const finalContent = firstString(group?.content);
+  const preamble = firstString(group?.preamble);
+  const derivedStreamPayload = modelCall?.streamPayload || (!finalResponse && (finalContent || preamble)
+    ? {
+        status,
+        content: finalContent || '',
+        preamble: preamble || ''
+      }
+    : null);
+  const derivedResponsePayload = modelCall?.responsePayload ?? (finalResponse && finalContent ? finalContent : null);
   return {
     id: firstString(
       modelCall?.assistantMessageId,
@@ -185,7 +197,7 @@ function normalizeModelStep(group = {}) {
     toolName: summarizeModel(group),
     provider: firstString(modelCall?.provider),
     model: firstString(modelCall?.model),
-    status: firstString(modelCall?.status, group?.status),
+    status,
     latencyMs: firstNumber(modelCall?.latencyMs),
     errorMessage: firstString(modelCall?.errorMessage, group?.errorMessage),
     linkedConversationId: firstString(group?.linkedConversationId),
@@ -195,10 +207,10 @@ function normalizeModelStep(group = {}) {
     providerResponsePayloadId: firstString(modelCall?.providerResponsePayloadId),
     streamPayloadId: firstString(modelCall?.streamPayloadId),
     requestPayload: modelCall?.requestPayload || null,
-    responsePayload: modelCall?.responsePayload || null,
+    responsePayload: derivedResponsePayload,
     providerRequestPayload: modelCall?.providerRequestPayload || null,
     providerResponsePayload: modelCall?.providerResponsePayload || null,
-    streamPayload: modelCall?.streamPayload || null,
+    streamPayload: derivedStreamPayload,
     toolCallsPlanned: plannedToolCalls(group)
   };
 }
@@ -387,6 +399,25 @@ export default function ExecutionWorkspace() {
     const actualTurns = extractTurns(payload);
     setTurns(actualTurns);
     setTranscriptMeta(transcriptMetaFromTurns(actualTurns, safePageIndex, normalizedPageSize));
+    // Bootstrap active execution groups from transcript once, then let SSE own
+    // those groups going forward. This preserves request/response payload ids
+    // when the user opens an already-running conversation mid-turn.
+    if (safePageIndex === 0) {
+      const seededGroups = {};
+      extractExecutionGroups(actualTurns).forEach((group) => {
+        const assistantMessageId = firstString(group?.assistantMessageId);
+        const status = firstString(group?.status, group?.turnStatus).toLowerCase();
+        if (!assistantMessageId) return;
+        if (!status || ['running', 'thinking', 'streaming', 'executing', 'waiting_for_user', 'blocked', 'pending', 'open'].includes(status)) {
+          seededGroups[assistantMessageId] = group;
+        }
+      });
+      setLiveGroups((current) => {
+        const currentKeys = Object.keys(current || {});
+        if (currentKeys.length > 0) return current;
+        return seededGroups;
+      });
+    }
   }, []);
 
   React.useEffect(() => {
@@ -666,6 +697,11 @@ export default function ExecutionWorkspace() {
           <div className="app-execution-page-list">
             {visibleGroups.map((group) => (
               <article key={group.assistantMessageId} className="app-execution-page-card">
+                {(() => {
+                  const modelStep = normalizeModelStep(group);
+                  const hasModel = !!group?.modelCall || (Array.isArray(group?.modelSteps) && group.modelSteps.length > 0);
+                  return (
+                    <>
                 <header className="app-execution-page-header">
                   <div>
                     <div className="app-execution-page-title">Iteration {group.iteration || group.sequence || 1}</div>
@@ -673,21 +709,21 @@ export default function ExecutionWorkspace() {
                   </div>
                   <span className={`app-execution-pill tone-${toneForStatus(group.status)}`}>{group.status || 'unknown'}</span>
                 </header>
-                {group.modelCall ? (
+                {hasModel ? (
                   <div
                     role="button"
                     tabIndex={0}
                     className="app-execution-step-card model is-clickable"
-                    onClick={() => openStepDetail(normalizeModelStep(group))}
+                    onClick={() => openStepDetail(modelStep)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        openStepDetail(normalizeModelStep(group));
+                        openStepDetail(modelStep);
                       }
                     }}
                   >
                     <div className="app-execution-step-head">
-                      <span>{`${displayStepIcon(normalizeModelStep(group))} ${displayStepTitle(normalizeModelStep(group))}`}</span>
+                      <span>{`${displayStepIcon(modelStep)} ${displayStepTitle(modelStep)}`}</span>
                       <span title={String(group?.preamble || '').trim()}>
                         {modelPreamblePreview(group) || ''}
                       </span>
@@ -697,7 +733,7 @@ export default function ExecutionWorkspace() {
                       {group.parentMessageId ? <span>parent: {group.parentMessageId}</span> : null}
                     </div>
                     {(() => {
-                      const step = normalizeModelStep(group);
+                      const step = modelStep;
                       const badges = payloadBadges(step);
                       const planned = plannedToolCalls(group);
                       if (badges.length === 0 && planned.length === 0) return null;
@@ -770,6 +806,9 @@ export default function ExecutionWorkspace() {
                 );})}
                 {group.preamble ? <div className="app-execution-response preamble">{group.preamble}</div> : null}
                 {group.content ? <div className="app-execution-response final">{group.content}</div> : null}
+                    </>
+                  );
+                })()}
               </article>
             ))}
             {visibleGroups.length === 0 ? (

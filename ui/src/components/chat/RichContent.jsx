@@ -106,6 +106,22 @@ function rewriteSandboxHrefInHTML(html = '', generatedFiles = []) {
   });
 }
 
+function normalizeBrokenMarkdownLayout(text = '') {
+  let value = String(text || '');
+  if (!value) return '';
+
+  // Some streamed/finalized responses collapse a markdown heading and the
+  // following pipe-table onto one line, e.g. "### Daily Trend | Date | ...".
+  // Split that back into a heading line plus the table block.
+  value = value.replace(/^(#{1,6}\s+[^|\n][^|\n]*?)\s+(\|.+)$/gm, '$1\n\n$2');
+
+  // Some responses also collapse a heading and the first bullet onto one line,
+  // e.g. "## Highlights- Item". Preserve the heading and start the list below.
+  value = value.replace(/^(#{1,6}\s+[^\n]+?)(-\s+)/gm, '$1\n\n$2');
+
+  return value;
+}
+
 function useMeasuredContainer() {
   const ref = React.useRef(null);
   const [size, setSize] = React.useState({ width: 0, height: 0 });
@@ -133,7 +149,7 @@ function useMeasuredContainer() {
 
 function MinimalText({ text = '', generatedFiles = [] }) {
   const cleaned = rewriteSandboxMarkdownLinks(
-    String(text || '').replace(/^\s*<!--\s*CHART_SPEC:v1\s*-->\s*$/gim, '').trim(),
+    normalizeBrokenMarkdownLayout(String(text || '').replace(/^\s*<!--\s*CHART_SPEC:v1\s*-->\s*$/gim, '').trim()),
     generatedFiles
   );
   const html = rewriteSandboxHrefInHTML(renderMarkdownBlock(cleaned), generatedFiles);
@@ -382,7 +398,7 @@ function RichContent({ content = '', generatedFiles = [] }) {
 
   /** Push prose text, auto-detecting pipe tables within it. */
   const pushPlainWithTables = (text, keyPrefix) => {
-    const chunk = String(text || '');
+    const chunk = normalizeBrokenMarkdownLayout(String(text || ''));
     if (!chunk) return;
     let cursor = 0;
     let anyTable = false;

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { syncTranscriptSnapshot, tickTranscript } from './transcriptStore';
 
 describe('syncTranscriptSnapshot', () => {
-  it('does not clear completed live-session rows after a finished turn', () => {
+  it('clears completed live-session ownership once transcript confirms the turn is finished', () => {
     const chatState = {
       transcriptRows: [],
       liveRows: [
@@ -32,7 +32,9 @@ describe('syncTranscriptSnapshot', () => {
       lastConversationID: 'conv-1',
       lastQueuedTurns: [],
       lastHasRunning: true,
-      runningTurnId: 'turn-1'
+      runningTurnId: 'turn-1',
+      activeStreamTurnId: 'turn-1',
+      activeStreamStartedAt: 123
     };
     const conversationsDS = {
       peekFormData: () => ({ id: 'conv-1' }),
@@ -77,10 +79,13 @@ describe('syncTranscriptSnapshot', () => {
       liveRows: chatState.liveRows
     });
 
-    expect(result?.shouldFinalizeActiveStream).toBe(false);
-    expect(chatState.liveRows).toHaveLength(2);
-    expect(chatState.liveOwnedTurnIds).toEqual(['turn-1']);
-    expect(chatState.activeStreamTurnId).toBeUndefined();
+    expect(result?.shouldFinalizeActiveStream).toBe(true);
+    expect(result?.liveRows).toEqual([]);
+    expect(chatState.liveRows).toEqual([]);
+    expect(chatState.liveOwnedTurnIds).toEqual([]);
+    expect(chatState.liveOwnedConversationID).toBe('');
+    expect(chatState.activeStreamTurnId).toBe('');
+    expect(chatState.activeStreamStartedAt).toBe(0);
   });
 
   it('drops previously cached transcript rows for owned turns once live ownership starts', () => {

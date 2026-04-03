@@ -16,6 +16,7 @@ import {
   fetchPendingElicitations,
   getVisibleIterations,
   hydrateMeta,
+  isConversationLiveish,
   logStreamDebug,
   mapTranscriptToRows,
   normalizeMetaResponse,
@@ -123,11 +124,16 @@ function mergeConversationSnapshot(current = {}, conversation = null) {
   const next = { ...current };
   const id = String(conversation?.id || conversation?.Id || '').trim();
   const title = String(conversation?.title || conversation?.Title || '').trim();
+  const stage = String(conversation?.stage || conversation?.Stage || '').trim();
+  const status = String(conversation?.status || conversation?.Status || '').trim();
   const agent = String(conversation?.agentId || conversation?.AgentId || '').trim();
   const model = String(conversation?.defaultModel || conversation?.DefaultModel || '').trim();
   const embedder = String(conversation?.defaultEmbedder || conversation?.DefaultEmbedder || '').trim();
   if (id) next.id = id;
   if (title) next.title = title;
+  if (stage) next.stage = stage;
+  if (status) next.status = status;
+  next.running = isConversationLiveish(conversation);
   if (agent) next.agent = agent;
   if (model) next.model = model;
   if (embedder) next.embedder = embedder;
@@ -172,8 +178,12 @@ export async function onInit({ context }) {
         conversationsDS?.setFormData?.({
           values: mergeConversationSnapshot(conversationsDS?.peekFormData?.() || {}, existing)
         });
-        syncConversationTransport(context, conversationID);
-        await dsTick(context, { conversationID });
+        const snapshot = await dsTick(context, { conversationID });
+        if (snapshot?.hasRunning || isConversationLiveish(existing)) {
+          syncConversationTransport(context, conversationID);
+        } else {
+          disconnectStream(context);
+        }
         publishActiveConversation(conversationID, context);
       }
     }
@@ -331,12 +341,20 @@ export async function submitMessage({ context, message, model, agent }) {
         running: true
       }
     });
-    syncConversationTransport(context, conversationID);
+    disconnectStream(context);
     setStage({ phase: 'executing', text: 'Executing…' });
   } else {
     setStage({ phase: 'waiting', text: 'Queued follow-up…' });
   }
-  const queryResult = await client.query(payload);
+  if (!queueingDuringActiveTurn) {
+    syncConversationTransport(context, conversationID);
+    logStreamDebug(chatState, 'submit-stream-sync', {
+      conversationId: conversationID,
+      strategy: 'immediate-after-query-start'
+    });
+  }
+  const queryPromise = client.query(payload);
+  const queryResult = await queryPromise;
   logStreamDebug(chatState, 'submit-query-response', {
     conversationId: conversationID,
     hasInlineContent: String(queryResult?.content || '').trim() !== '',
@@ -344,7 +362,10 @@ export async function submitMessage({ context, message, model, agent }) {
   });
   pendingUploads.length = 0;
   await new Promise((resolve) => setTimeout(resolve, queueingDuringActiveTurn ? 140 : 80));
-  await dsTick(context, { conversationID });
+  const snapshot = await dsTick(context, { conversationID });
+  if (!queueingDuringActiveTurn && snapshot?.hasRunning) {
+    syncConversationTransport(context, conversationID);
+  }
   logStreamDebug(chatState, 'submit-post-dstick', {
     conversationId: conversationID,
     queueingDuringActiveTurn
