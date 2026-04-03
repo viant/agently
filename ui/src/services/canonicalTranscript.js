@@ -1,3 +1,4 @@
+import { compareExecutionGroups } from 'agently-core-ui-sdk';
 import { resolvePayload } from './chatRuntime';
 
 function firstText(...values) {
@@ -113,8 +114,5 @@ export function extractCanonicalExecutionGroups(turns = []) {
       });
     }
   }
-  return groups.sort((left, right) => {
-    if (left.sequence !== right.sequence) return left.sequence - right.sequence;
-    return String(left.assistantMessageId || '').localeCompare(String(right.assistantMessageId || ''));
-  });
+  return groups.sort((left, right) => compareExecutionGroups(left, right));
 }

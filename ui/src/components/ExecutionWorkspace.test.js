@@ -4,6 +4,7 @@ import {
   describeTimelineEvent,
   isPresentableGroup,
   mergeLatestTranscriptAndLiveGroups,
+  normalizeModelStep,
   plannedToolCalls
 } from './ExecutionWorkspace';
 
@@ -71,5 +72,44 @@ describe('ExecutionWorkspace helpers', () => {
     });
 
     expect(text).toContain('planned llm/agents/run, system/exec/run');
+  });
+
+  it('projects streaming model content into the stream payload for details', () => {
+    const step = normalizeModelStep({
+      assistantMessageId: 'a1',
+      status: 'streaming',
+      preamble: 'Thinking...',
+      content: 'partial streamed text',
+      finalResponse: false,
+      modelSteps: [{
+        provider: 'openai',
+        model: 'gpt-5.4',
+        status: 'streaming'
+      }]
+    });
+
+    expect(step.status).toBe('streaming');
+    expect(step.streamPayload).toEqual({
+      status: 'streaming',
+      content: 'partial streamed text',
+      preamble: 'Thinking...'
+    });
+  });
+
+  it('projects final model content into the response payload when no response payload object exists', () => {
+    const step = normalizeModelStep({
+      assistantMessageId: 'a1',
+      status: 'succeeded',
+      content: 'Final answer',
+      finalResponse: true,
+      modelSteps: [{
+        provider: 'openai',
+        model: 'gpt-5.4',
+        status: 'succeeded'
+      }]
+    });
+
+    expect(step.responsePayload).toBe('Final answer');
+    expect(step.streamPayload).toBeNull();
   });
 });

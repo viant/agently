@@ -40,6 +40,8 @@ export default defineConfig(({ mode }) => {
   const safeEnv = pickEnv(env, ['AUTH_URL', 'DATA_URL', 'APP_URL', 'APPSERVER_URL', 'VITE_FORGE_LOG_LEVEL']);
   const prodEnv = { AUTH_URL: '/', DATA_URL: '/', APPSERVER_URL: '/', ...safeEnv };
   const proxyTarget = String(env.DATA_URL || env.APP_URL || 'http://localhost:8585').replace(/\/+$/, '');
+  const devHost = String(env.VITE_HOST || 'localhost').trim() || 'localhost';
+  const devPort = Number(env.VITE_PORT || env.PORT || 5173) || 5173;
   const uiRoot = __dirname;
   const forgeRoot = resolve(__dirname, '../../forge');
   const forgeNodeModules = resolve(uiRoot, 'node_modules/forge');
@@ -75,8 +77,8 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [react(), networkLoggerPlugin()],
     server: {
-      host: 'localhost',
-      port: 5173,
+      host: devHost,
+      port: devPort,
       watch: {
         followSymlinks: true,
         ignored: (watchPath) => {

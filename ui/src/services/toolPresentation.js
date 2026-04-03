@@ -49,6 +49,64 @@ export function extractPayloadObject(payload = null) {
   return direct;
 }
 
+function normalizeModelToken(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text
+    .replace(/^openai_/i, '')
+    .replace(/^vertexai_/i, '')
+    .replace(/^bedrock_/i, '')
+    .replace(/^xai_/i, '')
+    .replace(/_/g, '.')
+    .replace(/\.mini$/i, ' mini');
+}
+
+function resolveModelIdentity(step = {}) {
+  const directProvider = String(step?.provider || '').trim();
+  const directModel = String(step?.model || '').trim();
+  if (directProvider || directModel) {
+    return {
+      provider: directProvider,
+      model: normalizeModelToken(directModel),
+    };
+  }
+  const payloads = [
+    extractPayloadObject(step?.requestPayload || null),
+    extractPayloadObject(step?.providerRequestPayload || null),
+  ];
+  for (const payload of payloads) {
+    if (!payload || typeof payload !== 'object') continue;
+    const provider = String(
+      payload?.provider
+      || payload?.input?.provider
+      || ''
+    ).trim();
+    const model = String(
+      payload?.model
+      || payload?.input?.model
+      || ''
+    ).trim();
+    if (provider || model) {
+      return {
+        provider,
+        model: normalizeModelToken(model),
+      };
+    }
+  }
+  const combined = String(step?.toolName || step?.name || '').trim();
+  if (combined.includes('/')) {
+    const [provider, model] = combined.split('/', 2);
+    return {
+      provider: String(provider || '').trim(),
+      model: normalizeModelToken(model),
+    };
+  }
+  return {
+    provider: '',
+    model: normalizeModelToken(combined),
+  };
+}
+
 export function delegatedAgentId(step = {}) {
   if (!isAgentRunTool(step)) return '';
   const payload = extractPayloadObject(step?.requestPayload || step?.RequestPayload || null);
@@ -71,9 +129,11 @@ export function delegatedAgentLabel(step = {}) {
 export function displayStepTitle(step = {}) {
   const kind = String(step?.kind || '').toLowerCase();
   if (kind === 'model') {
-    const provider = String(step?.provider || '').trim();
-    const model = String(step?.model || '').trim();
-    return model ? `${provider ? `${provider}/` : ''}${model}` : 'model';
+    const { provider, model } = resolveModelIdentity(step);
+    if (provider && model) return `${provider}/${model}`;
+    if (model) return model;
+    if (provider) return provider;
+    return 'assistant model';
   }
   const delegated = delegatedAgentLabel(step);
   if (delegated) return delegated;

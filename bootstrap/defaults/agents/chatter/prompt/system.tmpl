@@ -30,7 +30,12 @@ Elicitation is REQUIRED when:
 - A required tool parameter is unknown
 - Multiple valid interpretations exist
 - The action scope cannot be determined safely
-- providing a precise, contextually correct answer,
+- A precise, contextually correct answer is otherwise blocked
+
+Elicitation is NOT required when:
+- The user is making general conversation or asking for a lightweight creative response
+- The intent is still obvious despite a minor typo or wording issue
+- You can answer safely by making a narrow, low-risk assumption and stating it briefly
 
 you MUST use the structured elicitation format.
 ```json

@@ -1389,39 +1389,25 @@ export default function IterationBlock({ message, context }) {
         });
         if (cancelled) return;
         const baseRows = Array.isArray(page?.data) ? page.data : [];
-        const rows = await Promise.all(baseRows.map(async (entry) => {
+        const previousById = new Map((Array.isArray(linkedConversationStates) ? linkedConversationStates : []).map((entry) => [
+          String(entry?.conversationId || '').trim(),
+          entry
+        ]));
+        const rows = baseRows.map((entry) => {
           const conversationId = String(entry?.conversationId || '').trim();
-          if (!conversationId) return entry;
-          const next = { ...entry };
-          try {
-            const [conversation, transcript] = await Promise.all([
-              String(next?.title || '').trim() ? Promise.resolve(null) : client.getConversation(conversationId).catch(() => null),
-              client.getTranscript({
-                conversationId,
-                includeModelCalls: true,
-                includeToolCalls: true
-              }, {
-                executionGroupLimit: 1,
-                executionGroupOffset: 0
-              }).catch(() => null)
-            ]);
-            if (conversation && !String(next?.title || '').trim()) {
-              next.title = String(conversation?.title || conversation?.Title || '').trim();
-            }
-            if (conversation && !String(next?.agentId || '').trim()) {
-              next.agentId = String(conversation?.agentId || conversation?.AgentId || '').trim();
-            }
-            if (transcript) {
-              const preview = sdkSummarizeLinkedConversationTranscript(transcript);
-              next.status = String(preview.status || next.status || '').trim();
-              next.response = String(preview.response || next.response || '').trim();
-              next.updatedAt = String(preview.updatedAt || next.updatedAt || '').trim();
-              next.agentId = String(preview.agentId || next.agentId || '').trim();
-              next.previewGroups = Array.isArray(preview.previewGroups) ? preview.previewGroups : [];
-            }
-          } catch (_) {}
-          return next;
-        }));
+          const previous = conversationId ? previousById.get(conversationId) : null;
+          return {
+            ...(previous || {}),
+            ...(entry || {}),
+            conversationId,
+            title: String(entry?.title || previous?.title || '').trim(),
+            agentId: String(entry?.agentId || previous?.agentId || '').trim(),
+            status: String(entry?.status || previous?.status || '').trim(),
+            response: String(entry?.response || previous?.response || '').trim(),
+            updatedAt: String(entry?.updatedAt || previous?.updatedAt || '').trim(),
+            previewGroups: Array.isArray(previous?.previewGroups) ? previous.previewGroups : []
+          };
+        });
         if (cancelled) return;
         setLinkedConversationStates(rows);
         logIterationDebug('linked-status', {
@@ -1450,6 +1436,71 @@ export default function IterationBlock({ message, context }) {
       if (timer) window.clearTimeout(timer);
     };
   }, [data?.turnId, isActiveIteration, isLatestIteration, linkedConversationIds, message?.id]);
+
+  useEffect(() => {
+    if (isLatestIteration && isActiveIteration) {
+      return undefined;
+    }
+    const idsToHydrate = linkedConversations
+      .map((step) => String(step?.conversationId || step?.linkedConversationId || '').trim())
+      .filter(Boolean)
+      .filter((id) => linkedSectionExpanded || expandedLinkedIds[id]);
+    if (idsToHydrate.length === 0) return undefined;
+    let cancelled = false;
+    const loadLinkedPreview = async () => {
+      const rows = await Promise.all(idsToHydrate.map(async (conversationId) => {
+        try {
+          const [conversation, transcript] = await Promise.all([
+            client.getConversation(conversationId).catch(() => null),
+            client.getTranscript({
+              conversationId,
+              includeModelCalls: true,
+              includeToolCalls: true
+            }, {
+              executionGroupLimit: 1,
+              executionGroupOffset: 0
+            }).catch(() => null)
+          ]);
+          const preview = transcript ? sdkSummarizeLinkedConversationTranscript(transcript) : null;
+          return {
+            conversationId,
+            title: String(conversation?.title || '').trim(),
+            agentId: String(conversation?.agentId || '').trim(),
+            status: String(preview?.status || '').trim(),
+            response: String(preview?.response || '').trim(),
+            updatedAt: String(preview?.updatedAt || '').trim(),
+            previewGroups: Array.isArray(preview?.previewGroups) ? preview.previewGroups : []
+          };
+        } catch (_) {
+          return null;
+        }
+      }));
+      if (cancelled) return;
+      const updates = new Map(rows.filter(Boolean).map((entry) => [String(entry?.conversationId || '').trim(), entry]));
+      if (updates.size === 0) return;
+      setLinkedConversationStates((current) => (Array.isArray(current) ? current : []).map((entry) => {
+        const id = String(entry?.conversationId || '').trim();
+        const update = updates.get(id);
+        if (!update) return entry;
+        return {
+          ...entry,
+          ...update,
+          title: String(update?.title || entry?.title || '').trim(),
+          agentId: String(update?.agentId || entry?.agentId || '').trim(),
+          status: String(update?.status || entry?.status || '').trim(),
+          response: String(update?.response || entry?.response || '').trim(),
+          updatedAt: String(update?.updatedAt || entry?.updatedAt || '').trim(),
+          previewGroups: Array.isArray(update?.previewGroups) && update.previewGroups.length > 0
+            ? update.previewGroups
+            : (Array.isArray(entry?.previewGroups) ? entry.previewGroups : [])
+        };
+      }));
+    };
+    void loadLinkedPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedConversations, linkedSectionExpanded, expandedLinkedIds, isLatestIteration, isActiveIteration]);
 
   useEffect(() => {
     const turnTerminal = isTerminalTurnStatus(iterationDisplayStatus);

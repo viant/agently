@@ -1,4 +1,5 @@
 import { normalizeMessages, normalizeOne } from './messageNormalizer';
+import { buildEffectiveLiveRows, compareTemporalEntries, ConversationStreamTracker, hasLiveAssistantRowForTurn, isLiveConversationState, latestEffectiveLiveAssistantRow } from 'agently-core-ui-sdk';
 import { rememberConversationSeedTitle } from './conversationTitle';
 import { clearChangeFeed, publishChangeFeed } from './changeFeedBus';
 import { clearPlanFeed, publishPlanFeed } from './planFeedBus';
@@ -229,14 +230,77 @@ function publishConversationActivity(conversationID = '', detail = {}) {
   } catch (_) {}
 }
 
-export function resolveStreamEventConversationID(payload = {}, subscribedConversationID = '') {
-  return String(payload?.conversationId || payload?.streamId || subscribedConversationID || '').trim();
+export function isConversationLiveish(conversation = null) {
+  return isLiveConversationState(conversation);
 }
 
-export function shouldProcessStreamEvent({ payload = {}, subscribedConversationID = '', visibleConversationID = '' } = {}) {
+function updateConversationLiveState(context, patch = {}) {
+  const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
+  if (!conversationsDS) return;
+  const current = conversationsDS.peekFormData?.() || {};
+  const next = { ...current };
+  if (patch.running != null) next.running = !!patch.running;
+  if (patch.stage != null) next.stage = String(patch.stage || '').trim();
+  if (patch.status != null) next.status = String(patch.status || '').trim();
+  conversationsDS.setFormData?.({ values: next });
+}
+
+function liveStatusValue(payload = {}, fallback = 'running') {
+  return String(payload?.status || fallback).trim() || fallback;
+}
+
+function terminalStageForEvent(type = '') {
+  const normalized = String(type || '').trim().toLowerCase();
+  if (normalized === 'turn_failed') return 'error';
+  if (normalized === 'turn_canceled') return 'canceled';
+  return 'done';
+}
+
+function applyStreamConversationState(context, phase, payload = {}) {
+  switch (String(phase || '').trim().toLowerCase()) {
+    case 'thinking':
+      updateConversationLiveState(context, {
+        running: true,
+        stage: 'thinking',
+        status: liveStatusValue(payload, 'running')
+      });
+      return;
+    case 'executing':
+      updateConversationLiveState(context, {
+        running: true,
+        stage: 'executing',
+        status: liveStatusValue(payload, 'running')
+      });
+      return;
+    case 'eliciting':
+      updateConversationLiveState(context, {
+        running: true,
+        stage: 'eliciting',
+        status: liveStatusValue(payload, 'pending')
+      });
+      return;
+    case 'terminal':
+      updateConversationLiveState(context, {
+        running: false,
+        stage: terminalStageForEvent(payload?.type),
+        status: String(payload?.status || payload?.type || '').trim()
+      });
+      return;
+    default:
+      return;
+  }
+}
+
+export function resolveStreamEventConversationID(payload = {}, subscribedConversationID = '') {
+  return String(payload?.conversationId || payload?.streamId || '').trim();
+}
+
+export function shouldProcessStreamEvent({ payload = {}, subscribedConversationID = '', visibleConversationID = '', switchingConversationID = '' } = {}) {
   const eventConversationID = resolveStreamEventConversationID(payload, subscribedConversationID);
   const visibleID = String(visibleConversationID || '').trim();
+  const switchingID = String(switchingConversationID || '').trim();
   if (!eventConversationID) return false;
+  if (switchingID) return eventConversationID === switchingID;
   if (!visibleID) return true;
   return eventConversationID === visibleID;
 }
@@ -254,7 +318,7 @@ function textDeltaQueueKey(payload = {}, fallbackConversationID = '') {
   return [
     String(payload?.conversationId || payload?.streamId || fallbackConversationID || '').trim(),
     String(payload?.turnId || '').trim(),
-    String(payload?.assistantMessageId || payload?.id || '').trim(),
+    String(payload?.messageId || payload?.assistantMessageId || payload?.id || '').trim(),
     String(payload?.mode || payload?.patch?.mode || '').trim()
   ].join('::');
 }
@@ -273,6 +337,9 @@ function enqueueTextDelta(chatState = {}, payload = {}, fallbackConversationID =
     last.createdAt = String(payload?.createdAt || last.createdAt || '').trim() || last.createdAt;
     if (!String(last.id || '').trim() && String(payload?.id || '').trim()) {
       last.id = String(payload.id).trim();
+    }
+    if (!String(last.messageId || '').trim() && String(payload?.messageId || '').trim()) {
+      last.messageId = String(payload.messageId).trim();
     }
     if (!String(last.assistantMessageId || '').trim() && String(payload?.assistantMessageId || '').trim()) {
       last.assistantMessageId = String(payload.assistantMessageId).trim();
@@ -402,6 +469,27 @@ function getPersistedSelectedAgent() {
   } catch (_) {
     return '';
   }
+}
+
+function trackerActiveTurnId(chatState = {}) {
+  return String(chatState?.streamTracker?.canonicalState?.activeTurnId || '').trim();
+}
+
+function syncTrackerDerivedTurnState(chatState = {}) {
+  const trackerTurnId = trackerActiveTurnId(chatState);
+  if (trackerTurnId) {
+    chatState.runningTurnId = trackerTurnId;
+    if (!String(chatState.activeStreamTurnId || '').trim()) {
+      chatState.activeStreamTurnId = trackerTurnId;
+    }
+    chatState.lastHasRunning = true;
+    return trackerTurnId;
+  }
+  if (!chatState.lastHasRunning) {
+    chatState.runningTurnId = '';
+    chatState.activeStreamTurnId = '';
+  }
+  return '';
 }
 
 function resolveStreamAgentName(context, agentId = '') {
@@ -1041,7 +1129,7 @@ export function mapTranscriptToRows(turns = [], options = {}) {
     return String(a?.id || '').localeCompare(String(b?.id || ''));
   });
 
-  rows.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+  rows.sort(compareTemporalEntries);
   return { rows, queuedTurns, runningTurnId };
 }
 
@@ -1099,6 +1187,9 @@ export function ensureContextResources(context) {
   context.resources.chat.liveOwnedTurnIds = Array.isArray(context.resources.chat.liveOwnedTurnIds) ? context.resources.chat.liveOwnedTurnIds : [];
   context.resources.chat.pendingTextDeltaQueue = Array.isArray(context.resources.chat.pendingTextDeltaQueue) ? context.resources.chat.pendingTextDeltaQueue : [];
   context.resources.chat.generatedFiles = Array.isArray(context.resources.chat.generatedFiles) ? context.resources.chat.generatedFiles : [];
+  if (!context.resources.chat.streamTracker) {
+    context.resources.chat.streamTracker = new ConversationStreamTracker(String(context.resources.chat.activeConversationID || '').trim());
+  }
   return context.resources.chat;
 }
 
@@ -1122,6 +1213,11 @@ function queuePostTurnConversationRefresh(context, conversationID = '', turnID =
     if (activeTurnID && activeTurnID !== targetTurnID) return;
     try {
       await switchConversation(context, targetConversationID);
+      publishConversationActivity(targetConversationID, {
+        type: 'turn_refreshed',
+        turnId: targetTurnID,
+        status: 'refreshed'
+      });
     } catch (_) {
       // Best-effort: preserve the current live render if refresh fails.
     }
@@ -1141,6 +1237,26 @@ function filterLiveOwnedTranscriptRows(rows = [], currentConversationID = '', ow
   return (Array.isArray(rows) ? rows : []).filter((row) => !owned.has(String(row?.turnId || '').trim()));
 }
 
+function applyTerminalTurnStatusToTranscriptRows(rows = [], turnId = '', status = '', errorMessage = '') {
+  const targetTurnId = String(turnId || '').trim();
+  const terminalStatus = String(status || '').trim();
+  if (!targetTurnId || !terminalStatus) return Array.isArray(rows) ? rows : [];
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    if (String(row?.turnId || '').trim() !== targetTurnId) return row;
+    const next = {
+      ...row,
+      turnStatus: terminalStatus
+    };
+    if (String(row?.role || '').trim().toLowerCase() === 'assistant') {
+      next.status = terminalStatus;
+      if (errorMessage && !String(next.errorMessage || '').trim()) {
+        next.errorMessage = errorMessage;
+      }
+    }
+    return next;
+  });
+}
+
 export function getVisibleIterations(context) {
   ensureContextResources(context);
   return DEFAULT_VISIBLE_ITERATIONS;
@@ -1158,19 +1274,30 @@ export function renderMergedRowsForContext(context) {
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   const conversationForm = conversationsDS?.peekFormData?.() || {};
   const metaForm = metaDS?.peekFormData?.() || {};
-  const hasLiveRows = Array.isArray(chatState.liveRows) && chatState.liveRows.length > 0;
+  const currentConversationID = getCurrentConversationID(context);
+  const effectiveRunningTurnId = String(
+    trackerActiveTurnId(chatState)
+    || chatState.runningTurnId
+    || ''
+  ).trim();
+  const effectiveLiveRows = buildEffectiveLiveRows(
+    chatState?.streamTracker?.canonicalState,
+    Array.isArray(chatState.liveRows) ? chatState.liveRows : [],
+    currentConversationID
+  );
+  const hasLiveRows = effectiveLiveRows.length > 0;
   const mergedRows = mergeRenderedRows({
     transcriptRows: filterLiveOwnedTranscriptRows(
       chatState.transcriptRows,
-      getCurrentConversationID(context),
+      currentConversationID,
       chatState.liveOwnedConversationID,
       chatState.liveOwnedTurnIds
     ),
-    liveRows: chatState.liveRows,
-    runningTurnId: chatState.runningTurnId,
-    hasRunning: chatState.lastHasRunning || hasLiveRows,
+    liveRows: effectiveLiveRows,
+    runningTurnId: effectiveRunningTurnId,
+    hasRunning: chatState.lastHasRunning || hasLiveRows || !!effectiveRunningTurnId,
     findLatestRunningTurnId,
-    currentConversationID: getCurrentConversationID(context),
+    currentConversationID,
     liveOwnedConversationID: chatState.liveOwnedConversationID,
     liveOwnedTurnIds: chatState.liveOwnedTurnIds
   });
@@ -1179,7 +1306,7 @@ export function renderMergedRowsForContext(context) {
   if (isStreamDebugEnabled()) {
     console.log('[render]', {
       conversationId: getCurrentConversationID(context),
-      liveCount: Array.isArray(chatState.liveRows) ? chatState.liveRows.length : 0,
+      liveCount: effectiveLiveRows.length,
       mergedCount: mergedRows.length,
       normalizedCount: normalizedRows.length,
       normalizedTypes: normalizedRows.map((row) => ({
@@ -1188,7 +1315,7 @@ export function renderMergedRowsForContext(context) {
         mode: row?.mode || '',
         head: String(row?.content || '').slice(0, 60)
       })),
-      liveRows: chatState.liveRows.map((r) => ({
+      liveRows: effectiveLiveRows.map((r) => ({
         id: r?.id, role: r?.role, turnId: r?.turnId, interim: r?.interim,
         contentHead: String(r?.content || '').slice(0, 50),
         groups: (r?.executionGroups || []).length,
@@ -1204,7 +1331,7 @@ export function renderMergedRowsForContext(context) {
   const queueRow = queuedTurns.length > 0 ? {
     _type: 'queue',
     id: `queue:${String(conversationForm?.id || '').trim()}:${queuedTurns.map((item) => String(item?.id || '').trim()).filter(Boolean).join(',')}`,
-    createdAt: new Date().toISOString(),
+    createdAt: '',
     running: !!conversationForm?.running,
     queuedTurns
   } : null;
@@ -1231,7 +1358,7 @@ export function renderMergedRowsForContext(context) {
     && starterTasks.length > 0 ? {
     _type: 'starter',
     id: `starter:${selectedAgent || 'default'}`,
-    createdAt: new Date().toISOString(),
+    createdAt: '',
     title: selectedAgent === 'auto' ? 'Explore All Agents' : 'Start With A Prompt',
     subtitle: selectedAgent === 'auto' ? 'Auto-select agent' : '',
     starterTasks
@@ -1243,6 +1370,22 @@ export function renderMergedRowsForContext(context) {
   ];
   messagesDS.setCollection?.(renderCollection);
   return mergedRows;
+}
+
+function trackerHasAssistantRowForTurn(chatState = {}, conversationID = '', turnID = '') {
+  return hasLiveAssistantRowForTurn(chatState?.streamTracker?.canonicalState, conversationID, turnID);
+}
+
+export function latestAssistantRowForTurn(chatState = {}, conversationID = '', turnID = '') {
+  const targetTurnID = String(turnID || '').trim();
+  if (!targetTurnID) return null;
+  const targetConversationID = String(conversationID || chatState?.activeConversationID || '').trim();
+  return latestEffectiveLiveAssistantRow(
+    chatState?.streamTracker?.canonicalState,
+    Array.isArray(chatState?.liveRows) ? chatState.liveRows : [],
+    targetConversationID,
+    targetTurnID
+  );
 }
 
 function resolveTurnStarterPreview(turn = {}) {
@@ -1560,12 +1703,17 @@ function applyConversationFormSnapshot(base = {}, conversation = null) {
   const conversationID = String(conversation?.id || conversation?.Id || '').trim();
   const title = String(conversation?.title || conversation?.Title || '').trim();
   const summary = String(conversation?.summary || conversation?.Summary || '').trim();
+  const stage = String(conversation?.stage || conversation?.Stage || '').trim();
+  const status = String(conversation?.status || conversation?.Status || '').trim();
   const agent = String(conversation?.agentId || conversation?.AgentId || '').trim();
   const model = String(conversation?.defaultModel || conversation?.DefaultModel || '').trim();
   const embedder = String(conversation?.defaultEmbedder || conversation?.DefaultEmbedder || '').trim();
   if (conversationID) next.id = conversationID;
   if (title) next.title = title;
   if (summary) next.summary = summary;
+  if (stage) next.stage = stage;
+  if (status) next.status = status;
+  next.running = isConversationLiveish(conversation);
   if (agent) next.agent = agent;
   if (model) next.model = model;
   if (embedder) next.embedder = embedder;
@@ -1606,6 +1754,10 @@ export async function hydrateMeta(context) {
 
 export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingElicitations = []) {
   const chatState = ensureContextResources(context);
+  if (chatState.streamTracker && Array.isArray(turns)) {
+    chatState.streamTracker.applyTranscript(turns);
+    syncTrackerDerivedTurnState(chatState);
+  }
   const snapshot = syncTranscriptSnapshotStore({
     context,
     turns,
@@ -1633,7 +1785,8 @@ function shouldDeferTranscriptToLiveStream(context, conversationID = '') {
   if (!targetID) return false;
   if (!shouldUseLiveStream(context, targetID)) return false;
   return !!(
-    String(chatState.runningTurnId || '').trim()
+    trackerActiveTurnId(chatState)
+    || String(chatState.runningTurnId || '').trim()
     || String(chatState.activeStreamTurnId || '').trim()
     || chatState.lastHasRunning
   );
@@ -1647,7 +1800,11 @@ export async function dsTick(context, options = {}) {
       liveRows: ensureContextResources(context).liveRows,
       queuedTurns: ensureContextResources(context).lastQueuedTurns || [],
       hasRunning: true,
-      runningTurnId: ensureContextResources(context).runningTurnId || ensureContextResources(context).activeStreamTurnId || '',
+      runningTurnId:
+        trackerActiveTurnId(ensureContextResources(context))
+        || ensureContextResources(context).runningTurnId
+        || ensureContextResources(context).activeStreamTurnId
+        || '',
       conversationID: requestedConversationID,
       deferredToLiveStream: true
     };
@@ -1687,6 +1844,9 @@ export function resetConversationSnapshotState(context) {
     getCurrentConversationID
   });
   resetLiveStreamState(chatState);
+  if (chatState.streamTracker) {
+    chatState.streamTracker.reset();
+  }
   chatState.renderRows = [];
   chatState.generatedFiles = [];
 }
@@ -1735,6 +1895,10 @@ export function connectStream(context, conversationID) {
 
 export function handleStreamEvent(chatState, context, conversationID, payload) {
     const type = String(payload?.type || '').toLowerCase();
+    try {
+      chatState?.streamTracker?.applyEvent?.(payload);
+      syncTrackerDerivedTurnState(chatState);
+    } catch (_) {}
     const eventConversationID = resolveStreamEventConversationID(payload, conversationID);
     if (eventConversationID && SIDEBAR_ACTIVITY_EVENT_TYPES.has(type)) {
       publishConversationActivity(eventConversationID, {
@@ -1748,11 +1912,17 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     const scopedConversationID = getScopedConversationSelection(contextWindowID);
     const formConversationID = getCurrentConversationID(context);
     const visibleConversationID = String(formConversationID || scopedConversationID || '').trim();
-    if (!shouldProcessStreamEvent({ payload, subscribedConversationID: conversationID, visibleConversationID })) {
+    if (!shouldProcessStreamEvent({
+      payload,
+      subscribedConversationID: conversationID,
+      visibleConversationID,
+      switchingConversationID: chatState.switchingConversationID
+    })) {
       logStreamDebug(chatState, 'stream-event-ignored', {
         type,
         eventConversationId: eventConversationID,
         visibleConversationId: visibleConversationID,
+        switchingConversationId: String(chatState.switchingConversationID || '').trim(),
         windowId: contextWindowID,
       });
       return;
@@ -1799,10 +1969,12 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       console.log('[stream-event]', type, {
         conversationId: payload?.conversationId || payload?.streamId || conversationID,
         turnId: payload?.turnId,
+        eventSeq: payload?.eventSeq,
         mode: payload?.mode || payload?.patch?.mode,
         agentIdUsed: payload?.agentIdUsed,
         agentName: payload?.agentName,
         userMessageId: payload?.userMessageId,
+        messageId: payload?.messageId,
         assistantMessageId: payload?.assistantMessageId,
         parentMessageId: payload?.parentMessageId,
         modelCallId: payload?.modelCallId,
@@ -1836,6 +2008,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       eventSize: payloadSize,
       payloadConversationId: eventConversationID,
       payloadTurnId: String(payload?.turnId || payload?.patch?.turnId || '').trim(),
+      payloadEventSeq: Number(payload?.eventSeq || 0) || 0,
       payloadMode: String(payload?.mode || payload?.patch?.mode || '').trim(),
       payloadAgentIdUsed: String(payload?.agentIdUsed || '').trim(),
       payloadAgentName: String(payload?.agentName || '').trim(),
@@ -1843,6 +2016,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       payloadStartedAt: String(payload?.startedAt || '').trim(),
       payloadCompletedAt: String(payload?.completedAt || '').trim(),
       payloadUserMessageId: String(payload?.userMessageId || '').trim(),
+      payloadMessageId: String(payload?.messageId || '').trim(),
       payloadAssistantMessageId: String(payload?.assistantMessageId || '').trim(),
       payloadParentMessageId: String(payload?.parentMessageId || '').trim(),
       payloadModelCallId: String(payload?.modelCallId || '').trim(),
@@ -1866,13 +2040,15 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     if (type === 'text_delta') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
+      applyStreamConversationState(context, 'thinking', payload);
       setStage({ phase: 'streaming', text: 'Streaming response…' });
       enqueueTextDelta(chatState, payload, conversationID);
       const queue = Array.isArray(chatState.pendingTextDeltaQueue) ? chatState.pendingTextDeltaQueue : [];
       const mergedPayload = queue[queue.length - 1] || payload;
       const streamID = String(mergedPayload?.streamId || conversationID);
       const streamMessageID = String(mergedPayload?.id || '').trim();
-      const activeStreamRow = [...(Array.isArray(chatState.liveRows) ? chatState.liveRows : [])].reverse().find((row) => row?.isStreaming && String(row?.role || '').toLowerCase() === 'assistant');
+      const activeStreamRow = [...(Array.isArray(chatState.liveRows) ? chatState.liveRows : [])].reverse().find((row) => row?.isStreaming && String(row?.role || '').toLowerCase() === 'assistant')
+        || latestAssistantRowForTurn(chatState, conversationID, String(mergedPayload?.turnId || payload?.turnId || '').trim());
       logStreamDebug(chatState, 'stream-chunk-merged', {
         streamId: streamID,
         streamMessageId: streamMessageID,
@@ -1889,6 +2065,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     if (type === 'reasoning_delta') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
+      applyStreamConversationState(context, 'thinking', payload);
       setStage({ phase: 'streaming', text: 'Assistant reasoning…' });
       return;
     }
@@ -1896,6 +2073,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     if (type === 'tool_call_delta') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
+      applyStreamConversationState(context, 'executing', payload);
       setStage({ phase: 'executing', text: `Building ${String(payload?.toolName || 'tool')} arguments…` });
       return;
     }
@@ -1903,15 +2081,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       if (type === 'model_started') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
-      const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
-      if (conversationsDS) {
-        const convForm = conversationsDS.peekFormData?.() || {};
-        conversationsDS.setFormData?.({
-          values: {
-            ...convForm,
-            running: true
-          }
-        });
+      applyStreamConversationState(context, 'thinking', payload);
+      if (!chatState.activeStreamStartedAt) {
+        chatState.activeStreamStartedAt = Date.now();
       }
       if (String(payload?.turnId || '').trim()) {
         chatState.activeStreamTurnId = String(payload.turnId).trim();
@@ -1919,15 +2091,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         markLiveOwnedTurn(chatState, conversationID, String(payload.turnId).trim());
         applyTurnStartedEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload), conversationID);
       }
-      if (!chatState.activeStreamStartedAt) {
-        chatState.activeStreamStartedAt = Date.now();
-      }
-      // Inject the active turn ID when the backend omits it (e.g. status='streaming')
-      // so the execution row merges into the existing assistant row for this turn.
       const enrichedPayload = enrichPayloadWithTurnAgent(chatState, context, payload);
-      if (!String(enrichedPayload.turnId || '').trim() && chatState.activeStreamTurnId) {
-        enrichedPayload.turnId = chatState.activeStreamTurnId;
-      }
       applyExecutionStreamEvent(chatState, enrichedPayload, conversationID);
       setStage({ phase: 'executing', text: 'Assistant executing…' });
       renderMergedRowsForContext(context);
@@ -1941,9 +2105,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         markLiveOwnedTurn(chatState, conversationID, String(payload.turnId).trim());
       }
       const enrichedPayload = enrichPayloadWithTurnAgent(chatState, context, payload);
-      if (!String(enrichedPayload.turnId || '').trim() && chatState.activeStreamTurnId) {
-        enrichedPayload.turnId = chatState.activeStreamTurnId;
-      }
       applyExecutionStreamEvent(chatState, enrichedPayload, conversationID);
       if (payload?.finalResponse) {
         finalizeStreamTurn(chatState, payload, conversationID);
@@ -1963,6 +2124,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       // calls. It carries toolCallsPlanned and content/preamble. Update the
       // execution row so planned tools appear immediately in the UI.
       applyExecutionStreamEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload), conversationID);
+      applyStreamConversationState(context, 'executing', payload);
       setStage({ phase: 'executing', text: 'Planning tool calls…' });
       renderMergedRowsForContext(context);
       return;
@@ -1980,10 +2142,8 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         status: String(payload?.status || '').trim()
       });
       const toolPayload = enrichPayloadWithTurnAgent(chatState, context, payload);
-      if (!String(toolPayload.turnId || '').trim() && chatState.activeStreamTurnId) {
-        toolPayload.turnId = chatState.activeStreamTurnId;
-      }
       applyToolStreamEvent(chatState, toolPayload, conversationID);
+      applyStreamConversationState(context, 'executing', payload);
       setStage({
         phase: type === 'tool_call_completed' ? 'executing' : 'executing',
         text: `${type === 'tool_call_completed' ? 'Completed' : 'Executing'} ${String(payload?.toolName || 'tool')}…`
@@ -1999,6 +2159,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         chatState.lastHasRunning = true;
         rememberTurnAgent(chatState, context, payload);
         const turnId = String(payload?.patch?.turnId || '').trim();
+        if (!chatState.activeStreamStartedAt) {
+          chatState.activeStreamStartedAt = Date.now();
+        }
         if (turnId) {
           chatState.activeStreamTurnId = turnId;
           chatState.runningTurnId = turnId;
@@ -2007,12 +2170,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
             ...(payload?.patch && typeof payload.patch === 'object' ? payload.patch : {}),
             turnId,
             conversationId: conversationID,
-            createdAt: payload?.createdAt || payload?.patch?.createdAt || new Date().toISOString(),
+            createdAt: String(payload?.createdAt || payload?.patch?.createdAt || '').trim(),
             agentName: String(chatState?.activeTurnAgentName || '').trim()
           }, conversationID);
-        }
-        if (!chatState.activeStreamStartedAt) {
-          chatState.activeStreamStartedAt = Date.now();
         }
         logStreamDebug(chatState, 'stream-control-turn-started', {
           turnId,
@@ -2020,6 +2180,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
           agentIdUsed: String(payload?.patch?.agentIdUsed || '').trim(),
           agentName: String(chatState?.activeTurnAgentName || '').trim()
         });
+        applyStreamConversationState(context, 'thinking', payload?.patch || payload);
         setStage({ phase: 'executing', text: 'Assistant executing…' });
       } else if (op === 'message_patch') {
         chatState.lastHasRunning = true;
@@ -2040,9 +2201,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     if (type === 'turn_completed' || type === 'turn_failed' || type === 'turn_canceled') {
       const completedTurnID = String(payload?.turnId || '').trim();
       const resolvedConversationID = String(payload?.conversationId || payload?.streamId || conversationID || '').trim();
-      const finalRow = Array.isArray(chatState.liveRows)
-        ? [...chatState.liveRows].reverse().find((row) => String(row?.turnId || '').trim() === completedTurnID && String(row?.role || '').toLowerCase() === 'assistant')
-        : null;
+      const terminalStatus = String(payload?.status || type).trim();
+      const terminalError = String(payload?.error || payload?.errorMessage || '').trim();
+      const finalRow = latestAssistantRowForTurn(chatState, resolvedConversationID, completedTurnID);
       const finalContent = String(payload?.content || finalRow?.content || '').trim();
       logExecutorDebug('turn-terminal', {
         type,
@@ -2056,6 +2217,12 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
           ? finalRow.executionGroups.flatMap((group) => group?.toolSteps || []).filter((step) => String(step?.linkedConversationId || '').trim()).length
           : 0
       });
+      chatState.transcriptRows = applyTerminalTurnStatusToTranscriptRows(
+        chatState.transcriptRows,
+        completedTurnID,
+        terminalStatus,
+        terminalError
+      );
       if (finalContent === '') {
         logExecutorDebug('phantom-terminal', {
           type,
@@ -2065,7 +2232,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         });
       }
       if (turnId) {
-        chatState.terminalTurns[turnId] = new Date().toISOString();
+        chatState.terminalTurns[turnId] = String(payload?.completedAt || payload?.createdAt || type || 'terminal').trim();
       }
       logStreamDebug(chatState, 'stream-done', {
         status: String(payload?.status || type).trim()
@@ -2085,16 +2252,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       // done by syncTranscriptSnapshot during transcript refresh, but since
       // streaming events are now the sole source of truth for active turns,
       // we update the form data here.
-      const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
-      if (conversationsDS) {
-        const convForm = conversationsDS.peekFormData?.() || {};
-        conversationsDS.setFormData?.({
-          values: {
-            ...convForm,
-            running: false
-          }
-        });
-      }
+      applyStreamConversationState(context, 'terminal', { ...payload, type, status: terminalStatus });
       if (type === 'turn_failed') {
         setStage({ phase: 'error', text: String(payload?.error || 'Turn failed') });
       } else if (type === 'turn_canceled') {
@@ -2123,6 +2281,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         agentIdUsed: String(preamblePayload?.agentIdUsed || '').trim()
       });
       applyPreambleEvent(chatState, preamblePayload, conversationID);
+      applyStreamConversationState(context, 'thinking', payload);
       setStage({ phase: 'streaming', text: 'Assistant thinking…' });
       renderMergedRowsForContext(context);
       return;
@@ -2136,6 +2295,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       // the existing row's content without creating a new execution group —
       // assistant_final's assistantMessageId may differ from model_started's.
       applyAssistantFinalEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload));
+      applyStreamConversationState(context, 'thinking', payload);
       setStage({ phase: 'executing', text: 'Assistant responding…' });
       renderMergedRowsForContext(context);
       return;
@@ -2145,15 +2305,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       rememberTurnAgent(chatState, context, payload);
-      const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
-      if (conversationsDS) {
-        const convForm = conversationsDS.peekFormData?.() || {};
-        conversationsDS.setFormData?.({
-          values: {
-            ...convForm,
-            running: true
-          }
-        });
+      applyStreamConversationState(context, 'thinking', payload);
+      if (!chatState.activeStreamStartedAt) {
+        chatState.activeStreamStartedAt = Date.now();
       }
       const turnId = String(payload?.turnId || '').trim();
       if (turnId) {
@@ -2162,9 +2316,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         chatState.runningTurnId = turnId;
         markLiveOwnedTurn(chatState, conversationID, turnId);
         applyTurnStartedEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload), conversationID);
-      }
-      if (!chatState.activeStreamStartedAt) {
-        chatState.activeStreamStartedAt = Date.now();
       }
       logStreamDebug(chatState, 'stream-turn-started', {
         turnId,
@@ -2222,6 +2373,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         });
       }
 
+      applyStreamConversationState(context, 'eliciting', payload);
       setStage({ phase: 'waiting', text: 'Waiting for input…' });
       renderMergedRowsForContext(context);
       return;
@@ -2231,6 +2383,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       clearPendingElicitation();
+      applyStreamConversationState(context, 'thinking', payload);
       setStage({ phase: 'executing', text: 'Resuming…' });
       return;
     }
@@ -2243,7 +2396,10 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         toolCallId: String(payload?.toolCallId || '').trim(),
         linkedConversationId: String(payload?.linkedConversationId || '').trim()
       });
-      applyLinkedConversationEvent(chatState, payload);
+      if (!trackerHasAssistantRowForTurn(chatState, conversationID, String(payload?.turnId || '').trim())) {
+        applyLinkedConversationEvent(chatState, payload);
+      }
+      applyStreamConversationState(context, 'executing', payload);
       renderMergedRowsForContext(context);
       return;
     }
@@ -2285,8 +2441,13 @@ export function shouldUseLiveStream(context, conversationID = '') {
   const targetID = String(conversationID || '').trim();
   if (!targetID) return false;
   const currentConversationID = String(getCurrentConversationID(context) || '').trim();
+  const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
+  const currentConversationForm = conversationsDS?.peekFormData?.() || {};
+  const formRunning = !!currentConversationForm?.running || isConversationLiveish(currentConversationForm);
+  const trackerRunning = !!trackerActiveTurnId(chatState);
+  const localRunning = !!String(chatState.runningTurnId || chatState.activeStreamTurnId || '').trim();
   if (currentConversationID && currentConversationID === targetID) {
-    return true;
+    return formRunning || trackerRunning || localRunning;
   }
   const ownedConversationID = String(chatState.liveOwnedConversationID || '').trim();
   if (!ownedConversationID || ownedConversationID !== targetID) return false;
@@ -2399,24 +2560,37 @@ export async function switchConversation(context, conversationID = '') {
   const targetID = String(conversationID || '').trim();
   if (!targetID) return;
   clearFeedState();
+  const chatState = ensureContextResources(context);
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
   if (!conversationsDS || !messagesDS) return;
 
   const form = conversationsDS.peekFormData?.() || {};
   const currentID = String(form?.id || '').trim();
+  if (currentID !== targetID) {
+    chatState.switchingConversationID = targetID;
+    if (chatState.stream) {
+      chatState.stream.close();
+      chatState.stream = null;
+    }
+  }
   const existing = await fetchConversation(targetID);
   if (!existing) {
+    chatState.switchingConversationID = '';
     await createNewConversation(context);
     return;
   }
   if (currentID === targetID) {
+    chatState.switchingConversationID = '';
     conversationsDS.setFormData?.({
       values: applyConversationFormSnapshot(form, existing)
     });
-    resetConversationSnapshotState(context);
-    syncConversationTransport(context, targetID);
-    await dsTick(context, { conversationID: targetID });
+    const snapshot = await dsTick(context, { conversationID: targetID });
+    if (snapshot?.hasRunning || isConversationLiveish(existing)) {
+      syncConversationTransport(context, targetID);
+    } else {
+      disconnectStream(context);
+    }
     publishActiveConversation(targetID, context);
     return;
   }
@@ -2427,8 +2601,13 @@ export async function switchConversation(context, conversationID = '') {
   messagesDS.setCollection?.([]);
   messagesDS.setError?.('');
   resetConversationSnapshotState(context);
-  syncConversationTransport(context, targetID);
-  await dsTick(context, { conversationID: targetID });
+  chatState.switchingConversationID = '';
+  const snapshot = await dsTick(context, { conversationID: targetID });
+  if (snapshot?.hasRunning || isConversationLiveish(existing)) {
+    syncConversationTransport(context, targetID);
+  } else {
+    disconnectStream(context);
+  }
   publishActiveConversation(targetID, context);
 }
 
@@ -2530,6 +2709,7 @@ export async function createNewConversation(context) {
   }
   chatState.activeConversationID = '';
   chatState.lastConversationID = '';
+  chatState.switchingConversationID = '';
   chatState.explicitNewConversationRequested = true;
   const current = conversationsDS.peekFormData?.() || {};
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
@@ -2592,6 +2772,9 @@ export function startPolling(context) {
       && (Date.now() - Number(chatState.lastStreamEventAt || 0) < 6000);
     if (streamIsHot) return;
     if (shouldDeferTranscriptToLiveStream(context, getCurrentConversationID(context))) return;
+    const transcriptRows = Array.isArray(chatState.transcriptRows) ? chatState.transcriptRows : [];
+    const hasFinishedSnapshot = transcriptRows.length > 0 && !chatState.lastHasRunning;
+    if (hasFinishedSnapshot) return;
     void dsTick(context);
   }, 4000);
 }

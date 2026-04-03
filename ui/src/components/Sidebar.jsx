@@ -77,9 +77,12 @@ function sortConversations(rows = []) {
 
 function conversationStatusTone(row = {}) {
   const status = String(row?.Status || row?.status || '').trim().toLowerCase();
-  if (!status || status === 'running' || status === 'in_progress' || status === 'processing' || status === 'queued') return 'running';
+  const stage = String(row?.Stage || row?.stage || '').trim().toLowerCase();
   if (status === 'completed' || status === 'succeeded' || status === 'success') return 'success';
-  if (status === 'failed' || status === 'error' || status === 'cancelled') return 'error';
+  if (status === 'failed' || status === 'error' || status === 'cancelled' || status === 'canceled') return 'error';
+  if (stage === 'done') return 'success';
+  if (stage === 'error' || stage === 'canceled') return 'error';
+  if (!status || status === 'running' || status === 'in_progress' || status === 'processing' || status === 'queued') return 'running';
   return 'idle';
 }
 

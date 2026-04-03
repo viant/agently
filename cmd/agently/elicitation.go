@@ -31,22 +31,31 @@ func awaitFormElicitation(w io.Writer, r io.Reader, req *coreplan.Elicitation) (
 				desc = d
 			}
 		}
-		fmt.Fprintf(w, "  %s: ", desc)
+		fmt.Fprintf(w, "  %s (or 'next' to skip, 'cancel' to cancel): ", desc)
 		line, _ := reader.ReadString('\n')
-		payload[name] = strings.TrimSpace(line)
+		value := strings.TrimSpace(line)
+		switch strings.ToLower(value) {
+		case "cancel":
+			return &coreplan.ElicitResult{
+				Action: coreplan.ElicitResultActionDecline,
+				Reason: "cancelled",
+			}, nil
+		case "next":
+			continue
+		default:
+			payload[name] = value
+		}
 	}
 
 	for {
-		fmt.Fprint(w, "Submit? [a]ccept, [r]eject (default: a): ")
+		fmt.Fprint(w, "Submit? [a]ccept, [c]ancel (default: a): ")
 		line, _ := reader.ReadString('\n')
 		sel := strings.ToLower(strings.TrimSpace(line))
 		if sel == "" || sel == "a" || sel == "accept" {
 			return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionAccept, Payload: payload}, nil
 		}
-		if sel == "r" || sel == "reject" {
-			fmt.Fprint(w, "Reason (optional): ")
-			reason, _ := reader.ReadString('\n')
-			return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionDecline, Reason: strings.TrimSpace(reason)}, nil
+		if sel == "c" || sel == "cancel" {
+			return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionDecline, Reason: "cancelled"}, nil
 		}
 		fmt.Fprintln(w, "Invalid choice.")
 	}

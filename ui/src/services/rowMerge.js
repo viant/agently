@@ -1,3 +1,5 @@
+import { compareExecutionGroups, compareTemporalEntries } from 'agently-core-ui-sdk';
+
 function chooseRichValue(...values) {
   for (const value of values) {
     if (typeof value === 'string') {
@@ -201,7 +203,7 @@ function mergeExecutionGroups(existing = [], incoming = []) {
       }
     }
   }
-  return out;
+  return out.sort((left, right) => compareExecutionGroups(left, right));
 }
 
 function mergeRow(existing = {}, incoming = {}) {
@@ -221,22 +223,44 @@ function mergeRow(existing = {}, incoming = {}) {
     : (incoming?.elicitation || existing?.elicitation || null);
   const elicitationId = chooseRichValue(existing?.elicitationId, incoming?.elicitationId, '');
   const callbackURL = chooseRichValue(existing?.callbackURL, incoming?.callbackURL, '');
+  const sameAssistantTurn = String(existing?.role || '').toLowerCase() === 'assistant'
+    && String(incoming?.role || '').toLowerCase() === 'assistant'
+    && String(existing?.turnId || '').trim() !== ''
+    && String(existing?.turnId || '').trim() === String(incoming?.turnId || '').trim();
+  const existingInterim = Number(existing?.interim ?? 0) || 0;
+  const incomingInterim = Number(incoming?.interim ?? 0) || 0;
+  const replaceOpenAssistantBubble = sameAssistantTurn && existingInterim !== 0 && incomingInterim === 0;
+  const preferIncomingAssistantContent = sameAssistantTurn
+    && (
+      (incomingInterim !== 0 && existingInterim !== 0)
+      || replaceOpenAssistantBubble
+    );
+  const mergedContent = preferIncomingAssistantContent
+    ? chooseRichValue(incoming?.content, existing?.content, '')
+    : chooseRichValue(existing?.content, incoming?.content, '');
+  const mergedPreamble = replaceOpenAssistantBubble
+    ? chooseRichValue(existing?.preamble, incoming?.preamble, '')
+    : preferIncomingAssistantContent
+    ? chooseRichValue(incoming?.preamble, existing?.preamble, '')
+    : chooseRichValue(existing?.preamble, incoming?.preamble, '');
 
   return {
     ...existing,
     ...incoming,
-    id: chooseRichValue(existing?.id, incoming?.id, ''),
+    id: replaceOpenAssistantBubble
+      ? chooseRichValue(incoming?.id, existing?.id, '')
+      : chooseRichValue(existing?.id, incoming?.id, ''),
     role: chooseRichValue(existing?.role, incoming?.role, ''),
     mode: chooseRichValue(incoming?.mode, existing?.mode, ''),
     turnId: chooseRichValue(existing?.turnId, incoming?.turnId, ''),
     turnStatus: chooseRichValue(incoming?.turnStatus, existing?.turnStatus, ''),
     status: chooseRichValue(incoming?.status, existing?.status, ''),
     type: chooseRichValue(existing?.type, incoming?.type, ''),
-    createdAt: chooseRichValue(existing?.createdAt, incoming?.createdAt, new Date().toISOString()),
+    createdAt: chooseRichValue(existing?.createdAt, incoming?.createdAt, ''),
     interim: chooseRichValue(existing?.interim, incoming?.interim, 0),
-    content: chooseRichValue(existing?.content, incoming?.content, ''),
+    content: mergedContent,
     rawContent: chooseRichValue(existing?.rawContent, incoming?.rawContent, ''),
-    preamble: chooseRichValue(existing?.preamble, incoming?.preamble, ''),
+    preamble: mergedPreamble,
     toolName: chooseRichValue(existing?.toolName, incoming?.toolName, ''),
     linkedConversationId: chooseRichValue(existing?.linkedConversationId, incoming?.linkedConversationId, ''),
     modelSteps: mergeUniqueEntries(existing?.modelSteps, incoming?.modelSteps),
@@ -271,13 +295,13 @@ export function mergeRowSnapshots(previousRows = [], nextRows = []) {
   };
   for (const row of Array.isArray(previousRows) ? previousRows : []) append(row);
   for (const row of Array.isArray(nextRows) ? nextRows : []) append(row);
-  out.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+  out.sort(compareTemporalEntries);
   return out;
 }
 
 function collapseAssistantRowsByTurn(rows = [], ownedTurnIds = new Set()) {
   const out = [];
-  const indexByTurnId = new Map();
+  const openAssistantIndexByTurnId = new Map();
   for (const row of Array.isArray(rows) ? rows : []) {
     const role = String(row?.role || '').toLowerCase();
     const turnId = String(row?.turnId || '').trim();
@@ -289,15 +313,20 @@ function collapseAssistantRowsByTurn(rows = [], ownedTurnIds = new Set()) {
       out.push(row);
       continue;
     }
-    const found = indexByTurnId.get(turnId);
+    const found = openAssistantIndexByTurnId.get(turnId);
     if (found == null) {
-      indexByTurnId.set(turnId, out.length);
       out.push(row);
+      if (role === 'assistant' && Number(row?.interim || 0) !== 0) {
+        openAssistantIndexByTurnId.set(turnId, out.length - 1);
+      }
       continue;
     }
     out[found] = mergeRow(out[found], row);
+    if (role === 'assistant' && Number(row?.interim || 0) === 0) {
+      openAssistantIndexByTurnId.delete(turnId);
+    }
   }
-  out.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+  out.sort(compareTemporalEntries);
   return out;
 }
 
@@ -353,11 +382,19 @@ export function mergeRenderedRows({
   }
 
   const activeTurnId = String(runningTurnId || findLatestRunningTurnId?.(merged) || '').trim();
+  const rowHasFinalAssistantContent = (row = {}) => {
+    const directContent = String(row?.content || '').trim();
+    if (directContent) return true;
+    const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
+    return groups.some((group) => (
+      Boolean(group?.finalResponse) && String(group?.content || '').trim() !== ''
+    ));
+  };
   const hasFinalAssistantForTurn = (turnId) => merged.some((row) => {
     const role = String(row?.role || '').toLowerCase();
     const sameTurn = String(row?.turnId || '').trim() === turnId;
     const nonInterim = Number(row?.interim || 0) === 0;
-    const hasContent = String(row?.content || '').trim() !== '';
+    const hasContent = rowHasFinalAssistantContent(row);
     return role === 'assistant' && sameTurn && nonInterim && hasContent;
   });
   const hasAssistantForStreamMessage = (streamMessageId) => {
@@ -367,7 +404,7 @@ export function mergeRenderedRows({
       const role = String(row?.role || '').toLowerCase();
       const rowId = String(row?.id || '').trim();
       const nonInterim = Number(row?.interim || 0) === 0;
-      const hasContent = String(row?.content || '').trim() !== '';
+      const hasContent = rowHasFinalAssistantContent(row);
       return role === 'assistant' && rowId === id && nonInterim && hasContent;
     });
   };
@@ -392,6 +429,6 @@ export function mergeRenderedRows({
     });
   }
 
-  merged.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+  merged.sort(compareTemporalEntries);
   return hasLiveSession ? collapseAssistantRowsByTurn(merged, ownedTurnIds) : merged;
 }

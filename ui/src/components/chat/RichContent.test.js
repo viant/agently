@@ -57,4 +57,16 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('/v1/api/generated-files/gf-123/download');
     expect(html).not.toContain('sandbox:/mnt/data/mouse_story.pdf');
   });
+
+  it('separates a collapsed markdown heading from a following pipe table', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, {
+        content: '### Daily Trend | Date | Value |\n|---|---:|\n| 2026-04-02 | 1 |\n'
+      })
+    );
+
+    expect(html).toContain('<h3>Daily Trend</h3>');
+    expect(html).not.toContain('Daily Trend | Date | Value |');
+    expect(html).toContain('bp6-table-container');
+  });
 });

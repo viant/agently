@@ -1,0 +1,208 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const queryDeferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+vi.mock('./agentlyClient', () => ({
+  client: {
+    query: vi.fn(),
+  },
+}));
+
+vi.mock('./chatRuntime', () => ({
+  applyIterationVisibility: vi.fn(),
+  bindConversationWindowEvents: vi.fn(),
+  bootstrapConversationSelection: vi.fn(),
+  createNewConversation: vi.fn(),
+  dsTick: vi.fn(),
+  disconnectStream: vi.fn(),
+  ensureContextResources: vi.fn(),
+  ensureConversation: vi.fn(),
+  fetchConversation: vi.fn(),
+  fetchPendingElicitations: vi.fn(),
+  getVisibleIterations: vi.fn(),
+  hydrateMeta: vi.fn(),
+  isConversationLiveish: vi.fn(),
+  logStreamDebug: vi.fn(),
+  mapTranscriptToRows: vi.fn(() => ({ queuedTurns: [] })),
+  normalizeMetaResponse: vi.fn(),
+  publishActiveConversation: vi.fn(),
+  renderMergedRowsForContext: vi.fn(),
+  rememberSeedTitle: vi.fn(),
+  resolveUserID: vi.fn(),
+  sanitizeAutoSelection: vi.fn((value) => value),
+  syncConversationTransport: vi.fn(),
+  startPolling: vi.fn(),
+  stopPolling: vi.fn(),
+  syncMessagesSnapshot: vi.fn(),
+  unbindConversationWindowEvents: vi.fn(),
+}));
+
+vi.mock('./stageBus', () => ({
+  setStage: vi.fn(),
+}));
+
+vi.mock('./httpClient', () => ({
+  showToast: vi.fn(),
+}));
+
+vi.mock('./toolFeedBus', () => ({
+  getFeedData: vi.fn(),
+  updateFeedData: vi.fn(),
+}));
+
+vi.mock('../utils/dialogBus', () => ({
+  openCodeDiffDialog: vi.fn(),
+  openFileViewDialog: vi.fn(),
+  updateCodeDiffDialog: vi.fn(),
+  updateFileViewDialog: vi.fn(),
+}));
+
+import { client } from './agentlyClient';
+import { onInit, submitMessage } from './chatService';
+import {
+  dsTick,
+  ensureContextResources,
+  ensureConversation,
+  fetchConversation,
+  isConversationLiveish,
+  publishActiveConversation,
+  rememberSeedTitle,
+  resolveUserID,
+  disconnectStream,
+  syncConversationTransport,
+} from './chatRuntime';
+
+describe('submitMessage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('attaches SSE before the query promise resolves for a new active turn', async () => {
+    const deferred = queryDeferred();
+    client.query.mockReturnValue(deferred.promise);
+    ensureConversation.mockResolvedValue('conv-1');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: '',
+      lastHasRunning: false,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+    });
+    dsTick.mockResolvedValue({
+      conversationID: 'conv-1',
+      hasRunning: true,
+    });
+
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  defaults: { model: 'openai_gpt-5_4' },
+                }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    const submitPromise = submitMessage({
+      context,
+      message: 'Forecast inventory and uniques for this targeting set: ad deal 147540',
+      model: 'openai_gpt-5_4',
+      agent: 'steward',
+    });
+
+    await Promise.resolve();
+    expect(ensureConversation).toHaveBeenCalled();
+    expect(publishActiveConversation).toHaveBeenCalledWith('conv-1', context);
+    expect(rememberSeedTitle).toHaveBeenCalledWith('conv-1', 'Forecast inventory and uniques for this targeting set: ad deal 147540');
+    expect(syncConversationTransport).toHaveBeenCalledWith(context, 'conv-1');
+
+    deferred.resolve({});
+    await submitPromise;
+  });
+
+  it('attaches SSE on init when conversation metadata says the conversation is still live', async () => {
+    fetchConversation.mockResolvedValue({
+      id: 'conv-1',
+      stage: 'executing',
+      status: 'running',
+      title: 'Live conversation'
+    });
+    isConversationLiveish.mockReturnValue(true);
+    dsTick.mockResolvedValue({
+      conversationID: 'conv-1',
+      hasRunning: false,
+    });
+
+    const convForm = { id: 'conv-1' };
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {} }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    await onInit({ context });
+
+    expect(fetchConversation).toHaveBeenCalledWith('conv-1');
+    expect(dsTick).toHaveBeenCalledWith(context, { conversationID: 'conv-1' });
+    expect(syncConversationTransport).toHaveBeenCalledWith(context, 'conv-1');
+    expect(disconnectStream).not.toHaveBeenCalled();
+  });
+});

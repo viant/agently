@@ -54,14 +54,22 @@ export function syncTranscriptSnapshot({
     chatState.activeStreamTurnId = anchoredStreamTurnId;
   }
 
-  const normalizedLiveRows = anchoredStreamTurnId
+  let normalizedLiveRows = anchoredStreamTurnId
     ? (Array.isArray(liveRows) ? liveRows : []).map((row) => {
       if (String(row?._type || '').toLowerCase() !== 'stream') return row;
       if (String(row?.turnId || '').trim()) return row;
       return { ...row, turnId: anchoredStreamTurnId, turnStatus: String(row?.turnStatus || 'running') };
     })
     : (Array.isArray(liveRows) ? liveRows : []);
-  const activeStreamRow = [...normalizedLiveRows].reverse().find((row) => String(row?._type || '').toLowerCase() === 'stream');
+  const activeStreamRow = [...normalizedLiveRows].reverse().find((row) => {
+    if (String(row?._type || '').toLowerCase() !== 'stream') return false;
+    if (row?.isStreaming === false) return false;
+    const status = String(row?.status || row?.turnStatus || '').trim().toLowerCase();
+    if (['completed', 'succeeded', 'success', 'done', 'failed', 'error', 'canceled', 'cancelled', 'terminated'].includes(status)) {
+      return false;
+    }
+    return true;
+  });
   const rawRunningTurnId = findLatestRunningTurnIdFromTurns(turns);
   const holdAfterTurnId = String(
     activeStreamRow?.turnId
@@ -89,6 +97,23 @@ export function syncTranscriptSnapshot({
     ? mergeRowSnapshots(previousTranscriptRows, filteredRows)
     : filteredRows;
 
+  // Opening an already-running conversation should bootstrap the active turn
+  // from transcript once, then let SSE own that turn going forward. This keeps
+  // active-turn rendering on the live side without losing request/detail fields
+  // that were persisted before the browser subscribed.
+  const effectiveRunningTurnId = String(runningTurnId || findLatestRunningTurnId(mergedRows) || '').trim();
+  if (effectiveRunningTurnId && normalizedLiveRows.length === 0 && conversationID) {
+    const seeded = mergedRows
+      .filter((row) => String(row?.turnId || '').trim() === effectiveRunningTurnId)
+      .map((row) => ({ ...row }));
+    if (seeded.length > 0) {
+      normalizedLiveRows = seeded;
+      chatState.liveRows = seeded;
+      chatState.liveOwnedConversationID = conversationID;
+      chatState.liveOwnedTurnIds = [effectiveRunningTurnId];
+    }
+  }
+
   const hasRunning = turns.some((turn) => {
     const status = String(turn?.status || turn?.Status || '').trim().toLowerCase();
     return ['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress'].includes(status);
@@ -113,8 +138,13 @@ export function syncTranscriptSnapshot({
   chatState.lastConversationID = conversationID;
   chatState.runningTurnId = runningTurnId || findLatestRunningTurnId(mergedRows);
 
-  const shouldFinalizeActiveStream = !hasRunning && !activeStreamRow;
+  const transcriptEmpty = !Array.isArray(turns) || turns.length === 0;
+  const shouldPreserveTerminalLiveRows = transcriptEmpty && normalizedLiveRows.length > 0;
+  const shouldFinalizeActiveStream = !hasRunning && !activeStreamRow && !shouldPreserveTerminalLiveRows;
   if (shouldFinalizeActiveStream) {
+    chatState.liveRows = [];
+    chatState.liveOwnedConversationID = '';
+    chatState.liveOwnedTurnIds = [];
     chatState.activeStreamPrompt = '';
     chatState.activeStreamTurnId = '';
     chatState.activeStreamStartedAt = 0;
@@ -130,7 +160,7 @@ export function syncTranscriptSnapshot({
 
   return {
     transcriptRows: mergedRows,
-    liveRows: normalizedLiveRows,
+    liveRows: shouldFinalizeActiveStream ? [] : normalizedLiveRows,
     queuedTurns,
     hasRunning,
     runningTurnId: chatState.runningTurnId,

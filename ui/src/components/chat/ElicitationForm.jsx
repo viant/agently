@@ -1,10 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Button, Dialog, Classes, Spinner } from '@blueprintjs/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client } from '../../services/agentlyClient';
 import { dsTick } from '../../services/chatRuntime';
+import {
+  collectElicitationFormValues,
+  elicitationDataBindingKey,
+  prepareRequestedSchema,
+  triggerElicitationFormSubmit
+} from '../elicitationHelpers';
 
-function parseConversationAndElicitation(message = {}) {
+export function parseConversationAndElicitation(message = {}) {
   const elicitation = message?.elicitation || {};
   const callbackURL = String(elicitation?.callbackURL || message?.callbackURL || '').trim();
   const directConversationId = String(message?.conversationId || message?.ConversationId || '').trim();
@@ -13,8 +19,11 @@ function parseConversationAndElicitation(message = {}) {
     || elicitation?.elicitationId || elicitation?.ElicitationId || ''
   ).trim();
   const match = callbackURL.match(/\/v1\/(?:api\/)?(?:conversations\/([^/]+)\/elicitation\/([^/?#]+)|elicitations\/([^/]+)\/([^/?#]+)\/resolve)/i);
+  const persistedConversationId = typeof window !== 'undefined'
+    ? String(window?.localStorage?.getItem('agently.selectedConversationId') || '').trim()
+    : '';
   const conversationId = directConversationId
-    || String(window?.localStorage?.getItem('agently.selectedConversationId') || '').trim()
+    || persistedConversationId
     || (match ? (match[1] || match[3] || '') : '');
   const elicitationId = directElicitationId || (match ? (match[2] || match[4] || '') : '');
   return {
@@ -23,12 +32,6 @@ function parseConversationAndElicitation(message = {}) {
   };
 }
 
-/**
- * ElicitationForm — Blueprint Dialog (modal) that renders a schema-based form
- * for MCP tool elicitations. Matches the original agently's ElicitionForm behavior.
- *
- * Used as both the 'form' and 'elicition' renderer in chatService.renderers.
- */
 export default function ElicitationForm({ message, context, onResolved = null }) {
   const elicitation = message?.elicitation || {};
   const requestedSchema = elicitation?.requestedSchema || null;
@@ -36,19 +39,38 @@ export default function ElicitationForm({ message, context, onResolved = null })
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [closed, setClosed] = useState(false);
+  const formValuesRef = useRef({});
+  const formWrapperId = useRef(`elic-form-${Date.now()}`);
   const ids = useMemo(() => parseConversationAndElicitation(message), [message]);
+  const preparedSchema = useMemo(() => prepareRequestedSchema(requestedSchema), [requestedSchema]);
 
   if (!requestedSchema || closed) return null;
+
+  const dataBindingKey = elicitationDataBindingKey(ids.elicitationId);
+
+  const collectFormValues = useCallback(() => {
+    return collectElicitationFormValues({
+      dataBindingKey,
+      formWrapperId: formWrapperId.current,
+      schema: requestedSchema,
+      trackedValues: formValuesRef.current
+    });
+  }, [dataBindingKey, requestedSchema]);
+
+  const triggerFormSubmit = useCallback(() => {
+    return triggerElicitationFormSubmit(formWrapperId.current);
+  }, []);
 
   const resolveAction = async (action, payload = null) => {
     if (!ids.conversationId || !ids.elicitationId) {
       setError('Missing conversation or elicitation id.');
       return;
     }
+    const resolvedPayload = payload || collectFormValues();
     setSubmitting(true);
     setError('');
     try {
-      await client.resolveElicitation(ids.conversationId, ids.elicitationId, { action, payload: payload || {} });
+      await client.resolveElicitation(ids.conversationId, ids.elicitationId, { action, payload: resolvedPayload });
       await dsTick(context, { conversationID: ids.conversationId });
       setClosed(true);
       onResolved?.(action);
@@ -66,28 +88,6 @@ export default function ElicitationForm({ message, context, onResolved = null })
   const handleDecline = async () => resolveAction('decline', {});
   const handleCancel = async () => resolveAction('cancel', {});
 
-  const preparedSchema = useMemo(() => {
-    try {
-      if (!requestedSchema || typeof requestedSchema !== 'object') return requestedSchema;
-      const clone = JSON.parse(JSON.stringify(requestedSchema));
-      const props = (clone.properties = clone.properties || {});
-      Object.keys(props).forEach((key) => {
-        const p = props[key];
-        if (!p || typeof p !== 'object') return;
-        const t = (p.type || '').toLowerCase();
-        if (t === 'array') {
-          if (p.default === undefined) p.default = [];
-          if (p.default && !Array.isArray(p.default)) p.default = [];
-        } else if (t === 'object') {
-          if (p.default === undefined) p.default = {};
-        }
-      });
-      return clone;
-    } catch (_) {
-      return requestedSchema;
-    }
-  }, [requestedSchema]);
-
   return (
     <Dialog
       isOpen={true}
@@ -102,13 +102,21 @@ export default function ElicitationForm({ message, context, onResolved = null })
     >
       <div className={Classes.DIALOG_BODY}>
         {prompt ? <p style={{ marginBottom: 12 }}>{prompt}</p> : null}
-        <SchemaBasedForm
-          showSubmit={false}
-          schema={preparedSchema}
-          context={context}
-          onSubmit={handleSubmit}
-          disabled={submitting}
-        />
+        <div id={formWrapperId.current}>
+          <SchemaBasedForm
+            showSubmit={false}
+            schema={preparedSchema}
+            data={{}}
+            dataBinding={dataBindingKey}
+            context={context}
+            onChange={(payload) => {
+              const values = payload?.values || payload?.data || payload || {};
+              formValuesRef.current = values;
+            }}
+            onSubmit={handleSubmit}
+            disabled={submitting}
+          />
+        </div>
         {error ? <p style={{ color: '#ef4444', marginTop: 8 }}>{error}</p> : null}
       </div>
       <div className={Classes.DIALOG_FOOTER}>
@@ -116,7 +124,17 @@ export default function ElicitationForm({ message, context, onResolved = null })
           {submitting ? <Spinner size={16} /> : null}
           <Button minimal onClick={handleDecline} disabled={submitting}>Decline</Button>
           <Button onClick={handleCancel} disabled={submitting}>Cancel</Button>
-          <Button intent="primary" onClick={() => handleSubmit({})} disabled={submitting}>Accept</Button>
+          <Button
+            intent="primary"
+            onClick={() => {
+              if (!triggerFormSubmit()) {
+                resolveAction('accept');
+              }
+            }}
+            disabled={submitting}
+          >
+            Accept
+          </Button>
         </div>
       </div>
     </Dialog>
