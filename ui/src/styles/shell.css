@@ -1785,6 +1785,257 @@ td[data-col="enabled"] {
   transition: background 0.15s ease;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   SCHEDULE WINDOW — DESIGN IMPROVEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── A: Weekday day-toggle pills ─── */
+.forge-pills-container {
+  flex-wrap: nowrap;
+}
+
+.forge-pills-container .bp6-button {
+  border-radius: 999px !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  min-width: 38px !important;
+  height: 34px !important;
+  padding: 0 12px !important;
+  box-shadow: none !important;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease !important;
+  background: #f4f7fb !important;
+  color: #607089 !important;
+  border: 1.5px solid #cdd6e8 !important;
+}
+
+/* Selected pill — minimal=false, Blueprint omits bp6-minimal */
+.forge-pills-container .bp6-button:not(.bp6-minimal) {
+  background: linear-gradient(135deg, #2d6ce2 0%, #1a52b8 100%) !important;
+  color: #ffffff !important;
+  border-color: #1a52b8 !important;
+  box-shadow: 0 2px 8px rgba(29, 82, 184, 0.28) !important;
+}
+
+.forge-pills-container .bp6-button:not([disabled]):hover {
+  background: #e8edf8 !important;
+  border-color: #a8b8d8 !important;
+  color: #2d4a7a !important;
+}
+
+.forge-pills-container .bp6-button:not(.bp6-minimal):not([disabled]):hover {
+  background: linear-gradient(135deg, #3878f0 0%, #2060cc 100%) !important;
+  border-color: #2060cc !important;
+  color: #ffffff !important;
+}
+
+/* ─── B: scheduleRuns tab (Runs tab inside main schedule window) ─── */
+#bp6-tab-panel_form-tabs_scheduleRuns {
+  padding: 14px 18px 18px;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+#bp6-tab-title_form-tabs_scheduleRuns {
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #607089;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid transparent;
+}
+
+#bp6-tab-title_form-tabs_scheduleRuns[aria-selected='true'] {
+  color: #234a9f;
+  background: rgba(255, 255, 255, 0.96);
+  border-color: #cdd9ef;
+  box-shadow: 0 6px 18px rgba(30, 56, 107, 0.08);
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns .basic-table-wrapper {
+  width: 100% !important;
+  max-width: 1180px;
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid #d8e1ee;
+  border-radius: 22px;
+  box-shadow: 0 20px 44px rgba(21, 37, 64, 0.08);
+  overflow: hidden;
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns .toolbar-container {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid #edf1f7;
+  background: linear-gradient(180deg, #fbfcfe 0%, #f4f7fb 100%);
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns .toolbar-left,
+#bp6-tab-panel_form-tabs_scheduleRuns .toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns .toolbar-container .bp6-button {
+  border-radius: 999px;
+  min-height: 30px;
+  box-shadow: none;
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns .bp6-html-table {
+  table-layout: auto !important;
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns .bp6-html-table thead th {
+  font-size: 11px;
+  font-weight: 700;
+  color: #627089;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns .bp6-html-table tbody td {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  vertical-align: middle;
+  font-size: 13px;
+  border-top: 1px solid #eff3f8;
+  color: #2c3748;
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns .empty-row td {
+  padding: 70px 18px 78px;
+  color: #6c778c;
+  font-size: 14px;
+  text-align: center;
+  background:
+    radial-gradient(circle at top center, rgba(76, 117, 214, 0.08), transparent 38%),
+    linear-gradient(180deg, rgba(251, 252, 254, 0.92) 0%, rgba(245, 248, 252, 0.98) 100%);
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns .empty-row td::after {
+  content: 'No runs yet. Select a schedule and trigger it to see execution history here.';
+  display: block;
+  margin-top: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #334158;
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns tfoot {
+  display: none;
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns .selected-row td {
+  background: rgba(45, 108, 223, 0.06);
+}
+
+#bp6-tab-panel_form-tabs_scheduleRuns .bp6-html-table tbody tr:hover td {
+  background: rgba(45, 108, 223, 0.03);
+  transition: background 0.15s ease;
+}
+
+/* ─── C: Schedule list — name & agent column emphasis ─── */
+#bp6-tab-panel_form-tabs_schedulesCatalogue td[data-col="name"] .cell-content {
+  font-weight: 700;
+  color: #1b2737;
+  font-size: 13.5px;
+}
+
+#bp6-tab-panel_form-tabs_schedulesCatalogue td[data-col="agentRef"] .cell-content {
+  color: #4a6080;
+  font-size: 12.5px;
+}
+
+/* ─── D: Execution tab — layout & number input polish ─── */
+#bp6-tab-panel_form-tabs_execution {
+  padding: 14px 18px 18px;
+}
+
+#bp6-tab-panel_form-tabs_execution::before {
+  content: 'Execution Settings\AControl timeouts, model overrides, and external prompt sources for scheduled runs.';
+  white-space: pre-line;
+  display: block;
+  max-width: 860px;
+  color: #2d3a4f;
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 4px 4px 0;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+#bp6-tab-panel_form-tabs_execution::first-line {
+  font-size: 20px;
+  font-weight: 800;
+  color: #182334;
+}
+
+/* Hide native browser number spinners — Blueprint NumericInput provides its own */
+#bp6-tab-panel_form-tabs_scheduleEditor input[type="number"]::-webkit-inner-spin-button,
+#bp6-tab-panel_form-tabs_scheduleEditor input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+#bp6-tab-panel_form-tabs_scheduleEditor input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* ─── E: Schedule sub-tab panel — header & summary field ─── */
+#bp6-tab-panel_form-tabs_schedule {
+  padding: 14px 18px 18px;
+}
+
+#bp6-tab-panel_form-tabs_schedule::before {
+  content: 'Schedule Configuration\ASet the cadence, pattern, and time windows for this automation.';
+  white-space: pre-line;
+  display: block;
+  max-width: 1040px;
+  color: #2d3a4f;
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 4px 4px 0;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+#bp6-tab-panel_form-tabs_schedule::first-line {
+  font-size: 20px;
+  font-weight: 800;
+  color: #182334;
+}
+
+/* Segmented control spacing */
+#bp6-tab-panel_form-tabs_scheduleEditor .forge-segmented-control {
+  margin-bottom: 2px;
+}
+
+/* Summary field — read-only monospace pill */
+#bp6-tab-panel_form-tabs_schedule .forge-control-wrapper .bp6-input[readonly],
+#bp6-tab-panel_form-tabs_schedule .forge-control-wrapper .bp4-input[readonly] {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12.5px;
+  color: #3d5275;
+  background: #f2f6fc;
+  border-color: #c8d6ea;
+  letter-spacing: -0.01em;
+}
+
+/* ─── F: General tab panel ─── */
+#bp6-tab-panel_form-tabs_general {
+  padding: 14px 18px 18px;
+}
+
+/* ─── Security tab panel ─── */
+#bp6-tab-panel_form-tabs_security {
+  padding: 14px 18px 18px;
+}
+
 .app-statusbar.phase-offline .app-statusbar-icon,
 .app-statusbar.phase-error .app-statusbar-icon {
   color: #c23030;

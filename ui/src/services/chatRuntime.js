@@ -1,5 +1,6 @@
 import { normalizeMessages, normalizeOne } from './messageNormalizer';
-import { buildEffectiveLiveRows, compareTemporalEntries, ConversationStreamTracker, hasLiveAssistantRowForTurn, isLiveConversationState, latestEffectiveLiveAssistantRow } from 'agently-core-ui-sdk';
+import { compareTemporalEntries, isLiveConversationState } from 'agently-core-ui-sdk';
+import { buildEffectiveLiveRows, ConversationStreamTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow } from 'agently-core-ui-sdk/internal';
 import { rememberConversationSeedTitle } from './conversationTitle';
 import { clearChangeFeed, publishChangeFeed } from './changeFeedBus';
 import { clearPlanFeed, publishPlanFeed } from './planFeedBus';

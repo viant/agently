@@ -165,9 +165,10 @@ func TestTerminalQueryJWTAuthorized(t *testing.T) {
 	conversationID := extractConversationID(t, out)
 	transcript, err := client.GetTranscript(harness.Context(t), &coresdk.GetTranscriptInput{ConversationID: conversationID})
 	require.NoError(t, err)
-	require.NotEmpty(t, transcript.Turns)
-	require.NotNil(t, transcript.Turns[0].User)
-	assert.NotEmpty(t, transcript.Turns[0].User.Content)
+	require.NotNil(t, transcript.Conversation)
+	require.NotEmpty(t, transcript.Conversation.Turns)
+	require.NotNil(t, transcript.Conversation.Turns[0].User)
+	assert.NotEmpty(t, transcript.Conversation.Turns[0].User.Content)
 }
 
 func TestTerminalQueryImageAttachment(t *testing.T) {
@@ -189,8 +190,9 @@ func TestTerminalQueryImageAttachment(t *testing.T) {
 	require.NoError(t, err)
 	transcript, err := client.GetTranscript(harness.Context(t), &coresdk.GetTranscriptInput{ConversationID: conversationID})
 	require.NoError(t, err)
-	require.NotEmpty(t, transcript.Turns)
-	require.NotNil(t, transcript.Turns[0].User)
+	require.NotNil(t, transcript.Conversation)
+	require.NotEmpty(t, transcript.Conversation.Turns)
+	require.NotNil(t, transcript.Conversation.Turns[0].User)
 
 	msgs, err := client.GetMessages(harness.Context(t), &coresdk.GetMessagesInput{
 		ConversationID: conversationID,
@@ -220,7 +222,8 @@ func TestTerminalQueryPDFAttachment(t *testing.T) {
 	require.NoError(t, err)
 	transcript, err := client.GetTranscript(harness.Context(t), &coresdk.GetTranscriptInput{ConversationID: conversationID})
 	require.NoError(t, err)
-	require.NotEmpty(t, transcript.Turns)
+	require.NotNil(t, transcript.Conversation)
+	require.NotEmpty(t, transcript.Conversation.Turns)
 
 	msgs, err := client.GetMessages(harness.Context(t), &coresdk.GetMessagesInput{
 		ConversationID: conversationID,
@@ -250,7 +253,8 @@ func TestTerminalQueryPDFRefAttachment(t *testing.T) {
 	require.NoError(t, err)
 	transcript, err := client.GetTranscript(harness.Context(t), &coresdk.GetTranscriptInput{ConversationID: conversationID})
 	require.NoError(t, err)
-	require.NotEmpty(t, transcript.Turns)
+	require.NotNil(t, transcript.Conversation)
+	require.NotEmpty(t, transcript.Conversation.Turns)
 }
 
 func TestTerminalQueryMultiAttachment(t *testing.T) {
@@ -618,14 +622,14 @@ func extractConversationID(t *testing.T, output string) string {
 	return ""
 }
 
-func transcriptStats(transcript *coresdk.ConversationState) ([]*agconv.ToolCallView, []*agconv.ModelCallView, map[int]struct{}) {
+func transcriptStats(transcript *coresdk.ConversationStateResponse) ([]*agconv.ToolCallView, []*agconv.ModelCallView, map[int]struct{}) {
 	var toolCalls []*agconv.ToolCallView
 	var modelCalls []*agconv.ModelCallView
 	iterations := map[int]struct{}{}
-	if transcript == nil {
+	if transcript == nil || transcript.Conversation == nil {
 		return toolCalls, modelCalls, iterations
 	}
-	for _, turn := range transcript.Turns {
+	for _, turn := range transcript.Conversation.Turns {
 		if turn == nil || turn.Execution == nil {
 			continue
 		}
@@ -651,7 +655,7 @@ func transcriptStats(transcript *coresdk.ConversationState) ([]*agconv.ToolCallV
 	return toolCalls, modelCalls, iterations
 }
 
-func writeTranscriptDebug(t *testing.T, transcript *coresdk.ConversationState) {
+func writeTranscriptDebug(t *testing.T, transcript *coresdk.ConversationStateResponse) {
 	t.Helper()
 	data, err := json.MarshalIndent(transcript, "", "  ")
 	require.NoError(t, err)
@@ -786,11 +790,11 @@ func valueOrEmpty(value *string) string {
 	return strings.TrimSpace(*value)
 }
 
-func firstLinkedConversationIDFromCoreTranscript(transcript *coresdk.ConversationState) string {
-	if transcript == nil {
+func firstLinkedConversationIDFromCoreTranscript(transcript *coresdk.ConversationStateResponse) string {
+	if transcript == nil || transcript.Conversation == nil {
 		return ""
 	}
-	for _, turn := range transcript.Turns {
+	for _, turn := range transcript.Conversation.Turns {
 		if turn == nil {
 			continue
 		}
@@ -806,12 +810,12 @@ func firstLinkedConversationIDFromCoreTranscript(transcript *coresdk.Conversatio
 	return ""
 }
 
-func collectCoreTranscriptText(transcript *coresdk.ConversationState) string {
+func collectCoreTranscriptText(transcript *coresdk.ConversationStateResponse) string {
 	var parts []string
-	if transcript == nil {
+	if transcript == nil || transcript.Conversation == nil {
 		return ""
 	}
-	for _, turn := range transcript.Turns {
+	for _, turn := range transcript.Conversation.Turns {
 		if turn == nil || turn.Assistant == nil {
 			continue
 		}
