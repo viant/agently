@@ -154,6 +154,8 @@ export async function onInit({ context }) {
     bindConversationWindowEvents(context);
     await hydrateMeta(context);
     bootstrapConversationSelection(context);
+    renderMergedRowsForContext(context);
+    setStage({ phase: 'ready', text: 'Ready' });
     const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
     const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
     const conversationID = String(conversationsDS?.peekFormData?.()?.id || '').trim();
@@ -188,7 +190,6 @@ export async function onInit({ context }) {
       }
     }
     renderMergedRowsForContext(context);
-    setStage({ phase: 'ready', text: 'Ready' });
   } catch (err) {
     setStage({ phase: 'error', text: String(err?.message || err || 'Initialization failed') });
     context?.Context?.('messages')?.handlers?.dataSource?.setError?.(String(err?.message || err));

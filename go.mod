@@ -2,6 +2,8 @@ module github.com/viant/agently
 
 go 1.25.5
 
+replace github.com/viant/agently-core => ../agently-core
+
 exclude google.golang.org/grpc/stats/opentelemetry v0.0.0-20240907200651-3ffb98b2c93a
 
 require (
