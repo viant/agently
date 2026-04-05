@@ -76,6 +76,51 @@ go build -o agently .
   -d, --debug        Enable debug logging
 ```
 
+## Tool Policy
+
+Agently has two layers of tool control:
+
+1. coarse runtime tool policy
+2. per-bundle approval rules
+
+The coarse runtime policy is set by `--policy` on `agently serve`.
+
+Available modes:
+
+- `auto` — normal operation; tools run when allowed by the selected bundle and agent
+- `ask` — interactive approval-oriented mode for risky operations
+- `deny` — deny tool execution
+
+Approval rules are separate from the coarse runtime policy and live on tool
+bundle match rules.
+
+Supported approval modes:
+
+- `none` — no approval
+- `prompt` — block the active turn and ask inline
+- `queue` — create a queued approval item for the user
+
+Approval is configured at the bundle-rule level, not on agent tool items.
+
+```yaml
+match:
+  - name: "system/os:*"
+    approval:
+      mode: queue
+```
+
+Execution order:
+
+1. coarse runtime policy is checked first
+2. matching bundle approval config is resolved
+3. approval mode is applied (`none`, `prompt`, or `queue`)
+
+That means:
+
+- `deny` still denies before approval is considered
+- approval only applies after the tool is otherwise allowed
+- queue/prompt approval is a finer-grained control than the top-level policy
+
 ## Configuration
 
 Agently uses a workspace directory (`$AGENTLY_WORKSPACE`, default `~/.agently`) with YAML files:
@@ -360,9 +405,6 @@ match:
             label: Environment variables
             description: Choose which environment variables this tool may access.
         forge:
-          callbacks:
-            - event: approve
-              handler: approval.filterEnvNames
           windowRef: chat/new
           containerRef: approvalEnvPicker
           dataSource: approvalEditor
@@ -472,7 +514,7 @@ export async function filterEnvNames({ editedFields = {}, originalArgs = {} }) {
 
 To use that handler end to end:
 
-1. register it in the active Forge window context so `lookupHandler("approval.filterEnvNames")` resolves
+1. register it in the active Forge window context so `lookupHandler(...)` resolves your handler name
 2. reference it from `approval.ui.forge.callbacks`
 3. the built-in approval UI renders the editor
 4. the callback can normalize or rewrite `editedFields`
@@ -513,7 +555,7 @@ approval:
       dataSource: approvalEditor
       callbacks:
         - event: approve
-          handler: approval.normalizeSelection
+          handler: myApproval.normalizeSelection
 ```
 
 Canonical metadata example included in this repo:
@@ -577,15 +619,6 @@ export async function normalizeSelection({ editedFields = {}, originalArgs = {} 
   };
 }
 ```
-
-Built-in handlers available in the Agently web UI:
-
-- `approval.normalizeSelection`
-- `approval.filterEnvNames`
-
-The built-in `approval.filterEnvNames` handler is useful for selectors like
-`input.names`, preserving the original request order while removing deselected
-items.
 
 ### Strict Behavior
 
