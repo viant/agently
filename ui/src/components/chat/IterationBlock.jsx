@@ -557,6 +557,8 @@ export function mapCanonicalExecutionGroups(groups = []) {
       status,
       errorMessage
     } : null);
+    const finalContentRaw = String(group?.content || group?.Content || '').trim();
+    const finalContent = looksLikeElicitationJSON(finalContentRaw) ? '' : finalContentRaw;
     const title = groupTitleFromSteps({
       preamble: preambleContent ? { content: preambleContent } : null,
       modelStep: effectiveModelStep,
@@ -573,7 +575,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
       status,
       errorMessage,
       finalResponse: Boolean(group?.finalResponse || group?.FinalResponse),
-      finalContent: String(group?.content || group?.Content || '').trim(),
+      finalContent,
       elapsed: aggregateLatencyLabel([...(effectiveModelStep ? [effectiveModelStep] : []), ...toolSteps]),
       stepCount: (effectiveModelStep ? 1 : 0) + toolSteps.length
     };
@@ -619,12 +621,18 @@ function mapFallbackExecutionGroups(data = {}) {
   }];
 }
 
+function looksLikeElicitationJSON(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  return /["'`]type["'`]\s*:\s*["'`]elicitation["'`]/i.test(text);
+}
+
 export function resolveVisibleBubbleContent(visibleGroups = []) {
   const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
   for (let index = groups.length - 1; index >= 0; index -= 1) {
     const group = groups[index] || {};
     const finalText = String(group?.finalContent || '').trim();
-    if (group?.finalResponse && finalText) {
+    if (group?.finalResponse && finalText && !looksLikeElicitationJSON(finalText)) {
       return finalText;
     }
   }

@@ -43,9 +43,6 @@ export default function ElicitationForm({ message, context, onResolved = null })
   const formWrapperId = useRef(`elic-form-${Date.now()}`);
   const ids = useMemo(() => parseConversationAndElicitation(message), [message]);
   const preparedSchema = useMemo(() => prepareRequestedSchema(requestedSchema), [requestedSchema]);
-
-  if (!requestedSchema || closed) return null;
-
   const dataBindingKey = elicitationDataBindingKey(ids.elicitationId);
 
   const collectFormValues = useCallback(() => {
@@ -87,6 +84,8 @@ export default function ElicitationForm({ message, context, onResolved = null })
   };
   const handleDecline = async () => resolveAction('decline', {});
   const handleCancel = async () => resolveAction('cancel', {});
+
+  if (!requestedSchema || closed) return null;
 
   return (
     <Dialog
