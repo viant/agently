@@ -1318,30 +1318,32 @@ describe('handleStreamEvent', () => {
       title: 'Good morning'
     });
     client.getTranscript.mockResolvedValueOnce({
-      turns: [
-        {
-          turnId: 'turn-1',
-          status: 'completed',
-          createdAt: '2026-03-31T10:00:00Z',
-          user: {
-            messageId: 'u1',
-            content: 'good morning'
-          },
-          execution: {
-            pages: [
-              {
-                pageId: 'page-final',
-                assistantMessageId: 'page-final',
-                turnId: 'turn-1',
-                iteration: 1,
-                status: 'completed',
-                finalResponse: true,
-                content: 'Good morning! What would you like to work on today?'
-              }
-            ]
+      conversation: {
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'completed',
+            createdAt: '2026-03-31T10:00:00Z',
+            user: {
+              messageId: 'u1',
+              content: 'good morning'
+            },
+            execution: {
+              pages: [
+                {
+                  pageId: 'page-final',
+                  assistantMessageId: 'page-final',
+                  turnId: 'turn-1',
+                  iteration: 1,
+                  status: 'completed',
+                  finalResponse: true,
+                  content: 'Good morning! What would you like to work on today?'
+                }
+              ]
+            }
           }
-        }
-      ]
+        ]
+      }
     });
 
     const messageState = { collection: [] };
@@ -1373,8 +1375,8 @@ describe('handleStreamEvent', () => {
       resources: {
         chat: {
           activeConversationID: 'conv-1',
-          liveOwnedConversationID: 'conv-1',
-          liveOwnedTurnIds: ['turn-1'],
+          liveOwnedConversationID: '',
+          liveOwnedTurnIds: [],
           runningTurnId: 'turn-1',
           activeStreamTurnId: 'turn-1',
           lastHasRunning: true,
@@ -1438,9 +1440,9 @@ describe('handleStreamEvent', () => {
         expect.arrayContaining([
           expect.objectContaining({
             role: 'assistant',
-            content: 'Temporary live content',
-            status: 'succeeded',
-            turnStatus: 'succeeded'
+            content: 'Good morning! What would you like to work on today?',
+            status: 'completed',
+            turnStatus: 'completed'
           })
         ])
       );
@@ -2116,6 +2118,77 @@ describe('mapTranscriptToRows', () => {
           role: 'assistant',
           status: 'failed',
           errorMessage: 'failed to stream: dial tcp: lookup api.openai.com: no such host'
+        })
+      ])
+    );
+  });
+
+  it('hydrates transcript elicitation rows from embedded assistant JSON and suppresses the raw JSON bubble', async () => {
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        turns: [
+          {
+            turnId: 'turn-elic',
+            status: 'completed',
+            createdAt: '2026-04-01T12:00:00Z',
+            user: {
+              messageId: 'u-elic',
+              content: 'Use system_os-getEnv to tell me an environment variable.'
+            },
+            execution: {
+              pages: [
+                {
+                  pageId: 'page-elic',
+                  assistantMessageId: 'page-elic',
+                  turnId: 'turn-elic',
+                  iteration: 1,
+                  status: 'completed',
+                  finalResponse: true,
+                  content: '{"type":"elicitation","message":"Please provide the environment variable name for system_os-getEnv.","requestedSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}{"type":"elicitation","message":"Please provide the environment variable name for system_os-getEnv.","requestedSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}'
+                }
+              ]
+            },
+            assistant: {
+              final: {
+                messageId: 'page-elic',
+                content: '{"type":"elicitation","message":"Please provide the environment variable name for system_os-getEnv.","requestedSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}'
+              }
+            },
+            elicitation: {
+              elicitationId: 'elic-1',
+              status: 'pending',
+              message: '{"name":""}'
+            }
+          }
+        ]
+      }
+    });
+
+    const turns = await fetchTranscript('conv-elic');
+    expect(turns).toHaveLength(1);
+    expect(turns[0].message).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'page-elic',
+          role: 'assistant',
+          content: ''
+        }),
+        expect.objectContaining({
+          id: 'elicitation:elic-1',
+          role: 'assistant',
+          elicitationId: 'elic-1',
+          content: 'Please provide the environment variable name for system_os-getEnv.',
+          elicitation: expect.objectContaining({
+            elicitationId: 'elic-1',
+            message: 'Please provide the environment variable name for system_os-getEnv.',
+            requestedSchema: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' }
+              },
+              required: ['name']
+            }
+          })
         })
       ])
     );

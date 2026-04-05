@@ -408,6 +408,19 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(shouldShowPreambleBubble([], text)).toBe(true);
   });
 
+  it('suppresses raw elicitation JSON from the visible page bubble', () => {
+    const text = resolveVisibleBubbleContent([
+      {
+        finalResponse: true,
+        preambleContent: 'Need input.',
+        finalContent: '{"type":"elicitation","message":"Please provide the environment variable name.","requestedSchema":{"type":"object"}}'
+      }
+    ]);
+
+    expect(text).toBe('Need input.');
+    expect(shouldShowPreambleBubble([], text)).toBe(true);
+  });
+
   it('falls back to visible preamble content when no visible page is final', () => {
     const text = resolveVisibleBubbleContent([
       {
