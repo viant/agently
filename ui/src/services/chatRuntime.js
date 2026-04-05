@@ -1528,6 +1528,66 @@ export function resolveUserID(context) {
   return explicit;
 }
 
+function extractEmbeddedElicitation(text = '') {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  let candidate = raw;
+  try {
+    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fence && fence[1]) candidate = String(fence[1]).trim();
+  } catch (_) {}
+  const start = candidate.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < candidate.length; i++) {
+    const ch = candidate[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') {
+      depth += 1;
+      continue;
+    }
+    if (ch !== '}') continue;
+    depth -= 1;
+    if (depth !== 0) continue;
+    try {
+      const parsed = JSON.parse(candidate.slice(start, i + 1));
+      if (!parsed || typeof parsed !== 'object') return null;
+      if (String(parsed.type || '').toLowerCase() !== 'elicitation') return null;
+      return {
+        message: String(parsed.message || parsed.prompt || '').trim(),
+        requestedSchema: parsed.requestedSchema || null
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
+}
+
+function displayableElicitationMessage(rawMessage = '', embedded = null) {
+  const explicit = String(rawMessage || '').trim();
+  if (embedded?.message) return embedded.message;
+  if (!explicit) return '';
+  if (/^[{\[]/.test(explicit)) return '';
+  return explicit;
+}
+
 export async function fetchTranscript(conversationID, since = '', options = {}) {
   if (isStreamDebugEnabled()) {
     console.log('[transcript-fetch]', { conversationID, since });
@@ -1592,11 +1652,18 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
       if (visiblePages.length > 0) {
         const lastPage = visiblePages[visiblePages.length - 1];
         const finalPage = [...visiblePages].reverse().find((p) => p.finalResponse) || lastPage;
+        const transcriptElicitation = turn?.elicitation && typeof turn.elicitation === 'object'
+          ? turn.elicitation
+          : null;
+        const embeddedElicitation = extractEmbeddedElicitation(finalPage?.content || '');
+        const elicitationStatus = String(transcriptElicitation?.status || '').trim().toLowerCase();
+        const suppressAssistantContent = !!embeddedElicitation
+          && (elicitationStatus === '' || elicitationStatus === 'pending' || elicitationStatus === 'open');
         messages.push({
           id: finalPage?.assistantMessageId || finalPage?.pageId || turn.turnId || '',
           role: 'assistant',
           interim: finalPage?.finalResponse ? 0 : 1,
-          content: finalPage?.content || '',
+          content: suppressAssistantContent ? '' : (finalPage?.content || ''),
           preamble: visiblePages[0]?.preamble || '',
           turnId: turn.turnId || '',
           status: finalPage?.status || '',
@@ -1619,19 +1686,21 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
       }
       if (turn.elicitation) {
         const elic = turn.elicitation;
+        const embeddedElicitation = extractEmbeddedElicitation(turn?.assistant?.final?.content || '');
+        const elicitationMessage = displayableElicitationMessage(elic.message || '', embeddedElicitation);
         messages.push({
           id: `elicitation:${elic.elicitationId || turn.turnId}`,
           role: 'assistant',
           interim: 0,
-          content: elic.message || '',
+          content: elicitationMessage,
           turnId: turn.turnId || '',
           status: elic.status || 'pending',
           elicitationId: elic.elicitationId || '',
           elicitation: {
             elicitationId: elic.elicitationId || '',
-            message: elic.message || '',
-            requestedSchema: elic.requestedSchema || null,
-            callbackURL: elic.callbackUrl || ''
+            message: elicitationMessage,
+            requestedSchema: elic.requestedSchema || embeddedElicitation?.requestedSchema || null,
+            callbackURL: elic.callbackUrl || elic.callbackURL || ''
           }
         });
       }
