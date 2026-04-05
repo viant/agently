@@ -4,6 +4,7 @@ dialogs:
   - $import('dialog/settings.yaml')
   - $import('dialog/fileBrowser.yaml')
   - $import('dialog/queue.yaml')
+  - $import('dialog/approval_editor.yaml')
 
 # Window that displays a single conversation chat view (no conversation list).
 
@@ -62,6 +63,7 @@ dataSource:
   usage: $import('datasource/usage.yaml')
   fs: $import('../../filebrowser/datasource/fileBrowser.yaml')
   queueTurns: $import('dialog/datasource/queueTurns.yaml')
+  approvalEditor: $import('datasource/approval_editor.yaml')
 
 
 

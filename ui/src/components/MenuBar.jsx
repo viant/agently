@@ -1,8 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Dialog } from '@blueprintjs/core';
 import { addWindow, activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
 import { client } from '../services/agentlyClient';
 import logo from '../viant-logo.png';
+import ApprovalEditorFields from './ApprovalEditorFields.jsx';
+import ApprovalForgeRenderer from './ApprovalForgeRenderer.jsx';
+import { buildApprovalEditorState, normalizeToolApprovalMeta, serializeApprovalEditedFields } from './elicitationHelpers';
+import { executeApprovalCallbacks } from '../services/approvalCallbacks';
 
 export function resolveStartupAuthAction(providers) {
   const normalized = Array.isArray(providers) ? providers : [];
@@ -45,18 +49,52 @@ export function openWindow(windowKey, windowTitle, refreshDataSources = []) {
   }
 }
 
+export const APPROVALS_PAGE_SIZE = 8;
+
+export function paginateApprovalItems(items = [], page = 0, pageSize = APPROVALS_PAGE_SIZE) {
+  const list = Array.isArray(items) ? items : [];
+  const normalizedPageSize = Number.isFinite(Number(pageSize)) && Number(pageSize) > 0
+    ? Math.max(1, Math.floor(Number(pageSize)))
+    : APPROVALS_PAGE_SIZE;
+  const pageCount = Math.max(1, Math.ceil(list.length / normalizedPageSize));
+  const safePage = Math.min(Math.max(0, Math.floor(Number(page) || 0)), pageCount - 1);
+  const start = safePage * normalizedPageSize;
+  const end = Math.min(list.length, start + normalizedPageSize);
+  return {
+    items: list.slice(start, end),
+    page: safePage,
+    pageCount,
+    start,
+    end,
+    total: list.length,
+    hasPrevious: safePage > 0,
+    hasNext: safePage < pageCount - 1
+  };
+}
+
 export default function MenuBar({ approvals, onToggleSidebar }) {
   const {
     items = [],
     pendingCount = 0,
+    page: approvalsPage = 0,
+    pageCount: approvalsPageCount = 1,
+    start: approvalsStart = 0,
+    end: approvalsEnd = 0,
+    hasPrevious: approvalsHasPrevious = false,
+    hasNext: approvalsHasNext = false,
     open,
     selected,
     setOpen,
+    setPage,
     setSelected,
     decide
   } = approvals || {};
   const [user, setUser] = useState(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [approvalPage, setApprovalPage] = useState(0);
+  const [approvalValues, setApprovalValues] = useState({});
+  const [approvalForgeContext, setApprovalForgeContext] = useState(null);
+  const [approvalForgeError, setApprovalForgeError] = useState('');
 
   useEffect(() => {
     client.getAuthMe().then((me) => {
@@ -86,6 +124,43 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
 
   const displayName = user?.displayName || user?.username || user?.email || user?.subject || '';
 
+  const approvalPageData = useMemo(() => {
+    if (typeof setPage === 'function') {
+      return {
+        items,
+        page: approvalsPage,
+        pageCount: approvalsPageCount,
+        start: Math.max(0, approvalsStart > 0 ? approvalsStart - 1 : 0),
+        end: Math.max(0, approvalsEnd),
+        total: pendingCount,
+        hasPrevious: approvalsHasPrevious,
+        hasNext: approvalsHasNext
+      };
+    }
+    return paginateApprovalItems(items, approvalPage, APPROVALS_PAGE_SIZE);
+  }, [items, approvalPage, approvalsPage, approvalsPageCount, approvalsStart, approvalsEnd, pendingCount, approvalsHasPrevious, approvalsHasNext, setPage]);
+  const selectedApprovalMeta = useMemo(() => normalizeToolApprovalMeta(selected?.metadata), [selected]);
+
+  useEffect(() => {
+    setApprovalPage((current) => {
+      const maxPage = Math.max(0, approvalPageData.pageCount - 1);
+      return current > maxPage ? maxPage : current;
+    });
+  }, [approvalPageData.pageCount]);
+
+  useEffect(() => {
+    if (!open) {
+      setApprovalPage(0);
+      setPage?.(0);
+    }
+  }, [open, setPage]);
+
+  useEffect(() => {
+    setApprovalValues(buildApprovalEditorState(selectedApprovalMeta));
+    setApprovalForgeContext(null);
+    setApprovalForgeError('');
+  }, [selectedApprovalMeta, selected?.id]);
+
   const handleLogout = useCallback(async () => {
     setUserMenuOpen(false);
     try {
@@ -94,6 +169,31 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
     try { window.localStorage?.removeItem('agently.userName'); } catch (_) {}
     window.location.reload();
   }, []);
+
+  const handleApprovalDecision = useCallback(async (item, action) => {
+    if (!item || !decide) return;
+    let editedFields = null;
+    if (selectedApprovalMeta?.editors?.length) {
+      editedFields = serializeApprovalEditedFields(selectedApprovalMeta, approvalValues);
+    } else if (approvalForgeContext?.handlers?.dataSource?.peekFormData) {
+      const formData = approvalForgeContext.handlers.dataSource.peekFormData() || {};
+      if (formData.editedFields && typeof formData.editedFields === 'object') {
+        editedFields = formData.editedFields;
+      }
+    }
+    const callbackPayload = selectedApprovalMeta
+      ? await executeApprovalCallbacks({
+          meta: selectedApprovalMeta,
+          event: action,
+          payload: {
+            approval: selectedApprovalMeta,
+            editedFields: editedFields || {},
+            originalArgs: item.arguments || {}
+          }
+        })
+      : { editedFields };
+    return decide(item, callbackPayload?.action || action, callbackPayload?.editedFields || editedFields);
+  }, [approvalForgeContext, approvalValues, decide, selectedApprovalMeta]);
 
   return (
     <header className="app-topbar">
@@ -125,6 +225,7 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
             minimal
             icon="notifications"
             intent={pendingCount > 0 ? 'warning' : 'none'}
+            className={pendingCount > 0 ? 'app-approval-bell is-pending' : 'app-approval-bell'}
             data-testid="approval-bell"
             onClick={() => setOpen?.(!open)}
           />
@@ -159,26 +260,93 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
         <div className="app-approval-popover app-approval-popover-left">
           {items.length === 0 ? (
             <div className="app-approval-empty">No pending approvals</div>
-          ) : items.map((item) => (
-            <button
-              key={item.id}
-              className="app-approval-row"
-              onClick={() => setSelected?.(item)}
-            >
-              <div className="app-approval-title">{item.title || item.toolName || item.id}</div>
-              <div className="app-approval-subtitle">{item.status}</div>
-            </button>
-          ))}
+          ) : (
+            <>
+              <div className="app-approval-list">
+                {approvalPageData.items.map((item) => (
+                  <button
+                    key={item.id}
+                    className="app-approval-row"
+                    onClick={() => setSelected?.(item)}
+                  >
+                    <div className="app-approval-title">{item.title || item.toolName || item.id}</div>
+                    <div className="app-approval-subtitle">{item.status}</div>
+                  </button>
+                ))}
+              </div>
+              {approvalPageData.total > APPROVALS_PAGE_SIZE ? (
+                <div className="app-approval-pagination">
+                  <Button
+                    small
+                    minimal
+                    disabled={!approvalPageData.hasPrevious}
+                    onClick={() => {
+                      if (typeof setPage === 'function') {
+                        setPage(Math.max(0, approvalPageData.page - 1));
+                        return;
+                      }
+                      setApprovalPage((current) => Math.max(0, current - 1));
+                    }}
+                  >
+                    Previous
+                  </Button>
+                  <div className="app-approval-pagination-status">
+                    {approvalPageData.total > 0 ? `${approvalPageData.start + 1}-${approvalPageData.end} of ${approvalPageData.total}` : '0 of 0'}
+                  </div>
+                  <Button
+                    small
+                    minimal
+                    disabled={!approvalPageData.hasNext}
+                    onClick={() => {
+                      if (typeof setPage === 'function') {
+                        setPage(approvalPageData.page + 1);
+                        return;
+                      }
+                      setApprovalPage((current) => current + 1);
+                    }}
+                  >
+                    Next
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
 
-      <Dialog isOpen={!!selected} onClose={() => setSelected?.(null)} title="Approval detail">
+      <Dialog
+        isOpen={!!selected}
+        onClose={() => setSelected?.(null)}
+        title={selected?.title || selected?.toolName || 'Approval detail'}
+      >
         <div className="app-approval-dialog">
           <div><strong>Tool:</strong> {selected?.toolName}</div>
-          <pre>{JSON.stringify(selected?.arguments || {}, null, 2)}</pre>
+          {selectedApprovalMeta?.forge?.containerRef ? (
+            <ApprovalForgeRenderer
+              meta={selectedApprovalMeta}
+              approvalValues={approvalValues}
+              originalArgs={selected?.arguments || {}}
+              onReady={setApprovalForgeContext}
+              onError={setApprovalForgeError}
+            />
+          ) : selectedApprovalMeta?.editors?.length ? (
+            <ApprovalEditorFields
+              meta={selectedApprovalMeta}
+              value={approvalValues}
+              onChange={setApprovalValues}
+            />
+          ) : null}
+          {approvalForgeError ? <div className="app-approval-forge-error">{approvalForgeError}</div> : null}
+          {!selectedApprovalMeta?.editors?.length ? <pre>{JSON.stringify(selected?.arguments || {}, null, 2)}</pre> : null}
           <div className="app-approval-dialog-actions">
-            <Button intent="danger" onClick={() => decide?.(selected, 'reject')}>Reject</Button>
-            <Button intent="primary" onClick={() => decide?.(selected, 'approve')}>Approve</Button>
+            <Button intent="danger" onClick={() => handleApprovalDecision(selected, 'reject')}>Reject</Button>
+            <Button
+              intent="primary"
+              onClick={() => handleApprovalDecision(selected, 'approve')}
+              disabled={!!selectedApprovalMeta?.forge?.containerRef && !approvalForgeContext}
+            >
+              Approve
+            </Button>
           </div>
         </div>
       </Dialog>

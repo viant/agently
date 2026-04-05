@@ -8,11 +8,13 @@ import OAuthCallback from './components/OAuthCallback';
 import { endpoints } from './endpoint';
 import { connectorConfig } from './connector';
 import { chatService } from './services/chatService';
+import { approvalService } from './services/approvalService';
 import { scheduleService } from './services/scheduleService';
 import { redirectToLogin } from './services/httpClient';
 
 const services = {
   chat: chatService,
+  approval: approvalService,
   schedule: scheduleService
 };
 

@@ -6,6 +6,7 @@ import { dsTick } from '../services/chatRuntime';
 import {
   collectElicitationFormValues,
   elicitationDataBindingKey,
+  extractToolApprovalMeta,
   prepareRequestedSchema,
   triggerElicitationFormSubmit
 } from './elicitationHelpers';
@@ -42,6 +43,7 @@ export default function ElicitationOverlay({ context }) {
   const hasSchemaProps = !!(schema && typeof schema === 'object' && schema.properties && Object.keys(schema.properties).length > 0);
 
   const preparedSchema = useMemo(() => prepareRequestedSchema(schema), [schema]);
+  const approvalMeta = useMemo(() => extractToolApprovalMeta(schema), [schema]);
 
   const dataBindingKey = elicitationDataBindingKey(elicitationId);
 
@@ -102,11 +104,16 @@ export default function ElicitationOverlay({ context }) {
       hasBackdrop={false}
       enforceFocus={false}
       autoFocus={false}
-      title="Input Required"
+      title={approvalMeta?.title || 'Input Required'}
       style={{ width: '50vw', minWidth: 520, maxWidth: '80vw' }}
     >
       <div className={Classes.DIALOG_BODY}>
         {prompt ? <p style={{ marginBottom: 12 }}>{prompt}</p> : null}
+        {approvalMeta?.toolName ? (
+          <div style={{ marginBottom: 12 }}>
+            <strong>Tool:</strong> {approvalMeta.toolName}
+          </div>
+        ) : null}
 
         {isOOB && url ? (
           <div style={{ marginBottom: 12 }}>
@@ -142,9 +149,13 @@ export default function ElicitationOverlay({ context }) {
       <div className={Classes.DIALOG_FOOTER}>
         <div className={Classes.DIALOG_FOOTER_ACTIONS}>
           {submitting ? <Spinner size={16} /> : null}
-          <Button minimal onClick={() => resolve('decline')} disabled={submitting}>Decline</Button>
+          <Button minimal onClick={() => resolve('decline')} disabled={submitting}>
+            {approvalMeta?.rejectLabel || 'Decline'}
+          </Button>
           {!isOOB ? (
-            <Button onClick={() => resolve('cancel')} disabled={submitting}>Cancel</Button>
+            <Button onClick={() => resolve('cancel')} disabled={submitting}>
+              {approvalMeta?.cancelLabel || 'Cancel'}
+            </Button>
           ) : null}
           {isOOB ? (
             <Button
@@ -165,7 +176,7 @@ export default function ElicitationOverlay({ context }) {
                 resolve('accept');
               }
             }}>
-              Submit
+              {approvalMeta?.acceptLabel || 'Submit'}
             </Button>
           )}
         </div>

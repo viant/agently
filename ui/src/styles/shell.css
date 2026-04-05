@@ -170,9 +170,47 @@ body {
   overflow: auto;
 }
 
+.app-approval-bell.is-pending {
+  animation: app-approval-bell-pulse 1.6s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes app-approval-bell-pulse {
+  0% {
+    transform: scale(1) rotate(0deg);
+    box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.28);
+  }
+  20% {
+    transform: scale(1.06) rotate(-8deg);
+    box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.12);
+  }
+  40% {
+    transform: scale(1.08) rotate(8deg);
+    box-shadow: 0 0 0 8px rgba(217, 119, 6, 0.08);
+  }
+  60% {
+    transform: scale(1.03) rotate(-4deg);
+    box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.06);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    box-shadow: 0 0 0 0 rgba(217, 119, 6, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-approval-bell.is-pending {
+    animation: none;
+  }
+}
+
 .app-approval-popover-left {
   left: 180px;
   right: auto;
+}
+
+.app-approval-list {
+  display: grid;
 }
 
 .app-approval-empty,
@@ -202,6 +240,23 @@ body {
   color: var(--app-muted);
 }
 
+.app-approval-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--app-border);
+  background: var(--app-surface-soft);
+  position: sticky;
+  bottom: 0;
+}
+
+.app-approval-pagination-status {
+  font-size: 12px;
+  color: var(--app-muted);
+}
+
 .app-approval-dialog {
   padding: 16px;
   display: grid;
@@ -221,6 +276,70 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.app-approval-editors {
+  display: grid;
+  gap: 12px;
+}
+
+.app-approval-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.app-approval-editor-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.app-approval-editor-description {
+  font-size: 12px;
+  color: var(--app-muted);
+}
+
+.app-approval-editor-options {
+  display: grid;
+  gap: 8px;
+}
+
+.app-approval-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.app-approval-option-body {
+  display: grid;
+  gap: 2px;
+}
+
+.app-approval-option-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.app-approval-option-description {
+  font-size: 12px;
+  color: var(--app-muted);
+}
+
+.app-approval-forge {
+  display: grid;
+  gap: 12px;
+}
+
+.app-approval-forge-error {
+  padding: 12px;
+  border: 1px solid #f2b8b5;
+  border-radius: 10px;
+  background: #fff3f2;
+  color: #8c1d18;
+  font-size: 13px;
 }
 
 .app-main {
