@@ -2,6 +2,10 @@ module github.com/viant/agently
 
 go 1.25.5
 
+replace github.com/viant/agently-core => ../agently-core
+
+replace github.com/viant/forge => ../forge
+
 exclude google.golang.org/grpc/stats/opentelemetry v0.0.0-20240907200651-3ffb98b2c93a
 
 require (
@@ -13,7 +17,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.1.7-0.20260404042009-0e43ed0523d2
+	github.com/viant/agently-core v0.1.7-0.20260404193537-200426d5af79
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3 // indirect
 	github.com/viant/forge v0.3.0 // indirect

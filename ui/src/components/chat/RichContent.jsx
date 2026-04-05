@@ -29,16 +29,12 @@ import {
 
 // Import all parsing/rendering utilities from SDK
 import {
-  parseFences,
-  languageHint,
-  findNextPipeTableBlock,
-  looksLikePipeTable,
-  parsePipeTable,
-  parseChartSpecFromFence,
+  describeContent,
   normalizeChartSpec,
   buildChartSeries,
   renderMarkdownBlock,
   renderMarkdownCellHTML,
+  describeFence,
 } from 'agently-core-ui-sdk';
 
 function escapeHTMLAttr(value = '') {
@@ -380,96 +376,68 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles 
 }
 
 function renderPipeTable(body = '', generatedFiles = []) {
-  const { headers, rows, aligns } = parsePipeTable(body);
+  const fence = describeFence('markdown', body);
+  const { headers, rows, aligns } = fence.table || { headers: [], rows: [], aligns: [] };
   return <FencedPipeTable headers={headers} rows={rows} aligns={aligns} generatedFiles={generatedFiles} />;
 }
 
 // ── Main component ──
 
 function RichContent({ content = '', generatedFiles = [] }) {
-  const textNorm = String(content || '').replace(/\r\n/g, '\n');
-  const parts = React.useMemo(() => parseFences(textNorm), [textNorm]);
+  const textNorm = normalizeBrokenMarkdownLayout(String(content || '').replace(/\r\n/g, '\n'));
+  const descriptors = React.useMemo(() => describeContent(textNorm), [textNorm]);
 
-  if (!parts.length) return <span>&nbsp;</span>;
+  if (!descriptors.length) return <span>&nbsp;</span>;
 
   const out = [];
   let idx = 0;
-  let hasFence = false;
-
-  /** Push prose text, auto-detecting pipe tables within it. */
-  const pushPlainWithTables = (text, keyPrefix) => {
-    const chunk = normalizeBrokenMarkdownLayout(String(text || ''));
-    if (!chunk) return;
-    let cursor = 0;
-    let anyTable = false;
-    while (true) {
-      const block = findNextPipeTableBlock(chunk, cursor);
-      if (!block) break;
-      anyTable = true;
-      if (block.start > cursor) {
-        out.push(<MinimalText key={`${keyPrefix}-pre-${idx++}`} text={chunk.slice(cursor, block.start)} generatedFiles={generatedFiles} />);
-      }
-      out.push(<div key={`${keyPrefix}-tbl-${idx++}`} style={{ overflowX: 'auto', margin: '6px 0' }}>{renderPipeTable(chunk.slice(block.start, block.end), generatedFiles)}</div>);
-      cursor = block.end;
-    }
-    if (anyTable && cursor < chunk.length) {
-      out.push(<MinimalText key={`${keyPrefix}-tail-${idx++}`} text={chunk.slice(cursor)} generatedFiles={generatedFiles} />);
-    }
-    if (!anyTable) {
-      out.push(<MinimalText key={`${keyPrefix}-${idx++}`} text={chunk} generatedFiles={generatedFiles} />);
-    }
-  };
-
-  for (const part of parts) {
+  for (const part of descriptors) {
     if (part.kind === 'text') {
-      pushPlainWithTables(part.value, 'seg');
+      const chunk = normalizeBrokenMarkdownLayout(String(part.value || ''));
+      if (chunk) {
+        out.push(<MinimalText key={`seg-${idx++}`} text={chunk} generatedFiles={generatedFiles} />);
+      }
+      continue;
+    }
+    if (part.kind === 'table') {
+      out.push(<div key={`table-${idx++}`} style={{ overflowX: 'auto', margin: '6px 0' }}>{renderPipeTable(part.raw, generatedFiles)}</div>);
       continue;
     }
 
-    // Fenced block
-    hasFence = true;
-    const lang = languageHint(part.lang);
-    const body = part.body;
+    const fence = part.fence;
+    const body = fence.body;
 
-    // Chart spec
-    const chartSpec = parseChartSpecFromFence(lang, body);
-    if (chartSpec) {
-      out.push(<ChartSpecPanel key={`chart-${idx++}`} spec={chartSpec} />);
-      continue;
+    switch (fence.renderer) {
+      case 'chart':
+        out.push(<ChartSpecPanel key={`chart-${idx++}`} spec={fence.chartSpec} />);
+        break;
+      case 'pipeTable':
+        out.push(<div key={`table-${idx++}`} style={{ overflowX: 'auto', margin: '6px 0' }}>{renderPipeTable(body, generatedFiles)}</div>);
+        break;
+      case 'mermaid':
+        out.push(
+          <div key={`mermaid-${idx++}`} className="app-rich-mermaid">
+            <Mermaid code={body} />
+          </div>
+        );
+        break;
+      case 'markdown': {
+        const html = rewriteSandboxHrefInHTML(
+          renderMarkdownBlock(rewriteSandboxMarkdownLinks(body, generatedFiles)),
+          generatedFiles
+        );
+        out.push(<div key={`md-${idx++}`} className="app-rich-markdown" dangerouslySetInnerHTML={{ __html: html }} />);
+        break;
+      }
+      case 'code':
+      default:
+        out.push(
+          <div key={`code-${idx++}`} style={{ borderRadius: 8, overflow: 'hidden', margin: '6px 0' }}>
+            <CodeBlock value={body} language={fence.lang} height={'auto'} />
+          </div>
+        );
+        break;
     }
-
-    // Pipe table inside markdown/plaintext fence
-    if ((lang === 'markdown' || lang === 'md' || lang === 'plaintext') && looksLikePipeTable(body)) {
-      out.push(<div key={`table-${idx++}`} style={{ overflowX: 'auto', margin: '6px 0' }}>{renderPipeTable(body, generatedFiles)}</div>);
-      continue;
-    }
-
-    // Mermaid
-    if (lang === 'mermaid' || /^\s*(sequenceDiagram|flowchart|graph|classDiagram|stateDiagram)/.test(body)) {
-      out.push(
-        <div key={`mermaid-${idx++}`} className="app-rich-mermaid">
-          <Mermaid code={body} />
-        </div>
-      );
-      continue;
-    }
-
-    // Markdown fence → render as prose
-    if (lang === 'markdown' || lang === 'md') {
-      const html = rewriteSandboxHrefInHTML(
-        renderMarkdownBlock(rewriteSandboxMarkdownLinks(body, generatedFiles)),
-        generatedFiles
-      );
-      out.push(<div key={`md-${idx++}`} className="app-rich-markdown" dangerouslySetInnerHTML={{ __html: html }} />);
-      continue;
-    }
-
-    // Code block with syntax highlighting
-    out.push(
-      <div key={`code-${idx++}`} style={{ borderRadius: 8, overflow: 'hidden', margin: '6px 0' }}>
-        <CodeBlock value={body} language={lang} height={'auto'} />
-      </div>
-    );
   }
 
   return <div className="app-rich-content">{out}</div>;
@@ -481,4 +449,4 @@ export default React.memo(RichContent, (a, b) => (
 ));
 
 // Re-export parseFences from SDK for consumers that import from this module.
-export { parseFences } from 'agently-core-ui-sdk';
+export { parseFences, describeContent } from 'agently-core-ui-sdk';

@@ -69,4 +69,35 @@ describe('RichContent fence parsing', () => {
     expect(html).not.toContain('Daily Trend | Date | Value |');
     expect(html).toContain('bp6-table-container');
   });
+
+  it('renders mixed prose, table, mermaid, and chart content in sequence', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, {
+        content: [
+          'Intro paragraph.',
+          '',
+          '| Name | Value |',
+          '| --- | --- |',
+          '| A | 1 |',
+          '',
+          '```mermaid',
+          'flowchart TD',
+          'A[Start] --> B[Done]',
+          '```',
+          '',
+          '```json',
+          '{"chart":{"type":"bar","x":{"key":"name"},"y":[{"key":"value"}]},"data":[{"name":"A","value":1}]}',
+          '```',
+          '',
+          'Tail paragraph.',
+        ].join('\n')
+      })
+    );
+
+    expect(html).toContain('Intro paragraph.');
+    expect(html).toContain('bp6-table-container');
+    expect(html).toContain('app-rich-mermaid');
+    expect(html).toContain('app-rich-chart');
+    expect(html).toContain('Tail paragraph.');
+  });
 });
