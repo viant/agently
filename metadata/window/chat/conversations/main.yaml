@@ -4,6 +4,7 @@ dialogs:
   - $import('../new/dialog/settings.yaml')
   - $import('../new/dialog/fileBrowser.yaml')
   - $import('../new/dialog/queue.yaml')
+  - $import('../new/dialog/approval_editor.yaml')
 
 view:
   content:
@@ -45,3 +46,4 @@ dataSource:
   usage: $import('../new/datasource/usage.yaml')
   fs: $import('../../filebrowser/datasource/fileBrowser.yaml')
   queueTurns: $import('../new/dialog/datasource/queueTurns.yaml')
+  approvalEditor: $import('../new/datasource/approval_editor.yaml')
