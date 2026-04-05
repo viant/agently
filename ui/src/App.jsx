@@ -30,6 +30,20 @@ const authContext = {
   }
 };
 
+function detectFormFactor() {
+  if (typeof window === 'undefined') return 'desktop';
+  const width = Number(window.innerWidth || 0);
+  if (width > 0 && width < 768) return 'phone';
+  if (width > 0 && width < 1100) return 'tablet';
+  return 'desktop';
+}
+
+const targetContext = {
+  platform: 'web',
+  formFactor: detectFormFactor(),
+  capabilities: ['markdown', 'chart', 'upload', 'code', 'diff']
+};
+
 const router = createBrowserRouter([
   { path: '/v1/api/auth/oauth/callback', element: <OAuthCallback /> },
   { path: '/', element: <Root /> },
@@ -42,7 +56,7 @@ const router = createBrowserRouter([
 export default function App() {
   return (
     <AgentlyAuthContext.Provider value={authContext}>
-      <SettingProvider endpoints={endpoints} connectorConfig={connectorConfig} authContext={AgentlyAuthContext} services={services}>
+      <SettingProvider endpoints={endpoints} connectorConfig={connectorConfig} authContext={AgentlyAuthContext} services={services} targetContext={targetContext}>
         <HotkeysProvider>
           <RouterProvider router={router} />
         </HotkeysProvider>
