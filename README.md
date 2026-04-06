@@ -76,6 +76,51 @@ go build -o agently .
   -d, --debug        Enable debug logging
 ```
 
+## Tool Policy
+
+Agently has two layers of tool control:
+
+1. coarse runtime tool policy
+2. per-bundle approval rules
+
+The coarse runtime policy is set by `--policy` on `agently serve`.
+
+Available modes:
+
+- `auto` — normal operation; tools run when allowed by the selected bundle and agent
+- `ask` — interactive approval-oriented mode for risky operations
+- `deny` — deny tool execution
+
+Approval rules are separate from the coarse runtime policy and live on tool
+bundle match rules.
+
+Supported approval modes:
+
+- `none` — no approval
+- `prompt` — block the active turn and ask inline
+- `queue` — create a queued approval item for the user
+
+Approval is configured at the bundle-rule level, not on agent tool items.
+
+```yaml
+match:
+  - name: "system/os:*"
+    approval:
+      mode: queue
+```
+
+Execution order:
+
+1. coarse runtime policy is checked first
+2. matching bundle approval config is resolved
+3. approval mode is applied (`none`, `prompt`, or `queue`)
+
+That means:
+
+- `deny` still denies before approval is considered
+- approval only applies after the tool is otherwise allowed
+- queue/prompt approval is a finer-grained control than the top-level policy
+
 ## Configuration
 
 Agently uses a workspace directory (`$AGENTLY_WORKSPACE`, default `~/.agently`) with YAML files:
@@ -313,6 +358,291 @@ cd agently && go build -o agently .
 # Dev mode (proxies to local server at localhost:9393)
 cd ui && npm run dev
 ```
+
+## Approval Editors And Callbacks
+
+Tool approvals can now expose generic, selector-driven editors. The same selector
+is used both to extract editable data from the original tool request and to
+write the user-edited value back into that request before the tool executes.
+
+Supported built-in editor kinds:
+
+- `checkbox_list` — keep/remove items from a collection
+- `radio_list` — choose exactly one record from a collection
+
+These editors are supported in:
+
+- prompt approval in the web UI
+- prompt approval in the CLI
+- queue approval in the web UI
+
+### Workspace Bundle Example
+
+The example below turns `system/os:getEnv` approval into a checkbox list. The
+editor reads from `input.names` and writes the filtered list back to the same
+path.
+
+```yaml
+# $AGENTLY_WORKSPACE/tools/bundles/system_os.yaml
+id: system/os
+title: System OS
+description: OS helpers (e.g. environment variables)
+iconRef: builtin:system-os
+priority: 60
+match:
+  - name: "system/os:*"
+    approval:
+      mode: queue
+      prompt:
+        acceptLabel: "Allow"
+        rejectLabel: "Deny"
+        cancelLabel: "Cancel"
+      ui:
+        editable:
+          - name: names
+            selector: input.names
+            kind: checkbox_list
+            label: Environment variables
+            description: Choose which environment variables this tool may access.
+        forge:
+          windowRef: chat/new
+          containerRef: approvalEnvPicker
+          dataSource: approvalEditor
+```
+
+### Record Collection Example
+
+For record collections, use relative selectors for item fields. These selectors
+are evaluated against each collection item.
+
+```yaml
+approval:
+  mode: queue
+  ui:
+    editable:
+      - name: records
+        selector: input.records
+        kind: radio_list
+        label: Records
+        itemValueSelector: id
+        itemLabelSelector: label
+        itemDescriptionSelector: description
+```
+
+In this example:
+
+- `selector: input.records` extracts the collection from the tool request
+- `itemValueSelector: id` resolves `record.id`
+- `itemLabelSelector: label` resolves `record.label`
+- the selected record is written back to `records`
+
+### Approval Callback Payload
+
+Approval callbacks are optional. They run inside the active Forge window
+context, using the same `lookupHandler(...)` mechanism as other Forge actions.
+
+Callback input shape:
+
+```ts
+type ApprovalCallbackPayload = {
+  approval?: {
+    type?: string
+    toolName?: string
+    title?: string
+    message?: string
+    acceptLabel?: string
+    rejectLabel?: string
+    cancelLabel?: string
+    editors?: Array<{
+      name: string
+      kind: string
+      path?: string
+      label?: string
+      description?: string
+      options?: Array<{
+        id: string
+        label: string
+        description?: string
+        selected: boolean
+      }>
+    }>
+  }
+  editedFields?: Record<string, unknown>
+  originalArgs?: Record<string, unknown>
+  event?: string
+}
+```
+
+Callback return shape:
+
+```ts
+type ApprovalCallbackResult = {
+  editedFields?: Record<string, unknown>
+  action?: string
+}
+```
+
+Callback lifecycle:
+
+1. callbacks run in the order declared under `approval.ui.forge.callbacks`
+2. a callback runs only for its matching event, or for all events when `event` is omitted
+3. `editedFields` are shallow-merged; later callbacks win on conflicts
+4. `action` overrides are also last-wins
+5. missing handlers are skipped by the SDK; handler resolution is supplied by the host UI
+
+### Example Forge Handler
+
+The example below keeps callback logic generic and deterministic: it receives
+the current edited selection and original request, and returns the normalized
+edited field payload that will be written back into the tool request.
+
+```js
+// Example Forge action handler
+export async function filterEnvNames({ editedFields = {}, originalArgs = {} }) {
+  const requested = Array.isArray(originalArgs.names) ? originalArgs.names : [];
+  const selected = new Set(
+    Array.isArray(editedFields.names) ? editedFields.names : requested
+  );
+
+  return {
+    editedFields: {
+      names: requested.filter((name) => selected.has(name))
+    }
+  };
+}
+```
+
+To use that handler end to end:
+
+1. register it in the active Forge window context so `lookupHandler(...)` resolves your handler name
+2. reference it from `approval.ui.forge.callbacks`
+3. the built-in approval UI renders the editor
+4. the callback can normalize or rewrite `editedFields`
+5. Agently writes the final edited value back to the same selector path before tool execution
+
+### Current Behavior
+
+What works today:
+
+- built-in approval dialogs render `checkbox_list` and `radio_list`
+- queue approvals and prompt approvals both support `editedFields`
+- the same selector path is used for extract and write-back
+- Forge callbacks can post-process `editedFields` before the approval decision is submitted
+
+What is not implemented yet:
+
+- mounting a fully custom Forge approval container from `windowRef` / `containerRef` / `dataSource`
+
+The current runtime uses the built-in approval editor UI and optional Forge
+callbacks together.
+
+### Custom Forge Approval Container
+
+When you need a fully custom approval experience, you can point approval UI at
+an existing Forge window/container/data source.
+
+```yaml
+approval:
+  mode: queue
+  ui:
+    editable:
+      - name: names
+        selector: input.names
+        kind: checkbox_list
+    forge:
+      windowRef: chat/new
+      containerRef: approvalEnvPicker
+      dataSource: approvalEditor
+      callbacks:
+        - event: approve
+          handler: myApproval.normalizeSelection
+```
+
+Canonical metadata example included in this repo:
+
+- [approval_editor.yaml](/Users/awitas/go/src/github.com/viant/agently/metadata/window/chat/new/dialog/approval_editor.yaml)
+- [approval_editor.yaml](/Users/awitas/go/src/github.com/viant/agently/metadata/window/chat/new/dialog/panel/approval_editor.yaml)
+- [approval_editor.yaml](/Users/awitas/go/src/github.com/viant/agently/metadata/window/chat/new/datasource/approval_editor.yaml)
+
+Expected Forge data source shape:
+
+```json
+{
+  "approval": {
+    "type": "tool_approval",
+    "toolName": "system/os/getEnv",
+    "title": "OS Env Access",
+    "message": "The agent wants access to your HOME, SHELL, and PATH environment variables.",
+    "editors": [
+      {
+        "name": "names",
+        "kind": "checkbox_list",
+        "path": "names",
+        "options": [
+          { "id": "HOME", "label": "HOME", "selected": true },
+          { "id": "SHELL", "label": "SHELL", "selected": true },
+          { "id": "PATH", "label": "PATH", "selected": true }
+        ]
+      }
+    ]
+  },
+  "editedFields": {
+    "names": ["HOME", "PATH"]
+  },
+  "originalArgs": {
+    "names": ["HOME", "SHELL", "PATH"]
+  }
+}
+```
+
+The approval container is expected to edit `editedFields`. On approve, Agently:
+
+1. reads the current Forge data source form values
+2. takes `editedFields`
+3. runs any configured approval callbacks
+4. writes the final edited value back to the original tool request using the
+   same selector path
+5. executes the tool with the rewritten request
+
+Example Forge handler:
+
+```js
+export async function normalizeSelection({ editedFields = {}, originalArgs = {} }) {
+  const requested = Array.isArray(originalArgs.names) ? originalArgs.names : [];
+  const selected = new Set(
+    Array.isArray(editedFields.names) ? editedFields.names : requested
+  );
+  return {
+    editedFields: {
+      names: requested.filter((name) => selected.has(name))
+    }
+  };
+}
+```
+
+### Strict Behavior
+
+If `approval.ui.forge.containerRef` is configured, Agently treats that as an
+explicit instruction to use the Forge approval renderer.
+
+There is no silent fallback to the built-in approval editor.
+
+If the Forge window/context/container/data source cannot be resolved:
+
+- the approval dialog shows an explicit Forge error
+- approve is disabled
+- the user must fix the Forge configuration before continuing
+
+### Example Outcome
+
+For a request like:
+
+```text
+What are my HOME, SHELL, and PATH environment variables?
+```
+
+if the user deselects `SHELL` in the approval editor, Agently rewrites the tool
+request before execution so the final result contains only `HOME` and `PATH`.
 
 ## E2E Testing
 

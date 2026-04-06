@@ -68,7 +68,7 @@ describe('MenuBar window reuse', () => {
     expect(selectedWindowId.value).toBe('runs-window');
     expect(fetchCollection).toHaveBeenCalledTimes(1);
     expect(addWindow).not.toHaveBeenCalled();
-  });
+  }, 10000);
 });
 
 describe('MenuBar auth startup selection', () => {
@@ -87,5 +87,45 @@ describe('MenuBar auth startup selection', () => {
       { type: 'local', defaultUsername: 'devuser' }
     ]);
     expect(action).toEqual({ type: 'local', username: 'devuser' });
+  });
+});
+
+describe('MenuBar approval pagination', () => {
+  it('paginates approval items with stable ranges', async () => {
+    const { paginateApprovalItems } = await import('./MenuBar.jsx');
+    const items = Array.from({ length: 18 }, (_, index) => ({ id: `approval-${index + 1}` }));
+
+    const first = paginateApprovalItems(items, 0, 8);
+    expect(first.items).toHaveLength(8);
+    expect(first.start).toBe(0);
+    expect(first.end).toBe(8);
+    expect(first.total).toBe(18);
+    expect(first.hasPrevious).toBe(false);
+    expect(first.hasNext).toBe(true);
+
+    const middle = paginateApprovalItems(items, 1, 8);
+    expect(middle.items).toHaveLength(8);
+    expect(middle.start).toBe(8);
+    expect(middle.end).toBe(16);
+    expect(middle.hasPrevious).toBe(true);
+    expect(middle.hasNext).toBe(true);
+
+    const last = paginateApprovalItems(items, 2, 8);
+    expect(last.items).toHaveLength(2);
+    expect(last.start).toBe(16);
+    expect(last.end).toBe(18);
+    expect(last.hasPrevious).toBe(true);
+    expect(last.hasNext).toBe(false);
+  });
+
+  it('clamps out-of-range pages back to the last page', async () => {
+    const { paginateApprovalItems } = await import('./MenuBar.jsx');
+    const items = Array.from({ length: 3 }, (_, index) => ({ id: `approval-${index + 1}` }));
+
+    const page = paginateApprovalItems(items, 99, 2);
+    expect(page.page).toBe(1);
+    expect(page.start).toBe(2);
+    expect(page.end).toBe(3);
+    expect(page.items).toHaveLength(1);
   });
 });

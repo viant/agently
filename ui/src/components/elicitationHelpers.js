@@ -1,8 +1,22 @@
+import {
+  buildApprovalEditorState as sdkBuildApprovalEditorState,
+  normalizeApprovalMeta as sdkNormalizeApprovalMeta,
+  serializeApprovalEditedFields as sdkSerializeApprovalEditedFields
+} from 'agently-core-ui-sdk';
+
 export function prepareRequestedSchema(requestedSchema = null) {
   try {
     if (!requestedSchema || typeof requestedSchema !== 'object') return requestedSchema;
     const clone = JSON.parse(JSON.stringify(requestedSchema));
     const props = (clone.properties = clone.properties || {});
+    Object.keys(props).forEach((key) => {
+      if (String(key || '').startsWith('_')) {
+        delete props[key];
+      }
+    });
+    if (Array.isArray(clone.required)) {
+      clone.required = clone.required.filter((key) => !String(key || '').startsWith('_'));
+    }
     Object.keys(props).forEach((key) => {
       const p = props[key];
       if (!p || typeof p !== 'object') return;
@@ -18,6 +32,43 @@ export function prepareRequestedSchema(requestedSchema = null) {
   } catch (_) {
     return requestedSchema;
   }
+}
+
+function readSchemaConst(properties = {}, key = '') {
+  const field = properties?.[key];
+  if (!field || typeof field !== 'object') return '';
+  if (typeof field.const === 'string') return field.const.trim();
+  if (typeof field.default === 'string') return field.default.trim();
+  if (Array.isArray(field.enum) && typeof field.enum[0] === 'string') return field.enum[0].trim();
+  return '';
+}
+
+export function normalizeToolApprovalMeta(raw = null) {
+  return sdkNormalizeApprovalMeta(raw);
+}
+
+export function extractToolApprovalMeta(requestedSchema = null) {
+  if (!requestedSchema || typeof requestedSchema !== 'object') return null;
+  const properties = requestedSchema.properties || {};
+  const richMeta = normalizeToolApprovalMeta(readSchemaConst(properties, '_approvalMeta'));
+  if (richMeta) return richMeta;
+  if (readSchemaConst(properties, '_type') !== 'tool_approval') return null;
+  return {
+    type: 'tool_approval',
+    title: readSchemaConst(properties, '_title') || 'Approval Required',
+    toolName: readSchemaConst(properties, '_toolName'),
+    acceptLabel: readSchemaConst(properties, '_acceptLabel') || 'Allow',
+    rejectLabel: readSchemaConst(properties, '_rejectLabel') || 'Decline',
+    cancelLabel: readSchemaConst(properties, '_cancelLabel') || 'Cancel'
+  };
+}
+
+export function buildApprovalEditorState(meta = null) {
+  return sdkBuildApprovalEditorState(meta);
+}
+
+export function serializeApprovalEditedFields(meta = null, state = {}) {
+  return sdkSerializeApprovalEditedFields(meta, state);
 }
 
 export function elicitationDataBindingKey(elicitationId = '') {
