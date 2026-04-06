@@ -248,7 +248,7 @@ export default function Sidebar({ collapsed = false }) {
         void reload('latest', '');
       }, 150);
     };
-    window.addEventListener('agently:conversation-active', onActive);
+    window.addEventListener('forge:conversation-active', onActive);
     window.addEventListener('agently:conversation-new', onConversationNew);
     window.addEventListener('agently:conversation-activity', onConversationActivity);
     return () => {
@@ -256,7 +256,7 @@ export default function Sidebar({ collapsed = false }) {
         clearTimeout(activityReloadTimerRef.current);
         activityReloadTimerRef.current = null;
       }
-      window.removeEventListener('agently:conversation-active', onActive);
+      window.removeEventListener('forge:conversation-active', onActive);
       window.removeEventListener('agently:conversation-new', onConversationNew);
       window.removeEventListener('agently:conversation-activity', onConversationActivity);
     };

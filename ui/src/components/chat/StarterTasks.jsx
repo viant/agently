@@ -91,7 +91,7 @@ export default function StarterTasks({ message, context }) {
   const persistStarterPrompt = (prompt, conversationId = '') => {
     if (typeof window === 'undefined') return;
     try {
-      const key = 'agently.composerDrafts.v1';
+      const key = 'forge.composerDrafts.v1';
       const raw = window.sessionStorage?.getItem(key) || '{}';
       const parsed = JSON.parse(raw);
       const next = parsed && typeof parsed === 'object' ? parsed : {};
@@ -107,7 +107,7 @@ export default function StarterTasks({ message, context }) {
     const conversationId = currentConversationId();
     persistStarterPrompt(prompt, conversationId);
     try {
-      window.dispatchEvent(new CustomEvent('agently:composer-prefill', {
+      window.dispatchEvent(new CustomEvent('forge:composer-prefill', {
         detail: { prompt, conversationId }
       }));
     } catch (_) {}
