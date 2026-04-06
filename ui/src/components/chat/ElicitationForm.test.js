@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { parseConversationAndElicitation } from './ElicitationForm';
 import {
+  buildApprovalEditorState,
   collectElicitationFormValues,
   elicitationDataBindingKey,
-  prepareRequestedSchema
+  extractToolApprovalMeta,
+  prepareRequestedSchema,
+  serializeApprovalEditedFields
 } from '../elicitationHelpers';
 
 describe('ElicitationForm utilities', () => {
@@ -40,6 +43,87 @@ describe('ElicitationForm utilities', () => {
         meta: { type: 'object', default: {} }
       }
     });
+  });
+
+  it('hides internal metadata fields from rendered schema', () => {
+    expect(prepareRequestedSchema({
+      type: 'object',
+      required: ['name', '_title'],
+      properties: {
+        name: { type: 'string' },
+        _title: { type: 'string', const: 'OS Env Access' }
+      }
+    })).toEqual({
+      type: 'object',
+      required: ['name'],
+      properties: {
+        name: { type: 'string' }
+      }
+    });
+  });
+
+  it('extracts tool approval metadata from schema constants', () => {
+    expect(extractToolApprovalMeta({
+      type: 'object',
+      properties: {
+        _type: { type: 'string', const: 'tool_approval' },
+        _title: { type: 'string', const: 'OS Env Access' },
+        _toolName: { type: 'string', const: 'system/os/getEnv' },
+        _acceptLabel: { type: 'string', const: 'Allow' },
+        _rejectLabel: { type: 'string', const: 'Deny' },
+        _cancelLabel: { type: 'string', const: 'Cancel' }
+      }
+    })).toEqual({
+      type: 'tool_approval',
+      title: 'OS Env Access',
+      toolName: 'system/os/getEnv',
+      acceptLabel: 'Allow',
+      rejectLabel: 'Deny',
+      cancelLabel: 'Cancel'
+    });
+  });
+
+  it('extracts rich approval metadata with editors from _approvalMeta', () => {
+    const meta = {
+      type: 'tool_approval',
+      title: 'OS Env Access',
+      toolName: 'system/os/getEnv',
+      acceptLabel: 'Allow',
+      rejectLabel: 'Deny',
+      cancelLabel: 'Cancel',
+      editors: [
+        {
+          name: 'names',
+          kind: 'checkbox_list',
+          path: 'names',
+          label: 'Environment variables',
+          description: 'Choose which environment variables this tool may access.',
+          options: [
+            { id: 'HOME', label: 'HOME', selected: true },
+            { id: 'SHELL', label: 'SHELL', selected: true },
+            { id: 'PATH', label: 'PATH', selected: true }
+          ]
+        }
+      ]
+    };
+    expect(extractToolApprovalMeta({
+      type: 'object',
+      properties: {
+        _approvalMeta: { type: 'string', const: JSON.stringify(meta) }
+      }
+    })).toEqual({
+      ...meta,
+      forge: undefined,
+      message: '',
+      editors: [
+        {
+          ...meta.editors[0],
+          options: meta.editors[0].options.map((option) => ({ ...option, description: '', item: undefined }))
+        }
+      ]
+    });
+    expect(buildApprovalEditorState(meta)).toEqual({ names: ['HOME', 'SHELL', 'PATH'] });
+    expect(serializeApprovalEditedFields(meta, { names: ['HOME', 'PATH'] })).toEqual({ names: ['HOME', 'PATH'] });
   });
 
   it('builds a stable data binding key', () => {
