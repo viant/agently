@@ -1473,7 +1473,7 @@ export function publishActiveConversation(conversationID = '', context = null) {
     if (isMainChatWindowId(windowId)) {
       syncConversationPath(id);
     }
-    window.dispatchEvent(new CustomEvent('agently:conversation-active', { detail: { id, windowId } }));
+    window.dispatchEvent(new CustomEvent('forge:conversation-active', { detail: { id, windowId } }));
   } catch (_) {}
 }
 

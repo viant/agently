@@ -116,7 +116,7 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
         .then((autoMe) => {
           if (!autoMe) return;
           setUser(autoMe);
-          try { window.dispatchEvent(new CustomEvent('agently:conversation-active', { detail: { id: '' } })); } catch (_) {}
+          try { window.dispatchEvent(new CustomEvent('forge:conversation-active', { detail: { id: '' } })); } catch (_) {}
           try { window.location.reload(); } catch (_) {}
         });
     }).catch(() => {});

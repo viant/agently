@@ -16,7 +16,7 @@ require (
 	github.com/viant/agently-core v0.1.7-0.20260405215459-5220bbc2c2d9
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3 // indirect
-	github.com/viant/forge v0.3.1-0.20260405044105-4cefc062572a // indirect
+	github.com/viant/forge v0.3.1-0.20260406160352-e520402b5c4f // indirect
 	github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0 // indirect
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.14.1-0.20260330151156-6107a117f1ea // indirect

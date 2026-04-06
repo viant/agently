@@ -3,7 +3,7 @@ const INPUT_SELECTOR = '[data-testid="chat-composer-input"]';
 const HISTORY_SELECTOR = '[data-testid="chat-composer-history"]';
 const TOGGLE_SELECTOR = '[data-testid="chat-composer-history-toggle"]';
 const PANEL_SELECTOR = '[data-testid="chat-composer-history-panel"]';
-const HISTORY_KEY = 'agently_composer_history';
+const HISTORY_KEY = 'forge_composer_history';
 const HISTORY_MAX = 30;
 
 function readHistory(prefix = '') {
