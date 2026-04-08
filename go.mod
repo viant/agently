@@ -13,7 +13,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.1.7-0.20260405215459-5220bbc2c2d9
+	github.com/viant/agently-core v0.1.7-0.20260408191739-c0b74a390c5b
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3 // indirect
 	github.com/viant/forge v0.3.1-0.20260406160352-e520402b5c4f // indirect
@@ -203,5 +203,3 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.45.0 // indirect
 )
-
-replace github.com/viant/agently-core => ../agently-core
