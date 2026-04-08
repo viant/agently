@@ -1,5 +1,7 @@
 import { mergeRowSnapshots } from './rowMerge';
 
+const RUNNING_TURN_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
+
 function filterOwnedTurnRows(rows = [], conversationID = '', ownedConversationID = '', ownedTurnIds = []) {
   const currentID = String(conversationID || '').trim();
   const liveID = String(ownedConversationID || '').trim();
@@ -116,8 +118,17 @@ export function syncTranscriptSnapshot({
 
   const hasRunning = turns.some((turn) => {
     const status = String(turn?.status || turn?.Status || '').trim().toLowerCase();
-    return ['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress'].includes(status);
+    return RUNNING_TURN_STATUSES.has(status);
   });
+  const ownedTurnIds = new Set((Array.isArray(chatState.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : []).map((item) => String(item || '').trim()).filter(Boolean));
+  const transcriptConfirmsOwnedTurnTerminal = !hasRunning
+    && ownedTurnIds.size > 0
+    && turns.some((turn) => {
+      const turnId = String(turn?.turnId || turn?.id || turn?.TurnID || '').trim();
+      if (!ownedTurnIds.has(turnId)) return false;
+      const status = String(turn?.status || turn?.Status || '').trim().toLowerCase();
+      return status !== '' && !RUNNING_TURN_STATUSES.has(status);
+    });
 
   conversationsDS.setFormData?.({
     values: {
@@ -140,7 +151,8 @@ export function syncTranscriptSnapshot({
 
   const transcriptEmpty = !Array.isArray(turns) || turns.length === 0;
   const shouldPreserveTerminalLiveRows = transcriptEmpty && normalizedLiveRows.length > 0;
-  const shouldFinalizeActiveStream = !hasRunning && !activeStreamRow && !shouldPreserveTerminalLiveRows;
+  const shouldFinalizeActiveStream = (!hasRunning && !activeStreamRow && !shouldPreserveTerminalLiveRows)
+    || transcriptConfirmsOwnedTurnTerminal;
   if (shouldFinalizeActiveStream) {
     chatState.liveRows = [];
     chatState.liveOwnedConversationID = '';

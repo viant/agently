@@ -79,6 +79,7 @@ export default function ElicitationForm({ message, context, onResolved = null })
       setError('Missing conversation or elicitation id.');
       return;
     }
+    let resolvedAction = action;
     let resolvedPayload = payload || collectFormValues();
     if (approvalMeta?.forge?.containerRef && approvalForgeContext?.handlers?.dataSource?.peekFormData) {
       const formData = approvalForgeContext.handlers.dataSource.peekFormData() || {};
@@ -87,7 +88,7 @@ export default function ElicitationForm({ message, context, onResolved = null })
       }
     }
     if (approvalMeta) {
-      resolvedPayload = await executeApprovalCallbacks({
+      const callbackPayload = await executeApprovalCallbacks({
         meta: approvalMeta,
         event: action,
         context,
@@ -97,14 +98,20 @@ export default function ElicitationForm({ message, context, onResolved = null })
           originalArgs: message?.approvalArguments || {}
         }
       });
+      if (typeof callbackPayload?.action === 'string' && callbackPayload.action.trim()) {
+        resolvedAction = callbackPayload.action.trim();
+      }
+      resolvedPayload = {
+        editedFields: callbackPayload?.editedFields || resolvedPayload?.editedFields || {}
+      };
     }
     setSubmitting(true);
     setError('');
     try {
-      await client.resolveElicitation(ids.conversationId, ids.elicitationId, { action, payload: resolvedPayload });
+      await client.resolveElicitation(ids.conversationId, ids.elicitationId, { action: resolvedAction, payload: resolvedPayload });
       await dsTick(context, { conversationID: ids.conversationId });
       setClosed(true);
-      onResolved?.(action);
+      onResolved?.(resolvedAction);
     } catch (err) {
       setError(String(err?.message || err || 'Failed to resolve elicitation'));
     } finally {

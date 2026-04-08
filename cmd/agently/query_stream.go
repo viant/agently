@@ -153,7 +153,12 @@ func (s *chatStreamer) Flush(final string) bool {
 		fmt.Print("\n")
 		return true
 	}
-	if strings.TrimSpace(streamed) == final || normalizeCLIContent(streamed) == normalizeCLIContent(final) {
+	normalizedStreamed := normalizeCLIContent(streamed)
+	normalizedFinal := normalizeCLIContent(final)
+	if (strings.TrimSpace(streamed) == final) ||
+		(normalizedStreamed == normalizedFinal) ||
+		(normalizedStreamed != "" && strings.Contains(normalizedFinal, normalizedStreamed)) ||
+		(normalizedFinal != "" && strings.Contains(normalizedStreamed, normalizedFinal)) {
 		fmt.Print("\n")
 		return true
 	}

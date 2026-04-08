@@ -49,6 +49,19 @@ func TestChatStreamerFlush_SkipsNormalizedWhitespaceDuplicate(t *testing.T) {
 	assert.Equal(t, "\n", output)
 }
 
+func TestChatStreamerFlush_SkipsNormalizedContainedDuplicate(t *testing.T) {
+	streamer := &chatStreamer{}
+	streamer.content.WriteString("```json{\"HOME\":\"/Users/awitas\",\"PATH\":\"/usr/bin\"}```")
+	streamer.printed = true
+
+	output := captureStdout(t, func() {
+		printed := streamer.Flush("```json\n{\"HOME\":\"/Users/awitas\",\"PATH\":\"/usr/bin\"}\n```")
+		require.True(t, printed)
+	})
+
+	assert.Equal(t, "\n", output)
+}
+
 func TestLatestAssistantContentFromState(t *testing.T) {
 	content, ok, err := latestAssistantContentFromState(&sdk.ConversationState{
 		ConversationID: "conv-1",

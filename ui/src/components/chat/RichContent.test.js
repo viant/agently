@@ -70,6 +70,43 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('bp6-table-container');
   });
 
+  it('separates a collapsed bold label from a following pipe table', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, {
+        content: '**Raw Evidence**| publisher | bids |\n|---|---:|\n| OpenX | 751034737 |\n'
+      })
+    );
+
+    expect(html).toContain('<strong>Raw Evidence</strong>');
+    expect(html).toContain('bp6-table-container');
+    expect(html).not.toContain('<th>**Raw Evidence**');
+  });
+
+  it('separates a heading glued directly to a following pipe table', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, {
+        content: '### Underlying Data — Recommendation2| Publisher | Bids |\n|---|---:|\n| OpenX | 751034737 |\n'
+      })
+    );
+
+    expect(html).toContain('<h3>Underlying Data');
+    expect(html).toContain('bp6-table-container');
+    expect(html).not.toContain('Recommendation2| Publisher');
+  });
+
+  it('separates a collapsed bold label from a following bullet list', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, {
+        content: '**Evidence context**- **Metric window:** 2026-03-31 to 2026-04-06\n- **Compared entities:** Top global publishers by bids'
+      })
+    );
+
+    expect(html).toContain('<strong>Evidence context</strong>');
+    expect(html).toContain('<ul>');
+    expect(html).toContain('Metric window:');
+    expect(html).toContain('Compared entities:');
+  });
+
   it('renders mixed prose, table, mermaid, and chart content in sequence', () => {
     const html = renderToStaticMarkup(
       React.createElement(RichContent, {

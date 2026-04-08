@@ -88,6 +88,91 @@ describe('syncTranscriptSnapshot', () => {
     expect(chatState.activeStreamStartedAt).toBe(0);
   });
 
+  it('finalizes stale live ownership when transcript marks the owned turn completed', () => {
+    const chatState = {
+      transcriptRows: [],
+      liveRows: [
+        {
+          id: 'assistant-live',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-04-06T19:47:00Z',
+          interim: 1,
+          status: 'running',
+          turnStatus: 'running',
+          content: 'The agent wants access to your HOME and PATH environment variables.'
+        }
+      ],
+      renderRows: [],
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1'],
+      lastConversationID: 'conv-1',
+      lastQueuedTurns: [],
+      lastHasRunning: true,
+      runningTurnId: 'turn-1',
+      activeStreamTurnId: 'turn-1',
+      activeStreamStartedAt: 123
+    };
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-1' }),
+      setFormData: vi.fn()
+    };
+    const context = {
+      Context: (name) => {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: conversationsDS } };
+        }
+        return null;
+      }
+    };
+
+    const result = syncTranscriptSnapshot({
+      context,
+      turns: [
+        {
+          turnId: 'turn-1',
+          status: 'completed'
+        }
+      ],
+      ensureContextResources: () => chatState,
+      resolveActiveStreamTurnId: () => 'turn-1',
+      mapTranscriptToRows: () => ({
+        rows: [
+          {
+            id: 'user-1',
+            role: 'user',
+            turnId: 'turn-1',
+            createdAt: '2026-04-06T19:47:00Z',
+            content: 'What are my HOME, SHELL, and PATH environment variables?'
+          },
+          {
+            id: 'assistant-1',
+            role: 'assistant',
+            turnId: 'turn-1',
+            createdAt: '2026-04-06T19:47:05Z',
+            interim: 0,
+            status: 'completed',
+            content: '{\"values\":{\"HOME\":\"/Users/awitas\",\"PATH\":\"/usr/bin\"}}'
+          }
+        ],
+        queuedTurns: [],
+        runningTurnId: ''
+      }),
+      findLatestRunningTurnIdFromTurns: () => '',
+      findLatestRunningTurnId: () => '',
+      publishChangeFeed: vi.fn(),
+      publishPlanFeed: vi.fn(),
+      setStage: vi.fn(),
+      liveRows: chatState.liveRows
+    });
+
+    expect(result?.shouldFinalizeActiveStream).toBe(true);
+    expect(result?.liveRows).toEqual([]);
+    expect(chatState.liveRows).toEqual([]);
+    expect(chatState.liveOwnedTurnIds).toEqual([]);
+    expect(chatState.liveOwnedConversationID).toBe('');
+  });
+
   it('drops previously cached transcript rows for owned turns once live ownership starts', () => {
     const publishChangeFeed = vi.fn();
     const publishPlanFeed = vi.fn();

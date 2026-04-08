@@ -154,6 +154,34 @@ describe('applyExecutionStreamEvent', () => {
     });
   });
 
+  it('reuses an existing user row for the same turn instead of adding a synthetic duplicate', () => {
+    const chatState = {
+      liveRows: [
+        {
+          id: 'msg-user-1',
+          role: 'user',
+          turnId: 'turn-1',
+          conversationId: 'conv-1',
+          createdAt: '2026-03-16T10:00:00Z',
+          content: 'hi',
+          rawContent: 'hi'
+        }
+      ],
+      activeStreamPrompt: 'hi'
+    };
+
+    applyTurnStartedEvent(chatState, {
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:00Z'
+    }, 'conv-1');
+
+    expect(chatState.liveRows.filter((row) => String(row?.role || '').toLowerCase() === 'user')).toHaveLength(1);
+    expect(chatState.liveRows[0].id).toBe('msg-user-1');
+    expect(chatState.liveRows[0].content).toBe('hi');
+  });
+
   it('keeps execution row timestamps deterministic when events omit createdAt', () => {
     const chatState = { liveRows: [] };
 
