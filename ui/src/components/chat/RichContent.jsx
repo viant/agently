@@ -107,13 +107,19 @@ function normalizeBrokenMarkdownLayout(text = '') {
   if (!value) return '';
 
   // Some streamed/finalized responses collapse a markdown heading and the
-  // following pipe-table onto one line, e.g. "### Daily Trend | Date | ...".
-  // Split that back into a heading line plus the table block.
-  value = value.replace(/^(#{1,6}\s+[^|\n][^|\n]*?)\s+(\|.+)$/gm, '$1\n\n$2');
+  // following pipe-table onto one line, e.g.:
+  // - "### Daily Trend | Date | ..."
+  // - "### Recommendation2| Publisher | ..."
+  // - "**Raw Evidence**| entity | ..."
+  // Split that back into a block line plus the table block.
+  value = value.replace(/^((?:#{1,6}\s+.+?|\*\*[^*\n]+\*\*|__[^_\n]+__))(?:\s*)(\|.+)$/gm, '$1\n\n$2');
 
   // Some responses also collapse a heading and the first bullet onto one line,
-  // e.g. "## Highlights- Item". Preserve the heading and start the list below.
-  value = value.replace(/^(#{1,6}\s+[^\n]+?)(-\s+)/gm, '$1\n\n$2');
+  // e.g.:
+  // - "## Highlights- Item"
+  // - "**Evidence context**- **Metric window:** ..."
+  // Preserve the block line and start the list below.
+  value = value.replace(/^((?:#{1,6}\s+[^\n]+?|\*\*[^*\n]+\*\*|__[^_\n]+__))(?:\s*)([-*]\s+)/gm, '$1\n\n$2');
 
   return value;
 }

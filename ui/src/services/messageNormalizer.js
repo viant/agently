@@ -100,6 +100,7 @@ export function normalizeMessages(raw = [], options = {}) {
       const kind = String(item?._type || '').toLowerCase();
       if (kind === 'paginator') return false;
       if (kind === 'iteration' && !item?._iterationData?.optimistic) return false;
+      if (String(item?.role || '').trim().toLowerCase() === 'user' && String(item?.type || '').trim().toLowerCase() === 'elicitation_response') return false;
       return true;
     })
     .filter((item) => String(item?.status || '').toLowerCase() !== 'summarized')
@@ -424,6 +425,7 @@ function mergeExecutionGroups(existing = [], incoming = []) {
 export function groupIntoIterations(messages = []) {
   const items = [];
   let current = null;
+  const lastUserContentByTurn = new Map();
   const attachSummaryToLatestIteration = (message = {}) => {
     const turnId = String(message?.turnId || '').trim();
     for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -567,6 +569,7 @@ export function groupIntoIterations(messages = []) {
     const execSteps = flattenToolSteps(message);
 
     if (role === 'user') {
+      lastUserContentByTurn.set(String(message?.turnId || '').trim(), String(message?.content || '').trim());
       flushCurrent();
       items.push({ type: 'user', message });
       continue;
@@ -582,6 +585,16 @@ export function groupIntoIterations(messages = []) {
     }
 
     if (role === 'assistant' && Number(message.interim || 0) === 1) {
+      const turnId = String(message?.turnId || '').trim();
+      const content = String(message?.content || '').trim();
+      const hasExecutionEvidence = execSteps.length > 0
+        || ((Array.isArray(message?.executionGroups) ? message.executionGroups.length : 0) > 0)
+        || !!message?.executionGroup;
+      const latestUserContent = String(lastUserContentByTurn.get(turnId) || '').trim();
+      const isUserEcho = turnId && content && content === latestUserContent;
+      if (isUserEcho && !hasExecutionEvidence) {
+        continue;
+      }
       if (String(message?._bubbleSource || '').trim() === 'stream') {
         ensureCurrent(message);
         attachAgent(message);
@@ -596,19 +609,21 @@ export function groupIntoIterations(messages = []) {
       }
       const preambleEntry = {
         ...message,
-        content: message.content,
+        content: isUserEcho ? '' : message.content,
         steps: []
       };
       ensureCurrent(message);
       attachAgent(message);
       attachLinkedConversations(message);
       current.preambles = Array.isArray(current.preambles) ? current.preambles : [];
-      if (current.preambles.length > 0) {
+      if (!String(preambleEntry.content || '').trim()) {
+        current.preamble = current.preambles[current.preambles.length - 1] || null;
+      } else if (current.preambles.length > 0) {
         current.preambles[current.preambles.length - 1] = mergePreamble(current.preambles[current.preambles.length - 1], preambleEntry);
       } else {
         current.preambles.push(preambleEntry);
+        current.preamble = preambleEntry;
       }
-      current.preamble = preambleEntry;
       current.status = String(message.turnStatus || message.status || current.status || 'running');
       current.errorMessage = chooseRichString(message?.errorMessage, current?.errorMessage);
       debugIterationTimeline('interim-preamble', {
@@ -629,7 +644,9 @@ export function groupIntoIterations(messages = []) {
       const isFinalAssistant = role === 'assistant' && Number(message.interim || 0) === 0;
       const streamOwnsBubble = String(message?._bubbleSource || '').trim() === 'stream';
       const hasNonModelStep = execSteps.some((step) => String(step?.kind || '').toLowerCase() !== 'model');
-      if (isFinalAssistant && assistantText !== '' && hasNonModelStep && !streamOwnsBubble) {
+      const latestUserContent = String(lastUserContentByTurn.get(String(message?.turnId || '').trim()) || '').trim();
+      const isUserEcho = assistantText !== '' && assistantText === latestUserContent;
+      if (isFinalAssistant && assistantText !== '' && hasNonModelStep && !streamOwnsBubble && !isUserEcho) {
         // Text arrived alongside tool calls (common in streaming). Treat as
         // preamble so it renders alongside the execution block. Not set as
         // response — the streaming bubble (_type:'stream') is a separate
@@ -651,7 +668,7 @@ export function groupIntoIterations(messages = []) {
         current.preamble = preambleEntry;
         current.status = String(message.turnStatus || message.status || current.status || 'running');
         current.errorMessage = chooseRichString(message?.errorMessage, current?.errorMessage);
-      } else if (isFinalAssistant && assistantText !== '' && !streamOwnsBubble) {
+      } else if (isFinalAssistant && assistantText !== '' && !streamOwnsBubble && !isUserEcho) {
         ensureCurrent(message);
         attachAgent(message);
         attachLinkedConversations(message);

@@ -3,11 +3,16 @@ import { Button, Dialog, Classes, Spinner } from '@blueprintjs/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client } from '../services/agentlyClient';
 import { dsTick } from '../services/chatRuntime';
+import ApprovalEditorFields from './ApprovalEditorFields.jsx';
+import ApprovalForgeRenderer from './ApprovalForgeRenderer.jsx';
+import { executeApprovalCallbacks } from '../services/approvalCallbacks';
 import {
+  buildApprovalEditorState,
   collectElicitationFormValues,
   elicitationDataBindingKey,
   extractToolApprovalMeta,
   prepareRequestedSchema,
+  serializeApprovalEditedFields,
   triggerElicitationFormSubmit
 } from './elicitationHelpers';
 import {
@@ -44,8 +49,17 @@ export default function ElicitationOverlay({ context }) {
 
   const preparedSchema = useMemo(() => prepareRequestedSchema(schema), [schema]);
   const approvalMeta = useMemo(() => extractToolApprovalMeta(schema), [schema]);
+  const [approvalValues, setApprovalValues] = useState(() => buildApprovalEditorState(approvalMeta));
+  const [approvalForgeContext, setApprovalForgeContext] = useState(null);
+  const [approvalForgeError, setApprovalForgeError] = useState('');
 
   const dataBindingKey = elicitationDataBindingKey(elicitationId);
+
+  useEffect(() => {
+    setApprovalValues(buildApprovalEditorState(approvalMeta));
+    setApprovalForgeContext(null);
+    setApprovalForgeError('');
+  }, [approvalMeta, elicitationId]);
 
   // Collect form values — try multiple sources in priority order.
   const collectFormValues = useCallback(() => {
@@ -67,16 +81,41 @@ export default function ElicitationOverlay({ context }) {
       setError('Missing conversation or elicitation id.');
       return;
     }
-    const resolvedPayload = payload || collectFormValues();
+    let resolvedAction = action;
+    let resolvedPayload = payload || collectFormValues();
+    if (approvalMeta?.forge?.containerRef && approvalForgeContext?.handlers?.dataSource?.peekFormData) {
+      const formData = approvalForgeContext.handlers.dataSource.peekFormData() || {};
+      if (formData.editedFields && typeof formData.editedFields === 'object') {
+        resolvedPayload = { editedFields: formData.editedFields };
+      }
+    }
+    if (approvalMeta) {
+      const callbackPayload = await executeApprovalCallbacks({
+        meta: approvalMeta,
+        event: action,
+        context,
+        payload: {
+          approval: approvalMeta,
+          editedFields: resolvedPayload?.editedFields || {},
+          originalArgs: pending?.approvalArguments || {}
+        }
+      });
+      if (typeof callbackPayload?.action === 'string' && callbackPayload.action.trim()) {
+        resolvedAction = callbackPayload.action.trim();
+      }
+      resolvedPayload = {
+        editedFields: callbackPayload?.editedFields || resolvedPayload?.editedFields || {}
+      };
+    }
     console.log('[ElicitationOverlay] resolve', {
-      action, conversationId, elicitationId,
+      action: resolvedAction, conversationId, elicitationId,
       payload: JSON.stringify(resolvedPayload).slice(0, 500)
     });
     setSubmitting(true);
     setError('');
     try {
       await client.resolveElicitation(conversationId, elicitationId, {
-        action,
+        action: resolvedAction,
         payload: resolvedPayload
       });
       clearPendingElicitation();
@@ -122,7 +161,22 @@ export default function ElicitationOverlay({ context }) {
           </div>
         ) : null}
 
-        {hasSchemaProps && !isOOB ? (
+        {approvalMeta?.forge?.containerRef ? (
+          <ApprovalForgeRenderer
+            meta={approvalMeta}
+            approvalValues={approvalValues}
+            originalArgs={pending?.approvalArguments || {}}
+            onReady={setApprovalForgeContext}
+            onError={setApprovalForgeError}
+          />
+        ) : approvalMeta?.editors?.length ? (
+          <ApprovalEditorFields
+            meta={approvalMeta}
+            value={approvalValues}
+            onChange={setApprovalValues}
+            disabled={submitting}
+          />
+        ) : hasSchemaProps && !isOOB ? (
           <div id={formWrapperId.current}>
             <SchemaBasedForm
               showSubmit={false}
@@ -144,6 +198,7 @@ export default function ElicitationOverlay({ context }) {
           </div>
         ) : null}
 
+        {approvalForgeError ? <p style={{ color: '#b42318', marginTop: 8 }}>{approvalForgeError}</p> : null}
         {error ? <p style={{ color: '#ef4444', marginTop: 8 }}>{error}</p> : null}
       </div>
       <div className={Classes.DIALOG_FOOTER}>
@@ -169,7 +224,14 @@ export default function ElicitationOverlay({ context }) {
               Open
             </Button>
           ) : (
-            <Button intent="primary" disabled={submitting} onClick={() => {
+            <Button intent="primary" disabled={submitting || (!!approvalMeta?.forge?.containerRef && !approvalForgeContext)} onClick={() => {
+              if (approvalMeta?.forge?.containerRef && !approvalForgeContext) {
+                return;
+              }
+              if (approvalMeta?.editors?.length) {
+                resolve('accept', { editedFields: serializeApprovalEditedFields(approvalMeta, approvalValues) });
+                return;
+              }
               // Try to trigger SchemaBasedForm's internal submit first (sends schema-keyed values).
               // If that fails, collect values ourselves.
               if (!triggerFormSubmit()) {

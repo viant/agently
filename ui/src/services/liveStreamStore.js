@@ -309,7 +309,12 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
   const userSequence = turnSequence > 0 ? (turnSequence * 2) - 1 : 0;
   const assistantSequence = turnSequence > 0 ? turnSequence * 2 : 1;
   const prompt = String(chatState?.activeStreamPrompt || '').trim();
-  const existingUserIndex = rows.findIndex((row) => String(row?.id || '').trim() === `user:${turnId}`);
+  const existingUserIndex = rows.findIndex((row) => {
+    if (String(row?.role || '').trim().toLowerCase() !== 'user') return false;
+    const rowTurnId = String(row?.turnId || '').trim();
+    if (rowTurnId && rowTurnId === turnId) return true;
+    return String(row?.id || '').trim() === `user:${turnId}`;
+  });
   if (existingUserIndex === -1) {
     rows.push({
       id: `user:${turnId}`,
@@ -325,8 +330,16 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
       content: prompt,
       rawContent: prompt
     });
-  } else if (prompt && !rows[existingUserIndex]?.content) {
-    rows[existingUserIndex] = { ...rows[existingUserIndex], content: prompt, rawContent: prompt };
+  } else if (prompt) {
+    rows[existingUserIndex] = {
+      ...rows[existingUserIndex],
+      role: 'user',
+      type: rows[existingUserIndex]?.type || 'text',
+      turnId,
+      conversationId: conversationID || rows[existingUserIndex]?.conversationId || '',
+      content: rows[existingUserIndex]?.content || prompt,
+      rawContent: rows[existingUserIndex]?.rawContent || prompt
+    };
   }
 
   const assistantIndex = findAssistantRowIndex(rows, turnId, '');

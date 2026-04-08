@@ -772,6 +772,136 @@ describe('normalizeMessages', () => {
     expect(String(assistantBubbles[0]?.content || '')).toContain('Hi! How can I help you today?');
   });
 
+  it('suppresses an interim assistant echo that duplicates the latest user message in the same turn', () => {
+    const normalized = normalizeMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        content: 'Analyze order 2652536 performance for pacing, spend, delivery, and KPI health, and recommend the top next actions.',
+        createdAt: '2026-04-06T19:20:00Z'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 1,
+        content: 'Analyze order 2652536 performance for pacing, spend, delivery, and KPI health, and recommend the top next actions.',
+        createdAt: '2026-04-06T19:20:01Z'
+      }
+    ], { visibleCount: Number.MAX_SAFE_INTEGER });
+
+    expect(normalized).toHaveLength(1);
+    expect(normalized[0]).toMatchObject({
+      id: 'u1',
+      role: 'user'
+    });
+  });
+
+  it('suppresses an interim assistant echo preamble while preserving execution details', () => {
+    const prompt = 'What are my HOME, SHELL, and PATH environment variables?';
+    const normalized = normalizeMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        content: prompt,
+        createdAt: '2026-04-06T19:47:00Z'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 1,
+        content: prompt,
+        createdAt: '2026-04-06T19:47:01Z',
+        executions: [{
+          steps: [{
+            id: 'tool-step-1',
+            kind: 'tool',
+            toolName: 'system/os/getEnv',
+            status: 'running'
+          }]
+        }]
+      }
+    ], { visibleCount: Number.MAX_SAFE_INTEGER });
+
+    expect(normalized.filter((entry) => String(entry?.content || '').trim() === prompt)).toHaveLength(1);
+    const iteration = normalized.find((entry) => entry?._type === 'iteration');
+    expect(iteration?._iterationData?.toolCalls?.map((step) => step.id)).toContain('tool-step-1');
+  });
+
+  it('suppresses a non-interim assistant echo when execution steps are already attached', () => {
+    const prompt = 'What are my HOME, SHELL, and PATH environment variables?';
+    const normalized = normalizeMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        content: prompt,
+        createdAt: '2026-04-06T19:47:00Z'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 0,
+        content: prompt,
+        createdAt: '2026-04-06T19:47:01Z',
+        executions: [{
+          steps: [
+            {
+              id: 'model-step-1',
+              kind: 'model',
+              toolName: 'openai/gpt-5-mini',
+              status: 'completed'
+            },
+            {
+              id: 'tool-step-1',
+              kind: 'tool',
+              toolName: 'system/os/getEnv',
+              status: 'running'
+            }
+          ]
+        }]
+      }
+    ], { visibleCount: Number.MAX_SAFE_INTEGER });
+
+    expect(normalized.filter((entry) => String(entry?.content || '').trim() === prompt)).toHaveLength(1);
+    const iteration = normalized.find((entry) => entry?._type === 'iteration');
+    expect(iteration?._iterationData?.toolCalls?.map((step) => step.id)).toEqual(['model-step-1', 'tool-step-1']);
+  });
+
+  it('hides internal user elicitation_response rows from the rendered transcript', () => {
+    const normalized = normalizeMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-04-06T19:47:00Z',
+        content: 'What are my HOME, SHELL, and PATH environment variables?'
+      },
+      {
+        id: 'u2',
+        role: 'user',
+        type: 'elicitation_response',
+        turnId: 'turn-1',
+        createdAt: '2026-04-06T19:47:05Z',
+        content: '{"editedFields":{"names":["HOME","PATH"]}}'
+      },
+      {
+        id: 'a2',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-04-06T19:47:06Z',
+        interim: 0,
+        content: '{"values":{"HOME":"/Users/awitas","PATH":"/usr/bin"}}'
+      }
+    ], { visibleCount: Number.MAX_SAFE_INTEGER });
+
+    expect(normalized.map((entry) => entry.id)).toEqual(['u1', 'a2']);
+  });
+
   it('keeps an elicitation response without explicit iteration on the current turn iteration', () => {
     const messages = [
       {

@@ -1,0 +1,10 @@
+id: approvalEditor
+title: Approval Editor
+dataSourceRef: approvalEditor
+content: $import('panel/approval_editor.yaml')
+actions:
+  - id: close
+    label: Close
+    on:
+      - event: onClick
+        handler: dialog.close
