@@ -254,14 +254,9 @@ function mergeHydratedToolCall(base = {}, incoming = {}) {
   };
 }
 
-function toolCallHasPayloads(toolCall = {}) {
+function toolCallHasResolvedPayloadContent(toolCall = {}) {
   return Boolean(
-    toolCall?.requestPayloadId
-    || toolCall?.responsePayloadId
-    || toolCall?.providerRequestPayloadId
-    || toolCall?.providerResponsePayloadId
-    || toolCall?.streamPayloadId
-    || toolCall?.requestPayload
+    toolCall?.requestPayload
     || toolCall?.responsePayload
     || toolCall?.providerRequestPayload
     || toolCall?.providerResponsePayload
@@ -276,8 +271,7 @@ function currentConversationId() {
   return String(window.localStorage?.getItem('agently.selectedConversationId') || '').trim();
 }
 
-async function hydrateToolCallFromTranscript(toolCall = {}) {
-  if (toolCallHasPayloads(toolCall)) return toolCall;
+export async function hydrateToolCallFromTranscript(toolCall = {}) {
   if (typeof window === 'undefined') return toolCall;
   const conversationId = currentConversationId();
   if (!conversationId) return toolCall;
@@ -309,7 +303,7 @@ async function hydrateToolCallFromTranscript(toolCall = {}) {
     }
     if ((targetKind === 'tool' || targetKind === '') && String(candidate.kind || '').toLowerCase() === 'tool') {
       if ((targetId && candidateId === targetId) || (targetName && candidateName === targetName)) {
-        if (toolCallHasPayloads(candidate) || (targetId && candidateId === targetId)) {
+        if (toolCallHasResolvedPayloadContent(candidate) || (targetId && candidateId === targetId)) {
           return mergeHydratedToolCall(toolCall, candidate);
         }
       }

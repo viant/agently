@@ -184,13 +184,22 @@
 
 .app-payload-dialog-body {
   padding: 10px 12px 12px;
-  background: #1f2430;
+  background: #ffffff;
+  color: #182230;
 }
 
 .app-payload-dialog-actions {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 8px;
+}
+
+.app-detail-empty {
+  color: #415168;
+  background: #f6f8fc;
+  border: 1px solid #dbe3f1;
+  border-radius: 8px;
+  padding: 12px 14px;
 }
 
 .cm-editor {

@@ -121,6 +121,45 @@ function normalizeBrokenMarkdownLayout(text = '') {
   // Preserve the block line and start the list below.
   value = value.replace(/^((?:#{1,6}\s+[^\n]+?|\*\*[^*\n]+\*\*|__[^_\n]+__))(?:\s*)([-*]\s+)/gm, '$1\n\n$2');
 
+  // Forecasting responses sometimes collapse multiple bullets onto one line,
+  // e.g.:
+  // - "- Deal:141952- Best available day: Day1-3-day total inventory:..."
+  // Split each bullet back onto its own line when a bullet line contains a
+  // later "- " marker followed by a title-ish token.
+  value = value
+    .split('\n')
+    .map((line) => {
+      if (!/^\s*-\s+/.test(line)) return line;
+      return line
+        .replace(/(?<=\S)-\s(?=[A-Z0-9][^:\n]{0,60}:)/g, '\n- ')
+        .replace(/(?<=\S)-\s(?=(?:Uniques|Completed days|Total uniques|Average clearing price|Best available day|3-day total inventory)\b)/g, '\n- ');
+    })
+    .join('\n');
+
+  // Forecasting formatting occasionally glues common labels/numbers together.
+  // Repair the user-visible text form before markdown render.
+  value = value.replace(/\bDeal(?=\d)/g, 'Deal ');
+  value = value.replace(/\bdeal(?=\d)/g, 'deal ');
+  value = value.replace(/\bDay(?=\d)/g, 'Day ');
+  value = value.replace(/(?<=:\s?)(\d)(?=day\b)/gi, '$1');
+  value = value.replace(/(:)(\d)/g, '$1 $2');
+  value = value.replace(/(\$)(\d)/g, '$1$2');
+  value = value.replace(/\bthe(?=3-day\b)/gi, 'the ');
+  value = value.replace(/\bcurrent(?=3-day\b)/gi, 'current ');
+  value = value.replace(/\bacross(?=3-day\b)/gi, 'across ');
+  value = value.replace(/\bthis(?=3-day\b)/gi, 'this ');
+  value = value.replace(/\bDeal:\s*(\d+)/g, 'Deal: $1');
+  value = value.replace(/\bDeal\s+(\d+)-\s+/g, 'Deal $1\n- ');
+
+  // Keep common forecast day labels separated from following prose.
+  value = value.replace(/\b(Day\s+\d)\s*\|\s*([^\n]+?)(?=Day\s+\d\s*\||$)/g, (match, day, rest) => {
+    const cleaned = String(rest || '').trim();
+    return `${day} | ${cleaned}`;
+  });
+
+  // Normalize compact chart fences like ```json{ to a standard fenced block.
+  value = value.replace(/```json\s*\{/g, '```json\n{');
+
   return value;
 }
 
