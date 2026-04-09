@@ -107,6 +107,120 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('Compared entities:');
   });
 
+  it('normalizes collapsed forecasting bullets and labels', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, {
+        content: [
+          '**Top Summary**',
+          '',
+          '- Deal:141952- Best available day: Day1-3-day total inventory:13,656,079,835- Average clearing price: $9.91',
+          '',
+          '| Day | Status | Inventory |',
+          '|---|---|---:|',
+          '| Day1 | complete |13,656,079,835 |',
+          '',
+          '<!-- CHART_SPEC:v1 -->',
+          '```json{"version":"1.0","title":"3-Day Deal Forecast Inventory","chart":{"type":"bar","x":{"key":"day"},"series":{"key":"series"},"y":[{"key":"inventory","label":"Inventory"}]},"data":[{"day":"Day1","series":"forecast","inventory":13656079835}],"meta":{"source":"steward-forecasting"}}',
+          '```'
+        ].join('\n')
+      })
+    );
+
+    expect(html).toContain('<strong>Top Summary</strong>');
+    expect(html).toContain('Deal: 141952');
+    expect(html).toContain('Best available day: Day 1');
+    expect(html).toContain('3-day total inventory: 13,656,079,835');
+    expect(html).toContain('bp6-table-container');
+    expect(html).toContain('Day 1');
+    expect(html).toContain('app-rich-chart');
+  });
+
+  it('repairs the exact compact forecasting output shape seen in live runs', () => {
+    const content = [
+      '**Top Summary**',
+      '',
+      '- Deal:141952- Best available day: Day1-3-day total inventory:13,656,079,835- Average clearing price: $9.91- Total uniques:123,307,724- Total HH uniques:19,528,600- Completed days with no data: Day2, Day3',
+      '',
+      '**Daily Breakdown**',
+      '',
+      '| Day | Status | Inventory | Clearing Price | Uniques | HH Uniques |',
+      '|---|---|---:|---:|---:|---:|',
+      '| Day1 | complete |13,656,079,835 | $9.91 |123,307,724 |19,528,600 |',
+      '| Day2 | no data | n/a | n/a | n/a | n/a |',
+      '| Day3 | no data | n/a | n/a | n/a | n/a |',
+      '',
+      '**Trend Chart**',
+      '',
+      '- Inventory is concentrated entirely on Day1.',
+      '- Day2 and Day3 completed, but no forecast metrics were returned.',
+      '',
+      '<!-- CHART_SPEC:v1 -->',
+      '```json{',
+      ' "version": "1.0",',
+      ' "title": "3-Day Deal Forecast Inventory",',
+      ' "chart": {',
+      ' "type": "bar",',
+      ' "x": {"key": "day"},',
+      ' "series": {"key": "series"},',
+      ' "y": [{"key": "inventory", "label": "Inventory"}]',
+      ' },',
+      ' "data": [',
+      ' {"day": "Day1", "series": "forecast", "inventory":13656079835}',
+      ' ],',
+      ' "meta": {"source": "steward-forecasting"}',
+      '}',
+      '```'
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content })
+    );
+
+    expect(html).toContain('Deal: 141952');
+    expect(html).toContain('Best available day: Day 1');
+    expect(html).toContain('3-day total inventory: 13,656,079,835');
+    expect(html).toContain('Total uniques: 123,307,724');
+    expect(html).toContain('Total HH uniques: 19,528,600');
+    expect(html).toContain('bp6-table-container');
+    expect(html).toContain('Day 1');
+    expect(html).toContain('app-rich-chart');
+  });
+
+  it('repairs compact live forecasting output with digit-led bullet labels', () => {
+    const content = [
+      '**Top Summary**',
+      '',
+      '- Deal:142479- Best available day: Day2-3-day total inventory:1,236,852,296- Average clearing price: $6.38- Uniques are available only for Day2.',
+      '- Completed days with no data: Day1, Day3',
+      '',
+      '**Planning Notes**',
+      '',
+      '- The setup looks uneven across the3-day view, so delivery may be timing-sensitive.',
+      '- Use Day2 as the strongest planning benchmark for expected scale and pricing.',
+      '',
+      '<!-- CHART_SPEC:v1 -->',
+      '```json{',
+      '"version":"1.0",',
+      '"title":"3-Day Deal Forecast Inventory",',
+      '"chart":{"type":"bar","x":{"key":"day"},"series":{"key":"series"},"y":[{"key":"inventory","label":"Inventory"}]},',
+      '"data":[{"day":"Day2","series":"forecast","inventory":1236852296}],',
+      '"meta":{"source":"steward-forecasting"}',
+      '}',
+      '```'
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content })
+    );
+
+    expect(html).toContain('Deal: 142479');
+    expect(html).toContain('Best available day: Day 2');
+    expect(html).toContain('3-day total inventory: 1,236,852,296');
+    expect(html).toContain('Uniques are available only for Day 2.');
+    expect(html).toContain('across the 3-day view');
+    expect(html).toContain('app-rich-chart');
+  });
+
   it('renders mixed prose, table, mermaid, and chart content in sequence', () => {
     const html = renderToStaticMarkup(
       React.createElement(RichContent, {

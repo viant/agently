@@ -798,6 +798,26 @@ describe('normalizeMessages', () => {
     });
   });
 
+  it('collapses expanded task wrappers to the visible user query', () => {
+    const normalized = normalizeMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        mode: 'task',
+        turnId: 'turn-1',
+        content: 'User Query:\nforecast deal 141952\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[]]]',
+        createdAt: '2026-04-09T17:00:00Z'
+      }
+    ], { visibleCount: Number.MAX_SAFE_INTEGER });
+
+    expect(normalized).toHaveLength(1);
+    expect(normalized[0]).toMatchObject({
+      id: 'u1',
+      role: 'user',
+      content: 'forecast deal 141952'
+    });
+  });
+
   it('suppresses an interim assistant echo preamble while preserving execution details', () => {
     const prompt = 'What are my HOME, SHELL, and PATH environment variables?';
     const normalized = normalizeMessages([

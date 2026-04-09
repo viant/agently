@@ -112,11 +112,16 @@ export function normalizeMessages(raw = [], options = {}) {
 export function normalizeOne(message = {}) {
   const role = String(message.role || '').toLowerCase();
   const turnId = message.turnId || '';
-  const content = pickString(
+  const mode = String(message.mode || '').trim().toLowerCase();
+  const content = normalizeVisibleContent({
+    role,
+    mode,
+    content: pickString(
     message.rawContent,
     message.content,
     ''
-  );
+    )
+  });
   const embeddedElicitation = extractEmbeddedElicitation(content);
   const createdAt = normalizeTimestamp(message.createdAt || message.CreatedAt);
   const interim = Number(message.interim ?? message.Interim ?? 0) || 0;
@@ -132,7 +137,6 @@ export function normalizeOne(message = {}) {
   const iterationRaw = message.iteration;
   const iterationNum = Number(iterationRaw);
   const iteration = Number.isFinite(iterationNum) && iterationNum > 0 ? iterationNum : null;
-  const mode = String(message.mode || '').trim().toLowerCase();
   const modelCall = message.modelCall || message.ModelCall || null;
   const toolCall = message.toolCall || message.ToolCall || null;
   const toolMessage = Array.isArray(message.toolMessage || message.ToolMessage)
@@ -174,6 +178,43 @@ export function normalizeOne(message = {}) {
     requestPayload: message.requestPayload || null,
     responsePayload: message.responsePayload || null
   };
+}
+
+function normalizeVisibleContent({ role = '', mode = '', content = '' } = {}) {
+  const text = String(content || '');
+  if (role !== 'user') return text;
+  if (mode !== 'task') return text;
+  return extractUserTaskPrompt(text) || text;
+}
+
+function extractUserTaskPrompt(text = '') {
+  const raw = String(text || '');
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('User Query:')) return '';
+  const lines = raw.split(/\r?\n/);
+  let collecting = false;
+  const collected = [];
+  for (const line of lines) {
+    const current = String(line || '');
+    const trimmedLine = current.trim();
+    if (!collecting) {
+      if (trimmedLine === 'User Query:') {
+        collecting = true;
+      } else if (trimmedLine.startsWith('User Query:')) {
+        const remainder = trimmedLine.slice('User Query:'.length).trim();
+        if (remainder) collected.push(remainder);
+        collecting = true;
+      }
+      continue;
+    }
+    if (trimmedLine === 'Context:' || trimmedLine.startsWith('Context:')) {
+      break;
+    }
+    collected.push(current);
+  }
+  const result = collected.join('\n').trim();
+  return result;
 }
 
 function normalizeElicitation(value = null) {

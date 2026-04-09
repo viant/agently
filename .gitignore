@@ -20,6 +20,7 @@ agently/agently
 AGENTS.md
 node_modules/
 dist/
+local/
 package-lock.json
 yarn.lock
 agently.sql

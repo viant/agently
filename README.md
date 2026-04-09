@@ -315,7 +315,30 @@ List available tools from the running server.
 
 ```bash
 ./agently list-tools
+./agently list-tools --api http://server:8080
+./agently list-tools -s system/os
 ./agently list-tools -n system/exec.execute --json
+```
+
+### `agently mcp list`
+
+List tools in an MCP-oriented format.
+
+```bash
+./agently mcp list --api http://server:8080 --token $TOKEN
+./agently mcp list --api http://server:8080 --session $SESSION_ID
+./agently mcp list -s forecasting --api http://server:8080 --token $TOKEN
+./agently mcp list -n forecasting/Total --example --schema --json
+```
+
+### `agently mcp run`
+
+Run a tool by exact name with JSON arguments.
+
+```bash
+./agently mcp run -n forecasting/Total -a '{"viewId":"TOTAL"}' --api http://server:8080 --token $TOKEN
+./agently mcp run -n forecasting/Total -a '{"viewId":"TOTAL"}' --api http://server:8080 --session $SESSION_ID
+./agently mcp run -n resources/read -a @args.json --api http://server:8080 --token $TOKEN --json
 ```
 
 ### `agently chatgpt-login`
