@@ -1198,6 +1198,8 @@ github.com/viant/cloudless v1.12.0 h1:EVLki/Ontsj1viXGUh+BCB1y0XMkDd9VQypjZKzIgf
 github.com/viant/cloudless v1.12.0/go.mod h1:jxHtSl2HrPfqU8M0pZV5kIWmHJo6sA1G0KwUDj6+rBo=
 github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e h1:5j0KbtLRPwScspSfI4ANTokfFy5/EG2zSS+RJLHfGBM=
 github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e/go.mod h1:Wf/TVP28PIebbMggm7syxWhl0jidv7m5rMB1Uvy8Pa4=
+github.com/viant/datly v0.37.1-0.20260409013805-99a9ba5381fa h1:fMwiIdlQxp2ODCW9O5gDhsQqBR8ja7U/lq+16qe/Bq4=
+github.com/viant/datly v0.37.1-0.20260409013805-99a9ba5381fa/go.mod h1:hYQDF3ILKOFs4aeJuf/pIJGiHYgCHtl2RTO7Qd03sJw=
 github.com/viant/dsc v0.16.2 h1:Kw8zNct6dTISVZpartYK4MlKiwSSqIdRSq5CYjtZcc4=
 github.com/viant/dsc v0.16.2/go.mod h1:vkBPh3XSXUBB/ePbEO0VsKPaiN4JLRuB3QVftbS6KI4=
 github.com/viant/dsunit v0.10.8 h1:egq8LH4ogXTweFhzl/RqPhM9PNJtG35sbe02KnjFj3I=
@@ -1240,10 +1242,16 @@ github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f h1:ecnOZzylVpX0
 github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f/go.mod h1:SA89LGdU/cxpc/gsvat2MYtJYrv3bg9mtW/uHMs2nBs=
 github.com/viant/sqlparser v0.11.1-0.20260224194657-0470849e3588 h1:bnVgWzZzuz2pTa54e7YozHjYNFSapfU3MSklyMkO+Ag=
 github.com/viant/sqlparser v0.11.1-0.20260224194657-0470849e3588/go.mod h1:2QRGiGZYk2/pjhORGG1zLVQ9JO+bXFhqIVi31mkCRPg=
+github.com/viant/sqlparser v0.12.1-0.20260409013525-147f8fc299b7 h1:2FdVturjHBSQnwf69oc86xW1e4wEEzKUg5OC6tOYegE=
+github.com/viant/sqlparser v0.12.1-0.20260409013525-147f8fc299b7/go.mod h1:2QRGiGZYk2/pjhORGG1zLVQ9JO+bXFhqIVi31mkCRPg=
 github.com/viant/sqlx v0.22.0 h1:HmdWMu1w20DzGHNr+diDcoPZ4ThTHcmd3MhyaD9ivYY=
 github.com/viant/sqlx v0.22.0/go.mod h1:woTOwNiqvt6SqkI+5nyzlixcRTTV0IvLZUTberqb8mo=
+github.com/viant/sqlx v0.22.1-0.20260326175456-cec446e28372 h1:5qW+4AbQ8YA0MsyoUx3uaNgTHl52F0JBoC2vsdwKXIM=
+github.com/viant/sqlx v0.22.1-0.20260326175456-cec446e28372/go.mod h1:woTOwNiqvt6SqkI+5nyzlixcRTTV0IvLZUTberqb8mo=
 github.com/viant/structology v0.8.0 h1:WKdK67l+O1eqsubn8PWMhWcgspUGJ22SgJxUMfiRgqE=
 github.com/viant/structology v0.8.0/go.mod h1:Fnm1DyR4gfyPbnhBMkQB5lR6/isYDnncBFO1nCxxmqs=
+github.com/viant/structology v0.9.0 h1:ibR/XmdQ3+/4XW3JK+pXRqugSnxJOm2bmIvbQ0hqztY=
+github.com/viant/structology v0.9.0/go.mod h1:AAFeViwniqua61sTKdOz/zlbLpN5vE4OVhDoiZJaMgA=
 github.com/viant/structql v0.5.4 h1:bMdcOpzU8UMoe5OBcyJVRxLAndvU1oj3ysvPUgBckCI=
 github.com/viant/structql v0.5.4/go.mod h1:nm9AYnAuSKH7b7pG+dKVxbQrr1Mgp1CQEMvUwwkE+I8=
 github.com/viant/tagly v0.3.0 h1:Y8IckveeSrroR8yisq4MBdxhcNqf4v8II01uCpamh4E=
@@ -1256,6 +1264,8 @@ github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c h1:9W7RtIHCNVsg2u1DFdo
 github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c/go.mod h1:wp6A6yiMvm8MRo6WDbqYkZ33tkWLYdYFHwfqWZ9En+I=
 github.com/viant/velty v0.4.0 h1:eesQES/vCpcoPbM+gQLUBuLEL2sEO+A6s6lPpl8eKc4=
 github.com/viant/velty v0.4.0/go.mod h1:Q/UXviI2Nli8WROEpYd/BELMCSvnulQeyNrbPmMiS/Y=
+github.com/viant/velty v0.4.1-0.20260408224432-5a1c31e1bd87 h1:SIYKYU4d4A+yNS3G0rJN7ShTEW4AEAQPvRn+acfXhA0=
+github.com/viant/velty v0.4.1-0.20260408224432-5a1c31e1bd87/go.mod h1:Q/UXviI2Nli8WROEpYd/BELMCSvnulQeyNrbPmMiS/Y=
 github.com/viant/x v0.4.1-0.20260306005005-975ded1e1bef h1:KqWKMNloyzEg6nIn1pBK4CDEIcaRRhMrMUJr+k+xcPw=
 github.com/viant/x v0.4.1-0.20260306005005-975ded1e1bef/go.mod h1:1TvsnpZFqI9dYVzIkaSYJyJ/UkfxW7fnk0YFafWXrPg=
 github.com/viant/xdatly v0.5.4-0.20260306062123-17850ac34977 h1:icW8DECqGoT4UzzOpxBraT/EEC1R0tBw9ev9cF/mrd4=
@@ -1276,6 +1286,8 @@ github.com/viant/xreflect v0.7.5-0.20260314170600-13f09f37d46e h1:z4uCWPkSCnGwqb
 github.com/viant/xreflect v0.7.5-0.20260314170600-13f09f37d46e/go.mod h1:BwI+lqFjhKv2Vn4E0Jt6nvbwcFOWrM6H+sOMOX3JiU4=
 github.com/viant/xunsafe v0.10.3 h1:Fi4N+b5PH7e2iwT1UquAe7wUlTn4Fnb2kBnFLBixX+M=
 github.com/viant/xunsafe v0.10.3/go.mod h1:V3RCwtqpbNPznhmHysyAOpsyuSVkIYWo1Ewip7qb9/s=
+github.com/viant/xunsafe v0.11.0 h1:Yp5n4JR/6dTZ5asx+hmLGT7UXh5NPz7O9NKmYsk2k0o=
+github.com/viant/xunsafe v0.11.0/go.mod h1:RLSFNYewiF4p7+Lc18N4Zv4DHPWMTEky2VCLWvBdC5o=
 github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f h1:J9EGpcZtP0E/raorCMxlFGSTBrsSlaDGf3jU/qvAE2c=
 github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f/go.mod h1:N2zxlSyiKSe5eX1tZViRH5QA0qijqEDrYZiPEAiq3wU=
 github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 h1:EzJWgHovont7NscjpAxXsDA8S8BMYve8Y5+7cuRE7R0=
