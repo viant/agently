@@ -1,6 +1,22 @@
 import { compareExecutionGroups, compareTemporalEntries } from 'agently-core-ui-sdk';
 import { mergeRowSnapshots } from './rowMerge';
 
+function isLiveStoreDebugEnabled() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = String(window.localStorage?.getItem('agently.debugStream') || '').trim().toLowerCase();
+    return ['1', 'true', 'on', 'yes'].includes(raw);
+  } catch (_) {
+    return false;
+  }
+}
+
+function logLiveStoreDebug(event, detail = {}) {
+  if (!isLiveStoreDebugEnabled()) return;
+  // eslint-disable-next-line no-console
+  console.log('[agently-live-store]', { event, ...detail });
+}
+
 function normalizedStatusValue(value = '') {
   return String(value || '').trim().toLowerCase();
 }
@@ -507,6 +523,15 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
     sequence: Number.isFinite(Number(patch?.sequence)) ? Number(patch.sequence) : null,
     iteration: Number.isFinite(Number(patch?.iteration)) ? Number(patch.iteration) : null
   };
+  logLiveStoreDebug('message_patch:incoming', {
+    messageId,
+    turnId,
+    role,
+    mode: baseRow.mode,
+    type: baseRow.type,
+    contentHead: String(baseRow.content || '').slice(0, 120),
+    rawHead: String(baseRow.rawContent || '').slice(0, 120)
+  });
 
   const existing = Array.isArray(rows) ? [...rows] : [];
   const filtered = existing.filter((row) => {
@@ -544,6 +569,12 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
         sequence: baseRow.sequence ?? prev.sequence ?? null,
         iteration: baseRow.iteration ?? prev.iteration ?? null,
       };
+      logLiveStoreDebug('message_patch:user-merged', {
+        turnId,
+        existingId: String(prev?.id || '').trim(),
+        resultId: String(filtered[existingUserIdx]?.id || '').trim(),
+        contentHead: String(filtered[existingUserIdx]?.content || '').slice(0, 120)
+      });
       return filtered;
     }
   }
@@ -587,6 +618,13 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
         turnStatus: baseRow.turnStatus || prev.turnStatus,
         executionGroups: groupPatched ? updatedGroups : prev.executionGroups
       };
+      logLiveStoreDebug('message_patch:assistant-merged-into-execution', {
+        turnId,
+        existingId: String(prev?.id || '').trim(),
+        patchId: messageId,
+        groupPatched,
+        contentHead: String(filtered[existingIdx]?.content || '').slice(0, 120)
+      });
       return filtered;
     }
   }
@@ -599,7 +637,14 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
       return filtered;
     }
   }
-  return mergeRowSnapshots(filtered, [baseRow]);
+  const merged = mergeRowSnapshots(filtered, [baseRow]);
+  logLiveStoreDebug('message_patch:appended-row', {
+    turnId,
+    role,
+    messageId: baseRow.id,
+    mergedCount: merged.length
+  });
+  return merged;
 }
 
 export function resetLiveStreamState(chatState = {}, options = {}) {

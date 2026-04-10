@@ -1321,6 +1321,13 @@ export function renderMergedRowsForContext(context) {
         contentHead: String(r?.content || '').slice(0, 50),
         groups: (r?.executionGroups || []).length,
         toolSteps: (r?.executionGroups || []).flatMap((g) => g?.toolSteps || []).length
+      })),
+      rawRows: mergedRows.map((row) => ({
+        id: row?.id,
+        role: row?.role,
+        turnId: row?.turnId,
+        mode: row?.mode || '',
+        head: String(row?.content || '').slice(0, 60)
       }))
     });
   }
@@ -1328,6 +1335,7 @@ export function renderMergedRowsForContext(context) {
   // Do not overwrite it with raw _streamContent here, or markdown/chart fences
   // leak into the bubble during streaming instead of rendering as rich content.
   const resolvedRows = attachGeneratedFilesToRows(mergedRows, chatState.generatedFiles);
+  const normalizedResolvedRows = normalizeForContext(context, resolvedRows);
   const queuedTurns = Array.isArray(conversationForm?.queuedTurns) ? conversationForm.queuedTurns : [];
   const queueRow = queuedTurns.length > 0 ? {
     _type: 'queue',
@@ -1348,11 +1356,11 @@ export function renderMergedRowsForContext(context) {
     selectedAgent
   });
   const hasConversationId = String(conversationForm?.id || '').trim() !== '';
-  const hasVisibleConversationContent = resolvedRows.some((row) => {
+  const hasVisibleConversationContent = normalizedResolvedRows.some((row) => {
     const type = String(row?._type || '').toLowerCase();
     return type !== 'starter' && type !== 'queue';
   });
-  const starterRow = resolvedRows.length === 0
+  const starterRow = normalizedResolvedRows.length === 0
     && !hasConversationId
     && !hasVisibleConversationContent
     && !queueRow
@@ -1365,7 +1373,7 @@ export function renderMergedRowsForContext(context) {
     starterTasks
   } : null;
   const renderCollection = [
-    ...resolvedRows,
+    ...normalizedResolvedRows,
     ...(starterRow ? [starterRow] : []),
     ...(queueRow ? [queueRow] : [])
   ];
@@ -1646,6 +1654,8 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
           createdAt: turn.createdAt || ''
         });
       }
+      const assistantFinal = turn?.assistant?.final || null;
+      const assistantPreamble = turn?.assistant?.preamble || null;
       // Create one assistant message per turn carrying execution pages.
       // The pages themselves hold all model/tool step data — no per-page
       // assistant messages to avoid duplicate rendering.
@@ -1660,15 +1670,27 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
         const suppressAssistantContent = !!embeddedElicitation
           && (elicitationStatus === '' || elicitationStatus === 'pending' || elicitationStatus === 'open');
         messages.push({
-          id: finalPage?.assistantMessageId || finalPage?.pageId || turn.turnId || '',
+          id: finalPage?.assistantMessageId || assistantFinal?.messageId || finalPage?.pageId || turn.turnId || '',
           role: 'assistant',
-          interim: finalPage?.finalResponse ? 0 : 1,
-          content: suppressAssistantContent ? '' : (finalPage?.content || ''),
-          preamble: visiblePages[0]?.preamble || '',
+          interim: finalPage?.finalResponse || String(assistantFinal?.content || '').trim() !== '' ? 0 : 1,
+          content: suppressAssistantContent ? '' : (finalPage?.content || assistantFinal?.content || ''),
+          preamble: visiblePages[0]?.preamble || assistantPreamble?.content || '',
           turnId: turn.turnId || '',
           status: finalPage?.status || '',
           createdAt: turn.createdAt || '',
           errorMessage: finalPage?.errorMessage || finalPage?.ErrorMessage || turn?.errorMessage || turn?.ErrorMessage || ''
+        });
+      } else if (assistantFinal && String(assistantFinal?.content || '').trim() !== '') {
+        messages.push({
+          id: assistantFinal?.messageId || turn.turnId || '',
+          role: 'assistant',
+          interim: 0,
+          content: assistantFinal?.content || '',
+          preamble: assistantPreamble?.content || '',
+          turnId: turn.turnId || '',
+          status: turn?.status || '',
+          createdAt: turn.createdAt || '',
+          errorMessage: turn?.errorMessage || turn?.ErrorMessage || ''
         });
       }
       if (summaryPages.length > 0) {
@@ -2698,7 +2720,7 @@ export function applyIterationVisibility(context) {
   if (!messagesDS) return false;
   const rows = Array.isArray(chatState.renderRows) ? chatState.renderRows : [];
   if (rows.length === 0) return false;
-  messagesDS.setCollection?.(rows);
+  messagesDS.setCollection?.(normalizeForContext(context, rows));
   return true;
 }
 

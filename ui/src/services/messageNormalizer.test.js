@@ -818,6 +818,34 @@ describe('normalizeMessages', () => {
     });
   });
 
+  it('dedupes same-turn user rows when one is an expanded task wrapper', () => {
+    const normalized = normalizeMessages([
+      {
+        id: 'u1-db',
+        role: 'user',
+        turnId: 'turn-1',
+        content: 'what iris targeting do we have ?',
+        createdAt: '2026-04-09T18:05:18Z'
+      },
+      {
+        id: 'u1-live',
+        role: 'user',
+        mode: 'task',
+        turnId: 'turn-1',
+        content: 'User Query:\nwhat iris targeting do we have ?\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[] reason: scope:conversation tokensFreed:0]]',
+        createdAt: '2026-04-09T18:05:23Z'
+      }
+    ], { visibleCount: Number.MAX_SAFE_INTEGER });
+
+    const userRows = normalized.filter((entry) => String(entry?.role || '').toLowerCase() === 'user');
+    expect(userRows).toHaveLength(1);
+    expect(userRows[0]).toMatchObject({
+      role: 'user',
+      turnId: 'turn-1',
+      content: 'what iris targeting do we have ?'
+    });
+  });
+
   it('suppresses an interim assistant echo preamble while preserving execution details', () => {
     const prompt = 'What are my HOME, SHELL, and PATH environment variables?';
     const normalized = normalizeMessages([

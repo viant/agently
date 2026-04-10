@@ -963,7 +963,7 @@ describe('handleStreamEvent', () => {
     });
     expect(messageState.collection).toHaveLength(1);
     expect(messageState.collection[0]).toMatchObject({
-      id: 'msg-1',
+      _type: 'iteration',
       content: 'Calling updatePlan.'
     });
   });
@@ -1439,10 +1439,9 @@ describe('handleStreamEvent', () => {
       expect(messageState.collection).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            role: 'assistant',
+            _type: 'iteration',
             content: 'Good morning! What would you like to work on today?',
-            status: 'completed',
-            turnStatus: 'completed'
+            role: 'assistant'
           })
         ])
       );
@@ -1847,8 +1846,327 @@ describe('renderMergedRowsForContext', () => {
       turnId: 'turn-1'
     });
     expect(messageState.collection[1]).toMatchObject({
+      _type: 'iteration',
+      role: 'assistant'
+    });
+  });
+
+  it('renders normalized user task content instead of the expanded task wrapper', () => {
+    const messageState = { collection: [] };
+    const context = {
+      resources: {
+        chat: {
+          transcriptRows: [],
+          liveRows: [
+            {
+              id: 'user:turn-1',
+              role: 'user',
+              mode: 'task',
+              turnId: 'turn-1',
+              createdAt: '2026-04-09T18:05:23Z',
+              content: 'User Query:\nwhat iris targeting do we have ?\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[] reason: scope:conversation tokensFreed:0]]'
+            },
+            {
+              id: 'assistant-live-1',
+              role: 'assistant',
+              turnId: 'turn-1',
+              createdAt: '2026-04-09T18:05:31Z',
+              interim: 1,
+              status: 'running',
+              turnStatus: 'running',
+              executionGroups: [
+                {
+                  assistantMessageId: 'assistant-live-1',
+                  iteration: 1,
+                  preamble: 'Checking targeting tree…',
+                  status: 'running'
+                }
+              ]
+            }
+          ],
+          renderRows: [],
+          runningTurnId: 'turn-1',
+          lastHasRunning: true,
+          liveOwnedConversationID: 'conv-1',
+          liveOwnedTurnIds: ['turn-1']
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', queuedTurns: [] })
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ agentInfos: [], defaults: {} })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    renderMergedRowsForContext(context);
+
+    expect(messageState.collection[0]).toMatchObject({
+      role: 'user',
+      turnId: 'turn-1',
+      content: 'what iris targeting do we have ?'
+    });
+  });
+
+  it('keeps first and second turn execution blocks separate while normalizing task wrappers', () => {
+    const messageState = { collection: [] };
+    const context = {
+      resources: {
+        chat: {
+          transcriptRows: [],
+          liveRows: [
+            {
+              id: 'user:turn-1',
+              role: 'user',
+              mode: 'task',
+              turnId: 'turn-1',
+              createdAt: '2026-04-09T18:05:23Z',
+              content: 'User Query:\nwhat iris targeting do we have ?\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[]]]'
+            },
+            {
+              id: 'assistant:turn-1:1',
+              role: 'assistant',
+              turnId: 'turn-1',
+              createdAt: '2026-04-09T18:05:31Z',
+              interim: 0,
+              status: 'completed',
+              turnStatus: 'completed',
+              content: 'First answer',
+              executionGroups: [
+                {
+                  assistantMessageId: 'assistant:turn-1:1',
+                  iteration: 1,
+                  finalResponse: true,
+                  status: 'completed',
+                  content: 'First answer'
+                }
+              ]
+            },
+            {
+              id: 'user:turn-2',
+              role: 'user',
+              mode: 'task',
+              turnId: 'turn-2',
+              createdAt: '2026-04-09T18:06:23Z',
+              content: 'User Query:\nforecast deal 141952\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[]]]'
+            },
+            {
+              id: 'assistant:turn-2:1',
+              role: 'assistant',
+              turnId: 'turn-2',
+              createdAt: '2026-04-09T18:06:31Z',
+              interim: 1,
+              status: 'running',
+              turnStatus: 'running',
+              content: 'Checking forecast…',
+              executionGroups: [
+                {
+                  assistantMessageId: 'assistant:turn-2:1',
+                  iteration: 1,
+                  preamble: 'Checking forecast…',
+                  status: 'running'
+                }
+              ]
+            }
+          ],
+          renderRows: [],
+          runningTurnId: 'turn-2',
+          lastHasRunning: true,
+          liveOwnedConversationID: 'conv-1',
+          liveOwnedTurnIds: ['turn-1', 'turn-2']
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', queuedTurns: [] })
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ agentInfos: [], defaults: {} })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    renderMergedRowsForContext(context);
+
+    const userRows = messageState.collection.filter((row) => String(row?.role || '').toLowerCase() === 'user');
+    const iterationRows = messageState.collection.filter((row) => row?._type === 'iteration');
+    expect(userRows).toHaveLength(2);
+    expect(userRows.map((row) => row.content)).toEqual([
+      'what iris targeting do we have ?',
+      'forecast deal 141952'
+    ]);
+    expect(iterationRows).toHaveLength(2);
+    expect(iterationRows.map((row) => row?._iterationData?.turnId)).toEqual(['turn-1', 'turn-2']);
+  });
+
+  it('preserves assistant final responses from canonical turns even when execution pages are absent', async () => {
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'completed',
+            createdAt: '2026-04-09T18:39:37Z',
+            user: {
+              messageId: 'u1',
+              content: 'what iris targeting do we have ?'
+            },
+            assistant: {
+              final: {
+                messageId: 'a1',
+                content: '**Top Summary**\n\n- Final answer'
+              }
+            },
+            execution: {
+              pages: []
+            }
+          }
+        ]
+      }
+    });
+
+    const turns = await fetchTranscript('conv-final-only');
+    expect(turns).toHaveLength(1);
+    expect(turns[0].message).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'a1',
+          role: 'assistant',
+          content: '**Top Summary**\n\n- Final answer',
+          turnId: 'turn-1'
+        })
+      ])
+    );
+  });
+
+  it('preserves user, execution, and assistant rows for each completed canonical turn on reload', async () => {
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'completed',
+            createdAt: '2026-04-09T18:39:37Z',
+            user: { messageId: 'u1', content: 'what iris targeting do we have ?' },
+            execution: {
+              pages: [
+                {
+                  pageId: 'page-1',
+                  assistantMessageId: 'a1',
+                  turnId: 'turn-1',
+                  iteration: 1,
+                  status: 'completed',
+                  finalResponse: true,
+                  content: '**Top Summary**\n\n- First answer'
+                }
+              ]
+            },
+            assistant: {
+              final: {
+                messageId: 'a1',
+                content: '**Top Summary**\n\n- First answer'
+              }
+            }
+          },
+          {
+            turnId: 'turn-2',
+            status: 'completed',
+            createdAt: '2026-04-09T18:40:30Z',
+            user: { messageId: 'u2', content: 'find iris options for sports' },
+            execution: {
+              pages: [
+                {
+                  pageId: 'page-2',
+                  assistantMessageId: 'a2',
+                  turnId: 'turn-2',
+                  iteration: 1,
+                  status: 'completed',
+                  finalResponse: true,
+                  content: '**Top Summary**\n\n- Second answer'
+                }
+              ]
+            },
+            assistant: {
+              final: {
+                messageId: 'a2',
+                content: '**Top Summary**\n\n- Second answer'
+              }
+            }
+          }
+        ]
+      }
+    });
+
+    const turns = await fetchTranscript('conv-multi-turn');
+    const rows = mapTranscriptToRows(turns, { holdAfterTurnId: '', pendingElicitations: [] }).rows;
+
+    expect(rows.map((row) => String(row?.role || ''))).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'assistant'
+    ]);
+    expect(rows[0]).toMatchObject({ content: 'what iris targeting do we have ?', turnId: 'turn-1' });
+    expect(rows[1]).toMatchObject({
+      id: 'a1',
       role: 'assistant',
-      turnId: 'turn-1'
+      turnId: 'turn-1',
+      executionGroups: [expect.objectContaining({ pageId: 'page-1' })]
+    });
+    expect(rows[2]).toMatchObject({ content: 'find iris options for sports', turnId: 'turn-2' });
+    expect(rows[3]).toMatchObject({
+      id: 'a2',
+      role: 'assistant',
+      turnId: 'turn-2',
+      executionGroups: [expect.objectContaining({ pageId: 'page-2' })]
     });
   });
 
