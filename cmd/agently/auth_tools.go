@@ -29,6 +29,13 @@ func ensureToolAuth(ctx context.Context, client *sdk.HTTPClient, providers []aut
 	}
 
 	if token := resolvedToken(rawToken); token != "" {
+		// Prefer bearer-based session bootstrap first so the raw token is sent
+		// in the Authorization header when the server supports that flow.
+		if err := client.AuthSessionExchange(ctx, token); err == nil {
+			if _, err := client.AuthMe(ctx); err == nil {
+				return nil
+			}
+		}
 		for _, req := range []*sdk.CreateSessionRequest{
 			{AccessToken: token},
 			{IDToken: token},
