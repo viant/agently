@@ -130,29 +130,7 @@ export default defineConfig(({ mode }) => {
       assetsInlineLimit: 100000000,
       cssCodeSplit: true,
       brotliSize: false,
-      chunkSizeWarningLimit: 1200,
-      rollupOptions: {
-        output: {
-          manualChunks(id) {
-            if (!id) return null;
-            if (id.includes('/node_modules/')) {
-              if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) {
-                return 'react-vendor';
-              }
-              if (id.includes('/mermaid/') || id.includes('/katex/')) {
-                return 'diagram-vendor';
-              }
-              if (id.includes('/cytoscape') || id.includes('/dagre') || id.includes('/cose-base') || id.includes('/cytoscape-cose-bilkent')) {
-                return 'diagram-vendor';
-              }
-              if (id.includes('/recharts/') || id.includes('/d3-')) {
-                return 'chart-vendor';
-              }
-            }
-            return null;
-          }
-        }
-      }
+      chunkSizeWarningLimit: 1200
     }
   };
 });
