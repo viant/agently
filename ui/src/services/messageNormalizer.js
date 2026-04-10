@@ -91,7 +91,7 @@ export function normalizeMessages(raw = [], options = {}) {
         return normalizeOne(item);
       })
       .sort(compareTemporalEntries);
-    const synthesized = synthesizeIterationMessages(rebuiltBase, visibleCount);
+    const synthesized = synthesizeIterationMessages(collapseDuplicateUserRows(rebuiltBase), visibleCount);
     return [...synthesized, ...preservedQueueRows]
       .sort(compareTemporalEntries);
   }
@@ -106,7 +106,7 @@ export function normalizeMessages(raw = [], options = {}) {
     .filter((item) => String(item?.status || '').toLowerCase() !== 'summarized')
     .map((item) => normalizeOne(item))
     .sort(compareTemporalEntries);
-  return synthesizeIterationMessages(normalized, visibleCount);
+  return synthesizeIterationMessages(collapseDuplicateUserRows(normalized), visibleCount);
 }
 
 export function normalizeOne(message = {}) {
@@ -185,6 +185,56 @@ function normalizeVisibleContent({ role = '', mode = '', content = '' } = {}) {
   if (role !== 'user') return text;
   if (mode !== 'task') return text;
   return extractUserTaskPrompt(text) || text;
+}
+
+function userVisibleSignature(message = {}) {
+  if (String(message?.role || '').trim().toLowerCase() !== 'user') return '';
+  const turnId = String(message?.turnId || '').trim();
+  const content = String(message?.content || '').trim();
+  if (!turnId || !content) return '';
+  return `${turnId}::${content}`;
+}
+
+function collapseDuplicateUserRows(messages = []) {
+  const out = [];
+  const seenUserBySignature = new Map();
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const signature = userVisibleSignature(message);
+    if (!signature) {
+      out.push(message);
+      continue;
+    }
+    const existingIndex = seenUserBySignature.get(signature);
+    if (existingIndex == null) {
+      seenUserBySignature.set(signature, out.length);
+      out.push(message);
+      continue;
+    }
+    const existing = out[existingIndex] || {};
+    const existingTime = Date.parse(String(existing?.createdAt || ''));
+    const incomingTime = Date.parse(String(message?.createdAt || ''));
+    const keepExisting = Number.isFinite(existingTime) && Number.isFinite(incomingTime)
+      ? existingTime <= incomingTime
+      : true;
+    out[existingIndex] = keepExisting
+      ? {
+          ...message,
+          ...existing,
+          id: existing?.id || message?.id,
+          createdAt: existing?.createdAt || message?.createdAt || '',
+          rawContent: existing?.rawContent || message?.rawContent || '',
+          mode: existing?.mode || message?.mode || ''
+        }
+      : {
+          ...existing,
+          ...message,
+          id: message?.id || existing?.id,
+          createdAt: message?.createdAt || existing?.createdAt || '',
+          rawContent: message?.rawContent || existing?.rawContent || '',
+          mode: message?.mode || existing?.mode || ''
+        };
+  }
+  return out;
 }
 
 function extractUserTaskPrompt(text = '') {
