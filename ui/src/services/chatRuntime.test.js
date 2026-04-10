@@ -1764,6 +1764,88 @@ describe('renderMergedRowsForContext', () => {
     expect(messageState.collection[0].content).toBe('hello');
   });
 
+  it('renders progressive text-delta content when the tracker owns the assistant row', () => {
+    const messageState = { collection: [] };
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeConversationID = 'conv-1';
+    chatState.liveOwnedConversationID = 'conv-1';
+    chatState.liveOwnedTurnIds = ['turn-1'];
+    chatState.liveRows = [{
+      id: 'msg-1',
+      role: 'assistant',
+      turnId: 'turn-1',
+      createdAt: '2026-03-26T12:00:00Z',
+      interim: 1,
+      isStreaming: true,
+      content: 'hello',
+      _streamContent: 'hello'
+    }];
+    chatState.streamTracker.applyEvent({
+      type: 'model_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      messageId: 'msg-1',
+      assistantMessageId: 'msg-1',
+      status: 'running',
+      model: { provider: 'openai', model: 'gpt-5.4' },
+      createdAt: '2026-03-26T12:00:00Z'
+    });
+    chatState.streamTracker.applyEvent({
+      type: 'text_delta',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      id: 'msg-1',
+      assistantMessageId: 'msg-1',
+      content: 'hello'
+    });
+
+    const context = {
+      resources: { chat: chatState },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', queuedTurns: [] })
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ agentInfos: [], defaults: {} })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const rows = renderMergedRowsForContext(context);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: 'msg-1',
+      content: 'hello',
+      isStreaming: true,
+      _streamContent: 'hello'
+    });
+    expect(messageState.collection).toHaveLength(1);
+    expect(messageState.collection[0].content).toBe('hello');
+  });
+
   it('keeps the same-turn user message above assistant iterations even if the user timestamp drifts later', () => {
     const messageState = { collection: [] };
     const context = {
@@ -2175,6 +2257,99 @@ describe('renderMergedRowsForContext', () => {
       role: 'assistant',
       turnId: 'turn-2',
       executionGroups: [expect.objectContaining({ pageId: 'page-2' })]
+    });
+  });
+
+  it('renders the latest active execution page instead of an earlier completed page for active multi-page turns', () => {
+    const turns = [
+      {
+        turnId: 'turn-1',
+        status: 'running',
+        createdAt: '2026-04-10T08:30:00Z',
+        user: { messageId: 'u1', content: 'write story with 200 sentences about cat' },
+        execution: {
+          pages: [
+            {
+              pageId: 'page-select',
+              assistantMessageId: 'page-select',
+              turnId: 'turn-1',
+              iteration: 1,
+              status: 'completed',
+              finalResponse: true,
+              content: '{"agentId":"chatter"}'
+            },
+            {
+              pageId: 'page-stream',
+              assistantMessageId: 'page-stream',
+              turnId: 'turn-1',
+              iteration: 2,
+              status: 'streaming',
+              finalResponse: false,
+              content: '1) Miso was a small tabby cat.',
+              preamble: 'Writing story...'
+            }
+          ]
+        }
+      }
+    ];
+
+    const { rows } = mapTranscriptToRows(turns);
+    const assistant = rows.find((row) => String(row?.role || '').toLowerCase() === 'assistant');
+    expect(assistant).toMatchObject({
+      id: 'page-stream',
+      content: '1) Miso was a small tabby cat.',
+      preamble: 'Writing story...',
+      interim: 1,
+      status: 'streaming'
+    });
+  });
+
+  it('does not fall back to an earlier completed selector page while the latest auto-selected page is still streaming', () => {
+    const turns = [
+      {
+        turnId: 'turn-1',
+        status: 'running',
+        createdAt: '2026-04-10T08:30:00Z',
+        user: { messageId: 'u1', content: 'write story with 200 sentences about cat' },
+        assistant: {
+          final: {
+            messageId: 'page-select',
+            content: '{"agentId":"chatter"}'
+          }
+        },
+        execution: {
+          pages: [
+            {
+              pageId: 'page-select',
+              assistantMessageId: 'page-select',
+              turnId: 'turn-1',
+              iteration: 1,
+              status: 'completed',
+              finalResponse: true,
+              content: '{"agentId":"chatter"}'
+            },
+            {
+              pageId: 'page-stream',
+              assistantMessageId: 'page-stream',
+              turnId: 'turn-1',
+              iteration: 2,
+              status: 'streaming',
+              finalResponse: false,
+              content: '',
+              preamble: ''
+            }
+          ]
+        }
+      }
+    ];
+
+    const { rows } = mapTranscriptToRows(turns);
+    const assistant = rows.find((row) => String(row?.role || '').toLowerCase() === 'assistant');
+    expect(assistant).toMatchObject({
+      id: 'page-stream',
+      content: '',
+      interim: 1,
+      status: 'streaming'
     });
   });
 

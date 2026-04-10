@@ -164,6 +164,17 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
       ...summaryPages.filter((page) => isVisibleExecutionPage(page) || String(page?.content || '').trim() !== '')
     ];
     const linkedConversations = Array.isArray(turn?.linkedConversations) ? turn.linkedConversations : [];
+    const latestVisiblePage = visiblePages.length > 0 ? visiblePages[visiblePages.length - 1] : null;
+    const latestFinalVisiblePage = visiblePages.length > 0
+      ? ([...visiblePages].reverse().find((page) => page?.finalResponse) || null)
+      : null;
+    const latestVisibleStatus = String(latestVisiblePage?.status || turnStatus || '').trim().toLowerCase();
+    const renderPageIsActive = !!latestVisiblePage && ['running', 'thinking', 'streaming', 'processing', 'in_progress', 'waiting_for_user', 'tool_calls'].includes(latestVisibleStatus);
+    const renderPage = (() => {
+      if (!latestVisiblePage) return null;
+      if (renderPageIsActive) return latestVisiblePage;
+      return latestFinalVisiblePage || latestVisiblePage;
+    })();
 
     if (turn?.user) {
       rows.push(normalizeOne({
@@ -184,27 +195,30 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
 
     const assistantFinal = turn?.assistant?.final || null;
     const assistantPreamble = turn?.assistant?.preamble || null;
-    if (visiblePages.length > 0) {
-      const lastPage = visiblePages[visiblePages.length - 1];
-      const finalPage = [...visiblePages].reverse().find((page) => page?.finalResponse) || lastPage;
+    if (renderPage) {
       const transcriptElicitation = turn?.elicitation && typeof turn.elicitation === 'object'
         ? turn.elicitation
         : null;
-      const embeddedElicitation = extractEmbeddedElicitation(finalPage?.content || '');
+      const embeddedElicitation = extractEmbeddedElicitation(renderPage?.content || '');
       const elicitationStatus = String(transcriptElicitation?.status || '').trim().toLowerCase();
       const suppressAssistantContent = !!embeddedElicitation
         && (elicitationStatus === '' || elicitationStatus === 'pending' || elicitationStatus === 'open');
+      const renderedContent = renderPageIsActive
+        ? (renderPage?.content || '')
+        : (renderPage?.content || assistantFinal?.content || '');
       rows.push(normalizeOne({
-        id: finalPage?.assistantMessageId || assistantFinal?.messageId || finalPage?.pageId || turnId,
+        id: renderPage?.assistantMessageId || assistantFinal?.messageId || renderPage?.pageId || turnId,
         role: 'assistant',
-        interim: finalPage?.finalResponse || String(assistantFinal?.content || '').trim() !== '' ? 0 : 1,
-        content: suppressAssistantContent ? '' : (finalPage?.content || assistantFinal?.content || ''),
-        preamble: visiblePages[0]?.preamble || assistantPreamble?.content || '',
+        interim: renderPageIsActive
+          ? 1
+          : (renderPage?.finalResponse || String(assistantFinal?.content || '').trim() !== '' ? 0 : 1),
+        content: suppressAssistantContent ? '' : renderedContent,
+        preamble: renderPage?.preamble || assistantPreamble?.content || '',
         turnId,
         turnStatus,
-        status: finalPage?.status || turnStatus,
+        status: renderPage?.status || turnStatus,
         createdAt: turn?.createdAt || '',
-        errorMessage: finalPage?.errorMessage || turn?.errorMessage || '',
+        errorMessage: renderPage?.errorMessage || turn?.errorMessage || '',
         linkedConversations,
         executionGroup: normalizedExecutionPages[0] || null,
         executionGroups: normalizedExecutionPages,
@@ -343,8 +357,13 @@ export function buildConversationRenderRows({
       : null;
     const resolvedExplicit = matchingExplicit || fallbackExplicit;
     if (!resolvedExplicit) return row;
+    const explicitContent = String(resolvedExplicit?.content || '').trim();
+    const explicitPreamble = String(resolvedExplicit?.preamble || '').trim();
+    const exactMatch = !!matchingExplicit;
     return {
       ...row,
+      content: exactMatch && !String(row?.content || '').trim() ? (explicitContent || row?.content) : row?.content,
+      preamble: exactMatch && !String(row?.preamble || '').trim() ? (explicitPreamble || row?.preamble) : row?.preamble,
       isStreaming: resolvedExplicit?.isStreaming,
       _streamContent: resolvedExplicit?._streamContent,
       _streamFence: resolvedExplicit?._streamFence,
