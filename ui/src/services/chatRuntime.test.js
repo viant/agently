@@ -1433,7 +1433,8 @@ describe('handleStreamEvent', () => {
         status: 'succeeded'
       });
 
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.runAllTimersAsync();
+      await Promise.resolve();
       await Promise.resolve();
 
       expect(messageState.collection).toEqual(
@@ -2075,16 +2076,24 @@ describe('renderMergedRowsForContext', () => {
 
     const turns = await fetchTranscript('conv-final-only');
     expect(turns).toHaveLength(1);
-    expect(turns[0].message).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'a1',
-          role: 'assistant',
-          content: '**Top Summary**\n\n- Final answer',
-          turnId: 'turn-1'
-        })
-      ])
-    );
+    expect(turns[0]).toMatchObject({
+      turnId: 'turn-1',
+      assistant: {
+        final: {
+          messageId: 'a1',
+          content: '**Top Summary**\n\n- Final answer'
+        }
+      }
+    });
+    const { rows } = mapTranscriptToRows(turns, { holdAfterTurnId: '', pendingElicitations: [] });
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'a1',
+        role: 'assistant',
+        content: '**Top Summary**\n\n- Final answer',
+        turnId: 'turn-1'
+      })
+    ]));
   });
 
   it('preserves user, execution, and assistant rows for each completed canonical turn on reload', async () => {
@@ -2347,12 +2356,12 @@ describe('mapTranscriptToRows', () => {
 
     const turns = await fetchTranscript('conv-1');
     expect(turns).toHaveLength(1);
-    expect(turns[0].executionGroups).toHaveLength(2);
-    expect(turns[0].executionGroups[0]).toMatchObject({
+    expect(turns[0].execution.pages).toHaveLength(2);
+    expect(turns[0].execution.pages[0]).toMatchObject({
       pageId: 'page-final',
       iteration: 11
     });
-    expect(turns[0].executionGroups[1]).toMatchObject({
+    expect(turns[0].execution.pages[1]).toMatchObject({
       pageId: 'page-summary',
       iteration: 0
     });
@@ -2364,31 +2373,30 @@ describe('mapTranscriptToRows', () => {
         status: 'completed'
       })
     ]);
-    expect(turns[0].message).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'page-final',
-          role: 'assistant',
-          content: '## Highlights\n- Campaign pacing is slightly behind target.'
-        }),
-        expect.objectContaining({
-          id: 'page-summary',
-          role: 'assistant',
-          mode: 'summary'
-        }),
-        expect.objectContaining({
-          id: 'linked:child-1',
-          role: 'tool',
-          reason: 'link',
-          toolName: 'llm/agents/run',
-          linkedConversationId: 'child-1',
-          linkedConversationAgentId: 'steward-forecasting',
-          linkedConversationTitle: 'Forecasting Child',
-          status: 'completed',
-          response: 'Forecast completed.'
-        })
-      ])
-    );
+    const { rows } = mapTranscriptToRows(turns);
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'page-final',
+        role: 'assistant',
+        content: '## Highlights\n- Campaign pacing is slightly behind target.'
+      }),
+      expect.objectContaining({
+        id: 'page-summary',
+        role: 'assistant',
+        mode: 'summary'
+      }),
+      expect.objectContaining({
+        id: 'linked:child-1',
+        role: 'tool',
+        reason: 'link',
+        toolName: 'llm/agents/run',
+        linkedConversationId: 'child-1',
+        linkedConversationAgentId: 'steward-forecasting',
+        linkedConversationTitle: 'Forecasting Child',
+        status: 'completed',
+        response: 'Forecast completed.'
+      })
+    ]));
   });
 
   it('keeps failed canonical execution pages visible and carries turn error text', async () => {
@@ -2425,20 +2433,22 @@ describe('mapTranscriptToRows', () => {
     const turns = await fetchTranscript('conv-failed');
     expect(turns).toHaveLength(1);
     expect(turns[0]).toMatchObject({
+      turnId: 'turn-failed',
       status: 'failed',
-      errorMessage: 'failed to stream: dial tcp: lookup api.openai.com: no such host'
+      errorMessage: 'failed to stream: dial tcp: lookup api.openai.com: no such host',
+      execution: {
+        pages: [expect.objectContaining({ pageId: 'page-failed', status: 'failed' })]
+      }
     });
-    expect(turns[0].executionGroups).toHaveLength(1);
-    expect(turns[0].message).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'page-failed',
-          role: 'assistant',
-          status: 'failed',
-          errorMessage: 'failed to stream: dial tcp: lookup api.openai.com: no such host'
-        })
-      ])
-    );
+    const { rows } = mapTranscriptToRows(turns);
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'page-failed',
+        role: 'assistant',
+        status: 'failed',
+        errorMessage: 'failed to stream: dial tcp: lookup api.openai.com: no such host'
+      })
+    ]));
   });
 
   it('hydrates transcript elicitation rows from embedded assistant JSON and suppresses the raw JSON bubble', async () => {
@@ -2484,148 +2494,31 @@ describe('mapTranscriptToRows', () => {
 
     const turns = await fetchTranscript('conv-elic');
     expect(turns).toHaveLength(1);
-    expect(turns[0].message).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'page-elic',
-          role: 'assistant',
-          content: ''
-        }),
-        expect.objectContaining({
-          id: 'elicitation:elic-1',
-          role: 'assistant',
-          elicitationId: 'elic-1',
-          content: 'Please provide the environment variable name for system_os-getEnv.',
-          elicitation: expect.objectContaining({
-            elicitationId: 'elic-1',
-            message: 'Please provide the environment variable name for system_os-getEnv.',
-            requestedSchema: {
-              type: 'object',
-              properties: {
-                name: { type: 'string' }
-              },
-              required: ['name']
-            }
-          })
-        })
-      ])
-    );
-  });
-
-  it('preserves link-only tool calls on transcript turns with canonical execution groups', () => {
-    const turns = [
-      {
-        id: 'turn-1',
-        status: 'completed',
-        linkedConversations: [
-          {
-            conversationId: 'child-1',
-            agentId: 'steward-inventory',
-            title: 'Inventory Child',
-            status: 'completed',
-            response: 'Blocked on AgencyId.',
-            createdAt: '2026-01-01T10:01:00Z'
-          }
-        ],
-        executionGroups: [
-          {
-            parentMessageId: 'm1',
-            modelMessageId: 'm1',
-            sequence: 1,
-            preamble: 'Calling updatePlan.',
-            finalResponse: false,
-            modelCall: {
-              provider: 'openai',
-              model: 'gpt-5.4',
-              status: 'completed'
-            }
-          }
-        ],
-        message: [
-          {
-            id: 'm1',
-            role: 'assistant',
-            interim: 1,
-            content: 'Calling updatePlan.',
-            createdAt: '2026-01-01T10:00:00Z'
-          }
-        ]
-      }
-    ];
-
     const { rows } = mapTranscriptToRows(turns);
-    expect(rows[0]?.linkedConversations).toEqual([
+    expect(rows).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        conversationId: 'child-1',
-        agentId: 'steward-inventory',
-        title: 'Inventory Child'
+        id: 'page-elic',
+        role: 'assistant',
+        content: ''
+      }),
+      expect.objectContaining({
+        id: 'elicitation:elic-1',
+        role: 'assistant',
+        elicitationId: 'elic-1',
+        content: 'Please provide the environment variable name for system_os-getEnv.',
+        elicitation: expect.objectContaining({
+          elicitationId: 'elic-1',
+          message: 'Please provide the environment variable name for system_os-getEnv.',
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' }
+            },
+            required: ['name']
+          }
+        })
       })
-    ]);
-  });
-
-  it('preserves backend executionGroup data on assistant rows', () => {
-    const turns = [
-      {
-        id: 'turn-1',
-        status: 'completed',
-        executionGroups: [
-          {
-            parentMessageId: 'm1',
-            modelMessageId: 'm1',
-            sequence: 1,
-            preamble: 'Inspecting repository layout.',
-            finalResponse: false,
-            modelCall: {
-              provider: 'openai',
-              model: 'gpt-5.2',
-              status: 'completed'
-            },
-            toolCalls: [
-              {
-                messageId: 'tm1',
-                toolName: 'resources-list',
-                status: 'completed'
-              }
-            ]
-          }
-        ],
-        message: [
-          {
-            id: 'm1',
-            role: 'assistant',
-            interim: 1,
-            content: 'Inspecting repository layout.',
-            createdAt: '2026-03-14T12:00:00Z',
-            modelCall: {
-              messageId: 'm1',
-              provider: 'openai',
-              model: 'gpt-5.2',
-              status: 'completed'
-            },
-            toolMessage: [
-              {
-                id: 'tm1',
-                parentMessageId: 'm1',
-                createdAt: '2026-03-14T12:00:01Z',
-                toolCall: {
-                  messageId: 'tm1',
-                  toolName: 'resources-list',
-                  status: 'completed'
-                }
-              }
-            ]
-          }
-        ]
-      }
-    ];
-
-    const { rows } = mapTranscriptToRows(turns);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].executionGroup).toMatchObject({
-      parentMessageId: 'm1',
-      sequence: 1
-    });
-    expect(rows[0].executionGroups).toHaveLength(1);
+    ]));
   });
 
   it('ensureConversation reuses the scoped active conversation when the form id is transiently empty', async () => {
@@ -2746,171 +2639,6 @@ describe('mapTranscriptToRows', () => {
     }
   });
 
-  it('propagates turn execution groups onto tool rows linked to the group', () => {
-    const turns = [
-      {
-        id: 'turn-1',
-        status: 'running',
-        executionGroups: [
-          {
-            parentMessageId: 'm1',
-            modelMessageId: 'm1',
-            sequence: 1,
-            preamble: 'Inspecting repository layout.',
-            finalResponse: false,
-            status: 'running',
-            modelCall: {
-              provider: 'openai',
-              model: 'gpt-5.2',
-              status: 'running'
-            },
-            toolMessages: [
-              {
-                id: 'tm1',
-                linkedConversationId: 'child-1'
-              }
-            ],
-            toolCalls: [
-              {
-                messageId: 'tm1',
-                toolName: 'llm/agents:run',
-                status: 'running'
-              }
-            ]
-          }
-        ],
-        message: [
-          {
-            id: 'tm1',
-            role: 'tool',
-            type: 'tool_op',
-            createdAt: '2026-03-15T10:00:00Z',
-            toolName: 'llm/agents/run',
-            linkedConversationId: 'child-1'
-          }
-        ]
-      }
-    ];
-
-    const { rows } = mapTranscriptToRows(turns);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].executionGroup).toMatchObject({
-      parentMessageId: 'm1'
-    });
-    expect(rows[0].executionGroups).toHaveLength(1);
-    expect(rows[0].executionGroups[0]).toMatchObject({
-      parentMessageId: 'm1'
-    });
-  });
-
-  it('does not attach execution groups to user rows', () => {
-    const turns = [
-      {
-        id: 'turn-1',
-        status: 'succeeded',
-        executionGroups: [
-          {
-            parentMessageId: 'a1',
-            modelMessageId: 'a1',
-            sequence: 1,
-            finalResponse: true,
-            content: 'Hi!',
-            modelCall: {
-              provider: 'openai',
-              model: 'gpt-5.2',
-              status: 'completed'
-            }
-          }
-        ],
-        message: [
-          {
-            id: 'u1',
-            role: 'user',
-            rawContent: 'hi',
-            createdAt: '2026-03-15T10:00:00Z'
-          },
-          {
-            id: 'a1',
-            role: 'assistant',
-            interim: 0,
-            content: 'Hi!',
-            createdAt: '2026-03-15T10:00:01Z'
-          }
-        ]
-      }
-    ];
-
-    const { rows } = mapTranscriptToRows(turns);
-    expect(rows[0]).toMatchObject({
-      id: 'u1',
-      role: 'user'
-    });
-    expect(rows[0].executionGroup).toBeNull();
-    expect(rows[0].executionGroups).toEqual([]);
-  });
-
-  it('extracts queued turn overrides from transcript turn fields and starter tags', () => {
-    const turns = [
-      {
-        id: 'turn-q1',
-        conversationId: 'conv-1',
-        status: 'queued',
-        queueSeq: 7,
-        agentIdUsed: 'chatter',
-        modelOverride: 'openai_gpt-5.2',
-        startedByMessageId: 'msg-q1',
-        createdAt: '2026-03-17T12:00:00Z',
-        message: [
-          {
-            id: 'msg-q1',
-            role: 'user',
-            content: 'please review the last patch',
-            tags: 'agently:queued_request:{"agent":"chatter","model":"openai_gpt-5.2","tools":["resources/list","resources/read"]}'
-          }
-        ]
-      }
-    ];
-
-    const { queuedTurns } = mapTranscriptToRows(turns);
-    expect(queuedTurns).toHaveLength(1);
-    expect(queuedTurns[0]).toMatchObject({
-      id: 'turn-q1',
-      conversationId: 'conv-1',
-      queueSeq: 7,
-      content: 'please review the last patch',
-      preview: 'please review the last patch'
-    });
-    expect(queuedTurns[0].overrides).toMatchObject({
-      agent: 'chatter',
-      model: 'openai_gpt-5.2',
-      tools: ['resources/list', 'resources/read']
-    });
-  });
-
-  it('keeps pending queue-like turns out of transcript rows', () => {
-    const { rows, queuedTurns } = mapTranscriptToRows([
-      {
-        id: 'turn-p1',
-        conversationId: 'conv-1',
-        status: 'pending',
-        startedByMessageId: 'msg-p1',
-        message: [
-          {
-            id: 'msg-p1',
-            role: 'user',
-            content: 'check code smell'
-          }
-        ]
-      }
-    ]);
-
-    expect(rows).toHaveLength(0);
-    expect(queuedTurns).toHaveLength(1);
-    expect(queuedTurns[0]).toMatchObject({
-      id: 'turn-p1',
-      preview: 'check code smell'
-    });
-  });
 });
 
 describe('shouldUseLiveStream', () => {

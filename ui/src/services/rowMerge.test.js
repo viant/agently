@@ -247,6 +247,47 @@ describe('mergeRenderedRows', () => {
     expect(merged.map((row) => row.id)).toEqual(['user:turn-1', 'assistant-live']);
   });
 
+  it('suppresses the transcript user row when a live user row for the same active turn is already present', () => {
+    const merged = mergeRenderedRows({
+      transcriptRows: [
+        {
+          id: 'user-db',
+          role: 'user',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T01:00:00Z',
+          content: 'search IRIS for basketball'
+        }
+      ],
+      liveRows: [
+        {
+          id: 'user-live',
+          role: 'user',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T01:00:01Z',
+          content: 'search IRIS for basketball'
+        },
+        {
+          id: 'assistant-live',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T01:00:02Z',
+          interim: 1,
+          status: 'running',
+          turnStatus: 'running',
+          executionGroups: [{ assistantMessageId: 'assistant-live', status: 'running' }]
+        }
+      ],
+      runningTurnId: 'turn-1',
+      hasRunning: true,
+      findLatestRunningTurnId,
+      currentConversationID: 'conv-1',
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: []
+    });
+
+    expect(merged.map((row) => row.id)).toEqual(['user-live', 'assistant-live']);
+  });
+
   it('preserves richer transcript execution-group data over sparse live placeholders', () => {
     const transcriptRows = [
       {
