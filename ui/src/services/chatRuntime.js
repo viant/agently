@@ -1,6 +1,6 @@
 import { normalizeMessages, normalizeOne } from './messageNormalizer';
 import { compareTemporalEntries, isLiveConversationState } from 'agently-core-ui-sdk';
-import { buildEffectiveLiveRows, ConversationStreamTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow } from 'agently-core-ui-sdk/internal';
+import { ConversationStreamTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow } from 'agently-core-ui-sdk/internal';
 import { rememberConversationSeedTitle } from './conversationTitle';
 import { clearChangeFeed, publishChangeFeed } from './changeFeedBus';
 import { clearPlanFeed, publishPlanFeed } from './planFeedBus';
@@ -18,7 +18,6 @@ import {
   applyAssistantFinalEvent,
   applyElicitationRequestedEvent,
   applyExecutionStreamEvent,
-  applyLinkedConversationEvent,
   applyMessagePatchEvent,
   applyPreambleEvent,
   applyStreamChunk,
@@ -28,7 +27,7 @@ import {
   markLiveOwnedTurn,
   resetLiveStreamState
 } from './liveStreamStore';
-import { mergeRenderedRows } from './rowMerge';
+import { buildCanonicalTranscriptRows, buildConversationRenderRows, isCanonicalTranscriptTurn } from './renderRows';
 import {
   getWindowById,
   MAIN_CHAT_WINDOW_ID,
@@ -694,444 +693,17 @@ export function resolveStarterTasks({ agentInfos = [], selectedAgent = '' } = {}
   });
 }
 
-export function resolvePayload(payload = null) {
-  if (!payload || typeof payload !== 'object') return null;
-  const id = String(payload?.id ?? payload?.Id ?? '').trim();
-  const compression = String(payload?.compression ?? payload?.Compression ?? 'none').toLowerCase();
-  const inlineBody = payload?.inlineBody ?? payload?.InlineBody;
-  if (compression && compression !== 'none') {
-    return {
-      id,
-      compression,
-      note: 'payload is compressed in transcript; use payload id to inspect raw body'
-    };
-  }
-  if (typeof inlineBody === 'string' && inlineBody.trim() !== '') {
-    try {
-      return JSON.parse(inlineBody);
-    } catch (_) {
-      const preview = inlineBody.length > 4096 ? `${inlineBody.slice(0, 4096)}\n...[truncated]` : inlineBody;
-      return {
-        id,
-        compression: compression || 'none',
-        inlineBody: preview
-      };
-    }
-  }
-  return {
-    id,
-    compression: compression || 'none'
-  };
-}
-
-function mapExecutionsFromMessage(message = {}) {
-  const steps = [];
-  const entryStatus = (entry = {}, call = {}) => (
-    call?.status
-    || call?.Status
-    || entry?.status
-    || entry?.Status
-    || 'completed'
-  );
-  const entryPayload = (entry = {}, call = {}, kind = 'request') => {
-    const key = kind.toLowerCase() === 'response' ? 'response' : 'request';
-    const upper = key === 'response' ? 'Response' : 'Request';
-    return resolvePayload(
-      call?.[`${key}Payload`]
-      || call?.[`${upper}Payload`]
-      || entry?.[`${key}Payload`]
-      || entry?.[`${upper}Payload`]
-    );
-  };
-  const entryPayloadID = (entry = {}, call = {}, kind = 'request') => {
-    const key = kind.toLowerCase() === 'response' ? 'response' : 'request';
-    const upper = key === 'response' ? 'Response' : 'Request';
-    return String(
-      call?.[`${key}PayloadId`]
-      || call?.[`${upper}PayloadId`]
-      || entry?.[`${key}PayloadId`]
-      || entry?.[`${upper}PayloadId`]
-      || ''
-    ).trim();
-  };
-  const topLevelCall = message?.toolCall || message?.ToolCall || null;
-  const modelCall = message?.modelCall || message?.ModelCall || null;
-  if (modelCall) {
-    const role = String(message?.role || message?.Role || '').toLowerCase();
-    const interim = Number(message?.interim ?? message?.Interim ?? 0) || 0;
-    const provider = String(modelCall?.provider || modelCall?.Provider || '').trim();
-    const model = String(modelCall?.model || modelCall?.Model || '').trim();
-    steps.push({
-      id: modelCall?.messageId || modelCall?.MessageId || `model:${model || provider || 'step'}`,
-      kind: 'model',
-      reason: role === 'assistant' && interim === 0 ? 'final_response' : 'thinking',
-      toolName: model ? `${provider ? `${provider}/` : ''}${model}` : (provider || 'model'),
-      provider,
-      model,
-      status: modelCall?.status || modelCall?.Status || 'completed',
-      latencyMs: modelCall?.latencyMs || modelCall?.LatencyMs || null,
-      startedAt: modelCall?.startedAt || modelCall?.StartedAt || null,
-      completedAt: modelCall?.completedAt || modelCall?.CompletedAt || null,
-      requestPayloadId: modelCall?.requestPayloadId || modelCall?.RequestPayloadId || '',
-      responsePayloadId: modelCall?.responsePayloadId || modelCall?.ResponsePayloadId || '',
-      providerRequestPayloadId: modelCall?.providerRequestPayloadId || modelCall?.ProviderRequestPayloadId || '',
-      providerResponsePayloadId: modelCall?.providerResponsePayloadId || modelCall?.ProviderResponsePayloadId || '',
-      streamPayloadId: modelCall?.streamPayloadId || modelCall?.StreamPayloadId || '',
-      requestPayload: resolvePayload(
-        modelCall?.modelCallRequestPayload
-        || modelCall?.ModelCallRequestPayload
-        || modelCall?.requestPayload
-        || modelCall?.RequestPayload
-      ),
-      responsePayload: resolvePayload(
-        modelCall?.modelCallResponsePayload
-        || modelCall?.ModelCallResponsePayload
-        || modelCall?.responsePayload
-        || modelCall?.ResponsePayload
-      ),
-      providerRequestPayload: resolvePayload(modelCall?.modelCallProviderRequestPayload || modelCall?.ModelCallProviderRequestPayload),
-      providerResponsePayload: resolvePayload(modelCall?.modelCallProviderResponsePayload || modelCall?.ModelCallProviderResponsePayload),
-      streamPayload: resolvePayload(modelCall?.modelCallStreamPayload || modelCall?.ModelCallStreamPayload)
-    });
-  }
-
-  const entries = Array.isArray(message?.toolMessage || message?.ToolMessage)
-    ? (message.toolMessage || message.ToolMessage)
-    : [];
-  const fallbackType = String(message?.type || message?.Type || '').toLowerCase();
-  const fallbackTool = String(
-    message?.toolName
-    || message?.ToolName
-    || topLevelCall?.toolName
-    || topLevelCall?.ToolName
-    || ''
-  ).trim();
-  if (entries.length === 0 && (fallbackType === 'tool' || fallbackType === 'tool_op' || fallbackTool || topLevelCall)) {
-    steps.push({
-      id: message?.id || message?.Id || `${fallbackTool || fallbackType || 'tool'}:0`,
-      kind: 'tool',
-      reason: 'tool_call',
-      toolName: fallbackTool || 'tool',
-      status: entryStatus(message, topLevelCall),
-      latencyMs: topLevelCall?.latencyMs || topLevelCall?.LatencyMs || message?.latencyMs || message?.LatencyMs || null,
-      startedAt: topLevelCall?.startedAt || topLevelCall?.StartedAt || message?.startedAt || message?.StartedAt || null,
-      completedAt: topLevelCall?.completedAt || topLevelCall?.CompletedAt || message?.completedAt || message?.CompletedAt || null,
-      requestPayloadId: entryPayloadID(message, topLevelCall, 'request'),
-      responsePayloadId: entryPayloadID(message, topLevelCall, 'response'),
-      requestPayload: entryPayload(message, topLevelCall, 'request'),
-      responsePayload: entryPayload(message, topLevelCall, 'response'),
-      linkedConversationId: String(message?.linkedConversationId || message?.LinkedConversationId || '').trim()
-    });
-  }
-  for (let index = 0; index < entries.length; index++) {
-    const entry = entries[index];
-    const call = entry?.toolCall || entry?.ToolCall || {};
-    const toolName = String(call?.toolName || call?.ToolName || entry?.toolName || entry?.ToolName || '').trim();
-    const linkedConversationId = String(
-      call?.linkedConversationId
-      || call?.LinkedConversationId
-      || entry?.linkedConversationId
-      || entry?.LinkedConversationId
-      || ''
-    ).trim();
-    steps.push({
-      id: entry?.id || entry?.Id || `${call?.opId || call?.OpId || 'step'}:${index}`,
-      kind: 'tool',
-      reason: 'tool_call',
-      toolName: toolName || 'tool',
-      status: entryStatus(entry, call),
-      latencyMs: call?.latencyMs || call?.LatencyMs || entry?.latencyMs || entry?.LatencyMs || null,
-      startedAt: call?.startedAt || call?.StartedAt || entry?.startedAt || entry?.StartedAt || null,
-      completedAt: call?.completedAt || call?.CompletedAt || entry?.completedAt || entry?.CompletedAt || null,
-      requestPayloadId: entryPayloadID(entry, call, 'request'),
-      responsePayloadId: entryPayloadID(entry, call, 'response'),
-      requestPayload: entryPayload(entry, call, 'request'),
-      responsePayload: entryPayload(entry, call, 'response'),
-      linkedConversationId
-    });
-  }
-  return steps.length > 0 ? [{ steps }] : [];
-}
-
 export function mapTranscriptToRows(turns = [], options = {}) {
-  const rows = [];
-  const queuedTurns = [];
-  let runningTurnId = '';
-  const list = Array.isArray(turns) ? turns : [];
-  const pendingRows = Array.isArray(options?.pendingElicitations) ? options.pendingElicitations : [];
-  const pendingByMessageID = new Map();
-  const pendingByElicitationID = new Map();
-  pendingRows.forEach((entry) => {
-    const msgID = String(entry?.messageId || entry?.MessageId || '').trim();
-    const elicID = String(entry?.elicitationId || entry?.ElicitationId || '').trim();
-    if (msgID) pendingByMessageID.set(msgID, entry);
-    if (elicID) pendingByElicitationID.set(elicID, entry);
-  });
-  const runningTurnIndex = list.findIndex((turn) => isRunningStatus(turn?.status || turn?.Status));
-  const holdAfterTurnId = String(options?.holdAfterTurnId || '').trim();
-  const holdAfterTurnIndex = holdAfterTurnId
-    ? list.findIndex((turn) => String(turn?.id || turn?.Id || '').trim() === holdAfterTurnId)
-    : -1;
-
-  const queuedRequestTagPrefix = 'agently:queued_request:';
-  const extractQueuedRequest = (tags = '') => {
-    try {
-      const raw = String(tags || '');
-      const idx = raw.indexOf(queuedRequestTagPrefix);
-      if (idx === -1) return null;
-      let jsonPart = raw.slice(idx + queuedRequestTagPrefix.length).trim();
-      if (!jsonPart) return null;
-      try {
-        return JSON.parse(jsonPart);
-      } catch (_) {
-        const last = jsonPart.lastIndexOf('}');
-        if (last !== -1) {
-          jsonPart = jsonPart.slice(0, last + 1);
-          return JSON.parse(jsonPart);
-        }
-      }
-      return null;
-    } catch (_) {
-      return null;
-    }
-  };
-
-  const turnPreview = (turn = {}, messages = []) => {
-    const startedMessageID = turn?.startedByMessageId || turn?.StartedByMessageId || '';
-    const starter = messages.find((entry) => (entry?.id || entry?.Id) === startedMessageID)
-      || messages.find((entry) => String(entry?.role || entry?.Role || '').toLowerCase() === 'user');
-    const queuedMeta = extractQueuedRequest(starter?.tags || starter?.Tags || '');
-    const content = String(
-      starter?.rawContent
-      || starter?.RawContent
-      || starter?.content
-      || starter?.Content
-      || ''
-    ).trim();
-    const agentOverride = String(
-      queuedMeta?.agent
-      || turn?.agentIdUsed
-      || turn?.AgentIdUsed
-      || ''
-    ).trim();
-    const modelOverride = String(
-      queuedMeta?.model
-      || turn?.modelOverride
-      || turn?.ModelOverride
-      || ''
-    ).trim();
-    const toolOverrides = Array.isArray(queuedMeta?.tools) ? queuedMeta.tools : [];
-    return {
-      id: turn?.id || turn?.Id || '',
-      conversationId: turn?.conversationId || turn?.ConversationId || '',
-      status: String(turn?.status || turn?.Status || '').toLowerCase(),
-      queueSeq: turn?.queueSeq || turn?.QueueSeq || null,
-      content,
-      preview: content.slice(0, 220),
-      createdAt: turn?.createdAt || turn?.CreatedAt || '',
-      overrides: {
-        agent: agentOverride,
-        model: modelOverride,
-        tools: toolOverrides
-      }
-    };
-  };
-  const hasPersistedAssistant = (messages = []) => {
-    const entries = Array.isArray(messages) ? messages : [];
-    return entries.some((entry) => {
-      const role = String(entry?.role || entry?.Role || '').toLowerCase();
-      const interim = Number(entry?.interim ?? entry?.Interim ?? 0) || 0;
-      const content = String(entry?.content || entry?.Content || entry?.rawContent || entry?.RawContent || '').trim();
-      return role === 'assistant' && interim === 0 && content !== '';
-    });
-  };
-
-  for (let turnIndex = 0; turnIndex < list.length; turnIndex++) {
-    const turn = list[turnIndex];
-    const turnID = turn?.id || turn?.Id || '';
-    const turnStatus = String(turn?.status || turn?.Status || '').toLowerCase();
-    const messages = Array.isArray(turn?.message || turn?.Message) ? (turn.message || turn.Message) : [];
-    const executionGroups = Array.isArray(turn?.executionGroups || turn?.ExecutionGroups)
-      ? (turn.executionGroups || turn.ExecutionGroups)
-      : [];
-    const executionGroupByMessageID = new Map();
-    const executionGroupByToolMessageID = new Map();
-    for (const group of executionGroups) {
-      const messageID = String(group?.modelMessageId || group?.ModelMessageID || group?.parentMessageId || group?.ParentMessageID || '').trim();
-      if (messageID) executionGroupByMessageID.set(messageID, group);
-      const toolMessages = Array.isArray(group?.toolMessages || group?.ToolMessages) ? (group.toolMessages || group.ToolMessages) : [];
-      for (const toolMessage of toolMessages) {
-        const toolMessageID = String(toolMessage?.id || toolMessage?.Id || '').trim();
-        if (toolMessageID) executionGroupByToolMessageID.set(toolMessageID, group);
-      }
-      const toolCalls = Array.isArray(group?.toolCalls || group?.ToolCalls) ? (group.toolCalls || group.ToolCalls) : [];
-      for (const toolCall of toolCalls) {
-        const toolMessageID = String(toolCall?.messageId || toolCall?.MessageId || '').trim();
-        if (toolMessageID && !executionGroupByToolMessageID.has(toolMessageID)) {
-          executionGroupByToolMessageID.set(toolMessageID, group);
-        }
-      }
-    }
-    const linkedByToolName = new Map();
-    const linkedByMessageID = new Map();
-    const attachedToolMessagesByID = new Map();
-    if (!runningTurnId && isRunningStatus(turnStatus)) {
-      runningTurnId = turnID;
-    }
-    const shouldHoldBehindRunningTurn = runningTurnIndex >= 0
-      && turnIndex > runningTurnIndex
-      && !hasPersistedAssistant(messages);
-    const shouldHoldBehindLiveStream = holdAfterTurnIndex >= 0
-      && turnIndex > holdAfterTurnIndex;
-    if (turnStatus === 'queued' || turnStatus === 'pending' || turnStatus === 'open' || shouldHoldBehindRunningTurn) {
-      queuedTurns.push(turnPreview(turn, messages));
-      continue;
-    }
-    if (shouldHoldBehindLiveStream) {
-      queuedTurns.push(turnPreview(turn, messages));
-      continue;
-    }
-    for (const message of messages) {
-      const attached = Array.isArray(message?.toolMessage || message?.ToolMessage)
-        ? (message.toolMessage || message.ToolMessage)
-        : [];
-      for (const item of attached) {
-        const id = String(item?.id || item?.Id || '').trim();
-        if (id) attachedToolMessagesByID.set(id, item);
-      }
-    }
-    for (const message of messages) {
-      const toolName = String(message?.toolName || message?.ToolName || '').trim();
-      const linkedConversationId = String(message?.linkedConversationId || message?.LinkedConversationId || '').trim();
-      const messageID = String(message?.id || message?.Id || '').trim();
-      if (messageID && linkedConversationId) {
-        linkedByMessageID.set(messageID, linkedConversationId);
-      }
-      if (!toolName || !linkedConversationId) continue;
-      linkedByToolName.set(toolName.toLowerCase(), linkedConversationId);
-    }
-    for (const message of messages) {
-      const messageID = String(message?.id || message?.Id || '').trim();
-      const attachedToolMessage = attachedToolMessagesByID.get(messageID);
-      const role = String(message?.role || message?.Role || '').toLowerCase();
-      const type = String(message?.type || message?.Type || '').toLowerCase();
-      const toolCall = attachedToolMessage?.toolCall || attachedToolMessage?.ToolCall || null;
-      const mappedInput = (() => {
-        const pendingElicitation = pendingByMessageID.get(messageID)
-          || pendingByElicitationID.get(String(message?.elicitationId || message?.ElicitationId || '').trim())
-          || null;
-        if (role === 'user') {
-          return {
-            ...message,
-            toolMessage: [],
-            ToolMessage: [],
-            errorMessage: turn?.errorMessage || turn?.ErrorMessage || message?.errorMessage || message?.ErrorMessage || '',
-            executionGroup: null,
-            executionGroups: [],
-            executionGroupsTotal: 0,
-            executionGroupsOffset: 0,
-            executionGroupsLimit: 0
-          };
-        }
-        if ((type === 'tool' || type === 'tool_op') && attachedToolMessage) {
-          return {
-            ...message,
-            toolName: message?.toolName || message?.ToolName || attachedToolMessage?.toolName || attachedToolMessage?.ToolName || '',
-            ToolName: message?.ToolName || message?.toolName || attachedToolMessage?.ToolName || attachedToolMessage?.toolName || '',
-            toolCall,
-            ToolCall: toolCall,
-            requestPayload: toolCall?.requestPayload || toolCall?.RequestPayload || null,
-            RequestPayload: toolCall?.RequestPayload || toolCall?.requestPayload || null,
-            responsePayload: toolCall?.responsePayload || toolCall?.ResponsePayload || null,
-            ResponsePayload: toolCall?.ResponsePayload || toolCall?.responsePayload || null,
-            requestPayloadId: toolCall?.requestPayloadId || toolCall?.RequestPayloadId || '',
-            RequestPayloadId: toolCall?.RequestPayloadId || toolCall?.requestPayloadId || '',
-            responsePayloadId: toolCall?.responsePayloadId || toolCall?.ResponsePayloadId || '',
-            ResponsePayloadId: toolCall?.ResponsePayloadId || toolCall?.responsePayloadId || '',
-            linkedConversationId: message?.linkedConversationId || message?.LinkedConversationId || toolCall?.linkedConversationId || toolCall?.LinkedConversationId || '',
-            LinkedConversationId: message?.LinkedConversationId || message?.linkedConversationId || toolCall?.LinkedConversationId || toolCall?.linkedConversationId || ''
-          };
-        }
-        return message;
-      })();
-      const pendingElicitation = pendingByMessageID.get(messageID)
-        || pendingByElicitationID.get(String(message?.elicitationId || message?.ElicitationId || '').trim())
-        || null;
-      const embeddedElicitation = extractEmbeddedElicitationPayload(
-        mappedInput?.content
-        || mappedInput?.Content
-        || mappedInput?.rawContent
-        || mappedInput?.RawContent
-        || ''
-      );
-      const resolvedElicitation = mappedInput?.elicitation
-        || mappedInput?.Elicitation
-        || pendingElicitation?.elicitation
-        || pendingElicitation?.Elicitation
-        || embeddedElicitation
-        || null;
-      const suppressExecutionForElicitation = !!resolvedElicitation;
-      const normalized = normalizeOne(role === 'user' ? {
-        ...mappedInput,
-        errorMessage: turn?.errorMessage || turn?.ErrorMessage || mappedInput?.errorMessage || mappedInput?.ErrorMessage || '',
-        agentIdUsed: turn?.agentIdUsed || turn?.AgentIdUsed || '',
-        AgentIdUsed: turn?.AgentIdUsed || turn?.agentIdUsed || '',
-        linkedConversations: Array.isArray(turn?.linkedConversations) ? turn.linkedConversations : [],
-        turnId: turnID,
-        turnStatus
-      } : {
-        ...mappedInput,
-        errorMessage: turn?.errorMessage || turn?.ErrorMessage || mappedInput?.errorMessage || mappedInput?.ErrorMessage || '',
-        elicitation: resolvedElicitation,
-        Elicitation: resolvedElicitation,
-        elicitationId: mappedInput?.elicitationId || mappedInput?.ElicitationId || pendingElicitation?.elicitationId || pendingElicitation?.ElicitationId || '',
-        ElicitationId: mappedInput?.ElicitationId || mappedInput?.elicitationId || pendingElicitation?.elicitationId || pendingElicitation?.ElicitationId || '',
-        conversationId: pendingElicitation?.conversationId || pendingElicitation?.ConversationId || '',
-        ConversationId: pendingElicitation?.ConversationId || pendingElicitation?.conversationId || '',
-        executionGroup: suppressExecutionForElicitation ? null : (executionGroupByMessageID.get(messageID) || executionGroupByToolMessageID.get(messageID) || null),
-        executionGroups: suppressExecutionForElicitation ? [] : executionGroups,
-        executionGroupsTotal: suppressExecutionForElicitation ? 0 : (turn?.executionGroupsTotal || turn?.ExecutionGroupsTotal || 0),
-        executionGroupsOffset: suppressExecutionForElicitation ? 0 : (turn?.executionGroupsOffset || turn?.ExecutionGroupsOffset || 0),
-        executionGroupsLimit: suppressExecutionForElicitation ? 0 : (turn?.executionGroupsLimit || turn?.ExecutionGroupsLimit || 0),
-        agentIdUsed: turn?.agentIdUsed || turn?.AgentIdUsed || '',
-        AgentIdUsed: turn?.AgentIdUsed || turn?.agentIdUsed || '',
-        linkedConversations: Array.isArray(turn?.linkedConversations) ? turn.linkedConversations : [],
-        turnId: turnID,
-        turnStatus
-      });
-      normalized.executions = mapExecutionsFromMessage(mappedInput);
-      if (Array.isArray(normalized.executions)) {
-        for (const execution of normalized.executions) {
-          const steps = Array.isArray(execution?.steps) ? execution.steps : [];
-          for (const step of steps) {
-            if (String(step?.linkedConversationId || '').trim()) continue;
-            const byMessageID = linkedByMessageID.get(String(step?.id || '').trim()) || '';
-            if (byMessageID) {
-              step.linkedConversationId = byMessageID;
-              continue;
-            }
-            const toolName = String(step?.toolName || '').trim().toLowerCase();
-            if (!toolName) continue;
-            const linkedConversationId = linkedByToolName.get(toolName) || '';
-            if (linkedConversationId) {
-              step.linkedConversationId = linkedConversationId;
-            }
-          }
-        }
-      }
-      rows.push(normalized);
-    }
+  if (!Array.isArray(turns) || turns.length === 0) {
+    return { rows: [], queuedTurns: [], runningTurnId: '' };
   }
-
-  queuedTurns.sort((a, b) => {
-    const aSeq = Number(a?.queueSeq || 0);
-    const bSeq = Number(b?.queueSeq || 0);
-    if (aSeq !== bSeq) return aSeq - bSeq;
-    return String(a?.id || '').localeCompare(String(b?.id || ''));
-  });
-
-  rows.sort(compareTemporalEntries);
-  return { rows, queuedTurns, runningTurnId };
+  if (!isCanonicalTranscriptTurn(turns[0])) {
+    if (isStreamDebugEnabled()) {
+      console.warn('[transcript-render] non-canonical turns passed to mapTranscriptToRows');
+    }
+    return { rows: [], queuedTurns: [], runningTurnId: '' };
+  }
+  return buildCanonicalTranscriptRows(turns, options);
 }
 
 function findLatestRunningTurnIdFromTurns(turns = []) {
@@ -1140,7 +712,7 @@ function findLatestRunningTurnIdFromTurns(turns = []) {
     const turn = list[i];
     const status = String(turn?.status || turn?.Status || '').toLowerCase().trim();
     if (!isRunningStatus(status)) continue;
-    const id = String(turn?.id || turn?.Id || '').trim();
+    const id = String(turn?.turnId || turn?.id || turn?.Id || '').trim();
     if (id) return id;
   }
   return '';
@@ -1150,6 +722,23 @@ export function resolveLastTranscriptCursor(turns = []) {
   const list = Array.isArray(turns) ? turns : [];
   for (let turnIndex = list.length - 1; turnIndex >= 0; turnIndex -= 1) {
     const turn = list[turnIndex];
+    if (isCanonicalTranscriptTurn(turn)) {
+      const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+      for (let pageIndex = pages.length - 1; pageIndex >= 0; pageIndex -= 1) {
+        const page = pages[pageIndex] || {};
+        const assistantMessageId = String(page?.assistantMessageId || '').trim();
+        if (assistantMessageId) return assistantMessageId;
+        const pageId = String(page?.pageId || '').trim();
+        if (pageId) return pageId;
+      }
+      const assistantFinalId = String(turn?.assistant?.final?.messageId || '').trim();
+      if (assistantFinalId) return assistantFinalId;
+      const userId = String(turn?.user?.messageId || '').trim();
+      if (userId) return userId;
+      const turnId = String(turn?.turnId || '').trim();
+      if (turnId) return turnId;
+      continue;
+    }
     const messages = Array.isArray(turn?.message || turn?.Message) ? (turn.message || turn.Message) : [];
     for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
       const id = String(messages[messageIndex]?.id || messages[messageIndex]?.Id || '').trim();
@@ -1225,19 +814,6 @@ function queuePostTurnConversationRefresh(context, conversationID = '', turnID =
   }, 90);
 }
 
-function filterLiveOwnedTranscriptRows(rows = [], currentConversationID = '', ownedConversationID = '', ownedTurnIds = []) {
-  const currentID = String(currentConversationID || '').trim();
-  const liveID = String(ownedConversationID || '').trim();
-  if (!currentID || !liveID || currentID !== liveID) {
-    return Array.isArray(rows) ? rows : [];
-  }
-  const owned = new Set((Array.isArray(ownedTurnIds) ? ownedTurnIds : []).map((item) => String(item || '').trim()).filter(Boolean));
-  if (owned.size === 0) {
-    return Array.isArray(rows) ? rows : [];
-  }
-  return (Array.isArray(rows) ? rows : []).filter((row) => !owned.has(String(row?.turnId || '').trim()));
-}
-
 function applyTerminalTurnStatusToTranscriptRows(rows = [], turnId = '', status = '', errorMessage = '') {
   const targetTurnId = String(turnId || '').trim();
   const terminalStatus = String(status || '').trim();
@@ -1281,24 +857,14 @@ export function renderMergedRowsForContext(context) {
     || chatState.runningTurnId
     || ''
   ).trim();
-  const effectiveLiveRows = buildEffectiveLiveRows(
-    chatState?.streamTracker?.canonicalState,
-    Array.isArray(chatState.liveRows) ? chatState.liveRows : [],
-    currentConversationID
-  );
-  const hasLiveRows = effectiveLiveRows.length > 0;
-  const mergedRows = mergeRenderedRows({
-    transcriptRows: filterLiveOwnedTranscriptRows(
-      chatState.transcriptRows,
-      currentConversationID,
-      chatState.liveOwnedConversationID,
-      chatState.liveOwnedTurnIds
-    ),
-    liveRows: effectiveLiveRows,
-    runningTurnId: effectiveRunningTurnId,
-    hasRunning: chatState.lastHasRunning || hasLiveRows || !!effectiveRunningTurnId,
-    findLatestRunningTurnId,
+  const { effectiveLiveRows, mergedRows } = buildConversationRenderRows({
+    transcriptRows: chatState.transcriptRows,
+    streamState: chatState?.streamTracker?.canonicalState,
+    liveRows: chatState.liveRows,
     currentConversationID,
+    runningTurnId: effectiveRunningTurnId,
+    hasRunning: chatState.lastHasRunning,
+    findLatestRunningTurnId,
     liveOwnedConversationID: chatState.liveOwnedConversationID,
     liveOwnedTurnIds: chatState.liveOwnedTurnIds
   });
@@ -1411,18 +977,6 @@ function resolveTurnStarterPreview(turn = {}) {
   ).trim();
 }
 
-function isVisibleExecutionPage(page = {}) {
-  if (!page || typeof page !== 'object') return false;
-  const status = String(page?.status || '').trim().toLowerCase();
-  const hasVisibleContent = String(page?.preamble || '').trim() !== '' || String(page?.content || '').trim() !== '';
-  const hasError = String(page?.errorMessage || page?.ErrorMessage || '').trim() !== '';
-  const hasTools = (Array.isArray(page?.toolSteps) && page.toolSteps.length > 0)
-    || (Array.isArray(page?.toolCallsPlanned) && page.toolCallsPlanned.length > 0);
-  const isActive = ['running', 'thinking', 'streaming', 'processing', 'in_progress', 'waiting_for_user', 'tool_calls'].includes(status);
-  const isError = status === 'failed' || status === 'error' || status === 'terminated';
-  return hasVisibleContent || hasError || hasTools || isActive || isError;
-}
-
 function resolveActiveStreamTurnId(turns = [], chatState = {}) {
   const explicit = String(chatState?.activeStreamTurnId || '').trim();
   if (explicit) return explicit;
@@ -1446,30 +1000,6 @@ function getCurrentConversationID(context) {
 
 function getContextWindowId(context) {
   return String(context?.identity?.windowId || '').trim() || MAIN_CHAT_WINDOW_ID;
-}
-
-function extractEmbeddedElicitationPayload(text = '') {
-  const raw = String(text || '').trim();
-  if (!raw) return null;
-  let candidate = raw;
-  try {
-    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    if (fence && fence[1]) candidate = String(fence[1]).trim();
-  } catch (_) {}
-  const objectStart = candidate.indexOf('{');
-  const objectEnd = candidate.lastIndexOf('}');
-  if (objectStart === -1 || objectEnd === -1 || objectEnd <= objectStart) {
-    return null;
-  }
-  candidate = candidate.slice(objectStart, objectEnd + 1).trim();
-  try {
-    const parsed = JSON.parse(candidate);
-    if (!parsed || typeof parsed !== 'object') return null;
-    if (String(parsed.type || '').toLowerCase() !== 'elicitation') return null;
-    return parsed;
-  } catch (_) {
-    return null;
-  }
 }
 
 export function publishActiveConversation(conversationID = '', context = null) {
@@ -1536,66 +1066,6 @@ export function resolveUserID(context) {
   return explicit;
 }
 
-function extractEmbeddedElicitation(text = '') {
-  const raw = String(text || '').trim();
-  if (!raw) return null;
-  let candidate = raw;
-  try {
-    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    if (fence && fence[1]) candidate = String(fence[1]).trim();
-  } catch (_) {}
-  const start = candidate.indexOf('{');
-  if (start === -1) return null;
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < candidate.length; i++) {
-    const ch = candidate[i];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === '\\') {
-        escaped = true;
-      } else if (ch === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === '{') {
-      depth += 1;
-      continue;
-    }
-    if (ch !== '}') continue;
-    depth -= 1;
-    if (depth !== 0) continue;
-    try {
-      const parsed = JSON.parse(candidate.slice(start, i + 1));
-      if (!parsed || typeof parsed !== 'object') return null;
-      if (String(parsed.type || '').toLowerCase() !== 'elicitation') return null;
-      return {
-        message: String(parsed.message || parsed.prompt || '').trim(),
-        requestedSchema: parsed.requestedSchema || null
-      };
-    } catch (_) {
-      return null;
-    }
-  }
-  return null;
-}
-
-function displayableElicitationMessage(rawMessage = '', embedded = null) {
-  const explicit = String(rawMessage || '').trim();
-  if (embedded?.message) return embedded.message;
-  if (!explicit) return '';
-  if (/^[{\[]/.test(explicit)) return '';
-  return explicit;
-}
-
 export async function fetchTranscript(conversationID, since = '', options = {}) {
   if (isStreamDebugEnabled()) {
     console.log('[transcript-fetch]', { conversationID, since });
@@ -1634,133 +1104,8 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
       }
     }
   }
-  // Canonical ConversationState: extract turns with pages as executionGroups
-  if (Array.isArray(canonicalTurns) && canonicalTurns.length > 0 && ('turnId' in canonicalTurns[0] || 'execution' in canonicalTurns[0])) {
-    return canonicalTurns.map((turn) => {
-      const pages = Array.isArray(turn.execution?.pages) ? turn.execution.pages : [];
-      const summaryPages = pages.filter((page) => Number(page?.iteration || 0) === 0);
-      const visiblePages = pages.filter((page) => Number(page?.iteration || 0) !== 0 && isVisibleExecutionPage(page));
-      const executionPages = [
-        ...visiblePages,
-        ...summaryPages.filter((page) => isVisibleExecutionPage(page) || String(page?.content || '').trim() !== '')
-      ];
-      const messages = [];
-      if (turn.user) {
-        messages.push({
-          id: turn.user.messageId || '',
-          role: 'user',
-          content: turn.user.content || '',
-          turnId: turn.turnId || '',
-          createdAt: turn.createdAt || ''
-        });
-      }
-      const assistantFinal = turn?.assistant?.final || null;
-      const assistantPreamble = turn?.assistant?.preamble || null;
-      // Create one assistant message per turn carrying execution pages.
-      // The pages themselves hold all model/tool step data — no per-page
-      // assistant messages to avoid duplicate rendering.
-      if (visiblePages.length > 0) {
-        const lastPage = visiblePages[visiblePages.length - 1];
-        const finalPage = [...visiblePages].reverse().find((p) => p.finalResponse) || lastPage;
-        const transcriptElicitation = turn?.elicitation && typeof turn.elicitation === 'object'
-          ? turn.elicitation
-          : null;
-        const embeddedElicitation = extractEmbeddedElicitation(finalPage?.content || '');
-        const elicitationStatus = String(transcriptElicitation?.status || '').trim().toLowerCase();
-        const suppressAssistantContent = !!embeddedElicitation
-          && (elicitationStatus === '' || elicitationStatus === 'pending' || elicitationStatus === 'open');
-        messages.push({
-          id: finalPage?.assistantMessageId || assistantFinal?.messageId || finalPage?.pageId || turn.turnId || '',
-          role: 'assistant',
-          interim: finalPage?.finalResponse || String(assistantFinal?.content || '').trim() !== '' ? 0 : 1,
-          content: suppressAssistantContent ? '' : (finalPage?.content || assistantFinal?.content || ''),
-          preamble: visiblePages[0]?.preamble || assistantPreamble?.content || '',
-          turnId: turn.turnId || '',
-          status: finalPage?.status || '',
-          createdAt: turn.createdAt || '',
-          errorMessage: finalPage?.errorMessage || finalPage?.ErrorMessage || turn?.errorMessage || turn?.ErrorMessage || ''
-        });
-      } else if (assistantFinal && String(assistantFinal?.content || '').trim() !== '') {
-        messages.push({
-          id: assistantFinal?.messageId || turn.turnId || '',
-          role: 'assistant',
-          interim: 0,
-          content: assistantFinal?.content || '',
-          preamble: assistantPreamble?.content || '',
-          turnId: turn.turnId || '',
-          status: turn?.status || '',
-          createdAt: turn.createdAt || '',
-          errorMessage: turn?.errorMessage || turn?.ErrorMessage || ''
-        });
-      }
-      if (summaryPages.length > 0) {
-        const summaryPage = summaryPages[summaryPages.length - 1];
-        messages.push({
-          id: summaryPage?.assistantMessageId || summaryPage?.pageId || `summary:${turn.turnId || ''}`,
-          role: 'assistant',
-          mode: 'summary',
-          interim: 0,
-          content: summaryPage?.content || '',
-          turnId: turn.turnId || '',
-          status: summaryPage?.status || '',
-          createdAt: turn.createdAt || ''
-        });
-      }
-      if (turn.elicitation) {
-        const elic = turn.elicitation;
-        const embeddedElicitation = extractEmbeddedElicitation(turn?.assistant?.final?.content || '');
-        const elicitationMessage = displayableElicitationMessage(elic.message || '', embeddedElicitation);
-        messages.push({
-          id: `elicitation:${elic.elicitationId || turn.turnId}`,
-          role: 'assistant',
-          interim: 0,
-          content: elicitationMessage,
-          turnId: turn.turnId || '',
-          status: elic.status || 'pending',
-          elicitationId: elic.elicitationId || '',
-          elicitation: {
-            elicitationId: elic.elicitationId || '',
-            message: elicitationMessage,
-            requestedSchema: elic.requestedSchema || embeddedElicitation?.requestedSchema || null,
-            callbackURL: elic.callbackUrl || elic.callbackURL || ''
-          }
-        });
-      }
-      for (const lc of (turn.linkedConversations || [])) {
-        if (!lc?.conversationId) continue;
-        const existing = messages.find((m) => m.linkedConversationId === lc.conversationId);
-        if (!existing) {
-          messages.push({
-            id: `linked:${lc.conversationId}`,
-            role: 'tool',
-            type: 'tool',
-            kind: 'tool',
-            reason: 'link',
-            toolName: 'llm/agents/run',
-            turnId: turn.turnId || '',
-            linkedConversationId: lc.conversationId,
-            linkedConversationAgentId: lc.agentId || '',
-            linkedConversationTitle: lc.title || '',
-            status: lc.status || '',
-            response: lc.response || '',
-            updatedAt: lc.updatedAt || '',
-            createdAt: lc.createdAt || ''
-          });
-        }
-      }
-      return {
-        id: turn.turnId || '',
-        status: turn.status || '',
-        createdAt: turn.createdAt || '',
-        errorMessage: turn.errorMessage || turn.ErrorMessage || '',
-        linkedConversations: Array.isArray(turn.linkedConversations) ? turn.linkedConversations : [],
-        message: messages,
-        executionGroups: executionPages,
-        executionGroupsTotal: executionPages.length,
-        executionGroupsOffset: 0,
-        executionGroupsLimit: executionPages.length
-      };
-    });
+  if (Array.isArray(canonicalTurns) && canonicalTurns.length > 0 && isCanonicalTranscriptTurn(canonicalTurns[0])) {
+    return canonicalTurns;
   }
   return Array.isArray(data?.conversation?.turns) ? data.conversation.turns : [];
 }
@@ -2488,9 +1833,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         toolCallId: String(payload?.toolCallId || '').trim(),
         linkedConversationId: String(payload?.linkedConversationId || '').trim()
       });
-      if (!trackerHasAssistantRowForTurn(chatState, conversationID, String(payload?.turnId || '').trim())) {
-        applyLinkedConversationEvent(chatState, payload);
-      }
       applyStreamConversationState(context, 'executing', payload);
       renderMergedRowsForContext(context);
       return;

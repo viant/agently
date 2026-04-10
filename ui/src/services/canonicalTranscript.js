@@ -1,5 +1,5 @@
 import { compareExecutionGroups } from 'agently-core-ui-sdk';
-import { resolvePayload } from './chatRuntime';
+import { resolvePayload } from './payloads';
 
 function firstText(...values) {
   for (const value of values) {

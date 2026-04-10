@@ -833,49 +833,6 @@ function applyAssistantFinalToRows(rows = [], payload = {}) {
   return existing;
 }
 
-export function applyLinkedConversationEvent(chatState = {}, payload = {}) {
-  const toolCallId = String(payload?.toolCallId || '').trim();
-  const linkedConversationId = String(payload?.linkedConversationId || '').trim();
-  const linkedConversationAgentId = String(payload?.linkedConversationAgentId || '').trim();
-  const linkedConversationTitle = String(payload?.linkedConversationTitle || '').trim();
-  const turnId = String(payload?.turnId || '').trim();
-  if (!linkedConversationId || (!toolCallId && !turnId)) return chatState.liveRows || [];
-  const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const row = rows[i];
-    if (String(row?.role || '').toLowerCase() !== 'assistant') continue;
-    if (turnId && String(row?.turnId || '').trim() !== turnId) continue;
-    const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
-    let matched = false;
-    const updatedGroups = groups.map((group) => {
-      const steps = Array.isArray(group?.toolSteps) ? group.toolSteps : [];
-      const updatedSteps = steps.map((step) => {
-        const stepToolCallId = String(step?.toolCallId || '').trim();
-        const stepToolMessageId = String(step?.toolMessageId || '').trim();
-        // Match by toolCallId (OpID) or toolMessageId — the linked_conversation_attached
-        // event may carry either depending on what's in context.
-        if (toolCallId && (stepToolCallId === toolCallId || stepToolMessageId === toolCallId)) {
-          matched = true;
-          return {
-            ...step,
-            linkedConversationId,
-            linkedConversationAgentId: linkedConversationAgentId || step?.linkedConversationAgentId || '',
-            linkedConversationTitle: linkedConversationTitle || step?.linkedConversationTitle || ''
-          };
-        }
-        return step;
-      });
-      return matched ? { ...group, toolSteps: updatedSteps } : group;
-    });
-    if (matched) {
-      rows[i] = { ...row, executionGroups: updatedGroups };
-      break;
-    }
-  }
-  chatState.liveRows = rows;
-  return rows;
-}
-
 export function applyElicitationRequestedEvent(chatState = {}, payload = {}) {
   const turnId = String(payload?.turnId || '').trim();
   const assistantMessageId = canonicalPayloadMessageId(payload);

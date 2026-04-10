@@ -4,7 +4,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
 import { openLinkedConversationWindow } from '../services/conversationWindow';
 import { displayStepIcon, displayStepTitle, isAgentRunTool } from '../services/toolPresentation';
-import { resolvePayload } from '../services/chatRuntime';
+import { resolvePayload } from '../services/payloads';
 import { flattenCanonicalTranscriptSteps, transcriptConversationTurns } from '../services/canonicalTranscript';
 import { client } from '../services/agentlyClient';
 

@@ -359,15 +359,25 @@ export function mergeRenderedRows({
       _rowSource: 'live',
       _bubbleSource: ownedTurnIds.has(String(row?.turnId || '').trim()) ? 'stream' : ''
     }));
+  const liveTurnIds = new Set(
+    canonicalLiveRows
+      .map((row) => String(row?.turnId || '').trim())
+      .filter(Boolean)
+  );
   const transcriptBase = transcriptList
     .map((row) => {
       const turnId = String(row?.turnId || '').trim();
+      const role = String(row?.role || '').toLowerCase();
       // During an active live session, exclude transcript rows with no turnId.
       // They may belong to the current unfinished turn (e.g. user message
       // fetched before the server assigned a turnId) and will arrive via SSE.
       // Mixing them in causes the user message to appear after execution rows
       // because its transcript createdAt is independent of live row timestamps.
       if (hasLiveSession && !turnId) return null;
+      // When the live layer is already rendering a user bubble for a turn,
+      // suppress the transcript copy of that same user row until the turn
+      // settles. Otherwise the active turn briefly shows the same prompt twice.
+      if (hasLiveSession && role === 'user' && liveTurnIds.has(turnId)) return null;
       if (!hasLiveSession || !ownedTurnIds.has(turnId)) {
         return { ...row, _rowSource: 'transcript' };
       }

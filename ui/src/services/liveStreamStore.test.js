@@ -4,7 +4,6 @@ import {
   applyElicitationRequestedEvent,
   applyExecutionStreamEvent,
   applyAssistantFinalEvent,
-  applyLinkedConversationEvent,
   applyMessagePatchEvent,
   applyPreambleEvent,
   applyToolStreamEvent,
@@ -1595,94 +1594,6 @@ describe('applyPreambleEvent', () => {
       agentIdUsed: 'coder',
       agentName: 'Coder'
     });
-  });
-});
-
-describe('applyLinkedConversationEvent', () => {
-  it('sets linkedConversationId on matching tool step by toolCallId', () => {
-    const chatState = { liveRows: [] };
-
-    // Setup: model_started + tool_call_started
-    applyExecutionStreamEvent(chatState, {
-      assistantMessageId: 'mc-1',
-      conversationId: 'conv-parent',
-      turnId: 'turn-1',
-      iteration: 1,
-      status: 'thinking',
-      createdAt: '2026-03-17T10:00:01Z',
-      model: { provider: 'openai', model: 'gpt-5.2' }
-    }, 'conv-parent');
-
-    applyToolStreamEvent(chatState, {
-      type: 'tool_call_started',
-      assistantMessageId: 'mc-1',
-      turnId: 'turn-1',
-      toolCallId: 'call-agent-1',
-      toolMessageId: 'tool-msg-1',
-      toolName: 'llm/agents/run',
-      status: 'running',
-      createdAt: '2026-03-17T10:00:02Z'
-    }, 'conv-parent');
-
-    // linked_conversation_attached fires
-    applyLinkedConversationEvent(chatState, {
-      turnId: 'turn-1',
-      toolCallId: 'call-agent-1',
-      linkedConversationId: 'child-conv-1',
-      linkedConversationAgentId: 'steward-forecasting',
-      linkedConversationTitle: 'Forecasting Child'
-    });
-
-    const step = chatState.liveRows[0].executionGroups[0].toolSteps[0];
-    expect(step.toolCallId).toBe('call-agent-1');
-    expect(step.linkedConversationId).toBe('child-conv-1');
-    expect(step.linkedConversationAgentId).toBe('steward-forecasting');
-    expect(step.linkedConversationTitle).toBe('Forecasting Child');
-  });
-
-  it('does nothing when no tool step matches the toolCallId', () => {
-    const chatState = { liveRows: [] };
-
-    applyExecutionStreamEvent(chatState, {
-      assistantMessageId: 'mc-1',
-      conversationId: 'conv-1',
-      turnId: 'turn-1',
-      iteration: 1,
-      status: 'thinking',
-      createdAt: '2026-03-17T10:00:01Z',
-      model: { provider: 'openai', model: 'gpt-5.2' }
-    }, 'conv-1');
-
-    applyToolStreamEvent(chatState, {
-      type: 'tool_call_started',
-      assistantMessageId: 'mc-1',
-      turnId: 'turn-1',
-      toolCallId: 'call-1',
-      toolName: 'system_os/getEnv',
-      status: 'running',
-      createdAt: '2026-03-17T10:00:02Z'
-    }, 'conv-1');
-
-    const before = JSON.parse(JSON.stringify(chatState.liveRows));
-
-    applyLinkedConversationEvent(chatState, {
-      turnId: 'turn-1',
-      toolCallId: 'non-existent-call',
-      linkedConversationId: 'child-conv-1'
-    });
-
-    // Tool step should not have linkedConversationId
-    expect(chatState.liveRows[0].executionGroups[0].toolSteps[0].linkedConversationId).toBeUndefined();
-  });
-
-  it('returns early when linkedConversationId is missing', () => {
-    const chatState = { liveRows: [{ role: 'assistant', turnId: 'turn-1' }] };
-    const result = applyLinkedConversationEvent(chatState, {
-      turnId: 'turn-1',
-      toolCallId: 'call-1'
-      // no linkedConversationId
-    });
-    expect(result).toEqual(chatState.liveRows);
   });
 });
 
