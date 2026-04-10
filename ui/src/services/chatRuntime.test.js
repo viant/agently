@@ -1040,7 +1040,7 @@ describe('handleStreamEvent', () => {
     expect(rows[1]).toMatchObject({ turnId: 'turn-2', content: 'Second live turn' });
   });
 
-  it('prefers the latest same-turn live assistant row when tracker row id has no exact live match', () => {
+  it('does not apply same-turn transient overlay when multiple explicit assistant rows exist without an exact id match', () => {
     const chatState = ensureContextResources({ resources: {} });
     chatState.activeConversationID = 'conv-1';
     chatState.liveRows = [
@@ -1074,12 +1074,11 @@ describe('handleStreamEvent', () => {
 
     const row = latestAssistantRowForTurn(chatState, 'conv-1', 'turn-1');
     expect(row).toMatchObject({
-      id: 'assistant-newer',
-      content: 'Tracker canonical row',
-      _streamContent: 'newer transient stream',
-      isStreaming: true
+      id: 'msg-tracker',
+      content: 'Tracker canonical row'
     });
-    expect(row?._streamContent).not.toBe('older transient stream');
+    expect(row?._streamContent).toBeUndefined();
+    expect(row?.isStreaming).toBeUndefined();
   });
 
   it('renders linked conversation metadata from tracker-backed execution groups without requiring a live row patch', () => {

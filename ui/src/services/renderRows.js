@@ -315,24 +315,40 @@ export function buildConversationRenderRows({
 } = {}) {
   const trackerTurns = projectTrackerToTurns(streamState, currentConversationID);
   const explicitRows = Array.isArray(liveRows) ? liveRows : [];
-  const trackerRows = buildCanonicalTranscriptRows(trackerTurns).rows.map((row) => {
+  const trackerRowsBase = buildCanonicalTranscriptRows(trackerTurns).rows;
+  const trackerRows = trackerRowsBase.map((row) => {
     if (String(row?.role || '').trim().toLowerCase() !== 'assistant') return row;
     const rowId = String(row?.id || '').trim();
     const rowTurnId = String(row?.turnId || '').trim();
+    const trackerRowsForTurn = rowTurnId
+      ? trackerRowsBase.filter((entry) => (
+        String(entry?.role || '').trim().toLowerCase() === 'assistant'
+        && String(entry?.turnId || '').trim() === rowTurnId
+      ))
+      : [];
+    const explicitRowsForTurn = rowTurnId
+      ? explicitRows.filter((entry) => (
+        String(entry?.role || '').trim().toLowerCase() === 'assistant'
+        && String(entry?.turnId || '').trim() === rowTurnId
+      ))
+      : [];
     const matchingExplicit = explicitRows.find((entry) => {
       if (String(entry?.role || '').trim().toLowerCase() !== 'assistant') return false;
       const explicitId = String(entry?.id || '').trim();
-      const explicitTurnId = String(entry?.turnId || '').trim();
       if (rowId && explicitId && rowId === explicitId) return true;
-      return !!rowTurnId && !!explicitTurnId && rowTurnId === explicitTurnId;
+      return false;
     });
-    if (!matchingExplicit) return row;
+    const fallbackExplicit = !matchingExplicit && trackerRowsForTurn.length === 1 && explicitRowsForTurn.length === 1
+      ? explicitRowsForTurn[0]
+      : null;
+    const resolvedExplicit = matchingExplicit || fallbackExplicit;
+    if (!resolvedExplicit) return row;
     return {
       ...row,
-      isStreaming: matchingExplicit?.isStreaming,
-      _streamContent: matchingExplicit?._streamContent,
-      _streamFence: matchingExplicit?._streamFence,
-      rawContent: matchingExplicit?.rawContent ?? row?.rawContent,
+      isStreaming: resolvedExplicit?.isStreaming,
+      _streamContent: resolvedExplicit?._streamContent,
+      _streamFence: resolvedExplicit?._streamFence,
+      rawContent: resolvedExplicit?.rawContent ?? row?.rawContent,
     };
   });
   const trackerAssistantTurnIds = new Set(
