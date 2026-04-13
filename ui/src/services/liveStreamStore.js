@@ -470,7 +470,9 @@ function applyToolStreamEventToRows(rows = [], payload = {}, fallbackConversatio
     responsePayloadId: String(payload?.responsePayloadId || '').trim() || undefined,
     linkedConversationId: String(payload?.linkedConversationId || '').trim() || undefined,
     startedAt: payload?.createdAt || undefined,
-    completedAt: payload?.type === 'tool_call_completed' ? (payload?.createdAt || undefined) : undefined
+    completedAt: ['tool_call_completed', 'tool_call_failed', 'tool_call_canceled'].includes(payload?.type)
+      ? (payload?.createdAt || undefined)
+      : undefined
   };
   group.toolSteps = mergeCanonicalToolCalls(group.toolSteps, [toolStep]);
   const updatedGroups = [...groups];
