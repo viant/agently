@@ -1567,7 +1567,13 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       return;
     }
 
-    if (type === 'tool_call_started' || type === 'tool_call_completed') {
+    if (
+      type === 'tool_call_started'
+      || type === 'tool_call_waiting'
+      || type === 'tool_call_completed'
+      || type === 'tool_call_failed'
+      || type === 'tool_call_canceled'
+    ) {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       logStreamDebug(chatState, `stream-${type}`, {
@@ -1581,9 +1587,19 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       const toolPayload = enrichPayloadWithTurnAgent(chatState, context, payload);
       applyToolStreamEvent(chatState, toolPayload, conversationID);
       applyStreamConversationState(context, 'executing', payload);
+      const toolLabel = String(payload?.toolName || 'tool');
+      const stageText = type === 'tool_call_completed'
+        ? `Completed ${toolLabel}…`
+        : type === 'tool_call_waiting'
+          ? `Waiting on ${toolLabel}…`
+          : type === 'tool_call_failed'
+            ? `${toolLabel} failed…`
+            : type === 'tool_call_canceled'
+              ? `${toolLabel} canceled…`
+              : `Executing ${toolLabel}…`;
       setStage({
-        phase: type === 'tool_call_completed' ? 'executing' : 'executing',
-        text: `${type === 'tool_call_completed' ? 'Completed' : 'Executing'} ${String(payload?.toolName || 'tool')}…`
+        phase: 'executing',
+        text: stageText
       });
       renderMergedRowsForContext(context);
       return;

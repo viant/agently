@@ -1769,3 +1769,96 @@ describe('applyPreambleEvent', () => {
     expect(chatState.liveRows[0].preamble).toBe('Second iteration thinking...');
   });
 });
+
+describe('applyToolStreamEvent — terminal timestamp coverage (P2 fix)', () => {
+  // Use applyExecutionStreamEvent to create the assistant row (matching existing
+  // test patterns), then applyToolStreamEvent to add the tool call step.
+  function makeBaseState() {
+    const chatState = { liveRows: [] };
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      createdAt: '2026-04-13T10:00:00Z',
+      model: { provider: 'test', model: 'test-model' }
+    }, 'conv-1');
+    applyToolStreamEvent(chatState, {
+      type: 'tool_call_started',
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      toolCallId: 'tc-1',
+      toolMessageId: 'tm-1',
+      toolName: 'system/exec:start',
+      status: 'running',
+      createdAt: '2026-04-13T10:00:01Z',
+    }, 'conv-1');
+    return chatState;
+  }
+
+  it('stamps completedAt on tool_call_completed', () => {
+    const chatState = makeBaseState();
+    applyToolStreamEvent(chatState, {
+      type: 'tool_call_completed',
+      assistantMessageId: 'mc-1',
+      toolCallId: 'tc-1',
+      toolMessageId: 'tm-1',
+      toolName: 'system/exec:start',
+      status: 'completed',
+      createdAt: '2026-04-13T10:00:05Z',
+    }, 'conv-1');
+    const step = chatState.liveRows[0].executionGroups[0].toolSteps[0];
+    expect(step.completedAt).toBe('2026-04-13T10:00:05Z');
+    expect(step.status).toBe('completed');
+  });
+
+  it('stamps completedAt on tool_call_failed', () => {
+    const chatState = makeBaseState();
+    applyToolStreamEvent(chatState, {
+      type: 'tool_call_failed',
+      assistantMessageId: 'mc-1',
+      toolCallId: 'tc-1',
+      toolMessageId: 'tm-1',
+      toolName: 'system/exec:start',
+      status: 'failed',
+      createdAt: '2026-04-13T10:00:06Z',
+    }, 'conv-1');
+    const step = chatState.liveRows[0].executionGroups[0].toolSteps[0];
+    expect(step.completedAt).toBe('2026-04-13T10:00:06Z');
+    expect(step.status).toBe('failed');
+  });
+
+  it('stamps completedAt on tool_call_canceled', () => {
+    const chatState = makeBaseState();
+    applyToolStreamEvent(chatState, {
+      type: 'tool_call_canceled',
+      assistantMessageId: 'mc-1',
+      toolCallId: 'tc-1',
+      toolMessageId: 'tm-1',
+      toolName: 'system/exec:start',
+      status: 'canceled',
+      createdAt: '2026-04-13T10:00:07Z',
+    }, 'conv-1');
+    const step = chatState.liveRows[0].executionGroups[0].toolSteps[0];
+    expect(step.completedAt).toBe('2026-04-13T10:00:07Z');
+    expect(step.status).toBe('canceled');
+  });
+
+  it('does not stamp completedAt on tool_call_waiting (non-terminal)', () => {
+    const chatState = makeBaseState();
+    applyToolStreamEvent(chatState, {
+      type: 'tool_call_waiting',
+      assistantMessageId: 'mc-1',
+      toolCallId: 'tc-1',
+      toolMessageId: 'tm-1',
+      toolName: 'system/exec:start',
+      status: 'waiting',
+      createdAt: '2026-04-13T10:00:03Z',
+    }, 'conv-1');
+    const step = chatState.liveRows[0].executionGroups[0].toolSteps[0];
+    expect(step.completedAt).toBeUndefined();
+    expect(step.status).toBe('waiting');
+  });
+});
