@@ -1,0 +1,376 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0E122708033FF9D155DBB90E /* AgentlyAppFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = F0EE3BFDCBDF459405E2E664 /* AgentlyAppFoundation */; };
+		40143AAD886AD20509AD7A9C /* AgentlyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54B14961D6A4507F32CBC7D /* AgentlyApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		25F809D4CEBC765DAD010885 /* AgentlyApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AgentlyApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B54B14961D6A4507F32CBC7D /* AgentlyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentlyApp.swift; sourceTree = "<group>"; };
+		D54098DCED9F43327E19B190 /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A0AEC1EF961139DE03C5695E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0E122708033FF9D155DBB90E /* AgentlyAppFoundation in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		73FC1966FBBA0A44C2641836 = {
+			isa = PBXGroup;
+			children = (
+				78A5FAACCB6E814FBE1CE1B8 /* Packages */,
+				CEE1ED6C417E20BB9CA07CC9 /* Sources */,
+				9B4F5F5B927E8D5E3D114863 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		78A5FAACCB6E814FBE1CE1B8 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				D54098DCED9F43327E19B190 /* ios */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		9B4F5F5B927E8D5E3D114863 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				25F809D4CEBC765DAD010885 /* AgentlyApp.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		CEE1ED6C417E20BB9CA07CC9 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				B54B14961D6A4507F32CBC7D /* AgentlyApp.swift */,
+			);
+			name = Sources;
+			path = App/Sources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		BADA8F9AC9789B464366A87A /* AgentlyApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C45DD42CABD9BB37E4DAB354 /* Build configuration list for PBXNativeTarget "AgentlyApp" */;
+			buildPhases = (
+				57CB9379E97497BCBF8BBBB3 /* Sources */,
+				A0AEC1EF961139DE03C5695E /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AgentlyApp;
+			packageProductDependencies = (
+				F0EE3BFDCBDF459405E2E664 /* AgentlyAppFoundation */,
+			);
+			productName = AgentlyApp;
+			productReference = 25F809D4CEBC765DAD010885 /* AgentlyApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		0732386CA79601E6D98A5355 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					BADA8F9AC9789B464366A87A = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 4A9E490BBFEAEA77E9863FB3 /* Build configuration list for PBXProject "AgentlyApp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 73FC1966FBBA0A44C2641836;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B88C8B47BD5AFD0525763640 /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 9B4F5F5B927E8D5E3D114863 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BADA8F9AC9789B464366A87A /* AgentlyApp */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		57CB9379E97497BCBF8BBBB3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				40143AAD886AD20509AD7A9C /* AgentlyApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		6CD9FF8FA870404BD64172A3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = Agently;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		6FFF31D5790C891CE3106642 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = Agently;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		DD82B533CC64562BF8247618 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Agently;
+				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLName\": \"com.viant.agently.ios.oauth\", \"CFBundleTypeRole\": \"Editor\", \"CFBundleURLSchemes\": [\"agently-ios\"]]]";
+					INFOPLIST_KEY_NSCameraUsageDescription = "Capture a photo to attach it to your Agently conversation.";
+					INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your voice to dictate a message into Agently.";
+					INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convert your voice into text for the Agently composer.";
+					INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+					INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+					INFOPLIST_KEY_UISupportedInterfaceOrientations = (
+						UIInterfaceOrientationPortrait,
+						UIInterfaceOrientationLandscapeLeft,
+						UIInterfaceOrientationLandscapeRight,
+						UIInterfaceOrientationPortraitUpsideDown,
+					);
+					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
+						UIInterfaceOrientationPortrait,
+						UIInterfaceOrientationLandscapeLeft,
+						UIInterfaceOrientationLandscapeRight,
+						UIInterfaceOrientationPortraitUpsideDown,
+					);
+					IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.viant.agently.ios;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		F5DF6E66B6BA0C047C8242DD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Agently;
+				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLName\": \"com.viant.agently.ios.oauth\", \"CFBundleTypeRole\": \"Editor\", \"CFBundleURLSchemes\": [\"agently-ios\"]]]";
+					INFOPLIST_KEY_NSCameraUsageDescription = "Capture a photo to attach it to your Agently conversation.";
+					INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your voice to dictate a message into Agently.";
+					INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convert your voice into text for the Agently composer.";
+					INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+					INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+					INFOPLIST_KEY_UISupportedInterfaceOrientations = (
+						UIInterfaceOrientationPortrait,
+						UIInterfaceOrientationLandscapeLeft,
+						UIInterfaceOrientationLandscapeRight,
+						UIInterfaceOrientationPortraitUpsideDown,
+					);
+					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
+						UIInterfaceOrientationPortrait,
+						UIInterfaceOrientationLandscapeLeft,
+						UIInterfaceOrientationLandscapeRight,
+						UIInterfaceOrientationPortraitUpsideDown,
+					);
+					IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.viant.agently.ios;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		4A9E490BBFEAEA77E9863FB3 /* Build configuration list for PBXProject "AgentlyApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6FFF31D5790C891CE3106642 /* Debug */,
+				6CD9FF8FA870404BD64172A3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C45DD42CABD9BB37E4DAB354 /* Build configuration list for PBXNativeTarget "AgentlyApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F5DF6E66B6BA0C047C8242DD /* Debug */,
+				DD82B533CC64562BF8247618 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		B88C8B47BD5AFD0525763640 /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F0EE3BFDCBDF459405E2E664 /* AgentlyAppFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AgentlyAppFoundation;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 0732386CA79601E6D98A5355 /* Project object */;
+}

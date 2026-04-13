@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Dialog } from '@blueprintjs/core';
 import { addWindow, activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
-import { client } from '../services/agentlyClient';
+import { beginLogin, client } from '../services/agentlyClient';
 import logo from '../viant-logo.png';
 import ApprovalEditorFields from './ApprovalEditorFields.jsx';
 import ApprovalForgeRenderer from './ApprovalForgeRenderer.jsx';
@@ -106,7 +106,7 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
         .then(async (providers) => {
           const action = resolveStartupAuthAction(providers);
           if (action.type === 'oauth') {
-            client.loginWithRedirect();
+            void beginLogin();
             return null;
           }
           if (action.type !== 'local' || !action.username) return null;

@@ -114,8 +114,8 @@ export function redirectToLogin(path = '') {
   // navigates to the backend's /v1/api/auth/idp/login which 307-redirects
   // to the identity provider. After auth, the IDP redirects back to
   // /v1/api/auth/oauth/callback, handled by the OAuthCallback SPA route.
-  import('./agentlyClient').then(({ client }) => {
-    client.loginWithRedirect();
+  import('./agentlyClient').then(({ beginLogin }) => {
+    return beginLogin();
   }).catch(() => {
     authRedirectInFlight = false;
   });

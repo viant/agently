@@ -149,6 +149,79 @@ describe('submitMessage', () => {
     await submitPromise;
   });
 
+  it('adds explicit web client context to query payloads', async () => {
+    client.query.mockResolvedValue({});
+    ensureConversation.mockResolvedValue('conv-ctx');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: '',
+      lastHasRunning: false,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+    });
+    dsTick.mockResolvedValue({
+      conversationID: 'conv-ctx',
+      hasRunning: false,
+    });
+
+    const previousWindow = global.window;
+    global.window = { innerWidth: 640 };
+
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  defaults: { model: 'openai_gpt-5_4' },
+                }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    try {
+      await submitMessage({
+        context,
+        message: 'Summarize this workspace state',
+        model: 'openai_gpt-5_4',
+        agent: 'steward',
+      });
+    } finally {
+      global.window = previousWindow;
+    }
+
+    expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
+      context: {
+        client: {
+          kind: 'web',
+          platform: 'web',
+          formFactor: 'phone',
+          surface: 'browser',
+          capabilities: ['markdown', 'chart', 'upload', 'code', 'diff'],
+        },
+      },
+    }));
+  });
+
   it('attaches SSE on init when conversation metadata says the conversation is still live', async () => {
     fetchConversation.mockResolvedValue({
       id: 'conv-1',

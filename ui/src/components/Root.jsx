@@ -20,7 +20,7 @@ import { useApprovalQueue } from '../hooks/useApprovalQueue';
 import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, getSelectedWindow, isLinkedChildWindow, openConversationInMainWindow, requestNewConversationInMainWindow, returnToParentConversation } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath } from '../services/chatRuntime';
-import { client, recoverSessionSilently } from '../services/agentlyClient';
+import { beginLogin, client, recoverSessionSilently } from '../services/agentlyClient';
 
 const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -255,7 +255,7 @@ export default function Root() {
           </div>
           <button
             type="button"
-            onClick={() => client.loginWithRedirect()}
+            onClick={() => beginLogin()}
             style={{ padding: '10px 18px', borderRadius: 10, border: '1px solid #d1d5db', background: '#1e293b', color: '#fff', fontWeight: 500, cursor: 'pointer', fontSize: 14 }}
           >
             {oauthProviderLabel ? `Sign in with ${oauthProviderLabel}` : 'Sign in'}

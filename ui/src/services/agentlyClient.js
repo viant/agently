@@ -11,6 +11,7 @@ import { sdkBaseURL } from '../endpoint';
 import { showToast, redirectToLogin } from './httpClient';
 
 let authRecoveryInFlight = null;
+let oauthConfigInFlight = null;
 
 function dispatchAuthRecovered() {
   if (typeof window === 'undefined') return;
@@ -53,6 +54,29 @@ export async function recoverSessionSilently() {
     }
   })();
   return authRecoveryInFlight;
+}
+
+async function getOAuthConfigCached() {
+  if (oauthConfigInFlight) return oauthConfigInFlight;
+  oauthConfigInFlight = client.getOAuthConfig()
+    .catch(() => null)
+    .finally(() => {
+      oauthConfigInFlight = null;
+    });
+  return oauthConfigInFlight;
+}
+
+export async function beginLogin() {
+  if (typeof window === 'undefined') return false;
+  const oauthConfig = await getOAuthConfigCached();
+  if (oauthConfig?.redirectSameTab === false) {
+    return client.loginWithPopup({
+      onSuccess: () => dispatchAuthRecovered(),
+      onPopupBlocked: () => client.loginWithRedirect()
+    });
+  }
+  client.loginWithRedirect();
+  return true;
 }
 
 export const client = new AgentlyClient({

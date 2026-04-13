@@ -5,6 +5,16 @@ vi.mock('agently-core-ui-sdk', () => ({
     constructor(options = {}) {
       this.options = options;
     }
+
+    getOAuthConfig() {
+      return Promise.resolve({});
+    }
+
+    loginWithRedirect() {}
+
+    loginWithPopup() {
+      return Promise.resolve(false);
+    }
   }
 }));
 
@@ -90,5 +100,43 @@ describe('recoverSessionSilently', () => {
 
     expect(ok).toBe(false);
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('beginLogin', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+  });
+
+  it('uses same-tab redirect when workspace oauth config requests it', async () => {
+    globalThis.window = {};
+
+    const { beginLogin, client } = await import('./agentlyClient.js');
+    client.getOAuthConfig = vi.fn().mockResolvedValue({ redirectSameTab: true });
+    client.loginWithRedirect = vi.fn();
+    client.loginWithPopup = vi.fn().mockResolvedValue(false);
+
+    const ok = await beginLogin();
+
+    expect(ok).toBe(true);
+    expect(client.getOAuthConfig).toHaveBeenCalledTimes(1);
+    expect(client.loginWithRedirect).toHaveBeenCalledTimes(1);
+    expect(client.loginWithPopup).not.toHaveBeenCalled();
+  });
+
+  it('uses popup login only when workspace oauth config explicitly disables same-tab redirect', async () => {
+    globalThis.window = {};
+
+    const { beginLogin, client } = await import('./agentlyClient.js');
+    client.getOAuthConfig = vi.fn().mockResolvedValue({ redirectSameTab: false });
+    client.loginWithRedirect = vi.fn();
+    client.loginWithPopup = vi.fn().mockResolvedValue(true);
+
+    const ok = await beginLogin();
+
+    expect(ok).toBe(true);
+    expect(client.loginWithPopup).toHaveBeenCalledTimes(1);
+    expect(client.loginWithRedirect).not.toHaveBeenCalled();
   });
 });

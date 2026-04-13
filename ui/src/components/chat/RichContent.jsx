@@ -237,7 +237,25 @@ function ChartSpecPanel({ spec = {} }) {
       return <BarChart data={rows}>{chartCommon}{series.map((s, i) => <Bar key={s} dataKey={s} fill={palette[i % palette.length]} stackId={stacked ? 'a' : undefined} />)}</BarChart>;
     }
     if (type === 'scatter') return <ScatterChart><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey={xKey} /><YAxis dataKey={series[0]} /><RcTooltip /><RcLegend /><Scatter name={series[0]} data={rows} fill={palette[0]} /></ScatterChart>;
-    if (type === 'pie') return <PieChart><RcTooltip /><RcLegend /><Pie data={n.data || []} dataKey={series[0] || 'value'} nameKey={n.seriesKey || xKey} outerRadius={110} label>{(n.data || []).map((_, i) => <Cell key={`cell-${i}`} fill={palette[i % palette.length]} />)}</Pie></PieChart>;
+    if (type === 'pie' || type === 'donut') {
+      const donut = type === 'donut';
+      return (
+        <PieChart>
+          <RcTooltip />
+          <RcLegend />
+          <Pie
+            data={n.data || []}
+            dataKey={series[0] || 'value'}
+            nameKey={n.seriesKey || xKey}
+            outerRadius={110}
+            innerRadius={donut ? 58 : 0}
+            label
+          >
+            {(n.data || []).map((_, i) => <Cell key={`cell-${i}`} fill={palette[i % palette.length]} />)}
+          </Pie>
+        </PieChart>
+      );
+    }
     return <LineChart data={rows}>{chartCommon}{series.map((s, i) => <Line key={s} type="monotone" dataKey={s} stroke={palette[i % palette.length]} dot={false} />)}</LineChart>;
   };
 

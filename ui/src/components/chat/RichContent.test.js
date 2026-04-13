@@ -251,4 +251,18 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('app-rich-chart');
     expect(html).toContain('Tail paragraph.');
   });
+
+  it('renders donut chart specs without falling back', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, {
+        content: [
+          '```json',
+          '{"chart":{"type":"donut","x":{"key":"name"},"y":[{"key":"value"}]},"data":[{"name":"A","value":1},{"name":"B","value":2}]}',
+          '```'
+        ].join('\n')
+      })
+    );
+
+    expect(html).toContain('app-rich-chart');
+  });
 });

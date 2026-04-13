@@ -3,6 +3,7 @@ import { setStage } from './stageBus';
 import { client } from './agentlyClient';
 import { showToast } from './httpClient';
 import { getFeedData, updateFeedData } from './toolFeedBus';
+import { buildWebQueryContext } from './clientContext';
 import {
   applyIterationVisibility,
   bindConversationWindowEvents,
@@ -311,6 +312,7 @@ export async function submitMessage({ context, message, model, agent }) {
     model: effectiveModel || sanitizeAutoSelection(convForm?.model || ''),
     tools: Array.isArray(metaForm?.tool) ? metaForm.tool : undefined,
     reasoningEffort: metaForm?.reasoningEffort || undefined,
+    context: buildWebQueryContext(),
     attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined
   };
   const resolvedUserID = resolveUserID(context);
