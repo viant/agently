@@ -1,0 +1,59 @@
+namespace: Automation
+
+view:
+  content:
+    tabs:
+      vertical: false
+
+    containers:
+      - id: schedulesCatalogue
+        title: Automation
+        dataSourceRef: schedules
+        table: $import('table/schedules.yaml')
+
+      - id: scheduleEditor
+        title: Editor
+        dataSourceRef: schedules
+        tabs:
+          vertical: false
+        containers: $import('form.yaml')
+
+      - id: scheduleRuns
+        title: Runs
+        dataSourceRef: runs
+        fetchData: false
+        table: $import('history/table/runs.yaml')
+
+dataSource:
+  schedules: $import('datasource/schedules.yaml')
+  runs: $import('datasource/runs.yaml')
+  agentsLov: $import('datasource/agents_lov.yaml')
+  modelsLov: $import('datasource/models_lov.yaml')
+
+dialogs:
+  - id: agentLov
+    title: Select Agent
+    dataSourceRef: agentsLov
+    on:
+      - event: onOpen
+        handler: schedule.applyLookupFilter
+    content:
+      fetchData: true
+      table:
+        columns:
+          - id: name
+            name: Agent Name
+          - id: id
+            name: Agent ID
+
+  - id: modelLov
+    title: Select Model
+    dataSourceRef: modelsLov
+    content:
+      fetchData: true
+      table:
+        columns:
+          - id: name
+            name: Model
+          - id: id
+            name: Model ID
