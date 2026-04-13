@@ -1,0 +1,22 @@
+namespace: OAuthCredentials
+
+view:
+  content:
+    layout:
+      orientation: horizontal
+      columns: 2
+      divider:
+        sizes: [30, 68]
+
+    containers:
+      - id: table
+        title: OAuth2 Credentials
+        dataSourceRef: oauth
+        table: $import('table/oauth.yaml')
+      - id: form
+        dataSourceRef: oauth
+        containers:
+         - $import('form.yaml')
+
+dataSource:
+  oauth: $import('datasource/oauth.yaml')

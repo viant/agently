@@ -6,11 +6,13 @@ selfReference: childNodes
 selectors:
   data: ''
 
-parameters:
-  - from: const
-    location: true
-    to: :query
-    name: folderOnly
 
+parameters:
+  - from: const            # literal source
+    location: true         # value to copy
+    to: :query             # = :input.query
+    name: folderOnly
+    
+# Each entry returned by the backend already provides a stable "id" field.
 uniqueKey:
   - field: uri

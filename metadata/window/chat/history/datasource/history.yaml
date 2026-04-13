@@ -1,0 +1,51 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/conversations
+  method: GET
+
+paging:
+  size: 25
+  enabled: true
+  dataInfoSelectors:
+    pageCount: pageCount
+    totalCount: totalCount
+
+selectors:
+  data: Rows
+  dataInfo: ''
+
+uniqueKey:
+  - field: id
+
+on:
+  - event: onFetch
+    handler: chat.onFetchHistory
+
+filterSet:
+  - name: default
+    default: true
+    template:
+      - id: q
+        label: Filter
+        operator: eq
+
+quickFilterSet: default
+
+#parameters:
+#  # Optional: only scheduled conversations
+#  - name: scheduled
+#    kind: query
+#    in: dataSource
+#    location: parameters.scheduled
+#  # Optional: filter by schedule id
+#  - name: scheduleId
+#    kind: query
+#    in: dataSource
+#    location: parameters.scheduleId
+#  # Optional: filter by schedule run id
+#  - name: scheduleRunId
+#    kind: query
+#    in: dataSource
+#    location: parameters.scheduleRunId
+
+selectionMode: single

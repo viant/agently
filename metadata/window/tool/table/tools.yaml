@@ -1,0 +1,5 @@
+columns:
+  - id: name
+    name: Tool
+
+toolbar: $import('toolbar/tools.yaml')
