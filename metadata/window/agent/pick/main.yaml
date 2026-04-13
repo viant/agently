@@ -1,0 +1,51 @@
+namespace: AgentPick
+
+view:
+  content:
+    layout:
+      orientation: horizontal
+      columns: 1
+    containers:
+      - id: pickAgents
+        title: Select Agent
+        dataSourceRef: agents
+        fetchData: true
+        toolbar:
+          items:
+            - id: refresh
+              icon: refresh
+              align: left
+        table:
+          columns:
+            - id: name
+              name: Agent Name
+
+      - id: pickActions
+        layout:
+          orientation: horizontal
+          columns: 1
+        style:
+          position: sticky
+          bottom: 0
+          background: '#ffffff'
+          padding: '8px 12px'
+          borderTop: '1px solid #eee'
+        toolbar:
+          dataSourceRef: agents
+          items:
+            - id: cancel
+              align: right
+              icon: cross
+              on:
+                - event: onClick
+                  handler: window.closeWindow
+            - id: select
+              align: right
+              icon: tick
+              on:
+                - event: onClick
+                  handler: window.commit
+
+dataSource:
+  # Reuse the standard agents datasource to ensure consistent selectors/paging
+  agents: $import('../datasource/agents.yaml')

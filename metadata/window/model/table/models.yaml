@@ -1,0 +1,12 @@
+columns:
+  - id: id
+    name: Model ID
+  - id: name
+    name: Name
+  - id: options.provider
+    name: Provider
+  - id: options.model
+    name: Model
+
+
+toolbar: $import('toolbar/models.yaml')

@@ -300,6 +300,7 @@
       properties:
         helperText: Schedule will stop firing after this date
 
+    # persisted fields for backend compatibility; hidden from UI
     - id: scheduleType
       type: text
       columnSpan: 1

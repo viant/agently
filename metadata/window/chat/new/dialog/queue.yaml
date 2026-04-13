@@ -13,3 +13,4 @@ actions:
     on:
       - event: onClick
         handler: dialog.close
+

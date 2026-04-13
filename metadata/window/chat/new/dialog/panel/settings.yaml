@@ -10,6 +10,7 @@ layout:
   rowGap: 10
   columnGap: 24
 items:
+  # Row 1 — Agent, Model, Tool Exposure
   - id: agent
     label: Agent
     type: select
@@ -34,6 +35,7 @@ items:
       - event: onItemSelect
         handler: chat.selectModel
 
+
   - id: toolCallExposure
     label: Tool Exposure
     type: radio
@@ -46,6 +48,7 @@ items:
         marginTop: '0'
         marginBottom: '0'
 
+  # Row 1c — Reasoning effort override (optional)
   - id: reasoningEffort
     label: Reasoning Effort
     type: select
@@ -60,6 +63,7 @@ items:
       style:
         width: '220px'
 
+  # Row 1d — Conversation visibility
   - id: visibility
     label: Conversation Visibility
     type: radio
@@ -79,6 +83,7 @@ items:
         marginTop: '0'
         marginBottom: '0'
 
+  # Section label
   - id: _label_agent_prefs
     type: label
     value: Agent Preferences
@@ -89,6 +94,7 @@ items:
         marginTop: '4px'
         marginBottom: '2px'
 
+  # Row 2 — View toggles + Auto Summarize
   - id: showExecutionDetails
     label: Show Execution
     type: toggle
@@ -125,6 +131,7 @@ items:
         marginTop: '6px'
         marginBottom: '0'
 
+  # Row 2b — Finish ring
   - id: ringOnFinish
     label: Finish Ring
     type: toggle
@@ -134,6 +141,7 @@ items:
         marginTop: '6px'
         marginBottom: '0'
 
+  # Row 3 — Chains controls
   - id: chainsEnabled
     label: Chains Enabled
     type: toggle
@@ -158,6 +166,7 @@ items:
       style:
         width: '100%'
 
+  # Section label
   - id: _label_tools
     type: label
     value: Tools
@@ -168,6 +177,7 @@ items:
         marginTop: '8px'
         marginBottom: '2px'
 
+  # Row 4 — Tools selector full width
   - id: tool
     label: ''
     type: treeMultiSelect

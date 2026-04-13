@@ -8,6 +8,8 @@ service:
 selectors:
   data: ''
 
+# data already objects; no mapping
+
 uniqueKey:
   - field: id
 

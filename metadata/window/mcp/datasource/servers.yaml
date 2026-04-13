@@ -1,0 +1,12 @@
+service:
+  endpoint: appAPI
+  uri: /workspace/mcp
+  method: GET
+  put:
+    uri: /workspace/mcp/{name}
+
+selectors:
+  data: data
+
+uniqueKey:
+  - field: name

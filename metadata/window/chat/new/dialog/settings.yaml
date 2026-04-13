@@ -6,6 +6,10 @@ content: $import('panel/settings.yaml')
 properties:
   searchable: false
 
+
+
+
+# Responsive sizing – larger by default, with min/max constraints
 style:
   width: 75vw
   height: 80vh
@@ -14,6 +18,7 @@ style:
   maxWidth: 95vw
   maxHeight: 90vh
 
+# Action buttons shown in the footer
 actions:
   - id: save
     icon: floppy-disk
