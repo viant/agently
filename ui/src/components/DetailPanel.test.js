@@ -80,4 +80,31 @@ describe('DetailPanel pricing helpers', () => {
     expect(hydrated.requestPayload).toEqual({ field: 'IRIS_SEGMENTS' });
     expect(hydrated.responsePayload).toEqual({ status: 'failed' });
   });
+
+  it('hydrates model payload data for provider/model matched canonical steps', async () => {
+    transcriptConversationTurns.mockReturnValue([]);
+    flattenCanonicalTranscriptSteps.mockReturnValue([
+      {
+        kind: 'model',
+        id: 'mc-1',
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        providerRequestPayloadId: 'prov-req-1',
+        providerResponsePayloadId: 'prov-resp-1',
+        providerRequestPayload: { request: true },
+        providerResponsePayload: { response: true }
+      }
+    ]);
+
+    const hydrated = await hydrateToolCallFromTranscript({
+      kind: 'model',
+      provider: 'openai',
+      model: 'gpt-5-mini'
+    });
+
+    expect(client.getTranscript).toHaveBeenCalled();
+    expect(hydrated.providerRequestPayloadId).toBe('prov-req-1');
+    expect(hydrated.providerRequestPayload).toEqual({ request: true });
+    expect(hydrated.providerResponsePayload).toEqual({ response: true });
+  });
 });

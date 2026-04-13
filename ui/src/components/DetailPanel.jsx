@@ -297,7 +297,7 @@ export async function hydrateToolCallFromTranscript(toolCall = {}) {
       const idMatch = targetId && candidateId === targetId;
       const modelMatch = toolCall?.model && candidate.model && String(candidate.model).toLowerCase() === String(toolCall.model).toLowerCase();
       const providerMatch = toolCall?.provider && candidate.provider && String(candidate.provider).toLowerCase() === String(toolCall.provider).toLowerCase();
-      if (idMatch || ((modelMatch || providerMatch) && toolCallHasPayloads(candidate))) {
+      if (idMatch || ((modelMatch || providerMatch) && toolCallHasResolvedPayloadContent(candidate))) {
         return mergeHydratedToolCall(toolCall, candidate);
       }
     }
