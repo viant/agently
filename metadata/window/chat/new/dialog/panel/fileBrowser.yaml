@@ -1,0 +1,8 @@
+id: browserForm
+dataSourceRef: fs
+layout:
+  labelPosition: left
+  columns: 2
+fileBrowser:
+  title: Select folder
+  folderOnly: true

@@ -1,0 +1,66 @@
+namespace: Chat
+
+dialogs:
+  - $import('dialog/settings.yaml')
+  - $import('dialog/fileBrowser.yaml')
+  - $import('dialog/queue.yaml')
+  - $import('dialog/approval_editor.yaml')
+
+view:
+  content:
+    containers:
+      - id: metaLoader
+        dataSourceRef: meta
+        fetchData: true
+
+      - id: conversationSection
+        chat:
+          dataSourceRef: messages
+          showSettings: false
+          showTools: false
+          showMic: true
+          commandCenter: true
+          abortVisible:
+            dataSourceRef: conversations
+            selector: running
+          showUpload: true
+          upload:
+            endpoint: agentlyAPI
+            path: upload
+          uploadField: files
+          on:
+            - event: onSubmit
+              handler: chat.submitMessage
+              parameters:
+                - name: model
+                  in: form
+                  location: conversations.model
+                - name: agent
+                  in: form
+                  location: conversations.agent
+            - event: onModelSelect
+              handler: chat.selectModel
+            - event: onAgentSelect
+              handler: chat.selectAgent
+            - event: onSettings
+              handler: chat.onSettings
+            - event: onUpload
+              handler: chat.onUpload
+            - event: onAbort
+              handler: chat.abortConversation
+
+dataSource:
+  conversations: $import('../conversations/datasource/conversations.yaml')
+  messages: $import('datasource/messages.yaml')
+  meta: $import('datasource/meta.yaml')
+  settings: $import('datasource/settings.yaml')
+  usage: $import('datasource/usage.yaml')
+  fs: $import('../../filebrowser/datasource/fileBrowser.yaml')
+  queueTurns: $import('dialog/datasource/queueTurns.yaml')
+  approvalEditor: $import('datasource/approval_editor.yaml')
+
+on:
+  - event: onInit
+    handler: chat.onInit
+  - event: onDestroy
+    handler: chat.onDestroy

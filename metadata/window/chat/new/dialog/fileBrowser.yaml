@@ -1,0 +1,21 @@
+title: File Browser
+id: fileBrowser
+dataSourceRef: fs
+content: $import('panel/fileBrowser.yaml')
+
+style:
+  width: 55vw
+  height: 65vh
+
+actions:
+  - id: save
+    label: Select
+    on:
+      - event: onClick
+        handler: chat.selectFolder
+
+  - id: cancel
+    label: Cancel
+    on:
+      - event: onClick
+        handler: dialog.close

@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizeMessages } from './messageNormalizer';
+import { classifyMessage, normalizeMessages } from './messageNormalizer';
+
+describe('classifyMessage', () => {
+  it('keeps pending schema-based elicitations as read-only bubbles for the global overlay flow', () => {
+    expect(classifyMessage({
+      role: 'elicition',
+      status: 'open',
+      elicitation: {
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            desiredFormat: { type: 'string' }
+          }
+        }
+      }
+    })).toBe('bubble');
+  });
+});
 
 describe('normalizeMessages', () => {
   it('drops assistant summary artifacts from rendered chat rows', () => {
