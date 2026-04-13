@@ -16,7 +16,7 @@ view:
       - id: convTable
         title: Conversations
         dataSourceRef: conversations
-        table: $import('table/history.yaml')
+        table: $import('table/conversations.yaml')
       - id: conversationSection
         chat:
           dataSourceRef: messages
@@ -39,7 +39,7 @@ view:
               handler: chat.abortConversation
 
 dataSource:
-  conversations: $import('datasource/history.yaml')
+  conversations: $import('datasource/conversations.yaml')
   messages: $import('datasource/messages.yaml')
   meta: $import('../new/datasource/meta.yaml')
   settings: $import('../new/datasource/settings.yaml')
