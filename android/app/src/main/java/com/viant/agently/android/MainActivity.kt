@@ -1,11 +1,15 @@
 package com.viant.agently.android
 
+import android.graphics.Bitmap
 import android.os.Bundle
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -14,6 +18,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -27,48 +33,74 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.AgentlyClient
+import com.viant.agentlysdk.AuthProvider
+import com.viant.agentlysdk.AuthUser
 import com.viant.agentlysdk.Conversation
-import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.CreateConversationInput
 import com.viant.agentlysdk.DecideToolApprovalInput
 import com.viant.agentlysdk.GeneratedFileEntry
-import com.viant.agentlysdk.ListConversationsInput
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
 import com.viant.agentlysdk.PendingToolApproval
+import com.viant.agentlysdk.QueryAttachment
 import com.viant.agentlysdk.QueryInput
 import com.viant.agentlysdk.QueryOutput
+import com.viant.agentlysdk.OAuthCallbackInput
+import com.viant.agentlysdk.UploadFileInput
 import com.viant.agentlysdk.WorkspaceMetadata
-import com.viant.agentlysdk.stream.BufferedMessage
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.forgeandroid.runtime.EndpointConfig
+import com.viant.forgeandroid.runtime.ContentDef
+import com.viant.forgeandroid.runtime.ContainerDef
+import com.viant.forgeandroid.runtime.DataSourceDef
+import com.viant.forgeandroid.runtime.ForgeTargetContext
+import com.viant.forgeandroid.runtime.MemoryCookieJar
+import com.viant.forgeandroid.runtime.SchemaBasedFormDef
+import com.viant.forgeandroid.runtime.ForgeRuntime
+import com.viant.forgeandroid.runtime.ItemDef
+import com.viant.forgeandroid.runtime.OptionDef
+import com.viant.forgeandroid.runtime.ViewDef
+import com.viant.forgeandroid.runtime.WindowMetadata
 import com.viant.forgeandroid.runtime.sessionHttpClient
+import com.viant.forgeandroid.ui.ContainerRenderer
 import com.viant.forgeandroid.ui.MarkdownRenderer
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import java.text.SimpleDateFormat
+import java.net.URI
 import java.util.Date
 import java.util.Locale
 import java.time.OffsetDateTime
@@ -77,7 +109,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            AgentlyTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     AgentlyApp()
                 }
@@ -90,19 +122,45 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AgentlyApp() {
     val scope = rememberCoroutineScope()
-    val client = remember {
-        AgentlyClient(
-            endpoints = mapOf(
-                "appAPI" to EndpointConfig(
-                    baseUrl = "http://10.0.2.2:9393",
-                    httpClient = sessionHttpClient()
-                )
-            )
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val formFactor = if (configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
+    val isTablet = formFactor == "tablet"
+    val configuredAppApiBaseUrl = BuildConfig.APP_API_BASE_URL
+    val appSettingsStore = remember(context) { AppSettingsStore(context.applicationContext) }
+    val storedAppSettings = remember(appSettingsStore) { appSettingsStore.load() }
+    var appApiBaseUrl by remember {
+        mutableStateOf(storedAppSettings.baseUrlOverride.trim().ifBlank { configuredAppApiBaseUrl })
+    }
+    var preferredAgentId by remember { mutableStateOf(storedAppSettings.preferredAgentId) }
+    val savedLoginStore = remember(context) { SavedLoginStoreImpl(context.applicationContext) }
+    val storedSavedLoginConfig = remember(savedLoginStore) { savedLoginStore.load() }
+    var savedLoginConfig by remember { mutableStateOf(storedSavedLoginConfig) }
+    var showSavedLoginSettings by remember { mutableStateOf(false) }
+    val sessionCookieJar = remember { MemoryCookieJar() }
+    val forgeTargetContext = remember(formFactor) {
+        ForgeTargetContext(
+            platform = "android",
+            formFactor = formFactor,
+            capabilities = setOf("markdown", "chart")
         )
     }
+    fun buildClient(baseUrl: String): AgentlyClient = AgentlyClient(
+        endpoints = mapOf(
+            "appAPI" to EndpointConfig(
+                baseUrl = baseUrl,
+                httpClient = sessionHttpClient(sessionCookieJar)
+            )
+        )
+    )
+    val appApiCandidates = remember(configuredAppApiBaseUrl) {
+        buildApiCandidates(configuredAppApiBaseUrl)
+    }
+    val client = remember(appApiBaseUrl) { buildClient(appApiBaseUrl) }
     var loading by remember { mutableStateOf(false) }
     var metadata by remember { mutableStateOf<WorkspaceMetadata?>(null) }
-    var query by remember { mutableStateOf("Give me a short Android-ready markdown response.") }
+    var query by remember { mutableStateOf("") }
+    var composerAttachments by remember { mutableStateOf<List<ComposerAttachmentDraft>>(emptyList()) }
     var result by remember { mutableStateOf<QueryOutput?>(null) }
     var streamSnapshot by remember { mutableStateOf<ConversationStreamSnapshot?>(null) }
     var streamedMarkdown by remember { mutableStateOf<String?>(null) }
@@ -117,1190 +175,833 @@ private fun AgentlyApp() {
     var approvalEdits by remember { mutableStateOf<Map<String, Map<String, JsonElement>>>(emptyMap()) }
     val transcript = remember { mutableListOf<ChatEntry>().toMutableStateList() }
     val approvalJson = remember { Json { ignoreUnknownKeys = true } }
+    val forgeRuntime = remember(scope, forgeTargetContext, appApiBaseUrl) {
+        ForgeRuntime(
+            endpoints = mapOf(
+                "appAPI" to EndpointConfig(
+                    baseUrl = appApiBaseUrl,
+                    httpClient = sessionHttpClient(sessionCookieJar)
+                )
+            ),
+            scope = scope,
+            targetContext = forgeTargetContext,
+            windowMetadataBaseUri = "v1/api/agently/forge/window"
+        )
+    }
+    var authState by remember { mutableStateOf(AuthState.Checking) }
+    var authProviders by remember { mutableStateOf<List<AuthProvider>>(emptyList()) }
+    var authUser by remember { mutableStateOf<AuthUser?>(null) }
+    var authWebUrl by remember { mutableStateOf<String?>(null) }
+    var authBusy by remember { mutableStateOf(false) }
+    var authError by remember { mutableStateOf<String?>(null) }
+    var workspaceBootstrapRequested by remember { mutableStateOf(false) }
+    val effectiveAgentId = resolvePreferredAgentId(preferredAgentId, metadata)
 
-    fun resetConversation() {
+    fun updateComposerAttachments(attachments: List<ComposerAttachmentDraft>) {
+        composerAttachments = attachments
+    }
+
+    fun setQueryText(value: String) {
+        query = value
+    }
+
+    fun setVisibleError(message: String?) {
+        error = message
+    }
+
+    val mediaController = rememberComposerMediaController(
+        attachments = composerAttachments,
+        onAttachmentsChange = ::updateComposerAttachments,
+        query = query,
+        onQueryChange = ::setQueryText,
+        onError = ::setVisibleError
+    )
+
+    fun setAppApiBaseUrl(baseUrl: String) {
+        appApiBaseUrl = baseUrl
+    }
+
+    suspend fun resolveClient(): AgentlyClient {
+        return resolveWorkspaceClient(
+            currentBaseUrl = appApiBaseUrl,
+            candidates = mergeApiCandidates(appApiBaseUrl, appApiCandidates),
+            currentClient = client,
+            buildClient = ::buildClient,
+            onResolvedBaseUrl = ::setAppApiBaseUrl
+        )
+    }
+
+    suspend fun resolveAuthClient(): AgentlyClient {
+        return resolveAuthClientWithFallback(
+            currentBaseUrl = appApiBaseUrl,
+            candidates = mergeApiCandidates(appApiBaseUrl, appApiCandidates),
+            currentClient = client,
+            buildClient = ::buildClient,
+            onResolvedBaseUrl = ::setAppApiBaseUrl
+        )
+    }
+
+    fun applyConversationResetState(resetState: ConversationResetState) {
+        activeConversationId = resetState.activeConversationId
+        streamSnapshot = resetState.streamSnapshot
+        streamedMarkdown = resetState.streamedMarkdown
+        result = resetState.result
+        setVisibleError(resetState.error)
+        transcript.clear()
+        pendingApprovals = resetState.pendingApprovals
+        approvalEdits = resetState.approvalEdits
+        generatedFiles = resetState.generatedFiles
+        artifactPreview = resetState.artifactPreview
+    }
+
+    fun applyRecentConversations(conversations: List<Conversation>) {
+        recentConversations = conversations
+    }
+
+    fun applyWorkspaceSnapshot(snapshot: WorkspaceSnapshot) {
+        metadata = snapshot.metadata
+        applyRecentConversations(snapshot.conversations)
+    }
+
+    fun applyAuthSessionState(
+        providers: List<AuthProvider>,
+        user: AuthUser?,
+        state: AuthState
+    ) {
+        authProviders = providers
+        authUser = user
+        authState = state
+    }
+
+    fun setAuthState(state: AuthState) {
+        authState = state
+    }
+
+    fun applyAuthUiState(
+        webUrl: String?,
+        busy: Boolean,
+        error: String?
+    ) {
+        authWebUrl = webUrl
+        authBusy = busy
+        authError = error
+    }
+
+    fun applyWorkspaceSessionReset(resetState: WorkspaceSessionReset) {
+        metadata = resetState.metadata
+        applyRecentConversations(resetState.recentConversations)
+        applyAuthSessionState(
+            providers = resetState.authProviders,
+            user = resetState.authUser,
+            state = resetState.authState
+        )
+        applyAuthUiState(
+            webUrl = authWebUrl,
+            busy = authBusy,
+            error = resetState.authError
+        )
+        workspaceBootstrapRequested = resetState.workspaceBootstrapRequested
+        applyConversationResetState(resetState.conversationReset)
+    }
+
+    fun applyAuthRequiredSessionReset(resetState: AuthRequiredSessionReset) {
+        metadata = resetState.metadata
+        applyRecentConversations(resetState.recentConversations)
+        applyAuthSessionState(
+            providers = resetState.authProviders,
+            user = resetState.authUser,
+            state = authState
+        )
+        applyAuthUiState(
+            webUrl = resetState.authWebUrl,
+            busy = resetState.authBusy,
+            error = authError
+        )
+        applyConversationResetState(resetState.conversationReset)
+    }
+
+    fun clearActiveStreamJob() {
         streamJob?.cancel()
         streamJob = null
-        activeConversationId = null
-        streamSnapshot = null
-        streamedMarkdown = null
-        result = null
-        error = null
-        transcript.clear()
-        pendingApprovals = emptyList()
-        approvalEdits = emptyMap()
-        generatedFiles = emptyList()
+    }
+
+    fun applyAuthRequiredErrorState(err: Throwable?) {
+        setAuthState(AuthState.Required)
+        setVisibleError(null)
+        authError = normalizeAuthThrowable(err, ::normalizeAuthError)
+    }
+
+    fun setAuthRequired(err: Throwable? = null) {
+        clearActiveStreamJob()
+        val resetState = buildAuthRequiredSessionReset()
+        applyAuthRequiredSessionReset(resetState)
+        applyAuthRequiredErrorState(err)
+    }
+
+    fun applyWorkspaceSnapshotIfPresent(snapshot: WorkspaceSnapshot?) {
+        snapshot?.let(::applyWorkspaceSnapshot)
+    }
+
+    fun applyAuthRequiredErrorIfPresent(err: Throwable?) {
+        err?.let(::setAuthRequired)
+    }
+
+    fun applyVisibleErrorIfPresent(message: String?) {
+        message?.let(::setVisibleError)
+    }
+
+    fun applyAuthRefreshResult(authRefreshResult: AuthRefreshResult) {
+        if (authRefreshResult.resolvedBaseUrl != appApiBaseUrl) {
+            setAppApiBaseUrl(authRefreshResult.resolvedBaseUrl)
+        }
+        if (authRefreshResult.authRequiredError != null) {
+            setAuthRequired(authRefreshResult.authRequiredError)
+            return
+        }
+        applyAuthSessionState(
+            providers = authRefreshResult.providers,
+            user = authRefreshResult.user,
+            state = authRefreshResult.authState
+        )
+        applyWorkspaceSnapshotIfPresent(authRefreshResult.workspaceSnapshot)
+    }
+
+    fun applyWorkspaceLoadResult(workspaceResult: WorkspaceLoadResult) {
+        applyWorkspaceSnapshotIfPresent(workspaceResult.snapshot)
+        applyAuthRequiredErrorIfPresent(workspaceResult.authRequiredError)
+        applyVisibleErrorIfPresent(workspaceResult.visibleError)
+    }
+
+    fun enterAuthCheckingState() {
+        setAuthState(AuthState.Checking)
+        authError = null
+    }
+
+    fun applyVisibleAppError(err: Throwable) {
+        visibleAppError(err)?.let(::setVisibleError)
+    }
+
+    fun launchAppOperation(
+        showLoading: Boolean = false,
+        block: suspend () -> Unit
+    ) {
+        scope.launch {
+            if (showLoading) {
+                loading = true
+            }
+            setVisibleError(null)
+            try {
+                block()
+            } finally {
+                if (showLoading) {
+                    loading = false
+                }
+            }
+        }
+    }
+
+    fun launchVisibleErrorOperation(
+        showLoading: Boolean = false,
+        block: suspend () -> Unit
+    ) {
+        launchAppOperation(showLoading = showLoading) {
+            try {
+                block()
+            } catch (err: Throwable) {
+                applyVisibleAppError(err)
+            }
+        }
+    }
+
+    suspend fun refreshAuthState(loadOnSuccess: Boolean = false) {
+        enterAuthCheckingState()
+        val authRefreshResult = refreshAuthSession(
+            currentBaseUrl = appApiBaseUrl,
+            candidates = mergeApiCandidates(appApiBaseUrl, appApiCandidates),
+            currentClient = client,
+            buildClient = ::buildClient,
+            loadOnSuccess = loadOnSuccess
+        )
+        applyAuthRefreshResult(authRefreshResult)
+    }
+
+    fun refreshAuthAfterSuccessfulLogin() {
+        scope.launch {
+            refreshAuthState(loadOnSuccess = true)
+        }
+    }
+
+    fun resetWorkspaceForBaseUrl(baseUrl: String) {
+        val resetState = buildWorkspaceSessionReset()
+        setAppApiBaseUrl(baseUrl)
+        applyWorkspaceSessionReset(resetState)
+        refreshAuthAfterSuccessfulLogin()
+    }
+
+    suspend fun completeOAuthLogin(code: String, state: String) {
+        val authClient = resolveAuthClient()
+        authClient.oauthCallback(OAuthCallbackInput(code = code, state = state))
+        authWebUrl = null
+        refreshAuthAfterSuccessfulLogin()
+    }
+
+    suspend fun requestOAuthSignInUrl(): String {
+        return resolveOAuthInitiateUrl(resolveAuthClient().oauthInitiate())
+    }
+
+    fun setSavedLoginConfig(next: SavedLoginConfig) {
+        savedLoginConfig = next
+    }
+
+    fun setShowSavedLoginSettings(show: Boolean) {
+        showSavedLoginSettings = show
+    }
+
+    fun setAuthBusy(busy: Boolean) {
+        authBusy = busy
+    }
+
+    fun setAuthError(message: String?) {
+        authError = message
+    }
+
+    fun setAuthWebUrl(url: String?) {
+        authWebUrl = url
+    }
+
+    fun authUiBindings(): AuthUiBindings {
+        return AuthUiBindings(
+            onAuthBusyChange = ::setAuthBusy,
+            onAuthErrorChange = ::setAuthError,
+            onAuthWebUrlChange = ::setAuthWebUrl
+        )
+    }
+
+    fun openSavedLoginSettings() {
+        setShowSavedLoginSettings(true)
+    }
+
+    fun dismissSavedLoginSettings() {
+        setShowSavedLoginSettings(false)
+    }
+
+    fun dismissAuthWeb() {
+        setAuthWebUrl(null)
+    }
+
+    fun closeArtifactPreview() {
         artifactPreview = null
     }
 
+    fun savedLoginBindings(): SavedLoginBindings {
+        return SavedLoginBindings(
+            onSavedLoginConfigChange = ::setSavedLoginConfig,
+            onShowSavedLoginSettingsChange = ::setShowSavedLoginSettings
+        )
+    }
+
+    fun clearAuthSecrets() {
+        clearSavedAuthSecrets(
+            store = savedLoginStore,
+            bindings = savedLoginBindings()
+        )
+    }
+
+    fun refreshAuthFromUi() {
+        launchAuthRefresh(
+            scope = scope,
+            loadOnSuccess = false,
+            refreshAuthState = ::refreshAuthState
+        )
+    }
+
+    fun startOAuthSignIn() {
+        launchAuthSignIn(
+            scope = scope,
+            authBindings = authUiBindings(),
+            requestAuthWebUrl = ::requestOAuthSignInUrl,
+            normalizeAuthError = ::normalizeAuthError
+        )
+    }
+
+    fun handleOAuthCallback(code: String, state: String) {
+        launchAuthOperation(
+            scope = scope,
+            authBindings = authUiBindings(),
+            runOperation = { completeOAuthLogin(code, state) },
+            normalizeAuthError = ::normalizeAuthError
+        )
+    }
+
+    fun retryAuthConnection() {
+        launchAuthRefresh(
+            scope = scope,
+            loadOnSuccess = true,
+            refreshAuthState = ::refreshAuthState
+        )
+    }
+
+    fun resetConversation() {
+        clearActiveStreamJob()
+        val resetState = buildConversationResetState()
+        applyConversationResetState(resetState)
+    }
+
     suspend fun refreshRecentConversations() {
-        recentConversations = client.listConversations(
-            ListConversationsInput(
-                page = com.viant.agentlysdk.PageInput(limit = 10)
-            )
-        ).rows
+        val resolvedClient = resolveClient()
+        applyRecentConversations(loadRecentConversations(resolvedClient))
+    }
+
+    fun applyPreparedConversationBinding(preparedBinding: PreparedConversationBinding) {
+        activeConversationId = preparedBinding.conversationId
+        pendingApprovals = preparedBinding.pendingApprovals
+        approvalEdits = preparedBinding.approvalEdits
+        generatedFiles = preparedBinding.generatedFiles
+        streamSnapshot = null
+        streamedMarkdown = null
+        if (preparedBinding.replaceTranscript) {
+            transcript.clear()
+            transcript.addAll(preparedBinding.transcriptEntries)
+        }
+    }
+
+    fun applyConversationSnapshot(snapshot: ConversationStreamSnapshot) {
+        streamSnapshot = snapshot
+        if (snapshot.conversationId.isNotBlank()) {
+            activeConversationId = snapshot.conversationId
+        }
+        streamedMarkdown = latestAssistantMarkdown(snapshot) ?: streamedMarkdown
+        syncAssistantTranscript(transcript, snapshot)
+    }
+
+    fun handleConversationStreamError(err: Throwable) {
+        applyVisibleAppError(err)
+    }
+
+    fun startConversationStream(client: AgentlyClient, conversationId: String) {
+        streamJob = scope.launch {
+            try {
+                client.trackConversation(conversationId).collect(::applyConversationSnapshot)
+            } catch (err: Throwable) {
+                handleConversationStreamError(err)
+            }
+        }
     }
 
     suspend fun bindConversation(conversationId: String, replaceTranscript: Boolean) {
+        val resolvedClient = resolveClient()
         streamJob?.cancelAndJoin()
-        val state = client.getLiveState(conversationId)
-        activeConversationId = conversationId
-        pendingApprovals = runCatching {
-            client.listPendingToolApprovals(
-                ListPendingToolApprovalsInput(
-                    conversationId = conversationId,
-                    status = "pending",
-                    limit = 20
-                )
+        val preparedBinding = prepareConversationBinding(
+            client = resolvedClient,
+            conversationId = conversationId,
+            replaceTranscript = replaceTranscript,
+            approvalEdits = approvalEdits,
+            transcriptBuilder = ::transcriptFromState
+        )
+        applyPreparedConversationBinding(preparedBinding)
+        startConversationStream(resolvedClient, conversationId)
+    }
+
+    fun applyApprovalRefreshState(approvalState: ApprovalRefreshState) {
+        pendingApprovals = approvalState.pendingApprovals
+        approvalEdits = approvalState.approvalEdits
+    }
+
+    suspend fun refreshPendingApprovalsForActiveConversation() {
+        val approvalState = refreshApprovalState(
+            client = resolveClient(),
+            conversationId = activeConversationId,
+            approvalEdits = approvalEdits
+        )
+        applyApprovalRefreshState(approvalState)
+    }
+
+    fun handleApprovalEditChange(approvalId: String, fieldName: String, value: JsonElement) {
+        approvalEdits = updateApprovalEdit(
+            approvalEdits = approvalEdits,
+            approvalId = approvalId,
+            fieldName = fieldName,
+            value = value
+        )
+    }
+
+    fun handleApprovalDecision(approval: PendingToolApproval, action: String) {
+        launchVisibleErrorOperation(showLoading = true) {
+            val decision = buildApprovalDecisionRequest(
+                approval = approval,
+                action = action,
+                approvalJson = approvalJson,
+                approvalEdits = approvalEdits
             )
-        }.getOrDefault(emptyList())
-        approvalEdits = approvalEdits.filterKeys { approvalId ->
-            pendingApprovals.any { it.id == approvalId }
-        }
-        generatedFiles = runCatching { client.listGeneratedFiles(conversationId) }.getOrDefault(emptyList())
-        streamSnapshot = null
-        streamedMarkdown = null
-        if (replaceTranscript) {
-            transcript.clear()
-            transcript.addAll(transcriptFromState(state))
-        }
-        streamJob = scope.launch {
-            try {
-                client.trackConversation(conversationId).collect { snapshot ->
-                    streamSnapshot = snapshot
-                    if (snapshot.conversationId.isNotBlank()) {
-                        activeConversationId = snapshot.conversationId
-                    }
-                    streamedMarkdown = latestAssistantMarkdown(snapshot) ?: streamedMarkdown
-                    syncAssistantTranscript(transcript, snapshot)
-                }
-            } catch (err: Throwable) {
-                error = err.message ?: err.toString()
-            }
+            submitApprovalDecision(
+                client = resolveClient(),
+                decision = decision
+            )
+            val approvalState = refreshApprovalState(
+                client = resolveClient(),
+                conversationId = activeConversationId,
+                approvalEdits = approvalEdits,
+                clearedApprovalId = approval.id
+            )
+            applyApprovalRefreshState(approvalState)
         }
     }
 
     fun loadWorkspace() {
-        scope.launch {
-            loading = true
-            error = null
-            try {
-                metadata = client.getWorkspaceMetadata()
-                refreshRecentConversations()
-            } catch (err: Throwable) {
-                error = err.message ?: err.toString()
-            } finally {
-                loading = false
-            }
+        launchAppOperation(showLoading = true) {
+            val workspaceResult = loadWorkspaceSession(::resolveClient)
+            applyWorkspaceLoadResult(workspaceResult)
         }
     }
 
+    fun applyComposerDraft(draft: ComposerDraftState) {
+        setQueryText(draft.prompt)
+        updateComposerAttachments(draft.attachments)
+    }
+
+    fun clearComposerInputs() {
+        applyComposerDraft(clearComposerDraft())
+    }
+
+    fun restoreComposerDraftIfNeeded(draft: ComposerDraftState) {
+        if (shouldRestoreComposerDraft(query, composerAttachments)) {
+            applyComposerDraft(draft)
+        }
+    }
+
+    fun applyQuerySuccessState(
+        queryExecution: QueryExecutionResult,
+        querySuccessState: QuerySuccessState,
+        userEntryId: String?
+    ) {
+        metadata = querySuccessState.metadata
+        activeConversationId = queryExecution.conversationId
+        updateChatEntryDeliveryState(transcript, userEntryId, null)
+        clearComposerInputs()
+        activeConversationId = querySuccessState.activeConversationId
+        result = querySuccessState.result
+        querySuccessState.streamedMarkdown?.let { markdown ->
+            streamedMarkdown = markdown
+            syncAssistantResult(transcript, querySuccessState.result?.messageId, markdown)
+        }
+        generatedFiles = querySuccessState.generatedFiles
+        pendingApprovals = querySuccessState.pendingApprovals
+        approvalEdits = querySuccessState.approvalEdits
+    }
+
+    fun resetQueryResponseState() {
+        result = null
+        streamSnapshot = null
+        streamedMarkdown = null
+    }
+
+    fun currentComposerDraft(): ComposerDraftState {
+        return ComposerDraftState(
+            prompt = query,
+            attachments = composerAttachments
+        )
+    }
+
+    fun handleQueryFailure(
+        userEntryId: String?,
+        draftToRestore: ComposerDraftState,
+        err: Throwable
+    ) {
+        updateChatEntryDeliveryState(
+            transcript,
+            userEntryId,
+            "failed"
+        )
+        restoreComposerDraftIfNeeded(draftToRestore)
+        applyVisibleAppError(err)
+    }
+
     fun runQuery() {
-        scope.launch {
-            loading = true
-            error = null
+        launchAppOperation(showLoading = true) {
+            var userEntryId: String? = null
+            val currentDraft = currentComposerDraft()
             try {
-                val meta = metadata ?: client.getWorkspaceMetadata().also { metadata = it }
+                val resolvedClient = resolveClient()
                 streamJob?.cancelAndJoin()
-                result = null
-                streamSnapshot = null
-                streamedMarkdown = null
-                val userEntryId = "user-${System.currentTimeMillis()}"
-                transcript.add(
-                    ChatEntry(
-                        id = userEntryId,
-                        role = "user",
-                        markdown = query.trim(),
-                        timestampLabel = formatTimestampLabel(System.currentTimeMillis())
-                    )
+                resetQueryResponseState()
+                val preparedQuerySubmission = prepareQuerySubmission(
+                    draft = currentDraft,
+                    timestampMs = System.currentTimeMillis()
                 )
+                userEntryId = preparedQuerySubmission.entryId
+                transcript.add(preparedQuerySubmission.pendingEntry)
+                clearComposerInputs()
 
-                val conversationId = activeConversationId ?: client.createConversation(
-                    CreateConversationInput(
-                        agentId = meta.defaultAgent ?: meta.defaults?.agent,
-                        title = query.take(80)
-                    )
-                ).id
-                activeConversationId = conversationId
-
-                bindConversation(conversationId, replaceTranscript = false)
-
-                result = client.query(
-                    QueryInput(
-                        conversationId = conversationId,
-                        agentId = meta.defaultAgent ?: meta.defaults?.agent,
-                        model = meta.defaultModel ?: meta.defaults?.model,
-                        query = query
-                    )
+                val queryExecution = executeQueryTurn(
+                    client = resolvedClient,
+                    metadata = metadata,
+                    activeConversationId = activeConversationId,
+                    effectiveAgentId = effectiveAgentId,
+                    prompt = preparedQuerySubmission.effectivePrompt,
+                    attachments = currentDraft.attachments,
+                    queryContext = buildClientQueryContext(formFactor)
                 )
-                activeConversationId = result?.conversationId ?: conversationId
-                if (!result?.content.isNullOrBlank()) {
-                    streamedMarkdown = result?.content
-                    syncAssistantResult(transcript, result?.messageId, result?.content.orEmpty())
-                }
-                generatedFiles = runCatching { client.listGeneratedFiles(conversationId) }.getOrDefault(generatedFiles)
-                pendingApprovals = runCatching {
-                    client.listPendingToolApprovals(
-                        ListPendingToolApprovalsInput(
-                            conversationId = conversationId,
-                            status = "pending",
-                            limit = 20
-                        )
-                    )
-                }.getOrDefault(pendingApprovals)
-                approvalEdits = approvalEdits.filterKeys { approvalId ->
-                    pendingApprovals.any { it.id == approvalId }
-                }
+                val querySuccessState = buildQuerySuccessState(
+                    execution = queryExecution,
+                    approvalEdits = approvalEdits
+                )
+                bindConversation(queryExecution.conversationId, replaceTranscript = false)
+                applyQuerySuccessState(
+                    queryExecution = queryExecution,
+                    querySuccessState = querySuccessState,
+                    userEntryId = userEntryId
+                )
                 refreshRecentConversations()
             } catch (err: Throwable) {
-                error = err.message ?: err.toString()
-            } finally {
-                loading = false
+                handleQueryFailure(userEntryId, currentDraft, err)
             }
         }
     }
 
     fun openGeneratedFile(file: GeneratedFileEntry) {
-        scope.launch {
-            error = null
-            try {
-                val downloaded = client.downloadGeneratedFile(file.id)
-                val previewText = if (isPreviewableText(downloaded.contentType, downloaded.name)) {
-                    downloaded.data.toString(Charsets.UTF_8)
-                } else {
-                    null
-                }
-                artifactPreview = ArtifactPreview(
-                    artifactId = file.id,
-                    name = downloaded.name ?: file.filename ?: file.id.take(12),
-                    contentType = downloaded.contentType ?: file.mimeType,
-                    text = previewText,
-                    sizeBytes = downloaded.data.size
-                )
-            } catch (err: Throwable) {
-                error = err.message ?: err.toString()
-            }
+        launchVisibleErrorOperation {
+            val downloaded = resolveClient().downloadGeneratedFile(file.id)
+            artifactPreview = buildArtifactPreview(file, downloaded)
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            streamJob?.cancel()
-        }
+    fun setCurrentScreen(screen: AppScreen) {
+        currentScreen = screen
     }
 
-    LaunchedEffect(Unit) {
-        loadWorkspace()
+    fun showChatScreen() {
+        setCurrentScreen(AppScreen.Chat)
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        when (currentScreen) {
-            AppScreen.Chat -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text("Agently Android", style = MaterialTheme.typography.headlineSmall)
-                            Text(
-                                "Mobile chat shell backed by agently-core streaming and Forge rendering.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFF667085)
-                            )
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                AssistChip(
-                                    onClick = {},
-                                    enabled = false,
-                                    label = { Text("Backend 10.0.2.2:9393") }
-                                )
-                                metadata?.defaultAgent?.takeIf { it.isNotBlank() }?.let {
-                                    AssistChip(onClick = {}, enabled = false, label = { Text("Agent $it") })
-                                }
-                                (metadata?.defaultModel ?: metadata?.defaults?.model)?.takeIf { it.isNotBlank() }?.let {
-                                    AssistChip(onClick = {}, enabled = false, label = { Text("Model $it") })
-                                }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { loadWorkspace() }, enabled = !loading) {
-                                    Text("Refresh")
-                                }
-                                OutlinedButton(onClick = { resetConversation() }, enabled = !loading) {
-                                    Text("New Conversation")
-                                }
-                                OutlinedButton(
-                                    onClick = { currentScreen = AppScreen.History },
-                                    enabled = recentConversations.isNotEmpty()
-                                ) {
-                                    Text("History")
-                                }
-                                if (loading) {
-                                    CircularProgressIndicator(modifier = Modifier.width(24.dp))
-                                }
-                            }
-                        }
-                    }
-                    metadata?.let { meta ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text("Workspace", style = MaterialTheme.typography.titleMedium)
-                                Text(meta.workspaceRoot ?: "unknown", style = MaterialTheme.typography.bodySmall)
-                                Row(
-                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    FilterChip(
-                                        selected = true,
-                                        onClick = {},
-                                        label = { Text("Agent ${meta.defaultAgent ?: meta.defaults?.agent ?: "n/a"}") }
-                                    )
-                                    FilterChip(
-                                        selected = true,
-                                        onClick = {},
-                                        label = { Text("Model ${meta.defaultModel ?: meta.defaults?.model ?: "n/a"}") }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    RecentConversationsSection(
-                        conversations = recentConversations,
-                        activeConversationId = activeConversationId,
-                        onSelectConversation = { conversationId ->
-                            scope.launch {
-                                loading = true
-                                error = null
-                                try {
-                                    bindConversation(conversationId, replaceTranscript = true)
-                                } catch (err: Throwable) {
-                                    error = err.message ?: err.toString()
-                                } finally {
-                                    loading = false
-                                }
-                            }
-                        }
-                    )
-                    error?.let {
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                "Error: $it",
-                                color = Color(0xFFB42318),
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(14.dp)
-                            )
-                        }
-                    }
-                    if (!activeConversationId.isNullOrBlank()) {
-                        Text("Conversation: ${activeConversationId ?: "n/a"}", style = MaterialTheme.typography.bodySmall)
-                    }
-                    streamSnapshot?.activeTurnId?.let { turnId ->
-                        Text("Active turn: $turnId", style = MaterialTheme.typography.bodySmall, color = Color(0xFF667085))
-                    }
-                    if (loading || streamSnapshot?.activeTurnId != null) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
-                    PendingApprovalsSection(
-                        approvals = pendingApprovals,
-                        approvalJson = approvalJson,
-                        approvalEdits = approvalEdits,
-                        onEditChange = { approvalId, fieldName, value ->
-                            approvalEdits = approvalEdits.toMutableMap().apply {
-                                val nextFields = (this[approvalId] ?: emptyMap()).toMutableMap()
-                                nextFields[fieldName] = value
-                                this[approvalId] = nextFields
-                            }
-                        },
-                        onDecision = { approval, action ->
-                            scope.launch {
-                                loading = true
-                                error = null
-                                try {
-                                    client.decideToolApproval(
-                                        DecideToolApprovalInput(
-                                            id = approval.id,
-                                            action = action,
-                                            editedFields = approvalEdits[approval.id] ?: emptyMap()
-                                        )
-                                    )
-                                    val conversationId = activeConversationId
-                                    pendingApprovals = if (!conversationId.isNullOrBlank()) {
-                                        client.listPendingToolApprovals(
-                                            ListPendingToolApprovalsInput(
-                                                conversationId = conversationId,
-                                                status = "pending",
-                                                limit = 20
-                                            )
-                                        )
-                                    } else {
-                                        emptyList()
-                                    }
-                                    approvalEdits = approvalEdits - approval.id
-                                } catch (err: Throwable) {
-                                    error = err.message ?: err.toString()
-                                } finally {
-                                    loading = false
-                                }
-                            }
-                        }
-                    )
-                    ConversationArtifactsSection(
-                        files = generatedFiles,
-                        onOpenFile = { openGeneratedFile(it) }
-                    )
-                    artifactPreview?.let { preview ->
-                        if (generatedFiles.none { it.id == preview.artifactId }) {
-                            ArtifactPreviewSection(
-                                preview = preview,
-                                onClose = { artifactPreview = null }
-                            )
-                        }
-                    }
-                    RenderTranscript(
-                        items = transcript,
-                        pendingApprovals = pendingApprovals,
-                        generatedFiles = generatedFiles,
-                        approvalJson = approvalJson,
-                        approvalEdits = approvalEdits,
-                        onEditChange = { approvalId, fieldName, value ->
-                            approvalEdits = approvalEdits.toMutableMap().apply {
-                                val nextFields = (this[approvalId] ?: emptyMap()).toMutableMap()
-                                nextFields[fieldName] = value
-                                this[approvalId] = nextFields
-                            }
-                        },
-                        onDecision = { approval, action ->
-                            scope.launch {
-                                loading = true
-                                error = null
-                                try {
-                                    client.decideToolApproval(
-                                        DecideToolApprovalInput(
-                                            id = approval.id,
-                                            action = action,
-                                            editedFields = approvalEdits[approval.id] ?: emptyMap()
-                                        )
-                                    )
-                                    val conversationId = activeConversationId
-                                    pendingApprovals = if (!conversationId.isNullOrBlank()) {
-                                        client.listPendingToolApprovals(
-                                            ListPendingToolApprovalsInput(
-                                                conversationId = conversationId,
-                                                status = "pending",
-                                                limit = 20
-                                            )
-                                        )
-                                    } else {
-                                        emptyList()
-                                    }
-                                    approvalEdits = approvalEdits - approval.id
-                                } catch (err: Throwable) {
-                                    error = err.message ?: err.toString()
-                                } finally {
-                                    loading = false
-                                }
-                            }
-                        },
-                        artifactPreview = artifactPreview,
-                        onClosePreview = { artifactPreview = null },
-                        onOpenFile = { openGeneratedFile(it) }
-                    )
-                    Spacer(modifier = Modifier.height(200.dp))
-                }
-            }
-            AppScreen.History -> {
-                ConversationHistoryScreen(
-                    conversations = recentConversations,
-                    activeConversationId = activeConversationId,
-                    loading = loading,
-                    onBack = { currentScreen = AppScreen.Chat },
-                    onRefresh = { loadWorkspace() },
-                    onSelectConversation = { conversationId ->
-                        scope.launch {
-                            loading = true
-                            error = null
-                            try {
-                                bindConversation(conversationId, replaceTranscript = true)
-                                currentScreen = AppScreen.Chat
-                            } catch (err: Throwable) {
-                                error = err.message ?: err.toString()
-                            } finally {
-                                loading = false
-                            }
-                        }
-                    }
-                )
-            }
-        }
-        if (currentScreen == AppScreen.Chat) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("Composer", style = MaterialTheme.typography.titleMedium)
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        label = { Text("Message") },
-                        placeholder = { Text("Ask a follow-up or start a new task") },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 3,
-                        maxLines = 6
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            if (!activeConversationId.isNullOrBlank()) "Continuing current conversation" else "A new conversation will be created",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF667085)
-                        )
-                        Button(onClick = { runQuery() }, enabled = !loading && query.isNotBlank()) {
-                            Text("Send")
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConversationHistoryScreen(
-    conversations: List<Conversation>,
-    activeConversationId: String?,
-    loading: Boolean,
-    onBack: () -> Unit,
-    onRefresh: () -> Unit,
-    onSelectConversation: (String) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("Conversation History", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    "Browse recent threads and jump back into an earlier conversation.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF667085)
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onBack) {
-                        Text("Back")
-                    }
-                    Button(onClick = onRefresh, enabled = !loading) {
-                        Text("Refresh")
-                    }
-                    if (loading) {
-                        CircularProgressIndicator(modifier = Modifier.width(24.dp))
-                    }
-                }
-            }
-        }
-        if (conversations.isEmpty()) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "No conversations yet.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-            return
-        }
-        conversations.forEach { conversation ->
-            val isActive = conversation.id == activeConversationId
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        conversation.title?.takeIf { it.isNotBlank() } ?: conversation.id.take(12),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        conversation.summary?.takeIf { it.isNotBlank() } ?: "Conversation ${conversation.id.take(12)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
-                    )
-                    Text(
-                        formatTimestampLabel(conversation.lastActivity ?: conversation.createdAt) ?: "Recent conversation",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF667085)
-                    )
-                    OutlinedButton(
-                        onClick = { onSelectConversation(conversation.id) },
-                        enabled = !isActive,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (isActive) "Active" else "Open conversation")
-                    }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(24.dp))
-    }
-}
-
-@Composable
-private fun PendingApprovalsSection(
-    approvals: List<PendingToolApproval>,
-    approvalJson: Json,
-    approvalEdits: Map<String, Map<String, JsonElement>>,
-    onEditChange: (String, String, JsonElement) -> Unit,
-    onDecision: (PendingToolApproval, String) -> Unit
-) {
-    if (approvals.isEmpty()) {
-        return
-    }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text("Approvals", style = MaterialTheme.typography.titleMedium)
-            approvals.forEach { approval ->
-                ApprovalCardContent(
-                    approval = approval,
-                    meta = approval.metadata?.let {
-                        runCatching { approvalJson.decodeFromJsonElement<com.viant.agentlysdk.ApprovalMeta>(it) }.getOrNull()
-                    },
-                    selectedFields = approvalEdits[approval.id].orEmpty(),
-                    onEditChange = onEditChange,
-                    onDecision = onDecision,
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConversationArtifactsSection(
-    files: List<GeneratedFileEntry>,
-    onOpenFile: (GeneratedFileEntry) -> Unit
-) {
-    if (files.isEmpty()) {
-        return
-    }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text("Artifacts", style = MaterialTheme.typography.titleMedium)
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                files.forEach { file ->
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = MaterialTheme.shapes.medium,
-                        modifier = Modifier.width(220.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                file.filename ?: file.id.take(12),
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Text(
-                                file.status ?: "unknown",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFF667085)
-                            )
-                            file.mimeType?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall)
-                            }
-                            file.sizeBytes?.let {
-                                Text("$it bytes", style = MaterialTheme.typography.bodySmall)
-                            }
-                            TextButton(
-                                onClick = { onOpenFile(file) },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Open")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ArtifactPreviewSection(
-    preview: ArtifactPreview,
-    onClose: () -> Unit
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Artifact Preview", style = MaterialTheme.typography.titleMedium)
-                    Text(preview.name, style = MaterialTheme.typography.bodySmall)
-                    Text(
-                        "${preview.contentType ?: "unknown"} · ${preview.sizeBytes} bytes",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
-                    )
-                }
-                TextButton(onClick = onClose) {
-                    Text("Close")
-                }
-            }
-            if (preview.text != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        preview.text,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
-            } else {
-                Text(
-                    "Binary artifact downloaded. Inline preview is available for text-based outputs only.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecentConversationsSection(
-    conversations: List<Conversation>,
-    activeConversationId: String?,
-    onSelectConversation: (String) -> Unit
-) {
-    if (conversations.isEmpty()) {
-        return
-    }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text("Recent Conversations", style = MaterialTheme.typography.titleMedium)
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                conversations.forEach { conversation ->
-                    val isActive = conversation.id == activeConversationId
-                    val summary = conversation.summary
-                    Surface(
-                        color = if (isActive) Color(0xFFEFF8FF) else MaterialTheme.colorScheme.surfaceVariant,
-                        shape = MaterialTheme.shapes.medium,
-                        modifier = Modifier.width(250.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                conversation.title?.takeIf { it.isNotBlank() } ?: conversation.id.take(12),
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Text(
-                                summary?.takeIf { it.isNotBlank() } ?: "Conversation ${conversation.id.take(12)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF667085)
-                            )
-                            OutlinedButton(
-                                onClick = { onSelectConversation(conversation.id) },
-                                enabled = !isActive,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(if (isActive) "Active" else "Open")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RenderTranscript(
-    items: List<ChatEntry>,
-    pendingApprovals: List<PendingToolApproval>,
-    generatedFiles: List<GeneratedFileEntry>,
-    approvalJson: Json,
-    approvalEdits: Map<String, Map<String, JsonElement>>,
-    onEditChange: (String, String, JsonElement) -> Unit,
-    onDecision: (PendingToolApproval, String) -> Unit,
-    artifactPreview: ArtifactPreview?,
-    onClosePreview: () -> Unit,
-    onOpenFile: (GeneratedFileEntry) -> Unit
-) {
-    if (items.isEmpty()) {
-        return
-    }
-    Text("Transcript", style = MaterialTheme.typography.titleMedium)
-    items.forEachIndexed { index, item ->
-        val previous = items.getOrNull(index - 1)
-        val startsGroup = previous?.role != item.role
-        val messageApprovals = if (item.role == "assistant") {
-            pendingApprovals.filter { it.messageId == item.id }
-        } else {
-            emptyList()
-        }
-        val messageArtifacts = if (item.role == "assistant") {
-            generatedFiles.filter { it.messageId == item.id }
-        } else {
-            emptyList()
-        }
-        val inlinePreview = artifactPreview?.takeIf { preview ->
-            messageArtifacts.any { it.id == preview.artifactId }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = if (item.role == "user") Arrangement.End else Arrangement.Start
-        ) {
-            Surface(
-                color = if (item.role == "user") Color(0xFFF5F8FF) else MaterialTheme.colorScheme.surfaceVariant,
-                shape = MaterialTheme.shapes.large,
-                modifier = Modifier.fillMaxWidth(0.92f)
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (startsGroup || item.streaming) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                if (item.role == "user") "You" else if (item.streaming) "Assistant is responding..." else "Assistant",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = if (item.role == "user") Color(0xFF1849A9) else Color(0xFF344054)
-                            )
-                            item.timestampLabel?.let {
-                                Text(
-                                    it,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFF667085)
-                                )
-                            }
-                        }
-                    } else {
-                        item.timestampLabel?.let {
-                            Text(
-                                it,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF667085)
-                            )
-                        }
-                    }
-                    MarkdownRenderer(
-                        markdown = item.markdown.ifBlank { "(empty response)" },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (messageApprovals.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                "Approval required",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFF667085)
-                            )
-                            messageApprovals.forEach { approval ->
-                                InlineApprovalCard(
-                                    approval = approval,
-                                    approvalJson = approvalJson,
-                                    selectedFields = approvalEdits[approval.id].orEmpty(),
-                                    onEditChange = onEditChange,
-                                    onDecision = onDecision
-                                )
-                            }
-                        }
-                    }
-                    if (messageArtifacts.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                "Artifacts from this response",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFF667085)
-                            )
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                messageArtifacts.forEach { file ->
-                                    OutlinedButton(onClick = { onOpenFile(file) }) {
-                                        Text(file.filename ?: file.id.take(12))
-                                    }
-                                }
-                            }
-                            inlinePreview?.let { preview ->
-                                InlineArtifactPreviewSection(
-                                    preview = preview,
-                                    onClose = onClosePreview
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(if (startsGroup) 10.dp else 4.dp))
-    }
-}
-
-@Composable
-private fun InlineArtifactPreviewSection(
-    preview: ArtifactPreview,
-    onClose: () -> Unit
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.background,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Inline Preview", style = MaterialTheme.typography.labelLarge)
-                    Text(
-                        preview.name,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
-                    )
-                }
-                TextButton(onClick = onClose) {
-                    Text("Close")
-                }
-            }
-            if (preview.text != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        preview.text,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
-            } else {
-                Text(
-                    "Binary artifact downloaded. Inline preview is available for text-based outputs only.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun InlineApprovalCard(
-    approval: PendingToolApproval,
-    approvalJson: Json,
-    selectedFields: Map<String, JsonElement>,
-    onEditChange: (String, String, JsonElement) -> Unit,
-    onDecision: (PendingToolApproval, String) -> Unit
-) {
-    ApprovalCardContent(
-        approval = approval,
-        meta = approval.metadata?.let {
-            runCatching { approvalJson.decodeFromJsonElement<com.viant.agentlysdk.ApprovalMeta>(it) }.getOrNull()
-        },
-        selectedFields = selectedFields,
-        onEditChange = onEditChange,
-        onDecision = onDecision,
-        containerColor = Color(0xFFFFF7E8)
-    )
-}
-
-@Composable
-private fun ApprovalCardContent(
-    approval: PendingToolApproval,
-    meta: com.viant.agentlysdk.ApprovalMeta?,
-    selectedFields: Map<String, JsonElement>,
-    onEditChange: (String, String, JsonElement) -> Unit,
-    onDecision: (PendingToolApproval, String) -> Unit,
-    containerColor: Color
-) {
-    Surface(
-        color = containerColor,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                meta?.title ?: approval.title ?: approval.toolName,
-                style = MaterialTheme.typography.titleSmall
-            )
-            Text(
-                meta?.message ?: "Tool ${approval.toolName} is waiting for approval.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF667085)
-            )
-            if (!meta?.editors.isNullOrEmpty()) {
-                meta?.editors?.forEach { editor ->
-                    if (editor.options.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                editor.label ?: editor.name,
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                editor.options.forEach { option ->
-                                    val optionValue = option.item ?: JsonPrimitive(option.id)
-                                    val selected = selectedFields[editor.name] == optionValue ||
-                                        (selectedFields[editor.name] == null && option.selected)
-                                    FilterChip(
-                                        selected = selected,
-                                        onClick = { onEditChange(approval.id, editor.name, optionValue) },
-                                        label = { Text(option.label) }
-                                    )
-                                }
-                            }
-                            editor.description?.takeIf { it.isNotBlank() }?.let {
-                                Text(
-                                    it,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF667085)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onDecision(approval, "approve") }) {
-                    Text(meta?.acceptLabel ?: "Approve")
-                }
-                OutlinedButton(onClick = { onDecision(approval, "reject") }) {
-                    Text(meta?.rejectLabel ?: "Reject")
-                }
-            }
-        }
-    }
-}
-
-private fun latestAssistantMarkdown(snapshot: ConversationStreamSnapshot): String? {
-    val latest = snapshot.bufferedMessages
-        .asReversed()
-        .firstOrNull { message ->
-            message.role.equals("assistant", ignoreCase = true) &&
-                (!message.content.isNullOrBlank() || !message.preamble.isNullOrBlank())
-        }
-        ?: return null
-    return combineAssistantMarkdown(latest)
-}
-
-private fun combineAssistantMarkdown(message: BufferedMessage): String? {
-    val preamble = message.preamble?.trim().orEmpty()
-    val content = message.content?.trim().orEmpty()
-    return when {
-        preamble.isNotEmpty() && content.isNotEmpty() -> "$preamble\n\n$content"
-        content.isNotEmpty() -> content
-        preamble.isNotEmpty() -> preamble
-        else -> null
-    }
-}
-
-private fun syncAssistantTranscript(
-    transcript: MutableList<ChatEntry>,
-    snapshot: ConversationStreamSnapshot
-) {
-    val assistantMessages = snapshot.bufferedMessages
-        .filter { it.role.equals("assistant", ignoreCase = true) }
-        .sortedBy { it.createdAt ?: it.id }
-
-    assistantMessages.forEach { message ->
-        val markdown = combineAssistantMarkdown(message) ?: return@forEach
-        val existingIndex = transcript.indexOfFirst { it.id == message.id }
-        val updated = ChatEntry(
-            id = message.id,
-            role = "assistant",
-            markdown = markdown,
-            streaming = snapshot.activeTurnId != null && message.turnId == snapshot.activeTurnId,
-            timestampLabel = formatTimestampLabel(message.createdAt)
+    fun applySettingsTransition(transition: SettingsApplyTransition) {
+        preferredAgentId = transition.preferredAgentId
+        persistAppSettings(
+            store = appSettingsStore,
+            configuredBaseUrl = configuredAppApiBaseUrl,
+            nextBaseUrl = transition.resolvedBaseUrl,
+            nextPreferredAgentId = transition.preferredAgentId
         )
-        if (existingIndex >= 0) {
-            transcript[existingIndex] = updated
-        } else {
-            transcript.add(updated)
+        if (transition.requiresWorkspaceReset) {
+            resetWorkspaceForBaseUrl(transition.resolvedBaseUrl)
         }
+        showChatScreen()
     }
-}
 
-private fun syncAssistantResult(
-    transcript: MutableList<ChatEntry>,
-    messageId: String?,
-    markdown: String
-) {
-    if (markdown.isBlank()) return
-    val id = messageId?.takeIf { it.isNotBlank() } ?: "assistant-final-${System.currentTimeMillis()}"
-    val existingIndex = transcript.indexOfFirst { it.id == id }
-    val updated = ChatEntry(
-        id = id,
-        role = "assistant",
-        markdown = markdown,
-        streaming = false,
-        timestampLabel = formatTimestampLabel(System.currentTimeMillis())
+    suspend fun bootstrapWorkspaceSession() {
+        val workspaceResult = loadWorkspaceSession(::resolveClient)
+        applyWorkspaceLoadResult(workspaceResult)
+    }
+
+    fun runInitialAuthRefresh() {
+        refreshAuthAfterSuccessfulLogin()
+    }
+
+    fun setWorkspaceBootstrapRequested(requested: Boolean) {
+        workspaceBootstrapRequested = requested
+    }
+
+    fun disposeStreamJob() {
+        clearActiveStreamJob()
+    }
+
+    fun updateQuery(value: String) {
+        query = value
+    }
+
+    fun applySavedLoginSettings(next: SavedLoginConfig) {
+        persistSavedLoginConfig(
+            store = savedLoginStore,
+            next = next,
+            bindings = savedLoginBindings()
+        )
+    }
+
+    AppEffects(
+        forgeRuntime = forgeRuntime,
+        isTablet = isTablet,
+        authState = authState,
+        metadataLoaded = metadata != null,
+        recentConversationCount = recentConversations.size,
+        loading = loading,
+        workspaceBootstrapRequested = workspaceBootstrapRequested,
+        onWorkspaceBootstrapRequestedChange = ::setWorkspaceBootstrapRequested,
+        onWorkspaceBootstrap = ::bootstrapWorkspaceSession,
+        onSetCurrentScreen = ::setCurrentScreen,
+        onLoadWorkspace = ::loadWorkspace,
+        onResetConversation = ::resetConversation,
+        onDisposeStreamJob = ::disposeStreamJob,
+        onInitialAuthRefresh = ::runInitialAuthRefresh,
+        onSetAuthRequired = ::setAuthRequired
     )
-    if (existingIndex >= 0) {
-        transcript[existingIndex] = updated
-    } else {
-        transcript.add(updated)
+
+    fun applySettings(nextBaseUrl: String, nextPreferredAgentId: String, nextSavedLoginConfig: SavedLoginConfig) {
+        val transition = buildSettingsApplyTransition(
+            configuredBaseUrl = configuredAppApiBaseUrl,
+            currentBaseUrl = appApiBaseUrl,
+            nextBaseUrl = nextBaseUrl,
+            nextPreferredAgentId = nextPreferredAgentId
+        )
+        applySavedLoginSettings(nextSavedLoginConfig)
+        applySettingsTransition(transition)
     }
+
+    fun resetAppOverrides() {
+        val transition = buildResetOverridesTransition(
+            configuredBaseUrl = configuredAppApiBaseUrl,
+            currentBaseUrl = appApiBaseUrl
+        )
+        applySettingsTransition(transition)
+    }
+
+    fun saveSavedLoginSettings(next: SavedLoginConfig) {
+        persistSavedLoginConfig(
+            store = savedLoginStore,
+            next = next,
+            bindings = savedLoginBindings(),
+            dismissSettings = true
+        )
+    }
+
+    fun clearSavedLoginSettings() {
+        clearSavedLoginConfig(
+            store = savedLoginStore,
+            bindings = savedLoginBindings(),
+            dismissSettings = true
+        )
+    }
+
+    fun selectConversation(conversationId: String, navigateToChat: Boolean = false) {
+        launchVisibleErrorOperation(showLoading = true) {
+            bindConversation(conversationId, replaceTranscript = true)
+            if (navigateToChat) {
+                showChatScreen()
+            }
+        }
+    }
+
+    val callbacks = buildAppUiCallbacks(
+        currentScreenProvider = { currentScreen },
+        setCurrentScreen = ::setCurrentScreen,
+        onRefreshWorkspace = ::loadWorkspace,
+        onNewConversation = ::resetConversation,
+        onSelectConversation = ::selectConversation,
+        onApprovalEditChange = ::handleApprovalEditChange,
+        onApprovalDecision = ::handleApprovalDecision,
+        onOpenFile = ::openGeneratedFile,
+        onClosePreview = ::closeArtifactPreview,
+        onQueryChange = ::updateQuery,
+        onRunQuery = ::runQuery,
+        onRefreshAuth = ::refreshAuthFromUi,
+        onSaveSettings = ::applySettings,
+        onResetAppOverrides = ::resetAppOverrides,
+        onClearAuthSecrets = ::clearAuthSecrets,
+        onAuthSignIn = ::startOAuthSignIn,
+        onManageSavedLogin = ::openSavedLoginSettings,
+        onAuthRetry = ::retryAuthConnection,
+        onDismissAuthWeb = ::dismissAuthWeb,
+        onOAuthCallback = ::handleOAuthCallback,
+        onDismissSavedLoginSettings = ::dismissSavedLoginSettings,
+        onSaveSavedLoginSettings = ::saveSavedLoginSettings,
+        onClearSavedLoginSettings = ::clearSavedLoginSettings
+    )
+
+    AppBody(
+        authState = authState,
+        currentScreen = currentScreen,
+        isTablet = isTablet,
+        loading = loading,
+        configuredAppApiBaseUrl = configuredAppApiBaseUrl,
+        appApiBaseUrl = appApiBaseUrl,
+        metadata = metadata,
+        preferredAgentId = preferredAgentId,
+        savedLoginConfig = savedLoginConfig,
+        authBusy = authBusy,
+        authError = authError,
+        error = error,
+        authProviders = authProviders,
+        authUser = authUser,
+        authWebUrl = authWebUrl,
+        showSavedLoginSettings = showSavedLoginSettings,
+        effectiveAgentId = effectiveAgentId,
+        recentConversations = recentConversations,
+        activeConversationId = activeConversationId,
+        streamSnapshot = streamSnapshot,
+        transcript = transcript,
+        pendingApprovals = pendingApprovals,
+        generatedFiles = generatedFiles,
+        artifactPreview = artifactPreview,
+        client = client,
+        forgeRuntime = forgeRuntime,
+        approvalJson = approvalJson,
+        approvalEdits = approvalEdits,
+        query = query,
+        composerAttachments = composerAttachments,
+        mediaController = mediaController,
+        callbacks = callbacks
+    )
 }
 
-private fun transcriptFromState(state: ConversationStateResponse): List<ChatEntry> {
-    val entries = mutableListOf<ChatEntry>()
-    state.conversation?.turns?.forEach { turn ->
-        val user = turn.user
-        user?.content?.takeIf { it.isNotBlank() }?.let { content ->
-            entries.add(
-                ChatEntry(
-                    id = user.messageId,
-                    role = "user",
-                    markdown = content,
-                    timestampLabel = formatTimestampLabel(turn.createdAt)
-                )
-            )
-        }
-        val assistantId = turn.assistant?.final?.messageId ?: turn.assistant?.preamble?.messageId
-        val assistantContent = buildString {
-            val preamble = turn.assistant?.preamble?.content?.trim().orEmpty()
-            val final = turn.assistant?.final?.content?.trim().orEmpty()
-            if (preamble.isNotEmpty()) {
-                append(preamble)
-            }
-            if (final.isNotEmpty()) {
-                if (isNotEmpty()) append("\n\n")
-                append(final)
-            }
-        }.trim()
-        if (!assistantId.isNullOrBlank() && assistantContent.isNotBlank()) {
-            entries.add(
-                ChatEntry(
-                    id = assistantId,
-                    role = "assistant",
-                    markdown = assistantContent,
-                    streaming = false,
-                    timestampLabel = formatTimestampLabel(turn.createdAt)
-                )
-            )
-        }
+internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
+    val trimmed = configuredBaseUrl.trim().ifBlank { "http://10.0.2.2:9393" }
+    val parsed = runCatching { URI(trimmed) }.getOrNull()
+    val scheme = parsed?.scheme?.takeIf { it.isNotBlank() } ?: "http"
+    val host = parsed?.host?.trim().orEmpty()
+    val port = when {
+        parsed?.port != null && parsed.port > 0 -> parsed.port
+        scheme.equals("https", ignoreCase = true) -> 443
+        else -> 80
     }
-    return entries
+    val path = parsed?.rawPath?.takeIf { it.isNotBlank() && it != "/" }.orEmpty()
+    val candidates = mutableListOf(
+        trimmed,
+        "$scheme://10.0.2.2:$port$path",
+        "$scheme://localhost:$port$path",
+        "$scheme://127.0.0.1:$port$path"
+    )
+    if (host.isNotBlank() && !host.equals("localhost", ignoreCase = true) && host != "127.0.0.1" && host != "10.0.2.2") {
+        candidates += "$scheme://$host:$port$path"
+    }
+    return candidates.distinct()
 }
 
-private data class ChatEntry(
-    val id: String,
-    val role: String,
-    val markdown: String,
-    val streaming: Boolean = false,
-    val timestampLabel: String? = null
-)
+internal fun mergeApiCandidates(
+    currentBaseUrl: String,
+    configuredCandidates: List<String>
+): List<String> {
+    return buildList {
+        add(currentBaseUrl)
+        addAll(configuredCandidates)
+        addAll(buildApiCandidates(currentBaseUrl))
+    }.distinct()
+}
 
-private data class ArtifactPreview(
-    val artifactId: String,
-    val name: String,
-    val contentType: String?,
-    val text: String?,
-    val sizeBytes: Int
-)
-
-private enum class AppScreen {
+internal enum class AppScreen {
     Chat,
-    History
+    History,
+    Settings
 }
 
-private fun isPreviewableText(contentType: String?, name: String?): Boolean {
-    val normalizedType = contentType?.lowercase().orEmpty()
-    val normalizedName = name?.lowercase().orEmpty()
-    return normalizedType.startsWith("text/") ||
-        normalizedType.contains("json") ||
-        normalizedType.contains("xml") ||
-        normalizedType.contains("javascript") ||
-        normalizedName.endsWith(".md") ||
-        normalizedName.endsWith(".txt") ||
-        normalizedName.endsWith(".json") ||
-        normalizedName.endsWith(".yaml") ||
-        normalizedName.endsWith(".yml") ||
-        normalizedName.endsWith(".xml") ||
-        normalizedName.endsWith(".csv")
-}
-
-private fun formatTimestampLabel(value: Long?): String? {
-    if (value == null || value <= 0) return null
-    return SimpleDateFormat("h:mm a", Locale.US).format(Date(value))
-}
-
-private fun formatTimestampLabel(value: String?): String? {
-    val raw = value?.trim().orEmpty()
-    if (raw.isBlank()) return null
-    raw.toLongOrNull()?.let { return formatTimestampLabel(it) }
-    return runCatching {
-        val instant = OffsetDateTime.parse(raw).toInstant()
-        formatTimestampLabel(instant.toEpochMilli())
-    }.getOrNull()
+private fun buildClientQueryContext(formFactor: String): Map<String, JsonElement> {
+    val clientKind = when (formFactor) {
+        "tablet" -> "tablet"
+        else -> "mobile"
+    }
+    return mapOf(
+        "client" to buildJsonObject {
+            put("kind", JsonPrimitive(clientKind))
+            put("platform", JsonPrimitive("android"))
+            put("formFactor", JsonPrimitive(formFactor))
+            put("surface", JsonPrimitive("app"))
+            put(
+                "capabilities",
+                buildJsonArray {
+                    add(JsonPrimitive("markdown"))
+                    add(JsonPrimitive("chart"))
+                    add(JsonPrimitive("attachments"))
+                    add(JsonPrimitive("camera"))
+                    add(JsonPrimitive("voice"))
+                }
+            )
+        }
+    )
 }

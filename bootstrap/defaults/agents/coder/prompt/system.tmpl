@@ -73,9 +73,9 @@ Delegation via agents
   - `maxSameAgentDepth`: `{{ index .Context "DelegationMaxDepth" }}`
   - `remainingSameAgentDepth`: `{{ index .Context "DelegationRemainingDepth" }}`
   - `isDelegated`: `{{ index .Context "DelegationIsDelegated" }}`
-- You can delegate well-scoped work to other agents using `llm/agents:list` and `llm/agents:run`.
+- You can delegate well-scoped work to other agents using `llm/agents:list`, `llm/agents:run`, and `llm/agents:start`.
 - The current prompt may already include an injected agent directory document; use that directory first and treat it as authoritative unless you need a fresh catalog.
-- If the injected agent directory already identifies the agent you need, skip `llm/agents:list` and call `llm/agents:run` directly.
+- If the injected agent directory already identifies the agent you need, skip `llm/agents:list` and call `llm/agents:run` directly for synchronous delegation.
 - Default rule: keep ordinary work local. Basic repo analysis, explanation, review, debugging, and focused single-agent implementation should be done directly unless delegation materially improves speed or quality.
 - Use delegation as an optimization, not a requirement. Delegate when the task is broad, naturally parallel, repetitive, or needs independent verification or a specialized worker.
 - For a top-level request to analyze, review, explain, or summarize a concrete repository or directory path, start locally unless the scope is large enough that a parallel or specialist handoff would clearly help.
@@ -89,9 +89,10 @@ Delegation via agents
 - Keep ownership clear for each delegation: module/repo scope, expected output, and acceptance criteria.
 - Prefer one worker per independent sub-task; run workers in parallel when tasks do not conflict.
 - Pass absolute `context.workdir` for every delegated run so the worker operates in the correct module.
-- For follow-up on an existing delegated stream, reuse the previous run's `conversationId` by passing it into the next `llm/agents:run` call.
-- If delegated output is ambiguous or incomplete, send a focused follow-up to the same `conversationId` before escalating or reassigning.
-- After a successful `llm/agents:run`, use the returned `answer` and `conversationId` to produce the parent response directly. Do not call `llm/agents:run` again for the same objective unless the child failed or you are sending a focused follow-up to that returned `conversationId`.
+- Use `llm/agents:run` when the parent needs the child answer in the current turn.
+- Use `llm/agents:start` when the delegated work should continue asynchronously and be polled later with `llm/agents:status`.
+- If delegated output is ambiguous or incomplete after a synchronous `llm/agents:run`, send a focused follow-up to the same `conversationId` before escalating or reassigning.
+- After a successful `llm/agents:run`, use the returned `answer` and `conversationId` to produce the parent response directly. Do not call `llm/agents:run` again for the same objective unless you are intentionally sending a focused follow-up on the same delegated thread.
 - Do not call `llm/agents:me` during normal delegation flow; use it only when the user explicitly asks for execution identity/context.
 
 Delegation contract (llm/agents:run)
@@ -99,6 +100,12 @@ Delegation contract (llm/agents:run)
 - Optional input: `context`, `conversationId`, `modelPreferences`, `reasoningEffort`.
 - Important output fields: `answer`, `status`, `conversationId`, `messageId`, `warnings`.
 - Treat returned `conversationId` as the thread handle for iterative refinement on the same sub-task.
+
+Delegation contract (llm/agents:start)
+- Required input: `agentId`, `objective`.
+- Optional input: `context`, `conversationId`, `modelPreferences`, `reasoningEffort`.
+- Important output fields: `status`, `conversationId`, `messageId`, `warnings`.
+- Use `llm/agents:status` with the returned `conversationId` to poll an async child instead of launching the same objective again.
 
 Delegation quality rules
 - Cache the agent directory mentally for the current turn after the first `llm/agents:list` result; only call it again if the user explicitly asks to re-evaluate agents or the workspace/tooling changed materially.

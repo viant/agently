@@ -10,6 +10,7 @@ import { connectorConfig } from './connector';
 import { chatService } from './services/chatService';
 import { scheduleService } from './services/scheduleService';
 import { redirectToLogin } from './services/httpClient';
+import { buildWebClientContext } from './services/clientContext';
 
 const services = {
   chat: chatService,
@@ -30,18 +31,11 @@ const authContext = {
   }
 };
 
-function detectFormFactor() {
-  if (typeof window === 'undefined') return 'desktop';
-  const width = Number(window.innerWidth || 0);
-  if (width > 0 && width < 768) return 'phone';
-  if (width > 0 && width < 1100) return 'tablet';
-  return 'desktop';
-}
-
+const webClientContext = buildWebClientContext();
 const targetContext = {
-  platform: 'web',
-  formFactor: detectFormFactor(),
-  capabilities: ['markdown', 'chart', 'upload', 'code', 'diff']
+  platform: webClientContext.platform,
+  formFactor: webClientContext.formFactor,
+  capabilities: webClientContext.capabilities
 };
 
 const router = createBrowserRouter([
