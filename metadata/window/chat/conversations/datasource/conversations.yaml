@@ -1,0 +1,18 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/conversations/{id}
+  method: GET
+  post:
+    uri: /v1/conversations
+
+selectors:
+  data: ''
+
+uniqueKey:
+  - field: id
+
+parameters:
+  - name: id
+    kind: path
+    in: dataSource
+    location: conversations

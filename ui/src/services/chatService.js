@@ -35,7 +35,6 @@ import {
 import IterationBlock from '../components/chat/IterationBlock';
 import IterationPaginator from '../components/chat/IterationPaginator';
 import BubbleMessage from '../components/chat/BubbleMessage';
-import ElicitationForm from '../components/chat/ElicitationForm';
 import StarterTasks from '../components/chat/StarterTasks';
 import SteerQueue from '../components/chat/SteerQueue';
 import { composerPresentation } from './composerPresentation';
@@ -918,8 +917,8 @@ export const chatService = {
   composerPresentation,
   renderers: {
     bubble: BubbleMessage,
-    form: ElicitationForm,
-    elicition: ElicitationForm,
+    form: BubbleMessage,
+    elicition: BubbleMessage,
     iteration: IterationBlock,
     paginator: IterationPaginator,
     starter: StarterTasks,

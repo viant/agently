@@ -9,29 +9,18 @@ export function classifyMessage(message) {
   if (message.status === 'summarized') return undefined;
   if (message.status === 'summary') return undefined;
 
-  // Elicitation handling — match original agently logic.
-  // Consider forms with captured user payload or terminal status as resolved.
+  // Elicitation handling for web:
+  // pending elicitation interaction is owned by the global overlay, while
+  // timeline rows remain read-only history/status entries.
   const hasUED = !!(message?.userElicitationData || message?.userData);
   const hasPayloadId = !!(message?.elicitationPayloadId);
   const stLower = String(message.status || '').toLowerCase();
   const isResolved = hasUED || hasPayloadId
     || ['accepted', 'done', 'succeeded', 'success', 'failed', 'error', 'canceled', 'declined'].includes(stLower);
-
-  // Role-based elicitation (role === 'elicition' from backend)
-  if (message.role === 'elicition' && (stLower === 'open' || stLower === 'pending') && !isResolved) {
-    return 'elicition';
-  }
-
-  // Schema-based elicitation with callbackURL (modal form)
   const schema = message.elicitation?.requestedSchema;
-  if (schema && typeof message.callbackURL === 'string' && message.callbackURL) {
-    if (!isResolved && (stLower === 'open' || stLower === 'pending')) {
-      return 'elicition';
-    }
-  }
-
-  // Inline form for schema elicitations without callbackURL
-  if (schema && !isResolved) return 'form';
+  const isPendingElicitation = !isResolved && (stLower === 'open' || stLower === 'pending');
+  if (message.role === 'elicition' && isPendingElicitation) return 'bubble';
+  if (schema && isPendingElicitation) return 'bubble';
 
   // Resolved elicitations fall through to bubble
   return 'bubble';

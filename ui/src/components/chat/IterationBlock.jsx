@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Dialog } from '@blueprintjs/core';
+import { Button } from '@blueprintjs/core';
 import { summarizeLinkedConversationTranscript as sdkSummarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
 import { DetailContext } from '../../context/DetailContext';
 import { openLinkedConversationWindow } from '../../services/conversationWindow';
@@ -7,7 +7,6 @@ import { client } from '../../services/agentlyClient';
 import { fetchTranscript } from '../../services/chatRuntime';
 import { displayStepIcon, displayStepTitle, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
 import BubbleMessage from './BubbleMessage';
-import ElicitationForm from './ElicitationForm';
 import RichContent from './RichContent';
 import ToolFeedDetail from '../ToolFeedDetail';
 
@@ -1743,22 +1742,6 @@ export default function IterationBlock({ message, context }) {
             generatedFiles
           }}
         />
-      ) : null}
-      {hasVisibleElicitation ? (
-        <Dialog
-          isOpen={isElicitationOpen}
-          onClose={() => setIsElicitationOpen(false)}
-          title="Provide Details"
-          style={{ width: '70vw', maxWidth: '1000px' }}
-        >
-          <div style={{ padding: 20 }}>
-            <ElicitationForm
-              message={data?.response}
-              context={context}
-              onResolved={() => setIsElicitationOpen(false)}
-            />
-          </div>
-        </Dialog>
       ) : null}
     </>
   );
