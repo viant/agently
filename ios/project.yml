@@ -1,0 +1,58 @@
+name: AgentlyApp
+
+options:
+  bundleIdPrefix: com.viant.agently
+  deploymentTarget:
+    iOS: "17.0"
+
+packages:
+  AgentlyAppFoundation:
+    path: .
+
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+    PRODUCT_NAME: Agently
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+
+targets:
+  AgentlyApp:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: App/Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.viant.agently.ios
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Agently
+        INFOPLIST_KEY_NSCameraUsageDescription: Capture a photo to attach it to your Agently conversation.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Record your voice to dictate a message into Agently.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Convert your voice into text for the Agently composer.
+        INFOPLIST_KEY_UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationPortraitUpsideDown
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationPortraitUpsideDown
+        INFOPLIST_KEY_CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: com.viant.agently.ios.oauth
+            CFBundleURLSchemes:
+              - agently-ios
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        SUPPORTS_MACCATALYST: NO
+    dependencies:
+      - package: AgentlyAppFoundation
+        product: AgentlyAppFoundation
+    scheme:
+      testTargets: []
