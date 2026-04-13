@@ -2201,12 +2201,36 @@ td[data-col="enabled"] {
 }
 
 .app-chat-pane > * {
+  min-height: 0;
+}
+
+.app-chat-pane > *:first-child {
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 [data-testid="chat-root"] > .bp6-tabs,
 [data-testid="chat-root"] > .bp6-tab-panel {
+  min-height: 0;
+}
+
+[data-testid="chat-root"],
+[data-testid="chat-root"] > .bp6-tabs,
+[data-testid="chat-root"] > .bp6-tab-panel,
+.forge-window-manager-tabs,
+.forge-window-manager-tabs > .bp6-tab-panel {
+  height: 100%;
+}
+
+[data-testid="chat-root"] > .bp6-tabs,
+[data-testid="chat-root"] > .bp6-tab-panel,
+.forge-window-manager-tabs,
+.forge-window-manager-tabs > .bp6-tab-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
 }
 
@@ -2258,6 +2282,8 @@ td[data-col="enabled"] {
   width: min(var(--app-chat-max-width), calc(100% - 8px));
   padding: 0 0 2px;
   background: linear-gradient(to top, rgba(245, 246, 248, 0.98) 70%, rgba(245, 246, 248, 0));
+  flex: 0 0 auto;
+  align-self: center;
 }
 
 [data-testid="chat-composer"] .composer-queue-tray {

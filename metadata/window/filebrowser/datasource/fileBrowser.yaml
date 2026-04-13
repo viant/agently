@@ -1,0 +1,16 @@
+service:
+  endpoint: appAPI
+  uri: /workspace/file-browser/list
+  method: GET
+selfReference: childNodes
+selectors:
+  data: ''
+
+parameters:
+  - from: const
+    location: true
+    to: :query
+    name: folderOnly
+
+uniqueKey:
+  - field: uri
