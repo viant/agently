@@ -2,6 +2,26 @@ import { mergeRowSnapshots } from './rowMerge';
 
 const RUNNING_TURN_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
 
+function parseStageTimestamp(value) {
+  const text = String(value || '').trim();
+  if (!text) return 0;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function resolveRunningStartedAt(rows = [], runningTurnId = '') {
+  const targetTurnId = String(runningTurnId || '').trim();
+  if (!targetTurnId) return 0;
+  let startedAt = 0;
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (String(row?.turnId || '').trim() !== targetTurnId) continue;
+    const value = parseStageTimestamp(row?.startedAt || row?.createdAt || '');
+    if (!value) continue;
+    if (!startedAt || value < startedAt) startedAt = value;
+  }
+  return startedAt;
+}
+
 function filterOwnedTurnRows(rows = [], conversationID = '', ownedConversationID = '', ownedTurnIds = []) {
   const currentID = String(conversationID || '').trim();
   const liveID = String(ownedConversationID || '').trim();
@@ -163,7 +183,11 @@ export function syncTranscriptSnapshot({
   }
 
   if (hasRunning) {
-    setStage({ phase: 'executing', text: 'Assistant executing…' });
+    setStage({
+      phase: 'executing',
+      text: 'Assistant executing…',
+      startedAt: resolveRunningStartedAt(mergedRows, chatState.runningTurnId)
+    });
   } else if (queuedTurns.length > 0) {
     setStage({ phase: 'waiting', text: `Queued turns: ${queuedTurns.length}` });
   } else if (reason === 'poll' || reason === 'fetch') {

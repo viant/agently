@@ -106,9 +106,9 @@ export function normalizeOne(message = {}) {
     role,
     mode,
     content: pickString(
-    message.rawContent,
-    message.content,
-    ''
+      message.rawContent,
+      message.content,
+      ''
     )
   });
   const embeddedElicitation = extractEmbeddedElicitation(content);
@@ -172,8 +172,6 @@ export function normalizeOne(message = {}) {
 function normalizeVisibleContent({ role = '', mode = '', content = '' } = {}) {
   const text = String(content || '');
   if (role !== 'user') return text;
-  const extracted = extractUserTaskPrompt(text);
-  if (extracted) return extracted;
   if (mode !== 'task') return text;
   return text;
 }
@@ -228,35 +226,6 @@ function collapseDuplicateUserRows(messages = []) {
   return out;
 }
 
-function extractUserTaskPrompt(text = '') {
-  const raw = String(text || '');
-  if (!raw) return '';
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith('User Query:')) return '';
-  const lines = raw.split(/\r?\n/);
-  let collecting = false;
-  const collected = [];
-  for (const line of lines) {
-    const current = String(line || '');
-    const trimmedLine = current.trim();
-    if (!collecting) {
-      if (trimmedLine === 'User Query:') {
-        collecting = true;
-      } else if (trimmedLine.startsWith('User Query:')) {
-        const remainder = trimmedLine.slice('User Query:'.length).trim();
-        if (remainder) collected.push(remainder);
-        collecting = true;
-      }
-      continue;
-    }
-    if (trimmedLine === 'Context:' || trimmedLine.startsWith('Context:')) {
-      break;
-    }
-    collected.push(current);
-  }
-  const result = collected.join('\n').trim();
-  return result;
-}
 
 function normalizeElicitation(value = null) {
   if (!value || typeof value !== 'object') return null;
@@ -434,6 +403,9 @@ function mergeIterationItems(existing = {}, incoming = {}) {
     status: chooseRichString(incoming?.status, existing?.status),
     errorMessage: chooseRichString(incoming?.errorMessage, existing?.errorMessage),
     streamContent: chooseRichString(incoming?.streamContent, existing?.streamContent),
+    streamCreatedAt: chooseRichString(incoming?.streamCreatedAt, existing?.streamCreatedAt),
+    turnStartedAt: chooseRichString(existing?.turnStartedAt, incoming?.turnStartedAt),
+    turnCompletedAt: chooseRichString(incoming?.turnCompletedAt, existing?.turnCompletedAt),
     summary: incoming?.summary || existing?.summary || null,
     response: incoming?.response || existing?.response || null,
     preamble: mergePreamble(existing?.preamble, incoming?.preamble),
@@ -554,6 +526,9 @@ export function groupIntoIterations(messages = []) {
         preambles: [],
         preamble: null,
         streamContent: '',
+        streamCreatedAt: '',
+        turnStartedAt: chooseRichString(message?.startedAt, message?.createdAt),
+        turnCompletedAt: chooseRichString(message?.completedAt, ''),
         toolCalls: [],
         linkedConversations: [],
         executionGroups: [],
@@ -566,6 +541,8 @@ export function groupIntoIterations(messages = []) {
         errorMessage: String(message?.errorMessage || '').trim()
       };
     }
+    current.turnStartedAt = chooseRichString(current?.turnStartedAt, message?.startedAt, message?.createdAt);
+    current.turnCompletedAt = chooseRichString(message?.completedAt, current?.turnCompletedAt);
     return current;
   };
   const attachSteps = (steps = [], message = {}) => {
@@ -682,6 +659,7 @@ export function groupIntoIterations(messages = []) {
         attachAgent(message);
         attachLinkedConversations(message);
         current.streamContent = chooseRichString(message?.content, current?.streamContent);
+        current.streamCreatedAt = chooseRichString(message?.createdAt, current?.streamCreatedAt);
         current.status = String(message.turnStatus || message.status || current.status || 'running');
         if (execSteps.length > 0) {
           attachSteps(execSteps, message);
@@ -691,7 +669,7 @@ export function groupIntoIterations(messages = []) {
       }
       const preambleEntry = {
         ...message,
-        content: isUserEcho ? '' : message.content,
+        content: isUserEcho ? '' : content,
         steps: []
       };
       ensureCurrent(message);
@@ -722,7 +700,7 @@ export function groupIntoIterations(messages = []) {
     }
 
     if (execSteps.length > 0 || role === 'tool' || (message.toolMessage || []).length > 0) {
-      const assistantText = String(message.content || '').trim();
+      const assistantText = String(message?.content || '').trim();
       const isFinalAssistant = role === 'assistant' && Number(message.interim || 0) === 0;
       const streamOwnsBubble = String(message?._bubbleSource || '').trim() === 'stream';
       const hasNonModelStep = execSteps.some((step) => String(step?.kind || '').toLowerCase() !== 'model');
@@ -869,6 +847,15 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
         const turnId = String(item?.turnId || '').trim();
         const pendingStreams = deferredStreams.get(turnId) || [];
         const streamContent = pendingStreams.length === 0 ? item?.streamContent || '' : '';
+        const streamCreatedAt = pendingStreams.length === 0
+          ? String(item?.streamCreatedAt || '').trim()
+          : String(
+            [...pendingStreams]
+              .map((entry) => String(entry?.createdAt || '').trim())
+              .filter(Boolean)
+              .sort()
+              .at(-1) || ''
+          ).trim();
         const iterationContent = String(
           item?.response?.content
           || streamContent
@@ -888,6 +875,7 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
           ),
           _iterationData: {
             ...item,
+            streamCreatedAt,
             index: seenIterations,
             hiddenCount,
             totalCount: iterations.length,

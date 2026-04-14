@@ -4,15 +4,12 @@ import { summarizeLinkedConversationTranscript as sdkSummarizeLinkedConversation
 import { DetailContext } from '../../context/DetailContext';
 import { openLinkedConversationWindow } from '../../services/conversationWindow';
 import { client } from '../../services/agentlyClient';
-import { fetchTranscript } from '../../services/chatRuntime';
 import { displayStepIcon, displayStepTitle, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
 import BubbleMessage from './BubbleMessage';
 import RichContent from './RichContent';
 import ToolFeedDetail from '../ToolFeedDetail';
 
-const GROUPS_VISIBLE = 'all';
 const TOOLS_PER_GROUP = 3;
-const GROUP_PAGE_SIZES = [1, 5, 10, 'all'];
 
 function statusLabel(value) {
   const text = String(value || '').trim();
@@ -228,6 +225,18 @@ function earliestStartedAt(steps = []) {
     }
   }
   return earliest;
+}
+
+function latestStartedAt(steps = []) {
+  let latest = 0;
+  for (const item of Array.isArray(steps) ? steps : []) {
+    const value = parseTimestamp(item?.startedAt || item?.StartedAt || item?.createdAt || item?.CreatedAt);
+    if (!value) continue;
+    if (latest === 0 || value > latest) {
+      latest = value;
+    }
+  }
+  return latest;
 }
 
 function formatDurationClock(total) {
@@ -908,6 +917,51 @@ export function isIterationActive(data = {}, groups = [], linkedStatuses = []) {
   return isActiveStatus(resolveIterationDisplayStatus(data, groups, linkedStatuses));
 }
 
+export function resolveIterationElapsedAnchor(data = {}, groups = [], linkedConversationStates = [], message = {}, isActive = false) {
+  const turnStartedAt = parseTimestamp(data?.turnStartedAt || '');
+  const turnCompletedAt = parseTimestamp(data?.turnCompletedAt || '');
+  const allSteps = (Array.isArray(groups) ? groups : []).flatMap((group) => [
+    ...(group?.modelStep ? [group.modelStep] : []),
+    ...(Array.isArray(group?.toolSteps) ? group.toolSteps : [])
+  ]);
+  const latestPreambleStartedAt = latestStartedAt([
+    data?.preamble,
+    ...(Array.isArray(data?.preambles) ? data.preambles : []),
+    data?.response
+  ]);
+  const streamStartedAt = parseTimestamp(data?.streamCreatedAt || '');
+  if (!isActive) {
+    return turnStartedAt
+      || earliestStartedAt(allSteps)
+      || earliestStartedAt(linkedConversationStates)
+      || streamStartedAt
+      || latestPreambleStartedAt
+      || parseTimestamp(data?.startedAt || data?.StartedAt || '')
+      || parseTimestamp(message?.createdAt)
+      || 0;
+  }
+  const activeGroups = (Array.isArray(groups) ? groups : []).filter((group) => {
+    if (isActiveStatus(group?.status)) return true;
+    if (isActiveStatus(group?.modelStep?.status)) return true;
+    return (Array.isArray(group?.toolSteps) ? group.toolSteps : []).some((step) => isActiveStatus(step?.status));
+  });
+  const activeSteps = activeGroups.flatMap((group) => [
+    ...(group?.modelStep ? [group.modelStep] : []),
+    ...(Array.isArray(group?.toolSteps) ? group.toolSteps : []).filter((step) => isActiveStatus(step?.status))
+  ]);
+  const activeLinked = (Array.isArray(linkedConversationStates) ? linkedConversationStates : []).filter((entry) => isLinkedConversationActive(entry?.status));
+  return turnStartedAt
+    || latestStartedAt(activeSteps)
+    || latestStartedAt(activeLinked)
+    || streamStartedAt
+    || latestPreambleStartedAt
+    || parseTimestamp(data?.startedAt || data?.StartedAt || '')
+    || parseTimestamp(message?.createdAt)
+    || earliestStartedAt(allSteps)
+    || earliestStartedAt(linkedConversationStates)
+    || 0;
+}
+
 export default function IterationBlock({ message, context }) {
   const { showDetail } = useContext(DetailContext);
   const data = message?._iterationData || {};
@@ -917,10 +971,7 @@ export default function IterationBlock({ message, context }) {
     [toolCalls]
   );
   const isLatestIteration = !!data?.isLatestIteration;
-  const [preambleOffset, setPreambleOffset] = useState(null);
-  const [groupPageSize, setGroupPageSize] = useState(GROUPS_VISIBLE);
   const [groupToolOffsets, setGroupToolOffsets] = useState({});
-  const [remotePage, setRemotePage] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [isElicitationOpen, setIsElicitationOpen] = useState(false);
   const [linkedConversationStates, setLinkedConversationStates] = useState([]);
@@ -944,9 +995,25 @@ export default function IterationBlock({ message, context }) {
 
   const allGroupEntries = useMemo(() => {
     const canonicalGroups = Array.isArray(data.executionGroups) ? data.executionGroups : [];
-    const groups = canonicalGroups.length > 0
+    let groups = canonicalGroups.length > 0
       ? mapCanonicalExecutionGroups(canonicalGroups)
       : mapFallbackExecutionGroups(data);
+    const responseContent = String(data?.response?.content || '').trim();
+    const hasExplicitFinalGroup = groups.some((group) => {
+      const finalText = String(group?.finalContent || '').trim();
+      return !!group?.finalResponse && finalText !== '';
+    });
+    if (responseContent && groups.length > 0 && !hasExplicitFinalGroup) {
+      const lastIndex = groups.length - 1;
+      const last = groups[lastIndex] || {};
+      groups = groups.slice();
+      groups[lastIndex] = {
+        ...last,
+        finalResponse: true,
+        finalContent: responseContent,
+        status: String(last?.status || data?.status || 'completed').trim() || 'completed'
+      };
+    }
     // Inject elicitation as a step in the last group so it appears in execution details.
     const elic = message?.elicitation || data?.elicitation;
     const elicId = String(message?.elicitationId || data?.elicitationId || '').trim();
@@ -1030,17 +1097,8 @@ export default function IterationBlock({ message, context }) {
 
   // Shared turn start time — used by both the header timer and individual step timers.
   const turnStartedAt = useMemo(() => {
-    const sourceSteps = allGroupEntries.flatMap((group) => [
-      ...(group?.modelStep ? [group.modelStep] : []),
-      ...(Array.isArray(group?.toolSteps) ? group.toolSteps : [])
-    ]);
-    const linkedStartedAt = earliestStartedAt(linkedConversationStates);
-    return earliestStartedAt(sourceSteps)
-      || linkedStartedAt
-      || parseTimestamp(data?.startedAt || data?.StartedAt || '')
-      || parseTimestamp(message?.createdAt)
-      || 0;
-  }, [allGroupEntries, linkedConversationStates, data?.startedAt, data?.StartedAt, message?.createdAt]);
+    return resolveIterationElapsedAnchor(data, allGroupEntries, linkedConversationStates, message, isActiveIteration);
+  }, [allGroupEntries, linkedConversationStates, data, message, isActiveIteration]);
 
   const elapsedLabel = useMemo(() => {
     const sourceSteps = allGroupEntries.flatMap((group) => [
@@ -1048,13 +1106,18 @@ export default function IterationBlock({ message, context }) {
       ...(Array.isArray(group?.toolSteps) ? group.toolSteps : [])
     ]);
     const explicit = formatDurationClock(totalLatencyMs(sourceSteps));
-    if (!isActiveIteration) return explicit;
+    const turnCompletedAt = parseTimestamp(data?.turnCompletedAt || '');
+    if (!isActiveIteration) {
+      if (turnStartedAt && turnCompletedAt && turnCompletedAt >= turnStartedAt) {
+        return formatDurationClock(turnCompletedAt - turnStartedAt) || explicit;
+      }
+      return explicit;
+    }
     if (!turnStartedAt) return explicit;
     return formatDurationClock(Math.max(0, now - turnStartedAt)) || explicit;
-  }, [allGroupEntries, isActiveIteration, turnStartedAt, now]);
+  }, [allGroupEntries, isActiveIteration, turnStartedAt, data?.turnCompletedAt, now]);
 
   const canonicalTotal = Number(data?.executionGroupsTotal || 0) || displayGroupEntries.length;
-  const effectiveVisibleCount = groupPageSize === 'all' ? canonicalTotal : groupPageSize;
 
   const linkedConversations = useMemo(() => {
     const seen = new Map();
@@ -1144,37 +1207,7 @@ export default function IterationBlock({ message, context }) {
     });
   };
 
-  const groupsPage = useMemo(() => {
-    if (remotePage) {
-      const total = Number(remotePage.total || 0);
-      const start = Number(remotePage.offset || 0);
-      const end = Math.min(total, start + Number(remotePage.limit || 0));
-      return {
-        total,
-        start,
-        end,
-        maxOffset: Math.max(0, total - (remotePage.limit || 0)),
-        anchoredLatest: false
-      };
-    }
-    return paginate(displayGroupEntries.length, groupPageSize, preambleOffset);
-  }, [displayGroupEntries.length, groupPageSize, preambleOffset, remotePage]);
-
-  const visibleGroups = useMemo(() => {
-    if (remotePage) {
-      return remotePage.groups;
-    }
-    const effectiveVisible = groupPageSize === 'all' ? displayGroupEntries.length : groupPageSize;
-    if (displayGroupEntries.length <= effectiveVisible) return displayGroupEntries;
-    let start = groupsPage.start;
-    let end = groupsPage.end;
-    if (groupPageSize === 1 && groupsPage.anchoredLatest && end === displayGroupEntries.length && displayGroupEntries.length > 1) {
-      const targetIndex = lastPresentableGroupIndex(displayGroupEntries);
-      start = targetIndex;
-      end = targetIndex + 1;
-    }
-    return displayGroupEntries.slice(start, end);
-  }, [displayGroupEntries, groupPageSize, groupsPage.end, groupsPage.start, remotePage]);
+  const visibleGroups = displayGroupEntries;
 
   const visibleRenderedText = useMemo(() => resolveIterationBubbleContent({
     visibleGroups,
@@ -1317,66 +1350,6 @@ export default function IterationBlock({ message, context }) {
         ) : null}
       </div>
     );
-  };
-
-  const goToOlderPreambles = () => {
-    if (displayGroupEntries.length > 0 && canonicalTotal > effectiveVisibleCount) {
-      void loadHistoricalPage(Math.max(0, (remotePage ? remotePage.offset : Math.max(0, canonicalTotal - effectiveVisibleCount)) - effectiveVisibleCount));
-      return;
-    }
-    setPreambleOffset((value) => {
-      const current = value == null ? groupsPage.maxOffset : value;
-      return Math.max(0, current - GROUPS_VISIBLE);
-    });
-  };
-
-  const goToNewerPreambles = () => {
-    if (remotePage) {
-      const next = Math.min(groupsPage.maxOffset, remotePage.offset + effectiveVisibleCount);
-      if (next >= groupsPage.maxOffset) {
-        setRemotePage(null);
-        setPreambleOffset(null);
-        return;
-      }
-      void loadHistoricalPage(next);
-      return;
-    }
-    setPreambleOffset((value) => {
-      const current = value == null ? groupsPage.maxOffset : value;
-      const next = Math.min(groupsPage.maxOffset, current + GROUPS_VISIBLE);
-      return next >= groupsPage.maxOffset ? null : next;
-    });
-  };
-
-  const goToLatestPreambles = () => {
-    setRemotePage(null);
-    setPreambleOffset(null);
-  };
-
-  const changeGroupPageSize = (value) => {
-    setGroupPageSize(value);
-    setRemotePage(null);
-    setPreambleOffset(null);
-  };
-
-  const loadHistoricalPage = async (offset) => {
-    const conversationID = currentConversationId();
-    const turnID = String(data?.turnId || '').trim();
-    if (!conversationID) return;
-    const limit = groupPageSize === 'all' ? canonicalTotal : Number(groupPageSize || GROUPS_VISIBLE);
-    const turns = await fetchTranscript(conversationID, '');
-    const turn = Array.isArray(turns)
-      ? (turns.find((entry) => String(entry?.id || entry?.Id || '').trim() === turnID) || turns[0])
-      : null;
-    const allGroups = mapCanonicalExecutionGroups(turn?.executionGroups || turn?.ExecutionGroups || []);
-    const total = allGroups.length;
-    const sliced = groupPageSize === 'all' ? allGroups : allGroups.slice(offset, offset + limit);
-    setRemotePage({
-      groups: sliced,
-      total,
-      offset,
-      limit
-    });
   };
 
   useEffect(() => {
@@ -1564,10 +1537,6 @@ export default function IterationBlock({ message, context }) {
   }, [isActiveIteration]);
 
   useEffect(() => {
-    setRemotePage(null);
-  }, [message?.id, data?.turnId, data?.executionGroupsTotal]);
-
-  useEffect(() => {
     setExpandedLinkedIds({});
     setLinkedSectionExpanded(false);
   }, [message?.id, data?.turnId]);
@@ -1611,40 +1580,6 @@ export default function IterationBlock({ message, context }) {
             <div className="app-iteration-groups" ref={groupsRef}>
               {visibleGroups.map((group, index) => renderGroupRow(group, index))}
             </div>
-            {canonicalTotal > effectiveVisibleCount ? (
-              <div className="app-iteration-inline-paginator">
-                <Button minimal small className="app-iteration-link app-iteration-link-subtle" disabled={groupsPage.start <= 0} onClick={goToOlderPreambles}>
-                  &laquo; Older
-                </Button>
-                <span className="app-iteration-inline-meta">
-                  {groupsPage.start + 1}–{groupsPage.end} of {groupsPage.total}
-                </span>
-                <Button minimal small className="app-iteration-link app-iteration-link-subtle" disabled={groupsPage.anchoredLatest} onClick={goToNewerPreambles}>
-                  Newer &raquo;
-                </Button>
-                {!groupsPage.anchoredLatest ? (
-                  <Button minimal small className="app-iteration-link app-iteration-link-subtle" onClick={goToLatestPreambles}>Latest</Button>
-                ) : null}
-                <label className="app-iteration-inline-meta" htmlFor={`page-size:${message?.id || 'iteration'}`}>
-                  Page size
-                </label>
-                <select
-                  id={`page-size:${message?.id || 'iteration'}`}
-                  className="app-iteration-page-size"
-                  value={String(groupPageSize)}
-                  onChange={(event) => {
-                    const value = event.target.value === 'all' ? 'all' : Number(event.target.value);
-                    changeGroupPageSize(value);
-                  }}
-                >
-                  {GROUP_PAGE_SIZES.map((size) => (
-                    <option key={String(size)} value={String(size)}>
-                      {size === 'all' ? 'All' : String(size)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
             {linkedConversations.length > 0 ? (
               <div className="app-iteration-linked-section">
                 <button

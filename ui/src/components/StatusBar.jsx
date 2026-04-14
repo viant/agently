@@ -30,7 +30,11 @@ export default function StatusBar({ backendUnavailable = false, approvals = null
     : String(stage?.text || 'Ready');
   const pendingApprovals = Number(approvals?.pendingCount || 0);
   const isElapsedActive = !backendUnavailable && ELAPSED_PHASES.has(phase);
-  const elapsedMs = isElapsedActive ? Math.max(0, now - Number(stage?.updatedAt || now)) : 0;
+  const startedAt = Number(stage?.startedAt || 0);
+  const completedAt = Number(stage?.completedAt || 0);
+  const elapsedMs = isElapsedActive
+    ? Math.max(0, (startedAt || now) ? now - (startedAt || now) : 0)
+    : (startedAt && completedAt && completedAt >= startedAt ? (completedAt - startedAt) : 0);
 
   React.useEffect(() => {
     if (!isElapsedActive) return undefined;

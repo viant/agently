@@ -223,10 +223,56 @@ describe('applyExecutionStreamEvent', () => {
     }, 'conv-1');
 
     expect(chatState.liveRows).toHaveLength(1);
-    expect(chatState.liveRows[0].status).toBe('running');
-    expect(chatState.liveRows[0].turnStatus).toBe('running');
+    expect(chatState.liveRows[0].status).toBe('streaming');
+    expect(chatState.liveRows[0].turnStatus).toBe('streaming');
     expect(chatState.liveRows[0].executionGroups[0].status).toBe('completed');
     expect(chatState.liveRows[0].executionGroups[0].modelSteps[0].status).toBe('completed');
+  });
+
+  it('preserves canonical thinking status from model_started rows', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      type: 'model_started',
+      status: 'thinking',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].status).toBe('thinking');
+    expect(chatState.liveRows[0].turnStatus).toBe('thinking');
+  });
+
+  it('keeps row startedAt when model_started merges into an existing turn row', () => {
+    const chatState = { liveRows: [], activeStreamPrompt: 'Recommend sitelists for audience 7180287' };
+
+    applyTurnStartedEvent(chatState, {
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:00Z'
+    }, 'conv-1');
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      type: 'model_started',
+      status: 'thinking',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    }, 'conv-1');
+
+    const assistantRow = chatState.liveRows.find((row) => row.role === 'assistant');
+    expect(assistantRow.startedAt).toBe('2026-03-16T10:00:00Z');
+    expect(assistantRow.executionGroups[0].startedAt).toBe('2026-03-16T10:00:00Z');
+    expect(assistantRow.executionGroups[0].modelSteps[0].startedAt).toBe('2026-03-16T10:00:00Z');
+    expect(assistantRow.status).toBe('thinking');
   });
 
   it('preserves turn agent identity on execution rows', () => {

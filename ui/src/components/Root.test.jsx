@@ -41,7 +41,9 @@ describe('Root window selection helpers', () => {
   it('shows the main window header only for non-chat windows with a title', () => {
     expect(resolveMainWindowHeaderTitle({ windowTitle: 'Runs', windowKey: 'schedule/history' })).toBe('Runs');
     expect(resolveMainWindowHeaderTitle({ windowKey: 'schedule' })).toBe('schedule');
-    expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history' })).toBe(true);
+    expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history' })).toBe(false);
+    expect(shouldShowMainWindowHeader({ windowTitle: 'Automation', windowKey: 'schedule' })).toBe(false);
+    expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history', inTab: false })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Chat', windowKey: 'chat/new' })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: '', windowKey: '' })).toBe(false);
   });

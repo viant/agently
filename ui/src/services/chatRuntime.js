@@ -309,9 +309,20 @@ function streamEventMode(payload = {}) {
   return String(payload?.mode || payload?.patch?.mode || '').trim().toLowerCase();
 }
 
+function stageStartedAtValue(payload = {}, chatState = {}) {
+  return String(payload?.startedAt || payload?.createdAt || '').trim()
+    || Number(chatState?.activeStreamStartedAt || 0)
+    || 0;
+}
+
+function stageCompletedAtValue(payload = {}) {
+  return String(payload?.completedAt || payload?.createdAt || '').trim() || 0;
+}
+
 function shouldIgnoreExecutionStreamEvent(payload = {}) {
   const mode = streamEventMode(payload);
-  return mode === 'summary';
+  const type = String(payload?.type || '').trim().toLowerCase();
+  return mode === 'summary' || type === 'user_prompt_expanded';
 }
 
 function textDeltaQueueKey(payload = {}, fallbackConversationID = '') {
@@ -1478,7 +1489,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       applyStreamConversationState(context, 'thinking', payload);
-      setStage({ phase: 'streaming', text: 'Streaming response…' });
+      setStage({ phase: 'streaming', text: 'Streaming response…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       enqueueTextDelta(chatState, payload, conversationID);
       const queue = Array.isArray(chatState.pendingTextDeltaQueue) ? chatState.pendingTextDeltaQueue : [];
       const mergedPayload = queue[queue.length - 1] || payload;
@@ -1503,7 +1514,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       applyStreamConversationState(context, 'thinking', payload);
-      setStage({ phase: 'streaming', text: 'Assistant reasoning…' });
+      setStage({ phase: 'streaming', text: 'Assistant reasoning…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       return;
     }
 
@@ -1511,7 +1522,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       applyStreamConversationState(context, 'executing', payload);
-      setStage({ phase: 'executing', text: `Building ${String(payload?.toolName || 'tool')} arguments…` });
+      setStage({ phase: 'executing', text: `Building ${String(payload?.toolName || 'tool')} arguments…`, startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       return;
     }
 
@@ -1530,7 +1541,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       }
       const enrichedPayload = enrichPayloadWithTurnAgent(chatState, context, payload);
       applyExecutionStreamEvent(chatState, enrichedPayload, conversationID);
-      setStage({ phase: 'executing', text: 'Assistant executing…' });
+      setStage({ phase: 'executing', text: 'Assistant executing…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       renderMergedRowsForContext(context);
       return;
     }
@@ -1545,10 +1556,10 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       applyExecutionStreamEvent(chatState, enrichedPayload, conversationID);
       if (payload?.finalResponse) {
         finalizeStreamTurn(chatState, payload, conversationID);
-        setStage({ phase: 'done', text: 'Done' });
+        setStage({ phase: 'done', text: 'Done', completedAt: stageCompletedAtValue(payload) });
         window.setTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 1100);
       } else {
-        setStage({ phase: 'executing', text: 'Assistant thinking…' });
+        setStage({ phase: 'executing', text: 'Assistant thinking…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       }
       renderMergedRowsForContext(context);
       return;
@@ -1562,7 +1573,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       // execution row so planned tools appear immediately in the UI.
       applyExecutionStreamEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload), conversationID);
       applyStreamConversationState(context, 'executing', payload);
-      setStage({ phase: 'executing', text: 'Planning tool calls…' });
+      setStage({ phase: 'executing', text: 'Planning tool calls…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       renderMergedRowsForContext(context);
       return;
     }
@@ -1599,7 +1610,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
               : `Executing ${toolLabel}…`;
       setStage({
         phase: 'executing',
-        text: stageText
+        text: stageText,
+        startedAt: stageStartedAtValue(payload, chatState),
+        completedAt: 0
       });
       renderMergedRowsForContext(context);
       return;
@@ -1634,7 +1647,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
           agentName: String(chatState?.activeTurnAgentName || '').trim()
         });
         applyStreamConversationState(context, 'thinking', payload?.patch || payload);
-        setStage({ phase: 'executing', text: 'Assistant executing…' });
+        setStage({ phase: 'executing', text: 'Assistant executing…', startedAt: stageStartedAtValue(payload?.patch || payload, chatState), completedAt: 0 });
       } else if (op === 'message_patch') {
         chatState.lastHasRunning = true;
         logStreamDebug(chatState, 'stream-control-message-patch', {
@@ -1707,11 +1720,11 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       // we update the form data here.
       applyStreamConversationState(context, 'terminal', { ...payload, type, status: terminalStatus });
       if (type === 'turn_failed') {
-        setStage({ phase: 'error', text: String(payload?.error || 'Turn failed') });
+        setStage({ phase: 'error', text: String(payload?.error || 'Turn failed'), completedAt: stageCompletedAtValue(payload) });
       } else if (type === 'turn_canceled') {
-        setStage({ phase: 'done', text: 'Canceled' });
+        setStage({ phase: 'done', text: 'Canceled', completedAt: stageCompletedAtValue(payload) });
       } else {
-        setStage({ phase: 'done', text: 'Done' });
+        setStage({ phase: 'done', text: 'Done', completedAt: stageCompletedAtValue(payload) });
       }
       // Don't clear feeds on turn end — they persist until a tool_feed_inactive
       // SSE event arrives (e.g., after revert/commit removes the feed's data).
@@ -1735,7 +1748,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       });
       applyPreambleEvent(chatState, preamblePayload, conversationID);
       applyStreamConversationState(context, 'thinking', payload);
-      setStage({ phase: 'streaming', text: 'Assistant thinking…' });
+      setStage({ phase: 'streaming', text: 'Assistant thinking…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       renderMergedRowsForContext(context);
       return;
     }
@@ -1749,7 +1762,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       // assistant_final's assistantMessageId may differ from model_started's.
       applyAssistantFinalEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload));
       applyStreamConversationState(context, 'thinking', payload);
-      setStage({ phase: 'executing', text: 'Assistant responding…' });
+      setStage({ phase: 'executing', text: 'Assistant responding…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       renderMergedRowsForContext(context);
       return;
     }
@@ -1775,7 +1788,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         agentIdUsed: String(payload?.agentIdUsed || '').trim(),
         agentName: String(chatState?.activeTurnAgentName || '').trim()
       });
-      setStage({ phase: 'executing', text: 'Assistant executing…' });
+      setStage({ phase: 'executing', text: 'Assistant executing…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       renderMergedRowsForContext(context);
       return;
     }

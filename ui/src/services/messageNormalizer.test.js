@@ -815,7 +815,7 @@ describe('normalizeMessages', () => {
     });
   });
 
-  it('collapses expanded task wrappers to the visible user query', () => {
+  it('prefers rawContent for the visible user task when expanded prompt content is also present', () => {
     const normalized = normalizeMessages([
       {
         id: 'u1',
@@ -823,6 +823,7 @@ describe('normalizeMessages', () => {
         mode: 'task',
         turnId: 'turn-1',
         content: 'User Query:\nforecast deal 141952\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[]]]',
+        rawContent: 'forecast deal 141952',
         createdAt: '2026-04-09T17:00:00Z'
       }
     ], { visibleCount: Number.MAX_SAFE_INTEGER });
@@ -835,13 +836,14 @@ describe('normalizeMessages', () => {
     });
   });
 
-  it('collapses expanded task wrappers even when mode is missing', () => {
+  it('keeps the original user task visible even when mode is missing if rawContent is present', () => {
     const normalized = normalizeMessages([
       {
         id: 'u1',
         role: 'user',
         turnId: 'turn-1',
         content: 'User Query:\nRecommend sitelists for audience 7180287\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[] reason: scope: tokensFreed: 0] client:map[capabilities:[markdown chart upload code diff] platform:web surface:browser]]\n\nEND_OF_USER_PROMPT',
+        rawContent: 'Recommend sitelists for audience 7180287',
         createdAt: '2026-04-13T20:00:00Z'
       }
     ], { visibleCount: Number.MAX_SAFE_INTEGER });
@@ -854,7 +856,7 @@ describe('normalizeMessages', () => {
     });
   });
 
-  it('dedupes same-turn user rows when one is an expanded task wrapper', () => {
+  it('dedupes same-turn user rows when one carries expanded prompt content but the same raw task', () => {
     const normalized = normalizeMessages([
       {
         id: 'u1-db',
@@ -869,6 +871,7 @@ describe('normalizeMessages', () => {
         mode: 'task',
         turnId: 'turn-1',
         content: 'User Query:\nwhat iris targeting do we have ?\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[] reason: scope:conversation tokensFreed:0]]',
+        rawContent: 'what iris targeting do we have ?',
         createdAt: '2026-04-09T18:05:23Z'
       }
     ], { visibleCount: Number.MAX_SAFE_INTEGER });
