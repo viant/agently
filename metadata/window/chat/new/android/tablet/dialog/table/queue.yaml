@@ -1,0 +1,61 @@
+columns:
+  - id: moveUp
+    icon: caret-up
+    type: button
+    width: 40
+    on:
+      - event: onClick
+        handler: chat.moveQueuedTurnUp
+  - id: moveDown
+    icon: caret-down
+    type: button
+    width: 40
+    on:
+      - event: onClick
+        handler: chat.moveQueuedTurnDown
+  - id: queueSeq
+    name: Seq
+    width: 80
+    enforceColumnSize: true
+  - id: preview
+    name: Preview
+    width: 360
+    enforceColumnSize: true
+  - id: createdAt
+    name: Created
+    width: 150
+    enforceColumnSize: true
+  - id: status
+    name: Status
+    width: 110
+    enforceColumnSize: true
+  - id: id
+    name: Turn ID
+    width: 220
+    enforceColumnSize: true
+  - id: edit
+    icon: edit
+    type: button
+    width: 40
+    on:
+      - event: onClick
+        handler: chat.editQueuedTurn
+  - id: cancel
+    icon: cross
+    type: button
+    width: 40
+    on:
+      - event: onClick
+        handler: chat.cancelQueuedTurn
+
+toolbar:
+  items:
+    - id: refresh
+      icon: refresh
+      align: left
+      on:
+        - event: onClick
+          handler: dataSource.fetchCollection
+    - id: quickFilter
+      placeholder: Filter queued turns...
+      align: right

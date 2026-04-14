@@ -1,0 +1,137 @@
+ - id: basics
+   title: Basics
+   layout:
+     orientation: horizontal
+     columns: 3
+     labelPosition: top
+   items:
+     - id: on
+       label: On
+       type: select
+       options:
+         - value: succeeded
+           label: Succeeded
+         - value: failed
+           label: Failed
+         - value: canceled
+           label: Canceled
+         - value: '*'
+           label: Any
+     - id: mode
+       label: Mode
+       type: select
+       options:
+         - value: sync
+           label: Sync
+         - value: async
+           label: Async
+     - id: conversation
+       label: Conversation
+       type: select
+       options:
+         - value: link
+           label: Link (new)
+         - value: reuse
+           label: Reuse (same)
+     - id: target.agentId
+       label: Target Agent
+       type: text
+       properties:
+         style:
+           backgroundColor: '#f0fff4'
+           borderColor: '#c6f6d5'
+       lookup:
+         dialogId: agentLov
+         windowId: agent/pick
+         size:
+           width: '70%'
+           height: '70%'
+         title: Select Agent
+         outputs:
+           - name: target.agentId
+             location: id
+
+ - id: query
+   title: Query
+   layout:
+     orientation: horizontal
+     columns: 2
+     labelPosition: top
+   items:
+     - id: query.uri
+       label: Query URI
+       type: text
+       columnSpan: 2
+
+ - id: when
+   title: When
+   layout:
+     orientation: horizontal
+     columns: 2
+     labelPosition: top
+   items:
+     - id: when.expect.kind
+       label: Expect Kind
+       type: select
+       options:
+         - value: boolean
+           label: Boolean
+         - value: regex
+           label: Regex
+         - value: jsonpath
+           label: JSONPath
+     - id: when.query.uri
+       label: When Query URI
+       type: text
+       columnSpan: 2
+
+ - id: limits
+   title: Limits
+   layout:
+     orientation: horizontal
+     columns: 2
+     labelPosition: top
+   items:
+     - id: limits.maxDepth
+       label: Max Depth
+       type: number
+     - id: limits.dedupeKey
+       label: Dedupe Key
+       type: text
+
+ - id: publish
+   title: Publish
+   layout:
+     orientation: horizontal
+     columns: 3
+     labelPosition: top
+   items:
+     - id: publish.role
+       label: Publish Role
+       type: select
+       options:
+         - value: assistant
+           label: Assistant
+         - value: user
+           label: User
+         - value: system
+           label: System
+         - value: tool
+           label: Tool
+         - value: none
+           label: None
+     - id: publish.name
+       label: Publish Name
+       type: text
+     - id: publish.type
+       label: Publish Type
+       type: select
+       options:
+         - value: text
+           label: Text
+         - value: control
+           label: Control
+     - id: publish.autoNextTurn
+       label: Auto Next Turn
+       type: checkbox
+

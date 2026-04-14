@@ -1,0 +1,17 @@
+
+dataSourceRef: agents
+# The nested array field inside the agent record.
+selectors:
+  data: tool
+
+# Do NOT select the first tool automatically – user decides.
+autoSelect: false
+
+
+# Unique key inside the tool array – use the function name from definition.
+uniqueKey:
+  - field: pattern
+  - field: ref
+
+
+selectionMode: single

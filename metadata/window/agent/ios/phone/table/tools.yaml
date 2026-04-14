@@ -1,0 +1,22 @@
+columns:
+  - id: definition.name
+    name: Name
+
+  - id: pattern
+    name: Pattern
+
+toolbar:
+  items:
+    - id: addTool
+      icon: new-object
+      align: left
+      on:
+        - event: onClick
+          handler: tool.addTool
+
+    - id: deleteTool
+      icon: delete
+      align: left
+      on:
+        - event: onClick
+          handler: tool.deleteTool

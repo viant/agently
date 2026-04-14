@@ -1,12 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Dialog } from '@blueprintjs/core';
 import { addWindow, activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
-import { beginLogin, client } from '../services/agentlyClient';
+import { client } from '../services/agentlyClient';
 import logo from '../viant-logo.png';
-import ApprovalEditorFields from './ApprovalEditorFields.jsx';
-import ApprovalForgeRenderer from './ApprovalForgeRenderer.jsx';
-import { buildApprovalEditorState, normalizeToolApprovalMeta, serializeApprovalEditedFields } from './elicitationHelpers';
-import { executeApprovalCallbacks } from '../services/approvalCallbacks';
 
 export function resolveStartupAuthAction(providers) {
   const normalized = Array.isArray(providers) ? providers : [];
@@ -36,9 +32,20 @@ export function refreshWindowDataSources(windowId, dataSourceRefs = []) {
   });
 }
 
-export function openWindow(windowKey, windowTitle, refreshDataSources = []) {
+export function openWindow(windowKey, windowTitle, refreshDataSources = [], options = {}) {
   const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
+  const replaceTabbedWindows = options?.replaceTabbedWindows === true;
   let existing = windows.find((entry) => entry?.windowKey === windowKey);
+  if (replaceTabbedWindows) {
+    const keepWindowId = String(existing?.windowId || '').trim();
+    activeWindows.value = windows.filter((entry) => {
+      if (entry?.inTab === false) return true;
+      if (keepWindowId && String(entry?.windowId || '').trim() === keepWindowId) return true;
+      return false;
+    });
+  }
+  const currentWindows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
+  existing = currentWindows.find((entry) => entry?.windowKey === windowKey);
   if (!existing) {
     existing = addWindow(windowTitle, null, windowKey, null, true, {}, { autoIndexTitle: false });
   }
@@ -92,34 +99,36 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
   const [user, setUser] = useState(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [approvalPage, setApprovalPage] = useState(0);
-  const [approvalValues, setApprovalValues] = useState({});
-  const [approvalForgeContext, setApprovalForgeContext] = useState(null);
-  const [approvalForgeError, setApprovalForgeError] = useState('');
 
   useEffect(() => {
-    client.getAuthMe().then((me) => {
-      if (me) {
-        setUser(me);
-        return;
+    let mounted = true;
+    const loadUser = async () => {
+      try {
+        const me = await client.getAuthMe();
+        if (mounted) setUser(me || null);
+        if (me) return;
+        const providers = await client.getAuthProviders();
+        const action = resolveStartupAuthAction(providers);
+        if (action.type !== 'local' || !action.username) return;
+        await client.localLogin({ username: action.username });
+        const autoMe = await client.getAuthMe();
+        if (!mounted || !autoMe) return;
+        setUser(autoMe);
+        try { window.dispatchEvent(new CustomEvent('forge:conversation-active', { detail: { id: '' } })); } catch (_) {}
+        try { window.location.reload(); } catch (_) {}
+      } catch (_) {}
+    };
+    const onAuthorized = () => { void loadUser(); };
+    void loadUser();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('agently:authorized', onAuthorized);
+    }
+    return () => {
+      mounted = false;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('agently:authorized', onAuthorized);
       }
-      return client.getAuthProviders()
-        .then(async (providers) => {
-          const action = resolveStartupAuthAction(providers);
-          if (action.type === 'oauth') {
-            void beginLogin();
-            return null;
-          }
-          if (action.type !== 'local' || !action.username) return null;
-          await client.localLogin({ username: action.username });
-          return client.getAuthMe();
-        })
-        .then((autoMe) => {
-          if (!autoMe) return;
-          setUser(autoMe);
-          try { window.dispatchEvent(new CustomEvent('forge:conversation-active', { detail: { id: '' } })); } catch (_) {}
-          try { window.location.reload(); } catch (_) {}
-        });
-    }).catch(() => {});
+    };
   }, []);
 
   const displayName = user?.displayName || user?.username || user?.email || user?.subject || '';
@@ -139,7 +148,6 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
     }
     return paginateApprovalItems(items, approvalPage, APPROVALS_PAGE_SIZE);
   }, [items, approvalPage, approvalsPage, approvalsPageCount, approvalsStart, approvalsEnd, pendingCount, approvalsHasPrevious, approvalsHasNext, setPage]);
-  const selectedApprovalMeta = useMemo(() => normalizeToolApprovalMeta(selected?.metadata), [selected]);
 
   useEffect(() => {
     setApprovalPage((current) => {
@@ -155,12 +163,6 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
     }
   }, [open, setPage]);
 
-  useEffect(() => {
-    setApprovalValues(buildApprovalEditorState(selectedApprovalMeta));
-    setApprovalForgeContext(null);
-    setApprovalForgeError('');
-  }, [selectedApprovalMeta, selected?.id]);
-
   const handleLogout = useCallback(async () => {
     setUserMenuOpen(false);
     try {
@@ -172,28 +174,8 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
 
   const handleApprovalDecision = useCallback(async (item, action) => {
     if (!item || !decide) return;
-    let editedFields = null;
-    if (selectedApprovalMeta?.editors?.length) {
-      editedFields = serializeApprovalEditedFields(selectedApprovalMeta, approvalValues);
-    } else if (approvalForgeContext?.handlers?.dataSource?.peekFormData) {
-      const formData = approvalForgeContext.handlers.dataSource.peekFormData() || {};
-      if (formData.editedFields && typeof formData.editedFields === 'object') {
-        editedFields = formData.editedFields;
-      }
-    }
-    const callbackPayload = selectedApprovalMeta
-      ? await executeApprovalCallbacks({
-          meta: selectedApprovalMeta,
-          event: action,
-          payload: {
-            approval: selectedApprovalMeta,
-            editedFields: editedFields || {},
-            originalArgs: item.arguments || {}
-          }
-        })
-      : { editedFields };
-    return decide(item, callbackPayload?.action || action, callbackPayload?.editedFields || editedFields);
-  }, [approvalForgeContext, approvalValues, decide, selectedApprovalMeta]);
+    return decide(item, action);
+  }, [decide]);
 
   return (
     <header className="app-topbar">
@@ -211,7 +193,7 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
             text="Automation"
             className="app-topbar-nav-btn"
             data-testid="automation-nav"
-            onClick={() => openWindow('schedule', 'Automation', ['schedules'])}
+            onClick={() => openWindow('schedule', 'Automation', ['schedules'], { replaceTabbedWindows: true })}
           />
           <Button
             minimal
@@ -219,7 +201,7 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
             text="Runs"
             className="app-topbar-nav-btn"
             data-testid="runs-nav"
-            onClick={() => openWindow('schedule/history', 'Runs', ['runs'])}
+            onClick={() => openWindow('schedule/history', 'Runs', ['runs'], { replaceTabbedWindows: true })}
           />
           <Button
             minimal
@@ -321,29 +303,12 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
       >
         <div className="app-approval-dialog">
           <div><strong>Tool:</strong> {selected?.toolName}</div>
-          {selectedApprovalMeta?.forge?.containerRef ? (
-            <ApprovalForgeRenderer
-              meta={selectedApprovalMeta}
-              approvalValues={approvalValues}
-              originalArgs={selected?.arguments || {}}
-              onReady={setApprovalForgeContext}
-              onError={setApprovalForgeError}
-            />
-          ) : selectedApprovalMeta?.editors?.length ? (
-            <ApprovalEditorFields
-              meta={selectedApprovalMeta}
-              value={approvalValues}
-              onChange={setApprovalValues}
-            />
-          ) : null}
-          {approvalForgeError ? <div className="app-approval-forge-error">{approvalForgeError}</div> : null}
-          {!selectedApprovalMeta?.editors?.length ? <pre>{JSON.stringify(selected?.arguments || {}, null, 2)}</pre> : null}
+          <pre>{JSON.stringify(selected?.arguments || {}, null, 2)}</pre>
           <div className="app-approval-dialog-actions">
             <Button intent="danger" onClick={() => handleApprovalDecision(selected, 'reject')}>Reject</Button>
             <Button
               intent="primary"
               onClick={() => handleApprovalDecision(selected, 'approve')}
-              disabled={!!selectedApprovalMeta?.forge?.containerRef && !approvalForgeContext}
             >
               Approve
             </Button>

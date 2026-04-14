@@ -3,16 +3,11 @@ import { Button, Dialog, Classes, Spinner } from '@blueprintjs/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client } from '../../services/agentlyClient';
 import { dsTick } from '../../services/chatRuntime';
-import ApprovalEditorFields from '../ApprovalEditorFields.jsx';
-import ApprovalForgeRenderer from '../ApprovalForgeRenderer.jsx';
-import { executeApprovalCallbacks } from '../../services/approvalCallbacks';
 import {
-  buildApprovalEditorState,
   collectElicitationFormValues,
   elicitationDataBindingKey,
   extractToolApprovalMeta,
   prepareRequestedSchema,
-  serializeApprovalEditedFields,
   triggerElicitationFormSubmit
 } from '../elicitationHelpers';
 
@@ -51,15 +46,6 @@ export default function ElicitationForm({ message, context, onResolved = null })
   const preparedSchema = useMemo(() => prepareRequestedSchema(requestedSchema), [requestedSchema]);
   const approvalMeta = useMemo(() => extractToolApprovalMeta(requestedSchema), [requestedSchema]);
   const dataBindingKey = elicitationDataBindingKey(ids.elicitationId);
-  const [approvalValues, setApprovalValues] = useState(() => buildApprovalEditorState(approvalMeta));
-  const [approvalForgeContext, setApprovalForgeContext] = useState(null);
-  const [approvalForgeError, setApprovalForgeError] = useState('');
-
-  React.useEffect(() => {
-    setApprovalValues(buildApprovalEditorState(approvalMeta));
-    setApprovalForgeContext(null);
-    setApprovalForgeError('');
-  }, [approvalMeta]);
 
   const collectFormValues = useCallback(() => {
     return collectElicitationFormValues({
@@ -81,30 +67,6 @@ export default function ElicitationForm({ message, context, onResolved = null })
     }
     let resolvedAction = action;
     let resolvedPayload = payload || collectFormValues();
-    if (approvalMeta?.forge?.containerRef && approvalForgeContext?.handlers?.dataSource?.peekFormData) {
-      const formData = approvalForgeContext.handlers.dataSource.peekFormData() || {};
-      if (formData.editedFields && typeof formData.editedFields === 'object') {
-        resolvedPayload = { editedFields: formData.editedFields };
-      }
-    }
-    if (approvalMeta) {
-      const callbackPayload = await executeApprovalCallbacks({
-        meta: approvalMeta,
-        event: action,
-        context,
-        payload: {
-          approval: approvalMeta,
-          editedFields: resolvedPayload?.editedFields || {},
-          originalArgs: message?.approvalArguments || {}
-        }
-      });
-      if (typeof callbackPayload?.action === 'string' && callbackPayload.action.trim()) {
-        resolvedAction = callbackPayload.action.trim();
-      }
-      resolvedPayload = {
-        editedFields: callbackPayload?.editedFields || resolvedPayload?.editedFields || {}
-      };
-    }
     setSubmitting(true);
     setError('');
     try {
@@ -143,22 +105,7 @@ export default function ElicitationForm({ message, context, onResolved = null })
       <div className={Classes.DIALOG_BODY}>
         {prompt ? <p style={{ marginBottom: 12 }}>{prompt}</p> : null}
         {approvalMeta?.toolName ? <p style={{ marginBottom: 12 }}><strong>Tool:</strong> {approvalMeta.toolName}</p> : null}
-        {approvalMeta?.forge?.containerRef ? (
-          <ApprovalForgeRenderer
-            meta={approvalMeta}
-            approvalValues={approvalValues}
-            originalArgs={message?.approvalArguments || {}}
-            onReady={setApprovalForgeContext}
-            onError={setApprovalForgeError}
-          />
-        ) : approvalMeta?.editors?.length ? (
-            <ApprovalEditorFields
-              meta={approvalMeta}
-              value={approvalValues}
-            onChange={setApprovalValues}
-            disabled={submitting}
-          />
-        ) : (
+        {
           <div id={formWrapperId.current}>
             <SchemaBasedForm
               showSubmit={false}
@@ -174,8 +121,7 @@ export default function ElicitationForm({ message, context, onResolved = null })
               disabled={submitting}
             />
           </div>
-        )}
-        {approvalForgeError ? <p style={{ color: '#b42318', marginTop: 8 }}>{approvalForgeError}</p> : null}
+        }
         {error ? <p style={{ color: '#ef4444', marginTop: 8 }}>{error}</p> : null}
       </div>
       <div className={Classes.DIALOG_FOOTER}>
@@ -186,18 +132,11 @@ export default function ElicitationForm({ message, context, onResolved = null })
           <Button
             intent="primary"
             onClick={() => {
-              if (approvalMeta?.forge?.containerRef && !approvalForgeContext) {
-                return;
-              }
-              if (approvalMeta?.editors?.length) {
-                resolveAction('accept', { editedFields: serializeApprovalEditedFields(approvalMeta, approvalValues) });
-                return;
-              }
               if (!triggerFormSubmit()) {
                 resolveAction('accept');
               }
             }}
-            disabled={submitting || (!!approvalMeta?.forge?.containerRef && !approvalForgeContext)}
+            disabled={submitting}
           >
             {approvalMeta?.acceptLabel || 'Accept'}
           </Button>

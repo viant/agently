@@ -17,7 +17,7 @@ import StatusBar from './StatusBar';
 import Sidebar from './Sidebar';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
-import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, getSelectedWindow, isLinkedChildWindow, openConversationInMainWindow, requestNewConversationInMainWindow, returnToParentConversation } from '../services/conversationWindow';
+import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, getScopedConversationSelection, getSelectedWindow, isLinkedChildWindow, openConversationInMainWindow, requestNewConversationInMainWindow, returnToParentConversation } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath } from '../services/chatRuntime';
 import { beginLogin, client, recoverSessionSilently } from '../services/agentlyClient';
@@ -70,8 +70,36 @@ export function resolveOAuthProviderLabel(providers) {
   return label;
 }
 
+export function resolveSelectedMainWindow(windows = [], selectedTabWindowId = '', selectedFocusedWindowId = '', fallbackWindow = null) {
+  const list = Array.isArray(windows) ? windows : [];
+  const primaryId = String(selectedTabWindowId || selectedFocusedWindowId || '').trim();
+  if (primaryId) {
+    const matched = list.find((entry) => String(entry?.windowId || '').trim() === primaryId);
+    if (matched) return matched;
+  }
+  return fallbackWindow || null;
+}
+
+export function shouldShowChatChrome(windowEntry = null) {
+  return String(windowEntry?.windowKey || '').trim() === CHAT_WINDOW_KEY;
+}
+
+export function resolveMainWindowCloseConversationId(mainWindowConversationId = '') {
+  return String(mainWindowConversationId || '').trim();
+}
+
+export function resolveMainWindowHeaderTitle(windowEntry = null) {
+  const title = String(windowEntry?.windowTitle || windowEntry?.windowKey || '').trim();
+  return title;
+}
+
+export function shouldShowMainWindowHeader(windowEntry = null) {
+  return !shouldShowChatChrome(windowEntry) && resolveMainWindowHeaderTitle(windowEntry) !== '';
+}
+
 export default function Root() {
   useSignals();
+  void selectedTabId.value;
   void selectedWindowId.value;
   void activeWindows.value;
   const [selectedTool, setSelectedTool] = useState(null);
@@ -94,8 +122,15 @@ export default function Root() {
   const [oauthProviderLabel, setOAuthProviderLabel] = useState('');
   const resizeStateRef = useRef(null);
   const approvals = useApprovalQueue(authState === 'ready');
-  const selectedWindow = getSelectedWindow();
+  const selectedWindow = resolveSelectedMainWindow(
+    activeWindows.value,
+    selectedTabId.value,
+    selectedWindowId.value,
+    getSelectedWindow()
+  );
   const linkedChildWindow = isLinkedChildWindow(selectedWindow) ? selectedWindow : null;
+  const showChatChrome = shouldShowChatChrome(selectedWindow);
+  const activeWindowTitle = resolveMainWindowHeaderTitle(selectedWindow);
 
   const setMode = (mode) => {
     const next = mode === 'left' || mode === 'window' ? mode : 'right';
@@ -293,7 +328,7 @@ export default function Root() {
               }}
             />
           ) : null}
-          <main className="app-chat-pane">
+          <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`}>
             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               {linkedChildWindow ? (
                 <div className="app-linked-child-banner">
@@ -323,11 +358,37 @@ export default function Root() {
                   <div className="app-linked-child-title">Linked conversation</div>
                 </div>
               ) : null}
+              {shouldShowMainWindowHeader(selectedWindow) ? (
+                <div className="app-main-window-header">
+                  <div className="app-main-window-header-title">{activeWindowTitle}</div>
+                  <button
+                    type="button"
+                    className="app-main-window-header-close"
+                    aria-label={`Close ${activeWindowTitle}`}
+                    title={`Close ${activeWindowTitle}`}
+                    onClick={() => {
+                      const restoreConversationId = resolveMainWindowCloseConversationId(
+                        getScopedConversationSelection(MAIN_CHAT_WINDOW_ID)
+                      );
+                      if (selectedWindow?.windowId) {
+                        removeWindow(selectedWindow.windowId);
+                      }
+                      openConversationInMainWindow(restoreConversationId);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : null}
               <WindowManager />
             </div>
-            <ChangeFeed anchor="composer_top" />
-            <ToolFeedBar />
-            <UsageBar />
+            {showChatChrome ? (
+              <>
+                <ChangeFeed anchor="composer_top" />
+                <ToolFeedBar />
+                <UsageBar />
+              </>
+            ) : null}
           </main>
         </div>
 

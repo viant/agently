@@ -7,6 +7,7 @@ import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.ListConversationsInput
+import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.WorkspaceMetadata
@@ -115,7 +116,8 @@ internal suspend fun resolveWorkspaceClient(
     candidates: List<String>,
     currentClient: AgentlyClient,
     buildClient: (String) -> AgentlyClient,
-    onResolvedBaseUrl: (String) -> Unit
+    onResolvedBaseUrl: (String) -> Unit,
+    targetContext: MetadataTargetContext
 ): AgentlyClient {
     val resolved = resolveReachableClient(
         currentBaseUrl = currentBaseUrl,
@@ -123,7 +125,7 @@ internal suspend fun resolveWorkspaceClient(
         currentClient = currentClient,
         buildClient = buildClient
     ) { probeClient ->
-        probeClient.getWorkspaceMetadata()
+        probeClient.getWorkspaceMetadata(targetContext)
     }
     if (resolved.baseUrl != currentBaseUrl) {
         onResolvedBaseUrl(resolved.baseUrl)
@@ -170,9 +172,10 @@ internal suspend fun resolveAuthClientWithFallback(
 }
 
 internal suspend fun loadWorkspaceSnapshot(
-    client: AgentlyClient
+    client: AgentlyClient,
+    targetContext: MetadataTargetContext
 ): WorkspaceSnapshot {
-    val metadata = client.getWorkspaceMetadata()
+    val metadata = client.getWorkspaceMetadata(targetContext)
     val conversations = loadRecentConversations(client)
     return WorkspaceSnapshot(metadata = metadata, conversations = conversations)
 }
@@ -290,7 +293,8 @@ internal suspend fun refreshAuthSession(
     candidates: List<String>,
     currentClient: AgentlyClient,
     buildClient: (String) -> AgentlyClient,
-    loadOnSuccess: Boolean
+    loadOnSuccess: Boolean,
+    targetContext: MetadataTargetContext
 ): AuthRefreshResult {
     val authResolved = try {
         resolveAuthCapableClient(
@@ -341,9 +345,10 @@ internal suspend fun refreshAuthSession(
             candidates = candidates,
             currentClient = if (resolvedBaseUrl == currentBaseUrl) currentClient else buildClient(resolvedBaseUrl),
             buildClient = buildClient,
-            onResolvedBaseUrl = {}
+            onResolvedBaseUrl = {},
+            targetContext = targetContext
         )
-        loadWorkspaceSnapshot(workspaceClient)
+        loadWorkspaceSnapshot(workspaceClient, targetContext)
     } else {
         null
     }
@@ -358,10 +363,11 @@ internal suspend fun refreshAuthSession(
 }
 
 internal suspend fun loadWorkspaceSession(
-    resolveClient: suspend () -> AgentlyClient
+    resolveClient: suspend () -> AgentlyClient,
+    targetContext: MetadataTargetContext
 ): WorkspaceLoadResult {
     return try {
-        val snapshot = loadWorkspaceSnapshot(resolveClient())
+        val snapshot = loadWorkspaceSnapshot(resolveClient(), targetContext)
         WorkspaceLoadResult(snapshot = snapshot)
     } catch (err: Throwable) {
         val message = err.message ?: err.toString()

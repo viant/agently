@@ -30,7 +30,7 @@ class ApprovalComponentsTest {
             "appAPI" to com.viant.forgeandroid.runtime.EndpointConfig(baseUrl = "http://localhost:9496")
         ),
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
-        targetContext = ForgeTargetContext(platform = "android")
+        targetContext = buildForgeTargetContext("phone")
     )
 
     @Test

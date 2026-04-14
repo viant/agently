@@ -369,6 +369,135 @@ agently/
   e2e/build-ui-embed.sh  # UI build script
 ```
 
+## Multi-Platform Architecture
+
+Agently is a multi-platform app:
+
+- `web` — embedded Forge/React UI served by the `agently` binary
+- `ios` — SwiftUI app using local `AgentlySDK` and `ForgeIOSPackage`
+- `android` — Compose app using local `agently-core-sdk` and `forge-sdk`
+
+### Shared Target Context
+
+Platform targeting should use one shared shape across metadata requests, query
+context, and runtime resolution:
+
+```json
+{
+  "platform": "web|android|ios",
+  "formFactor": "desktop|tablet|phone",
+  "surface": "browser|app",
+  "capabilities": ["markdown", "chart", "upload", "code", "diff"]
+}
+```
+
+Rules:
+
+- Forge should own the canonical target-context contract for metadata-driven UI
+  targeting
+- Agently should reuse that same shape for metadata calls and `context.client`
+  instead of inventing an app-specific variant
+- server-side metadata resolution should consume the same shape
+- client-side fallback resolution should consume the same shape
+
+### Metadata Branching
+
+Metadata should be separated by explicit platform and form-factor branches
+instead of letting mobile changes mutate shared web windows.
+
+Recommended structure:
+
+```text
+metadata/window/<window-key>/
+  shared/
+  web/
+  android/
+    phone/
+    tablet/
+  ios/
+    phone/
+    tablet/
+```
+
+Resolution order should be:
+
+1. exact platform + form factor
+2. platform
+3. shared
+4. legacy fallback only during migration
+
+### Important Constraint
+
+Mobile work must not remove metadata that web still depends on.
+
+### Local Multi-Repo Development
+
+This repo now expects local multi-repo refactors to use the workspace file at:
+
+```text
+/Users/awitas/go/src/github.com/viant/go.work
+```
+
+That workspace ties together:
+
+- `agently`
+- `agently-core`
+- `forge`
+
+Use `go.work` for local cross-repo development instead of committing module-level
+`replace` directives in `go.mod`.
+
+### Request-Scoped SDK Debug Logging
+
+Agently reuses the `agently-core` request-scoped SDK debug contract. For HTTP
+SDK sessions, callers can enable debug logging without turning on global process
+debug:
+
+- Go HTTP SDK: `sdk.WithSessionDebug("trace", "conversation", "reactor")`
+- TypeScript SDK: `sessionDebug: { level: "trace", components: ["conversation", "reactor"] }`
+- iOS SDK: `SessionDebugOptions(level: "trace", components: ["conversation", "reactor"])`
+- Android SDK: `SessionDebugOptions(level = "trace", components = listOf("conversation", "reactor"))`
+
+These emit:
+
+- `X-Agently-Debug`
+- `X-Agently-Debug-Level`
+- `X-Agently-Debug-Components`
+
+If a surface needs mobile-specific behavior:
+
+- create `android/phone`, `android/tablet`, `ios/phone`, or `ios/tablet`
+  branches
+- keep `web/` as a first-class target
+- keep `shared/` minimal and stable
+
+This is especially important for top-level Forge windows such as:
+
+- `chat/new`
+- `chat/conversations`
+- `schedule`
+- `schedule/history`
+- `agent`
+- `model`
+- `oauth`
+- `mcp`
+- `preferences`
+- `tool`
+- `workflow`
+
+### Current Migration Direction
+
+The current migration work is tracked in:
+
+- `/Users/awitas/go/src/github.com/viant/agently/multi-platform.md`
+
+That document tracks:
+
+- Forge backend loader work for server-side target-aware metadata selection
+- target-aware `$import(...)` resolution
+- explicit web / iOS / Android metadata branch migration
+- final three-platform verification
+
 ## UI Development
 
 ```bash

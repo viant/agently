@@ -835,6 +835,25 @@ describe('normalizeMessages', () => {
     });
   });
 
+  it('collapses expanded task wrappers even when mode is missing', () => {
+    const normalized = normalizeMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        content: 'User Query:\nRecommend sitelists for audience 7180287\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[] reason: scope: tokensFreed: 0] client:map[capabilities:[markdown chart upload code diff] platform:web surface:browser]]\n\nEND_OF_USER_PROMPT',
+        createdAt: '2026-04-13T20:00:00Z'
+      }
+    ], { visibleCount: Number.MAX_SAFE_INTEGER });
+
+    expect(normalized).toHaveLength(1);
+    expect(normalized[0]).toMatchObject({
+      id: 'u1',
+      role: 'user',
+      content: 'Recommend sitelists for audience 7180287'
+    });
+  });
+
   it('dedupes same-turn user rows when one is an expanded task wrapper', () => {
     const normalized = normalizeMessages([
       {

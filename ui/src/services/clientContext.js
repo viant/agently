@@ -6,14 +6,19 @@ export function detectWebFormFactor() {
   return 'desktop';
 }
 
-export function buildWebClientContext() {
-  const formFactor = detectWebFormFactor();
+export function buildWebTargetContext() {
   return {
-    kind: 'web',
     platform: 'web',
-    formFactor,
+    formFactor: detectWebFormFactor(),
     surface: 'browser',
     capabilities: ['markdown', 'chart', 'upload', 'code', 'diff'],
+  };
+}
+
+export function buildWebClientContext() {
+  return {
+    kind: 'web',
+    ...buildWebTargetContext(),
   };
 }
 

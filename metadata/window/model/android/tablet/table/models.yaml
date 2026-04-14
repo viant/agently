@@ -1,0 +1,24 @@
+columns:
+  - id: id
+    name: Model ID
+    width: 220
+    enforceColumnSize: true
+    tooltip: Stable model identifier
+  - id: name
+    name: Name
+    width: 180
+    enforceColumnSize: true
+    tooltip: Display name
+  - id: options.provider
+    name: Provider
+    width: 140
+    enforceColumnSize: true
+    tooltip: Model provider
+  - id: options.model
+    name: Model
+    width: 220
+    enforceColumnSize: true
+    tooltip: Provider model reference
+
+
+toolbar: $import('toolbar/models.yaml')

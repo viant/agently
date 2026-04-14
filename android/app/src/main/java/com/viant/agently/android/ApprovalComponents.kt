@@ -353,11 +353,7 @@ internal fun ApprovalForgeEditors(
         ForgeRuntime(
             endpoints = emptyMap(),
             scope = scope,
-            targetContext = ForgeTargetContext(
-                platform = "android",
-                formFactor = formFactor,
-                capabilities = setOf("markdown")
-            )
+            targetContext = buildForgeTargetContext(formFactor)
         )
     }
     val runtime = forgeRuntime ?: localRuntime

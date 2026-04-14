@@ -1,0 +1,6 @@
+columns:
+  - id: title
+    name: Conversation
+    tooltip: Conversation title
+
+toolbar: $import('toolbar/conversations.yaml')

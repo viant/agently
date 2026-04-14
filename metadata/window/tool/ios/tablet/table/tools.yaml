@@ -1,0 +1,8 @@
+columns:
+  - id: name
+    name: Tool
+    width: 280
+    enforceColumnSize: true
+    tooltip: Tool name
+
+toolbar: $import('toolbar/tools.yaml')

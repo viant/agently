@@ -1,0 +1,14 @@
+dataSourceRef: agents
+
+selectors:
+  data: chains
+
+selectionMode: single
+
+autoSelect: false
+
+uniqueKey:
+  - field: target.agentId
+  - field: on
+  - field: mode
+

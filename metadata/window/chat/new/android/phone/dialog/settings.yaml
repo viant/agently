@@ -1,0 +1,38 @@
+title: Settings
+id: settings
+dataSourceRef: settings
+content: $import('panel/settings.yaml')
+
+properties:
+  searchable: false
+
+
+
+
+# Responsive sizing – larger by default, with min/max constraints
+style:
+  width: 92vw
+  height: 86vh
+  minWidth: 0px
+  minHeight: 0px
+  maxWidth: 95vw
+  maxHeight: 90vh
+
+# Action buttons shown in the footer
+actions:
+  - id: save
+    icon: floppy-disk
+    label: Save
+    intent: primary
+    on:
+      - event: onClick
+        handler: chat.saveSettings
+      - event: onClick
+        handler: dialog.close
+
+  - id: cancel
+    icon: cross
+    label: Cancel
+    on:
+      - event: onClick
+        handler: dialog.close

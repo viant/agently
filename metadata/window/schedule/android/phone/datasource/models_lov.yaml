@@ -1,0 +1,14 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/workspace/metadata
+  method: GET
+
+selectors:
+  data: modelInfos
+
+uniqueKey:
+  - field: id
+
+on:
+  - event: onFetch
+    handler: schedule.onFetchModelsLov

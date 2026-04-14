@@ -1,0 +1,20 @@
+items:
+  - id: refresh
+    icon: refresh
+    align: left
+
+  - id: execute
+    icon: play
+    align: left
+    on:
+      - event: onReadonly
+        handler: dataSource.noSelection
+      - event: onClick
+        handler: window.openDialog
+        args:
+          - runToolDialog
+          -
+
+  - id: quickFilter
+    placeholder: Filter tools...
+    align: right

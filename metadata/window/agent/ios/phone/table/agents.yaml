@@ -1,0 +1,9 @@
+columns:
+  - id: name
+    name: Agent Name
+  - id: profile.publish
+    name: Live
+    width: 60
+    type: checkbox
+
+toolbar: $import('toolbar/agents.yaml')

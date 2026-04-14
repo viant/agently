@@ -1,0 +1,21 @@
+columns:
+  - id: on
+    name: On
+    width: 140
+    enforceColumnSize: true
+  - id: mode
+    name: Mode
+    width: 120
+    enforceColumnSize: true
+  - id: conversation
+    name: Conversation
+    width: 180
+    enforceColumnSize: true
+  - id: target.agentId
+    name: Target Agent
+    width: 200
+    enforceColumnSize: true
+  - id: query.uri
+    name: Query URI
+    width: 260
+    enforceColumnSize: true

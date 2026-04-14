@@ -1,0 +1,8 @@
+columns:
+  - id: name
+    name: MCP Server
+    width: 300
+    enforceColumnSize: true
+    tooltip: Registered MCP server
+
+toolbar: $import('toolbar/servers.yaml')

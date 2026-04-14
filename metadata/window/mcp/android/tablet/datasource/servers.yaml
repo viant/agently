@@ -1,0 +1,22 @@
+service:
+  endpoint: appAPI
+  uri: /workspace/mcp
+  method: GET
+  put:
+    uri: /workspace/mcp/{name}
+
+selectors:
+  data: data
+
+uniqueKey:
+  - field: name
+
+filterSet:
+  - name: default
+    default: true
+    template:
+      - id: name
+        label: Filter MCP servers...
+        operator: contains
+
+quickFilterSet: default

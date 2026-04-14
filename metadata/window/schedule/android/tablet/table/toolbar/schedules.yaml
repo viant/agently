@@ -1,0 +1,54 @@
+items:
+  # Refresh schedule list
+  - id: refresh
+    icon: refresh
+    align: left
+    tooltip: Refresh schedules
+
+  # Create a new schedule
+  - id: addNew
+    icon: new-object
+    align: left
+    tooltip: New schedule
+    on:
+      - event: onClick
+        handler: schedule.addNewSchedule
+
+  # Persist changes
+  - id: save
+    icon: floppy-disk
+    align: left
+    tooltip: Save schedule
+    on:
+      - event: onClick
+        handler: schedule.saveSchedule
+
+  - id: pagination
+    type: pagination
+    align: center
+
+  - id: quickFilter
+    placeholder: Filter schedules...
+    align: right
+
+  # Trigger selected schedule immediately
+  - id: run
+    icon: play
+    align: right
+    tooltip: Run now
+    on:
+      - event: onReadonly
+        handler: dataSource.noSelection
+      - event: onClick
+        handler: schedule.runSelected
+
+  # Delete (soft-disable) the selected schedule
+  - id: delete
+    icon: trash
+    align: right
+    tooltip: Disable and remove schedule
+    on:
+      - event: onReadonly
+        handler: dataSource.noSelection
+      - event: onClick
+        handler: schedule.deleteSchedule

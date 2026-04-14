@@ -1,0 +1,10 @@
+dataSourceRef: agents
+uniqueKey:
+  - field: url
+
+selectors:
+  data: knowledge
+
+autoSelect: true
+
+selectionMode: single

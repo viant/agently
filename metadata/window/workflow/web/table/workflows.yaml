@@ -1,0 +1,8 @@
+columns:
+  - id: name
+    name: Workflow Name
+  - id: description
+    name: Description
+
+# Table toolbar definitions
+toolbar: $import('toolbar/workflows.yaml')

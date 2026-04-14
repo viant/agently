@@ -1,0 +1,27 @@
+namespace: WorkflowConversation
+
+# Window displaying a single read-only chat transcript linked to a workflow
+
+on:
+  - event: onInit
+    handler: workflowConversation.onInit
+  - event: onDestroy
+    handler: workflowConversation.onDestroy
+
+view:
+  content:
+    containers:
+      - id: conversationSection
+        chat:
+          dataSourceRef: messages
+          height: 75vh
+          tools: []           # no composer tools
+          # Deliberately no onSubmit – composer hidden
+          on:
+            - event: onAbort
+              handler: chat.abortConversation
+
+# Data sources – reuse existing chat datasources
+dataSource:
+  conversations: $import('../../../chat/conversations/datasource/conversations.yaml')
+  messages: $import('../../../chat/conversations/datasource/messages.yaml')

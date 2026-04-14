@@ -61,6 +61,7 @@ import com.viant.agentlysdk.CreateConversationInput
 import com.viant.agentlysdk.DecideToolApprovalInput
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
+import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.QueryAttachment
 import com.viant.agentlysdk.QueryInput
@@ -138,13 +139,7 @@ private fun AgentlyApp() {
     var savedLoginConfig by remember { mutableStateOf(storedSavedLoginConfig) }
     var showSavedLoginSettings by remember { mutableStateOf(false) }
     val sessionCookieJar = remember { MemoryCookieJar() }
-    val forgeTargetContext = remember(formFactor) {
-        ForgeTargetContext(
-            platform = "android",
-            formFactor = formFactor,
-            capabilities = setOf("markdown", "chart")
-        )
-    }
+    val forgeTargetContext = remember(formFactor) { buildForgeTargetContext(formFactor) }
     fun buildClient(baseUrl: String): AgentlyClient = AgentlyClient(
         endpoints = mapOf(
             "appAPI" to EndpointConfig(
@@ -227,7 +222,8 @@ private fun AgentlyApp() {
             candidates = mergeApiCandidates(appApiBaseUrl, appApiCandidates),
             currentClient = client,
             buildClient = ::buildClient,
-            onResolvedBaseUrl = ::setAppApiBaseUrl
+            onResolvedBaseUrl = ::setAppApiBaseUrl,
+            targetContext = buildMetadataTargetContext(formFactor)
         )
     }
 
@@ -420,7 +416,8 @@ private fun AgentlyApp() {
             candidates = mergeApiCandidates(appApiBaseUrl, appApiCandidates),
             currentClient = client,
             buildClient = ::buildClient,
-            loadOnSuccess = loadOnSuccess
+            loadOnSuccess = loadOnSuccess,
+            targetContext = buildMetadataTargetContext(formFactor)
         )
         applyAuthRefreshResult(authRefreshResult)
     }
@@ -649,7 +646,7 @@ private fun AgentlyApp() {
 
     fun loadWorkspace() {
         launchAppOperation(showLoading = true) {
-            val workspaceResult = loadWorkspaceSession(::resolveClient)
+            val workspaceResult = loadWorkspaceSession(::resolveClient, buildMetadataTargetContext(formFactor))
             applyWorkspaceLoadResult(workspaceResult)
         }
     }
@@ -739,7 +736,8 @@ private fun AgentlyApp() {
                     effectiveAgentId = effectiveAgentId,
                     prompt = preparedQuerySubmission.effectivePrompt,
                     attachments = currentDraft.attachments,
-                    queryContext = buildClientQueryContext(formFactor)
+                    queryContext = buildClientQueryContext(formFactor),
+                    targetContext = buildMetadataTargetContext(formFactor)
                 )
                 val querySuccessState = buildQuerySuccessState(
                     execution = queryExecution,
@@ -788,7 +786,7 @@ private fun AgentlyApp() {
     }
 
     suspend fun bootstrapWorkspaceSession() {
-        val workspaceResult = loadWorkspaceSession(::resolveClient)
+        val workspaceResult = loadWorkspaceSession(::resolveClient, buildMetadataTargetContext(formFactor))
         applyWorkspaceLoadResult(workspaceResult)
     }
 
@@ -1003,5 +1001,26 @@ private fun buildClientQueryContext(formFactor: String): Map<String, JsonElement
                 }
             )
         }
+    )
+}
+
+internal fun buildAndroidTargetCapabilities(): List<String> {
+    return listOf("markdown", "chart", "attachments", "camera", "voice")
+}
+
+internal fun buildForgeTargetContext(formFactor: String): ForgeTargetContext {
+    return ForgeTargetContext(
+        platform = "android",
+        formFactor = formFactor,
+        capabilities = buildAndroidTargetCapabilities().toSet()
+    )
+}
+
+internal fun buildMetadataTargetContext(formFactor: String): MetadataTargetContext {
+    return MetadataTargetContext(
+        platform = "android",
+        formFactor = formFactor,
+        surface = "app",
+        capabilities = buildAndroidTargetCapabilities()
     )
 }

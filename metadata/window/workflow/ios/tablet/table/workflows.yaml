@@ -1,0 +1,14 @@
+columns:
+  - id: name
+    name: Workflow Name
+    width: 260
+    enforceColumnSize: true
+    tooltip: Workflow identifier
+  - id: description
+    name: Description
+    width: 420
+    enforceColumnSize: true
+    tooltip: Workflow summary
+
+# Table toolbar definitions
+toolbar: $import('toolbar/workflows.yaml')

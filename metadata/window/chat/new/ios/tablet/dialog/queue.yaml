@@ -1,0 +1,15 @@
+title: Queued Turns
+id: queue
+dataSourceRef: queueTurns
+content: $import('panel/queue.yaml')
+
+style:
+  width: 72vw
+  height: 74vh
+
+actions:
+  - id: close
+    label: Close
+    on:
+      - event: onClick
+        handler: dialog.close

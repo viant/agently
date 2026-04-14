@@ -1,0 +1,10 @@
+items:
+  - id: newConversation
+    icon: add
+    label: New
+    align: left
+    on:
+      - event: onClick
+        handler: dataSource.fetchCollection
+        args:
+          - createConversation
