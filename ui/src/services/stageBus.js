@@ -4,6 +4,8 @@ let currentStage = {
   phase: 'ready',
   text: 'Ready',
   updatedAt: Date.now(),
+  startedAt: 0,
+  completedAt: 0,
   detail: ''
 };
 
@@ -55,15 +57,38 @@ function getSnapshot() {
   return currentStage;
 }
 
+function normalizeStageTimestamp(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  const text = String(value || '').trim();
+  if (!text) return 0;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export function setStage(next = {}) {
   const phase = normalizeStagePhase(next.phase || currentStage.phase);
+  const startedAt = normalizeStageTimestamp(next.startedAt);
+  const completedAt = normalizeStageTimestamp(next.completedAt);
+  const isActivePhase = phase === 'waiting' || phase === 'thinking' || phase === 'executing' || phase === 'streaming';
   currentStage = {
     ...currentStage,
     ...next,
     phase,
     text: String(next.text || PHASE_LABELS[phase] || ''),
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
+    startedAt: startedAt || (isActivePhase ? currentStage.startedAt : 0),
+    completedAt: completedAt || (isActivePhase ? 0 : currentStage.completedAt)
   };
+  if (startedAt) {
+    currentStage.startedAt = startedAt;
+  }
+  if (completedAt) {
+    currentStage.completedAt = completedAt;
+  }
+  if (!isActivePhase && !completedAt && (phase === 'ready' || phase === 'offline')) {
+    currentStage.startedAt = 0;
+    currentStage.completedAt = 0;
+  }
   for (const listener of listeners) listener();
 }
 

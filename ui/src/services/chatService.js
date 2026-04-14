@@ -344,7 +344,7 @@ export async function submitMessage({ context, message, model, agent }) {
       }
     });
     disconnectStream(context);
-    setStage({ phase: 'executing', text: 'Executing…' });
+    setStage({ phase: 'executing', text: 'Executing…', startedAt: submittedAt, completedAt: 0 });
   } else {
     setStage({ phase: 'waiting', text: 'Queued follow-up…' });
   }

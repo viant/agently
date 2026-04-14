@@ -1946,7 +1946,8 @@ describe('renderMergedRowsForContext', () => {
               mode: 'task',
               turnId: 'turn-1',
               createdAt: '2026-04-09T18:05:23Z',
-              content: 'User Query:\nwhat iris targeting do we have ?\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[] reason: scope:conversation tokensFreed:0]]'
+              content: 'User Query:\nwhat iris targeting do we have ?\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[] reason: scope:conversation tokensFreed:0]]',
+              rawContent: 'what iris targeting do we have ?'
             },
             {
               id: 'assistant-live-1',
@@ -2028,7 +2029,8 @@ describe('renderMergedRowsForContext', () => {
               mode: 'task',
               turnId: 'turn-1',
               createdAt: '2026-04-09T18:05:23Z',
-              content: 'User Query:\nwhat iris targeting do we have ?\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[]]]'
+              content: 'User Query:\nwhat iris targeting do we have ?\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[]]]',
+              rawContent: 'what iris targeting do we have ?'
             },
             {
               id: 'assistant:turn-1:1',
@@ -2055,7 +2057,8 @@ describe('renderMergedRowsForContext', () => {
               mode: 'task',
               turnId: 'turn-2',
               createdAt: '2026-04-09T18:06:23Z',
-              content: 'User Query:\nforecast deal 141952\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[]]]'
+              content: 'User Query:\nforecast deal 141952\nContext:\nmap[Projection:map[hiddenMessageIds:[] hiddenTurnIds:[]]]',
+              rawContent: 'forecast deal 141952'
             },
             {
               id: 'assistant:turn-2:1',

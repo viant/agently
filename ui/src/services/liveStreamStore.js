@@ -37,6 +37,9 @@ function isTerminalStatusValue(value = '') {
 function normalizeExecutionRowStatus(value = '') {
   const status = normalizedStatusValue(value);
   if (!status) return 'running';
+  if (status === 'thinking' || status === 'streaming' || status === 'processing' || status === 'in_progress' || status === 'queued' || status === 'pending' || status === 'open' || status === 'tool_calls') {
+    return status;
+  }
   if (status === 'waiting_for_user' || status === 'blocked') return status;
   if (isTerminalStatusValue(status)) return status;
   return 'running';
@@ -295,6 +298,8 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     mode: String(payload?.mode || '').trim().toLowerCase(),
     type: 'text',
     createdAt,
+    startedAt,
+    completedAt,
     errorMessage,
     sequence: Number(payload?.eventSeq || payload?.pageIndex || payload?.iteration || 0) || null,
     status: normalizeExecutionRowStatus(payload?.status),
@@ -423,6 +428,8 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
     existing.push(nextRow);
   } else {
     const prev = existing[index];
+    const eventType = String(payload?.type || '').trim().toLowerCase();
+    const shouldAdvanceRowStatus = eventType === 'model_started' || eventType === 'text_delta' || eventType === 'tool_calls_planned';
     // Update content/status when finalResponse arrives; otherwise keep existing
     const updatedContent = nextRow.interim === 0 && String(nextRow.content || '').trim()
       ? nextRow.content
@@ -432,8 +439,10 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
       ...prev,
       agentIdUsed: String(nextRow.agentIdUsed || prev?.agentIdUsed || '').trim(),
       agentName: String(nextRow.agentName || prev?.agentName || '').trim(),
-      status: prev.status || nextRow.status,
-      turnStatus: prev.turnStatus || nextRow.turnStatus,
+      status: shouldAdvanceRowStatus ? (nextRow.status || prev.status) : (prev.status || nextRow.status),
+      turnStatus: shouldAdvanceRowStatus ? (nextRow.turnStatus || prev.turnStatus) : (prev.turnStatus || nextRow.turnStatus),
+      startedAt: prev.startedAt || nextRow.startedAt,
+      createdAt: prev.createdAt || nextRow.createdAt,
       interim: updatedInterim,
       content: updatedContent,
       preamble: nextRow.preamble || prev.preamble,
@@ -824,6 +833,7 @@ function applyAssistantFinalToRows(rows = [], payload = {}) {
     agentName: String(payload?.agentName || prev?.agentName || '').trim(),
     mode: String(payload?.mode || prev?.mode || '').trim().toLowerCase(),
     content: normalizeStreamingMarkdown(content).content,
+    completedAt: String(payload?.completedAt || payload?.createdAt || prev?.completedAt || '').trim(),
     interim: prev?.interim ?? 1,
     isStreaming: false,
     _streamContent: '',
@@ -1051,6 +1061,7 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
       mode: String(payload?.mode || row?.mode || '').trim().toLowerCase(),
       status,
       turnStatus: status,
+      completedAt: String(payload?.completedAt || payload?.createdAt || row?.completedAt || '').trim(),
       errorMessage: errorMessage || row?.errorMessage || '',
       interim: 0,
       isStreaming: false,

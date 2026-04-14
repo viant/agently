@@ -15,6 +15,7 @@ import {
   isIterationActive,
   isActiveStatus,
   resolveIterationDisplayStatus,
+  resolveIterationElapsedAnchor,
   resolveIterationAgentLabel,
   resolveIterationStatusDetail,
   resolveVisibleBubbleContent,
@@ -76,6 +77,95 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(status).toBe('running');
     expect(isIterationActive({ status: 'completed' }, [{ status: 'completed', modelStep: { status: 'completed' }, toolSteps: [] }], ['running'])).toBe(true);
     expect(statusTone(status)).toBe('running');
+  });
+
+  it('anchors active elapsed time to the latest active execution frontier instead of the oldest completed step', () => {
+    const anchor = resolveIterationElapsedAnchor(
+      { status: 'running', startedAt: '2026-04-14T12:00:00Z' },
+      [
+        {
+          status: 'completed',
+          modelStep: { status: 'completed', startedAt: '2026-04-14T01:00:00Z' },
+          toolSteps: []
+        },
+        {
+          status: 'thinking',
+          modelStep: { status: 'thinking', startedAt: '2026-04-14T12:10:00Z' },
+          toolSteps: []
+        }
+      ],
+      [],
+      { createdAt: '2026-04-14T11:59:00Z' },
+      true
+    );
+
+    expect(anchor).toBe(Date.parse('2026-04-14T12:10:00Z'));
+  });
+
+  it('falls back to the latest active preamble timestamp when active groups are all historical', () => {
+    const anchor = resolveIterationElapsedAnchor(
+      {
+        status: 'running',
+        preamble: { createdAt: '2026-04-14T12:20:00Z', content: 'Working…' },
+        preambles: [{ createdAt: '2026-04-14T12:19:30Z', content: 'Starting…' }]
+      },
+      [
+        {
+          status: 'completed',
+          modelStep: { status: 'completed', startedAt: '2026-04-14T01:00:00Z' },
+          toolSteps: []
+        }
+      ],
+      [],
+      { createdAt: '2026-04-14T01:00:00Z' },
+      true
+    );
+
+    expect(anchor).toBe(Date.parse('2026-04-14T12:20:00Z'));
+  });
+
+  it('uses streamCreatedAt as the active elapsed anchor when the live frontier is a separate stream-owned bubble', () => {
+    const anchor = resolveIterationElapsedAnchor(
+      {
+        status: 'running',
+        streamCreatedAt: '2026-04-14T12:30:00Z',
+        preamble: { createdAt: '2026-04-14T01:00:00Z', content: 'Old preamble' }
+      },
+      [
+        {
+          status: 'completed',
+          modelStep: { status: 'completed', startedAt: '2026-04-14T01:00:00Z' },
+          toolSteps: []
+        }
+      ],
+      [],
+      { createdAt: '2026-04-14T01:00:00Z' },
+      true
+    );
+
+    expect(anchor).toBe(Date.parse('2026-04-14T12:30:00Z'));
+  });
+
+  it('prefers turnStartedAt over historical step timestamps', () => {
+    const anchor = resolveIterationElapsedAnchor(
+      {
+        status: 'running',
+        turnStartedAt: '2026-04-14T12:40:00Z',
+        streamCreatedAt: '2026-04-14T12:30:00Z'
+      },
+      [
+        {
+          status: 'completed',
+          modelStep: { status: 'completed', startedAt: '2026-04-14T01:00:00Z' },
+          toolSteps: []
+        }
+      ],
+      [],
+      { createdAt: '2026-04-14T01:00:00Z' },
+      true
+    );
+
+    expect(anchor).toBe(Date.parse('2026-04-14T12:40:00Z'));
   });
 
   it('paginates tool calls at three per preamble group and advances offsets correctly', () => {

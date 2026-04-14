@@ -9,7 +9,7 @@ import DetailPopoutWindow from './DetailPopoutWindow';
 import ChangeFeed from './ChangeFeed';
 import CodeDiffDialog from './CodeDiffDialog';
 import FileViewDialog from './FileViewDialog';
-import MenuBar from './MenuBar';
+import MenuBar, { refreshWindowDataSources } from './MenuBar';
 // PlanFeed replaced by ToolFeedBar + ToolFeedDetail
 import ToolFeedBar from './ToolFeedBar';
 import UsageBar from './UsageBar';
@@ -94,7 +94,13 @@ export function resolveMainWindowHeaderTitle(windowEntry = null) {
 }
 
 export function shouldShowMainWindowHeader(windowEntry = null) {
-  return !shouldShowChatChrome(windowEntry) && resolveMainWindowHeaderTitle(windowEntry) !== '';
+  const windowKey = String(windowEntry?.windowKey || '').trim();
+  if (windowKey === 'schedule' || windowKey === 'schedule/history') {
+    return false;
+  }
+  return !shouldShowChatChrome(windowEntry)
+    && windowEntry?.inTab !== false
+    && resolveMainWindowHeaderTitle(windowEntry) !== '';
 }
 
 export default function Root() {
@@ -259,6 +265,20 @@ export default function Root() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    const windowId = String(selectedWindow?.windowId || '').trim();
+    const windowKey = String(selectedWindow?.windowKey || '').trim();
+    if (!windowId || !windowKey) return;
+    const refreshRefs = windowKey === 'schedule'
+      ? ['schedules']
+      : (windowKey === 'schedule/history' ? ['runs'] : []);
+    if (refreshRefs.length === 0) return;
+    const timer = window.setTimeout(() => {
+      refreshWindowDataSources(windowId, refreshRefs);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [selectedWindow?.windowId, selectedWindow?.windowKey]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
