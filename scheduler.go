@@ -86,6 +86,10 @@ func RunScheduler(options SchedulerRunOptions) error {
 			Scopes:          append([]string(nil), authCfg.OAuth.Client.Scopes...),
 		}
 	}
+	tokenProvider := rt.TokenProvider
+	if tokenProvider == nil {
+		tokenProvider = svcauth.NewCreatedByUserTokenProvider(authCfg, rt.DAO)
+	}
 
 	scheduleStore, err := svcscheduler.NewDatlyStore(ctx, rt.DAO, rt.Data)
 	if err != nil {
@@ -95,7 +99,9 @@ func RunScheduler(options SchedulerRunOptions) error {
 		scheduleStore,
 		rt.Agent,
 		svcscheduler.WithConversationClient(rt.Conversation),
-		svcscheduler.WithTokenProvider(rt.TokenProvider),
+		svcscheduler.WithAuthConfig(authCfg),
+		svcscheduler.WithTokenProvider(tokenProvider),
+		svcscheduler.WithUserService(svcauth.NewDatlyUserService(rt.DAO)),
 		svcscheduler.WithUserCredAuthConfig(userCredAuthCfg),
 		svcscheduler.WithInterval(interval),
 	)
