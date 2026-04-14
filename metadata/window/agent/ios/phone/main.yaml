@@ -1,0 +1,67 @@
+namespace: AgentsList
+
+view:
+  content:
+    layout:
+      orientation: vertical
+      columns: 1
+      divider:
+        sizes: [100]
+
+    containers:
+      - id: agentsTable
+        title: Agents
+        dataSourceRef: agents
+        table: $import('table/agents.yaml')
+
+      - id: data
+        dataSourceRef: agents
+        tabs:
+          vertical: false
+        containers: $import('form.yaml')
+
+
+
+
+dataSource:
+  agents: $import('datasource/agents.yaml')
+  agentTools: $import('datasource/tools.yaml')
+  agentKnowledge: $import('datasource/knowledge.yaml')
+  agentSystemKnowledge: $import('datasource/system_knowledge.yaml')
+  agentChains: $import('datasource/chains.yaml')
+  modelsLov: $import('../model/datasource/models.yaml')
+
+dialogs:
+  - id: modelLov
+    title: Select Model
+    dataSourceRef: modelsLov
+    content:
+      fetchData: true
+      table:
+        columns:
+          - id: id
+            name: Model ID
+          - id: options.provider
+            name: Provider
+  - id: agentLov
+    title: Select Agent
+    dataSourceRef: agents
+    content:
+      fetchData: true
+    table:
+      columns:
+        - id: name
+          name: Agent Name
+  - id: knowledgeViewer
+    title: Knowledge Viewer
+    dataSourceRef: agents
+    content:
+      id: knowledgeDialog
+      containers:
+        - id: codeViewer
+          editor:
+            selector:
+              source: knowledgeDialogSource
+              extension: knowledgeDialogExtension
+            style:
+              height: '70vh'

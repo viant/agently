@@ -1,0 +1,11 @@
+columns:
+  - id: on
+    name: On
+  - id: mode
+    name: Mode
+  - id: conversation
+    name: Conversation
+  - id: target.agentId
+    name: Target Agent
+  - id: query.uri
+    name: Query URI

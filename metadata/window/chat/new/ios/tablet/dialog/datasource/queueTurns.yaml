@@ -1,0 +1,42 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/conversations/{id}/transcript
+  method: GET
+
+parameters:
+  - name: id
+    kind: path
+    in: input
+    location: id
+  - name: includeModelCalls
+    kind: query
+    in: input
+    location: includeModelCalls
+  - name: includeToolCalls
+    kind: query
+    in: input
+    location: includeToolCalls
+
+params:
+  includeModelCalls: "true"
+  includeToolCalls: "true"
+
+selectors:
+  data: data.conversation.turns
+
+uniqueKey:
+  - field: id
+
+filterSet:
+  - name: default
+    default: true
+    template:
+      - id: preview
+        label: Filter queued turns...
+        operator: contains
+
+quickFilterSet: default
+
+on:
+  - event: onFetch
+    handler: chat.onFetchQueuedTurns

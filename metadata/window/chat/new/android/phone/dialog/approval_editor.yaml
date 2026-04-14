@@ -1,0 +1,17 @@
+id: approvalEditor
+title: Approval Editor
+dataSourceRef: approvalEditor
+content: $import('panel/approval_editor.yaml')
+style:
+  width: 94vw
+  height: 84vh
+  minWidth: 0px
+  minHeight: 0px
+  maxWidth: 96vw
+  maxHeight: 90vh
+actions:
+  - id: close
+    label: Close
+    on:
+      - event: onClick
+        handler: dialog.close

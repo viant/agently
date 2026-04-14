@@ -2881,6 +2881,33 @@ describe('shouldUseLiveStream', () => {
     expect(shouldUseLiveStream(context, 'conv-visible')).toBe(true);
   });
 
+  it('uses stream for the visible conversation once submit has already claimed live ownership', () => {
+    const context = {
+      resources: {
+        chat: {
+          liveOwnedConversationID: 'conv-visible',
+          liveOwnedTurnIds: [],
+          runningTurnId: '',
+          activeStreamTurnId: ''
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-visible', running: false, stage: 'idle', status: 'idle' })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    expect(shouldUseLiveStream(context, 'conv-visible')).toBe(true);
+  });
+
   it('does not use stream for a selected finished conversation', () => {
     const context = {
       resources: {

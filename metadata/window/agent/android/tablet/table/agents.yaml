@@ -1,0 +1,22 @@
+columns:
+  - id: name
+    name: Agent Name
+    width: 220
+    enforceColumnSize: true
+    tooltip: Agent identifier
+  - id: profile.name
+    name: Display Name
+    width: 220
+    enforceColumnSize: true
+    tooltip: Agent display name
+  - id: profile.conversationScope
+    name: Scope
+    width: 140
+    enforceColumnSize: true
+    tooltip: Conversation scope
+  - id: profile.publish
+    name: Published
+    width: 60
+    type: checkbox
+
+toolbar: $import('toolbar/agents.yaml')

@@ -4,7 +4,6 @@ const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const DEFAULT_RETRIES = 2;
 const TOAST_DEDUP_MS = 6000;
 
-let authRedirectInFlight = false;
 const recentToasts = new Map();
 
 export class APIRequestError extends Error {
@@ -106,18 +105,9 @@ export function redirectToLogin(path = '') {
   try {
     window.dispatchEvent(new CustomEvent('agently:unauthorized', { detail: { path, status: 401 } }));
   } catch (_) {}
-  if (authRedirectInFlight) return;
-  authRedirectInFlight = true;
-
-  // Full-page redirect to the IDP login via the SDK.
-  // loginWithRedirect() saves the current URL in sessionStorage, then
-  // navigates to the backend's /v1/api/auth/idp/login which 307-redirects
-  // to the identity provider. After auth, the IDP redirects back to
-  // /v1/api/auth/oauth/callback, handled by the OAuthCallback SPA route.
-  import('./agentlyClient').then(({ beginLogin }) => {
-    return beginLogin();
-  }).catch(() => {
-    authRedirectInFlight = false;
+  showToast('Session expired. Sign in again to continue.', {
+    intent: 'warning',
+    key: 'auth:unauthorized'
   });
 }
 

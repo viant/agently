@@ -1,0 +1,45 @@
+columns:
+  - id: name
+    name: Automation
+    sortable: true
+    width: 190
+    enforceColumnSize: true
+    tooltip: Friendly name for this automation
+  - id: enabled
+    name: On
+    width: 56
+    type: checkbox
+    sortable: true
+    enforceColumnSize: true
+    tooltip: Whether this schedule is currently active
+  - id: cronExpr
+    name: Schedule
+    sortable: true
+    width: 190
+    enforceColumnSize: true
+    tooltip: When this schedule fires
+    on:
+      - event: onValue
+        handler: schedule.formatCronSummary
+  - id: nextRunAt
+    name: Next
+    sortable: true
+    width: 104
+    enforceColumnSize: true
+    tooltip: When the next execution is expected
+    on:
+      - event: onValue
+        handler: schedule.formatDate
+  - id: lastStatus
+    name: Last
+    sortable: true
+    width: 88
+    enforceColumnSize: true
+    tooltip: Outcome of the most recent run
+    on:
+      - event: onValue
+        handler: schedule.formatStatus
+
+toolbar: $import('toolbar/schedules.yaml')
+
+pagination: {}

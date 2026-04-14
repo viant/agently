@@ -1,0 +1,7 @@
+id: approvalEnvPicker
+dataSourceRef: approvalEditor
+schemaBasedForm:
+  id: approvalForgeForm
+  dataSourceRef: approvalEditor
+  schema: '${signals.form.value.approvalSchemaJSON}'
+  showSubmit: false

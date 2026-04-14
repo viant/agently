@@ -1,0 +1,78 @@
+columns:
+  - id: status
+    name: Status
+    sortable: true
+    width: 96
+    enforceColumnSize: true
+    on:
+      - event: onValue
+        handler: schedule.formatStatus
+  - id: createdAt
+    name: Requested
+    sortable: true
+    width: 120
+    enforceColumnSize: true
+    on:
+      - event: onValue
+        handler: schedule.formatDate
+  - id: completedAt
+    name: Finished
+    sortable: true
+    width: 120
+    enforceColumnSize: true
+    on:
+      - event: onValue
+        handler: schedule.formatDate
+  - id: duration
+    name: Duration
+    sortable: false
+    width: 90
+    enforceColumnSize: true
+    on:
+      - event: onValue
+        handler: schedule.formatDuration
+  - id: conversationId
+    name: Conversation
+    sortable: false
+    width: 180
+    enforceColumnSize: true
+  - id: errorMessage
+    name: Error
+    sortable: false
+    width: 200
+    enforceColumnSize: true
+  - id: openChat
+    icon: chat
+    type: button
+    width: 32
+    tooltip: Open conversation
+    on:
+      - event: onClick
+        handler: window.openWindow
+        args:
+          - chat/new
+          - Run Chat
+        parameters:
+          - name: parameters.id
+            to: conversations:input
+            from: :form
+            location: conversationId
+          - name: parameters.convID
+            to: messages:input
+            from: :form
+            location: conversationId
+
+toolbar:
+  items:
+    - id: refresh
+      icon: refresh
+      align: left
+      tooltip: Refresh run history
+    - id: pagination
+      type: pagination
+      align: center
+    - id: quickFilter
+      placeholder: Filter by status...
+      align: right
+
+pagination: {}

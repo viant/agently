@@ -5,6 +5,7 @@ import com.viant.agentlysdk.CreateConversationInput
 import com.viant.agentlysdk.DownloadFileOutput
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
+import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.QueryAttachment
 import com.viant.agentlysdk.QueryInput
@@ -170,9 +171,10 @@ internal suspend fun executeQueryTurn(
     effectiveAgentId: String?,
     prompt: String,
     attachments: List<ComposerAttachmentDraft>,
-    queryContext: Map<String, JsonElement>
+    queryContext: Map<String, JsonElement>,
+    targetContext: MetadataTargetContext
 ): QueryExecutionResult {
-    val workspaceMetadata = metadata ?: client.getWorkspaceMetadata()
+    val workspaceMetadata = metadata ?: client.getWorkspaceMetadata(targetContext)
     val conversationId = activeConversationId ?: client.createConversation(
         CreateConversationInput(
             agentId = effectiveAgentId,

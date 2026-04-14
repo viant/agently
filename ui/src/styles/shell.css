@@ -2220,22 +2220,48 @@ td[data-col="enabled"] {
 [data-testid="chat-root"] > .bp6-tabs,
 [data-testid="chat-root"] > .bp6-tab-panel,
 .forge-window-manager-tabs,
-.forge-window-manager-tabs > .bp6-tab-panel {
+.forge-window-manager-tabs > .bp6-tab-panel,
+.forge-window-manager-tabs > .bp6-tab-panels,
+.forge-window-manager-tabs > .bp6-tab-panels > .bp6-tab-panel {
   height: 100%;
 }
 
 [data-testid="chat-root"] > .bp6-tabs,
 [data-testid="chat-root"] > .bp6-tab-panel,
 .forge-window-manager-tabs,
-.forge-window-manager-tabs > .bp6-tab-panel {
+ .forge-window-manager-tabs > .bp6-tab-panels,
+ .forge-window-manager-tabs > .bp6-tab-panel {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
 }
 
+.forge-window-manager-tabs > .bp6-tab-panel,
+.forge-window-manager-tabs > .bp6-tab-panels > .bp6-tab-panel {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.forge-window-manager-tabs > .bp6-tab-panel[aria-hidden='true'],
+.forge-window-manager-tabs > .bp6-tab-panels > .bp6-tab-panel[aria-hidden='true'] {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
+
+.forge-window-manager-tabs > .bp6-tab-panel[aria-hidden='false'],
+.forge-window-manager-tabs > .bp6-tab-panels > .bp6-tab-panel[aria-hidden='false'] {
+  display: flex !important;
+  flex-direction: column;
+}
+
 [data-testid="chat-root"] .bp6-tab-list,
-.forge-window-manager-tabs > .bp6-tab-list {
+.app-chat-pane.is-chat-main-window .forge-window-manager-tabs > .bp6-tab-list {
   border-bottom: 0;
   display: none;
 }

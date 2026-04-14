@@ -1891,15 +1891,15 @@ export function shouldUseLiveStream(context, conversationID = '') {
   const targetID = String(conversationID || '').trim();
   if (!targetID) return false;
   const currentConversationID = String(getCurrentConversationID(context) || '').trim();
+  const ownedConversationID = String(chatState.liveOwnedConversationID || '').trim();
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const currentConversationForm = conversationsDS?.peekFormData?.() || {};
   const formRunning = !!currentConversationForm?.running || isConversationLiveish(currentConversationForm);
   const trackerRunning = !!trackerActiveTurnId(chatState);
   const localRunning = !!String(chatState.runningTurnId || chatState.activeStreamTurnId || '').trim();
   if (currentConversationID && currentConversationID === targetID) {
-    return formRunning || trackerRunning || localRunning;
+    return formRunning || trackerRunning || localRunning || ownedConversationID === targetID;
   }
-  const ownedConversationID = String(chatState.liveOwnedConversationID || '').trim();
   if (!ownedConversationID || ownedConversationID !== targetID) return false;
   return true;
 }

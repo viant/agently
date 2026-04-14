@@ -28,6 +28,8 @@ vi.mock('@blueprintjs/core', () => ({
 vi.mock('../services/agentlyClient', () => ({
   client: {
     getAuthMe: vi.fn().mockResolvedValue(null),
+    getAuthProviders: vi.fn().mockResolvedValue([]),
+    localLogin: vi.fn().mockResolvedValue(undefined),
     logout: vi.fn().mockResolvedValue(undefined)
   }
 }));
@@ -69,6 +71,30 @@ describe('MenuBar window reuse', () => {
     expect(fetchCollection).toHaveBeenCalledTimes(1);
     expect(addWindow).not.toHaveBeenCalled();
   }, 10000);
+
+  it('replaces tabbed main-pane windows when requested and keeps floating windows', async () => {
+    activeWindows.value = [
+      { windowId: 'chat/new', windowKey: 'chat/new', inTab: true },
+      { windowId: 'schedule', windowKey: 'schedule', inTab: true },
+      { windowId: 'floating-tool', windowKey: 'tool', inTab: false }
+    ];
+    addWindow.mockImplementation(() => {
+      const win = { windowId: 'schedule/history', windowKey: 'schedule/history', inTab: true };
+      activeWindows.value = [...activeWindows.value, win];
+      return win;
+    });
+
+    const { openWindow } = await import('./MenuBar.jsx');
+    openWindow('schedule/history', 'Runs', ['runs'], { replaceTabbedWindows: true });
+
+    expect(activeWindows.value).toEqual([
+      { windowId: 'floating-tool', windowKey: 'tool', inTab: false },
+      { windowId: 'schedule/history', windowKey: 'schedule/history', inTab: true }
+    ]);
+    expect(selectedTabId.value).toBe('schedule/history');
+    expect(selectedWindowId.value).toBe('schedule/history');
+    expect(addWindow).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('MenuBar auth startup selection', () => {
@@ -87,6 +113,17 @@ describe('MenuBar auth startup selection', () => {
       { type: 'local', defaultUsername: 'devuser' }
     ]);
     expect(action).toEqual({ type: 'local', username: 'devuser' });
+  });
+
+  it('does not auto-trigger oauth login from MenuBar bootstrapping', async () => {
+    const { client } = await import('../services/agentlyClient');
+    client.getAuthMe.mockResolvedValueOnce(null);
+    client.getAuthProviders.mockResolvedValueOnce([{ type: 'bff', name: 'oauth' }]);
+
+    const mod = await import('./MenuBar.jsx');
+    expect(mod.resolveStartupAuthAction([{ type: 'bff', name: 'oauth' }])).toEqual({ type: 'oauth' });
+    // The component bootstrap should not call local login when oauth is present.
+    expect(client.localLogin).not.toHaveBeenCalled();
   });
 });
 

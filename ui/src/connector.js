@@ -8,7 +8,8 @@ export const connectorConfig = {
   navigation: {
     service: {
       endpoint: 'appAPI',
-      uri: 'agently/forge/navigation'
+      uri: 'agently/forge/navigation',
+      includeTargetContext: true
     }
   }
 };

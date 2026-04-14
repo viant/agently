@@ -77,7 +77,7 @@ public final class AppRuntime: ObservableObject {
             self.state.authState = .connectionFailed
         }
         do {
-            state.workspaceMetadata = try await state.client.getWorkspaceMetadata()
+            state.workspaceMetadata = try await state.client.getWorkspaceMetadata(state.metadataTargetContext)
             state.conversations = try await state.client.listConversations().rows
             reconcilePreferredAgentSelection()
             logger.info("Bootstrap succeeded with \(self.state.conversations.count, privacy: .public) conversations")

@@ -1,0 +1,47 @@
+namespace: ChatConversations
+
+dialogs:
+  - $import('../new/dialog/settings.yaml')
+  - $import('../new/dialog/fileBrowser.yaml')
+  - $import('../new/dialog/queue.yaml')
+
+view:
+  content:
+    containers:
+      - id: metaLoader
+        dataSourceRef: meta
+        fetchData: true
+
+      - id: convTable
+        title: Conversations
+        dataSourceRef: conversations
+        table: $import('table/conversations.yaml')
+      - id: conversationSection
+        chat:
+          dataSourceRef: messages
+          showSettings: false
+          abortVisible:
+            dataSourceRef: conversations
+            selector: running
+          on:
+            - event: onSubmit
+              handler: chat.submitMessage
+            - event: onModelSelect
+              handler: chat.selectModel
+            - event: onAgentSelect
+              handler: chat.selectAgent
+            - event: onSettings
+              handler: chat.onSettings
+            - event: onUpload
+              handler: chat.onUpload
+            - event: onAbort
+              handler: chat.abortConversation
+
+dataSource:
+  conversations: $import('datasource/conversations.yaml')
+  messages: $import('datasource/messages.yaml')
+  meta: $import('../new/datasource/meta.yaml')
+  settings: $import('../new/datasource/settings.yaml')
+  usage: $import('../new/datasource/usage.yaml')
+  fs: $import('../../filebrowser/datasource/fileBrowser.yaml')
+  queueTurns: $import('../new/dialog/datasource/queueTurns.yaml')

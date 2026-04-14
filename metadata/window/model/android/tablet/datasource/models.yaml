@@ -1,0 +1,26 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/workspace/models
+  method: GET
+  put:
+    uri: /v1/workspace/models/{id}
+
+
+paging:
+  size: 12
+
+selectors:
+  data: data
+
+uniqueKey:
+  - field: id
+
+filterSet:
+  - name: default
+    default: true
+    template:
+      - id: name
+        label: Filter models...
+        operator: contains
+
+quickFilterSet: default

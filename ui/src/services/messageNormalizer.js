@@ -172,8 +172,10 @@ export function normalizeOne(message = {}) {
 function normalizeVisibleContent({ role = '', mode = '', content = '' } = {}) {
   const text = String(content || '');
   if (role !== 'user') return text;
+  const extracted = extractUserTaskPrompt(text);
+  if (extracted) return extracted;
   if (mode !== 'task') return text;
-  return extractUserTaskPrompt(text) || text;
+  return text;
 }
 
 function userVisibleSignature(message = {}) {

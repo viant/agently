@@ -1,6 +1,9 @@
 import Foundation
 import AgentlySDK
 import ForgeIOSRuntime
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 public final class AppState: ObservableObject {
@@ -23,6 +26,7 @@ public final class AppState: ObservableObject {
 
     public var client: AgentlyClient
     public let forgeRuntime: ForgeRuntime
+    public let metadataTargetContext: MetadataTargetContext
 
     public init(
         client: AgentlyClient,
@@ -31,9 +35,35 @@ public final class AppState: ObservableObject {
     ) {
         self.client = client
         self.bootstrapBaseURL = bootstrapBaseURL
+        let formFactor = detectAppleFormFactor()
+        self.metadataTargetContext = MetadataTargetContext(
+            platform: "ios",
+            formFactor: formFactor,
+            surface: "app",
+            capabilities: buildAppleTargetCapabilities()
+        )
         let metadataBaseURL = URL(string: bootstrapBaseURL)
-        self.forgeRuntime = forgeRuntime ?? ForgeRuntime(windowMetadataBaseURL: metadataBaseURL)
+        self.forgeRuntime = forgeRuntime ?? ForgeRuntime(
+            targetContext: ForgeTargetContext(
+                platform: "ios",
+                formFactor: formFactor,
+                capabilities: buildAppleTargetCapabilities()
+            ),
+            windowMetadataBaseURL: metadataBaseURL
+        )
     }
+}
+
+internal func buildAppleTargetCapabilities() -> [String] {
+    ["markdown", "chart", "attachments", "camera", "voice"]
+}
+
+internal func detectAppleFormFactor() -> String {
+#if canImport(UIKit)
+    UIDevice.current.userInterfaceIdiom == .pad ? "tablet" : "phone"
+#else
+    "phone"
+#endif
 }
 
 public enum AuthState: Sendable {

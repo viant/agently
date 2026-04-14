@@ -1,0 +1,17 @@
+
+dataSourceRef: agents
+# The nested array field inside the agent record.
+selectors:
+  data: tool
+
+# Tablet split-view keeps the first tool selected so the editor is populated.
+autoSelect: true
+
+
+# Unique key inside the tool array – use the function name from definition.
+uniqueKey:
+  - field: pattern
+  - field: ref
+
+
+selectionMode: single

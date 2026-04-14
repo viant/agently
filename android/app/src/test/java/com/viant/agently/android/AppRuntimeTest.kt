@@ -4,6 +4,7 @@ import com.viant.agentlysdk.ActiveFeedState
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.AuthProvider
 import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.PendingToolApproval
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -12,6 +13,12 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class AppRuntimeTest {
+    private val metadataTargetContext = MetadataTargetContext(
+        platform = "android",
+        formFactor = "phone",
+        surface = "app",
+        capabilities = listOf("markdown", "chart")
+    )
 
     @Test
     fun `resolveAuthState requires sign in when oauth provider exists without user`() {
@@ -49,6 +56,15 @@ class AppRuntimeTest {
     }
 
     @Test
+    fun `android forge and metadata target contexts share the same capability set`() {
+        val metadata = buildMetadataTargetContext("tablet")
+        val forge = buildForgeTargetContext("tablet")
+
+        assertEquals(buildAndroidTargetCapabilities(), metadata.capabilities)
+        assertEquals(buildAndroidTargetCapabilities().toSet(), forge.capabilities)
+    }
+
+    @Test
     fun `conversation state response retains feeds for history hydration`() {
         val feed = ActiveFeedState(feedId = "plan", title = "Plan", itemCount = 3)
         val response = ConversationStateResponse(feeds = listOf(feed))
@@ -77,9 +93,9 @@ class AppRuntimeTest {
     @Test
     fun `loadWorkspaceSession returns visible error for non auth failures`() {
         val result = kotlinx.coroutines.runBlocking {
-            loadWorkspaceSession {
+            loadWorkspaceSession({
                 throw IllegalStateException("connection refused")
-            }
+            }, metadataTargetContext)
         }
 
         assertNull(result.snapshot)
@@ -90,9 +106,9 @@ class AppRuntimeTest {
     @Test
     fun `loadWorkspaceSession marks auth required for 401 failures`() {
         val result = kotlinx.coroutines.runBlocking {
-            loadWorkspaceSession {
+            loadWorkspaceSession({
                 throw IllegalStateException("401 unauthorized")
-            }
+            }, metadataTargetContext)
         }
 
         assertNull(result.snapshot)

@@ -1,0 +1,45 @@
+namespace: ScheduleConversations
+
+view:
+  content:
+    containers:
+      - id: scheduleConversations
+        title: Run History
+        dataSourceRef: runs
+        fetchData: true
+        table: $import('table/runs.yaml')
+
+dataSource:
+  runs:
+    service:
+      endpoint: agentlyAPI
+      uri: /v1/api/agently/scheduler/run
+      method: GET
+
+    paging:
+      size: 8
+      enabled: true
+      dataInfoSelectors:
+        pageCount: pageCount
+        totalCount: totalCount
+
+    selectors:
+      data: data
+      dataInfo: info
+
+    on:
+      - event: onFetch
+        handler: schedule.onFetchRuns
+
+    filterSet:
+      - name: default
+        default: true
+        template:
+          - id: status
+            label: Filter by status...
+            operator: eq
+
+    quickFilterSet: default
+
+    uniqueKey:
+      - field: id

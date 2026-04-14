@@ -1,0 +1,12 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/workspace/metadata
+  method: GET
+
+selectors:
+  data: ''
+
+on:
+  - event: onFetch
+    handler: chat.onFetchMeta
+  # Note: avoid using hooks in service handlers; no onSuccess hook here

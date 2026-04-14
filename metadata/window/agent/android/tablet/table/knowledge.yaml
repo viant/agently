@@ -1,0 +1,26 @@
+columns:
+  - id: description
+    name: Description
+    width: 300
+    enforceColumnSize: true
+
+  - id: url
+    name: URL
+    width: 300
+    enforceColumnSize: true
+
+toolbar:
+  items:
+    - id: addKnowledge
+      icon: new-object
+      align: left
+      on:
+        - event: onClick
+          handler: dataSource.handleAddNew
+
+    - id: deleteKnowledge
+      icon: delete
+      align: left
+      on:
+        - event: onClick
+          handler: dataSource.handleDelete

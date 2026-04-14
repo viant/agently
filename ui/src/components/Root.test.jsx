@@ -1,27 +1,48 @@
 import { describe, expect, it } from 'vitest';
-import { resolveInitialAuthState, resolveOAuthProviderLabel } from './Root.jsx';
 
-describe('Root auth bootstrap', () => {
-  it('requires sign-in when oauth provider is present and no user is authenticated', () => {
-    expect(resolveInitialAuthState([{ type: 'bff', name: 'oauth' }], null)).toBe('required');
+import {
+  resolveMainWindowCloseConversationId,
+  resolveMainWindowHeaderTitle,
+  resolveSelectedMainWindow,
+  shouldShowChatChrome,
+  shouldShowMainWindowHeader
+} from './Root.jsx';
+
+describe('Root window selection helpers', () => {
+  it('prefers the selected tabbed window over stale focused window state', () => {
+    const windows = [
+      { windowId: 'chat/new', windowKey: 'chat/new' },
+      { windowId: 'schedule', windowKey: 'schedule' }
+    ];
+
+    const selected = resolveSelectedMainWindow(windows, 'schedule', 'chat/new', windows[0]);
+
+    expect(selected).toEqual({ windowId: 'schedule', windowKey: 'schedule' });
   });
 
-  it('treats an authenticated user as ready even for oauth providers', () => {
-    expect(resolveInitialAuthState([{ type: 'bff', name: 'oauth' }], { username: 'tzhao' })).toBe('ready');
+  it('falls back to the provided fallback window when no ids match', () => {
+    const fallback = { windowId: 'chat/new', windowKey: 'chat/new' };
+    const selected = resolveSelectedMainWindow([], '', '', fallback);
+    expect(selected).toBe(fallback);
   });
 
-  it('allows local-only workspaces to continue without forcing the auth gate', () => {
-    expect(resolveInitialAuthState([{ type: 'local', defaultUsername: 'devuser' }], null)).toBe('ready');
-  });
-});
-
-describe('Root oauth label', () => {
-  it('uses the oauth provider label when available', () => {
-    expect(resolveOAuthProviderLabel([{ type: 'bff', label: 'Okta' }])).toBe('Okta');
+  it('shows chat chrome only for chat windows', () => {
+    expect(shouldShowChatChrome({ windowKey: 'chat/new' })).toBe(true);
+    expect(shouldShowChatChrome({ windowKey: 'schedule' })).toBe(false);
+    expect(shouldShowChatChrome(null)).toBe(false);
   });
 
-  it('falls back to generic sign-in text when label is missing or generic', () => {
-    expect(resolveOAuthProviderLabel([{ type: 'bff', label: 'oauth' }])).toBe('');
-    expect(resolveOAuthProviderLabel([{ type: 'bff' }])).toBe('');
+  it('normalizes the conversation id restored when closing a non-chat main window', () => {
+    expect(resolveMainWindowCloseConversationId(' conv-123 ')).toBe('conv-123');
+    expect(resolveMainWindowCloseConversationId('')).toBe('');
+    expect(resolveMainWindowCloseConversationId(null)).toBe('');
+  });
+
+  it('shows the main window header only for non-chat windows with a title', () => {
+    expect(resolveMainWindowHeaderTitle({ windowTitle: 'Runs', windowKey: 'schedule/history' })).toBe('Runs');
+    expect(resolveMainWindowHeaderTitle({ windowKey: 'schedule' })).toBe('schedule');
+    expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history' })).toBe(true);
+    expect(shouldShowMainWindowHeader({ windowTitle: 'Chat', windowKey: 'chat/new' })).toBe(false);
+    expect(shouldShowMainWindowHeader({ windowTitle: '', windowKey: '' })).toBe(false);
   });
 });

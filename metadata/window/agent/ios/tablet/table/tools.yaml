@@ -1,0 +1,26 @@
+columns:
+  - id: definition.name
+    name: Name
+    width: 220
+    enforceColumnSize: true
+
+  - id: pattern
+    name: Pattern
+    width: 260
+    enforceColumnSize: true
+
+toolbar:
+  items:
+    - id: addTool
+      icon: new-object
+      align: left
+      on:
+        - event: onClick
+          handler: tool.addTool
+
+    - id: deleteTool
+      icon: delete
+      align: left
+      on:
+        - event: onClick
+          handler: tool.deleteTool
