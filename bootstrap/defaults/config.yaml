@@ -25,6 +25,7 @@ internalMCP:
     - llm/agents
     - resources
     - message
+    - template
 
 auth:
   enabled: true

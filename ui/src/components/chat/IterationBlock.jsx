@@ -131,6 +131,13 @@ export function displayLinkedConversationSubtitle(step = {}) {
   return '';
 }
 
+export function isQueuedLinkedConversationPreview(step = {}) {
+  const status = String(step?.status || step?.Status || '').trim().toLowerCase();
+  const title = String(step?.title || step?.Title || step?.linkedConversationTitle || step?.LinkedConversationTitle || '').trim().toLowerCase();
+  return (status === 'queued' || status === 'pending' || status === 'open')
+    && (title === 'next' || title === 'queued');
+}
+
 function previewGroupContent(entry = {}) {
   return String(entry?.content || '').trim();
 }
@@ -1168,7 +1175,7 @@ export default function IterationBlock({ message, context }) {
           : (Array.isArray(seen.get(id)?.previewGroups) ? seen.get(id).previewGroups : [])
       });
     }
-    return [...seen.values()];
+    return [...seen.values()].filter((entry) => !isQueuedLinkedConversationPreview(entry));
   }, [allGroupEntries, linkedConversationStates]);
   const hasActiveLinkedConversation = useMemo(
     () => linkedConversationStates.some((entry) => isLinkedConversationActive(entry?.status)),

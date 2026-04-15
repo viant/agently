@@ -4,6 +4,7 @@ import { ConversationStreamTracker, hasLiveAssistantRowForTurn, latestEffectiveL
 import { rememberConversationSeedTitle } from './conversationTitle';
 import { clearChangeFeed, publishChangeFeed } from './changeFeedBus';
 import { clearPlanFeed, publishPlanFeed } from './planFeedBus';
+import { clearQueueSync, publishQueueSync } from './queueSyncBus';
 import { setPendingElicitation, clearPendingElicitation } from './elicitationBus';
 import { applyFeedEvent, clearFeedState } from './toolFeedBus';
 import { publishUsage } from './usageBus';
@@ -914,13 +915,18 @@ export function renderMergedRowsForContext(context) {
   const resolvedRows = attachGeneratedFilesToRows(mergedRows, chatState.generatedFiles);
   const normalizedResolvedRows = normalizeForContext(context, resolvedRows);
   const queuedTurns = Array.isArray(conversationForm?.queuedTurns) ? conversationForm.queuedTurns : [];
-  const queueRow = queuedTurns.length > 0 ? {
-    _type: 'queue',
-    id: `queue:${String(conversationForm?.id || '').trim()}:${queuedTurns.map((item) => String(item?.id || '').trim()).filter(Boolean).join(',')}`,
-    createdAt: '',
-    running: !!conversationForm?.running,
+  const queuedTurnIds = new Set(queuedTurns.map((item) => String(item?.id || '').trim()).filter(Boolean));
+  const queuedTurnPreviews = new Set(
     queuedTurns
-  } : null;
+      .map((item) => String(item?.preview || item?.content || '').trim())
+      .filter(Boolean)
+  );
+  const normalizedConversationID = String(conversationForm?.id || '').trim();
+  if (normalizedConversationID) {
+    publishQueueSync({ conversationId: normalizedConversationID, queuedTurns });
+  } else {
+    clearQueueSync('');
+  }
   const selectedAgent = resolveVisibleSelectedAgent(
     metaForm,
     conversationForm?.agent,
@@ -933,14 +939,22 @@ export function renderMergedRowsForContext(context) {
     selectedAgent
   });
   const hasConversationId = String(conversationForm?.id || '').trim() !== '';
-  const hasVisibleConversationContent = normalizedResolvedRows.some((row) => {
+  const filteredResolvedRows = normalizedResolvedRows.filter((row) => {
+    if (String(row?.role || '').trim().toLowerCase() !== 'user') return true;
+    const turnId = String(row?.turnId || '').trim();
+    if (turnId && queuedTurnIds.has(turnId)) return false;
+    const content = String(row?.content || '').trim();
+    if (content && queuedTurnPreviews.has(content)) return false;
+    return true;
+  });
+  const hasVisibleConversationContent = filteredResolvedRows.some((row) => {
     const type = String(row?._type || '').toLowerCase();
     return type !== 'starter' && type !== 'queue';
   });
-  const starterRow = normalizedResolvedRows.length === 0
+  const starterRow = filteredResolvedRows.length === 0
     && !hasConversationId
     && !hasVisibleConversationContent
-    && !queueRow
+    && queuedTurns.length === 0
     && starterTasks.length > 0 ? {
     _type: 'starter',
     id: `starter:${selectedAgent || 'default'}`,
@@ -950,9 +964,8 @@ export function renderMergedRowsForContext(context) {
     starterTasks
   } : null;
   const renderCollection = [
-    ...normalizedResolvedRows,
-    ...(starterRow ? [starterRow] : []),
-    ...(queueRow ? [queueRow] : [])
+    ...filteredResolvedRows,
+    ...(starterRow ? [starterRow] : [])
   ];
   messagesDS.setCollection?.(renderCollection);
   return mergedRows;

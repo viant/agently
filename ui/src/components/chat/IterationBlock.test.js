@@ -4,6 +4,7 @@ import {
   displayLinkedConversationIcon,
   displayLinkedConversationSubtitle,
   displayLinkedConversationTitle,
+  isQueuedLinkedConversationPreview,
   displayItemRowIcon,
   displayItemRowTitle,
   mapCanonicalExecutionGroups,
@@ -50,6 +51,13 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(displayLinkedConversationIcon()).toBe('🔗');
     expect(displayItemRowTitle({ toolName: 'resources/list' })).toBe('resources/list');
     expect(displayItemRowIcon({ toolName: 'resources/list' })).toBe('🛠');
+  });
+
+  it('treats queued next/queued linked previews as queue UI, not linked conversation cards', () => {
+    expect(isQueuedLinkedConversationPreview({ status: 'queued', title: 'Next' })).toBe(true);
+    expect(isQueuedLinkedConversationPreview({ status: 'pending', linkedConversationTitle: 'Queued' })).toBe(true);
+    expect(isQueuedLinkedConversationPreview({ status: 'running', title: 'Next' })).toBe(false);
+    expect(isQueuedLinkedConversationPreview({ status: 'queued', title: 'Forecasting Child' })).toBe(false);
   });
 
   it('treats terminated iterations as inactive so execution details stop auto-scrolling', () => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getActiveFeeds, onFeedChange, fetchFeedDataNow, makeFeedKey, splitFeedKey } from '../services/toolFeedBus';
 import { usePlanFeed } from '../services/planFeedBus';
+import { getQueueSyncSnapshot } from '../services/queueSyncBus';
 import { getScopedConversationSelection, getSelectedWindow } from '../services/conversationWindow';
 
 const FEED_ICONS = {
@@ -8,6 +9,7 @@ const FEED_ICONS = {
   changes: '📁',
   terminal: '🖥',
   explorer: '🔍',
+  queue: '↳',
 };
 
 function feedIcon(feedId) {
@@ -79,6 +81,7 @@ function useExpandedFeeds() {
 export default function ToolFeedBar() {
   const [feeds, setFeeds] = useState(getActiveFeeds);
   const planFeed = usePlanFeed();
+  const [queueVersion, setQueueVersion] = useState(0);
   const expanded = useExpandedFeeds();
   const selectedWindow = getSelectedWindow();
   const currentConversationId = String(
@@ -97,15 +100,30 @@ export default function ToolFeedBar() {
     });
   }, []);
 
+  useEffect(() => {
+    const interval = setInterval(() => setQueueVersion((n) => n + 1), 250);
+    return () => clearInterval(interval);
+  }, []);
+
   const visibleFeeds = (Array.isArray(feeds) ? feeds : []).filter((feed) => {
     const conversationId = String(feed?.conversationId || '').trim();
     if (!conversationId) return true;
     return conversationId === currentConversationId;
   });
   const planConversationId = String(planFeed?.conversationId || '').trim();
+  const queueSnapshot = getQueueSyncSnapshot(currentConversationId);
+  const queueTurns = Array.isArray(queueSnapshot?.queuedTurns) ? queueSnapshot.queuedTurns : [];
   const hasPlanData = !!String(planFeed?.explanation || '').trim()
     || (Array.isArray(planFeed?.steps) && planFeed.steps.length > 0);
   const mergedFeeds = dedupeFeeds([
+    ...(queueTurns.length > 0 ? [{
+      feedId: makeFeedKey('queue', currentConversationId),
+      title: 'Queue',
+      itemCount: queueTurns.length,
+      conversationId: currentConversationId,
+      rawFeedId: 'queue',
+      _queueVersion: queueVersion,
+    }] : []),
     ...(hasPlanData && (!planConversationId || planConversationId === currentConversationId)
       ? [{
           feedId: makeFeedKey('plan', planConversationId),

@@ -35,11 +35,11 @@ tool:
   callExposure: conversation
   bundles:
     - system/os
+    - template
 
-knowledge:
-  - inclusionMode: full
-    url: knowledge/
-
+template:
+  bundles:
+    - chatter-output
 
 attachment:
   limitMB: 32
