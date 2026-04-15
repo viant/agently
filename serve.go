@@ -202,6 +202,16 @@ func newRouter(api http.Handler, meta http.Handler, speech http.Handler, uiDist 
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		if path == "/v1/api/auth/oauth/callback" && r.Method == http.MethodGet {
+			w.Header().Set("Cache-Control", htmlCacheControl)
+			if localIndex != "" {
+				http.ServeFile(w, r, localIndex)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write(bundle.Index)
+			return
+		}
 		if strings.HasPrefix(path, "/v1/api/agently/forge/") {
 			http.StripPrefix("/v1/api/agently/forge", meta).ServeHTTP(w, r)
 			return

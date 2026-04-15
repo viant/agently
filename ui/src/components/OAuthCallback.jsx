@@ -2,6 +2,24 @@ import React, { useEffect, useState } from 'react';
 import { AgentlyClient } from 'agently-core-ui-sdk';
 import { client } from '../services/agentlyClient';
 
+export function completeOAuthReturn(targetWindow, returnTo) {
+  const win = targetWindow || window;
+  const opener = win?.opener;
+  const hasPopupOpener = !!opener && opener !== win && !opener.closed;
+
+  if (hasPopupOpener) {
+    try {
+      opener.postMessage({ type: 'oauth', status: 'ok', returnTo }, win.location.origin);
+      win.close();
+      return;
+    } catch (_) {
+      // Fall through to same-tab redirect if opener messaging is unavailable.
+    }
+  }
+
+  win.location.replace(returnTo);
+}
+
 /**
  * SPA route handler for /v1/api/auth/oauth/callback.
  *
@@ -28,7 +46,7 @@ export default function OAuthCallback() {
       .then(() => {
         setStatus('success');
         const returnTo = AgentlyClient.getLoginReturnURL();
-        window.location.replace(returnTo);
+        completeOAuthReturn(window, returnTo);
       })
       .catch((err) => {
         setStatus('error');

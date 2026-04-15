@@ -109,11 +109,11 @@ describe('beginLogin', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses same-tab redirect when workspace oauth config requests it', async () => {
+  it('uses same-tab redirect by default when popup login is not enabled', async () => {
     globalThis.window = {};
 
     const { beginLogin, client } = await import('./agentlyClient.js');
-    client.getOAuthConfig = vi.fn().mockResolvedValue({ redirectSameTab: true });
+    client.getOAuthConfig = vi.fn().mockResolvedValue({});
     client.loginWithRedirect = vi.fn();
     client.loginWithPopup = vi.fn().mockResolvedValue(false);
 
@@ -125,11 +125,26 @@ describe('beginLogin', () => {
     expect(client.loginWithPopup).not.toHaveBeenCalled();
   });
 
-  it('uses popup login only when workspace oauth config explicitly disables same-tab redirect', async () => {
+  it('uses same-tab redirect when popup login is explicitly disabled', async () => {
     globalThis.window = {};
 
     const { beginLogin, client } = await import('./agentlyClient.js');
-    client.getOAuthConfig = vi.fn().mockResolvedValue({ redirectSameTab: false });
+    client.getOAuthConfig = vi.fn().mockResolvedValue({ usePopupLogin: false });
+    client.loginWithRedirect = vi.fn();
+    client.loginWithPopup = vi.fn().mockResolvedValue(true);
+
+    const ok = await beginLogin();
+
+    expect(ok).toBe(true);
+    expect(client.loginWithRedirect).toHaveBeenCalledTimes(1);
+    expect(client.loginWithPopup).not.toHaveBeenCalled();
+  });
+
+  it('uses popup login only when workspace oauth config explicitly enables it', async () => {
+    globalThis.window = {};
+
+    const { beginLogin, client } = await import('./agentlyClient.js');
+    client.getOAuthConfig = vi.fn().mockResolvedValue({ usePopupLogin: true });
     client.loginWithRedirect = vi.fn();
     client.loginWithPopup = vi.fn().mockResolvedValue(true);
 
