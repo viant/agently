@@ -39,6 +39,7 @@ auth:
   #   mode: bff              # bff | spa | bearer | mixed
   #   name: my-idp           # internal provider identifier
   #   label: My IDP          # display name shown on the sign-in button
+  #   usePopupLogin: false   # false/missing => same-tab login, true => popup login
   #   client:
   #     configURL: ""        # scy resource URL for OAuth client config (client_id, client_secret, endpoints)
   #     redirectURI: ""      # OAuth callback URL, e.g. https://your-host/v1/api/auth/oauth/callback

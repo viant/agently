@@ -88,7 +88,7 @@ async function getOAuthConfigCached() {
 export async function beginLogin() {
   if (typeof window === 'undefined') return false;
   const oauthConfig = await getOAuthConfigCached();
-  if (oauthConfig?.redirectSameTab === false) {
+  if (oauthConfig?.usePopupLogin === true) {
     return client.loginWithPopup({
       onSuccess: () => dispatchAuthRecovered(),
       onPopupBlocked: () => client.loginWithRedirect()
