@@ -1,0 +1,7 @@
+id: template
+title: Template
+description: Output template selection tools
+iconRef: builtin:template
+priority: 60
+match:
+  - name: "template:*"
