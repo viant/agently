@@ -1,0 +1,4 @@
+id: chatter-output
+description: Output templates available to the chatter agent.
+templates:
+  - analytics_dashboard

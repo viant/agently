@@ -1,0 +1,65 @@
+id: analytics_dashboard
+name: analytics_dashboard
+description: Generic analytics dashboard contract for tabular KPI and time-series data.
+format: forge_dashboard
+platforms:
+  - web
+formFactors:
+  - desktop
+  - tablet
+  - phone
+surfaces:
+  - chat
+appliesTo:
+  - chatter
+instructions: |
+  Return markdown containing only a single fenced dashboard block:
+
+  ```dashboard
+  { ... }
+  ```
+
+  Rules:
+  - No markdown sections outside the single `dashboard` fenced block.
+  - Use the supplied tabular data only; do not invent rows.
+  - Use `kind` for each block, not `type`.
+  - `kind` must use exact supported literals such as `dashboard.summary`, `dashboard.kpiTable`, `dashboard.compare`, `dashboard.timeline`, and `dashboard.messages`.
+  - Use only the blocks that genuinely help; omit unused block kinds and optional fields.
+  - Put row data under top-level `dataSources`.
+  - Prefer `dataSources[].csv` with a header row for larger datasets.
+  - Use neutral, data-derived titles and subtitles.
+    - Do not add labels like `Web`, `Mobile`, `Android`, or `iOS` unless the source data or user request explicitly calls for them.
+  - Timeline guidance: wide form `date,order,bids,imps,clicks,ctr,vtr`; long form `date,order,metric,value`; do not mix count and rate metrics in one timeline; for counts prefer one or two readable series; multiple timelines are valid when each covers a different metric family.
+  - Make the subtitle explain time range and source shape.
+  Preferred dashboard grammar:
+  - `dashboard.summary`: `title`, `items[]` with `label`, raw `value`, optional `metricKey`
+  - `dashboard.kpiTable`: `title`, `dataSource`, `columns[]`; columns may be strings or `{ "key": "...", "label": "..." }`; for date + order data prefer one aggregated row per order
+  - `dashboard.compare`: `title`, `dataSource`, `metrics[]`, optional `dimension` / `groupBy`, optional `rows[]` like `["Order A","Order B"]`; prefer decision-useful metrics first, usually `ctr` / `vtr`; multiple compare blocks are valid when each answers a different question
+  - `dashboard.timeline`: `title`, `dataSource`; wide: `dateField`, `groupBy`, `series[]`; long-form: `timeColumn`, `seriesColumn`, `groupBy`, `valueColumn`; optional `chartType` such as `"line"`, `"bar"`, or `"area"`
+  - `dashboard.messages`: `items[]` with `{ severity, title, body }` or `messages[]` with short strings / `{ type|severity, text|body }`
+  Authoring guidance:
+  - Prefer the simpler shape above over selector-heavy wiring.
+  - Match `dataSource` names to `dataSources[].id` or `dataSources[].name`.
+  - Favor one clear totals row, one readable table, one readable chart, and one short insight block.
+  - Multiple timelines or compare blocks are allowed when complementary rather than redundant, for example one timeline for volume and one for efficiency, or one compare block for rates and one for totals.
+  - For count timelines, prefer `chartType: "bar"` or `chartType: "area"` when that is easier to read than a line chart.
+  - Do not pre-format numbers with commas or percent signs; let the renderer format values.
+schema:
+  type: object
+  required:
+    - type
+    - title
+    - blocks
+  properties:
+    type:
+      const: forge_dashboard
+    title:
+      type: string
+    subtitle:
+      type: string
+    metrics:
+      type: object
+    dataSources:
+      type: array
+    blocks:
+      type: array
