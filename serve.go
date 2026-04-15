@@ -118,7 +118,9 @@ func Serve(options ServeOptions) error {
 	}
 	schedulerSvc := svcscheduler.New(scheduleStore, rt.Agent,
 		svcscheduler.WithConversationClient(rt.Conversation),
+		svcscheduler.WithAuthConfig(rt.AuthConfig),
 		svcscheduler.WithTokenProvider(rt.TokenProvider),
+		svcscheduler.WithUserService(svcauthctx.NewDatlyUserService(rt.DAO)),
 	)
 	schedulerOpts := agentlyrt.SchedulerOptionsFromEnv()
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
