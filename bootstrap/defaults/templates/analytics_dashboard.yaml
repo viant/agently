@@ -1,7 +1,7 @@
 id: analytics_dashboard
 name: analytics_dashboard
 description: Generic analytics dashboard contract for tabular KPI and time-series data.
-format: forge_dashboard
+format: forge_ui_data
 platforms:
   - web
 formFactors:
@@ -12,54 +12,164 @@ surfaces:
   - chat
 appliesTo:
   - chatter
+fences:
+  - lang: forge-data
+    required: true
+    repeatable: true
+    order: 1
+    description: Named dashboard data sources referenced by the UI block.
+    schema:
+      type: object
+      required:
+        - version
+        - id
+        - format
+        - mode
+        - data
+      properties:
+        version:
+          const: 1
+        id:
+          type: string
+        format:
+          enum: [json, csv]
+        mode:
+          const: replace
+        data:
+          description: JSON rows/object when format is json, or CSV string when format is csv.
+  - lang: forge-ui
+    required: true
+    repeatable: false
+    order: 2
+    description: Dashboard layout and blocks referencing previously declared forge-data sources.
+    schema:
+      type: object
+      required:
+        - version
+        - title
+        - blocks
+      properties:
+        version:
+          const: 1
+        title:
+          type: string
+        subtitle:
+          type: string
+        blocks:
+          type: array
+          minItems: 1
 instructions: |
-  Return markdown containing only a single fenced dashboard block:
+  Return exactly:
+  - one or more `forge-data` fenced blocks first, with one datasource per block
+  - then exactly one `forge-ui` fenced block last
 
-  ```dashboard
-  { ... }
-  ```
+  Fence syntax is strict:
+  - The opening line must be exactly ````forge-data```
+  - The opening line must be exactly ````forge-ui```
+  - Put a newline after the fence info string before the JSON body.
+  - Do not emit compact forms like ````forge-data{``` or ````forge-ui{```.
+  - Do not emit prose before, between, or after the fenced blocks.
 
-  Rules:
-  - No markdown sections outside the single `dashboard` fenced block.
+  General rules:
   - Use the supplied tabular data only; do not invent rows.
-  - Use `kind` for each block, not `type`.
-  - `kind` must use exact supported literals such as `dashboard.summary`, `dashboard.kpiTable`, `dashboard.compare`, `dashboard.timeline`, and `dashboard.messages`.
+  - Use `kind` for each dashboard block, not `type`.
+  - `kind` must use exact supported literals such as `dashboard.summary`, `dashboard.kpiTable`, `dashboard.compare`, `dashboard.timeline`, `dashboard.messages`, `dashboard.report`, and `dashboard.detail`.
   - Use only the blocks that genuinely help; omit unused block kinds and optional fields.
-  - Put row data under top-level `dataSources`.
-  - Prefer `dataSources[].csv` with a header row for larger datasets.
-  - Use neutral, data-derived titles and subtitles.
-    - Do not add labels like `Web`, `Mobile`, `Android`, or `iOS` unless the source data or user request explicitly calls for them.
-  - Timeline guidance: wide form `date,order,bids,imps,clicks,ctr,vtr`; long form `date,order,metric,value`; do not mix count and rate metrics in one timeline; for counts prefer one or two readable series; multiple timelines are valid when each covers a different metric family.
+  - Use neutral, data-derived titles and subtitles unless the user or source data requires more specific labeling.
+  - Do not add labels like `Web`, `Mobile`, `Android`, or `iOS` unless the source data or user request explicitly calls for them.
+  - Put entity names and taxonomy context in the dashboard `title`, `subtitle`, and section/table/chart titles when relevant.
+  - Do not spend summary KPI cards/pills on entity names. Entity identity belongs in headers, subtitles, table titles, compare titles, chart titles, or inline report/detail blocks.
+  - Summary items should focus on numeric metrics, rates, statuses, and short posture labels rather than repeating entity names as value cards.
+  - Keep metrics and recommendations separate: KPIs go in summary/tables/compare/timeline/report/detail blocks, actions go in messages blocks.
+
+  `forge-data` rules:
+  - Each `forge-data` fenced body must be a single JSON object with this top-level shape:
+    - `version`
+    - `id`
+    - `format`
+    - `mode`
+    - `data`
+  - Set `version` to `1`.
+  - Use `mode: "replace"`.
+  - Use `format: "csv"` for larger row sets and `format: "json"` for compact row/object sources.
+  - Each block defines exactly one named datasource.
+  - Use stable datasource ids and reference them from `forge-ui` via `dataSourceRef`.
+
+  `forge-ui` rules:
+  - The `forge-ui` fenced body must be a single JSON object with this top-level shape:
+    - `version`
+    - `title`
+    - optional `subtitle`
+    - `blocks`
+  - Set `version` to `1`.
+  - Every data-bound dashboard block must use `dataSourceRef`, not `dataSource`.
   - Make the subtitle explain time range and source shape.
+
   Preferred dashboard grammar:
   - `dashboard.summary`: `title`, `items[]` with `label`, raw `value`, optional `metricKey`
-  - `dashboard.kpiTable`: `title`, `dataSource`, `columns[]`; columns may be strings or `{ "key": "...", "label": "..." }`; for date + order data prefer one aggregated row per order
-  - `dashboard.compare`: `title`, `dataSource`, `metrics[]`, optional `dimension` / `groupBy`, optional `rows[]` like `["Order A","Order B"]`; prefer decision-useful metrics first, usually `ctr` / `vtr`; multiple compare blocks are valid when each answers a different question
-  - `dashboard.timeline`: `title`, `dataSource`; wide: `dateField`, `groupBy`, `series[]`; long-form: `timeColumn`, `seriesColumn`, `groupBy`, `valueColumn`; optional `chartType` such as `"line"`, `"bar"`, or `"area"`
-  - `dashboard.messages`: `items[]` with `{ severity, title, body }` or `messages[]` with short strings / `{ type|severity, text|body }`
+  - `dashboard.kpiTable`: `title`, `dataSourceRef`, `columns[]`; columns may be strings or `{ "key": "...", "label": "..." }`; for date + order data prefer one aggregated row per order
+  - `dashboard.compare`: `title`, `dataSourceRef`, `metrics[]`, optional `dimension` / `groupBy`, optional `rows[]` like `["Order A","Order B"]`
+  - `dashboard.timeline`: `title`, `dataSourceRef`; wide: `dateField`, `groupBy`, `series[]`; long-form: `timeColumn`, `seriesColumn`, `groupBy`, `valueColumn`; optional `chartType` such as `"line"`, `"bar"`, or `"area"`
+  - `dashboard.report`: `title`, optional `subtitle`, `sections[]` with concise prose insights placed inline after a relevant chart/table
+  - `dashboard.detail`: `title`, `containers[]`; use this to group a chart with a short report/detail block directly underneath it
+  - `dashboard.messages`: `items[]` with `{ severity, title, body }`
+
   Authoring guidance:
-  - Prefer the simpler shape above over selector-heavy wiring.
-  - Match `dataSource` names to `dataSources[].id` or `dataSources[].name`.
+  - Timeline guidance: wide form `date,order,bids,imps,clicks,ctr,vtr`; long form `date,order,metric,value`.
+  - Do not mix count metrics and rate metrics in one timeline; for counts prefer one or two readable series; multiple timelines are valid when each covers a different metric family.
+  - Do not mix metrics with very different magnitudes on the same timeline when they share one y-axis. Use separate timeline blocks instead.
+  - Prefer one primary metric per timeline unless the compared series are on comparable scales and remain readable at a glance.
   - Favor one clear totals row, one readable table, one readable chart, and one short insight block.
   - Multiple timelines or compare blocks are allowed when complementary rather than redundant, for example one timeline for volume and one for efficiency, or one compare block for rates and one for totals.
+  - Inline analytic prose under a chart is valid and encouraged when it helps interpretation. Prefer a short `dashboard.report` block directly after the relevant `dashboard.timeline` rather than pushing all interpretation to the end.
   - For count timelines, prefer `chartType: "bar"` or `chartType: "area"` when that is easier to read than a line chart.
   - Do not pre-format numbers with commas or percent signs; let the renderer format values.
-schema:
-  type: object
-  required:
-    - type
-    - title
-    - blocks
-  properties:
-    type:
-      const: forge_dashboard
-    title:
-      type: string
-    subtitle:
-      type: string
-    metrics:
-      type: object
-    dataSources:
-      type: array
-    blocks:
-      type: array
+
+examples:
+  - title: analytics dashboard fence set
+    fences:
+      - lang: forge-data
+        body:
+          version: 1
+          id: summary_metrics
+          format: csv
+          mode: replace
+          data: |
+            pipeline_spend,total_pipeline_gap,lead_to_sale_rate,lead_conversion_rate,cost_per_lead,sales_closed
+            18420.55,7420.10,0.23,0.08,61.20,94
+      - lang: forge-data
+        body:
+          version: 1
+          id: daily_pipeline
+          format: csv
+          mode: replace
+          data: |
+            date,spend,lead_gap,qualified_leads,sales_closed
+            2026-04-08,2410.25,910.15,42,11
+            2026-04-09,2875.40,620.00,47,13
+      - lang: forge-ui
+        body:
+          version: 1
+          title: Revenue pipeline dashboard
+          subtitle: Mid-market inbound segment · 2026-04-08 to 2026-04-09
+          blocks:
+            - kind: dashboard.summary
+              title: Performance summary
+              items:
+                - label: Pipeline spend
+                  value: 18420.55
+                  metricKey: pipeline_spend
+            - kind: dashboard.timeline
+              title: Daily spend
+              dataSourceRef: daily_pipeline
+              dateField: date
+              series:
+                - spend
+              chartType: bar
+            - kind: dashboard.report
+              title: Spend highlight
+              sections:
+                - id: spend-note
+                  title: Interpretation
+                  body:
+                    - Spend increased on the second day while the lead gap narrowed.

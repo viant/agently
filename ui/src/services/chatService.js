@@ -38,6 +38,7 @@ import BubbleMessage from '../components/chat/BubbleMessage';
 import StarterTasks from '../components/chat/StarterTasks';
 import SteerQueue from '../components/chat/SteerQueue';
 import { composerPresentation } from './composerPresentation';
+import { connectForgeUIActionsToChat } from './forgeUIActions';
 import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFileViewDialog } from '../utils/dialogBus';
 
 const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
@@ -151,6 +152,10 @@ function matchesAgentIdentity(entry, selectedAgent) {
 export async function onInit({ context }) {
   setStage({ phase: 'waiting', text: 'Initializing…' });
   try {
+    const resources = ensureContextResources(context);
+    if (!resources.forgeUIActionUnsub) {
+      resources.forgeUIActionUnsub = connectForgeUIActionsToChat(submitMessage, () => context);
+    }
     bindConversationWindowEvents(context);
     await hydrateMeta(context);
     bootstrapConversationSelection(context);
@@ -198,6 +203,9 @@ export async function onInit({ context }) {
 }
 
 export function onDestroy({ context }) {
+  const resources = ensureContextResources(context);
+  try { resources.forgeUIActionUnsub?.(); } catch (_) {}
+  resources.forgeUIActionUnsub = null;
   stopPolling(context);
   unbindConversationWindowEvents(context);
   setStage({ phase: 'ready', text: 'Ready' });

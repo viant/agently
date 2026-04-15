@@ -247,7 +247,7 @@ describe('mergeRenderedRows', () => {
     expect(merged.map((row) => row.id)).toEqual(['user:turn-1', 'assistant-live']);
   });
 
-  it('suppresses the transcript user row when a live user row for the same active turn is already present', () => {
+  it('preserves transcript and live user rows when they have different message ids', () => {
     const merged = mergeRenderedRows({
       transcriptRows: [
         {
@@ -285,7 +285,7 @@ describe('mergeRenderedRows', () => {
       liveOwnedTurnIds: []
     });
 
-    expect(merged.map((row) => row.id)).toEqual(['user-live', 'assistant-live']);
+    expect(merged.map((row) => row.id)).toEqual(['user-db', 'user-live', 'assistant-live']);
   });
 
   it('preserves richer transcript execution-group data over sparse live placeholders', () => {

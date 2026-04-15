@@ -84,6 +84,7 @@ type chatStreamer struct {
 	tracker *sdk.ConversationStreamTracker
 	content strings.Builder
 	printed bool
+	tail    string
 }
 
 func startChatStream(ctx context.Context, client *sdk.HTTPClient, conversationID string) (*chatStreamer, error) {
@@ -117,8 +118,10 @@ func (s *chatStreamer) consume() {
 			if event.Content == "" {
 				continue
 			}
-			fmt.Print(event.Content)
-			s.content.WriteString(event.Content)
+			normalized := normalizeCLIStreamDelta(s.tail, event.Content)
+			fmt.Print(normalized)
+			s.content.WriteString(normalized)
+			s.tail = cliStreamTail(s.content.String())
 			s.printed = true
 		case streamingrt.EventTypeError:
 			if strings.TrimSpace(event.Error) != "" {
@@ -126,6 +129,36 @@ func (s *chatStreamer) consume() {
 			}
 		}
 	}
+}
+
+func normalizeCLIStreamDelta(previous, delta string) string {
+	value := StringOrEmpty(delta)
+	if value == "" {
+		return ""
+	}
+	compactLabels := []string{"```json", "```dashboard", "```forge-data", "```forge-ui"}
+	for _, label := range compactLabels {
+		value = strings.ReplaceAll(value, label+"{", label+"\n{")
+		value = strings.ReplaceAll(value, label+"[", label+"\n[")
+	}
+	trimmedPrev := strings.TrimSpace(previous)
+	for _, label := range compactLabels {
+		if strings.HasSuffix(trimmedPrev, label) && (strings.HasPrefix(value, "{") || strings.HasPrefix(value, "[")) {
+			return "\n" + value
+		}
+	}
+	return value
+}
+
+func cliStreamTail(value string) string {
+	if len(value) <= 32 {
+		return value
+	}
+	return value[len(value)-32:]
+}
+
+func StringOrEmpty(value string) string {
+	return value
 }
 
 func (s *chatStreamer) Flush(final string) bool {
@@ -155,6 +188,12 @@ func (s *chatStreamer) Flush(final string) bool {
 	}
 	normalizedStreamed := normalizeCLIContent(streamed)
 	normalizedFinal := normalizeCLIContent(final)
+	if shouldPrintCorrectedFinal(streamed, final) {
+		fmt.Print("\n")
+		fmt.Print(final)
+		fmt.Print("\n")
+		return true
+	}
 	if (strings.TrimSpace(streamed) == final) ||
 		(normalizedStreamed == normalizedFinal) ||
 		(normalizedStreamed != "" && strings.Contains(normalizedFinal, normalizedStreamed)) ||
@@ -166,6 +205,17 @@ func (s *chatStreamer) Flush(final string) bool {
 	fmt.Print(final)
 	fmt.Print("\n")
 	return true
+}
+
+func shouldPrintCorrectedFinal(streamed, final string) bool {
+	compactLabels := []string{"```dashboard{", "```forge-data{", "```forge-ui{"}
+	correctedLabels := []string{"```dashboard\n{", "```forge-data\n{", "```forge-ui\n{"}
+	for i := range compactLabels {
+		if strings.Contains(streamed, compactLabels[i]) && strings.Contains(final, correctedLabels[i]) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *chatStreamer) Close() {

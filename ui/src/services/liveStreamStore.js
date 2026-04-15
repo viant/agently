@@ -330,15 +330,17 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
   const userSequence = turnSequence > 0 ? (turnSequence * 2) - 1 : 0;
   const assistantSequence = turnSequence > 0 ? turnSequence * 2 : 1;
   const prompt = String(chatState?.activeStreamPrompt || '').trim();
+  const userMessageID = String(payload?.userMessageId || payload?.startedByMessageId || '').trim();
+  const userRowID = userMessageID || `user:${turnId}`;
   const existingUserIndex = rows.findIndex((row) => {
     if (String(row?.role || '').trim().toLowerCase() !== 'user') return false;
     const rowTurnId = String(row?.turnId || '').trim();
     if (rowTurnId && rowTurnId === turnId) return true;
-    return String(row?.id || '').trim() === `user:${turnId}`;
+    return String(row?.id || '').trim() === userRowID;
   });
   if (existingUserIndex === -1) {
     rows.push({
-      id: `user:${turnId}`,
+      id: userRowID,
       role: 'user',
       type: 'text',
       turnId,
@@ -354,6 +356,7 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
   } else if (prompt) {
     rows[existingUserIndex] = {
       ...rows[existingUserIndex],
+      id: String(rows[existingUserIndex]?.id || '').trim() || userRowID,
       role: 'user',
       type: rows[existingUserIndex]?.type || 'text',
       turnId,

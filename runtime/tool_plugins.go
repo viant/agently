@@ -30,6 +30,7 @@ import (
 	wscfg "github.com/viant/agently-core/workspace/config"
 	templaterepo "github.com/viant/agently-core/workspace/repository/template"
 	templatebundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
+	platformsvc "github.com/viant/agently/tools/system/platform"
 	"gopkg.in/yaml.v3"
 )
 
@@ -41,7 +42,12 @@ var allInternalServices = []string{
 	"llm/agents",
 	"resources",
 	"message",
+	"system/platform",
 	"template",
+}
+
+var requiredInternalServices = []string{
+	"system/platform",
 }
 
 func ConfigureRegistry(ctx context.Context, rt *executor.Runtime, workspaceRoot string) {
@@ -106,6 +112,13 @@ func resolveInternalServiceList(workspaceRoot string) []string {
 		if name == "" {
 			continue
 		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	for _, name := range requiredInternalServices {
 		if _, ok := seen[name]; ok {
 			continue
 		}
@@ -177,6 +190,8 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 			opts = append(opts, resourcesvc.WithDefaultEmbedder(rt.Defaults.Embedder))
 		}
 		return resourcesvc.New(nil, opts...)
+	case "system/platform":
+		return platformsvc.New()
 	case "internal/message", "message":
 		summaryModel := ""
 		defaultModel := ""
