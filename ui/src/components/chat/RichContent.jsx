@@ -3,6 +3,7 @@
 // Parsing and classification logic comes from the SDK's pluggable richContent module.
 
 import React from 'react';
+import { autoType, csvParse } from 'd3-dsv';
 import CodeBlock from './CodeBlock.jsx';
 import Mermaid from './Mermaid';
 import { Button, Dialog, Tooltip } from '@blueprintjs/core';
@@ -36,6 +37,434 @@ import {
   renderMarkdownCellHTML,
   describeFence,
 } from 'agently-core-ui-sdk';
+import { DashboardBlock } from 'forge/components';
+
+const DASHBOARD_BLOCK_KINDS = [
+  'dashboard.summary',
+  'dashboard.compare',
+  'dashboard.kpiTable',
+  'dashboard.filters',
+  'dashboard.timeline',
+  'dashboard.dimensions',
+  'dashboard.messages',
+  'dashboard.status',
+  'dashboard.feed',
+  'dashboard.report',
+  'dashboard.detail',
+];
+
+function titleizeDashboardKey(value = '') {
+  return String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function createStaticSignal(value) {
+  return {
+    value,
+    peek: () => value,
+  };
+}
+
+function normalizeDashboardDataSources(dataSources = []) {
+  return (Array.isArray(dataSources) ? dataSources : []).map((entry) => {
+    if (!entry || typeof entry !== 'object') return entry;
+    if (Array.isArray(entry.collection)) return entry;
+    const csv = String(entry.csv || '').trim();
+    if (!csv) return entry;
+    try {
+      return { ...entry, collection: csvParse(csv, autoType) };
+    } catch (_) {
+      return entry;
+    }
+  });
+}
+
+function aggregateDashboardMetric(collection = [], key = '') {
+  const values = (Array.isArray(collection) ? collection : [])
+    .map((row) => row?.[key])
+    .filter((value) => value !== undefined && value !== null && value !== '');
+  if (!values.length) return null;
+  if (values.every((value) => typeof value === 'number')) {
+    if (key === 'ctr' || key === 'vtr') {
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+    return values.reduce((sum, value) => sum + value, 0);
+  }
+  return values[0];
+}
+
+function inferMetricFormat(key = '', value) {
+  const name = String(key || '').trim().toLowerCase();
+  if (name === 'ctr' || name === 'vtr' || name.endsWith('_ctr') || name.endsWith('_vtr')) {
+    return 'percent';
+  }
+  if (typeof value === 'number' && value > 0 && value < 1) {
+    return 'percent';
+  }
+  return undefined;
+}
+
+const DEFAULT_DASHBOARD_PALETTE = ['#137cbd', '#0f9960', '#d9822b', '#8f3985', '#c23030'];
+
+function normalizeMetricValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry ?? '').trim()).filter(Boolean).join(', ');
+  }
+  return value;
+}
+
+function dashboardColumnKey(column) {
+  if (typeof column === 'string') {
+    return String(column).trim();
+  }
+  return String(column?.key || column?.id || '').trim();
+}
+
+function dashboardSeriesKey(entry) {
+  if (typeof entry === 'string') {
+    return String(entry).trim();
+  }
+  return String(entry?.key || entry?.value || entry?.id || '').trim();
+}
+
+function aggregateRowsByDimension(collection = [], dimension = '', metrics = []) {
+  const grouped = new Map();
+  for (const row of Array.isArray(collection) ? collection : []) {
+    const groupValue = row?.[dimension];
+    if (groupValue === undefined || groupValue === null || groupValue === '') {
+      continue;
+    }
+    const key = String(groupValue);
+    if (!grouped.has(key)) {
+      grouped.set(key, { __count: 0 });
+    }
+    const bucket = grouped.get(key);
+    bucket.__count += 1;
+    for (const metric of metrics) {
+      const value = row?.[metric];
+      if (typeof value !== 'number') {
+        if (bucket[metric] == null && value != null) {
+          bucket[metric] = value;
+        }
+        continue;
+      }
+      if (metric === 'ctr' || metric === 'vtr') {
+        bucket[metric] = (bucket[metric] || 0) + value;
+      } else {
+        bucket[metric] = (bucket[metric] || 0) + value;
+      }
+    }
+  }
+  const rows = [];
+  for (const [groupValue, bucket] of grouped.entries()) {
+    const row = { [dimension]: groupValue };
+    for (const metric of metrics) {
+      const value = bucket[metric];
+      if (typeof value === 'number' && (metric === 'ctr' || metric === 'vtr') && bucket.__count > 0) {
+        row[metric] = value / bucket.__count;
+      } else {
+        row[metric] = value ?? null;
+      }
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function normalizeDashboardPayload(payload) {
+  if (!isDashboardPayload(payload)) return payload;
+  const dataSources = normalizeDashboardDataSources(payload?.dataSources);
+  const metrics = { ...(payload?.metrics || {}) };
+  const normalizedBlocks = (Array.isArray(payload?.blocks) ? payload.blocks : []).map((block, index) => {
+    const sourceID = block?.dataSourceRef || block?.dataSource;
+    const source = dataSources.find((entry) => entry && (entry.id === sourceID || entry.name === sourceID)) || null;
+    const collection = Array.isArray(source?.collection) ? source.collection : [];
+    const keyBase = `block_${index}`;
+
+    if (block?.kind === 'dashboard.summary' && Array.isArray(block.metrics) && collection.length) {
+      const target = {};
+      for (const metric of block.metrics) {
+        if (typeof metric !== 'string') continue;
+        target[metric] = aggregateDashboardMetric(collection, metric);
+      }
+      metrics[keyBase] = target;
+      return {
+        ...block,
+        metrics: Object.keys(target).map((metric) => ({
+          id: metric,
+          label: metric.toUpperCase(),
+          selector: `${keyBase}.${metric}`,
+          format: inferMetricFormat(metric, target[metric]),
+        })),
+      };
+    }
+
+    if (block?.kind === 'dashboard.summary' && Array.isArray(block.items)) {
+      const target = {};
+      for (const item of block.items) {
+        const metricKey = String(item?.metricKey || item?.id || item?.label || '').trim();
+        if (!metricKey) continue;
+        target[metricKey] = normalizeMetricValue(item?.value ?? null);
+      }
+      metrics[keyBase] = target;
+      return {
+        ...block,
+        metrics: Object.keys(target).map((metric) => ({
+          id: metric,
+          label: titleizeDashboardKey(metric),
+          selector: `${keyBase}.${metric}`,
+          format: inferMetricFormat(metric, target[metric]),
+        })),
+      };
+    }
+
+    if (block?.kind === 'dashboard.kpiTable' && Array.isArray(block.columns)) {
+      const columnKeys = block.columns.map(dashboardColumnKey).filter(Boolean);
+      if (Array.isArray(block.rows)) {
+        return {
+          ...block,
+          columns: columnKeys,
+          rows: block.rows.map((row) =>
+            Array.isArray(row) ? row : columnKeys.map((column) => row?.[column])
+          ),
+        };
+      }
+      if (!collection.length) {
+        return {
+          ...block,
+          columns: columnKeys,
+        };
+      }
+      return {
+        ...block,
+        columns: columnKeys,
+        rows: collection.map((row) => columnKeys.map((column) => row?.[column])),
+      };
+    }
+
+    if (block?.kind === 'dashboard.compare' && Array.isArray(block.metrics) && collection.length) {
+      const compareMetrics = {};
+      const compareItems = [];
+      const rowField = block.groupBy || block.dimension || 'order';
+      const rows = Array.isArray(block.rows) && block.rows.length > 0
+        ? block.rows
+        : Array.from(new Set(collection.map((row) => row?.[rowField]).filter((value) => value !== undefined && value !== null))).slice(0, 2);
+      if (rows.length < 2) {
+        return block;
+      }
+      const aggregatedRows = aggregateRowsByDimension(collection, rowField, block.metrics);
+      for (const metric of block.metrics) {
+        const currentRow = aggregatedRows.find((row) => String(row?.[rowField]) === String(rows[0]));
+        const previousRow = aggregatedRows.find((row) => String(row?.[rowField]) === String(rows[1]));
+        compareMetrics[metric] = {
+          current: currentRow?.[metric] ?? null,
+          previous: previousRow?.[metric] ?? null,
+        };
+        compareItems.push({
+          id: metric,
+          label: titleizeDashboardKey(metric),
+          current: `${keyBase}.${metric}.current`,
+          previous: `${keyBase}.${metric}.previous`,
+          currentLabel: String(rows[0] ?? '').trim(),
+          previousLabel: String(rows[1] ?? '').trim(),
+          deltaLabel: String(rows[1] ?? '').trim() ? `vs ${String(rows[1]).trim()}` : 'vs previous',
+          format: metric === 'ctr' || metric === 'vtr' ? 'percent' : undefined,
+        });
+      }
+      metrics[keyBase] = compareMetrics;
+      return {
+        ...block,
+        groupBy: rowField,
+        items: compareItems,
+      };
+    }
+
+    if (block?.kind === 'dashboard.timeline' && !block.chart && sourceID) {
+      const chartType = String(block.chartType || 'line').trim().toLowerCase() || 'line';
+      if (block.timeColumn && block.seriesColumn && block.valueColumn && collection.length) {
+        const transformedCollection = collection.map((row) => ({
+          ...row,
+          series: [row?.[block.groupBy], row?.[block.seriesColumn]].filter(Boolean).join(' · '),
+        }));
+        return {
+          ...block,
+          dataSourceRef: sourceID,
+          __collection: transformedCollection,
+          chart: {
+            type: chartType,
+            xAxis: {
+              dataKey: block.timeColumn,
+              label: titleizeDashboardKey(block.timeColumn),
+              tickFormat: 'MM/dd',
+            },
+            yAxis: {
+              label: titleizeDashboardKey(block.valueColumn),
+            },
+            cartesianGrid: {
+              strokeDasharray: '3 3',
+            },
+            series: {
+              nameKey: 'series',
+              valueKey: block.valueColumn,
+              values: [{ label: titleizeDashboardKey(block.valueColumn), name: titleizeDashboardKey(block.valueColumn), value: block.valueColumn }],
+              palette: DEFAULT_DASHBOARD_PALETTE,
+            },
+          },
+        };
+      }
+      const seriesValues = (Array.isArray(block.series) ? block.series : (block.valueColumn ? [block.valueColumn] : ['value']))
+        .map(dashboardSeriesKey)
+        .filter(Boolean);
+      return {
+        ...block,
+        dataSourceRef: sourceID,
+        mapping: {
+          dateColumn: block.dateField || block.timeColumn || 'date',
+          seriesColumns: [block.groupBy || block.seriesColumn || 'order', ...seriesValues],
+        },
+        chart: {
+          type: chartType,
+          xAxis: {
+            dataKey: block.dateField || block.timeColumn || 'date',
+            label: titleizeDashboardKey(block.dateField || block.timeColumn || 'date'),
+            tickFormat: 'MM/dd',
+          },
+          yAxis: {
+            label: titleizeDashboardKey(seriesValues[0] || 'value'),
+          },
+          cartesianGrid: {
+            strokeDasharray: '3 3',
+          },
+          series: {
+            nameKey: block.groupBy || block.seriesColumn || 'order',
+            valueKey: seriesValues[0] || 'value',
+            values: seriesValues.map((entry) => ({ label: titleizeDashboardKey(entry), name: titleizeDashboardKey(entry), value: entry })),
+            palette: DEFAULT_DASHBOARD_PALETTE,
+          },
+        },
+      };
+    }
+
+    if (block?.kind === 'dashboard.messages' && Array.isArray(block.messages) && !Array.isArray(block.items)) {
+      return {
+        ...block,
+        items: block.messages.map((message, messageIndex) => {
+          if (typeof message === 'string') {
+            return { severity: 'info', title: `Note ${messageIndex + 1}`, body: message };
+          }
+          return {
+            severity: message?.severity || message?.type || 'info',
+            title: message?.title || `Note ${messageIndex + 1}`,
+            body: message?.body || message?.text || '',
+          };
+        }),
+      };
+    }
+
+    return block;
+  });
+
+  return {
+    ...payload,
+    metrics,
+    dataSources,
+    blocks: normalizedBlocks,
+  };
+}
+
+function isDashboardPayload(value) {
+  if (!value || typeof value !== 'object') return false;
+  const blocks = Array.isArray(value.blocks) ? value.blocks : [];
+  if (!blocks.length) return false;
+  return blocks.some((block) => DASHBOARD_BLOCK_KINDS.includes(String(block?.kind || '').trim()));
+}
+
+function parseDashboardFenceBody(body = '') {
+  const text = String(body || '').trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return isDashboardPayload(parsed) ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function buildDashboardContext(payload, block) {
+  const dataSources = normalizeDashboardDataSources(payload?.dataSources);
+  const sourceID = block?.dataSourceRef || block?.dataSource;
+  const source = dataSources.find((entry) => entry && (entry.id === sourceID || entry.name === sourceID)) || null;
+  const collection = Array.isArray(block?.__collection)
+    ? block.__collection
+    : Array.isArray(source?.collection) ? source.collection : [];
+  const dashboardKey = `rich-dashboard:${String(payload?.title || 'message')}`;
+  return {
+    dashboardKey,
+    identity: { windowId: dashboardKey, dashboardKey },
+    locale: 'en-US',
+    signals: {
+      metrics: createStaticSignal(payload?.metrics || {}),
+      collection: createStaticSignal(collection),
+      control: createStaticSignal({}),
+      selection: createStaticSignal({}),
+    },
+    handlers: {
+      dataSource: {
+        setSelected: () => {},
+        getSelection: () => ({ selected: null }),
+      },
+    },
+  };
+}
+
+function DashboardFence({ payload }) {
+  const normalizedPayload = normalizeDashboardPayload(payload);
+  const blocks = (Array.isArray(normalizedPayload?.blocks) ? normalizedPayload.blocks : []).filter((block) =>
+    DASHBOARD_BLOCK_KINDS.includes(String(block?.kind || '').trim())
+  );
+  return (
+    <div className="app-rich-dashboard" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {normalizedPayload?.title ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div className="app-rich-chart-title">{normalizedPayload.title}</div>
+          {normalizedPayload?.subtitle ? <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>{normalizedPayload.subtitle}</div> : null}
+        </div>
+      ) : null}
+      {blocks.map((block, index) => (
+        <DashboardBlock
+          key={String(block?.id || `${block?.kind || 'dashboard'}-${index}`)}
+          container={block}
+          context={buildDashboardContext(normalizedPayload, block)}
+          isActive={true}
+        />
+      ))}
+    </div>
+  );
+}
+
+const CUSTOM_FENCE_RENDERERS = {
+  dashboard: (body, _fence, key) => {
+    const payload = parseDashboardFenceBody(body);
+    if (!payload) return null;
+    return <DashboardFence key={key} payload={payload} />;
+  },
+  dashborad: (body, _fence, key) => {
+    const payload = parseDashboardFenceBody(body);
+    if (!payload) return null;
+    return <DashboardFence key={key} payload={payload} />;
+  },
+};
+
+function renderCustomFence(body, fence, key) {
+  const lang = String(fence?.lang || '').trim().toLowerCase();
+  const renderer = CUSTOM_FENCE_RENDERERS[lang];
+  if (typeof renderer !== 'function') return null;
+  return renderer(body, fence, key);
+}
 
 function escapeHTMLAttr(value = '') {
   return String(value || '')
@@ -469,6 +898,12 @@ function RichContent({ content = '', generatedFiles = [] }) {
 
     const fence = part.fence;
     const body = fence.body;
+    const customFence = renderCustomFence(body, fence, `custom-${idx}`);
+    if (customFence) {
+      out.push(customFence);
+      idx += 1;
+      continue;
+    }
 
     switch (fence.renderer) {
       case 'chart':
@@ -492,7 +927,6 @@ function RichContent({ content = '', generatedFiles = [] }) {
         out.push(<div key={`md-${idx++}`} className="app-rich-markdown" dangerouslySetInnerHTML={{ __html: html }} />);
         break;
       }
-      case 'code':
       default:
         out.push(
           <div key={`code-${idx++}`} style={{ borderRadius: 8, overflow: 'hidden', margin: '6px 0' }}>

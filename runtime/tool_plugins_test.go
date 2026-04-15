@@ -23,6 +23,7 @@ func TestInternalServiceFactoryAppOwnedServices(t *testing.T) {
 		{name: "resources", serviceName: "resources", expect: "resources"},
 		{name: "message alias", serviceName: "message", expect: "message"},
 		{name: "legacy internal message alias", serviceName: "internal/message", expect: "message"},
+		{name: "template", serviceName: "template", expect: "template"},
 	}
 
 	for _, tc := range testCases {

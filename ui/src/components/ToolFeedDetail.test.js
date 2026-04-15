@@ -40,6 +40,15 @@ vi.mock('../services/planFeedBus', () => ({
   })),
 }));
 
+vi.mock('../services/queueSyncBus', () => ({
+  getQueueSyncSnapshot: vi.fn(() => ({
+    conversationId: 'conv-1',
+    queuedTurns: [],
+    suppressedTurnIds: [],
+    updatedAt: Date.now(),
+  })),
+}));
+
 describe('resolveRootFeedDataSourceName', () => {
   it('prefers an explicit output source over object key order', () => {
     const name = resolveRootFeedDataSourceName({
@@ -92,5 +101,44 @@ describe('ToolFeedDetail', () => {
     expect(html).toContain('Hierarchy resolved successfully with campaign and agency names.');
     expect(html).toContain('Resolve canonical hierarchy');
     expect(html).toContain('Pull campaign-level pacing metrics');
+  });
+
+  it('renders the queue feed detail when queue feed is expanded', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBar = await import('./ToolFeedBar');
+    const queueSyncBus = await import('../services/queueSyncBus');
+
+    toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::queue');
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::queue');
+    queueSyncBus.getQueueSyncSnapshot.mockReturnValue({
+      conversationId: 'conv-1',
+      queuedTurns: [
+        { id: 'turn-q1', preview: 'queued follow-up one' },
+        { id: 'turn-q2', preview: 'queued follow-up two' },
+      ],
+      suppressedTurnIds: [],
+      updatedAt: Date.now(),
+    });
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail, {
+      context: {
+        Context(name) {
+          if (name === 'conversations') {
+            return {
+              handlers: {
+                dataSource: {
+                  peekFormData: () => ({ id: 'conv-1' }),
+                },
+              },
+            };
+          }
+          return null;
+        },
+      },
+    }));
+
+    expect(html).toContain('2 queued requests');
+    expect(html).toContain('queued follow-up one');
+    expect(html).toContain('queued follow-up two');
   });
 });

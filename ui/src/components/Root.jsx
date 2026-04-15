@@ -20,7 +20,7 @@ import { useApprovalQueue } from '../hooks/useApprovalQueue';
 import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, getScopedConversationSelection, getSelectedWindow, isLinkedChildWindow, openConversationInMainWindow, requestNewConversationInMainWindow, returnToParentConversation } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath } from '../services/chatRuntime';
-import { beginLogin, client, recoverSessionSilently } from '../services/agentlyClient';
+import { beginLogin, client, getAuthMeSilently, recoverSessionSilently } from '../services/agentlyClient';
 
 const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -35,6 +35,10 @@ function clampSidebarWidth(value) {
 
 export function resolveInitialAuthState(providers, me) {
   const normalized = Array.isArray(providers) ? providers : [];
+  const hasLocalProvider = normalized.some((entry) => {
+    const type = String(entry?.type || '').trim().toLowerCase();
+    return type === 'local';
+  });
   const hasOAuthProvider = normalized.some((entry) => {
     const type = String(entry?.type || '').trim().toLowerCase();
     return type === 'bff' || type === 'oidc' || type === 'jwt';
@@ -45,6 +49,7 @@ export function resolveInitialAuthState(providers, me) {
   });
   const hasAnyProvider = normalized.length > 0;
   if (me) return 'ready';
+  if (hasLocalProvider) return 'ready';
   if (hasLocalOnlyProvider) return 'ready';
   // Auth is enabled (providers configured) but user is not authenticated.
   if (hasOAuthProvider) return 'required';
@@ -167,7 +172,7 @@ export default function Root() {
 
   useEffect(() => {
     let mounted = true;
-    Promise.allSettled([client.getAuthProviders(), client.getAuthMe()])
+    Promise.allSettled([client.getAuthProviders(), getAuthMeSilently()])
       .then(async (results) => {
         if (!mounted) return;
         const providers = results[0]?.status === 'fulfilled' ? results[0].value : [];
@@ -176,11 +181,7 @@ export default function Root() {
           const recovered = await recoverSessionSilently();
           if (!mounted) return;
           if (recovered) {
-            try {
-              me = await client.getAuthMe();
-            } catch (_) {
-              me = null;
-            }
+            me = await getAuthMeSilently();
           }
         }
         setOAuthProviderLabel(resolveOAuthProviderLabel(providers));

@@ -2956,7 +2956,7 @@ describe('resolveLastTranscriptCursor', () => {
 });
 
 describe('renderMergedRowsForContext', () => {
-  it('appends a synthetic queue row when queued turns are present on the conversation form', () => {
+  it('does not append a synthetic queue row when queued turns are present on the conversation form', () => {
     let collection = [];
     const context = {
       resources: {
@@ -3007,15 +3007,10 @@ describe('renderMergedRowsForContext', () => {
 
     renderMergedRowsForContext(context);
 
-    expect(collection.some((row) => row?._type === 'queue')).toBe(true);
-    expect(collection.find((row) => row?._type === 'queue')).toMatchObject({
-      createdAt: '',
-      running: true,
-      queuedTurns: [{ id: 'turn-q1', preview: 'queued follow-up' }]
-    });
+    expect(collection.some((row) => row?._type === 'queue')).toBe(false);
   });
 
-  it('keeps synthetic starter and queue rows deterministic across rerenders', () => {
+  it('keeps rendered rows deterministic across rerenders when queued turns are present', () => {
     let firstCollection = [];
     let secondCollection = [];
     const context = {

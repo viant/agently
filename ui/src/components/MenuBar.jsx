@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Dialog } from '@blueprintjs/core';
 import { addWindow, activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
-import { client } from '../services/agentlyClient';
+import { client, getAuthMeSilently } from '../services/agentlyClient';
 import logo from '../viant-logo.png';
 
 export function resolveStartupAuthAction(providers) {
@@ -104,14 +104,14 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
     let mounted = true;
     const loadUser = async () => {
       try {
-        const me = await client.getAuthMe();
+        const me = await getAuthMeSilently();
         if (mounted) setUser(me || null);
         if (me) return;
         const providers = await client.getAuthProviders();
         const action = resolveStartupAuthAction(providers);
         if (action.type !== 'local' || !action.username) return;
         await client.localLogin({ username: action.username });
-        const autoMe = await client.getAuthMe();
+        const autoMe = await getAuthMeSilently();
         if (!mounted || !autoMe) return;
         setUser(autoMe);
         try { window.dispatchEvent(new CustomEvent('forge:conversation-active', { detail: { id: '' } })); } catch (_) {}

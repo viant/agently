@@ -33,6 +33,25 @@ async function probeAuthMe() {
   return false;
 }
 
+export async function getAuthMeSilently() {
+  const response = await fetch(`${sdkBaseURL}/api/auth/me`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json'
+    }
+  });
+  if (response.status === 200) {
+    try {
+      return await response.json();
+    } catch (_) {
+      return null;
+    }
+  }
+  if (response.status === 401 || response.status === 403) return null;
+  return null;
+}
+
 export async function recoverSessionSilently() {
   if (authRecoveryInFlight) return authRecoveryInFlight;
   authRecoveryInFlight = (async () => {

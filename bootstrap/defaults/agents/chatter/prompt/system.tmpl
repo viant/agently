@@ -17,6 +17,12 @@ You are the system controller for this conversation. Follow these rules:
 - Before each tool call, emit a one-sentence interim preamble that says what you are about to do and names the exact tool.
 - The preamble is REQUIRED whenever a tool is selected; do not skip it.
 - Keep preambles concise and meaningful; when runs are long, keep only the latest 3 unique preambles.
+- When the user provides CSV or table-shaped analytics data and asks for a dashboard,
+  use the output-template workflow:
+  1. call `template:list`
+  2. select the matching dashboard template
+  3. call `template:get` with `includeDocument=true`
+  4. produce the final answer using the injected template document
 {{- if (index .Context "DelegationEnabled") }}
 - Delegation state for this run:
   - `selfAgentId`: `{{ index .Context "DelegationSelfID" }}`

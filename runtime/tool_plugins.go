@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/afs"
 	"github.com/viant/agently-core/app/executor"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/tool"
@@ -23,9 +24,12 @@ import (
 	toolexec "github.com/viant/agently-core/protocol/tool/service/system/exec"
 	toolos "github.com/viant/agently-core/protocol/tool/service/system/os"
 	toolpatch "github.com/viant/agently-core/protocol/tool/service/system/patch"
+	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
 	wscfg "github.com/viant/agently-core/workspace/config"
+	templaterepo "github.com/viant/agently-core/workspace/repository/template"
+	templatebundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,6 +41,7 @@ var allInternalServices = []string{
 	"llm/agents",
 	"resources",
 	"message",
+	"template",
 }
 
 func ConfigureRegistry(ctx context.Context, rt *executor.Runtime, workspaceRoot string) {
@@ -53,7 +58,11 @@ func ConfigureRegistry(ctx context.Context, rt *executor.Runtime, workspaceRoot 
 			log.Printf("agently-app: unsupported internal MCP service %q (skipped)", name)
 			continue
 		}
-		tool.AddInternalService(rt.Registry, service)
+		if err := tool.AddInternalService(rt.Registry, service); err != nil {
+			log.Printf("agently-app: failed to register internal MCP service %q: %v", name, err)
+			continue
+		}
+		log.Printf("agently-app: registered internal MCP service %q as %q", name, service.Name())
 	}
 	go func() {
 		warmupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
@@ -178,6 +187,17 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 			embedModel = rt.Defaults.Embedder
 		}
 		return msgservice.NewWithDeps(rt.Conversation, rt.Core, nil, 0, 0, summaryModel, "", defaultModel, embedModel)
+	case "template":
+		var finder agentmdl.Finder
+		if rt.Agent != nil {
+			finder = rt.Agent.Finder()
+		}
+		return templatesvc.New(
+			templaterepo.New(afs.New()),
+			templatebundlerepo.New(afs.New()),
+			templatesvc.WithConversationClient(rt.Conversation),
+			templatesvc.WithAgentFinder(finder),
+		)
 	default:
 		return nil
 	}

@@ -17,6 +17,8 @@ export default function SteerQueue({ message, context }) {
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(false);
+  const [editingId, setEditingId] = useState('');
+  const [draftContent, setDraftContent] = useState('');
   const isRunning = !!message?.running;
   const chat = context?.services?.chat;
   const conversationID = resolveConversationID(context, message);
@@ -63,6 +65,53 @@ export default function SteerQueue({ message, context }) {
               <div className="steer-queue-preview">
                 {String(item?.preview || '').trim() || id}
               </div>
+              {editingId === id ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <input
+                    value={draftContent}
+                    onChange={(event) => setDraftContent(String(event?.target?.value || ''))}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      border: '1px solid var(--gray4, #d0d7de)',
+                      borderRadius: 8,
+                      padding: '6px 8px',
+                      fontSize: 12,
+                    }}
+                  />
+                  <Button
+                    small
+                    disabled={pending}
+                    onClick={() => {
+                      const next = String(draftContent || '').trim();
+                      if (!next) return;
+                      void run(id, async () => {
+                        await chat.editQueuedTurn?.({
+                          context,
+                          conversationID,
+                          turnID: id,
+                          content: next,
+                        });
+                        setEditingId('');
+                        setDraftContent('');
+                      });
+                    }}
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    small
+                    minimal
+                    disabled={pending}
+                    onClick={() => {
+                      setEditingId('');
+                      setDraftContent('');
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : null}
               <div className="steer-queue-actions">
                 <Button
                   small
@@ -91,15 +140,8 @@ export default function SteerQueue({ message, context }) {
                   icon="edit"
                   disabled={pending}
                   onClick={() => {
-                    const seed = String(item?.preview || '').trim();
-                    const next = window.prompt('Edit queued request', seed);
-                    if (next == null) return;
-                    void run(id, () => chat.editQueuedTurn?.({
-                      context,
-                      conversationID,
-                      turnID: id,
-                      content: String(next || '')
-                    }));
+                    setEditingId(id);
+                    setDraftContent(String(item?.preview || '').trim());
                   }}
                 />
                 <Button

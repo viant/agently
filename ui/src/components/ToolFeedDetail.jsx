@@ -4,6 +4,8 @@ import { Container as ForgeContainer } from 'forge/components';
 import { getFeedData, onFeedDataChange, getActiveFeeds, onFeedChange, makeFeedKey, splitFeedKey } from '../services/toolFeedBus';
 import { getSelectedFeedId, isFeedExpanded, onSelectedFeedChange } from './ToolFeedBar';
 import { usePlanFeed } from '../services/planFeedBus';
+import { getQueueSyncSnapshot } from '../services/queueSyncBus';
+import SteerQueue from './chat/SteerQueue';
 import {
   wireFeedSignals,
   normalizeDataSources,
@@ -34,6 +36,9 @@ export default function ToolFeedDetail({ context }) {
   const [, setExpandVersion] = useState(0);
   const [selectedFeedId, setSelectedFeedId] = useState(getSelectedFeedId);
   const planFeed = usePlanFeed();
+  const currentConversationId = String(
+    context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id || ''
+  ).trim();
 
   useEffect(() => {
     const u1 = onFeedChange((next) => setFeeds(next));
@@ -46,6 +51,9 @@ export default function ToolFeedDetail({ context }) {
 
   // Collect expanded feeds that have data.
   const planFeedKey = makeFeedKey('plan', String(planFeed?.conversationId || '').trim());
+  const queueFeedKey = makeFeedKey('queue', currentConversationId);
+  const queueSnapshot = getQueueSyncSnapshot(currentConversationId);
+  const queueTurns = Array.isArray(queueSnapshot?.queuedTurns) ? queueSnapshot.queuedTurns : [];
   const planData = getFeedData(planFeedKey, String(planFeed?.conversationId || '').trim());
   const hasPlanBusData = !!String(planFeed?.explanation || '').trim()
     || (Array.isArray(planFeed?.steps) && planFeed.steps.length > 0);
@@ -54,6 +62,12 @@ export default function ToolFeedDetail({ context }) {
     || Array.isArray(planData?.data?.input?.plan);
   const hasPlanData = hasPlanBusData || hasPlanPayloadData;
   const visibleFeeds = dedupeFeeds([
+    ...(queueTurns.length > 0 && isFeedExpanded(queueFeedKey) ? [{
+      feedId: queueFeedKey,
+      title: 'Queue',
+      rawFeedId: 'queue',
+      conversationId: currentConversationId,
+    }] : []),
     ...(hasPlanData && isFeedExpanded(planFeedKey) ? [{
       feedId: planFeedKey,
       title: 'Plan',
@@ -69,7 +83,7 @@ export default function ToolFeedDetail({ context }) {
   if (visibleFeeds.length === 1) {
     return (
       <div className="app-tool-feed-detail">
-        <FeedPanel feedId={visibleFeeds[0].feedId} planFeed={planFeed} />
+        <FeedPanel feedId={visibleFeeds[0].feedId} planFeed={planFeed} context={context} />
       </div>
     );
   }
@@ -87,7 +101,7 @@ export default function ToolFeedDetail({ context }) {
             key={feed.feedId}
             id={feed.feedId}
             title={feed.title || feed.feedId}
-            panel={<FeedPanel feedId={feed.feedId} rawFeedId={feed.rawFeedId || splitFeedKey(feed.feedId).feedId} planFeed={planFeed} />}
+            panel={<FeedPanel feedId={feed.feedId} rawFeedId={feed.rawFeedId || splitFeedKey(feed.feedId).feedId} planFeed={planFeed} context={context} />}
           />
         ))}
       </Tabs>
@@ -108,8 +122,11 @@ export function resolveRootFeedDataSourceName(dataSources = {}) {
  * Renders a single feed panel. Uses Forge Container when the feed spec
  * includes a `ui` definition; falls back to InlineRenderer otherwise.
  */
-function FeedPanel({ feedId, rawFeedId, planFeed }) {
+function FeedPanel({ feedId, rawFeedId, planFeed, context }) {
   const scopedConversationId = String(splitFeedKey(feedId).conversationId || '').trim();
+  if ((rawFeedId || splitFeedKey(feedId).feedId) === 'queue') {
+    return <QueueFeedPanel conversationId={scopedConversationId} context={context} />;
+  }
   const data = getFeedData(feedId, scopedConversationId);
   if ((rawFeedId || splitFeedKey(feedId).feedId) === 'plan') {
     return <PlanFeedPanel planFeed={planFeed} feedData={data} />;
@@ -183,6 +200,28 @@ function FeedPanel({ feedId, rawFeedId, planFeed }) {
   return (
     <div className="app-tool-feed-detail-list" style={{ maxHeight: 'min(42vh, 360px)', overflowY: 'auto', paddingRight: 4 }}>
       <ForgeContainer container={uiContainer} context={forgeContext} />
+    </div>
+  );
+}
+
+function QueueFeedPanel({ conversationId = '', context }) {
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setVersion((n) => n + 1), 250);
+    return () => clearInterval(interval);
+  }, []);
+
+  const snapshot = getQueueSyncSnapshot(String(conversationId || '').trim());
+  const queuedTurns = Array.isArray(snapshot?.queuedTurns) ? snapshot.queuedTurns : [];
+  if (queuedTurns.length === 0) return null;
+
+  return (
+    <div className="app-tool-feed-detail-list" style={{ maxHeight: 'min(32vh, 260px)', overflowY: 'auto', paddingRight: 4 }}>
+      <SteerQueue
+        message={{ queuedTurns, running: true, conversationId, _version: version }}
+        context={context}
+      />
     </div>
   );
 }
