@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import RichContent, { parseFences } from './RichContent';
+import RichContent, { normalizeDashboardPayload, parseFences } from './RichContent';
 import { renderMarkdownBlock } from 'agently-core-ui-sdk';
 
 describe('RichContent fence parsing', () => {
@@ -38,6 +38,28 @@ describe('RichContent fence parsing', () => {
       lang: 'json',
       body: '{"version":"1.0"}\n'
     });
+  });
+
+  it('parses compact forge fences used by streamed planner output', () => {
+    const parts = parseFences([
+      '```forge-data{"version":1,"id":"recommended_sites","format":"json","mode":"replace","data":[]}',
+      '```',
+      '',
+      '```forge-ui{"version":1,"title":"Review recommended site lists","blocks":[]}',
+      '```',
+    ].join('\n'));
+
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toMatchObject({
+      kind: 'fence',
+      lang: 'forge-data',
+    });
+    expect(parts[0].body).toContain('"recommended_sites"');
+    expect(parts[2]).toMatchObject({
+      kind: 'fence',
+      lang: 'forge-ui',
+    });
+    expect(parts[2].body).toContain('"Review recommended site lists"');
   });
 
   it('renders markdown headings as heading tags', () => {
@@ -264,5 +286,161 @@ describe('RichContent fence parsing', () => {
     );
 
     expect(html).toContain('app-rich-chart');
+  });
+
+  it('renders a forge-ui planner table bound to forge-data', () => {
+    const content = [
+      '```forge-data',
+      JSON.stringify({
+        version: 1,
+        id: 'recommended_sites',
+        format: 'json',
+        mode: 'replace',
+        data: [
+          { site_id: 101, site_name: 'example.com', reason: 'Strong overlap', selected: true },
+          { site_id: 202, site_name: 'publisher.net', reason: 'Historical CTR', selected: true },
+        ],
+      }, null, 2),
+      '```',
+      '',
+      '```forge-ui',
+      JSON.stringify({
+        version: 1,
+        title: 'Recommended sites',
+        subtitle: 'Review recommendations before submitting',
+        blocks: [
+          {
+            id: 'site-review',
+            kind: 'planner.table',
+            title: 'Site review',
+            dataSourceRef: 'recommended_sites',
+            selection: { mode: 'checkbox', field: 'selected' },
+            columns: [
+              { key: 'site_id', label: 'Site ID' },
+              { key: 'site_name', label: 'Site name' },
+              { key: 'reason', label: 'Why recommended' },
+            ],
+            actions: [
+              {
+                id: 'submit-sites',
+                kind: 'submit',
+                label: 'Submit changes',
+                callback: { type: 'llm_event', eventName: 'planner_table_submit' },
+              },
+            ],
+          },
+        ],
+      }, null, 2),
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content })
+    );
+
+    expect(html).toContain('Recommended sites');
+    expect(html).toContain('Site review');
+    expect(html).toContain('example.com');
+    expect(html).toContain('publisher.net');
+    expect(html).toContain('Submit changes');
+  });
+
+  it('renders forge-ui dashboard blocks from forge-data references', () => {
+    const content = [
+      '```forge-data',
+      JSON.stringify({
+        version: 1,
+        id: 'summary_metrics',
+        format: 'json',
+        mode: 'replace',
+        data: [
+          { spend: 1316.86, pacing_ratio: 0.17, win_rate: 4.02 },
+        ],
+      }, null, 2),
+      '```',
+      '',
+      '```forge-ui',
+      JSON.stringify({
+        version: 1,
+        title: 'Ad order 2639076 — Parent or Grandparenting',
+        subtitle: 'Agency 4257 — Viant Fixed Managed US',
+        blocks: [
+          {
+            id: 'summary',
+            kind: 'dashboard.summary',
+            dataSourceRef: 'summary_metrics',
+            metrics: ['spend', 'pacing_ratio', 'win_rate'],
+          },
+        ],
+      }, null, 2),
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content })
+    );
+
+    expect(html).toContain('Ad order 2639076');
+    expect(html).toContain('Agency 4257');
+    expect(html).toContain('SPEND');
+    expect(html).toContain('PACING_RATIO');
+    expect(html).toContain('WIN_RATE');
+  });
+
+  it('renders compact streamed forge planner fences without extra normalization', () => {
+    const content = [
+      '```forge-data{"version":1,"id":"recommended_sites","format":"json","mode":"replace","data":[{"site_id":102788,"site_name":"Site List 102788","reason":"Best supplemental expansion test.","selected":true},{"site_id":22547,"site_name":"Site List 22547","reason":"Best backup option.","selected":true}]}',
+      '```',
+      '',
+      '```forge-ui{"version":1,"title":"Review recommended site lists","subtitle":"Suggested target-list expansions for audience 7180287.","blocks":[{"id":"site-review","kind":"planner.table","title":"Recommended sites","dataSourceRef":"recommended_sites","selection":{"mode":"checkbox","field":"selected"},"columns":[{"key":"site_id","label":"Site ID"},{"key":"site_name","label":"Site name"},{"key":"reason","label":"Why recommended"}],"actions":[{"id":"submit-sites","kind":"submit","label":"Submit changes","callback":{"type":"custom_callback","eventName":"planner_table_submit","target":"foreground"}}]}]}',
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content })
+    );
+
+    expect(html).toContain('Review recommended site lists');
+    expect(html).toContain('Site List 102788');
+    expect(html).toContain('Site List 22547');
+    expect(html).toContain('Submit changes');
+  });
+
+  it('normalizes a single-series dashboard timeline into long-form chart rows', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Chart test',
+      dataSources: [
+        {
+          name: 'daily_delivery',
+          csv: [
+            'date,spend',
+            '2026-04-08,134.30',
+            '2026-04-09,256.42',
+          ].join('\n'),
+        },
+      ],
+      blocks: [
+        {
+          kind: 'dashboard.timeline',
+          title: 'Daily spend',
+          dataSource: 'daily_delivery',
+          dateField: 'date',
+          series: ['spend'],
+          chartType: 'bar',
+        },
+      ],
+    });
+
+    const timeline = normalized.blocks[0];
+    expect(timeline.__collection).toEqual([
+      { date: expect.any(Date), series: 'Spend', value: 134.3 },
+      { date: expect.any(Date), series: 'Spend', value: 256.42 },
+    ]);
+    expect(timeline.chart.series).toMatchObject({
+      nameKey: 'series',
+      valueKey: 'value',
+      values: [{ label: 'Spend', name: 'Spend', value: 'spend' }],
+    });
   });
 });

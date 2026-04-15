@@ -2,7 +2,10 @@ package agently
 
 import (
 	"bytes"
+	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -62,6 +65,29 @@ func TestChatStreamerFlush_SkipsNormalizedContainedDuplicate(t *testing.T) {
 	assert.Equal(t, "\n", output)
 }
 
+func TestChatStreamerFlush_PrintsCorrectedFinalForCompactForgeFence(t *testing.T) {
+	streamer := &chatStreamer{}
+	streamer.content.WriteString("```forge-data{\"id\":\"recommended_sites\"}```")
+	streamer.printed = true
+
+	output := captureStdout(t, func() {
+		printed := streamer.Flush("```forge-data\n{\"id\":\"recommended_sites\"}\n```")
+		require.True(t, printed)
+	})
+
+	assert.Equal(t, "\n```forge-data\n{\"id\":\"recommended_sites\"}\n```\n", output)
+}
+
+func TestNormalizeCLIStreamDelta_RewritesCompactFenceWithinChunk(t *testing.T) {
+	got := normalizeCLIStreamDelta("", "```forge-data{\"id\":\"recommended_sites\"}")
+	assert.Equal(t, "```forge-data\n{\"id\":\"recommended_sites\"}", got)
+}
+
+func TestNormalizeCLIStreamDelta_RewritesCompactFenceAcrossChunks(t *testing.T) {
+	got := normalizeCLIStreamDelta("```forge-ui", "{\"version\":1}")
+	assert.Equal(t, "\n{\"version\":1}", got)
+}
+
 func TestLatestAssistantContentFromState(t *testing.T) {
 	content, ok, err := latestAssistantContentFromState(&sdk.ConversationState{
 		ConversationID: "conv-1",
@@ -91,6 +117,21 @@ func TestLatestAssistantContentFromState_FailedTurn(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.False(t, ok)
+}
+
+func TestResolveConversationExitCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/tools/system/platform/exitCode/execute", r.URL.Path)
+		_, _ = w.Write([]byte(`{"result":"{\"conversationId\":\"conv-1\",\"code\":23}"}`))
+	}))
+	defer server.Close()
+
+	client, err := sdk.NewHTTP(server.URL)
+	require.NoError(t, err)
+
+	code, err := resolveConversationExitCode(context.Background(), client, "conv-1")
+	require.NoError(t, err)
+	assert.Equal(t, 23, code)
 }
 
 func captureStdout(t *testing.T, fn func()) string {

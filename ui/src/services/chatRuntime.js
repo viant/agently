@@ -323,7 +323,7 @@ function stageCompletedAtValue(payload = {}) {
 function shouldIgnoreExecutionStreamEvent(payload = {}) {
   const mode = streamEventMode(payload);
   const type = String(payload?.type || '').trim().toLowerCase();
-  return mode === 'summary' || type === 'user_prompt_expanded';
+  return mode === 'summary';
 }
 
 function textDeltaQueueKey(payload = {}, fallbackConversationID = '') {
@@ -1650,6 +1650,8 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
             turnId,
             conversationId: conversationID,
             createdAt: String(payload?.createdAt || payload?.patch?.createdAt || '').trim(),
+            userMessageId: String(payload?.userMessageId || payload?.patch?.userMessageId || payload?.startedByMessageId || payload?.patch?.startedByMessageId || '').trim(),
+            startedByMessageId: String(payload?.startedByMessageId || payload?.patch?.startedByMessageId || payload?.userMessageId || payload?.patch?.userMessageId || '').trim(),
             agentName: String(chatState?.activeTurnAgentName || '').trim()
           }, conversationID);
         }

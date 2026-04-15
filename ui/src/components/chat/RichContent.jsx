@@ -38,6 +38,17 @@ import {
   describeFence,
 } from 'agently-core-ui-sdk';
 import { DashboardBlock } from 'forge/components';
+import {
+  FORGE_UI_FENCE,
+  FORGE_DATA_FENCE,
+  applyForgeDataBlocks,
+  createPlannerTableSubmitPayload,
+  parseForgeFenceBody,
+  rowsToCsv,
+  validateForgeDataBlock,
+  validateForgeUIBlock,
+} from '../../services/forgeFenceContract.js';
+import { dispatchForgeUIAction } from '../../services/forgeUIActions.js';
 
 const DASHBOARD_BLOCK_KINDS = [
   'dashboard.summary',
@@ -52,6 +63,14 @@ const DASHBOARD_BLOCK_KINDS = [
   'dashboard.report',
   'dashboard.detail',
 ];
+
+function isForgeUIFence(fence = {}) {
+  return String(fence?.lang || '').trim().toLowerCase() === FORGE_UI_FENCE;
+}
+
+function isForgeDataFence(fence = {}) {
+  return String(fence?.lang || '').trim().toLowerCase() === FORGE_DATA_FENCE;
+}
 
 function titleizeDashboardKey(value = '') {
   return String(value || '')
@@ -175,7 +194,7 @@ function aggregateRowsByDimension(collection = [], dimension = '', metrics = [])
   return rows;
 }
 
-function normalizeDashboardPayload(payload) {
+export function normalizeDashboardPayload(payload) {
   if (!isDashboardPayload(payload)) return payload;
   const dataSources = normalizeDashboardDataSources(payload?.dataSources);
   const metrics = { ...(payload?.metrics || {}) };
@@ -319,6 +338,41 @@ function normalizeDashboardPayload(payload) {
       const seriesValues = (Array.isArray(block.series) ? block.series : (block.valueColumn ? [block.valueColumn] : ['value']))
         .map(dashboardSeriesKey)
         .filter(Boolean);
+      if ((block.dateField || block.timeColumn) && seriesValues.length > 0 && !block.groupBy && !block.seriesColumn) {
+        const dateKey = block.dateField || block.timeColumn || 'date';
+        const transformedCollection = collection.flatMap((row) =>
+          seriesValues.map((entry) => ({
+            [dateKey]: row?.[dateKey],
+            series: titleizeDashboardKey(entry),
+            value: row?.[entry],
+          }))
+        );
+        return {
+          ...block,
+          dataSourceRef: sourceID,
+          __collection: transformedCollection,
+          chart: {
+            type: chartType,
+            xAxis: {
+              dataKey: dateKey,
+              label: titleizeDashboardKey(dateKey),
+              tickFormat: 'MM/dd',
+            },
+            yAxis: {
+              label: titleizeDashboardKey(seriesValues[0] || 'value'),
+            },
+            cartesianGrid: {
+              strokeDasharray: '3 3',
+            },
+            series: {
+              nameKey: 'series',
+              valueKey: 'value',
+              values: seriesValues.map((entry) => ({ label: titleizeDashboardKey(entry), name: titleizeDashboardKey(entry), value: entry })),
+              palette: DEFAULT_DASHBOARD_PALETTE,
+            },
+          },
+        };
+      }
       return {
         ...block,
         dataSourceRef: sourceID,
@@ -383,25 +437,21 @@ function isDashboardPayload(value) {
   return blocks.some((block) => DASHBOARD_BLOCK_KINDS.includes(String(block?.kind || '').trim()));
 }
 
-function parseDashboardFenceBody(body = '') {
-  const text = String(body || '').trim();
-  if (!text) return null;
-  try {
-    const parsed = JSON.parse(text);
-    return isDashboardPayload(parsed) ? parsed : null;
-  } catch (_) {
-    return null;
-  }
+function buildForgeDataSources(store = {}) {
+  return Object.values(store).map((entry) => ({
+    id: entry?.id,
+    name: entry?.id,
+    collection: Array.isArray(entry?.rows) ? entry.rows : [],
+  }));
 }
 
-function buildDashboardContext(payload, block) {
-  const dataSources = normalizeDashboardDataSources(payload?.dataSources);
+function buildForgeDashboardContext(payload, dataStore, block) {
   const sourceID = block?.dataSourceRef || block?.dataSource;
-  const source = dataSources.find((entry) => entry && (entry.id === sourceID || entry.name === sourceID)) || null;
+  const source = sourceID ? dataStore?.[sourceID] : null;
   const collection = Array.isArray(block?.__collection)
     ? block.__collection
-    : Array.isArray(source?.collection) ? source.collection : [];
-  const dashboardKey = `rich-dashboard:${String(payload?.title || 'message')}`;
+    : Array.isArray(source?.rows) ? source.rows : [];
+  const dashboardKey = `forge-ui:${String(payload?.title || 'message')}`;
   return {
     dashboardKey,
     identity: { windowId: dashboardKey, dashboardKey },
@@ -421,49 +471,230 @@ function buildDashboardContext(payload, block) {
   };
 }
 
-function DashboardFence({ payload }) {
-  const normalizedPayload = normalizeDashboardPayload(payload);
-  const blocks = (Array.isArray(normalizedPayload?.blocks) ? normalizedPayload.blocks : []).filter((block) =>
-    DASHBOARD_BLOCK_KINDS.includes(String(block?.kind || '').trim())
+function PlannerTableBlock({ ui, block, dataStore }) {
+  const sourceID = String(block?.dataSourceRef || '').trim();
+  const source = sourceID ? dataStore?.[sourceID] : null;
+  const originalRows = React.useMemo(
+    () => (Array.isArray(source?.rows) ? source.rows : []).map((row) => ({ ...row })),
+    [source]
   );
+  const [rows, setRows] = React.useState(originalRows);
+
+  React.useEffect(() => {
+    setRows(originalRows);
+  }, [originalRows]);
+
+  const selectionField = String(block?.selection?.field || 'selected').trim() || 'selected';
+  const changedCount = React.useMemo(
+    () => rows.filter((row, index) => Boolean(row?.[selectionField]) !== Boolean(originalRows[index]?.[selectionField])).length,
+    [rows, originalRows, selectionField]
+  );
+
+  const payload = React.useMemo(
+    () => createPlannerTableSubmitPayload(ui, block, rows, originalRows),
+    [ui, block, rows, originalRows]
+  );
+
+  const toggleRow = (rowIndex) => {
+    setRows((current) => current.map((row, index) => (
+      index === rowIndex ? { ...row, [selectionField]: !row?.[selectionField] } : row
+    )));
+  };
+
+  const handleSubmit = () => {
+    const callback = block?.actions?.[0]?.callback || {};
+    const eventName = String(callback?.eventName || 'planner_table_submit').trim() || 'planner_table_submit';
+    const detail = {
+      ...payload,
+      callback,
+      eventName,
+    };
+    dispatchForgeUIAction(detail);
+  };
+
+  const downloadCsv = () => {
+    if (typeof window === 'undefined') return;
+    const csv = rowsToCsv(rows, block?.columns || []);
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${String(block?.id || 'planner-table').trim() || 'planner-table'}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <div className="app-rich-dashboard" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {normalizedPayload?.title ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div className="app-rich-chart-title">{normalizedPayload.title}</div>
-          {normalizedPayload?.subtitle ? <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>{normalizedPayload.subtitle}</div> : null}
+    <div style={{
+      display: 'grid',
+      gap: 14,
+      border: '1px solid #d8e1ee',
+      borderRadius: 18,
+      background: '#ffffff',
+      padding: '18px 20px',
+      boxShadow: '0 18px 38px rgba(17, 29, 53, 0.08)',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.2 }}>{block?.title || 'Planner table'}</div>
+          {block?.subtitle ? <div style={{ marginTop: 6, color: 'var(--dark-gray3)', fontSize: 13 }}>{block.subtitle}</div> : null}
         </div>
-      ) : null}
-      {blocks.map((block, index) => (
-        <DashboardBlock
-          key={String(block?.id || `${block?.kind || 'dashboard'}-${index}`)}
-          container={block}
-          context={buildDashboardContext(normalizedPayload, block)}
-          isActive={true}
-        />
-      ))}
+        <div style={{
+          borderRadius: 999,
+          padding: '6px 10px',
+          background: '#eef4ff',
+          color: '#2d67c7',
+          fontSize: 11,
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+        }}>{block?.kind}</div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={plannerHeaderStyle}>Review</th>
+              {(Array.isArray(block?.columns) ? block.columns : []).map((column) => (
+                <th key={column?.key || column?.label} style={plannerHeaderStyle}>{column?.label || column?.key}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={String(row?.id || row?.site_id || rowIndex)}>
+                <td style={plannerCellStyle}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      data-site-toggle={rowIndex}
+                      checked={Boolean(row?.[selectionField])}
+                      onChange={() => toggleRow(rowIndex)}
+                    />
+                    <span>{row?.[selectionField] ? 'Keep' : 'Drop'}</span>
+                  </label>
+                </td>
+                {(Array.isArray(block?.columns) ? block.columns : []).map((column) => (
+                  <td key={`${column?.key || column?.label}-${rowIndex}`} style={plannerCellStyle}>
+                    {String(row?.[column?.key] ?? '')}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, color: 'var(--dark-gray3)' }}>
+          {changedCount > 0 ? `${changedCount} row${changedCount === 1 ? '' : 's'} changed` : 'No changes yet'}
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={downloadCsv}
+            data-forge-download={String(block?.id || '').trim() || 'planner-table'}
+            style={{
+              border: '1px solid #d8e1ee',
+              borderRadius: 999,
+              padding: '12px 18px',
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: 'pointer',
+              background: '#ffffff',
+              color: '#2d67c7',
+            }}
+          >
+            Download CSV
+          </button>
+          {Array.isArray(block?.actions) && block.actions.length > 0 ? (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              id={`submit-${String(block?.id || '').trim() || 'planner-table'}`}
+              data-forge-submit={String(block?.id || '').trim() || 'planner-table'}
+              disabled={changedCount === 0}
+              style={{
+                border: 'none',
+                borderRadius: 999,
+                padding: '12px 18px',
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: changedCount === 0 ? 'not-allowed' : 'pointer',
+                opacity: changedCount === 0 ? 0.5 : 1,
+                background: '#2d67c7',
+                color: '#ffffff',
+                boxShadow: changedCount === 0 ? 'none' : '0 8px 18px rgba(45, 103, 199, 0.24)',
+              }}
+            >
+              {block.actions[0]?.label || 'Submit'}
+            </button>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
 
-const CUSTOM_FENCE_RENDERERS = {
-  dashboard: (body, _fence, key) => {
-    const payload = parseDashboardFenceBody(body);
-    if (!payload) return null;
-    return <DashboardFence key={key} payload={payload} />;
-  },
-  dashborad: (body, _fence, key) => {
-    const payload = parseDashboardFenceBody(body);
-    if (!payload) return null;
-    return <DashboardFence key={key} payload={payload} />;
-  },
+const plannerHeaderStyle = {
+  textAlign: 'left',
+  color: '#6b7688',
+  fontSize: 12,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  padding: '0 0 10px',
+  borderBottom: '1px solid #d8e1ee',
 };
 
-function renderCustomFence(body, fence, key) {
-  const lang = String(fence?.lang || '').trim().toLowerCase();
-  const renderer = CUSTOM_FENCE_RENDERERS[lang];
-  if (typeof renderer !== 'function') return null;
-  return renderer(body, fence, key);
+const plannerCellStyle = {
+  padding: '14px 0',
+  borderBottom: '1px solid #eef2f8',
+  verticalAlign: 'top',
+  fontSize: 14,
+};
+
+function ForgeUIFence({ payload, dataBlocks = [] }) {
+  const ui = validateForgeUIBlock(payload);
+  const dataStore = React.useMemo(() => applyForgeDataBlocks(dataBlocks), [dataBlocks]);
+  const forgePayload = React.useMemo(() => ({
+    title: ui.title,
+    subtitle: ui.subtitle,
+    dataSources: buildForgeDataSources(dataStore),
+    blocks: ui.blocks,
+  }), [ui, dataStore]);
+
+  return (
+    <div className="app-rich-dashboard" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div className="app-rich-chart-title">{ui.title}</div>
+        {ui.subtitle ? <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>{ui.subtitle}</div> : null}
+      </div>
+      {ui.blocks.map((block, index) => {
+        const kind = String(block?.kind || '').trim();
+        if (kind.startsWith('dashboard.')) {
+          const normalizedPayload = normalizeDashboardPayload(forgePayload);
+          const normalizedBlock = normalizedPayload.blocks[index] || block;
+          return (
+            <DashboardBlock
+              key={String(block?.id || `${block?.kind || 'dashboard'}-${index}`)}
+              container={normalizedBlock}
+              context={buildForgeDashboardContext(normalizedPayload, dataStore, normalizedBlock)}
+              isActive={true}
+            />
+          );
+        }
+        if (kind === 'planner.table') {
+          return <PlannerTableBlock key={String(block?.id || index)} ui={ui} block={block} dataStore={dataStore} />;
+        }
+        return (
+          <div key={String(block?.id || index)} style={{ color: 'var(--dark-gray3)', fontSize: 13 }}>
+            Unsupported forge-ui block kind: {kind}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function escapeHTMLAttr(value = '') {
@@ -878,6 +1109,16 @@ function renderPipeTable(body = '', generatedFiles = []) {
 function RichContent({ content = '', generatedFiles = [] }) {
   const textNorm = normalizeBrokenMarkdownLayout(String(content || '').replace(/\r\n/g, '\n'));
   const descriptors = React.useMemo(() => describeContent(textNorm), [textNorm]);
+  const forgeDataBlocks = React.useMemo(() => {
+    const blocks = [];
+    for (const part of descriptors) {
+      if (part?.kind !== 'fence' || !isForgeDataFence(part.fence)) continue;
+      try {
+        blocks.push(validateForgeDataBlock(parseForgeFenceBody(part.fence.body)));
+      } catch (_) {}
+    }
+    return blocks;
+  }, [descriptors]);
 
   if (!descriptors.length) return <span>&nbsp;</span>;
 
@@ -898,13 +1139,22 @@ function RichContent({ content = '', generatedFiles = [] }) {
 
     const fence = part.fence;
     const body = fence.body;
-    const customFence = renderCustomFence(body, fence, `custom-${idx}`);
-    if (customFence) {
-      out.push(customFence);
-      idx += 1;
+    if (isForgeDataFence(fence)) {
       continue;
     }
-
+    if (isForgeUIFence(fence)) {
+      try {
+        const payload = parseForgeFenceBody(body);
+        out.push(<ForgeUIFence key={`forge-ui-${idx++}`} payload={payload} dataBlocks={forgeDataBlocks} />);
+      } catch (_) {
+        out.push(
+          <div key={`forge-ui-error-${idx++}`} style={{ color: '#c23030', fontSize: 13 }}>
+            Invalid forge-ui block
+          </div>
+        );
+      }
+      continue;
+    }
     switch (fence.renderer) {
       case 'chart':
         out.push(<ChartSpecPanel key={`chart-${idx++}`} spec={fence.chartSpec} />);

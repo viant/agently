@@ -856,7 +856,7 @@ describe('normalizeMessages', () => {
     });
   });
 
-  it('dedupes same-turn user rows when one carries expanded prompt content but the same raw task', () => {
+  it('preserves distinct same-turn user rows when they have different ids', () => {
     const normalized = normalizeMessages([
       {
         id: 'u1-db',
@@ -877,11 +877,16 @@ describe('normalizeMessages', () => {
     ], { visibleCount: Number.MAX_SAFE_INTEGER });
 
     const userRows = normalized.filter((entry) => String(entry?.role || '').toLowerCase() === 'user');
-    expect(userRows).toHaveLength(1);
+    expect(userRows).toHaveLength(2);
     expect(userRows[0]).toMatchObject({
       role: 'user',
       turnId: 'turn-1',
       content: 'what iris targeting do we have ?'
+    });
+    expect(userRows[1]).toMatchObject({
+      role: 'user',
+      turnId: 'turn-1',
+      rawContent: 'what iris targeting do we have ?'
     });
   });
 

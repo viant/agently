@@ -1,6 +1,7 @@
 package agently
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -25,6 +26,10 @@ func Run(args []string) {
 
 	parser := flags.NewParser(opts, flags.HelpFlag|flags.PassDoubleDash)
 	if _, err := parser.ParseArgs(args); err != nil {
+		var exitErr interface{ ExitCode() int }
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.ExitCode())
+		}
 		log.Fatalf("%v", err)
 	}
 

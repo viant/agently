@@ -153,6 +153,13 @@ func (c *ChatCmd) Execute(_ []string) error {
 			}
 		}
 		fmt.Printf("[conversation-id] %s\n", convID)
+		code, err := resolveConversationExitCode(ctxBase, client, convID)
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			return &commandExitCode{code: code}
+		}
 		return nil
 	}
 
@@ -163,6 +170,13 @@ func (c *ChatCmd) Execute(_ []string) error {
 		line = strings.TrimSpace(line)
 		if line == "" || line == "exit" || line == "quit" {
 			fmt.Printf("[conversation-id] %s\n", convID)
+			code, err := resolveConversationExitCode(ctxBase, client, convID)
+			if err != nil {
+				return err
+			}
+			if code != 0 {
+				return &commandExitCode{code: code}
+			}
 			return nil
 		}
 		if err := runQuery(line); err != nil {
