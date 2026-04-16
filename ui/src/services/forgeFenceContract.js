@@ -17,16 +17,26 @@ export function parseForgeFenceBody(text = '') {
   return parsed;
 }
 
+// validateForgeDataBlock normalizes a forge-data payload. Missing `version`
+// defaults to 1 and missing `mode` defaults to "replace" for backward
+// compatibility. `id` is still required because it's the join key. An unknown
+// format or mode is coerced to a sensible default rather than throwing.
 export function validateForgeDataBlock(block = {}) {
   if (!isPlainObject(block)) throw new Error('forge-data block must be an object');
-  if (String(block.version || '').trim() === '') throw new Error('forge-data.version is required');
   if (String(block.id || '').trim() === '') throw new Error('forge-data.id is required');
-  const format = String(block.format || '').trim().toLowerCase();
-  if (!['json', 'csv'].includes(format)) throw new Error(`Unsupported forge-data format: ${format}`);
-  const mode = String(block.mode || 'replace').trim().toLowerCase();
-  if (!['replace', 'append', 'patch'].includes(mode)) throw new Error(`Unsupported forge-data mode: ${mode}`);
+  const version = String(block.version || '').trim() === '' ? 1 : block.version;
+  let format = String(block.format || '').trim().toLowerCase();
+  if (!['json', 'csv'].includes(format)) {
+    // Infer from `data` shape when format is missing/unknown.
+    format = typeof block.data === 'string' ? 'csv' : 'json';
+  }
+  let mode = String(block.mode || 'replace').trim().toLowerCase();
+  if (!['replace', 'append', 'patch'].includes(mode)) {
+    mode = 'replace';
+  }
   return {
     ...block,
+    version,
     format,
     mode,
     id: String(block.id).trim(),
@@ -164,14 +174,20 @@ export function applyForgeDataBlocks(blocks = []) {
   return store;
 }
 
+// validateForgeUIBlock normalizes a forge-ui payload with permissive defaults
+// for backward compatibility. Missing `version` defaults to 1, missing `title`
+// defaults to empty string, and missing `blocks` defaults to []. Only a
+// fundamentally malformed (non-object) payload throws.
 export function validateForgeUIBlock(block = {}) {
   if (!isPlainObject(block)) throw new Error('forge-ui block must be an object');
-  if (String(block.version || '').trim() === '') throw new Error('forge-ui.version is required');
-  if (String(block.title || '').trim() === '') throw new Error('forge-ui.title is required');
-  if (!Array.isArray(block.blocks)) throw new Error('forge-ui.blocks must be an array');
+  const version = String(block.version || '').trim() === '' ? 1 : block.version;
+  const title = String(block.title || '').trim();
+  const blocks = Array.isArray(block.blocks) ? block.blocks : [];
   return {
     ...block,
-    blocks: block.blocks.map((entry, index) => ({
+    version,
+    title,
+    blocks: blocks.map((entry, index) => ({
       id: String(entry?.id || `block-${index + 1}`),
       ...entry,
     })),

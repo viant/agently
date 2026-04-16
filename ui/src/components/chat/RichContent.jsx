@@ -110,7 +110,7 @@ function ForgeFenceLoading({ label = 'Forge content' }) {
       }}
     >
       <Spinner size={14} />
-      <span>{label} loading…</span>
+      <span>{label}</span>
     </div>
   );
 }
@@ -698,7 +698,53 @@ const plannerCellStyle = {
   fontSize: 14,
 };
 
-function ForgeUIFence({ payload, dataBlocks = [] }) {
+// ForgeRenderErrorBoundary isolates a forge-ui fence render failure so a single
+// malformed block can't crash the whole chat transcript. It shows a friendly
+// inline message and logs details to the console for debugging.
+class ForgeRenderErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    // eslint-disable-next-line no-console
+    console.warn('forge-ui render failed', error?.message || error, info);
+  }
+  render() {
+    if (this.state.error) {
+      const msg = this.state.error?.message || String(this.state.error);
+      return (
+        <div
+          role="note"
+          style={{
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: '1px solid #f5c542',
+            background: '#fff5d6',
+            color: '#8a5d00',
+            fontSize: 13,
+            lineHeight: 1.45,
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 2 }}>
+            Component cannot be loaded
+          </div>
+          <div style={{ fontSize: 12 }}>
+            The assistant generated a dashboard payload that couldn't be rendered
+            ({msg || 'unknown error'}). This usually means a required field is
+            missing. The rest of the message is still shown below.
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function ForgeUIFenceInner({ payload, dataBlocks = [] }) {
   const ui = validateForgeUIBlock(payload);
   const dataStore = React.useMemo(() => applyForgeDataBlocks(dataBlocks), [dataBlocks]);
   const forgePayload = React.useMemo(() => ({
@@ -711,22 +757,32 @@ function ForgeUIFence({ payload, dataBlocks = [] }) {
   return (
     <div className="app-rich-dashboard" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div className="app-rich-chart-title">{ui.title}</div>
+        {ui.title ? <div className="app-rich-chart-title">{ui.title}</div> : null}
         {ui.subtitle ? <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>{ui.subtitle}</div> : null}
       </div>
       {ui.blocks.map((block, index) => {
         const kind = String(block?.kind || '').trim();
         if (kind.startsWith('dashboard.')) {
-          const normalizedPayload = normalizeDashboardPayload(forgePayload);
-          const normalizedBlock = normalizedPayload.blocks[index] || block;
-          return (
-            <DashboardBlock
-              key={String(block?.id || `${block?.kind || 'dashboard'}-${index}`)}
-              container={normalizedBlock}
-              context={buildForgeDashboardContext(normalizedPayload, dataStore, normalizedBlock)}
-              isActive={true}
-            />
-          );
+          try {
+            const normalizedPayload = normalizeDashboardPayload(forgePayload);
+            const normalizedBlock = normalizedPayload.blocks[index] || block;
+            return (
+              <DashboardBlock
+                key={String(block?.id || `${block?.kind || 'dashboard'}-${index}`)}
+                container={normalizedBlock}
+                context={buildForgeDashboardContext(normalizedPayload, dataStore, normalizedBlock)}
+                isActive={true}
+              />
+            );
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn('dashboard block render prep failed', kind, e);
+            return (
+              <div key={String(block?.id || index)} style={{ color: '#8a5d00', fontSize: 12 }}>
+                Skipped block “{kind}”: {e?.message || 'render error'}
+              </div>
+            );
+          }
         }
         if (kind === 'planner.table') {
           return <PlannerTableBlock key={String(block?.id || index)} ui={ui} block={block} dataStore={dataStore} />;
@@ -738,6 +794,14 @@ function ForgeUIFence({ payload, dataBlocks = [] }) {
         );
       })}
     </div>
+  );
+}
+
+function ForgeUIFence({ payload, dataBlocks = [] }) {
+  return (
+    <ForgeRenderErrorBoundary>
+      <ForgeUIFenceInner payload={payload} dataBlocks={dataBlocks} />
+    </ForgeRenderErrorBoundary>
   );
 }
 
