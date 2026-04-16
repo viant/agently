@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 )
 
 const scyInlineBase64Prefix = "inlined://base64/"
@@ -37,8 +37,8 @@ func parseContextArg(raw string) (map[string]interface{}, error) {
 	return result, nil
 }
 
-func parseAttachments(values []string) ([]*prompt.Attachment, error) {
-	var out []*prompt.Attachment
+func parseAttachments(values []string) ([]*binding.Attachment, error) {
+	var out []*binding.Attachment
 	for _, item := range values {
 		path := strings.TrimSpace(item)
 		if path == "" {
@@ -52,7 +52,7 @@ func parseAttachments(values []string) ([]*prompt.Attachment, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read attachment %q: %w", path, err)
 		}
-		out = append(out, &prompt.Attachment{
+		out = append(out, &binding.Attachment{
 			Name: filepath.Base(path),
 			Mime: mimeType,
 			Data: data,

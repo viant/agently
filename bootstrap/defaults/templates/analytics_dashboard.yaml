@@ -74,7 +74,7 @@ instructions: |
   General rules:
   - Use the supplied tabular data only; do not invent rows.
   - Use `kind` for each dashboard block, not `type`.
-  - `kind` must use exact supported literals such as `dashboard.summary`, `dashboard.kpiTable`, `dashboard.compare`, `dashboard.timeline`, `dashboard.messages`, `dashboard.report`, and `dashboard.detail`.
+  - `kind` must use exact supported literals such as `dashboard.summary`, `dashboard.kpiTable`, `dashboard.compare`, `dashboard.timeline`, `dashboard.messages`, `dashboard.badges`, `dashboard.report`, and `dashboard.detail`.
   - Use only the blocks that genuinely help; omit unused block kinds and optional fields.
   - Use neutral, data-derived titles and subtitles unless the user or source data requires more specific labeling.
   - Do not add labels like `Web`, `Mobile`, `Android`, or `iOS` unless the source data or user request explicitly calls for them.
@@ -112,26 +112,38 @@ instructions: |
   - Set `version` to `1`.
   - Every data-bound dashboard block must use `dataSourceRef`, not `dataSource`.
   - Make the subtitle explain time range and source shape.
+  - `blocks` may include:
+    - `dashboard.summary`
+    - `dashboard.kpiTable`
+    - `dashboard.compare`
+    - `dashboard.timeline`
+    - `dashboard.report`
+    - `dashboard.detail`
+    - `dashboard.messages`
+    - `dashboard.badges`
 
   Preferred dashboard grammar:
   - `dashboard.summary`: `title`, `items[]` with `label`, raw `value`, optional `metricKey`
   - `dashboard.kpiTable`: `title`, `dataSourceRef`, `columns[]`; columns may be strings or `{ "key": "...", "label": "..." }`; for date + order data prefer one aggregated row per order
   - `dashboard.compare`: `title`, `dataSourceRef`, `metrics[]`, optional `dimension` / `groupBy`, optional `rows[]` like `["Order A","Order B"]`
-  - `dashboard.timeline`: `title`, `dataSourceRef`; wide: `dateField`, `groupBy`, `series[]`; long-form: `timeColumn`, `seriesColumn`, `groupBy`, `valueColumn`; optional `chartType` such as `"line"`, `"bar"`, or `"area"`
+  - `dashboard.timeline`: `title`, `dataSourceRef`; simple timelines may use `dateField`, `groupBy`, `series[]`, and optional `chartType` such as `"line"`, `"bar"`, or `"area"`; richer timelines may use `chart` with `type`, `xAxis`, optional `axes.left` / `axes.right`, and `series.values[]` where each series may declare `value`, `label`, optional `name`, optional `type`, optional `axis`, optional `format`, optional `strokeDasharray`, optional `opacity`, and optional `stackId`
   - `dashboard.report`: `title`, optional `subtitle`, `sections[]` with concise prose insights placed inline after a relevant chart/table
   - `dashboard.detail`: `title`, `containers[]`; use this to group a chart with a short report/detail block directly underneath it
   - `dashboard.messages`: `items[]` with `{ severity, title, body }`
+  - `dashboard.badges`: `title`, `items[]` with `{ label, value, tone }` for compact flag or signal chips
 
   Authoring guidance:
   - Timeline guidance: wide form `date,order,bids,imps,clicks,ctr,vtr`; long form `date,order,metric,value`.
-  - Do not mix count metrics and rate metrics in one timeline; for counts prefer one or two readable series; multiple timelines are valid when each covers a different metric family.
-  - Do not mix metrics with very different magnitudes on the same timeline when they share one y-axis. Use separate timeline blocks instead.
+  - Do not mix count metrics and rate metrics in one timeline unless you explicitly model a dual-axis chart with `axes.left` and `axes.right`.
+  - Do not mix metrics with very different magnitudes on the same timeline when they share one y-axis. Use separate timeline blocks or a dual-axis timeline instead.
   - Prefer one primary metric per timeline unless the compared series are on comparable scales and remain readable at a glance.
   - Favor one clear totals row, one readable table, one readable chart, and one short insight block.
   - Multiple timelines or compare blocks are allowed when complementary rather than redundant, for example one timeline for volume and one for efficiency, or one compare block for rates and one for totals.
   - Inline analytic prose under a chart is valid and encouraged when it helps interpretation. Prefer a short `dashboard.report` block directly after the relevant `dashboard.timeline` rather than pushing all interpretation to the end.
   - For count timelines, prefer `chartType: "bar"` or `chartType: "area"` when that is easier to read than a line chart.
   - Do not pre-format numbers with commas or percent signs; let the renderer format values.
+  - Use `format: "percent"` when the raw value is already percentage-scaled like `19.4`; use `format: "percentFraction"` when the raw value is fractional like `0.194`.
+  - Use `dashboard.badges` for short status flags or boolean signal chips instead of forcing them into summary metrics or recommendation messages.
 
 examples:
   - title: analytics dashboard fence set
@@ -161,15 +173,24 @@ examples:
           format: csv
           mode: replace
           data: |
-            date,spend,lead_gap,qualified_leads,sales_closed
-            2026-04-08,2410.25,910.15,42,11
-            2026-04-09,2875.40,620.00,47,13
+            date,spend,lead_gap,qualified_leads,sales_closed,lead_to_sale_rate
+            2026-04-08,2410.25,910.15,42,11,0.23
+            2026-04-09,2875.40,620.00,47,13,0.28
       - lang: forge-ui
         body:
           version: 1
           title: Revenue pipeline dashboard
           subtitle: Mid-market inbound segment · 2026-04-08 to 2026-04-09
           blocks:
+            - kind: dashboard.badges
+              title: Pipeline flags
+              items:
+                - label: pacing_status
+                  value: behind_plan
+                  tone: warning
+                - label: deployment_flag
+                  value: false
+                  tone: success
             - kind: dashboard.summary
               title: Performance summary
               items:
@@ -193,6 +214,34 @@ examples:
               series:
                 - spend
               chartType: bar
+            - kind: dashboard.timeline
+              title: Spend and conversion rate
+              dataSourceRef: daily_pipeline
+              chart:
+                type: composed
+                xAxis:
+                  dataKey: date
+                  label: Date
+                  tickFormat: MM/dd
+                axes:
+                  left:
+                    label: Spend
+                    format: currency
+                  right:
+                    label: Lead to sale rate
+                    format: percentFraction
+                series:
+                  values:
+                    - value: spend
+                      label: Spend
+                      type: bar
+                      axis: left
+                    - value: lead_to_sale_rate
+                      label: Lead to sale rate
+                      type: line
+                      axis: right
+                      format: percentFraction
+                      strokeDasharray: 4 4
             - kind: dashboard.report
               title: Spend highlight
               sections:

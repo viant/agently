@@ -735,6 +735,50 @@ describe('handleStreamEvent', () => {
     });
   });
 
+  it('publishes conversation meta updates from SSE control path', () => {
+    const chatState = { liveRows: [], lastHasRunning: false, streamTracker: { applyEvent: vi.fn() } };
+    const received = [];
+    const eventTarget = new EventTarget();
+    const mockWindow = {
+      addEventListener: eventTarget.addEventListener.bind(eventTarget),
+      removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
+      dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
+      CustomEvent: class extends Event {
+        constructor(name, init = {}) {
+          super(name);
+          this.detail = init.detail;
+        }
+      }
+    };
+    const originalWindow = globalThis.window;
+    const originalCustomEvent = globalThis.CustomEvent;
+    globalThis.window = mockWindow;
+    globalThis.CustomEvent = mockWindow.CustomEvent;
+    const handler = (event) => received.push(event?.detail || {});
+    mockWindow.addEventListener('agently:conversation-meta-updated', handler);
+    try {
+      const context = {
+        identity: { windowId: 'chat/main' },
+        Context() { return null; }
+      };
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'conversation_meta_updated',
+        conversationId: 'conv-1',
+        patch: { title: 'Campaign 4821 Underpacing', summary: 'underpacing' }
+      });
+    } finally {
+      mockWindow.removeEventListener('agently:conversation-meta-updated', handler);
+      globalThis.window = originalWindow;
+      globalThis.CustomEvent = originalCustomEvent;
+    }
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual({
+      id: 'conv-1',
+      patch: { title: 'Campaign 4821 Underpacing', summary: 'underpacing' }
+    });
+  });
+
   it('uses tracker-backed assistant rows as the primary active-turn source when live placeholders exist', () => {
     const setCollection = vi.fn();
     const chatState = ensureContextResources({ resources: {} });

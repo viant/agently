@@ -213,10 +213,44 @@ public final class ChatRuntime: ObservableObject {
     public func applyStreaming(snapshot: ConversationStreamSnapshot) {
         var next = transcript.filter { entry in
             !snapshot.bufferedMessages.contains(where: { $0.id == entry.id }) &&
+            !snapshot.liveExecutionGroupsByID.keys.contains(entry.id) &&
             entry.statusLabel != "Waiting"
         }
 
-        let streamEntries = snapshot.bufferedMessages.map { message -> ChatTranscriptEntry in
+        let streamEntries = streamingEntries(from: snapshot)
+
+        next.append(contentsOf: streamEntries)
+        transcript = next
+    }
+
+    private func streamingEntries(from snapshot: ConversationStreamSnapshot) -> [ChatTranscriptEntry] {
+        if !snapshot.liveExecutionGroupsByID.isEmpty {
+            return snapshot.liveExecutionGroupsByID.values
+                .sorted { lhs, rhs in
+                    if lhs.sequence != rhs.sequence {
+                        return (lhs.sequence ?? 0) < (rhs.sequence ?? 0)
+                    }
+                    if lhs.createdAt != rhs.createdAt {
+                        return (lhs.createdAt ?? "") < (rhs.createdAt ?? "")
+                    }
+                    return lhs.pageID < rhs.pageID
+                }
+                .map { group in
+                    let markdown = [group.preamble, group.content]
+                        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "\n\n")
+                    return ChatTranscriptEntry(
+                        id: group.pageID,
+                        role: "assistant",
+                        markdown: markdown.isEmpty ? "(waiting for response)" : markdown,
+                        timestampLabel: Self.timestampLabel(for: group.createdAt),
+                        statusLabel: Self.statusLabel(for: group.status)
+                    )
+                }
+        }
+
+        return snapshot.bufferedMessages.map { message -> ChatTranscriptEntry in
             let markdown = [message.preamble, message.content]
                 .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
@@ -229,9 +263,6 @@ public final class ChatRuntime: ObservableObject {
                 statusLabel: Self.statusLabel(for: message.status)
             )
         }
-
-        next.append(contentsOf: streamEntries)
-        transcript = next
     }
 
     private static func timestampLabel(for value: Date) -> String {

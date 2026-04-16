@@ -75,6 +75,40 @@ function sortConversations(rows = []) {
     .map((entry) => entry.row);
 }
 
+export function applyConversationMetaPatchToRows(rows = [], conversationID = '', patch = {}) {
+  const id = String(conversationID || '').trim();
+  if (!id || !Array.isArray(rows) || rows.length === 0 || !patch || typeof patch !== 'object') {
+    return rows;
+  }
+  let changed = false;
+  const next = rows.map((row) => {
+    const rowID = String(row?.Id || row?.id || '').trim();
+    if (rowID !== id) return row;
+    changed = true;
+    const updated = { ...(row || {}) };
+    if (Object.prototype.hasOwnProperty.call(patch, 'title')) {
+      updated.Title = patch.title;
+      updated.title = patch.title;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'summary')) {
+      updated.Summary = patch.summary;
+      updated.summary = patch.summary;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'agentId')) {
+      updated.AgentId = patch.agentId;
+      updated.agentId = patch.agentId;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
+      updated.Status = patch.status;
+      updated.status = patch.status;
+    }
+    updated.UpdatedAt = new Date().toISOString();
+    updated.updatedAt = updated.UpdatedAt;
+    return updated;
+  });
+  return changed ? sortConversations(next) : rows;
+}
+
 function conversationStatusTone(row = {}) {
   const status = String(row?.Status || row?.status || '').trim().toLowerCase();
   const stage = String(row?.Stage || row?.stage || '').trim().toLowerCase();
@@ -248,9 +282,19 @@ export default function Sidebar({ collapsed = false }) {
         void reload('latest', '');
       }, 150);
     };
+    const onConversationMetaUpdated = (event) => {
+      const id = String(event?.detail?.id || '').trim();
+      const patch = event?.detail?.patch || {};
+      if (!id || !patch || typeof patch !== 'object') return;
+      setRows((current) => applyConversationMetaPatchToRows(current, id, patch));
+      if (Object.prototype.hasOwnProperty.call(patch, 'title')) {
+        setSeedVersion((value) => value + 1);
+      }
+    };
     window.addEventListener('forge:conversation-active', onActive);
     window.addEventListener('agently:conversation-new', onConversationNew);
     window.addEventListener('agently:conversation-activity', onConversationActivity);
+    window.addEventListener('agently:conversation-meta-updated', onConversationMetaUpdated);
     return () => {
       if (activityReloadTimerRef.current) {
         clearTimeout(activityReloadTimerRef.current);
@@ -259,6 +303,7 @@ export default function Sidebar({ collapsed = false }) {
       window.removeEventListener('forge:conversation-active', onActive);
       window.removeEventListener('agently:conversation-new', onConversationNew);
       window.removeEventListener('agently:conversation-activity', onConversationActivity);
+      window.removeEventListener('agently:conversation-meta-updated', onConversationMetaUpdated);
     };
   }, []);
 
