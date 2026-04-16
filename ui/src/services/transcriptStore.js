@@ -159,9 +159,7 @@ export function syncTranscriptSnapshot({
   conversationsDS.setFormData?.({
     values: {
       ...convForm,
-      running: effectiveHasRunning,
-      queuedCount: queuedTurns.length,
-      queuedTurns
+      running: effectiveHasRunning
     }
   });
 

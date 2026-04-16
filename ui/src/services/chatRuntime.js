@@ -231,6 +231,17 @@ function publishConversationActivity(conversationID = '', detail = {}) {
   } catch (_) {}
 }
 
+function publishConversationMetaUpdated(conversationID = '', patch = {}) {
+  if (typeof window === 'undefined') return;
+  const id = String(conversationID || '').trim();
+  if (!id) return;
+  try {
+    window.dispatchEvent(new CustomEvent('agently:conversation-meta-updated', {
+      detail: { id, patch: patch || {} }
+    }));
+  } catch (_) {}
+}
+
 export function isConversationLiveish(conversation = null) {
   return isLiveConversationState(conversation);
 }
@@ -919,7 +930,7 @@ export function renderMergedRowsForContext(context) {
   // leak into the bubble during streaming instead of rendering as rich content.
   const resolvedRows = attachGeneratedFilesToRows(mergedRows, chatState.generatedFiles);
   const normalizedResolvedRows = normalizeForContext(context, resolvedRows);
-  const queuedTurns = Array.isArray(conversationForm?.queuedTurns) ? conversationForm.queuedTurns : [];
+  const queuedTurns = Array.isArray(chatState?.lastQueuedTurns) ? chatState.lastQueuedTurns : [];
   const queuedTurnIds = new Set(queuedTurns.map((item) => String(item?.id || '').trim()).filter(Boolean));
   const queuedTurnPreviews = new Set(
     queuedTurns
@@ -1366,6 +1377,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       syncTrackerDerivedTurnState(chatState);
     } catch (_) {}
     const eventConversationID = resolveStreamEventConversationID(payload, conversationID);
+    if (type === 'conversation_meta_updated' && eventConversationID) {
+      publishConversationMetaUpdated(eventConversationID, payload?.patch || {});
+    }
     if (eventConversationID && SIDEBAR_ACTIVITY_EVENT_TYPES.has(type)) {
       publishConversationActivity(eventConversationID, {
         type,

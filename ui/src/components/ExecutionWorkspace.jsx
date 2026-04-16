@@ -467,13 +467,23 @@ export default function ExecutionWorkspace() {
       setError('');
       setStage({ phase: 'ready', text: 'Ready' });
     };
+    const onConversationMetaUpdated = (event) => {
+      const id = firstString(event?.detail?.id);
+      if (!id || id !== firstString(conversationId)) return;
+      const patch = event?.detail?.patch || {};
+      if (Object.prototype.hasOwnProperty.call(patch, 'title')) {
+        setConversationTitle(firstString(patch?.title, id));
+      }
+    };
     window.addEventListener('agently:conversation-select', onSelect);
     window.addEventListener('agently:conversation-new', onNew);
+    window.addEventListener('agently:conversation-meta-updated', onConversationMetaUpdated);
     return () => {
       window.removeEventListener('agently:conversation-select', onSelect);
       window.removeEventListener('agently:conversation-new', onNew);
+      window.removeEventListener('agently:conversation-meta-updated', onConversationMetaUpdated);
     };
-  }, [instanceWindowId]);
+  }, [conversationId, instanceWindowId]);
 
   React.useEffect(() => {
     if (streamRef.current) {
@@ -505,6 +515,11 @@ export default function ExecutionWorkspace() {
         } else if (type === 'turn_completed' || type === 'turn_failed' || type === 'turn_canceled') {
           setStage({ phase: 'done', text: type === 'turn_failed' ? 'Failed' : type === 'turn_canceled' ? 'Canceled' : 'Done' });
           window.setTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 900);
+        } else if (type === 'conversation_meta_updated') {
+          const patch = payload?.patch || {};
+          if (Object.prototype.hasOwnProperty.call(patch, 'title')) {
+            setConversationTitle(firstString(patch?.title, conversationId));
+          }
         }
         if (['turn_completed', 'turn_failed', 'turn_canceled', 'tool_call_completed', 'model_completed', 'control'].includes(type)) {
           loadTranscript(conversationId, pageSize, pageIndex).catch(() => {});

@@ -6,7 +6,7 @@ import React from 'react';
 import { autoType, csvParse } from 'd3-dsv';
 import CodeBlock from './CodeBlock.jsx';
 import Mermaid from './Mermaid';
-import { Button, Dialog, Tooltip } from '@blueprintjs/core';
+import { Button, Dialog, Tooltip, Spinner } from '@blueprintjs/core';
 import { Table as BpTable, Column as BpColumn, Cell as BpCell, ColumnHeaderCell as BpColumnHeaderCell } from '@blueprintjs/table';
 import {
   ResponsiveContainer,
@@ -70,6 +70,49 @@ function isForgeUIFence(fence = {}) {
 
 function isForgeDataFence(fence = {}) {
   return String(fence?.lang || '').trim().toLowerCase() === FORGE_DATA_FENCE;
+}
+
+function hasTrailingOpenForgeFence(content = '', lang = '') {
+  const source = String(content || '');
+  const normalizedLang = String(lang || '').trim().toLowerCase();
+  if (!source || !normalizedLang) return false;
+  const openPattern = new RegExp('```(?:' + normalizedLang + ')(?:\\r?\\n|(?=[\\[{]))[\\s\\S]*$', 'i');
+  const closedPattern = new RegExp('```(?:' + normalizedLang + ')(?:\\r?\\n|(?=[\\[{]))[\\s\\S]*?```', 'ig');
+  const matches = [...source.matchAll(closedPattern)];
+  const lastClosedEnd = matches.length > 0 ? matches[matches.length - 1].index + matches[matches.length - 1][0].length : 0;
+  const tail = source.slice(lastClosedEnd);
+  return openPattern.test(tail);
+}
+
+function detectStreamingForgeFenceText(text = '') {
+  const source = String(text || '');
+  if (hasTrailingOpenForgeFence(source, FORGE_UI_FENCE)) return FORGE_UI_FENCE;
+  if (hasTrailingOpenForgeFence(source, FORGE_DATA_FENCE)) return FORGE_DATA_FENCE;
+  return '';
+}
+
+function ForgeFenceLoading({ label = 'Forge content' }) {
+  return (
+    <div
+      className="app-forge-fence-loading"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '10px 12px',
+        borderRadius: 12,
+        border: '1px solid #d8e1ee',
+        background: '#f7faff',
+        color: '#48607a',
+        fontSize: 13,
+        fontWeight: 600,
+        margin: '6px 0'
+      }}
+    >
+      <Spinner size={14} />
+      <span>{label} loading…</span>
+    </div>
+  );
 }
 
 function titleizeDashboardKey(value = '') {
@@ -485,6 +528,7 @@ function PlannerTableBlock({ ui, block, dataStore }) {
   }, [originalRows]);
 
   const selectionField = String(block?.selection?.field || 'selected').trim() || 'selected';
+  const plannerKindLabel = String(block?.kind || '').trim() === 'planner.table' ? 'planner' : String(block?.kind || '').trim();
   const changedCount = React.useMemo(
     () => rows.filter((row, index) => Boolean(row?.[selectionField]) !== Boolean(originalRows[index]?.[selectionField])).length,
     [rows, originalRows, selectionField]
@@ -550,7 +594,7 @@ function PlannerTableBlock({ ui, block, dataStore }) {
           fontWeight: 700,
           textTransform: 'uppercase',
           letterSpacing: '0.04em',
-        }}>{block?.kind}</div>
+        }}>{plannerKindLabel}</div>
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1128,7 +1172,14 @@ function RichContent({ content = '', generatedFiles = [] }) {
     if (part.kind === 'text') {
       const chunk = normalizeBrokenMarkdownLayout(String(part.value || ''));
       if (chunk) {
-        out.push(<MinimalText key={`seg-${idx++}`} text={chunk} generatedFiles={generatedFiles} />);
+        const streamingForgeFence = detectStreamingForgeFenceText(chunk);
+        if (streamingForgeFence === FORGE_UI_FENCE) {
+          out.push(<ForgeFenceLoading key={`forge-ui-loading-text-${idx++}`} label="Forge UI" />);
+        } else if (streamingForgeFence === FORGE_DATA_FENCE) {
+          out.push(<ForgeFenceLoading key={`forge-data-loading-text-${idx++}`} label="Forge data" />);
+        } else {
+          out.push(<MinimalText key={`seg-${idx++}`} text={chunk} generatedFiles={generatedFiles} />);
+        }
       }
       continue;
     }
@@ -1140,6 +1191,9 @@ function RichContent({ content = '', generatedFiles = [] }) {
     const fence = part.fence;
     const body = fence.body;
     if (isForgeDataFence(fence)) {
+      if (hasTrailingOpenForgeFence(textNorm, FORGE_DATA_FENCE)) {
+        out.push(<ForgeFenceLoading key={`forge-data-loading-${idx++}`} label="Forge data" />);
+      }
       continue;
     }
     if (isForgeUIFence(fence)) {
@@ -1147,11 +1201,15 @@ function RichContent({ content = '', generatedFiles = [] }) {
         const payload = parseForgeFenceBody(body);
         out.push(<ForgeUIFence key={`forge-ui-${idx++}`} payload={payload} dataBlocks={forgeDataBlocks} />);
       } catch (_) {
-        out.push(
-          <div key={`forge-ui-error-${idx++}`} style={{ color: '#c23030', fontSize: 13 }}>
-            Invalid forge-ui block
-          </div>
-        );
+        if (hasTrailingOpenForgeFence(textNorm, FORGE_UI_FENCE)) {
+          out.push(<ForgeFenceLoading key={`forge-ui-loading-${idx++}`} label="Forge UI" />);
+        } else {
+          out.push(
+            <div key={`forge-ui-error-${idx++}`} style={{ color: '#c23030', fontSize: 13 }}>
+              Invalid forge-ui block
+            </div>
+          );
+        }
       }
       continue;
     }

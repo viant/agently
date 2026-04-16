@@ -406,6 +406,39 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('Submit changes');
   });
 
+  it('renders a loading placeholder for an unterminated trailing forge-ui fence', () => {
+    const content = [
+      '```forge-data',
+      '{"version":1,"id":"sales_data","format":"json","mode":"replace","data":[]}',
+      '```',
+      '',
+      '```forge-ui',
+      '{"version":1,"title":"Sales Dashboard","blocks":['
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content })
+    );
+
+    expect(html).toContain('Forge UI loading');
+    expect(html).not.toContain('```forge-ui');
+    expect(html).not.toContain('Invalid forge-ui block');
+  });
+
+  it('renders a loading placeholder for an unterminated trailing forge-data fence', () => {
+    const content = [
+      '```forge-data',
+      '{"version":1,"id":"sales_data","format":"json","mode":"replace","data":['
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content })
+    );
+
+    expect(html).toContain('Forge data loading');
+    expect(html).not.toContain('```forge-data');
+  });
+
   it('normalizes a single-series dashboard timeline into long-form chart rows', () => {
     const normalized = normalizeDashboardPayload({
       type: 'forge_dashboard',
