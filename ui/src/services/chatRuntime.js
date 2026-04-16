@@ -884,7 +884,12 @@ export function renderMergedRowsForContext(context) {
   const normalizedRows = normalizeForContext(context, mergedRows);
   if (isStreamDebugEnabled()) {
     console.log('[render]', {
+      ts: new Date().toISOString(),
       conversationId: getCurrentConversationID(context),
+      trackerActiveTurnId: trackerActiveTurnId(chatState),
+      runningTurnId: chatState.runningTurnId,
+      liveOwnedConversationID: chatState.liveOwnedConversationID,
+      liveOwnedTurnIds: Array.isArray(chatState.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
       liveCount: effectiveLiveRows.length,
       mergedCount: mergedRows.length,
       normalizedCount: normalizedRows.length,

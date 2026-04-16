@@ -789,7 +789,7 @@ describe('normalizeMessages', () => {
     expect(String(assistantBubbles[0]?.content || '')).toContain('Hi! How can I help you today?');
   });
 
-  it('suppresses an interim assistant echo that duplicates the latest user message in the same turn', () => {
+  it('keeps an interim assistant row even when its content matches the latest user message', () => {
     const normalized = normalizeMessages([
       {
         id: 'u1',
@@ -808,10 +808,13 @@ describe('normalizeMessages', () => {
       }
     ], { visibleCount: Number.MAX_SAFE_INTEGER });
 
-    expect(normalized).toHaveLength(1);
+    expect(normalized).toHaveLength(2);
     expect(normalized[0]).toMatchObject({
       id: 'u1',
       role: 'user'
+    });
+    expect(normalized[1]).toMatchObject({
+      _type: 'iteration'
     });
   });
 
@@ -890,7 +893,7 @@ describe('normalizeMessages', () => {
     });
   });
 
-  it('suppresses an interim assistant echo preamble while preserving execution details', () => {
+  it('keeps an interim assistant preamble even when it matches the user prompt and execution details are present', () => {
     const prompt = 'What are my HOME, SHELL, and PATH environment variables?';
     const normalized = normalizeMessages([
       {
@@ -918,12 +921,12 @@ describe('normalizeMessages', () => {
       }
     ], { visibleCount: Number.MAX_SAFE_INTEGER });
 
-    expect(normalized.filter((entry) => String(entry?.content || '').trim() === prompt)).toHaveLength(1);
+    expect(normalized.filter((entry) => String(entry?.content || '').trim() === prompt)).toHaveLength(2);
     const iteration = normalized.find((entry) => entry?._type === 'iteration');
     expect(iteration?._iterationData?.toolCalls?.map((step) => step.id)).toContain('tool-step-1');
   });
 
-  it('suppresses a non-interim assistant echo when execution steps are already attached', () => {
+  it('keeps a non-interim assistant response even when it matches the user prompt and execution steps are attached', () => {
     const prompt = 'What are my HOME, SHELL, and PATH environment variables?';
     const normalized = normalizeMessages([
       {
@@ -959,7 +962,7 @@ describe('normalizeMessages', () => {
       }
     ], { visibleCount: Number.MAX_SAFE_INTEGER });
 
-    expect(normalized.filter((entry) => String(entry?.content || '').trim() === prompt)).toHaveLength(1);
+    expect(normalized.filter((entry) => String(entry?.content || '').trim() === prompt)).toHaveLength(2);
     const iteration = normalized.find((entry) => entry?._type === 'iteration');
     expect(iteration?._iterationData?.toolCalls?.map((step) => step.id)).toEqual(['model-step-1', 'tool-step-1']);
   });

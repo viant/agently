@@ -237,6 +237,88 @@ function findAssistantRowIndex(rows, turnId, assistantMessageId) {
   });
 }
 
+function isAssistantPlaceholderId(id = '', turnId = '') {
+  const rowId = String(id || '').trim();
+  const tid = String(turnId || '').trim();
+  if (!rowId || !tid) return false;
+  return rowId === `assistant:${tid}:live` || rowId === `assistant:${tid}:1`;
+}
+
+function maybePromoteAssistantRowIdentity(row = {}, turnId = '', assistantMessageId = '') {
+  const promotedId = String(assistantMessageId || '').trim();
+  if (!promotedId) return row;
+  const next = { ...row };
+  if (isAssistantPlaceholderId(next?.id, turnId)) {
+    next.id = promotedId;
+  }
+  if (Array.isArray(next.executionGroups) && next.executionGroups.length > 0) {
+    next.executionGroups = next.executionGroups.map((group, index) => {
+      if (index !== next.executionGroups.length - 1) return group;
+      if (String(group?.assistantMessageId || '').trim()) return group;
+      return {
+        ...group,
+        assistantMessageId: promotedId,
+        pageId: String(group?.pageId || '').trim() || promotedId,
+        startedAt: String(group?.startedAt || '').trim() || String(next?.startedAt || '').trim() || undefined,
+        modelSteps: Array.isArray(group?.modelSteps)
+          ? group.modelSteps.map((step) => ({
+              ...step,
+              modelCallId: String(step?.modelCallId || '').trim() || promotedId,
+              assistantMessageId: String(step?.assistantMessageId || '').trim() || promotedId,
+              startedAt: String(step?.startedAt || '').trim() || String(next?.startedAt || '').trim() || undefined,
+            }))
+          : group?.modelSteps,
+      };
+    });
+  }
+  return next;
+}
+
+function preserveExecutionGroupStartedAt(groups = [], fallbackStartedAt = '') {
+  const preserved = String(fallbackStartedAt || '').trim();
+  if (!Array.isArray(groups) || groups.length === 0 || !preserved) return groups;
+  return groups.map((group) => ({
+    ...group,
+    startedAt: String(group?.startedAt || '').trim() || preserved,
+    modelSteps: Array.isArray(group?.modelSteps)
+      ? group.modelSteps.map((step) => ({
+          ...step,
+          startedAt: String(step?.startedAt || '').trim() || preserved,
+        }))
+      : group?.modelSteps,
+  }));
+}
+
+function preserveModelStepStartedAt(previousGroups = [], mergedGroups = [], fallbackStartedAt = '') {
+  const previousList = Array.isArray(previousGroups) ? previousGroups : [];
+  const previousByAssistantId = new Map(
+    previousList.map((group) => [
+      String(group?.assistantMessageId || '').trim(),
+      group,
+    ])
+  );
+  const fallback = String(fallbackStartedAt || '').trim();
+  return (Array.isArray(mergedGroups) ? mergedGroups : []).map((group, index) => {
+    const assistantMessageId = String(group?.assistantMessageId || '').trim();
+    const previous = previousByAssistantId.get(assistantMessageId) || previousList[index] || previousList[previousList.length - 1];
+    const previousStartedAt = String(previous?.startedAt || '').trim() || fallback;
+    if (!previousStartedAt) return group;
+    return {
+      ...group,
+      startedAt: String(group?.startedAt || '').trim() || previousStartedAt,
+      modelSteps: Array.isArray(group?.modelSteps)
+        ? group.modelSteps.map((step, index) => {
+            const previousStep = Array.isArray(previous?.modelSteps) ? previous.modelSteps[index] : null;
+            return {
+              ...step,
+              startedAt: String(step?.startedAt || '').trim() || String(previousStep?.startedAt || '').trim() || previousStartedAt,
+            };
+          })
+        : group?.modelSteps,
+    };
+  });
+}
+
 function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
   const conversationID = String(payload?.conversationId || fallbackConversationID || '').trim();
   const turnId = String(payload?.turnId || '').trim();
@@ -331,14 +413,14 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
   const assistantSequence = turnSequence > 0 ? turnSequence * 2 : 1;
   const prompt = String(chatState?.activeStreamPrompt || '').trim();
   const userMessageID = String(payload?.userMessageId || payload?.startedByMessageId || '').trim();
-  const userRowID = userMessageID || `user:${turnId}`;
+  const userRowID = userMessageID;
   const existingUserIndex = rows.findIndex((row) => {
     if (String(row?.role || '').trim().toLowerCase() !== 'user') return false;
     const rowTurnId = String(row?.turnId || '').trim();
     if (rowTurnId && rowTurnId === turnId) return true;
-    return String(row?.id || '').trim() === userRowID;
+    return !!userRowID && String(row?.id || '').trim() === userRowID;
   });
-  if (existingUserIndex === -1) {
+  if (existingUserIndex === -1 && userRowID) {
     rows.push({
       id: userRowID,
       role: 'user',
@@ -353,7 +435,7 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
       content: prompt,
       rawContent: prompt
     });
-  } else if (prompt) {
+  } else if (existingUserIndex >= 0 && prompt) {
     rows[existingUserIndex] = {
       ...rows[existingUserIndex],
       id: String(rows[existingUserIndex]?.id || '').trim() || userRowID,
@@ -367,46 +449,7 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
   }
 
   const assistantIndex = findAssistantRowIndex(rows, turnId, '');
-  if (assistantIndex === -1) {
-    rows.push({
-      id: `assistant:${turnId}:live`,
-      role: 'assistant',
-      mode: String(payload?.mode || '').trim().toLowerCase(),
-      turnId,
-      conversationId: conversationID,
-      agentIdUsed: String(payload?.agentIdUsed || '').trim(),
-      agentName: String(payload?.agentName || '').trim(),
-      createdAt: turnStartedAt,
-      sequence: assistantSequence,
-      startedAt: turnStartedAt || undefined,
-      interim: 1,
-      status: String(payload?.status || 'running').trim(),
-      turnStatus: String(payload?.status || 'running').trim(),
-      content: '',
-      executionGroups: [{
-        assistantMessageId: '',
-        parentMessageId: '',
-        iteration: 1,
-        preamble: '',
-        content: '',
-        finalResponse: false,
-        status: String(payload?.status || 'running').trim(),
-        startedAt: turnStartedAt || undefined,
-        modelSteps: [{
-          modelCallId: '',
-          provider: '',
-          model: '',
-          status: String(payload?.status || 'running').trim(),
-          startedAt: turnStartedAt || undefined
-        }],
-        toolSteps: [],
-        toolCallsPlanned: []
-      }],
-      executionGroupsTotal: 1,
-      executionGroupsOffset: 0,
-      executionGroupsLimit: 1
-    });
-  } else {
+  if (assistantIndex !== -1) {
     const row = { ...rows[assistantIndex] };
     row.agentIdUsed = String(payload?.agentIdUsed || row?.agentIdUsed || '').trim();
     row.agentName = String(payload?.agentName || row?.agentName || '').trim();
@@ -430,7 +473,13 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
   if (index === -1) {
     existing.push(nextRow);
   } else {
-    const prev = existing[index];
+    let prev = existing[index];
+    prev = maybePromoteAssistantRowIdentity(prev, nextTurnId, nextRow.id);
+    const preservedStartedAt = String(prev?.startedAt || '').trim();
+    if (preservedStartedAt) {
+      nextRow.startedAt = preservedStartedAt;
+      nextRow.executionGroups = preserveExecutionGroupStartedAt(nextRow.executionGroups, preservedStartedAt);
+    }
     const eventType = String(payload?.type || '').trim().toLowerCase();
     const shouldAdvanceRowStatus = eventType === 'model_started' || eventType === 'text_delta' || eventType === 'tool_calls_planned';
     // Update content/status when finalResponse arrives; otherwise keep existing
@@ -449,7 +498,14 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
       interim: updatedInterim,
       content: updatedContent,
       preamble: nextRow.preamble || prev.preamble,
-      executionGroups: mergeCanonicalExecutionGroups(prev.executionGroups, nextRow.executionGroups)
+      executionGroups: preserveModelStepStartedAt(
+        prev.executionGroups,
+        preserveExecutionGroupStartedAt(
+          mergeCanonicalExecutionGroups(prev.executionGroups, nextRow.executionGroups),
+          preservedStartedAt || nextRow.startedAt || prev.startedAt
+        ),
+        preservedStartedAt || nextRow.startedAt || prev.startedAt
+      )
     };
   }
   existing.sort(compareTemporalEntries);
@@ -558,6 +614,16 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
       || (role === 'assistant' && Number(baseRow.interim || 0) === 1 && (baseRow.content || baseRow.preamble));
     return !isExecutionEvidence;
   });
+  if (!role && !turnId) {
+    logLiveStoreDebug('message_patch:ignored-empty-identity', {
+      messageId,
+      hasContent: patchContent !== '',
+      hasRawContent: rawContent !== '',
+      mode: baseRow.mode,
+      type: baseRow.type
+    });
+    return filtered;
+  }
   if (role === 'user' && turnId) {
     const existingUserIdx = filtered.findIndex((row) => (
       String(row?.role || '').trim().toLowerCase() === 'user'
@@ -674,15 +740,6 @@ export function resetLiveStreamState(chatState = {}, options = {}) {
   chatState._suppressedSummaryMessageIds = new Set();
 }
 
-// Detect whether accumulated streaming content looks like an LLM-generated
-// elicitation JSON block.  When it does, suppress the raw JSON from the
-// visible bubble so the user doesn't see the JSON flash before the
-// elicitation overlay appears.
-function looksLikeElicitationJSON(text) {
-  if (!text || text.length < 20) return false;
-  return /[`{]\s*"type"\s*:\s*"elicitation"/.test(text);
-}
-
 function stripLeadingFence(text = '') {
   const value = String(text || '');
   const match = value.match(/^```([a-zA-Z0-9_-]+)?\r?\n?/);
@@ -739,8 +796,7 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
       hasTrailingFence: normalized.hadTrailingFence,
       language: normalized.language,
     };
-    // Suppress raw JSON when it looks like an LLM-generated elicitation block.
-    row.content = looksLikeElicitationJSON(row._streamContent) ? '' : normalized.content;
+    row.content = normalized.content;
     row.isStreaming = true;
     // Clear preamble once real content starts streaming — prevents
     // concatenated preamble+response in the bubble.
@@ -772,7 +828,7 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
     // Create a minimal assistant row that model_started will merge into.
     const streamID = String(payload?.streamId || conversationID);
     const normalized = normalizeStreamingMarkdown(delta);
-    const visibleContent = looksLikeElicitationJSON(delta) ? '' : normalized.content;
+    const visibleContent = normalized.content;
     liveRows.push({
       id: streamMessageID || `assistant:${turnId || streamID}:1`,
       role: 'assistant',
@@ -821,17 +877,18 @@ function applyAssistantFinalToRows(rows = [], payload = {}) {
   const prev = existing[index];
   const groups = Array.isArray(prev.executionGroups) ? [...prev.executionGroups] : [];
   // Update the last execution group with final content — don't create new groups.
-  if (groups.length > 0) {
-    const last = groups[groups.length - 1];
-    groups[groups.length - 1] = {
-      ...last,
-      content,
-      finalResponse: true,
-      status: String(payload?.status || last.status || '').trim()
-    };
-  }
+    if (groups.length > 0) {
+      const last = groups[groups.length - 1];
+      groups[groups.length - 1] = {
+        ...last,
+        content,
+        finalResponse: true,
+        status: String(payload?.status || last.status || '').trim()
+      };
+    }
   existing[index] = {
     ...prev,
+    id: canonicalPayloadMessageId(payload) || prev.id,
     agentIdUsed: String(payload?.agentIdUsed || prev?.agentIdUsed || '').trim(),
     agentName: String(payload?.agentName || prev?.agentName || '').trim(),
     mode: String(payload?.mode || prev?.mode || '').trim().toLowerCase(),
@@ -843,7 +900,7 @@ function applyAssistantFinalToRows(rows = [], payload = {}) {
     _streamFence: null,
     status: prev.status || normalizeExecutionRowStatus(payload?.status),
     turnStatus: prev.turnStatus || normalizeExecutionRowStatus(payload?.status),
-    executionGroups: groups
+    executionGroups: preserveExecutionGroupStartedAt(groups, prev.startedAt)
   };
   return existing;
 }
@@ -936,6 +993,10 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
     if (groups.length > 0) {
       const last = { ...groups[groups.length - 1] };
       last.preamble = preamble;
+      if (!String(last?.assistantMessageId || '').trim() && assistantMessageId) {
+        last.assistantMessageId = assistantMessageId;
+        last.pageId = String(last?.pageId || '').trim() || assistantMessageId;
+      }
       groups[groups.length - 1] = last;
     }
     const hasStreamContent = String(prev?._streamContent || '').trim() !== '';
@@ -949,6 +1010,7 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
       preamble,
       executionGroups: groups
     };
+    rows[index] = maybePromoteAssistantRowIdentity(rows[index], turnId, assistantMessageId);
   } else {
     // No row yet — create a minimal one that model_started will merge into
     const conversationID = String(payload?.conversationId || fallbackConversationID || '').trim();

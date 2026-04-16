@@ -572,8 +572,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
       status,
       errorMessage
     } : null);
-    const finalContentRaw = String(group?.content || group?.Content || '').trim();
-    const finalContent = looksLikeElicitationJSON(finalContentRaw) ? '' : finalContentRaw;
+    const finalContent = String(group?.content || group?.Content || '').trim();
     const title = groupTitleFromSteps({
       preamble: preambleContent ? { content: preambleContent } : null,
       modelStep: effectiveModelStep,
@@ -636,18 +635,12 @@ function mapFallbackExecutionGroups(data = {}) {
   }];
 }
 
-function looksLikeElicitationJSON(value = '') {
-  const text = String(value || '').trim();
-  if (!text) return false;
-  return /["'`]type["'`]\s*:\s*["'`]elicitation["'`]/i.test(text);
-}
-
 export function resolveVisibleBubbleContent(visibleGroups = []) {
   const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
   for (let index = groups.length - 1; index >= 0; index -= 1) {
     const group = groups[index] || {};
     const finalText = String(group?.finalContent || '').trim();
-    if (group?.finalResponse && finalText && !looksLikeElicitationJSON(finalText)) {
+    if (group?.finalResponse && finalText) {
       return finalText;
     }
   }
@@ -707,6 +700,16 @@ export function resolveIterationBubbleContent({
 
 export function shouldShowPreambleBubble(visibleGroups = [], visibleText = '') {
   return String(visibleText || '').trim() !== '';
+}
+
+export function hasPendingElicitationStep(visibleGroups = []) {
+  return (Array.isArray(visibleGroups) ? visibleGroups : []).some((group) =>
+    (Array.isArray(group?.toolSteps) ? group.toolSteps : []).some((step) => {
+      if (String(step?.kind || '').trim().toLowerCase() !== 'elicitation') return false;
+      const status = String(step?.status || '').trim().toLowerCase();
+      return status === '' || status === 'pending' || status === 'open';
+    })
+  );
 }
 
 function summaryModeMessageContent(value = {}) {
@@ -1089,11 +1092,11 @@ export default function IterationBlock({ message, context }) {
     }
     return ids;
   }, [allGroupEntries]);
-
   const isActiveIteration = useMemo(
     () => isIterationActive(data, allGroupEntries, linkedConversationStates.map((entry) => entry?.status || '')),
     [allGroupEntries, data, linkedConversationStates]
   );
+
   const iterationDisplayStatus = useMemo(
     () => resolveIterationDisplayStatus(data, allGroupEntries, linkedConversationStates.map((entry) => entry?.status || '')),
     [allGroupEntries, data, linkedConversationStates]
@@ -1225,6 +1228,10 @@ export default function IterationBlock({ message, context }) {
     errorMessage: data?.errorMessage
   }), [data?.errorMessage, data?.preamble?.content, data?.response?.content, data?.streamContent, message?.content, visibleGroups]);
   const hasVisibleElicitation = !!data?.response?.elicitation?.requestedSchema;
+  const hasPendingExecutionElicitation = useMemo(
+    () => hasPendingElicitationStep(visibleGroups),
+    [visibleGroups]
+  );
   const elicitationStatus = String(data?.response?.status || '').trim().toLowerCase();
   const summaryContent = String(summaryModeMessageContent(data?.summary)).trim();
   const generatedFiles = Array.isArray(message?.generatedFiles) ? message.generatedFiles : [];
@@ -1675,7 +1682,7 @@ export default function IterationBlock({ message, context }) {
         ) : null}
       </section>
       <ToolFeedDetail context={context} />
-      {!hasVisibleElicitation && shouldShowPreambleBubble(visibleGroups, visibleRenderedText) ? (
+      {!hasVisibleElicitation && !hasPendingExecutionElicitation && shouldShowPreambleBubble(visibleGroups, visibleRenderedText) ? (
         <BubbleMessage
           message={{
             id: `${message?.id || 'iteration'}:preamble`,

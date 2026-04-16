@@ -106,6 +106,8 @@ export function syncTranscriptSnapshot({
   });
   const convForm = conversationsDS.peekFormData?.() || {};
   const conversationID = String(convForm?.id || '').trim();
+  const sameLiveConversation = conversationID
+    && String(chatState.liveOwnedConversationID || '').trim() === conversationID;
   chatState.activeConversationID = conversationID;
   const filteredRows = filterOwnedTurnRows(rows, conversationID, chatState.liveOwnedConversationID, chatState.liveOwnedTurnIds);
   const sameConversation = String(chatState.lastConversationID || '').trim() === conversationID;
@@ -149,11 +151,15 @@ export function syncTranscriptSnapshot({
       const status = String(turn?.status || turn?.Status || '').trim().toLowerCase();
       return status !== '' && !RUNNING_TURN_STATUSES.has(status);
     });
+  const streamOwnsActiveTurn = sameLiveConversation
+    && ownedTurnIds.size > 0
+    && !transcriptConfirmsOwnedTurnTerminal;
+  const effectiveHasRunning = streamOwnsActiveTurn ? true : hasRunning;
 
   conversationsDS.setFormData?.({
     values: {
       ...convForm,
-      running: hasRunning,
+      running: effectiveHasRunning,
       queuedCount: queuedTurns.length,
       queuedTurns
     }
@@ -165,13 +171,15 @@ export function syncTranscriptSnapshot({
   chatState.lastSyncReason = reason;
   chatState.transcriptRows = mergedRows;
   chatState.lastQueuedTurns = queuedTurns;
-  chatState.lastHasRunning = hasRunning;
+  chatState.lastHasRunning = effectiveHasRunning;
   chatState.lastConversationID = conversationID;
-  chatState.runningTurnId = runningTurnId || findLatestRunningTurnId(mergedRows);
+  chatState.runningTurnId = effectiveHasRunning
+    ? (runningTurnId || findLatestRunningTurnId(mergedRows) || chatState.runningTurnId || '')
+    : (runningTurnId || findLatestRunningTurnId(mergedRows));
 
   const transcriptEmpty = !Array.isArray(turns) || turns.length === 0;
   const shouldPreserveTerminalLiveRows = transcriptEmpty && normalizedLiveRows.length > 0;
-  const shouldFinalizeActiveStream = (!hasRunning && !activeStreamRow && !shouldPreserveTerminalLiveRows)
+  const shouldFinalizeActiveStream = (!effectiveHasRunning && !activeStreamRow && !shouldPreserveTerminalLiveRows)
     || transcriptConfirmsOwnedTurnTerminal;
   if (shouldFinalizeActiveStream) {
     chatState.liveRows = [];
@@ -182,7 +190,7 @@ export function syncTranscriptSnapshot({
     chatState.activeStreamStartedAt = 0;
   }
 
-  if (hasRunning) {
+  if (effectiveHasRunning) {
     setStage({
       phase: 'executing',
       text: 'Assistant executing…',

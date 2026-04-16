@@ -102,16 +102,19 @@ export function normalizeOne(message = {}) {
   const role = String(message.role || '').toLowerCase();
   const turnId = message.turnId || '';
   const mode = String(message.mode || '').trim().toLowerCase();
+  const rawVisibleContent = pickString(
+    message.rawContent,
+    message.content,
+    ''
+  );
+  const embeddedElicitation = extractEmbeddedElicitation(rawVisibleContent);
   const content = normalizeVisibleContent({
     role,
     mode,
-    content: pickString(
-      message.rawContent,
-      message.content,
-      ''
-    )
+    content: rawVisibleContent,
+    embeddedElicitation,
+    status: message.status || message.turnStatus || ''
   });
-  const embeddedElicitation = extractEmbeddedElicitation(content);
   const createdAt = normalizeTimestamp(message.createdAt || message.CreatedAt);
   const interim = Number(message.interim ?? message.Interim ?? 0) || 0;
   const userElicitationData = message.userElicitationData || message.UserElicitationData || null;
@@ -169,8 +172,16 @@ export function normalizeOne(message = {}) {
   };
 }
 
-function normalizeVisibleContent({ role = '', mode = '', content = '' } = {}) {
+function normalizeVisibleContent({ role = '', mode = '', content = '', embeddedElicitation = null, status = '' } = {}) {
   const text = String(content || '');
+  const normalizedStatus = String(status || '').trim().toLowerCase();
+  if (
+    role === 'assistant'
+    && embeddedElicitation
+    && ['pending', 'open', 'waiting_for_user'].includes(normalizedStatus)
+  ) {
+    return String(embeddedElicitation?.message || '').trim();
+  }
   if (role !== 'user') return text;
   if (mode !== 'task') return text;
   return text;
@@ -398,6 +409,16 @@ function mergeIterationItems(existing = {}, incoming = {}) {
   return merged;
 }
 
+function groupedIterationResponseId(item = {}) {
+  return chooseRichString(
+    item?.response?.id,
+    item?.response?.messageId,
+    item?.preamble?.id,
+    Array.isArray(item?.preambles) && item.preambles.length > 0 ? item.preambles[item.preambles.length - 1]?.id : '',
+    ''
+  );
+}
+
 function mergeExecutionGroups(existing = [], incoming = []) {
   const out = [];
   const seen = new Map();
@@ -445,6 +466,9 @@ export function groupIntoIterations(messages = []) {
     const currentTurn = String(a?.turnId || '').trim();
     const nextTurn = String(message?.turnId || '').trim();
     if (currentTurn !== nextTurn) return false;
+    const currentResponseId = chooseRichString(a?.response?.id, a?.response?.messageId);
+    const incomingMessageId = chooseRichString(message?.id, message?.messageId);
+    if (a?.response && currentResponseId && incomingMessageId && currentResponseId !== incomingMessageId) return false;
     const currentIterationRaw = Number(a?.iteration);
     const nextIterationRaw = Number(message?.iteration);
     const currentIteration = Number.isFinite(currentIterationRaw) && currentIterationRaw > 0 ? currentIterationRaw : null;
@@ -593,16 +617,10 @@ export function groupIntoIterations(messages = []) {
     }
 
     if (role === 'assistant' && Number(message.interim || 0) === 1) {
-      const turnId = String(message?.turnId || '').trim();
       const content = String(message?.content || '').trim();
       const hasExecutionEvidence = execSteps.length > 0
         || ((Array.isArray(message?.executionGroups) ? message.executionGroups.length : 0) > 0)
         || !!message?.executionGroup;
-      const latestUserContent = String(lastUserContentByTurn.get(turnId) || '').trim();
-      const isUserEcho = turnId && content && content === latestUserContent;
-      if (isUserEcho && !hasExecutionEvidence) {
-        continue;
-      }
       if (String(message?._bubbleSource || '').trim() === 'stream') {
         ensureCurrent(message);
         attachAgent(message);
@@ -618,7 +636,7 @@ export function groupIntoIterations(messages = []) {
       }
       const preambleEntry = {
         ...message,
-        content: isUserEcho ? '' : content,
+        content,
         steps: []
       };
       ensureCurrent(message);
@@ -653,9 +671,7 @@ export function groupIntoIterations(messages = []) {
       const isFinalAssistant = role === 'assistant' && Number(message.interim || 0) === 0;
       const streamOwnsBubble = String(message?._bubbleSource || '').trim() === 'stream';
       const hasNonModelStep = execSteps.some((step) => String(step?.kind || '').toLowerCase() !== 'model');
-      const latestUserContent = String(lastUserContentByTurn.get(String(message?.turnId || '').trim()) || '').trim();
-      const isUserEcho = assistantText !== '' && assistantText === latestUserContent;
-      if (isFinalAssistant && assistantText !== '' && hasNonModelStep && !streamOwnsBubble && !isUserEcho) {
+      if (isFinalAssistant && assistantText !== '' && hasNonModelStep && !streamOwnsBubble) {
         // Text arrived alongside tool calls (common in streaming). Treat as
         // preamble so it renders alongside the execution block. Not set as
         // response — the streaming bubble (_type:'stream') is a separate
@@ -677,7 +693,7 @@ export function groupIntoIterations(messages = []) {
         current.preamble = preambleEntry;
         current.status = String(message.turnStatus || message.status || current.status || 'running');
         current.errorMessage = chooseRichString(message?.errorMessage, current?.errorMessage);
-      } else if (isFinalAssistant && assistantText !== '' && !streamOwnsBubble && !isUserEcho) {
+      } else if (isFinalAssistant && assistantText !== '' && !streamOwnsBubble) {
         ensureCurrent(message);
         attachAgent(message);
         attachLinkedConversations(message);
@@ -746,7 +762,7 @@ export function groupIntoIterations(messages = []) {
 }
 
 export function synthesizeIterationMessages(messages = [], visibleCount = Number.MAX_SAFE_INTEGER) {
-  const grouped = collapseTurnIterations(dedupeGroupedIterations(groupIntoIterations(messages)));
+  const grouped = dedupeGroupedIterations(groupIntoIterations(messages));
   const iterationTurnIds = new Set(
     grouped
       .filter((item) => item?.type === 'iteration')
@@ -854,53 +870,6 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
   return out;
 }
 
-function collapseTurnIterations(grouped = []) {
-  const out = [];
-  let pendingIteration = null;
-  let pendingTurnId = '';
-  const sameTurnMaybeUnnumbered = (left = null, right = null) => {
-    const leftTurnId = String(left?.turnId || '').trim();
-    const rightTurnId = String(right?.turnId || '').trim();
-    if (!leftTurnId || leftTurnId !== rightTurnId) return false;
-    const leftRaw = Number(left?.iteration);
-    const rightRaw = Number(right?.iteration);
-    const leftIteration = Number.isFinite(leftRaw) && leftRaw > 0 ? leftRaw : null;
-    const rightIteration = Number.isFinite(rightRaw) && rightRaw > 0 ? rightRaw : null;
-    return leftIteration == null || rightIteration == null;
-  };
-
-  const flushPending = () => {
-    if (!pendingIteration) return;
-    out.push(pendingIteration);
-    pendingIteration = null;
-    pendingTurnId = '';
-  };
-
-  for (const item of Array.isArray(grouped) ? grouped : []) {
-    if (item?.type !== 'iteration') {
-      flushPending();
-      out.push(item);
-      continue;
-    }
-    const turnId = String(item?.turnId || '').trim();
-    if (!pendingIteration) {
-      pendingIteration = item;
-      pendingTurnId = turnId;
-      continue;
-    }
-    if (turnId && pendingTurnId && turnId === pendingTurnId && sameTurnMaybeUnnumbered(pendingIteration, item)) {
-      pendingIteration = mergeIterationItems(pendingIteration, item);
-      continue;
-    }
-    flushPending();
-    pendingIteration = item;
-    pendingTurnId = turnId;
-  }
-
-  flushPending();
-  return out;
-}
-
 function dedupeGroupedIterations(grouped = []) {
   const seen = new Map();
   const out = [];
@@ -925,7 +894,8 @@ function iterationSignature(item = {}) {
   const turnId = String(item?.turnId || '').trim();
   const raw = Number(item?.iteration);
   const iteration = Number.isFinite(raw) && raw > 0 ? raw : '';
-  return `${turnId}::${iteration}`;
+  const responseId = groupedIterationResponseId(item);
+  return `${turnId}::${iteration}::${responseId}`;
 }
 
 function flattenToolSteps(message = {}) {

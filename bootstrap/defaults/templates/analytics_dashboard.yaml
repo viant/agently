@@ -10,6 +10,7 @@ formFactors:
   - phone
 surfaces:
   - chat
+  - browser
 appliesTo:
   - chatter
 fences:
@@ -94,6 +95,13 @@ instructions: |
   - Use `format: "csv"` for larger row sets and `format: "json"` for compact row/object sources.
   - Each block defines exactly one named datasource.
   - Use stable datasource ids and reference them from `forge-ui` via `dataSourceRef`.
+  - For any datasource referenced by `dashboard.kpiTable`, `dashboard.compare`, or `dashboard.timeline`, the data must be row-oriented:
+    - CSV with a header row, or
+    - JSON array of row objects
+  - Do not use a single JSON object as the datasource for table/compare/timeline blocks.
+  - If you need one totals row for a table, emit it as:
+    - CSV with one data row, or
+    - JSON array containing exactly one object
 
   `forge-ui` rules:
   - The `forge-ui` fenced body must be a single JSON object with this top-level shape:
@@ -140,6 +148,15 @@ examples:
       - lang: forge-data
         body:
           version: 1
+          id: totals_table
+          format: csv
+          mode: replace
+          data: |
+            segment,pipeline_spend,qualified_leads,sales_closed,lead_to_sale_rate,cost_per_lead
+            Mid-market inbound,18420.55,295,94,0.23,61.20
+      - lang: forge-data
+        body:
+          version: 1
           id: daily_pipeline
           format: csv
           mode: replace
@@ -159,6 +176,16 @@ examples:
                 - label: Pipeline spend
                   value: 18420.55
                   metricKey: pipeline_spend
+            - kind: dashboard.kpiTable
+              title: Segment totals
+              dataSourceRef: totals_table
+              columns:
+                - segment
+                - pipeline_spend
+                - qualified_leads
+                - sales_closed
+                - lead_to_sale_rate
+                - cost_per_lead
             - kind: dashboard.timeline
               title: Daily spend
               dataSourceRef: daily_pipeline

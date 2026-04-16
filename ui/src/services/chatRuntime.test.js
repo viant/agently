@@ -238,10 +238,8 @@ describe('handleStreamEvent', () => {
 
       const userRow = chatState.liveRows.find((row) => row?.role === 'user');
       const assistantRow = chatState.liveRows.find((row) => row?.role === 'assistant');
-      expect(userRow?.createdAt).toBe('');
-      expect(userRow?.sequence).toBe(0);
-      expect(assistantRow?.createdAt).toBe('');
-      expect(assistantRow?.sequence).toBe(1);
+      expect(userRow).toBeUndefined();
+      expect(assistantRow).toBeUndefined();
     } finally {
       globalThis.window = originalWindow;
     }
@@ -296,10 +294,9 @@ describe('handleStreamEvent', () => {
 
       const userRow = chatState.liveRows.find((row) => row?.role === 'user');
       const assistantRow = chatState.liveRows.find((row) => row?.role === 'assistant');
-      expect(userRow?.createdAt).toBe('');
-      expect(userRow?.sequence).toBe(0);
+      expect(userRow).toBeUndefined();
       expect(assistantRow?.createdAt).toBe('');
-      expect(assistantRow?.sequence).toBe(1);
+      expect(assistantRow?.sequence).toBeNull();
     } finally {
       globalThis.window = originalWindow;
     }

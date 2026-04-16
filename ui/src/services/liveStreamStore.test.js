@@ -131,7 +131,7 @@ describe('applyStreamChunk', () => {
 });
 
 describe('applyExecutionStreamEvent', () => {
-  it('creates deterministic synthetic turn rows when turn_started has no timestamps', () => {
+  it('does not create a synthetic assistant row on turn_started when no assistant message id exists yet', () => {
     const chatState = { liveRows: [], activeStreamPrompt: 'hi' };
 
     applyTurnStartedEvent(chatState, {
@@ -140,17 +140,7 @@ describe('applyExecutionStreamEvent', () => {
       status: 'running'
     }, 'conv-1');
 
-    expect(chatState.liveRows).toHaveLength(2);
-    expect(chatState.liveRows[0]).toMatchObject({
-      id: 'user:turn-1',
-      createdAt: '',
-      sequence: 0
-    });
-    expect(chatState.liveRows[1]).toMatchObject({
-      id: 'assistant:turn-1:live',
-      createdAt: '',
-      sequence: 1
-    });
+    expect(chatState.liveRows).toHaveLength(0);
   });
 
   it('reuses an existing user row for the same turn instead of adding a synthetic duplicate', () => {
@@ -269,9 +259,10 @@ describe('applyExecutionStreamEvent', () => {
     }, 'conv-1');
 
     const assistantRow = chatState.liveRows.find((row) => row.role === 'assistant');
-    expect(assistantRow.startedAt).toBe('2026-03-16T10:00:00Z');
-    expect(assistantRow.executionGroups[0].startedAt).toBe('2026-03-16T10:00:00Z');
-    expect(assistantRow.executionGroups[0].modelSteps[0].startedAt).toBe('2026-03-16T10:00:00Z');
+    expect(assistantRow.id).toBe('mc-1');
+    expect(assistantRow.startedAt).toBe('2026-03-16T10:00:01Z');
+    expect(assistantRow.executionGroups[0].startedAt).toBeUndefined();
+    expect(assistantRow.executionGroups[0].modelSteps[0].startedAt).toBe('2026-03-16T10:00:01Z');
     expect(assistantRow.status).toBe('thinking');
   });
 
@@ -1294,6 +1285,7 @@ describe('applyExecutionStreamEvent', () => {
 
     // Must merge into execution row, not create a separate row
     expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0].id).toBe('mc-1');
     expect(chatState.liveRows[0].content).toBe("I'm going to use functions.system_os-getEnv tool.");
 
     // 3. tool_calls_planned (from reactor)
@@ -1382,6 +1374,7 @@ describe('applyExecutionStreamEvent', () => {
     });
 
     expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
+    expect(chatState.liveRows[0].id).toBe('msg-final');
     expect(chatState.liveRows[0].interim).toBe(1);
 
     // 9. model_completed iter 1 (conv service, no model info)

@@ -21,7 +21,8 @@ import {
   resolveIterationStatusDetail,
   resolveVisibleBubbleContent,
   resolveIterationBubbleContent,
-  shouldShowPreambleBubble
+  shouldShowPreambleBubble,
+  hasPendingElicitationStep
 } from './IterationBlock';
 import { summarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
 
@@ -506,7 +507,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(shouldShowPreambleBubble([], text)).toBe(true);
   });
 
-  it('suppresses raw elicitation JSON from the visible page bubble', () => {
+  it('uses final elicitation JSON content when that is the actual final visible page content', () => {
     const text = resolveVisibleBubbleContent([
       {
         finalResponse: true,
@@ -515,8 +516,7 @@ describe('mapCanonicalExecutionGroups', () => {
       }
     ]);
 
-    expect(text).toBe('Need input.');
-    expect(shouldShowPreambleBubble([], text)).toBe(true);
+    expect(text).toBe('{"type":"elicitation","message":"Please provide the environment variable name.","requestedSchema":{"type":"object"}}');
   });
 
   it('falls back to visible preamble content when no visible page is final', () => {
@@ -529,6 +529,32 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(text).toBe('Thinking...');
     expect(shouldShowPreambleBubble([], text)).toBe(true);
+  });
+
+  it('treats open elicitation execution steps as a visible prompt owner for the turn', () => {
+    expect(hasPendingElicitationStep([
+      {
+        toolSteps: [
+          {
+            kind: 'elicitation',
+            status: 'pending',
+            message: 'Please provide your favorite color.'
+          }
+        ]
+      }
+    ])).toBe(true);
+
+    expect(hasPendingElicitationStep([
+      {
+        toolSteps: [
+          {
+            kind: 'elicitation',
+            status: 'accepted',
+            message: 'Please provide your favorite color.'
+          }
+        ]
+      }
+    ])).toBe(false);
   });
 
   it('falls back to the latest tool-derived group title when newer groups have no preamble text', () => {

@@ -299,37 +299,6 @@ export function mergeRowSnapshots(previousRows = [], nextRows = []) {
   return out;
 }
 
-function collapseAssistantRowsByTurn(rows = [], ownedTurnIds = new Set()) {
-  const out = [];
-  const openAssistantIndexByTurnId = new Map();
-  for (const row of Array.isArray(rows) ? rows : []) {
-    const role = String(row?.role || '').toLowerCase();
-    const turnId = String(row?.turnId || '').trim();
-    const hasExecution = Array.isArray(row?.executionGroups) && row.executionGroups.length > 0;
-    const shouldCollapse = (role === 'assistant' || hasExecution)
-      && turnId
-      && (ownedTurnIds.size === 0 || ownedTurnIds.has(turnId));
-    if (!shouldCollapse) {
-      out.push(row);
-      continue;
-    }
-    const found = openAssistantIndexByTurnId.get(turnId);
-    if (found == null) {
-      out.push(row);
-      if (role === 'assistant' && Number(row?.interim || 0) !== 0) {
-        openAssistantIndexByTurnId.set(turnId, out.length - 1);
-      }
-      continue;
-    }
-    out[found] = mergeRow(out[found], row);
-    if (role === 'assistant' && Number(row?.interim || 0) === 0) {
-      openAssistantIndexByTurnId.delete(turnId);
-    }
-  }
-  out.sort(compareTemporalEntries);
-  return out;
-}
-
 export function mergeRenderedRows({
   transcriptRows = [],
   liveRows = [],
@@ -383,7 +352,7 @@ export function mergeRenderedRows({
     ? mergeRowSnapshots(canonicalLiveRows, transcriptBase)
     : mergeRowSnapshots(transcriptBase, canonicalLiveRows);
   if (streamRows.length === 0) {
-    return hasLiveSession ? collapseAssistantRowsByTurn(merged, ownedTurnIds) : merged;
+    return merged;
   }
 
   const activeTurnId = String(runningTurnId || findLatestRunningTurnId?.(merged) || '').trim();
@@ -435,5 +404,5 @@ export function mergeRenderedRows({
   }
 
   merged.sort(compareTemporalEntries);
-  return hasLiveSession ? collapseAssistantRowsByTurn(merged, ownedTurnIds) : merged;
+  return merged;
 }
