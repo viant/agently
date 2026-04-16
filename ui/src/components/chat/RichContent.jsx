@@ -1174,9 +1174,9 @@ function RichContent({ content = '', generatedFiles = [] }) {
       if (chunk) {
         const streamingForgeFence = detectStreamingForgeFenceText(chunk);
         if (streamingForgeFence === FORGE_UI_FENCE) {
-          out.push(<ForgeFenceLoading key={`forge-ui-loading-text-${idx++}`} label="Forge UI" />);
+          out.push(<ForgeFenceLoading key={`forge-ui-loading-text-${idx++}`} label="Building UI" />);
         } else if (streamingForgeFence === FORGE_DATA_FENCE) {
-          out.push(<ForgeFenceLoading key={`forge-data-loading-text-${idx++}`} label="Forge data" />);
+          out.push(<ForgeFenceLoading key={`forge-data-loading-text-${idx++}`} label="Setting datasources" />);
         } else {
           out.push(<MinimalText key={`seg-${idx++}`} text={chunk} generatedFiles={generatedFiles} />);
         }
@@ -1192,7 +1192,7 @@ function RichContent({ content = '', generatedFiles = [] }) {
     const body = fence.body;
     if (isForgeDataFence(fence)) {
       if (hasTrailingOpenForgeFence(textNorm, FORGE_DATA_FENCE)) {
-        out.push(<ForgeFenceLoading key={`forge-data-loading-${idx++}`} label="Forge data" />);
+        out.push(<ForgeFenceLoading key={`forge-data-loading-${idx++}`} label="Setting datasources" />);
       }
       continue;
     }
@@ -1202,7 +1202,7 @@ function RichContent({ content = '', generatedFiles = [] }) {
         out.push(<ForgeUIFence key={`forge-ui-${idx++}`} payload={payload} dataBlocks={forgeDataBlocks} />);
       } catch (_) {
         if (hasTrailingOpenForgeFence(textNorm, FORGE_UI_FENCE)) {
-          out.push(<ForgeFenceLoading key={`forge-ui-loading-${idx++}`} label="Forge UI" />);
+          out.push(<ForgeFenceLoading key={`forge-ui-loading-${idx++}`} label="Building UI" />);
         } else {
           out.push(
             <div key={`forge-ui-error-${idx++}`} style={{ color: '#c23030', fontSize: 13 }}>

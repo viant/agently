@@ -4,6 +4,8 @@ description: Generic analytics dashboard contract for tabular KPI and time-serie
 format: forge_ui_data
 platforms:
   - web
+  - android
+  - ios
 formFactors:
   - desktop
   - tablet
@@ -11,6 +13,7 @@ formFactors:
 surfaces:
   - chat
   - browser
+  - app
 appliesTo:
   - chatter
 fences:
@@ -74,7 +77,7 @@ instructions: |
   General rules:
   - Use the supplied tabular data only; do not invent rows.
   - Use `kind` for each dashboard block, not `type`.
-  - `kind` must use exact supported literals such as `dashboard.summary`, `dashboard.kpiTable`, `dashboard.compare`, `dashboard.timeline`, `dashboard.messages`, `dashboard.badges`, `dashboard.report`, and `dashboard.detail`.
+  - `kind` must use exact supported literals: `dashboard.summary`, `dashboard.kpiTable`, `dashboard.compare`, `dashboard.timeline`, `dashboard.dimensions`, `dashboard.status`, `dashboard.filters`, `dashboard.feed`, `dashboard.table`, `dashboard.messages`, `dashboard.badges`, `dashboard.report`, and `dashboard.detail`.
   - Use only the blocks that genuinely help; omit unused block kinds and optional fields.
   - Use neutral, data-derived titles and subtitles unless the user or source data requires more specific labeling.
   - Do not add labels like `Web`, `Mobile`, `Android`, or `iOS` unless the source data or user request explicitly calls for them.
@@ -95,7 +98,7 @@ instructions: |
   - Use `format: "csv"` for larger row sets and `format: "json"` for compact row/object sources.
   - Each block defines exactly one named datasource.
   - Use stable datasource ids and reference them from `forge-ui` via `dataSourceRef`.
-  - For any datasource referenced by `dashboard.kpiTable`, `dashboard.compare`, or `dashboard.timeline`, the data must be row-oriented:
+  - For any datasource referenced by `dashboard.kpiTable`, `dashboard.compare`, `dashboard.timeline`, `dashboard.dimensions`, `dashboard.table`, or `dashboard.feed`, the data must be row-oriented:
     - CSV with a header row, or
     - JSON array of row objects
   - Do not use a single JSON object as the datasource for table/compare/timeline blocks.
@@ -117,6 +120,11 @@ instructions: |
     - `dashboard.kpiTable`
     - `dashboard.compare`
     - `dashboard.timeline`
+    - `dashboard.dimensions`
+    - `dashboard.status`
+    - `dashboard.filters`
+    - `dashboard.feed`
+    - `dashboard.table`
     - `dashboard.report`
     - `dashboard.detail`
     - `dashboard.messages`
@@ -126,11 +134,34 @@ instructions: |
   - `dashboard.summary`: `title`, `items[]` with `label`, raw `value`, optional `metricKey`
   - `dashboard.kpiTable`: `title`, `dataSourceRef`, `columns[]`; columns may be strings or `{ "key": "...", "label": "..." }`; for date + order data prefer one aggregated row per order
   - `dashboard.compare`: `title`, `dataSourceRef`, `metrics[]`, optional `dimension` / `groupBy`, optional `rows[]` like `["Order A","Order B"]`
-  - `dashboard.timeline`: `title`, `dataSourceRef`; simple timelines may use `dateField`, `groupBy`, `series[]`, and optional `chartType` such as `"line"`, `"bar"`, or `"area"`; richer timelines may use `chart` with `type`, `xAxis`, optional `axes.left` / `axes.right`, and `series.values[]` where each series may declare `value`, `label`, optional `name`, optional `type`, optional `axis`, optional `format`, optional `strokeDasharray`, optional `opacity`, and optional `stackId`
+  - `dashboard.timeline`: `title`, `dataSourceRef`; simple timelines may use `dateField`, `groupBy`, `series[]`, and optional `chartType` such as `"line"`, `"bar"`, `"area"`, or `"pie"`; richer timelines may use `chart` with `type`, `xAxis`, optional `axes.left` / `axes.right`, and `series.values[]` where each series may declare `value`, `label`, optional `name`, optional `type`, optional `axis`, optional `format`, optional `strokeDasharray`, optional `opacity`, and optional `stackId`; for pie/donut charts use `chart.type: "pie"` (or `"donut"`) with `series.nameKey` (slice label field) and `series.valueKey` (slice value field) — no xAxis or yAxis needed
+  - `dashboard.table`: `title`, `dataSourceRef`, `columns[]` (strings or `{ key, label, format, align }`), optional `limit` (default 200), optional `filterBindings`; renders a sortable multi-column table from the collection
+  - `dashboard.dimensions`: `title`, `dataSourceRef`, `dimension: { key, label }`, `metric: { key, label, format }`, optional `viewModes: ["chart","table"]`, optional `limit` (default 10), optional `filterBindings`
+  - `dashboard.status`: `title`, `dataSourceRef`, `checks[]` with `{ id, label, selector, format, tone }` where `tone` has `{ warningAbove, dangerAbove }` thresholds
+  - `dashboard.filters`: `title`, `items[]` with `{ id, label, field, multiple, options: [{ label, value, default }] }`; items may also use `type: "dateRange"` for start/end date pickers instead of chip options
+  - `dashboard.feed`: `title`, `dataSourceRef`, `fields: { timestamp, title, body }`, optional `filterBindings`
   - `dashboard.report`: `title`, optional `subtitle`, `sections[]` with concise prose insights placed inline after a relevant chart/table
   - `dashboard.detail`: `title`, `containers[]`; use this to group a chart with a short report/detail block directly underneath it
   - `dashboard.messages`: `items[]` with `{ severity, title, body }`
   - `dashboard.badges`: `title`, `items[]` with `{ label, value, tone }` for compact flag or signal chips
+
+  Format values:
+  - Use `"currency"` for dollar amounts (renders $1,234).
+  - Use `"compactNumber"` for large counts (renders 5.4M).
+  - Use `"percent"` when the raw value is already percentage-scaled like `19.4` (renders 19.4%).
+  - Use `"percentFraction"` when the raw value is fractional like `0.194` (renders 19.4%).
+  - Use `"number"` or omit for general numbers.
+
+  Tone values (for badges, status checks, messages):
+  - `"info"` (default), `"warning"`, `"danger"`, `"success"`
+
+  Conditional visibility:
+  - Any block may include `visibleWhen` to show/hide based on dashboard state.
+  - Shape: `{ selector, source, field, gt, gte, lt, lte, equals, notEquals, notEmpty, empty, in }`
+  - `source` can be `"metrics"` (default), `"selection"`, `"filters"`, or `"context"`.
+
+  Client-side filter bindings:
+  - Collection-based blocks (`dashboard.timeline`, `dashboard.dimensions`, `dashboard.table`, `dashboard.feed`) can declare `filterBindings: { filterField: rowField }` to filter their rows client-side based on active `dashboard.filters` selections.
 
   Authoring guidance:
   - Timeline guidance: wide form `date,order,bids,imps,clicks,ctr,vtr`; long form `date,order,metric,value`.
@@ -141,6 +172,8 @@ instructions: |
   - Multiple timelines or compare blocks are allowed when complementary rather than redundant, for example one timeline for volume and one for efficiency, or one compare block for rates and one for totals.
   - Inline analytic prose under a chart is valid and encouraged when it helps interpretation. Prefer a short `dashboard.report` block directly after the relevant `dashboard.timeline` rather than pushing all interpretation to the end.
   - For count timelines, prefer `chartType: "bar"` or `chartType: "area"` when that is easier to read than a line chart.
+  - For composition or distribution analysis, prefer `chart.type: "pie"` with `series.nameKey` and `series.valueKey`.
+  - For detailed multi-column data, prefer `dashboard.table` with sortable columns over `dashboard.kpiTable` when the dataset has more than 5 columns or many rows.
   - Do not pre-format numbers with commas or percent signs; let the renderer format values.
   - Use `format: "percent"` when the raw value is already percentage-scaled like `19.4`; use `format: "percentFraction"` when the raw value is fractional like `0.194`.
   - Use `dashboard.badges` for short status flags or boolean signal chips instead of forcing them into summary metrics or recommendation messages.
@@ -176,6 +209,22 @@ examples:
             date,spend,lead_gap,qualified_leads,sales_closed,lead_to_sale_rate
             2026-04-08,2410.25,910.15,42,11,0.23
             2026-04-09,2875.40,620.00,47,13,0.28
+      - lang: forge-data
+        body:
+          version: 1
+          id: by_segment
+          format: json
+          mode: replace
+          data:
+            - segment: Mid-market inbound
+              spend: 18420.55
+              leads: 295
+            - segment: Enterprise outbound
+              spend: 12300.00
+              leads: 87
+            - segment: SMB self-serve
+              spend: 5100.00
+              leads: 410
       - lang: forge-ui
         body:
           version: 1
@@ -207,6 +256,16 @@ examples:
                 - sales_closed
                 - lead_to_sale_rate
                 - cost_per_lead
+            - kind: dashboard.table
+              title: Daily pipeline detail
+              dataSourceRef: daily_pipeline
+              columns:
+                - date
+                - { key: spend, label: Spend, format: currency }
+                - { key: lead_gap, label: Lead Gap, format: currency }
+                - qualified_leads
+                - sales_closed
+                - { key: lead_to_sale_rate, label: Lead to Sale Rate, format: percentFraction }
             - kind: dashboard.timeline
               title: Daily spend
               dataSourceRef: daily_pipeline
@@ -214,6 +273,18 @@ examples:
               series:
                 - spend
               chartType: bar
+            - kind: dashboard.timeline
+              title: Spend distribution by segment
+              dataSourceRef: by_segment
+              chart:
+                type: pie
+                series:
+                  nameKey: segment
+                  valueKey: spend
+                  palette:
+                    - "#137cbd"
+                    - "#0f9960"
+                    - "#d9822b"
             - kind: dashboard.timeline
               title: Spend and conversion rate
               dataSourceRef: daily_pipeline
@@ -249,3 +320,54 @@ examples:
                   title: Interpretation
                   body:
                     - Spend increased on the second day while the lead gap narrowed.
+  - title: dimensions and status example
+    fences:
+      - lang: forge-data
+        body:
+          version: 1
+          id: by_campaign
+          format: json
+          mode: replace
+          data:
+            - campaign: Brand awareness
+              spend: 45000
+              impressions: 2100000
+              ctr: 2.1
+            - campaign: Retargeting
+              spend: 32000
+              impressions: 1800000
+              ctr: 3.4
+            - campaign: Prospecting
+              spend: 18000
+              impressions: 900000
+              ctr: 1.5
+      - lang: forge-ui
+        body:
+          version: 1
+          title: Campaign breakdown
+          subtitle: All campaigns · 2026-04-01 to 2026-04-15
+          blocks:
+            - kind: dashboard.dimensions
+              title: Spend by campaign
+              dataSourceRef: by_campaign
+              dimension:
+                key: campaign
+                label: Campaign
+              metric:
+                key: spend
+                label: Spend
+                format: currency
+              viewModes:
+                - chart
+                - table
+              limit: 10
+            - kind: dashboard.status
+              title: Health checks
+              checks:
+                - id: ctr_check
+                  label: Overall CTR
+                  selector: summary.ctr
+                  format: percent
+                  tone:
+                    warningBelow: 2.0
+                    dangerBelow: 1.0
