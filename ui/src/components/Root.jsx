@@ -8,6 +8,7 @@ import DetailPanel from './DetailPanel';
 import DetailPopoutWindow from './DetailPopoutWindow';
 import ChangeFeed from './ChangeFeed';
 import CodeDiffDialog from './CodeDiffDialog';
+import ConfirmDialog from './ConfirmDialog';
 import FileViewDialog from './FileViewDialog';
 import MenuBar, { refreshWindowDataSources } from './MenuBar';
 // PlanFeed replaced by ToolFeedBar + ToolFeedDetail
@@ -448,6 +449,7 @@ export default function Root() {
         </DetailPopoutWindow>
       ) : null}
       <CodeDiffDialog />
+      <ConfirmDialog />
       <FileViewDialog />
       <ElicitationOverlay context={null} />
     </DetailContext.Provider>

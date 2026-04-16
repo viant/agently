@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as forgeCore from 'forge/core'
 import * as httpClient from './httpClient'
+import * as dialogBus from '../utils/dialogBus'
 
 import { client } from './agentlyClient'
 import { panelHasRenderableRows, scheduleService } from './scheduleService'
@@ -39,6 +40,61 @@ function saveContext(formValues = {}) {
     },
     setFormData({ values }) {
       state.formValues = values
+    },
+    fetchCollection() {
+      state.fetches += 1
+    },
+    setLoading(value) {
+      state.loading = value
+    },
+    setError(err) {
+      state.errors.push(err)
+    }
+  }
+  return {
+    state,
+    context: {
+      Context(name) {
+        if (name !== 'schedules') return null
+        return { handlers: { dataSource: ds } }
+      }
+    }
+  }
+}
+
+function deleteContext({ selection, formValues, collection } = {}) {
+  const state = {
+    formValues: formValues || {},
+    selected: selection ? { selected: selection, rowIndex: 0 } : { selected: {}, rowIndex: -1 },
+    collection: Array.isArray(collection) ? collection.slice() : [],
+    loading: false,
+    fetches: 0,
+    errors: []
+  }
+  const ds = {
+    peekFormData() {
+      return { values: state.formValues }
+    },
+    getFormData() {
+      return state.formValues
+    },
+    peekSelection() {
+      return state.selected
+    },
+    getSelection() {
+      return state.selected
+    },
+    peekCollection() {
+      return state.collection
+    },
+    getCollection() {
+      return state.collection
+    },
+    setCollection(rows) {
+      state.collection = rows
+    },
+    setSelected(next) {
+      state.selected = next
     },
     fetchCollection() {
       state.fetches += 1
@@ -926,6 +982,91 @@ describe('scheduleService saveSchedule', () => {
     expect(scheduleService._validationHookInstalled).toBe(true)
     expect(state.formValues.validationErrors?.name).toBe('Schedule Name is required')
     expect(state.formValues.validationErrors?.agentRef).toBe('Agent is required')
+  })
+})
+
+describe('scheduleService deleteSchedule', () => {
+  it('calls DELETE and removes the row locally', async () => {
+    const schedule = {
+      id: 'sched-1',
+      name: 'nightly',
+      description: 'Nightly run',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleType: 'interval',
+      intervalSeconds: 60,
+      cronExpr: '',
+      timezone: 'UTC',
+      taskPrompt: 'Run it',
+      timeoutSeconds: 300
+    }
+    const { context, state } = deleteContext({
+      selection: { id: 'sched-1', name: 'nightly' },
+      collection: [schedule, { id: 'sched-2', name: 'other' }]
+    })
+    const deleteSpy = vi.spyOn(client, 'deleteSchedule').mockResolvedValue(undefined)
+    const openSpy = vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation(({ onConfirm }) => onConfirm?.())
+
+    const ok = await scheduleService.deleteSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(openSpy).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Delete Schedule',
+      confirmText: 'Delete'
+    }))
+    expect(deleteSpy).toHaveBeenCalledWith('sched-1')
+    expect(state.collection).toEqual([{ id: 'sched-2', name: 'other' }])
+    expect(state.selected).toEqual({ selected: {}, rowIndex: -1 })
+    expect(state.fetches).toBe(1)
+    expect(state.loading).toBe(false)
+  })
+
+  it('falls back to form state when selection metadata is missing', async () => {
+    const { context } = deleteContext({
+      formValues: {
+        id: 'sched-1',
+        name: 'nightly',
+        agentRef: 'chat',
+        enabled: true,
+        scheduleType: 'adhoc',
+        timezone: 'UTC'
+      }
+    })
+    const deleteSpy = vi.spyOn(client, 'deleteSchedule').mockResolvedValue(undefined)
+    vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation(({ onConfirm }) => onConfirm?.())
+
+    const ok = await scheduleService.deleteSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(deleteSpy).toHaveBeenCalledWith('sched-1')
+  })
+
+  it('surfaces delete API errors', async () => {
+    const { context, state } = deleteContext({
+      selection: { id: 'sched-1', name: 'nightly' }
+    })
+    vi.spyOn(client, 'deleteSchedule').mockRejectedValue(new Error('forbidden'))
+    vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation(({ onConfirm }) => onConfirm?.())
+
+    const ok = await scheduleService.deleteSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(state.errors).toHaveLength(1)
+    expect(String(state.errors[0]?.message || state.errors[0])).toContain('forbidden')
+  })
+
+  it('opens a confirmation dialog before deleting', async () => {
+    const { context } = deleteContext({
+      selection: { id: 'sched-1', name: 'nightly' }
+    })
+    const deleteSpy = vi.spyOn(client, 'deleteSchedule').mockResolvedValue(undefined)
+    const openSpy = vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation(() => {})
+
+    const ok = await scheduleService.deleteSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(openSpy).toHaveBeenCalledTimes(1)
+    expect(deleteSpy).not.toHaveBeenCalled()
   })
 })
 

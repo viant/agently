@@ -13,13 +13,13 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.1.7-0.20260415202552-09f976f21e4f
+	github.com/viant/agently-core v0.1.7-0.20260416101125-70583e65d96f
 	github.com/viant/datly v0.37.1-0.20260409194131-e40dcc4467ab
 	github.com/viant/embedius v0.5.3 // indirect
 	github.com/viant/forge v0.3.1-0.20260415200900-f6cbe575d129 // indirect
 	github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0 // indirect
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
-	github.com/viant/mcp v0.14.1-0.20260330151156-6107a117f1ea // indirect
+	github.com/viant/mcp v0.14.1-0.20260330151156-6107a117f1ea
 	github.com/viant/mcp-protocol v0.11.0
 	github.com/viant/scy v0.30.0
 	github.com/viant/structology v0.9.0 // indirect
@@ -31,7 +31,11 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/viant/bigquery v0.5.1
+require (
+	github.com/go-sql-driver/mysql v1.9.0
+	github.com/viant/bigquery v0.5.1
+	github.com/viant/sqlx v0.22.1-0.20260326175456-cec446e28372
+)
 
 require (
 	cel.dev/expr v0.24.0 // indirect
@@ -95,7 +99,6 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-sql-driver/mysql v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
@@ -151,7 +154,6 @@ require (
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
 	github.com/viant/sqlparser v0.12.1-0.20260409013525-147f8fc299b7 // indirect
-	github.com/viant/sqlx v0.22.1-0.20260326175456-cec446e28372 // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.0 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
