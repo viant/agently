@@ -420,7 +420,7 @@ describe('RichContent fence parsing', () => {
       React.createElement(RichContent, { content })
     );
 
-    expect(html).toContain('Forge UI loading');
+    expect(html).toContain('Building UI loading');
     expect(html).not.toContain('```forge-ui');
     expect(html).not.toContain('Invalid forge-ui block');
   });
@@ -435,7 +435,7 @@ describe('RichContent fence parsing', () => {
       React.createElement(RichContent, { content })
     );
 
-    expect(html).toContain('Forge data loading');
+    expect(html).toContain('Setting datasources loading');
     expect(html).not.toContain('```forge-data');
   });
 
