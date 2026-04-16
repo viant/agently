@@ -2,6 +2,7 @@ import { client } from './agentlyClient';
 import { getLogger } from 'forge/utils/logger';
 import { registerDynamicEvaluator } from 'forge/runtime/binding';
 import { getBusSignal } from 'forge/core';
+import { openConfirmDialog } from '../utils/dialogBus';
 import {
   filterLookupCollection,
   normalizeWorkspaceAgentInfos,
@@ -99,6 +100,47 @@ function syncSavedSchedule(ds, payload) {
   }
 
   return normalized;
+}
+
+function buildSchedulePayload(form = {}, scheduleID = String(form?.id || '').trim()) {
+  const payload = {
+    id: scheduleID,
+    name: form.name,
+    description: form.description,
+    agentRef: form.agentRef || form.agent,
+    modelOverride: form.modelOverride,
+    enabled: asBoolean(firstDefined(form, ['enabled'])),
+    startAt: normalizeScheduleDateTime(form.startAt, 'Start Date'),
+    endAt: normalizeScheduleDateTime(form.endAt, 'End Date'),
+    scheduleType: form.scheduleType,
+    cronExpr: String(form.cronExpr || '').trim(),
+    intervalSeconds: form.scheduleType === 'interval' ? form.intervalSeconds : null,
+    timezone: form.timezone,
+    timeoutSeconds: form.timeoutSeconds,
+    taskPromptUri: form.taskPromptUri,
+    taskPrompt: form.taskPrompt,
+    userCredUrl: form.userCredUrl
+  };
+  const visibility = normalizeVisibility(form.visibility);
+  if (visibility) {
+    payload.visibility = visibility;
+  }
+  return payload;
+}
+
+function removeScheduleFromCollection(ds, scheduleID) {
+  const currentCollection = ds?.peekCollection?.() || ds?.getCollection?.();
+  if (!Array.isArray(currentCollection) || typeof ds?.setCollection !== 'function') return false;
+  const nextCollection = currentCollection.filter((item) => String(item?.id || '') !== String(scheduleID || ''));
+  if (nextCollection.length === currentCollection.length) return false;
+  ds.setCollection(nextCollection);
+  return true;
+}
+
+function clearScheduleSelection(ds, scheduleID) {
+  const selected = ds?.peekSelection?.()?.selected || ds?.getSelection?.()?.selected || {};
+  if (String(selected?.id || '') !== String(scheduleID || '')) return;
+  ds?.setSelected?.({ selected: {}, rowIndex: -1 });
 }
 
 function joinURL(base, path) {
@@ -960,30 +1002,12 @@ async function saveSchedule({ context }) {
   const enabledRaw = firstDefined(form, ['enabled']);
   const existingID = String(form.id || '').trim();
   const scheduleID = existingID || newScheduleID();
-  const visibility = normalizeVisibility(form.visibility);
   scheduleService._saveScheduleInFlight = true;
   try {
-    const payload = {
-      id: scheduleID,
-      name: form.name,
-      description: form.description,
-      agentRef: form.agentRef || form.agent,
-      modelOverride: form.modelOverride,
-      enabled: enabledRaw === undefined ? false : asBoolean(enabledRaw),
-      startAt: normalizeScheduleDateTime(form.startAt, 'Start Date'),
-      endAt: normalizeScheduleDateTime(form.endAt, 'End Date'),
-      scheduleType: form.scheduleType,
-      cronExpr: String(form.cronExpr || '').trim(),
-      intervalSeconds: form.scheduleType === 'interval' ? form.intervalSeconds : null,
-      timezone: form.timezone,
-      timeoutSeconds: form.timeoutSeconds,
-      taskPromptUri: form.taskPromptUri,
-      taskPrompt: form.taskPrompt,
-      userCredUrl: form.userCredUrl
-    };
-    if (visibility) {
-      payload.visibility = visibility;
-    }
+    const payload = buildSchedulePayload({
+      ...form,
+      enabled: enabledRaw === undefined ? false : enabledRaw
+    }, scheduleID);
     if (!existingID) {
       updateFormIfChanged(ds, { ...form, id: scheduleID });
     }
@@ -1016,25 +1040,39 @@ async function deleteSchedule({ context }) {
     return false;
   }
   const ds = ctx.handlers?.dataSource;
-  const selected = ds?.peekSelection?.()?.selected || ds?.getSelection?.()?.selected || {};
+  const selected = getFormState(ds);
   const id = selected?.id;
   if (!id) {
     log.warn('scheduleService.deleteSchedule: no schedule selected');
     return false;
   }
-  // Soft-delete: disable the schedule via PATCH (no DELETE endpoint available)
-  ds?.setLoading?.(true);
-  try {
-    await client.upsertSchedules([{ id, name: selected.name, enabled: false }]);
-    ds?.fetchCollection?.();
-    return true;
-  } catch (err) {
-    log.error('scheduleService.deleteSchedule error', err);
-    ds?.setError?.(err);
-    return false;
-  } finally {
-    ds?.setLoading?.(false);
-  }
+  const name = String(selected?.name || '').trim();
+  openConfirmDialog({
+    title: 'Delete Schedule',
+    message: name
+      ? `Are you sure you want to delete schedule "${name}"?`
+      : 'Are you sure you want to delete this schedule?',
+    confirmText: 'Delete',
+    cancelText: 'Cancel',
+    intent: 'danger',
+    onConfirm: async () => {
+      ds?.setLoading?.(true);
+      try {
+        await client.deleteSchedule(id);
+        removeScheduleFromCollection(ds, id);
+        clearScheduleSelection(ds, id);
+        ds?.fetchCollection?.();
+        return true;
+      } catch (err) {
+        log.error('scheduleService.deleteSchedule error', err);
+        ds?.setError?.(err);
+        return false;
+      } finally {
+        ds?.setLoading?.(false);
+      }
+    }
+  });
+  return true;
 }
 
 /* ─── display formatters ────────────────────────────────────────── */

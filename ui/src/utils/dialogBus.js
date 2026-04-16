@@ -20,6 +20,17 @@ const defaultFileViewState = {
   loading: false
 };
 
+const defaultConfirmState = {
+  open: false,
+  title: 'Confirm',
+  message: '',
+  confirmText: 'Confirm',
+  cancelText: 'Cancel',
+  intent: 'danger',
+  loading: false,
+  onConfirm: null
+};
+
 function createStore(initialState) {
   let state = { ...initialState };
   const listeners = new Set();
@@ -44,6 +55,7 @@ function createStore(initialState) {
 
 const codeDiffStore = createStore(defaultCodeDiffState);
 const fileViewStore = createStore(defaultFileViewState);
+const confirmStore = createStore(defaultConfirmState);
 
 export function useCodeDiffDialogState() {
   return useSyncExternalStore(codeDiffStore.subscribe, codeDiffStore.get, codeDiffStore.get);
@@ -51,6 +63,10 @@ export function useCodeDiffDialogState() {
 
 export function useFileViewDialogState() {
   return useSyncExternalStore(fileViewStore.subscribe, fileViewStore.get, fileViewStore.get);
+}
+
+export function useConfirmDialogState() {
+  return useSyncExternalStore(confirmStore.subscribe, confirmStore.get, confirmStore.get);
 }
 
 export function openCodeDiffDialog({ title = 'Changed File', current = '', prev = '', diff = '', hasPrev = false, loading = false, currentUri = '', prevUri = '' }) {
@@ -75,4 +91,25 @@ export function closeFileViewDialog() {
 
 export function updateFileViewDialog(patch) {
   fileViewStore.patch(patch);
+}
+
+export function openConfirmDialog({ title = 'Confirm', message = '', confirmText = 'Confirm', cancelText = 'Cancel', intent = 'danger', onConfirm = null } = {}) {
+  confirmStore.set({
+    open: true,
+    title,
+    message,
+    confirmText,
+    cancelText,
+    intent,
+    loading: false,
+    onConfirm
+  });
+}
+
+export function closeConfirmDialog() {
+  confirmStore.patch({ open: false, loading: false, onConfirm: null });
+}
+
+export function updateConfirmDialog(patch) {
+  confirmStore.patch(patch);
 }
