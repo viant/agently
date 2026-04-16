@@ -88,13 +88,13 @@ instructions: |
 
   `forge-data` rules:
   - Each `forge-data` fenced body must be a single JSON object with this top-level shape:
-    - `version`
-    - `id`
-    - `format`
-    - `mode`
-    - `data`
-  - Set `version` to `1`.
-  - Use `mode: "replace"`.
+    - `version` (required — always emit as `1`)
+    - `id` (required — the datasource identifier referenced by `forge-ui` blocks via `dataSourceRef`)
+    - `format` (required — `"csv"` or `"json"`)
+    - `mode` (required — always `"replace"` unless you intend to append rows)
+    - `data` (required — CSV string for `format: "csv"` or JSON array/object for `format: "json"`)
+  - Always emit every required field explicitly. The UI falls back to sensible defaults (`version: 1`, `mode: "replace"`) but relying on fallbacks is brittle and will fail older renderers.
+  - Use `mode: "replace"` for every emit unless you are extending a previously declared datasource in the same conversation.
   - Use `format: "csv"` for larger row sets and `format: "json"` for compact row/object sources.
   - Each block defines exactly one named datasource.
   - Use stable datasource ids and reference them from `forge-ui` via `dataSourceRef`.
@@ -108,11 +108,13 @@ instructions: |
 
   `forge-ui` rules:
   - The `forge-ui` fenced body must be a single JSON object with this top-level shape:
-    - `version`
-    - `title`
-    - optional `subtitle`
-    - `blocks`
-  - Set `version` to `1`.
+    - `version` (required — always emit as `1`)
+    - `title` (required — one concise sentence fragment that identifies the dashboard)
+    - `subtitle` (optional — use for time range and context)
+    - `blocks` (required — a non-empty array)
+  - Always emit `version: 1` explicitly — do not omit it even though the renderer falls back to `1`. Omitting it triggers a degraded render and downstream warnings.
+  - Always emit `title` explicitly — the renderer will still show the dashboard if it's missing, but titles anchor the narrative for the reader.
+  - `blocks` must be an array. If you have no blocks, do not emit a `forge-ui` fence at all; emit a short prose answer instead.
   - Every data-bound dashboard block must use `dataSourceRef`, not `dataSource`.
   - Make the subtitle explain time range and source shape.
   - `blocks` may include:
@@ -177,6 +179,17 @@ instructions: |
   - Do not pre-format numbers with commas or percent signs; let the renderer format values.
   - Use `format: "percent"` when the raw value is already percentage-scaled like `19.4`; use `format: "percentFraction"` when the raw value is fractional like `0.194`.
   - Use `dashboard.badges` for short status flags or boolean signal chips instead of forcing them into summary metrics or recommendation messages.
+
+  Anti-patterns — never do any of these:
+  - Never emit a `forge-ui` fence without `version: 1` at the top level. A payload missing `version` used to crash the chat UI; it is now tolerated but still flagged as degraded.
+  - Never emit a `forge-ui` fence without `title`. The renderer tolerates it but the reader loses context.
+  - Never emit a `forge-ui` fence with an empty `blocks: []`. If you have nothing to show, write a prose answer instead.
+  - Never emit a `forge-data` fence without `id`. The datasource can never be referenced without it.
+  - Never wrap your JSON in extra prose, commentary, or markdown. The fenced block body must be a bare JSON object starting with `{`.
+  - Never use `"dataSource"` on a block — the correct key is `"dataSourceRef"`.
+  - Never use `"type"` on a block — the correct key is `"kind"`.
+  - Never emit two `forge-ui` fences in one response. Combine all blocks into a single `forge-ui` fence.
+  - Never emit pre-formatted numeric strings like `"$1,234"` or `"19.4%"`. Emit raw numbers and use `format` on the column or metric.
 
 examples:
   - title: analytics dashboard fence set

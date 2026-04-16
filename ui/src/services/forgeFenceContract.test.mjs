@@ -7,6 +7,7 @@ import {
   forgeFenceSample,
   rowsToCsv,
   validateForgeUIBlock,
+  validateForgeDataBlock,
 } from './forgeFenceContract.js';
 
 test('applyForgeDataBlocks supports replace and append', () => {
@@ -51,6 +52,34 @@ test('planner submit payload reports selected and changed rows', () => {
   assert.equal(payload.changedRows.length, 1);
   assert.equal(payload.finalDataSourceSnapshot.length, 3);
   assert.equal(payload.changedRows[0].site_id, 202);
+});
+
+test('validateForgeUIBlock defaults missing version to 1', () => {
+  const ui = validateForgeUIBlock({ title: 'My Dash', blocks: [] });
+  assert.equal(ui.version, 1);
+  assert.equal(ui.title, 'My Dash');
+  assert.deepEqual(ui.blocks, []);
+});
+
+test('validateForgeUIBlock tolerates missing title and missing blocks', () => {
+  const ui = validateForgeUIBlock({ version: 1 });
+  assert.equal(ui.title, '');
+  assert.deepEqual(ui.blocks, []);
+});
+
+test('validateForgeUIBlock still rejects a non-object payload', () => {
+  assert.throws(() => validateForgeUIBlock('not an object'), /forge-ui block must be an object/);
+});
+
+test('validateForgeDataBlock defaults missing version and infers format', () => {
+  const block = validateForgeDataBlock({ id: 'rows', data: [{ a: 1 }] });
+  assert.equal(block.version, 1);
+  assert.equal(block.format, 'json');
+  assert.equal(block.mode, 'replace');
+});
+
+test('validateForgeDataBlock still requires id', () => {
+  assert.throws(() => validateForgeDataBlock({ version: 1, data: [] }), /forge-data\.id is required/);
 });
 
 test('rowsToCsv exports labeled recommendation rows', () => {
