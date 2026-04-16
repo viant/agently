@@ -416,7 +416,7 @@ describe('mergeRenderedRows', () => {
     });
   });
 
-  it('prefers the latest interim assistant content when collapsing multiple live pages for one owned turn', () => {
+  it('keeps multiple interim assistant rows distinct when they have different ids', () => {
     const liveRows = [
       {
         id: 'assistant:turn-1:1',
@@ -467,13 +467,13 @@ describe('mergeRenderedRows', () => {
       liveOwnedTurnIds: ['turn-1']
     });
 
-    expect(merged).toHaveLength(1);
-    expect(merged[0].content).toBe('Checking the hierarchy before forecasting.');
-    expect(merged[0].preamble).toBe('Checking the hierarchy before forecasting.');
-    expect(merged[0].executionGroups).toHaveLength(2);
+    expect(merged).toHaveLength(2);
+    expect(merged.map((row) => row.id)).toEqual(['assistant:turn-1:1', 'assistant:turn-1:2']);
+    expect(merged[0].content).toBe('Calling updatePlan.');
+    expect(merged[1].content).toBe('Checking the hierarchy before forecasting.');
   });
 
-  it('keeps distinct non-interim assistant rows in the same owned turn as separate bubbles', () => {
+  it('keeps same-turn assistant rows distinct when they have different ids', () => {
     const merged = mergeRenderedRows({
       transcriptRows: [],
       liveRows: [
@@ -535,12 +535,13 @@ describe('mergeRenderedRows', () => {
       liveOwnedTurnIds: ['turn-1']
     });
 
-    expect(merged).toHaveLength(2);
-    expect(merged.map((row) => row.id)).toEqual(['assistant-1', 'assistant-2-final']);
-    expect(merged[1].content).toBe('Second answer');
+    expect(merged).toHaveLength(3);
+    expect(merged.map((row) => row.id)).toEqual(['assistant-1', 'assistant-2', 'assistant-2-final']);
+    expect(merged[1].content).toBe('Thinking about the follow-up...');
+    expect(merged[2].content).toBe('Second answer');
   });
 
-  it('uses sequence as a tie-breaker when live rows share the same createdAt', () => {
+  it('uses sequence as a tie-breaker when distinct live rows share the same createdAt', () => {
     const merged = mergeRenderedRows({
       transcriptRows: [],
       liveRows: [
@@ -571,7 +572,9 @@ describe('mergeRenderedRows', () => {
       liveOwnedTurnIds: ['turn-1']
     });
 
-    expect(merged).toHaveLength(1);
-    expect(merged[0].content).toBe('second');
+    expect(merged).toHaveLength(2);
+    expect(merged.map((row) => row.id)).toEqual(['assistant-early', 'assistant-late']);
+    expect(merged[0].content).toBe('first');
+    expect(merged[1].content).toBe('second');
   });
 });

@@ -28,6 +28,17 @@ function isVisibleExecutionPage(page = {}) {
   return hasVisibleContent || hasError || hasTools || isActive || isError;
 }
 
+function executionPageIteration(page = {}) {
+  const raw = Number(page?.iteration);
+  if (Number.isFinite(raw)) return raw;
+  const status = String(page?.status || '').trim().toLowerCase();
+  const hasAssistantIdentity = String(page?.assistantMessageId || page?.pageId || '').trim() !== '';
+  const hasVisibleContent = String(page?.preamble || '').trim() !== '' || String(page?.content || '').trim() !== '';
+  const isActive = ['running', 'thinking', 'streaming', 'processing', 'waiting_for_user', 'in_progress', 'tool_calls'].includes(status);
+  if (hasAssistantIdentity || hasVisibleContent || isActive) return 1;
+  return 0;
+}
+
 function extractEmbeddedElicitation(text = '') {
   const raw = String(text || '').trim();
   if (!raw) return null;
@@ -157,8 +168,8 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
     }
 
     const executionPages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
-    const summaryPages = executionPages.filter((page) => Number(page?.iteration || 0) === 0);
-    const visiblePages = executionPages.filter((page) => Number(page?.iteration || 0) !== 0 && isVisibleExecutionPage(page));
+    const summaryPages = executionPages.filter((page) => executionPageIteration(page) === 0);
+    const visiblePages = executionPages.filter((page) => executionPageIteration(page) !== 0 && isVisibleExecutionPage(page));
     const normalizedExecutionPages = [
       ...visiblePages,
       ...summaryPages.filter((page) => isVisibleExecutionPage(page) || String(page?.content || '').trim() !== '')
@@ -175,6 +186,8 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
       if (renderPageIsActive) return latestVisiblePage;
       return latestFinalVisiblePage || latestVisiblePage;
     })();
+    let hasExplicitAssistantRow = false;
+    let assistantRowSuppressesElicitationContent = false;
 
     if (turn?.user) {
       rows.push(normalizeOne({
@@ -226,7 +239,57 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
         executionGroupsOffset: 0,
         executionGroupsLimit: normalizedExecutionPages.length
       }));
-    } else if (assistantFinal && String(assistantFinal?.content || '').trim() !== '') {
+      hasExplicitAssistantRow = true;
+      assistantRowSuppressesElicitationContent = suppressAssistantContent;
+    }
+
+    if (!hasExplicitAssistantRow && ['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress', 'tool_calls'].includes(turnStatus)) {
+      rows.push(normalizeOne({
+        id: `turn:${turnId}:execution`,
+        role: 'assistant',
+        interim: 1,
+        content: '',
+        preamble: assistantPreamble?.content || '',
+        turnId,
+        turnStatus,
+        status: turnStatus,
+        createdAt: turn?.createdAt || '',
+        errorMessage: turn?.errorMessage || '',
+        linkedConversations,
+        executionGroup: {
+          assistantMessageId: '',
+          parentMessageId: turn?.startedByMessageId || turn?.user?.messageId || '',
+          iteration: 1,
+          preamble: assistantPreamble?.content || '',
+          content: '',
+          finalResponse: false,
+          status: turnStatus,
+          startedAt: turn?.createdAt || '',
+          modelSteps: [],
+          toolSteps: [],
+          toolCallsPlanned: []
+        },
+        executionGroups: [{
+          assistantMessageId: '',
+          parentMessageId: turn?.startedByMessageId || turn?.user?.messageId || '',
+          iteration: 1,
+          preamble: assistantPreamble?.content || '',
+          content: '',
+          finalResponse: false,
+          status: turnStatus,
+          startedAt: turn?.createdAt || '',
+          modelSteps: [],
+          toolSteps: [],
+          toolCallsPlanned: []
+        }],
+        executionGroupsTotal: 1,
+        executionGroupsOffset: 0,
+        executionGroupsLimit: 1
+      }));
+      hasExplicitAssistantRow = true;
+    }
+
+    if (!hasExplicitAssistantRow && assistantFinal && String(assistantFinal?.content || '').trim() !== '') {
       rows.push(normalizeOne({
         id: assistantFinal?.messageId || turnId,
         role: 'assistant',
@@ -245,6 +308,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
         executionGroupsOffset: 0,
         executionGroupsLimit: normalizedExecutionPages.length
       }));
+      hasExplicitAssistantRow = true;
     }
 
     if (summaryPages.length > 0) {
@@ -262,7 +326,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
       }));
     }
 
-    if (turn?.elicitation) {
+    if (turn?.elicitation && (!hasExplicitAssistantRow || assistantRowSuppressesElicitationContent)) {
       const elic = turn.elicitation;
       const embeddedElicitation = extractEmbeddedElicitation(turn?.assistant?.final?.content || '');
       const elicitationMessage = displayableElicitationMessage(elic.message || '', embeddedElicitation);
@@ -327,6 +391,7 @@ export function buildConversationRenderRows({
   liveOwnedConversationID = '',
   liveOwnedTurnIds = []
 } = {}) {
+  const trackerActiveTurnId = String(streamState?.activeTurnId || '').trim();
   const trackerTurns = projectTrackerToTurns(streamState, currentConversationID);
   const explicitRows = Array.isArray(liveRows) ? liveRows : [];
   const trackerRowsBase = buildCanonicalTranscriptRows(trackerTurns).rows;
@@ -334,40 +399,23 @@ export function buildConversationRenderRows({
     if (String(row?.role || '').trim().toLowerCase() !== 'assistant') return row;
     const rowId = String(row?.id || '').trim();
     const rowTurnId = String(row?.turnId || '').trim();
-    const trackerRowsForTurn = rowTurnId
-      ? trackerRowsBase.filter((entry) => (
-        String(entry?.role || '').trim().toLowerCase() === 'assistant'
-        && String(entry?.turnId || '').trim() === rowTurnId
-      ))
-      : [];
-    const explicitRowsForTurn = rowTurnId
-      ? explicitRows.filter((entry) => (
-        String(entry?.role || '').trim().toLowerCase() === 'assistant'
-        && String(entry?.turnId || '').trim() === rowTurnId
-      ))
-      : [];
     const matchingExplicit = explicitRows.find((entry) => {
       if (String(entry?.role || '').trim().toLowerCase() !== 'assistant') return false;
       const explicitId = String(entry?.id || '').trim();
       if (rowId && explicitId && rowId === explicitId) return true;
       return false;
     });
-    const fallbackExplicit = !matchingExplicit && trackerRowsForTurn.length === 1 && explicitRowsForTurn.length === 1
-      ? explicitRowsForTurn[0]
-      : null;
-    const resolvedExplicit = matchingExplicit || fallbackExplicit;
-    if (!resolvedExplicit) return row;
-    const explicitContent = String(resolvedExplicit?.content || '').trim();
-    const explicitPreamble = String(resolvedExplicit?.preamble || '').trim();
-    const exactMatch = !!matchingExplicit;
+    if (!matchingExplicit) return row;
+    const explicitContent = String(matchingExplicit?.content || '').trim();
+    const explicitPreamble = String(matchingExplicit?.preamble || '').trim();
     return {
       ...row,
-      content: exactMatch && !String(row?.content || '').trim() ? (explicitContent || row?.content) : row?.content,
-      preamble: exactMatch && !String(row?.preamble || '').trim() ? (explicitPreamble || row?.preamble) : row?.preamble,
-      isStreaming: resolvedExplicit?.isStreaming,
-      _streamContent: resolvedExplicit?._streamContent,
-      _streamFence: resolvedExplicit?._streamFence,
-      rawContent: resolvedExplicit?.rawContent ?? row?.rawContent,
+      content: !String(row?.content || '').trim() ? (explicitContent || row?.content) : row?.content,
+      preamble: !String(row?.preamble || '').trim() ? (explicitPreamble || row?.preamble) : row?.preamble,
+      isStreaming: matchingExplicit?.isStreaming,
+      _streamContent: matchingExplicit?._streamContent,
+      _streamFence: matchingExplicit?._streamFence,
+      rawContent: matchingExplicit?.rawContent ?? row?.rawContent,
     };
   });
   const trackerAssistantTurnIds = new Set(
@@ -398,7 +446,9 @@ export function buildConversationRenderRows({
       transcriptRows,
       currentConversationID,
       liveOwnedConversationID,
-      liveOwnedTurnIds
+      trackerActiveTurnId
+        ? Array.from(new Set([...(Array.isArray(liveOwnedTurnIds) ? liveOwnedTurnIds : []), trackerActiveTurnId]))
+        : liveOwnedTurnIds
     ),
     liveRows: effectiveLiveRows,
     runningTurnId: String(runningTurnId || '').trim(),
@@ -406,7 +456,9 @@ export function buildConversationRenderRows({
     findLatestRunningTurnId,
     currentConversationID,
     liveOwnedConversationID,
-    liveOwnedTurnIds
+    liveOwnedTurnIds: trackerActiveTurnId
+      ? Array.from(new Set([...(Array.isArray(liveOwnedTurnIds) ? liveOwnedTurnIds : []), trackerActiveTurnId]))
+      : liveOwnedTurnIds
   });
   return {
     effectiveLiveRows,
