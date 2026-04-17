@@ -130,17 +130,161 @@ function buildSchedulePayload(form = {}, scheduleID = String(form?.id || '').tri
 
 function removeScheduleFromCollection(ds, scheduleID) {
   const currentCollection = ds?.peekCollection?.() || ds?.getCollection?.();
-  if (!Array.isArray(currentCollection) || typeof ds?.setCollection !== 'function') return false;
+  if (!Array.isArray(currentCollection) || typeof ds?.setCollection !== 'function') {
+    return { removed: false, nextCollection: [], removedIndex: -1 };
+  }
+  const removedIndex = currentCollection.findIndex((item) => String(item?.id || '') === String(scheduleID || ''));
   const nextCollection = currentCollection.filter((item) => String(item?.id || '') !== String(scheduleID || ''));
-  if (nextCollection.length === currentCollection.length) return false;
+  if (nextCollection.length === currentCollection.length) {
+    return { removed: false, nextCollection: currentCollection, removedIndex };
+  }
   ds.setCollection(nextCollection);
-  return true;
+  return { removed: true, nextCollection, removedIndex };
 }
 
 function clearScheduleSelection(ds, scheduleID) {
   const selected = ds?.peekSelection?.()?.selected || ds?.getSelection?.()?.selected || {};
   if (String(selected?.id || '') !== String(scheduleID || '')) return;
   ds?.setSelected?.({ selected: {}, rowIndex: -1 });
+}
+
+function getAutomationWindowID(context) {
+  return String(
+    context?.identity?.windowId ||
+    context?.Context?.('schedules')?.identity?.windowId ||
+    context?.Context?.('runs')?.identity?.windowId ||
+    ''
+  ).trim();
+}
+
+function getAutomationState(context) {
+  if (!scheduleService._automationStateByWindow) {
+    scheduleService._automationStateByWindow = new Map();
+  }
+  const windowID = getAutomationWindowID(context) || '__default__';
+  if (!scheduleService._automationStateByWindow.has(windowID)) {
+    scheduleService._automationStateByWindow.set(windowID, {
+      activeSchedule: null
+    });
+  }
+  return scheduleService._automationStateByWindow.get(windowID);
+}
+
+function getActiveSchedule(context) {
+  return getAutomationState(context)?.activeSchedule || null;
+}
+
+function setActiveSchedule(context, schedule) {
+  const normalizedID = String(schedule?.id || '').trim();
+  const state = getAutomationState(context);
+  state.activeSchedule = normalizedID ? ensureEditorState(schedule) : null;
+  return state.activeSchedule;
+}
+
+function clearActiveSchedule(context) {
+  const state = getAutomationState(context);
+  state.activeSchedule = null;
+}
+
+function getRunsDataSource(context) {
+  return context?.Context?.('runs')?.handlers?.dataSource;
+}
+
+function syncRunsToActiveSchedule(context, { fetch = false, clearCollection = false } = {}) {
+  const runsDS = getRunsDataSource(context);
+  if (!runsDS) return;
+  const active = getActiveSchedule(context);
+  const activeID = String(active?.id || '').trim();
+  const currentParams = runsDS?.peekInput?.()?.parameters || {};
+  const nextParams = { ...currentParams };
+  if (activeID) {
+    nextParams.scheduleId = activeID;
+  } else {
+    delete nextParams.scheduleId;
+  }
+  runsDS?.setInputParameters?.(nextParams);
+  if (!activeID && clearCollection) {
+    runsDS?.setCollection?.([]);
+  }
+  if (fetch && activeID) {
+    runsDS?.fetchCollection?.();
+  }
+}
+
+function preserveActiveScheduleForm(context) {
+  const schedulesDS = getSchedulesDataSource(context);
+  const active = getActiveSchedule(context);
+  if (!schedulesDS || !active?.id) return;
+  updateFormIfChanged(schedulesDS, active);
+}
+
+function reconcileDeletedSchedule(context, ds, deletedID) {
+  const currentSelection = ds?.peekSelection?.() || ds?.getSelection?.() || {};
+  const selectedIndex = Number.isInteger(currentSelection?.rowIndex) ? currentSelection.rowIndex : -1;
+  const { removed, nextCollection, removedIndex } = removeScheduleFromCollection(ds, deletedID);
+  if (!removed) {
+    clearActiveSchedule(context);
+    syncRunsToActiveSchedule(context, { clearCollection: true });
+    return;
+  }
+
+  const baseIndex = selectedIndex >= 0 ? selectedIndex : removedIndex;
+  const nextIndex = nextCollection.length > 0 ? Math.min(Math.max(baseIndex, 0), nextCollection.length - 1) : -1;
+  if (nextIndex >= 0) {
+    const nextSelected = normalizeScheduleRow(nextCollection[nextIndex]);
+    setActiveSchedule(context, nextSelected);
+    ds?.setSelected?.({ selected: nextSelected, rowIndex: nextIndex });
+    return;
+  }
+
+  clearActiveSchedule(context);
+  ds?.setSelected?.({ selected: null, rowIndex: -1 });
+  syncRunsToActiveSchedule(context, { clearCollection: true });
+}
+
+function installAutomationScheduleBindings(context) {
+  const ds = getSchedulesDataSource(context);
+  if (!ds || scheduleService._wrappedScheduleDataSources?.has(ds)) return;
+  if (!scheduleService._wrappedScheduleDataSources) {
+    scheduleService._wrappedScheduleDataSources = new WeakSet();
+  }
+
+  const syncSelectionState = () => {
+    const currentSelection = ds?.peekSelection?.() || ds?.getSelection?.() || {};
+    const selectedRow = String(currentSelection?.selected?.id || '').trim()
+      ? normalizeScheduleRow(currentSelection.selected)
+      : null;
+    if (selectedRow) {
+      setActiveSchedule(context, selectedRow);
+      syncRunsToActiveSchedule(context);
+      return;
+    }
+    if (getActiveSchedule(context)?.id) {
+      preserveActiveScheduleForm(context);
+      syncRunsToActiveSchedule(context);
+      return;
+    }
+    syncRunsToActiveSchedule(context, { clearCollection: true });
+  };
+
+  const originalSetSelected = typeof ds.setSelected === 'function' ? ds.setSelected.bind(ds) : null;
+  if (originalSetSelected) {
+    ds.setSelected = (newSelection) => {
+      originalSetSelected(newSelection);
+      syncSelectionState();
+    };
+  }
+
+  const originalToggleSelection = typeof ds.toggleSelection === 'function' ? ds.toggleSelection.bind(ds) : null;
+  if (originalToggleSelection) {
+    ds.toggleSelection = (props) => {
+      const result = originalToggleSelection(props);
+      syncSelectionState();
+      return result;
+    };
+  }
+
+  scheduleService._wrappedScheduleDataSources.add(ds);
 }
 
 function joinURL(base, path) {
@@ -818,12 +962,12 @@ function ensureRunsBoundToScheduleForm(context, collection = []) {
   const incoming = Array.isArray(collection) ? collection : [];
   if (incoming.length > 0) return;
   const schedulesDS = getSchedulesDataSource(context);
-  const formID = String(getFormState(schedulesDS)?.id || '').trim();
+  const formID = String(getActiveSchedule(context)?.id || getFormState(schedulesDS)?.id || '').trim();
   if (!formID) return;
   const runsDS = context?.handlers?.dataSource;
   const currentInputID = String(runsDS?.peekInput?.()?.parameters?.scheduleId || '').trim();
   if (currentInputID === formID) return;
-  schedulesDS?.pushFormDependencies?.();
+  syncRunsToActiveSchedule(context);
 }
 
 function getFormState(ds) {
@@ -1019,6 +1163,8 @@ async function saveSchedule({ context }) {
     } catch (refreshErr) {
       log.warn('scheduleService.saveSchedule refresh error', refreshErr);
     }
+    setActiveSchedule(context, synced || { ...form, ...payload, id: scheduleID });
+    syncRunsToActiveSchedule(context);
     if (!existingID || !synced) {
       ds?.fetchCollection?.();
     }
@@ -1040,7 +1186,7 @@ async function deleteSchedule({ context }) {
     return false;
   }
   const ds = ctx.handlers?.dataSource;
-  const selected = getFormState(ds);
+  const selected = ds?.peekSelection?.()?.selected || ds?.getSelection?.()?.selected || {};
   const id = selected?.id;
   if (!id) {
     log.warn('scheduleService.deleteSchedule: no schedule selected');
@@ -1059,8 +1205,7 @@ async function deleteSchedule({ context }) {
       ds?.setLoading?.(true);
       try {
         await client.deleteSchedule(id);
-        removeScheduleFromCollection(ds, id);
-        clearScheduleSelection(ds, id);
+        reconcileDeletedSchedule(context, ds, id);
         ds?.fetchCollection?.();
         return true;
       } catch (err) {
@@ -1147,6 +1292,7 @@ export const scheduleService = {
   onInit({ context }) {
     installScheduleEmptyStateObserver();
     setTimeout(decorateScheduleEmptyStates, 0);
+    installAutomationScheduleBindings(context);
     try {
       if (!scheduleService._visibilityHookInstalled) {
         registerDynamicEvaluator('onVisible', ({ item, context: ctx }) => {
@@ -1176,9 +1322,13 @@ export const scheduleService = {
         const synced = applyScheduleSync(getFormState(ds));
         updateFormIfChanged(ds, synced);
         const selectedID = String(ds?.peekSelection?.()?.selected?.id || '').trim();
-        if (!selectedID && String(synced?.id || '').trim()) {
-          ds?.pushFormDependencies?.();
+        if (selectedID) {
+          setActiveSchedule(context, synced);
         }
+        if (!selectedID && String(synced?.id || '').trim()) {
+          setActiveSchedule(context, synced);
+        }
+        syncRunsToActiveSchedule(context);
       }
     } catch (_) {}
   },
@@ -1200,6 +1350,16 @@ export const scheduleService = {
       }, 0);
     } catch (e) {
       console.warn('[schedule.applyLookupFilter] error', e);
+    }
+  },
+  onSelectSchedule({ context, selected }) {
+    try {
+      const normalized = normalizeScheduleRow(selected || {});
+      if (!String(normalized?.id || '').trim()) return;
+      setActiveSchedule(context, normalized);
+      syncRunsToActiveSchedule(context);
+    } catch (e) {
+      log.error('schedule.onSelectSchedule error', e);
     }
   },
   saveSchedule,
@@ -1231,11 +1391,24 @@ export const scheduleService = {
       ctx.handlers?.setLoading?.(false);
     }
   },
-  onFetchSchedules({ collection = [] }) {
+  onFetchSchedules({ context, collection = [] }) {
     try {
       setTimeout(decorateScheduleEmptyStates, 0);
-      const incoming = Array.isArray(collection) ? collection : [];
-      return incoming.map((r) => normalizeScheduleRow(r));
+      const incoming = (Array.isArray(collection) ? collection : []).map((r) => normalizeScheduleRow(r));
+      const active = getActiveSchedule(context);
+      if (active?.id) {
+        const refreshed = incoming.find((item) => String(item?.id || '') === String(active.id));
+        if (refreshed) {
+          setActiveSchedule(context, refreshed);
+          if (!String(getSchedulesDataSource(context)?.peekSelection?.()?.selected?.id || '').trim()) {
+            preserveActiveScheduleForm(context);
+          }
+        } else {
+          clearActiveSchedule(context);
+          syncRunsToActiveSchedule(context, { clearCollection: true });
+        }
+      }
+      return incoming;
     } catch (e) {
       log.error('schedule.onFetchSchedules error', e);
       return collection;
@@ -1356,6 +1529,8 @@ export const scheduleService = {
     try {
       const ds = getSchedulesDataSource(context);
       if (ds) {
+        clearActiveSchedule(context);
+        syncRunsToActiveSchedule(context, { clearCollection: true });
         ds.handleAddNew();
         updateFormIfChanged(ds, ensureEditorState(getFormState(ds)));
       }

@@ -134,14 +134,14 @@ async function fetchPage({ query = '', direction = 'latest', cursor = '' }) {
     page: { limit: PAGE_SIZE, direction, cursor: cursor || undefined },
   });
   const rows = sortConversations(Array.isArray(page?.data) ? page.data : []);
-  const hasMore = Boolean(page?.page?.hasMore);
   const prev = String(page?.page?.prevCursor || '').trim();
   const next = String(page?.page?.cursor || '').trim();
-  const cursorsEqual = prev && next && prev === next;
   return {
     rows,
-    prevCursor: hasMore && !cursorsEqual ? prev : '',
-    nextCursor: hasMore && !cursorsEqual ? next : ''
+    prevCursor: prev,
+    nextCursor: next,
+    hasNewer: Boolean(page?.page?.hasNewer),
+    hasOlder: Boolean(page?.page?.hasOlder),
   };
 }
 
@@ -155,6 +155,8 @@ export default function Sidebar({ collapsed = false }) {
   });
   const [prevCursor, setPrevCursor] = useState('');
   const [nextCursor, setNextCursor] = useState('');
+  const [hasNewer, setHasNewer] = useState(false);
+  const [hasOlder, setHasOlder] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const rowsRef = React.useRef([]);
@@ -162,12 +164,12 @@ export default function Sidebar({ collapsed = false }) {
 
   const pageStatusLabel = useMemo(() => {
     if (loading) return 'Loading...';
-    if (prevCursor && nextCursor) return 'Middle';
-    if (prevCursor && !nextCursor) return 'Newest';
-    if (!prevCursor && nextCursor) return 'Oldest';
+    if (hasNewer && hasOlder) return 'Middle';
+    if (hasNewer && !hasOlder) return 'Oldest';
+    if (!hasNewer && hasOlder) return 'Newest';
     return 'Single page';
-  }, [loading, prevCursor, nextCursor]);
-  const showPagination = loading || !!prevCursor || !!nextCursor;
+  }, [loading, hasNewer, hasOlder]);
+  const showPagination = loading || hasNewer || hasOlder;
 
   const reload = async (direction = 'latest', cursor = '') => {
     setLoading(true);
@@ -176,6 +178,8 @@ export default function Sidebar({ collapsed = false }) {
       setRows(Array.isArray(page.rows) ? page.rows : []);
       setPrevCursor(page.prevCursor);
       setNextCursor(page.nextCursor);
+      setHasNewer(page.hasNewer);
+      setHasOlder(page.hasOlder);
       setError('');
     } catch (err) {
       if (isConnectivityError(err)) {
@@ -348,8 +352,8 @@ export default function Sidebar({ collapsed = false }) {
                 minimal
                 icon="chevron-left"
                 className="app-sidebar-pagination-btn"
-                disabled={!prevCursor}
-                onClick={() => void reload('before', prevCursor)}
+                disabled={!hasNewer || !prevCursor}
+                onClick={() => void reload('after', prevCursor)}
               >
                 Newer
               </Button>
@@ -359,8 +363,8 @@ export default function Sidebar({ collapsed = false }) {
                 minimal
                 icon="chevron-right"
                 className="app-sidebar-pagination-btn"
-                disabled={!nextCursor}
-                onClick={() => void reload('after', nextCursor)}
+                disabled={!hasOlder || !nextCursor}
+                onClick={() => void reload('before', nextCursor)}
               >
                 Older
               </Button>
