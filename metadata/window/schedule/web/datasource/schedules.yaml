@@ -17,6 +17,8 @@ selectors:
 on:
   - event: onFetch
     handler: schedule.onFetchSchedules
+  - event: onSelection
+    handler: schedule.onSelectSchedule
 
 filterSet:
   - name: default
@@ -32,3 +34,4 @@ uniqueKey:
   - field: id
 
 selectionMode: single
+retainSelectionOnRepeatClick: true
