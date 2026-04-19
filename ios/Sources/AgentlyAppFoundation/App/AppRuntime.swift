@@ -145,11 +145,15 @@ public final class AppRuntime: ObservableObject {
     public func selectConversation(_ conversationID: String) async {
         guard !conversationID.isEmpty else { return }
         logger.info("Selecting conversation \(conversationID, privacy: .public)")
+        streamTask?.cancel()
         state.activeConversationID = conversationID
         state.activeTurnID = nil
         state.streamErrorMessage = nil
         state.isStoppingTurn = false
         state.selectedArtifact = nil
+        state.artifacts = []
+        state.artifactErrorMessage = nil
+        chatRuntime.transcript = []
         settingsStore.saveActiveConversationID(conversationID)
         await loadConversationState(conversationID: conversationID)
         startStreaming(conversationID: conversationID)
@@ -312,12 +316,19 @@ public final class AppRuntime: ObservableObject {
     private func loadConversationState(conversationID: String) async {
         state.isLoadingConversation = true
         do {
-            let liveState = try await state.client.getLiveState(conversationID: conversationID)
-            chatRuntime.replaceTranscript(from: liveState)
+            let transcriptState = try await state.client.getTranscript(
+                GetTranscriptInput(
+                    conversationID: conversationID,
+                    includeModelCalls: true,
+                    includeToolCalls: true,
+                    includeFeeds: true
+                )
+            )
+            chatRuntime.replaceTranscript(from: transcriptState)
             state.streamErrorMessage = nil
-            logger.info("Loaded live state for conversation \(conversationID, privacy: .public)")
+            logger.info("Loaded transcript state for conversation \(conversationID, privacy: .public)")
         } catch {
-            logger.error("Live state load failed for conversation \(conversationID, privacy: .public): \(String(describing: error), privacy: .public)")
+            logger.error("Transcript load failed for conversation \(conversationID, privacy: .public): \(String(describing: error), privacy: .public)")
             state.streamErrorMessage = "Failed to load conversation state. \(error.localizedDescription)"
         }
         await loadArtifacts(conversationID: conversationID)
@@ -365,6 +376,9 @@ public final class AppRuntime: ObservableObject {
                 for try await event in state.client.streamEvents(conversationID: conversationID) {
                     if Task.isCancelled { return }
                     let snapshot = await streamTracker.apply(event)
+                    guard state.activeConversationID == conversationID else {
+                        continue
+                    }
                     state.activeTurnID = snapshot.activeTurnID
                     if snapshot.activeTurnID == nil {
                         state.isStoppingTurn = false

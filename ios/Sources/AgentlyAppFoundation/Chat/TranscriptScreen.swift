@@ -121,9 +121,11 @@ private struct TranscriptBubble: View {
         if item.role == "user" {
             Text(item.markdown.isEmpty ? "(empty response)" : item.markdown)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(4)
+                .truncationMode(.tail)
                 .textSelection(.enabled)
         } else {
-            MarkdownRenderer(markdown: item.markdown)
+            TranscriptMessageContent(markdown: item.markdown)
                 .textSelection(.enabled)
         }
     }

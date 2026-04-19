@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.Conversation
+import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.WorkspaceMetadata
@@ -55,9 +56,6 @@ import kotlinx.serialization.json.JsonElement
 
 @Composable
 internal fun PhoneChatScreen(
-    appApiBaseUrl: String,
-    metadata: WorkspaceMetadata?,
-    effectiveAgentId: String?,
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
@@ -82,9 +80,6 @@ internal fun PhoneChatScreen(
     onClosePreview: () -> Unit
 ) {
     PhoneWorkspacePane(
-        appApiBaseUrl = appApiBaseUrl,
-        metadata = metadata,
-        effectiveAgentId = effectiveAgentId,
         loading = loading,
         recentConversations = recentConversations,
         activeConversationId = activeConversationId,
@@ -114,8 +109,6 @@ internal fun PhoneChatScreen(
 @Composable
 internal fun TabletChatScreen(
     appApiBaseUrl: String,
-    metadata: WorkspaceMetadata?,
-    effectiveAgentId: String?,
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
@@ -147,15 +140,12 @@ internal fun TabletChatScreen(
     onRemoveAttachment: (String) -> Unit,
     onRunQuery: () -> Unit
 ) {
-    val activeConversation = recentConversations.firstOrNull { it.id == activeConversationId }
     Row(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         TabletConversationSidebar(
             appApiBaseUrl = appApiBaseUrl,
-            metadata = metadata,
-            effectiveAgentId = effectiveAgentId,
             loading = loading,
             recentConversations = recentConversations,
             activeConversationId = activeConversationId,
@@ -177,10 +167,7 @@ internal fun TabletChatScreen(
                 .fillMaxHeight()
         ) {
             TabletWorkspacePane(
-                metadata = metadata,
-                effectiveAgentId = effectiveAgentId,
                 loading = loading,
-                activeConversation = activeConversation,
                 activeConversationId = activeConversationId,
                 error = error,
                 streamSnapshot = streamSnapshot,

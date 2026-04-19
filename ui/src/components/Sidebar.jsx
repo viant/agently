@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, InputGroup, Spinner } from '@blueprintjs/core';
-import ChangeFeed from './ChangeFeed';
 import { resolveConversationSummary, resolveConversationTitle } from '../services/conversationTitle';
 import { isConnectivityError } from '../services/networkError';
 import { client } from '../services/agentlyClient';
@@ -165,7 +164,7 @@ export default function Sidebar({ collapsed = false }) {
     if (prevCursor && nextCursor) return 'Middle';
     if (prevCursor && !nextCursor) return 'Newest';
     if (!prevCursor && nextCursor) return 'Oldest';
-    return 'Single page';
+    return 'Single';
   }, [loading, prevCursor, nextCursor]);
   const showPagination = loading || !!prevCursor || !!nextCursor;
 
@@ -332,7 +331,6 @@ export default function Sidebar({ collapsed = false }) {
 
       {!collapsed ? (
         <>
-          <ChangeFeed anchor="sidebar_top" compact />
           <div className="app-sidebar-section" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <span>Conversations</span>
             <Button minimal small icon="refresh" onClick={() => void reload('latest', '')}>
@@ -340,7 +338,6 @@ export default function Sidebar({ collapsed = false }) {
             </Button>
           </div>
           <div className="app-sidebar-scroll">{content}</div>
-          <ChangeFeed anchor="sidebar_bottom" compact />
           {showPagination ? (
             <div className="app-sidebar-pagination">
               <Button
@@ -349,10 +346,10 @@ export default function Sidebar({ collapsed = false }) {
                 icon="chevron-left"
                 className="app-sidebar-pagination-btn"
                 disabled={!prevCursor}
+                aria-label="Load newer conversations"
+                title="Load newer conversations"
                 onClick={() => void reload('before', prevCursor)}
-              >
-                Newer
-              </Button>
+              />
               <div className="app-sidebar-pagination-status">{pageStatusLabel}</div>
               <Button
                 small
@@ -360,10 +357,10 @@ export default function Sidebar({ collapsed = false }) {
                 icon="chevron-right"
                 className="app-sidebar-pagination-btn"
                 disabled={!nextCursor}
+                aria-label="Load older conversations"
+                title="Load older conversations"
                 onClick={() => void reload('after', nextCursor)}
-              >
-                Older
-              </Button>
+              />
             </div>
           ) : null}
         </>

@@ -3,9 +3,12 @@ package agently
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	coreplan "github.com/viant/agently-core/protocol/agent/plan"
@@ -35,10 +38,23 @@ func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, inpu
 	startedAt := time.Now().UTC()
 	resolverCtx, stopResolver := context.WithCancel(ctx)
 	defer stopResolver()
+	// Buffered so the watcher never blocks reporting the first error it sees,
+	// even if the main goroutine has already returned without reading.
 	resolverErr := make(chan error, 1)
+	var resolverWG sync.WaitGroup
 	if inlineElicitation {
-		go watchPendingElicitations(resolverCtx, client, strings.TrimSpace(input.ConversationID), defaultPayload, seedPayload, resolverErr)
+		resolverWG.Add(1)
+		go func() {
+			defer resolverWG.Done()
+			watchPendingElicitations(resolverCtx, client, strings.TrimSpace(input.ConversationID), defaultPayload, seedPayload, c.elicitationTimeout, resolverErr)
+		}()
 	}
+	// Ensure the watcher goroutine has exited before the function returns so
+	// it cannot race the caller on shared state or outlive the CLI command.
+	defer func() {
+		stopResolver()
+		resolverWG.Wait()
+	}()
 	out, err := client.Query(ctx, input)
 	if err != nil {
 		return nil, false, err
@@ -51,6 +67,16 @@ func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, inpu
 	default:
 	}
 	stopResolver()
+	resolverWG.Wait()
+	// Drain any error the watcher raised after we passed the non-blocking
+	// select above but before cancellation took effect.
+	select {
+	case err := <-resolverErr:
+		if err != nil {
+			return nil, false, err
+		}
+	default:
+	}
 	if out == nil {
 		return nil, false, fmt.Errorf("query returned no response")
 	}
@@ -69,7 +95,7 @@ func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, inpu
 		streamer.Close()
 		return nil, false, fmt.Errorf("elicitation required; run interactively or provide --elicitation-default")
 	}
-	content, err := waitForAssistantContent(ctx, client, streamer, strings.TrimSpace(out.ConversationID), startedAt, defaultPayload, seedPayload)
+	content, err := waitForAssistantContent(ctx, client, streamer, strings.TrimSpace(out.ConversationID), startedAt, defaultPayload, seedPayload, c.elicitationTimeout)
 	if err != nil {
 		return nil, false, err
 	}
@@ -82,6 +108,11 @@ type chatStreamer struct {
 	sub     streamingrt.Subscription
 	done    chan struct{}
 	tracker *sdk.ConversationStreamTracker
+	// mu guards the fields below against races between consume() (which
+	// writes) and Flush() (which reads). Close() blocks on done before Flush
+	// reads, but Close has a safety timeout so we keep the lock for
+	// correctness when the subscription is slow to drain.
+	mu      sync.Mutex
 	content strings.Builder
 	printed bool
 	tail    string
@@ -118,11 +149,13 @@ func (s *chatStreamer) consume() {
 			if event.Content == "" {
 				continue
 			}
+			s.mu.Lock()
 			normalized := normalizeCLIStreamDelta(s.tail, event.Content)
 			fmt.Print(normalized)
 			s.content.WriteString(normalized)
 			s.tail = cliStreamTail(s.content.String())
 			s.printed = true
+			s.mu.Unlock()
 		case streamingrt.EventTypeError:
 			if strings.TrimSpace(event.Error) != "" {
 				fmt.Fprintf(os.Stderr, "[stream-error] %s\n", strings.TrimSpace(event.Error))
@@ -165,6 +198,8 @@ func (s *chatStreamer) Flush(final string) bool {
 	if s == nil {
 		return false
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	streamed := s.content.String()
 	final = strings.TrimSpace(final)
 	if final == "" {
@@ -233,7 +268,7 @@ func (s *chatStreamer) Close() {
 	}
 }
 
-func waitForAssistantContent(ctx context.Context, client *sdk.HTTPClient, streamer *chatStreamer, conversationID string, startedAt time.Time, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}) (string, error) {
+func waitForAssistantContent(ctx context.Context, client *sdk.HTTPClient, streamer *chatStreamer, conversationID string, startedAt time.Time, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}, elicitationTimeout time.Duration) (string, error) {
 	_ = startedAt
 	if strings.TrimSpace(conversationID) == "" {
 		return "", nil
@@ -252,7 +287,7 @@ func waitForAssistantContent(ctx context.Context, client *sdk.HTTPClient, stream
 					return content, nil
 				}
 			}
-			if handled, err := handlePendingElicitation(ctx, client, conversationID, defaultPayload, seedPayload); err != nil {
+			if handled, err := handlePendingElicitation(ctx, client, conversationID, defaultPayload, seedPayload, elicitationTimeout); err != nil {
 				return "", err
 			} else if handled {
 				continue
@@ -310,7 +345,31 @@ func latestAssistantContentFromState(state *sdk.ConversationState) (string, bool
 	return "", false, nil
 }
 
-func handlePendingElicitation(ctx context.Context, client *sdk.HTTPClient, conversationID string, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}) (bool, error) {
+// defaultElicitationResponseTimeout is the fallback when the server has not
+// configured defaults.elicitationTimeoutSec. It caps how long the CLI waits
+// for a human to respond to a single elicitation prompt; terminals left
+// unattended fail the turn rather than poll forever.
+const defaultElicitationResponseTimeout = 10 * time.Minute
+
+func effectiveElicitationTimeout(configured time.Duration) time.Duration {
+	if configured > 0 {
+		return configured
+	}
+	return defaultElicitationResponseTimeout
+}
+
+func resolveWithDeadline(ctx context.Context, client *sdk.HTTPClient, conversationID string, req *coreplan.Elicitation, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}, timeout time.Duration) error {
+	timeout = effectiveElicitationTimeout(timeout)
+	resolveCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	err := resolvePlannedElicitation(resolveCtx, client, conversationID, req, defaultPayload, seedPayload)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("elicitation %q timed out after %s with no response", strings.TrimSpace(req.ElicitationId), timeout)
+	}
+	return err
+}
+
+func handlePendingElicitation(ctx context.Context, client *sdk.HTTPClient, conversationID string, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}, timeout time.Duration) (bool, error) {
 	rows, err := client.ListPendingElicitations(ctx, &sdk.ListPendingElicitationsInput{ConversationID: conversationID})
 	if err != nil {
 		return false, err
@@ -331,13 +390,13 @@ func handlePendingElicitation(ctx context.Context, client *sdk.HTTPClient, conve
 	if req == nil {
 		return false, nil
 	}
-	if err := resolvePlannedElicitation(ctx, client, conversationID, req, defaultPayload, seedPayload); err != nil {
+	if err := resolveWithDeadline(ctx, client, conversationID, req, defaultPayload, seedPayload, timeout); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-func watchPendingElicitations(ctx context.Context, client *sdk.HTTPClient, conversationID string, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}, errs chan<- error) {
+func watchPendingElicitations(ctx context.Context, client *sdk.HTTPClient, conversationID string, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}, timeout time.Duration, errs chan<- error) {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	resolved := map[string]struct{}{}
@@ -375,7 +434,7 @@ func watchPendingElicitations(ctx context.Context, client *sdk.HTTPClient, conve
 				continue
 			}
 			resolved[strings.TrimSpace(req.ElicitationId)] = struct{}{}
-			if err := resolvePlannedElicitation(ctx, client, conversationID, req, defaultPayload, seedPayload); err != nil {
+			if err := resolveWithDeadline(ctx, client, conversationID, req, defaultPayload, seedPayload, timeout); err != nil {
 				select {
 				case errs <- err:
 				default:
@@ -393,7 +452,11 @@ func plannedElicitationFromPending(input *sdk.PendingElicitation) *coreplan.Elic
 	req := &coreplan.Elicitation{}
 	if len(input.Elicitation) > 0 {
 		if data, err := json.Marshal(input.Elicitation); err == nil {
-			_ = json.Unmarshal(data, req)
+			if err := json.Unmarshal(data, req); err != nil {
+				log.Printf("[elicitation] decode pending payload for id %q failed: %v", input.ElicitationID, err)
+			}
+		} else {
+			log.Printf("[elicitation] encode pending payload for id %q failed: %v", input.ElicitationID, err)
 		}
 	}
 	if strings.TrimSpace(req.Message) == "" {

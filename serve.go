@@ -11,7 +11,9 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/viant/afs"
 	_ "github.com/viant/afs/file"
@@ -30,6 +32,11 @@ import (
 	agentlyrt "github.com/viant/agently/runtime"
 	"github.com/viant/agently/server"
 )
+
+// shutdownTimeout bounds how long Serve will wait for in-flight HTTP and MCP
+// handlers to finish on SIGTERM/SIGINT before returning. Past this deadline we
+// stop waiting and return — a stuck handler should not block process exit.
+const shutdownTimeout = 30 * time.Second
 
 type servedUIBundle struct {
 	Name  string
@@ -116,12 +123,17 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize scheduler store: %w", err)
 	}
-	schedulerSvc := svcscheduler.New(scheduleStore, rt.Agent,
+	schedulerSvcOpts := []svcscheduler.Option{
 		svcscheduler.WithConversationClient(rt.Conversation),
 		svcscheduler.WithAuthConfig(rt.AuthConfig),
 		svcscheduler.WithTokenProvider(rt.TokenProvider),
 		svcscheduler.WithUserService(svcauthctx.NewDatlyUserService(rt.DAO)),
-	)
+	}
+	if cap := agentlyrt.SchedulerMaxConcurrentRunsFromEnv(); cap > 0 {
+		schedulerSvcOpts = append(schedulerSvcOpts, svcscheduler.WithMaxConcurrentRuns(cap))
+		log.Printf("scheduler: max concurrent runs capped at %d", cap)
+	}
+	schedulerSvc := svcscheduler.New(scheduleStore, rt.Agent, schedulerSvcOpts...)
 	schedulerOpts := agentlyrt.SchedulerOptionsFromEnv()
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
 		Version:          firstNonEmpty(strings.TrimSpace(Version), "agently-v1"),
@@ -142,13 +154,10 @@ func Serve(options ServeOptions) error {
 
 	h := newRouter(apiHandler, metaHandler, speechHandler, uiDist, uiBundle)
 	srv := &http.Server{Addr: addr, Handler: h}
-	go func() {
-		<-ctx.Done()
-		_ = srv.Shutdown(context.Background())
-	}()
 
 	// Expose MCP server when explicitly requested or when workspace config
-	// declares an MCP server port.
+	// declares an MCP server port. Build before the shutdown goroutine starts
+	// so shutdown can target both servers together.
 	var mcpSrv *http.Server
 	var mcpCfg *mcpexpose.ServerConfig
 	if wsConfig != nil {
@@ -168,12 +177,48 @@ func Serve(options ServeOptions) error {
 		}()
 	}
 
+	// Shutdown coordinator: on signal, drain the main server and the MCP
+	// server in parallel with a bounded deadline so a stuck handler cannot
+	// hang the process.
+	var shutdownWG sync.WaitGroup
+	shutdownWG.Add(1)
+	go func() {
+		defer shutdownWG.Done()
+		<-ctx.Done()
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancelShutdown()
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+				log.Printf("http shutdown error: %v", err)
+			}
+		}()
+		if mcpSrv != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := mcpSrv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+					log.Printf("mcp shutdown error: %v", err)
+				}
+			}()
+		}
+		wg.Wait()
+	}()
+
 	log.Printf("agently serve listening on %s (workspace=%s ui=%s)", addr, workspace.Root(), uiBundle.Name)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	serveErr := srv.ListenAndServe()
+	// Whether the server returned from a graceful shutdown or an error, wait
+	// for the coordinator goroutine so we don't return while Shutdown is
+	// still draining handlers (and so MCP is guaranteed closed on error
+	// paths too).
+	shutdownWG.Wait()
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		if mcpSrv != nil {
 			_ = mcpSrv.Close()
 		}
-		return fmt.Errorf("server error: %w", err)
+		return fmt.Errorf("server error: %w", serveErr)
 	}
 	return nil
 }

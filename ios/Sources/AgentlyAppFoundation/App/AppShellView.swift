@@ -6,6 +6,7 @@ public struct AppShellView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isShowingSettings = false
     @State private var conversationSearchText = ""
+    @State private var compactNavigationPath: [String] = []
 
     public init(runtime: AppRuntime) {
         self.runtime = runtime
@@ -20,7 +21,13 @@ public struct AppShellView: View {
             }
         }
         .toolbar {
-            ToolbarItemGroup(placement: ToolbarItemPlacement.primaryShellToolbarPlacement) {
+            ToolbarItemGroup(placement: ToolbarItemPlacement.actionShellToolbarPlacement) {
+                Button {
+                    isShowingSettings = true
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+
                 Button {
                     runtime.startNewConversation()
                 } label: {
@@ -33,13 +40,6 @@ public struct AppShellView: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
             }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isShowingSettings = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
-            }
         }
         .settingsSheet(isPresented: $isShowingSettings, runtime: runtime)
     }
@@ -49,6 +49,8 @@ public struct AppShellView: View {
             ConversationListView(
                 conversations: runtime.state.conversations,
                 activeConversationID: runtime.state.activeConversationID,
+                selection: nil,
+                usesNavigationDestination: false,
                 searchText: $conversationSearchText,
                 isRefreshing: runtime.state.isRefreshingConversations,
                 onRefresh: {
@@ -63,17 +65,26 @@ public struct AppShellView: View {
                 EmptyConversationDetailView(workspaceTitle: runtime.state.workspaceMetadata?.workspaceRoot?.workspaceDisplayTitle)
             } else {
                 ChatScreens(runtime: runtime)
-                    .navigationTitle(runtime.state.workspaceMetadata?.workspaceRoot?.workspaceDisplayTitle ?? "Workspace")
+                    .id(runtime.state.activeConversationID ?? "chat-empty")
+                    .task(id: runtime.state.activeConversationID) {
+                        if let conversationID = runtime.state.activeConversationID,
+                           !conversationID.isEmpty {
+                            await runtime.selectConversation(conversationID)
+                        }
+                    }
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .id("split-\(runtime.state.activeConversationID ?? "none")")
     }
 
     private var compactShell: some View {
-        NavigationStack {
+        NavigationStack(path: $compactNavigationPath) {
             ConversationListView(
                 conversations: runtime.state.conversations,
                 activeConversationID: runtime.state.activeConversationID,
+                selection: nil,
+                usesNavigationDestination: true,
                 searchText: $conversationSearchText,
                 isRefreshing: runtime.state.isRefreshingConversations,
                 onRefresh: {
@@ -85,21 +96,37 @@ public struct AppShellView: View {
             )
             .navigationDestination(for: String.self) { conversationID in
                 ChatScreens(runtime: runtime)
-                    .navigationTitle(runtime.state.workspaceMetadata?.workspaceRoot?.workspaceDisplayTitle ?? "Workspace")
+                    .id(conversationID)
                     .task(id: conversationID) {
                         if runtime.state.activeConversationID != conversationID {
                             await runtime.selectConversation(conversationID)
                         }
                     }
             }
+            .task(id: runtime.state.activeConversationID) {
+                syncCompactNavigationPath()
+            }
+        }
+    }
+
+    private func syncCompactNavigationPath() {
+        let activeConversationID = runtime.state.activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if activeConversationID.isEmpty {
+            if !compactNavigationPath.isEmpty {
+                compactNavigationPath = []
+            }
+            return
+        }
+        if compactNavigationPath.last != activeConversationID || compactNavigationPath.count != 1 {
+            compactNavigationPath = [activeConversationID]
         }
     }
 }
 
 private extension ToolbarItemPlacement {
-    static var primaryShellToolbarPlacement: ToolbarItemPlacement {
+    static var actionShellToolbarPlacement: ToolbarItemPlacement {
         #if os(iOS)
-        .topBarLeading
+        .topBarTrailing
         #else
         .automatic
         #endif
@@ -116,9 +143,28 @@ private extension SearchFieldPlacement {
     }
 }
 
+private struct AppBrandView: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("VIANT.")
+                .font(.caption.weight(.black))
+                .tracking(0.4)
+                .foregroundStyle(Color(red: 0.86, green: 0.12, blue: 0.17))
+            Text("Agently")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.primary)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Viant Agently")
+    }
+}
+
 private struct ConversationListView: View {
     let conversations: [Conversation]
     let activeConversationID: String?
+    let selection: Binding<String?>?
+    let usesNavigationDestination: Bool
     @Binding var searchText: String
     let isRefreshing: Bool
     let onRefresh: () async -> Void
@@ -147,7 +193,13 @@ private struct ConversationListView: View {
     }
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            AppBrandView()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+
             if conversations.isEmpty, isRefreshing {
                 ContentUnavailableView {
                     Label("Loading Conversations", systemImage: "arrow.triangle.2.circlepath")
@@ -173,7 +225,20 @@ private struct ConversationListView: View {
                     }
                     .buttonStyle(.bordered)
                 }
-            } else {
+            } else if let selection {
+                List(filteredConversations, selection: selection) { conversation in
+                    ConversationRowView(
+                        conversation: conversation,
+                        isActive: conversation.id == activeConversationID
+                    )
+                    .tag(Optional(conversation.id))
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onSelectConversation(conversation.id)
+                    }
+                }
+                .id("selected-list-\(activeConversationID ?? "none")")
+            } else if usesNavigationDestination {
                 List(filteredConversations, id: \.id) { conversation in
                     NavigationLink(value: conversation.id) {
                         ConversationRowView(
@@ -185,6 +250,20 @@ private struct ConversationListView: View {
                         onSelectConversation(conversation.id)
                     })
                 }
+                .id("nav-list-\(activeConversationID ?? "none")")
+            } else {
+                List(filteredConversations, id: \.id) { conversation in
+                    Button {
+                        onSelectConversation(conversation.id)
+                    } label: {
+                        ConversationRowView(
+                            conversation: conversation,
+                            isActive: conversation.id == activeConversationID
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .id("plain-list-\(activeConversationID ?? "none")")
             }
         }
         .navigationTitle("Conversations")
@@ -424,7 +503,15 @@ private extension View {
     func settingsSheet(isPresented: Binding<Bool>, runtime: AppRuntime) -> some View {
         sheet(isPresented: isPresented) {
             NavigationStack {
-                SettingsScreen(runtime: runtime.settingsRuntime) {
+                SettingsScreen(
+                    runtime: runtime.settingsRuntime,
+                    workspaceRoot: runtime.state.workspaceMetadata?.workspaceRoot,
+                    workspaceDefaultAgentID: runtime.state.workspaceMetadata?.defaultAgent,
+                    availableAgents: runtime.availableAgentOptions,
+                    agentAutoSelectionEnabled: runtime.state.workspaceMetadata?.capabilities?.agentAutoSelection == true,
+                    oauthProviderLabels: runtime.authRuntime.authProviders.map { ($0.name ?? $0.type).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty },
+                    oauthScopes: runtime.authRuntime.oauthScopes
+                ) {
                     Task {
                         isPresented.wrappedValue = false
                         await runtime.applySettingsAndReload()

@@ -14,12 +14,14 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/agently-core/app/executor"
+	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
 	msgservice "github.com/viant/agently-core/protocol/tool/service/message"
 	planservice "github.com/viant/agently-core/protocol/tool/service/orchestration/plan"
+	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
 	resourcesvc "github.com/viant/agently-core/protocol/tool/service/resources"
 	toolexec "github.com/viant/agently-core/protocol/tool/service/system/exec"
 	toolos "github.com/viant/agently-core/protocol/tool/service/system/os"
@@ -28,6 +30,7 @@ import (
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
 	wscfg "github.com/viant/agently-core/workspace/config"
+	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	templaterepo "github.com/viant/agently-core/workspace/repository/template"
 	templatebundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	platformsvc "github.com/viant/agently/tools/system/platform"
@@ -44,6 +47,7 @@ var allInternalServices = []string{
 	"message",
 	"system/platform",
 	"template",
+	"prompt",
 }
 
 var requiredInternalServices = []string{
@@ -169,10 +173,14 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 		if rt.Agent == nil {
 			return nil
 		}
+		pRepo := promptrepo.NewWithStore(rt.Store)
 		opts := []llmagents.Option{
 			llmagents.WithConversationClient(rt.Conversation),
 			llmagents.WithDirectoryProvider(agentDirectoryProvider(rt, workspaceRoot)),
 			llmagents.WithExternalRunner(externalA2ARunner(workspaceRoot)),
+			llmagents.WithPromptRepo(pRepo),
+			llmagents.WithMCPManager(rt.MCPManager),
+			llmagents.WithModelFinder(modelFinder(rt)),
 		}
 		if rt.Streaming != nil {
 			opts = append(opts, llmagents.WithStreamPublisher(rt.Streaming))
@@ -213,9 +221,28 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 			templatesvc.WithConversationClient(rt.Conversation),
 			templatesvc.WithAgentFinder(finder),
 		)
+	case "prompt":
+		pRepo := promptrepo.NewWithStore(rt.Store)
+		var finder agentmdl.Finder
+		if rt.Agent != nil {
+			finder = rt.Agent.Finder()
+		}
+		return promptsvc.New(
+			pRepo,
+			promptsvc.WithConversationClient(rt.Conversation),
+			promptsvc.WithAgentFinder(finder),
+			promptsvc.WithMCPManager(rt.MCPManager),
+		)
 	default:
 		return nil
 	}
+}
+
+func modelFinder(rt *executor.Runtime) llm.Finder {
+	if rt == nil || rt.Core == nil {
+		return nil
+	}
+	return rt.Core.ModelFinder()
 }
 
 func agentDirectoryProvider(rt *executor.Runtime, workspaceRoot string) func() []llmagents.ListItem {

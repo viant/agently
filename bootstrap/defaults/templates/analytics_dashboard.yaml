@@ -171,6 +171,12 @@ instructions: |
   - Do not mix metrics with very different magnitudes on the same timeline when they share one y-axis. Use separate timeline blocks or a dual-axis timeline instead.
   - Prefer one primary metric per timeline unless the compared series are on comparable scales and remain readable at a glance.
   - Favor one clear totals row, one readable table, one readable chart, and one short insight block.
+  - When data supports it, prefer a complete dashboard structure in this order:
+    1. `dashboard.badges` for compact pills/signals
+    2. `dashboard.summary` for headline KPIs
+    3. one or more `dashboard.timeline` blocks for bar/line/pie views
+    4. `dashboard.table` for detailed rows
+    5. `dashboard.report` for concise narrative takeaways
   - Multiple timelines or compare blocks are allowed when complementary rather than redundant, for example one timeline for volume and one for efficiency, or one compare block for rates and one for totals.
   - Inline analytic prose under a chart is valid and encouraged when it helps interpretation. Prefer a short `dashboard.report` block directly after the relevant `dashboard.timeline` rather than pushing all interpretation to the end.
   - For count timelines, prefer `chartType: "bar"` or `chartType: "area"` when that is easier to read than a line chart.

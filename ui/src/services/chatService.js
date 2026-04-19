@@ -1,3 +1,19 @@
+import React from 'react';
+import {
+  normalizeString,
+  normalizeBool,
+  ensureStringArray,
+  defaultAgentTools,
+  defaultAgentModel,
+  resolveCurrentModel,
+} from '../../../../forge/src/components/chatCommandCenterHelpers.js';
+import {
+  applyAgentSelection,
+  applyModelSelection,
+  applyReasoningSelection,
+  applyToolsSelection,
+  applyAutoSelectToolsSelection,
+} from '../../../../forge/src/components/chatCommandCenterActions.js';
 import { classifyMessage, normalizeMessages } from './messageNormalizer';
 import { setStage } from './stageBus';
 import { client } from './agentlyClient';
@@ -40,10 +56,19 @@ import SteerQueue from '../components/chat/SteerQueue';
 import { composerPresentation } from './composerPresentation';
 import { connectForgeUIActionsToChat } from './forgeUIActions';
 import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFileViewDialog } from '../utils/dialogBus';
+import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
+import { submit as submitToChatStore } from './chatStore.js';
+import { conversationIDFromPath } from './chatRuntime';
+import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID } from './conversationWindow';
 
 const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
 const ITERATION_STEP = 1;
 const pendingUploads = [];
+const DEFAULT_REASONING_OPTIONS = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+];
 
 function normalizeUploadItems(raw = null) {
   let list = raw;
@@ -300,6 +325,7 @@ export async function submitMessage({ context, message, model, agent }) {
     return selectedModel;
   })();
   const conversationID = await ensureConversation(context, { agent: selectedAgent, model: effectiveModel || selectedModel });
+  const clientRequestId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   rememberSeedTitle(conversationID, query);
   const convForm = convDS?.peekFormData?.() || {};
   convDS?.setFormData?.({
@@ -314,6 +340,7 @@ export async function submitMessage({ context, message, model, agent }) {
   const mergedAttachments = mergeAttachments(messageAttachments, pendingUploads);
   const payload = {
     conversationId: conversationID,
+    messageId: clientRequestId,
     query,
     agentId: resolveSubmitAgent({ selectedAgent, persistedAgent, metaForm, convForm }),
     model: effectiveModel || sanitizeAutoSelection(convForm?.model || ''),
@@ -334,6 +361,7 @@ export async function submitMessage({ context, message, model, agent }) {
   chatState.liveOwnedConversationID = conversationID;
   logStreamDebug(chatState, 'submit-start', {
     conversationId: conversationID,
+    clientRequestId,
     agentId: String(payload.agentId || '').trim(),
     model: String(payload.model || '').trim(),
     queueingDuringActiveTurn,
@@ -341,6 +369,13 @@ export async function submitMessage({ context, message, model, agent }) {
     queryChars: query.length
   });
   if (!queueingDuringActiveTurn) {
+    submitToChatStore({
+      conversationId: conversationID,
+      clientRequestId,
+      content: query,
+      createdAt: new Date(submittedAt).toISOString(),
+      attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
+    });
     chatState.activeStreamPrompt = query;
     chatState.activeStreamTurnId = '';
     chatState.activeStreamStartedAt = submittedAt;
@@ -371,14 +406,113 @@ export async function submitMessage({ context, message, model, agent }) {
     resultKeys: queryResult && typeof queryResult === 'object' ? Object.keys(queryResult).length : 0
   });
   pendingUploads.length = 0;
-  await new Promise((resolve) => setTimeout(resolve, queueingDuringActiveTurn ? 140 : 80));
-  const snapshot = await dsTick(context, { conversationID });
-  if (!queueingDuringActiveTurn && snapshot?.hasRunning) {
-    syncConversationTransport(context, conversationID);
+  if (queueingDuringActiveTurn) {
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    await dsTick(context, { conversationID });
   }
   logStreamDebug(chatState, 'submit-post-dstick', {
     conversationId: conversationID,
     queueingDuringActiveTurn
+  });
+}
+
+function resolveFeedConversationId(context, conversationId = '') {
+  const explicit = String(conversationId || '').trim();
+  if (explicit) return explicit;
+  const fromForm = String(
+    context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id || ''
+  ).trim();
+  if (fromForm) return fromForm;
+  const fromChatState = String(context?.resources?.chat?.activeConversationID || '').trim();
+  if (fromChatState) return fromChatState;
+  if (typeof window !== 'undefined') {
+    const fromPath = conversationIDFromPath(window.location.pathname);
+    if (fromPath) return fromPath;
+  }
+  const windowId = String(context?.identity?.windowId || '').trim() || MAIN_CHAT_WINDOW_ID;
+  return String(getScopedConversationSelection(windowId) || '').trim();
+}
+
+export function resolveComposerProps({ context, container } = {}) {
+  const chatCfg = container?.chat || {};
+  if (!chatCfg?.commandCenter) return {};
+
+  const commandCenterCfg = chatCfg.commandCenter;
+  const metaRef = (typeof commandCenterCfg === 'object' && commandCenterCfg.dataSourceRef)
+    ? commandCenterCfg.dataSourceRef
+    : 'meta';
+  const metaCtx = context?.Context?.(metaRef);
+  const metaDS = metaCtx?.handlers?.dataSource;
+  const metaForm = metaDS?.peekFormData?.() || {};
+  const defaults = metaForm?.defaults || {};
+  const currentAgent = normalizeString(metaForm?.agent);
+  const currentModel = resolveCurrentModel(metaForm);
+  const defaultModel = normalizeString(defaults?.model);
+
+  const handleChipClear = (chip) => {
+    const id = normalizeString(chip?.id);
+    if (!id) return false;
+    if (id === 'agent') {
+      applyAgentSelection({
+        agentID: normalizeString(defaults?.agent) || currentAgent,
+        metaDS,
+        metaSnapshot: metaForm,
+        context,
+      });
+      return true;
+    }
+    if (id === 'model') {
+      applyModelSelection({
+        modelID: defaultAgentModel(metaForm, currentAgent) || defaultModel || currentModel,
+        metaDS,
+        context,
+      });
+      return true;
+    }
+    if (id === 'tools') {
+      applyToolsSelection({
+        toolNames: defaultAgentTools(metaForm, currentAgent),
+        metaDS,
+      });
+      return true;
+    }
+    if (id === 'reasoningEffort') {
+      applyReasoningSelection({ effort: '', metaDS });
+      return true;
+    }
+    return false;
+  };
+
+  return {
+    commandCenter: true,
+    starterTasks: Array.isArray(metaForm?.starterTasks) ? metaForm.starterTasks : [],
+    agentOptions: Array.isArray(metaForm?.agentOptions) ? metaForm.agentOptions : [],
+    agentValue: currentAgent,
+    onAgentChange: (agentID) => applyAgentSelection({ agentID, metaDS, metaSnapshot: metaForm, context }),
+    modelOptions: Array.isArray(metaForm?.modelOptions) ? metaForm.modelOptions : [],
+    modelInfo: metaForm?.modelInfo || {},
+    modelValue: currentModel,
+    defaultModel,
+    onModelChange: (modelID) => applyModelSelection({ modelID, metaDS, context }),
+    reasoningOptions: DEFAULT_REASONING_OPTIONS,
+    reasoningValue: normalizeString(metaForm?.reasoningEffort),
+    onReasoningChange: (effort) => applyReasoningSelection({ effort, metaDS }),
+    selectedTools: ensureStringArray(metaForm?.tool),
+    onToolsChange: (toolNames) => applyToolsSelection({ toolNames, metaDS }),
+    autoSelectTools: (metaForm?.autoSelectTools !== undefined)
+      ? normalizeBool(metaForm?.autoSelectTools)
+      : normalizeBool(defaults?.autoSelectTools),
+    onAutoSelectToolsChange: (enabled) => applyAutoSelectToolsSelection({ enabled, metaDS, context }),
+    activeChips: [],
+    onChipClear: handleChipClear,
+  };
+}
+
+export function renderFeed({ conversationId, context }) {
+  const resolvedConversationId = resolveFeedConversationId(context, conversationId);
+  return React.createElement(ChatFeedFromChatStore, {
+    conversationId: resolvedConversationId,
+    context,
   });
 }
 
@@ -604,6 +738,30 @@ export async function editQueuedTurnBySelection({ context, content }) {
   const turnID = String(selected?.id || selected?.Id || '').trim();
   if (!conversationID || !turnID) return false;
   await editQueuedTurn({ context, conversationID, turnID, content: content || '' });
+  return true;
+}
+
+export async function forceSteerQueuedTurnBySelection({ context }) {
+  const conversationID = getConversationID(context);
+  const selected = getQueueSelection(context);
+  const turnID = String(selected?.id || selected?.Id || '').trim();
+  if (!conversationID || !turnID) return false;
+  await forceSteerQueuedTurn({ context, conversationID, turnID });
+  return true;
+}
+
+export async function saveQueuedTurnForm({ context, parameters }) {
+  const content = String(
+    parameters?.queueTurns?.content
+    ?? parameters?.queueTurns?.preview
+    ?? parameters?.content
+    ?? parameters?.preview
+    ?? readForm(context, 'queueTurns')?.content
+    ?? readForm(context, 'queueTurns')?.preview
+    ?? ''
+  ).trim();
+  if (!content) return false;
+  await editQueuedTurnBySelection({ context, content });
   return true;
 }
 
@@ -923,6 +1081,8 @@ export const chatService = {
   classifyMessage,
   normalizeMessages,
   composerPresentation,
+  resolveComposerProps,
+  renderFeed,
   renderers: {
     bubble: BubbleMessage,
     form: BubbleMessage,
@@ -962,8 +1122,10 @@ export const chatService = {
   cancelQueuedTurnByID,
   moveQueuedTurn,
   editQueuedTurnBySelection,
+  saveQueuedTurnForm,
   steerTurn,
   forceSteerQueuedTurn,
+  forceSteerQueuedTurnBySelection,
   selectFolder,
   taskStatusIcon,
   onChangedFileSelect,

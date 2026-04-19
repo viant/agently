@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,7 +28,7 @@ type ChatGPTLoginCmd struct {
 	Issuer             string `long:"issuer" description:"OAuth issuer base URL (default: from client config, else https://auth.openai.com)"`
 	AllowedWorkspaceID string `long:"allowedWorkspaceID" description:"restrict login to a specific ChatGPT workspace/account id"`
 	Originator         string `long:"originator" description:"originator query param used by OpenAI auth (default: codex_cli_rs)" default:"codex_cli_rs"`
-	Port               int    `long:"port" description:"local callback server port (must match OAuth redirect allowlist; default: 1455)" default:"1455"`
+	Port               string `long:"port" description:"local callback server port; integer, 'auto' for an OS-picked free port, or empty to use AGENTLY_CHATGPT_CALLBACK_PORT / default 1455 (must match OAuth redirect allowlist for OpenAI)" default:""`
 
 	NoOpenBrowser bool `long:"no-open-browser" description:"do not open the authorization URL in the default browser"`
 	NoMintAPIKey  bool `long:"no-mint-api-key" description:"do not mint and cache an OpenAI API key after login"`
@@ -57,7 +58,11 @@ func (c *ChatGPTLoginCmd) Execute(_ []string) error {
 		return err
 	}
 
-	endpoint, err := newIPv4CallbackEndpoint(state, timeoutFromSeconds(c.TimeoutSec), c.Port)
+	port, err := resolveCallbackPort(c.Port)
+	if err != nil {
+		return err
+	}
+	endpoint, err := newIPv4CallbackEndpoint(state, timeoutFromSeconds(c.TimeoutSec), port)
 	if err != nil {
 		return err
 	}
@@ -366,9 +371,55 @@ func (e *ipv4CallbackEndpoint) handleCancel(w http.ResponseWriter, _ *http.Reque
 	go e.Close()
 }
 
+// resolveCallbackPort translates the --port CLI flag (string for "auto"
+// support) through the env var override into the integer port passed to
+// listenWithCancel. The precedence chain is:
+//
+//  1. --port flag (integer or "auto")
+//  2. AGENTLY_CHATGPT_CALLBACK_PORT env var (integer or "auto")
+//  3. 1455 (matches the OpenAI-issued redirect allowlist out of the box)
+//
+// "auto" / "0" ask the OS for any free port — useful for self-hosted
+// issuers or dev setups that accept arbitrary localhost ports.
+func resolveCallbackPort(flag string) (int, error) {
+	if v := strings.TrimSpace(flag); v != "" {
+		return parseCallbackPort(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("AGENTLY_CHATGPT_CALLBACK_PORT")); v != "" {
+		return parseCallbackPort(v)
+	}
+	return 1455, nil
+}
+
+func parseCallbackPort(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if strings.EqualFold(raw, "auto") {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid callback port %q (expected integer or \"auto\"): %w", raw, err)
+	}
+	if n < 0 || n > 65535 {
+		return 0, fmt.Errorf("callback port %d out of range 0-65535", n)
+	}
+	return n, nil
+}
+
 func listenWithCancel(port int) (net.Listener, int, error) {
-	if port <= 0 || port > 65535 {
+	if port < 0 || port > 65535 {
 		return nil, 0, fmt.Errorf("invalid port %d", port)
+	}
+
+	// port == 0 means "let the OS pick a free port". Skip the cancel-on-
+	// busy retry loop because it only applies to the well-known 1455
+	// default (where a leftover process might still own the port).
+	if port == 0 {
+		listener, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to listen for callback on 127.0.0.1:0: %w", err)
+		}
+		return listener, listener.Addr().(*net.TCPAddr).Port, nil
 	}
 
 	address := fmt.Sprintf("127.0.0.1:%d", port)
@@ -388,7 +439,7 @@ func listenWithCancel(port int) (net.Listener, int, error) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	return nil, 0, fmt.Errorf("port %d is already in use", port)
+	return nil, 0, fmt.Errorf("port %d is already in use (set --port auto or AGENTLY_CHATGPT_CALLBACK_PORT to pick a free one)", port)
 }
 
 func isAddrInUse(err error) bool {

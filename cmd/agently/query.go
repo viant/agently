@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,15 +27,23 @@ type ChatCmd struct {
 	OOB       string   `long:"oob" description:"Use local scy OAuth2 out-of-band login with the supplied secrets URL"`
 	OAuthCfg  string   `long:"oauth-config" description:"Optional scy OAuth config URL override for client-side OOB login"`
 	OAuthScp  string   `long:"oauth-scopes" description:"comma-separated OAuth scopes for OOB login"`
-	Stream    bool     `long:"stream" description:"reserved for compatibility; CLI output streams automatically"`
 	ElicitDef string   `long:"elicitation-default" description:"JSON or @file to auto-accept elicitations when stdin is not a TTY"`
 	Context   string   `long:"context" description:"inline JSON object or @file with context data"`
 	Attach    []string `long:"attach" description:"file to attach (repeatable). Format: <path>"`
+
+	// elicitationTimeout is sourced from the resolved instance's workspace
+	// defaults. Zero means fall back to defaultElicitationResponseTimeout.
+	elicitationTimeout time.Duration
 }
 
 func (c *ChatCmd) Execute(_ []string) error {
 	if strings.TrimSpace(c.AgentID) == "" {
 		c.AgentID = "chatter"
+	}
+	if c.ResetLogs {
+		if err := resetDebugArtifacts(); err != nil {
+			return fmt.Errorf("reset debug logs: %w", err)
+		}
 	}
 
 	contextData, err := parseContextArg(c.Context)
@@ -166,9 +175,11 @@ func (c *ChatCmd) Execute(_ []string) error {
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print("> ")
-		line, _ := reader.ReadString('\n')
-		line = strings.TrimSpace(line)
-		if line == "" || line == "exit" || line == "quit" {
+		line, cancelled, rerr := readPromptLine(ctxBase, reader)
+		if rerr != nil {
+			return fmt.Errorf("read stdin: %w", rerr)
+		}
+		if cancelled || line == "" || line == "exit" || line == "quit" {
 			fmt.Printf("[conversation-id] %s\n", convID)
 			code, err := resolveConversationExitCode(ctxBase, client, convID)
 			if err != nil {
@@ -183,6 +194,49 @@ func (c *ChatCmd) Execute(_ []string) error {
 			return err
 		}
 	}
+}
+
+var (
+	defaultDebugLogPath = "/tmp/agently-debug.log"
+	envTraceFilePath    = "AGENTLY_DEBUG_TRACE_FILE"
+	envPayloadDirPath   = "AGENTLY_DEBUG_PAYLOAD_DIR"
+)
+
+func resetDebugArtifacts() error {
+	if err := truncateOrCreateFile(defaultDebugLogPath); err != nil {
+		return err
+	}
+	if tracePath := strings.TrimSpace(os.Getenv(envTraceFilePath)); tracePath != "" {
+		if err := truncateOrCreateFile(tracePath); err != nil {
+			return err
+		}
+	}
+	if payloadDir := strings.TrimSpace(os.Getenv(envPayloadDirPath)); payloadDir != "" {
+		if err := os.RemoveAll(payloadDir); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(payloadDir, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func truncateOrCreateFile(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	return file.Close()
 }
 
 func ensureConversation(ctx context.Context, client *sdk.HTTPClient, input *agentsvc.QueryInput, title string) error {

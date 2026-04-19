@@ -87,6 +87,29 @@ describe('conversationWindow', () => {
 
     expect(replaceState).toHaveBeenCalledWith(null, '', '/conversation/conv-123');
     expect(String(window.localStorage.getItem('agently.selectedConversationId'))).toBe('conv-123');
+    expect(activeWindows.value[0]?.parameters?.conversations?.form?.id).toBe('conv-123');
+    expect(activeWindows.value[0]?.parameters?.messages?.input?.parameters?.convID).toBe('conv-123');
+  });
+
+  it('uses /conversation on localhost and 127.0.0.1 hosts', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {}
+    }];
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+
+    const replaceState = vi.fn();
+    window.history.replaceState = replaceState;
+    window.location = { pathname: '/', port: '8686', hostname: 'localhost' };
+
+    openConversationInMainWindow('conv-localhost');
+    expect(replaceState).toHaveBeenLastCalledWith(null, '', '/conversation/conv-localhost');
+
+    window.location = { pathname: '/', port: '8686', hostname: '127.0.0.1' };
+    openConversationInMainWindow('conv-loopback');
+    expect(replaceState).toHaveBeenLastCalledWith(null, '', '/conversation/conv-loopback');
   });
 
   it('syncs the browser path back to root for a new main-window conversation', () => {
@@ -105,6 +128,8 @@ describe('conversationWindow', () => {
 
     expect(replaceState).toHaveBeenCalledWith(null, '', '/');
     expect(String(window.localStorage.getItem('agently.selectedConversationId') || '')).toBe('');
+    expect(String(activeWindows.value[0]?.parameters?.conversations?.form?.id || '')).toBe('');
+    expect(String(activeWindows.value[0]?.parameters?.messages?.input?.parameters?.convID || '')).toBe('');
   });
 
   it('returns to the parent conversation and focuses the main chat window', () => {

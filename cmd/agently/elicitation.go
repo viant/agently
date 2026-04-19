@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -13,19 +15,52 @@ import (
 	coreplan "github.com/viant/agently-core/protocol/agent/plan"
 )
 
-func awaitCoreElicitation(_ context.Context, req *coreplan.Elicitation) (*coreplan.ElicitResult, error) {
+// readPromptLine reads one trimmed line from the reader, honouring ctx. If
+// ctx fires before the user types, the call returns with cancelled=true and
+// the ctx error — the blocked ReadString goroutine is abandoned, which is safe
+// because the caller's command is about to unwind. If the underlying stream
+// closes (io.EOF) we treat it as the user pressing Ctrl-D. For other IO
+// errors we return them so the caller can surface the failure instead of
+// looping on an empty prompt.
+func readPromptLine(ctx context.Context, reader *bufio.Reader) (line string, cancelled bool, err error) {
+	type result struct {
+		raw string
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		raw, rerr := reader.ReadString('\n')
+		ch <- result{raw: raw, err: rerr}
+	}()
+	select {
+	case <-ctx.Done():
+		return "", true, ctx.Err()
+	case r := <-ch:
+		line = strings.TrimSpace(r.raw)
+		switch {
+		case r.err == nil:
+			return line, false, nil
+		case errors.Is(r.err, io.EOF):
+			return line, true, nil
+		default:
+			return line, true, r.err
+		}
+	}
+}
+
+func awaitCoreElicitation(ctx context.Context, req *coreplan.Elicitation) (*coreplan.ElicitResult, error) {
 	if req == nil || req.IsEmpty() {
 		return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionAccept}, nil
 	}
-	return awaitFormElicitation(os.Stdout, os.Stdin, req)
+	return awaitFormElicitation(ctx, os.Stdout, os.Stdin, req)
 }
 
-func awaitFormElicitation(w io.Writer, r io.Reader, req *coreplan.Elicitation) (*coreplan.ElicitResult, error) {
+func awaitFormElicitation(ctx context.Context, w io.Writer, r io.Reader, req *coreplan.Elicitation) (*coreplan.ElicitResult, error) {
 	reader := bufio.NewReader(r)
 
 	fmt.Fprintf(w, "\n--- Elicitation ---\n%s\n", req.Message)
 	if meta := parseToolApprovalMeta(req); meta != nil {
-		return awaitToolApprovalElicitation(w, reader, req, meta)
+		return awaitToolApprovalElicitation(ctx, w, reader, req, meta)
 	}
 
 	payload := map[string]any{}
@@ -37,8 +72,17 @@ func awaitFormElicitation(w io.Writer, r io.Reader, req *coreplan.Elicitation) (
 			}
 		}
 		fmt.Fprintf(w, "  %s (or 'next' to skip, 'cancel' to cancel): ", desc)
-		line, _ := reader.ReadString('\n')
-		value := strings.TrimSpace(line)
+		value, cancelled, err := readPromptLine(ctx, reader)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				fmt.Fprintln(w, "")
+				return nil, err
+			}
+			log.Printf("[elicitation] read input failed: %v", err)
+		}
+		if cancelled {
+			return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionDecline, Reason: "cancelled"}, nil
+		}
 		switch strings.ToLower(value) {
 		case "cancel":
 			return &coreplan.ElicitResult{
@@ -54,8 +98,18 @@ func awaitFormElicitation(w io.Writer, r io.Reader, req *coreplan.Elicitation) (
 
 	for {
 		fmt.Fprint(w, "Submit? [a]ccept, [c]ancel (default: a): ")
-		line, _ := reader.ReadString('\n')
-		sel := strings.ToLower(strings.TrimSpace(line))
+		line, cancelled, err := readPromptLine(ctx, reader)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				fmt.Fprintln(w, "")
+				return nil, err
+			}
+			log.Printf("[elicitation] read input failed: %v", err)
+		}
+		if cancelled {
+			return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionDecline, Reason: "cancelled"}, nil
+		}
+		sel := strings.ToLower(line)
 		if sel == "" || sel == "a" || sel == "accept" {
 			return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionAccept, Payload: payload}, nil
 		}
@@ -124,7 +178,7 @@ func parseToolApprovalMeta(req *coreplan.Elicitation) *cliApprovalMeta {
 	return &meta
 }
 
-func awaitToolApprovalElicitation(w io.Writer, reader *bufio.Reader, req *coreplan.Elicitation, meta *cliApprovalMeta) (*coreplan.ElicitResult, error) {
+func awaitToolApprovalElicitation(ctx context.Context, w io.Writer, reader *bufio.Reader, req *coreplan.Elicitation, meta *cliApprovalMeta) (*coreplan.ElicitResult, error) {
 	if meta == nil {
 		return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionAccept}, nil
 	}
@@ -141,13 +195,19 @@ func awaitToolApprovalElicitation(w io.Writer, reader *bufio.Reader, req *corepl
 		}
 		switch strings.ToLower(strings.TrimSpace(editor.Kind)) {
 		case "checkbox_list":
-			selected, cancel := awaitCheckboxEditor(w, reader, editor)
+			selected, cancel, ctxErr := awaitCheckboxEditor(ctx, w, reader, editor)
+			if ctxErr != nil {
+				return nil, ctxErr
+			}
 			if cancel {
 				return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionDecline, Reason: "cancelled"}, nil
 			}
 			editedFields[editor.Name] = selected
 		case "radio_list":
-			selected, cancel := awaitRadioEditor(w, reader, editor)
+			selected, cancel, ctxErr := awaitRadioEditor(ctx, w, reader, editor)
+			if ctxErr != nil {
+				return nil, ctxErr
+			}
 			if cancel {
 				return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionDecline, Reason: "cancelled"}, nil
 			}
@@ -156,8 +216,18 @@ func awaitToolApprovalElicitation(w io.Writer, reader *bufio.Reader, req *corepl
 	}
 	for {
 		fmt.Fprintf(w, "Submit? [a]%s, [d]%s, [c]%s (default: a): ", meta.AcceptLabel, meta.RejectLabel, meta.CancelLabel)
-		line, _ := reader.ReadString('\n')
-		sel := strings.ToLower(strings.TrimSpace(line))
+		line, cancelled, err := readPromptLine(ctx, reader)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				fmt.Fprintln(w, "")
+				return nil, err
+			}
+			log.Printf("[elicitation] read approval input failed: %v", err)
+		}
+		if cancelled {
+			return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionDecline, Reason: "cancelled"}, nil
+		}
+		sel := strings.ToLower(line)
 		switch sel {
 		case "", "a", "accept", "allow":
 			return &coreplan.ElicitResult{Action: coreplan.ElicitResultActionAccept, Payload: map[string]any{"editedFields": editedFields}}, nil
@@ -171,7 +241,7 @@ func awaitToolApprovalElicitation(w io.Writer, reader *bufio.Reader, req *corepl
 	}
 }
 
-func awaitCheckboxEditor(w io.Writer, reader *bufio.Reader, editor *cliApprovalEditor) ([]string, bool) {
+func awaitCheckboxEditor(ctx context.Context, w io.Writer, reader *bufio.Reader, editor *cliApprovalEditor) ([]string, bool, error) {
 	fmt.Fprintf(w, "\n%s\n", firstNonEmpty(editor.Label, editor.Name))
 	if desc := strings.TrimSpace(editor.Description); desc != "" {
 		fmt.Fprintln(w, desc)
@@ -187,10 +257,19 @@ func awaitCheckboxEditor(w io.Writer, reader *bufio.Reader, editor *cliApprovalE
 		fmt.Fprintf(w, "  %d. [%s] %s\n", i+1, mark, option.Label)
 	}
 	fmt.Fprint(w, "Select items to allow (comma-separated numbers, Enter keeps defaults, 'cancel' aborts): ")
-	line, _ := reader.ReadString('\n')
-	value := strings.TrimSpace(line)
+	value, cancelled, err := readPromptLine(ctx, reader)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			fmt.Fprintln(w, "")
+			return nil, true, err
+		}
+		log.Printf("[elicitation] read checkbox input failed: %v", err)
+	}
+	if cancelled {
+		return nil, true, nil
+	}
 	if strings.EqualFold(value, "cancel") {
-		return nil, true
+		return nil, true, nil
 	}
 	if value == "" {
 		selected := make([]string, 0)
@@ -199,7 +278,7 @@ func awaitCheckboxEditor(w io.Writer, reader *bufio.Reader, editor *cliApprovalE
 				selected = append(selected, option.ID)
 			}
 		}
-		return selected, false
+		return selected, false, nil
 	}
 	selected := make([]string, 0)
 	for _, index := range parseSelectionIndexes(value) {
@@ -212,10 +291,10 @@ func awaitCheckboxEditor(w io.Writer, reader *bufio.Reader, editor *cliApprovalE
 		}
 		selected = append(selected, option.ID)
 	}
-	return selected, false
+	return selected, false, nil
 }
 
-func awaitRadioEditor(w io.Writer, reader *bufio.Reader, editor *cliApprovalEditor) (string, bool) {
+func awaitRadioEditor(ctx context.Context, w io.Writer, reader *bufio.Reader, editor *cliApprovalEditor) (string, bool, error) {
 	fmt.Fprintf(w, "\n%s\n", firstNonEmpty(editor.Label, editor.Name))
 	if desc := strings.TrimSpace(editor.Description); desc != "" {
 		fmt.Fprintln(w, desc)
@@ -233,22 +312,31 @@ func awaitRadioEditor(w io.Writer, reader *bufio.Reader, editor *cliApprovalEdit
 		fmt.Fprintf(w, "  %d. (%s) %s\n", i+1, mark, option.Label)
 	}
 	fmt.Fprint(w, "Select one item to allow (number, Enter keeps default, 'cancel' aborts): ")
-	line, _ := reader.ReadString('\n')
-	value := strings.TrimSpace(line)
+	value, cancelled, err := readPromptLine(ctx, reader)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			fmt.Fprintln(w, "")
+			return "", true, err
+		}
+		log.Printf("[elicitation] read radio input failed: %v", err)
+	}
+	if cancelled {
+		return "", true, nil
+	}
 	if strings.EqualFold(value, "cancel") {
-		return "", true
+		return "", true, nil
 	}
 	if value == "" {
 		if defaultIndex >= 1 && defaultIndex <= len(editor.Options) && editor.Options[defaultIndex-1] != nil {
-			return editor.Options[defaultIndex-1].ID, false
+			return editor.Options[defaultIndex-1].ID, false, nil
 		}
-		return "", false
+		return "", false, nil
 	}
 	index, err := strconv.Atoi(value)
 	if err != nil || index < 1 || index > len(editor.Options) || editor.Options[index-1] == nil {
-		return "", false
+		return "", false, nil
 	}
-	return editor.Options[index-1].ID, false
+	return editor.Options[index-1].ID, false, nil
 }
 
 func parseSelectionIndexes(value string) []int {

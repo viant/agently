@@ -39,6 +39,11 @@ import {
 } from 'agently-core-ui-sdk';
 import { DashboardBlock } from 'forge/components';
 import {
+  buildStandaloneDashboardDocument,
+  captureDashboardChartSvgs,
+  downloadDashboardHtml,
+} from 'forge/core';
+import {
   FORGE_UI_FENCE,
   FORGE_DATA_FENCE,
   applyForgeDataBlocks,
@@ -514,6 +519,44 @@ function buildForgeDashboardContext(payload, dataStore, block) {
   };
 }
 
+// buildForgeExportContext produces a forge-compatible context shape that
+// resolves any dataSourceRef via `.Context(dsRef)`. The forge dashboard export
+// pipeline (buildDashboardExportModel) calls this to look up per-block data.
+function buildForgeExportContext(payload, dataStore) {
+  const dashboardKey = `forge-ui:${String(payload?.title || 'message')}`;
+  const resolve = (dsRef) => {
+    const source = dsRef ? dataStore?.[dsRef] : null;
+    const collection = Array.isArray(source?.rows) ? source.rows : [];
+    const metrics = payload?.metrics || {};
+    return {
+      dashboardKey,
+      identity: { windowId: dashboardKey, dataSourceRef: dsRef || null, dashboardKey },
+      locale: 'en-US',
+      dashboardFilters: {},
+      dashboardSelection: {},
+      signals: {
+        metrics: createStaticSignal(metrics),
+        collection: createStaticSignal(collection),
+        control: createStaticSignal({}),
+        selection: createStaticSignal({}),
+      },
+      Context(nextDsRef) {
+        return resolve(nextDsRef || dsRef);
+      },
+    };
+  };
+  return resolve(null);
+}
+
+function sanitizeDownloadFilename(title = '') {
+  const base = String(title || 'dashboard')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return `${base || 'dashboard'}.html`;
+}
+
 function PlannerTableBlock({ ui, block, dataStore }) {
   const sourceID = String(block?.dataSourceRef || '').trim();
   const source = sourceID ? dataStore?.[sourceID] : null;
@@ -753,13 +796,73 @@ function ForgeUIFenceInner({ payload, dataBlocks = [] }) {
     dataSources: buildForgeDataSources(dataStore),
     blocks: ui.blocks,
   }), [ui, dataStore]);
+  const rootRef = React.useRef(null);
+  const [exportError, setExportError] = React.useState(null);
+
+  const hasRenderableBlocks = Array.isArray(ui.blocks) && ui.blocks.length > 0;
+
+  const handleDownload = React.useCallback(() => {
+    setExportError(null);
+    try {
+      const normalizedPayload = normalizeDashboardPayload(forgePayload);
+      const containerRoot = {
+        kind: 'dashboard',
+        id: `forge-ui-${Date.now()}`,
+        title: ui.title || 'Dashboard',
+        subtitle: ui.subtitle || '',
+        containers: (normalizedPayload.blocks || []).map((b, idx) => ({
+          ...b,
+          id: b?.id || `block-${idx + 1}`,
+        })),
+      };
+      const exportContext = buildForgeExportContext(normalizedPayload, dataStore);
+      const chartSvgs = rootRef.current ? captureDashboardChartSvgs(rootRef.current) : {};
+      const { html } = buildStandaloneDashboardDocument({
+        container: containerRoot,
+        context: exportContext,
+        rootElement: rootRef.current,
+        chartSvgs,
+        title: ui.title || 'Dashboard',
+        subtitle: ui.subtitle || '',
+      });
+      downloadDashboardHtml({ html, filename: sanitizeDownloadFilename(ui.title) });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('dashboard export failed', e);
+      setExportError(e?.message || 'Export failed — see console');
+    }
+  }, [forgePayload, dataStore, ui.title, ui.subtitle]);
 
   return (
-    <div className="app-rich-dashboard" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {ui.title ? <div className="app-rich-chart-title">{ui.title}</div> : null}
-        {ui.subtitle ? <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>{ui.subtitle}</div> : null}
+    <div
+      ref={rootRef}
+      className="app-rich-dashboard"
+      style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 auto', minWidth: 0 }}>
+          {ui.title ? <div className="app-rich-chart-title">{ui.title}</div> : null}
+          {ui.subtitle ? <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>{ui.subtitle}</div> : null}
+        </div>
+        {hasRenderableBlocks ? (
+          <Tooltip content="Download as standalone HTML (styling preserved)" placement="bottom-end">
+            <Button
+              icon="download"
+              small
+              minimal
+              onClick={handleDownload}
+              aria-label="Download dashboard as HTML"
+            >
+              Download
+            </Button>
+          </Tooltip>
+        ) : null}
       </div>
+      {exportError ? (
+        <div style={{ fontSize: 12, color: '#a82a2a' }}>
+          {exportError}
+        </div>
+      ) : null}
       {ui.blocks.map((block, index) => {
         const kind = String(block?.kind || '').trim();
         if (kind.startsWith('dashboard.')) {
@@ -1235,7 +1338,13 @@ function RichContent({ content = '', generatedFiles = [] }) {
   for (const part of descriptors) {
     if (part.kind === 'text') {
       const chunk = normalizeBrokenMarkdownLayout(String(part.value || ''));
-      if (chunk) {
+      // Skip chunks that have no visible content once markdown formatting markers
+      // are removed. These appear between forge-data / forge-ui fences (e.g. `> `
+      // fragments from token boundaries, or whitespace-only chunks) and were
+      // rendering as empty <p> blocks and empty <blockquote> left-borders that
+      // created a large visual gap with blue vertical bars above the dashboard.
+      const visible = chunk ? chunk.replace(/[\s>*#\-]+/g, '') : '';
+      if (visible.length > 0) {
         const streamingForgeFence = detectStreamingForgeFenceText(chunk);
         if (streamingForgeFence === FORGE_UI_FENCE) {
           out.push(<ForgeFenceLoading key={`forge-ui-loading-text-${idx++}`} label="Building UI" />);

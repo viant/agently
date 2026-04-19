@@ -6,6 +6,7 @@ import com.viant.agentlysdk.AuthUser
 import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
+import com.viant.agentlysdk.GetTranscriptInput
 import com.viant.agentlysdk.ListConversationsInput
 import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
@@ -26,7 +27,8 @@ internal data class WorkspaceSnapshot(
 internal data class ConversationBindingData(
     val state: ConversationStateResponse,
     val approvals: List<PendingToolApproval>,
-    val generatedFiles: List<GeneratedFileEntry>
+    val generatedFiles: List<GeneratedFileEntry>,
+    val payloadPreviews: Map<String, ArtifactPreview>
 )
 
 internal data class WorkspaceAgentChoice(
@@ -51,9 +53,11 @@ internal data class WorkspaceLoadResult(
 
 internal data class PreparedConversationBinding(
     val conversationId: String,
+    val state: ConversationStateResponse,
     val pendingApprovals: List<PendingToolApproval>,
     val approvalEdits: Map<String, Map<String, JsonElement>>,
     val generatedFiles: List<GeneratedFileEntry>,
+    val payloadPreviews: Map<String, ArtifactPreview>,
     val transcriptEntries: List<ChatEntry>,
     val replaceTranscript: Boolean
 )
@@ -195,7 +199,14 @@ internal suspend fun loadConversationBindingData(
     client: AgentlyClient,
     conversationId: String
 ): ConversationBindingData {
-    val state = client.getLiveState(conversationId, includeFeeds = true)
+    val state = client.getTranscript(
+        GetTranscriptInput(
+            conversationId = conversationId,
+            includeModelCalls = true,
+            includeToolCalls = true,
+            includeFeeds = true
+        )
+    )
     val approvals = client.listPendingToolApprovals(
         ListPendingToolApprovalsInput(
             conversationId = conversationId,
@@ -207,7 +218,8 @@ internal suspend fun loadConversationBindingData(
     return ConversationBindingData(
         state = state,
         approvals = approvals,
-        generatedFiles = generatedFiles
+        generatedFiles = generatedFiles,
+        payloadPreviews = loadExecutionPayloadPreviews(client, state)
     )
 }
 
@@ -221,12 +233,34 @@ internal suspend fun prepareConversationBinding(
     val binding = loadConversationBindingData(client, conversationId)
     return PreparedConversationBinding(
         conversationId = conversationId,
+        state = binding.state,
         pendingApprovals = binding.approvals,
         approvalEdits = trimApprovalEdits(approvalEdits, binding.approvals),
         generatedFiles = binding.generatedFiles,
+        payloadPreviews = binding.payloadPreviews,
         transcriptEntries = if (replaceTranscript) transcriptBuilder(binding.state) else emptyList(),
         replaceTranscript = replaceTranscript
     )
+}
+
+private suspend fun loadExecutionPayloadPreviews(
+    client: AgentlyClient,
+    state: ConversationStateResponse
+): Map<String, ArtifactPreview> {
+    val payloadTitles = executionPayloadTitles(state)
+    if (payloadTitles.isEmpty()) {
+        return emptyMap()
+    }
+    val result = linkedMapOf<String, ArtifactPreview>()
+    payloadTitles.forEach { (payloadId, title) ->
+        runCatching {
+            val downloaded = client.downloadPayload(payloadId)
+            buildPayloadPreview(payloadId = payloadId, title = title, downloaded = downloaded)
+        }.getOrNull()?.let { preview ->
+            result[payloadId] = preview
+        }
+    }
+    return result
 }
 
 internal fun trimApprovalEdits(

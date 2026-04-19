@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
 
-import { bootstrapConversationSelection, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, handleStreamEvent, latestAssistantRowForTurn, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling } from './chatRuntime';
+import { bootstrapConversationSelection, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, handleStreamEvent, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation } from './chatRuntime';
 import { client } from './agentlyClient';
 
 vi.mock('./agentlyClient', () => ({
@@ -10,6 +10,7 @@ vi.mock('./agentlyClient', () => ({
     createConversation: vi.fn(),
     getConversation: vi.fn(),
     getTranscript: vi.fn(),
+    listGeneratedFiles: vi.fn().mockResolvedValue([]),
     listPendingElicitations: vi.fn().mockResolvedValue([])
   }
 }));
@@ -236,10 +237,17 @@ describe('handleStreamEvent', () => {
         patch: { turnId: 'turn-1', status: 'running' }
       });
 
-      const userRow = chatState.liveRows.find((row) => row?.role === 'user');
       const assistantRow = chatState.liveRows.find((row) => row?.role === 'assistant');
-      expect(userRow).toBeUndefined();
-      expect(assistantRow).toBeUndefined();
+      expect(assistantRow).toMatchObject({
+        id: 'turn:turn-1',
+        turnId: 'turn-1',
+        status: 'running',
+      });
+      expect(assistantRow?.executionGroups?.[0]?.toolSteps?.[0]).toMatchObject({
+        kind: 'turn',
+        reason: 'turn_started',
+        status: 'running',
+      });
     } finally {
       globalThis.window = originalWindow;
     }
@@ -292,11 +300,10 @@ describe('handleStreamEvent', () => {
         model: { provider: 'openai', model: 'gpt-5.4' }
       });
 
-      const userRow = chatState.liveRows.find((row) => row?.role === 'user');
       const assistantRow = chatState.liveRows.find((row) => row?.role === 'assistant');
-      expect(userRow).toBeUndefined();
       expect(assistantRow?.createdAt).toBe('');
       expect(assistantRow?.sequence).toBeNull();
+      expect(assistantRow?.id).toBe('msg-1');
     } finally {
       globalThis.window = originalWindow;
     }
@@ -498,6 +505,54 @@ describe('handleStreamEvent', () => {
       assistantMessageId: 'summary-msg-1',
       status: 'thinking',
       mode: 'summary'
+    });
+
+    expect(chatState.liveRows).toEqual([]);
+  });
+
+  it('ignores intake-phase streaming content while still allowing non-streaming lifecycle events elsewhere', () => {
+    const chatState = {
+      liveRows: [],
+      lastHasRunning: false,
+      activeConversationID: 'conv-1',
+      runningTurnId: 'turn-1',
+      activeStreamTurnId: 'turn-1'
+    };
+    const context = {
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'assistant_preamble',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'intake-msg-1',
+      content: 'Classifying request…',
+      status: 'thinking',
+      phase: 'intake'
     });
 
     expect(chatState.liveRows).toEqual([]);
@@ -1199,7 +1254,10 @@ describe('handleStreamEvent', () => {
     });
 
     const assistant = chatState.renderRows.find((row) => String(row?.role || '').toLowerCase() === 'assistant');
-    expect(assistant?.executionGroups?.[0]?.toolSteps?.[0]).toMatchObject({
+    const linkedStep = assistant?.executionGroups
+      ?.flatMap((group) => group?.toolSteps || [])
+      ?.find((step) => String(step?.toolCallId || '').trim() === 'call-agent-1');
+    expect(linkedStep).toMatchObject({
       toolCallId: 'call-agent-1',
       linkedConversationId: 'child-conv-1',
       linkedConversationAgentId: 'steward-forecasting',
@@ -1353,38 +1411,6 @@ describe('handleStreamEvent', () => {
     vi.useFakeTimers();
     client.getConversation.mockReset();
     client.getTranscript.mockReset();
-    client.getConversation.mockResolvedValueOnce({
-      id: 'conv-1',
-      title: 'Good morning'
-    });
-    client.getTranscript.mockResolvedValueOnce({
-      conversation: {
-        turns: [
-          {
-            turnId: 'turn-1',
-            status: 'completed',
-            createdAt: '2026-03-31T10:00:00Z',
-            user: {
-              messageId: 'u1',
-              content: 'good morning'
-            },
-            execution: {
-              pages: [
-                {
-                  pageId: 'page-final',
-                  assistantMessageId: 'page-final',
-                  turnId: 'turn-1',
-                  iteration: 1,
-                  status: 'completed',
-                  finalResponse: true,
-                  content: 'Good morning! What would you like to work on today?'
-                }
-              ]
-            }
-          }
-        ]
-      }
-    });
 
     const messageState = { collection: [] };
     const conversationState = { values: { id: 'conv-1', title: 'Good morning', queuedTurns: [], running: true } };
@@ -1415,8 +1441,8 @@ describe('handleStreamEvent', () => {
       resources: {
         chat: {
           activeConversationID: 'conv-1',
-          liveOwnedConversationID: '',
-          liveOwnedTurnIds: [],
+          liveOwnedConversationID: 'conv-1',
+          liveOwnedTurnIds: ['turn-1'],
           runningTurnId: 'turn-1',
           activeStreamTurnId: 'turn-1',
           lastHasRunning: true,
@@ -1481,12 +1507,14 @@ describe('handleStreamEvent', () => {
         expect.arrayContaining([
           expect.objectContaining({
             _type: 'iteration',
-            content: 'Good morning! What would you like to work on today?',
+            content: 'Temporary live content',
             role: 'assistant'
           })
         ])
       );
       expect(conversationState.values.running).toBe(false);
+      expect(client.getConversation).not.toHaveBeenCalled();
+      expect(client.getTranscript).not.toHaveBeenCalled();
     } finally {
       globalThis.window = originalWindow;
       globalThis.CustomEvent = originalCustomEvent;
@@ -1517,6 +1545,44 @@ describe('dsTick', () => {
             handlers: {
               dataSource: {
                 peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const result = await dsTick(context, { conversationID: 'conv-1' });
+
+    expect(client.getTranscript).not.toHaveBeenCalled();
+    expect(result?.deferredToLiveStream).toBe(true);
+    expect(result?.conversationID).toBe('conv-1');
+  });
+
+  it('does not fetch transcript during live bootstrap before the first turn id arrives', async () => {
+    client.getTranscript.mockReset();
+    const context = {
+      resources: {
+        chat: {
+          liveOwnedConversationID: 'conv-1',
+          liveOwnedTurnIds: [],
+          runningTurnId: '',
+          activeStreamTurnId: '',
+          activeStreamPrompt: 'recommend frequency cap for ctv',
+          lastHasRunning: false,
+          transcriptRows: [],
+          liveRows: [],
+          lastQueuedTurns: []
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', running: false }),
                 setFormData: vi.fn()
               }
             }
@@ -1591,6 +1657,98 @@ describe('createNewConversation', () => {
     expect(context.resources.chat.activeConversationID).toBe('');
     expect(context.resources.chat.lastConversationID).toBe('');
     expect(context.resources.chat.explicitNewConversationRequested).toBe(true);
+  });
+});
+
+describe('switchConversation', () => {
+  beforeEach(() => {
+    client.getConversation.mockReset();
+    client.getTranscript.mockReset();
+    client.listGeneratedFiles.mockReset();
+    client.listGeneratedFiles.mockResolvedValue([]);
+  });
+
+  it('resets stale transcript cursor when bootstrap already set the target conversation id', async () => {
+    const messageState = { collection: [{ id: 'old-msg', role: 'assistant', content: 'stale' }] };
+    const conversationState = { values: { id: 'conv-target', queuedTurns: [] } };
+    const context = {
+      resources: {
+        chat: {
+          lastSinceCursor: 'msg-from-other-conversation',
+          lastConversationID: 'conv-old',
+          transcriptRows: [{ id: 'old-user', role: 'user', turnId: 'turn-old', content: 'old' }],
+          renderRows: [],
+          liveRows: [],
+          lastQueuedTurns: [],
+          lastHasRunning: false,
+          runningTurnId: '',
+          activeConversationID: 'conv-old',
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    client.getConversation.mockResolvedValueOnce({ id: 'conv-target', title: 'target', status: 'succeeded' });
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        conversationId: 'conv-target',
+        turns: [
+          {
+            turnId: 'turn-target',
+            status: 'completed',
+            user: { messageId: 'user-target', content: 'new conversation content' }
+          }
+        ]
+      },
+      feeds: []
+    });
+    client.listGeneratedFiles.mockResolvedValueOnce([]);
+
+    await switchConversation(context, 'conv-target');
+
+    expect(client.getTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-target',
+        since: undefined,
+        includeFeeds: true
+      }),
+      undefined
+    );
+    expect(context.resources.chat.lastConversationID).toBe('conv-target');
+    expect(context.resources.chat.lastSinceCursor).toBe('user-target');
+    expect(messageState.collection).toEqual(expect.any(Array));
   });
 });
 
@@ -2399,6 +2557,47 @@ describe('renderMergedRowsForContext', () => {
 
 });
 
+describe('getCurrentConversationID fallback behavior', () => {
+  it('uses activeConversationID from chat state when the conversation form id is still blank', async () => {
+    client.getTranscript.mockReset();
+    const context = {
+      resources: {
+        chat: {
+          activeConversationID: 'conv-1',
+          liveOwnedConversationID: 'conv-1',
+          liveOwnedTurnIds: [],
+          activeStreamPrompt: 'recommend frequency cap for ctv',
+          runningTurnId: '',
+          activeStreamTurnId: '',
+          lastHasRunning: false,
+          transcriptRows: [],
+          liveRows: [],
+          lastQueuedTurns: []
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: '', running: false }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const result = await dsTick(context);
+
+    expect(client.getTranscript).not.toHaveBeenCalled();
+    expect(result?.deferredToLiveStream).toBe(true);
+    expect(result?.conversationID).toBe('conv-1');
+  });
+});
+
 describe('startPolling', () => {
   it('does not poll finished conversations once transcript is already loaded', async () => {
     vi.useFakeTimers();
@@ -2594,14 +2793,18 @@ describe('mapTranscriptToRows', () => {
     const { rows } = mapTranscriptToRows(turns);
     expect(rows).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        id: 'page-final',
-        role: 'assistant',
-        content: '## Highlights\n- Campaign pacing is slightly behind target.'
-      }),
-      expect.objectContaining({
         id: 'page-summary',
         role: 'assistant',
-        mode: 'summary'
+        content: 'Title: Campaign 547754 Performance Analysis and Recommended Next Actions\n\n- Saved 3 actionable recommendations',
+        executionGroups: expect.arrayContaining([
+          expect.objectContaining({
+            pageId: 'page-final'
+          }),
+          expect.objectContaining({
+            pageId: 'page-summary',
+            iteration: 0
+          })
+        ])
       }),
       expect.objectContaining({
         id: 'linked:child-1',
@@ -2977,6 +3180,36 @@ describe('shouldUseLiveStream', () => {
     };
 
     expect(shouldUseLiveStream(context, 'conv-finished')).toBe(false);
+  });
+
+  it('does not forward transcript snapshots into chatStore while the latest turn is live-owned', async () => {
+    const onTranscript = vi.fn();
+    installChatStoreMirror({ onTranscript });
+    const originalWindow = global.window;
+    global.window = {
+      __agentlyActiveChatState: {
+        liveOwnedConversationID: 'conv-live',
+        liveOwnedTurnIds: ['turn-1'],
+        runningTurnId: 'turn-1',
+        activeStreamTurnId: '',
+        lastHasRunning: true,
+      }
+    };
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        conversationId: 'conv-live',
+        turns: [{ turnId: 'turn-1', status: 'running' }],
+      }
+    });
+
+    try {
+      const turns = await fetchTranscript('conv-live');
+      expect(turns).toHaveLength(1);
+      expect(onTranscript).not.toHaveBeenCalled();
+    } finally {
+      installChatStoreMirror(null);
+      global.window = originalWindow;
+    }
   });
 });
 

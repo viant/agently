@@ -234,6 +234,7 @@ function mergeHydratedToolCall(base = {}, incoming = {}) {
     ...base,
     ...incoming,
     kind: incoming?.kind || base?.kind || '',
+    phase: incoming?.phase || base?.phase || '',
     reason: incoming?.reason || base?.reason || '',
     toolName: incoming?.toolName || base?.toolName || '',
     provider: incoming?.provider || base?.provider || '',
@@ -252,6 +253,20 @@ function mergeHydratedToolCall(base = {}, incoming = {}) {
     streamPayload: incoming?.streamPayload ?? incoming?.StreamPayload ?? base?.streamPayload ?? null,
     latencyMs: incoming?.latencyMs ?? incoming?.LatencyMs ?? base?.latencyMs ?? null
   };
+}
+
+function phaseLabel(value = '') {
+  const phase = String(value || '').trim().toLowerCase();
+  switch (phase) {
+    case 'intake':
+      return 'Intake';
+    case 'sidecar':
+      return 'Sidecar';
+    case 'summary':
+      return 'Summary';
+    default:
+      return '';
+  }
 }
 
 function toolCallHasResolvedPayloadContent(toolCall = {}) {
@@ -341,6 +356,20 @@ export default function DetailPanel({ toolCall, onClose }) {
   const canOpenLinkedConversation = Boolean(linkedConversationId)
     && (isAgentRunTool(effectiveToolCall || {}) || kind === 'link');
   const payloadCapable = kind === 'tool_call' || kind === 'thinking';
+  const hasRequestPayload = !!String(
+    effectiveToolCall?.requestPayloadId
+    || effectiveToolCall?.requestPayload
+    || effectiveToolCall?.providerRequestPayloadId
+    || effectiveToolCall?.providerRequestPayload
+    || ''
+  ).trim();
+  const hasResponsePayload = !!String(
+    effectiveToolCall?.responsePayloadId
+    || effectiveToolCall?.responsePayload
+    || effectiveToolCall?.providerResponsePayloadId
+    || effectiveToolCall?.providerResponsePayload
+    || ''
+  ).trim();
 
   if (!effectiveToolCall) return null;
 
@@ -414,6 +443,9 @@ export default function DetailPanel({ toolCall, onClose }) {
             {displayStepIcon(effectiveToolCall || {})}
           </span>
           <span className="app-detail-tool-name">{displayStepTitle(effectiveToolCall || {})}</span>
+          {phaseLabel(effectiveToolCall?.phase) ? (
+            <span className="app-detail-status-chip">{phaseLabel(effectiveToolCall?.phase)}</span>
+          ) : null}
           <span className="app-detail-status-chip">{String(effectiveToolCall?.status || '').toLowerCase() || 'unknown'}</span>
         </div>
         <Button minimal small icon="cross" onClick={onClose} />
@@ -446,20 +478,24 @@ export default function DetailPanel({ toolCall, onClose }) {
         <>
           <div className="app-detail-section-label">General</div>
           <div className="app-detail-action-bar">
-            <Button small className="app-detail-pill" onClick={() => openPayload('request')}>Request</Button>
-            <Button small className="app-detail-pill" onClick={() => openPayload('response')}>Response</Button>
+            {hasRequestPayload ? <Button small className="app-detail-pill" onClick={() => openPayload('request')}>Request</Button> : null}
+            {hasResponsePayload ? <Button small className="app-detail-pill" onClick={() => openPayload('response')}>Response</Button> : null}
             {hasStream ? <Button small className="app-detail-pill" onClick={() => openPayload('stream')}>Stream</Button> : null}
           </div>
           <div className="app-detail-section-label">Provider</div>
           <div className="app-detail-action-bar">
-            <Button small className="app-detail-pill" onClick={() => openPayload('providerRequest')}>Provider Request</Button>
-            <Button small className="app-detail-pill" onClick={() => openPayload('providerResponse')}>Provider Response</Button>
+            {String(effectiveToolCall?.providerRequestPayloadId || effectiveToolCall?.providerRequestPayload || '').trim()
+              ? <Button small className="app-detail-pill" onClick={() => openPayload('providerRequest')}>Provider Request</Button>
+              : null}
+            {String(effectiveToolCall?.providerResponsePayloadId || effectiveToolCall?.providerResponsePayload || '').trim()
+              ? <Button small className="app-detail-pill" onClick={() => openPayload('providerResponse')}>Provider Response</Button>
+              : null}
           </div>
         </>
       ) : (
         <div className="app-detail-action-bar">
-          <Button small className="app-detail-pill" onClick={() => openPayload('request')}>Request</Button>
-          <Button small className="app-detail-pill" onClick={() => openPayload('response')}>Response</Button>
+          {hasRequestPayload ? <Button small className="app-detail-pill" onClick={() => openPayload('request')}>Request</Button> : null}
+          {hasResponsePayload ? <Button small className="app-detail-pill" onClick={() => openPayload('response')}>Response</Button> : null}
         </div>
       )}
 

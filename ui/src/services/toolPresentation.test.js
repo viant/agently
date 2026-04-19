@@ -14,6 +14,17 @@ describe('toolPresentation', () => {
     expect(displayStepTitle(step)).toBe('agent_selector');
   });
 
+  it('treats llm/agents:start as delegated-agent execution and preserves the agent label', () => {
+    const step = {
+      toolName: 'llm/agents:start',
+      requestPayload: JSON.stringify({ agentId: 'guardian' }),
+    };
+
+    expect(isAgentRunTool(step)).toBe(true);
+    expect(delegatedAgentId(step)).toBe('guardian');
+    expect(displayStepTitle(step)).toBe('guardian');
+  });
+
   it('normalizes model ids into readable titles', () => {
     expect(displayStepTitle({ kind: 'model', provider: 'openai', model: 'gpt-5_4' })).toBe('openai/gpt-5.4');
     expect(displayStepTitle({ kind: 'model', model: 'openai_gpt-5_4' })).toBe('gpt-5.4');

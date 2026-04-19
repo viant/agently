@@ -19,6 +19,7 @@ func (c *ChatCmd) resolveBaseURL(ctx context.Context) (string, []authProviderInf
 		if meta == nil {
 			return baseURL, providers, "", "", "", nil, nil
 		}
+		c.elicitationTimeout = meta.ElicitationTimeout
 		return baseURL, providers, meta.WorkspaceRoot, meta.DefaultAgent, meta.DefaultModel, meta.Models, nil
 	}
 	instances, err := detectLocalInstances(ctx)
@@ -30,6 +31,7 @@ func (c *ChatCmd) resolveBaseURL(ctx context.Context) (string, []authProviderInf
 	}
 	if len(instances) == 1 {
 		inst := instances[0]
+		c.elicitationTimeout = inst.ElicitationTimeout
 		return inst.BaseURL, inst.Providers, inst.WorkspaceRoot, inst.DefaultAgent, inst.DefaultModel, inst.Models, nil
 	}
 	fmt.Println("Detected Agently instances:")
@@ -42,10 +44,13 @@ func (c *ChatCmd) resolveBaseURL(ctx context.Context) (string, []authProviderInf
 	}
 	fmt.Print("Select instance [1]: ")
 	reader := bufio.NewReader(os.Stdin)
-	line, _ := reader.ReadString('\n')
-	line = strings.TrimSpace(line)
-	if line == "" {
+	line, cancelled, rerr := readPromptLine(ctx, reader)
+	if rerr != nil {
+		return "", nil, "", "", "", nil, fmt.Errorf("read selection: %w", rerr)
+	}
+	if cancelled || line == "" {
 		inst := instances[0]
+		c.elicitationTimeout = inst.ElicitationTimeout
 		return inst.BaseURL, inst.Providers, inst.WorkspaceRoot, inst.DefaultAgent, inst.DefaultModel, inst.Models, nil
 	}
 	choice, err := strconv.Atoi(line)
@@ -53,6 +58,7 @@ func (c *ChatCmd) resolveBaseURL(ctx context.Context) (string, []authProviderInf
 		return "", nil, "", "", "", nil, fmt.Errorf("invalid selection")
 	}
 	inst := instances[choice-1]
+	c.elicitationTimeout = inst.ElicitationTimeout
 	return inst.BaseURL, inst.Providers, inst.WorkspaceRoot, inst.DefaultAgent, inst.DefaultModel, inst.Models, nil
 }
 

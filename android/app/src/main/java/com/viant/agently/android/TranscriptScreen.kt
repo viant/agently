@@ -21,7 +21,6 @@ import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.forgeandroid.runtime.ForgeRuntime
-import com.viant.forgeandroid.ui.MarkdownRenderer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
@@ -126,9 +125,10 @@ internal fun RenderTranscript(
                             }
                         }
                     }
-                    MarkdownRenderer(
+                    TranscriptMessageContent(
                         markdown = item.markdown.ifBlank { "(empty response)" },
-                        modifier = Modifier.fillMaxWidth()
+                        forgeRuntime = forgeRuntime,
+                        messageKey = item.id
                     )
                     if (messageApprovals.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

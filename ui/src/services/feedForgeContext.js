@@ -201,6 +201,20 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '')
         } catch (_) {}
         return true;
       },
+      selectIntoForm: ({ selected = null, row = null, rowIndex = -1, node = null, nodePath = null } = {}) => {
+        const nextSelected = selected || row || node || null;
+        try {
+          signals.selection.value = {
+            selected: nextSelected,
+            rowIndex,
+            nodePath: Array.isArray(nodePath) ? nodePath : null,
+          };
+        } catch (_) {}
+        try {
+          signals.form.value = nextSelected && typeof nextSelected === 'object' ? { ...nextSelected } : {};
+        } catch (_) {}
+        return true;
+      },
       getPage: () => Number(runtimeState.page || 1),
       setPage: (page) => {
         const rows = resolveRows();

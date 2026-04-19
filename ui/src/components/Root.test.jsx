@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  resolveRouteBootstrapAction,
   resolveMainWindowCloseConversationId,
   resolveMainWindowHeaderTitle,
   resolveSelectedMainWindow,
@@ -46,5 +47,33 @@ describe('Root window selection helpers', () => {
     expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history', inTab: false })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Chat', windowKey: 'chat/new' })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: '', windowKey: '' })).toBe(false);
+  });
+
+  it('does not bootstrap route selection until auth is ready', () => {
+    expect(resolveRouteBootstrapAction('/v1/conversation/conv-123', 'checking')).toEqual({
+      type: 'none',
+      conversationId: ''
+    });
+  });
+
+  it('boots the main chat window to the route conversation when auth is ready', () => {
+    expect(resolveRouteBootstrapAction('/v1/conversation/conv-123', 'ready')).toEqual({
+      type: 'conversation',
+      conversationId: 'conv-123'
+    });
+  });
+
+  it('boots the main chat window from the /conversation route variant too', () => {
+    expect(resolveRouteBootstrapAction('/conversation/conv-123', 'ready')).toEqual({
+      type: 'conversation',
+      conversationId: 'conv-123'
+    });
+  });
+
+  it('requests a new conversation on the root path when auth is ready', () => {
+    expect(resolveRouteBootstrapAction('/', 'ready')).toEqual({
+      type: 'new',
+      conversationId: ''
+    });
   });
 });

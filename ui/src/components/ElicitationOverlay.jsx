@@ -8,6 +8,7 @@ import {
   elicitationDataBindingKey,
   extractToolApprovalMeta,
   prepareRequestedSchema,
+  resolveElicitationSubmitAction,
   triggerElicitationFormSubmit
 } from './elicitationHelpers';
 import {
@@ -44,6 +45,7 @@ export default function ElicitationOverlay({ context }) {
 
   const preparedSchema = useMemo(() => prepareRequestedSchema(schema), [schema]);
   const approvalMeta = useMemo(() => extractToolApprovalMeta(schema), [schema]);
+  const submitAction = useMemo(() => resolveElicitationSubmitAction(schema), [schema]);
 
   const dataBindingKey = elicitationDataBindingKey(elicitationId);
 
@@ -105,7 +107,7 @@ export default function ElicitationOverlay({ context }) {
       hasBackdrop={false}
       enforceFocus={false}
       autoFocus={false}
-      title={approvalMeta?.title || 'Input Required'}
+      title={approvalMeta?.title || 'Needs your input'}
       style={{ width: '50vw', minWidth: 520, maxWidth: '80vw' }}
     >
       <div className={Classes.DIALOG_BODY}>
@@ -137,7 +139,7 @@ export default function ElicitationOverlay({ context }) {
               }}
               onSubmit={(payload) => {
                 const values = payload?.values || payload?.data || payload || {};
-                resolve('accept', values);
+                resolve(submitAction, values);
               }}
               disabled={submitting}
             />
@@ -172,7 +174,7 @@ export default function ElicitationOverlay({ context }) {
               // Try to trigger SchemaBasedForm's internal submit first (sends schema-keyed values).
               // If that fails, collect values ourselves.
               if (!triggerFormSubmit()) {
-                resolve('accept');
+                resolve(submitAction);
               }
             }}>
               {approvalMeta?.acceptLabel || 'Submit'}

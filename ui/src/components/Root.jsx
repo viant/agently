@@ -4,14 +4,13 @@ import { Dialog } from '@blueprintjs/core';
 import { activeWindows, addWindow, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
 import { WindowManager } from 'forge/components';
 import { DetailContext } from '../context/DetailContext';
+import { ConversationViewContext } from '../context/ConversationViewContext';
 import DetailPanel from './DetailPanel';
 import DetailPopoutWindow from './DetailPopoutWindow';
-import ChangeFeed from './ChangeFeed';
 import CodeDiffDialog from './CodeDiffDialog';
 import ConfirmDialog from './ConfirmDialog';
 import FileViewDialog from './FileViewDialog';
 import MenuBar, { refreshWindowDataSources } from './MenuBar';
-// PlanFeed replaced by ToolFeedBar + ToolFeedDetail
 import ToolFeedBar from './ToolFeedBar';
 import UsageBar from './UsageBar';
 import StatusBar from './StatusBar';
@@ -27,6 +26,7 @@ const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
 const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 520;
+const SHOW_EXECUTION_DETAILS_KEY = 'agently.showExecutionDetails';
 
 function clampSidebarWidth(value) {
   const next = Number(value || 0);
@@ -109,6 +109,18 @@ export function shouldShowMainWindowHeader(windowEntry = null) {
     && resolveMainWindowHeaderTitle(windowEntry) !== '';
 }
 
+export function resolveRouteBootstrapAction(pathname = '', authState = '') {
+  if (authState !== 'ready') return { type: 'none', conversationId: '' };
+  const routeConversationId = conversationIDFromPath(pathname);
+  if (routeConversationId) {
+    return { type: 'conversation', conversationId: routeConversationId };
+  }
+  if (pathname === '/' || pathname === '/ui') {
+    return { type: 'new', conversationId: '' };
+  }
+  return { type: 'none', conversationId: '' };
+}
+
 export default function Root() {
   useSignals();
   void selectedTabId.value;
@@ -132,6 +144,14 @@ export default function Root() {
   });
   const [authState, setAuthState] = useState('checking');
   const [oauthProviderLabel, setOAuthProviderLabel] = useState('');
+  const [showExecutionDetails, setShowExecutionDetails] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = String(window.localStorage?.getItem(SHOW_EXECUTION_DETAILS_KEY) || '').trim().toLowerCase();
+      if (stored === 'false') return false;
+    } catch (_) {}
+    return true;
+  });
   const resizeStateRef = useRef(null);
   const approvals = useApprovalQueue(authState === 'ready');
   const selectedWindow = resolveSelectedMainWindow(
@@ -220,6 +240,13 @@ export default function Root() {
   }, [sidebarWidth]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage?.setItem(SHOW_EXECUTION_DETAILS_KEY, showExecutionDetails ? 'true' : 'false');
+    } catch (_) {}
+  }, [showExecutionDetails]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return () => {};
 
     const handlePointerMove = (event) => {
@@ -284,15 +311,15 @@ export default function Root() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const routeConversationId = conversationIDFromPath(window.location.pathname);
-    if (routeConversationId) {
-      openConversationInMainWindow(routeConversationId);
+    const action = resolveRouteBootstrapAction(window.location.pathname, authState);
+    if (action.type === 'conversation') {
+      openConversationInMainWindow(action.conversationId);
       return;
     }
-    if (window.location.pathname === '/' || window.location.pathname === '/ui') {
+    if (action.type === 'new') {
       requestNewConversationInMainWindow();
     }
-  }, []);
+  }, [authState]);
 
   if (authState === 'checking') {
     return (
@@ -324,13 +351,19 @@ export default function Root() {
 
   return (
     <DetailContext.Provider value={value}>
-      <div
-        className="app-shell"
-        style={{
-          '--app-sidebar-width': `${isSidebarOpen ? clampSidebarWidth(sidebarWidth) : 64}px`
-        }}
-      >
-        <MenuBar approvals={approvals} onToggleSidebar={() => setIsSidebarOpen((open) => !open)} />
+      <ConversationViewContext.Provider value={{ showExecutionDetails, setShowExecutionDetails }}>
+        <div
+          className="app-shell"
+          style={{
+            '--app-sidebar-width': `${isSidebarOpen ? clampSidebarWidth(sidebarWidth) : 64}px`
+          }}
+        >
+          <MenuBar
+            approvals={approvals}
+            onToggleSidebar={() => setIsSidebarOpen((open) => !open)}
+            showExecutionDetails={showExecutionDetails}
+            onToggleExecutionDetails={() => setShowExecutionDetails((value) => !value)}
+          />
 
         <div className="app-main">
           <Sidebar collapsed={!isSidebarOpen} />
@@ -406,7 +439,6 @@ export default function Root() {
             </div>
             {showChatChrome ? (
               <>
-                <ChangeFeed anchor="composer_top" />
                 <ToolFeedBar />
                 <UsageBar />
               </>
@@ -414,8 +446,9 @@ export default function Root() {
           </main>
         </div>
 
-        <StatusBar backendUnavailable={!!approvals?.backendUnavailable} approvals={approvals} />
-      </div>
+          <StatusBar backendUnavailable={!!approvals?.backendUnavailable} approvals={approvals} />
+        </div>
+      </ConversationViewContext.Provider>
 
       <Dialog
         isOpen={isPanelOpen}

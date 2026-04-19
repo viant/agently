@@ -1,9 +1,11 @@
 package com.viant.agently.android
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -12,6 +14,7 @@ import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.AuthProvider
 import com.viant.agentlysdk.AuthUser
 import com.viant.agentlysdk.Conversation
+import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.WorkspaceMetadata
@@ -38,7 +41,6 @@ internal fun AppBody(
     authUser: AuthUser?,
     authWebUrl: String?,
     showSavedLoginSettings: Boolean,
-    effectiveAgentId: String?,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
     streamSnapshot: ConversationStreamSnapshot?,
@@ -58,6 +60,7 @@ internal fun AppBody(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .padding(16.dp)
     ) {
         if (authState == AuthState.Checking) {
@@ -122,8 +125,6 @@ internal fun AppBody(
                 if (isTablet) {
                     TabletChatScreen(
                         appApiBaseUrl = appApiBaseUrl,
-                        metadata = metadata,
-                        effectiveAgentId = effectiveAgentId,
                         loading = loading,
                         recentConversations = recentConversations,
                         activeConversationId = activeConversationId,
@@ -157,9 +158,6 @@ internal fun AppBody(
                     )
                 } else {
                     PhoneChatScreen(
-                        appApiBaseUrl = appApiBaseUrl,
-                        metadata = metadata,
-                        effectiveAgentId = effectiveAgentId,
                         loading = loading,
                         recentConversations = recentConversations,
                         activeConversationId = activeConversationId,

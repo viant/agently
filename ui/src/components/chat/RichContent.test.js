@@ -387,6 +387,74 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('WIN_RATE');
   });
 
+  it('preserves badges, summary, timeline, and table blocks in a dashboard payload', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Campaign Health',
+      subtitle: 'Summary header',
+      dataSources: [
+        {
+          name: 'daily_rows',
+          csv: [
+            'date,spend,clicks,status',
+            '2026-04-08,134.3,12,healthy',
+            '2026-04-09,256.42,19,behind',
+          ].join('\n'),
+        },
+      ],
+      blocks: [
+        {
+          id: 'badges',
+          kind: 'dashboard.badges',
+          items: [
+            { label: 'Status', value: 'Healthy', tone: 'success' },
+            { label: 'Pacing', value: 'Behind', tone: 'warning' },
+          ],
+        },
+        {
+          id: 'summary',
+          kind: 'dashboard.summary',
+          items: [
+            { label: 'Spend', value: 390.72 },
+            { label: 'Clicks', value: 31 },
+          ],
+        },
+        {
+          id: 'timeline',
+          kind: 'dashboard.timeline',
+          title: 'Daily spend',
+          dataSource: 'daily_rows',
+          dateField: 'date',
+          series: ['spend'],
+          chartType: 'bar',
+        },
+        {
+          id: 'table',
+          kind: 'dashboard.table',
+          title: 'Daily detail',
+          dataSourceRef: 'daily_rows',
+          columns: [
+            { key: 'date', label: 'Date' },
+            { key: 'spend', label: 'Spend' },
+            { key: 'clicks', label: 'Clicks' },
+            { key: 'status', label: 'Status' },
+          ],
+        },
+      ],
+    });
+
+    expect(normalized.title).toBe('Campaign Health');
+    expect(normalized.subtitle).toBe('Summary header');
+    expect(normalized.blocks.map((block) => block.kind)).toEqual([
+      'dashboard.badges',
+      'dashboard.summary',
+      'dashboard.timeline',
+      'dashboard.table',
+    ]);
+    expect(normalized.blocks[2].chart.type).toBe('bar');
+    expect(normalized.blocks[3].columns).toHaveLength(4);
+  });
+
   it('renders compact streamed forge planner fences without extra normalization', () => {
     const content = [
       '```forge-data{"version":1,"id":"recommended_sites","format":"json","mode":"replace","data":[{"site_id":102788,"site_name":"Site List 102788","reason":"Best supplemental expansion test.","selected":true},{"site_id":22547,"site_name":"Site List 22547","reason":"Best backup option.","selected":true}]}',
@@ -420,7 +488,7 @@ describe('RichContent fence parsing', () => {
       React.createElement(RichContent, { content })
     );
 
-    expect(html).toContain('Building UI loading');
+    expect(html).toContain('Building UI');
     expect(html).not.toContain('```forge-ui');
     expect(html).not.toContain('Invalid forge-ui block');
   });
@@ -435,7 +503,7 @@ describe('RichContent fence parsing', () => {
       React.createElement(RichContent, { content })
     );
 
-    expect(html).toContain('Setting datasources loading');
+    expect(html).toContain('Setting datasources');
     expect(html).not.toContain('```forge-data');
   });
 

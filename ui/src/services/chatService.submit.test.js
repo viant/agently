@@ -16,6 +16,10 @@ vi.mock('./agentlyClient', () => ({
   },
 }));
 
+vi.mock('./chatStore', () => ({
+  submit: vi.fn(),
+}));
+
 vi.mock('./chatRuntime', () => ({
   applyIterationVisibility: vi.fn(),
   bindConversationWindowEvents: vi.fn(),
@@ -66,6 +70,7 @@ vi.mock('../utils/dialogBus', () => ({
 }));
 
 import { client } from './agentlyClient';
+import { submit as submitToChatStore } from './chatStore';
 import { onInit, submitMessage } from './chatService';
 import {
   dsTick,
@@ -141,12 +146,75 @@ describe('submitMessage', () => {
 
     await Promise.resolve();
     expect(ensureConversation).toHaveBeenCalled();
+    expect(submitToChatStore).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-1',
+      content: 'Forecast inventory and uniques for this targeting set: ad deal 147540',
+    }));
     expect(publishActiveConversation).toHaveBeenCalledWith('conv-1', context);
     expect(rememberSeedTitle).toHaveBeenCalledWith('conv-1', 'Forecast inventory and uniques for this targeting set: ad deal 147540');
     expect(syncConversationTransport).toHaveBeenCalledWith(context, 'conv-1');
 
     deferred.resolve({});
     await submitPromise;
+  });
+
+  it('does not run transcript dstick after submit when a fresh live stream owns the turn', async () => {
+    client.query.mockResolvedValue({});
+    ensureConversation.mockResolvedValue('conv-1');
+    resolveUserID.mockReturnValue('');
+    const chatState = {
+      runningTurnId: '',
+      lastHasRunning: false,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+      stream: { close: vi.fn() },
+    };
+    ensureContextResources.mockReturnValue(chatState);
+
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  defaults: { model: 'openai_gpt-5_4' },
+                }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    await submitMessage({
+      context,
+      message: 'Analyze the business impact of deal 146901',
+      model: 'openai_gpt-5_4',
+      agent: 'steward',
+    });
+
+    expect(syncConversationTransport).toHaveBeenCalledWith(context, 'conv-1');
+    expect(submitToChatStore).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-1',
+      content: 'Analyze the business impact of deal 146901',
+    }));
+    expect(dsTick).not.toHaveBeenCalled();
   });
 
   it('adds explicit web client context to query payloads', async () => {

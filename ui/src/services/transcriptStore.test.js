@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { syncTranscriptSnapshot, tickTranscript } from './transcriptStore';
 
 describe('syncTranscriptSnapshot', () => {
-  it('clears completed live-session ownership once transcript confirms the turn is finished', () => {
+  it('keeps latest turn live-owned after transcript confirms it is finished', () => {
     const chatState = {
       transcriptRows: [],
       liveRows: [
@@ -73,22 +73,19 @@ describe('syncTranscriptSnapshot', () => {
       }),
       findLatestRunningTurnIdFromTurns: () => '',
       findLatestRunningTurnId: () => '',
-      publishChangeFeed: vi.fn(),
-      publishPlanFeed: vi.fn(),
       setStage: vi.fn(),
       liveRows: chatState.liveRows
     });
 
-    expect(result?.shouldFinalizeActiveStream).toBe(true);
-    expect(result?.liveRows).toEqual([]);
-    expect(chatState.liveRows).toEqual([]);
-    expect(chatState.liveOwnedTurnIds).toEqual([]);
-    expect(chatState.liveOwnedConversationID).toBe('');
-    expect(chatState.activeStreamTurnId).toBe('');
-    expect(chatState.activeStreamStartedAt).toBe(0);
+    expect(result?.shouldFinalizeActiveStream).toBe(false);
+    expect(result?.liveRows).toEqual(chatState.liveRows);
+    expect(chatState.liveOwnedTurnIds).toEqual(['turn-1']);
+    expect(chatState.liveOwnedConversationID).toBe('conv-1');
+    expect(chatState.activeStreamTurnId).toBe('turn-1');
+    expect(chatState.activeStreamStartedAt).toBe(123);
   });
 
-  it('finalizes stale live ownership when transcript marks the owned turn completed', () => {
+  it('keeps stale live ownership when the completed turn is still the latest turn', () => {
     const chatState = {
       transcriptRows: [],
       liveRows: [
@@ -160,22 +157,83 @@ describe('syncTranscriptSnapshot', () => {
       }),
       findLatestRunningTurnIdFromTurns: () => '',
       findLatestRunningTurnId: () => '',
-      publishChangeFeed: vi.fn(),
-      publishPlanFeed: vi.fn(),
+      setStage: vi.fn(),
+      liveRows: chatState.liveRows
+    });
+
+    expect(result?.shouldFinalizeActiveStream).toBe(false);
+    expect(result?.liveRows).toEqual(chatState.liveRows);
+    expect(chatState.liveOwnedTurnIds).toEqual(['turn-1']);
+    expect(chatState.liveOwnedConversationID).toBe('conv-1');
+  });
+
+  it('releases live ownership once a newer turn exists in transcript history', () => {
+    const chatState = {
+      transcriptRows: [],
+      liveRows: [
+        {
+          id: 'assistant-live',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-04-06T19:47:00Z',
+          interim: 0,
+          status: 'completed',
+          content: 'done'
+        }
+      ],
+      renderRows: [],
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1'],
+      lastConversationID: 'conv-1',
+      lastQueuedTurns: [],
+      lastHasRunning: false,
+      runningTurnId: '',
+      activeStreamTurnId: 'turn-1',
+      activeStreamStartedAt: 123
+    };
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-1' }),
+      setFormData: vi.fn()
+    };
+    const context = {
+      Context: (name) => {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: conversationsDS } };
+        }
+        return null;
+      }
+    };
+
+    const result = syncTranscriptSnapshot({
+      context,
+      turns: [
+        { turnId: 'turn-1', status: 'completed' },
+        { turnId: 'turn-2', status: 'completed' }
+      ],
+      ensureContextResources: () => chatState,
+      resolveActiveStreamTurnId: () => '',
+      mapTranscriptToRows: () => ({
+        rows: [
+          { id: 'user-1', role: 'user', turnId: 'turn-1', createdAt: '2026-04-06T19:47:00Z', content: 'first' },
+          { id: 'assistant-1', role: 'assistant', turnId: 'turn-1', createdAt: '2026-04-06T19:47:05Z', interim: 0, status: 'completed', content: 'done' },
+          { id: 'user-2', role: 'user', turnId: 'turn-2', createdAt: '2026-04-06T19:48:00Z', content: 'second' }
+        ],
+        queuedTurns: [],
+        runningTurnId: ''
+      }),
+      findLatestRunningTurnIdFromTurns: () => '',
+      findLatestRunningTurnId: () => '',
       setStage: vi.fn(),
       liveRows: chatState.liveRows
     });
 
     expect(result?.shouldFinalizeActiveStream).toBe(true);
-    expect(result?.liveRows).toEqual([]);
     expect(chatState.liveRows).toEqual([]);
     expect(chatState.liveOwnedTurnIds).toEqual([]);
     expect(chatState.liveOwnedConversationID).toBe('');
   });
 
   it('drops previously cached transcript rows for owned turns once live ownership starts', () => {
-    const publishChangeFeed = vi.fn();
-    const publishPlanFeed = vi.fn();
     const chatState = {
       transcriptRows: [
         {
@@ -240,16 +298,82 @@ describe('syncTranscriptSnapshot', () => {
       }),
       findLatestRunningTurnIdFromTurns: () => 'turn-1',
       findLatestRunningTurnId: () => 'turn-1',
-      publishChangeFeed,
-      publishPlanFeed,
       setStage: vi.fn(),
       liveRows: chatState.liveRows
     });
 
     expect(result?.transcriptRows).toEqual([]);
     expect(chatState.transcriptRows).toEqual([]);
-    expect(publishChangeFeed).toHaveBeenCalledWith({ conversationId: 'conv-1', rows: [] });
-    expect(publishPlanFeed).toHaveBeenCalledWith({ conversationId: 'conv-1', rows: [] });
+  });
+
+  it('reapplies transcript-backed tool feeds for the settled conversation', () => {
+    const applyFeedEvent = vi.fn();
+    const chatState = {
+      transcriptRows: [],
+      liveRows: [],
+      liveOwnedConversationID: '',
+      liveOwnedTurnIds: [],
+      lastConversationID: '',
+      lastQueuedTurns: [],
+      lastHasRunning: false,
+      runningTurnId: '',
+      lastTranscriptFeedsByConversation: {
+        'conv-1': [
+          {
+            feedId: 'changes',
+            title: 'Changes',
+            itemCount: 1,
+            data: { output: { changes: [{ path: 'sample.txt' }] } }
+          }
+        ]
+      }
+    };
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-1' }),
+      setFormData: vi.fn()
+    };
+    const context = {
+      Context: (name) => {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: conversationsDS } };
+        }
+        return null;
+      }
+    };
+
+    syncTranscriptSnapshot({
+      context,
+      turns: [{ id: 'turn-1', status: 'completed' }],
+      ensureContextResources: () => chatState,
+      resolveActiveStreamTurnId: () => '',
+      mapTranscriptToRows: () => ({
+        rows: [
+          {
+            id: 'assistant-1',
+            role: 'assistant',
+            turnId: 'turn-1',
+            createdAt: '2026-03-16T10:00:00Z',
+            content: 'done'
+          }
+        ],
+        queuedTurns: [],
+        runningTurnId: ''
+      }),
+      findLatestRunningTurnIdFromTurns: () => '',
+      findLatestRunningTurnId: () => '',
+      applyFeedEvent,
+      setStage: vi.fn(),
+      liveRows: chatState.liveRows
+    });
+
+    expect(applyFeedEvent).toHaveBeenCalledWith({
+      type: 'tool_feed_active',
+      feedId: 'changes',
+      feedTitle: 'Changes',
+      feedItemCount: 1,
+      feedData: { output: { changes: [{ path: 'sample.txt' }] } },
+      conversationId: 'conv-1',
+    });
   });
 });
 
