@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -132,6 +133,39 @@ func TestResolveConversationExitCode(t *testing.T) {
 	code, err := resolveConversationExitCode(context.Background(), client, "conv-1")
 	require.NoError(t, err)
 	assert.Equal(t, 23, code)
+}
+
+func TestResetDebugArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	debugLog := filepath.Join(dir, "agently-debug.log")
+	traceLog := filepath.Join(dir, "trace.ndjson")
+	payloadDir := filepath.Join(dir, "payloads")
+
+	originalDebug := defaultDebugLogPath
+	t.Setenv(envTraceFilePath, traceLog)
+	t.Setenv(envPayloadDirPath, payloadDir)
+
+	require.NoError(t, os.WriteFile(debugLog, []byte("stale-debug"), 0o644))
+	require.NoError(t, os.WriteFile(traceLog, []byte("stale-trace"), 0o644))
+	require.NoError(t, os.MkdirAll(payloadDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(payloadDir, "payload.json"), []byte(`{"old":true}`), 0o644))
+
+	defaultDebugLogPath = debugLog
+	defer func() { defaultDebugLogPath = originalDebug }()
+
+	require.NoError(t, resetDebugArtifacts())
+
+	debugContent, err := os.ReadFile(debugLog)
+	require.NoError(t, err)
+	assert.Empty(t, debugContent)
+
+	traceContent, err := os.ReadFile(traceLog)
+	require.NoError(t, err)
+	assert.Empty(t, traceContent)
+
+	entries, err := os.ReadDir(payloadDir)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
 }
 
 func captureStdout(t *testing.T, fn func()) string {

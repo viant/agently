@@ -38,6 +38,12 @@ describe('fetchTranscript', () => {
           itemCount: 1,
           data: { output: { commands: [{ input: 'pwd', output: '/tmp' }] } },
         },
+        {
+          feedId: 'changes',
+          title: 'Changes',
+          itemCount: 1,
+          data: { output: { changes: [{ url: '/tmp/sample_test.go', kind: 'create' }] } },
+        },
       ],
       turns: [
         {
@@ -56,7 +62,7 @@ describe('fetchTranscript', () => {
       includeFeeds: true,
     }), undefined);
 
-    expect(mocks.applyFeedEvent).toHaveBeenCalledTimes(2);
+    expect(mocks.applyFeedEvent).toHaveBeenCalledTimes(3);
     expect(mocks.applyFeedEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
       type: 'tool_feed_active',
       feedId: 'explorer',
@@ -68,6 +74,13 @@ describe('fetchTranscript', () => {
       type: 'tool_feed_active',
       feedId: 'terminal',
       feedTitle: 'Terminal',
+      feedItemCount: 1,
+      conversationId: 'conv-history-1',
+    }));
+    expect(mocks.applyFeedEvent).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      type: 'tool_feed_active',
+      feedId: 'changes',
+      feedTitle: 'Changes',
       feedItemCount: 1,
       conversationId: 'conv-history-1',
     }));

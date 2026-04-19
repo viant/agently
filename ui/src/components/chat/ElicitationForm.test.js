@@ -7,6 +7,7 @@ import {
   elicitationDataBindingKey,
   extractToolApprovalMeta,
   prepareRequestedSchema,
+  resolveElicitationSubmitAction,
   serializeApprovalEditedFields
 } from '../elicitationHelpers';
 
@@ -81,6 +82,22 @@ describe('ElicitationForm utilities', () => {
       rejectLabel: 'Deny',
       cancelLabel: 'Cancel'
     });
+  });
+
+  it('uses submit for schema forms and accept for tool approvals', () => {
+    expect(resolveElicitationSubmitAction({
+      type: 'object',
+      properties: {
+        path: { type: 'string' }
+      }
+    })).toBe('submit');
+
+    expect(resolveElicitationSubmitAction({
+      type: 'object',
+      properties: {
+        _type: { type: 'string', const: 'tool_approval' }
+      }
+    })).toBe('accept');
   });
 
   it('extracts rich approval metadata with editors from _approvalMeta', () => {

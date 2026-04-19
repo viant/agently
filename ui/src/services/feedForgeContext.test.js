@@ -77,4 +77,20 @@ describe('createFeedContext', () => {
       rowIndex: -1,
     });
   });
+
+  it('can mirror a selected row into form state for feed editors', () => {
+    const context = createFeedContext('queue', { queueTurns: {} }, 'conv-1');
+    const row = { id: 'turn-q1', preview: 'queued follow-up' };
+
+    context.handlers.dataSource.selectIntoForm({ row, rowIndex: 0 });
+
+    expect(context.handlers.dataSource.getSelection()).toMatchObject({
+      selected: row,
+      rowIndex: 0,
+    });
+    expect(context.handlers.dataSource.getFormData()).toMatchObject({
+      id: 'turn-q1',
+      preview: 'queued follow-up',
+    });
+  });
 });

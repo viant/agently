@@ -36,6 +36,8 @@ import { client } from './agentlyClient';
 import { updateFeedData } from './toolFeedBus';
 import {
   resolveSubmitAgent,
+  resolveComposerProps,
+  renderFeed,
   explorerSearch,
   explorerSearchInputChanged,
   taskStatusIcon,
@@ -64,6 +66,115 @@ describe('resolveSubmitAgent', () => {
       metaForm: { agent: 'chatter', defaults: { agent: 'chatter' } },
       convForm: { agent: 'chatter' }
     })).toBe('auto');
+  });
+});
+
+describe('renderFeed', () => {
+  it('falls back to the conversations form id when explicit conversationId is empty', () => {
+    const context = {
+      identity: { windowId: 'chat/new' },
+      resources: { chat: { activeConversationID: '' } },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-from-form' }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    const element = renderFeed({ conversationId: '', context });
+    expect(element?.props?.conversationId).toBe('conv-from-form');
+  });
+
+  it('does not forward legacy messages into the canonical feed component', () => {
+    const context = {
+      identity: { windowId: 'chat/new' },
+      resources: { chat: { activeConversationID: '' } },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-from-form' }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    const element = renderFeed({ conversationId: '', context, messages: [{ id: 'legacy-row' }] });
+    expect(element?.props?.conversationId).toBe('conv-from-form');
+    expect(Object.prototype.hasOwnProperty.call(element?.props || {}, 'messages')).toBe(false);
+  });
+});
+
+describe('resolveComposerProps', () => {
+  it('projects command-center state from meta/conversation data sources', () => {
+    const metaState = {
+      agent: 'coder',
+      model: 'openai_gpt-5-mini',
+      reasoningEffort: 'medium',
+      tool: ['system/exec'],
+      defaults: {
+        agent: 'chatter',
+        model: 'openai_gpt-5-mini',
+        autoSelectTools: true,
+      },
+      agentOptions: [{ value: 'coder', label: 'Coder' }],
+      modelOptions: [{ value: 'openai_gpt-5-mini', label: 'GPT-5 Mini' }],
+      modelInfo: { 'openai_gpt-5-mini': { title: 'GPT-5 Mini' } },
+      starterTasks: [{ id: 's1', title: 'Start' }],
+    };
+    const metaDS = {
+      state: metaState,
+      peekFormData: () => metaDS.state,
+      setFormData: ({ values }) => { metaDS.state = values; },
+      setFormField: ({ item, value }) => { metaDS.state = { ...metaDS.state, [item.id]: value }; },
+    };
+    const convDS = {
+      state: { agent: 'coder', model: 'openai_gpt-5-mini' },
+      peekFormData: () => convDS.state,
+      setFormData: ({ values }) => { convDS.state = values; },
+      setFormField: ({ item, value }) => { convDS.state = { ...convDS.state, [item.id]: value }; },
+    };
+    const context = {
+      resources: {},
+      Context(name) {
+        if (name === 'meta') return { handlers: { dataSource: metaDS } };
+        if (name === 'conversations') return { handlers: { dataSource: convDS } };
+        return null;
+      },
+    };
+
+    const state = resolveComposerProps({
+      context,
+      container: { chat: { commandCenter: true } },
+    });
+
+    expect(state.commandCenter).toBe(true);
+    expect(state.agentValue).toBe('coder');
+    expect(state.modelValue).toBe('openai_gpt-5-mini');
+    expect(state.reasoningValue).toBe('medium');
+    expect(state.selectedTools).toEqual(['system/exec']);
+    expect(state.starterTasks).toEqual([{ id: 's1', title: 'Start' }]);
+
+    state.onReasoningChange('high');
+    expect(metaDS.state.reasoningEffort).toBe('high');
+
+    state.onToolsChange(['system/os']);
+    expect(metaDS.state.tool).toEqual(['system/os']);
+
+    state.onAutoSelectToolsChange(false);
+    expect(metaDS.state.autoSelectTools).toBe(false);
+    expect(convDS.state.autoSelectTools).toBe(false);
   });
 });
 

@@ -99,6 +99,7 @@ public struct WorkspaceScreen: View {
     }
 
     public var body: some View {
+        let showsSidebar = !approvals.isEmpty || !artifacts.isEmpty
         VStack(spacing: 0) {
             ChatWorkspaceView(
                 metadata: metadata,
@@ -110,18 +111,20 @@ public struct WorkspaceScreen: View {
                 mainPane
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-                WorkspaceSidebar(
-                    artifacts: artifacts,
-                    approvals: approvals,
-                    decidingApprovalID: decidingApprovalID,
-                    isLoadingArtifacts: isLoadingArtifacts,
-                    isArtifactSectionExpanded: $isArtifactSectionExpanded,
-                    isApprovalSectionExpanded: $isApprovalSectionExpanded,
-                    forgeRuntime: forgeRuntime,
-                    onSelectArtifact: onSelectArtifact,
-                    onDecision: onDecision
-                )
-                .frame(minWidth: 300, idealWidth: 340, maxWidth: 340, maxHeight: .infinity, alignment: .top)
+                if showsSidebar {
+                    WorkspaceSidebar(
+                        artifacts: artifacts,
+                        approvals: approvals,
+                        decidingApprovalID: decidingApprovalID,
+                        isLoadingArtifacts: isLoadingArtifacts,
+                        isArtifactSectionExpanded: $isArtifactSectionExpanded,
+                        isApprovalSectionExpanded: $isApprovalSectionExpanded,
+                        forgeRuntime: forgeRuntime,
+                        onSelectArtifact: onSelectArtifact,
+                        onDecision: onDecision
+                    )
+                    .frame(minWidth: 300, idealWidth: 340, maxWidth: 340, maxHeight: .infinity, alignment: .top)
+                }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 16)

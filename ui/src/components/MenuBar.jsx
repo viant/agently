@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Dialog } from '@blueprintjs/core';
+import { Button, Dialog, Switch } from '@blueprintjs/core';
 import { addWindow, activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
 import { client, getAuthMeSilently } from '../services/agentlyClient';
 import logo from '../viant-logo.png';
@@ -79,7 +79,7 @@ export function paginateApprovalItems(items = [], page = 0, pageSize = APPROVALS
   };
 }
 
-export default function MenuBar({ approvals, onToggleSidebar }) {
+export default function MenuBar({ approvals, onToggleSidebar, showExecutionDetails = true, onToggleExecutionDetails }) {
   const {
     items = [],
     pendingCount = 0,
@@ -98,6 +98,7 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
   } = approvals || {};
   const [user, setUser] = useState(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [approvalPage, setApprovalPage] = useState(0);
 
   useEffect(() => {
@@ -195,6 +196,28 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
             data-testid="automation-nav"
             onClick={() => openWindow('schedule', 'Automation', ['schedules'], { replaceTabbedWindows: true })}
           />
+          <div className="app-topbar-settings-wrap">
+            <Button
+              minimal
+              icon="cog"
+              className="app-topbar-nav-btn app-topbar-settings-btn"
+              data-testid="view-settings-btn"
+              onClick={() => {
+                setSettingsOpen((value) => !value);
+                setUserMenuOpen(false);
+              }}
+            />
+            {settingsOpen ? (
+              <div className="app-topbar-settings-menu" data-testid="view-settings-menu">
+                <div className="app-topbar-settings-title">Conversation view</div>
+                <Switch
+                  checked={!!showExecutionDetails}
+                  label="Show execution details"
+                  onChange={() => onToggleExecutionDetails?.()}
+                />
+              </div>
+            ) : null}
+          </div>
           <Button
             minimal
             icon="history"
@@ -219,7 +242,10 @@ export default function MenuBar({ approvals, onToggleSidebar }) {
           icon="user"
           className="app-user-btn"
           data-testid="user-menu-btn"
-          onClick={() => setUserMenuOpen((v) => !v)}
+          onClick={() => {
+            setUserMenuOpen((v) => !v);
+            setSettingsOpen(false);
+          }}
         >
           {displayName}
         </Button>

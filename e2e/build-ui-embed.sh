@@ -33,9 +33,11 @@ echo "[build-ui-embed] Copying ${DIST}/* to ${DEPLOY}/..."
 mkdir -p "${DEPLOY}"
 find "${DEPLOY}" -maxdepth 1 \
   -not -name 'init.go' \
+  -not -name 'assets' \
   -not -path "${DEPLOY}" \
   -exec rm -rf {} +
-rm -rf "${DEPLOY}/assets"
-cp -R "$DIST"/* "$DEPLOY/"
+mkdir -p "${DEPLOY}/assets"
+find "$DIST" -maxdepth 1 -mindepth 1 ! -name 'assets' -exec cp -R {} "${DEPLOY}/" \;
+cp -R "$DIST"/assets/. "${DEPLOY}/assets/"
 
 echo "[build-ui-embed] Done. Rebuild the binary: cd agently && go build -o agently ."

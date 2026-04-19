@@ -19,13 +19,16 @@ function filterLiveOwnedTranscriptRows(rows = [], currentConversationID = '', ow
 function isVisibleExecutionPage(page = {}) {
   if (!page || typeof page !== 'object') return false;
   const status = String(page?.status || '').trim().toLowerCase();
+  const phase = String(page?.phase || '').trim().toLowerCase();
   const hasVisibleContent = String(page?.preamble || '').trim() !== '' || String(page?.content || '').trim() !== '';
   const hasError = String(page?.errorMessage || page?.ErrorMessage || '').trim() !== '';
   const hasTools = (Array.isArray(page?.toolSteps) && page.toolSteps.length > 0)
     || (Array.isArray(page?.toolCallsPlanned) && page.toolCallsPlanned.length > 0);
+  const hasModelCall = !!page?.modelCall || !!page?.modelSteps?.length;
   const isActive = ['running', 'thinking', 'streaming', 'processing', 'in_progress', 'waiting_for_user', 'tool_calls'].includes(status);
   const isError = status === 'failed' || status === 'error' || status === 'terminated';
-  return hasVisibleContent || hasError || hasTools || isActive || isError;
+  const isExplicitPhase = phase === 'intake' || phase === 'sidecar' || phase === 'summary';
+  return hasVisibleContent || hasError || hasTools || isActive || isError || (isExplicitPhase && hasModelCall);
 }
 
 function executionPageIteration(page = {}) {
@@ -168,8 +171,8 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
     }
 
     const executionPages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
-    const summaryPages = executionPages.filter((page) => executionPageIteration(page) === 0);
-    const visiblePages = executionPages.filter((page) => executionPageIteration(page) !== 0 && isVisibleExecutionPage(page));
+    const summaryPages = executionPages.filter((page) => String(page?.phase || '').trim().toLowerCase() === 'summary');
+    const visiblePages = executionPages.filter((page) => String(page?.phase || '').trim().toLowerCase() !== 'summary' && isVisibleExecutionPage(page));
     const normalizedExecutionPages = [
       ...visiblePages,
       ...summaryPages.filter((page) => isVisibleExecutionPage(page) || String(page?.content || '').trim() !== '')
@@ -199,10 +202,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
         createdAt: turn?.createdAt || '',
         errorMessage: turn?.errorMessage || '',
         executionGroup: null,
-        executionGroups: [],
-        executionGroupsTotal: 0,
-        executionGroupsOffset: 0,
-        executionGroupsLimit: 0
+        executionGroups: []
       }));
     }
 
@@ -234,10 +234,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
         errorMessage: renderPage?.errorMessage || turn?.errorMessage || '',
         linkedConversations,
         executionGroup: normalizedExecutionPages[0] || null,
-        executionGroups: normalizedExecutionPages,
-        executionGroupsTotal: normalizedExecutionPages.length,
-        executionGroupsOffset: 0,
-        executionGroupsLimit: normalizedExecutionPages.length
+        executionGroups: normalizedExecutionPages
       }));
       hasExplicitAssistantRow = true;
       assistantRowSuppressesElicitationContent = suppressAssistantContent;
@@ -281,10 +278,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
           modelSteps: [],
           toolSteps: [],
           toolCallsPlanned: []
-        }],
-        executionGroupsTotal: 1,
-        executionGroupsOffset: 0,
-        executionGroupsLimit: 1
+        }]
       }));
       hasExplicitAssistantRow = true;
     }
@@ -303,10 +297,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
         errorMessage: turn?.errorMessage || '',
         linkedConversations,
         executionGroup: null,
-        executionGroups: normalizedExecutionPages,
-        executionGroupsTotal: normalizedExecutionPages.length,
-        executionGroupsOffset: 0,
-        executionGroupsLimit: normalizedExecutionPages.length
+        executionGroups: normalizedExecutionPages
       }));
       hasExplicitAssistantRow = true;
     }
@@ -398,20 +389,16 @@ export function buildConversationRenderRows({
   const trackerRows = trackerRowsBase.map((row) => {
     if (String(row?.role || '').trim().toLowerCase() !== 'assistant') return row;
     const rowId = String(row?.id || '').trim();
-    const rowTurnId = String(row?.turnId || '').trim();
-    const matchingExplicit = explicitRows.find((entry) => {
-      if (String(entry?.role || '').trim().toLowerCase() !== 'assistant') return false;
-      const explicitId = String(entry?.id || '').trim();
-      if (rowId && explicitId && rowId === explicitId) return true;
-      return false;
-    });
+    if (!rowId) return row;
+    const matchingExplicit = explicitRows.find((entry) => (
+      String(entry?.role || '').trim().toLowerCase() === 'assistant'
+      && String(entry?.id || '').trim() === rowId
+    ));
     if (!matchingExplicit) return row;
-    const explicitContent = String(matchingExplicit?.content || '').trim();
-    const explicitPreamble = String(matchingExplicit?.preamble || '').trim();
     return {
       ...row,
-      content: !String(row?.content || '').trim() ? (explicitContent || row?.content) : row?.content,
-      preamble: !String(row?.preamble || '').trim() ? (explicitPreamble || row?.preamble) : row?.preamble,
+      content: String(row?.content || '').trim() !== '' ? row.content : matchingExplicit?.content || row?.content || '',
+      preamble: String(row?.preamble || '').trim() !== '' ? row.preamble : matchingExplicit?.preamble || row?.preamble || '',
       isStreaming: matchingExplicit?.isStreaming,
       _streamContent: matchingExplicit?._streamContent,
       _streamFence: matchingExplicit?._streamFence,

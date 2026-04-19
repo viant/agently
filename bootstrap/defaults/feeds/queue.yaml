@@ -1,0 +1,99 @@
+id: queue
+
+dataSource:
+  queueTurns:
+    source: output.queuedTurns
+    uniqueKey:
+      - field: id
+
+ui:
+  title: Queue
+  containers:
+    - id: queueTable
+      type: table
+      dataSourceRef: queueTurns
+      style:
+        background: '#ffffff'
+        border: 1px solid #d8e1ea
+        borderRadius: 14px
+        padding: 8px 10px
+        boxShadow: 0 10px 24px rgba(15, 23, 42, 0.05)
+      table:
+        on:
+          - event: onRowSelect
+            handler: dataSource.selectIntoForm
+        columns:
+          - id: steer
+            name: ' '
+            icon: play
+            type: button
+            width: 44
+            on:
+              - event: onClick
+                handler: chat.forceSteerQueuedTurnBySelection
+          - id: moveUp
+            name: ' '
+            icon: caret-up
+            type: button
+            width: 44
+            on:
+              - event: onClick
+                handler: chat.moveQueuedTurnUp
+          - id: moveDown
+            name: ' '
+            icon: caret-down
+            type: button
+            width: 44
+            on:
+              - event: onClick
+                handler: chat.moveQueuedTurnDown
+          - id: preview
+            name: Preview
+            width: 420
+          - id: createdAt
+            name: Created
+            width: 170
+          - id: status
+            name: Status
+            width: 120
+          - id: id
+            name: Turn ID
+            width: 260
+          - id: remove
+            name: ' '
+            icon: cross
+            type: button
+            width: 44
+            on:
+              - event: onClick
+                handler: chat.cancelQueuedTurn
+      toolbar:
+        className: app-feed-toolbar
+        items:
+          - id: save
+            label: Save edit
+            icon: floppy-disk
+            align: right
+            on:
+              - event: onClick
+                handler: chat.saveQueuedTurnForm
+
+    - id: queueEditor
+      title: Edit selected request
+      dataSourceRef: queueTurns
+      style:
+        marginTop: 10px
+        background: linear-gradient(180deg, #f7fbff 0%, #eef6ff 100%)
+        border: 1px solid #c9def5
+        borderRadius: 14px
+        padding: 12px 14px
+      schemaBasedForm:
+        id: queueEditForm
+        dataSourceRef: queueTurns
+        showSubmit: false
+        schema:
+          type: object
+          properties:
+            preview:
+              type: string
+              title: Queued request

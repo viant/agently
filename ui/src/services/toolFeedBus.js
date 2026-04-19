@@ -34,6 +34,19 @@ export function splitFeedKey(feedKey = '') {
   };
 }
 
+function normalizeScopedFeedIdentity(feedId = '', conversationId = '') {
+  const directFeedId = String(feedId || '').trim();
+  const directConversationId = String(conversationId || '').trim();
+  const split = splitFeedKey(directFeedId);
+  const normalizedFeedId = String(split.feedId || directFeedId).trim();
+  const normalizedConversationId = String(split.conversationId || directConversationId).trim();
+  return {
+    feedId: normalizedFeedId,
+    conversationId: normalizedConversationId,
+    scopedKey: makeFeedKey(normalizedFeedId, normalizedConversationId),
+  };
+}
+
 function notifyDataChange() {
   for (const fn of dataListeners) fn();
 }
@@ -48,22 +61,29 @@ export function onFeedChange(fn) {
 
 /** Get cached feed data. */
 export function getFeedData(feedId, conversationId = '') {
-  const scopedKey = makeFeedKey(feedId, conversationId);
+  const { feedId: normalizedFeedId, scopedKey } = normalizeScopedFeedIdentity(feedId, conversationId);
   if (scopedKey && feedDataCache[scopedKey]) return feedDataCache[scopedKey] || null;
-  const directKey = String(feedId || '').trim();
-  return directKey ? (feedDataCache[directKey] || null) : null;
+  return normalizedFeedId ? (feedDataCache[normalizedFeedId] || null) : null;
 }
 
 export function updateFeedData(feedId, patch = {}, conversationId = '') {
-  const scopedKey = makeFeedKey(feedId, conversationId || patch?._conversationId || '');
+  const { feedId: normalizedFeedId, conversationId: normalizedConversationId, scopedKey } = normalizeScopedFeedIdentity(
+    feedId,
+    conversationId || patch?._conversationId || ''
+  );
   if (!scopedKey) return;
-  const identity = splitFeedKey(scopedKey);
   const current = feedDataCache[scopedKey] || {
     feedKey: scopedKey,
-    feedId: identity.feedId,
-    _conversationId: identity.conversationId
+    feedId: normalizedFeedId,
+    _conversationId: normalizedConversationId
   };
-  feedDataCache[scopedKey] = { ...current, ...(patch || {}), feedKey: scopedKey, feedId: identity.feedId, _conversationId: identity.conversationId };
+  feedDataCache[scopedKey] = {
+    ...current,
+    ...(patch || {}),
+    feedKey: scopedKey,
+    feedId: normalizedFeedId,
+    _conversationId: normalizedConversationId
+  };
   notifyDataChange();
 }
 
@@ -75,13 +95,23 @@ export function onFeedDataChange(fn) {
 
 /** Fetch fresh feed data from backend (always makes a call, no cache check). */
 export function fetchFeedDataNow(feedId, conversationId) {
-  const scopedKey = makeFeedKey(feedId, conversationId);
-  if (!scopedKey || !conversationId) return;
-  // Clear stale cache entry before fetch.
-  delete feedDataCache[scopedKey];
-  client.getFeedData(feedId, conversationId).then((data) => {
+  const { feedId: normalizedFeedId, conversationId: normalizedConversationId, scopedKey } = normalizeScopedFeedIdentity(feedId, conversationId);
+  if (!scopedKey || !normalizedConversationId) return;
+  const existing = feedDataCache[scopedKey] || null;
+  // Clear stale cache entry before fetch unless we already have inline/local data.
+  if (!existing?.data) {
+    delete feedDataCache[scopedKey];
+  }
+  client.getFeedData(normalizedFeedId, normalizedConversationId).then((data) => {
     if (data) {
-      feedDataCache[scopedKey] = { ...data, feedKey: scopedKey, feedId: String(feedId || '').trim(), _conversationId: conversationId };
+      feedDataCache[scopedKey] = {
+        ...(existing || {}),
+        ...data,
+        data: data?.data != null ? data.data : (existing?.data ?? null),
+        feedKey: scopedKey,
+        feedId: normalizedFeedId,
+        _conversationId: normalizedConversationId
+      };
     }
     notifyDataChange();
   }).catch(() => {
@@ -134,9 +164,17 @@ export function applyFeedEvent(payload) {
     }
     // Always fetch from API to get the full spec (dataSources + ui from YAML).
     if (conversationId) {
+      const existing = feedDataCache[scopedKey] || null;
       client.getFeedData(feedId, conversationId).then((data) => {
         if (data) {
-          feedDataCache[scopedKey] = { ...data, feedKey: scopedKey, feedId, _conversationId: conversationId };
+          feedDataCache[scopedKey] = {
+            ...(existing || {}),
+            ...data,
+            data: data?.data != null ? data.data : (existing?.data ?? null),
+            feedKey: scopedKey,
+            feedId,
+            _conversationId: conversationId
+          };
           notifyDataChange();
         }
       }).catch(() => {});

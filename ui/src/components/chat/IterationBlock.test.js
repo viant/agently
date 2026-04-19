@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
-import {
+import IterationBlock, {
   displayLinkedConversationIcon,
   displayLinkedConversationSubtitle,
   displayLinkedConversationTitle,
@@ -8,9 +10,6 @@ import {
   displayItemRowIcon,
   displayItemRowTitle,
   mapCanonicalExecutionGroups,
-  newerToolPageOffset,
-  olderToolPageOffset,
-  paginateToolSteps,
   buildSyntheticModelGroup,
   statusTone,
   isIterationActive,
@@ -52,6 +51,9 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(displayLinkedConversationIcon()).toBe('🔗');
     expect(displayItemRowTitle({ toolName: 'resources/list' })).toBe('resources/list');
     expect(displayItemRowIcon({ toolName: 'resources/list' })).toBe('🛠');
+    expect(displayItemRowTitle({ kind: 'elicitation', toolName: 'Needs input' })).toBe('Needs input');
+    expect(displayItemRowTitle({ kind: 'turn', reason: 'turn_started', toolName: 'turn_started' })).toBe('Turn started');
+    expect(displayItemRowIcon({ kind: 'turn', reason: 'turn_started', toolName: 'turn_started' })).toBe('⏺');
   });
 
   it('treats queued next/queued linked previews as queue UI, not linked conversation cards', () => {
@@ -75,6 +77,13 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(isActiveStatus('streaming')).toBe(true);
     expect(isIterationActive({ status: 'streaming' }, [])).toBe(true);
     expect(statusTone('streaming')).toBe('running');
+  });
+
+  it('treats resolved elicitation statuses as terminal and success-toned when appropriate', () => {
+    expect(statusTone('accepted')).toBe('success');
+    expect(statusTone('submitted')).toBe('success');
+    expect(statusTone('declined')).toBe('error');
+    expect(statusTone('canceled')).toBe('error');
   });
 
   it('keeps the iteration display status running while a linked child is still active', () => {
@@ -177,35 +186,6 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(anchor).toBe(Date.parse('2026-04-14T12:40:00Z'));
   });
 
-  it('paginates tool calls at three per preamble group and advances offsets correctly', () => {
-    const toolSteps = [
-      { toolName: 'tool-1' },
-      { toolName: 'tool-2' },
-      { toolName: 'tool-3' },
-      { toolName: 'tool-4' },
-      { toolName: 'tool-5' },
-      { toolName: 'tool-6' }
-    ];
-
-    const latestPage = paginateToolSteps(toolSteps, null, 3);
-    expect(latestPage.total).toBe(6);
-    expect(latestPage.hasMore).toBe(true);
-    expect(latestPage.start).toBe(3);
-    expect(latestPage.end).toBe(6);
-    expect(latestPage.tools.map((step) => step.toolName)).toEqual(['tool-4', 'tool-5', 'tool-6']);
-
-    const olderOffset = olderToolPageOffset(toolSteps.length, null, 3);
-    expect(olderOffset).toBe(0);
-
-    const firstPage = paginateToolSteps(toolSteps, olderOffset, 3);
-    expect(firstPage.start).toBe(0);
-    expect(firstPage.end).toBe(3);
-    expect(firstPage.tools.map((step) => step.toolName)).toEqual(['tool-1', 'tool-2', 'tool-3']);
-
-    const newerOffset = newerToolPageOffset(toolSteps.length, olderOffset, 3);
-    expect(newerOffset).toBe(null);
-  });
-
   it('summarizes linked child transcript into compact preview groups', () => {
     const summary = summarizeLinkedConversationTranscript({
       turns: [
@@ -302,6 +282,99 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(groups[0].preambleContent).toBe('I am going to inspect the repository.');
   });
 
+  it('keeps explicit intake groups visible even when they only contain a model step', () => {
+    const groups = mapCanonicalExecutionGroups([
+      {
+        parentMessageId: 'm-intake',
+        modelMessageId: 'm-intake',
+        sequence: 0,
+        phase: 'intake',
+        finalResponse: false,
+        status: 'completed',
+        modelCall: {
+          provider: 'openai',
+          model: 'gpt-5-mini',
+          status: 'completed',
+        },
+        toolSteps: [],
+      }
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      groupKind: 'intake',
+    });
+  });
+
+  it('preserves lifecycle steps as turn events inside canonical execution groups', () => {
+    const groups = mapCanonicalExecutionGroups([
+      {
+        parentMessageId: 'm1',
+        modelMessageId: 'm1',
+        sequence: 1,
+        preamble: '',
+        finalResponse: false,
+        status: 'thinking',
+        modelCall: {
+          provider: 'openai',
+          model: 'gpt-5.4',
+          status: 'thinking'
+        },
+        toolSteps: [
+          {
+            id: 'turn_started:turn-1',
+            kind: 'turn',
+            reason: 'turn_started',
+            toolName: 'turn_started',
+            status: 'running',
+            startedAt: '2026-03-16T10:00:00Z'
+          }
+        ]
+      }
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].groupKind).toBe('model');
+    expect(groups[0].toolSteps).toHaveLength(1);
+    expect(groups[0].toolSteps[0]).toMatchObject({
+      kind: 'turn',
+      reason: 'turn_started',
+      toolName: 'turn_started',
+      status: 'running'
+    });
+    expect(displayItemRowTitle(groups[0].toolSteps[0])).toBe('Turn started');
+    expect(displayItemRowIcon(groups[0].toolSteps[0])).toBe('⏺');
+  });
+
+  it('classifies lifecycle-only groups separately from model sidecars', () => {
+    const groups = mapCanonicalExecutionGroups([
+      {
+        parentMessageId: 'm-turn',
+        status: 'running',
+        toolSteps: [
+          {
+            id: 'turn_started:turn-1',
+            kind: 'turn',
+            reason: 'turn_started',
+            toolName: 'turn_started',
+            status: 'running'
+          }
+        ]
+      }
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      groupKind: 'lifecycle',
+      modelStep: null,
+      title: 'Turn started'
+    });
+    expect(groups[0].toolSteps[0]).toMatchObject({
+      kind: 'turn',
+      reason: 'turn_started'
+    });
+  });
+
   it('keeps router-only model groups visible in execution details', () => {
     const groups = mapCanonicalExecutionGroups([
       {
@@ -312,12 +385,10 @@ describe('mapCanonicalExecutionGroups', () => {
         status: 'completed',
         content: '{"agentId":"coder"}',
         modelCall: {
+          phase: 'intake',
           provider: 'openai',
           model: 'gpt-5.4',
           status: 'completed',
-          requestPayload: JSON.stringify({
-            options: { mode: 'router' }
-          }),
           responsePayload: '{"agentId":"coder"}'
         },
         toolCalls: []
@@ -325,8 +396,36 @@ describe('mapCanonicalExecutionGroups', () => {
     ]);
 
     expect(groups).toHaveLength(1);
+    expect(groups[0].groupKind).toBe('intake');
     expect(groups[0].finalContent).toBe('{"agentId":"coder"}');
     expect(resolveVisibleBubbleContent(groups)).toBe('{"agentId":"coder"}');
+  });
+
+  it('uses delegated agent status assistantResponse as the execution-details line', () => {
+    const groups = mapCanonicalExecutionGroups([
+      {
+        parentMessageId: 'status-1',
+        status: 'running',
+        toolSteps: [
+          {
+            id: 'tool-status-1',
+            kind: 'tool',
+            reason: 'tool_call',
+            toolName: 'llm/agents/status',
+            status: 'running',
+            responsePayload: {
+              assistantResponse: 'Pulling the analyst results now.'
+            }
+          }
+        ]
+      }
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      title: 'Pulling the analyst results now.',
+      groupKind: 'tool'
+    });
   });
 
   it('keeps the latest visible page on the most recent presentable group when the newest group is model-only', () => {
@@ -507,7 +606,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(shouldShowPreambleBubble([], text)).toBe(true);
   });
 
-  it('uses final elicitation JSON content when that is the actual final visible page content', () => {
+  it('uses the elicitation prompt when final visible page content is embedded elicitation JSON', () => {
     const text = resolveVisibleBubbleContent([
       {
         finalResponse: true,
@@ -516,7 +615,7 @@ describe('mapCanonicalExecutionGroups', () => {
       }
     ]);
 
-    expect(text).toBe('{"type":"elicitation","message":"Please provide the environment variable name.","requestedSchema":{"type":"object"}}');
+    expect(text).toBe('Please provide the environment variable name.');
   });
 
   it('falls back to visible preamble content when no visible page is final', () => {
@@ -557,6 +656,38 @@ describe('mapCanonicalExecutionGroups', () => {
     ])).toBe(false);
   });
 
+  it('keeps terminal turn lifecycle entries after elicitation steps', () => {
+    const groups = mapCanonicalExecutionGroups([{
+      id: 'group-1',
+      groupKind: 'sidecar',
+      title: 'Sidecar',
+      status: 'completed',
+      modelStep: {
+        id: 'model-1',
+        kind: 'model',
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        status: 'completed',
+      },
+      toolSteps: [
+        { id: 'tool-1', kind: 'tool', toolName: 'system/os/getEnv', status: 'completed' },
+        { id: 'turn-complete', kind: 'turn', reason: 'turn_completed', toolName: 'turn_completed', status: 'succeeded' },
+      ],
+      finalContent: '',
+    }]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].toolSteps.map((step) => step.reason)).toContain('turn_completed');
+  });
+
+  it('prefers the elicitation prompt text over a generic fallback label', () => {
+    expect(displayItemRowTitle({
+      kind: 'elicitation',
+      toolName: 'Needs input',
+      message: 'Please confirm the exact folder path to check.'
+    })).toBe('Please confirm the exact folder path to check.');
+  });
+
   it('falls back to the latest tool-derived group title when newer groups have no preamble text', () => {
     const text = resolveVisibleBubbleContent([
       {
@@ -589,7 +720,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(shouldShowPreambleBubble([], text)).toBe(true);
   });
 
-  it('prefers live stream content over preamble text until a final visible response exists', () => {
+  it('does not promote live stream sidecar content into the main bubble while execution details are active', () => {
     const text = resolveIterationBubbleContent({
       visibleGroups: [
         {
@@ -603,8 +734,7 @@ describe('mapCanonicalExecutionGroups', () => {
       streamContent: '<!-- CHART_SPEC:v1 -->\n```json\n{"chart":{"type":"bar"},"data":[{"x":"a","value":1}]}\n```'
     });
 
-    expect(text).toContain('CHART_SPEC:v1');
-    expect(text).not.toBe('Calling MetricsAdCube.');
+    expect(text).toBe('');
   });
 
   it('resolves the execution header agent label from explicit iteration agent id using meta labels', () => {
@@ -916,6 +1046,52 @@ describe('mapCanonicalExecutionGroups', () => {
       status: 'failed',
       errorMessage: 'Canceled by user request'
     })).toBe('Canceled by user request');
+  });
+
+  it('keeps the iteration header running while turn_started exists without a terminal turn event', () => {
+    expect(resolveIterationDisplayStatus({}, [
+      {
+        groupKind: 'lifecycle',
+        status: 'running',
+        toolSteps: [
+          {
+            kind: 'turn',
+            reason: 'turn_started',
+            toolName: 'turn_started',
+            status: 'running'
+          }
+        ]
+      },
+      {
+        groupKind: 'tool',
+        status: 'completed',
+        toolSteps: [
+          {
+            kind: 'tool',
+            reason: 'tool_call',
+            toolName: 'llm/agents/status',
+            status: 'completed'
+          }
+        ]
+      }
+    ], [])).toBe('running');
+  });
+
+  it('uses terminal lifecycle events to settle the iteration header status', () => {
+    expect(resolveIterationDisplayStatus({}, [
+      {
+        groupKind: 'lifecycle',
+        status: 'completed',
+        toolSteps: [
+          {
+            kind: 'turn',
+            reason: 'turn_completed',
+            toolName: 'turn_completed',
+            status: 'completed'
+          }
+        ]
+      }
+    ], [])).toBe('completed');
   });
 
   it('keeps failed canonical groups presentable and carries the underlying error', () => {

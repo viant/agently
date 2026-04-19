@@ -1,7 +1,6 @@
 package com.viant.agently.android
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,11 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -30,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.Conversation
+import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.WorkspaceMetadata
@@ -40,10 +39,7 @@ import kotlinx.serialization.json.JsonElement
 
 @Composable
 internal fun TabletWorkspacePane(
-    metadata: WorkspaceMetadata?,
-    effectiveAgentId: String?,
     loading: Boolean,
-    activeConversation: Conversation?,
     activeConversationId: String?,
     error: String?,
     streamSnapshot: ConversationStreamSnapshot?,
@@ -88,55 +84,17 @@ internal fun TabletWorkspacePane(
                     .widthIn(max = 1120.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Surface(
-                    color = Color(0xFFF8FAFD),
-                    border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.fillMaxWidth()
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 18.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Chat Workspace", style = MaterialTheme.typography.titleLarge, color = Color(0xFF101828))
-                            Text(
-                                activeConversation?.title?.takeIf { it.isNotBlank() }
-                                    ?: if (!activeConversationId.isNullOrBlank()) "Focused on the active conversation." else "Ready for a new conversation.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF667085),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        metadata?.let { meta ->
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                FilterChip(
-                                    selected = true,
-                                    onClick = {},
-                                    label = { Text("Agent ${effectiveAgentId ?: meta.defaultAgent ?: meta.defaults?.agent ?: "n/a"}") }
-                                )
-                                FilterChip(
-                                    selected = true,
-                                    onClick = {},
-                                    label = { Text("Model ${meta.defaultModel ?: meta.defaults?.model ?: "n/a"}") }
-                                )
-                            }
-                        }
-                    }
-                }
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(bottom = 188.dp),
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         error?.let {
@@ -148,20 +106,6 @@ internal fun TabletWorkspacePane(
                                     modifier = Modifier.padding(14.dp)
                                 )
                             }
-                        }
-                        if (!activeConversationId.isNullOrBlank()) {
-                            Text(
-                                "Conversation: $activeConversationId",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF667085)
-                            )
-                        }
-                        streamSnapshot?.activeTurnId?.let { turnId ->
-                            Text(
-                                "Active turn: $turnId",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF667085)
-                            )
                         }
                         if (loading || streamSnapshot?.activeTurnId != null) {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -176,14 +120,6 @@ internal fun TabletWorkspacePane(
                                     forgeRuntime = forgeRuntime
                                 )
                             }
-                        }
-                        if (streamSnapshot?.feeds?.isNotEmpty() == true) {
-                            ActiveFeedsSection(
-                                feeds = streamSnapshot.feeds,
-                                conversationId = activeConversationId,
-                                client = client,
-                                forgeRuntime = forgeRuntime
-                            )
                         }
                         if (!hasMainContent) {
                             Surface(
@@ -246,53 +182,81 @@ internal fun TabletWorkspacePane(
 
                     Surface(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
                             .fillMaxWidth(0.74f)
                             .widthIn(max = 900.dp)
+                            .align(Alignment.CenterHorizontally)
                             .navigationBarsPadding(),
                         color = Color(0xFFFDFDFE),
                         border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
                         shape = MaterialTheme.shapes.large
                     ) {
+                        val compactComposer = !activeConversationId.isNullOrBlank()
                         Column(
-                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            modifier = Modifier.padding(
+                                horizontal = if (compactComposer) 16.dp else 18.dp,
+                                vertical = if (compactComposer) 10.dp else 14.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(if (compactComposer) 8.dp else 12.dp)
                         ) {
-                            ComposerHeader(
-                                title = "Composer",
-                                attachments = composerAttachments,
-                                canCapturePhoto = canCapturePhoto,
-                                canUseVoiceInput = canUseVoiceInput,
-                                agentLabel = effectiveAgentId?.takeIf { it.isNotBlank() },
-                                subtitle = if (!activeConversationId.isNullOrBlank()) {
-                                    "Continuing current conversation"
-                                } else {
-                                    "A new conversation will be created"
-                                },
-                                onAddPhoto = onAddPhoto,
-                                onTakePhoto = onTakePhoto,
-                                onVoiceInput = onVoiceInput,
-                                onRemoveAttachment = onRemoveAttachment
-                            )
-                            OutlinedTextField(
-                                value = query,
-                                onValueChange = onQueryChange,
-                                label = { Text("Message") },
-                                placeholder = { Text("Ask a follow-up or start a new task") },
-                                modifier = Modifier.fillMaxWidth(),
-                                minLines = 2,
-                                maxLines = 5
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Button(
-                                    onClick = onRunQuery,
-                                    enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
+                            if (compactComposer) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Send")
+                                    OutlinedTextField(
+                                        value = query,
+                                        onValueChange = onQueryChange,
+                                        label = { Text("Message") },
+                                        placeholder = { Text("Follow up") },
+                                        modifier = Modifier.weight(1f),
+                                        minLines = 1,
+                                        maxLines = 2
+                                    )
+                                    Button(
+                                        onClick = onRunQuery,
+                                        enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
+                                    ) {
+                                        Text("Send")
+                                    }
+                                }
+                            } else {
+                                ComposerHeader(
+                                    title = "Composer",
+                                    attachments = composerAttachments,
+                                    canCapturePhoto = canCapturePhoto,
+                                    canUseVoiceInput = canUseVoiceInput,
+                                    agentLabel = null,
+                                    subtitle = if (!activeConversationId.isNullOrBlank()) {
+                                        "Continuing current conversation"
+                                    } else {
+                                        "A new conversation will be created"
+                                    },
+                                    onAddPhoto = onAddPhoto,
+                                    onTakePhoto = onTakePhoto,
+                                    onVoiceInput = onVoiceInput,
+                                    onRemoveAttachment = onRemoveAttachment
+                                )
+                                OutlinedTextField(
+                                    value = query,
+                                    onValueChange = onQueryChange,
+                                    label = { Text("Message") },
+                                    placeholder = { Text("Ask a follow-up or start a new task") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    minLines = 2,
+                                    maxLines = 5
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Button(
+                                        onClick = onRunQuery,
+                                        enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
+                                    ) {
+                                        Text("Send")
+                                    }
                                 }
                             }
                         }

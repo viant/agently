@@ -20,6 +20,62 @@ describe('classifyMessage', () => {
 });
 
 describe('normalizeMessages', () => {
+  it('keeps intake-phase assistant rows inside execution details without promoting them to standalone bubbles', () => {
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:01Z',
+        mode: 'task',
+        content: 'Analyze order 2639076 perfomance'
+      },
+      {
+        id: 'router-1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:00Z',
+        mode: 'router',
+        phase: 'intake',
+        interim: 1,
+        content: 'Classifying request.',
+        executionGroups: [
+          {
+            parentMessageId: 'router-1',
+            phase: 'intake',
+            status: 'completed',
+            preamble: 'Classifying request.',
+            modelSteps: [
+              {
+                modelCallId: 'router-1',
+                phase: 'intake',
+                provider: 'openai',
+                model: 'gpt-5-mini',
+                status: 'completed'
+              }
+            ],
+            toolSteps: []
+          }
+        ]
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:03Z',
+        interim: 0,
+        content: 'Ad order 2639076 is behind pace and needs delivery review.'
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: 3 });
+    const iteration = normalized.find((entry) => entry?._type === 'iteration');
+
+    expect(iteration?._iterationData?.executionGroups?.some((group) => String(group?.phase || '').trim().toLowerCase() === 'intake')).toBe(true);
+    expect(normalized.some((entry) => String(entry?.id || '') === 'router-1')).toBe(false);
+    expect(normalized.some((entry) => String(entry?.content || '').includes('Ad order 2639076 is behind pace'))).toBe(true);
+  });
+
   it('drops assistant summary artifacts from rendered chat rows', () => {
     const messages = [
       {
@@ -210,6 +266,39 @@ describe('normalizeMessages', () => {
 
     expect(iteration?._iterationData?.toolCalls?.map((step) => step.id)).toEqual(['model-1', 'tool-step-1', 'model-2']);
     expect(iteration?._iterationData?.toolCalls?.some((step) => String(step?.id || '').endsWith(':final'))).toBe(false);
+  });
+
+  it('does not emit an empty iteration shell when an interim assistant row has no presentable evidence', () => {
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:00Z',
+        content: 'hello'
+      },
+      {
+        id: 'a-empty',
+        role: 'assistant',
+        turnId: 'turn-1',
+        iteration: 1,
+        interim: 1,
+        createdAt: '2026-01-01T10:00:01Z',
+        content: '',
+        executionGroups: []
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: 3 });
+
+    expect(normalized.find((entry) => entry?._type === 'iteration')).toBeUndefined();
+    expect(normalized).toEqual([
+      expect.objectContaining({
+        role: 'user',
+        turnId: 'turn-1',
+        content: 'hello'
+      })
+    ]);
   });
 
   it('keeps later non-interim assistant messages in the same turn as separate bubbles', () => {
@@ -620,6 +709,72 @@ describe('normalizeMessages', () => {
     expect(responses.some((entry) => String(entry?.content || '').includes('Hi! How can I help you today?'))).toBe(true);
   });
 
+  it('preserves distinct execution pages when they have different pageIds', () => {
+    const messages = [
+      {
+        id: 'u-intake',
+        role: 'user',
+        turnId: 'turn-pages',
+        createdAt: '2026-01-01T10:00:00Z',
+        content: 'analyze order 1'
+      },
+      {
+        id: 'a-pages',
+        role: 'assistant',
+        turnId: 'turn-pages',
+        createdAt: '2026-01-01T10:00:05Z',
+        interim: 1,
+        content: '',
+        executionGroups: [
+          {
+            pageId: 'page-intake',
+            assistantMessageId: 'page-intake',
+            parentMessageId: 'page-intake',
+            sequence: 0,
+            phase: 'intake',
+            status: 'completed',
+            finalResponse: false,
+            modelCall: {
+              provider: 'openai',
+              model: 'gpt-5-mini',
+              status: 'completed'
+            },
+            toolCalls: []
+          },
+          {
+            pageId: 'page-sidecar',
+            assistantMessageId: 'page-sidecar',
+            parentMessageId: 'page-sidecar',
+            sequence: 1,
+            phase: 'sidecar',
+            status: 'completed',
+            finalResponse: false,
+            modelCall: {
+              provider: 'openai',
+              model: 'gpt-5.4',
+              status: 'completed'
+            },
+            toolCalls: [
+              {
+                toolName: 'llm/agents:start',
+                status: 'completed'
+              }
+            ]
+          }
+        ]
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: 1 });
+    const iteration = normalized.find((entry) => entry?._type === 'iteration');
+
+    expect(iteration?._iterationData?.executionGroups).toHaveLength(2);
+    expect(iteration?._iterationData?.executionGroups?.map((group) => group?.pageId)).toEqual([
+      'page-intake',
+      'page-sidecar'
+    ]);
+  });
+
   it('keeps the standalone stream bubble when an iteration uses stream-owned execution rows', () => {
     const messages = [
       {
@@ -804,7 +959,22 @@ describe('normalizeMessages', () => {
         turnId: 'turn-1',
         interim: 1,
         content: 'Analyze order 2652536 performance for pacing, spend, delivery, and KPI health, and recommend the top next actions.',
-        createdAt: '2026-04-06T19:20:01Z'
+        createdAt: '2026-04-06T19:20:01Z',
+        executionGroups: [
+          {
+            parentMessageId: 'a1',
+            status: 'thinking',
+            modelSteps: [
+              {
+                modelCallId: 'a1',
+                provider: 'openai',
+                model: 'gpt-5.4',
+                status: 'thinking'
+              }
+            ],
+            toolSteps: []
+          }
+        ]
       }
     ], { visibleCount: Number.MAX_SAFE_INTEGER });
 
@@ -924,6 +1094,30 @@ describe('normalizeMessages', () => {
     expect(normalized.filter((entry) => String(entry?.content || '').trim() === prompt)).toHaveLength(2);
     const iteration = normalized.find((entry) => entry?._type === 'iteration');
     expect(iteration?._iterationData?.toolCalls?.map((step) => step.id)).toContain('tool-step-1');
+  });
+
+  it('suppresses an interim iteration that only echoes the user prompt before execution evidence exists', () => {
+    const prompt = 'recommend frequency cap for ctv';
+    const normalized = normalizeMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        content: prompt,
+        createdAt: '2026-04-06T19:47:00Z'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 1,
+        content: prompt,
+        createdAt: '2026-04-06T19:47:01Z'
+      }
+    ], { visibleCount: Number.MAX_SAFE_INTEGER });
+
+    expect(normalized.filter((entry) => String(entry?.content || '').trim() === prompt)).toHaveLength(1);
+    expect(normalized.find((entry) => entry?._type === 'iteration')).toBeUndefined();
   });
 
   it('keeps a non-interim assistant response even when it matches the user prompt and execution steps are attached', () => {

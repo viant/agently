@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getActiveFeeds, onFeedChange, fetchFeedDataNow, makeFeedKey, splitFeedKey } from '../services/toolFeedBus';
-import { usePlanFeed } from '../services/planFeedBus';
-import { getQueueSyncSnapshot } from '../services/queueSyncBus';
+import { getActiveFeeds, onFeedChange, fetchFeedDataNow, splitFeedKey } from '../services/toolFeedBus';
 import { getScopedConversationSelection, getSelectedWindow } from '../services/conversationWindow';
 
 const FEED_ICONS = {
@@ -32,6 +30,7 @@ function dedupeFeeds(feeds = []) {
  */
 let expandedFeeds = new Set();
 let selectedFeedId = '';
+let autoExpandedFeedSignature = '';
 const expandListeners = new Set();
 function notifyExpand() {
   for (const fn of expandListeners) fn();
@@ -49,6 +48,11 @@ function notifySelectedFeed() {
 export function onSelectedFeedChange(fn) {
   selectedFeedListeners.add(fn);
   return () => selectedFeedListeners.delete(fn);
+}
+function feedSignature(feeds = []) {
+  return (Array.isArray(feeds) ? feeds : [])
+    .map((feed) => `${String(feed?.conversationId || '').trim()}::${String(feed?.feedId || '').trim()}`)
+    .join('|');
 }
 function toggleFeedExpanded(feedId, conversationId) {
   if (expandedFeeds.has(feedId)) {
@@ -80,8 +84,6 @@ function useExpandedFeeds() {
 
 export default function ToolFeedBar() {
   const [feeds, setFeeds] = useState(getActiveFeeds);
-  const planFeed = usePlanFeed();
-  const [queueVersion, setQueueVersion] = useState(0);
   const expanded = useExpandedFeeds();
   const selectedWindow = getSelectedWindow();
   const currentConversationId = String(
@@ -96,13 +98,9 @@ export default function ToolFeedBar() {
       if (!next || next.length === 0) {
         expandedFeeds.clear();
         selectedFeedId = '';
+        autoExpandedFeedSignature = '';
       }
     });
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(() => setQueueVersion((n) => n + 1), 250);
-    return () => clearInterval(interval);
   }, []);
 
   const visibleFeeds = (Array.isArray(feeds) ? feeds : []).filter((feed) => {
@@ -110,31 +108,27 @@ export default function ToolFeedBar() {
     if (!conversationId) return true;
     return conversationId === currentConversationId;
   });
-  const planConversationId = String(planFeed?.conversationId || '').trim();
-  const queueSnapshot = getQueueSyncSnapshot(currentConversationId);
-  const queueTurns = Array.isArray(queueSnapshot?.queuedTurns) ? queueSnapshot.queuedTurns : [];
-  const hasPlanData = !!String(planFeed?.explanation || '').trim()
-    || (Array.isArray(planFeed?.steps) && planFeed.steps.length > 0);
-  const mergedFeeds = dedupeFeeds([
-    ...(queueTurns.length > 0 ? [{
-      feedId: makeFeedKey('queue', currentConversationId),
-      title: 'Queue',
-      itemCount: queueTurns.length,
-      conversationId: currentConversationId,
-      rawFeedId: 'queue',
-      _queueVersion: queueVersion,
-    }] : []),
-    ...(hasPlanData && (!planConversationId || planConversationId === currentConversationId)
-      ? [{
-          feedId: makeFeedKey('plan', planConversationId),
-          title: 'Plan',
-          itemCount: Array.isArray(planFeed?.steps) ? planFeed.steps.length : 0,
-          conversationId: planConversationId,
-          rawFeedId: 'plan',
-        }]
-      : []),
-    ...visibleFeeds,
-  ]);
+  const mergedFeeds = dedupeFeeds(visibleFeeds);
+
+  useEffect(() => {
+    if (mergedFeeds.length === 0) return;
+    const hasExpandedVisibleFeed = mergedFeeds.some((feed) => expandedFeeds.has(feed.feedId));
+    if (hasExpandedVisibleFeed) return;
+    const signature = feedSignature(mergedFeeds);
+    if (autoExpandedFeedSignature === signature) return;
+    const first = mergedFeeds[0];
+    if (!first?.feedId) return;
+    autoExpandedFeedSignature = signature;
+    expandedFeeds.add(first.feedId);
+    selectedFeedId = first.feedId;
+    notifySelectedFeed();
+    notifyExpand();
+    if (first.conversationId) {
+      fetchFeedDataNow(first.rawFeedId || splitFeedKey(first.feedId).feedId, first.conversationId);
+    }
+  }, [mergedFeeds]);
+
+  const hasAnyExpandedFeed = mergedFeeds.some((feed) => expanded.has(feed.feedId));
 
   if (mergedFeeds.length === 0) return null;
 

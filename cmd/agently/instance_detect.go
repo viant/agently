@@ -30,6 +30,9 @@ type instanceInfo struct {
 	DefaultModel  string
 	Models        []string
 	Providers     []authProviderInfo
+	// ElicitationTimeout is the per-prompt response timeout advertised by the
+	// server. Zero means the client should fall back to its built-in default.
+	ElicitationTimeout time.Duration
 }
 
 func detectLocalInstances(ctx context.Context) ([]*instanceInfo, error) {
@@ -61,25 +64,17 @@ func detectLocalInstances(ctx context.Context) ([]*instanceInfo, error) {
 			meta = &workspaceMetadata{}
 		}
 		out = append(out, &instanceInfo{
-			BaseURL:       baseURL,
-			Port:          port,
-			WorkspaceRoot: meta.WorkspaceRoot,
-			DefaultAgent:  meta.DefaultAgent,
-			DefaultModel:  meta.DefaultModel,
-			Models:        meta.Models,
-			Providers:     providers,
+			BaseURL:            baseURL,
+			Port:               port,
+			WorkspaceRoot:      meta.WorkspaceRoot,
+			DefaultAgent:       meta.DefaultAgent,
+			DefaultModel:       meta.DefaultModel,
+			Models:             meta.Models,
+			Providers:          providers,
+			ElicitationTimeout: meta.ElicitationTimeout,
 		})
 	}
 	return out, nil
-}
-
-func pidsFromPS() []int {
-	// deprecated: kept for compatibility with older callers
-	var out []int
-	for _, res := range processesFromPS() {
-		out = append(out, res.PID)
-	}
-	return out
 }
 
 type processInfo struct {
@@ -88,33 +83,87 @@ type processInfo struct {
 }
 
 func processesFromPS() []processInfo {
-	cmd := exec.Command("ps", "-ax", "-o", "pid=,command=")
+	cmd := exec.Command("ps", "-axo", "pid=,args=")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil
 	}
 	var procs []processInfo
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	// Command lines can be long; bump the scanner buffer beyond the 64 KiB default.
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+		pid, rest, ok := splitPIDAndArgs(scanner.Text())
+		if !ok {
 			continue
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		args := tokenizeCommand(rest)
+		if !isAgentlyServeProcess(args) {
 			continue
 		}
-		if !isAgentlyServeProcess(fields[1:]) {
-			continue
-		}
-		pid, err := strconv.Atoi(strings.TrimSpace(fields[0]))
-		if err != nil || pid <= 0 {
-			continue
-		}
-		port := parsePortFromArgs(fields[1:])
-		procs = append(procs, processInfo{PID: pid, Port: port})
+		procs = append(procs, processInfo{PID: pid, Port: parsePortFromArgs(args)})
 	}
 	return procs
+}
+
+// splitPIDAndArgs splits a `ps -o pid=,args=` line into its numeric PID and the
+// trailing raw command line. Returns ok=false when the line is empty or the
+// leading token is not a positive integer.
+func splitPIDAndArgs(line string) (int, string, bool) {
+	i := 0
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	start := i
+	for i < len(line) && line[i] != ' ' && line[i] != '\t' {
+		i++
+	}
+	if start == i {
+		return 0, "", false
+	}
+	pid, err := strconv.Atoi(line[start:i])
+	if err != nil || pid <= 0 {
+		return 0, "", false
+	}
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	return pid, line[i:], true
+}
+
+// tokenizeCommand is a minimal quote-aware tokenizer for `ps` argv output. It
+// respects single and double quotes so that paths containing spaces remain a
+// single token. Backslash escapes are not interpreted — `ps` does not emit
+// them for its own quoting.
+func tokenizeCommand(s string) []string {
+	var tokens []string
+	var cur strings.Builder
+	quote := byte(0)
+	flush := func() {
+		if cur.Len() > 0 {
+			tokens = append(tokens, cur.String())
+			cur.Reset()
+		}
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			} else {
+				cur.WriteByte(c)
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == ' ' || c == '\t':
+			flush()
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	flush()
+	return tokens
 }
 
 func isAgentlyServeProcess(args []string) bool {
@@ -266,10 +315,11 @@ func lsofNameField(fields []string) string {
 }
 
 type workspaceMetadata struct {
-	WorkspaceRoot string
-	DefaultAgent  string
-	DefaultModel  string
-	Models        []string
+	WorkspaceRoot      string
+	DefaultAgent       string
+	DefaultModel       string
+	Models             []string
+	ElicitationTimeout time.Duration
 }
 
 func fetchWorkspaceMetadata(ctx context.Context, baseURL string) (*workspaceMetadata, bool) {
@@ -287,11 +337,16 @@ func fetchWorkspaceMetadata(ctx context.Context, baseURL string) (*workspaceMeta
 	if strings.TrimSpace(meta.WorkspaceRoot) == "" && strings.TrimSpace(meta.DefaultAgent) == "" && strings.TrimSpace(meta.DefaultModel) == "" && len(meta.Models) == 0 {
 		return nil, false
 	}
+	var elicitationTimeout time.Duration
+	if meta.Defaults != nil && meta.Defaults.ElicitationTimeoutSec > 0 {
+		elicitationTimeout = time.Duration(meta.Defaults.ElicitationTimeoutSec) * time.Second
+	}
 	return &workspaceMetadata{
-		WorkspaceRoot: strings.TrimSpace(meta.WorkspaceRoot),
-		DefaultAgent:  strings.TrimSpace(meta.DefaultAgent),
-		DefaultModel:  strings.TrimSpace(meta.DefaultModel),
-		Models:        meta.Models,
+		WorkspaceRoot:      strings.TrimSpace(meta.WorkspaceRoot),
+		DefaultAgent:       strings.TrimSpace(meta.DefaultAgent),
+		DefaultModel:       strings.TrimSpace(meta.DefaultModel),
+		Models:             meta.Models,
+		ElicitationTimeout: elicitationTimeout,
 	}, true
 }
 

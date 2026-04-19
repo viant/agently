@@ -1,10 +1,23 @@
 import { normalizeMessages, normalizeOne } from './messageNormalizer';
 import { compareTemporalEntries, isLiveConversationState } from 'agently-core-ui-sdk';
+
+// App bootstrap installs the canonical chatStore mirror explicitly.
+// chatRuntime never resolves the store through module-system fallbacks.
+let _chatStoreModule = null;
+function _chatStoreRef() {
+  return _chatStoreModule;
+}
+
+/**
+ * Install the chatStore module as the forwarding target for SSE events and
+ * transcript fetches. Call once at app bootstrap in environments where
+ * `require` is not available (pure ESM).
+ */
+export function installChatStoreMirror(chatStoreModule) {
+  _chatStoreModule = chatStoreModule || null;
+}
 import { ConversationStreamTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow } from 'agently-core-ui-sdk/internal';
 import { rememberConversationSeedTitle } from './conversationTitle';
-import { clearChangeFeed, publishChangeFeed } from './changeFeedBus';
-import { clearPlanFeed, publishPlanFeed } from './planFeedBus';
-import { clearQueueSync, publishQueueSync } from './queueSyncBus';
 import { setPendingElicitation, clearPendingElicitation } from './elicitationBus';
 import { applyFeedEvent, clearFeedState } from './toolFeedBus';
 import { publishUsage } from './usageBus';
@@ -200,6 +213,20 @@ function logExecutorDebug(event, detail = {}) {
   } catch (_) {}
 }
 
+function transcriptShouldBeIdle(chatState = {}, conversationID = '') {
+  const targetID = String(conversationID || '').trim();
+  if (!targetID) return false;
+  if (String(chatState?.liveOwnedConversationID || '').trim() !== targetID) return false;
+  const ownedTurnIds = Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [];
+  if (ownedTurnIds.length === 0) return false;
+  return !!(
+    trackerActiveTurnId(chatState)
+    || String(chatState?.runningTurnId || '').trim()
+    || String(chatState?.activeStreamTurnId || '').trim()
+    || chatState?.lastHasRunning
+  );
+}
+
 export function logStreamDebug(chatState = {}, event, detail = {}) {
   if (!isStreamDebugEnabled()) return;
   const startedAt = Number(chatState?.activeStreamStartedAt || chatState?.streamOpenedAt || 0);
@@ -333,8 +360,12 @@ function stageCompletedAtValue(payload = {}) {
 
 function shouldIgnoreExecutionStreamEvent(payload = {}) {
   const mode = streamEventMode(payload);
+  const phase = String(payload?.phase || '').trim().toLowerCase();
   const type = String(payload?.type || '').trim().toLowerCase();
-  return mode === 'summary';
+  if (mode === 'summary' || phase === 'summary') return true;
+  const isStreamingContentEvent = type === 'text_delta' || type === 'assistant_preamble';
+  if (!isStreamingContentEvent) return false;
+  return phase === 'intake';
 }
 
 function textDeltaQueueKey(payload = {}, fallbackConversationID = '') {
@@ -837,6 +868,15 @@ function queuePostTurnConversationRefresh(context, conversationID = '', turnID =
   }, 90);
 }
 
+function latestTurnStillOwnedByLive(chatState = {}, conversationID = '', turnID = '') {
+  const targetConversationID = String(conversationID || '').trim();
+  const targetTurnID = String(turnID || '').trim();
+  if (!targetConversationID || !targetTurnID) return false;
+  if (String(chatState?.liveOwnedConversationID || '').trim() !== targetConversationID) return false;
+  const ownedTurnIds = Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [];
+  return ownedTurnIds.includes(targetTurnID);
+}
+
 function applyTerminalTurnStatusToTranscriptRows(rows = [], turnId = '', status = '', errorMessage = '') {
   const targetTurnId = String(turnId || '').trim();
   const terminalStatus = String(status || '').trim();
@@ -893,6 +933,10 @@ export function renderMergedRowsForContext(context) {
   });
   chatState.renderRows = mergedRows;
   const normalizedRows = normalizeForContext(context, mergedRows);
+  if (typeof window !== 'undefined' && window.__agentlyActiveChatState === chatState) {
+    window.__agentlyActiveChatState.renderRows = mergedRows;
+    window.__agentlyActiveChatState.normalizedRows = normalizedRows;
+  }
   if (isStreamDebugEnabled()) {
     console.log('[render]', {
       ts: new Date().toISOString(),
@@ -914,14 +958,23 @@ export function renderMergedRowsForContext(context) {
         id: r?.id, role: r?.role, turnId: r?.turnId, interim: r?.interim,
         contentHead: String(r?.content || '').slice(0, 50),
         groups: (r?.executionGroups || []).length,
-        toolSteps: (r?.executionGroups || []).flatMap((g) => g?.toolSteps || []).length
+        toolSteps: (r?.executionGroups || []).flatMap((g) => g?.toolSteps || []).length,
+        groupKinds: (r?.executionGroups || []).map((g) => g?.groupKind || ''),
+        requestPayloadIds: (r?.executionGroups || []).flatMap((g) => (g?.modelSteps || []).map((step) => step?.requestPayloadId || '')),
+        providerRequestPayloadIds: (r?.executionGroups || []).flatMap((g) => (g?.modelSteps || []).map((step) => step?.providerRequestPayloadId || ''))
       })),
       rawRows: mergedRows.map((row) => ({
         id: row?.id,
         role: row?.role,
         turnId: row?.turnId,
         mode: row?.mode || '',
-        head: String(row?.content || '').slice(0, 60)
+        head: String(row?.content || '').slice(0, 60),
+        groups: (row?.executionGroups || []).map((g) => ({
+          kind: g?.groupKind || '',
+          title: g?.title || '',
+          modelRequestPayloadId: g?.modelSteps?.[0]?.requestPayloadId || '',
+          modelProviderRequestPayloadId: g?.modelSteps?.[0]?.providerRequestPayloadId || ''
+        }))
       }))
     });
   }
@@ -939,9 +992,27 @@ export function renderMergedRowsForContext(context) {
   );
   const normalizedConversationID = String(conversationForm?.id || '').trim();
   if (normalizedConversationID) {
-    publishQueueSync({ conversationId: normalizedConversationID, queuedTurns });
-  } else {
-    clearQueueSync('');
+    if (queuedTurns.length > 0) {
+      applyFeedEvent({
+        type: 'tool_feed_active',
+        feedId: 'queue',
+        feedTitle: 'Queue',
+        feedItemCount: queuedTurns.length,
+        feedData: {
+          output: {
+            queuedTurns,
+          },
+        },
+        conversationId: normalizedConversationID,
+        localOnly: true,
+      });
+    } else {
+      applyFeedEvent({
+        type: 'tool_feed_inactive',
+        feedId: 'queue',
+        conversationId: normalizedConversationID,
+      });
+    }
   }
   const selectedAgent = resolveVisibleSelectedAgent(
     metaForm,
@@ -1035,7 +1106,12 @@ function resolveActiveStreamTurnId(turns = [], chatState = {}) {
 
 function getCurrentConversationID(context) {
   const form = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
-  return String(form?.id || '').trim();
+  const explicit = String(form?.id || '').trim();
+  if (explicit) return explicit;
+  const chatState = context?.resources?.chat || {};
+  const active = String(chatState?.activeConversationID || '').trim();
+  if (active) return active;
+  return '';
 }
 
 function getContextWindowId(context) {
@@ -1110,6 +1186,23 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   if (isStreamDebugEnabled()) {
     console.log('[transcript-fetch]', { conversationID, since });
   }
+  const activeChatState = typeof window !== 'undefined' ? window.__agentlyActiveChatState : null;
+  const latestTurnLiveOwned = transcriptShouldBeIdle(activeChatState, conversationID);
+  if (typeof window !== 'undefined') {
+    const chatState = activeChatState;
+    if (latestTurnLiveOwned) {
+      logExecutorDebug('transcript-fetch-while-live-owned', {
+        conversationId: conversationID,
+        since,
+        liveOwnedConversationID: String(chatState?.liveOwnedConversationID || '').trim(),
+        liveOwnedTurnIds: Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
+        runningTurnId: String(chatState?.runningTurnId || '').trim(),
+        activeStreamTurnId: String(chatState?.activeStreamTurnId || '').trim(),
+        trackerActiveTurnId: trackerActiveTurnId(chatState),
+        lastHasRunning: !!chatState?.lastHasRunning
+      });
+    }
+  }
   const transcriptInput = {
     conversationId: conversationID,
     includeModelCalls: true,
@@ -1126,6 +1219,18 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     ? data.conversation
     : null;
   const canonicalTurns = Array.isArray(canonicalConversation?.turns) ? canonicalConversation.turns : null;
+  // ── chatStore transcript forwarding shim (PR-0 side-consumer cutover) ───
+  // Forward the raw canonical ConversationState to the new client store so
+  // ChatFeedFromChatStore (and any downstream consumer) sees identical data
+  // without waiting for full chatRuntime migration. When the latest turn is
+  // live-owned, transcript must not reshape the active canonical feed; the
+  // runtime already treats transcript as idle in that state.
+  try {
+    if (!latestTurnLiveOwned && canonicalConversation && canonicalConversation.conversationId) {
+      const store = _chatStoreRef();
+      if (store) store.onTranscript(canonicalConversation.conversationId, canonicalConversation);
+    }
+  } catch (_) { /* best-effort mirror */ }
   const resolvedFeeds = Array.isArray(data?.feeds)
     ? data.feeds
     : (Array.isArray(canonicalConversation?.feeds) ? canonicalConversation.feeds : []);
@@ -1143,6 +1248,13 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
         });
       }
     }
+  }
+  if (activeChatState && conversationID) {
+    const current = activeChatState.lastTranscriptFeedsByConversation || {};
+    activeChatState.lastTranscriptFeedsByConversation = {
+      ...current,
+      [conversationID]: Array.isArray(resolvedFeeds) ? resolvedFeeds : []
+    };
   }
   if (Array.isArray(canonicalTurns) && canonicalTurns.length > 0 && isCanonicalTranscriptTurn(canonicalTurns[0])) {
     return canonicalTurns;
@@ -1245,8 +1357,7 @@ export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingEli
     mapTranscriptToRows,
     findLatestRunningTurnIdFromTurns,
     findLatestRunningTurnId,
-    publishChangeFeed,
-    publishPlanFeed,
+    applyFeedEvent,
     setStage,
     liveRows: chatState.liveRows
   });
@@ -1261,7 +1372,11 @@ function shouldDeferTranscriptToLiveStream(context, conversationID = '') {
   const targetID = String(conversationID || getCurrentConversationID(context) || '').trim();
   if (!targetID) return false;
   if (!shouldUseLiveStream(context, targetID)) return false;
+  const hasPendingLiveTurnBootstrap = String(chatState.activeStreamPrompt || '').trim() !== ''
+    && String(chatState.liveOwnedConversationID || '').trim() === targetID;
   return !!(
+    hasPendingLiveTurnBootstrap
+    || 
     trackerActiveTurnId(chatState)
     || String(chatState.runningTurnId || '').trim()
     || String(chatState.activeStreamTurnId || '').trim()
@@ -1271,20 +1386,46 @@ function shouldDeferTranscriptToLiveStream(context, conversationID = '') {
 
 export async function dsTick(context, options = {}) {
   const requestedConversationID = String(options?.conversationID || getCurrentConversationID(context) || '').trim();
+  const chatState = ensureContextResources(context);
+  if (typeof window !== 'undefined') {
+    try {
+      window.__agentlyActiveChatState = chatState;
+    } catch (_) {}
+  }
   if (shouldDeferTranscriptToLiveStream(context, requestedConversationID)) {
+    logExecutorDebug('transcript-deferred-to-live', {
+      conversationId: requestedConversationID,
+      liveOwnedConversationID: String(chatState?.liveOwnedConversationID || '').trim(),
+      liveOwnedTurnIds: Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
+      runningTurnId: String(chatState?.runningTurnId || '').trim(),
+      activeStreamTurnId: String(chatState?.activeStreamTurnId || '').trim(),
+      trackerActiveTurnId: trackerActiveTurnId(chatState),
+      lastHasRunning: !!chatState?.lastHasRunning
+    });
     return {
-      transcriptRows: ensureContextResources(context).transcriptRows,
-      liveRows: ensureContextResources(context).liveRows,
-      queuedTurns: ensureContextResources(context).lastQueuedTurns || [],
+      transcriptRows: chatState.transcriptRows,
+      liveRows: chatState.liveRows,
+      queuedTurns: chatState.lastQueuedTurns || [],
       hasRunning: true,
       runningTurnId:
-        trackerActiveTurnId(ensureContextResources(context))
-        || ensureContextResources(context).runningTurnId
-        || ensureContextResources(context).activeStreamTurnId
+        trackerActiveTurnId(chatState)
+        || chatState.runningTurnId
+        || chatState.activeStreamTurnId
         || '',
       conversationID: requestedConversationID,
       deferredToLiveStream: true
     };
+  }
+  if (transcriptShouldBeIdle(chatState, requestedConversationID)) {
+    logExecutorDebug('transcript-dstick-while-live-owned', {
+      conversationId: requestedConversationID,
+      liveOwnedConversationID: String(chatState?.liveOwnedConversationID || '').trim(),
+      liveOwnedTurnIds: Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
+      runningTurnId: String(chatState?.runningTurnId || '').trim(),
+      activeStreamTurnId: String(chatState?.activeStreamTurnId || '').trim(),
+      trackerActiveTurnId: trackerActiveTurnId(chatState),
+      lastHasRunning: !!chatState?.lastHasRunning
+    });
   }
   const result = await tickTranscript({
     context,
@@ -1297,7 +1438,6 @@ export async function dsTick(context, options = {}) {
       syncMessagesSnapshot(nextContext, turns, reason, pendingElicitations)
     )
   });
-  const chatState = ensureContextResources(context);
   const conversationID = String(result?.conversationID || getCurrentConversationID(context) || '').trim();
   if (conversationID) {
     await refreshGeneratedFiles(context, conversationID);
@@ -1316,8 +1456,6 @@ export function resetConversationSnapshotState(context) {
   resetTranscriptState({
     context,
     ensureContextResources,
-    clearChangeFeed,
-    clearPlanFeed,
     getCurrentConversationID
   });
   resetLiveStreamState(chatState);
@@ -1376,6 +1514,21 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       chatState?.streamTracker?.applyEvent?.(payload);
       syncTrackerDerivedTurnState(chatState);
     } catch (_) {}
+    // ── chatStore forwarding shim (PR-0 side-consumer cutover) ──────────────
+    // Every SSE event that chatRuntime dispatches is also forwarded to the
+    // canonical client chatStore. The legacy stores (liveRows/transcriptRows/
+    // renderRows) are still maintained below for backward compatibility with
+    // not-yet-migrated surfaces; chatStore runs as a live mirror so any
+    // consumer that has already switched (e.g. ChatFeedFromChatStore) sees
+    // identical data in real time. See ui-improvement.md §7.3.
+    try {
+      const cid = String(payload?.conversationId || conversationID || '').trim();
+      if (cid) {
+        // Lazy-import to avoid a circular dependency at module load time.
+        const store = _chatStoreRef();
+        if (store) store.onSSE(cid, payload);
+      }
+    } catch (_) { /* best-effort mirror */ }
     const eventConversationID = resolveStreamEventConversationID(payload, conversationID);
     if (type === 'conversation_meta_updated' && eventConversationID) {
       publishConversationMetaUpdated(eventConversationID, payload?.patch || {});
@@ -1764,7 +1917,11 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       // SSE event arrives (e.g., after revert/commit removes the feed's data).
       window.setTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 1100);
       renderMergedRowsForContext(context);
-      if (resolvedConversationID && resolvedConversationID === String(getCurrentConversationID(context) || '').trim()) {
+      if (
+        resolvedConversationID
+        && resolvedConversationID === String(getCurrentConversationID(context) || '').trim()
+        && !latestTurnStillOwnedByLive(chatState, resolvedConversationID, completedTurnID)
+      ) {
         queuePostTurnConversationRefresh(context, resolvedConversationID, completedTurnID);
       }
       return;
@@ -1896,6 +2053,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         toolCallId: String(payload?.toolCallId || '').trim(),
         linkedConversationId: String(payload?.linkedConversationId || '').trim()
       });
+      applyToolStreamEvent(chatState, payload, conversationID);
       applyStreamConversationState(context, 'executing', payload);
       renderMergedRowsForContext(context);
       return;
@@ -2077,8 +2235,14 @@ export async function switchConversation(context, conversationID = '') {
     await createNewConversation(context);
     return;
   }
+  const staleConversationState = String(chatState.lastConversationID || '').trim() !== targetID;
   if (currentID === targetID) {
     chatState.switchingConversationID = '';
+    if (staleConversationState) {
+      messagesDS.setCollection?.([]);
+      messagesDS.setError?.('');
+      resetConversationSnapshotState(context);
+    }
     conversationsDS.setFormData?.({
       values: applyConversationFormSnapshot(form, existing)
     });

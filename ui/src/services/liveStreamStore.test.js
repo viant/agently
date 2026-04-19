@@ -12,6 +12,7 @@ import {
   finalizeStreamTurn,
   normalizeStreamingMarkdown
 } from './liveStreamStore';
+import { markLiveOwnedTurn } from './liveStreamStore';
 
 describe('normalizeStreamingMarkdown', () => {
   it('strips leading and trailing markdown fences from streamed content', () => {
@@ -131,7 +132,7 @@ describe('applyStreamChunk', () => {
 });
 
 describe('applyExecutionStreamEvent', () => {
-  it('does not create a synthetic assistant row on turn_started when no assistant message id exists yet', () => {
+  it('records turn_started as an execution-details lifecycle entry even before model_started', () => {
     const chatState = { liveRows: [], activeStreamPrompt: 'hi' };
 
     applyTurnStartedEvent(chatState, {
@@ -140,7 +141,26 @@ describe('applyExecutionStreamEvent', () => {
       status: 'running'
     }, 'conv-1');
 
-    expect(chatState.liveRows).toHaveLength(0);
+    expect(chatState.liveRows).toHaveLength(2);
+    expect(chatState.liveRows[0]).toMatchObject({
+      id: 'user:turn-1',
+      role: 'user',
+      turnId: 'turn-1',
+      content: 'hi'
+    });
+    expect(chatState.liveRows[1]).toMatchObject({
+      id: 'turn:turn-1',
+      role: 'assistant',
+      turnId: 'turn-1',
+      status: 'running',
+      turnStatus: 'running',
+    });
+    expect(chatState.liveRows[1].executionGroups[0].toolSteps[0]).toMatchObject({
+      kind: 'turn',
+      reason: 'turn_started',
+      toolName: 'turn_started',
+      status: 'running',
+    });
   });
 
   it('reuses an existing user row for the same turn instead of adding a synthetic duplicate', () => {
@@ -169,6 +189,27 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows.filter((row) => String(row?.role || '').toLowerCase() === 'user')).toHaveLength(1);
     expect(chatState.liveRows[0].id).toBe('msg-user-1');
     expect(chatState.liveRows[0].content).toBe('hi');
+  });
+
+  it('creates a synthetic user row from activeStreamPrompt when turn_started lacks user ids', () => {
+    const chatState = {
+      liveRows: [],
+      activeStreamPrompt: 'check order pacing and deliver 2660140, troubleshoot it'
+    };
+
+    applyTurnStartedEvent(chatState, {
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:00Z'
+    }, 'conv-1');
+
+    expect(chatState.liveRows.map((row) => row.id)).toEqual(['user:turn-1', 'turn:turn-1']);
+    expect(chatState.liveRows[0]).toMatchObject({
+      role: 'user',
+      turnId: 'turn-1',
+      content: 'check order pacing and deliver 2660140, troubleshoot it'
+    });
   });
 
   it('keeps execution row timestamps deterministic when events omit createdAt', () => {
@@ -260,9 +301,10 @@ describe('applyExecutionStreamEvent', () => {
 
     const assistantRow = chatState.liveRows.find((row) => row.role === 'assistant');
     expect(assistantRow.id).toBe('mc-1');
-    expect(assistantRow.startedAt).toBe('2026-03-16T10:00:01Z');
-    expect(assistantRow.executionGroups[0].startedAt).toBeUndefined();
-    expect(assistantRow.executionGroups[0].modelSteps[0].startedAt).toBe('2026-03-16T10:00:01Z');
+    expect(assistantRow.startedAt).toBe('2026-03-16T10:00:00Z');
+    expect(assistantRow.executionGroups[0].startedAt).toBe('2026-03-16T10:00:00Z');
+    const modelGroup = assistantRow.executionGroups.find((group) => Array.isArray(group?.modelSteps) && group.modelSteps.length > 0);
+    expect(modelGroup?.modelSteps?.[0]?.startedAt).toBe('2026-03-16T10:00:01Z');
     expect(assistantRow.status).toBe('thinking');
   });
 
@@ -657,8 +699,8 @@ describe('applyExecutionStreamEvent', () => {
   expect(chatState.liveRows[0].content).toBe('Here is the final response.');
   expect(chatState.liveRows[0].interim).toBe(0);
   expect(chatState.liveRows[0].isStreaming).toBe(false);
-    expect(chatState.liveRows[0].turnStatus).toBe('completed');
-    expect(chatState.liveRows[0].executionGroups[0].content).toBe('Here is the final response.');
+  expect(chatState.liveRows[0].turnStatus).toBe('completed');
+  expect(chatState.liveRows[0].executionGroups[1].content).toBe('Here is the final response.');
   });
 
   it('finalizeStreamTurn keeps model step completedAt deterministic when the terminal payload omits timestamps', () => {
@@ -700,11 +742,11 @@ describe('applyExecutionStreamEvent', () => {
       status: 'completed'
     }, 'conv-1');
 
-    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0]).toMatchObject({
+    expect(chatState.liveRows[0].executionGroups[1].modelSteps[0]).toMatchObject({
       startedAt: '2026-03-16T10:00:01Z',
       status: 'completed'
     });
-    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0].completedAt).toBeUndefined();
+    expect(chatState.liveRows[0].executionGroups[1].modelSteps[0].completedAt).toBeUndefined();
   });
 
   it('suppresses mode=summary message_patch rows from live chat state', () => {
@@ -1065,6 +1107,135 @@ describe('applyExecutionStreamEvent', () => {
     expect(step.toolName).toBe('llm/agents/run');
     expect(step.linkedConversationId).toBe('child-conv-1');
     expect(step.responsePayloadId).toBe('resp-linked-1');
+  });
+
+  it('preserves tool_call_completed request and response payloads from SSE events', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'conv-1');
+
+    applyToolStreamEvent(chatState, {
+      type: 'tool_call_completed',
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      toolCallId: 'call-1',
+      toolMessageId: 'tool-msg-1',
+      toolName: 'llm/agents:start',
+      status: 'completed',
+      arguments: { agentId: 'guardian', streaming: true },
+      responsePayload: {
+        conversationId: 'child-conv-1',
+        status: 'completed',
+        assistantResponse: 'Guardian started and returned first diagnostics.'
+      },
+      createdAt: '2026-03-16T10:00:05Z'
+    }, 'conv-1');
+
+    const step = chatState.liveRows[0].executionGroups[0].toolSteps[0];
+    expect(step.requestPayload).toEqual({ agentId: 'guardian', streaming: true });
+    expect(step.responsePayload).toEqual({
+      conversationId: 'child-conv-1',
+      status: 'completed',
+      assistantResponse: 'Guardian started and returned first diagnostics.'
+    });
+  });
+
+  it('carries phase through live model execution rows', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-intake-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 0,
+      phase: 'intake',
+      mode: 'router',
+      status: 'thinking',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].executionGroups[0].phase).toBe('intake');
+    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0].phase).toBe('intake');
+  });
+
+  it('carries phase through live tool execution steps', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-sidecar-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'conv-1');
+
+    applyToolStreamEvent(chatState, {
+      type: 'tool_call_completed',
+      assistantMessageId: 'mc-sidecar-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      toolCallId: 'call-1',
+      toolMessageId: 'tool-msg-1',
+      toolName: 'llm/agents:start',
+      phase: 'sidecar',
+      status: 'completed',
+      createdAt: '2026-03-16T10:00:05Z'
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].executionGroups[0].toolSteps[0].phase).toBe('sidecar');
+  });
+
+  it('keeps turn_started in a stable dedicated lifecycle group instead of attaching it to later model groups', () => {
+    const chatState = { liveRows: [] };
+
+    applyTurnStartedEvent(chatState, {
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:00Z'
+    }, 'conv-1');
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'msg-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    }, 'conv-1');
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'msg-2',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 2,
+      status: 'thinking',
+      createdAt: '2026-03-16T10:00:02Z',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    }, 'conv-1');
+
+    const groups = chatState.liveRows[0].executionGroups;
+    expect(groups[0].pageId).toBe('turn:turn-1:lifecycle');
+    expect(groups[0].toolSteps[0]).toMatchObject({
+      kind: 'turn',
+      reason: 'turn_started'
+    });
+    expect(groups.slice(1).every((group) =>
+      !(Array.isArray(group?.toolSteps) && group.toolSteps.some((step) => String(step?.reason || '') === 'turn_started'))
+    )).toBe(true);
   });
 
   it('handles multi-turn: second turn does not corrupt first turn', () => {
@@ -1543,6 +1714,26 @@ describe('applyExecutionStreamEvent', () => {
       content: 'Hi!',
       turnStatus: 'succeeded'
     });
+  });
+});
+
+describe('markLiveOwnedTurn', () => {
+  it('keeps only the latest owned turn and prunes older live rows', () => {
+    const chatState = {
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1'],
+      liveRows: [
+        { id: 'assistant-1', role: 'assistant', turnId: 'turn-1', content: 'old' },
+        { id: 'assistant-2', role: 'assistant', turnId: 'turn-2', content: 'new' },
+        { id: 'stream:1', _type: 'stream', role: 'assistant', content: 'stream' }
+      ]
+    };
+
+    const owned = markLiveOwnedTurn(chatState, 'conv-1', 'turn-2');
+
+    expect(owned).toEqual(['turn-2']);
+    expect(chatState.liveOwnedTurnIds).toEqual(['turn-2']);
+    expect(chatState.liveRows.map((row) => row.id)).toEqual(['assistant-2', 'stream:1']);
   });
 });
 

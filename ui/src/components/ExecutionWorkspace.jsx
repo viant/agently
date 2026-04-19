@@ -126,6 +126,7 @@ function normalizePageSize(value) {
 
 function payloadBadges(step = {}) {
   const items = [
+    { key: 'phase', label: firstString(step?.phase).replace(/^\w/, (ch) => ch.toUpperCase()), value: step?.phase },
     { key: 'request', label: 'Request', value: step?.requestPayloadId || step?.requestPayload },
     { key: 'response', label: 'Response', value: step?.responsePayloadId || step?.responsePayload },
     { key: 'providerRequest', label: 'Provider Req', value: step?.providerRequestPayloadId || step?.providerRequestPayload },
@@ -193,6 +194,7 @@ export function normalizeModelStep(group = {}) {
       group?.pageId
     ),
     kind: 'model',
+    phase: firstString(modelCall?.phase, group?.phase),
     reason: group?.finalResponse ? 'final_response' : 'thinking',
     toolName: summarizeModel(group),
     provider: firstString(modelCall?.provider),
@@ -219,6 +221,7 @@ function normalizeToolStep(tool = {}, group = {}) {
   return {
     id: firstString(tool?.toolMessageId, tool?.toolCallId, tool?.id),
     kind: 'tool',
+    phase: firstString(tool?.phase, group?.phase),
     reason: 'tool_call',
     toolName: firstString(tool?.toolName, 'tool'),
     status: firstString(tool?.status, group?.status),

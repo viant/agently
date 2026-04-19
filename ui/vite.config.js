@@ -35,11 +35,23 @@ const pickEnv = (env, keys) => {
   return out;
 };
 
+const resolveProxyTarget = (env) => {
+  const candidates = [env.DATA_URL, env.APP_URL, 'http://127.0.0.1:8585'];
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim();
+    if (!value) continue;
+    if (/^https?:\/\//i.test(value)) {
+      return value.replace(/\/+$/, '');
+    }
+  }
+  return 'http://127.0.0.1:8585';
+};
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const safeEnv = pickEnv(env, ['AUTH_URL', 'DATA_URL', 'APP_URL', 'APPSERVER_URL', 'VITE_FORGE_LOG_LEVEL']);
   const prodEnv = { AUTH_URL: '/', DATA_URL: '/', APPSERVER_URL: '/', ...safeEnv };
-  const proxyTarget = String(env.DATA_URL || env.APP_URL || 'http://localhost:8585').replace(/\/+$/, '');
+  const proxyTarget = resolveProxyTarget(env);
   const devHost = String(env.VITE_HOST || 'localhost').trim() || 'localhost';
   const devPort = Number(env.VITE_PORT || env.PORT || 5173) || 5173;
   const uiRoot = __dirname;

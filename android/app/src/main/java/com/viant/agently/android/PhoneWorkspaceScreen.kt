@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.Conversation
+import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
@@ -34,9 +35,6 @@ import kotlinx.serialization.json.JsonElement
 
 @Composable
 internal fun PhoneWorkspacePane(
-    appApiBaseUrl: String,
-    metadata: com.viant.agentlysdk.WorkspaceMetadata?,
-    effectiveAgentId: String?,
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
@@ -78,14 +76,20 @@ internal fun PhoneWorkspacePane(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    Text(
-                        metadata?.workspaceRoot?.takeIf { it.isNotBlank() }?.let(::compactWorkspaceLabel)
-                            ?: "Workspace loading",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color(0xFF182230),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "VIANT.",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color(0xFFDB1F2F)
+                        )
+                        Text(
+                            "Agently",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Color(0xFF182230),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     Text(
                         if (!activeConversationId.isNullOrBlank()) "Continuing your latest chat"
                         else "Ready for a new conversation",
@@ -117,30 +121,6 @@ internal fun PhoneWorkspacePane(
                     CircularProgressIndicator(modifier = Modifier.height(24.dp))
                 }
             }
-            val statusLine = buildString {
-                effectiveAgentId?.takeIf { it.isNotBlank() }?.let {
-                    append("Agent ")
-                    append(it.replaceFirstChar { ch -> ch.titlecase() })
-                }
-                (metadata?.defaultModel ?: metadata?.defaults?.model)?.takeIf { it.isNotBlank() }?.let { model ->
-                    if (isNotEmpty()) append(" · ")
-                    append(model)
-                }
-                if (streamSnapshot?.activeTurnId != null) {
-                    if (isNotEmpty()) append(" · ")
-                    append("Live turn")
-                } else {
-                    if (isNotEmpty()) append(" · ")
-                    append(compactBackendLabel(appApiBaseUrl))
-                }
-            }
-            Text(
-                statusLine,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF98A2B3),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
             if (loading || streamSnapshot?.activeTurnId != null) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
@@ -219,18 +199,6 @@ internal fun PhoneWorkspacePane(
                 )
             }
         }
-        if (streamSnapshot?.feeds?.isNotEmpty() == true) {
-            ActiveFeedsSection(
-                feeds = streamSnapshot.feeds,
-                conversationId = activeConversationId,
-                client = client,
-                forgeRuntime = forgeRuntime
-            )
-        }
-        ConversationArtifactsSection(
-            files = generatedFiles,
-            onOpenFile = onOpenFile
-        )
         artifactPreview?.let { preview ->
             if (generatedFiles.none { it.id == preview.artifactId }) {
                 ArtifactPreviewSection(
@@ -239,6 +207,10 @@ internal fun PhoneWorkspacePane(
                 )
             }
         }
+        ConversationArtifactsSection(
+            files = generatedFiles,
+            onOpenFile = onOpenFile
+        )
         RenderTranscript(
             items = transcript,
             pendingApprovals = pendingApprovals,
@@ -255,13 +227,3 @@ internal fun PhoneWorkspacePane(
         Spacer(modifier = Modifier.height(320.dp))
     }
 }
-
-private fun compactWorkspaceLabel(workspaceRoot: String): String {
-    val parts = workspaceRoot.split('/').filter { it.isNotBlank() }
-    if (parts.size <= 4) {
-        return workspaceRoot
-    }
-    return ".../${parts.takeLast(4).joinToString("/")}"
-}
-
-private fun compactBackendLabel(baseUrl: String): String = baseUrl.removePrefix("http://").removePrefix("https://")

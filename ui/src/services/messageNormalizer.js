@@ -5,7 +5,9 @@ export function classifyMessage(message) {
   if (message._type === 'starter') return 'starter';
   if (message._type === 'queue') return 'queue';
   if (message._type === 'iteration') return 'iteration';
-  if (String(message.mode || '').trim().toLowerCase() === 'summary') return undefined;
+  const mode = String(message.mode || '').trim().toLowerCase();
+  const phase = String(message.phase || '').trim().toLowerCase();
+  if (mode === 'summary' || phase === 'summary') return undefined;
   if (message.status === 'summarized') return undefined;
   if (message.status === 'summary') return undefined;
 
@@ -162,9 +164,6 @@ export function normalizeOne(message = {}) {
     executionGroups: Array.isArray(message.executionGroups)
       ? message.executionGroups
       : [],
-    executionGroupsTotal: Number(message.executionGroupsTotal || 0) || 0,
-    executionGroupsOffset: Number(message.executionGroupsOffset || 0) || 0,
-    executionGroupsLimit: Number(message.executionGroupsLimit || 0) || 0,
     elicitation,
     elicitationId: message.elicitationId || elicitation?.elicitationId || '',
     requestPayload: message.requestPayload || null,
@@ -372,10 +371,7 @@ function mergeIterationItems(existing = {}, incoming = {}) {
     preambles: [],
     toolCalls: mergeStepList(existing?.toolCalls, incoming?.toolCalls),
     linkedConversations: [],
-    executionGroups: mergeExecutionGroups(existing?.executionGroups, incoming?.executionGroups),
-    executionGroupsTotal: Number(incoming?.executionGroupsTotal || existing?.executionGroupsTotal || 0) || 0,
-    executionGroupsOffset: Number(incoming?.executionGroupsOffset || existing?.executionGroupsOffset || 0) || 0,
-    executionGroupsLimit: Number(incoming?.executionGroupsLimit || existing?.executionGroupsLimit || 0) || 0
+    executionGroups: mergeExecutionGroups(existing?.executionGroups, incoming?.executionGroups)
   };
   const linked = [];
   const linkedSeen = new Set();
@@ -425,6 +421,7 @@ function mergeExecutionGroups(existing = [], incoming = []) {
   for (const list of [existing, incoming]) {
     for (const group of Array.isArray(list) ? list : []) {
       const key = chooseRichString(
+        group?.pageId,
         group?.assistantMessageId,
         group?.parentMessageId,
         group?.modelMessageId,
@@ -449,6 +446,18 @@ function mergeExecutionGroups(existing = [], incoming = []) {
 export function groupIntoIterations(messages = []) {
   const items = [];
   let current = null;
+  const hasRenderableIterationEvidence = (item = null) => {
+    if (!item || typeof item !== 'object') return false;
+    if (Array.isArray(item?.executionGroups) && item.executionGroups.length > 0) return true;
+    if (Array.isArray(item?.toolCalls) && item.toolCalls.length > 0) return true;
+    if (Array.isArray(item?.linkedConversations) && item.linkedConversations.length > 0) return true;
+    if (Array.isArray(item?.preambles) && item.preambles.some((entry) => String(entry?.content || '').trim() !== '')) return true;
+    if (String(item?.preamble?.content || '').trim() !== '') return true;
+    if (String(item?.streamContent || '').trim() !== '') return true;
+    if (String(item?.response?.content || '').trim() !== '') return true;
+    if (String(item?.errorMessage || '').trim() !== '') return true;
+    return false;
+  };
   const lastUserContentByTurn = new Map();
   const attachSummaryToLatestIteration = (message = {}) => {
     const turnId = String(message?.turnId || '').trim();
@@ -479,7 +488,9 @@ export function groupIntoIterations(messages = []) {
   };
   const flushCurrent = () => {
     if (!current) return;
-    items.push(current);
+    if (hasRenderableIterationEvidence(current)) {
+      items.push(current);
+    }
     if (current.response) {
       items.push({ type: 'response', message: current.response });
     }
@@ -491,6 +502,7 @@ export function groupIntoIterations(messages = []) {
       current = {
         type: 'iteration',
         turnId: message?.turnId || '',
+        userPrompt: String(lastUserContentByTurn.get(String(message?.turnId || '').trim()) || '').trim(),
         iteration: (() => {
           const raw = Number(message?.iteration);
           return Number.isFinite(raw) && raw > 0 ? raw : null;
@@ -498,6 +510,7 @@ export function groupIntoIterations(messages = []) {
         agentId: '',
         preambles: [],
         preamble: null,
+        content: '',
         streamContent: '',
         streamCreatedAt: '',
         turnStartedAt: chooseRichString(message?.startedAt, message?.createdAt),
@@ -505,9 +518,6 @@ export function groupIntoIterations(messages = []) {
         toolCalls: [],
         linkedConversations: [],
         executionGroups: [],
-        executionGroupsTotal: 0,
-        executionGroupsOffset: 0,
-        executionGroupsLimit: 0,
         summary: null,
         response: null,
         status: String(message?.turnStatus || message?.status || 'running'),
@@ -516,6 +526,7 @@ export function groupIntoIterations(messages = []) {
     }
     current.turnStartedAt = chooseRichString(current?.turnStartedAt, message?.startedAt, message?.createdAt);
     current.turnCompletedAt = chooseRichString(message?.completedAt, current?.turnCompletedAt);
+    current.content = chooseRichString(message?.content, current?.content);
     return current;
   };
   const attachSteps = (steps = [], message = {}) => {
@@ -561,15 +572,9 @@ export function groupIntoIterations(messages = []) {
     const target = ensureCurrent(message);
     if (groups.length > 0) {
       target.executionGroups = mergeExecutionGroups(target.executionGroups, groups);
-      target.executionGroupsTotal = Number(message.executionGroupsTotal || target.executionGroupsTotal || groups.length) || groups.length;
-      target.executionGroupsOffset = Number(message.executionGroupsOffset || target.executionGroupsOffset || 0) || 0;
-      target.executionGroupsLimit = Number(message.executionGroupsLimit || target.executionGroupsLimit || groups.length) || groups.length;
     }
     if (hasSingleGroup) {
       target.executionGroups = mergeExecutionGroups(target.executionGroups, [message.executionGroup]);
-      target.executionGroupsTotal = Number(message.executionGroupsTotal || target.executionGroupsTotal || 0) || 0;
-      target.executionGroupsOffset = Number(message.executionGroupsOffset || target.executionGroupsOffset || 0) || 0;
-      target.executionGroupsLimit = Number(message.executionGroupsLimit || target.executionGroupsLimit || 0) || 0;
     }
   };
   const attachAgent = (message = {}) => {
@@ -598,6 +603,7 @@ export function groupIntoIterations(messages = []) {
 
     const role = String(message?.role || '').toLowerCase();
     const mode = String(message?.mode || '').trim().toLowerCase();
+    const phase = String(message?.phase || '').trim().toLowerCase();
     const execSteps = flattenToolSteps(message);
 
     if (role === 'user') {
@@ -607,7 +613,7 @@ export function groupIntoIterations(messages = []) {
       continue;
     }
 
-    if (mode === 'summary' || String(message?.status || '').trim().toLowerCase() === 'summary') {
+    if (mode === 'summary' || phase === 'summary' || String(message?.status || '').trim().toLowerCase() === 'summary') {
       if (current) {
         current.summary = message;
       } else {
@@ -824,9 +830,31 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
         const iterationContent = String(
           item?.response?.content
           || streamContent
+          || item?.content
           || item?.preamble?.content
           || ''
         ).trim();
+        const hasNonLifecycleExecutionEvidence = (Array.isArray(item?.executionGroups) ? item.executionGroups : []).some((group) => {
+          const phase = String(group?.phase || '').trim().toLowerCase();
+          if (phase && phase !== 'lifecycle') return true;
+          const modelSteps = Array.isArray(group?.modelSteps) ? group.modelSteps : [];
+          if (modelSteps.length > 0) return true;
+          const toolSteps = Array.isArray(group?.toolSteps) ? group.toolSteps : [];
+          return toolSteps.some((step) => String(step?.kind || '').trim().toLowerCase() !== 'turn');
+        });
+        const hasNonLifecycleToolCalls = (Array.isArray(item?.toolCalls) ? item.toolCalls : []).some((step) => (
+          String(step?.kind || '').trim().toLowerCase() !== 'turn'
+        ));
+        const onlyEchoesUserPrompt = iterationContent !== ''
+          && iterationContent === String(item?.userPrompt || '').trim()
+          && !item?.response
+          && !streamContent
+          && !hasNonLifecycleExecutionEvidence
+          && !hasNonLifecycleToolCalls
+          && !(Array.isArray(item?.linkedConversations) && item.linkedConversations.length > 0);
+        if (onlyEchoesUserPrompt) {
+          continue;
+        }
         out.push({
           _type: 'iteration',
           id: `iteration:${item.turnId || seenIterations}:${item.iteration ?? seenIterations}`,

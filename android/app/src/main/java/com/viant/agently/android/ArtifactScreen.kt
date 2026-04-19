@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -94,7 +96,7 @@ internal fun ArtifactPreviewSection(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Artifact Preview", style = MaterialTheme.typography.titleMedium)
+                    Text("Preview", style = MaterialTheme.typography.titleMedium)
                     Text(preview.name, style = MaterialTheme.typography.bodySmall)
                     Text(
                         "${preview.contentType ?: "unknown"} · ${preview.sizeBytes} bytes",
@@ -158,7 +160,11 @@ private fun ArtifactPreviewBody(preview: ArtifactPreview) {
             Text(
                 preview.text,
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(12.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 220.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(12.dp)
             )
         }
     } else {

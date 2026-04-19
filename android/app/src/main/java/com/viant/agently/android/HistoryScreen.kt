@@ -46,8 +46,6 @@ import java.nio.charset.StandardCharsets
 @Composable
 internal fun TabletConversationSidebar(
     appApiBaseUrl: String,
-    metadata: WorkspaceMetadata?,
-    effectiveAgentId: String?,
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
@@ -85,14 +83,21 @@ internal fun TabletConversationSidebar(
                 .padding(horizontal = 12.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Agently", style = MaterialTheme.typography.headlineSmall, color = Color(0xFF101828))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    metadata?.workspaceRoot ?: "Workspace loading…",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    "VIANT.",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color(0xFFDB1F2F)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "Agently",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color(0xFF101828)
                 )
             }
             Button(
@@ -240,26 +245,13 @@ internal fun TabletConversationSidebar(
                     }
                 }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    effectiveAgentId?.takeIf { it.isNotBlank() }?.let {
-                        AssistChip(onClick = {}, enabled = false, label = { Text("Agent $it") })
-                    }
-                    (metadata?.defaultModel ?: metadata?.defaults?.model)?.takeIf { it.isNotBlank() }?.let {
-                        AssistChip(onClick = {}, enabled = false, label = { Text("Model $it") })
-                    }
-                }
-                Text(
-                    "Backend $appApiBaseUrl",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF98A2B3),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            Text(
+                "Backend $appApiBaseUrl",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF98A2B3),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

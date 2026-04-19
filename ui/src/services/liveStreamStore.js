@@ -201,11 +201,18 @@ function mergeCanonicalExecutionGroups(existing = [], incoming = []) {
     const second = out[1] || {};
     const firstAssistantId = String(first?.assistantMessageId || '').trim();
     const secondAssistantId = String(second?.assistantMessageId || '').trim();
+    const firstPageId = String(first?.pageId || '').trim();
+    const firstToolSteps = Array.isArray(first?.toolSteps) ? first.toolSteps : [];
+    const firstIsTurnLifecycleOnly = firstToolSteps.length > 0
+      && firstToolSteps.every((step) => String(step?.kind || '').trim().toLowerCase() === 'turn');
+    const firstIsDedicatedLifecycleGroup = firstPageId.endsWith(':lifecycle');
     const firstIsPlaceholder = !firstAssistantId
-      && Array.isArray(first?.modelSteps)
-      && first.modelSteps.length > 0
-      && String(first?.status || '').trim() !== '';
-    if (firstIsPlaceholder && secondAssistantId) {
+      && String(first?.status || '').trim() !== ''
+      && (
+        (Array.isArray(first?.modelSteps) && first.modelSteps.length > 0)
+        || firstIsTurnLifecycleOnly
+      );
+    if (firstIsPlaceholder && !firstIsDedicatedLifecycleGroup && secondAssistantId) {
       const merged = {
         ...first,
         ...second,
@@ -241,7 +248,9 @@ function isAssistantPlaceholderId(id = '', turnId = '') {
   const rowId = String(id || '').trim();
   const tid = String(turnId || '').trim();
   if (!rowId || !tid) return false;
-  return rowId === `assistant:${tid}:live` || rowId === `assistant:${tid}:1`;
+  return rowId === `assistant:${tid}:live`
+    || rowId === `assistant:${tid}:1`
+    || rowId === `turn:${tid}`;
 }
 
 function maybePromoteAssistantRowIdentity(row = {}, turnId = '', assistantMessageId = '') {
@@ -253,6 +262,8 @@ function maybePromoteAssistantRowIdentity(row = {}, turnId = '', assistantMessag
   }
   if (Array.isArray(next.executionGroups) && next.executionGroups.length > 0) {
     next.executionGroups = next.executionGroups.map((group, index) => {
+      const pageId = String(group?.pageId || '').trim();
+      if (pageId.endsWith(':lifecycle')) return group;
       if (index !== next.executionGroups.length - 1) return group;
       if (String(group?.assistantMessageId || '').trim()) return group;
       return {
@@ -341,6 +352,7 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     pageId: assistantMessageId || rowID,
     assistantMessageId,
     parentMessageId: String(payload?.parentMessageId || '').trim(),
+    phase: String(payload?.phase || '').trim() || undefined,
     sequence: Number(payload?.pageIndex || payload?.iteration || payload?.eventSeq || 0) || undefined,
     iteration: Number(payload?.iteration || 0) || undefined,
     preamble: String(payload?.preamble || '').trim(),
@@ -350,6 +362,7 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     errorMessage,
     modelSteps: [{
       modelCallId: assistantMessageId,
+      phase: String(payload?.phase || '').trim() || undefined,
       provider: String(payload?.model?.provider || '').trim(),
       model: String(payload?.model?.model || '').trim(),
       status: String(payload?.status || '').trim(),
@@ -389,10 +402,67 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     interim: finalResponse ? 0 : 1,
     content: finalResponse ? normalizedPayloadContent : normalizedVisibleContent,
     preamble: String(payload?.preamble || '').trim(),
-    executionGroups: [group],
-    executionGroupsTotal: Number(payload?.pageCount || 1) || 1,
-    executionGroupsOffset: Math.max(0, (Number(payload?.pageCount || 1) || 1) - 1),
-    executionGroupsLimit: 1
+    executionGroups: [group]
+  };
+}
+
+function buildLifecycleStep(kind = '', payload = {}) {
+  const lifecycleKind = String(kind || '').trim().toLowerCase();
+  if (!lifecycleKind) return null;
+  const turnId = String(payload?.turnId || '').trim();
+  const createdAt = String(payload?.createdAt || payload?.completedAt || '').trim() || undefined;
+  const status = lifecycleKind === 'turn_completed'
+    ? 'completed'
+    : lifecycleKind === 'turn_failed'
+      ? 'failed'
+      : lifecycleKind === 'turn_canceled'
+        ? 'canceled'
+        : 'running';
+  return {
+    id: `${lifecycleKind}:${turnId || 'turn'}`,
+    kind: 'turn',
+    reason: lifecycleKind,
+    toolName: lifecycleKind,
+    status,
+    startedAt: createdAt,
+    completedAt: ['turn_completed', 'turn_failed', 'turn_canceled'].includes(lifecycleKind) ? createdAt : undefined,
+    errorMessage: String(payload?.error || payload?.errorMessage || '').trim() || undefined,
+  };
+}
+
+function appendLifecycleStep(row = {}, kind = '', payload = {}) {
+  const lifecycleStep = buildLifecycleStep(kind, payload);
+  if (!lifecycleStep) return row;
+  const groups = Array.isArray(row?.executionGroups) ? [...row.executionGroups] : [];
+  const turnId = String(payload?.turnId || row?.turnId || '').trim() || 'turn';
+  const lifecycleGroupId = `turn:${turnId}:lifecycle`;
+  const existingIndex = groups.findIndex((group) => String(group?.pageId || group?.parentMessageId || '').trim() === lifecycleGroupId);
+  const group = existingIndex >= 0 ? { ...groups[existingIndex] } : {
+    pageId: lifecycleGroupId,
+    assistantMessageId: '',
+    parentMessageId: lifecycleGroupId,
+    phase: 'lifecycle',
+    sequence: -1,
+    iteration: 0,
+    preamble: '',
+    content: '',
+    finalResponse: false,
+    status: String(payload?.status || row?.status || 'running').trim(),
+    errorMessage: '',
+    modelSteps: [],
+    toolSteps: [],
+    toolCallsPlanned: []
+  };
+  group.toolSteps = mergeCanonicalToolCalls(group.toolSteps, [lifecycleStep]);
+  group.status = String(payload?.status || group?.status || row?.status || lifecycleStep.status).trim() || lifecycleStep.status;
+  if (existingIndex >= 0) {
+    groups[existingIndex] = group;
+  } else {
+    groups.unshift(group);
+  }
+  return {
+    ...row,
+    executionGroups: groups
   };
 }
 
@@ -413,7 +483,7 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
   const assistantSequence = turnSequence > 0 ? turnSequence * 2 : 1;
   const prompt = String(chatState?.activeStreamPrompt || '').trim();
   const userMessageID = String(payload?.userMessageId || payload?.startedByMessageId || '').trim();
-  const userRowID = userMessageID;
+  const userRowID = userMessageID || (prompt ? `user:${turnId}` : '');
   const existingUserIndex = rows.findIndex((row) => {
     if (String(row?.role || '').trim().toLowerCase() !== 'user') return false;
     const rowTurnId = String(row?.turnId || '').trim();
@@ -456,9 +526,34 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
     row.turnStatus = String(payload?.status || row?.turnStatus || 'running').trim();
     row.status = String(payload?.status || row?.status || 'running').trim();
     row.startedAt = row.startedAt || turnStartedAt;
-    rows[assistantIndex] = row;
+    rows[assistantIndex] = appendLifecycleStep(row, 'turn_started', payload);
+    rows.sort(compareTemporalEntries);
+    chatState.liveRows = rows;
+    return rows;
   }
 
+  const lifecycleRow = appendLifecycleStep({
+    id: `turn:${turnId}`,
+    conversationId: conversationID,
+    turnId,
+    agentIdUsed: String(payload?.agentIdUsed || '').trim(),
+    agentName: String(payload?.agentName || '').trim(),
+    role: 'assistant',
+    mode: String(payload?.mode || '').trim().toLowerCase(),
+    type: 'text',
+    createdAt: turnStartedAt,
+    startedAt: turnStartedAt || undefined,
+    completedAt: undefined,
+    errorMessage: '',
+    sequence: assistantSequence,
+    status: 'running',
+    turnStatus: 'running',
+    interim: 1,
+    content: '',
+    preamble: '',
+    executionGroups: []
+  }, 'turn_started', payload);
+  rows.push(lifecycleRow);
   rows.sort(compareTemporalEntries);
   chatState.liveRows = rows;
   return rows;
@@ -491,10 +586,12 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
       ...prev,
       agentIdUsed: String(nextRow.agentIdUsed || prev?.agentIdUsed || '').trim(),
       agentName: String(nextRow.agentName || prev?.agentName || '').trim(),
+      id: String(nextRow.id || prev?.id || '').trim() || prev?.id,
       status: shouldAdvanceRowStatus ? (nextRow.status || prev.status) : (prev.status || nextRow.status),
       turnStatus: shouldAdvanceRowStatus ? (nextRow.turnStatus || prev.turnStatus) : (prev.turnStatus || nextRow.turnStatus),
       startedAt: prev.startedAt || nextRow.startedAt,
       createdAt: prev.createdAt || nextRow.createdAt,
+      sequence: nextRow.sequence ?? null,
       interim: updatedInterim,
       content: updatedContent,
       preamble: nextRow.preamble || prev.preamble,
@@ -529,14 +626,23 @@ function applyToolStreamEventToRows(rows = [], payload = {}, fallbackConversatio
   if (groupIdx === -1) groupIdx = groups.length - 1;
   if (groupIdx < 0 || !groups[groupIdx]) return existing;
   const group = { ...groups[groupIdx] };
-  const toolStep = {
+    const toolStep = {
     toolMessageId: String(payload?.toolMessageId || payload?.messageId || payload?.id || '').trim(),
     toolCallId: String(payload?.toolCallId || '').trim(),
     toolName: String(payload?.toolName || '').trim(),
+    phase: String(payload?.phase || '').trim() || undefined,
     status: String(payload?.status || '').trim(),
+    requestPayload: payload?.arguments && typeof payload.arguments === 'object'
+      ? payload.arguments
+      : undefined,
     requestPayloadId: String(payload?.requestPayloadId || '').trim() || undefined,
+    responsePayload: payload?.responsePayload && typeof payload.responsePayload === 'object'
+      ? payload.responsePayload
+      : undefined,
     responsePayloadId: String(payload?.responsePayloadId || '').trim() || undefined,
     linkedConversationId: String(payload?.linkedConversationId || '').trim() || undefined,
+    linkedConversationAgentId: String(payload?.linkedConversationAgentId || '').trim() || undefined,
+    linkedConversationTitle: String(payload?.linkedConversationTitle || '').trim() || undefined,
     startedAt: payload?.createdAt || undefined,
     completedAt: ['tool_call_completed', 'tool_call_failed', 'tool_call_canceled'].includes(payload?.type)
       ? (payload?.createdAt || undefined)
@@ -577,6 +683,7 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
   const baseRow = {
     id: messageId || fallbackPatchId,
     role,
+    phase: String(patch?.phase || '').trim().toLowerCase(),
     mode: String(patch?.mode || '').trim().toLowerCase(),
     type: messageType,
     turnId,
@@ -634,6 +741,7 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
       filtered[existingUserIdx] = {
         ...prev,
         role: 'user',
+        phase: baseRow.phase || prev.phase,
         mode: baseRow.mode || prev.mode,
         type: baseRow.type || prev.type,
         turnId,
@@ -690,6 +798,7 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
       // assistant_final and turn_completed should mark a row as final.
       filtered[existingIdx] = {
         ...prev,
+        phase: baseRow.phase || prev.phase,
         mode: baseRow.mode || prev.mode,
         content: patchContent || prev.content,
         rawContent: rawContent || String(prev.rawContent || ''),
@@ -1086,17 +1195,20 @@ export function markLiveOwnedTurn(chatState = {}, conversationID = '', turnID = 
   if (nextConversationID) {
     chatState.liveOwnedConversationID = nextConversationID;
   }
-  const existing = Array.isArray(chatState.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [];
   if (!nextTurnID) {
+    const existing = Array.isArray(chatState.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [];
     chatState.liveOwnedTurnIds = existing;
     return existing;
   }
-  if (existing.includes(nextTurnID)) {
-    chatState.liveOwnedTurnIds = existing;
-    return existing;
-  }
-  const next = [...existing, nextTurnID];
+  const next = [nextTurnID];
   chatState.liveOwnedTurnIds = next;
+  if (Array.isArray(chatState.liveRows) && chatState.liveRows.length > 0) {
+    chatState.liveRows = chatState.liveRows.filter((row) => {
+      const rowTurnID = String(row?.turnId || '').trim();
+      if (!rowTurnID) return true;
+      return rowTurnID === nextTurnID;
+    });
+  }
   return next;
 }
 
@@ -1121,7 +1233,7 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
     const finalizedContent = normalizeStreamingMarkdown(content || streamContent || String(row?.content || '').trim()).content;
 
     const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
-    rows[index] = {
+    rows[index] = appendLifecycleStep({
       ...row,
       mode: String(payload?.mode || row?.mode || '').trim().toLowerCase(),
       status,
@@ -1152,7 +1264,7 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
           modelSteps
         };
       })
-    };
+    }, payload?.type || 'turn_completed', payload);
     finalized = true;
     break;
   }

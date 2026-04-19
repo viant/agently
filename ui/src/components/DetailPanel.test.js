@@ -81,6 +81,67 @@ describe('DetailPanel pricing helpers', () => {
     expect(hydrated.responsePayload).toEqual({ status: 'failed' });
   });
 
+  it('hydrates completed-route tool payloads for exec and patch steps via table-driven cases', async () => {
+    const testCases = [
+      {
+        name: 'system_exec execute',
+        transcriptSteps: [
+          {
+            kind: 'tool',
+            id: 'exec-1',
+            toolName: 'system_exec-execute',
+            requestPayloadId: 'req-exec-1',
+            responsePayloadId: 'resp-exec-1',
+            requestPayload: { commands: ['pwd', 'ls'], workdir: '/Users/awitas/go/src/github.com/viant' },
+            responsePayload: { stdout: '/Users/awitas/go/src/github.com/viant' }
+          }
+        ],
+        input: {
+          kind: 'tool',
+          id: 'exec-1',
+          toolName: 'system_exec-execute'
+        },
+        expected: {
+          requestPayloadId: 'req-exec-1',
+          responsePayloadId: 'resp-exec-1',
+          requestPayload: { commands: ['pwd', 'ls'], workdir: '/Users/awitas/go/src/github.com/viant' },
+          responsePayload: { stdout: '/Users/awitas/go/src/github.com/viant' }
+        }
+      },
+      {
+        name: 'system_patch apply',
+        transcriptSteps: [
+          {
+            kind: 'tool',
+            id: 'patch-1',
+            toolName: 'system_patch-apply',
+            requestPayloadId: 'req-patch-1',
+            responsePayloadId: 'resp-patch-1',
+            requestPayload: { patch: '*** Begin Patch', workdir: '/Users/awitas/go/src/github.com/viant' },
+            responsePayload: { stats: { added: 11 }, status: 'ok' }
+          }
+        ],
+        input: {
+          kind: 'tool',
+          id: 'patch-1',
+          toolName: 'system_patch-apply'
+        },
+        expected: {
+          requestPayloadId: 'req-patch-1',
+          responsePayloadId: 'resp-patch-1',
+          requestPayload: { patch: '*** Begin Patch', workdir: '/Users/awitas/go/src/github.com/viant' },
+          responsePayload: { stats: { added: 11 }, status: 'ok' }
+        }
+      }
+    ];
+
+    for (const testCase of testCases) {
+      flattenCanonicalTranscriptSteps.mockReturnValueOnce(testCase.transcriptSteps);
+      const hydrated = await hydrateToolCallFromTranscript(testCase.input);
+      expect(hydrated).toMatchObject(testCase.expected);
+    }
+  });
+
   it('hydrates model payload data for provider/model matched canonical steps', async () => {
     transcriptConversationTurns.mockReturnValue([]);
     flattenCanonicalTranscriptSteps.mockReturnValue([

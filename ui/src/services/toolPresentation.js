@@ -30,7 +30,12 @@ export function isAgentRunTool(stepOrName = {}) {
     ? stepOrName
     : (stepOrName?.toolName || stepOrName?.ToolName || '');
   const normalized = normalizeToolNameForDisplay(toolName);
-  return normalized === 'llm/agents-run' || normalized === 'llm/agents/run';
+  return normalized === 'llm/agents-run'
+    || normalized === 'llm/agents/run'
+    || normalized === 'llm/agents-start'
+    || normalized === 'llm/agents/start'
+    || normalized === 'llm/agents-status'
+    || normalized === 'llm/agents/status';
 }
 
 export function extractPayloadObject(payload = null) {
@@ -135,6 +140,22 @@ export function displayStepTitle(step = {}) {
     if (provider) return provider;
     return 'assistant model';
   }
+  if (kind === 'turn') {
+    const reason = String(step?.reason || step?.toolName || '').trim().toLowerCase();
+    switch (reason) {
+      case 'turn_started':
+        return 'Turn started';
+      case 'turn_completed':
+        return 'Turn completed';
+      case 'turn_failed':
+        return 'Turn failed';
+      case 'turn_canceled':
+      case 'turn_cancelled':
+        return 'Turn canceled';
+      default:
+        return 'Turn event';
+    }
+  }
   const delegated = delegatedAgentLabel(step);
   if (delegated) return delegated;
   return String(step?.toolName || step?.ToolName || 'tool');
@@ -143,6 +164,7 @@ export function displayStepTitle(step = {}) {
 export function displayStepIcon(step = {}) {
   const kind = String(step?.kind || '').toLowerCase();
   if (kind === 'model') return '🧠';
+  if (kind === 'turn') return '⏺';
   if (isAgentRunTool(step)) return '🧭';
   return '🛠';
 }

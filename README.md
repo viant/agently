@@ -175,6 +175,8 @@ auth:
 | `AGENTLY_SCHEDULER_RUNNER` | `false` | Enable scheduler watchdog in-process |
 | `AGENTLY_SCHEDULER_API` | `true` | Mount scheduler HTTP endpoints |
 | `AGENTLY_SCHEDULER_RUN_NOW` | `true` | Enable run-now endpoint |
+| `AGENTLY_SCHEDULER_MAX_CONCURRENT_RUNS` | `0` | Cap on in-flight scheduler runs; `0` = unbounded |
+| `AGENTLY_CHATGPT_CALLBACK_PORT` | `1455` | Local OAuth callback port for `agently chatgpt-login`. Integer or `auto` (OS-picked). Must match the OAuth redirect allowlist for OpenAI; `auto` only works with issuers accepting arbitrary localhost ports. Overridden by `--port`. |
 
 ## Authentication
 

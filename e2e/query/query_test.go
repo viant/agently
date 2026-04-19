@@ -13,6 +13,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -133,6 +134,33 @@ func TestTerminalQueryStreamingOutput(t *testing.T) {
 	events := readTraceEvents(t)
 	assertTraceHasEvent(t, events, "core", "stream_request")
 	assertTraceHasTimelineType(t, events, "executor", "text_delta")
+}
+
+func TestServerBootDoesNotBlockOnRemoteMCPConfigs(t *testing.T) {
+	template := filepath.Join(harness.RepoRoot(), "e2e", "query", "testdata", "workspace")
+	workspace := harness.CopyWorkspaceTemplate(t, template)
+
+	remoteMCP := `name: steward
+transport:
+  type: streamable
+  url: http://10.255.255.1:5000/mcp
+auth:
+  backendForFrontend: true
+  useIdToken: true
+`
+	require.NoError(t, os.WriteFile(filepath.Join(workspace, "mcp", "steward.yaml"), []byte(remoteMCP), 0o644))
+
+	startedAt := time.Now()
+	baseURL := harness.StartServer(t, workspace)
+	require.NotEmpty(t, baseURL)
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(baseURL + "/healthz")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, 200, resp.StatusCode)
+
+	assert.Less(t, time.Since(startedAt), 10*time.Second, "server startup should not block on remote MCP discovery")
 }
 
 func TestTerminalQueryJWTUnauthorized(t *testing.T) {

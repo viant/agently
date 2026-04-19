@@ -8,6 +8,7 @@ import {
   elicitationDataBindingKey,
   extractToolApprovalMeta,
   prepareRequestedSchema,
+  resolveElicitationSubmitAction,
   triggerElicitationFormSubmit
 } from '../elicitationHelpers';
 
@@ -46,6 +47,7 @@ export default function ElicitationForm({ message, context, onResolved = null })
   const preparedSchema = useMemo(() => prepareRequestedSchema(requestedSchema), [requestedSchema]);
   const approvalMeta = useMemo(() => extractToolApprovalMeta(requestedSchema), [requestedSchema]);
   const dataBindingKey = elicitationDataBindingKey(ids.elicitationId);
+  const submitAction = useMemo(() => resolveElicitationSubmitAction(requestedSchema), [requestedSchema]);
 
   const collectFormValues = useCallback(() => {
     return collectElicitationFormValues({
@@ -83,7 +85,7 @@ export default function ElicitationForm({ message, context, onResolved = null })
 
   const handleSubmit = async (payload) => {
     const values = payload?.values || payload?.data || payload || {};
-    resolveAction('accept', values);
+    resolveAction(submitAction, values);
   };
   const handleDecline = async () => resolveAction('decline', {});
   const handleCancel = async () => resolveAction('cancel', {});
@@ -99,7 +101,7 @@ export default function ElicitationForm({ message, context, onResolved = null })
       hasBackdrop={false}
       enforceFocus={false}
       autoFocus={false}
-      title={approvalMeta?.title || 'Input Required'}
+      title={approvalMeta?.title || 'Needs your input'}
       style={{ width: '100%', maxWidth: 520 }}
     >
       <div className={Classes.DIALOG_BODY}>
@@ -133,12 +135,12 @@ export default function ElicitationForm({ message, context, onResolved = null })
             intent="primary"
             onClick={() => {
               if (!triggerFormSubmit()) {
-                resolveAction('accept');
+                resolveAction(submitAction);
               }
             }}
             disabled={submitting}
           >
-            {approvalMeta?.acceptLabel || 'Accept'}
+            {approvalMeta?.acceptLabel || (submitAction === 'accept' ? 'Accept' : 'Submit')}
           </Button>
         </div>
       </div>

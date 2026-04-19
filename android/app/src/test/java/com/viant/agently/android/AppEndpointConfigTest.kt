@@ -11,6 +11,7 @@ class AppEndpointConfigTest {
         val candidates = buildApiCandidates("")
 
         assertEquals("http://10.0.2.2:9393", candidates.first())
+        assertTrue(candidates.contains("http://10.0.3.2:9393"))
         assertTrue(candidates.contains("http://localhost:9393"))
         assertTrue(candidates.contains("http://127.0.0.1:9393"))
     }
@@ -21,6 +22,7 @@ class AppEndpointConfigTest {
 
         assertEquals("http://localhost:9393", candidates.first())
         assertTrue(candidates.contains("http://10.0.2.2:9393"))
+        assertTrue(candidates.contains("http://10.0.3.2:9393"))
     }
 
     @Test
@@ -35,6 +37,7 @@ class AppEndpointConfigTest {
 
         assertEquals("http://10.0.2.2:9393", candidates.first())
         assertEquals(1, candidates.count { it == "http://10.0.2.2:9393" })
+        assertEquals(1, candidates.count { it == "http://10.0.3.2:9393" })
         assertTrue(candidates.contains("http://localhost:9393"))
     }
 }

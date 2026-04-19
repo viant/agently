@@ -31,6 +31,15 @@ function filterOwnedTurnRows(rows = [], conversationID = '', ownedConversationID
   return (Array.isArray(rows) ? rows : []).filter((row) => !owned.has(String(row?.turnId || '').trim()));
 }
 
+function latestTranscriptTurnId(turns = []) {
+  for (let index = (Array.isArray(turns) ? turns.length : 0) - 1; index >= 0; index -= 1) {
+    const turn = turns[index] || {};
+    const turnId = String(turn?.turnId || turn?.id || turn?.TurnID || '').trim();
+    if (turnId) return turnId;
+  }
+  return '';
+}
+
 function shouldRecoverWithFullTranscript(chatState = {}) {
   if (chatState?.lastHasRunning) return true;
   const rows = Array.isArray(chatState?.transcriptRows) ? chatState.transcriptRows : [];
@@ -60,8 +69,7 @@ export function syncTranscriptSnapshot({
   mapTranscriptToRows,
   findLatestRunningTurnIdFromTurns,
   findLatestRunningTurnId,
-  publishChangeFeed,
-  publishPlanFeed,
+  applyFeedEvent,
   setStage,
   liveRows = []
 }) {
@@ -143,18 +151,12 @@ export function syncTranscriptSnapshot({
     return RUNNING_TURN_STATUSES.has(status);
   });
   const ownedTurnIds = new Set((Array.isArray(chatState.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : []).map((item) => String(item || '').trim()).filter(Boolean));
-  const transcriptConfirmsOwnedTurnTerminal = !hasRunning
+  const latestTurnId = latestTranscriptTurnId(turns);
+  const liveOwnsLatestTurn = sameLiveConversation
     && ownedTurnIds.size > 0
-    && turns.some((turn) => {
-      const turnId = String(turn?.turnId || turn?.id || turn?.TurnID || '').trim();
-      if (!ownedTurnIds.has(turnId)) return false;
-      const status = String(turn?.status || turn?.Status || '').trim().toLowerCase();
-      return status !== '' && !RUNNING_TURN_STATUSES.has(status);
-    });
-  const streamOwnsActiveTurn = sameLiveConversation
-    && ownedTurnIds.size > 0
-    && !transcriptConfirmsOwnedTurnTerminal;
-  const effectiveHasRunning = streamOwnsActiveTurn ? true : hasRunning;
+    && latestTurnId !== ''
+    && ownedTurnIds.has(latestTurnId);
+  const effectiveHasRunning = hasRunning;
 
   conversationsDS.setFormData?.({
     values: {
@@ -163,8 +165,24 @@ export function syncTranscriptSnapshot({
     }
   });
 
-  publishChangeFeed({ conversationId: conversationID, rows: mergedRows });
-  publishPlanFeed({ conversationId: conversationID, rows: mergedRows });
+  const transcriptFeedsByConversation = chatState.lastTranscriptFeedsByConversation || {};
+  const transcriptFeeds = Array.isArray(transcriptFeedsByConversation[conversationID])
+    ? transcriptFeedsByConversation[conversationID]
+    : [];
+  if (conversationID && typeof applyFeedEvent === 'function' && transcriptFeeds.length > 0) {
+    for (const feed of transcriptFeeds) {
+      const feedId = String(feed?.feedId || '').trim();
+      if (!feedId) continue;
+      applyFeedEvent({
+        type: 'tool_feed_active',
+        feedId,
+        feedTitle: feed.title || feedId,
+        feedItemCount: feed.itemCount || 0,
+        feedData: feed.data || null,
+        conversationId: conversationID,
+      });
+    }
+  }
 
   chatState.lastSyncReason = reason;
   chatState.transcriptRows = mergedRows;
@@ -177,8 +195,10 @@ export function syncTranscriptSnapshot({
 
   const transcriptEmpty = !Array.isArray(turns) || turns.length === 0;
   const shouldPreserveTerminalLiveRows = transcriptEmpty && normalizedLiveRows.length > 0;
-  const shouldFinalizeActiveStream = (!effectiveHasRunning && !activeStreamRow && !shouldPreserveTerminalLiveRows)
-    || transcriptConfirmsOwnedTurnTerminal;
+  const shouldFinalizeActiveStream = !liveOwnsLatestTurn
+    && !effectiveHasRunning
+    && !activeStreamRow
+    && !shouldPreserveTerminalLiveRows;
   if (shouldFinalizeActiveStream) {
     chatState.liveRows = [];
     chatState.liveOwnedConversationID = '';
@@ -252,13 +272,9 @@ export async function tickTranscript({
 export function resetTranscriptState({
   context,
   ensureContextResources,
-  clearChangeFeed,
-  clearPlanFeed,
   getCurrentConversationID
 }) {
   const chatState = ensureContextResources(context);
-  clearChangeFeed(String(chatState.lastConversationID || getCurrentConversationID(context) || '').trim());
-  clearPlanFeed(String(chatState.lastConversationID || getCurrentConversationID(context) || '').trim());
   chatState.lastSinceCursor = '';
   chatState.transcriptRows = [];
   chatState.lastQueuedTurns = [];

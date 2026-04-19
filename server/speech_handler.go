@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -87,10 +90,51 @@ func openAIKey() string {
 	return strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 }
 
+// requireSecureTransport rejects plaintext (http://) base URLs unless they
+// point at a loopback address so the bearer API key is never sent over the
+// wire in the clear. Operators running a local proxy on 127.0.0.1 or [::1]
+// are explicitly allowed for development convenience.
+func requireSecureTransport(base string) error {
+	u, err := url.Parse(base)
+	if err != nil {
+		return fmt.Errorf("invalid OPENAI_BASE_URL %q: %w", base, err)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		if isLoopbackHost(u.Hostname()) {
+			return nil
+		}
+		return fmt.Errorf("refusing to send OpenAI API key over plaintext http to %q; use https or a loopback address", u.Host)
+	default:
+		return fmt.Errorf("unsupported OPENAI_BASE_URL scheme %q (expected http or https)", u.Scheme)
+	}
+}
+
+// isLoopbackHost reports whether host is localhost, an IPv4 127.0.0.0/8
+// address, or IPv6 ::1. Unresolved hostnames other than "localhost" are
+// treated as non-loopback to avoid DNS-rebinding style bypasses.
+func isLoopbackHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
 func writeSpeechJSON(w http.ResponseWriter, status int, value interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		log.Printf("[speech] failed to encode response: %v", err)
+	}
 }
 
 func writeSpeechError(w http.ResponseWriter, status int, message string) {
@@ -104,6 +148,9 @@ func transcribeOpenAI(ctx context.Context, file multipart.File, header *multipar
 	}
 	model := openAIModel()
 	base := openAIBaseURL()
+	if err := requireSecureTransport(base); err != nil {
+		return "", err
+	}
 	url := base + "/v1/audio/transcriptions"
 
 	pr, pw := io.Pipe()

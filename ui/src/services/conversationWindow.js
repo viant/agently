@@ -119,9 +119,47 @@ export function ensureMainChatWindow() {
   return focusWindow(existing);
 }
 
+function updateMainChatWindowParameters(conversationId = '') {
+  const targetID = String(conversationId || '').trim();
+  const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
+  let changed = false;
+  const next = windows.map((entry) => {
+    if (String(entry?.windowId || '').trim() !== MAIN_CHAT_WINDOW_ID) return entry;
+    changed = true;
+    const parameters = {
+      ...(entry?.parameters || {}),
+      conversations: {
+        ...((entry?.parameters || {}).conversations || {}),
+        form: {
+          ...((((entry?.parameters || {}).conversations || {}).form) || {}),
+          id: targetID
+        }
+      },
+      messages: {
+        ...((entry?.parameters || {}).messages || {}),
+        input: {
+          ...((((entry?.parameters || {}).messages || {}).input) || {}),
+          parameters: {
+            ...(((((entry?.parameters || {}).messages || {}).input || {}).parameters) || {}),
+            convID: targetID
+          }
+        }
+      }
+    };
+    return {
+      ...entry,
+      parameters
+    };
+  });
+  if (changed) {
+    activeWindows.value = next;
+  }
+}
+
 export function openConversationInMainWindow(conversationId = '') {
   const targetID = String(conversationId || '').trim();
   const mainWindow = ensureMainChatWindow();
+  updateMainChatWindowParameters(targetID);
   setScopedConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, targetID);
   syncMainConversationPath(targetID);
   if (typeof window !== 'undefined') {
@@ -136,6 +174,7 @@ export function openConversationInMainWindow(conversationId = '') {
 
 export function requestNewConversationInMainWindow() {
   const mainWindow = ensureMainChatWindow();
+  updateMainChatWindowParameters('');
   setScopedConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, '');
   syncMainConversationPath('');
   if (typeof window !== 'undefined') {

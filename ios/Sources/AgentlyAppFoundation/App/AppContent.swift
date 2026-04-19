@@ -50,7 +50,15 @@ public struct AppContent: View {
         }
         .sheet(isPresented: $isShowingSettings) {
             NavigationStack {
-                SettingsScreen(runtime: runtime.settingsRuntime) {
+                SettingsScreen(
+                    runtime: runtime.settingsRuntime,
+                    workspaceRoot: runtime.state.workspaceMetadata?.workspaceRoot,
+                    workspaceDefaultAgentID: runtime.state.workspaceMetadata?.defaultAgent,
+                    availableAgents: runtime.availableAgentOptions,
+                    agentAutoSelectionEnabled: runtime.state.workspaceMetadata?.capabilities?.agentAutoSelection == true,
+                    oauthProviderLabels: runtime.authRuntime.authProviders.map { ($0.name ?? $0.type).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty },
+                    oauthScopes: runtime.authRuntime.oauthScopes
+                ) {
                     Task {
                         isShowingSettings = false
                         await runtime.applySettingsAndReload()

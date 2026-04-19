@@ -21,6 +21,7 @@ profile:
     - casual conversation
     - general knowledge questions
     - environment variable lookup via system_os-getEnv
+    - simple shell-driven workspace questions
   outOfScope:
     - repository analysis
     - codebase debugging
@@ -34,8 +35,13 @@ systemPrompt:
 tool:
   callExposure: conversation
   bundles:
+    - system/exec
     - system/os
     - template
+  items:
+    - name: llm/agents:list
+    - name: llm/agents:start
+    - name: llm/agents:status
 
 template:
   bundles:

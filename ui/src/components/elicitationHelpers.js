@@ -63,6 +63,11 @@ export function extractToolApprovalMeta(requestedSchema = null) {
   };
 }
 
+export function resolveElicitationSubmitAction(requestedSchema = null) {
+  const meta = extractToolApprovalMeta(requestedSchema);
+  return meta?.type === 'tool_approval' ? 'accept' : 'submit';
+}
+
 export function buildApprovalEditorState(meta = null) {
   return sdkBuildApprovalEditorState(meta);
 }

@@ -59,6 +59,7 @@ import com.viant.agentlysdk.AuthUser
 import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.CreateConversationInput
 import com.viant.agentlysdk.DecideToolApprovalInput
+import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
 import com.viant.agentlysdk.MetadataTargetContext
@@ -160,10 +161,12 @@ private fun AgentlyApp() {
     var streamSnapshot by remember { mutableStateOf<ConversationStreamSnapshot?>(null) }
     var streamedMarkdown by remember { mutableStateOf<String?>(null) }
     var activeConversationId by remember { mutableStateOf<String?>(null) }
+    var conversationState by remember { mutableStateOf<ConversationStateResponse?>(null) }
     var recentConversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
     var currentScreen by remember { mutableStateOf(AppScreen.Chat) }
     var pendingApprovals by remember { mutableStateOf<List<PendingToolApproval>>(emptyList()) }
     var generatedFiles by remember { mutableStateOf<List<GeneratedFileEntry>>(emptyList()) }
+    var payloadPreviews by remember { mutableStateOf<Map<String, ArtifactPreview>>(emptyMap()) }
     var artifactPreview by remember { mutableStateOf<ArtifactPreview?>(null) }
     var streamJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -239,6 +242,7 @@ private fun AgentlyApp() {
 
     fun applyConversationResetState(resetState: ConversationResetState) {
         activeConversationId = resetState.activeConversationId
+        conversationState = null
         streamSnapshot = resetState.streamSnapshot
         streamedMarkdown = resetState.streamedMarkdown
         result = resetState.result
@@ -247,6 +251,7 @@ private fun AgentlyApp() {
         pendingApprovals = resetState.pendingApprovals
         approvalEdits = resetState.approvalEdits
         generatedFiles = resetState.generatedFiles
+        payloadPreviews = emptyMap()
         artifactPreview = resetState.artifactPreview
     }
 
@@ -551,9 +556,11 @@ private fun AgentlyApp() {
 
     fun applyPreparedConversationBinding(preparedBinding: PreparedConversationBinding) {
         activeConversationId = preparedBinding.conversationId
+        conversationState = preparedBinding.state
         pendingApprovals = preparedBinding.pendingApprovals
         approvalEdits = preparedBinding.approvalEdits
         generatedFiles = preparedBinding.generatedFiles
+        payloadPreviews = preparedBinding.payloadPreviews
         streamSnapshot = null
         streamedMarkdown = null
         if (preparedBinding.replaceTranscript) {
@@ -920,7 +927,6 @@ private fun AgentlyApp() {
         authUser = authUser,
         authWebUrl = authWebUrl,
         showSavedLoginSettings = showSavedLoginSettings,
-        effectiveAgentId = effectiveAgentId,
         recentConversations = recentConversations,
         activeConversationId = activeConversationId,
         streamSnapshot = streamSnapshot,
@@ -953,10 +959,17 @@ internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
     val candidates = mutableListOf(
         trimmed,
         "$scheme://10.0.2.2:$port$path",
+        "$scheme://10.0.3.2:$port$path",
         "$scheme://localhost:$port$path",
         "$scheme://127.0.0.1:$port$path"
     )
-    if (host.isNotBlank() && !host.equals("localhost", ignoreCase = true) && host != "127.0.0.1" && host != "10.0.2.2") {
+    if (
+        host.isNotBlank() &&
+        !host.equals("localhost", ignoreCase = true) &&
+        host != "127.0.0.1" &&
+        host != "10.0.2.2" &&
+        host != "10.0.3.2"
+    ) {
         candidates += "$scheme://$host:$port$path"
     }
     return candidates.distinct()

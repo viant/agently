@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@blueprintjs/core';
 import { summarizeLinkedConversationTranscript as sdkSummarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
 import { DetailContext } from '../../context/DetailContext';
+import { ConversationViewContext } from '../../context/ConversationViewContext';
 import { openLinkedConversationWindow } from '../../services/conversationWindow';
 import { client } from '../../services/agentlyClient';
 import { displayStepIcon, displayStepTitle, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
@@ -9,13 +10,34 @@ import BubbleMessage from './BubbleMessage';
 import RichContent from './RichContent';
 import ToolFeedDetail from '../ToolFeedDetail';
 
-const TOOLS_PER_GROUP = 3;
-
 function statusLabel(value) {
   const text = String(value || '').trim();
   if (!text) return 'running';
   if (text.toLowerCase() === 'cancelled') return 'canceled';
   return text.replace(/_/g, ' ');
+}
+
+function normalizeElicitationStatus(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return '';
+  if (text === 'cancelled') return 'canceled';
+  return text;
+}
+
+function elicitationStepTitle(step = {}) {
+  const message = String(step?.message || '').trim();
+  if (message) return message.slice(0, 60);
+  return String(step?.toolName || 'Needs input').trim().slice(0, 60);
+}
+
+function elicitationStepLabel(status = '') {
+  const normalized = normalizeElicitationStatus(status);
+  if (normalized === 'accepted' || normalized === 'submitted' || normalized === 'completed' || normalized === 'succeeded') {
+    return 'Input provided';
+  }
+  if (normalized === 'declined') return 'Input declined';
+  if (normalized === 'canceled') return 'Input canceled';
+  return 'Needs input';
 }
 
 export function isActiveStatus(value) {
@@ -46,10 +68,10 @@ export function statusTone(value) {
     || text === 'open') {
     return 'running';
   }
-  if (text === 'completed' || text === 'succeeded' || text === 'success') {
+  if (text === 'completed' || text === 'succeeded' || text === 'success' || text === 'accepted' || text === 'submitted') {
     return 'success';
   }
-  if (text === 'failed' || text === 'error' || text === 'cancelled' || text === 'canceled' || text === 'terminated') {
+  if (text === 'failed' || text === 'error' || text === 'cancelled' || text === 'canceled' || text === 'terminated' || text === 'declined') {
     return 'error';
   }
   if (text === 'waiting_for_user' || text === 'blocked') {
@@ -82,14 +104,20 @@ function rawToolTitle(step = {}) {
 }
 
 export function displayItemRowTitle(step = {}) {
-  if (String(step?.kind || '').toLowerCase() === 'elicitation') {
-    return String(step?.message || step?.toolName || 'Input required').slice(0, 60);
+  const kind = String(step?.kind || '').toLowerCase();
+  if (kind === 'elicitation') {
+    return elicitationStepTitle(step);
+  }
+  if (kind === 'turn') {
+    return displayStepTitle(step);
   }
   return rawToolTitle(step);
 }
 
 export function displayItemRowIcon(step = {}) {
-  if (String(step?.kind || '').toLowerCase() === 'elicitation') return '⌨️';
+  const kind = String(step?.kind || '').toLowerCase();
+  if (kind === 'elicitation') return '⌨️';
+  if (kind === 'turn') return displayStepIcon(step);
   return '🛠';
 }
 
@@ -144,38 +172,6 @@ function previewGroupContent(entry = {}) {
 
 export function displayLinkedConversationIcon() {
   return '🔗';
-}
-
-export function paginateToolSteps(toolSteps = [], rawOffset = null, pageSize = TOOLS_PER_GROUP) {
-  const steps = Array.isArray(toolSteps) ? toolSteps : [];
-  const total = steps.length;
-  if (total <= pageSize) {
-    return { tools: steps, start: 0, end: total, total, hasMore: false, atLatest: true, atOldest: true };
-  }
-  const maxOffset = Math.max(0, total - pageSize);
-  const offset = rawOffset == null ? maxOffset : Math.min(Math.max(0, rawOffset), maxOffset);
-  return {
-    tools: steps.slice(offset, offset + pageSize),
-    start: offset,
-    end: Math.min(offset + pageSize, total),
-    total,
-    hasMore: true,
-    atLatest: rawOffset == null || offset >= maxOffset,
-    atOldest: offset <= 0
-  };
-}
-
-export function olderToolPageOffset(total = 0, rawOffset = null, pageSize = TOOLS_PER_GROUP) {
-  const maxOffset = Math.max(0, Number(total || 0) - pageSize);
-  const current = rawOffset == null ? maxOffset : rawOffset;
-  return Math.max(0, current - pageSize);
-}
-
-export function newerToolPageOffset(total = 0, rawOffset = null, pageSize = TOOLS_PER_GROUP) {
-  const maxOffset = Math.max(0, Number(total || 0) - pageSize);
-  const current = rawOffset == null ? maxOffset : rawOffset;
-  const next = Math.min(maxOffset, current + pageSize);
-  return next >= maxOffset ? null : next;
 }
 
 function latencyLabel(step, now = Date.now(), fallbackStartedAt = 0) {
@@ -337,9 +333,38 @@ function deriveToolNamesFromSteps(steps = []) {
   return [...new Set(names)];
 }
 
+function delegatedAgentAssistantText(step = {}) {
+  if (!isAgentRunTool(step)) return '';
+  const payloads = [
+    step?.responsePayload,
+    step?.providerResponsePayload,
+    parseMaybeJSON(step?.responsePayload),
+    parseMaybeJSON(step?.providerResponsePayload)
+  ];
+  for (const payload of payloads) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) continue;
+    const text = plainText(
+      payload?.assistantResponse
+      || payload?.assistant_response
+      || payload?.response
+      || payload?.content
+      || ''
+    );
+    if (text) return text;
+  }
+  return '';
+}
+
 function groupTitleFromSteps({ preamble, modelStep, toolSteps = [] } = {}) {
   const explicit = truncate(preamble?.content || '', 80);
   if (explicit) return explicit;
+  const delegatedAssistantText = [...(Array.isArray(toolSteps) ? toolSteps : [])]
+    .reverse()
+    .map((step) => delegatedAgentAssistantText(step))
+    .find(Boolean);
+  if (delegatedAssistantText) {
+    return truncate(delegatedAssistantText, 80);
+  }
   const derivedNames = deriveToolNamesFromModelStep(modelStep);
   if (derivedNames.length > 0) {
     return truncate(`Using ${derivedNames.join(', ')}.`, 80);
@@ -495,6 +520,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
       id: modelStep0?.modelCallId || group?.modelMessageId || group?.ModelMessageID || group?.parentMessageId || group?.ParentMessageID || `model:${index}`,
       kind: 'model',
       reason: group?.finalResponse || group?.FinalResponse ? 'final_response' : 'thinking',
+      phase: modelStep0?.phase || modelStep0?.Phase || group?.phase || group?.Phase || '',
       provider: modelStep0?.provider || modelStep0?.Provider || '',
       model: modelStep0?.model || modelStep0?.Model || '',
       status: modelStep0?.status || modelStep0?.Status || group?.status || group?.Status || '',
@@ -515,11 +541,13 @@ export function mapCanonicalExecutionGroups(groups = []) {
     const actualToolSteps = toolStepsRaw.map((ts, toolIndex) => {
       const messageID = String(ts?.toolMessageId || ts?.messageId || ts?.MessageId || '').trim();
       const toolMessage = messageID ? toolMessageByID.get(messageID) : null;
+      const stepKind = String(ts?.kind || '').trim().toLowerCase() || 'tool';
+      const stepReason = String(ts?.reason || '').trim() || (stepKind === 'turn' ? String(ts?.toolName || '').trim() : 'tool_call');
       return {
         id: messageID || ts?.toolCallId || ts?.opId || ts?.OpId || `tool:${index}:${toolIndex}`,
         toolCallId: ts?.toolCallId || ts?.ToolCallID || ts?.opId || ts?.OpId || '',
-        kind: 'tool',
-        reason: 'tool_call',
+        kind: stepKind,
+        reason: stepReason,
         toolName: ts?.toolName || ts?.ToolName || toolMessage?.toolName || toolMessage?.ToolName || 'tool',
         status: ts?.status || ts?.Status || '',
         latencyMs: ts?.latencyMs || ts?.LatencyMs || null,
@@ -555,6 +583,15 @@ export function mapCanonicalExecutionGroups(groups = []) {
         return key && !actualByKey.has(key);
       });
     const toolSteps = [...actualToolSteps, ...plannedToolSteps];
+    const lifecycleOnly = !modelStep0
+      && toolSteps.length > 0
+      && toolSteps.every((step) => String(step?.kind || '').trim().toLowerCase() === 'turn');
+    const groupPhase = String(
+      group?.phase
+      || group?.Phase
+      || modelStep?.phase
+      || ''
+    ).trim().toLowerCase();
     const rawPreambleContent = String(group?.preamble || group?.Preamble || '').trim();
     const preambleContent = rawPreambleContent;
     const status = String(group?.status || group?.Status || modelStep?.status || '').trim();
@@ -578,10 +615,22 @@ export function mapCanonicalExecutionGroups(groups = []) {
       modelStep: effectiveModelStep,
       toolSteps
     });
+    const lifecycleTitle = lifecycleOnly
+      ? String(displayStepTitle(toolSteps[0] || {})).trim()
+      : '';
     return {
       id: String(group?.parentMessageId || group?.ParentMessageID || group?.modelMessageId || group?.ModelMessageID || `group:${index}`),
-      title,
-      fullTitle: plainText(preambleContent || title),
+      groupKind: lifecycleOnly
+        ? 'lifecycle'
+        : (groupPhase === 'intake'
+          ? 'intake'
+          : (groupPhase === 'sidecar'
+            ? 'sidecar'
+            : (groupPhase === 'summary'
+              ? 'summary'
+              : (effectiveModelStep ? 'model' : 'tool')))),
+      title: lifecycleTitle || title,
+      fullTitle: plainText(preambleContent || lifecycleTitle || title),
       preambleContent,
       modelStep: effectiveModelStep,
       toolSteps,
@@ -641,7 +690,8 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
     const group = groups[index] || {};
     const finalText = String(group?.finalContent || '').trim();
     if (group?.finalResponse && finalText) {
-      return finalText;
+      const embedded = extractEmbeddedElicitationPayload(finalText);
+      return String(embedded?.message || finalText).trim();
     }
   }
   for (let index = groups.length - 1; index >= 0; index -= 1) {
@@ -657,6 +707,25 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
     }
   }
   return '';
+}
+
+function extractEmbeddedElicitationPayload(text = '') {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1));
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (String(parsed.type || '').trim().toLowerCase() !== 'elicitation') return null;
+    return {
+      message: String(parsed.message || parsed.prompt || '').trim(),
+      requestedSchema: parsed.requestedSchema || null,
+    };
+  } catch (_) {
+    return null;
+  }
 }
 
 function resolveFailedBubbleContent(visibleGroups = [], fallbackError = '') {
@@ -681,11 +750,20 @@ export function resolveIterationBubbleContent({
   streamContent = '',
   errorMessage = ''
 } = {}) {
+  const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
   const finalVisibleBubble = String(resolveVisibleBubbleContent(visibleGroups) || '').trim();
-  const hasFinalVisibleGroup = (Array.isArray(visibleGroups) ? visibleGroups : []).some((group) => {
+  const hasFinalVisibleGroup = groups.some((group) => {
     const finalText = String(group?.finalContent || '').trim();
     return !!group?.finalResponse && finalText !== '';
   });
+  if (groups.length > 0) {
+    return String(
+      (hasFinalVisibleGroup ? finalVisibleBubble : '')
+      || responseContent
+      || resolveFailedBubbleContent(groups, errorMessage)
+      || ''
+    ).trim();
+  }
   return String(
     (hasFinalVisibleGroup ? finalVisibleBubble : '')
     || streamContent
@@ -698,8 +776,17 @@ export function resolveIterationBubbleContent({
   ).trim();
 }
 
-export function shouldShowPreambleBubble(visibleGroups = [], visibleText = '') {
-  return String(visibleText || '').trim() !== '';
+export function shouldShowPreambleBubble(visibleGroups = [], visibleText = '', responseContent = '') {
+  const text = String(visibleText || '').trim();
+  if (!text) return false;
+  const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
+  if (groups.length === 0) return true;
+  const hasFinalVisibleGroup = groups.some((group) => {
+    const finalText = String(group?.finalContent || '').trim();
+    return !!group?.finalResponse && finalText !== '';
+  });
+  if (hasFinalVisibleGroup) return true;
+  return String(responseContent || '').trim() !== '';
 }
 
 export function hasPendingElicitationStep(visibleGroups = []) {
@@ -781,8 +868,15 @@ function isPresentableGroup(group = {}) {
   const errorText = String(group?.errorMessage || group?.modelStep?.errorMessage || '').trim();
   const toolCount = Array.isArray(group?.toolSteps) ? group.toolSteps.length : 0;
   const plannedCount = Array.isArray(group?.toolCallsPlanned) ? group.toolCallsPlanned.length : 0;
+  const groupKind = String(group?.groupKind || '').trim().toLowerCase();
   const isFinal = !!group?.modelStep && String(group?.modelStep?.reason || '').toLowerCase() === 'final_response';
-  return isFinal || toolCount > 0 || plannedCount > 0 || preambleText !== '' || finalText !== '' || errorText !== '';
+  return isFinal
+    || groupKind === 'intake'
+    || toolCount > 0
+    || plannedCount > 0
+    || preambleText !== ''
+    || finalText !== ''
+    || errorText !== '';
 }
 
 export function buildSyntheticModelGroup({ data = {}, message = {}, context = null, visibleText = '' } = {}) {
@@ -826,6 +920,20 @@ export function buildSyntheticModelGroup({ data = {}, message = {}, context = nu
     elapsed: '',
     stepCount: 1
   };
+}
+
+function phaseBadgeLabel(groupKind = '') {
+  const kind = String(groupKind || '').trim().toLowerCase();
+  switch (kind) {
+    case 'intake':
+      return 'Intake';
+    case 'sidecar':
+      return 'Sidecar';
+    case 'summary':
+      return 'Summary';
+    default:
+      return '';
+  }
 }
 
 export function resolveIterationStatusDetail(data = {}) {
@@ -887,6 +995,29 @@ export function resolveIterationDisplayStatus(data = {}, groups = [], linkedStat
   const groupList = Array.isArray(groups) ? groups : [];
   const linkedList = Array.isArray(linkedStatuses) ? linkedStatuses : [];
   const dataStatus = String(data?.status || '').trim();
+  const lifecycleSteps = groupList
+    .filter((group) => String(group?.groupKind || '').trim().toLowerCase() === 'lifecycle')
+    .flatMap((group) => Array.isArray(group?.toolSteps) ? group.toolSteps : []);
+  const terminalLifecycleStep = [...lifecycleSteps].reverse().find((step) => {
+    const reason = String(step?.reason || step?.toolName || '').trim().toLowerCase();
+    return reason === 'turn_completed'
+      || reason === 'turn_failed'
+      || reason === 'turn_canceled'
+      || reason === 'turn_cancelled';
+  });
+  if (terminalLifecycleStep) {
+    const reason = String(terminalLifecycleStep?.reason || terminalLifecycleStep?.toolName || '').trim().toLowerCase();
+    if (reason === 'turn_failed') return 'failed';
+    if (reason === 'turn_canceled' || reason === 'turn_cancelled') return 'canceled';
+    return 'completed';
+  }
+  const hasStartedLifecycle = lifecycleSteps.some((step) => {
+    const reason = String(step?.reason || step?.toolName || '').trim().toLowerCase();
+    return reason === 'turn_started';
+  });
+  if (hasStartedLifecycle) {
+    return 'running';
+  }
   if (linkedList.some((status) => isLinkedConversationActive(status))) {
     return 'running';
   }
@@ -972,8 +1103,9 @@ export function resolveIterationElapsedAnchor(data = {}, groups = [], linkedConv
     || 0;
 }
 
-export default function IterationBlock({ message, context }) {
+export default function IterationBlock({ message, context, showToolFeedDetail = true }) {
   const { showDetail } = useContext(DetailContext);
+  const { showExecutionDetails = true } = useContext(ConversationViewContext);
   const data = message?._iterationData || {};
   const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
   const displayToolCalls = useMemo(
@@ -981,7 +1113,6 @@ export default function IterationBlock({ message, context }) {
     [toolCalls]
   );
   const isLatestIteration = !!data?.isLatestIteration;
-  const [groupToolOffsets, setGroupToolOffsets] = useState({});
   const [now, setNow] = useState(Date.now());
   const [isElicitationOpen, setIsElicitationOpen] = useState(false);
   const [linkedConversationStates, setLinkedConversationStates] = useState([]);
@@ -1031,15 +1162,21 @@ export default function IterationBlock({ message, context }) {
       const last = groups[groups.length - 1];
       const alreadyPresent = last.toolSteps.some((s) => s.elicitationId === elicId);
       if (!alreadyPresent) {
-        const elicStatus = String(message?.status || data?.status || '').trim().toLowerCase();
+        const elicStatus = normalizeElicitationStatus(
+          elic?.status
+          || message?.elicitationStatus
+          || data?.elicitationStatus
+          || message?.status
+          || data?.status
+        ) || 'pending';
         const elicStep = {
           id: `elicitation:${elicId}`,
           elicitationId: elicId,
           kind: 'elicitation',
           reason: 'elicitation',
-          toolName: String(elic?.message || 'Input required').slice(0, 60),
+          toolName: elicitationStepLabel(elicStatus),
           message: elic?.message || '',
-          status: elicStatus === 'pending' ? 'pending' : (elicStatus || 'pending'),
+          status: elicStatus,
           startedAt: message?.createdAt || '',
           completedAt: '',
           latencyMs: null,
@@ -1047,9 +1184,16 @@ export default function IterationBlock({ message, context }) {
           url: elic?.url || '',
           mode: elic?.mode || ''
         };
+        const existingToolSteps = Array.isArray(last.toolSteps) ? last.toolSteps : [];
+        const terminalLifecycleSteps = existingToolSteps.filter((step) => {
+          const kind = String(step?.kind || '').trim().toLowerCase();
+          const reason = String(step?.reason || step?.toolName || '').trim().toLowerCase();
+          return kind === 'turn' && (reason === 'turn_completed' || reason === 'turn_failed' || reason === 'turn_canceled' || reason === 'turn_cancelled');
+        });
+        const nonTerminalSteps = existingToolSteps.filter((step) => !terminalLifecycleSteps.includes(step));
         groups[groups.length - 1] = {
           ...last,
-          toolSteps: [...last.toolSteps, elicStep],
+          toolSteps: [...nonTerminalSteps, elicStep, ...terminalLifecycleSteps],
           stepCount: last.stepCount + 1
         };
       }
@@ -1127,8 +1271,6 @@ export default function IterationBlock({ message, context }) {
     return formatDurationClock(Math.max(0, now - turnStartedAt)) || explicit;
   }, [allGroupEntries, isActiveIteration, turnStartedAt, data?.turnCompletedAt, now]);
 
-  const canonicalTotal = Number(data?.executionGroupsTotal || 0) || displayGroupEntries.length;
-
   const linkedConversations = useMemo(() => {
     const seen = new Map();
     const canonicalLinked = Array.isArray(data?.linkedConversations) ? data.linkedConversations : [];
@@ -1194,29 +1336,6 @@ export default function IterationBlock({ message, context }) {
     [data, iterationDisplayStatus]
   );
 
-  const getGroupToolPage = (group) => {
-    return paginateToolSteps(group.toolSteps, groupToolOffsets[group.id], TOOLS_PER_GROUP);
-  };
-
-  const goToOlderGroupTools = (group) => {
-    setGroupToolOffsets((prev) => {
-      const total = group.toolSteps.length;
-      return { ...prev, [group.id]: olderToolPageOffset(total, prev[group.id], TOOLS_PER_GROUP) };
-    });
-  };
-
-  const goToNewerGroupTools = (group) => {
-    setGroupToolOffsets((prev) => {
-      const total = group.toolSteps.length;
-      const next = newerToolPageOffset(total, prev[group.id], TOOLS_PER_GROUP);
-      if (next == null) {
-        const { [group.id]: _removed, ...rest } = prev;
-        return rest;
-      }
-      return { ...prev, [group.id]: next };
-    });
-  };
-
   const visibleGroups = displayGroupEntries;
 
   const visibleRenderedText = useMemo(() => resolveIterationBubbleContent({
@@ -1246,6 +1365,9 @@ export default function IterationBlock({ message, context }) {
           <div className="app-iteration-tool-row-main">
             <span className="app-iteration-model-icon">{displayStepIcon({ ...modelStep, kind: 'model' })}</span>
             <span className="app-iteration-model-title">{stepTitle({ ...modelStep, kind: 'model' })}</span>
+            {phaseBadgeLabel(group.groupKind) ? (
+              <span className="app-iteration-model-summary">{phaseBadgeLabel(group.groupKind)}</span>
+            ) : null}
             {group.title && group.title !== stepTitle({ ...modelStep, kind: 'model' }) ? (
               <span className="app-iteration-model-summary">{group.title}</span>
             ) : null}
@@ -1267,18 +1389,27 @@ export default function IterationBlock({ message, context }) {
         </div>
       ) : null}
       {group.toolSteps.length > 0 ? (() => {
-        const toolPage = getGroupToolPage(group);
+        const lifecycleTools = group.toolSteps.filter((toolStep) => String(toolStep?.kind || '').toLowerCase() === 'turn');
+        const regularTools = group.toolSteps.filter((toolStep) => String(toolStep?.kind || '').toLowerCase() !== 'turn');
         return (
           <div className="app-iteration-tool-list">
-            {toolPage.hasMore ? (
-              <div className="app-iteration-tool-paginator">
-                <Button minimal small className="app-iteration-link app-iteration-link-subtle" disabled={toolPage.atOldest} onClick={() => goToOlderGroupTools(group)}>&laquo;</Button>
-                <span className="app-iteration-inline-meta">{toolPage.start + 1}–{toolPage.end}/{toolPage.total}</span>
-                <Button minimal small className="app-iteration-link app-iteration-link-subtle" disabled={toolPage.atLatest} onClick={() => goToNewerGroupTools(group)}>&raquo;</Button>
+            {lifecycleTools.map((toolStep, toolIndex) => (
+              <div className="app-iteration-tool-row" key={`${group.id}:lifecycle:${toolIndex}:${stepKey(toolStep)}`}>
+                <div className="app-iteration-tool-row-main">
+                  <span className="app-iteration-tool-icon">{displayItemRowIcon(toolStep)}</span>
+                  <span className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
+                </div>
+                <div className="app-iteration-tool-row-meta">
+                  <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
+                  {latencyLabel(toolStep, now, turnStartedAt) ? (
+                    <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt)}</span>
+                  ) : null}
+                  <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(toolStep)}>Details</Button>
+                </div>
               </div>
-            ) : null}
-            {toolPage.tools.map((toolStep, toolIndex) => (
-              <div className="app-iteration-tool-row" key={`${group.id}:tool:${toolPage.start + toolIndex}:${stepKey(toolStep)}`}>
+            ))}
+            {regularTools.map((toolStep, toolIndex) => (
+              <div className="app-iteration-tool-row" key={`${group.id}:tool:${toolIndex}:${stepKey(toolStep)}`}>
                 <div className="app-iteration-tool-row-main">
                   <span className="app-iteration-tool-icon">{displayItemRowIcon(toolStep)}</span>
                   <span className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
@@ -1539,6 +1670,26 @@ export default function IterationBlock({ message, context }) {
   }, [hasActiveLinkedConversation, message?.id, data?.turnId, iterationDisplayStatus, isLatestIteration, isActiveIteration, linkedConversationStates]);
 
   useEffect(() => {
+    const lifecycleOnly = displayGroupEntries.length > 0
+      && displayGroupEntries.every((group) => String(group?.groupKind || '').trim().toLowerCase() === 'lifecycle');
+    if (displayGroupEntries.length === 0 || lifecycleOnly) {
+      logIterationDebug('structure-anomaly', {
+        messageId: message?.id || '',
+        turnId: data?.turnId || '',
+        displayGroupCount: displayGroupEntries.length,
+        allGroupCount: allGroupEntries.length,
+        lifecycleOnly,
+        iterationDisplayStatus: iterationDisplayStatus || '',
+        dataStatus: String(data?.status || '').trim(),
+        messageStatus: String(message?.status || message?.turnStatus || '').trim(),
+        visibleRenderedText: visibleRenderedText || '',
+        allGroupKinds: allGroupEntries.map((group) => String(group?.groupKind || '').trim()),
+        displayGroupKinds: displayGroupEntries.map((group) => String(group?.groupKind || '').trim()),
+      });
+    }
+  }, [allGroupEntries, data?.status, data?.turnId, displayGroupEntries, iterationDisplayStatus, message?.id, message?.status, message?.turnStatus, visibleRenderedText]);
+
+  useEffect(() => {
     if (isLatestIteration && isActiveIteration) {
       setCollapsed(false);
     }
@@ -1571,118 +1722,120 @@ export default function IterationBlock({ message, context }) {
 
   return (
     <>
-      <section className={`app-iteration-card tone-${statusTone(iterationDisplayStatus)}`}>
-        <button type="button" className="app-iteration-head" onClick={() => setCollapsed((value) => !value)}>
-          <span className="app-iteration-head-main">
-            <span className="app-iteration-title">
-              <span className="app-iteration-title-time">{elapsedLabel || '00:00'}</span>
-              <span>
-                Execution details
-                {iterationAgentLabel ? ` · ${iterationAgentLabel}` : ''}
-                {` (${displayGroupEntries.length})`}
+      {showExecutionDetails ? (
+        <section className={`app-iteration-card tone-${statusTone(iterationDisplayStatus)}`}>
+          <button type="button" className="app-iteration-head" onClick={() => setCollapsed((value) => !value)}>
+            <span className="app-iteration-head-main">
+              <span className="app-iteration-title">
+                <span className="app-iteration-title-time">{elapsedLabel || '00:00'}</span>
+                <span>
+                  Execution details
+                  {iterationAgentLabel ? ` · ${iterationAgentLabel}` : ''}
+                  {` (${displayGroupEntries.length})`}
+                </span>
               </span>
+              {iterationStatusDetail ? (
+                <span className="app-iteration-status-detail" title={iterationStatusDetail}>{iterationStatusDetail}</span>
+              ) : null}
             </span>
-            {iterationStatusDetail ? (
-              <span className="app-iteration-status-detail" title={iterationStatusDetail}>{iterationStatusDetail}</span>
-            ) : null}
-          </span>
-          <span className="app-iteration-toggle">{collapsed ? '▸' : '▾'}</span>
-        </button>
+            <span className="app-iteration-toggle">{collapsed ? '▸' : '▾'}</span>
+          </button>
 
-        {!collapsed && displayGroupEntries.length > 0 ? (
-          <>
-            <div className="app-iteration-groups" ref={groupsRef}>
-              {visibleGroups.map((group, index) => renderGroupRow(group, index))}
-            </div>
-            {linkedConversations.length > 0 ? (
-              <div className="app-iteration-linked-section">
-                <button
-                  type="button"
-                  className="app-iteration-linked-label"
-                  onClick={() => setLinkedSectionExpanded((value) => !value)}
-                >
-                  <span className="app-iteration-linked-label-icon">🔗</span>
-                  <span>Linked conversations</span>
-                  <span className="app-iteration-linked-conv-arrow">{linkedSectionExpanded ? '▾' : '▸'}</span>
-                </button>
-                {linkedSectionExpanded ? (
-                <div className="app-iteration-linked-list">
-                  {linkedConversations.map((step, idx) => {
-                    const id = linkedConversationId(step);
-                    const previewExpanded = !!expandedLinkedIds[id];
-                    return (
-                      <div
-                        key={`${id}:${idx}`}
-                        className="app-iteration-linked-conv-item"
-                        onClick={() => openLinkedConversation(step)}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openLinkedConversation(step); }}
-                        title={`Open linked conversation: ${id}`}
-                      >
-                        <div className="app-iteration-linked-conv-icon">{displayLinkedConversationIcon()}</div>
-                        <div className="app-iteration-linked-conv-info">
-                          <div className="app-iteration-linked-conv-head">
-                            <span className="app-iteration-linked-conv-title">{displayLinkedConversationTitle(step, context)}</span>
-                            <div className="app-iteration-linked-conv-meta">
-                              <span className={`app-iteration-status tone-${statusTone(step?.status)}`}>{statusLabel(step?.status)}</span>
-                              {linkedConversationLatencyLabel(step, now, turnStartedAt) ? <span className="app-iteration-linked-conv-time">{linkedConversationLatencyLabel(step, now, turnStartedAt)}</span> : null}
-                            </div>
-                          </div>
-                          {displayLinkedConversationSubtitle(step) ? (
-                            <div className="app-iteration-linked-conv-subtitle">{displayLinkedConversationSubtitle(step)}</div>
-                          ) : null}
-                          {Array.isArray(step?.previewGroups) && step.previewGroups.length > 0 ? (
-                            <>
-                              <div className="app-iteration-linked-conv-preview">
-                                {step.previewGroups.map((preview, previewIndex) => (
-                                  <div key={`${String(preview?.id || previewIndex)}:${previewIndex}`} className="app-iteration-linked-conv-preview-row">
-                                    <span className="app-iteration-linked-conv-preview-title">{String(preview?.title || '').trim()}</span>
-                                    <span className={`app-iteration-status tone-${statusTone(preview?.status)}`}>{statusLabel(preview?.status)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                              <button
-                                type="button"
-                                className="app-iteration-linked-conv-toggle"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setExpandedLinkedIds((current) => ({ ...current, [id]: !current[id] }));
-                                }}
-                              >
-                                {previewExpanded ? 'Hide details' : 'Show details'}
-                              </button>
-                              {previewExpanded ? (
-                                <div className="app-iteration-linked-conv-expanded">
-                                  {step.previewGroups.map((preview, previewIndex) => renderLinkedPreviewGroup(preview, previewIndex))}
-                                </div>
-                              ) : null}
-                            </>
-                          ) : null}
-                        </div>
-                        <span className="app-iteration-linked-conv-arrow">→</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                ) : null}
+          {!collapsed && displayGroupEntries.length > 0 ? (
+            <>
+              <div className="app-iteration-groups" ref={groupsRef}>
+                {visibleGroups.map((group, index) => renderGroupRow(group, index))}
               </div>
-            ) : null}
-            {summaryContent ? (
-              <details className="app-iteration-summary-section">
-                <summary className="app-iteration-summary-head">Summary</summary>
-                <div className="app-iteration-summary-body">
-                  <div className="app-iteration-summary-content">
-                    <RichContent content={summaryContent} generatedFiles={generatedFiles} />
+              {linkedConversations.length > 0 ? (
+                <div className="app-iteration-linked-section">
+                  <button
+                    type="button"
+                    className="app-iteration-linked-label"
+                    onClick={() => setLinkedSectionExpanded((value) => !value)}
+                  >
+                    <span className="app-iteration-linked-label-icon">🔗</span>
+                    <span>Linked conversations</span>
+                    <span className="app-iteration-linked-conv-arrow">{linkedSectionExpanded ? '▾' : '▸'}</span>
+                  </button>
+                  {linkedSectionExpanded ? (
+                  <div className="app-iteration-linked-list">
+                    {linkedConversations.map((step, idx) => {
+                      const id = linkedConversationId(step);
+                      const previewExpanded = !!expandedLinkedIds[id];
+                      return (
+                        <div
+                          key={`${id}:${idx}`}
+                          className="app-iteration-linked-conv-item"
+                          onClick={() => openLinkedConversation(step)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openLinkedConversation(step); }}
+                          title={`Open linked conversation: ${id}`}
+                        >
+                          <div className="app-iteration-linked-conv-icon">{displayLinkedConversationIcon()}</div>
+                          <div className="app-iteration-linked-conv-info">
+                            <div className="app-iteration-linked-conv-head">
+                              <span className="app-iteration-linked-conv-title">{displayLinkedConversationTitle(step, context)}</span>
+                              <div className="app-iteration-linked-conv-meta">
+                                <span className={`app-iteration-status tone-${statusTone(step?.status)}`}>{statusLabel(step?.status)}</span>
+                                {linkedConversationLatencyLabel(step, now, turnStartedAt) ? <span className="app-iteration-linked-conv-time">{linkedConversationLatencyLabel(step, now, turnStartedAt)}</span> : null}
+                              </div>
+                            </div>
+                            {displayLinkedConversationSubtitle(step) ? (
+                              <div className="app-iteration-linked-conv-subtitle">{displayLinkedConversationSubtitle(step)}</div>
+                            ) : null}
+                            {Array.isArray(step?.previewGroups) && step.previewGroups.length > 0 ? (
+                              <>
+                                <div className="app-iteration-linked-conv-preview">
+                                  {step.previewGroups.map((preview, previewIndex) => (
+                                    <div key={`${String(preview?.id || previewIndex)}:${previewIndex}`} className="app-iteration-linked-conv-preview-row">
+                                      <span className="app-iteration-linked-conv-preview-title">{String(preview?.title || '').trim()}</span>
+                                      <span className={`app-iteration-status tone-${statusTone(preview?.status)}`}>{statusLabel(preview?.status)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="app-iteration-linked-conv-toggle"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setExpandedLinkedIds((current) => ({ ...current, [id]: !current[id] }));
+                                  }}
+                                >
+                                  {previewExpanded ? 'Hide details' : 'Show details'}
+                                </button>
+                                {previewExpanded ? (
+                                  <div className="app-iteration-linked-conv-expanded">
+                                    {step.previewGroups.map((preview, previewIndex) => renderLinkedPreviewGroup(preview, previewIndex))}
+                                  </div>
+                                ) : null}
+                              </>
+                            ) : null}
+                          </div>
+                          <span className="app-iteration-linked-conv-arrow">→</span>
+                        </div>
+                      );
+                    })}
                   </div>
+                  ) : null}
                 </div>
-              </details>
-            ) : null}
-          </>
-        ) : null}
-      </section>
-      <ToolFeedDetail context={context} />
-      {!hasVisibleElicitation && !hasPendingExecutionElicitation && shouldShowPreambleBubble(visibleGroups, visibleRenderedText) ? (
+              ) : null}
+              {summaryContent ? (
+                <details className="app-iteration-summary-section">
+                  <summary className="app-iteration-summary-head">Summary</summary>
+                  <div className="app-iteration-summary-body">
+                    <div className="app-iteration-summary-content">
+                      <RichContent content={summaryContent} generatedFiles={generatedFiles} />
+                    </div>
+                  </div>
+                </details>
+              ) : null}
+            </>
+          ) : null}
+        </section>
+      ) : null}
+      {showExecutionDetails && showToolFeedDetail ? <ToolFeedDetail context={context} /> : null}
+      {!hasVisibleElicitation && !hasPendingExecutionElicitation && shouldShowPreambleBubble(visibleGroups, visibleRenderedText, data?.response?.content) ? (
         <BubbleMessage
           message={{
             id: `${message?.id || 'iteration'}:preamble`,

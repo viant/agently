@@ -2,6 +2,7 @@ package agently
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -30,7 +31,7 @@ func TestAwaitFormElicitationAccept(t *testing.T) {
 	var out bytes.Buffer
 	in := strings.NewReader("blue\nnavy\na\n")
 
-	result, err := awaitFormElicitation(&out, in, req)
+	result, err := awaitFormElicitation(context.Background(), &out, in, req)
 	if err != nil {
 		t.Fatalf("awaitFormElicitation() error = %v", err)
 	}
@@ -50,7 +51,7 @@ func TestAwaitFormElicitationSkipAndCancel(t *testing.T) {
 	var out bytes.Buffer
 	in := strings.NewReader("next\ncancel\n")
 
-	result, err := awaitFormElicitation(&out, in, req)
+	result, err := awaitFormElicitation(context.Background(), &out, in, req)
 	if err != nil {
 		t.Fatalf("awaitFormElicitation() error = %v", err)
 	}
@@ -70,7 +71,7 @@ func TestAwaitFormElicitationFinalCancel(t *testing.T) {
 	var out bytes.Buffer
 	in := strings.NewReader("blue\nnavy\nc\n")
 
-	result, err := awaitFormElicitation(&out, in, req)
+	result, err := awaitFormElicitation(context.Background(), &out, in, req)
 	if err != nil {
 		t.Fatalf("awaitFormElicitation() error = %v", err)
 	}
@@ -119,7 +120,7 @@ func TestAwaitFormElicitationToolApprovalCheckboxes(t *testing.T) {
 	var out bytes.Buffer
 	in := strings.NewReader("1,3\na\n")
 
-	result, err := awaitFormElicitation(&out, in, req)
+	result, err := awaitFormElicitation(context.Background(), &out, in, req)
 	if err != nil {
 		t.Fatalf("awaitFormElicitation() error = %v", err)
 	}

@@ -2,17 +2,25 @@ package com.viant.agently.android
 
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.CreateConversationInput
+import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.DownloadFileOutput
+import com.viant.agentlysdk.ExecutionPageState
 import com.viant.agentlysdk.GeneratedFileEntry
+import com.viant.agentlysdk.ModelStepState
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
 import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.QueryAttachment
 import com.viant.agentlysdk.QueryInput
 import com.viant.agentlysdk.QueryOutput
+import com.viant.agentlysdk.ToolStepState
 import com.viant.agentlysdk.UploadFileInput
 import com.viant.agentlysdk.WorkspaceMetadata
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import java.io.ByteArrayInputStream
+import java.util.zip.GZIPInputStream
 
 internal data class QueryExecutionResult(
     val metadata: WorkspaceMetadata,
@@ -146,6 +154,82 @@ internal fun buildArtifactPreview(
         text = previewText,
         sizeBytes = downloaded.data.size
     )
+}
+
+internal fun buildPayloadPreview(
+    payloadId: String,
+    title: String,
+    downloaded: DownloadFileOutput
+): ArtifactPreview {
+    val body = decodePreviewBytes(downloaded.data)
+    val previewText = if (isPreviewableText(downloaded.contentType, downloaded.name) || body.isLikelyText()) {
+        body.toString(Charsets.UTF_8)
+    } else {
+        null
+    }
+    return ArtifactPreview(
+        artifactId = payloadId,
+        name = title,
+        contentType = downloaded.contentType,
+        text = previewText,
+        sizeBytes = downloaded.data.size
+    )
+}
+
+internal fun executionPayloadTitles(state: ConversationStateResponse): Map<String, String> {
+    val result = linkedMapOf<String, String>()
+    state.conversation?.turns.orEmpty().forEach { turn ->
+        turn.execution?.pages.orEmpty().forEach { page ->
+            collectPayloadTitles(result, page)
+        }
+    }
+    return result
+}
+
+private fun collectPayloadTitles(
+    result: LinkedHashMap<String, String>,
+    page: ExecutionPageState
+) {
+    page.modelSteps.forEach { step ->
+        addPayloadTitle(result, step.requestPayloadId, "llm.request.request")
+        addPayloadTitle(result, step.providerRequestPayloadId, "llm.request.providerRequest")
+        addPayloadTitle(result, step.responsePayloadId, "llm.request.response")
+        addPayloadTitle(result, step.providerResponsePayloadId, "llm.request.providerResponse")
+    }
+    page.toolSteps.forEach { step ->
+        addPayloadTitle(result, step.requestPayloadId, "tool.request")
+        addPayloadTitle(result, step.responsePayloadId, "tool.response")
+    }
+}
+
+private fun addPayloadTitle(
+    result: LinkedHashMap<String, String>,
+    payloadId: String?,
+    title: String
+) {
+    val id = payloadId?.trim().orEmpty()
+    if (id.isNotBlank() && !result.containsKey(id)) {
+        result[id] = title
+    }
+}
+
+internal fun decodePreviewBytes(data: ByteArray): ByteArray {
+    if (data.size < 2 || data[0] != 0x1f.toByte() || data[1] != 0x8b.toByte()) {
+        return data
+    }
+    return runCatching {
+        GZIPInputStream(ByteArrayInputStream(data)).use { it.readBytes() }
+    }.getOrDefault(data)
+}
+
+private fun ByteArray.isLikelyText(): Boolean {
+    if (isEmpty()) {
+        return true
+    }
+    return none { byte ->
+        val value = byte.toInt() and 0xff
+        value == 0
+    }
 }
 
 internal fun buildQuerySuccessState(

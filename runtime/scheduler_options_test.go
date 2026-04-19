@@ -55,3 +55,24 @@ func TestSchedulerOptionsFromEnv_EnableRunnerAliases(t *testing.T) {
 		t.Fatalf("expected EnableWatchdog true")
 	}
 }
+
+func TestSchedulerMaxConcurrentRunsFromEnv(t *testing.T) {
+	cases := []struct {
+		name, value string
+		want        int
+	}{
+		{"unset", "", 0},
+		{"blank", "  ", 0},
+		{"valid", "8", 8},
+		{"zero", "0", 0},
+		{"negative", "-3", 0},
+		{"non-numeric", "many", 0},
+		{"trims whitespace", " 16 ", 16},
+	}
+	for _, tc := range cases {
+		t.Setenv("AGENTLY_SCHEDULER_MAX_CONCURRENT_RUNS", tc.value)
+		if got := SchedulerMaxConcurrentRunsFromEnv(); got != tc.want {
+			t.Errorf("%s: SchedulerMaxConcurrentRunsFromEnv(%q) = %d, want %d", tc.name, tc.value, got, tc.want)
+		}
+	}
+}

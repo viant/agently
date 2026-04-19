@@ -9,6 +9,8 @@ const { getFeedDataMock, makeFeedKeyMock } = vi.hoisted(() => ({
   ,makeFeedKeyMock: vi.fn((feedId, conversationId = '') => conversationId ? `${conversationId}::${feedId}` : feedId)
 }));
 
+const getActiveFeedsMock = vi.hoisted(() => vi.fn(() => []));
+
 vi.mock('../services/toolFeedBus', () => ({
   getFeedData: getFeedDataMock,
   makeFeedKey: makeFeedKeyMock,
@@ -19,7 +21,7 @@ vi.mock('../services/toolFeedBus', () => ({
     return { conversationId: raw.slice(0, idx), feedId: raw.slice(idx + 2) };
   }),
   onFeedDataChange: vi.fn(() => () => {}),
-  getActiveFeeds: vi.fn(() => []),
+  getActiveFeeds: getActiveFeedsMock,
   onFeedChange: vi.fn(() => () => {}),
 }));
 
@@ -29,24 +31,12 @@ vi.mock('./ToolFeedBar', () => ({
   onSelectedFeedChange: vi.fn(() => () => {}),
 }));
 
-vi.mock('../services/planFeedBus', () => ({
-  usePlanFeed: vi.fn(() => ({
-    conversationId: 'conv-1',
-    explanation: 'Inspect package and add a focused test.',
-    steps: [
-      { id: 's1', step: 'Inspect package', status: 'completed' },
-      { id: 's2', step: 'Add test', status: 'in_progress' },
-    ],
-  })),
-}));
-
-vi.mock('../services/queueSyncBus', () => ({
-  getQueueSyncSnapshot: vi.fn(() => ({
-    conversationId: 'conv-1',
-    queuedTurns: [],
-    suppressedTurnIds: [],
-    updatedAt: Date.now(),
-  })),
+vi.mock('forge/components', () => ({
+  Container: ({ container }) => React.createElement(
+    'div',
+    { 'data-testid': 'forge-container' },
+    JSON.stringify(container || {})
+  ),
 }));
 
 describe('resolveRootFeedDataSourceName', () => {
@@ -68,22 +58,73 @@ describe('resolveRootFeedDataSourceName', () => {
 describe('ToolFeedDetail', () => {
   it('renders the plan feed as a visible detail panel', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    getActiveFeedsMock.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::plan',
+        rawFeedId: 'plan',
+        title: 'Plan',
+        conversationId: 'conv-1',
+      },
+    ]);
+    getFeedDataMock.mockImplementation(() => ({
+      data: {
+        output: {
+          explanation: 'Inspect package and add a focused test.',
+          plan: [
+            { id: 's1', step: 'Inspect package', status: 'completed' },
+            { id: 's2', step: 'Add test', status: 'in_progress' },
+          ],
+        },
+      },
+      ui: {
+        dataSources: {
+          planInfo: { source: 'output' },
+          planDetail: { dataSourceRef: 'planInfo', selectors: { data: 'plan' } },
+        },
+        containers: [
+          {
+            id: 'header',
+            dataSourceRef: 'planInfo',
+            items: [
+              { id: 'explanation', type: 'label', dataBind: 'explanation' },
+            ],
+          },
+          {
+            id: 'planTable',
+            type: 'table',
+            dataSourceRef: 'planDetail',
+            table: {
+              columns: [
+                { id: 'status', name: 'Status', width: 30 },
+                { id: 'step', name: 'Step', width: 200 },
+              ],
+            },
+          },
+        ],
+      },
+      dataSources: {
+        planInfo: { source: 'output' },
+        planDetail: { dataSourceRef: 'planInfo', selectors: { data: 'plan' } },
+      },
+    }));
     const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
 
-    expect(html).toContain('Inspect package and add a focused test.');
-    expect(html).toContain('Inspect package');
-    expect(html).toContain('Add test');
+    expect(html).toContain('data-testid="forge-container"');
+    expect(html).toContain('planInfo');
+    expect(html).toContain('planDetail');
+    expect(html).toContain('planTable');
   });
 
   it('falls back to fetched plan feed payload when the plan bus is empty', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
-    const { usePlanFeed } = await import('../services/planFeedBus');
-
-    usePlanFeed.mockReturnValueOnce({
-      conversationId: 'conv-1',
-      explanation: '',
-      steps: [],
-    });
+    getActiveFeedsMock.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::plan',
+        rawFeedId: 'plan',
+        title: 'Plan',
+        conversationId: 'conv-1',
+      },
+    ]);
     getFeedDataMock.mockImplementation(() => ({
       data: {
         output: {
@@ -93,31 +134,102 @@ describe('ToolFeedDetail', () => {
             { status: 'in_progress', step: 'Pull campaign-level pacing metrics' },
           ]
         }
-      }
+      },
+      ui: {
+        dataSources: {
+          planInfo: { source: 'output' },
+          planDetail: { dataSourceRef: 'planInfo', selectors: { data: 'plan' } },
+        },
+        containers: [
+          {
+            id: 'header',
+            dataSourceRef: 'planInfo',
+            items: [
+              { id: 'explanation', type: 'label', dataBind: 'explanation' },
+            ],
+          },
+          {
+            id: 'planTable',
+            type: 'table',
+            dataSourceRef: 'planDetail',
+            table: {
+              columns: [
+                { id: 'status', name: 'Status', width: 30 },
+                { id: 'step', name: 'Step', width: 200 },
+              ],
+            },
+          },
+        ],
+      },
+      dataSources: {
+        planInfo: { source: 'output' },
+        planDetail: { dataSourceRef: 'planInfo', selectors: { data: 'plan' } },
+      },
     }));
 
     const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
 
-    expect(html).toContain('Hierarchy resolved successfully with campaign and agency names.');
-    expect(html).toContain('Resolve canonical hierarchy');
-    expect(html).toContain('Pull campaign-level pacing metrics');
+    expect(html).toContain('data-testid="forge-container"');
+    expect(html).toContain('planInfo');
+    expect(html).toContain('planDetail');
+    expect(html).toContain('planTable');
   });
 
   it('renders the queue feed detail when queue feed is expanded', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBus = await import('../services/toolFeedBus');
     const toolFeedBar = await import('./ToolFeedBar');
-    const queueSyncBus = await import('../services/queueSyncBus');
 
+    toolFeedBus.getActiveFeeds.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::queue',
+        rawFeedId: 'queue',
+        title: 'Queue',
+        conversationId: 'conv-1',
+      },
+    ]);
     toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::queue');
     toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::queue');
-    queueSyncBus.getQueueSyncSnapshot.mockReturnValue({
-      conversationId: 'conv-1',
-      queuedTurns: [
-        { id: 'turn-q1', preview: 'queued follow-up one' },
-        { id: 'turn-q2', preview: 'queued follow-up two' },
-      ],
-      suppressedTurnIds: [],
-      updatedAt: Date.now(),
+    getFeedDataMock.mockImplementation((feedId, conversationId) => {
+      if (feedId === 'conv-1::queue' && conversationId === 'conv-1') {
+        return {
+          data: {
+            output: {
+              queuedTurns: [
+                { id: 'turn-q1', preview: 'queued follow-up one', status: 'queued' },
+                { id: 'turn-q2', preview: 'queued follow-up two', status: 'queued' },
+              ],
+            },
+          },
+          ui: {
+            dataSources: {
+              queueTurns: { source: 'output.queuedTurns' },
+            },
+            containers: [
+              {
+                id: 'queueTable',
+                type: 'table',
+                dataSourceRef: 'queueTurns',
+                table: {
+                  columns: [
+                    { id: 'preview', name: 'Preview', width: 420 },
+                    { id: 'status', name: 'Status', width: 120 },
+                  ],
+                },
+                toolbar: {
+                  items: [
+                    { id: 'save', label: 'Save edit', icon: 'floppy-disk', align: 'right' },
+                  ],
+                },
+              },
+            ],
+          },
+          dataSources: {
+            queueTurns: { source: 'output.queuedTurns' },
+          },
+        };
+      }
+      return null;
     });
 
     const html = renderToStaticMarkup(React.createElement(ToolFeedDetail, {
@@ -137,8 +249,126 @@ describe('ToolFeedDetail', () => {
       },
     }));
 
-    expect(html).toContain('2 queued requests');
-    expect(html).toContain('queued follow-up one');
-    expect(html).toContain('queued follow-up two');
+    expect(html).toContain('data-testid="forge-container"');
+    expect(html).toContain('queueTable');
+    expect(html).toContain('queueTurns');
+    expect(html).toContain('Save edit');
+  });
+
+  it('uses an already-scoped feed id without double-scoping generic feed lookups', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBus = await import('../services/toolFeedBus');
+    const toolFeedBar = await import('./ToolFeedBar');
+    toolFeedBus.getActiveFeeds.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::terminal',
+        rawFeedId: 'terminal',
+        title: 'Terminal',
+        conversationId: 'conv-1',
+      },
+    ]);
+    toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::terminal');
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::terminal');
+    getFeedDataMock.mockImplementation((feedId, conversationId) => {
+      if (feedId === 'conv-1::terminal' && conversationId === 'conv-1') {
+        return {
+          data: {
+            output: {
+              lines: ['pwd', '/Users/awitas/go/src/github.com/viant/xdatly'],
+            },
+          },
+          ui: {
+            dataSources: {
+              output: { source: 'output' },
+            },
+          },
+          dataSources: {
+            output: { source: 'output' },
+          },
+        };
+      }
+      return null;
+    });
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail, {
+      context: {
+        Context(name) {
+          if (name === 'conversations') {
+            return {
+              handlers: {
+                dataSource: {
+                  peekFormData: () => ({ id: 'conv-1' }),
+                },
+              },
+            };
+          }
+          return null;
+        },
+      },
+    }));
+
+    expect(html).toContain('app-tool-feed-detail');
+    expect(getFeedDataMock).toHaveBeenCalledWith('conv-1::terminal', 'conv-1');
+  });
+
+  it('renders the changes feed panel from transcript-backed feed data', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBus = await import('../services/toolFeedBus');
+    const toolFeedBar = await import('./ToolFeedBar');
+
+    toolFeedBus.getActiveFeeds.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::changes',
+        rawFeedId: 'changes',
+        title: 'Changes',
+        conversationId: 'conv-1',
+      },
+    ]);
+    toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::changes');
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::changes');
+    getFeedDataMock.mockImplementation((feedId, conversationId) => {
+      if (feedId === 'conv-1::changes' && conversationId === 'conv-1') {
+        return {
+          data: {
+            output: {
+              changes: [
+                { url: '/Users/awitas/go/src/github.com/viant/sample_test.go', kind: 'create' },
+              ],
+            },
+          },
+          ui: {
+            dataSources: {
+              snapshot: { source: 'output' },
+              changes: { dataSourceRef: 'snapshot', selectors: { data: 'changes' } },
+            },
+          },
+          dataSources: {
+            snapshot: { source: 'output' },
+            changes: { dataSourceRef: 'snapshot', selectors: { data: 'changes' } },
+          },
+        };
+      }
+      return null;
+    });
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail, {
+      context: {
+        Context(name) {
+          if (name === 'conversations') {
+            return {
+              handlers: {
+                dataSource: {
+                  peekFormData: () => ({ id: 'conv-1' }),
+                },
+              },
+            };
+          }
+          return null;
+        },
+      },
+    }));
+
+    expect(html).toContain('app-tool-feed-detail');
+    expect(getFeedDataMock).toHaveBeenCalledWith('conv-1::changes', 'conv-1');
   });
 });

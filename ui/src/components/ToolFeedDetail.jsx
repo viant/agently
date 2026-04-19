@@ -1,11 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Tabs, Tab } from '@blueprintjs/core';
 import { Container as ForgeContainer } from 'forge/components';
-import { getFeedData, onFeedDataChange, getActiveFeeds, onFeedChange, makeFeedKey, splitFeedKey } from '../services/toolFeedBus';
+import { getFeedData, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
 import { getSelectedFeedId, isFeedExpanded, onSelectedFeedChange } from './ToolFeedBar';
-import { usePlanFeed } from '../services/planFeedBus';
-import { getQueueSyncSnapshot } from '../services/queueSyncBus';
-import SteerQueue from './chat/SteerQueue';
 import {
   wireFeedSignals,
   normalizeDataSources,
@@ -35,10 +32,10 @@ export default function ToolFeedDetail({ context }) {
   const [dataVersion, setDataVersion] = useState(0);
   const [, setExpandVersion] = useState(0);
   const [selectedFeedId, setSelectedFeedId] = useState(getSelectedFeedId);
-  const planFeed = usePlanFeed();
-  const currentConversationId = String(
-    context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id || ''
-  ).trim();
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const bodyRef = useRef(null);
+  const collapsedHeight = 180;
 
   useEffect(() => {
     const u1 = onFeedChange((next) => setFeeds(next));
@@ -50,61 +47,96 @@ export default function ToolFeedDetail({ context }) {
   }, []);
 
   // Collect expanded feeds that have data.
-  const planFeedKey = makeFeedKey('plan', String(planFeed?.conversationId || '').trim());
-  const queueFeedKey = makeFeedKey('queue', currentConversationId);
-  const queueSnapshot = getQueueSyncSnapshot(currentConversationId);
-  const queueTurns = Array.isArray(queueSnapshot?.queuedTurns) ? queueSnapshot.queuedTurns : [];
-  const planData = getFeedData(planFeedKey, String(planFeed?.conversationId || '').trim());
-  const hasPlanBusData = !!String(planFeed?.explanation || '').trim()
-    || (Array.isArray(planFeed?.steps) && planFeed.steps.length > 0);
-  const hasPlanPayloadData = !!String(planData?.data?.output?.explanation || planData?.data?.input?.explanation || '').trim()
-    || Array.isArray(planData?.data?.output?.plan)
-    || Array.isArray(planData?.data?.input?.plan);
-  const hasPlanData = hasPlanBusData || hasPlanPayloadData;
-  const visibleFeeds = dedupeFeeds([
-    ...(queueTurns.length > 0 && isFeedExpanded(queueFeedKey) ? [{
-      feedId: queueFeedKey,
-      title: 'Queue',
-      rawFeedId: 'queue',
-      conversationId: currentConversationId,
-    }] : []),
-    ...(hasPlanData && isFeedExpanded(planFeedKey) ? [{
-      feedId: planFeedKey,
-      title: 'Plan',
-      rawFeedId: 'plan',
-      conversationId: String(planFeed?.conversationId || '').trim(),
-    }] : []),
-    ...((feeds || []).filter((f) => isFeedExpanded(f.feedId) && getFeedData(f.feedId, f.conversationId))),
-  ]);
+  const candidateFeeds = dedupeFeeds((feeds || []).filter((f) => getFeedData(f.feedId, f.conversationId)));
+  const hasAnyExpandedFeed = candidateFeeds.some((feed) => isFeedExpanded(feed.feedId));
+  const visibleFeeds = hasAnyExpandedFeed
+    ? candidateFeeds.filter((feed) => isFeedExpanded(feed.feedId))
+    : (candidateFeeds.length > 0 ? [candidateFeeds[0]] : []);
+
+  useEffect(() => {
+    setIsExpanded(false);
+  }, [selectedFeedId, visibleFeeds.map((feed) => feed.feedId).join('|'), dataVersion]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const element = bodyRef.current;
+    if (!element) {
+      setIsOverflowing(false);
+      return undefined;
+    }
+    const measure = () => {
+      const nextOverflowing = element.scrollHeight > collapsedHeight + 4 || element.scrollWidth > element.clientWidth + 4;
+      setIsOverflowing(nextOverflowing);
+      if (!nextOverflowing) {
+        setIsExpanded(false);
+      }
+    };
+    const frame = window.requestAnimationFrame(measure);
+    let observer = null;
+    if (typeof window.ResizeObserver === 'function') {
+      observer = new window.ResizeObserver(measure);
+      observer.observe(element);
+    }
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [collapsedHeight, dataVersion, selectedFeedId, visibleFeeds.map((feed) => feed.feedId).join('|')]);
 
   if (visibleFeeds.length === 0) return null;
 
   // Single feed: render directly, no tab bar.
   if (visibleFeeds.length === 1) {
     return (
-      <div className="app-tool-feed-detail">
-        <FeedPanel feedId={visibleFeeds[0].feedId} planFeed={planFeed} context={context} />
+      <div className={`app-tool-feed-detail${isOverflowing ? ' has-overflow' : ''}${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>
+        <div ref={bodyRef} className="app-tool-feed-detail-body">
+          <FeedPanel feedId={visibleFeeds[0].feedId} context={context} />
+        </div>
+        {isOverflowing ? (
+          <div className="app-tool-feed-detail-footer">
+            <button
+              type="button"
+              className="app-tool-feed-detail-toggle"
+              onClick={() => setIsExpanded((value) => !value)}
+            >
+              {isExpanded ? 'Collapse' : 'Expand'}
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }
 
   // Multiple feeds: tabbed.
   return (
-    <div className="app-tool-feed-detail">
-      <Tabs
-        id="tool-feed-tabs"
-        renderActiveTabPanelOnly
-        selectedTabId={visibleFeeds.some((feed) => feed.feedId === selectedFeedId) ? selectedFeedId : visibleFeeds[0].feedId}
-      >
-        {visibleFeeds.map((feed) => (
-          <Tab
-            key={feed.feedId}
-            id={feed.feedId}
-            title={feed.title || feed.feedId}
-            panel={<FeedPanel feedId={feed.feedId} rawFeedId={feed.rawFeedId || splitFeedKey(feed.feedId).feedId} planFeed={planFeed} context={context} />}
-          />
-        ))}
-      </Tabs>
+    <div className={`app-tool-feed-detail${isOverflowing ? ' has-overflow' : ''}${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>
+      <div ref={bodyRef} className="app-tool-feed-detail-body">
+        <Tabs
+          id="tool-feed-tabs"
+          renderActiveTabPanelOnly
+          selectedTabId={visibleFeeds.some((feed) => feed.feedId === selectedFeedId) ? selectedFeedId : visibleFeeds[0].feedId}
+        >
+          {visibleFeeds.map((feed) => (
+            <Tab
+              key={feed.feedId}
+              id={feed.feedId}
+              title={feed.title || feed.feedId}
+              panel={<FeedPanel feedId={feed.feedId} rawFeedId={feed.rawFeedId || splitFeedKey(feed.feedId).feedId} context={context} />}
+            />
+          ))}
+        </Tabs>
+      </div>
+      {isOverflowing ? (
+        <div className="app-tool-feed-detail-footer">
+          <button
+            type="button"
+            className="app-tool-feed-detail-toggle"
+            onClick={() => setIsExpanded((value) => !value)}
+          >
+            {isExpanded ? 'Collapse' : 'Expand'}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -122,15 +154,9 @@ export function resolveRootFeedDataSourceName(dataSources = {}) {
  * Renders a single feed panel. Uses Forge Container when the feed spec
  * includes a `ui` definition; falls back to InlineRenderer otherwise.
  */
-function FeedPanel({ feedId, rawFeedId, planFeed, context }) {
+function FeedPanel({ feedId, rawFeedId, context }) {
   const scopedConversationId = String(splitFeedKey(feedId).conversationId || '').trim();
-  if ((rawFeedId || splitFeedKey(feedId).feedId) === 'queue') {
-    return <QueueFeedPanel conversationId={scopedConversationId} context={context} />;
-  }
   const data = getFeedData(feedId, scopedConversationId);
-  if ((rawFeedId || splitFeedKey(feedId).feedId) === 'plan') {
-    return <PlanFeedPanel planFeed={planFeed} feedData={data} />;
-  }
 
   // Build the execution shape that wireFeedSignals expects.
   const exe = useMemo(() => {
@@ -198,82 +224,8 @@ function FeedPanel({ feedId, rawFeedId, planFeed, context }) {
   }
 
   return (
-    <div className="app-tool-feed-detail-list" style={{ maxHeight: 'min(42vh, 360px)', overflowY: 'auto', paddingRight: 4 }}>
+    <div className="app-tool-feed-detail-list" style={{ maxHeight: 'min(26vh, 220px)', overflowY: 'auto', paddingRight: 4 }}>
       <ForgeContainer container={uiContainer} context={forgeContext} />
-    </div>
-  );
-}
-
-function QueueFeedPanel({ conversationId = '', context }) {
-  const [version, setVersion] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => setVersion((n) => n + 1), 250);
-    return () => clearInterval(interval);
-  }, []);
-
-  const snapshot = getQueueSyncSnapshot(String(conversationId || '').trim());
-  const queuedTurns = Array.isArray(snapshot?.queuedTurns) ? snapshot.queuedTurns : [];
-  if (queuedTurns.length === 0) return null;
-
-  return (
-    <div className="app-tool-feed-detail-list" style={{ maxHeight: 'min(32vh, 260px)', overflowY: 'auto', paddingRight: 4 }}>
-      <SteerQueue
-        message={{ queuedTurns, running: true, conversationId, _version: version }}
-        context={context}
-      />
-    </div>
-  );
-}
-
-function normalizePlanFeedData(planFeed = {}, feedData = null) {
-  const currentExplanation = String(planFeed?.explanation || '').trim();
-  const currentSteps = Array.isArray(planFeed?.steps) ? planFeed.steps : [];
-  if (currentExplanation || currentSteps.length > 0) {
-    return { explanation: currentExplanation, steps: currentSteps };
-  }
-  const payload = feedData?.data || {};
-  const source = payload?.output || payload?.input || payload || {};
-  const explanation = String(source?.explanation || source?.Explanation || '').trim();
-  const rawSteps = Array.isArray(source?.plan || source?.Plan) ? (source.plan || source.Plan) : [];
-  const steps = rawSteps
-    .map((step, index) => {
-      const title = String(step?.step || step?.title || step?.name || '').trim();
-      if (!title) return null;
-      return {
-        id: String(step?.id || `${index}:${title}`),
-        step: title,
-        status: String(step?.status || '').trim().toLowerCase() || 'pending'
-      };
-    })
-    .filter(Boolean);
-  return { explanation, steps };
-}
-
-function PlanFeedPanel({ planFeed, feedData }) {
-  const normalized = normalizePlanFeedData(planFeed, feedData);
-  const explanation = String(normalized?.explanation || '').trim();
-  const steps = Array.isArray(normalized?.steps) ? normalized.steps : [];
-  if (!explanation && steps.length === 0) return null;
-  return (
-    <div className="app-tool-feed-detail-list" style={{ maxHeight: 'min(42vh, 360px)', overflowY: 'auto', paddingRight: 4 }}>
-      {explanation ? (
-        <div className="app-tool-feed-detail-explanation" style={{ marginBottom: 8 }}>
-          {explanation}
-        </div>
-      ) : null}
-      {steps.map((step, index) => {
-        const status = String(step?.status || '').trim().toLowerCase();
-        const icon = status === 'completed' || status === 'done' ? '✓'
-          : status === 'in_progress' || status === 'running' ? '▶'
-          : '○';
-        return (
-          <div className="app-tool-feed-detail-step" key={step?.id || `${index}:${step?.step || 'plan'}`}>
-            <span className={`app-tool-feed-detail-status status-${status || 'pending'}`}>{icon}</span>
-            <span style={{ flex: 1 }}>{String(step?.step || '').trim()}</span>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -291,7 +243,7 @@ function InlineRenderer({ data }) {
     : root;
 
   return (
-    <div className="app-tool-feed-detail-list" style={{ maxHeight: '18vh', overflowY: 'auto' }}>
+    <div className="app-tool-feed-detail-list" style={{ maxHeight: 'min(18vh, 140px)', overflowY: 'auto' }}>
       <AutoRender value={display} depth={0} />
     </div>
   );
