@@ -5,7 +5,7 @@ import { DetailContext } from '../../context/DetailContext';
 import { ConversationViewContext } from '../../context/ConversationViewContext';
 import { openLinkedConversationWindow } from '../../services/conversationWindow';
 import { client } from '../../services/agentlyClient';
-import { displayStepIcon, displayStepTitle, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
+import { displayStepIcon, displayStepTitle, executionRoleLabel, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
 import BubbleMessage from './BubbleMessage';
 import RichContent from './RichContent';
 import ToolFeedDetail from '../ToolFeedDetail';
@@ -13,6 +13,7 @@ import ToolFeedDetail from '../ToolFeedDetail';
 function statusLabel(value) {
   const text = String(value || '').trim();
   if (!text) return 'running';
+  if (text.toLowerCase() === 'started') return 'running';
   if (text.toLowerCase() === 'cancelled') return 'canceled';
   return text.replace(/_/g, ' ');
 }
@@ -691,7 +692,8 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
     const finalText = String(group?.finalContent || '').trim();
     if (group?.finalResponse && finalText) {
       const embedded = extractEmbeddedElicitationPayload(finalText);
-      return String(embedded?.message || finalText).trim();
+      if (embedded?.message) return String(embedded.message).trim();
+      if (!looksLikeStructuredJSON(finalText)) return finalText;
     }
   }
   for (let index = groups.length - 1; index >= 0; index -= 1) {
@@ -707,6 +709,26 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
     }
   }
   return '';
+}
+
+function looksLikeStructuredJSON(text = '') {
+  const raw = String(text || '').trim();
+  if (!raw) return false;
+  if (!(raw.startsWith('{') || raw.startsWith('['))) return false;
+  try {
+    const parsed = JSON.parse(raw);
+    return !!parsed && typeof parsed === 'object';
+  } catch (_) {
+    return false;
+  }
+}
+
+function isStructuredAssistantArtifact(text = '') {
+  const raw = String(text || '').trim();
+  if (!raw) return false;
+  if (raw.startsWith('<!-- CHART_SPEC:')) return true;
+  if (/^```(?:json)?\s*/i.test(raw)) return true;
+  return looksLikeStructuredJSON(raw);
 }
 
 function extractEmbeddedElicitationPayload(text = '') {
@@ -752,6 +774,8 @@ export function resolveIterationBubbleContent({
 } = {}) {
   const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
   const finalVisibleBubble = String(resolveVisibleBubbleContent(visibleGroups) || '').trim();
+  const visibleStreamBubble = isStructuredAssistantArtifact(streamContent) ? '' : String(streamContent || '').trim();
+  const explicitPreambleBubble = isStructuredAssistantArtifact(preambleContent) ? '' : String(preambleContent || '').trim();
   const hasFinalVisibleGroup = groups.some((group) => {
     const finalText = String(group?.finalContent || '').trim();
     return !!group?.finalResponse && finalText !== '';
@@ -759,7 +783,10 @@ export function resolveIterationBubbleContent({
   if (groups.length > 0) {
     return String(
       (hasFinalVisibleGroup ? finalVisibleBubble : '')
+      || (!hasFinalVisibleGroup ? visibleStreamBubble : '')
+      || (!hasFinalVisibleGroup ? explicitPreambleBubble : '')
       || responseContent
+      || finalVisibleBubble
       || resolveFailedBubbleContent(groups, errorMessage)
       || ''
     ).trim();
@@ -863,6 +890,7 @@ function paginate(total, visible, offset) {
 }
 
 function isPresentableGroup(group = {}) {
+  const hasModel = !!group?.modelStep;
   const preambleText = String(group?.preambleContent || '').trim();
   const finalText = String(group?.finalContent || '').trim();
   const errorText = String(group?.errorMessage || group?.modelStep?.errorMessage || '').trim();
@@ -871,6 +899,7 @@ function isPresentableGroup(group = {}) {
   const groupKind = String(group?.groupKind || '').trim().toLowerCase();
   const isFinal = !!group?.modelStep && String(group?.modelStep?.reason || '').toLowerCase() === 'final_response';
   return isFinal
+    || hasModel
     || groupKind === 'intake'
     || toolCount > 0
     || plannedCount > 0
@@ -922,18 +951,12 @@ export function buildSyntheticModelGroup({ data = {}, message = {}, context = nu
   };
 }
 
-function phaseBadgeLabel(groupKind = '') {
-  const kind = String(groupKind || '').trim().toLowerCase();
-  switch (kind) {
-    case 'intake':
-      return 'Intake';
-    case 'sidecar':
-      return 'Sidecar';
-    case 'summary':
-      return 'Summary';
-    default:
-      return '';
-  }
+export function phaseBadgeLabel(group = {}) {
+  const modelStep = group?.modelStep || null;
+  if (modelStep) return executionRoleLabel({ ...group, ...modelStep, groupKind: group?.groupKind, mode: group?.mode });
+  const firstToolStep = Array.isArray(group?.toolSteps) ? group.toolSteps[0] : null;
+  if (firstToolStep) return executionRoleLabel({ ...group, ...firstToolStep, groupKind: group?.groupKind, mode: group?.mode });
+  return executionRoleLabel(group);
 }
 
 export function resolveIterationStatusDetail(data = {}) {
@@ -1365,8 +1388,8 @@ export default function IterationBlock({ message, context, showToolFeedDetail = 
           <div className="app-iteration-tool-row-main">
             <span className="app-iteration-model-icon">{displayStepIcon({ ...modelStep, kind: 'model' })}</span>
             <span className="app-iteration-model-title">{stepTitle({ ...modelStep, kind: 'model' })}</span>
-            {phaseBadgeLabel(group.groupKind) ? (
-              <span className="app-iteration-model-summary">{phaseBadgeLabel(group.groupKind)}</span>
+            {phaseBadgeLabel(group) ? (
+              <span className="app-iteration-model-summary">{phaseBadgeLabel(group)}</span>
             ) : null}
             {group.title && group.title !== stepTitle({ ...modelStep, kind: 'model' }) ? (
               <span className="app-iteration-model-summary">{group.title}</span>

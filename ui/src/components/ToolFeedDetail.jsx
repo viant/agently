@@ -51,7 +51,7 @@ export default function ToolFeedDetail({ context }) {
   const hasAnyExpandedFeed = candidateFeeds.some((feed) => isFeedExpanded(feed.feedId));
   const visibleFeeds = hasAnyExpandedFeed
     ? candidateFeeds.filter((feed) => isFeedExpanded(feed.feedId))
-    : (candidateFeeds.length > 0 ? [candidateFeeds[0]] : []);
+    : [];
 
   useEffect(() => {
     setIsExpanded(false);
@@ -157,6 +157,7 @@ export function resolveRootFeedDataSourceName(dataSources = {}) {
 function FeedPanel({ feedId, rawFeedId, context }) {
   const scopedConversationId = String(splitFeedKey(feedId).conversationId || '').trim();
   const data = getFeedData(feedId, scopedConversationId);
+  const [forgeReady, setForgeReady] = useState(() => typeof window === 'undefined');
 
   // Build the execution shape that wireFeedSignals expects.
   const exe = useMemo(() => {
@@ -196,6 +197,7 @@ function FeedPanel({ feedId, rawFeedId, context }) {
 
   // Wire Forge signals whenever data changes.
   useEffect(() => {
+    setForgeReady(false);
     if (!exe || !uiContainer) { return; }
     const timer = setTimeout(() => {
       const windowId = conversationId ? `feed-${feedId}-${conversationId}` : `feed-${feedId}`;
@@ -206,8 +208,12 @@ function FeedPanel({ feedId, rawFeedId, context }) {
           forgeContext.Context(dsRef)?.handlers?.dataSource?.setCollection?.(Array.isArray(rows) ? rows : []);
         } catch (_) {}
       }
+      setForgeReady(true);
     }, 0);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      setForgeReady(false);
+    };
   }, [exe, uiContainer, feedId, data, forgeContext]);
 
   if (!data) return null;
@@ -221,6 +227,10 @@ function FeedPanel({ feedId, rawFeedId, context }) {
   // No UI spec → fall back to generic InlineRenderer.
   if (!uiContainer) {
     return <InlineRenderer data={data} />;
+  }
+
+  if (!forgeReady) {
+    return <div style={{ padding: 8, color: 'var(--gray2)' }}>Preparing feed…</div>;
   }
 
   return (

@@ -1,5 +1,5 @@
 id: chatter
-modelRef: openai_gpt-5-mini
+modelRef: openai_gpt-5
 name: Chatter
 temperature: 0
 persona:
@@ -30,6 +30,16 @@ prompt:
   uri: prompt/user.tmpl
 systemPrompt:
   uri: prompt/system.tmpl
+
+intake:
+  enabled: true
+  scope:
+    - title
+    - context
+    - intent
+  model: openai_gpt-5-mini
+  maxTokens: 200
+  timeoutSec: 15
 
 
 tool:

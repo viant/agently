@@ -14,6 +14,7 @@ export const feedTracker = new FeedTracker();
 
 // Cached feed data keyed by feedId. Cleared on conversation switch.
 let feedDataCache = {};
+let inactiveFeedKeys = new Set();
 const dataListeners = new Set();
 
 export function makeFeedKey(feedId = '', conversationId = '') {
@@ -64,6 +65,11 @@ export function getFeedData(feedId, conversationId = '') {
   const { feedId: normalizedFeedId, scopedKey } = normalizeScopedFeedIdentity(feedId, conversationId);
   if (scopedKey && feedDataCache[scopedKey]) return feedDataCache[scopedKey] || null;
   return normalizedFeedId ? (feedDataCache[normalizedFeedId] || null) : null;
+}
+
+export function isFeedInactive(feedId, conversationId = '') {
+  const { scopedKey } = normalizeScopedFeedIdentity(feedId, conversationId);
+  return scopedKey ? inactiveFeedKeys.has(scopedKey) : false;
 }
 
 export function updateFeedData(feedId, patch = {}, conversationId = '') {
@@ -129,6 +135,7 @@ export function clearFeedState() {
     }
   }
   feedDataCache = {};
+  inactiveFeedKeys = new Set();
   feedTracker.clear();
   notifyDataChange();
 }
@@ -151,6 +158,7 @@ export function applyFeedEvent(payload) {
   feedTracker.applyEvent(trackerEvent);
 
   if (payload?.type === 'tool_feed_active') {
+    inactiveFeedKeys.delete(scopedKey);
     // Set inline data immediately for fast rendering.
     if (payload.feedData) {
       feedDataCache[scopedKey] = {
@@ -182,6 +190,7 @@ export function applyFeedEvent(payload) {
   }
 
   if (payload?.type === 'tool_feed_inactive') {
+    inactiveFeedKeys.add(scopedKey);
     const cached = feedDataCache[scopedKey];
     if (cached?.dataSources) {
       cleanupFeedSignals(scopedKey, Object.keys(cached.dataSources), conversationId);

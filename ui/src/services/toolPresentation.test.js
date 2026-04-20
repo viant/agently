@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { delegatedAgentId, delegatedAgentLabel, displayStepTitle, isAgentRunTool } from './toolPresentation';
+import { delegatedAgentId, delegatedAgentLabel, displayStepTitle, executionRoleLabel, isAgentRunTool } from './toolPresentation';
 
 describe('toolPresentation', () => {
   it('keeps delegated agent ids canonical for llm/agents:run steps', () => {
@@ -36,5 +36,16 @@ describe('toolPresentation', () => {
       requestPayload: JSON.stringify({ provider: 'openai', model: 'gpt-5_4' }),
     };
     expect(displayStepTitle(step)).toBe('openai/gpt-5.4');
+  });
+
+  it('classifies semantic execution roles for visible model/tool rows', () => {
+    expect(executionRoleLabel({ executionRole: 'react' })).toBe('⌬');
+    expect(executionRoleLabel({ executionRole: 'worker' })).toBe('⚙');
+    expect(executionRoleLabel({ executionRole: 'intake' })).toBe('⇢');
+    expect(executionRoleLabel({ executionRole: 'router' })).toBe('🧭');
+    expect(executionRoleLabel({ executionRole: 'narrator' })).toBe('✍');
+    expect(executionRoleLabel({ executionRole: 'summary' })).toBe('≡');
+    expect(executionRoleLabel({ kind: 'model', phase: 'intake' })).toBe('');
+    expect(executionRoleLabel({ kind: 'tool', toolName: 'llm/agents:start', requestPayload: JSON.stringify({ agentId: 'coder' }) })).toBe('');
   });
 });

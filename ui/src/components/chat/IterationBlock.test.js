@@ -21,7 +21,8 @@ import IterationBlock, {
   resolveVisibleBubbleContent,
   resolveIterationBubbleContent,
   shouldShowPreambleBubble,
-  hasPendingElicitationStep
+  hasPendingElicitationStep,
+  phaseBadgeLabel
 } from './IterationBlock';
 import { summarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
 
@@ -398,7 +399,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].groupKind).toBe('intake');
     expect(groups[0].finalContent).toBe('{"agentId":"coder"}');
-    expect(resolveVisibleBubbleContent(groups)).toBe('{"agentId":"coder"}');
+    expect(resolveVisibleBubbleContent(groups)).toBe('');
   });
 
   it('uses delegated agent status assistantResponse as the execution-details line', () => {
@@ -602,7 +603,7 @@ describe('mapCanonicalExecutionGroups', () => {
       }
     ]);
 
-    expect(text).toBe('{"HOME":"/Users/awitas"}');
+    expect(text).toBe('I am about to retrieve HOME.');
     expect(shouldShowPreambleBubble([], text)).toBe(true);
   });
 
@@ -628,6 +629,20 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(text).toBe('Thinking...');
     expect(shouldShowPreambleBubble([], text)).toBe(true);
+  });
+
+  it('prefers streamed text over preamble while execution groups are still live', () => {
+    const text = resolveIterationBubbleContent({
+      visibleGroups: [
+        {
+          finalResponse: false,
+          preambleContent: 'Delegating the initial repository analysis…'
+        }
+      ],
+      streamContent: 'Scanning the repository root now…'
+    });
+
+    expect(text).toBe('Scanning the repository root now…');
   });
 
   it('treats open elicitation execution steps as a visible prompt owner for the turn', () => {
@@ -660,7 +675,7 @@ describe('mapCanonicalExecutionGroups', () => {
     const groups = mapCanonicalExecutionGroups([{
       id: 'group-1',
       groupKind: 'sidecar',
-      title: 'Sidecar',
+      title: 'ReAct',
       status: 'completed',
       modelStep: {
         id: 'model-1',
@@ -678,6 +693,29 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(groups).toHaveLength(1);
     expect(groups[0].toolSteps.map((step) => step.reason)).toContain('turn_completed');
+  });
+
+  it('maps intake, worker, and default model groups to semantic role badges', () => {
+    expect(phaseBadgeLabel({
+      groupKind: 'intake',
+      modelStep: { kind: 'model', executionRole: 'intake', provider: 'openai', model: 'gpt-5-mini' }
+    })).toBe('⇢');
+
+    expect(phaseBadgeLabel({
+      groupKind: 'tool',
+      toolSteps: [{ kind: 'tool', executionRole: 'worker', toolName: 'llm/agents:start', requestPayload: JSON.stringify({ agentId: 'coder' }) }]
+    })).toBe('⚙');
+
+    expect(phaseBadgeLabel({
+      groupKind: 'model',
+      modelStep: { kind: 'model', executionRole: 'react', provider: 'openai', model: 'gpt-5-mini' }
+    })).toBe('⌬');
+
+    expect(phaseBadgeLabel({
+      groupKind: 'model',
+      executionRole: 'react',
+      modelStep: { kind: 'model', provider: 'openai', model: 'gpt-5-mini' }
+    })).toBe('⌬');
   });
 
   it('prefers the elicitation prompt text over a generic fallback label', () => {
@@ -734,7 +772,7 @@ describe('mapCanonicalExecutionGroups', () => {
       streamContent: '<!-- CHART_SPEC:v1 -->\n```json\n{"chart":{"type":"bar"},"data":[{"x":"a","value":1}]}\n```'
     });
 
-    expect(text).toBe('');
+    expect(text).toBe('Calling MetricsAdCube.');
   });
 
   it('resolves the execution header agent label from explicit iteration agent id using meta labels', () => {
