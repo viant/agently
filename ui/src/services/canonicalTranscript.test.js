@@ -67,6 +67,33 @@ describe('canonicalTranscript', () => {
     });
   });
 
+  it('does not inherit page completion status for tool steps with no own status', () => {
+    const turns = [{
+      turnId: 'turn-1',
+      execution: {
+        pages: [{
+          pageId: 'page-1',
+          assistantMessageId: 'page-1',
+          status: 'completed',
+          toolSteps: [{
+            toolCallId: 'tc-1',
+            toolMessageId: 'tm-1',
+            toolName: 'llm/agents/start'
+          }]
+        }]
+      }
+    }];
+
+    const steps = flattenCanonicalTranscriptSteps(turns);
+
+    expect(steps[0]).toMatchObject({
+      id: 'tm-1',
+      kind: 'tool',
+      toolName: 'llm/agents/start',
+      status: ''
+    });
+  });
+
   it('extracts canonical execution groups from execution pages', () => {
     const turns = [{
       turnId: 'turn-1',
