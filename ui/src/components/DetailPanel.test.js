@@ -142,6 +142,28 @@ describe('DetailPanel pricing helpers', () => {
     }
   });
 
+  it('hydrates tool payload ids by tool name even when the live row id differs', async () => {
+    transcriptConversationTurns.mockReturnValue([]);
+    flattenCanonicalTranscriptSteps.mockReturnValue([
+      {
+        kind: 'tool',
+        id: 'stored-call-1',
+        toolName: 'llm/agents/start',
+        requestPayloadId: 'req-start-1',
+        responsePayloadId: 'resp-start-1'
+      }
+    ]);
+
+    const hydrated = await hydrateToolCallFromTranscript({
+      kind: 'tool',
+      id: 'live-row-7',
+      toolName: 'llm/agents/start'
+    });
+
+    expect(hydrated.requestPayloadId).toBe('req-start-1');
+    expect(hydrated.responsePayloadId).toBe('resp-start-1');
+  });
+
   it('hydrates model payload data for provider/model matched canonical steps', async () => {
     transcriptConversationTurns.mockReturnValue([]);
     flattenCanonicalTranscriptSteps.mockReturnValue([

@@ -278,6 +278,17 @@ function toolCallHasResolvedPayloadContent(toolCall = {}) {
   );
 }
 
+function toolCallHasPayloadReference(toolCall = {}) {
+  return Boolean(
+    toolCallHasResolvedPayloadContent(toolCall)
+    || String(toolCall?.requestPayloadId || '').trim()
+    || String(toolCall?.responsePayloadId || '').trim()
+    || String(toolCall?.providerRequestPayloadId || '').trim()
+    || String(toolCall?.providerResponsePayloadId || '').trim()
+    || String(toolCall?.streamPayloadId || '').trim()
+  );
+}
+
 function currentConversationId() {
   if (typeof window === 'undefined') return '';
   const match = String(window.location?.pathname || '').match(/\/conversation\/([^/?#]+)/);
@@ -317,7 +328,7 @@ export async function hydrateToolCallFromTranscript(toolCall = {}) {
     }
     if ((targetKind === 'tool' || targetKind === '') && String(candidate.kind || '').toLowerCase() === 'tool') {
       if ((targetId && candidateId === targetId) || (targetName && candidateName === targetName)) {
-        if (toolCallHasResolvedPayloadContent(candidate) || (targetId && candidateId === targetId)) {
+        if (toolCallHasPayloadReference(candidate) || (targetId && candidateId === targetId)) {
           return mergeHydratedToolCall(toolCall, candidate);
         }
       }
