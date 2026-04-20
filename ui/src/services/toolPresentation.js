@@ -131,6 +131,20 @@ export function delegatedAgentLabel(step = {}) {
   return delegatedAgentId(step);
 }
 
+export function executionRoleLabel(step = {}) {
+  const explicitRole = String(step?.executionRole || '').trim();
+  if (!explicitRole) return '';
+  switch (explicitRole.toLowerCase()) {
+    case 'react': return '⌬';
+    case 'intake': return '⇢';
+    case 'narrator': return '✍';
+    case 'router': return '🧭';
+    case 'summary': return '≡';
+    case 'worker': return '⚙';
+    default: return '';
+  }
+}
+
 export function displayStepTitle(step = {}) {
   const kind = String(step?.kind || '').toLowerCase();
   if (kind === 'model') {

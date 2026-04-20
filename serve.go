@@ -209,6 +209,16 @@ func Serve(options ServeOptions) error {
 
 	log.Printf("agently serve listening on %s (workspace=%s ui=%s)", addr, workspace.Root(), uiBundle.Name)
 	serveErr := srv.ListenAndServe()
+	return finalizeServeResult(cancel, &shutdownWG, serveErr, mcpSrv)
+}
+
+func finalizeServeResult(cancel context.CancelFunc, shutdownWG *sync.WaitGroup, serveErr error, mcpSrv *http.Server) error {
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		// Bind/listen failures return before the signal context is canceled.
+		// Cancel here so the shutdown coordinator can exit instead of hanging
+		// the process while an older listener still owns the port.
+		cancel()
+	}
 	// Whether the server returned from a graceful shutdown or an error, wait
 	// for the coordinator goroutine so we don't return while Shutdown is
 	// still draining handlers (and so MCP is guaranteed closed on error

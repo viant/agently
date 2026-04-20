@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
 
-import { bootstrapConversationSelection, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, handleStreamEvent, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation } from './chatRuntime';
+import { bootstrapConversationSelection, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, handleStreamEvent, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot } from './chatRuntime';
 import { client } from './agentlyClient';
 
 vi.mock('./agentlyClient', () => ({
@@ -1598,6 +1598,49 @@ describe('dsTick', () => {
     expect(result?.deferredToLiveStream).toBe(true);
     expect(result?.conversationID).toBe('conv-1');
   });
+
+  it('does not apply transcript snapshots while the live turn is SSE-owned', () => {
+    const applyTranscript = vi.fn();
+    const setCollection = vi.fn();
+    const context = {
+      resources: {
+        chat: {
+          liveOwnedConversationID: 'conv-1',
+          liveOwnedTurnIds: ['turn-1'],
+          runningTurnId: 'turn-1',
+          activeStreamTurnId: 'turn-1',
+          lastHasRunning: true,
+          liveRows: [{ id: 'assistant:turn-1:live', role: 'assistant', turnId: 'turn-1', content: 'live text' }],
+          renderRows: [{ id: 'assistant:turn-1:live', role: 'assistant', turnId: 'turn-1', content: 'live text' }],
+          transcriptRows: [{ id: 'user:turn-1', role: 'user', turnId: 'turn-1', content: 'Analyze repo' }],
+          streamTracker: { applyTranscript, canonicalState: { activeTurnId: 'turn-1' } }
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return { handlers: { dataSource: { setCollection, peekFormData: () => ({}) } } };
+        }
+        if (name === 'conversations') {
+          return { handlers: { dataSource: { peekFormData: () => ({ id: 'conv-1', running: true }), setFormData: vi.fn() } } };
+        }
+        if (name === 'meta') {
+          return { handlers: { dataSource: { peekFormData: () => ({}) } } };
+        }
+        return null;
+      }
+    };
+
+    const result = syncMessagesSnapshot(context, [{
+      turnId: 'turn-1',
+      status: 'running',
+      assistant: { final: { messageId: 'a1', content: 'transcript final' } }
+    }], 'poll', []);
+
+    expect(applyTranscript).not.toHaveBeenCalled();
+    expect(setCollection).toHaveBeenCalled();
+    expect(Array.isArray(result)).toBe(true);
+    expect(context.resources.chat.liveRows[0].content).toBe('live text');
+  });
 });
 
 describe('createNewConversation', () => {
@@ -1845,13 +1888,7 @@ describe('renderMergedRowsForContext', () => {
 
     renderMergedRowsForContext(context);
 
-    expect(messageState.collection).toHaveLength(1);
-    expect(messageState.collection[0]).toMatchObject({
-      _type: 'starter',
-      createdAt: '',
-      subtitle: 'Auto-select agent'
-    });
-    expect(messageState.collection[0].starterTasks).toHaveLength(2);
+    expect(messageState.collection).toHaveLength(0);
   });
 
   it('does not render starter tasks when a conversation id is already present', () => {
@@ -2710,14 +2747,87 @@ describe('createNewConversation', () => {
     await createNewConversation(context);
 
     expect(conversationState.values.id).toBe('');
-    expect(messageState.collection).toHaveLength(1);
-    expect(messageState.collection[0]).toMatchObject({
-      _type: 'starter',
-    });
-    expect(messageState.collection[0].starterTasks).toHaveLength(1);
-    expect(messageState.collection[0].starterTasks[0]).toMatchObject({
+    expect(messageState.collection).toHaveLength(0);
+    expect(metaState.values.starterTasks).toHaveLength(1);
+    expect(metaState.values.starterTasks[0]).toMatchObject({
       title: 'Analyze campaign performance',
     });
+  });
+
+  it('ignores a persisted agent from another workspace so current workspace starter tasks still appear', async () => {
+    const originalWindow = global.window;
+    const originalLocalStorage = global.localStorage;
+    const storage = {
+      getItem: (key) => (key === 'agently.selectedAgent' ? 'chatter' : ''),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    };
+    global.window = {
+      localStorage: storage
+    };
+    global.localStorage = storage;
+
+    try {
+      const messageState = { collection: [{ id: 'old-msg', role: 'assistant', content: 'existing' }] };
+      const conversationState = { values: { id: 'conv-old', agent: '', queuedTurns: [] } };
+      const metaState = {
+        values: {
+          agent: 'steward',
+          defaults: { agent: 'steward' },
+          agentInfos: [
+            { id: 'steward', name: 'Steward', starterTasks: [{ id: 'analyze', title: 'Analyze campaign performance', prompt: 'Analyze campaign 12345 performance.' }] },
+          ]
+        }
+      };
+
+      const context = {
+        resources: {},
+        Context(name) {
+          if (name === 'messages') {
+            return {
+              handlers: {
+                dataSource: {
+                  setCollection: (rows) => { messageState.collection = rows; },
+                  setError: vi.fn()
+                }
+              }
+            };
+          }
+          if (name === 'conversations') {
+            return {
+              handlers: {
+                dataSource: {
+                  peekFormData: () => conversationState.values,
+                  setFormData: ({ values }) => { conversationState.values = values; }
+                }
+              }
+            };
+          }
+          if (name === 'meta') {
+            return {
+              handlers: {
+                dataSource: {
+                  peekFormData: () => metaState.values,
+                  setFormData: ({ values }) => { metaState.values = values; }
+                }
+              }
+            };
+          }
+          return null;
+        }
+      };
+
+      await createNewConversation(context);
+
+      expect(conversationState.values.agent).toBe('steward');
+      expect(messageState.collection).toHaveLength(0);
+      expect(metaState.values.starterTasks?.[0]).toMatchObject({
+        title: 'Analyze campaign performance'
+      });
+    } finally {
+      global.window = originalWindow;
+      global.localStorage = originalLocalStorage;
+    }
   });
 });
 
@@ -3199,6 +3309,7 @@ describe('shouldUseLiveStream', () => {
       conversation: {
         conversationId: 'conv-live',
         turns: [{ turnId: 'turn-1', status: 'running' }],
+        feeds: [{ feedId: 'plan', title: 'Plan', itemCount: 2, data: { note: 'transcript' } }],
       }
     });
 
@@ -3206,6 +3317,7 @@ describe('shouldUseLiveStream', () => {
       const turns = await fetchTranscript('conv-live');
       expect(turns).toHaveLength(1);
       expect(onTranscript).not.toHaveBeenCalled();
+      expect(global.window.__agentlyActiveChatState.lastTranscriptFeedsByConversation).toBeUndefined();
     } finally {
       installChatStoreMirror(null);
       global.window = originalWindow;

@@ -19,7 +19,7 @@ export function installChatStoreMirror(chatStoreModule) {
 import { ConversationStreamTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow } from 'agently-core-ui-sdk/internal';
 import { rememberConversationSeedTitle } from './conversationTitle';
 import { setPendingElicitation, clearPendingElicitation } from './elicitationBus';
-import { applyFeedEvent, clearFeedState } from './toolFeedBus';
+import { applyFeedEvent, clearFeedState, isFeedInactive } from './toolFeedBus';
 import { publishUsage } from './usageBus';
 import { request } from './httpClient';
 import {
@@ -502,15 +502,12 @@ function isLatePostTerminalExecutionEvent(type = '', payload = {}) {
   return op === 'turn_started';
 }
 
-function draftConversationValues(current = {}, defaults = {}) {
-  // Preserve the user's current agent/model selection when starting a new
-  // conversation. Read from localStorage as the most reliable source (set by selectAgent).
-  const persistedAgent = getPersistedSelectedAgent();
+function draftConversationValues(current = {}, defaults = {}, preferredAgent = '') {
   const values = {
     ...current,
     id: '',
     title: 'New conversation',
-    agent: persistedAgent || current?.agent || defaults?.agent || '',
+    agent: preferredAgent || current?.agent || defaults?.agent || '',
     model: current?.model || defaults?.model || '',
     embedder: defaults?.embedder || ''
   };
@@ -684,6 +681,15 @@ export function normalizeMetaResponse(payload) {
   const normalizedModelInfos = normalizeWorkspaceModelInfos(models);
   const agentOptions = normalizeWorkspaceAgentOptions(agents, defaults.agent);
   const modelOptions = normalizeWorkspaceModelOptions(models, defaults.model);
+  const selectedAgent = resolveVisibleSelectedAgent(
+    { defaults, agentInfos: normalizedAgentInfos, agentOptions },
+    data?.agent,
+    defaults.agent
+  );
+  const starterTasks = resolveStarterTasks({
+    agentInfos: normalizedAgentInfos,
+    selectedAgent
+  });
   const normalizedAgentInfo = normalizedAgentInfos.reduce((acc, entry) => {
     if (entry?.id) acc[entry.id] = entry;
     return acc;
@@ -697,6 +703,7 @@ export function normalizeMetaResponse(payload) {
     embedder: sanitizeAutoSelection(data?.embedder || defaults.embedder || ''),
     agentInfos: normalizedAgentInfos,
     modelInfos: normalizedModelInfos,
+    starterTasks,
     agentInfo: normalizedAgentInfo,
     modelInfo: normalizedModelInfos.reduce((acc, entry) => {
       if (entry?.id) acc[entry.id] = entry;
@@ -1021,10 +1028,6 @@ export function renderMergedRowsForContext(context) {
     metaForm?.agent,
     metaForm?.defaults?.agent
   );
-  const starterTasks = resolveStarterTasks({
-    agentInfos: Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [],
-    selectedAgent
-  });
   const hasConversationId = String(conversationForm?.id || '').trim() !== '';
   const filteredResolvedRows = normalizedResolvedRows.filter((row) => {
     if (String(row?.role || '').trim().toLowerCase() !== 'user') return true;
@@ -1036,25 +1039,9 @@ export function renderMergedRowsForContext(context) {
   });
   const hasVisibleConversationContent = filteredResolvedRows.some((row) => {
     const type = String(row?._type || '').toLowerCase();
-    return type !== 'starter' && type !== 'queue';
+    return type !== 'queue';
   });
-  const starterRow = filteredResolvedRows.length === 0
-    && !hasConversationId
-    && !hasVisibleConversationContent
-    && queuedTurns.length === 0
-    && starterTasks.length > 0 ? {
-    _type: 'starter',
-    id: `starter:${selectedAgent || 'default'}`,
-    createdAt: '',
-    title: selectedAgent === 'auto' ? 'Explore All Agents' : 'Start With A Prompt',
-    subtitle: selectedAgent === 'auto' ? 'Auto-select agent' : '',
-    starterTasks
-  } : null;
-  const renderCollection = [
-    ...filteredResolvedRows,
-    ...(starterRow ? [starterRow] : [])
-  ];
-  messagesDS.setCollection?.(renderCollection);
+  messagesDS.setCollection?.(filteredResolvedRows);
   return mergedRows;
 }
 
@@ -1235,9 +1222,9 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     ? data.feeds
     : (Array.isArray(canonicalConversation?.feeds) ? canonicalConversation.feeds : []);
   // Populate tool feed bar from transcript feeds (for page reload / conversation switch).
-  if (Array.isArray(resolvedFeeds) && resolvedFeeds.length > 0) {
+  if (!latestTurnLiveOwned && Array.isArray(resolvedFeeds) && resolvedFeeds.length > 0) {
     for (const feed of resolvedFeeds) {
-      if (feed?.feedId) {
+      if (feed?.feedId && !isFeedInactive(feed.feedId, conversationID)) {
         applyFeedEvent({
           type: 'tool_feed_active',
           feedId: feed.feedId,
@@ -1249,7 +1236,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
       }
     }
   }
-  if (activeChatState && conversationID) {
+  if (!latestTurnLiveOwned && activeChatState && conversationID) {
     const current = activeChatState.lastTranscriptFeedsByConversation || {};
     activeChatState.lastTranscriptFeedsByConversation = {
       ...current,
@@ -1343,6 +1330,20 @@ export async function hydrateMeta(context) {
 
 export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingElicitations = []) {
   const chatState = ensureContextResources(context);
+  const currentConversationID = String(getCurrentConversationID(context) || '').trim();
+  if (transcriptShouldBeIdle(chatState, currentConversationID)) {
+    logExecutorDebug('transcript-snapshot-skipped-live-owned', {
+      conversationId: currentConversationID,
+      reason,
+      liveOwnedConversationID: String(chatState?.liveOwnedConversationID || '').trim(),
+      liveOwnedTurnIds: Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
+      runningTurnId: String(chatState?.runningTurnId || '').trim(),
+      activeStreamTurnId: String(chatState?.activeStreamTurnId || '').trim(),
+      trackerActiveTurnId: trackerActiveTurnId(chatState),
+      lastHasRunning: !!chatState?.lastHasRunning
+    });
+    return renderMergedRowsForContext(context);
+  }
   if (chatState.streamTracker && Array.isArray(turns)) {
     chatState.streamTracker.applyTranscript(turns);
     syncTrackerDerivedTurnState(chatState);
@@ -2356,6 +2357,7 @@ export async function createNewConversation(context) {
   clearFeedState();
   const chatState = ensureContextResources(context);
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
+  const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   if (!conversationsDS) return false;
   if (chatState.pendingConversationPromise) {
     try {
@@ -2376,23 +2378,35 @@ export async function createNewConversation(context) {
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
   const metaDefaults = metaForm?.defaults || {};
   const persistedAgent = resolveVisibleSelectedAgent(metaForm, getPersistedSelectedAgent());
+  const preferredAgent = resolveVisibleSelectedAgent(
+    metaForm,
+    current?.agent,
+    persistedAgent,
+    metaForm?.agent,
+    metaDefaults?.agent
+  );
   // Merge the user's current agent/model selection from meta into current
   // so draftConversationValues preserves it for the new conversation.
   const merged = { ...current };
-  if (persistedAgent) {
-    merged.agent = persistedAgent;
+  if (preferredAgent) {
+    merged.agent = preferredAgent;
   } else if (isVisibleAgent(metaForm, metaForm?.agent)) {
     merged.agent = metaForm.agent;
   }
   if (metaForm?.model) merged.model = metaForm.model;
   conversationsDS.setFormData?.({
-    values: draftConversationValues(merged, metaDefaults)
+    values: draftConversationValues(merged, metaDefaults, preferredAgent)
   });
-  if (persistedAgent && context?.Context?.('meta')?.handlers?.dataSource) {
-    context.Context('meta').handlers.dataSource.setFormData?.({
+  if (metaDS) {
+    const starterTasks = resolveStarterTasks({
+      agentInfos: Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [],
+      selectedAgent: preferredAgent
+    });
+    metaDS.setFormData?.({
       values: {
         ...metaForm,
-        agent: persistedAgent
+        agent: preferredAgent || metaForm?.agent || '',
+        starterTasks
       }
     });
   }

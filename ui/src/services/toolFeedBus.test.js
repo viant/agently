@@ -107,4 +107,42 @@ describe('toolFeedBus conversation scoping', () => {
     ]);
     expect(mod.getFeedData('queue', 'conv-q')?.ui?.title).toBe('Queue');
   });
+
+  it('remembers inactive feeds until a fresh active event arrives', async () => {
+    const mod = await import('./toolFeedBus');
+
+    mod.applyFeedEvent({
+      type: 'tool_feed_active',
+      feedId: 'plan',
+      conversationId: 'conv-plan',
+      feedTitle: 'Plan',
+      feedItemCount: 1,
+      feedData: { output: { rows: [{ id: 1 }] } },
+    });
+
+    expect(mod.isFeedInactive('plan', 'conv-plan')).toBe(false);
+
+    mod.applyFeedEvent({
+      type: 'tool_feed_inactive',
+      feedId: 'plan',
+      conversationId: 'conv-plan',
+    });
+
+    expect(mod.isFeedInactive('plan', 'conv-plan')).toBe(true);
+    expect(mod.getFeedData('plan', 'conv-plan')).toBeNull();
+    expect(mod.getActiveFeeds()).toHaveLength(0);
+
+    mod.applyFeedEvent({
+      type: 'tool_feed_active',
+      feedId: 'plan',
+      conversationId: 'conv-plan',
+      feedTitle: 'Plan',
+      feedItemCount: 1,
+      feedData: { output: { rows: [{ id: 2 }] } },
+    });
+
+    expect(mod.isFeedInactive('plan', 'conv-plan')).toBe(false);
+    expect(mod.getFeedData('plan', 'conv-plan')?.data?.output?.rows).toEqual([{ id: 2 }]);
+    expect(mod.getActiveFeeds()).toHaveLength(1);
+  });
 });

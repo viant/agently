@@ -255,17 +255,16 @@ function mergeHydratedToolCall(base = {}, incoming = {}) {
   };
 }
 
-function phaseLabel(value = '') {
-  const phase = String(value || '').trim().toLowerCase();
-  switch (phase) {
-    case 'intake':
-      return 'Intake';
-    case 'sidecar':
-      return 'Sidecar';
-    case 'summary':
-      return 'Summary';
-    default:
-      return '';
+function phaseLabel(step = {}) {
+  const explicitRole = String(step?.executionRole || '').trim().toLowerCase();
+  switch (explicitRole) {
+    case 'react': return '⌬';
+    case 'intake': return '⇢';
+    case 'narrator': return '✍';
+    case 'router': return '🧭';
+    case 'summary': return '≡';
+    case 'worker': return '⚙';
+    default: return '';
   }
 }
 
@@ -443,8 +442,8 @@ export default function DetailPanel({ toolCall, onClose }) {
             {displayStepIcon(effectiveToolCall || {})}
           </span>
           <span className="app-detail-tool-name">{displayStepTitle(effectiveToolCall || {})}</span>
-          {phaseLabel(effectiveToolCall?.phase) ? (
-            <span className="app-detail-status-chip">{phaseLabel(effectiveToolCall?.phase)}</span>
+          {phaseLabel(effectiveToolCall) ? (
+            <span className="app-detail-status-chip">{phaseLabel(effectiveToolCall)}</span>
           ) : null}
           <span className="app-detail-status-chip">{String(effectiveToolCall?.status || '').toLowerCase() || 'unknown'}</span>
         </div>

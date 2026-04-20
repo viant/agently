@@ -1,6 +1,6 @@
 description: Coder agent
 id: coder
-modelRef: openai_gpt-5-mini
+modelRef: openai_gpt-5
 name: Coder
 temperature: 0.2
 persona:
@@ -39,6 +39,16 @@ defaultWorkdir: ~/support
 delegation:
   enabled: true
   maxDepth: 1
+
+intake:
+  enabled: true
+  scope:
+    - title
+    - context
+    - intent
+  model: openai_gpt-5-mini
+  maxTokens: 200
+  timeoutSec: 15
 
 
 tool:

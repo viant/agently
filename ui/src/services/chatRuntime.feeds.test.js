@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   applyFeedEvent: vi.fn(),
+  isFeedInactive: vi.fn(() => false),
 }));
 
 vi.mock('./agentlyClient', () => ({
@@ -13,6 +14,7 @@ vi.mock('./agentlyClient', () => ({
 vi.mock('./toolFeedBus', () => ({
   applyFeedEvent: mocks.applyFeedEvent,
   clearFeedState: vi.fn(),
+  isFeedInactive: mocks.isFeedInactive,
 }));
 
 import { client } from './agentlyClient';
@@ -21,6 +23,7 @@ import { fetchTranscript } from './chatRuntime';
 describe('fetchTranscript', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.isFeedInactive.mockReturnValue(false);
   });
 
   it('rehydrates tool feeds from transcript data for history-mode chat activation', async () => {
@@ -83,6 +86,46 @@ describe('fetchTranscript', () => {
       feedTitle: 'Changes',
       feedItemCount: 1,
       conversationId: 'conv-history-1',
+    }));
+  });
+
+  it('does not resurrect an inactive feed from transcript hydration', async () => {
+    mocks.isFeedInactive.mockImplementation((feedId, conversationId) => (
+      String(feedId) === 'plan' && String(conversationId) === 'conv-history-2'
+    ));
+
+    client.getTranscript.mockResolvedValue({
+      feeds: [
+        {
+          feedId: 'plan',
+          title: 'Plan',
+          itemCount: 3,
+          data: { output: { rows: [{ step: 'x' }] } },
+        },
+        {
+          feedId: 'terminal',
+          title: 'Terminal',
+          itemCount: 1,
+          data: { output: { commands: [{ input: 'pwd', output: '/tmp' }] } },
+        },
+      ],
+      turns: [
+        {
+          turnId: 'turn-2',
+          execution: {
+            pages: [],
+          },
+        },
+      ],
+    });
+
+    await fetchTranscript('conv-history-2');
+
+    expect(mocks.applyFeedEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.applyFeedEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'tool_feed_active',
+      feedId: 'terminal',
+      conversationId: 'conv-history-2',
     }));
   });
 });

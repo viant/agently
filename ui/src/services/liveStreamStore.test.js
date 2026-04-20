@@ -278,6 +278,25 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0].turnStatus).toBe('thinking');
   });
 
+  it('defaults model_started execution group status to running when the event omits status', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-2',
+      conversationId: 'conv-1',
+      turnId: 'turn-2',
+      iteration: 1,
+      type: 'model_started',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].status).toBe('running');
+    expect(chatState.liveRows[0].turnStatus).toBe('running');
+    expect(chatState.liveRows[0].executionGroups[0].status).toBe('running');
+    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0].status).toBe('running');
+  });
+
   it('keeps row startedAt when model_started merges into an existing turn row', () => {
     const chatState = { liveRows: [], activeStreamPrompt: 'Recommend sitelists for audience 7180287' };
 

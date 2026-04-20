@@ -2,9 +2,12 @@ package agently
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	appserver "github.com/viant/agently-core/app/server"
 	toolschema "github.com/viant/agently-core/protocol/tool/schema"
 	"github.com/viant/agently-core/sdk"
 )
@@ -165,4 +168,80 @@ func TestToolNameCandidates_IncludeCommonVariants(t *testing.T) {
 func TestExecutableToolName_ColonToSlash(t *testing.T) {
 	require.Equal(t, "forecasting/Total", executableToolName("forecasting:Total"))
 	require.Equal(t, "forecasting/Total", executableToolName("forecasting/Total"))
+}
+
+func TestServedRuntime_ListTools_ExposesSkillTools(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "agents", "coder", "prompt"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "models"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills", "demo"), 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config.yaml"), []byte(`default:
+  agent: coder
+  model: openai_gpt-5.1
+models:
+  url: models
+agents:
+  url: agents
+`), 0o644))
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "models", "openai_gpt-5_1.yaml"), []byte(`id: openai_gpt-5.1
+name: gpt-5.1 (OpenAI)
+description: OpenAI gpt-5.1 model
+options:
+  provider: openai
+  model: gpt-5.1
+  envKey: OPENAI_API_KEY
+`), 0o644))
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "agents", "coder", "coder.yaml"), []byte(`id: coder
+name: Coder
+modelRef: openai_gpt-5.1
+temperature: 0
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+skills:
+  - demo
+tool:
+  callExposure: conversation
+  items:
+    - name: llm/skills:list
+    - name: llm/skills:activate
+    - name: llm/agents:list
+    - name: llm/agents:start
+    - name: llm/agents:status
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "agents", "coder", "prompt", "user.tmpl"), []byte(`{{.Task.Prompt}}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "agents", "coder", "prompt", "system.tmpl"), []byte(`You are helpful.`), 0o644))
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "skills", "demo", "SKILL.md"), []byte(`---
+name: demo
+description: Demo skill.
+context: fork
+---
+
+# Demo
+Use the demo skill.
+`), 0o644))
+
+	rt, _, _, err := appserver.BuildWorkspaceRuntime(context.Background(), appserver.RuntimeOptions{WorkspaceRoot: root})
+	require.NoError(t, err)
+
+	client, closeClient, err := sdk.NewLocalHTTPFromRuntime(context.Background(), rt)
+	require.NoError(t, err)
+	defer closeClient()
+
+	defs, err := client.ListToolDefinitions(context.Background())
+	require.NoError(t, err)
+
+	var names []string
+	for _, item := range defs {
+		names = append(names, item.Name)
+	}
+	require.Contains(t, names, "llm/skills:list")
+	require.Contains(t, names, "llm/skills:activate")
+	require.Contains(t, names, "llm/agents:start")
+	require.Contains(t, names, "llm/agents:status")
 }

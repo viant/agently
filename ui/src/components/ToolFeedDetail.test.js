@@ -115,8 +115,35 @@ describe('ToolFeedDetail', () => {
     expect(html).toContain('planTable');
   });
 
+  it('renders nothing when feeds exist but none are expanded', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBus = await import('../services/toolFeedBus');
+    const toolFeedBar = await import('./ToolFeedBar');
+
+    toolFeedBus.getActiveFeeds.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::plan',
+        rawFeedId: 'plan',
+        conversationId: 'conv-1',
+        title: 'Plan',
+      },
+    ]);
+    toolFeedBus.getFeedData.mockReturnValueOnce({
+      data: { output: { rows: [{ status: 'completed', step: 'one' }] } },
+      ui: { title: 'Plan' },
+      dataSources: { output: { source: 'output' } },
+      _conversationId: 'conv-1',
+    });
+    toolFeedBar.isFeedExpanded.mockImplementation(() => false);
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => '');
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
+    expect(html).toBe('');
+  });
+
   it('falls back to fetched plan feed payload when the plan bus is empty', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBar = await import('./ToolFeedBar');
     getActiveFeedsMock.mockReturnValueOnce([
       {
         feedId: 'conv-1::plan',
@@ -166,6 +193,8 @@ describe('ToolFeedDetail', () => {
         planDetail: { dataSourceRef: 'planInfo', selectors: { data: 'plan' } },
       },
     }));
+    toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::plan');
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::plan');
 
     const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
 

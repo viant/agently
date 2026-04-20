@@ -342,10 +342,11 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
   const normalizedVisibleContent = normalizeStreamingMarkdown(String(payload?.preamble || payload?.content || '').trim()).content;
   const errorMessage = String(payload?.error || payload?.errorMessage || '').trim();
   const startedAt = String(payload?.startedAt || payload?.createdAt || '').trim() || undefined;
+  const normalizedStatus = normalizeExecutionRowStatus(payload?.status);
   const completedAt = String(
     payload?.completedAt
     || (payload?.finalResponse ? (payload?.createdAt || '') : '')
-    || (String(payload?.status || '').toLowerCase() === 'completed' ? (payload?.createdAt || '') : '')
+    || (String(normalizedStatus || '').toLowerCase() === 'completed' ? (payload?.createdAt || '') : '')
     || ''
   ).trim() || undefined;
   const group = {
@@ -358,14 +359,14 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     preamble: String(payload?.preamble || '').trim(),
     content: finalResponse ? normalizedPayloadContent : '',
     finalResponse,
-    status: String(payload?.status || '').trim(),
+    status: normalizedStatus,
     errorMessage,
     modelSteps: [{
       modelCallId: assistantMessageId,
       phase: String(payload?.phase || '').trim() || undefined,
       provider: String(payload?.model?.provider || '').trim(),
       model: String(payload?.model?.model || '').trim(),
-      status: String(payload?.status || '').trim(),
+      status: normalizedStatus,
       startedAt,
       completedAt,
       requestPayloadId: String(payload?.requestPayloadId || '').trim() || undefined,
@@ -397,8 +398,8 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     completedAt,
     errorMessage,
     sequence: Number(payload?.eventSeq || payload?.pageIndex || payload?.iteration || 0) || null,
-    status: normalizeExecutionRowStatus(payload?.status),
-    turnStatus: normalizeExecutionRowStatus(payload?.status),
+    status: normalizedStatus,
+    turnStatus: normalizedStatus,
     interim: finalResponse ? 0 : 1,
     content: finalResponse ? normalizedPayloadContent : normalizedVisibleContent,
     preamble: String(payload?.preamble || '').trim(),
@@ -1165,6 +1166,25 @@ export function applyExecutionStreamEvent(chatState = {}, payload = {}, fallback
     return chatState.liveRows || [];
   }
   const nextRows = applyExecutionStreamEventToRows(chatState.liveRows, payload, fallbackConversationID);
+  const targetTurnId = String(payload?.turnId || '').trim();
+  const row = (Array.isArray(nextRows) ? nextRows : []).find((entry) => String(entry?.turnId || '').trim() === targetTurnId)
+    || (Array.isArray(nextRows) ? nextRows[nextRows.length - 1] : null);
+  const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
+  logLiveStoreDebug('execution_stream_applied', {
+    type: String(payload?.type || '').trim().toLowerCase(),
+    turnId: targetTurnId,
+    rowId: String(row?.id || '').trim(),
+    rowStatus: String(row?.status || '').trim(),
+    rowTurnStatus: String(row?.turnStatus || '').trim(),
+    groups: groups.map((group) => ({
+      pageId: String(group?.pageId || '').trim(),
+      phase: String(group?.phase || '').trim(),
+      status: String(group?.status || '').trim(),
+      modelSteps: Array.isArray(group?.modelSteps) ? group.modelSteps.length : 0,
+      toolSteps: Array.isArray(group?.toolSteps) ? group.toolSteps.length : 0,
+      plannedTools: Array.isArray(group?.toolCallsPlanned) ? group.toolCallsPlanned.length : 0,
+    })),
+  });
   chatState.liveRows = nextRows;
   return nextRows;
 }
