@@ -1,3 +1,5 @@
+const PAYLOAD_PREVIEW_LIMIT = 32768;
+
 export function resolvePayload(payload = null) {
   if (!payload || typeof payload !== 'object') return null;
   const id = String(payload?.id ?? payload?.Id ?? '').trim();
@@ -14,7 +16,9 @@ export function resolvePayload(payload = null) {
     try {
       return JSON.parse(inlineBody);
     } catch (_) {
-      const preview = inlineBody.length > 4096 ? `${inlineBody.slice(0, 4096)}\n...[truncated]` : inlineBody;
+      const preview = inlineBody.length > PAYLOAD_PREVIEW_LIMIT
+        ? `${inlineBody.slice(0, PAYLOAD_PREVIEW_LIMIT)}\n...[truncated]`
+        : inlineBody;
       return {
         id,
         compression: compression || 'none',
