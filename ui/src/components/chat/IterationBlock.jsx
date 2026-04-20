@@ -356,6 +356,29 @@ function delegatedAgentAssistantText(step = {}) {
   return '';
 }
 
+export function toolStepSummaryText(step = {}) {
+  const payloads = [
+    step?.responsePayload,
+    step?.providerResponsePayload,
+    parseMaybeJSON(step?.responsePayload),
+    parseMaybeJSON(step?.providerResponsePayload)
+  ];
+  for (const payload of payloads) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) continue;
+    const text = truncate(
+      payload?.message
+      || payload?.assistantResponse
+      || payload?.assistant_response
+      || payload?.response
+      || payload?.content
+      || '',
+      120
+    );
+    if (text) return text;
+  }
+  return '';
+}
+
 function groupTitleFromSteps({ preamble, modelStep, toolSteps = [] } = {}) {
   const explicit = truncate(preamble?.content || '', 80);
   if (explicit) return explicit;
@@ -1421,6 +1444,9 @@ export default function IterationBlock({ message, context, showToolFeedDetail = 
                 <div className="app-iteration-tool-row-main">
                   <span className="app-iteration-tool-icon">{displayItemRowIcon(toolStep)}</span>
                   <span className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
+                  {toolStepSummaryText(toolStep) ? (
+                    <span className="app-iteration-model-summary">{toolStepSummaryText(toolStep)}</span>
+                  ) : null}
                 </div>
                 <div className="app-iteration-tool-row-meta">
                   <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
@@ -1436,6 +1462,9 @@ export default function IterationBlock({ message, context, showToolFeedDetail = 
                 <div className="app-iteration-tool-row-main">
                   <span className="app-iteration-tool-icon">{displayItemRowIcon(toolStep)}</span>
                   <span className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
+                  {toolStepSummaryText(toolStep) ? (
+                    <span className="app-iteration-model-summary">{toolStepSummaryText(toolStep)}</span>
+                  ) : null}
                 </div>
                 <div className="app-iteration-tool-row-meta">
                   <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>

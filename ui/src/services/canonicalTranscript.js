@@ -58,7 +58,10 @@ export function normalizeCanonicalToolStep(step = {}, page = {}) {
     kind: 'tool',
     reason: 'tool_call',
     toolName: firstText(step?.toolName, 'tool'),
-    status: firstText(step?.status, page?.status),
+    // Tool rows must render their own lifecycle state. Falling back to the
+    // enclosing page status can make an in-flight tool appear completed just
+    // because the page/model step completed.
+    status: firstText(step?.status),
     latencyMs: 0,
     errorMessage: firstText(step?.errorMessage, page?.errorMessage),
     linkedConversationId: firstText(step?.linkedConversationId),

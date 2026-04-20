@@ -22,7 +22,8 @@ import IterationBlock, {
   resolveIterationBubbleContent,
   shouldShowPreambleBubble,
   hasPendingElicitationStep,
-  phaseBadgeLabel
+  phaseBadgeLabel,
+  toolStepSummaryText
 } from './IterationBlock';
 import { summarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
 
@@ -78,6 +79,15 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(isActiveStatus('streaming')).toBe(true);
     expect(isIterationActive({ status: 'streaming' }, [])).toBe(true);
     expect(statusTone('streaming')).toBe('running');
+  });
+
+  it('surfaces tool progress text from response payloads for execution rows', () => {
+    expect(toolStepSummaryText({
+      toolName: 'llm/agents/status',
+      responsePayload: {
+        message: 'Reviewing site pressure and supply constraints now.'
+      }
+    })).toBe('Reviewing site pressure and supply constraints now.');
   });
 
   it('treats resolved elicitation statuses as terminal and success-toned when appropriate', () => {
