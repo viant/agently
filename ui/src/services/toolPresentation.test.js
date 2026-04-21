@@ -25,6 +25,17 @@ describe('toolPresentation', () => {
     expect(displayStepTitle(step)).toBe('guardian');
   });
 
+  it('does not treat llm/agents:status as an open-thread/delegated-run tool', () => {
+    const step = {
+      toolName: 'llm/agents:status',
+      requestPayload: JSON.stringify({ conversationId: 'child-1' }),
+    };
+
+    expect(isAgentRunTool(step)).toBe(false);
+    expect(delegatedAgentId(step)).toBe('');
+    expect(displayStepTitle(step)).toBe('llm/agents:status');
+  });
+
   it('normalizes model ids into readable titles', () => {
     expect(displayStepTitle({ kind: 'model', provider: 'openai', model: 'gpt-5_4' })).toBe('openai/gpt-5.4');
     expect(displayStepTitle({ kind: 'model', model: 'openai_gpt-5_4' })).toBe('gpt-5.4');

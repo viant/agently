@@ -62,6 +62,7 @@ export default function BubbleMessage({ message, messageIndex = 0 }) {
             <RichContent
               content={String(message?.content || '').trim()}
               generatedFiles={Array.isArray(message?.generatedFiles) ? message.generatedFiles : []}
+              messageId={String(message?.id || '').trim()}
             />
           </div>
         </div>
@@ -86,6 +87,7 @@ export default function BubbleMessage({ message, messageIndex = 0 }) {
           <RichContent
             content={String(message?.content || '').trim()}
             generatedFiles={Array.isArray(message?.generatedFiles) ? message.generatedFiles : []}
+            messageId={String(message?.id || '').trim()}
           />
           {isStreaming ? <span className="app-stream-caret" aria-label="streaming">▍</span> : null}
         </div>

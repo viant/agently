@@ -471,7 +471,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(resolveVisibleBubbleContent(groups)).toBe('');
   });
 
-  it('uses delegated agent status assistantResponse as the execution-details line', () => {
+  it('treats llm/agents:status as a normal tool row, not a delegated-run title source', () => {
     const groups = mapCanonicalExecutionGroups([
       {
         parentMessageId: 'status-1',
@@ -493,7 +493,7 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(groups).toHaveLength(1);
     expect(groups[0]).toMatchObject({
-      title: 'Pulling the analyst results now.',
+      title: 'Using llm/agents/status.',
       groupKind: 'tool'
     });
   });
