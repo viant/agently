@@ -5,6 +5,7 @@ import {
   isPresentableGroup,
   mergeLatestTranscriptAndLiveGroups,
   normalizeModelStep,
+  normalizeToolStep,
   plannedToolCalls
 } from './ExecutionWorkspace';
 
@@ -111,5 +112,27 @@ describe('ExecutionWorkspace helpers', () => {
 
     expect(step.responsePayload).toBe('Final answer');
     expect(step.streamPayload).toBeNull();
+  });
+
+  it('prefers modelCallId and toolCallId as execution workspace step ids', () => {
+    const modelStep = normalizeModelStep({
+      assistantMessageId: 'msg-1',
+      modelSteps: [{
+        modelCallId: 'mc-1',
+        assistantMessageId: 'msg-1',
+        provider: 'openai',
+        model: 'gpt-5.4',
+        status: 'completed'
+      }]
+    });
+    const toolStep = normalizeToolStep({
+      toolCallId: 'tc-1',
+      toolMessageId: 'tm-1',
+      toolName: 'resources-list',
+      status: 'completed'
+    });
+
+    expect(modelStep.id).toBe('mc-1');
+    expect(toolStep.id).toBe('tc-1');
   });
 });

@@ -41,10 +41,34 @@ function UserBubble({ row }) {
   );
 }
 
+function AssistantBubble({ row }) {
+  return (
+    <div
+      data-render-key={row.renderKey}
+      data-message-id={row.messageId || ''}
+    >
+      <BubbleMessage
+        message={{
+          id: row.messageId || row.renderKey,
+          role: 'assistant',
+          content: row.content,
+          createdAt: row.createdAt || '',
+          turnId: row.turnId || '',
+          status: row.status || '',
+          mode: row.mode || '',
+          interim: 0,
+        }}
+      />
+    </div>
+  );
+}
+
 function renderRow(row, context) {
   switch (row.kind) {
     case 'user':
       return <UserBubble key={row.renderKey} row={row} />;
+    case 'assistant':
+      return <AssistantBubble key={row.renderKey} row={row} />;
     case 'iteration':
       return <IterationRowBlock key={row.renderKey} message={rowToLegacyIterationMessage(row)} context={context} />;
     default:

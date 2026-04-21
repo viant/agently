@@ -140,10 +140,12 @@ export function normalizeOne(message = {}) {
   return {
     ...message,
     id: message.id || message.messageId || '',
+    messageId: message.messageId || message.id || '',
     role,
     turnId,
     content,
     createdAt,
+    sequence: Number.isFinite(Number(message.sequence)) ? Number(message.sequence) : null,
     mode,
     interim,
     iteration,
@@ -676,7 +678,14 @@ export function groupIntoIterations(messages = []) {
       const assistantText = String(message?.content || '').trim();
       const isFinalAssistant = role === 'assistant' && Number(message.interim || 0) === 0;
       const streamOwnsBubble = String(message?._bubbleSource || '').trim() === 'stream';
+      const bubbleSource = String(message?._bubbleSource || '').trim();
+      const standaloneAssistantBubble = bubbleSource === 'message_add' || bubbleSource === 'turn_message';
       const hasNonModelStep = execSteps.some((step) => String(step?.kind || '').toLowerCase() !== 'model');
+      if (standaloneAssistantBubble) {
+        flushCurrent();
+        items.push({ type: 'response', message });
+        continue;
+      }
       if (isFinalAssistant && assistantText !== '' && hasNonModelStep && !streamOwnsBubble) {
         // Text arrived alongside tool calls (common in streaming). Treat as
         // preamble so it renders alongside the execution block. Not set as
@@ -719,6 +728,13 @@ export function groupIntoIterations(messages = []) {
 
     if (role === 'assistant' && Number(message.interim || 0) === 0) {
       const streamOwnsBubble = String(message?._bubbleSource || '').trim() === 'stream';
+      const bubbleSource = String(message?._bubbleSource || '').trim();
+      const standaloneAssistantBubble = bubbleSource === 'message_add' || bubbleSource === 'turn_message';
+      if (standaloneAssistantBubble) {
+        flushCurrent();
+        items.push({ type: 'response', message });
+        continue;
+      }
       if (current) {
         attachAgent(message);
         if (!streamOwnsBubble) {
@@ -768,7 +784,10 @@ export function groupIntoIterations(messages = []) {
 }
 
 export function synthesizeIterationMessages(messages = [], visibleCount = Number.MAX_SAFE_INTEGER) {
-  const grouped = dedupeGroupedIterations(groupIntoIterations(messages));
+  const grouped = bindDetachedTurnMessagesToIterations(
+    dedupeGroupedIterations(groupIntoIterations(messages)),
+    messages
+  );
   const iterationTurnIds = new Set(
     grouped
       .filter((item) => item?.type === 'iteration')
@@ -804,7 +823,9 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
       if (isInterim) continue;
       const turnId = String(item?.message?.turnId || '').trim();
       const isElicitation = !!item?.message?.elicitation?.requestedSchema;
-      if (turnId && iterationTurnIds.has(turnId) && !isElicitation) {
+      const bubbleSource = String(item?.message?._bubbleSource || '').trim();
+      const preserveStandalone = bubbleSource === 'message_add' || bubbleSource === 'turn_message';
+      if (turnId && iterationTurnIds.has(turnId) && !isElicitation && !preserveStandalone) {
         continue;
       }
       out.push(item.message);
@@ -896,6 +917,49 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
   });
 
   return out;
+}
+
+function bindDetachedTurnMessagesToIterations(grouped = [], messages = []) {
+  const items = Array.isArray(grouped) ? grouped.map((item) => ({ ...item })) : [];
+  if (items.length === 0) return items;
+  const latestIterationIndexByTurn = new Map();
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    if (item?.type !== 'iteration') continue;
+    const turnId = String(item?.turnId || '').trim();
+    if (!turnId) continue;
+    latestIterationIndexByTurn.set(turnId, index);
+  }
+  if (latestIterationIndexByTurn.size === 0) return items;
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const turnId = String(message?.turnId || '').trim();
+    if (!turnId) continue;
+    const iterationIndex = latestIterationIndexByTurn.get(turnId);
+    if (iterationIndex == null) continue;
+    const bubbleSource = String(message?._bubbleSource || '').trim();
+    if (bubbleSource === 'message_add' || bubbleSource === 'turn_message') continue;
+    const target = items[iterationIndex];
+    if (!target || target.type !== 'iteration') continue;
+    const role = String(message?.role || '').trim().toLowerCase();
+    const mode = String(message?.mode || '').trim().toLowerCase();
+    const phase = String(message?.phase || '').trim().toLowerCase();
+    const isSummary = mode === 'summary' || phase === 'summary' || String(message?.status || '').trim().toLowerCase() === 'summary';
+    if (isSummary) {
+      target.summary = target.summary || message;
+      continue;
+    }
+    if (role !== 'assistant' || Number(message?.interim || 0) !== 0) continue;
+    const hasExecutionEvidence = flattenToolSteps(message).length > 0
+      || ((Array.isArray(message?.executionGroups) ? message.executionGroups.length : 0) > 0)
+      || !!message?.executionGroup;
+    if (hasExecutionEvidence) continue;
+    if (!target.response) {
+      target.response = message;
+      target.status = String(message?.turnStatus || message?.status || target.status || '').trim() || target.status;
+      target.errorMessage = chooseRichString(message?.errorMessage, target?.errorMessage);
+    }
+  }
+  return items;
 }
 
 function dedupeGroupedIterations(grouped = []) {

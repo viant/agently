@@ -195,12 +195,34 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
     if (turn?.user) {
       rows.push(normalizeOne({
         id: turn.user?.messageId || `${turnId}:user`,
+        messageId: turn.user?.messageId || '',
         role: 'user',
         content: turn.user?.content || '',
         turnId,
         turnStatus,
         createdAt: turn?.createdAt || '',
+        sequence: Number.isFinite(Number(turn?.user?.sequence)) ? Number(turn.user.sequence) : null,
         errorMessage: turn?.errorMessage || '',
+        executionGroup: null,
+        executionGroups: []
+      }));
+    }
+
+    const extraMessages = Array.isArray(turn?.messages) ? turn.messages : [];
+    for (const message of extraMessages) {
+      rows.push(normalizeOne({
+        id: message?.messageId || `${turnId}:message`,
+        messageId: message?.messageId || '',
+        _bubbleSource: 'turn_message',
+        role: String(message?.role || '').trim().toLowerCase(),
+        content: message?.content || '',
+        turnId,
+        turnStatus,
+        status: message?.status || '',
+        mode: message?.mode || '',
+        interim: Number(message?.interim || 0) || 0,
+        createdAt: message?.createdAt || turn?.createdAt || '',
+        sequence: Number.isFinite(Number(message?.sequence)) ? Number(message.sequence) : null,
         executionGroup: null,
         executionGroups: []
       }));
@@ -221,6 +243,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
         : (renderPage?.content || assistantFinal?.content || '');
       rows.push(normalizeOne({
         id: renderPage?.assistantMessageId || assistantFinal?.messageId || renderPage?.pageId || turnId,
+        messageId: renderPage?.assistantMessageId || assistantFinal?.messageId || '',
         role: 'assistant',
         interim: renderPageIsActive
           ? 1
@@ -231,6 +254,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
         turnStatus,
         status: renderPage?.status || turnStatus,
         createdAt: turn?.createdAt || '',
+        sequence: Number.isFinite(Number(renderPage?.sequence)) ? Number(renderPage.sequence) : null,
         errorMessage: renderPage?.errorMessage || turn?.errorMessage || '',
         linkedConversations,
         executionGroup: normalizedExecutionPages[0] || null,
@@ -420,7 +444,9 @@ export function buildConversationRenderRows({
       if (role === 'user') return true;
       if (role === 'assistant') {
         const turnId = String(row?.turnId || '').trim();
-        return !turnId || !trackerAssistantTurnIds.has(turnId);
+        const hasExecutionGroups = Array.isArray(row?.executionGroups) && row.executionGroups.length > 0;
+        if (!turnId || !trackerAssistantTurnIds.has(turnId)) return true;
+        return !hasExecutionGroups && Number(row?.interim ?? 0) === 0;
       }
       // Non-user/non-assistant explicit live rows are intentionally excluded here.
       // The tracker projection owns canonical live rendering; explicit rows are

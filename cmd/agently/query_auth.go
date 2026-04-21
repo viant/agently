@@ -129,16 +129,7 @@ func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, provid
 }
 
 func (c *ChatCmd) authenticateWithOOB(ctx context.Context, client *sdk.HTTPClient, secretRef string, scopes []string) error {
-	secretRef = strings.TrimSpace(secretRef)
-	if secretRef == "" {
-		return fmt.Errorf("--oob requires a secrets URL value")
-	}
-	configURL := strings.TrimSpace(c.OAuthCfg)
-	return client.AuthLocalOOBSession(ctx, &sdk.LocalOOBSessionOptions{
-		ConfigURL:  configURL,
-		SecretsURL: secretRef,
-		Scopes:     scopes,
-	})
+	return authenticateWithOOB(ctx, client, secretRef, strings.TrimSpace(c.OAuthCfg), scopes)
 }
 
 func findProvider(providers []authProviderInfo, kind string) *authProviderInfo {

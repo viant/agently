@@ -176,6 +176,57 @@ describe('resolveComposerProps', () => {
     expect(metaDS.state.autoSelectTools).toBe(false);
     expect(convDS.state.autoSelectTools).toBe(false);
   });
+
+  it('keeps the current agent/model visible when metadata option arrays are empty', () => {
+    const metaState = {
+      agent: 'steward',
+      model: 'openai_gpt-5-mini',
+      defaults: {
+        agent: 'steward',
+        model: 'openai_gpt-5-mini',
+      },
+      agentOptions: [],
+      modelOptions: [],
+      agentInfo: {
+        steward: { id: 'steward', name: 'Steward' }
+      },
+      modelInfo: {
+        'openai_gpt-5-mini': { id: 'openai_gpt-5-mini', title: 'GPT-5 Mini' }
+      },
+      starterTasks: [],
+    };
+    const metaDS = {
+      state: metaState,
+      peekFormData: () => metaDS.state,
+      setFormData: ({ values }) => { metaDS.state = values; },
+      setFormField: ({ item, value }) => { metaDS.state = { ...metaDS.state, [item.id]: value }; },
+    };
+    const convDS = {
+      state: { id: 'conv-1' },
+      peekFormData: () => convDS.state,
+      setFormData: ({ values }) => { convDS.state = values; },
+    };
+    const context = {
+      resources: {},
+      Context(name) {
+        if (name === 'meta') return { handlers: { dataSource: metaDS } };
+        if (name === 'conversations') return { handlers: { dataSource: convDS } };
+        return null;
+      },
+    };
+
+    const state = resolveComposerProps({
+      context,
+      container: { chat: { commandCenter: true } },
+    });
+
+    expect(state.agentOptions).toEqual(
+      expect.arrayContaining([{ value: 'steward', label: 'Steward' }])
+    );
+    expect(state.modelOptions).toEqual(
+      expect.arrayContaining([{ value: 'openai_gpt-5-mini', label: 'GPT-5 Mini' }])
+    );
+  });
 });
 
 describe('taskStatusIcon', () => {

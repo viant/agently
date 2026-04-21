@@ -160,11 +160,11 @@ describe('DetailPanel pricing helpers', () => {
       toolName: 'llm/agents/start'
     });
 
-    expect(hydrated.requestPayloadId).toBe('req-start-1');
-    expect(hydrated.responsePayloadId).toBe('resp-start-1');
+    expect(hydrated.requestPayloadId).toBeUndefined();
+    expect(hydrated.responsePayloadId).toBeUndefined();
   });
 
-  it('hydrates model payload data for provider/model matched canonical steps', async () => {
+  it('does not hydrate model payload data without an exact step id', async () => {
     transcriptConversationTurns.mockReturnValue([]);
     flattenCanonicalTranscriptSteps.mockReturnValue([
       {
@@ -186,8 +186,148 @@ describe('DetailPanel pricing helpers', () => {
     });
 
     expect(client.getTranscript).toHaveBeenCalled();
+    expect(hydrated.providerRequestPayloadId).toBeUndefined();
+  });
+
+  it('hydrates model payload data with an exact step id', async () => {
+    transcriptConversationTurns.mockReturnValue([]);
+    flattenCanonicalTranscriptSteps.mockReturnValue([
+      {
+        kind: 'model',
+        id: 'mc-1',
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        providerRequestPayloadId: 'prov-req-1',
+        providerResponsePayloadId: 'prov-resp-1',
+        providerRequestPayload: { request: true },
+        providerResponsePayload: { response: true }
+      }
+    ]);
+
+    const hydrated = await hydrateToolCallFromTranscript({
+      kind: 'model',
+      id: 'mc-1',
+      provider: 'openai',
+      model: 'gpt-5-mini'
+    });
+
     expect(hydrated.providerRequestPayloadId).toBe('prov-req-1');
     expect(hydrated.providerRequestPayload).toEqual({ request: true });
     expect(hydrated.providerResponsePayload).toEqual({ response: true });
+  });
+
+  it('hydrates model payload data with an exact modelCallId even when id is absent', async () => {
+    transcriptConversationTurns.mockReturnValue([]);
+    flattenCanonicalTranscriptSteps.mockReturnValue([
+      {
+        kind: 'model',
+        id: 'mc-1',
+        modelCallId: 'mc-1',
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        providerRequestPayloadId: 'prov-req-1',
+        providerResponsePayloadId: 'prov-resp-1',
+        providerRequestPayload: { request: true },
+        providerResponsePayload: { response: true }
+      }
+    ]);
+
+    const hydrated = await hydrateToolCallFromTranscript({
+      kind: 'model',
+      modelCallId: 'mc-1',
+      provider: 'openai',
+      model: 'gpt-5-mini'
+    });
+
+    expect(hydrated.providerRequestPayloadId).toBe('prov-req-1');
+    expect(hydrated.providerResponsePayload).toEqual({ response: true });
+  });
+
+  it('hydrates tool payload ids with an exact toolCallId even when id is absent', async () => {
+    transcriptConversationTurns.mockReturnValue([]);
+    flattenCanonicalTranscriptSteps.mockReturnValue([
+      {
+        kind: 'tool',
+        id: 'call-1',
+        toolCallId: 'call-1',
+        toolName: 'llm/agents/start',
+        requestPayloadId: 'req-start-1',
+        responsePayloadId: 'resp-start-1'
+      }
+    ]);
+
+    const hydrated = await hydrateToolCallFromTranscript({
+      kind: 'tool',
+      toolCallId: 'call-1',
+      toolName: 'llm/agents/start'
+    });
+
+    expect(hydrated.requestPayloadId).toBe('req-start-1');
+    expect(hydrated.responsePayloadId).toBe('resp-start-1');
+  });
+
+  it('hydrates the correct model row when multiple steps share the same provider/model', async () => {
+    transcriptConversationTurns.mockReturnValue([]);
+    flattenCanonicalTranscriptSteps.mockReturnValue([
+      {
+        kind: 'model',
+        id: 'mc-1',
+        modelCallId: 'mc-1',
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        providerRequestPayloadId: 'prov-req-1',
+        providerRequestPayload: { step: 1 }
+      },
+      {
+        kind: 'model',
+        id: 'mc-2',
+        modelCallId: 'mc-2',
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        providerRequestPayloadId: 'prov-req-2',
+        providerRequestPayload: { step: 2 }
+      }
+    ]);
+
+    const hydrated = await hydrateToolCallFromTranscript({
+      kind: 'model',
+      modelCallId: 'mc-2',
+      provider: 'openai',
+      model: 'gpt-5-mini'
+    });
+
+    expect(hydrated.providerRequestPayloadId).toBe('prov-req-2');
+    expect(hydrated.providerRequestPayload).toEqual({ step: 2 });
+  });
+
+  it('hydrates the correct tool row when multiple steps share the same tool name', async () => {
+    transcriptConversationTurns.mockReturnValue([]);
+    flattenCanonicalTranscriptSteps.mockReturnValue([
+      {
+        kind: 'tool',
+        id: 'call-1',
+        toolCallId: 'call-1',
+        toolName: 'resources-list',
+        requestPayloadId: 'req-1',
+        requestPayload: { path: '/tmp/one' }
+      },
+      {
+        kind: 'tool',
+        id: 'call-2',
+        toolCallId: 'call-2',
+        toolName: 'resources-list',
+        requestPayloadId: 'req-2',
+        requestPayload: { path: '/tmp/two' }
+      }
+    ]);
+
+    const hydrated = await hydrateToolCallFromTranscript({
+      kind: 'tool',
+      toolCallId: 'call-2',
+      toolName: 'resources-list'
+    });
+
+    expect(hydrated.requestPayloadId).toBe('req-2');
+    expect(hydrated.requestPayload).toEqual({ path: '/tmp/two' });
   });
 });

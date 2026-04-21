@@ -20,6 +20,7 @@ import IterationBlock, {
   resolveIterationStatusDetail,
   resolveVisibleBubbleContent,
   resolveIterationBubbleContent,
+  shouldAutoScrollExecutionGroups,
   shouldShowPreambleBubble,
   hasPendingElicitationStep,
   phaseBadgeLabel,
@@ -75,6 +76,37 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(isIterationActive({ status: 'running' }, [])).toBe(true);
   });
 
+  it('never auto-scrolls execution details once the turn is terminal', () => {
+    expect(shouldAutoScrollExecutionGroups({
+      collapsed: false,
+      isActiveIteration: true,
+      iterationDisplayStatus: 'completed',
+    })).toBe(false);
+    expect(shouldAutoScrollExecutionGroups({
+      collapsed: false,
+      isActiveIteration: true,
+      iterationDisplayStatus: 'failed',
+    })).toBe(false);
+    expect(shouldAutoScrollExecutionGroups({
+      collapsed: false,
+      isActiveIteration: true,
+      iterationDisplayStatus: 'running',
+    })).toBe(true);
+  });
+
+  it('keeps a completed parent turn inactive even if linked child conversations are still running', () => {
+    expect(resolveIterationDisplayStatus(
+      { status: 'completed' },
+      [],
+      ['running']
+    )).toBe('completed');
+    expect(isIterationActive(
+      { status: 'completed' },
+      [],
+      ['running']
+    )).toBe(false);
+  });
+
   it('treats streaming execution as active and running-toned', () => {
     expect(isActiveStatus('streaming')).toBe(true);
     expect(isIterationActive({ status: 'streaming' }, [])).toBe(true);
@@ -90,6 +122,33 @@ describe('mapCanonicalExecutionGroups', () => {
     })).toBe('Reviewing site pressure and supply constraints now.');
   });
 
+  it('prefers canonical tool step content for execution-row summaries', () => {
+    expect(toolStepSummaryText({
+      toolName: 'llm/agents/status',
+      content: 'Checking blocker diagnosis on each order in parallel.'
+    })).toBe('Checking blocker diagnosis on each order in parallel.');
+  });
+
+  it('preserves canonical tool step content when mapping execution groups', () => {
+    const groups = mapCanonicalExecutionGroups([{
+      assistantMessageId: 'msg-1',
+      status: 'running',
+      toolSteps: [{
+        toolMessageId: 'tool-msg-1',
+        toolCallId: 'call-1',
+        toolName: 'llm/agents/status',
+        content: 'Reviewing blocker diagnosis in parallel.',
+        status: 'running'
+      }]
+    }]);
+
+    expect(groups[0].toolSteps[0]).toMatchObject({
+      toolName: 'llm/agents/status',
+      content: 'Reviewing blocker diagnosis in parallel.',
+      status: 'running'
+    });
+  });
+
   it('treats resolved elicitation statuses as terminal and success-toned when appropriate', () => {
     expect(statusTone('accepted')).toBe('success');
     expect(statusTone('submitted')).toBe('success');
@@ -97,15 +156,15 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(statusTone('canceled')).toBe('error');
   });
 
-  it('keeps the iteration display status running while a linked child is still active', () => {
+  it('keeps the iteration display status completed when the parent turn is already terminal, even if a linked child is still active', () => {
     const status = resolveIterationDisplayStatus(
       { status: 'completed' },
       [{ status: 'completed', modelStep: { status: 'completed' }, toolSteps: [] }],
       ['running']
     );
-    expect(status).toBe('running');
-    expect(isIterationActive({ status: 'completed' }, [{ status: 'completed', modelStep: { status: 'completed' }, toolSteps: [] }], ['running'])).toBe(true);
-    expect(statusTone(status)).toBe('running');
+    expect(status).toBe('completed');
+    expect(isIterationActive({ status: 'completed' }, [{ status: 'completed', modelStep: { status: 'completed' }, toolSteps: [] }], ['running'])).toBe(false);
+    expect(statusTone(status)).toBe('success');
   });
 
   it('anchors active elapsed time to the latest active execution frontier instead of the oldest completed step', () => {
@@ -1227,7 +1286,7 @@ describe('mapCanonicalExecutionGroups', () => {
     });
     expect(groups[0].toolSteps).toHaveLength(2);
     expect(groups[0].toolSteps[0]).toMatchObject({
-      id: 'tm-1',
+      id: 'tc-1',
       toolCallId: 'tc-1',
       kind: 'tool',
       toolName: 'resources/list',

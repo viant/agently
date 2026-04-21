@@ -15,6 +15,7 @@
  *   T7  lifecycle-only turn_started renders inline (not a main-bubble leak)
  *   T-steer  two explicit mid-turn steering injections render [u0, card, u1, u2]
  *   T-live  active SSE-only turn grows into intake + sidecar + sidecar rounds
+ *   T-note  transcript standalone assistant note renders before later iteration
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -196,6 +197,228 @@ describe('T1 submit bootstrap → SSE echo → transcript hydration', () => {
         expect(rows.filter((r) => r.kind === 'user')).toHaveLength(1);
         const html = render();
         expect((html.match(/hello/g) || []).length).toBe(1);
+    });
+});
+
+// ─── T-note: transcript standalone assistant note ordering ───────────────────
+
+describe('T-note transcript standalone assistant note ordering', () => {
+    it('renders [user, assistant-note, iteration] when a later final page has a higher sequence', () => {
+        onTranscript(CONV, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_note',
+                status: 'completed',
+                user: {
+                    messageId: 'msg_user',
+                    content: 'show me the workspace',
+                    sequence: 1,
+                },
+                messages: [{
+                    messageId: 'msg_note',
+                    role: 'assistant',
+                    content: 'PRELIMINARY NOTE',
+                    sequence: 8,
+                    createdAt: '2026-04-21T00:00:08Z',
+                }],
+                execution: {
+                    pages: [{
+                        pageId: 'page_final',
+                        assistantMessageId: 'page_final',
+                        sequence: 9,
+                        status: 'completed',
+                        finalResponse: true,
+                        content: 'Final answer',
+                    }],
+                },
+            }],
+        });
+
+        const rows = getProjection(CONV);
+        expect(rows.map((r) => r.kind)).toEqual(['user', 'assistant', 'iteration']);
+        const html = render();
+        const idxUser = html.indexOf('show me the workspace');
+        const idxNote = html.indexOf('PRELIMINARY NOTE');
+        const idxFinal = html.indexOf('Final answer');
+        expect(idxUser).toBeGreaterThanOrEqual(0);
+        expect(idxNote).toBeGreaterThan(idxUser);
+        expect(idxFinal).toBeGreaterThan(idxNote);
+    });
+});
+
+describe('T-note-live control message_add ordering', () => {
+    it('renders a live standalone assistant note before the later iteration content in the same turn', () => {
+        onSSE(CONV, {
+            type: 'turn_started',
+            conversationId: CONV,
+            turnId: 'tn_live_note',
+            createdAt: '2026-04-21T00:00:00Z',
+        });
+        onSSE(CONV, {
+            type: 'control',
+            conversationId: CONV,
+            turnId: 'tn_live_note',
+            op: 'message_add',
+            messageId: 'msg_note_live',
+            patch: {
+                id: 'msg_note_live',
+                turnId: 'tn_live_note',
+                role: 'assistant',
+                content: 'PRELIMINARY NOTE',
+                sequence: 8,
+                interim: 0,
+                createdAt: '2026-04-21T00:00:08Z',
+            },
+        });
+        onSSE(CONV, {
+            type: 'assistant_final',
+            conversationId: CONV,
+            turnId: 'tn_live_note',
+            pageId: 'page_final_live',
+            assistantMessageId: 'page_final_live',
+            content: 'Final answer',
+            iteration: 1,
+            createdAt: '2026-04-21T00:00:09Z',
+        });
+
+        const rows = getProjection(CONV);
+        expect(rows.map((r) => r.kind)).toEqual(['assistant', 'iteration']);
+        const html = render();
+        const idxNote = html.indexOf('PRELIMINARY NOTE');
+        const idxFinal = html.indexOf('Final answer');
+        expect(idxNote).toBeGreaterThanOrEqual(0);
+        expect(idxFinal).toBeGreaterThan(idxNote);
+    });
+});
+
+describe('T-steer-transcript transcript extra user ordering', () => {
+    it('renders [user, iteration, user] when a later same-turn user message has a higher sequence than the final page', () => {
+        onTranscript(CONV, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_transcript_steer',
+                status: 'completed',
+                user: {
+                    messageId: 'msg_user_1',
+                    content: 'Initial ask',
+                    sequence: 1,
+                },
+                messages: [{
+                    messageId: 'msg_user_2',
+                    role: 'user',
+                    content: 'Steer: narrow scope',
+                    sequence: 10,
+                    createdAt: '2026-04-21T00:00:10Z',
+                }],
+                execution: {
+                    pages: [{
+                        pageId: 'page_final',
+                        assistantMessageId: 'page_final',
+                        sequence: 9,
+                        status: 'completed',
+                        finalResponse: true,
+                        content: 'Final answer',
+                    }],
+                },
+            }],
+        });
+
+        const rows = getProjection(CONV);
+        expect(rows.map((r) => r.kind)).toEqual(['user', 'iteration', 'user']);
+        const html = render();
+        const idxUser1 = html.indexOf('Initial ask');
+        const idxFinal = html.indexOf('Final answer');
+        const idxUser2 = html.indexOf('Steer: narrow scope');
+        expect(idxUser1).toBeGreaterThanOrEqual(0);
+        expect(idxFinal).toBeGreaterThan(idxUser1);
+        expect(idxUser2).toBeGreaterThan(idxFinal);
+    });
+});
+
+describe('T-parent-terminal linked child still running', () => {
+    it('renders the parent iteration as settled even when linked child status is still running', () => {
+        onTranscript(CONV, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_parent_done',
+                status: 'completed',
+                user: {
+                    messageId: 'msg_user_parent',
+                    content: 'Summarize the result',
+                    sequence: 1,
+                },
+                execution: {
+                    pages: [{
+                        pageId: 'page_parent_done',
+                        assistantMessageId: 'page_parent_done',
+                        sequence: 2,
+                        status: 'completed',
+                        finalResponse: true,
+                        content: 'Parent answer',
+                    }],
+                },
+                linkedConversations: [{
+                    conversationId: 'child-1',
+                    agentId: 'worker',
+                    status: 'running',
+                    title: 'Child run',
+                }],
+            }],
+        });
+
+        const rows = getProjection(CONV);
+        expect(rows.map((r) => r.kind)).toEqual(['user', 'iteration']);
+        const iteration = rows.find((r) => r.kind === 'iteration');
+        expect(iteration.lifecycle).toBe('completed');
+
+        const html = render();
+        expect(html).toContain('Execution details');
+        expect(html).toContain('tone-success');
+        expect(html).not.toContain('tone-running');
+    });
+
+    it('keeps the live feed settled when a linked child was attached before the parent turn completed', () => {
+        onSSE(CONV, {
+            type: 'turn_started',
+            conversationId: CONV,
+            turnId: 'tn_parent_live_done',
+            createdAt: '2026-04-21T00:00:00Z',
+        });
+        onSSE(CONV, {
+            type: 'linked_conversation_attached',
+            conversationId: CONV,
+            turnId: 'tn_parent_live_done',
+            linkedConversationId: 'child-live-1',
+            linkedConversationAgentId: 'worker',
+            linkedConversationTitle: 'Child live run',
+            status: 'running',
+            createdAt: '2026-04-21T00:00:01Z',
+        });
+        onSSE(CONV, {
+            type: 'assistant_final',
+            conversationId: CONV,
+            turnId: 'tn_parent_live_done',
+            pageId: 'page_parent_live_done',
+            assistantMessageId: 'page_parent_live_done',
+            content: 'Parent answer',
+            iteration: 1,
+            createdAt: '2026-04-21T00:00:02Z',
+        });
+        onSSE(CONV, {
+            type: 'turn_completed',
+            conversationId: CONV,
+            turnId: 'tn_parent_live_done',
+            createdAt: '2026-04-21T00:00:03Z',
+        });
+
+        const rows = getProjection(CONV);
+        expect(rows.map((r) => r.kind)).toEqual(['iteration']);
+        const iteration = rows.find((r) => r.kind === 'iteration');
+        expect(iteration.lifecycle).toBe('completed');
+
+        const html = render();
+        expect(html).toContain('tone-success');
+        expect(html).not.toContain('tone-running');
     });
 });
 

@@ -307,7 +307,7 @@ export async function hydrateToolCallFromTranscript(toolCall = {}) {
   } catch (_) {
     return toolCall;
   }
-  const targetId = String(toolCall?.id || '').trim();
+  const targetId = String(toolCall?.id || toolCall?.modelCallId || toolCall?.toolCallId || '').trim();
   const targetName = String(toolCall?.toolName || '').trim().toLowerCase().replace(/[:\-_]/g, '');
   const targetKind = String(
     toolCall?.kind
@@ -315,22 +315,27 @@ export async function hydrateToolCallFromTranscript(toolCall = {}) {
     || (toolCall?.toolName ? 'tool' : '')
     || ''
   ).trim().toLowerCase();
-  for (const candidate of flattenCanonicalTranscriptSteps(turns)) {
+  const candidates = flattenCanonicalTranscriptSteps(turns);
+  if (targetKind === 'model') {
+    if (!targetId) return toolCall;
+    const exact = candidates.find((candidate) => (
+      String(candidate.kind || '').toLowerCase() === 'model'
+      && (
+        String(candidate.id || '').trim() === targetId
+        || String(candidate.modelCallId || '').trim() === targetId
+      )
+    ));
+    if (exact) return mergeHydratedToolCall(toolCall, exact);
+    return toolCall;
+  }
+  for (const candidate of candidates) {
     const candidateId = String(candidate.id || '').trim();
-    const candidateName = String(candidate.toolName || '').trim().toLowerCase().replace(/[:\-_]/g, '');
-    if (targetKind === 'model' && String(candidate.kind || '').toLowerCase() === 'model') {
-      const idMatch = targetId && candidateId === targetId;
-      const modelMatch = toolCall?.model && candidate.model && String(candidate.model).toLowerCase() === String(toolCall.model).toLowerCase();
-      const providerMatch = toolCall?.provider && candidate.provider && String(candidate.provider).toLowerCase() === String(toolCall.provider).toLowerCase();
-      if (idMatch || ((modelMatch || providerMatch) && toolCallHasResolvedPayloadContent(candidate))) {
+    if ((targetKind === 'tool' || targetKind === '') && String(candidate.kind || '').toLowerCase() === 'tool') {
+      if (targetId && candidateId === targetId) {
         return mergeHydratedToolCall(toolCall, candidate);
       }
-    }
-    if ((targetKind === 'tool' || targetKind === '') && String(candidate.kind || '').toLowerCase() === 'tool') {
-      if ((targetId && candidateId === targetId) || (targetName && candidateName === targetName)) {
-        if (toolCallHasPayloadReference(candidate) || (targetId && candidateId === targetId)) {
-          return mergeHydratedToolCall(toolCall, candidate);
-        }
+      if (targetId && String(candidate.toolCallId || '').trim() === targetId) {
+        return mergeHydratedToolCall(toolCall, candidate);
       }
     }
   }

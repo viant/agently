@@ -29,7 +29,8 @@ import {
   tickTranscript
 } from './transcriptStore';
 import {
-  applyAssistantFinalEvent,
+  applyAssistantMessageAddEvent,
+  applyAssistantTerminalEvent,
   applyElicitationRequestedEvent,
   applyExecutionStreamEvent,
   applyMessagePatchEvent,
@@ -959,7 +960,16 @@ export function renderMergedRowsForContext(context) {
         id: row?.id,
         type: row?._type || row?.role,
         mode: row?.mode || '',
-        head: String(row?.content || '').slice(0, 60)
+        head: String(row?.content || '').slice(0, 60),
+        groups: (row?.executionGroups || []).map((g) => ({
+          kind: g?.groupKind || '',
+          title: g?.title || '',
+          toolSteps: (g?.toolSteps || []).map((step) => ({
+            toolName: step?.toolName || '',
+            status: step?.status || '',
+            contentHead: String(step?.content || '').slice(0, 80)
+          }))
+        }))
       })),
       liveRows: effectiveLiveRows.map((r) => ({
         id: r?.id, role: r?.role, turnId: r?.turnId, interim: r?.interim,
@@ -980,7 +990,12 @@ export function renderMergedRowsForContext(context) {
           kind: g?.groupKind || '',
           title: g?.title || '',
           modelRequestPayloadId: g?.modelSteps?.[0]?.requestPayloadId || '',
-          modelProviderRequestPayloadId: g?.modelSteps?.[0]?.providerRequestPayloadId || ''
+          modelProviderRequestPayloadId: g?.modelSteps?.[0]?.providerRequestPayloadId || '',
+          toolSteps: (g?.toolSteps || []).map((step) => ({
+            toolName: step?.toolName || '',
+            status: step?.status || '',
+            contentHead: String(step?.content || '').slice(0, 80)
+          }))
         }))
       }))
     });
@@ -1844,6 +1859,14 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         });
         applyMessagePatchEvent(chatState, payload);
         renderMergedRowsForContext(context);
+      } else if (op === 'message_add') {
+        chatState.lastHasRunning = true;
+        logStreamDebug(chatState, 'stream-control-message-add', {
+          op: String(payload?.op || '').trim(),
+          messageId: String(payload?.id || '').trim()
+        });
+        applyAssistantMessageAddEvent(chatState, payload);
+        renderMergedRowsForContext(context);
       } else {
         logStreamDebug(chatState, 'stream-control', {
           op: String(payload?.op || '').trim()
@@ -1948,11 +1971,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     if (type === 'assistant_final') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
-      // assistant_final carries the final response content + finalResponse: true.
-      // Use applyAssistantFinalEvent (not applyExecutionStreamEvent) to update
-      // the existing row's content without creating a new execution group —
-      // assistant_final's assistantMessageId may differ from model_started's.
-      applyAssistantFinalEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload));
+      // assistant_final is terminal content for the active execution row,
+      // not "the one final assistant message of the turn".
+      applyAssistantTerminalEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload));
       applyStreamConversationState(context, 'thinking', payload);
       setStage({ phase: 'executing', text: 'Assistant responding…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       renderMergedRowsForContext(context);

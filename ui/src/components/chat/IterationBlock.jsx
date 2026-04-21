@@ -357,6 +357,8 @@ function delegatedAgentAssistantText(step = {}) {
 }
 
 export function toolStepSummaryText(step = {}) {
+  const explicit = truncate(step?.content || '', 120);
+  if (explicit) return explicit;
   const payloads = [
     step?.responsePayload,
     step?.providerResponsePayload,
@@ -541,7 +543,9 @@ export function mapCanonicalExecutionGroups(groups = []) {
       if (id && !toolMessageByID.has(id)) toolMessageByID.set(id, ts);
     });
     const modelStep = modelStep0 ? {
-      id: modelStep0?.modelCallId || group?.modelMessageId || group?.ModelMessageID || group?.parentMessageId || group?.ParentMessageID || `model:${index}`,
+      id: modelStep0?.modelCallId || modelStep0?.assistantMessageId || group?.modelMessageId || group?.ModelMessageID || group?.parentMessageId || group?.ParentMessageID || `model:${index}`,
+      modelCallId: modelStep0?.modelCallId || '',
+      assistantMessageId: modelStep0?.assistantMessageId || group?.assistantMessageId || group?.pageId || '',
       kind: 'model',
       reason: group?.finalResponse || group?.FinalResponse ? 'final_response' : 'thinking',
       phase: modelStep0?.phase || modelStep0?.Phase || group?.phase || group?.Phase || '',
@@ -568,11 +572,12 @@ export function mapCanonicalExecutionGroups(groups = []) {
       const stepKind = String(ts?.kind || '').trim().toLowerCase() || 'tool';
       const stepReason = String(ts?.reason || '').trim() || (stepKind === 'turn' ? String(ts?.toolName || '').trim() : 'tool_call');
       return {
-        id: messageID || ts?.toolCallId || ts?.opId || ts?.OpId || `tool:${index}:${toolIndex}`,
+        id: ts?.toolCallId || ts?.ToolCallID || ts?.opId || ts?.OpId || messageID || `tool:${index}:${toolIndex}`,
         toolCallId: ts?.toolCallId || ts?.ToolCallID || ts?.opId || ts?.OpId || '',
         kind: stepKind,
         reason: stepReason,
         toolName: ts?.toolName || ts?.ToolName || toolMessage?.toolName || toolMessage?.ToolName || 'tool',
+        content: ts?.content || ts?.Content || toolMessage?.content || toolMessage?.Content || '',
         status: ts?.status || ts?.Status || '',
         latencyMs: ts?.latencyMs || ts?.LatencyMs || null,
         startedAt: ts?.startedAt || ts?.StartedAt || '',
@@ -1041,6 +1046,7 @@ export function resolveIterationDisplayStatus(data = {}, groups = [], linkedStat
   const groupList = Array.isArray(groups) ? groups : [];
   const linkedList = Array.isArray(linkedStatuses) ? linkedStatuses : [];
   const dataStatus = String(data?.status || '').trim();
+  const normalizedDataStatus = dataStatus.toLowerCase();
   const lifecycleSteps = groupList
     .filter((group) => String(group?.groupKind || '').trim().toLowerCase() === 'lifecycle')
     .flatMap((group) => Array.isArray(group?.toolSteps) ? group.toolSteps : []);
@@ -1064,6 +1070,13 @@ export function resolveIterationDisplayStatus(data = {}, groups = [], linkedStat
   if (hasStartedLifecycle) {
     return 'running';
   }
+  if (isTerminalTurnStatus(normalizedDataStatus)) {
+    return normalizedDataStatus === 'success' || normalizedDataStatus === 'succeeded' || normalizedDataStatus === 'done'
+      ? 'completed'
+      : normalizedDataStatus === 'cancelled'
+        ? 'canceled'
+        : normalizedDataStatus;
+  }
   if (linkedList.some((status) => isLinkedConversationActive(status))) {
     return 'running';
   }
@@ -1074,8 +1087,8 @@ export function resolveIterationDisplayStatus(data = {}, groups = [], linkedStat
   ))) {
     return 'running';
   }
-  if (isErrorStatus(dataStatus)) {
-    return dataStatus;
+  if (isErrorStatus(normalizedDataStatus)) {
+    return normalizedDataStatus;
   }
   if (groupList.some((group) => (
     isErrorStatus(group?.status)
@@ -1084,8 +1097,8 @@ export function resolveIterationDisplayStatus(data = {}, groups = [], linkedStat
   )) || linkedList.some((status) => isErrorStatus(status))) {
     return 'failed';
   }
-  if (String(dataStatus).trim()) {
-    return dataStatus;
+  if (normalizedDataStatus) {
+    return normalizedDataStatus;
   }
   const completedGroup = groupList.some((group) => (
     !isActiveStatus(group?.status)
@@ -1147,6 +1160,13 @@ export function resolveIterationElapsedAnchor(data = {}, groups = [], linkedConv
     || earliestStartedAt(allSteps)
     || earliestStartedAt(linkedConversationStates)
     || 0;
+}
+
+export function shouldAutoScrollExecutionGroups({ collapsed = false, isActiveIteration = false, iterationDisplayStatus = '' } = {}) {
+  if (collapsed) return false;
+  if (!isActiveIteration) return false;
+  if (isTerminalTurnStatus(iterationDisplayStatus)) return false;
+  return true;
 }
 
 export default function IterationBlock({ message, context, showToolFeedDetail = true }) {
@@ -1765,12 +1785,12 @@ export default function IterationBlock({ message, context, showToolFeedDetail = 
   }, [hasVisibleElicitation, elicitationStatus, message?.id]);
 
   useEffect(() => {
-    if (!isActiveIteration || collapsed) return;
+    if (!shouldAutoScrollExecutionGroups({ collapsed, isActiveIteration, iterationDisplayStatus })) return;
     const el = groupsRef.current;
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [collapsed, isActiveIteration, visibleGroups]);
+  }, [collapsed, isActiveIteration, iterationDisplayStatus, visibleGroups]);
 
   return (
     <>

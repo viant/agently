@@ -149,7 +149,6 @@ describe('normalizeMessages', () => {
 
     const normalized = normalizeMessages(messages, { visibleCount: 3 });
     const iteration = normalized.find((entry) => entry?._type === 'iteration');
-
     expect(normalized.some((entry) => String(entry?.content || '').includes('Saved 3 actionable recommendations'))).toBe(false);
     expect(iteration?._iterationData?.summary).toMatchObject({
       id: 'a2',
@@ -661,6 +660,60 @@ describe('normalizeMessages', () => {
     });
   });
 
+  it('preserves canonical tool step content for llm/agents status rows', () => {
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-status',
+        createdAt: '2026-01-01T10:00:00Z',
+        content: 'analyze blockers'
+      },
+      {
+        id: 'tool-status',
+        role: 'tool',
+        type: 'tool_op',
+        turnId: 'turn-status',
+        createdAt: '2026-01-01T10:00:01Z',
+        content: '',
+        status: 'running',
+        toolName: 'llm/agents:status',
+        executionGroups: [
+          {
+            parentMessageId: 'model-1',
+            modelMessageId: 'model-1',
+            sequence: 1,
+            status: 'running',
+            preamble: 'Checking blocker diagnosis.',
+            modelCall: {
+              provider: 'openai',
+              model: 'gpt-5.4',
+              status: 'running'
+            },
+            toolSteps: [
+              {
+                toolMessageId: 'tool-status',
+                toolCallId: 'call-status',
+                toolName: 'llm/agents:status',
+                content: 'Reviewing blocker diagnosis on each order in parallel.',
+                status: 'running'
+              }
+            ]
+          }
+        ]
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: 1 });
+    const iteration = normalized.find((entry) => entry?._type === 'iteration');
+
+    expect(iteration?._iterationData?.executionGroups?.[0]?.toolSteps?.[0]).toMatchObject({
+      toolName: 'llm/agents:status',
+      content: 'Reviewing blocker diagnosis on each order in parallel.',
+      status: 'running'
+    });
+  });
+
   it('creates an iteration block from a final assistant row when canonical executionGroups arrive without an earlier interim row', () => {
     const messages = [
       {
@@ -942,6 +995,51 @@ describe('normalizeMessages', () => {
     expect(streams).toHaveLength(1);
     expect(assistantBubbles).toHaveLength(1);
     expect(String(assistantBubbles[0]?.content || '')).toContain('Hi! How can I help you today?');
+  });
+
+  it('keeps message_add assistant rows as standalone bubbles even in the same turn as an iteration', () => {
+    const normalized = normalizeMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        content: 'Check blockers',
+        createdAt: '2026-01-01T10:00:00Z'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 1,
+        createdAt: '2026-01-01T10:00:01Z',
+        content: 'Checking baseline…',
+        executionGroups: [
+          {
+            pageId: 'page-1',
+            assistantMessageId: 'a1',
+            status: 'running',
+            modelSteps: [{ modelCallId: 'mc-1', assistantMessageId: 'a1', status: 'running' }],
+            toolSteps: []
+          }
+        ]
+      },
+      {
+        id: 'assistant-note-1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 0,
+        _bubbleSource: 'message_add',
+        createdAt: '2026-01-01T10:00:02Z',
+        content: 'PRELIMINARY NOTE'
+      }
+    ], { visibleCount: Number.MAX_SAFE_INTEGER });
+
+    const standaloneAssistant = normalized.find((entry) => entry?.id === 'assistant-note-1');
+    expect(normalized.filter((entry) => entry?._type === 'iteration')).toHaveLength(1);
+    expect(standaloneAssistant).toMatchObject({
+      role: 'assistant',
+      content: 'PRELIMINARY NOTE'
+    });
   });
 
   it('keeps an interim assistant row even when its content matches the latest user message', () => {

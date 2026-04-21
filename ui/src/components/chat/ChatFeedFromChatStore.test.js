@@ -70,6 +70,34 @@ describe('ChatFeedFromChatStore', () => {
     expect(idxU2).toBeGreaterThan(idxU1);
   });
 
+  it('renders standalone assistant bubbles from transcript-backed rows', () => {
+    const rows = [
+      { kind: 'user', renderKey: 'rk_u0', turnId: 'tn_1', content: 'first', createdAt: 't0' },
+      { kind: 'assistant', renderKey: 'rk_a0', turnId: 'tn_1', messageId: 'msg_a0', content: 'PRELIMINARY NOTE', createdAt: 't1' },
+      {
+        kind: 'iteration',
+        renderKey: 'rk_iter',
+        turnId: 'tn_1',
+        lifecycle: 'completed',
+        rounds: [],
+        elicitation: null,
+        linkedConversations: [],
+        header: { label: 'Completed', tone: 'success', count: 0 },
+        isStreaming: false,
+        createdAt: 't2',
+      },
+    ];
+    const html = renderToStaticMarkup(
+      h(ChatFeedFromChatStore, { conversationId: 'c', rowsOverride: rows }),
+    );
+    const idxUser = html.indexOf('first');
+    const idxAssistant = html.indexOf('PRELIMINARY NOTE');
+    const idxIter = html.indexOf('Execution details');
+    expect(idxAssistant).toBeGreaterThan(idxUser);
+    expect(idxIter).toBeGreaterThan(idxAssistant);
+    expect(html).toContain('app-bubble-row-assistant');
+  });
+
   it('never produces "(0)" for lifecycle-only turn_started', () => {
     const rows = [
       {

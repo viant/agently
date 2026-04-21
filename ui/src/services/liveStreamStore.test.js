@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyAssistantMessageAddEvent,
   applyElicitationRequestedEvent,
   applyExecutionStreamEvent,
-  applyAssistantFinalEvent,
+  applyAssistantTerminalEvent,
   applyMessagePatchEvent,
   applyPreambleEvent,
   applyToolStreamEvent,
@@ -132,6 +133,25 @@ describe('applyStreamChunk', () => {
 });
 
 describe('applyExecutionStreamEvent', () => {
+  it('keeps modelCallId distinct from assistantMessageId on model lifecycle rows', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      type: 'model_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'msg-1',
+      modelCallId: 'mc-1',
+      model: { provider: 'openai', model: 'gpt-5.4' },
+      status: 'running'
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0]).toMatchObject({
+      assistantMessageId: 'msg-1',
+      modelCallId: 'mc-1'
+    });
+  });
+
   it('records turn_started as an execution-details lifecycle entry even before model_started', () => {
     const chatState = { liveRows: [], activeStreamPrompt: 'hi' };
 
@@ -433,7 +453,7 @@ describe('applyExecutionStreamEvent', () => {
     // Bug: assistant_final has a different assistantMessageId than model_started,
     // so applyExecutionStreamEvent created a second execution group with empty
     // model info — showing "Execution details (2)" with a phantom model entry.
-    // Fix: use applyAssistantFinalEvent which updates row content and the last
+    // Fix: use applyAssistantTerminalEvent which updates row content and the last
     // execution group's content/finalResponse without adding new groups.
     const chatState = { liveRows: [] };
 
@@ -454,7 +474,7 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0].content).toBe('Thinking about your request…');
 
     // Step 2: assistant_final arrives with DIFFERENT assistantMessageId
-    applyAssistantFinalEvent(chatState, {
+    applyAssistantTerminalEvent(chatState, {
       assistantMessageId: 'assistant-msg-1',
       conversationId: 'conv-1',
       turnId: 'turn-1',
@@ -916,7 +936,7 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
 
     // 3. assistant_final updates the same row
-    applyAssistantFinalEvent(chatState, {
+    applyAssistantTerminalEvent(chatState, {
       assistantMessageId: 'msg-456',
       turnId: 'turn-1',
       content: '{"HOME": "/Users/awitas"}',
@@ -927,6 +947,99 @@ describe('applyExecutionStreamEvent', () => {
   expect(chatState.liveRows).toHaveLength(1);
   expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
   expect(chatState.liveRows[0].interim).toBe(1);
+  });
+
+  it('message_add creates a standalone assistant row instead of merging into execution details', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      preamble: 'Checking things…',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'conv-1');
+
+    applyAssistantMessageAddEvent(chatState, {
+      id: 'assistant-note-1',
+      op: 'message_add',
+      patch: {
+        role: 'assistant',
+        turnId: 'turn-1',
+        content: 'Preliminary investigation: PMP supply looks constrained.',
+        interim: 0,
+        mode: 'task',
+        createdAt: '2026-03-16T10:00:02Z'
+      }
+    });
+
+    expect(chatState.liveRows).toHaveLength(2);
+    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
+    expect(chatState.liveRows[1]).toMatchObject({
+      id: 'assistant-note-1',
+      role: 'assistant',
+      content: 'Preliminary investigation: PMP supply looks constrained.',
+      interim: 0
+    });
+    expect(chatState.liveRows[1].executionGroups).toEqual([]);
+  });
+
+  it('starts a new execution bubble after a standalone assistant note in the same turn', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      preamble: 'Checking baseline…',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'conv-1');
+
+    applyAssistantMessageAddEvent(chatState, {
+      id: 'assistant-note-1',
+      op: 'message_add',
+      patch: {
+        role: 'assistant',
+        turnId: 'turn-1',
+        content: 'PRELIMINARY NOTE',
+        interim: 0,
+        mode: 'task',
+        createdAt: '2026-03-16T10:00:02Z'
+      }
+    });
+
+    applyPreambleEvent(chatState, {
+      assistantMessageId: 'mc-2',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 2,
+      content: 'Calling llm/agents/start.',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:03Z'
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(3);
+    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
+    expect(chatState.liveRows[1]).toMatchObject({
+      id: 'assistant-note-1',
+      role: 'assistant',
+      content: 'PRELIMINARY NOTE'
+    });
+    expect(chatState.liveRows[2]).toMatchObject({
+      id: 'mc-2',
+      role: 'assistant',
+      content: 'Calling llm/agents/start.'
+    });
+    expect(chatState.liveRows[2].executionGroups[0]).toMatchObject({
+      assistantMessageId: 'mc-2',
+      preamble: 'Calling llm/agents/start.'
+    });
   });
 
   it('handles 3 parallel tool calls in a single iteration', () => {
@@ -1026,7 +1139,7 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0].executionGroups[0].toolSteps).toHaveLength(3);
 
     // assistant_final
-    applyAssistantFinalEvent(chatState, {
+    applyAssistantTerminalEvent(chatState, {
       assistantMessageId: 'msg-final',
       turnId: 'turn-1',
       content: 'Here are the results.',
@@ -1082,7 +1195,7 @@ describe('applyExecutionStreamEvent', () => {
     expect(step.toolName).toBe('system_os/exec');
 
     // Turn can still get a final response after tool failure
-    applyAssistantFinalEvent(chatState, {
+    applyAssistantTerminalEvent(chatState, {
       turnId: 'turn-1',
       content: 'The command failed. Let me try another approach.',
       finalResponse: true
@@ -1271,7 +1384,7 @@ describe('applyExecutionStreamEvent', () => {
       model: { provider: 'openai', model: 'gpt-5.2' }
     }, 'conv-1');
 
-    applyAssistantFinalEvent(chatState, {
+    applyAssistantTerminalEvent(chatState, {
       turnId: 'turn-1',
       content: 'Hi! How can I help?',
       finalResponse: true
@@ -1556,7 +1669,7 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
 
     // 8. assistant_final
-    applyAssistantFinalEvent(chatState, {
+    applyAssistantTerminalEvent(chatState, {
       assistantMessageId: 'msg-final',
       turnId: 'turn-1',
       content: '```json\n{"HOME": "/Users/awitas"}\n```',
@@ -1653,7 +1766,7 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0]._streamContent).toBe('Hello world');
 
     // 4. assistant_final replaces content
-    applyAssistantFinalEvent(chatState, {
+    applyAssistantTerminalEvent(chatState, {
       turnId: 'turn-1',
       content: 'Hello world!',
       finalResponse: true

@@ -272,17 +272,20 @@ export function normalizeDashboardPayload(payload) {
 
     if (block?.kind === 'dashboard.summary' && Array.isArray(block.items)) {
       const target = {};
+      const itemLabels = {};
       for (const item of block.items) {
         const metricKey = String(item?.metricKey || item?.id || item?.label || '').trim();
         if (!metricKey) continue;
         target[metricKey] = normalizeMetricValue(item?.value ?? null);
+        const label = String(item?.label || '').trim();
+        if (label) itemLabels[metricKey] = label;
       }
       metrics[keyBase] = target;
       return {
         ...block,
         metrics: Object.keys(target).map((metric) => ({
           id: metric,
-          label: titleizeDashboardKey(metric),
+          label: itemLabels[metric] || titleizeDashboardKey(metric),
           selector: `${keyBase}.${metric}`,
           format: inferMetricFormat(metric, target[metric]),
         })),

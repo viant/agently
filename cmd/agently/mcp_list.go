@@ -21,6 +21,9 @@ type MCPListCmd struct {
 	API          string `long:"api" description:"Server URL (skip local auto-detect)"`
 	Token        string `long:"token" description:"Bearer token for API requests (overrides AGENTLY_TOKEN)"`
 	Session      string `long:"session" description:"Session cookie value for API requests (agently_session)"`
+	OOB          string `long:"oob" description:"Use local scy OAuth2 out-of-band login with the supplied secrets URL"`
+	OAuthCfg     string `long:"oauth-config" description:"Optional scy OAuth config URL override for client-side OOB login"`
+	OAuthScp     string `long:"oauth-scopes" description:"comma-separated OAuth scopes for OOB login"`
 	JSON         bool   `long:"json" description:"Print result as JSON instead of plain text"`
 	Example      bool   `long:"example" description:"Include an example request derived from the tool input schema"`
 	Schema       bool   `long:"schema" description:"Include input schema in plain-text output"`
@@ -56,7 +59,7 @@ func (c *MCPListCmd) Execute(_ []string) error {
 	if err != nil {
 		return fmt.Errorf("sdk client: %w", err)
 	}
-	if err := ensureToolAuth(ctx, client, providers, c.Token, c.Session); err != nil {
+	if err := ensureToolAuth(ctx, client, providers, c.Token, c.Session, c.OOB, c.OAuthCfg, c.OAuthScp); err != nil {
 		return err
 	}
 
