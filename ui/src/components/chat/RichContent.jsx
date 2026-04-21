@@ -488,6 +488,73 @@ function isDashboardPayload(value) {
   return blocks.some((block) => DASHBOARD_BLOCK_KINDS.includes(String(block?.kind || '').trim()));
 }
 
+function sanitizeForgeScopeSegment(value = '') {
+  return String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+export function resolveForgeScope(payload = {}, messageId = '') {
+  const explicit = sanitizeForgeScopeSegment(payload?.scope || payload?.dashboardScope || '');
+  if (explicit) return `scope:${explicit}`;
+  const message = sanitizeForgeScopeSegment(messageId || '');
+  if (message) return `msg:${message}`;
+  return 'msg:unknown';
+}
+
+function scopedForgeDashboardKey(scopeKey = '') {
+  return `forge-ui:${scopeKey || 'msg:unknown'}`;
+}
+
+function scopedForgeDataSourceId(scopeKey = '', localId = '') {
+  const normalized = sanitizeForgeScopeSegment(localId || '');
+  return `${scopedForgeDashboardKey(scopeKey)}:ds:${normalized || 'data'}`;
+}
+
+export function scopeForgeDashboardPayload(payload = {}, dataBlocks = [], messageId = '') {
+  const scopeKey = resolveForgeScope(payload, messageId);
+  const dashboardKey = scopedForgeDashboardKey(scopeKey);
+  const scopedDataBlocks = [];
+  const dataSourceIdMap = new Map();
+
+  for (const rawBlock of Array.isArray(dataBlocks) ? dataBlocks : []) {
+    const normalized = validateForgeDataBlock(rawBlock);
+    const localId = String(normalized.id || '').trim();
+    const scopedId = scopedForgeDataSourceId(scopeKey, localId);
+    dataSourceIdMap.set(localId, scopedId);
+    scopedDataBlocks.push({
+      ...normalized,
+      id: scopedId,
+      scope: normalized.scope || payload?.scope || payload?.dashboardScope || undefined,
+    });
+  }
+
+  const ui = validateForgeUIBlock(payload);
+  const scopedBlocks = (Array.isArray(ui.blocks) ? ui.blocks : []).map((block) => {
+    const localRef = String(block?.dataSourceRef || block?.dataSource || '').trim();
+    const scopedRef = localRef ? (dataSourceIdMap.get(localRef) || scopedForgeDataSourceId(scopeKey, localRef)) : '';
+    return {
+      ...block,
+      scope: block?.scope || ui.scope || ui.dashboardScope || undefined,
+      dataSourceRef: scopedRef || block?.dataSourceRef,
+      dataSource: scopedRef || block?.dataSource,
+    };
+  });
+
+  return {
+    scopeKey,
+    dashboardKey,
+    scopedDataBlocks,
+    scopedPayload: {
+      ...ui,
+      scope: ui.scope || ui.dashboardScope || undefined,
+      dashboardScope: ui.dashboardScope || ui.scope || undefined,
+      blocks: scopedBlocks,
+    },
+  };
+}
+
 function buildForgeDataSources(store = {}) {
   return Object.values(store).map((entry) => ({
     id: entry?.id,
@@ -496,13 +563,12 @@ function buildForgeDataSources(store = {}) {
   }));
 }
 
-function buildForgeDashboardContext(payload, dataStore, block) {
+function buildForgeDashboardContext(payload, dataStore, block, dashboardKey) {
   const sourceID = block?.dataSourceRef || block?.dataSource;
   const source = sourceID ? dataStore?.[sourceID] : null;
   const collection = Array.isArray(block?.__collection)
     ? block.__collection
     : Array.isArray(source?.rows) ? source.rows : [];
-  const dashboardKey = `forge-ui:${String(payload?.title || 'message')}`;
   return {
     dashboardKey,
     identity: { windowId: dashboardKey, dashboardKey },
@@ -525,8 +591,7 @@ function buildForgeDashboardContext(payload, dataStore, block) {
 // buildForgeExportContext produces a forge-compatible context shape that
 // resolves any dataSourceRef via `.Context(dsRef)`. The forge dashboard export
 // pipeline (buildDashboardExportModel) calls this to look up per-block data.
-function buildForgeExportContext(payload, dataStore) {
-  const dashboardKey = `forge-ui:${String(payload?.title || 'message')}`;
+function buildForgeExportContext(payload, dataStore, dashboardKey) {
   const resolve = (dsRef) => {
     const source = dsRef ? dataStore?.[dsRef] : null;
     const collection = Array.isArray(source?.rows) ? source.rows : [];
@@ -790,15 +855,20 @@ class ForgeRenderErrorBoundary extends React.Component {
   }
 }
 
-function ForgeUIFenceInner({ payload, dataBlocks = [] }) {
-  const ui = validateForgeUIBlock(payload);
-  const dataStore = React.useMemo(() => applyForgeDataBlocks(dataBlocks), [dataBlocks]);
+function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '' }) {
+  const scoped = React.useMemo(
+    () => scopeForgeDashboardPayload(payload, dataBlocks, messageId),
+    [payload, dataBlocks, messageId]
+  );
+  const ui = scoped.scopedPayload;
+  const dataStore = React.useMemo(() => applyForgeDataBlocks(scoped.scopedDataBlocks), [scoped.scopedDataBlocks]);
   const forgePayload = React.useMemo(() => ({
     title: ui.title,
     subtitle: ui.subtitle,
     dataSources: buildForgeDataSources(dataStore),
     blocks: ui.blocks,
   }), [ui, dataStore]);
+  const dashboardKey = scoped.dashboardKey;
   const rootRef = React.useRef(null);
   const [exportError, setExportError] = React.useState(null);
 
@@ -818,7 +888,7 @@ function ForgeUIFenceInner({ payload, dataBlocks = [] }) {
           id: b?.id || `block-${idx + 1}`,
         })),
       };
-      const exportContext = buildForgeExportContext(normalizedPayload, dataStore);
+      const exportContext = buildForgeExportContext(normalizedPayload, dataStore, dashboardKey);
       const chartSvgs = rootRef.current ? captureDashboardChartSvgs(rootRef.current) : {};
       const { html } = buildStandaloneDashboardDocument({
         container: containerRoot,
@@ -876,7 +946,7 @@ function ForgeUIFenceInner({ payload, dataBlocks = [] }) {
               <DashboardBlock
                 key={String(block?.id || `${block?.kind || 'dashboard'}-${index}`)}
                 container={normalizedBlock}
-                context={buildForgeDashboardContext(normalizedPayload, dataStore, normalizedBlock)}
+                context={buildForgeDashboardContext(normalizedPayload, dataStore, normalizedBlock, dashboardKey)}
                 isActive={true}
               />
             );
@@ -903,10 +973,10 @@ function ForgeUIFenceInner({ payload, dataBlocks = [] }) {
   );
 }
 
-function ForgeUIFence({ payload, dataBlocks = [] }) {
+function ForgeUIFence({ payload, dataBlocks = [], messageId = '' }) {
   return (
     <ForgeRenderErrorBoundary>
-      <ForgeUIFenceInner payload={payload} dataBlocks={dataBlocks} />
+      <ForgeUIFenceInner payload={payload} dataBlocks={dataBlocks} messageId={messageId} />
     </ForgeRenderErrorBoundary>
   );
 }
@@ -1320,7 +1390,7 @@ function renderPipeTable(body = '', generatedFiles = []) {
 
 // ── Main component ──
 
-function RichContent({ content = '', generatedFiles = [] }) {
+function RichContent({ content = '', generatedFiles = [], messageId = '' }) {
   const textNorm = normalizeBrokenMarkdownLayout(String(content || '').replace(/\r\n/g, '\n'));
   const descriptors = React.useMemo(() => describeContent(textNorm), [textNorm]);
   const forgeDataBlocks = React.useMemo(() => {
@@ -1375,7 +1445,7 @@ function RichContent({ content = '', generatedFiles = [] }) {
     if (isForgeUIFence(fence)) {
       try {
         const payload = parseForgeFenceBody(body);
-        out.push(<ForgeUIFence key={`forge-ui-${idx++}`} payload={payload} dataBlocks={forgeDataBlocks} />);
+        out.push(<ForgeUIFence key={`forge-ui-${idx++}`} payload={payload} dataBlocks={forgeDataBlocks} messageId={messageId} />);
       } catch (_) {
         if (hasTrailingOpenForgeFence(textNorm, FORGE_UI_FENCE)) {
           out.push(<ForgeFenceLoading key={`forge-ui-loading-${idx++}`} label="Building UI" />);

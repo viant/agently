@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import RichContent, { normalizeDashboardPayload, parseFences } from './RichContent';
+import RichContent, { normalizeDashboardPayload, parseFences, resolveForgeScope, scopeForgeDashboardPayload } from './RichContent';
 import { renderMarkdownBlock } from 'agently-core-ui-sdk';
 
 describe('RichContent fence parsing', () => {
@@ -385,6 +385,50 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('SPEND');
     expect(html).toContain('PACING_RATIO');
     expect(html).toContain('WIN_RATE');
+  });
+
+  it('defaults forge dashboard scope to message identity and namespaces datasource refs', () => {
+    const { scopeKey, dashboardKey, scopedDataBlocks, scopedPayload } = scopeForgeDashboardPayload(
+      {
+        version: 1,
+        title: 'Shared Title',
+        blocks: [
+          { id: 'summary', kind: 'dashboard.summary', dataSourceRef: 'baseline' },
+        ],
+      },
+      [
+        { version: 1, id: 'baseline', format: 'json', mode: 'replace', data: [] },
+      ],
+      'msg-123'
+    );
+
+    expect(scopeKey).toBe('msg:msg-123');
+    expect(dashboardKey).toBe('forge-ui:msg:msg-123');
+    expect(scopedDataBlocks[0].id).toBe('forge-ui:msg:msg-123:ds:baseline');
+    expect(scopedPayload.blocks[0].dataSourceRef).toBe('forge-ui:msg:msg-123:ds:baseline');
+  });
+
+  it('uses explicit shared scope when provided', () => {
+    const { scopeKey, dashboardKey, scopedDataBlocks, scopedPayload } = scopeForgeDashboardPayload(
+      {
+        version: 1,
+        title: 'Shared Title',
+        scope: 'blocker-baseline',
+        blocks: [
+          { id: 'summary', kind: 'dashboard.summary', dataSourceRef: 'baseline' },
+        ],
+      },
+      [
+        { version: 1, id: 'baseline', format: 'json', mode: 'replace', data: [] },
+      ],
+      'msg-123'
+    );
+
+    expect(resolveForgeScope({ scope: 'blocker-baseline' }, 'msg-123')).toBe('scope:blocker-baseline');
+    expect(scopeKey).toBe('scope:blocker-baseline');
+    expect(dashboardKey).toBe('forge-ui:scope:blocker-baseline');
+    expect(scopedDataBlocks[0].id).toBe('forge-ui:scope:blocker-baseline:ds:baseline');
+    expect(scopedPayload.blocks[0].dataSourceRef).toBe('forge-ui:scope:blocker-baseline:ds:baseline');
   });
 
   it('preserves badges, summary, timeline, and table blocks in a dashboard payload', () => {

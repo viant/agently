@@ -33,9 +33,7 @@ export function isAgentRunTool(stepOrName = {}) {
   return normalized === 'llm/agents-run'
     || normalized === 'llm/agents/run'
     || normalized === 'llm/agents-start'
-    || normalized === 'llm/agents/start'
-    || normalized === 'llm/agents-status'
-    || normalized === 'llm/agents/status';
+    || normalized === 'llm/agents/start';
 }
 
 export function extractPayloadObject(payload = null) {
