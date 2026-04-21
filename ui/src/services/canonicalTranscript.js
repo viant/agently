@@ -29,7 +29,9 @@ export function normalizeCanonicalModelStep(step = {}, page = {}) {
   const provider = firstText(step?.provider);
   const model = firstText(step?.model);
   return {
-    id: firstText(step?.assistantMessageId, step?.modelCallId, page?.assistantMessageId, page?.pageId),
+    id: firstText(step?.modelCallId, step?.assistantMessageId, page?.assistantMessageId, page?.pageId),
+    modelCallId: firstText(step?.modelCallId),
+    assistantMessageId: firstText(step?.assistantMessageId, page?.assistantMessageId, page?.pageId),
     kind: 'model',
     reason: page?.finalResponse ? 'final_response' : 'thinking',
     toolName: firstText(provider && model ? `${provider}/${model}` : '', model, provider, 'model'),
@@ -54,10 +56,13 @@ export function normalizeCanonicalModelStep(step = {}, page = {}) {
 
 export function normalizeCanonicalToolStep(step = {}, page = {}) {
   return {
-    id: firstText(step?.toolMessageId, step?.toolCallId, page?.assistantMessageId, page?.pageId),
+    id: firstText(step?.toolCallId, step?.toolMessageId, page?.assistantMessageId, page?.pageId),
+    toolCallId: firstText(step?.toolCallId),
+    toolMessageId: firstText(step?.toolMessageId),
     kind: 'tool',
     reason: 'tool_call',
     toolName: firstText(step?.toolName, 'tool'),
+    content: firstText(step?.content),
     // Tool rows must render their own lifecycle state. Falling back to the
     // enclosing page status can make an in-flight tool appear completed just
     // because the page/model step completed.

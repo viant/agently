@@ -834,6 +834,76 @@ describe('handleStreamEvent', () => {
     });
   });
 
+  it('renders control message_add as a standalone assistant row', () => {
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      location: { pathname: '/conversation/conv-1' }
+    };
+    const chatState = ensureContextResources({ resources: {} });
+    const context = {
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'control',
+        op: 'turn_started',
+        conversationId: 'conv-1',
+        patch: { turnId: 'turn-1', status: 'running' }
+      });
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'control',
+        op: 'message_add',
+        id: 'assistant-note-1',
+        conversationId: 'conv-1',
+        patch: {
+          role: 'assistant',
+          turnId: 'turn-1',
+          content: 'Preliminary investigation: constrained PMP supply.',
+          interim: 0,
+          mode: 'task',
+          createdAt: '2026-03-16T10:00:02.000Z'
+        }
+      });
+    } finally {
+      globalThis.window = originalWindow;
+    }
+
+    expect(chatState.liveRows.some((row) => String(row?.id || '') === 'turn:turn-1')).toBe(true);
+    const addedRow = chatState.liveRows.find((row) => String(row?.id || '') === 'assistant-note-1');
+    expect(addedRow).toMatchObject({
+      role: 'assistant',
+      turnId: 'turn-1',
+      content: 'Preliminary investigation: constrained PMP supply.',
+      interim: 0
+    });
+  });
+
   it('uses tracker-backed assistant rows as the primary active-turn source when live placeholders exist', () => {
     const setCollection = vi.fn();
     const chatState = ensureContextResources({ resources: {} });
@@ -1134,6 +1204,263 @@ describe('handleStreamEvent', () => {
     expect(rows.map((row) => row.id)).toEqual(['msg-1', 'assistant-turn-2']);
     expect(rows[0]).toMatchObject({ turnId: 'turn-1', content: 'First tracker turn' });
     expect(rows[1]).toMatchObject({ turnId: 'turn-2', content: 'Second live turn' });
+  });
+
+  it('keeps explicit standalone assistant rows for the same turn alongside tracker iteration rows', () => {
+    const setCollection = vi.fn();
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeConversationID = 'conv-1';
+    chatState.liveOwnedConversationID = 'conv-1';
+    chatState.liveOwnedTurnIds = ['turn-1'];
+    chatState.liveRows = [
+      {
+        id: 'assistant-note-1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-03-16T01:00:03Z',
+        interim: 0,
+        status: 'completed',
+        turnStatus: 'running',
+        content: 'PRELIMINARY NOTE',
+        executionGroups: []
+      }
+    ];
+    chatState.streamTracker.applyEvent({
+      type: 'assistant_preamble',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      messageId: 'msg-1',
+      assistantMessageId: 'msg-1',
+      content: 'First tracker turn',
+      status: 'running',
+      createdAt: '2026-03-16T01:00:01Z',
+    });
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', running: true }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection,
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const rows = renderMergedRowsForContext(context);
+    expect(rows.map((row) => row.id)).toEqual(['msg-1', 'assistant-note-1']);
+    expect(rows[0]).toMatchObject({ turnId: 'turn-1', content: 'First tracker turn' });
+    expect(rows[1]).toMatchObject({ turnId: 'turn-1', content: 'PRELIMINARY NOTE' });
+  });
+
+  it('renders transcript extra assistant and user messages as standalone rows alongside the iteration row', () => {
+    const setCollection = vi.fn();
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeConversationID = 'conv-1';
+    chatState.transcriptRows = mapTranscriptToRows([{
+      turnId: 'turn-1',
+      createdAt: '2026-04-21T00:00:00Z',
+      status: 'completed',
+      user: {
+        messageId: 'user-1',
+        content: 'Initial ask'
+      },
+      messages: [
+        {
+          messageId: 'user-2',
+          role: 'user',
+          content: 'Steer: narrow scope',
+          createdAt: '2026-04-21T00:00:02Z',
+          interim: 0
+        },
+        {
+          messageId: 'assistant-note-1',
+          role: 'assistant',
+          content: 'PRELIMINARY NOTE',
+          createdAt: '2026-04-21T00:00:03Z',
+          interim: 0
+        }
+      ],
+      execution: {
+        pages: [{
+          pageId: 'page-final',
+          assistantMessageId: 'page-final',
+          status: 'completed',
+          finalResponse: true,
+          content: 'Final answer',
+          modelSteps: [{
+            modelCallId: 'mc-final',
+            assistantMessageId: 'page-final',
+            provider: 'openai',
+            model: 'gpt-5.4',
+            status: 'completed'
+          }],
+          toolSteps: []
+        }]
+      }
+    }]).rows;
+
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', running: false }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection,
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const rows = renderMergedRowsForContext(context);
+    expect(rows.map((row) => row.id)).toEqual(['user-1', 'user-2', 'page-final', 'assistant-note-1']);
+    expect(rows.find((row) => row.id === 'assistant-note-1')).toMatchObject({
+      role: 'assistant',
+      content: 'PRELIMINARY NOTE'
+    });
+    expect(rows.find((row) => row.id === 'user-2')).toMatchObject({
+      role: 'user',
+      content: 'Steer: narrow scope'
+    });
+  });
+
+  it('keeps a standalone transcript assistant note even when the final assistant response repeats that note', () => {
+    const setCollection = vi.fn();
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.activeConversationID = 'conv-1';
+    chatState.transcriptRows = mapTranscriptToRows([{
+      turnId: 'turn-1',
+      createdAt: '2026-04-21T00:00:00Z',
+      status: 'completed',
+      user: {
+        messageId: 'user-1',
+        content: 'Initial ask'
+      },
+      messages: [
+        {
+          messageId: 'assistant-note-1',
+          role: 'assistant',
+          content: 'PRELIMINARY NOTE',
+          createdAt: '2026-04-21T00:00:03Z',
+          interim: 0
+        }
+      ],
+      execution: {
+        pages: [{
+          pageId: 'page-final',
+          assistantMessageId: 'page-final',
+          status: 'completed',
+          finalResponse: true,
+          content: 'PRELIMINARY NOTE\n\nFinal answer',
+          modelSteps: [{
+            modelCallId: 'mc-final',
+            assistantMessageId: 'page-final',
+            provider: 'openai',
+            model: 'gpt-5.4',
+            status: 'completed'
+          }],
+          toolSteps: []
+        }]
+      }
+    }]).rows;
+
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', running: false }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection,
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const rows = renderMergedRowsForContext(context);
+    const noteRow = rows.find((row) => row.id === 'assistant-note-1');
+    const finalRow = rows.find((row) => row.id === 'page-final');
+    expect(noteRow).toMatchObject({
+      role: 'assistant',
+      content: 'PRELIMINARY NOTE'
+    });
+    expect(finalRow).toMatchObject({
+      role: 'assistant'
+    });
   });
 
   it('does not apply same-turn transient overlay when multiple explicit assistant rows exist without an exact id match', () => {

@@ -40,6 +40,7 @@ describe('canonicalTranscript', () => {
             toolCallId: 'tc-1',
             toolMessageId: 'tm-1',
             toolName: 'llm/agents-run',
+            content: 'Checking blocker diagnostics now.',
             status: 'completed',
             linkedConversationId: 'child-1',
             responsePayloadId: 'resp-1'
@@ -52,16 +53,17 @@ describe('canonicalTranscript', () => {
 
     expect(steps).toHaveLength(2);
     expect(steps[0]).toMatchObject({
-      id: 'page-1',
+      id: 'mc-1',
       kind: 'model',
       provider: 'openai',
       model: 'gpt-5.4',
       requestPayloadId: 'req-1'
     });
     expect(steps[1]).toMatchObject({
-      id: 'tm-1',
+      id: 'tc-1',
       kind: 'tool',
       toolName: 'llm/agents-run',
+      content: 'Checking blocker diagnostics now.',
       linkedConversationId: 'child-1',
       responsePayloadId: 'resp-1'
     });
@@ -87,7 +89,7 @@ describe('canonicalTranscript', () => {
     const steps = flattenCanonicalTranscriptSteps(turns);
 
     expect(steps[0]).toMatchObject({
-      id: 'tm-1',
+      id: 'tc-1',
       kind: 'tool',
       toolName: 'llm/agents/start',
       status: ''

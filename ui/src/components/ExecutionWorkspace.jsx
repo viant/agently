@@ -188,8 +188,8 @@ export function normalizeModelStep(group = {}) {
   const derivedResponsePayload = modelCall?.responsePayload ?? (finalResponse && finalContent ? finalContent : null);
   return {
     id: firstString(
-      modelCall?.assistantMessageId,
       modelCall?.modelCallId,
+      modelCall?.assistantMessageId,
       group?.assistantMessageId,
       group?.pageId
     ),
@@ -217,9 +217,9 @@ export function normalizeModelStep(group = {}) {
   };
 }
 
-function normalizeToolStep(tool = {}, group = {}) {
+export function normalizeToolStep(tool = {}, group = {}) {
   return {
-    id: firstString(tool?.toolMessageId, tool?.toolCallId, tool?.id),
+    id: firstString(tool?.toolCallId, tool?.toolMessageId, tool?.id),
     kind: 'tool',
     phase: firstString(tool?.phase, group?.phase),
     reason: 'tool_call',

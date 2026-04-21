@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/viant/agently-core/sdk"
@@ -12,7 +13,7 @@ import (
 
 const defaultSessionCookieName = "agently_session"
 
-func ensureToolAuth(ctx context.Context, client *sdk.HTTPClient, providers []authProviderInfo, rawToken, rawSession string) error {
+func ensureToolAuth(ctx context.Context, client *sdk.HTTPClient, providers []authProviderInfo, rawToken, rawSession, rawOOB, rawOAuthCfg, rawOAuthScopes string) error {
 	if client == nil {
 		return fmt.Errorf("client is required")
 	}
@@ -26,6 +27,17 @@ func ensureToolAuth(ctx context.Context, client *sdk.HTTPClient, providers []aut
 	}
 	if _, err := client.AuthMe(ctx); err == nil {
 		return nil
+	}
+
+	if secretRef := strings.TrimSpace(rawOOB); secretRef != "" {
+		return authenticateWithOOB(ctx, client, secretRef, strings.TrimSpace(rawOAuthCfg), parseScopes(rawOAuthScopes))
+	}
+	if envSec := strings.TrimSpace(os.Getenv("AGENTLY_OOB_SECRETS")); envSec != "" {
+		if err := authenticateWithOOB(ctx, client, envSec, strings.TrimSpace(rawOAuthCfg), parseScopes(os.Getenv("AGENTLY_OOB_SCOPES"))); err == nil {
+			if _, err := client.AuthMe(ctx); err == nil {
+				return nil
+			}
+		}
 	}
 
 	if token := resolvedToken(rawToken); token != "" {
@@ -51,6 +63,18 @@ func ensureToolAuth(ctx context.Context, client *sdk.HTTPClient, providers []aut
 
 	chat := &ChatCmd{Token: strings.TrimSpace(rawToken)}
 	return chat.ensureAuth(ctx, client, providers)
+}
+
+func authenticateWithOOB(ctx context.Context, client *sdk.HTTPClient, secretRef, configURL string, scopes []string) error {
+	secretRef = strings.TrimSpace(secretRef)
+	if secretRef == "" {
+		return fmt.Errorf("--oob requires a secrets URL value")
+	}
+	return client.AuthLocalOOBSession(ctx, &sdk.LocalOOBSessionOptions{
+		ConfigURL:  strings.TrimSpace(configURL),
+		SecretsURL: secretRef,
+		Scopes:     scopes,
+	})
 }
 
 func applySessionCookie(client *sdk.HTTPClient, sessionID string) error {

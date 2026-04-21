@@ -448,6 +448,33 @@ export function resolveComposerProps({ context, container } = {}) {
   const currentAgent = normalizeString(metaForm?.agent);
   const currentModel = resolveCurrentModel(metaForm);
   const defaultModel = normalizeString(defaults?.model);
+  const ensureOption = (options = [], value = '', label = '') => {
+    const normalizedValue = normalizeString(value);
+    if (!normalizedValue) return Array.isArray(options) ? options : [];
+    const list = Array.isArray(options) ? [...options] : [];
+    if (list.some((entry) => normalizeString(entry?.value ?? entry?.id) === normalizedValue)) {
+      return list;
+    }
+    return [
+      ...list,
+      {
+        value: normalizedValue,
+        label: String(label || normalizedValue).trim() || normalizedValue
+      }
+    ];
+  };
+  const currentAgentInfo = metaForm?.agentInfo?.[currentAgent] || null;
+  const currentModelInfo = metaForm?.modelInfo?.[currentModel] || null;
+  const agentOptions = ensureOption(
+    Array.isArray(metaForm?.agentOptions) ? metaForm.agentOptions : [],
+    currentAgent,
+    String(currentAgentInfo?.name || currentAgentInfo?.label || currentAgent).trim()
+  );
+  const modelOptions = ensureOption(
+    Array.isArray(metaForm?.modelOptions) ? metaForm.modelOptions : [],
+    currentModel,
+    String(currentModelInfo?.name || currentModelInfo?.title || currentModelInfo?.label || currentModel).trim()
+  );
 
   const handleChipClear = (chip) => {
     const id = normalizeString(chip?.id);
@@ -486,10 +513,10 @@ export function resolveComposerProps({ context, container } = {}) {
   return {
     commandCenter: true,
     starterTasks: Array.isArray(metaForm?.starterTasks) ? metaForm.starterTasks : [],
-    agentOptions: Array.isArray(metaForm?.agentOptions) ? metaForm.agentOptions : [],
+    agentOptions,
     agentValue: currentAgent,
     onAgentChange: (agentID) => applyAgentSelection({ agentID, metaDS, metaSnapshot: metaForm, context }),
-    modelOptions: Array.isArray(metaForm?.modelOptions) ? metaForm.modelOptions : [],
+    modelOptions,
     modelInfo: metaForm?.modelInfo || {},
     modelValue: currentModel,
     defaultModel,

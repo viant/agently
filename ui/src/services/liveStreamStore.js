@@ -244,6 +244,37 @@ function findAssistantRowIndex(rows, turnId, assistantMessageId) {
   });
 }
 
+function findAssistantRowIndexExact(rows, assistantMessageId) {
+  if (!Array.isArray(rows)) return -1;
+  const amid = String(assistantMessageId || '').trim();
+  if (!amid) return -1;
+  return rows.findIndex((row) => (
+    String(row?.role || '').toLowerCase() === 'assistant'
+    && String(row?.id || '').trim() === amid
+  ));
+}
+
+function findAssistantExecutionRowIndex(rows, turnId, assistantMessageId) {
+  const exact = findAssistantRowIndexExact(rows, assistantMessageId);
+  if (exact !== -1) return exact;
+  const tid = String(turnId || '').trim();
+  if (!Array.isArray(rows) || !tid) return -1;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (String(row?.role || '').toLowerCase() !== 'assistant') continue;
+    if (String(row?.turnId || '').trim() !== tid) continue;
+    const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
+    const isStandaloneAssistantBubble = groups.length === 0 && Number(row?.interim ?? 0) === 0;
+    if (isStandaloneAssistantBubble) {
+      return -1;
+    }
+    if (groups.length > 0) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 function isAssistantPlaceholderId(id = '', turnId = '') {
   const rowId = String(id || '').trim();
   const tid = String(turnId || '').trim();
@@ -362,7 +393,8 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     status: normalizedStatus,
     errorMessage,
     modelSteps: [{
-      modelCallId: assistantMessageId,
+      modelCallId: String(payload?.modelCallId || assistantMessageId || '').trim() || undefined,
+      assistantMessageId,
       phase: String(payload?.phase || '').trim() || undefined,
       provider: String(payload?.model?.provider || '').trim(),
       model: String(payload?.model?.model || '').trim(),
@@ -565,7 +597,7 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
   if (!nextRow) return Array.isArray(rows) ? rows : [];
   const existing = Array.isArray(rows) ? [...rows] : [];
   const nextTurnId = String(nextRow.turnId || '').trim();
-  const index = findAssistantRowIndex(existing, nextTurnId, nextRow.id);
+  const index = findAssistantExecutionRowIndex(existing, nextTurnId, nextRow.id);
   if (index === -1) {
     existing.push(nextRow);
   } else {
@@ -615,7 +647,7 @@ function applyToolStreamEventToRows(rows = [], payload = {}, fallbackConversatio
   if (!assistantMessageId) return Array.isArray(rows) ? rows : [];
   const turnId = String(payload?.turnId || '').trim();
   const existing = Array.isArray(rows) ? [...rows] : [];
-  const index = findAssistantRowIndex(existing, turnId, assistantMessageId);
+  const index = findAssistantExecutionRowIndex(existing, turnId, assistantMessageId);
   if (index === -1) return existing;
   const row = { ...existing[index] };
   const groups = Array.isArray(row.executionGroups) ? row.executionGroups : [];
@@ -895,7 +927,7 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
 
   const liveRows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
   // Find the existing assistant execution row for this turn.
-  const index = findAssistantRowIndex(liveRows, turnId, streamMessageID);
+  const index = findAssistantExecutionRowIndex(liveRows, turnId, streamMessageID);
   if (index >= 0) {
     // Append delta to the execution row's streaming content.
     const row = { ...liveRows[index] };
@@ -1045,7 +1077,7 @@ export function applyElicitationRequestedEvent(chatState = {}, payload = {}) {
       : '');
 
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
-  const index = findAssistantRowIndex(rows, turnId, assistantMessageId);
+  const index = findAssistantExecutionRowIndex(rows, turnId, assistantMessageId);
   if (index >= 0) {
     const prev = rows[index];
     rows[index] = {
@@ -1096,7 +1128,7 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
   if (!preamble) return chatState.liveRows || [];
 
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
-  const index = findAssistantRowIndex(rows, turnId, assistantMessageId);
+  const index = findAssistantExecutionRowIndex(rows, turnId, assistantMessageId);
   if (index >= 0) {
     const prev = rows[index];
     const groups = Array.isArray(prev.executionGroups) ? [...prev.executionGroups] : [];
@@ -1150,7 +1182,7 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
   return rows;
 }
 
-export function applyAssistantFinalEvent(chatState = {}, payload = {}) {
+export function applyAssistantTerminalEvent(chatState = {}, payload = {}) {
   if (isSuppressedSummaryEvent(chatState, payload)) {
     rememberSuppressedSummary(chatState, payload);
     return chatState.liveRows || [];
@@ -1158,6 +1190,53 @@ export function applyAssistantFinalEvent(chatState = {}, payload = {}) {
   const nextRows = applyAssistantFinalToRows(chatState.liveRows, payload);
   chatState.liveRows = nextRows;
   return nextRows;
+}
+
+// Backward-compatible alias while older callers/tests move to the more
+// accurate terminal-event naming.
+
+export function applyAssistantMessageAddEvent(chatState = {}, payload = {}) {
+  rememberSuppressedSummary(chatState, payload);
+  if (isSuppressedSummaryEvent(chatState, payload)) {
+    return chatState.liveRows || [];
+  }
+  const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
+  const messageId = String(payload?.messageId || payload?.id || patch?.id || '').trim();
+  const turnId = String(patch?.turnId || payload?.turnId || '').trim();
+  const role = String(patch?.role || '').trim().toLowerCase();
+  const content = normalizeStreamingMarkdown(String(patch?.rawContent || patch?.content || '').trim()).content;
+  if (!messageId || !turnId || role !== 'assistant' || !content) {
+    return Array.isArray(chatState.liveRows) ? chatState.liveRows : [];
+  }
+  const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
+  const existingIndex = rows.findIndex((row) => String(row?.id || '').trim() === messageId);
+  const nextRow = {
+    id: messageId,
+    _bubbleSource: 'message_add',
+    role: 'assistant',
+    mode: String(patch?.mode || '').trim().toLowerCase(),
+    type: String(patch?.messageType || 'text').trim().toLowerCase(),
+    turnId,
+    createdAt: String(patch?.createdAt || payload?.createdAt || '').trim(),
+    status: String(patch?.status || 'completed').trim(),
+    turnStatus: String(patch?.status || 'running').trim(),
+    interim: Number(patch?.interim ?? 0) || 0,
+    content,
+    rawContent: String(patch?.rawContent || '').trim(),
+    preamble: String(patch?.preamble || '').trim(),
+    parentMessageId: String(patch?.parentMessageId || '').trim(),
+    sequence: Number.isFinite(Number(patch?.sequence)) ? Number(patch.sequence) : null,
+    iteration: Number.isFinite(Number(patch?.iteration)) ? Number(patch.iteration) : null,
+    executionGroups: []
+  };
+  if (existingIndex >= 0) {
+    rows[existingIndex] = { ...rows[existingIndex], ...nextRow };
+  } else {
+    rows.push(nextRow);
+    rows.sort(compareTemporalEntries);
+  }
+  chatState.liveRows = rows;
+  return rows;
 }
 
 export function applyExecutionStreamEvent(chatState = {}, payload = {}, fallbackConversationID = '') {
