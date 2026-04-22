@@ -70,7 +70,7 @@ function renderRow(row, context) {
     case 'assistant':
       return <AssistantBubble key={row.renderKey} row={row} />;
     case 'iteration':
-      return <IterationRowBlock key={row.renderKey} message={rowToLegacyIterationMessage(row)} context={context} />;
+      return <IterationRowBlock key={row.renderKey} message={rowToLegacyIterationMessage(row)} iterationRow={row} context={context} />;
     default:
       return null;
   }

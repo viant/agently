@@ -25,6 +25,8 @@ function deriveVisibleText(rounds = []) {
 function mapModelStep(step = {}, round = {}) {
   return {
     id: step.renderKey,
+    modelCallId: step.modelCallId || step.renderKey || '',
+    assistantMessageId: step.assistantMessageId || '',
     kind: 'model',
     reason: round.finalResponse ? 'final_response' : 'thinking',
     executionRole: step.executionRole || round.executionRole || '',
@@ -38,6 +40,11 @@ function mapModelStep(step = {}, round = {}) {
     providerRequestPayloadId: step.providerRequestPayloadId || '',
     providerResponsePayloadId: step.providerResponsePayloadId || '',
     streamPayloadId: step.streamPayloadId || '',
+    requestPayload: step.requestPayload || null,
+    responsePayload: step.responsePayload || null,
+    providerRequestPayload: step.providerRequestPayload || null,
+    providerResponsePayload: step.providerResponsePayload || null,
+    streamPayload: step.streamPayload || null,
     startedAt: step.startedAt || '',
     completedAt: step.completedAt || '',
   };
@@ -47,6 +54,7 @@ function mapToolCall(step = {}) {
   return {
     id: step.renderKey,
     toolCallId: step.toolCallId || '',
+    toolMessageId: step.toolMessageId || '',
     kind: 'tool',
     reason: 'tool_call',
     executionRole: step.executionRole || '',
@@ -55,6 +63,8 @@ function mapToolCall(step = {}) {
     errorMessage: step.errorMessage || '',
     requestPayloadId: step.requestPayloadId || '',
     responsePayloadId: step.responsePayloadId || '',
+    requestPayload: step.requestPayload || null,
+    responsePayload: step.responsePayload || null,
     linkedConversationId: step.linkedConversationId || '',
     linkedConversationAgentId: step.linkedConversationAgentId || '',
     linkedConversationTitle: step.linkedConversationTitle || '',

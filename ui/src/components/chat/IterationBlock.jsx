@@ -1176,10 +1176,96 @@ export function shouldAutoScrollExecutionGroups({ collapsed = false, isActiveIte
   return true;
 }
 
-export default function IterationBlock({ message, context, showToolFeedDetail = true }) {
+export function buildIterationDataFromCanonicalRow(canonicalRow = null, message = {}) {
+  if (!canonicalRow || String(canonicalRow?.kind || '').trim().toLowerCase() !== 'iteration') {
+    return message?._iterationData || {};
+  }
+  const rounds = Array.isArray(canonicalRow?.rounds) ? canonicalRow.rounds : [];
+  const executionGroups = rounds.map((round) => ({
+    pageId: round?.pageId || round?.renderKey || '',
+    assistantMessageId: (Array.isArray(round?.modelSteps) ? round.modelSteps[0]?.assistantMessageId : '') || '',
+    iteration: Number(round?.iteration || 0) || 0,
+    phase: round?.phase || '',
+    preamble: round?.preamble || '',
+    content: round?.content || '',
+    status: round?.status || '',
+    finalResponse: !!round?.finalResponse,
+    executionRole: (Array.isArray(round?.modelSteps) ? round.modelSteps[0]?.executionRole : '') || round?.executionRole || '',
+    modelSteps: Array.isArray(round?.modelSteps) ? round.modelSteps : [],
+    toolSteps: Array.isArray(round?.toolCalls) ? round.toolCalls : [],
+    toolCallsPlanned: [],
+  }));
+  const firstPreamble = rounds.map((round) => String(round?.preamble || '').trim()).find(Boolean) || '';
+  const finalContent = [...rounds].reverse().map((round) => String(round?.content || '').trim()).find(Boolean) || '';
+  return {
+    ...(message?._iterationData || {}),
+    turnId: canonicalRow?.turnId || message?._iterationData?.turnId || '',
+    status: canonicalRow?.lifecycle || message?._iterationData?.status || '',
+    turnStartedAt: canonicalRow?.createdAt || message?._iterationData?.turnStartedAt || '',
+    preamble: firstPreamble ? { content: firstPreamble } : (message?._iterationData?.preamble || null),
+    response: {
+      ...(message?._iterationData?.response || {}),
+      content: finalContent || message?._iterationData?.response?.content || '',
+      status: canonicalRow?.lifecycle || message?._iterationData?.response?.status || '',
+    },
+    executionGroups,
+    linkedConversations: Array.isArray(canonicalRow?.linkedConversations) ? canonicalRow.linkedConversations : (message?._iterationData?.linkedConversations || []),
+    isLatestIteration: !!canonicalRow?.isStreaming,
+  };
+}
+
+export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
+  if (!canonicalRow || !step || typeof step !== 'object') return step;
+  const rounds = Array.isArray(canonicalRow?.rounds) ? canonicalRow.rounds : [];
+  const targetKind = String(step?.kind || '').trim().toLowerCase();
+  const targetId = String(step?.modelCallId || step?.toolCallId || step?.id || '').trim();
+  if (!targetKind || !targetId) return step;
+  for (const round of rounds) {
+    if (targetKind === 'model') {
+      for (const modelStep of Array.isArray(round?.modelSteps) ? round.modelSteps : []) {
+        const candidateId = String(modelStep?.modelCallId || modelStep?.renderKey || '').trim();
+        if (candidateId === targetId) {
+          return {
+            ...step,
+            modelCallId: modelStep?.modelCallId || step?.modelCallId || '',
+            assistantMessageId: modelStep?.assistantMessageId || step?.assistantMessageId || '',
+            requestPayloadId: modelStep?.requestPayloadId || step?.requestPayloadId || '',
+            responsePayloadId: modelStep?.responsePayloadId || step?.responsePayloadId || '',
+            providerRequestPayloadId: modelStep?.providerRequestPayloadId || step?.providerRequestPayloadId || '',
+            providerResponsePayloadId: modelStep?.providerResponsePayloadId || step?.providerResponsePayloadId || '',
+            streamPayloadId: modelStep?.streamPayloadId || step?.streamPayloadId || '',
+            requestPayload: modelStep?.requestPayload ?? step?.requestPayload ?? null,
+            responsePayload: modelStep?.responsePayload ?? step?.responsePayload ?? null,
+            providerRequestPayload: modelStep?.providerRequestPayload ?? step?.providerRequestPayload ?? null,
+            providerResponsePayload: modelStep?.providerResponsePayload ?? step?.providerResponsePayload ?? null,
+            streamPayload: modelStep?.streamPayload ?? step?.streamPayload ?? null,
+          };
+        }
+      }
+      continue;
+    }
+    for (const toolStep of Array.isArray(round?.toolCalls) ? round.toolCalls : []) {
+      const candidateId = String(toolStep?.toolCallId || toolStep?.renderKey || '').trim();
+      if (candidateId === targetId) {
+        return {
+          ...step,
+          toolCallId: toolStep?.toolCallId || step?.toolCallId || '',
+          toolMessageId: toolStep?.toolMessageId || step?.toolMessageId || '',
+          requestPayloadId: toolStep?.requestPayloadId || step?.requestPayloadId || '',
+          responsePayloadId: toolStep?.responsePayloadId || step?.responsePayloadId || '',
+          requestPayload: toolStep?.requestPayload ?? step?.requestPayload ?? null,
+          responsePayload: toolStep?.responsePayload ?? step?.responsePayload ?? null,
+        };
+      }
+    }
+  }
+  return step;
+}
+
+export default function IterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true }) {
   const { showDetail } = useContext(DetailContext);
   const { showExecutionDetails = true } = useContext(ConversationViewContext);
-  const data = message?._iterationData || {};
+  const data = useMemo(() => buildIterationDataFromCanonicalRow(canonicalRow, message), [canonicalRow, message]);
   const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
   const displayToolCalls = useMemo(
     () => (Array.isArray(toolCalls) ? [...toolCalls] : []),
@@ -1450,11 +1536,11 @@ export default function IterationBlock({ message, context, showToolFeedDetail = 
             {latencyLabel(modelStep, now, turnStartedAt) ? (
               <span className="app-iteration-group-time">{latencyLabel(modelStep, now, turnStartedAt)}</span>
             ) : null}
-            <Button
+              <Button
               minimal
               small
               className="app-iteration-link"
-              onClick={() => showDetail?.({ ...modelStep, kind: 'model' })}
+              onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, { ...modelStep, kind: 'model' }))}
             >
               Details
             </Button>
@@ -1480,7 +1566,7 @@ export default function IterationBlock({ message, context, showToolFeedDetail = 
                   {latencyLabel(toolStep, now, turnStartedAt) ? (
                     <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt)}</span>
                   ) : null}
-                  <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(toolStep)}>Details</Button>
+                  <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}>Details</Button>
                 </div>
               </div>
             ))}
@@ -1498,7 +1584,7 @@ export default function IterationBlock({ message, context, showToolFeedDetail = 
                   {latencyLabel(toolStep, now, turnStartedAt) ? (
                     <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt)}</span>
                   ) : null}
-                  <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(toolStep)}>Details</Button>
+                  <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}>Details</Button>
                 </div>
               </div>
             ))}
@@ -1530,7 +1616,7 @@ export default function IterationBlock({ message, context, showToolFeedDetail = 
                 minimal
                 small
                 className="app-iteration-link"
-                onClick={() => showDetail?.(modelStep)}
+                onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, modelStep))}
               >
                 Details
               </Button>
@@ -1551,7 +1637,7 @@ export default function IterationBlock({ message, context, showToolFeedDetail = 
                     minimal
                     small
                     className="app-iteration-link"
-                    onClick={() => showDetail?.(toolStep)}
+                    onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}
                   >
                     Details
                   </Button>

@@ -8,6 +8,7 @@ import {
   isLinkedChildWindow,
   openConversationInMainWindow,
   openLinkedConversationWindow,
+  publishConversationSelection,
   requestNewConversationInMainWindow,
   returnToParentConversation
 } from './conversationWindow';
@@ -130,6 +131,38 @@ describe('conversationWindow', () => {
     expect(String(window.localStorage.getItem('agently.selectedConversationId') || '')).toBe('');
     expect(String(activeWindows.value[0]?.parameters?.conversations?.form?.id || '')).toBe('');
     expect(String(activeWindows.value[0]?.parameters?.messages?.input?.parameters?.convID || '')).toBe('');
+  });
+
+  it('publishes scoped selection without changing the browser path for non-main windows', () => {
+    const replaceState = vi.fn();
+    const dispatchEvent = vi.fn();
+    window.history.replaceState = replaceState;
+    window.dispatchEvent = dispatchEvent;
+
+    publishConversationSelection('workspace-window', 'conv-xyz', {
+      syncPath: false,
+      eventType: 'forge:conversation-active'
+    });
+
+    expect(String(window.localStorage.getItem('agently.selectedConversationId:workspace-window'))).toBe('conv-xyz');
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(dispatchEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('publishes scoped selection and syncs path for the main window only when requested', () => {
+    const replaceState = vi.fn();
+    const dispatchEvent = vi.fn();
+    window.history.replaceState = replaceState;
+    window.dispatchEvent = dispatchEvent;
+
+    publishConversationSelection(MAIN_CHAT_WINDOW_ID, 'conv-main', {
+      syncPath: true,
+      eventType: 'forge:conversation-active'
+    });
+
+    expect(String(window.localStorage.getItem('agently.selectedConversationId'))).toBe('conv-main');
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/conversation/conv-main');
+    expect(dispatchEvent).toHaveBeenCalledTimes(1);
   });
 
   it('returns to the parent conversation and focuses the main chat window', () => {

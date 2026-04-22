@@ -48,7 +48,7 @@ import {
   MAIN_CHAT_WINDOW_ID,
   getScopedConversationSelection,
   isMainChatWindowId,
-  setScopedConversationSelection
+  publishConversationSelection
 } from './conversationWindow';
 import { setStage } from './stageBus';
 import { client } from './agentlyClient';
@@ -1121,16 +1121,12 @@ function getContextWindowId(context) {
 }
 
 export function publishActiveConversation(conversationID = '', context = null) {
-  if (typeof window === 'undefined') return;
   const id = String(conversationID || '').trim();
   const windowId = getContextWindowId(context);
-  try {
-    setScopedConversationSelection(windowId, id);
-    if (isMainChatWindowId(windowId)) {
-      syncConversationPath(id);
-    }
-    window.dispatchEvent(new CustomEvent('forge:conversation-active', { detail: { id, windowId } }));
-  } catch (_) {}
+  publishConversationSelection(windowId, id, {
+    syncPath: isMainChatWindowId(windowId),
+    eventType: 'forge:conversation-active'
+  });
 }
 
 export function conversationIDFromPath(pathname = '') {
@@ -1144,37 +1140,6 @@ export function conversationIDFromPath(pathname = '') {
     }
   }
   return '';
-}
-
-function conversationPathForID(conversationID = '') {
-  const id = String(conversationID || '').trim();
-  if (!id) {
-    if (typeof window !== 'undefined') {
-      const current = String(window.location?.pathname || '').trim();
-      if (current.startsWith('/ui/')) return '/ui';
-    }
-    return '/';
-  }
-  const encoded = encodeURIComponent(id);
-  if (typeof window !== 'undefined') {
-    const port = String(window.location?.port || '').trim();
-    const host = String(window.location?.hostname || '').trim();
-    if (port === '5173' || host === '127.0.0.1') {
-      return `/conversation/${encoded}`;
-    }
-  }
-  return `/v1/conversation/${encoded}`;
-}
-
-function syncConversationPath(conversationID = '') {
-  if (typeof window === 'undefined') return;
-  const target = conversationPathForID(conversationID);
-  const current = `${window.location.pathname || ''}`;
-  if (current === target) return;
-  if (current.startsWith('/v1/api/')) return;
-  try {
-    window.history.replaceState(window.history.state, '', target);
-  } catch (_) {}
 }
 
 export function resolveUserID(context) {

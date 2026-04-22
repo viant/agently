@@ -24,6 +24,7 @@ import {
   isLinkedChildWindow,
   MAIN_CHAT_WINDOW_ID,
   openLinkedConversationWindow,
+  publishConversationSelection,
   returnToParentConversation
 } from '../services/conversationWindow';
 import { displayStepIcon, displayStepTitle } from '../services/toolPresentation';
@@ -563,7 +564,10 @@ export default function ExecutionWorkspace() {
         setConversationId(nextConversationId);
         setPageIndex(0);
         setLiveGroups({});
-        publishActiveConversation(nextConversationId);
+        publishConversationSelection(instanceWindowId, nextConversationId, {
+          syncPath: false,
+          eventType: 'forge:conversation-active'
+        });
       }
       setPrompt('');
       await Promise.all([loadConversation(nextConversationId), loadTranscript(nextConversationId, pageSize, 0)]);
