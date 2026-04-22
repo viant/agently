@@ -2130,6 +2130,36 @@ describe('applyPreambleEvent', () => {
     expect(chatState.liveRows[0].executionGroups[1].preamble).toBe('Second iteration thinking...');
     expect(chatState.liveRows[0].preamble).toBe('Second iteration thinking...');
   });
+
+  it('creates a synthetic narrator model step so execution details can render the preamble as its own llm entry', () => {
+    const chatState = { liveRows: [] };
+
+    applyPreambleEvent(chatState, {
+      turnId: 'turn-1',
+      conversationId: 'conv-1',
+      assistantMessageId: 'narrator-msg-1',
+      executionRole: 'narrator',
+      mode: 'narrator',
+      content: 'Delegated child still running…',
+      status: 'running',
+      provider: 'openai',
+      modelName: 'gpt-5.4'
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    const group = chatState.liveRows[0].executionGroups[0];
+    expect(group.modelSteps).toHaveLength(1);
+    expect(group.modelSteps[0]).toMatchObject({
+      executionRole: 'narrator',
+      provider: 'openai',
+      model: 'gpt-5.4',
+      status: 'running'
+    });
+    expect(group.modelSteps[0].responsePayload).toMatchObject({
+      content: 'Delegated child still running…',
+      messageKind: 'narrator'
+    });
+  });
 });
 
 describe('applyToolStreamEvent — terminal timestamp coverage (P2 fix)', () => {

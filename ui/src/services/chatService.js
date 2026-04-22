@@ -592,14 +592,55 @@ export async function editQueuedTurn({ context, conversationID, turnID, content 
 
 export async function steerTurn({ context, conversationID, turnID, content }) {
   if (!conversationID || !turnID) return;
-  await client.steerTurn(conversationID, turnID, { content, role: 'user' });
+  if (typeof window !== 'undefined') {
+    try {
+      console.info('[agently-steer]', {
+        event: 'steerTurn:start',
+        conversationID,
+        turnID,
+        contentPreview: String(content || '').slice(0, 160)
+      });
+    } catch (_) {}
+  }
+  const result = await client.steerTurn(conversationID, turnID, { content, role: 'user' });
+  if (typeof window !== 'undefined') {
+    try {
+      console.info('[agently-steer]', {
+        event: 'steerTurn:accepted',
+        conversationID,
+        turnID,
+        result
+      });
+    } catch (_) {}
+  }
   await dsTick(context);
+  return result;
 }
 
 export async function forceSteerQueuedTurn({ context, conversationID, turnID }) {
   if (!conversationID || !turnID) return;
-  await client.forceSteerQueuedTurn(conversationID, turnID);
+  if (typeof window !== 'undefined') {
+    try {
+      console.info('[agently-steer]', {
+        event: 'forceSteer:start',
+        conversationID,
+        turnID,
+      });
+    } catch (_) {}
+  }
+  const result = await client.forceSteerQueuedTurn(conversationID, turnID);
+  if (typeof window !== 'undefined') {
+    try {
+      console.info('[agently-steer]', {
+        event: 'forceSteer:accepted',
+        conversationID,
+        turnID,
+        result
+      });
+    } catch (_) {}
+  }
   await dsTick(context);
+  return result;
 }
 
 function getConversationID(context) {

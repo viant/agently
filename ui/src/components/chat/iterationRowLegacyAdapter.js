@@ -27,6 +27,7 @@ function mapModelStep(step = {}, round = {}) {
     id: step.renderKey,
     kind: 'model',
     reason: round.finalResponse ? 'final_response' : 'thinking',
+    executionRole: step.executionRole || round.executionRole || '',
     phase: round.phase || '',
     provider: step.provider || '',
     model: step.model || '',
@@ -48,6 +49,7 @@ function mapToolCall(step = {}) {
     toolCallId: step.toolCallId || '',
     kind: 'tool',
     reason: 'tool_call',
+    executionRole: step.executionRole || '',
     toolName: step.toolName || step.toolCallId || 'tool',
     status: normalizeStatus(step.status || ''),
     errorMessage: step.errorMessage || '',
@@ -69,6 +71,8 @@ function mapRoundToExecutionGroup(round = {}) {
   ];
   return {
     id: round.renderKey,
+    executionRole: round.executionRole || '',
+    mode: round.mode || '',
     phase: round.phase || '',
     status: normalizeStatus(
       modelSteps[modelSteps.length - 1]?.status

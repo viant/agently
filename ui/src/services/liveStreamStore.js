@@ -89,6 +89,43 @@ function normalizedMode(payload = {}) {
   return String(payload?.mode || patch?.mode || '').trim().toLowerCase();
 }
 
+function syntheticExecutionRoleFromPreamblePayload(payload = {}) {
+  const explicit = String(payload?.executionRole || '').trim().toLowerCase();
+  if (explicit === 'narrator' || explicit === 'intake' || explicit === 'summary' || explicit === 'router') {
+    return explicit;
+  }
+  const mode = normalizedMode(payload);
+  if (mode === 'narrator' || mode === 'summary' || mode === 'router') {
+    return mode;
+  }
+  const phase = String(payload?.phase || '').trim().toLowerCase();
+  if (phase === 'intake' || phase === 'summary') {
+    return phase;
+  }
+  return '';
+}
+
+function syntheticModelStepForPreamble(payload = {}, preamble = '', existing = null) {
+  const executionRole = syntheticExecutionRoleFromPreamblePayload(payload);
+  if (!executionRole) return existing;
+  const assistantMessageId = canonicalPayloadMessageId(payload);
+  const phase = String(payload?.phase || '').trim();
+  return {
+    ...(existing || {}),
+    modelCallId: String(existing?.modelCallId || assistantMessageId || `preamble:${String(payload?.turnId || '').trim()}`).trim(),
+    assistantMessageId: String(existing?.assistantMessageId || assistantMessageId).trim(),
+    executionRole,
+    phase,
+    provider: String(existing?.provider || payload?.provider || payload?.model?.provider || '').trim(),
+    model: String(existing?.model || payload?.modelName || payload?.model?.model || '').trim(),
+    status: String(payload?.status || existing?.status || 'running').trim() || 'running',
+    responsePayload: {
+      content: String(preamble || '').trim(),
+      messageKind: executionRole,
+    }
+  };
+}
+
 function summarySuppressionSet(chatState = {}) {
   if (!chatState._suppressedSummaryMessageIds) {
     chatState._suppressedSummaryMessageIds = new Set();
@@ -1135,6 +1172,16 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
     if (groups.length > 0) {
       const last = { ...groups[groups.length - 1] };
       last.preamble = preamble;
+      const modelSteps = Array.isArray(last.modelSteps) ? [...last.modelSteps] : [];
+      const syntheticStep = syntheticModelStepForPreamble(payload, preamble, modelSteps[0] || null);
+      if (syntheticStep) {
+        if (modelSteps.length > 0) {
+          modelSteps[0] = syntheticStep;
+        } else {
+          modelSteps.push(syntheticStep);
+        }
+        last.modelSteps = modelSteps;
+      }
       if (!String(last?.assistantMessageId || '').trim() && assistantMessageId) {
         last.assistantMessageId = assistantMessageId;
         last.pageId = String(last?.pageId || '').trim() || assistantMessageId;
@@ -1171,7 +1218,11 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
       executionGroups: [{
         assistantMessageId,
         preamble,
-        iteration: Number(payload?.iteration || 0) || undefined
+        iteration: Number(payload?.iteration || 0) || undefined,
+        modelSteps: (() => {
+          const step = syntheticModelStepForPreamble(payload, preamble, null);
+          return step ? [step] : [];
+        })()
       }],
       createdAt: String(payload?.createdAt || '').trim(),
       sequence: payloadSequence(payload)

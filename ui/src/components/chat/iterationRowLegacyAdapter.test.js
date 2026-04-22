@@ -57,6 +57,33 @@ describe('iterationRowLegacyAdapter', () => {
     expect(message._iterationData.isLatestIteration).toBe(false);
   });
 
+  it('preserves execution roles on legacy model and group mappings', () => {
+    const message = rowToLegacyIterationMessage(makeRow({
+      lifecycle: 'completed',
+      isStreaming: false,
+      rounds: [{
+        renderKey: 'rk_round_intake',
+        phase: 'intake',
+        executionRole: 'intake',
+        preamble: 'Classifying request.',
+        content: '',
+        finalResponse: false,
+        modelSteps: [{
+          renderKey: 'rk_model_intake',
+          executionRole: 'intake',
+          provider: 'openai',
+          model: 'gpt-5-mini',
+          status: 'completed',
+        }],
+        toolCalls: [],
+        lifecycleEntries: [],
+      }],
+    }));
+
+    expect(message._iterationData.executionGroups[0].executionRole).toBe('intake');
+    expect(message._iterationData.executionGroups[0].modelSteps[0].executionRole).toBe('intake');
+  });
+
   it('falls back to preamble or tool title for visible content while streaming', () => {
     const preambleMessage = rowToLegacyIterationMessage(makeRow({
       rounds: [{

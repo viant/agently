@@ -49,28 +49,50 @@ export function onSelectedFeedChange(fn) {
   selectedFeedListeners.add(fn);
   return () => selectedFeedListeners.delete(fn);
 }
+export function __resetToolFeedBarStateForTest() {
+  expandedFeeds = new Set();
+  selectedFeedId = '';
+  autoExpandedFeedSignature = '';
+}
 function feedSignature(feeds = []) {
   return (Array.isArray(feeds) ? feeds : [])
     .map((feed) => `${String(feed?.conversationId || '').trim()}::${String(feed?.feedId || '').trim()}`)
     .join('|');
 }
-function toggleFeedExpanded(feedId, conversationId) {
-  if (expandedFeeds.has(feedId)) {
-    expandedFeeds.delete(feedId);
-    if (selectedFeedId === feedId) {
-      selectedFeedId = Array.from(expandedFeeds)[0] || '';
-      notifySelectedFeed();
-    }
-  } else {
+function fetchFeedIfNeeded(feedId, conversationId) {
+  if (conversationId) {
+    fetchFeedDataNow(feedId, conversationId);
+  }
+}
+
+export function expandFeed(feedId, conversationId) {
+  if (!feedId) return;
+  if (!expandedFeeds.has(feedId)) {
     expandedFeeds.add(feedId);
-    selectedFeedId = feedId;
+    notifyExpand();
+  }
+  selectedFeedId = feedId;
+  notifySelectedFeed();
+  fetchFeedIfNeeded(feedId, conversationId);
+}
+
+export function collapseFeed(feedId) {
+  if (!feedId) return;
+  if (!expandedFeeds.has(feedId)) return;
+  expandedFeeds.delete(feedId);
+  if (selectedFeedId === feedId) {
+    selectedFeedId = Array.from(expandedFeeds)[0] || '';
     notifySelectedFeed();
-    // Always fetch fresh merged data from backend on toggle.
-    if (conversationId) {
-      fetchFeedDataNow(feedId, conversationId);
-    }
   }
   notifyExpand();
+}
+
+export function toggleFeedExpanded(feedId, conversationId) {
+  if (expandedFeeds.has(feedId)) {
+    collapseFeed(feedId);
+  } else {
+    expandFeed(feedId, conversationId);
+  }
 }
 function useExpandedFeeds() {
   const [, forceUpdate] = useState(0);
@@ -140,7 +162,7 @@ export default function ToolFeedBar() {
           <div
             className="app-tool-feed-bar-item"
             key={feed.feedId}
-            onClick={() => toggleFeedExpanded(feed.feedId, feed.conversationId)}
+            onClick={() => expandFeed(feed.feedId, feed.conversationId)}
             role="button"
             tabIndex={0}
           >
@@ -149,7 +171,15 @@ export default function ToolFeedBar() {
             {feed.itemCount > 0 ? (
               <span className="app-tool-feed-bar-badge">{feed.itemCount}</span>
             ) : null}
-            <span className={`app-tool-feed-bar-toggle${isExpanded ? ' is-on' : ''}`} />
+            <span
+              className={`app-tool-feed-bar-toggle${isExpanded ? ' is-on' : ''}`}
+              role="switch"
+              aria-checked={isExpanded}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleFeedExpanded(feed.feedId, feed.conversationId);
+              }}
+            />
           </div>
         );
       })}

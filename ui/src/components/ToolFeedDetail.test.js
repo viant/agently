@@ -1,4 +1,5 @@
 import React from 'react';
+import fs from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -113,6 +114,8 @@ describe('ToolFeedDetail', () => {
     expect(html).toContain('planInfo');
     expect(html).toContain('planDetail');
     expect(html).toContain('planTable');
+    expect(html).not.toContain('explanation');
+    expect(html).not.toContain('"title":"Plan"');
   });
 
   it('renders nothing when feeds exist but none are expanded', async () => {
@@ -202,6 +205,61 @@ describe('ToolFeedDetail', () => {
     expect(html).toContain('planInfo');
     expect(html).toContain('planDetail');
     expect(html).toContain('planTable');
+  });
+
+  it('renders inline fallback for data-only feeds instead of a loading placeholder', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBar = await import('./ToolFeedBar');
+
+    getActiveFeedsMock.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::explorer',
+        rawFeedId: 'explorer',
+        title: 'Explorer',
+        conversationId: 'conv-1',
+      },
+    ]);
+    toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::explorer');
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::explorer');
+    getFeedDataMock.mockImplementation(() => ({
+      data: {
+        output: {
+          items: [
+            { path: '/tmp/project/service.go', matches: 4 },
+          ],
+        },
+      },
+      _conversationId: 'conv-1',
+    }));
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
+
+    expect(html).not.toContain('Loading feed…');
+    expect(html).toContain('/tmp/project/service.go');
+  });
+
+  it('renders nothing for feeds with no spec and no data instead of a loading placeholder', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBar = await import('./ToolFeedBar');
+
+    getActiveFeedsMock.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::explorer',
+        rawFeedId: 'explorer',
+        title: 'Explorer',
+        conversationId: 'conv-1',
+      },
+    ]);
+    toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::explorer');
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::explorer');
+    getFeedDataMock.mockImplementation(() => ({
+      data: {},
+      _conversationId: 'conv-1',
+    }));
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
+
+    expect(html).toBe('');
   });
 
   it('renders the queue feed detail when queue feed is expanded', async () => {
@@ -399,5 +457,61 @@ describe('ToolFeedDetail', () => {
 
     expect(html).toContain('app-tool-feed-detail');
     expect(getFeedDataMock).toHaveBeenCalledWith('conv-1::changes', 'conv-1');
+  });
+
+  it('renders multiple expanded feeds together instead of tabbing them', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBar = await import('./ToolFeedBar');
+
+    getActiveFeedsMock.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::plan',
+        rawFeedId: 'plan',
+        title: 'Plan',
+        conversationId: 'conv-1',
+        itemCount: 2,
+      },
+      {
+        feedId: 'conv-1::changes',
+        rawFeedId: 'changes',
+        title: 'Changes',
+        conversationId: 'conv-1',
+        itemCount: 1,
+      },
+    ]);
+    toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::plan' || feedId === 'conv-1::changes');
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::changes');
+    getFeedDataMock.mockImplementation((feedId) => {
+      if (feedId === 'conv-1::plan') {
+        return {
+          data: { output: { plan: [{ step: 'Inspect package', status: 'completed' }] } },
+          _conversationId: 'conv-1',
+        };
+      }
+      if (feedId === 'conv-1::changes') {
+        return {
+          data: { output: { changes: [{ url: '/tmp/a.go', kind: 'create' }] } },
+          _conversationId: 'conv-1',
+        };
+      }
+      return null;
+    });
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
+
+    expect(html).toContain('app-tool-feed-detail-section-title');
+    expect(html).toContain('Plan');
+    expect(html).toContain('Changes');
+    expect(html).not.toContain('tool-feed-tabs');
+  });
+
+  it('keeps changes and explorer feeds visually compact at the spec level', () => {
+    const changesYaml = fs.readFileSync('/Users/awitas/go/src/github.com/viant/agently/bootstrap/defaults/feeds/changes.yaml', 'utf8');
+    const explorerYaml = fs.readFileSync('/Users/awitas/go/src/github.com/viant/agently/bootstrap/defaults/feeds/explorer.yaml', 'utf8');
+
+    expect(changesYaml).toContain('height: min(18vh, 180px)');
+    expect(changesYaml).toContain('borderRadius: 10px');
+    expect(explorerYaml).toContain('height: min(20vh, 220px)');
+    expect(explorerYaml).toContain('borderRadius: 10px');
   });
 });

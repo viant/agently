@@ -28,11 +28,10 @@ ui:
     - id: searchBar
       dataSourceRef: search
       style:
-        background: linear-gradient(180deg, #f5fbf8 0%, #edf9f2 100%)
-        border: 1px solid #cfe8da
-        borderRadius: 14px
-        padding: 12px 14px
-        boxShadow: 0 12px 26px rgba(34, 139, 94, 0.08)
+        background: '#fbfefc'
+        border: 1px solid #d8e8dd
+        borderRadius: 10px
+        padding: 8px 10px
       items:
         - id: pattern
           type: text
@@ -70,11 +69,10 @@ ui:
               - event: onClick
                 handler: chat.explorerOpen
       style:
-        marginTop: 10px
-        height: 300px
+        marginTop: 8px
+        height: min(20vh, 220px)
         overflow: hidden
         background: '#ffffff'
         border: 1px solid #dbe7df
-        borderRadius: 14px
-        padding: 8px 10px
-        boxShadow: 0 10px 22px rgba(15, 23, 42, 0.05)
+        borderRadius: 10px
+        padding: 6px 8px

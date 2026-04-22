@@ -34,6 +34,8 @@ export function normalizeCanonicalModelStep(step = {}, page = {}) {
     assistantMessageId: firstText(step?.assistantMessageId, page?.assistantMessageId, page?.pageId),
     kind: 'model',
     reason: page?.finalResponse ? 'final_response' : 'thinking',
+    executionRole: firstText(step?.executionRole, page?.executionRole),
+    phase: firstText(step?.phase, page?.phase),
     toolName: firstText(provider && model ? `${provider}/${model}` : '', model, provider, 'model'),
     provider,
     model,
@@ -61,6 +63,7 @@ export function normalizeCanonicalToolStep(step = {}, page = {}) {
     toolMessageId: firstText(step?.toolMessageId),
     kind: 'tool',
     reason: 'tool_call',
+    executionRole: firstText(step?.executionRole, page?.executionRole),
     toolName: firstText(step?.toolName, 'tool'),
     content: firstText(step?.content),
     // Tool rows must render their own lifecycle state. Falling back to the

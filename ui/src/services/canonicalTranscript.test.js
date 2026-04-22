@@ -31,6 +31,7 @@ describe('canonicalTranscript', () => {
           modelSteps: [{
             modelCallId: 'mc-1',
             assistantMessageId: 'page-1',
+            executionRole: 'intake',
             provider: 'openai',
             model: 'gpt-5.4',
             status: 'completed',
@@ -40,6 +41,7 @@ describe('canonicalTranscript', () => {
             toolCallId: 'tc-1',
             toolMessageId: 'tm-1',
             toolName: 'llm/agents-run',
+            executionRole: 'worker',
             content: 'Checking blocker diagnostics now.',
             status: 'completed',
             linkedConversationId: 'child-1',
@@ -55,6 +57,7 @@ describe('canonicalTranscript', () => {
     expect(steps[0]).toMatchObject({
       id: 'mc-1',
       kind: 'model',
+      executionRole: 'intake',
       provider: 'openai',
       model: 'gpt-5.4',
       requestPayloadId: 'req-1'
@@ -62,6 +65,7 @@ describe('canonicalTranscript', () => {
     expect(steps[1]).toMatchObject({
       id: 'tc-1',
       kind: 'tool',
+      executionRole: 'worker',
       toolName: 'llm/agents-run',
       content: 'Checking blocker diagnostics now.',
       linkedConversationId: 'child-1',

@@ -467,8 +467,36 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(groups).toHaveLength(1);
     expect(groups[0].groupKind).toBe('intake');
+    expect(groups[0].modelStep?.executionRole).toBe('intake');
     expect(groups[0].finalContent).toBe('{"agentId":"coder"}');
     expect(resolveVisibleBubbleContent(groups)).toBe('');
+  });
+
+  it('preserves narrator executionRole on canonical model groups', () => {
+    const groups = mapCanonicalExecutionGroups([
+      {
+        parentMessageId: 'narrator-1',
+        modelMessageId: 'narrator-1',
+        sequence: 2,
+        status: 'running',
+        preamble: 'Delegated to agent "coder" to list top-level files in the workspace; awaiting results...',
+        modelSteps: [
+          {
+            modelCallId: 'narrator-step-1',
+            assistantMessageId: 'narrator-1',
+            executionRole: 'narrator',
+            status: 'running',
+            responsePayload: {
+              content: 'Delegated to agent "coder" to list top-level files in the workspace; awaiting results...'
+            }
+          }
+        ],
+        toolSteps: []
+      }
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].modelStep?.executionRole).toBe('narrator');
   });
 
   it('treats llm/agents:status as a normal tool row, not a delegated-run title source', () => {
