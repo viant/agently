@@ -1221,6 +1221,9 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     ? data.conversation
     : null;
   const canonicalTurns = Array.isArray(canonicalConversation?.turns) ? canonicalConversation.turns : null;
+  const liveOwnedTurnIds = Array.isArray(activeChatState?.liveOwnedTurnIds)
+    ? activeChatState.liveOwnedTurnIds.map((value) => String(value || '').trim()).filter(Boolean)
+    : [];
   // ── chatStore transcript forwarding shim (PR-0 side-consumer cutover) ───
   // Forward the raw canonical ConversationState to the new client store so
   // ChatFeedFromChatStore (and any downstream consumer) sees identical data
@@ -1228,9 +1231,14 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   // live-owned, transcript must not reshape the active canonical feed; the
   // runtime already treats transcript as idle in that state.
   try {
-    if (!latestTurnLiveOwned && canonicalConversation && canonicalConversation.conversationId) {
+    if (canonicalConversation && canonicalConversation.conversationId) {
       const store = _chatStoreRef();
-      if (store) store.onTranscript(canonicalConversation.conversationId, canonicalConversation);
+      if (store) {
+        const forwardedConversation = latestTurnLiveOwned
+          ? filterCanonicalConversationForLiveOwnedTurns(canonicalConversation, liveOwnedTurnIds)
+          : canonicalConversation;
+        store.onTranscript(canonicalConversation.conversationId, forwardedConversation);
+      }
     }
   } catch (_) { /* best-effort mirror */ }
   const resolvedFeeds = Array.isArray(data?.feeds)
@@ -1262,6 +1270,25 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     return canonicalTurns;
   }
   return Array.isArray(data?.conversation?.turns) ? data.conversation.turns : [];
+}
+
+export function filterCanonicalConversationForLiveOwnedTurns(conversation = {}, liveOwnedTurnIds = []) {
+  const owned = new Set((Array.isArray(liveOwnedTurnIds) ? liveOwnedTurnIds : []).map((item) => String(item || '').trim()).filter(Boolean));
+  if (owned.size === 0) return conversation;
+  const turns = Array.isArray(conversation?.turns) ? conversation.turns : [];
+  return {
+    ...conversation,
+    turns: turns.map((turn) => {
+      const turnId = String(turn?.turnId || '').trim();
+      if (!turnId || !owned.has(turnId)) return turn;
+      return {
+        ...turn,
+        execution: null,
+        assistant: null,
+        elicitation: null,
+      };
+    }),
+  };
 }
 
 export async function fetchPendingElicitations(conversationID = '') {
@@ -2081,8 +2108,16 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       return;
     }
 
-    if (type === 'usage' || type === 'item_completed') {
-      // Metadata events — no UI action needed
+    if (type === 'usage') {
+      const usageConversationID = String(payload?.conversationId || payload?.streamId || conversationID || '').trim();
+      if (usageConversationID) {
+        publishUsage(usageConversationID, payload);
+      }
+      return;
+    }
+
+    if (type === 'item_completed') {
+      // Metadata event — no UI action needed
       return;
     }
 

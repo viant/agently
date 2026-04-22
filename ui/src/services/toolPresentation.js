@@ -146,6 +146,11 @@ export function executionRoleLabel(step = {}) {
 export function displayStepTitle(step = {}) {
   const kind = String(step?.kind || '').toLowerCase();
   if (kind === 'model') {
+    const role = String(step?.executionRole || '').trim().toLowerCase();
+    if (role === 'narrator') return 'Narrator';
+    if (role === 'intake') return 'Intake';
+    if (role === 'summary') return 'Summary';
+    if (role === 'router') return 'Router';
     const { provider, model } = resolveModelIdentity(step);
     if (provider && model) return `${provider}/${model}`;
     if (model) return model;

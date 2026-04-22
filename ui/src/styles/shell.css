@@ -955,6 +955,42 @@ body {
   gap: 2px;
 }
 
+.app-tool-feed-detail-section + .app-tool-feed-detail-section {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.app-tool-feed-detail-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.app-tool-feed-detail-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.app-tool-feed-detail-section-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .app-tool-feed-detail-step {
   display: flex;
   align-items: center;
@@ -1013,15 +1049,62 @@ body {
 }
 
 .app-feed-browser {
-  backdrop-filter: saturate(1.08);
+  backdrop-filter: saturate(1.04);
+  background: #fff;
+}
+
+.app-feed-browser .app-file-browser-scroll {
+  padding-right: 2px;
+}
+
+.app-feed-browser .bp6-tree {
+  min-width: 0;
+}
+
+.app-feed-browser .bp6-tree-node {
+  min-width: 0;
 }
 
 .app-feed-browser .bp6-tree-node-content {
-  border-radius: 8px;
+  min-height: 30px;
+  border-radius: 7px;
+  margin: 1px 0;
+  padding-right: 8px;
+  font-size: 13px;
+  color: #334155;
 }
 
 .app-feed-browser .bp6-tree-node-content:hover {
-  background: rgba(191, 103, 38, 0.08);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.app-feed-browser .bp6-tree-node-content.bp6-tree-node-selected,
+.app-feed-browser .bp6-tree-node-content.bp6-tree-node-selected:hover {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1e3a8a;
+}
+
+.app-feed-browser .bp6-tree-node-list {
+  padding-left: 18px;
+}
+
+.app-feed-browser .bp6-tree-node-caret,
+.app-feed-browser .bp6-tree-node-icon {
+  color: #64748b;
+}
+
+.app-feed-browser .bp6-tree-node-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-feed-browser-changes .bp6-tree-node-content:hover {
+  background: rgba(191, 103, 38, 0.10);
+}
+
+.app-feed-browser-resources .bp6-tree-node-content:hover {
+  background: rgba(34, 139, 94, 0.10);
 }
 
 .app-feed-terminal-commandlog .terminal-inner {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
 
-import { bootstrapConversationSelection, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, handleStreamEvent, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot } from './chatRuntime';
+import { bootstrapConversationSelection, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot } from './chatRuntime';
 import { client } from './agentlyClient';
 
 vi.mock('./agentlyClient', () => ({
@@ -3619,7 +3619,7 @@ describe('shouldUseLiveStream', () => {
     expect(shouldUseLiveStream(context, 'conv-finished')).toBe(false);
   });
 
-  it('does not forward transcript snapshots into chatStore while the latest turn is live-owned', async () => {
+  it('forwards only static transcript rows into chatStore while the latest turn is live-owned', async () => {
     const onTranscript = vi.fn();
     installChatStoreMirror({ onTranscript });
     const originalWindow = global.window;
@@ -3643,12 +3643,51 @@ describe('shouldUseLiveStream', () => {
     try {
       const turns = await fetchTranscript('conv-live');
       expect(turns).toHaveLength(1);
-      expect(onTranscript).not.toHaveBeenCalled();
+      expect(onTranscript).toHaveBeenCalledTimes(1);
+      const [, forwarded] = onTranscript.mock.calls[0];
+      expect(forwarded).toMatchObject({
+        conversationId: 'conv-live',
+        turns: [{
+          turnId: 'turn-1',
+          status: 'running',
+          execution: null,
+          assistant: null,
+          elicitation: null,
+        }],
+      });
       expect(global.window.__agentlyActiveChatState.lastTranscriptFeedsByConversation).toBeUndefined();
     } finally {
       installChatStoreMirror(null);
       global.window = originalWindow;
     }
+  });
+
+  it('filterCanonicalConversationForLiveOwnedTurns preserves user and standalone messages for owned turns', () => {
+    const input = {
+      conversationId: 'conv-live',
+      turns: [{
+        turnId: 'turn-1',
+        status: 'running',
+        user: { messageId: 'user-1', content: 'Analyze repo' },
+        messages: [{ messageId: 'note-1', role: 'assistant', content: 'PRELIMINARY NOTE' }],
+        execution: { pages: [{ pageId: 'page-1', status: 'running' }] },
+        assistant: { final: { messageId: 'a1', content: 'done' } },
+        elicitation: { elicitationId: 'elic-1', message: 'Need input' },
+      }],
+    };
+
+    expect(filterCanonicalConversationForLiveOwnedTurns(input, ['turn-1'])).toEqual({
+      conversationId: 'conv-live',
+      turns: [{
+        turnId: 'turn-1',
+        status: 'running',
+        user: { messageId: 'user-1', content: 'Analyze repo' },
+        messages: [{ messageId: 'note-1', role: 'assistant', content: 'PRELIMINARY NOTE' }],
+        execution: null,
+        assistant: null,
+        elicitation: null,
+      }],
+    });
   });
 });
 

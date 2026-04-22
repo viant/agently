@@ -1,1 +1,0 @@
-dummy old asset

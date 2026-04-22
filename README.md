@@ -503,7 +503,10 @@ That document tracks:
 ## UI Development
 
 ```bash
-# Build UI and copy to deployment/ui/
+# Build the embedded UI bundle safely
+cd ui && npm run build:embed
+
+# Alternative wrapper (also safe)
 ./e2e/build-ui-embed.sh
 
 # Rebuild binary with updated UI
@@ -512,6 +515,10 @@ cd agently && go build -o agently .
 # Dev mode (proxies to local server at localhost:9393)
 cd ui && npm run dev
 ```
+
+Notes:
+- Do not copy `ui/dist` into `deployment/ui` with a raw `rsync --delete` unless you preserve `deployment/ui/init.go`.
+- `npm run build:embed` and `./e2e/build-ui-embed.sh` already handle the safe sync path for the embedded bundle.
 
 ## Approval Editors And Callbacks
 

@@ -548,6 +548,12 @@ export function mapCanonicalExecutionGroups(groups = []) {
       assistantMessageId: modelStep0?.assistantMessageId || group?.assistantMessageId || group?.pageId || '',
       kind: 'model',
       reason: group?.finalResponse || group?.FinalResponse ? 'final_response' : 'thinking',
+      executionRole:
+        modelStep0?.executionRole
+        || modelStep0?.ExecutionRole
+        || group?.executionRole
+        || group?.ExecutionRole
+        || (String(modelStep0?.phase || modelStep0?.Phase || group?.phase || group?.Phase || '').trim().toLowerCase() === 'intake' ? 'intake' : ''),
       phase: modelStep0?.phase || modelStep0?.Phase || group?.phase || group?.Phase || '',
       provider: modelStep0?.provider || modelStep0?.Provider || '',
       model: modelStep0?.model || modelStep0?.Model || '',
@@ -576,6 +582,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
         toolCallId: ts?.toolCallId || ts?.ToolCallID || ts?.opId || ts?.OpId || '',
         kind: stepKind,
         reason: stepReason,
+        executionRole: ts?.executionRole || ts?.ExecutionRole || group?.executionRole || group?.ExecutionRole || '',
         toolName: ts?.toolName || ts?.ToolName || toolMessage?.toolName || toolMessage?.ToolName || 'tool',
         content: ts?.content || ts?.Content || toolMessage?.content || toolMessage?.Content || '',
         status: ts?.status || ts?.Status || '',

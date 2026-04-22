@@ -33,12 +33,28 @@ function formatThousands(n) {
  */
 export function publishUsage(conversationId, conv) {
   if (!conv) return;
-  const usage = conv?.Usage || conv?.usage || {
-    promptTokens: conv?.UsageInputTokens ?? conv?.usageInputTokens,
-    completionTokens: conv?.UsageOutputTokens ?? conv?.usageOutputTokens,
-    totalTokens: conv?.Usage?.TotalTokens ?? conv?.usage?.totalTokens,
-    promptCachedTokens: conv?.Usage?.PromptCachedTokens ?? conv?.usage?.promptCachedTokens,
-  };
+  const topLevelPrompt = conv?.UsageInputTokens ?? conv?.usageInputTokens;
+  const topLevelCompletion = conv?.UsageOutputTokens ?? conv?.usageOutputTokens;
+  const topLevelTotal = conv?.UsageTotalTokens ?? conv?.usageTotalTokens;
+  const topLevelCached = conv?.PromptCachedTokens ?? conv?.promptCachedTokens ?? conv?.UsagePromptCachedTokens ?? conv?.usagePromptCachedTokens;
+  const usage = (topLevelPrompt != null || topLevelCompletion != null || topLevelTotal != null || topLevelCached != null)
+    ? {
+        ...(conv?.Usage || conv?.usage || {}),
+        PromptTokens: topLevelPrompt,
+        CompletionTokens: topLevelCompletion,
+        TotalTokens: topLevelTotal,
+        PromptCachedTokens: topLevelCached,
+        promptTokens: topLevelPrompt,
+        completionTokens: topLevelCompletion,
+        totalTokens: topLevelTotal,
+        promptCachedTokens: topLevelCached,
+      }
+    : (conv?.Usage || conv?.usage || {
+        promptTokens: topLevelPrompt,
+        completionTokens: topLevelCompletion,
+        totalTokens: conv?.Usage?.TotalTokens ?? conv?.usage?.totalTokens,
+        promptCachedTokens: conv?.Usage?.PromptCachedTokens ?? conv?.usage?.promptCachedTokens,
+      });
   if (!usage) return;
 
   const promptTokens = Number(usage.PromptTokens ?? usage.promptTokens ?? usage.Prompt ?? 0) || 0;

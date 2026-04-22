@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Tabs, Tab } from '@blueprintjs/core';
 import { Container as ForgeContainer } from 'forge/components';
 import { getFeedData, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
 import { getSelectedFeedId, isFeedExpanded, onSelectedFeedChange } from './ToolFeedBar';
@@ -21,11 +20,44 @@ function dedupeFeeds(feeds = []) {
   return Array.from(seen.values());
 }
 
+function isPlanExplanationContainer(container = {}) {
+  const items = Array.isArray(container?.items) ? container.items : [];
+  if (items.length === 0) return false;
+  return items.every((item) => {
+    const type = String(item?.type || '').trim().toLowerCase();
+    const bind = String(item?.dataBind || '').trim().toLowerCase();
+    const id = String(item?.id || '').trim().toLowerCase();
+    return type === 'label' && (bind === 'explanation' || id === 'explanation');
+  });
+}
+
+function normalizePlanFeedUI(ui = null, rawFeedId = '') {
+  if (!ui || typeof ui !== 'object') return ui;
+  if (String(rawFeedId || '').trim().toLowerCase() !== 'plan') return ui;
+  const clone = JSON.parse(JSON.stringify(ui));
+  delete clone.title;
+  if (Array.isArray(clone.containers)) {
+    clone.containers = clone.containers.filter((container) => !isPlanExplanationContainer(container));
+  }
+  return clone;
+}
+
+function hasRenderableFeedData(data = null) {
+  if (!data || typeof data !== 'object') return false;
+  const root = data?.data;
+  if (root == null) return false;
+  if (Array.isArray(root)) return root.length > 0;
+  if (typeof root !== 'object') return String(root).trim() !== '';
+  const output = root?.output;
+  if (Array.isArray(output)) return output.length > 0;
+  if (output && typeof output === 'object') return Object.keys(output).length > 0;
+  return Object.keys(root).length > 0;
+}
+
 /**
- * Tabbed feed detail panel rendered below execution details in IterationBlock.
+ * Expanded feed detail panel rendered below execution details in IterationBlock.
  * Uses Forge Container to render feed UI specs from YAML.
  * Falls back to generic InlineRenderer when no UI spec is present.
- * Single feed = no tab bar, just content.
  */
 export default function ToolFeedDetail({ context }) {
   const [feeds, setFeeds] = useState(getActiveFeeds);
@@ -52,6 +84,15 @@ export default function ToolFeedDetail({ context }) {
   const visibleFeeds = hasAnyExpandedFeed
     ? candidateFeeds.filter((feed) => isFeedExpanded(feed.feedId))
     : [];
+  const renderableFeeds = visibleFeeds.filter((feed) => {
+    const data = getFeedData(feed.feedId, feed.conversationId);
+    if (!data) return false;
+    const rawDS = data.ui && typeof data.ui === 'object'
+      ? (data.ui.dataSources || data.dataSources || {})
+      : (data.dataSources || {});
+    if (data?.ui && rawDS && Object.keys(rawDS).length > 0) return true;
+    return hasRenderableFeedData(data);
+  });
 
   useEffect(() => {
     setIsExpanded(false);
@@ -83,48 +124,30 @@ export default function ToolFeedDetail({ context }) {
     };
   }, [collapsedHeight, dataVersion, selectedFeedId, visibleFeeds.map((feed) => feed.feedId).join('|')]);
 
-  if (visibleFeeds.length === 0) return null;
+  if (renderableFeeds.length === 0) return null;
 
-  // Single feed: render directly, no tab bar.
-  if (visibleFeeds.length === 1) {
-    return (
-      <div className={`app-tool-feed-detail${isOverflowing ? ' has-overflow' : ''}${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>
-        <div ref={bodyRef} className="app-tool-feed-detail-body">
-          <FeedPanel feedId={visibleFeeds[0].feedId} context={context} />
-        </div>
-        {isOverflowing ? (
-          <div className="app-tool-feed-detail-footer">
-            <button
-              type="button"
-              className="app-tool-feed-detail-toggle"
-              onClick={() => setIsExpanded((value) => !value)}
-            >
-              {isExpanded ? 'Collapse' : 'Expand'}
-            </button>
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
-  // Multiple feeds: tabbed.
   return (
     <div className={`app-tool-feed-detail${isOverflowing ? ' has-overflow' : ''}${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>
       <div ref={bodyRef} className="app-tool-feed-detail-body">
-        <Tabs
-          id="tool-feed-tabs"
-          renderActiveTabPanelOnly
-          selectedTabId={visibleFeeds.some((feed) => feed.feedId === selectedFeedId) ? selectedFeedId : visibleFeeds[0].feedId}
-        >
-          {visibleFeeds.map((feed) => (
-            <Tab
-              key={feed.feedId}
-              id={feed.feedId}
-              title={feed.title || feed.feedId}
-              panel={<FeedPanel feedId={feed.feedId} rawFeedId={feed.rawFeedId || splitFeedKey(feed.feedId).feedId} context={context} />}
+        {renderableFeeds.map((feed) => (
+          <section
+            key={feed.feedId}
+            className={`app-tool-feed-detail-section${feed.feedId === selectedFeedId ? ' is-selected' : ''}`}
+            data-feed-id={feed.feedId}
+          >
+            {renderableFeeds.length > 1 ? (
+              <div className="app-tool-feed-detail-section-header">
+                <span className="app-tool-feed-detail-section-title">{feed.title || feed.feedId}</span>
+                {feed.itemCount > 0 ? <span className="app-tool-feed-detail-section-badge">{feed.itemCount}</span> : null}
+              </div>
+            ) : null}
+            <FeedPanel
+              feedId={feed.feedId}
+              rawFeedId={feed.rawFeedId || splitFeedKey(feed.feedId).feedId}
+              context={context}
             />
-          ))}
-        </Tabs>
+          </section>
+        ))}
       </div>
       {isOverflowing ? (
         <div className="app-tool-feed-detail-footer">
@@ -181,12 +204,12 @@ function FeedPanel({ feedId, rawFeedId, context }) {
   // Prepare UI container with auto-columns and data source defs merged.
   const uiContainer = useMemo(() => {
     if (!exe || !exe.ui || typeof exe.ui !== 'object') return null;
-    const uiClone = JSON.parse(JSON.stringify(exe.ui));
+    const uiClone = normalizePlanFeedUI(exe.ui, rawFeedId);
     uiClone.dataSources = exe.dataSources;
     const dataMap = computeDataMap(exe);
     applyAutoTableColumns(uiClone, dataMap);
     return uiClone;
-  }, [exe]);
+  }, [exe, rawFeedId]);
 
   // Build Forge context for this feed.
   const conversationId = data?._conversationId || scopedConversationId || '';
@@ -218,10 +241,11 @@ function FeedPanel({ feedId, rawFeedId, context }) {
 
   if (!data) return null;
 
-  const hasFullFeedSpec = !!(data?.ui && data?.dataSources);
+  const hasFullFeedSpec = !!(data?.ui && exe?.dataSources && Object.keys(exe.dataSources).length > 0);
 
   if (!hasFullFeedSpec) {
-    return <div style={{ padding: 8, color: 'var(--gray2)' }}>Loading feed…</div>;
+    if (!hasRenderableFeedData(data)) return null;
+    return <InlineRenderer data={data} />;
   }
 
   // No UI spec → fall back to generic InlineRenderer.

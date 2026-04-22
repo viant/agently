@@ -41,6 +41,11 @@ describe('toolPresentation', () => {
     expect(displayStepTitle({ kind: 'model', model: 'openai_gpt-5_4' })).toBe('gpt-5.4');
   });
 
+  it('uses explicit execution roles for synthetic narrator/intake model rows', () => {
+    expect(displayStepTitle({ kind: 'model', executionRole: 'narrator' })).toBe('Narrator');
+    expect(displayStepTitle({ kind: 'model', executionRole: 'intake' })).toBe('Intake');
+  });
+
   it('derives model titles from request payloads when direct fields are absent', () => {
     const step = {
       kind: 'model',
