@@ -84,6 +84,58 @@ describe('iterationRowLegacyAdapter', () => {
     expect(message._iterationData.executionGroups[0].modelSteps[0].executionRole).toBe('intake');
   });
 
+  it('preserves intake model payload identities for detail hydration', () => {
+    const message = rowToLegacyIterationMessage(makeRow({
+      lifecycle: 'running',
+      isStreaming: true,
+      rounds: [{
+        renderKey: 'rk_round_intake',
+        phase: 'intake',
+        executionRole: 'intake',
+        preamble: 'Classifying request.',
+        content: '',
+        finalResponse: false,
+        modelSteps: [{
+          renderKey: 'rk_model_intake',
+          modelCallId: 'mc_intake',
+          assistantMessageId: 'msg_intake',
+          executionRole: 'intake',
+          provider: 'openai',
+          model: 'gpt-5-mini',
+          status: 'running',
+          requestPayloadId: 'req_intake',
+          responsePayloadId: 'resp_intake',
+          providerRequestPayloadId: 'prov_req_intake',
+          providerResponsePayloadId: 'prov_resp_intake',
+          streamPayloadId: 'stream_intake',
+          requestPayload: { request: true },
+          responsePayload: { response: true },
+          providerRequestPayload: { providerRequest: true },
+          providerResponsePayload: { providerResponse: true },
+          streamPayload: { delta: 'partial' },
+        }],
+        toolCalls: [],
+        lifecycleEntries: [],
+      }],
+    }));
+
+    const step = message._iterationData.executionGroups[0].modelSteps[0];
+    expect(step).toMatchObject({
+      modelCallId: 'mc_intake',
+      assistantMessageId: 'msg_intake',
+      requestPayloadId: 'req_intake',
+      responsePayloadId: 'resp_intake',
+      providerRequestPayloadId: 'prov_req_intake',
+      providerResponsePayloadId: 'prov_resp_intake',
+      streamPayloadId: 'stream_intake',
+      requestPayload: { request: true },
+      responsePayload: { response: true },
+      providerRequestPayload: { providerRequest: true },
+      providerResponsePayload: { providerResponse: true },
+      streamPayload: { delta: 'partial' },
+    });
+  });
+
   it('falls back to preamble or tool title for visible content while streaming', () => {
     const preambleMessage = rowToLegacyIterationMessage(makeRow({
       rounds: [{

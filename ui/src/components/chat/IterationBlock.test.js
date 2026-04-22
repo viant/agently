@@ -20,6 +20,8 @@ import IterationBlock, {
   resolveIterationStatusDetail,
   resolveVisibleBubbleContent,
   resolveIterationBubbleContent,
+  buildIterationDataFromCanonicalRow,
+  resolveCanonicalDetailStep,
   shouldAutoScrollExecutionGroups,
   shouldShowPreambleBubble,
   hasPendingElicitationStep,
@@ -92,6 +94,99 @@ describe('mapCanonicalExecutionGroups', () => {
       isActiveIteration: true,
       iterationDisplayStatus: 'running',
     })).toBe(true);
+  });
+
+  it('prefers canonical intake model payload identities for detail clicks', () => {
+    const canonicalRow = {
+      rounds: [{
+        modelSteps: [{
+          renderKey: 'rk_model_intake',
+          modelCallId: 'mc_intake',
+          assistantMessageId: 'msg_intake',
+          requestPayloadId: 'req_intake',
+          responsePayloadId: 'resp_intake',
+          providerRequestPayloadId: 'prov_req_intake',
+          providerResponsePayloadId: 'prov_resp_intake',
+          streamPayloadId: 'stream_intake',
+          requestPayload: { request: true },
+          responsePayload: { response: true },
+        }],
+        toolCalls: [],
+      }],
+    };
+
+    const resolved = resolveCanonicalDetailStep(canonicalRow, {
+      kind: 'model',
+      modelCallId: 'mc_intake',
+      assistantMessageId: '',
+      requestPayloadId: '',
+      responsePayloadId: '',
+      providerRequestPayloadId: '',
+      providerResponsePayloadId: '',
+      streamPayloadId: '',
+    });
+
+    expect(resolved).toMatchObject({
+      modelCallId: 'mc_intake',
+      assistantMessageId: 'msg_intake',
+      requestPayloadId: 'req_intake',
+      responsePayloadId: 'resp_intake',
+      providerRequestPayloadId: 'prov_req_intake',
+      providerResponsePayloadId: 'prov_resp_intake',
+      streamPayloadId: 'stream_intake',
+      requestPayload: { request: true },
+      responsePayload: { response: true },
+    });
+  });
+
+  it('builds iteration data directly from canonical intake rounds', () => {
+    const canonicalRow = {
+      kind: 'iteration',
+      turnId: 'turn_1',
+      lifecycle: 'running',
+      createdAt: '2025-01-01T00:00:00Z',
+      isStreaming: true,
+      linkedConversations: [],
+      rounds: [{
+        renderKey: 'round_intake',
+        pageId: 'page_intake',
+        iteration: 0,
+        phase: 'intake',
+        preamble: 'Classifying request.',
+        content: '',
+        status: 'running',
+        finalResponse: false,
+        modelSteps: [{
+          renderKey: 'rk_model',
+          modelCallId: 'mc_intake',
+          assistantMessageId: 'msg_intake',
+          executionRole: 'intake',
+          requestPayloadId: 'req_intake',
+          responsePayloadId: 'resp_intake',
+          providerRequestPayloadId: 'prov_req_intake',
+          providerResponsePayloadId: 'prov_resp_intake',
+          streamPayloadId: 'stream_intake',
+        }],
+        toolCalls: [],
+      }],
+    };
+
+    const data = buildIterationDataFromCanonicalRow(canonicalRow, { _iterationData: {} });
+    expect(data.executionGroups[0]).toMatchObject({
+      pageId: 'page_intake',
+      phase: 'intake',
+      preamble: 'Classifying request.',
+    });
+    expect(data.executionGroups[0].modelSteps[0]).toMatchObject({
+      modelCallId: 'mc_intake',
+      assistantMessageId: 'msg_intake',
+      executionRole: 'intake',
+      requestPayloadId: 'req_intake',
+      responsePayloadId: 'resp_intake',
+      providerRequestPayloadId: 'prov_req_intake',
+      providerResponsePayloadId: 'prov_resp_intake',
+      streamPayloadId: 'stream_intake',
+    });
   });
 
   it('keeps a completed parent turn inactive even if linked child conversations are still running', () => {

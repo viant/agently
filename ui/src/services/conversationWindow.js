@@ -156,34 +156,37 @@ function updateMainChatWindowParameters(conversationId = '') {
   }
 }
 
+export function publishConversationSelection(windowId = '', conversationId = '', { syncPath = false, eventType = 'forge:conversation-active' } = {}) {
+  const scopedWindowId = String(windowId || '').trim();
+  const id = String(conversationId || '').trim();
+  setScopedConversationSelection(scopedWindowId, id);
+  if (syncPath && isMainChatWindowId(scopedWindowId)) {
+    syncMainConversationPath(id);
+  }
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent(eventType, { detail: { id, windowId: scopedWindowId } }));
+  } catch (_) {}
+}
+
 export function openConversationInMainWindow(conversationId = '') {
   const targetID = String(conversationId || '').trim();
   const mainWindow = ensureMainChatWindow();
   updateMainChatWindowParameters(targetID);
-  setScopedConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, targetID);
-  syncMainConversationPath(targetID);
-  if (typeof window !== 'undefined') {
-    try {
-      window.dispatchEvent(new CustomEvent('agently:conversation-select', {
-        detail: { id: targetID, windowId: mainWindow?.windowId || MAIN_CHAT_WINDOW_ID }
-      }));
-    } catch (_) {}
-  }
+  publishConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, targetID, {
+    syncPath: true,
+    eventType: 'agently:conversation-select'
+  });
   return mainWindow;
 }
 
 export function requestNewConversationInMainWindow() {
   const mainWindow = ensureMainChatWindow();
   updateMainChatWindowParameters('');
-  setScopedConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, '');
-  syncMainConversationPath('');
-  if (typeof window !== 'undefined') {
-    try {
-      window.dispatchEvent(new CustomEvent('agently:conversation-new', {
-        detail: { windowId: mainWindow?.windowId || MAIN_CHAT_WINDOW_ID }
-      }));
-    } catch (_) {}
-  }
+  publishConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, '', {
+    syncPath: true,
+    eventType: 'agently:conversation-new'
+  });
   return mainWindow;
 }
 
@@ -221,14 +224,10 @@ export function openLinkedConversationWindow(conversationId = '') {
     );
   }
   focusWindow(existing);
-  setScopedConversationSelection(existing?.windowId || '', targetID);
-  if (typeof window !== 'undefined') {
-    try {
-      window.dispatchEvent(new CustomEvent('agently:conversation-select', {
-        detail: { id: targetID, windowId: existing?.windowId || '' }
-      }));
-    } catch (_) {}
-  }
+  publishConversationSelection(existing?.windowId || '', targetID, {
+    syncPath: false,
+    eventType: 'agently:conversation-select'
+  });
   return existing;
 }
 

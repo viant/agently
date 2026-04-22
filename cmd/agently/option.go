@@ -9,6 +9,7 @@ type Options struct {
 	Query        *ChatCmd         `command:"query" description:"Query an agent (single turn or continuation)"`
 	Chat         *ChatCmd         `command:"chat"  description:"Deprecated alias of query"`
 	ListTools    *ListToolsCmd    `command:"list-tools" description:"List available tools"`
+	TemplateLoad *TemplateLoadCmd `command:"template-load" description:"Load and validate a template file or workspace template"`
 	MCP          *MCPCmd          `command:"mcp" description:"MCP-oriented tool discovery and execution"`
 	ChatGPTLogin *ChatGPTLoginCmd `command:"chatgpt-login" description:"Login via ChatGPT OAuth and persist tokens for OpenAI providers"`
 }
@@ -27,6 +28,8 @@ func (o *Options) Init(firstArg string) {
 		o.Query = &ChatCmd{}
 	case "list-tools":
 		o.ListTools = &ListToolsCmd{}
+	case "template-load":
+		o.TemplateLoad = &TemplateLoadCmd{}
 	case "mcp":
 		o.MCP = &MCPCmd{}
 	case "chatgpt-login":

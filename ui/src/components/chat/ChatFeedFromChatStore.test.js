@@ -1,10 +1,22 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { vi } from 'vitest';
 
 vi.mock('forge/components', () => ({
   AvatarIcon: ({ name = '' }) => React.createElement('span', { 'data-avatar-icon': name }),
+}));
+
+const iterationRowBlockSpy = vi.fn(({ message }) => React.createElement(
+  'div',
+  {
+    'data-testid': 'iteration-row-block',
+    'data-message-id': String(message?.id || ''),
+  },
+  `Execution details ${String(message?._iterationData?.response?.content || message?.content || '').trim()}`,
+));
+
+vi.mock('./IterationRowBlock.jsx', () => ({
+  default: (props) => iterationRowBlockSpy(props),
 }));
 
 import ChatFeedFromChatStore from './ChatFeedFromChatStore.jsx';
@@ -12,6 +24,52 @@ import ChatFeedFromChatStore from './ChatFeedFromChatStore.jsx';
 const h = React.createElement;
 
 describe('ChatFeedFromChatStore', () => {
+  it('passes the canonical iteration row alongside the legacy message adapter output', () => {
+    iterationRowBlockSpy.mockClear();
+    const rows = [
+      {
+        kind: 'iteration',
+        renderKey: 'rk_iter',
+        turnId: 'tn_1',
+        lifecycle: 'running',
+        rounds: [{
+          renderKey: 'rk_round',
+          modelSteps: [{
+            renderKey: 'rk_model',
+            modelCallId: 'mc_intake',
+            assistantMessageId: 'msg_intake',
+            requestPayloadId: 'req_intake',
+            providerRequestPayloadId: 'prov_req_intake',
+            responsePayloadId: 'resp_intake',
+          }],
+          toolCalls: [],
+          lifecycleEntries: [],
+          hasContent: true,
+          finalResponse: false,
+        }],
+        elicitation: null,
+        linkedConversations: [],
+        header: { label: 'Execution details (1)', tone: 'running', count: 1 },
+        isStreaming: true,
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ];
+
+    renderToStaticMarkup(
+      React.createElement(ChatFeedFromChatStore, { conversationId: 'c', rowsOverride: rows }),
+    );
+
+    expect(iterationRowBlockSpy).toHaveBeenCalledTimes(1);
+    expect(iterationRowBlockSpy.mock.calls[0][0].iterationRow).toBe(rows[0]);
+    expect(iterationRowBlockSpy.mock.calls[0][0].message?._iterationData?.executionGroups?.[0]?.modelSteps?.[0]).toMatchObject({
+      modelCallId: 'mc_intake',
+      assistantMessageId: 'msg_intake',
+      requestPayloadId: 'req_intake',
+      providerRequestPayloadId: 'prov_req_intake',
+      responsePayloadId: 'resp_intake',
+    });
+  });
+
   it('renders nothing when the projection is empty', () => {
     const html = renderToStaticMarkup(
       h(ChatFeedFromChatStore, { conversationId: 'c', rowsOverride: [] }),

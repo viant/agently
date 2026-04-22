@@ -582,6 +582,66 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0].executionGroups[1].modelSteps[0].responsePayloadId).toBe('resp-2');
   });
 
+  it('preserves full model and tool payload references from SSE events for detail modals', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      type: 'model_started',
+      assistantMessageId: 'mc-1',
+      modelCallId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'running',
+      createdAt: '2026-03-16T10:00:01Z',
+      requestPayloadId: 'req-1',
+      providerRequestPayloadId: 'prov-req-1',
+      streamPayloadId: 'stream-1',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    }, 'conv-1');
+
+    applyExecutionStreamEvent(chatState, {
+      type: 'model_completed',
+      assistantMessageId: 'mc-1',
+      modelCallId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'completed',
+      createdAt: '2026-03-16T10:00:04Z',
+      responsePayloadId: 'resp-1',
+      providerResponsePayloadId: 'prov-resp-1'
+    }, 'conv-1');
+
+    applyToolStreamEvent(chatState, {
+      toolCallId: 'tool-1',
+      toolMessageId: 'tool-msg-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      toolName: 'system_patch-apply',
+      status: 'completed',
+      createdAt: '2026-03-16T10:00:05Z',
+      requestPayloadId: 'tool-req-1',
+      responsePayloadId: 'tool-resp-1'
+    }, 'conv-1');
+
+    const group = chatState.liveRows[0].executionGroups[0];
+    expect(group.modelSteps[0]).toMatchObject({
+      modelCallId: 'mc-1',
+      requestPayloadId: 'req-1',
+      responsePayloadId: 'resp-1',
+      providerRequestPayloadId: 'prov-req-1',
+      providerResponsePayloadId: 'prov-resp-1',
+      streamPayloadId: 'stream-1'
+    });
+    expect(group.toolSteps[0]).toMatchObject({
+      toolCallId: 'tool-1',
+      requestPayloadId: 'tool-req-1',
+      responsePayloadId: 'tool-resp-1'
+    });
+  });
+
   it('tool_calls_planned creates preliminary tool steps immediately', () => {
     // Bug: tool call line missing in execution details during streaming.
     // Root cause: tool_calls_planned stored planned tools in toolCallsPlanned

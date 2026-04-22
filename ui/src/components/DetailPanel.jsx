@@ -371,21 +371,6 @@ export default function DetailPanel({ toolCall, onClose }) {
   const canOpenLinkedConversation = Boolean(linkedConversationId)
     && (isAgentRunTool(effectiveToolCall || {}) || kind === 'link');
   const payloadCapable = kind === 'tool_call' || kind === 'thinking';
-  const hasRequestPayload = !!String(
-    effectiveToolCall?.requestPayloadId
-    || effectiveToolCall?.requestPayload
-    || effectiveToolCall?.providerRequestPayloadId
-    || effectiveToolCall?.providerRequestPayload
-    || ''
-  ).trim();
-  const hasResponsePayload = !!String(
-    effectiveToolCall?.responsePayloadId
-    || effectiveToolCall?.responsePayload
-    || effectiveToolCall?.providerResponsePayloadId
-    || effectiveToolCall?.providerResponsePayload
-    || ''
-  ).trim();
-
   if (!effectiveToolCall) return null;
 
   const openPayload = async (part) => {
@@ -446,10 +431,6 @@ export default function DetailPanel({ toolCall, onClose }) {
   };
 
   const isModel = String(effectiveToolCall?.kind || '').toLowerCase() === 'model';
-  // Always enable payload buttons — openPayload() re-hydrates on demand,
-  // so even if payload IDs aren't known yet they can be fetched on click.
-  const hasStream = !!(effectiveToolCall?.streamPayloadId || effectiveToolCall?.streamPayload);
-
   return (
     <aside className="app-detail-panel app-detail-panel-dialog">
       <div className="app-detail-head app-detail-head-compact">
@@ -493,24 +474,20 @@ export default function DetailPanel({ toolCall, onClose }) {
         <>
           <div className="app-detail-section-label">General</div>
           <div className="app-detail-action-bar">
-            {hasRequestPayload ? <Button small className="app-detail-pill" onClick={() => openPayload('request')}>Request</Button> : null}
-            {hasResponsePayload ? <Button small className="app-detail-pill" onClick={() => openPayload('response')}>Response</Button> : null}
-            {hasStream ? <Button small className="app-detail-pill" onClick={() => openPayload('stream')}>Stream</Button> : null}
+            <Button small className="app-detail-pill" onClick={() => openPayload('request')}>Request</Button>
+            <Button small className="app-detail-pill" onClick={() => openPayload('response')}>Response</Button>
+            <Button small className="app-detail-pill" onClick={() => openPayload('stream')}>Stream</Button>
           </div>
           <div className="app-detail-section-label">Provider</div>
           <div className="app-detail-action-bar">
-            {String(effectiveToolCall?.providerRequestPayloadId || effectiveToolCall?.providerRequestPayload || '').trim()
-              ? <Button small className="app-detail-pill" onClick={() => openPayload('providerRequest')}>Provider Request</Button>
-              : null}
-            {String(effectiveToolCall?.providerResponsePayloadId || effectiveToolCall?.providerResponsePayload || '').trim()
-              ? <Button small className="app-detail-pill" onClick={() => openPayload('providerResponse')}>Provider Response</Button>
-              : null}
+            <Button small className="app-detail-pill" onClick={() => openPayload('providerRequest')}>Provider Request</Button>
+            <Button small className="app-detail-pill" onClick={() => openPayload('providerResponse')}>Provider Response</Button>
           </div>
         </>
       ) : (
         <div className="app-detail-action-bar">
-          {hasRequestPayload ? <Button small className="app-detail-pill" onClick={() => openPayload('request')}>Request</Button> : null}
-          {hasResponsePayload ? <Button small className="app-detail-pill" onClick={() => openPayload('response')}>Response</Button> : null}
+          <Button small className="app-detail-pill" onClick={() => openPayload('request')}>Request</Button>
+          <Button small className="app-detail-pill" onClick={() => openPayload('response')}>Response</Button>
         </div>
       )}
 
